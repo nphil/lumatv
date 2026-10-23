@@ -1,0 +1,775 @@
+{
+  "rows": [
+    {
+      "id": "handleKeyBlockByApp:any key (profile blockedKeys / blockKeyFilterNonCardTypeApps)",
+      "name": "Key blocked by app policy",
+      "tech": "system-qml",
+      "shows": "Toast 'This button is not available.' for keys in systemprofile `blockedKeys` (empty on this set); otherwise silent NotAccepted so the key goes straight to the app",
+      "trigger": "Any key. (1) key in systemprofile blockedKeys -> toast, swallowed. (2) foreground app in configd blockKeyFilterNonCardTypeApps (here only com.webos.app.remotecontrolguide) and its allowedKeyMap -> NotAccepted (skips the rest of the chain)",
+      "evidence": "preProcess.js:119-126; StarfishKeyFilter.qml:267-292; live luna systemprofile/getProfiles blockedKeys=[]",
+      "ui": "no",
+      "retail": "never (blockedKeys empty)"
+    },
+    {
+      "id": "handleZoomControlMode:all keys while Screen Zoom controller is open",
+      "name": "Zoom control mode key capture",
+      "tech": "system-qml",
+      "shows": "Swallows every key (except CursorShow/Hide) and feeds it to the zoom view: arrows pan, CH+/- change zoom level; in app-control mode Back shows the zoom key guide",
+      "trigger": "global.zoomControlMode true; or zoom on + appControlMode and key pressed (then only a key-guide side effect, NextPolicy)",
+      "evidence": "preProcess.js:101-117; StarfishViewAdjustments.qml:82-167",
+      "ui": "no",
+      "retail": "only after Home long-press zoom"
+    },
+    {
+      "id": "handleLongPressKeys:long-press map (RCU/MRCU only)",
+      "name": "Long-press conversion of remote keys",
+      "tech": "system-qml",
+      "shows": "Swallows press; release before 1000 ms replays press+release of the SAME key; hold 1000 ms injects the converted key: Settings->Key_Option, Input(InputSource)->Key_Video(Input Hub), Video->InputSource, Back->Exit, TVGuide->ProgramList, ChannelDash/ProgramList->TVGuide, ScreenRemote->AudioDescription, Red->MediaRecord (Yellow->ScreenRemote, Green->RecordList/AudioDescription only on JP/rolling models, not this US set)",
+      "trigger": "deviceId type RCU or MRCU only; 1000 ms (longer if remoteSlowInput on, option currently off); Back long additionally relaunches floating app with launchReason backKeyLongPress if floatingView.handleFocusByExitKey",
+      "evidence": "preProcess.js:148-219; map StarfishKeyFilter.qml:485-541; cursor show list 556-619",
+      "ui": "no",
+      "retail": "daily (every Back/Settings/Input press goes through it)"
+    },
+    {
+      "id": "handleLongPressKeys:long-press progress ring (setSpinner)",
+      "name": "Long-press spinner",
+      "tech": "system-qml",
+      "shows": "StarfishLongPressSpinnerView: 72px ring that fills after a 500 ms wait; spoken 'Loading...'",
+      "trigger": "Any handler that calls longPressTimer.setSpinner(true)+set(). open() returns immediately unless compositor.isSlowInputEnabled() (Accessibility slow remote input = settings option.remoteSlowInput); that option is 'off' on this set, and bootFirstUse also suppresses it",
+      "evidence": "StarfishKeyFilter.qml:1508-1585 (timer/spinner); StarfishLongPressSpinnerView.qml:135-152; StarfishDefaultSettings.qml:103; live settings remoteSlowInput=off",
+      "ui": "yes",
+      "retail": "never on this set (hidden by setting)"
+    },
+    {
+      "id": "handleScreenSaver:any key press",
+      "name": "Screen-saver idle reset",
+      "tech": "system-qml",
+      "shows": "Nothing: emits keyPressed -> StarfishViewStateController.restartUserActivityTimer (userActivityTimeout 120000 ms; timer only expires when pointer hidden). Key is NOT swallowed (NextPolicy), so the first key press while the screensaver app is up continues down the chain and is delivered/handled normally",
+      "trigger": "Any pressed key except CursorShow/CursorHide (those return NotAccepted)",
+      "evidence": "systemUi.js:289-305; StarfishKeyFilter.qml:1004-1006; StarfishViewStateController.qml:738-740; StarfishScreenSaverView.qml:53-80",
+      "ui": "no",
+      "retail": "daily"
+    },
+    {
+      "id": "handleHotelmode:Key_Option held 4 s (HotelModeReady)",
+      "name": "Hotel-mode ready combo",
+      "tech": "system-qml",
+      "shows": "Settings key held ~5 s total (1 s long-press + 4 s) -> after +1 s closes the Settings app (com.palm.app.settings) if it was just launched, then injects Key_webOS_HotelModeReady (0x3DA) into the focused window",
+      "trigger": "Key_Option press starts 4000 ms timer, release cancels. Runs even when hotel mode is off",
+      "evidence": "appLaunch.js:1380-1390, 1930-1951",
+      "ui": "yes",
+      "retail": "rare (hold gear 5+ s)"
+    },
+    {
+      "id": "handleHotelmode:all keys when enableHotelMode on",
+      "name": "Hotel mode key policy",
+      "tech": "system-qml",
+      "shows": "Swallows keys per hotel settings (Voice/Help/Record/Search always; Menu/Settings/Home/Recent/Sleep/Aspect/Guide/Shade when enableMenuKey off; channel keys, OSD keys, local keys, IR remote by keyManagement/enableIrRemote/enableLocalKey, aux inputs); no UI",
+      "trigger": "settings hotelMode.enableHotelMode==on (and sub-flags); on the set enableHotelMode=off, keyManagement=off, enableIrRemote/LocalKey=normal",
+      "evidence": "appLaunch.js:86-155, 1375-1488, 953-962, 722-750",
+      "ui": "no",
+      "retail": "never (hotel mode off)"
+    },
+    {
+      "id": "handleAccessibility:Key_VolumeMute long 2000 ms",
+      "name": "Mute long press -> Accessibility shortcut",
+      "tech": "system-qml",
+      "shows": "com.webos.app.accessibility-overlay (quickMode:true) overlay; with supportNMRM it would open com.palm.app.settings target accessibility/audioGuidance. If screensaver video ad is foreground it instead calls tvpower turnOnScreen. Short press falls through to mute toggle; after a long press the release is swallowed",
+      "trigger": "Key_VolumeMute, 2000 ms, unless settingsService.disableAccessibilityLaunch; also needs access.keyAction.launchApp, not lowSpeedDataBroadcast, not black AOD",
+      "evidence": "appLaunch.js:1553-1602 (launchAccessibilityOverlay 1553-1586)",
+      "ui": "yes",
+      "retail": "sometimes (accidental mute hold)"
+    },
+    {
+      "id": "handleAccessibility:Key_webOS_Multikey short/long",
+      "name": "Accessibility shortcut key (Multikey)",
+      "tech": "system-qml",
+      "shows": "short release -> app com.webos.app.accessibility; hold 2000 ms -> com.webos.app.accessibility-overlay (quickMode). Always swallowed",
+      "trigger": "WebOS.Key_webOS_Multikey (logged as KEY_ACCESSIBILITY_SHORTCUT). Not present in the TV's IR keymap table, so source is an MRCU-side/BT code",
+      "evidence": "appLaunch.js:1604-1618, 1542-1551",
+      "ui": "yes",
+      "retail": "rare (no known physical key)"
+    },
+    {
+      "id": "handleAvReset:Settings x3",
+      "name": "Gear key x3 hidden AV-reset menu",
+      "tech": "system-qml",
+      "shows": "3 Settings key releases within 3 s -> launches com.webos.app.tvhotkey activateType mute-hidden-action (advanced AV reset hidden menu; advancedAVReset=true in StarfishDefaultSettings). The 3rd press is swallowed; first two still open/close Quick Settings",
+      "trigger": "Key_webOS_Settings released (counted after the long-press replay), !checkFactoryState, no modal alert",
+      "evidence": "appLaunch.js:1689-1737, 1670-1673, 1705-1735; StarfishDefaultSettings.qml:92; StarfishKeyFilter.qml:1028-1033",
+      "ui": "yes",
+      "retail": "rare (triple tap of gear)"
+    },
+    {
+      "id": "handleAvReset:Key_MediaPause held 2 s (uhdBroadcastBox)",
+      "name": "Pause hold hidden action",
+      "tech": "system-qml",
+      "shows": "tvhotkey mute-hidden-action or 'All video/audio settings will be reset?' modal alert (luna://com.webos.service.videooutput/reset/resetAudioVideoSettings)",
+      "trigger": "configdService.uhdBroadcastBox (ATSC3 legacy box) AND Key_MediaPause 2000 ms",
+      "evidence": "appLaunch.js:1680-1703; StarfishKeyFilter.qml:1262-1300",
+      "ui": "yes",
+      "retail": "never (box flag not expected on this set) [INFERENCE: flag not read]"
+    },
+    {
+      "id": "handleFreeSyncInfo:Key_webOS_Green x7",
+      "name": "FreeSync info (hidden)",
+      "tech": "system-qml",
+      "shows": "com.webos.app.tvhotkey activateType freesync-info OSD, only when an HDMI input app is fullscreen+focused",
+      "trigger": "Green released 7 times, first-to-last within 5 s, no modal alert; any other key resets the count",
+      "evidence": "appLaunch.js:1774-1810",
+      "ui": "yes",
+      "retail": "rare (7x green on HDMI)"
+    },
+    {
+      "id": "handleFactoryReset:Key_webOS_Green x7 (powerOnlyMode)",
+      "name": "Factory instop reset (hidden)",
+      "tech": "system-qml",
+      "shows": "luna com.webos.service.devicereset/doReset {resetType:instop, reboot:true, osdNeed:true} -> reboot with reset OSD",
+      "trigger": "Only when systemPropertyService.powerOnlyMode (factory line mode); Green released 7x within 5 s",
+      "evidence": "appLaunch.js:1739-1772",
+      "ui": "yes",
+      "retail": "never (powerOnlyMode is factory-only)"
+    },
+    {
+      "id": "handlePanelUTTUsbDownload:Key_webOS_Blue x7",
+      "name": "Panel usage time USB dump (hidden)",
+      "tech": "system-qml",
+      "shows": "Luna calls panelcontroller/backupPanelUsageTime and micomservice/backupPowerOnOffHistory (write to USB if present); no on-screen UI from this file",
+      "trigger": "Blue released 7x within 5 s; other key resets",
+      "evidence": "appLaunch.js:1812-1863",
+      "ui": "no",
+      "retail": "rare"
+    },
+    {
+      "id": "handleExternalVendorOverlays:Channel Up/Down while google.assistant or amazon.alexapr foreground",
+      "name": "Channel key closes voice-assistant overlay",
+      "tech": "system-qml",
+      "shows": "luna applicationManager/closeByAppId of google.assistant / amazon.alexapr; key swallowed",
+      "trigger": "CH+/CH- press (non-repeat) with that overlay app as foreground",
+      "evidence": "appLaunch.js:1792-1809",
+      "ui": "no",
+      "retail": "never (those apps not used)"
+    },
+    {
+      "id": "handleLowSpeedDataBroadcast:keys in Live TV with CI+ low-speed data broadcast",
+      "name": "Low-speed data broadcast key lock",
+      "tech": "system-qml",
+      "shows": "Volume/Mute/Local L-R/Aspect/3D/ScreenRemote pass; Back-channel/Input/Settings/Home/Menu/Voice/CH/Netflix/Amazon/Multikey send CI ask_release and pass to app; all other keys NotAccepted",
+      "trigger": "channelService.lowSpeedDataBroadcastConnected and fullscreen com.webos.app.livetv",
+      "evidence": "appLaunch.js:1865-1911",
+      "ui": "no",
+      "retail": "never (US antenna set, no CAM)"
+    },
+    {
+      "id": "handleKeyboardKeys:Esc / F2 / F4 / F5",
+      "name": "USB/BT keyboard remote keys",
+      "tech": "system-qml",
+      "shows": "Esc->Back, F2->Input source (input picker), F4->Home (Key_Meta), F5->Settings (quick settings); re-posted to focus window with native codes",
+      "trigger": "Keyboard keys when foreground appInfo.useAllKeyboardKeys is false and no VKB/pincode prompt",
+      "evidence": "systemUi.js:463-493, 496-518",
+      "ui": "yes",
+      "retail": "rare (keyboard attached)"
+    },
+    {
+      "id": "handleKeyboardKeys:F7",
+      "name": "Keyboard F7 LG Channels",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.lgchannels",
+      "trigger": "Key_F7 pressed, same guard as above",
+      "evidence": "systemUi.js:520-523",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleKeyboardKeys:F10 / F11 / F12",
+      "name": "Keyboard mute / volume",
+      "tech": "system-qml",
+      "shows": "Mute toggle (release) / volume down / volume up via the standard volume OSD",
+      "trigger": "F10 release; F11, F12 press/release",
+      "evidence": "systemUi.js:525-551",
+      "ui": "no",
+      "retail": "rare"
+    },
+    {
+      "id": "handleGamepadKeys:D-pad / Select / Gamepad CH+/-",
+      "name": "Gamepad navigation",
+      "tech": "system-qml",
+      "shows": "Mapped to arrows/Return/CH keys; held 500 ms then auto-repeat every 50 ms; always swallowed and re-posted",
+      "trigger": "WebOS.Key_webOS_Gamepad_DPAD_*, Select, ChannelUp/Down",
+      "evidence": "systemUi.js:561-596, 598-654, 662-682",
+      "ui": "no",
+      "retail": "rare (BT pad)"
+    },
+    {
+      "id": "handleGamepadKeys:Gamepad Menu short / Settings short",
+      "name": "Gamepad Menu/Settings button",
+      "tech": "system-qml",
+      "shows": "Release within 2500 ms: Menu -> Key_Menu with HOME scancode (same as Home with activateType myapps), Settings -> Key_webOS_Settings (Quick Settings). Held 2500 ms: nothing (explicitly disabled). NO Game Dashboard / Game Optimizer anywhere in these files",
+      "trigger": "Gamepad_Menu, Gamepad_Settings from a paired gamepad",
+      "evidence": "systemUi.js:580-596, 637-645, 684-699",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleGamepadKeys:XBox_Gamepad_App",
+      "name": "Gamepad Xbox button",
+      "tech": "system-qml",
+      "shows": "Release before 1500 ms -> applicationManager.checkLaunch('com.microsoft.xbox', {}, autoInstall) (Xbox app is not in listApps on this set so auto-install path); held 1500 ms does nothing",
+      "trigger": "Key_webOS_XBox_Gamepad_App, not firstUse",
+      "evidence": "systemUi.js:701-712",
+      "ui": "yes",
+      "retail": "never"
+    },
+    {
+      "id": "handleGamepadKeys:Gamepad Back",
+      "name": "Gamepad Back / Exit",
+      "tech": "system-qml",
+      "shows": "Short -> Back key; held 1500 ms -> Exit key (both injected without device id)",
+      "trigger": "Key_webOS_Gamepad_Back",
+      "evidence": "systemUi.js:584-587, 714-726",
+      "ui": "no",
+      "retail": "rare"
+    },
+    {
+      "id": "handleGamepadKeys:Gamepad Volume +/- / Mute",
+      "name": "Gamepad volume",
+      "tech": "system-qml",
+      "shows": "Volume up/down (repeat after 500 ms) / mute via volume OSD",
+      "trigger": "Gamepad_VolumeUp/Down/Mute",
+      "evidence": "systemUi.js:728-761",
+      "ui": "no",
+      "retail": "rare"
+    },
+    {
+      "id": "handleSystemKeys:Key_Super_L short (Home)",
+      "name": "Home key",
+      "tech": "system-qml",
+      "shows": "On release when foreground is not the Home app: applicationManager.launchDefaultApp({category:'home', params:{activateType:'home', launchType:'homeKey'}}) -> LG Home (com.webos.app.home, now LumaHome stub). Guards: access.ribbon (and overlay's), settingsService.disableHome (false), bootFirstUse. In Home with homeView visible -> homeView.close(); in Home app with voiceAgent running -> voiceAgent.close; press goes to app if access.keyFilter.home false. Same in Live TV, apps, HDMI. Press is swallowed and the key replayed internally (isInternalHomeKey)",
+      "trigger": "Key_Super_L press/release from remote; not Magic Remote specific. No double-press logic exists",
+      "evidence": "systemUi.js:307-432 (handleHomeKeys, called from handleSystemKeys at 826-830), 206-218, 197-204",
+      "ui": "yes",
+      "retail": "daily"
+    },
+    {
+      "id": "handleSystemKeys:Key_Super_L long 2500 ms (2000 if zoom already on)",
+      "name": "Home long press = Screen Zoom",
+      "tech": "system-qml",
+      "shows": "Screen magnification: first time enables zoom (views.starfishViewAdjustments.enableZoom; toast if app in server blocklist or firstUse); if zoom already on and not in control mode -> opens the zoom controller (showMagController, key guide). On store-demo app closes overlay instead",
+      "trigger": "Home held 2500 ms (2000 ms when global.zoomON), spinner flagged, blockCancel set; MRCU + senior mode + no pointer may show a cursor alert instead",
+      "evidence": "systemUi.js:324-345, 220-235; StarfishViewAdjustments.qml:298-326, 697-706",
+      "ui": "yes",
+      "retail": "rare (accidental hold)"
+    },
+    {
+      "id": "handleSystemKeys:Key_Menu (My Apps) / Key_Meta (Windows key)",
+      "name": "Menu / Windows key",
+      "tech": "system-qml",
+      "shows": "Key_Menu: same path as Home but activateType 'myapps' (opens LG Home My Apps view). Key_Meta: treated as Home (replayed as Super_L) unless the foreground app declares surfaceAcceptsMetaKey; miracast/rdp apps get Meta",
+      "trigger": "IR_KEY_MYAPPS (Key_Menu) from remote/gamepad Menu; Key_Meta from keyboard",
+      "evidence": "systemUi.js:199-203, 352-359, 372-388, 422-427",
+      "ui": "yes",
+      "retail": "rare (no Menu key on MR)"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_Back short",
+      "name": "Back key",
+      "tech": "system-qml",
+      "shows": "Evaluates in order and consumes on first match: voiceagent keyhandler BACK, modal alert (swallow), VKB/pincode (pass), alert/advancedAlert close on release, popup, screenRemoteView.close, overlay close (release), app spinner close, homeView.close, nudge close; if the active surface accepts Back (window policy KEYS_BACK) -> passes to app; multiview -> passes; otherwise on release signals.backReleased and creates alert 'Do you want to exit the app?' with Exit (closeByAppId reason backKey) / Cancel",
+      "trigger": "Key_webOS_Back short (<1000 ms); because Back is a long-press key the press is held until release, then replayed",
+      "evidence": "systemUi.js:867-946, 1223-1257, 434-446",
+      "ui": "yes",
+      "retail": "daily"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_Exit (Back long 1000 ms / Exit key)",
+      "name": "Exit key / Back long press",
+      "tech": "system-qml",
+      "shows": "Closes in order: urgent alert, voice agent, pincode, VKB, app spinner, screenRemoteView, alerts, homeView, overlay, floating UI; multiview control mode reset; if fullscreen app does not accept Exit (window policy KEYS_EXIT) -> applicationManager.close(app) (or multiview closeApp) so the TV returns to the previous app/Home/Live TV; else passes Exit to app",
+      "trigger": "Back held 1000 ms (injected Key_webOS_Exit) or IR_KEY_EXIT; needs access.keyAction.launchApp or keyFilter.exit, not firstUse",
+      "evidence": "systemUi.js:948-1065, 448-461; preProcess.js:148-166",
+      "ui": "yes",
+      "retail": "sometimes"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_Close",
+      "name": "Close key",
+      "tech": "system-qml",
+      "shows": "On release creates the 'Do you want to exit the app?' Exit/Cancel alert via com.webos.notification/createAlert",
+      "trigger": "Key_webOS_Close",
+      "evidence": "systemUi.js:837-844, 1223-1257",
+      "ui": "yes",
+      "retail": "never (not on MR)"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_Recent",
+      "name": "Recent key flashback",
+      "tech": "system-qml",
+      "shows": "Launches the most recent app (reason recent) if recents active, not multiview, launchApp allowed",
+      "trigger": "Key_webOS_Recent press, no modal alert",
+      "evidence": "systemUi.js:832-835, 237-287",
+      "ui": "no",
+      "retail": "never (not on 2024 MR)"
+    },
+    {
+      "id": "handleSystemKeys:Key_VolumeUp / Key_VolumeDown",
+      "name": "Volume keys",
+      "tech": "system-qml",
+      "shows": "Only calls audioService volumeUp/Down/keeping; the volume OSD is the compositor's starfishVolume view; no other compositor UI (volume limit toast in family-care mode)",
+      "trigger": "Volume rocker press/release, repeat; Local Left/Right do the same when not 5-way",
+      "evidence": "systemUi.js:846-858; StarfishKeyFilter.qml:84-100 (volumeUpControl)",
+      "ui": "yes",
+      "retail": "daily"
+    },
+    {
+      "id": "handleSystemKeys:Key_VolumeMute short",
+      "name": "Mute key",
+      "tech": "system-qml",
+      "shows": "On release audioService.toggleVolumeMute (speaks mute string first if audio guidance on); mute OSD from volume view",
+      "trigger": "Key_VolumeMute release; Key_webOS_UsbHeadsetMute toggles usb_speaker mute",
+      "evidence": "systemUi.js:860-865, 771-793",
+      "ui": "yes",
+      "retail": "daily"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_ChannelUp / ChannelDown",
+      "name": "Channel keys",
+      "tech": "system-qml",
+      "shows": "Compositor UI only in multiview (forwards sendKeyPress 18874401/2 to the Live TV/HDMI app); closes a nudge; otherwise NextPolicy and the key reaches the app (Live TV changes channel)",
+      "trigger": "CH+/CH- press",
+      "evidence": "systemUi.js:1136-1188",
+      "ui": "no",
+      "retail": "rare (no antenna use)"
+    },
+    {
+      "id": "handleSystemKeys:digits 0-9 (Italy)",
+      "name": "Number keys: similar-list app (ITA only)",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.similarlist {id:showSimilarList, channelNumber}",
+      "trigger": "digit release, systemPropertyService.tvCountryName==ITA, RCU/MRCU, app does not allow numeric keys; set is USA so never; digits return NextPolicy",
+      "evidence": "systemUi.js:795-823",
+      "ui": "yes",
+      "retail": "never (country USA)"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_UpDown / ScreenDown",
+      "name": "Rolling-screen keys",
+      "tech": "system-qml",
+      "shows": "Toast 'This function is not supported.' (A+/Atelier toasts differ)",
+      "trigger": "UpDown/ScreenDown press; supportScreenType none on this set",
+      "evidence": "systemUi.js:1067-1078",
+      "ui": "yes",
+      "retail": "never"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_Shade / Key_webOS_Lighting",
+      "name": "Transparent-OLED shade/lighting keys",
+      "tech": "system-qml",
+      "shows": "Swallowed; only does something on transparentOled profile (settings ShadeSettings/LightingSettings via com.palm.app.settings, rollingscreen pressUpDown, lightingEnable toggle); profile.list has no transparentOled",
+      "trigger": "Shade/Lighting keys",
+      "evidence": "systemUi.js:1080-1134",
+      "ui": "no",
+      "retail": "never"
+    },
+    {
+      "id": "handleSystemKeys:Key_webOS_Seniortv_Zoom",
+      "name": "Senior TV zoom key",
+      "tech": "system-qml",
+      "shows": "Same Screen Zoom controller as Home long",
+      "trigger": "Key_webOS_Seniortv_Zoom press",
+      "evidence": "systemUi.js:1190-1196",
+      "ui": "yes",
+      "retail": "never"
+    },
+    {
+      "id": "handleSystemKeys:arrows / Return (control mode)",
+      "name": "Multiview control-mode touch",
+      "tech": "system-qml",
+      "shows": "Only userInputOnControlMode bookkeeping; NextPolicy",
+      "trigger": "Left/Right/Up/Down/Return in multiview control mode",
+      "evidence": "systemUi.js:1198-1205, 1211-1221",
+      "ui": "no",
+      "retail": "never (multiview off)"
+    },
+    {
+      "id": "handleHomeKeys:(called by handleSystemKeys)",
+      "name": "Home family implementation",
+      "tech": "system-qml",
+      "shows": "See the Home rows. Not in the chain itself: only reachable through handleSystemKeys systemUi.js:826-830 for Key_Super_L / Key_Meta / Key_Menu",
+      "trigger": "-",
+      "evidence": "systemUi.js:307-432",
+      "ui": "no",
+      "retail": "-"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_Settings short (gear)",
+      "name": "Settings / Quick Settings key",
+      "tech": "system-qml",
+      "shows": "On release: luna systemUIManager/launch com.webos.app.quicksettings (overlay; on this set its main is already /var/lib/lumaglass/systemui/QuickSettings/QuickSettings.qml); with Quick Settings already focused the release is passed to it (toggle). YouTube (youtube.leanback.v4/ytv/kids) also receives the key via sendFullKeyToWindow(139). Press is swallowed. In Game mode stock QuickSettings opens the Game Dashboard instead (QuickSettings UIController isGameMode)",
+      "trigger": "IR_KEY_MENU gear key, short (<1000 ms), access.keyAction.launchApp, not firstUse; Key_webOS_LocalSettings same",
+      "evidence": "appLaunch.js:2243-2256, 1913-1921; configd systemUIManager appinfo; StarfishKeyFilter.qml:489-492",
+      "ui": "yes",
+      "retail": "daily"
+    },
+    {
+      "id": "handleHotkeys:Key_Option (Settings long 1000 ms)",
+      "name": "Settings long press = full Settings app",
+      "tech": "system-qml",
+      "shows": "Toggle: if com.palm.app.settings foreground -> applicationManager.close; else checkLaunch('com.palm.app.settings') and homeView.close. Swallowed. Blocked by settingsService.disableAccessibilityLaunch",
+      "trigger": "Gear held 1000 ms -> injected Key_Option (IR_KEY_ADVANCE_SETTING)",
+      "evidence": "appLaunch.js:2258-2276; StarfishKeyFilter.qml:489-492",
+      "ui": "yes",
+      "retail": "sometimes"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_InputSource / Key_webOS_LocalInputSource short (Input)",
+      "name": "Input key",
+      "tech": "system-qml",
+      "shows": "luna systemUIManager/launch com.webos.app.quickinputpicker (stock /usr/lib/qt5/qml/InputPicker/InputPicker.qml). Passed through (NotAccepted) when com.webos.app.partialview is foreground; always NotAccepted on release",
+      "trigger": "IR input key, short; launchApp allowed, not firstUse",
+      "evidence": "appLaunch.js:2304-2316; configd systemUIManager appinfo",
+      "ui": "yes",
+      "retail": "daily on this set (HDMI source swaps)"
+    },
+    {
+      "id": "handleHotkeys:Key_Video (Input long 1000 ms / Input Hub)",
+      "name": "Input long press = Home Hub",
+      "tech": "system-qml",
+      "shows": "inputHubAction from configd com.webos.keyaction.inputHub = launch com.webos.app.homeconnect ('Home Hub', web app) with params {appID: settings lastInputApp}; skipped when that app is fullscreen+focused (key forwarded). If action were showInputPicker it opens quickinputpicker",
+      "trigger": "Input held 1000 ms (converted Key_Video)",
+      "evidence": "appLaunch.js:2278-2302, 676, 1080-1090; live keyaction.inputHub",
+      "ui": "yes",
+      "retail": "sometimes"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_ScreenRemote short (123 / on-screen remote)",
+      "name": "Screen Remote key",
+      "tech": "system-qml",
+      "shows": "luna systemUIManager/launch com.webos.app.screenremote (screenremote-type system UI, stock ScreenRemote.qml with colour keys and number pad). Multiview focus -> com.webos.app.multiviewsettings or Home showOption. Passed to the app if its appinfo has handleScreenRemoteKey and it has focus, and to the screensaver app; YouTube also receives key 994",
+      "trigger": "IR_KEY_SCREEN_REMOTE press; launchApp allowed, not firstUse",
+      "evidence": "appLaunch.js:2367-2421; configd systemUIManager appinfo",
+      "ui": "yes",
+      "retail": "sometimes [INFERENCE: physical label '123']"
+    },
+    {
+      "id": "handleTvhotkeyAppLaunch:Key_webOS_AudioDescription (Screen Remote long 1000 ms)",
+      "name": "Audio description hotkey",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.tvhotkey activateType audio-description (native panel 'Local Control Panel' OSD); returns NotAccepted",
+      "trigger": "Screen Remote key held 1000 ms (converted) or IR_KEY_AD; activateXinput allowed",
+      "evidence": "appLaunch.js:3433-3436; StarfishKeyFilter.qml:493-496",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_TVGuide (Guide)",
+      "name": "Guide key",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.livemenu ('Guide', native) via keyaction.tvGuide; NOT launched (key forwarded to app) when fullscreen app has policy keyFilter.guide=false, is an input app (Live TV/HDMI/AV list in fgAppIdsForByPass) or the guide itself is foreground; YouTube also gets key 362",
+      "trigger": "IR_KEY_GUIDE press; Guide held 1000 ms converts to Key_webOS_ProgramList",
+      "evidence": "appLaunch.js:2027-2066, 635, 1033-1046",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_ChannelDash / ProgramList / LiveTVMenu",
+      "name": "Channel list / Live menu keys",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.livemenu {activateType:'channels'}; skipped (forwarded) when fullscreen app is an input app or livemenu is foreground; opapp 'Channels' replacement sends keyEvent LIST to Live TV; YouTube gets 771",
+      "trigger": "press; ChannelDash/ProgramList long 1000 ms converts to TVGuide",
+      "evidence": "appLaunch.js:2067-2099, 2085-2090",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_InputTV (Live TV key)",
+      "name": "Live TV key",
+      "tech": "system-qml",
+      "shows": "checkLaunch com.webos.app.livetv (or sends tvKey if already fullscreen); swallowed",
+      "trigger": "IR_KEY_TV press",
+      "evidence": "appLaunch.js:1957-1965",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleHotkeys:Key_Help",
+      "name": "User guide key",
+      "tech": "system-qml",
+      "shows": "checkLaunch com.webos.app.tvuserguide {appId: foreground app}; passed on if Settings/firstuse overlay is up",
+      "trigger": "IR_KEY_EMANUAL press",
+      "evidence": "appLaunch.js:2016-2025, 2581-2591",
+      "ui": "yes",
+      "retail": "never (not on MR)"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_Voice (mic key)",
+      "name": "Mic / voice key",
+      "tech": "system-qml",
+      "shows": "Push-to-talk, no short/long split here: luna voiceconductor/setInputEvent {inputType:'hold', event:down on press / up on release, deviceParam keyType thinQtv}; UI is the voice app com.webos.app.voice ('Search', config keyaction.voice activateType mrcu). Toast 'This function is not supported.' if voice action is not launch. Allowed on black AOD, blocked on hotel mode",
+      "trigger": "RF_KEY_VOICE press and release, activateXinput allowed, not firstUse, not A+ zero view",
+      "evidence": "appLaunch.js:2169-2181, 634, 1050-1060; StarfishKeyFilter.qml:57-80 (allowed on AOD)",
+      "ui": "yes",
+      "retail": "sometimes"
+    },
+    {
+      "id": "handleHotkeys:Key_Search / Key_webOS_TonePlusVoice / VoiceBack / VoiceExit / MagicLink",
+      "name": "Other voice / search keys",
+      "tech": "system-qml",
+      "shows": "Search: voiceconductor setInputEvent nrcu hold down (universal search, press only). TonePlusVoice: hold with key toneplus. VoiceBack/VoiceExit: forwarded to voiceagent BACK/EXIT or networkinput sendSpecialKey. MagicLink: magicTips.open()",
+      "trigger": "press of each key",
+      "evidence": "appLaunch.js:2163-2231",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_Yellow held 5000 ms",
+      "name": "Yellow long press AGP",
+      "tech": "system-qml",
+      "shows": "luna panelcontroller/setAGP {} (auto generation pattern, panel test pattern, comment says DRD4TV only but active in this chain). Short press passes through (NotAccepted) to the app",
+      "trigger": "Yellow held 5000 ms, spinner flagged; release after trigger swallowed",
+      "evidence": "appLaunch.js:2320-2332; StarfishKeyFilter.qml:1330-1346",
+      "ui": "yes",
+      "retail": "rare (hold yellow 5 s)"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_Blue / BlueLong (multiview control mode)",
+      "name": "Blue key in multiview control mode",
+      "tech": "system-qml",
+      "shows": "Held 1000 ms resets multiview control mode (luna multiviewcontroller/changeControlMode role none); short sends blue to the surface. Outside control mode Blue returns NextPolicy",
+      "trigger": "Blue or BlueLong while fullscreenView.isControlMode()",
+      "evidence": "appLaunch.js:2333-2365, 1923-1928",
+      "ui": "no",
+      "retail": "never (multiview off)"
+    },
+    {
+      "id": "handleHotkeys:Key_Sleep / Key_webOS_AspectRatio / Key_webOS_FactoryPictureMode",
+      "name": "Sleep timer / aspect ratio / picture mode keys",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.tvhotkey activateType sleep / aspect-ratio (toast 'not available' if multiview on) / factory-picture-mode (configd keyaction.sleep, aspectRatio, pictureMode); swallowed. Not on the 2024 MR",
+      "trigger": "IR_KEY_TIMER, IR_KEY_ASPECT_RATIO, IR_KEY_EZPIC press",
+      "evidence": "appLaunch.js:2122-2161, 673-677, 1071-1079",
+      "ui": "yes",
+      "retail": "never"
+    },
+    {
+      "id": "handleHotkeys:Key_webOS_RecordList / STBMenu / Bendable / Twin / LiveZoom / Seniortv_Help / Favorite / JP broadcast keys",
+      "name": "Other regional hotkeys",
+      "tech": "system-qml",
+      "shows": "RecordList: checkLaunch com.webos.app.recordings (not installed). STBMenu: launches the input app configured for the set-top box. Bendable: toast 'not supported' (unless bendable). Twin: toast not supported. LiveZoom: swallowed. Seniortv_Help: toast unless Simple Mode (support false here). Favorite: toast/NotAccepted. BS/CS/TER/4K keys: launch Live TV changeChannelModeJP (Japan)",
+      "trigger": "press of each key",
+      "evidence": "appLaunch.js:2100-2121, 1967-2014, 2233-2241, 2422-2537",
+      "ui": "yes",
+      "retail": "never"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_Netflix",
+      "name": "Netflix button",
+      "tech": "system-qml",
+      "shows": "applicationManager.checkLaunch('netflix', launch_param+storeCaller:remote, checkUpdate, autoInstall) -> Netflix (native, installed)",
+      "trigger": "IR_KEY_NETFLIX; live mapping_info netflix isActive true. If Netflix fullscreen+focused the key passes to it. AOD: turnOffAoD reason netflix. launchApp allowed, not firstUse. Inactive entry -> toast 'This button is not available.'",
+      "evidence": "appLaunch.js:2730-2732, 2824-2836, 3230-3267, 2671-2692; live settings other/mapping_info",
+      "ui": "yes",
+      "retail": "sometimes"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_Amazon",
+      "name": "Prime Video button",
+      "tech": "system-qml",
+      "shows": "checkLaunch app id 'amazon' (Prime Video, native, installed). WEE Alexa variant (AlexaWeeModel) not active here (uiStyle LG)",
+      "trigger": "IR_KEY_AMAZON; mapping amazon active",
+      "evidence": "appLaunch.js:2727-2729, 2979-3016, 3230-3267",
+      "ui": "yes",
+      "retail": "sometimes"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_Disneyplus",
+      "name": "Disney+ button",
+      "tech": "system-qml",
+      "shows": "checkLaunch 'com.disney.disneyplus-prod' with contentTarget page=home&placement=partner_remote...; app is NOT in listApps on this set so autoInstallation=true triggers the app-install path",
+      "trigger": "IR_KEY_DISNEYPLUS; mapping active",
+      "evidence": "appLaunch.js:2736-2738, 3230-3267; live mapping_info; listApps.json",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_LGChannels",
+      "name": "LG Channels button",
+      "tech": "system-qml",
+      "shows": "checkLaunch com.webos.app.lgchannels (web, installed)",
+      "trigger": "IR_KEY_LGCHANNELS; mapping active",
+      "evidence": "appLaunch.js:2739-2741",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_SlingTV",
+      "name": "Sling TV button",
+      "tech": "system-qml",
+      "shows": "checkLaunch com.movenetworks.app.sling-tv-sling-production (not installed -> auto-install)",
+      "trigger": "IR_KEY_SLINGTV; mapping active",
+      "evidence": "appLaunch.js:2779-2781; live mapping_info",
+      "ui": "yes",
+      "retail": "never"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_USP (Movies)",
+      "name": "Movies button",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.voice ('Search') with {caller:USP_KEY, launchMode:runtext, activateType:search, params:{text:'movie'}}; toasts 'Network is not connected...' / 'One moment please. Smart service will be available shortly.' if offline or SDX not ready",
+      "trigger": "IR_KEY_USP; mapping movies active (voice app launched with launch(), not checkLaunch)",
+      "evidence": "appLaunch.js:2842-2863, 3258-3259; live mapping_info",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_New",
+      "name": "New key",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.discovery ('Apps', web) with {query:'category/THEME/20411'}; same offline/not-ready toasts",
+      "trigger": "IR_KEY_NEW; mapping new active",
+      "evidence": "appLaunch.js:2864-2886; live mapping_info",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleCPHotkeys:other CP keys (inactive on this set)",
+      "name": "Region CP hotkeys: IVI, RakutenTV, Globoplay, Okko, Kinopoisk, Watchaplay, U-Next, Hotstar, FPT Play, Shahid, Wavve, CoupangPlay, Stan, Shop, TVer, Hulu, NHK+, TOD, Apps, SonyLIV, TV360, VTVGo, FreeviewPlay, Wink, Start, VK Video, Premier, iPlayer",
+      "tech": "system-qml",
+      "shows": "Table default app ids: ivi, ui30, globoplaywebos, yota.play, com.685631.3411, com.frograms.watchaplay.webos, u.next, hotstar, com.fpt.fptplay, net.mbc.shahid-lgapp, pooq, coupangplay, stan.webos2, com.lgshop.app79, tver, jp.happyon.app, jp.nhk.plus, webos.tod.tv, com.webos.app.discovery, com.sonyliv2.tvapp, com.viettel.media.tv360, com.vtvgotv.app, com.fvp.fve, ru.rt.video.app.tv, start, vkvideo, tntwebapp, bbc.iplayer.3.0. All isActive=false in live mapping_info -> toast 'This button is not available.' and swallow. Wink/Start/Shop/Apps/USP/New additionally check network and SDX ready",
+      "trigger": "each region key; ZEE5 and MoodMaker keys have no handler (fall through)",
+      "evidence": "appLaunch.js:181-465 (default table), 2724-2822, 2887-2978, 871-874; live mapping_info",
+      "ui": "yes",
+      "retail": "never (keys absent on US MR)"
+    },
+    {
+      "id": "handleCPHotkeys:Key_webOS_ALEXA / GoogleVoice / Yandex",
+      "name": "Assistant hotkeys",
+      "tech": "system-qml",
+      "shows": "Alexa: 500 ms timer; short -> luna amazon.alexa.adapter.plugin/launchShortcutPanel, hold -> voiceconductor amazonAlexa. GoogleVoice: short -> launch google.assistant {app:voicePlate,target:showGuide} (language-checked), hold -> voiceconductor. Yandex: short -> launch yandex.alice onboarding. Inactive/unsupported: toasts 'Amazon Alexa is not supported in this country.', 'This function is not supported.', etc. mapping_info has no amazonalexa/googleassistant/yandexalice entries here so they are inactive",
+      "trigger": "press/release with 500 ms threshold; internet+SDX ready",
+      "evidence": "appLaunch.js:3017-3228, 2593-2659",
+      "ui": "yes",
+      "retail": "never (keys absent)"
+    },
+    {
+      "id": "handleFactoryKeys:factory/discrete IR keys",
+      "name": "Factory discrete input and service keys",
+      "tech": "system-qml",
+      "shows": "FactoryTv -> Live TV; FactoryVideo1/2, Component1, HDMI1-4 (SuperMHL if supported), RgbPc -> input apps; PowerOnly/InStart/Adjust/InStop/PictureCheck/SoundCheck -> applicationManager.invokeFactoryWin (factory window com.webos.app.factorywin, executeFactory irKey); InStart in KOR self-diagnosis held 3000 ms -> com.webos.app.svcdiagnostics; Tilt -> factory tilt or tvhotkey led-calibrator (microLed only)",
+      "trigger": "discrete IR service-remote codes (access.keyAction.factory); PowerOnly/InStart/Adjust/InStop work regardless of policy; no such keys on the MR",
+      "evidence": "appLaunch.js:3272-3417",
+      "ui": "yes",
+      "retail": "never (needs service remote; hidden menu code path)"
+    },
+    {
+      "id": "handleTvhotkeyAppLaunch:Key_Subtitle / 3DMode / Simplink / StoreMode / Game / SoundMode / EyeQ / MultiSound / UsbSwitching",
+      "name": "tvhotkey (Local Control Panel) hotkeys",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.tvhotkey (native OSD panel) activateType: subtitle, 3d-mode (toast 'not supported' if no 3D), simplink, store-mode, soccer-mode (Key_Game), factory-sound-mode, energy-saving-mode, multi-sound-setting, switching-hub (UsbSwitchingShort on release; long swallowed). Returns NotAccepted so the key also reaches the app",
+      "trigger": "respective IR/RF key, activateXinput allowed, not firstUse; none on a 2024 MR except possibly Subtitle via screen remote",
+      "evidence": "appLaunch.js:3419-3500",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleLocalKeys:LocalOneKeyShort / LocalOneKeyLong (TV joystick press)",
+      "name": "TV panel joystick press",
+      "tech": "system-qml",
+      "shows": "On release launch com.webos.app.tvhotkey activateType one-local-key (the on-TV local control panel); ignored when tvhotkey already foreground. supportNMRM variant opens power-off alert (not here)",
+      "trigger": "physical joystick button on the TV (tv.model.localKeyType = onekey on this set); launchApp allowed, not firstUse",
+      "evidence": "appLaunch.js:3757-3785; live configs tv.model.localKeyType=onekey, supportNMRM=false",
+      "ui": "yes",
+      "retail": "sometimes (remote lost)"
+    },
+    {
+      "id": "handleLocalKeys:LocalLeft / LocalRight / LocalUp / LocalDown / LocalEnter",
+      "name": "TV panel directional keys",
+      "tech": "system-qml",
+      "shows": "If overlay/alert/VKB/popup or a whitelisted app has focus (allowLocalKey): re-posted as arrows/Return to the focused window. Else Left/Right -> volume down/up (volume OSD), Up/Down -> NotAccepted (channel), Enter -> launch tvhotkey local-key (non-onekey)",
+      "trigger": "local key codes from the panel",
+      "evidence": "appLaunch.js:3502-3525, 3639-3753, 3667-3700",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleLocalKeys:LocalLongPress / LocalPower",
+      "name": "Local power/long",
+      "tech": "system-qml",
+      "shows": "Swallowed (stop propagating)",
+      "trigger": "local key codes",
+      "evidence": "appLaunch.js:3750-3753",
+      "ui": "no",
+      "retail": "rare"
+    },
+    {
+      "id": "handleMagicNumber:digits 1-9 held 1000 ms",
+      "name": "Quick Access (magic number)",
+      "tech": "system-qml",
+      "shows": "Executes slot N: toast 'Starting [Quick Access N] <app>' + launch of the registered app (Live TV channel change toast 'Changing to...'); empty slot while an app is up -> alert 'Do you want to add <app> to [Quick Access N]?' YES/NO; before running closes overlays/home/notifications; toast 'One moment please. Smart service will be available shortly.' if not ready. Digit press itself is delivered to the app (NotAccepted); a long-press release is swallowed",
+      "trigger": "Digit held 1000 ms (digit reaches slot 22 only if no earlier handler swallows); access.keyAction.launchApp; blocked on supportNMRM non-MRCU devices; skipped if VKB visible",
+      "evidence": "systemUi.js:1271-1291, 1317-1354; StarfishMagicNumber.qml:285-293, 318-321, 348-370, 396-470",
+      "ui": "yes",
+      "retail": "sometimes (digits come from the 123 screen remote)"
+    },
+    {
+      "id": "handleMagicNumber:digit 0 held 1000 ms",
+      "name": "Quick Access edit",
+      "tech": "system-qml",
+      "shows": "launch com.webos.app.magicnum (Magic Number editor web app)",
+      "trigger": "0 held 1000 ms (not Japan TV)",
+      "evidence": "StarfishMagicNumber.qml:396-401, 318-321; systemUi.js:1319-1331",
+      "ui": "yes",
+      "retail": "rare"
+    },
+    {
+      "id": "handleTunerless:(not in chain)",
+      "name": "Tunerless key blocker",
+      "tech": "system-qml",
+      "shows": "Toast 'This function is not supported.' for TER/TV-radio/Teletext/Favorite/Record/AD/JP keys on tunerless sets. No caller anywhere in the snapshot, not in this chain",
+      "trigger": "-",
+      "evidence": "preProcess.js:23-35, 79-99",
+      "ui": "no",
+      "retail": "never"
+    },
+    {
+      "id": "handleNotification:(easytv.js, not in chain)",
+      "name": "Easy TV toast/alert close",
+      "tech": "system-qml",
+      "shows": "Would close the toast on any key and close alerts on Back release. easytv.js handlers have no callers and are not in the chain",
+      "trigger": "-",
+      "evidence": "easytv.js:52-71",
+      "ui": "no",
+      "retail": "never"
+    },
+    {
+      "id": "handleAvReset:(easytv.js variant, not in chain)",
+      "name": "Easy TV AV reset",
+      "tech": "system-qml",
+      "shows": "Channel-dash x3 -> tvhotkey mute-hidden-action; not in chain",
+      "trigger": "-",
+      "evidence": "easytv.js:78-112",
+      "ui": "no",
+      "retail": "never"
+    },
+    {
+      "id": "handleEasyTvHotkeys:(not in chain)",
+      "name": "Easy TV hotkeys",
+      "tech": "system-qml",
+      "shows": "STBPower -> tvhotkey settop-power-pressed; EZpic/EZsound -> quick settings; TimerPowerOn -> settings TimerPowerOn; digits 1/2/3 held 1500 ms -> quick settings picture/sound or settings TimerPowerOn. Not in chain",
+      "trigger": "-",
+      "evidence": "easytv.js:114-222",
+      "ui": "no",
+      "retail": "never"
+    },
+    {
+      "id": "handleBlockKeys:(easytv.js, not in chain)",
+      "name": "Easy TV unsupported keys",
+      "tech": "system-qml",
+      "shows": "Swallows Help, Search, Amazon, Netflix, Voice, Guide, etc. Not in chain",
+      "trigger": "-",
+      "evidence": "easytv.js:224-244",
+      "ui": "no",
+      "retail": "never"
+    }
+  ],
+  "findings": "CHAIN FACTS. The chain is the compositor's `preProcess` (StarfishKeyFilter.qml:294-468: AOD-black gating, boot-popup gating before smartTvReady, `views.starfishCoverUI.isOpen` -> NotAccepted, TTS key-speak, MRCU pointer show/hide for non-long-press keys), then the 22 configd handlers in order, then `defaultKeyEventHandler` (Home family only). KeyPolicy native; Accepted = consumed, NextPolicy = continue, NotAccepted = hand to the focused window (stops the chain) [INFERENCE from usage, e.g. digits/tvhotkey keys return NotAccepted after acting]. `handleHomeKeys` is called only from `handleSystemKeys` (systemUi.js:826-830). `handleTunerless` (preProcess.js) and every `easytv.js` handler (handleNotification, handleAvReset, handleEasyTvHotkeys, handleBlockKeys) are defined but have no caller in the whole snapshot and are not in the chain. Each js file is loaded by its own Loader, so state (counters, skip flags) is per file; all share one `longPressTimer` and `genericTimer`.\n\n(a) KEY -> DEFAULT LG DESTINATION (this set: US, uiStyle LG, 2024 keymap, hotel off, remoteSlowInput off)\n- Home short (release): launchDefaultApp category home -> com.webos.app.home (LumaHome stub). Home in Home: closes homeView / voice agent. No double-press.\n- Home long 2500 ms (2000 if zoom on): Screen Zoom enable, again = zoom controller.\n- Menu (My Apps) / keyboard Windows: Home with activateType myapps / Home.\n- Back short: close top overlay/alert/home view, else pass to app, else 'Do you want to exit the app?' alert. Back long 1000 ms = Exit: closes whichever UI is up, else applicationManager.close(foreground app).\n- Settings gear short: systemUIManager/launch com.webos.app.quicksettings (already LumaGlass QuickSettings.qml); gear long 1000 ms: com.palm.app.settings (toggle); gear x3 in 3 s: tvhotkey mute-hidden-action; gear held ~5 s: HotelModeReady side effect.\n- Input short: com.webos.app.quickinputpicker (stock InputPicker.qml); Input long 1000 ms: com.webos.app.homeconnect (Home Hub).\n- 123/Screen Remote short: com.webos.app.screenremote (stock ScreenRemote.qml); long 1000 ms: tvhotkey audio-description. Digits held 1000 ms: Quick Access slot / com.webos.app.magicnum for 0.\n- Mic: voiceconductor hold down/up -> com.webos.app.voice. Search key: voiceconductor nrcu hold.\n- Netflix -> netflix; Prime Video -> amazon; Disney+ -> com.disney.disneyplus-prod (not installed, auto-install); LG Channels -> com.webos.app.lgchannels; Sling -> com.movenetworks.app.sling-tv-sling-production (not installed); Movies(USP) -> com.webos.app.voice runtext search 'movie'; New -> com.webos.app.discovery category/THEME/20411. All other CP keys inactive: toast 'This button is not available.'.\n- Guide -> com.webos.app.livemenu (unless Live TV/HDMI/guide focused, then passed to app); ChannelDash/ProgramList/LiveTVMenu -> livemenu channels; Info, Qmenu, Pictures, MagnifierZoom, Red/Green/Yellow short, Blue short, play/pause/FF/REW, Subtitle(Live TV), CH, Return, arrows: not claimed by compositor -> go to the focused app. Red long 1000 ms -> Key_MediaRecord (no handler here; app/Live TV). Yellow held 5 s -> panelcontroller/setAGP test pattern.\n- Volume +/-/mute: only audioService (volume OSD). Mute held 2000 ms: accessibility-overlay. CH +/-: only multiview forwarding; otherwise to app.\n- Power (Key_webOS_PowerOnOff) has no handler in the QML chain at all: handled below the compositor.\n- Notification centre: no key and no handler exists in these files; toasts/alerts are com.webos.notification surfaces (closed by Back, systemUi.js:883-895).\n- Multi-view / screen zoom keys: no dedicated MR key on this set; Home long = screen zoom; multiview keys act only when multiViewStatus is on (it is off).\n- Screen saver: handleScreenSaver never swallows; first key after wake is processed normally (screensaver app holds focus).\n- Gamepad: Menu/Settings buttons map to Menu(Home myapps)/Quick Settings on short release; long press does nothing; Back short/long = Back/Exit; Xbox button -> com.microsoft.xbox (absent). No path in the four files opens Game Dashboard or com.webos.app.gameoptimizer.\n- Keyboard: Esc=Back, F2=Input, F4=Home, F5=Settings, F7=LG Channels, F10/11/12 mute/vol-/vol+.\n- TV panel joystick (localKeyType onekey): press -> tvhotkey one-local-key; directions are volume/channel or 5-way when a UI has focus.\n\n(b) WHAT LUMATV'S FIRST SLOT MUST INTERCEPT TO REPLACE LG UI\n- Home: Key_Super_L (and Meta/Menu) press AND release, from any surface, replicating handleHomeKeys guards (modalAlert.visible, homeView, access.ribbon, settingsService.disableHome, bootFirstUse) then launch LumaHome instead of launchDefaultApp(home). Today the filter only acts on the Home surface (global.activeSurfaceAppId==com.webos.app.home && fullscreenView.activeFocus) and relies on the home stub for the rest. Decide explicitly about Home long press (Screen Zoom), otherwise swallowing Home removes that accessibility feature (re-expose via global.enableZoomHelper / zoom).\n- Settings gear: quicksettings main is already redirected through configd systemUIManager appinfo, so NO key interception is needed for the short press; only intercept if gear-long (com.palm.app.settings, via Key_Option) or the YouTube forwarding (appLaunch.js:2246) must change.\n- Input picker: same story, quickinputpicker main can be redirected in systemUIManager appinfo; key interception not needed. Input long (Key_Video -> homeconnect) can be repointed via configd com.webos.keyaction.inputHub (action/id) rather than code.\n- Apps / notification drawer: no key exists; implement as LumaHome UI actions or on Menu key (Home path).\n- MUST stay untouched (return NextPolicy): Power, Volume +/-/Mute (and its 2 s accessibility hold), CH +/-, digits (Magic Number slot 22, 1000 ms), Back and Exit in apps (only claim Back while LumaHome itself is fullscreen and focused), CursorShow/CursorHide, Voice/Search/CP keys, Netflix/Prime etc., ScreenRemote and Guide when LG's UIs are wanted, color keys in Live TV/HDMI, Local keys, factory/service keys, anything while alerts/VKB/pincode hold focus (those make fullscreenView.activeFocus false, which the current guard already respects).\n\n(c) SIDE EFFECTS THAT BREAK IF SLOT 1 SWALLOWS A KEY\n1. Screen-saver idle timer lives in slot 5 (handleScreenSaver -> keyPressed -> restartUserActivityTimer, 120000 ms, ignored while the pointer is visible). A key swallowed in slot 1 never restarts it, so navigating LumaHome by remote only can let the screensaver start after ~2 min. LumaTV must call the exposed luna method restartUserActivityTimer (StarfishExtendedLunaServiceAPI.qml:129-140, service appId = LS.appId + '.screenSaver') or emit the same signal itself.\n2. Long-press logic lives in slot 4 (handleLongPressKeys) for Back/Exit, Settings/Option, Input/Video, Guide/List/ChannelDash, ScreenRemote, Red. Anything swallowed earlier loses its long form (1000 ms), its short-press replay and its pointer handling; the key is swallowed on press and only delivered at RELEASE for these keys. The compositor preProcess skips MRCU cursor show/hide and key-speak for these keys (StarfishKeyFilter.qml:321-330), because the long-press handler does it, so a slot-1 handler must call global.setMRCUCursorVisibility(key, deviceId) / speakKey itself for Settings, Input, Back, Red, Guide, ScreenRemote or the Magic Remote pointer will not show/hide correctly.\n3. Replayed keys re-enter the chain from slot 1: handleLongPressKeys replays short presses and long-press keys through global.sendKeyToFocusWindow (skipKeyPress/skipKeyRelease flags and the 'skip internally posted key' TTS flag prove re-entry), and handleHomeKeys replays Home with isInternalHomeKey. handleLumaHome therefore sees each such key twice; it must be idempotent (act on the original or on the replay, not both) [INFERENCE from the flags; native re-entry not visible in QML].\n4. One shared longPressTimer: set() resets pending timers, so a LumaTV timer would cancel LG's pending Mute/Home/digit timers; LumaTV timers should use their own Timer. It is also cancelled whenever the active focus item changes, and on any keyFilters config write (which also unsubscribes ALL filter luna subscriptions and reruns init() of every file).\n5. Long-press spinner (ring after 500 ms) only appears if option.remoteSlowInput is on (off here); if turned on LG also stretches all thresholds to option.longPressInterval, LumaTV timers would not.\n6. Digits must reach slot 22 or Quick Access (hold 1000 ms) and Italy similarlist die; Mute must reach slot 7 (long) and slot 16 (toggle); Settings must reach slot 8 (x3 AV reset) if that hidden menu matters.\n7. Back handling for alerts, toast-closing, overlays and screenRemote lives in handleSystemKeys; claiming Back on the Home surface is safe only because alerts/VKB steal activeFocus.\n\n(d) GAME MODE. None of the four files branches on game mode. gamepad keys never open Game Dashboard/Optimizer. The Game Dashboard appears from the stock QuickSettings app: its UIController opens the dashboard in Game mode when launched by the Settings key or by the `reason:preload` launch (QuickSettings.qml:46-80, UIController.qml:100-156). The preload comes from appLaunch.js init(): resetting isSystemUIPreloaded (line 611) then cb_getBootStatus -> preloadSystemUI (801-840) which sends systemUIManager/launch quicksettings + quickinputpicker reason preload; rewriting configd keyFilters reruns init() and so reopens it in Game mode. Quick Settings main is now LumaGlass's file, so whether the stock dashboard still appears depends on that file (not verified). profile.list on this set has no 'gaming' (supportGaming false), so the gaming local-key layout only logs (appLaunch.js:3559-3572); Key_Game is soccer-mode in tvhotkey, not Game Optimizer; HDMI-only Green x7 shows FreeSync info. The live settings: HDMI game input swaps go through Input key -> quickinputpicker.\n\n(e) PHYSICAL KEYS. The TV's keymap table (/etc/webos-profile/common/profile_keymap.json, 233 codes, 'WebOS24 V5.14') lists every code the platform may receive: IR/factory/commercial/teletext/JP/CP/regional keys; Power is Key_webOS_PowerOnOff. It does not say which buttons the C4's Magic Remote has. Evidence-backed subset for this set: Settings gear = IR_KEY_MENU, Menu = IR_KEY_MYAPPS, Home = Key_Super_L, Screen Remote = IR_KEY_SCREEN_REMOTE, Voice = RF_KEY_VOICE, Back, Return/arrows, vol/mute/CH, digits, and 7 enabled CP codes (movies, netflix, amazon, disneyplus, lgchannels, slingtv, new) from the server mapping_info. Codes handled for other remotes or regions (not on a US MR): Qmenu/Portal/commercial keys, factory discrete keys, JP BS/CS/TER, teletext, 3D, Simplink, Sleep, Aspect, EZpic, Close, Recent, STB, Bendable, Twin, Easy TV, Alexa/Google/Yandex, 28 inactive CP keys, Multikey (not in the table, MRCU-side code), local keys of the panel. [INFERENCE] The physical button inventory of the remote itself is not verifiable from the firmware or the TV.\n\nEXTRA FACTS READ FROM THE SET (read-only luna getters): keyaction.* configs (saved /tmp/SurfaceAudit.KeyEntryPoints/keyaction.json), mapping_info (mapping_info.json), profile_keymap.json copy, remoteSlowInput=off, longPressInterval=basic, hotelMode off, seniorMode unsupported, blockedKeys empty, smartServiceCountryCode3=USA, tv.model.hwSettingGroup=US, localKeyType=onekey, manufactureYear=2024."
+}

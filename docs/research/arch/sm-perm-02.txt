@@ -1,0 +1,7 @@
+5 clients hold a surfacemanager-specific group
+  com.webos.app.home-* launcher.control,launcher.status
+  com.webos.app.seniorhome-* launcher.control,launcher.status
+  com.webos.app.similarlist-* launcher.control,launcher.status
+  com.webos.applicationManager launcher.control,launcher.status,surfaces.control,surfaces.status
+  com.webos.bootManager launcher.control,launcher.status,surfaces.control,surfaces.status
+

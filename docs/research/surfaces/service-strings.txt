@@ -1,0 +1,1126 @@
+## accountmanager (8)
+  - According to our policy to protect privacy of children, you are not able to access and use smart TV membership service.
+  - For more information please contact tv.privacy@lge.com.
+  - Terms & Conditions have changed. You will automatically be logged out to consent to the updated Terms & Conditions. Please relog in now.
+  - You are signed in with the account that has already been logged in since the same account that attempted to sign in exists in the TV's account list.
+  - You have signed in with {ID}.
+  - You need to log in again because account information has expired.
+  - {ID} logged out.
+  - OK
+## adaptive-partition-installer (12)
+  - An error has occurred and some apps may not be displayed.
+  - Close
+  - File Size
+  - Go to Apps
+  - Go to {%1}
+  - Please connect the network and try again.
+  - Please delete apps or unnecessary media files, etc. to free up space and try to update again.
+  - Settings
+  - Storage available
+  - To update, {%storage}MB of storage space is required.
+  - Update is required for recovery.
+  - Update via network is required for recovery.
+## ai-inference-manager (14)
+  - *During installation, current package option UI can't be changed.
+  - Do you want to consent to terms and conditions to proceed?
+  - Do you want to go to Network Settings now to check the connection?
+  - Do you want to install now?
+  - Do you want to update now?
+  - IGNORE
+  - Network is not connected.
+  - New software package is available.
+  - No
+  - Software update cannot be applied to the TV.
+  - Software update has been completed.
+  - Terms and Conditions were not accepted.
+  - Updating now...
+  - Yes
+## aiservice (3)
+  - AI Picture and AI Sound function has been downloaded.
+  - AI Picture and AI Sound function has been updated.
+  - Turn off and restart the TV to apply the function.
+## alwaysready (5)
+  - Always Ready
+  - Cancel
+  - Going to {%1} screen within 1 minute.
+  - To go to {%1}, select 'OK', if not select 'Cancel'.
+  - OK
+## amazon-alexa-adapter (6)
+  - A temporary issue has occurred while connecting to the server. Please try again later.
+  - Alexa, open Prime Video
+  - Amazon Alexa is loading.
+  - Next time use your voice and say "%1".
+  - Press and hold %1 on your LG Magic Remote to get started.
+  - OK
+## appinstalld (12)
+  - Application has been installed on the end of Home.
+  - Application has been installed on the storage device.
+  - Application has been installed.
+  - Application has been shut down and updated version is now being downloaded.
+  - Application has been successfully updated.
+  - Application has been updated on the storage device.
+  - Application has not been installed. Try again.
+  - Not enough storage available. Please delete unnecessary files and try again.
+  - Not enough storage available. Please delete unnecessary files or connect another storage device.
+  - Service has been updated.
+  - Software update has been installed. Update will be applied when you restart your TV.
+  - Some apps are available for update.
+## arccontroller (10)
+  - Cancel
+  - Change Settings
+  - Do you want to change the settings from 'Digital Sound Output' to 'Pass Through' to minimize audio delay while playing game?
+  - Do you want to change the sound mode?
+  - If you change the sound mode to 'AI Sound Pro', you can hear a richer sound.
+  - LG sound bar and TV Speaker will play better sound.
+  - LG sound bar is now connected to provide better sound.
+  - No
+  - Yes
+  - You can set the sound mode from the TV.
+## asm (24)
+  - All applications stored on <{DriveName}> will not be available until it is plugged back in.
+  - All apps stored on <{DriveName}> will not be available until it is plugged back in.
+  - Cancel
+  - Cannot start USB verification. Please try again.
+  - Do you want to browse the file from the connected device?
+  - Do you want to switch to it now?
+  - Media files
+  - No
+  - Not enough storage available. Please delete unnecessary files and try again.
+  - Please select the type of files you want to search for from the connected device.
+  - Please try again after USB stick verification.
+  - Recordings
+  - TWIN MODE NOT SUPPORTED
+  - This input device cannot be used in Twin Mode. This type of input device can only be used from one TV connected to the device.
+  - To avoid any possible data loss, unplug USB storage after ejecting it from the input list.
+  - To avoid any possible data loss, unplug USB storage after turning off the TV.
+  - USB Performance Verification may take longer.
+  - USB device is connected.
+  - USB device performance check completed. This USB device does not support recording. We recommend using an HDD for recording.
+  - USB recording may not work properly if your TV is using Bluetooth or another USB port at the same time.
+  - USB recording may not work properly if your UHD Broadcast Box is using Bluetooth or another USB port at the same time.
+  - USB stick verification has successfully completed. You can now record on the storage device.
+  - USB stick verification is starting.
+  - Yes
+## audiod (9)
+  - Close
+  - Go to Settings
+  - On Earbuds
+  - Sound Out Settings will be changed automatically.
+  - Sound Out Settings will be changed to TV Speaker.
+  - Wired Headphones connected.
+  - via Audio Device
+  - {USB Device Name} is connected.
+  - {USB Device Name} is disconnected.
+## blegatt (5)
+  - - Go to 'Settings > Support > Privacy and terms > App permissions' to enable access setting.
+  - Allow
+  - Block
+  - Do you want to allow it?
+  - Do you want to enable Nearby Devices access on {appId}?
+## bluetooth-asc-service (7)
+  - 'Turn on via Bluetooth' function becomes active automatically to control the TV with a mobile device.
+  - Bluetooth pairing history has been deleted.
+  - If you set this feature, energy consumption may increase.
+  - Updated network data.
+  - You've accepted the request from [{deviceName}].
+  - You've declined the request from [{deviceName}].
+  - {Mobile Name} is ready to connect.
+## bluetooth-audio-sink (17)
+  - Accept
+  - Block
+  - Decline
+  - Do you want to accept the connection?
+  - If you accept this request, current Sound Out Settings will be changed to TV Speaker.
+  - If you accept, the Auracast broadcasting will be turned off.
+  - If you want to unblock this device, go to 'Settings > General > External Devices' and select Delete Connection History.
+  - No
+  - Please wait a moment.
+  - Trying to connect.
+  - Yes
+  - You can listen to music via Bluetooth only during exercise or while walking.
+  - {Device Name} is blocked.
+  - {Device Name} is connected.
+  - {Device Name} is disconnected.
+  - {Device Name} requests Sound Share to your TV.
+  - OK
+## bluetooth-le-audio (13)
+  - *Current Sound Out will be maintained.
+  - Apply to all previously connected devices (Total: {N})
+  - Cancel
+  - Ensure the device is in pairing mode.
+  - Failed to connect to [{Device name}].
+  - If it's the last connected device, it will always connect automatically.
+  - The Auracast broadcasting has been turned off.
+  - Would you like to reconnect the previously connected [{Device name}] to listen to TV sound?
+  - You will be able to hear TV sound through this device shortly.
+  - [{Device Name}] is connected.
+  - [{Device name}] has been disconnected.
+  - [{deviceName}] is connecting to your TV.
+  - OK
+## broadcast-systemui-manager (14)
+  - Changing channels will stop the current recording. Do you want to change the channel?
+  - Home Hub
+  - INPUT
+  - If you are using a set-top box, change the input by pressing %1 %2 on the remote control.
+  - If you are using a set-top box, change the input by pressing %1%2 on the remote control.
+  - No
+  - No favorite channel
+  - The program mode has changed to Antenna.
+  - There are no channels in the Favorite Group. Do you want to go to 'Channel Manager' to set favorites now? If you select [No], channel group will be changed to all channels.
+  - There are no channels in the selected group. Do you want to start Channel Tuning now? If you select NO, setting will be changed to all channels.
+  - This function is not available.
+  - To change the mode, press 'Guide' on your remote and go to '… > Filter > Program Mode'.
+  - To watch Live TV, channels must be tuned. Do you want to start Channel Tuning now?
+  - Yes
+## browser-service (7)
+  - Access any website you want from here.
+  - Bookmarks
+  - Change Internet Settings
+  - Go to Settings
+  - Most Visited Sites
+  - Recommended Sites
+  - Web Browser
+## chromecast-provisioning (7)
+  - An internet connection is required to use Google Cast.
+  - By clicking OK button and accepting Terms of Services in the next page, you may stream content from your mobile device to TV by using Google Cast.
+  - Do you want to move to Network setting?
+  - Google Cast has been disconnected.
+  - No
+  - Yes
+  - OK
+## com.webos.service.admanager (5)
+  - Later
+  - Parental control settings have been updated.
+  - Please set up the parental control mode as needed.
+  - Set
+  - This app is no longer supported.
+## com.webos.service.buddyconnector (54)
+  - * You can check it again later in LG Buddy app.
+  - * You can disconnect the easy control feature on 'Home > Family Share > Connected Account Management'.
+  - Adjust the volume to 10 through LG Buddy.
+  - An emergency alert has been sent to the connected KakaoTalk account because the Help button on the remote has been activated.
+  - Approval
+  - Cancel Request
+  - Cancel the Request
+  - Close
+  - Connect LG Buddy
+  - Decline
+  - Enhance Focus Clarity
+  - Enhance Text Clarity
+  - Help Request
+  - If the Help Request was sent by mistake, select the Cancel Request button to cancel.
+  - Keep Request
+  - LG Buddy Easy Control has been approved.
+  - LG Buddy Easy Control has been disabled after 30 minutes of inactivity.
+  - LG Buddy Help Request
+  - Launch the {%quickReply} app via LG Buddy Easy Control.
+  - Mute
+  - Network Settings
+  - Network server is not responsive. Try again later.
+  - Picture Plus
+  - Please connect a KakaoTalk user to the TV.
+  - Quit App
+  - Remote Pointer
+  - Sound Plus
+  - Sports
+  - Subtitles
+  - Switching to {Input} through LG Buddy.
+  - The LG Buddy Easy Control request has been declined.
+  - The connection has been disconnected.
+  - The connection with {%kakao_name} has been disconnected.
+  - The network is not connected, and the help request could not be sent.
+  - The server's security certificate is not valid! Incorrect time setting may cause the error. Please check your time setting and make sure that the current time is correct.
+  - This feature is only supported in Simple Mode.
+  - This feature may not function based on the network or device's power status.
+  - Time Settings
+  - Turn off {feature} using LG Buddy Easy Control.
+  - Turn on {feature} using LG Buddy Easy Control.
+  - View Later
+  - View Now
+  - View Photos
+  - View Videos
+  - When the Help button on the remote is pressed and held, a Help Request notification will be sent via LG Buddy to connected users.
+  - Would you like to cancel the Help Request?
+  - {%kakao_name} sent you a YouTube video.
+  - {%kakao_name} sent you {%p_num} photos and {%v_num} videos.
+  - {%kakao_name} sent you {%p_num} photos.
+  - {%kakao_name} sent you {%v_num} videos.
+  - {user name} has requested the approval of easy control.
+  - Live TV
+  - LG Channels
+  - LG FITNESS
+## com.webos.service.ocp (17)
+  - Cancel
+  - Do you want to change settings?
+  - Do you want to keep the changed screen settings?
+  - Energy Saving Mode will be recommended to use when you watch TV for a long time.
+  - It may protect your eyesight and reduce energy consumption.
+  - Later
+  - No
+  - Picture Mode has changed.
+  - Shall we change to Theater Mode?
+  - Shall we use Comfort Mode to reduce eye strain?
+  - The intelligent sensor will recommend Picture Mode suitable for the indoor environment.
+  - This change may affect energy consumption.
+  - Use the OLED Panel Settings to enhance or prevent a poor screen quality that may occur while you are watching the same image for a long time.
+  - Using the screen at the brightest level for a long period of time increases eye strain.
+  - Yes
+  - You are watching TV quite a lot.
+  - OK
+## com.webos.service.pkginstall (5)
+  - Application has been shut down and updated version is now being downloaded.
+  - Application has been successfully updated.
+  - Application has not been installed. Try again.
+  - Not enough storage available. Please delete unnecessary files and try again.
+  - Software update has been installed. Update will be applied when you restart your TV.
+## com.webos.service.ppm (6)
+  - - Go to 'Settings > Support > Privacy and terms > App permissions' to enable access setting.
+  - Allow
+  - Block
+  - Do you want to allow it?
+  - Do you want to enable Access File access on {appId}?
+  - Do you want to enable microphone access on {appId}?
+## data-migrator (4)
+  - Failed to update software.
+  - Reset after rebooting the TV.
+  - Update Failed
+  - OK
+## db8-translator (5)
+  - Consent to user agreement and device settings may change while recovering the system.
+  - Reset after rebooting the TV.
+  - Reset is needed since an unexpected error has occurred.
+  - System ran into a problem and needs to be repaired.
+  - The system is successfully recovered.
+## dmost (10)
+  - Are you sure you want to turn it off?
+  - Content shown on LG Channels is not subject to normal TV rating policies. There may be viewing restrictions depending on the network conditions and User Agreements status. Internet channels are subjec
+  - If you turn off LG Channels, all Internet channels will be removed from your channel list.
+  - Network Setting
+  - No
+  - Programming and internet channels may change at the discretion of LG and third party provider.
+  - This will turn off LG Channels and remove all Internet channels from the list.
+  - Yes
+  - You can turn LG Channels back on any time from the Settings menu.
+  - Your TV needs to be connected to the network to watch Internet channels. Do you want to go to Network Settings now to check the connection?
+## dmr (7)
+  - Buffering is in progress...
+  - Do you want to continue?
+  - Music cannot be played continuously while on Twin.
+  - NO
+  - The external device is requesting TV control.
+  - This function is not available now.
+  - YES
+## eim (27)
+  - AV now available
+  - Blu-ray Player
+  - COMPONENT
+  - Component
+  - Component now available
+  - DVD Player
+  - Do you want to switch to the screen of the connected device?
+  - Game Console
+  - Generic Camera
+  - Home Theater
+  - Mobile Device
+  - NO
+  - SIMPLINK : On
+  - Satellite
+  - Set-Top Box
+  - Sound Bar
+  - Streaming Box
+  - The AV and the component are now available. Do you want to switch to one now?
+  - The AV is now available. Do you want to switch it now?
+  - The Component is now available. Do you want to switch it now?
+  - The current input has been changed to {device1} from {device2}.
+  - VCR
+  - YES
+  - You can check the {app} app in the app list in Home.
+  - [{Device Name}] is connected.
+  - [{Device Name}] is disconnected.
+  - Live TV
+## eplmanager (32)
+  - (Turn off the TV with the remote control to execute this function later automatically.)
+  - * Do not unplug the power during this function is running.
+  - * It will take more than {%1} minutes after the device turns off.
+  - Cancel
+  - Do not unplug the power while restarting the TV for {n} minutes.
+  - Do not unplug the power.
+  - Do you want to start right now?
+  - Go to Settings
+  - No
+  - No motion is detected in front of the TV, so the TV is turning off within a minute.
+  - Pixel Cleaning has not been completed.
+  - Pixel Cleaning is in progress.
+  - Pixel Cleaning is not complete.
+  - Pixel Cleaning process has been interrupted. Please go to the Pixel Cleaning menu in Settings to start the process again.
+  - Pixel Cleaning process has completed.
+  - Pixel Cleaning process may take {n} minutes and it allows your TV to provide the clearest picture possible.
+  - Pixel Cleaning will start automatically when the TV is turned off to provide clear image without afterimage.
+  - Pixel Cleaning will start. Your TV needs to be turned off during the Pixel Cleaning process and it allows your TV to provide the clearest picture possible. While processing, a white line may appear in
+  - Please turn off the TV for more than an hour without unplugging.
+  - Please turn off the TV for more than {%1} minute(s) without unplugging.
+  - Start Now
+  - The Pixel Cleaning is required to watch videos on a clear screen.
+  - The TV was turned on before Pixel Cleaning could be completed. To start the process again, go to the Pixel Cleaning menu in Settings.
+  - This function is not supported.
+  - To keep the TV turned on, please press the [OK(wheel)] button on remote control.
+  - To provide the clearest picture, TV needs to start screen restoration.
+  - To provide the clearest picture, screen restoration will start automatically while the TV is turned off.
+  - Turn off the TV with the remote control to execute later automatically.
+  - While processing, a white line may appear in the screen and this is normal.
+  - Yes
+  - You can run the Pixel Cleaning feature manually in the Pixel Cleaning menu.
+  - Your TV's screen will restart after about {n} minute(s) to start Pixel Cleaning.
+## eula-service (10)
+  - Go to Terms and Conditions
+  - Our Privacy Policy has changed. The TV will now restart to show the updated User Agreements for your review.
+  - Restart
+  - Restart TV for updating User Agreements.
+  - We are updating our Terms and Conditions.
+  - You can check the updated terms and conditions when the loading process is complete.
+  - [LG Electronics] Due to the update of terms and conditions of advertisement information, the consent was automatically withdrawn on {date} {month} {year}.
+  - [LG Electronics] Due to the update of terms and conditions of advertisement information, the consent was automatically withdrawn.
+  - [LG Electronics] The request of advertisement information was successfully withdrawn on {date} {month} {year}.
+  - [LG Electronics] The request of advertisement information was successfully withdrawn.
+## event-monitor-network-starfish (13)
+  - 3G/4G network has been connected.
+  - 3G/4G network has been disconnected.
+  - Cancel
+  - NO
+  - Please try again after ending current Wi-Fi Direct connection.
+  - Wired LAN cable disconnected.
+  - Wired network is connected.
+  - YES
+  - [%s] Wi-Fi Direct is disconnected.
+  - [%s] has been connected.
+  - [%s] wants to connect via Wi-Fi Direct. Do you want to accept the connection?
+  - [%s] wants to connect with your TV. Enter this PIN code(%s) in your device’s settings and then press the Connection button.
+  - [%s] wants to mirror its screen to your TV.
+## extinput-integration (6)
+  - Audio is not supported
+  - Go to Settings
+  - If the issue persists, please revert the settings or reboot your connected external device.
+  - To provide an optimized picture quality, the Ultra HD Deep Color of the current HDMI port will be changed to 8K.
+  - To provide an optimized picture quality, the Ultra HD Deep Color will be turned on for the current HDMI port. While applying the settings, picture or sound may not work properly. If the issue persists
+  - While applying the settings, picture or sound may not work properly.
+## fancontroller (2)
+  - Your TV will turn off shortly as the TV's cooling unit is not functioning properly. Please contact LG service center.
+  - Your TV will turn off shortly as the TV's temperature is too high. Please turn it on later. If the same issue persists, please contact LG service center.
+## fitness-machine-service (13)
+  - Cancel
+  - Cannot connect the fitness machine.
+  - Connect
+  - Don't Show
+  - Please close the currently running app to view the exercise information.
+  - Please try again.
+  - The fitness machine has been disconnected.
+  - The popup for {fitness machine type} {model name} will not be shown again.
+  - To reconnect the fitness machine, turn the device off and on again.
+  - Workout has been ended.
+  - Would you like to connect {fitness machine type} {model name}?
+  - You can check real-time information about the fitness machine.
+  - {fitness machine type} {model name} has been connected.
+## flutter-wayland-client (19)
+  - Deactivated
+  - button
+  - character
+  - characters
+  - checked
+  - collapsed
+  - expanded
+  - heading
+  - math
+  - notselected
+  - off
+  - on
+  - submenu
+  - tab
+  - tree
+  - unchecked
+  - value required
+  - {pos} of {size}
+  - link
+## gibbips (2)
+  - Recording is in progress. Stop recording and try again
+  - Server is not responding. Please try again later.
+## hbbtv3-pluggable (23)
+  - Another device is trying to launch %1 on %deviceType%. Do you want to accept the request?
+  - Another device is trying to launch %1 on TV. Do you want to accept the request?
+  - Another device is trying to launch HbbTV App on %deviceType%. Do you want to accept the request?
+  - Another device is trying to launch HbbTV App on TV. Do you want to accept the request?
+  - Another device is trying to launch {%1} on %deviceType%. Do you want to accept the request?
+  - Another device is trying to launch {%1} on TV. Do you want to accept the request?
+  - Content is not available while recording. Do you want to stop recording and play the content?
+  - Distinctive ID of the %deviceType% can be collected through the HbbTV service app provided by broadcasters. If you do not want to provide Distinctive ID, go to "Settings > Channels > HbbTV > Provide D
+  - Distinctive ID of the %deviceType% can be collected through the HbbTV service app provided by broadcasters. If you do not want to provide Distinctive ID, go to “Settings > Channels > HbbTV > Provide D
+  - Distinctive ID of the %deviceType% can be collected through the HbbTV service app provided by broadcasters. If you do not want to provide Distinctive ID, go to “Settings > General > Channels > HbbTV >
+  - Distinctive ID of the HbbTV can be collected through the HbbTV service app provided by broadcasters.
+  - Distinctive ID of the HbbTV will only be used for HbbTV and will not provide the user's personal information.
+  - Distinctive ID of the TV can be collected through the HbbTV service app provided by broadcasters. If you do not want to provide Distinctive ID, go to "Settings > Channels > HbbTV > Provide Distinctive
+  - Distinctive ID of the TV can be collected through the HbbTV service app provided by broadcasters. If you do not want to provide Distinctive ID, go to “Settings > Channels > HbbTV > Provide Distinctive
+  - Distinctive ID of the TV can be collected through the HbbTV service app provided by broadcasters. If you do not want to provide Distinctive ID, go to “Settings > General > Channels > HbbTV > Provide D
+  - If you do not want to provide Distinctive ID, go to 'Settings > Channels > HbbTV >Provide HbbTV Distinctive ID' and turn the setting off.
+  - NO
+  - No
+  - The HbbTV Distinctive ID has been reset.
+  - The connection history has been deleted.
+  - YES
+  - Yes
+  - OK
+## hybridtv-manager (21)
+  - Contents and apps related to the current program will be available.
+  - Interactive Service
+  - Interactive Service for HDMI is set to off now.
+  - Interactive Service will be activated as per the broadcast signal.
+  - Please agree to the terms and conditions to use {menu name}.
+  - Please stop Live Playback and try again.
+  - Please stop recording and try again.
+  - Please switch the channel and try again.
+  - Please switch the input to 'Live TV' and try again.
+  - Please switch the input to ‘Live TV’ and try again.
+  - Please try again after closing the app and switching the channel.
+  - See User Agreement
+  - Set to Off
+  - This feature is not available in LG Channels.
+  - This function is not available due to a temporary error.
+  - This function is not available in Internet Channel.
+  - This function is not available in this input.
+  - This function is not supported in the countries not supporting HbbTV.
+  - This function is not supported while Live Playback is running.
+  - This function is not supported while recording.
+  - content and apps related to the current program will be available.
+## independa-notification (7)
+  - Answer
+  - Close
+  - End
+  - View
+  - You have new messages.
+  - You have new photos.
+  - Incoming call from {nameString}.
+## iot-client-webos (58)
+  - $Express freezing$ is complete.
+  - A sensor has detected that a door or window is close.
+  - A sensor has detected that a door or window is open.
+  - Add a rinse aid to the dishwasher for better drying.
+  - Add salt to the dishwasher for a cleaner wash.
+  - An error has occurred with the oven.
+  - Check the door lock.
+  - Continuing to use the current filter may cause issues with the product.
+  - DR Mode has been activated.
+  - DR Mode has been dismissed.
+  - DR event has been scheduled for today.
+  - Door close detected.
+  - Door is not fully locked.
+  - Door open detected.
+  - Empty the dehumidifier water tank to run the dehumidifier again.
+  - If you want to turn off DR Mode, Go to Settings > Picture > Advanced Settings > DR Mode.
+  - Kimchi refrigerator door is open.
+  - LG ThinQ account information has been updated.
+  - Motion detected.
+  - Motion sensor has detected movement.
+  - Please be aware that DR Mode will be activated in 1 hour.
+  - Please check the location of the robotic vacuum cleaner.
+  - Please empty the collection bin.
+  - Please fill the water tank.
+  - Please replace the water filter.
+  - Please stop adding food waste temporarily.
+  - Screen brightness may decrease to reduce the amount of energy consumption.
+  - Smart Lock is locked.
+  - Smart Lock is open.
+  - The air conditioner water tank is full. Empty the water before running the air conditioner again.
+  - The air purifier filter needs cleaning.
+  - The air purifier filter needs to be replaced.
+  - The air quality is rapidly deteriorating. Run on the air purifier.
+  - The collection bin is full.
+  - The dishwasher has finished.
+  - The dishwasher has stopped because of a problem.
+  - The disposal bin is full.
+  - The dryer has finished.
+  - The dryer has stopped because of a problem.
+  - The oven has finished cooking.
+  - The oven has finished preheating.
+  - The oven needs cleaning. Please run self-cleaning.
+  - The power will be cut off since the plug is overloaded.
+  - The refrigerator door is open.
+  - The refrigerator filter needs to be replaced.
+  - The refrigerator water filter needs to be replaced.
+  - The robotic vacuum cleaner cannot begin selective area cleaning because the charging stand location is different from the floor plan.
+  - The robotic vacuum cleaner has finished.
+  - The robotic vacuum cleaner will begin scheduled cleaning.
+  - The robotic vacuum cleaner's Home Guard has stopped.
+  - The styler has finished.
+  - The styler has stopped because of a problem.
+  - The washing machine has finished.
+  - The washing machine has stopped because of a problem.
+  - There is a leak inside the dishwasher.
+  - There is no water in the air purifier tank.
+  - This change will be restored to the previous setting when the DR event ends.
+  - While Home Guard is operating, a motion is detected, and the photo of the motion is sent.
+## lg.thinqai.adapter (6)
+  - Failed to delete your Voice ID.
+  - Failed to delete your voice information.
+  - Please try again in a moment.
+  - Your Voice ID information will be deleted soon.
+  - Your request is completed.
+  - Your voice information will be deleted soon.
+## lightingcontroller (3)
+  - The indirect lighting effect will be provided because this app does not support Video Sync mode.
+  - Video Sync Mode is only supported with HDMI inputs and cloud games, and most apps provide indirect lighting effects.
+  - OK
+## memchute (1)
+  - This app will now restart to free up more memory.
+## nais-offloading-manager (21)
+  - AI Caption
+  - AI Caption has ended.
+  - AI Caption is not supported in current language.
+  - AI Caption is turned off due to {app name} app screen closure.
+  - AI Caption was closed due to an unknown error.
+  - Analyzing sound to generate AI Caption.
+  - Closed Caption and AI Caption cannot be used at the same time.
+  - Closing AI Caption.
+  - Closing Closed Caption.
+  - Do you want to accept the connection?
+  - Do you want to try again?
+  - No
+  - Please select the language for AI Caption in the {app name} app.
+  - This app does not support AI Caption.
+  - This channel does not support AI Caption.
+  - To generate AI Caption, keep {app name} app screen on.
+  - Try now
+  - Yes
+  - You can watch content in a language you are familiar with using the AI Caption.
+  - {%1} is turned on now.
+  - {mobileName} is requesting to connect to the device.
+## nn-proxy (2)
+  - AI 8K Upscaling is Updated.
+  - AI Upscaling is Updated.
+## nopd (2)
+  - TV will be turned off in 5 minutes.
+  - Your TV will be turned off in 1 minute due to the TV's Auto Power Off settings. To keep the TV on, press any buttons except the Power button.
+## nudge (20)
+  - AI Picture is now on.
+  - AI Recommendation is now off. You can turn this feature on at Settings.
+  - AI Recommendation is now on. You can turn this feature off at Settings.
+  - AI Sound is now on.
+  - Agree to the Terms & Conditions and get more recommendations.
+  - Amazon Alexa can be accessed through Magic Remote. Press and hold the Prime Video button to configure the Alexa app.
+  - Amazon Alexa can be accessed through Magic Remote. Press and hold the Prime Video button to install the Alexa app.
+  - CH
+  - Do you want to add this app to shortcut for the $KEYNUMBER button on the remote?
+  - Enjoy the Surround effect by connecting to a Bluetooth Speaker. Do you want to set it up now?
+  - Here is the app you frequently use at this time of day.
+  - How about trying AI Recommendation? You can receive AI generated recommendations of features, apps, and contents based on your TV usage history.
+  - Learn more
+  - Long press on the Settings menu you want to learn more from 'Magic Explorer' using the [OK (Wheel)] button on the remote control.
+  - Press and hold the Prime Video button to start speaking to Alexa. For example, you can start by asking "How is the weather?"
+  - Press the OK button to run Live Picks and learn more about the people, products, and locations in a scene.
+  - Try searching for other content similar to the currently viewing program.
+  - Turn AI Recommendation off and stop receiving recommendations.
+  - You may like this content.
+  - OK
+## opapp-manager (13)
+  - Cancel
+  - Delete
+  - Delete the App?
+  - If {app2} remains, please delete it.
+  - No
+  - Please rescan channels to use the service properly.
+  - The {App} installed due to a region change is not supported.
+  - To install {app2}, first uninstall {app1}, then proceed with the installation.
+  - To use {Op App}, change the program mode to {Satellite} in More Action.
+  - Would you like to proceed with the channel scan?
+  - Yes
+  - {app2} will be automatically deleted for smooth service usage.
+  - OK
+## physical-device-manager2 (32)
+  - * Error checking and recovery are carried out in the background.
+  - After removing, please reconnect the usb device.
+  - Check & Repair
+  - Checking and repairing files in {DEVICE} have completed.
+  - Connecting storage device
+  - Exceeded a maximum number of allowable USB devices.
+  - Formatting is required to use this USB storage. Do you want to go to the input list to format the USB?
+  - Formatting {DRIVE} has been successfully completed.
+  - Formatting {DRIVE} has not been successfully completed.
+  - Formatting {DRIVE}...
+  - HID device is connected.
+  - HID device is disconnected.
+  - MTP device is connected.
+  - MTP device is disconnected.
+  - No
+  - Open Now
+  - PTP device is disconnected.
+  - Some files may not be recognizable. Do you want to open {DEVICE} now?
+  - Storage device is connected.
+  - Storage device is disconnected.
+  - This USB storage has an unsupported system and cannot be read.
+  - USB device is connected.
+  - USB device is disconnected.
+  - Unknown device is connected.
+  - Unknown device is disconnected.
+  - Up to 12 USB devices can be connected.
+  - Wi-Fi / Bluetooth Dongle is connected.
+  - Wi-Fi / Bluetooth Dongle is disconnected.
+  - XPAD device is connected.
+  - XPAD device is disconnected.
+  - Yes
+  - You can connect up to 6 USB devices.
+## pqcontroller (20)
+  - * This mode expresses the FILMMAKER MODE's intentions clearly but may look darker than other picture modes.
+  - A Bluetooth speaker has been connected and picture mode will change to {pictureMode} now.
+  - Cancel
+  - Cinema Home
+  - Current option change may affect energy consumption.
+  - Current picture mode change has modified Energy Saving and Motion Eye Care settings and it may affect energy consumption. You can adjust their settings manually in the Energy Saving and Picture Advanc
+  - Current picture mode change has modified Energy Saving settings and it may affect energy consumption. You can adjust its settings manually in the Energy Saving menu.
+  - Current picture mode change has modified Motion Eye Care settings and it may affect energy consumption. You can adjust its settings manually in the Picture Advanced Settings.
+  - Do you want to change now?
+  - Don't show again
+  - No
+  - Panel brightness and contrast will be automatically adjusted to maintain optimal picture quality. Do you want to adjust now?
+  - Please be aware that change in this setting component may increase energy consumption of this TV.
+  - Please be aware that this change in Picture mode may affect energy consumption of this TV.
+  - Please be aware this change in picture setting may increase energy consumption of this TV.
+  - Technicolor Expert
+  - To enhance the content quality, TV has changed picture setting.
+  - When movie content is recognized, you can change to Filmmaker mode.
+  - Yes
+  - Standard
+## remotediag (155)
+  - %deviceType% Installation Type
+  - %deviceType% Speaker
+  - %deviceType% Speaker Bar
+  - %deviceType% Speaker Bar + Wired Headphones
+  - 2 Hours Auto Power Off
+  - 4-Way Zoom
+  - AI Sound
+  - AI Sound Pro
+  - All-Direction Zoom
+  - Allow Automatic Updates
+  - Aspect Ratio
+  - Audio Guidance
+  - Audio Out (Line Out)
+  - Audio Out (Optical/HDMI ARC)
+  - Audio Out Device
+  - Auto
+  - Auto Power Off after 4 Hours
+  - Auto Power Save
+  - Auto Volume
+  - Automatic Volume Adjustment
+  - Bass Boost
+  - Bluetooth Device
+  - Bluetooth Device + %deviceType% Speaker
+  - Bluetooth Device + TV Speaker
+  - Bluetooth Surround Sound + Internal %deviceType% Speaker
+  - Bluetooth Surround Sound + Internal TV Speaker
+  - Cinema
+  - Cinema Home
+  - Cinema Reference
+  - Cinema Screen
+  - Cinematic Movement
+  - Clear
+  - Clear Plus
+  - Clear Voice
+  - Clear Voice Pro
+  - Clear Voice Ⅲ
+  - Closed Caption
+  - Custom
+  - Digital Sound Out
+  - Eco
+  - Energy Saving
+  - Every Day
+  - Every Weekday
+  - Every Weekend
+  - Expert
+  - Expert (Bright Room)
+  - Expert (Bright space, daytime)
+  - Expert (Dark Room)
+  - Expert (Dark space, night)
+  - Football
+  - Fri
+  - Full Wide
+  - Game
+  - Game Optimizer
+  - HDMI UHD Deep Color
+  - HDMI(ARC) Device
+  - HDR Effect
+  - High
+  - Home Mode
+  - Home/Store Mode
+  - Internal %deviceType% Speaker
+  - Internal %deviceType% Speaker + Audio Out (Optical)
+  - Internal %deviceType% Speaker + Optical
+  - Internal %deviceType% Speaker + Wired Headphones
+  - Internal TV Speaker
+  - Internal TV Speaker + Audio Out (Optical)
+  - Internal TV Speaker + Optical
+  - Internal TV Speaker + Wired Headphones
+  - LED Local Dimming
+  - LG Sound Sync (Optical)
+  - LG Sound Sync / Bluetooth
+  - Low
+  - Medium
+  - Mobile Device
+  - Mon
+  - Music
+  - Natural
+  - None
+  - Off
+  - On
+  - Optical
+  - Optical + Internal %deviceType% Speaker
+  - Optical + Internal TV Speaker
+  - Optical Out Device
+  - Optical Out Device + %deviceType% Speaker
+  - Optical Out Device + TV Speaker
+  - Pass Through
+  - Photo
+  - Picture Mode
+  - Real Cinema
+  - Real-time remote inspection is ended.
+  - Real-time remote inspection is in progress.
+  - Real-time remote inspection is started.
+  - Reset
+  - Sat
+  - Screen Off
+  - Select Mode
+  - Set Automatically
+  - Smart Picture Mode
+  - Smart Sound Mode
+  - Smooth
+  - Smooth Movement
+  - Soccer
+  - Sound
+  - Sound Mode
+  - Sound Out
+  - Sports
+  - Stand TypeⅠ
+  - Stand TypeⅡ
+  - Store Mode
+  - Subtitles
+  - Sun
+  - TV Installation Type
+  - TV Speaker Bar
+  - TV Speaker Bar + Wired Headphones
+  - The LG Remote Service has been completed.
+  - The LG Remote Service has ended. Your %deviceType% will now restart.
+  - The LG Remote Service has ended. Your TV will now restart.
+  - The LG Remote Service has started.
+  - The LG Remote Service has stopped.
+  - The LG Remote Service has stopped. Your %deviceType% will now restart.
+  - The LG Remote Service has stopped. Your TV will now restart.
+  - Thu
+  - Timer Power Off
+  - Timer Power On
+  - Timer Repeat
+  - Tue
+  - Unknown
+  - User
+  - User Selection
+  - Vertical Zoom
+  - Video Description
+  - Vivid
+  - Wall-mounted Type
+  - Wed
+  - WiSA Speakers
+  - Wired Headphones
+  - Wired Headphones + %deviceType% Speaker
+  - Wired Headphones + Internal %deviceType% Speaker
+  - Wired Headphones + Internal TV Speaker
+  - Wired Headphones + TV Speaker
+  - energy_Medium
+  - Adaptive Sound Control
+  - Basic
+  - HDMI Deep Color
+  - Just Scan
+  - Standard
+  - aspectRatio_original
+  - energy_Maximum
+  - energy_Minimum
+  - pictureMode
+  - pictureMode_Standard
+  - soundMode_Standard
+  - Cinema Clear
+  - Filmmaker
+## rollingscreen (22)
+  - An error has occurred to the TV stand while its operating.
+  - An error occurred while adjusting the curvature.
+  - An error occurred while changing the screen height.
+  - Black Mode
+  - Cannot switch to Transparent/Black Mode.
+  - If the problem persists, please contact the customer support.
+  - If the problem persists, please press the power key on the left corner or disconnect the power to restart the TV.
+  - Initialize Completed
+  - Later
+  - Please contact Customer Support.
+  - Please contact LG service center.
+  - Please disconnect the power and contact LG Service Center.
+  - Please try again later.
+  - Press [OK] to switch the screen to Line View.
+  - Press [OK] to turn off TV.
+  - Reset
+  - Reset screen height setting value. It takes about 2 minutes for the screen to slide completely down to the bottom and up again. Do not touch the screen during this process.
+  - Screen panel lifespan can be reduced as you unplug the power and force the TV to quit after curvature setting.
+  - The screen will be switched to flat due to an error while changing the curvature.
+  - The screen will be switched to flat.
+  - Transparent Mode
+  - Turn off the TV with the remote control.
+## sam (15)
+  - A new version of the app is available. Launch current version of app or update to latest version.
+  - Cancel
+  - Launch
+  - No
+  - One moment please. Smart service will be available shortly.
+  - Please contact our customer service center.
+  - Please orient the screen to landscape mode to enjoy.
+  - The TV was turned off and update has not been completed successfully.
+  - This app does not support portrait mode.
+  - This app is no longer available as the service provider no longer supports it. Deleting the app from the Smart Home screen to free up some space.
+  - This app or service is currently not available in your country.
+  - Try again after update is complete.
+  - Update
+  - Yes
+  - You must update this app to launch it. The update may cause stored data to be deleted. Do you want to update this app?
+## sdp-server-notice (2)
+  - More
+  - OK
+## sdx (6)
+  - Changing the country will cause your TV to restart and you may need to consent to LG's User Agreements again. Also, the availability of some apps and services may vary based on the LG Services Country
+  - NO
+  - Our Privacy Policy has changed. The TV will now restart to show the updated User Agreements for your review.
+  - Restart
+  - Restart TV for updating User Agreements.
+  - YES
+## signlanguage-avatar (22)
+  - A download is required to use this sign language avatar.
+  - A network connection is required to download the sign language guide data.
+  - Delete unused apps or files to free up storage space.
+  - Do you want to continue?
+  - Do you want to move to the Network Settings?
+  - No
+  - Not enough storage available.
+  - Please try again later.
+  - The download was stopped due to an unknown error.
+  - The sign language avatar download is complete.
+  - The sign language avatar will start displaying in supported functions.
+  - The sign language guide data download is complete.
+  - The sign language guide data has been updated successfully.
+  - The sign language guide data is up-to-date.
+  - This feature is only available when the menu language is set to Korean.
+  - To use the sign language guide, you need to download the sign language data.
+  - Updating the sign language guide data to the latest version.
+  - Would you like to download now?
+  - Would you like to move to the Terms and Conditions screen?
+  - Yes
+  - You need to agree to the terms and conditions to download the sign language guide data.
+  - OK
+## soundshare (5)
+  - * Sound Out setting will be changed.
+  - All mobile devices are disconnected.
+  - Sound Out will be changed to mobile device speaker.
+  - [{deviceName}] is connected.
+  - [{deviceName}] is disconnected.
+## sportsalarm (11)
+  - Final
+  - Group Stage
+  - Play-off for third place
+  - Quarter-finals
+  - Round of 16
+  - Search Webs
+  - Semi-finals
+  - The {League Name} game starts soon.
+  - The {league name/tournament name} game has been cancelled.
+  - The {league name/tournament name} game is over.
+  - Watch
+## starfish-camera-plugins (22)
+  - - Go to 'Settings > Support > Privacy and terms > App permissions' to enable access setting.
+  - - Use Smart TV > Camera
+  - Allow
+  - Block
+  - Camera is connected.
+  - Camera is currently in use.
+  - Camera is no longer available.
+  - Do you want to allow it?
+  - Do you want to enable camera access on {website}?
+  - In order to use the camera in {app}, camera access needs to be enabled.
+  - Open Camera
+  - Please check the user guide for compatible camera.
+  - Please check the user guide for supported camera.
+  - There may be an issue on incompatible device.
+  - This camera is currently not compatible.
+  - This camera is currently not supported.
+  - To use the camera, please connect camera cable to USB 1 port.
+  - User Guide
+  - Your camera isn't compatible and some functions may not work properly.
+  - {model} camera is connected.
+  - {model} camera is currently in use.
+  - {model} is no longer available.
+## tts (19)
+  - * Audio guidance will be changed to standard quality.
+  - * Estimated download time is within 1 minute, but may vary depending on the network environment.
+  - * Previously received high-quality language pack will be deleted.
+  - Data size
+  - Data version
+  - High-quality language pack download is now complete.
+  - High-quality language pack is deleted.
+  - Insufficient storage space. Free up storage space by deleting unused apps or files.
+  - No
+  - Please try again later.
+  - Start the download of the high-quality language pack.
+  - The download was stopped due to an unknown error.
+  - To download the high-quality language pack, you need to agree to the terms and conditions.
+  - Would you like to delete the high-quality language pack?
+  - Would you like to download the high-quality language pack?
+  - Would you like to move to the Terms and Conditions screen?
+  - Yes
+  - OK
+  - MB
+## tv-reservation-agent (59)
+  - 3D is not available during recording.
+  - Antenna
+  - Antenna DTV
+  - Antenna Radio
+  - Antenna TV
+  - Available storage is not enough. Please delete some files in 'Recordings'.
+  - Broadcast Type
+  - Cable
+  - Cable DTV
+  - Cable Radio
+  - Cable TV
+  - Cancel
+  - Cannot change channel by CAM.
+  - Channel Number
+  - Channel changed by reminder.
+  - Click Cancel to keep the TV on or OK to let it turn off.
+  - Continue
+  - Do you want to change the channel and record the scheduled program?
+  - Do you want to change the channel now?
+  - Encountered a system error.
+  - Exceeded maximum number of allowed recordings. Please delete some files in 'Recordings'.
+  - Exceeded maximum number of recordings. Please delete recorded programs and try again.
+  - No
+  - Please aim the Magic Remote at the set-top box for switching a channel.
+  - Program Title
+  - Recording Service
+  - Recording failed.
+  - Recording has stopped. Copy protected programs cannot be recorded.
+  - Recording has stopped. Problem on recording storage device.
+  - Recording stopped. Copy protected programs cannot be recorded.
+  - Recording stopped. Error on recording storage device.
+  - Recording stopped. Not enough storage to record.
+  - Reminder
+  - Satellite
+  - Satellite 4K
+  - Satellite 4K・8K
+  - Satellite DTV
+  - Satellite Radio
+  - Scheduled recording has been deleted.
+  - TV
+  - Terrestrial
+  - The program scheduled to be record will begin in 1 minute. Changing channels will stop the current recording. Do you want to change the channel and record the scheduled program?
+  - The program scheduled to be record will begin in 1 minute. Do you want to change the channel and record the scheduled program?
+  - The program scheduled to record will begin in 1 minute.
+  - The program you set a reminder for will begin in 1 minute.
+  - The program you set a reminder for will begin in 1 minute. Changing channels will stop the current recording. Do you want to change the channel?
+  - The program you set a reminder for will begin in 1 minute. To watch the program, select 'OK', if not select 'Cancel'.
+  - The scheduled program starts shortly.
+  - The scheduled recording starts shortly.
+  - Unable to change to the channel. No channel information.
+  - Unable to start recording. No channel information.
+  - Unable to start recording. Signal is not supported.
+  - Yes
+  - Your TV will be turned off in 1 minute due to the TV's timer settings.
+  - Your TV will be turned off in 1 minute due to the TV's timer settings. Click 'Cancel' to keep the TV on or 'OK' to let it turn off.
+  - Your TV will turn on soon at the set time.
+  - Antenna NEXTGEN TV
+  - OK
+  - LG Channels
+## user-context-manager (7)
+  - Failed to delete your viewing information.
+  - Last month, you watched TV for an average of about {hour} hours per day and used {app name} the most.
+  - Last month, you watched TV for less than an hour per day on average, and used {App Name} the most.
+  - Please try again in a moment.
+  - The Usage Data is deleted.
+  - Your request is completed.
+  - Your viewing information will be deleted soon.
+## user-intent-manager (1)
+  - History is deleted successfully.
+## voice-framework (48)
+  - After connecting to the network, close the current page and try using the voice recognition feature.
+  - Audio processing is unstable.
+  - Brighten/dim the screen
+  - Cancel
+  - Channel 20 (channel number)
+  - Close
+  - Do you want to restart the TV now?
+  - Go
+  - LG voice recognition feature has been turned on.
+  - LG voice recognition feature is turned off.
+  - Network is not connected. Do you want to go to Network Settings now to check the connection?
+  - Network settings
+  - No
+  - One moment please.
+  - Please agree to the terms and conditions to use the voice recognition feature.
+  - Please check the connection status of your Magic Remote.
+  - Please contact our customer service center.
+  - Please try again.
+  - Recommend me something to watch
+  - Search 'OOO(search keyword)' on YouTube
+  - See User Agreement
+  - Switch to the game console
+  - The User Agreements is required to use Voice recognition.
+  - The function is not available in the current set language.
+  - The function is not supported on the current view type.
+  - The screen is already at the bottom.
+  - The screen is already at the top.
+  - The screen is already at the very left.
+  - The screen is already at the very right.
+  - There is no more screens to move.
+  - This app or service is currently not available in your country.
+  - This function is not available now.
+  - This function is not available when recording is in progress.
+  - To update this function, the latest version of the software is required.
+  - To use this function, the software must be updated. Do you want to update it now?
+  - Try again after update is completed.
+  - Try performing various commands with voice like content search and device control.
+  - Unable to update software.
+  - Unplug the power and turn the TV on, then try again.
+  - Update will be applied when you restart your TV.
+  - Voice Recognition service will be available shortly.
+  - Voice recognition will be available by connecting TV to the network.
+  - Volume up/down
+  - Would you like to change to Full View and check the User Agreement?
+  - Would you like to turn on this feature?
+  - Yes
+  - You can now use your voice to control your TV even without a remote control. Say "Hi, LG" to the TV and voice recognition will start. Would you like to use this feature?
+  - You must update this function to launch it. The update may cause stored data to be deleted. Do you want to update this function?
+## voiceinput (2)
+  - The built-in mic is turned off.
+  - The built-in mic is turned on.
+## wireless-av-controller (5)
+  - Cancel
+  - Connection between TV screen and Zero Connect Box is unstable.
+  - Go to Settings
+  - Home will run after the wireless connection is set up again.
+  - Would you like to set the Zero Connect Box connection for the optimum viewing experience?
+## wowplay (20)
+  - Cancel
+  - Check if it's working with the Sound Bar properly, then try reconnecting it.
+  - Check the power of the connected device.
+  - Failed to connect to the device.
+  - Failed to reconnect LG WOWCAST device, keeping the output speaker as the TV speaker.
+  - For smooth use of the LG WOWCAST device, please check if the wireless router and soundbar are working properly, then try reconnecting.
+  - LG sound bar and TV Speaker will play better sound.
+  - Please try again after closing the Screen Share app.
+  - Please try again after ending current Wi-Fi Direct connection.
+  - Reconnecting due to disconnection of the wireless router.
+  - Retry
+  - Sound Out setting will change to TV Speaker.
+  - The connection to the LG WOWCAST device has been disconnected, and the output speaker is now the TV speaker.
+  - The issue has been resolved and LG WOWCAST device is now connected.
+  - There is an issue with the LG WOWCAST connection, attempting to reconnect.
+  - There may be no sound until the connection is completed.
+  - To use the LG WOWCAST device smoothly, ensure that the router's power is always on.
+  - You cannot use {LG WOWCAST} devices while running the Screen Sharing app.
+  - [{Device Name}] is disconnected.
+  - [{deviceName}] is connected.

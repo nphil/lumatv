@@ -1,0 +1,18 @@
+    "returnValue": true,
+            "windowType": "_WEBOS_WINDOW_TYPE_CARD",
+            "appId": "com.webos.app.home",
+            "appId": "com.webos.app.screensaver",
+            "windowType": "_WEBOS_WINDOW_TYPE_SCREENSAVER",
+1792798521.%N
+cpu  840658 42454 631072 7826564 2892 0 27144 0 0 0
+7581 surface-manager 110173 1943113
+2696 videooutputd 117 1121
+2797 starfish-media- 103 2383
+1792798531.%N
+cpu  841028 42455 631264 7888682 3043 0 27148 0 0 0
+7581 surface-manager 110401 1948515
+2696 videooutputd 117 1121
+2797 starfish-media- 103 2383
+MemAvailable:     770544 kB
+CmaFree:           45164 kB
+

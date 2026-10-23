@@ -1,0 +1,95 @@
+IM_ResetCursorFps
+IM_SetCursorDisplay
+IM_SetCursorDrmDevice
+IM_SetCursorFps
+IM_SetCursorMotionStatus
+IM_SetCursorPortrait
+IM_SetCursorPortrait failed.
+IM_SetCursorPosition
+IM_SetCursorShape
+IM_SetCursorVisibility
+_ZN17QStarfishIMCursor12setCursorFpsEh
+_ZN17QStarfishIMCursor14resetCursorFpsEv
+_ZN17QStarfishIMCursor16setCursorDisplayEb
+_ZN17QStarfishIMCursor17setCursorPositionEjj
+_ZN17QStarfishIMCursor17setCursorRotationEi
+_ZN17QStarfishIMCursor19setCursorVisibilityEb
+_ZN17QStarfishIMCursor21setCursorMotionStatusEb
+resetcursorfpsfunc
+setcursordisplayfunc
+setcursorfpsfunc
+setcursorpositionfunc
+setcursorrotationfunc
+setcursorvisibilityfunc
+===
+	hwcursor:
+*ZN10QKmsDevice14discoverPlanesEvEUlP16_drmModePropertyyE_
+/dev/fb0:/dev/fb1
+Chose plane %u for output %s (crtc id %u) (may not be applicable)
+Fail to choose plane for output %s (crtc id %u)
+Failed to query plane %d object properties, ignoring
+Failed to query plane %d, ignoring
+Forcing plane index %d, plane id %u (belongs to crtc id %u)
+Found %d planes
+Invalid plane index %d, must be between 0 and %u
+No matching plane found having id %d
+No plane associated with output %s (crtc id %u) and atomic modesetting is enabled. This is bad.
+Output %s can use %d planes: %s
+Output eglfs plane is: %d
+QT_QPA_EGLFS_KMS_PLANE_INDEX
+Use default framebuffer size for primary plane
+[flip] %s (plane %u): %ux%u -> %ux%u+%u+%u
+_ZN17QStarfishIMCursorC1Eii
+_ZNK23QEglFSKmsGbmIntegration12createCursorEP15QPlatformScreen
+drmModeFreePlane
+drmModeFreePlaneResources
+drmModeGetPlane
+drmModeGetPlaneResources
+hwcursor
+op.eglfs_plane should not be nullptr
+plane %d: id = %u countFormats = %d possibleCrtcs = 0x%x supported formats = %s
+setVisible plane %u to %s (was %s)
+setVisible: Turn off for invisible plane %u
+void QKmsDevice::discoverPlanes()
+
+ : [IM_CURSOR]%s
+ : [IM_CURSOR_DRAW]%s
+ : [IM_CURSOR_RESOURCE]%s
+(%S) index is larger than _gCursorDrawInfoNum !!
+(%S)-(%d) IM_CURSOR_RESOURCE_GetCursorFileList Error !!
+(%S)-(%d) IM_CURSOR_SURFACE_GetVAddress Error !!
+(%S)-(%d) IM_CURSOR_SURFACE_SetPosition !!
+(%S)-(%d) IM_CURSOR_SURFACE_SetVisibility Error !!
+(%s) IM_CURSOR_DRAW_InitCursorImgInfo Error!!
+(%s) IM_CURSOR_DRAW_SetResolution Error!!
+(%s) IM_CURSOR_RESOURCE_GetCursorFileList Error!!
+(%s) IM_CURSOR_RESOURCE_GetCursorSizeEnum Error : pCursorSizeName:%s 
+(%s) IM_CURSOR_RESOURCE_GetCursorSizeName Error : cursorSize:%d 
+(%s) IM_CURSOR_RESOURCE_GetCursorTypeEnum Error : pCursorTypeName:%s 
+(%s) IM_CURSOR_RESOURCE_GetCursorTypeName Error : cursorType:%d 
+(%s) IM_CURSOR_RESOURCE_MakeCursorFileList Error!!
+(%s) IM_CURSOR_SURFACE_SetFramebuffer Error!!
+(%s) IM_MAIN_GetCursorMaxPosition Error!!
+(%s) _IM_CURSOR_DRAW_ImageDecoding Error file:%s
+(%s)(%d) _gpCursorDrawInfo create fail!!
+(%s)(%d) _gpCursorFileList create error
+(%s)-(%d) IM_CURSOR_DRAW_DestroySurfaceAndReset Error!!
+(%s)-(%d) IM_CURSOR_RESOURCE_GetCursorFileList Error!!
+(%s)-(%d) IM_CURSOR_RESOURCE_GetPNGFileInfoCore Error!!
+7JzDRm
+Current input dispath type doesn't support cursor. So, cursor hide special key is already sent.
+Current input dispath type doesn't support cursor. So, cursor property can't be changed
+Enable Cursor
+Error from IM_SetCursorVisibility
+IM_CURSOR
+IM_CURSOR_CheckCursorPortrait
+IM_CURSOR_CheckCursorResourceStyle
+IM_CURSOR_DRAW_DestroyCursorResourceSurface
+IM_CURSOR_DRAW_DestroyCursorSurface
+IM_CURSOR_DRAW_DestroySurfaceAndReset
+IM_CURSOR_DRAW_InitCursorImgInfo
+IM_CURSOR_DRAW_Initialize
+IM_CURSOR_DRAW_Layer_Disable
+IM_CURSOR_DRAW_Layer_Enable
+IM_CURSOR_DRAW_Layer_SetPosition
+

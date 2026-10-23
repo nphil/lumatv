@@ -58,6 +58,19 @@ exists):
      line, restart the same way. Risk: LG's QML may assume the basic loop;
      if the screen stays black, remove the line and restart.
    - T8 `--apply 'echo 20 > /proc/sys/vm/swappiness' --revert 'echo 100 > /proc/sys/vm/swappiness'` with `apphome` only.
+4b. For ShellArchitecture (10 min, numbers go in "Compositor floor"):
+   - Floor: wallpaper motion off (`theme set {"wallpaperMotion":{"enabled":false}}`),
+     LumaHome idle, then the m64 on-screen probe (`docs/research/m64/wl.c`,
+     64-bit blob + heap shim on DRM dumb buffers; binaries from the 10-22
+     session, look in `/var/lib/lumaglass/exp` and `/tmp` on the set) as a
+     full-screen overlay for 60 s inside `capture.sh start floor full`.
+     Report presented frames over 20 ms from `drm_vblank_event_delivered`
+     and compositor CPU per presented frame (`sm_run_ms / frames`). Repeat
+     under T7 if T7 runs. Restore motion after.
+   - Video: in the `video` workload, compositor CPU per presented frame
+     and GPU busy for `video-idle` (app UI still) vs `video-dpad` (Home
+     animating over video); add a phase with YouTube's own UI animating
+     (d-pad inside YouTube before pressing HOME) if the run allows.
 5. Stability (5 min): compositor RSS from the sampler (`rss=` pages in
    `<name>.sys`) across the 3 apphome runs and 3 qs runs; `dmesg | grep -i
    -E "oom|killed process"`; `/proc/lg/pm/status` temperature.

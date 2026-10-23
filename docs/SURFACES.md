@@ -8,10 +8,13 @@ set itself, read-only.
 
 ## Resume here
 
-State on 2026-10-23: research is running and rows are merged into the group
-tables below as each slice lands; the file is usable at any point. The TV was
-only read (Active Standby throughout, no tweak applied, nothing to revert; one
-stray `/tmp/lstxt.txt` was written at 18:59 and removed again).
+State on 2026-10-23 19:30: all ten research slices have landed and their raw
+output is saved in `docs/research/surfaces/*.json` (rows with evidence, plus
+findings) with the service message strings in `service-strings.txt`. The
+tables below are being rewritten from them; until that is finished the group
+tables hold only the first rows and the file is partial. The TV was only read
+(Active Standby throughout, no tweak applied, nothing to revert; one stray
+`/tmp/lstxt.txt` was written at 18:59 and removed again).
 
 Done:
 
@@ -40,14 +43,13 @@ Done:
 
 Next:
 
-1. Merge the slice results into the tables (agents `SurfaceAudit.<Name>`,
-   output readable at `agent://SurfaceAudit.<Name>` while the session lives:
-   CompositorViews, NotificationTypes, SysUiModulesA, SysUiModulesB,
-   InputCommonUI, AppsSettingsWizards, AppsHomeMediaAI, AppsInputsLiveAds,
-   ServiceSurfaces, KeyEntryPoints).
-2. Check coverage: every id in `uiinv/apps` and every file under
-   `WebOSCompositor/views` is in a row or in "No UI".
-3. Fill Totals, then "Missing from PLAN.md" and "Needs Nitin".
+1. Rewrite the group tables from the slice rows (one row per surface; every
+   app id and every `WebOSCompositor/views` file named in a row or in
+   "No UI"), keeping the plan's current answers where it has one.
+2. Coverage check: all 160 app ids and all view files appear in the text.
+3. Fill Totals, "Facts the replacements must keep", "Missing from PLAN.md"
+   and "Needs Nitin"; compare against `mocks/` (24 screens by 19:15, list in
+   `mocks/BATCH2.md`) for the not-yet-mocked ranking.
 
 Scratch (under `/tmp`, may be wiped): `tvsrc/apps` (small text files of
 `/usr/palm/applications`), `tvsrc/inputcommon/qml`, `tvsrc/l10n` (service

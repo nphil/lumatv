@@ -1,52 +1,52 @@
-interval 35.24s (from /proc/stat); system busy 69.9% of 4 cores; ticks user/nice/sys/idle/iowait/irq/softirq [4768, 932, 4000, 4242, 116, 0, 40]
+interval 36s wall (TS seconds; /proc/stat aggregate is unreliable on this kernel because LG hot-plugs CPU3); Home showing, a sibling agent's grep pinned one core
 cpu%1core  wake/s   rssKB thr   pid comm
-     89.8  1905.5    1160   1  6845 grep
-     13.4   170.5  100500  21  7581 surface-manager
-     10.2   415.4       0   1   877 kswapd0
-      8.6     0.0    4412  37  2693 pqcontroller
+     87.9  1865.5    1160   1  6845 grep
+     13.1   166.9  100500  21  7581 surface-manager
+     10.0   406.7       0   1   877 kswapd0
+      8.4     0.0    4412  37  2693 pqcontroller
       3.6     0.0    6132  13  3915 lginput2
       3.2     0.0   25344  56  3944 iconnectivity
-      2.6    71.9    8520   1     1 systemd
-      2.3    60.9    3156   1  3055 servicemanager
-      2.2    26.4    2372   6  1923 memchute
-      1.8    45.2    7676   5  1865 ls-hubd
-      1.5    11.1   13612  12  3230 sdx
+      2.6    70.4    8520   1     1 systemd
+      2.2    59.6    3156   1  3055 servicemanager
+      2.2    25.9    2372   6  1923 memchute
+      1.8    44.2    7676   5  1865 ls-hubd
+      1.5    10.9   13612  12  3230 sdx
       1.0     0.0   11408  86  2255 legacy-broadcas
-      1.0     3.6       0   1    20 ksoftirqd/2
-      0.9    20.3       0   1    15 ksoftirqd/1
-      0.9     5.7       0   1     9 ksoftirqd/0
-      0.8    12.8   33328  13  3173 ss.apiadapter
-      0.6    15.3    2780   1  3473 arccontroller
-      0.5    18.9    4224   7  8097 captureservice
-      0.5     8.3       0   1    25 ksoftirqd/3
+      0.9     3.5       0   1    20 ksoftirqd/2
+      0.9    19.9       0   1    15 ksoftirqd/1
+      0.9     5.6       0   1     9 ksoftirqd/0
+      0.8    12.6   33328  13  3173 ss.apiadapter
+      0.6    15.0    2780   1  3473 arccontroller
+      0.5    18.5    4224   7  8097 captureservice
+      0.5     8.1       0   1    25 ksoftirqd/3
       0.5     0.0    3628   7  3070 micomservice
       0.5     0.0      52   4  1954 kadpd
-      0.4     4.0   29024  11  8344 node
+      0.4     3.9   29024  11  8344 node
       0.4     0.0    2876  34  3474 extinput-integr
-      0.4    14.4    9352   4  4386 SettingsService
-      0.4     6.4    1324   4  1945 PmLogDaemon
-      0.3     4.4       0   1  2564 hdmi21_rx_engin
+      0.4    14.1    9352   4  4386 SettingsService
+      0.4     6.3    1324   4  1945 PmLogDaemon
+      0.3     4.3       0   1  2564 hdmi21_rx_engin
       0.3     2.0       0   1  1478 smc_kthread
       0.3     0.6       0   1   794 kworker/2:0H-kverityd
       0.3     0.0    8984  10  5540 com.webos.chrom
-      0.3     1.5       0   1  2325 kworker/u9:1-kbase_pm_poweroff_wait
-      0.3     0.7       0   1  2635 kworker/3:3H-kblockd
-      0.3     0.0    4372  17  3472 eim
-      0.2     5.4    5744   4  2500 sam
+      0.2     1.4       0   1  2325 kworker/u9:1-kbase_pm_poweroff_wait
+      0.2     0.7       0   1  2635 kworker/3:3H-kblockd
+      0.2     0.0    4372  17  3472 eim
+      0.2     5.3    5744   4  2500 sam
       0.2     0.1    8356   9  7256 hyperhdr
       0.2     0.0    2400   3  3981 tvlinkcmdproces
-      0.2     4.3     368   1  3867 dropbear
+      0.2     4.2     368   1  3867 dropbear
       0.2     2.1       0   1    10 rcu_preempt
       0.2     0.5       0   1  2336 kworker/0:0H-kverityd
       0.2     0.0    4296  27  4040 upnpd
-      0.2     6.7   11072  35  4004 WebAppMgr
-      0.2     3.0       0   1  7041 kworker/u8:2+events_unbound
+      0.2     6.6   11072  35  4004 WebAppMgr
+      0.2     2.9       0   1  7041 kworker/u8:2+events_unbound
       0.2     0.2   33552  37  3341 amazon-alexa-ad
       0.2     0.0    7176   8  2897 eplmanager
-      0.1     6.5       0   1   798 kworker/u8:1-events_unbound
+      0.1     6.3       0   1   798 kworker/u8:1-events_unbound
       0.1     0.0    9572  10  3554 nn-proxy
       0.1     2.7       0   1  5705 kworker/1:2H-kverityd
       0.1     1.1       0   1  8151 kworker/u9:2-kbase_pm_poweroff_wait
-      0.1     0.5    4900   8  1994 gal_renderd
+      0.1     0.4    4900   8  1994 gal_renderd
       0.1     0.2    4772   5  4069 mojodb-luna
       0.1     0.1    4152  92  2904 physical-device
