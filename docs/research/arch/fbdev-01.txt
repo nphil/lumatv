@@ -1,0 +1,41 @@
+lrwxrwxrwx    1 root     root             8 Dec 31  2022 /dev/fb -> /dev/fb0
+crw-rw----    1 root     composit   29,   0 Dec 31  2022 /dev/fb0
+crw-------    1 root     root       29,   1 Dec 31  1969 /dev/fb1
+crw-------    1 root     root       29,   2 Dec 31  1969 /dev/fb2
+crw-------    1 root     root       29,   3 Dec 31  1969 /dev/fb3
+
+/dev/dri/:
+total 0
+drwxr-xr-x    2 root     root            80 Dec 31  1969 .
+drwxr-xr-x   17 root     root          6760 Oct 23 19:17 ..
+crw-------    1 root     root      226,   0 Dec 31  1969 card0
+crw-------    1 root     root      226, 128 Dec 31  1969 renderD128
+/sys/class/graphics/fb0: name=osd0_fb virtual=1920,2160 bpp=32 state=0
+/sys/class/graphics/fb1: name=osd1_fb virtual=512,4320 bpp=32 state=0
+/sys/class/graphics/fb2: name=osd2_fb virtual=128,4 bpp=32 state=2
+/sys/class/graphics/fb3: name=crsr_fb virtual=256,512 bpp=32 state=0
+0 osd0_fb
+1 osd1_fb
+2 osd2_fb
+3 crsr_fb
+ls: /dev/vsc*: No such file or directory
+crw-rw-rw-    1 root     root       10,  60 Dec 31  1969 /dev/dma_buf_te
+crw-------    1 root     root       10,  63 Dec 31  1969 /dev/ion
+crw-rw-rw-    1 root     root       10,  58 Dec 31  1969 /dev/mali0
+crw-------    1 root     root      238,   0 Dec 31  2022 /dev/npu0
+crw-------    1 root     root       81,   2 Dec 31  1969 /dev/video10
+crw-------    1 root     root       81,   0 Dec 31  1969 /dev/video12
+crw-------    1 root     root       81,   1 Dec 31  1969 /dev/video13
+crw-------    1 root     root       81,  22 Dec 31  2022 /dev/video2
+crw-rw----    1 root     composit   81,  15 Dec 31  1969 /dev/video20
+crw-rw----    1 root     composit   81,  19 Dec 31  1969 /dev/video21
+crw-rw----    1 root     composit   81,  20 Dec 31  1969 /dev/video22
+crw-rw----    1 root     composit   81,  21 Dec 31  1969 /dev/video24
+crw-------    1 root     root       81,  10 Dec 31  1969 /dev/video240
+crw-------    1 root     root       81,  12 Dec 31  1969 /dev/video241
+crw-rw----    1 root     composit   81,  16 Dec 31  1969 /dev/video27
+crw-rw----    1 root     composit   81,  17 Dec 31  1969 /dev/video28
+crw-------    1 root     root       81,  18 Dec 31  1969 /dev/video29
+crw-------    1 root     root       81,   3 Dec 31  1969 /dev/video30
+crw-rw----    1 root     composit   81,   4 Dec 31  1969 /dev/video31
+

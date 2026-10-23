@@ -335,7 +335,7 @@ body {
 .dialog p { margin: 0; font-size: 28px; font-weight: 500; color: var(--lu-ink-2); line-height: 1.35; }
 .dialog .actions { display: flex; gap: 16px; justify-content: flex-end; margin-top: 10px; }
 .dialog .actions .btn { min-width: 220px; }
-.dialog .foot { font-size: 22px; color: var(--lu-ink-3); font-weight: 500; display: flex; align-items: center; gap: 10px; }
+.dialog .foot { font-size: 22px; color: var(--lu-ink-2); font-weight: 500; display: flex; align-items: center; gap: 10px; }
 .dialog .foot .ic { width: 24px; height: 24px; }
 
 /* ---- toast ------------------------------------------------------------------------------ */
@@ -409,7 +409,7 @@ body {
 /* ======================================================================================== */
 
 /* ---- quick panel: one pane at the right edge, tiles are transparent rows ---------------- */
-.qpanel { right: var(--lu-edge-x); top: var(--lu-edge-y); width: 600px; padding: 28px 28px 26px; display: flex; flex-direction: column; }
+.qpanel { right: var(--lu-edge-x); top: var(--lu-edge-y); width: 648px; padding: 28px 28px 26px; display: flex; flex-direction: column; }
 .qpanel .head { display: flex; align-items: center; gap: 14px; padding: 0 8px 18px; }
 .qpanel .head h1 { margin: 0; font-size: 34px; font-weight: 600; letter-spacing: -.01em; flex: 1; }
 .qpanel .head .time { font-size: 24px; color: var(--lu-ink-2); font-weight: 500; }
@@ -422,7 +422,7 @@ body {
 .qtile .v { font-size: 23px; font-weight: 500; color: var(--lu-ink-2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qtile .toggle { transform: scale(.9); transform-origin: right center; }
 .qtile.focusable.focus::before, .qtile.focusable.focus + .qtile::before { display: none; }
-.stepper { display: inline-flex; align-items: center; gap: 4px; height: 52px; padding: 0 6px; border-radius: 14px; background: var(--well); box-shadow: var(--well-inset); flex: none; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; height: 52px; padding: 4px 6px; border-radius: 14px; background: var(--well); box-shadow: var(--well-inset); flex: none; }
 .stepper .ic { width: 26px; height: 26px; color: var(--lu-ink-2); }
 .stepper .sv { font-size: 23px; font-weight: 600; min-width: 112px; text-align: center; white-space: nowrap; }
 .qpanel .foot { padding-top: 18px; display: flex; flex-direction: column; gap: 10px; }
@@ -495,11 +495,11 @@ body {
 
 /* ---- recents: a row of app frames, focused one forward ---------------------------------- */
 .recents { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; }
-.recents .title { font-size: 34px; font-weight: 600; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 16px; }
+.recents .title { font-size: 34px; font-weight: 600; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 16px; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
 .recents .title .sub { font-size: 24px; color: var(--lu-ink-2); font-weight: 500; }
 .rrow { display: flex; gap: 22px; align-items: flex-end; }
 .rcard { position: relative; width: 384px; border-radius: var(--lu-radius-card); padding: 10px; display: flex; flex-direction: column; gap: 12px; background: var(--lu-glass); border: 1px solid var(--lu-edge); box-shadow: var(--highlight-rest), var(--shadow-rest); }
-.rcard .thumb { position: relative; width: 364px; height: 205px; border-radius: 20px; overflow: hidden; background: #0C0A14 center / cover no-repeat; display: grid; place-items: center; }
+.rcard .thumb { position: relative; width: 364px; height: 205px; border-radius: 20px; overflow: hidden; background: #0C0A14 center / cover no-repeat; display: grid; place-items: center; padding: 12px; }
 .rcard .thumb img.app { width: 88px; height: 88px; border-radius: 20px; box-shadow: 0 10px 24px rgba(0,0,0,.4); }
 .rcard .thumb .live { position: absolute; left: 12px; top: 12px; height: 34px; padding: 0 12px; border-radius: 999px; background: rgba(12,10,20,.72); color: var(--lu-ink); font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .rcard .thumb .live .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--lu-danger); }

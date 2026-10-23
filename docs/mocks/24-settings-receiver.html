@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Settings · Receiver</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* drill-in page under Sound: a back chip before the title */
+  .back { display: inline-flex; align-items: center; gap: 6px; height: 48px; padding: 0 18px 0 10px; border-radius: 14px; background: var(--tile-ink-wash); font-size: 24px; font-weight: 600; color: var(--lu-ink-2); border: 1px solid transparent; align-self: center; }
+  .back .ic { width: 26px; height: 26px; }
+  .page-head { align-items: center; }
+  .tabpane { display: none; flex-direction: column; }
+  html[data-tab="modes"] #modes, html[data-tab="levels"] #levels, html[data-tab="audyssey"] #audyssey, html[data-tab="zones"] #zones { display: flex; }
+  /* sound modes: a grid of the receiver's categories, the active category raised, the live mode under it */
+  .mode-grid.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: visible; margin: 10px 0 12px; padding: 4px 0 6px; }
+  .mode-grid.grid .mode { width: auto; height: 86px; min-width: 0; }
+  .mode-grid.grid .mode > div { min-width: 0; }
+  .mode-grid.grid .mode .ms, .mode-grid.grid .mode .mt { overflow: hidden; text-overflow: ellipsis; }
+  .seg > span { min-width: 96px; }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="pane topbar">
+  <i data-ic="chevron-left" class="ic"></i>
+  <span class="title">Settings</span>
+  <span class="spacer"></span>
+  <span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span>
+  <span class="time num">9:49 PM</span>
+</div>
+
+<nav class="pane rail" data-open="sound" aria-label="Settings sections"></nav>
+
+<main class="pane page">
+  <div class="page-head">
+    <span class="back focusable" tabindex="0"><i data-ic="chevron-left"></i>Sound</span>
+    <h1>Receiver</h1>
+    <span class="sub">Denon AVR-S760H · On · TV Audio · Dolby Surround</span>
+    <span class="right"><span class="chip on"><span class="dot"></span>Answering</span></span>
+  </div>
+  <div class="tabs" role="tablist">
+    <div class="tab focusable" role="tab" data-tab="modes">Sound mode</div>
+    <div class="tab focusable" role="tab" data-tab="levels">Levels</div>
+    <div class="tab focusable" role="tab" data-tab="audyssey">Audyssey</div>
+    <div class="tab focusable" role="tab" data-tab="zones">Zones &amp; power</div>
+  </div>
+
+  <div class="page-body">
+    <!-- Sound mode -->
+    <section class="tabpane" id="modes">
+      <div class="rows">
+        <div class="row focusable no-line" tabindex="0">
+          <div class="lead"><i data-ic="power"></i></div>
+          <div class="text"><div class="t">Receiver power</div><div class="d">Turns on with the TV over HDMI-CEC. Off here keeps the TV on.</div></div>
+          <div class="toggle" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="cable"></i></div>
+          <div class="text"><div class="t">Input</div><div class="d">What the receiver plays. TV Audio is this TV over eARC.</div></div>
+          <span class="stepper"><i data-ic="chevron-left"></i><span class="sv" style="min-width:150px">TV Audio</span><i data-ic="chevron-right"></i></span>
+        </div>
+      </div>
+      <div class="group-label">Sound mode · now Dolby Surround</div>
+      <div class="mode-grid grid" role="radiogroup" aria-label="Sound mode">
+        <div class="mode focusable" role="radio" aria-checked="true" tabindex="0" data-autofocus><i data-ic="clapperboard"></i><div><div class="mt">Movie</div><div class="ms">Dolby Surround now</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="music"></i><div><div class="mt">Music</div><div class="ms">Wider, lighter centre</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="gamepad-2"></i><div><div class="mt">Game</div><div class="ms">Effects forward</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="audio-lines"></i><div><div class="mt">Direct</div><div class="ms">Source as is, EQ off</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="audio-waveform"></i><div><div class="mt">Pure Direct</div><div class="ms">Also dims the display</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="speaker"></i><div><div class="mt">Stereo</div><div class="ms">Front pair only</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="disc-3"></i><div><div class="mt">Dolby Digital</div><div class="ms">Dolby decoders</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="disc-3"></i><div><div class="mt">DTS Surround</div><div class="ms">DTS decoders</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="waves"></i><div><div class="mt">Auro-3D</div><div class="ms">Height from any source</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="layout-grid"></i><div><div class="mt">Multi-ch Stereo</div><div class="ms">Stereo on every speaker</div></div><i data-ic="check" class="check"></i></div>
+        <div class="mode focusable" role="radio" aria-checked="false" tabindex="0"><i data-ic="ellipsis"></i><div><div class="mt">More</div><div class="ms">Rock Arena, Jazz Club, Matrix…</div></div><i data-ic="check" class="check"></i></div>
+      </div>
+      <div class="rows">
+        <div class="row focusable no-line" tabindex="0">
+          <div class="lead"><i data-ic="zap"></i></div>
+          <div class="text"><div class="t">Quick Select</div><div class="d">Four memories: input, volume and mode in one press.</div></div>
+          <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">1 · TV</span><span role="radio" aria-selected="false">2 · Apple TV</span><span role="radio" aria-selected="false">3 · Music</span><span role="radio" aria-selected="false">4 · PS4</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Levels -->
+    <section class="tabpane" id="levels">
+      <div class="rows">
+        <div class="row focusable no-line" tabindex="0" data-autofocus>
+          <div class="lead"><i data-ic="volume-2"></i></div>
+          <div class="text"><div class="t">Volume</div><div class="d">Master volume, in the receiver’s own dB.</div></div>
+          <div class="slider" aria-label="Volume"><i data-ic="volume-1"></i><div class="track"><div class="fill" style="width:57%"></div><div class="thumb" style="left:57%"></div></div><i data-ic="volume-2"></i></div>
+          <div class="v num" style="min-width:120px;justify-content:flex-end;color:var(--lu-ink)">−34.5 dB</div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="mic"></i></div>
+          <div class="text"><div class="t">Dialog level</div><div class="d">Louder voices without louder everything.</div></div>
+          <div class="slider" aria-label="Dialog level"><i data-ic="minus"></i><div class="track"><div class="fill" style="width:58%"></div><div class="thumb" style="left:58%"></div></div><i data-ic="plus"></i></div>
+          <div class="v num" style="min-width:120px;justify-content:flex-end;color:var(--lu-ink)">+2.0 dB</div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="speaker"></i></div>
+          <div class="text"><div class="t">Subwoofer level</div><div class="d">More or less bass from the sub only.</div></div>
+          <div class="slider" aria-label="Subwoofer level"><i data-ic="minus"></i><div class="track"><div class="fill" style="width:46%"></div><div class="thumb" style="left:46%"></div></div><i data-ic="plus"></i></div>
+          <div class="v num" style="min-width:120px;justify-content:flex-end;color:var(--lu-ink)">−1.0 dB</div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="sliders-horizontal"></i></div>
+          <div class="text"><div class="t">Bass</div><div class="d">Tone control. Off in Direct and Pure Direct.</div></div>
+          <div class="slider" aria-label="Bass"><i data-ic="minus"></i><div class="track"><div class="fill" style="width:50%"></div><div class="thumb" style="left:50%"></div></div><i data-ic="plus"></i></div>
+          <div class="v num" style="min-width:120px;justify-content:flex-end;color:var(--lu-ink)">0 dB</div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="sliders-horizontal"></i></div>
+          <div class="text"><div class="t">Treble</div><div class="d">Tone control. Off in Direct and Pure Direct.</div></div>
+          <div class="slider" aria-label="Treble"><i data-ic="minus"></i><div class="track"><div class="fill" style="width:58%"></div><div class="thumb" style="left:58%"></div></div><i data-ic="plus"></i></div>
+          <div class="v num" style="min-width:120px;justify-content:flex-end;color:var(--lu-ink)">+1 dB</div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="film"></i></div>
+          <div class="text"><div class="t">Cinema EQ</div><div class="d">Softens bright film soundtracks mixed for a big room.</div></div>
+          <div class="toggle" role="switch" aria-checked="false"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Audyssey -->
+    <section class="tabpane" id="audyssey">
+      <div class="page-note" style="margin-bottom:8px"><i data-ic="info"></i><span>Audyssey is the room correction the receiver measured with its microphone. These switch its parts on and off; re-measuring is done on the receiver.</span></div>
+      <div class="rows">
+        <div class="row focusable no-line" tabindex="0" data-autofocus>
+          <div class="lead"><i data-ic="audio-waveform"></i></div>
+          <div class="text"><div class="t">MultEQ</div><div class="d">Reference is Audyssey’s curve; Flat keeps the highs.</div></div>
+          <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">Reference</span><span role="radio" aria-selected="false">L/R bypass</span><span role="radio" aria-selected="false">Flat</span><span role="radio" aria-selected="false">Off</span></span>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="activity"></i></div>
+          <div class="text"><div class="t">Dynamic EQ</div><div class="d">Keeps bass and surround full at low volume.</div></div>
+          <div class="toggle" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="gauge"></i></div>
+          <div class="text"><div class="t">Reference level offset</div><div class="d">For Dynamic EQ: 0 for films, 5–15 for TV and music mixed quieter.</div></div>
+          <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">0 dB</span><span role="radio" aria-selected="false">5</span><span role="radio" aria-selected="false">10</span><span role="radio" aria-selected="false">15</span></span>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="volume-1"></i></div>
+          <div class="text"><div class="t">Dynamic Volume</div><div class="d">Evens out loud adverts and quiet dialogue.</div></div>
+          <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">Off</span><span role="radio" aria-selected="false">Light</span><span role="radio" aria-selected="false">Medium</span><span role="radio" aria-selected="false">Heavy</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Zones & power -->
+    <section class="tabpane" id="zones">
+      <div class="group-label">Zone 2 · patio speakers</div>
+      <div class="rows">
+        <div class="row focusable no-line" tabindex="0" data-autofocus>
+          <div class="lead"><i data-ic="power"></i></div>
+          <div class="text"><div class="t">Zone 2 power</div><div class="d">The second pair of speakers, on their own volume and input.</div></div>
+          <div class="toggle" role="switch" aria-checked="false"></div>
+        </div>
+        <div class="row focusable disabled" tabindex="0" aria-disabled="true">
+          <div class="lead"><i data-ic="volume-2"></i></div>
+          <div class="text"><div class="t">Zone 2 volume</div><div class="d">Available while Zone 2 is on.</div></div>
+          <div class="slider" aria-label="Zone 2 volume"><i data-ic="volume-1"></i><div class="track"><div class="fill" style="width:40%"></div><div class="thumb" style="left:40%"></div></div><i data-ic="volume-2"></i></div>
+          <div class="v num" style="min-width:120px;justify-content:flex-end">−50 dB</div>
+        </div>
+        <div class="row focusable disabled" tabindex="0" aria-disabled="true">
+          <div class="lead"><i data-ic="cable"></i></div>
+          <div class="text"><div class="t">Zone 2 input</div><div class="d">Follows the main zone unless set here.</div></div>
+          <span class="stepper"><i data-ic="chevron-left"></i><span class="sv" style="min-width:150px">HEOS Music</span><i data-ic="chevron-right"></i></span>
+        </div>
+      </div>
+      <div class="group-label">Power</div>
+      <div class="rows">
+        <div class="row focusable no-line" tabindex="0">
+          <div class="lead"><i data-ic="leaf"></i></div>
+          <div class="text"><div class="t">ECO mode</div><div class="d">Less power at low volume. Auto decides by level; On always.</div></div>
+          <span class="seg" role="radiogroup"><span role="radio" aria-selected="false">On</span><span role="radio" aria-selected="true">Auto</span><span role="radio" aria-selected="false">Off</span></span>
+        </div>
+        <div class="row focusable" tabindex="0">
+          <div class="lead"><i data-ic="square-arrow-out-up-right"></i></div>
+          <div class="text"><div class="t">More on the receiver</div><div class="d">Speaker setup, Audyssey measuring, HEOS and network live in the Denon’s own menu.</div></div>
+          <div class="v"><i data-ic="chevron-right"></i></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  (function () {
+    const tab = new URLSearchParams(location.search).get('tab') || 'modes';
+    document.documentElement.dataset.tab = tab;
+    window.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === tab ? 'true' : 'false'));
+      const el = document.querySelector('#' + tab + ' [data-autofocus]');
+      if (el) { document.querySelectorAll('.focusable.focus').forEach(e => e.classList.remove('focus')); el.classList.add('focus'); }
+    });
+  })();
+</script>
+</body>
+</html>

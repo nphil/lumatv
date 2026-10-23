@@ -1,0 +1,19 @@
+=== /media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin
+-rwxr-xr-x    1 root     jailer        9652 Oct 11 21:12 /media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin
+
+=== /media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt
+-rwxr-xr-x    1 root     jailer     1123144 Nov 21  2025 /media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt
+webos_key : webos_media_output_manager.cc webos_media_pipeline.cc webos_pipeline_tracker.cc webos_private_type.cc webos_video_output_manager_wayland.cc webos_video_size_updater.cc webos_watchdog.cc wl_compositor wl_compositor_interface wl_display_connect wl_display_disconnect wl_display_dispatch wl_display_dispatch_pending wl_display_flush wl_display_get_fd wl_display_prepare_read wl_display_read_events wl_display_roundtrip wl_egl_window_create wl_egl_window_destroy wl_egl_window_resize wl_keyboard_interface wl_pointer_interface wl_proxy_add_listener wl_proxy_destroy wl_proxy_get_version wl_proxy_marshal_flags wl_proxy_set_user_data wl_region_interface wl_registry_interface wl_seat wl_seat_interface wl_shell wl_shell_interface wl_shell_surface_interface wl_surface_interface wl_touch_interface wl_webos_exported_interface wl_webos_foreign wl_webos_foreign_interface wl_webos_input_manager wl_webos_input_manager_interface wl_webos_shell wl_webos_shell_interface wl_webos_shell_surface_interface 
+=== /usr/bin/WebAppMgr
+-rwxr-xr-x    1 wam      root          9656 Apr  5  2011 /usr/bin/WebAppMgr
+
+=== /usr/bin/flutter-client
+-rwxr-xr-x    1 root     root        124268 Apr  5  2011 /usr/bin/flutter-client
+
+=== /media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition
+-rwxr-xr-x    1 root     jailer    23418436 Oct 12 03:58 /media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition
+wp_block.c wp_dgst.c 
+=== /mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome
+-rwxr-xr-x    1 root     root          5500 Apr  5  2011 /mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome
+
+

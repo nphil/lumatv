@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+"""Frame pacing and gap attribution from a capture.sh ftrace dump.
+
+    analyse.py TRACE [--sm PID] [--window A B] [--gap MS] [--json OUT]
+
+A presented frame is a drm_vblank_event_delivered event. Windows are cut
+at tracing_mark_write markers whose text starts with "P:" (phase name);
+the frames between two markers belong to the first. Without markers the
+whole trace is one window.
+
+For every interval over --gap ms (default 20) the analyser lists what ran
+on each CPU, what the compositor's GUI thread was doing (running,
+runnable, sleeping), GPU job activity and power transitions, interrupts,
+hot-plug, reclaim and CMA events inside the interval.
+"""
+import argparse
+import bisect
+import collections
+import json
+import re
+import sys
+
+LINE = re.compile(r'^\s*(.*?)-(\d+)\s+\[(\d{3})\]\s+(\S+)\s+([\d.]+):\s+(\w+):\s?(.*)$')
+SWITCH = re.compile(r'prev_comm=(.*?) prev_pid=(\d+) prev_prio=(-?\d+) prev_state=(\S+) ==> next_comm=(.*?) next_pid=(\d+) next_prio=(-?\d+)')
+WAKEUP = re.compile(r'comm=(.*?) pid=(\d+) prio=(-?\d+) target_cpu=(\d+)')
+KV = re.compile(r'(\w+)=(\S+)')
+
+
+def parse(path):
+    ev = []
+    with open(path, errors='replace') as f:
+        for line in f:
+            m = LINE.match(line)
+            if not m:
+                continue
+            comm, pid, cpu, flags, ts, name, args = m.groups()
+            ev.append((float(ts), int(cpu), name, int(pid), comm, args))
+    ev.sort(key=lambda e: e[0])
+    return ev
+
+
+class Runs:
+    """Per-CPU run intervals from sched_switch, queryable by time."""
+
+    def __init__(self, ncpu=4):
+        self.cur = {}        # cpu -> (t, pid, comm)
+        self.runs = collections.defaultdict(list)  # cpu -> [(t0, t1, pid, comm)]
+        self.starts = {}
+
+    def switch(self, t, cpu, prev_pid, prev_comm, next_pid, next_comm):
+        if cpu in self.cur:
+            t0, pid, comm = self.cur[cpu]
+            self.runs[cpu].append((t0, t, pid, comm))
+        self.cur[cpu] = (t, next_pid, next_comm)
+
+    def finish(self, t_end):
+        for cpu, (t0, pid, comm) in self.cur.items():
+            self.runs[cpu].append((t0, t_end, pid, comm))
+        for cpu in self.runs:
+            self.runs[cpu].sort()
+            self.starts[cpu] = [r[0] for r in self.runs[cpu]]
+
+    def overlap(self, cpu, a, b):
+        """[(pid, comm, seconds)] overlapping [a, b] on cpu, largest first."""
+        out = collections.Counter()
+        names = {}
+        rs = self.runs.get(cpu, [])
+        i = bisect.bisect_right(self.starts.get(cpu, []), a) - 1
+        i = max(i, 0)
+        while i < len(rs) and rs[i][0] < b:
+            t0, t1, pid, comm = rs[i]
+            o = min(t1, b) - max(t0, a)
+            if o > 0:
+                out[pid] += o
+                names[pid] = comm
+            i += 1
+        return [(pid, names[pid], s) for pid, s in out.most_common()]
+
+
+def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
+    ev = parse(path)
+    if not ev:
+        sys.exit("empty trace")
+    t_start, t_end = ev[0][0], ev[-1][0]
+
+    # Discover the compositor pid from the DRM events' owner is unreliable
+    # (delivery runs in irq context under whatever task was current), so the
+    # caller passes it; default: the most frequent sched_switch comm match.
+    if sm_pid is None:
+        c = collections.Counter()
+        for e in ev:
+            if e[2] == 'sched_switch':
+                m = SWITCH.match(e[5])
+                if m and m.group(5) == 'surface-manager':
+                    c[int(m.group(6))] += 1
+        sm_pid = c.most_common(1)[0][0] if c else -1
+
+    runs = Runs()
+    frames = []       # (t, seq)
+    vblanks = []      # t
+    marks = []        # (t, text)
+    wake = []         # (t, pid, comm, cpu)
+    sm_wake = []      # (t) wakeups of the compositor thread
+    sm_run = []       # (t0, t1, cpu)
+    sm_state = {}     # cur run start
+    irqs = []         # (t0, t1, cpu, irq, name)
+    irq_open = {}
+    softirq = []      # (t0, t1, cpu, action)
+    soft_open = {}
+    gpu_jobs = []     # (t0, t1, slot, pid)
+    job_open = {}
+    gpu_pm = []       # (t, event, value)
+    cpuhp = []        # (t, text)
+    reclaim = []      # (t, name, text)
+    cma = []
+    block = []
+    wq = []           # (t0, t1, cpu, fn)
+    wq_open = {}
+    migr = []         # (t, pid, from, to)
+
+    for t, cpu, name, pid, comm, args in ev:
+        if name == 'drm_vblank_event_delivered':
+            m = re.search(r'seq=(\d+)', args)
+            frames.append((t, int(m.group(1)) if m else 0))
+        elif name == 'drm_vblank_event':
+            vblanks.append(t)
+        elif name == 'sched_switch':
+            m = SWITCH.match(args)
+            if not m:
+                continue
+            pc, pp, _, pstate, nc, np_, _ = m.groups()
+            pp, np_ = int(pp), int(np_)
+            runs.switch(t, cpu, pp, pc, np_, nc)
+            if pp == sm_pid and cpu in sm_state:
+                sm_run.append((sm_state.pop(cpu), t, cpu, pstate))
+            if np_ == sm_pid:
+                sm_state[cpu] = t
+        elif name == 'sched_wakeup':
+            m = WAKEUP.match(args)
+            if m:
+                wpid = int(m.group(2))
+                wake.append((t, wpid, m.group(1), int(m.group(4))))
+                if wpid == sm_pid:
+                    sm_wake.append(t)
+        elif name == 'sched_migrate_task':
+            m = re.search(r'pid=(\d+).*orig_cpu=(\d+) dest_cpu=(\d+)', args)
+            if m:
+                migr.append((t, int(m.group(1)), int(m.group(2)), int(m.group(3))))
+        elif name == 'irq_handler_entry':
+            m = re.match(r'irq=(\d+) name=(\S+)', args)
+            if m:
+                irq_open[(cpu, int(m.group(1)))] = (t, m.group(2))
+        elif name == 'irq_handler_exit':
+            m = re.match(r'irq=(\d+)', args)
+            if m and (cpu, int(m.group(1))) in irq_open:
+                t0, nm = irq_open.pop((cpu, int(m.group(1))))
+                irqs.append((t0, t, cpu, int(m.group(1)), nm))
+        elif name == 'softirq_entry':
+            m = re.search(r'action=(\w+)', args)
+            if m:
+                soft_open[(cpu, m.group(1))] = t
+        elif name == 'softirq_exit':
+            m = re.search(r'action=(\w+)', args)
+            if m and (cpu, m.group(1)) in soft_open:
+                softirq.append((soft_open.pop((cpu, m.group(1))), t, cpu, m.group(1)))
+        elif name == 'mali_job_slots_event':
+            # kbase gator encoding: (type << 24) | (slot << 16); type 1 start, 2 stop
+            m = re.match(r'gpu=\d+ event=(\d+) tgid=(\d+) pid=(\d+) job_id=(\d+)', args)
+            if m:
+                e, tg = int(m.group(1)), int(m.group(2))
+                typ, slot = e >> 24, (e >> 16) & 0xff
+                if typ == 1:
+                    job_open[slot] = (t, tg)
+                elif slot in job_open:
+                    t0, tg0 = job_open.pop(slot)
+                    gpu_jobs.append((t0, t, slot, tg0))
+        elif name == 'mali_pm_status':
+            m = re.match(r'gpu=\d+ event (\d+) = (\d+)', args)
+            if m:
+                gpu_pm.append((t, int(m.group(1)), int(m.group(2))))
+        elif name in ('cpuhp_enter', 'cpuhp_exit'):
+            cpuhp.append((t, name + ' ' + args))
+        elif name.startswith('mm_vmscan') or name.startswith('mm_compaction'):
+            reclaim.append((t, name, args[:60]))
+        elif name in ('cma_alloc', 'cma_release'):
+            cma.append((t, name, args[:60]))
+        elif name == 'block_rq_issue':
+            block.append((t, args[:60]))
+        elif name == 'workqueue_execute_start':
+            m = re.search(r'function (\S+)', args)
+            if m:
+                wq_open[(cpu, pid)] = (t, m.group(1))
+        elif name == 'workqueue_execute_end':
+            if (cpu, pid) in wq_open:
+                t0, fn = wq_open.pop((cpu, pid))
+                wq.append((t0, t, cpu, fn))
+        elif name == 'tracing_mark_write':
+            marks.append((t, args.strip()))
+    runs.finish(t_end)
+    for cpu, t0 in sm_state.items():
+        sm_run.append((t0, t_end, cpu, 'R'))
+    sm_run.sort()
+    sm_run_starts = [r[0] for r in sm_run]
+    frames.sort()
+    ftimes = [f[0] for f in frames]
+    gpu_jobs.sort()
+    gpu_starts = [g[0] for g in gpu_jobs]
+    irqs.sort()
+    irq_starts = [i[0] for i in irqs]
+    wake.sort()
+    wake_ts = [w[0] for w in wake]
+    sm_wake.sort()
+    wq.sort()
+    wq_starts = [w[0] for w in wq]
+
+    def in_range(lst, key, a, b):
+        i = bisect.bisect_left(key, a)
+        j = bisect.bisect_right(key, b)
+        return lst[i:j]
+
+    def sm_activity(a, b):
+        """seconds running / runnable / sleeping for the compositor thread in [a,b]."""
+        running = 0.0
+        i = max(bisect.bisect_right(sm_run_starts, a) - 1, 0)
+        cpus = set()
+        while i < len(sm_run) and sm_run[i][0] < b:
+            t0, t1, cpu, st = sm_run[i]
+            o = min(t1, b) - max(t0, a)
+            if o > 0:
+                running += o
+                cpus.add(cpu)
+            i += 1
+        # runnable: from each wakeup inside the window to the next run start
+        runnable = 0.0
+        max_lat = 0.0
+        for wt in in_range(sm_wake, sm_wake, a, b):
+            k = bisect.bisect_left(sm_run_starts, wt)
+            if k < len(sm_run):
+                lat = min(sm_run[k][0], b) - wt
+                if lat > 0:
+                    runnable += lat
+                    max_lat = max(max_lat, lat)
+        return running, runnable, max_lat, sorted(cpus)
+
+    # windows from P: markers
+    phases = [(t, txt[2:]) for t, txt in marks if txt.startswith('P:')]
+    if window:
+        windows = [(window[0], window[1], 'window')]
+    elif phases:
+        windows = []
+        for i, (t, nm) in enumerate(phases):
+            t_next = phases[i + 1][0] if i + 1 < len(phases) else t_end
+            windows.append((t, t_next, nm))
+    else:
+        windows = [(t_start, t_end, 'all')]
+
+    report = {'trace': path, 'sm_pid': sm_pid, 'span_s': round(t_end - t_start, 3),
+              'frames_total': len(frames), 'vblank_hz': round(len(vblanks) / (t_end - t_start), 2) if vblanks else None,
+              'cpuhp_events': len(cpuhp), 'gpu_pm_events': len(gpu_pm), 'windows': []}
+
+    for a, b, nm in windows:
+        fr = in_range(frames, ftimes, a, b)
+        ivals = [(fr[i + 1][0] - fr[i][0]) * 1000.0 for i in range(len(fr) - 1)]
+        seqd = collections.Counter(fr[i + 1][1] - fr[i][1] for i in range(len(fr) - 1))
+        w = {'name': nm, 'start': round(a, 3), 'dur_s': round(b - a, 3), 'frames': len(fr),
+             'fps': round(len(fr) / (b - a), 1) if b > a else 0,
+             'over17': sum(1 for x in ivals if x > 17.5), 'over20': sum(1 for x in ivals if x > 20),
+             'over33': sum(1 for x in ivals if x > 33.5), 'over50': sum(1 for x in ivals if x > 50),
+             'worst_ms': round(max(ivals), 1) if ivals else 0,
+             'vblanks_between_presents': dict(sorted(seqd.items())),
+             'gaps': []}
+        # compositor thread totals in window
+        running, runnable, max_lat, cpus = sm_activity(a, b)
+        w['sm_run_ms'] = round(running * 1000, 1)
+        w['sm_runnable_ms'] = round(runnable * 1000, 1)
+        w['sm_max_sched_latency_ms'] = round(max_lat * 1000, 2)
+        w['sm_migrations'] = sum(1 for m in migr if a <= m[0] <= b and m[1] == sm_pid)
+        # top CPU consumers in window
+        tot = collections.Counter()
+        names = {}
+        for cpu in range(4):
+            for pid, comm, s in runs.overlap(cpu, a, b):
+                if pid != 0:
+                    tot[comm if comm.startswith('kworker') else f'{comm}-{pid}'] += s
+        w['top_cpu_ms'] = [(k, round(v * 1000, 1)) for k, v in tot.most_common(12)]
+        gj = in_range(gpu_jobs, gpu_starts, a, b)
+        w['gpu_jobs'] = len(gj)
+        w['gpu_busy_ms'] = round(sum(min(t1, b) - max(t0, a) for t0, t1, _, _ in gj) * 1000, 1)
+        w['gpu_pm_transitions'] = sum(1 for g in gpu_pm if a <= g[0] <= b)
+        w['cpuhp'] = sum(1 for c in cpuhp if a <= c[0] <= b and 'cpuhp_enter' in c[1] and 'step: 209' in c[1] or (a <= c[0] <= b and 'cpuhp_enter' in c[1] and 'bringup_cpu' in c[1]))
+        w['reclaim_events'] = sum(1 for r in reclaim if a <= r[0] <= b)
+        w['cma_events'] = sum(1 for r in cma if a <= r[0] <= b)
+        w['block_rq'] = sum(1 for r in block if a <= r[0] <= b)
+        ic = collections.Counter(nm_ for t0, t1, cpu, irq, nm_ in in_range(irqs, irq_starts, a, b))
+        w['irq_counts'] = dict(ic.most_common(8))
+
+        for i, x in enumerate(ivals):
+            if x <= gap_ms:
+                continue
+            g0, g1 = fr[i][0], fr[i + 1][0]
+            g = {'at': round(g0 - a, 3), 'ms': round(x, 1), 'vblanks': fr[i + 1][1] - fr[i][1]}
+            sr, sq, ml, cp = sm_activity(g0, g1)
+            g['sm'] = {'run_ms': round(sr * 1000, 2), 'runnable_ms': round(sq * 1000, 2),
+                       'max_sched_lat_ms': round(ml * 1000, 2), 'cpus': cp,
+                       'sleep_ms': round((x - (sr + sq) * 1000), 2)}
+            g['cpu'] = {}
+            for cpu in range(4):
+                g['cpu'][cpu] = [(f'{c}-{p}', round(s * 1000, 2)) for p, c, s in runs.overlap(cpu, g0, g1)[:4]]
+            gj = in_range(gpu_jobs, gpu_starts, g0, g1)
+            g['gpu'] = {'jobs': len(gj), 'busy_ms': round(sum(min(t1, g1) - max(t0, g0) for t0, t1, _, _ in gj) * 1000, 2),
+                        'pm': [(round((t - g0) * 1000, 2), e, v) for t, e, v in gpu_pm if g0 <= t <= g1][:8]}
+            ii = in_range(irqs, irq_starts, g0, g1)
+            g['irq_ms'] = {}
+            for t0, t1, cpu, irq, nm_ in ii:
+                g['irq_ms'][nm_] = round(g['irq_ms'].get(nm_, 0) + (t1 - t0) * 1000, 3)
+            g['softirq_ms'] = round(sum(min(t1, g1) - max(t0, g0) for t0, t1, cpu, act in softirq if t0 < g1 and t1 > g0) * 1000, 2)
+            g['cpuhp'] = [c[1][:70] for c in cpuhp if g0 <= c[0] <= g1][:4]
+            g['reclaim'] = [r[1] for r in reclaim if g0 <= r[0] <= g1][:6]
+            g['cma'] = [r[1] for r in cma if g0 <= r[0] <= g1][:4]
+            g['block'] = [r[1] for r in block if g0 <= r[0] <= g1][:4]
+            wk = collections.Counter(c for t, p, c, cpu in in_range(wake, wake_ts, g0, g1))
+            g['wakeups'] = wk.most_common(8)
+            wqf = collections.Counter(fn for t0, t1, cpu, fn in in_range(wq, wq_starts, g0, g1))
+            g['workqueue'] = wqf.most_common(5)
+            w['gaps'].append(g)
+        report['windows'].append(w)
+    return report
+
+
+def fmt(report, top=10):
+    out = [f"trace {report['trace']}  sm_pid {report['sm_pid']}  span {report['span_s']} s  frames {report['frames_total']}  vblank {report['vblank_hz']} Hz  cpuhp {report['cpuhp_events']}  gpu_pm {report['gpu_pm_events']}"]
+    for w in report['windows']:
+        out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}")
+        out.append(f"   compositor: run {w['sm_run_ms']} ms, runnable {w['sm_runnable_ms']} ms, max sched latency {w['sm_max_sched_latency_ms']} ms, migrations {w['sm_migrations']}; gpu jobs {w['gpu_jobs']} busy {w['gpu_busy_ms']} ms, pm transitions {w['gpu_pm_transitions']}; cpuhp {w['cpuhp']} reclaim {w['reclaim_events']} cma {w['cma_events']} block {w['block_rq']}")
+        out.append(f"   top cpu: {w['top_cpu_ms']}")
+        out.append(f"   irqs: {w['irq_counts']}")
+        gaps = sorted(w['gaps'], key=lambda g: -g['ms'])[:top]
+        if len(w['gaps']) > top:
+            out.append(f"   ({len(w['gaps'])} gaps over threshold; {top} longest shown)")
+        for g in sorted(gaps, key=lambda g: g['at']):
+            out.append(f"   gap +{g['at']}s {g['ms']} ms ({g['vblanks']} vbl): sm run {g['sm']['run_ms']} runnable {g['sm']['runnable_ms']} (max lat {g['sm']['max_sched_lat_ms']}) sleep {g['sm']['sleep_ms']} on {g['sm']['cpus']}; gpu jobs {g['gpu']['jobs']} busy {g['gpu']['busy_ms']} pm {g['gpu']['pm'][:4]}; irq {g['irq_ms']} softirq {g['softirq_ms']}")
+            for cpu, lst in g['cpu'].items():
+                out.append(f"      cpu{cpu}: {lst}")
+            if g['cpuhp']: out.append(f"      cpuhp: {g['cpuhp']}")
+            if g['reclaim']: out.append(f"      reclaim: {g['reclaim']}")
+            if g['cma']: out.append(f"      cma: {g['cma']}")
+            if g['block']: out.append(f"      block: {g['block']}")
+            out.append(f"      wakeups: {g['wakeups']}  wq: {g['workqueue']}")
+    return '\n'.join(out)
+
+
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('trace')
+    ap.add_argument('--sm', type=int)
+    ap.add_argument('--gap', type=float, default=20.0)
+    ap.add_argument('--top', type=int, default=10)
+    ap.add_argument('--window', type=float, nargs=2)
+    ap.add_argument('--json')
+    a = ap.parse_args()
+    r = analyse(a.trace, a.sm, a.gap, a.window)
+    if a.json:
+        with open(a.json, 'w') as f:
+            json.dump(r, f, indent=1)
+    print(fmt(r, a.top))

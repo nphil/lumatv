@@ -6,24 +6,33 @@
 <link rel="stylesheet" href="lucent.css">
 <style>
   .frame { background-image: url("img/still.jpg"); }
-  [data-v="muted"] .unmuted { display: none; }
-  html:not([data-v="muted"]) .muted { display: none; }
+  /* one OSD, four states: dB (default), absolute 0–98 (?v=abs), muted (?v=muted), receiver not answering (?v=offline) */
+  .st { display: none; }
+  html:not([data-v]) .st.db, [data-v="abs"] .st.abs, [data-v="muted"] .st.muted, [data-v="offline"] .st.offline { display: contents; }
+  [data-v="offline"] .osd .track { display: none; }
+  [data-v="offline"] .osd .lead { color: var(--lu-ink-3); }
+  [data-v="offline"] .osd .db { font-size: 28px; color: var(--lu-ink-2); letter-spacing: -.01em; }
+  [data-v="offline"] .osd .line1 { flex-direction: column; align-items: flex-start; gap: 6px; }
+  [data-v="offline"] .osd .meta { margin-left: 0; }
+  .osd .line2 { font-size: 22px; font-weight: 500; color: var(--lu-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
 <div class="frame"></div>
 
 <div class="overlay osd" role="status" aria-live="polite">
-  <span class="lead unmuted"><i data-ic="volume-2"></i></span>
-  <span class="lead muted"><i data-ic="volume-x"></i></span>
+  <span class="st db"><span class="lead"><i data-ic="volume-2"></i></span></span>
+  <span class="st abs"><span class="lead"><i data-ic="volume-2"></i></span></span>
+  <span class="st muted"><span class="lead"><i data-ic="volume-x"></i></span></span>
+  <span class="st offline"><span class="lead"><i data-ic="unplug"></i></span></span>
   <div class="body">
     <div class="line1">
-      <span class="db unmuted">−32.5<span class="unit"> dB</span></span>
-      <span class="db muted">Muted</span>
-      <span class="meta unmuted">Denon · Atmos · TrueHD</span>
-      <span class="meta muted">Denon · was −32.5 dB</span>
+      <span class="st db"><span class="db">−34.5<span class="unit"> dB</span></span><span class="meta">TV Audio · Dolby Surround</span></span>
+      <span class="st abs"><span class="db">45.5<span class="unit"> of 98</span></span><span class="meta">TV Audio · Dolby Surround</span></span>
+      <span class="st muted"><span class="db">Muted</span><span class="meta">TV Audio · was −34.5 dB</span></span>
+      <span class="st offline"><span class="db">Receiver not answering</span><span class="meta">Volume keys still reach it</span></span>
     </div>
-    <div class="track"><i style="width:59%"></i></div>
+    <div class="track"><i style="width:57%"></i></div>
   </div>
 </div>
 

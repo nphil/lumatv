@@ -21,7 +21,9 @@ const SHOTS = [
   ['10-quick-panel-light', '10-quick-panel.html?theme=light'],
   ['10-quick-panel-video', '10-quick-panel.html?v=video'],
   ['11-volume-osd', '11-volume-osd.html'],
+  ['11-volume-osd-abs', '11-volume-osd.html?v=abs'],
   ['11-volume-osd-muted', '11-volume-osd.html?v=muted'],
+  ['11-volume-osd-offline', '11-volume-osd.html?v=offline'],
   ['12-all-apps', '12-all-apps.html'],
   ['12-all-apps-light', '12-all-apps.html?theme=light'],
   ['12-all-apps-menu', '12-all-apps.html?v=menu'],
@@ -29,6 +31,7 @@ const SHOTS = [
   ['14-recents', '14-recents.html'],
   ['15-launch-splash', '15-launch-splash.html'],
   ['15-long-press-ring', '15-launch-splash.html?v=ring'],
+  ['15-spinner', '15-launch-splash.html?v=spinner'],
   ['16-context-menu', '16-context-menu.html'],
   ['17-power-menu', '17-power-menu.html'],
   ['17-power-countdown', '17-power-menu.html?v=countdown'],
@@ -41,6 +44,10 @@ const SHOTS = [
   ['22-bluetooth-pair', '22-bluetooth-update.html'],
   ['22-update-prompt', '22-bluetooth-update.html?v=update'],
   ['23-boot', '23-boot.html'],
+  ['24-settings-receiver', '24-settings-receiver.html'],
+  ['24-settings-receiver-levels', '24-settings-receiver.html?tab=levels'],
+  ['24-settings-receiver-audyssey', '24-settings-receiver.html?tab=audyssey'],
+  ['24-settings-receiver-zones', '24-settings-receiver.html?tab=zones'],
 ];
 const only = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--force-device-scale-factor=1'] });

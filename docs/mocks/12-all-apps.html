@@ -5,7 +5,7 @@
 <title>LumaTV · Apps</title>
 <link rel="stylesheet" href="lucent.css">
 <style>
-  .lib-rail .rail-entry { height: 80px; grid-template-columns: 48px 1fr; }
+  .lib-rail .rail-entry { height: 80px; grid-template-columns: 48px 1fr; padding-top: 6px; padding-bottom: 6px; }
   .lib-rail .rail-entry .tile { width: 48px; height: 48px; border-radius: 14px; }
   .lib-rail .rail-entry .tile .ic { width: 26px; height: 26px; }
   .lib-rail .rail-entry .name { font-size: 27px; }
@@ -17,8 +17,10 @@
   .lib .head .search { margin-left: auto; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px 0 16px; border-radius: 16px; background: var(--tile-ink-wash); font-size: 24px; font-weight: 600; color: var(--lu-ink-2); border: 1px solid transparent; }
   .lib .head .search .ic { width: 26px; height: 26px; }
   /* the hold-OK menu variant */
-  .menu { position: absolute; left: 528px; top: 470px; display: none; }
-  [data-v="menu"] .menu { display: flex; }
+  .menu { position: absolute; left: 528px; top: 472px; display: none; }
+  .menu-scrim { position: absolute; inset: 0; background: rgba(11,9,20,.46); display: none; }
+  [data-v="menu"] .menu, [data-v="menu"] .menu-scrim { display: flex; }
+  .src-clone { position: absolute; z-index: 3; }
 </style>
 </head>
 <body>
@@ -59,6 +61,7 @@
   <div class="keyhints"><span><kbd>OK</kbd>Open</span><span><kbd>Hold OK</kbd>Move, hide, rename, uninstall</span><span><kbd>1–9</kbd>Open a dock tile</span></div>
 </main>
 
+<div class="menu-scrim"></div>
 <div class="overlay menu" role="menu" aria-label="Netflix options">
   <div class="mh"><img src="img/apps/netflix.png" alt=""><div><div class="t">Netflix</div><div class="d">On the dock · tile 2</div></div></div>
   <div class="mi focusable" role="menuitem" tabindex="0" id="mi-open"><i data-ic="play"></i>Open</div>
@@ -74,7 +77,9 @@
 <script>
   if (document.documentElement.dataset.v === 'menu') window.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.focusable.focus').forEach(e => e.classList.remove('focus'));
-    document.querySelector('.app').classList.add('src');
+    const a = document.querySelector('.app'); a.classList.add('src');
+    const r = a.getBoundingClientRect(); const c = a.cloneNode(true); c.classList.add('src-clone');
+    c.style.left = r.left + 'px'; c.style.top = r.top + 'px'; c.style.width = r.width + 'px'; document.body.appendChild(c);
     document.getElementById('mi-open').classList.add('focus');
   });
 </script>

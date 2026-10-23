@@ -37,7 +37,7 @@
 <body>
 <header>
   <h1>LumaTV system screens</h1>
-  <p>Mockups of LumaTV’s own Settings, windows and AI-access controls for the LG C4, drawn in Lucent (TV profile, Rosé Pine) to sit beside the current LumaHome and LumaShow’s Settings. 1920×1080, Manrope, remote-first with a hover state for the Magic Remote pointer. <b>Open live</b> shows the real HTML: arrow keys move focus, OK (Enter) toggles. Mapping of LG’s items to the curated sections: <a class="b" href="settings-map.md">settings-map.md</a></p>
+  <p>Mockups of LumaTV’s own Settings, windows, AI-access controls and the rest of the shell (quick panel, OSDs, library, drawers, prompts, screensaver, boot) for the LG C4, drawn in Lucent (TV profile, Rosé Pine) to sit beside the current LumaHome and LumaShow’s Settings. 1920×1080, Manrope, remote-first with a hover state for the Magic Remote pointer. <b>Open live</b> shows the real HTML: arrow keys move focus, OK (Enter) toggles. Mapping of LG’s items to the curated sections: <a class="b" href="settings-map.md">settings-map.md</a></p>
 </header>
 
 <div class="grid" id="grid"></div>
@@ -55,7 +55,7 @@
 <script>
 const SHOTS = [
   ['01-settings-picture', '01-settings-picture.html', 'Settings · Picture (dark)', 'Rail of nine curated sections with a tile glyph and a live one-line value; Picture page with Mode | Brightness | Colour | Advanced tabs, a mode chooser that scrolls, sliders, switches and a “More in LG settings” escape row.'],
-  ['01-settings-picture-light', '01-settings-picture.html?theme=light', 'Settings · Picture (light)', 'Same screen in the light palette (Rosé Pine Dawn): cream glass, dark ink, the landing bar inverts.'],
+  ['01-settings-picture-light', '01-settings-picture.html?theme=light', 'Settings · Picture (light)', 'Same screen in the light palette (Rosé Pine Dawn): cream glass, dark ink.'],
   ['02-settings-sound', '02-settings-sound.html', 'Settings · Sound', 'Sound out to the Denon over eARC, the receiver’s own volume as a live slider, a disabled sound-mode row that says why, AV sync, audio format.'],
   ['03-settings-remote', '03-settings-remote.html', 'Settings · Remote & pointer', 'Pointer on/off with its plain-words description, speed and size as segmented choices; button behaviours: hold Home for LG’s Home, number keys open dock tiles.'],
   ['04-settings-ai-access', '04-settings-ai-access.html', 'Settings · AI access (dark)', 'Master switch Off | LAN only, the rule line, paired assistants with last activity and Remove, per-capability levels (Always / Ask on TV / Never) per assistant, recent activity, Lock out all AI.'],
@@ -65,6 +65,37 @@ const SHOTS = [
   ['07-toast', '07-toast.html', 'Toast', 'Upper-right safe corner under the top bar, one sentence plus Undo, no focus theft.'],
   ['08-input-picker', '08-input-picker.html', 'Input picker', 'Bottom sheet over the dimmed Home: Live TV and HDMI 1–4 as labelled tiles with device glyphs, CEC names, connection state, and which one carries sound.'],
   ['09-search-keyboard', '09-search-keyboard.html', 'Search and keyboard', 'Bottom sheet with the field, matched results (apps, settings, web) and a deterministic-row keyboard; focus on a key.'],
+  ['10-quick-panel', '10-quick-panel.html', 'Quick panel (dark, over Home)', 'One pane at the right edge, as tall as its six tiles: picture mode as a stepper, the Denon receiver tile (input · sound mode, volume stepper in the receiver’s dB), sleep timer, Wi-Fi, ambient light switch, AI access state, then All settings. Replaces LG’s Quick Settings.'],
+  ['10-quick-panel-light', '10-quick-panel.html?theme=light', 'Quick panel (light)', 'Light palette on the same geometry.'],
+  ['10-quick-panel-video', '10-quick-panel.html?v=video', 'Quick panel (over video)', 'Over a playing frame the glass is tinted, not blurred: no live blur over video.'],
+  ['11-volume-osd', '11-volume-osd.html', 'Volume OSD (receiver, dB)', 'Lower-left safe corner, clear of subtitles: the Denon’s own level in dB (pushed by the receiver, not webOS’s counter), a short track, input and sound mode on one line. Tinted glass over video, auto-hides.'],
+  ['11-volume-osd-abs', '11-volume-osd.html?v=abs', 'Volume OSD, 0–98 scale', 'The same OSD when the receiver is set to its absolute scale.'],
+  ['11-volume-osd-muted', '11-volume-osd.html?v=muted', 'Volume OSD, muted', 'Muted replaces the number; the last level stays readable, the track greys.'],
+  ['11-volume-osd-offline', '11-volume-osd.html?v=offline', 'Volume OSD, receiver not answering', 'No value is shown rather than a stale one (reads older than 6 s are hidden); the keys still reach the receiver over CEC.'],
+  ['12-all-apps', '12-all-apps.html', 'All-apps library (dark)', 'Categories in a rail with live lines (counts, the apps inside), Hidden at the bottom; the page shows 168 px tiles with names, a search field, and key hints: OK opens, hold OK for Move / Hide / Rename / Uninstall.'],
+  ['12-all-apps-light', '12-all-apps.html?theme=light', 'All-apps library (light)', 'Light palette.'],
+  ['12-all-apps-menu', '12-all-apps.html?v=menu', 'All-apps library, hold-OK menu', 'The menu opens under its tile, the rest dims, the tile stays raised as the menu’s source; Uninstall in danger ink.'],
+  ['13-notifications', '13-notifications.html', 'Notification drawer', 'Right-side drawer as tall as its content, grouped by source (AI access, Home Assistant, TV) with counts, inline actions (Resume Cody), Clear all in the head.'],
+  ['14-recents', '14-recents.html', 'App switcher', 'A row of frames over the dimmed Home: live thumbnail (Plex is playing) or a plate with the app icon, when it was last used, a close control; the focused frame comes forward.'],
+  ['15-launch-splash', '15-launch-splash.html', 'Launch splash', 'The app’s own icon and name on the darkened canvas, one small static arc for “Opening”. Nothing else moves.'],
+  ['15-long-press-ring', '15-launch-splash.html?v=ring', 'Long-press ring', 'Holding OK on a tile fills an accent ring around it with a label; release early and nothing happens.'],
+  ['15-spinner', '15-launch-splash.html?v=spinner', 'Spinner (buffering)', 'One small static arc over the dimmed frame, a “Loading” label after a second; compositor transform only, no shimmer.'],
+  ['16-context-menu', '16-context-menu.html', 'Context menu', 'Hold OK or the Menu key on a dock tile: a short anchored list (Open, Move, Hide, Rename, Uninstall) beside the raised tile, the rest of Home dimmed.'],
+  ['17-power-menu', '17-power-menu.html', 'Power menu', 'Turn off (Denon follows over CEC), Screen off with sound on, Sleep timer as a segmented Off / 15 / 30 / 60 / 90, Restart; hold-power shortcut noted.'],
+  ['17-power-countdown', '17-power-menu.html?v=countdown', 'Sleep countdown toast', '“TV turns off in 60 s” in the toast corner with Cancel and a draining bar; any key cancels.'],
+  ['18-no-signal', '18-no-signal.html', 'No signal (HDMI 4)', 'Burn-in safe: black, 62 % dim text that drifts to a new spot each minute, two ways out (Inputs, Home).'],
+  ['18-device-connected', '18-no-signal.html?v=connected', 'Device connected popup', 'PlayStation 5 turned on: a wide toast over video (tinted glass) with Switch to HDMI 3 focused and Stay here; it closes by itself without switching.'],
+  ['19-pin-prompt', '19-pin-prompt.html', 'PIN prompt', 'Four well cells for the masked digits, a 3×4 pad with fixed positions (Clear, 0, Delete) that the D-pad walks; the remote’s number keys work too.'],
+  ['20-channel-banner', '20-channel-banner.html', 'Live TV channel banner', 'A lower-left strip: channel number and station, programme, time span with a progress bar, what is next, format chips. Tinted glass over the broadcast.'],
+  ['21-screensaver-clock', '21-screensaver.html', 'Screensaver, clock', 'Black canvas, the clock block at 60 % brightness drifting to a new spot every minute, with two glance facts (weather, front door).'],
+  ['21-screensaver-art', '21-screensaver.html?v=art', 'Screensaver, art mode', 'A public-domain print (Hokusai) in a cream matte and thin dark frame on a dark wall, dimmed for the panel, caption and time in the corners.'],
+  ['22-bluetooth-pair', '22-bluetooth-update.html', 'Bluetooth pairing prompt', 'Pair Nate’s AirPods Pro? States the consequence (sound leaves the Denon), Not now focused, Pair as the primary.'],
+  ['22-update-prompt', '22-bluetooth-update.html?v=update', 'TV update prompt', 'Version, size, duration and restart stated; Later focused; installs only on Nitin’s choice, never by itself.'],
+  ['23-boot', '23-boot.html', 'Boot screen', 'Near-black canvas, the LumaTV wordmark (gradient mark plus Manrope word) and one quiet state line; replaces the LG logo. Static frame.'],
+  ['24-settings-receiver', '24-settings-receiver.html', 'Settings › Sound › Receiver: Sound mode', 'Drill-in page for the Denon AVR-S760H with a back chip and an “Answering” state: power, input stepper (TV Audio, Apple TV, Bluetooth, HEOS Music, MAGNAVOX 4K BD, PS4), the sound-mode categories as tiles with the live mode under Movie, DSP styles under More, Quick Select 1–4.'],
+  ['24-settings-receiver-levels', '24-settings-receiver.html?tab=levels', 'Receiver: Levels', 'Master volume in the receiver’s dB, dialog (centre) level, subwoofer level, bass, treble, Cinema EQ, each with a one-line plain description.'],
+  ['24-settings-receiver-audyssey', '24-settings-receiver.html?tab=audyssey', 'Receiver: Audyssey', 'MultEQ curve (Reference / L/R bypass / Flat / Off), Dynamic EQ on, reference level offset, Dynamic Volume; a note that measuring stays on the receiver.'],
+  ['24-settings-receiver-zones', '24-settings-receiver.html?tab=zones', 'Receiver: Zones & power', 'Zone 2 power, volume and input (disabled rows say why), ECO mode, and the escape row to the Denon’s own menu.'],
 ];
 const grid = document.getElementById('grid');
 grid.innerHTML = SHOTS.map(([id, file, name, cap], i) => `

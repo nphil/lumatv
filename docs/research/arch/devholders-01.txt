@@ -1,0 +1,19 @@
+avmutemanager 1951:       1 /dev/video30       1 /dev/video31 
+kadpd 1954:       1 /dev/video240 
+gal_renderd 1994:       1 /dev/fb0       1 /dev/fb1       1 /dev/fb2       1 /dev/fb3       1 /dev/mali0       1 /dev/video240 
+legacy-broadcas 2255:       1 /dev/video2 
+com.webos.app.i 2513:       1 /dev/dma_buf_te       1 /dev/mali0 
+pqcontroller 2693:       1 /dev/fb0       1 /dev/fb1       1 /dev/fb3       1 /dev/video40       2 /dev/video50 
+videooutputd 2696:       1 /dev/video30       1 /dev/video31 
+eplmanager 2897:       1 /dev/fb0       1 /dev/fb1       1 /dev/fb3       1 /dev/video40 
+panelcontroller 3072:       1 /dev/video40 
+eim 3472:       1 /dev/video12 
+arccontroller 3473:       1 /dev/video12       1 /dev/video13 
+extinput-integr 3474:       1 /dev/video13 
+nn-proxy 3554:       1 /dev/fb0       1 /dev/fb1       1 /dev/fb2       1 /dev/fb3       1 /dev/mali0       1 /dev/video241 
+WebAppMgr 4004:       1 /dev/dma_buf_te       1 /dev/mali0 
+surface-manager 7581:       3 /dev/dma_buf_te       1 /dev/dri/card0       1 /dev/mali0 
+cobalt 7615:       1 /var/palm/jail/youtube.leanback.v4/dev/dma_buf_te       1 /var/palm/jail/youtube.leanback.v4/dev/mali0 
+flutter-client 8070:       1 /dev/dma_buf_te       1 /dev/mali0 
+captureservice 8097:       1 /dev/fb0       1 /dev/fb1       1 /dev/fb3 
+

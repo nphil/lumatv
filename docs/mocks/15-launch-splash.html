@@ -7,8 +7,14 @@
 <style>
   /* splash: the canvas, darkened, with the app's identity; nothing else moves but the arc */
   .splash-bg { position: absolute; inset: 0; background: url("img/wall.jpg") center / cover no-repeat; filter: saturate(1.2) brightness(.55); }
-  [data-v="ring"] .splash-bg, [data-v="ring"] .splash { display: none; }
+  [data-v="ring"] .splash-bg, [data-v="ring"] .splash, [data-v="spinner"] .splash-bg, [data-v="spinner"] .splash { display: none; }
   html:not([data-v="ring"]) .home-behind, html:not([data-v="ring"]) .ring { display: none; }
+  /* spinner: a buffering app; one small static arc, the state text appears after a second, compositor transform only */
+  html:not([data-v="spinner"]) .frame, html:not([data-v="spinner"]) .spin { display: none; }
+  .frame { background-image: url("img/still.jpg"); filter: brightness(.55); }
+  .spin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .spin .arc { width: 56px; height: 56px; border-width: 5px; }
+  .spin .lbl { font-size: 24px; font-weight: 600; color: var(--lu-ink); background: rgba(12,10,20,.72); padding: 8px 18px; border-radius: 999px; }
   /* ring: around the focused (raised) Apps tile in the Home capture, centre about (213, 761) */
   .ring { left: 123px; top: 671px; width: 180px; height: 180px; }
 </style>
@@ -20,6 +26,9 @@
   <div class="n">Netflix</div>
   <div class="st"><span class="arc"></span>Opening</div>
 </div>
+
+<div class="frame"></div>
+<div class="spin" role="status"><span class="arc"></span><span class="lbl">Loading</span></div>
 
 <div class="home-behind"></div>
 <div class="ring" aria-label="Keep holding for options">

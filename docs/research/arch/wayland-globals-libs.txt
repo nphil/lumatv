@@ -1,0 +1,27 @@
+== /usr/lib/libgm-wayland.so.1.0.0
+wl_compositor wl_region wl_registry wl_shell wl_shell_surface wl_surface wl_webos_exported wl_webos_foreign wl_webos_imported wl_webos_shell wl_webos_shell_surface wl_webos_surface_group wl_webos_surface_group_compositor 
+== /usr/lib/libwayland-webos-client.so.1.0.0
+input_method input_method_context input_panel input_panel_surface text_model text_model_factory wl_keyboard wl_region wl_seat wl_surface wl_webos_accelerometer wl_webos_exported wl_webos_foreign wl_webos_gyroscope wl_webos_imported wl_webos_input_manager wl_webos_seat wl_webos_shell wl_webos_shell_surface wl_webos_surface_group wl_webos_surface_group_compositor wl_webos_surface_group_layer wl_webos_xinput wl_webos_xinput_extension 
+== /usr/lib/libwayland-input-helper.so.1.0.0
+wl_compositor wl_keyboard wl_region wl_registry wl_seat wl_shell wl_shell_surface wl_webos_shell wl_webos_shell_surface 
+== /usr/lib/libwayland-starfish-client.so.1.0.0
+wl_starfish_output wl_starfish_pointer wl_surface 
+== /usr/lib/flutter/3.22.2/release/libflutter_elinux_wayland.so
+input_panel input_panel_surface text_model text_model_factory wl_buffer wl_callback wl_compositor wl_data_device wl_data_device_manager wl_data_source wl_keyboard wl_output wl_pointer wl_region wl_registry wl_seat wl_shell wl_shell_surface wl_shm wl_shm_pool wl_surface wl_touch wl_webos_exported wl_webos_foreign wl_webos_input_manager wl_webos_shell wl_webos_shell_surface wl_webos_surface_group wl_webos_surface_group_compositor wl_webos_surface_group_layer wl_webos_xinput wl_webos_xinput_extension wp_presentation wp_presentation_feedback 
+== /media/cryptofs/apps/usr/palm/applications/netflix/lib/libwebosPlugin.so.1
+wl_compositor wl_keyboard wl_pointer wl_region wl_registry wl_seat wl_shell wl_shell_surface wl_shm wl_surface wl_webos_exported wl_webos_foreign wl_webos_input_manager wl_webos_shell wl_webos_shell_surface 
+== /usr/lib/libwebos-platform-interface.so.1.0.0
+wl_region wl_registry wl_seat wl_surface wl_webos_accelerometer wl_webos_exported wl_webos_foreign wl_webos_gyroscope wl_webos_imported wl_webos_input_manager wl_webos_seat wl_webos_shell wl_webos_shell_surface wl_webos_surface_group wl_webos_surface_group_compositor wl_webos_surface_group_layer wl_webos_xinput wl_webos_xinput_extension 
+== /usr/lib/libQt5WaylandClient.so.5.12.4
+qt_extended_surface qt_hardware_integration qt_server_buffer qt_surface_extension qt_touch_extension qt_windowmanager wl_buffer wl_callback wl_compositor wl_data_device wl_data_device_manager wl_data_offer wl_data_source wl_keyboard wl_output wl_pointer wl_region wl_registry wl_seat wl_shell wl_shell_surface wl_shm wl_shm_pool wl_subcompositor wl_subsurface wl_surface wl_touch zwp_text_input_manager_v2 zwp_text_input_v2 
+== /usr/lib/libStarfishInput.so.0.0.1
+
+== /usr/lib/plugins/egldeviceintegrations/libeglfs-starfish-integration.so
+
+== /usr/lib/plugins/compositor/libstarfishcompositorplugin.so
+
+== /usr/lib/libWebOSCoreCompositor.so.0.0.1
+input_method input_method_context input_panel input_panel_surface text_model text_model_factory wl_region wl_seat wl_surface wl_webos_accelerometer wl_webos_exported wl_webos_foreign wl_webos_gyroscope wl_webos_imported wl_webos_input_manager wl_webos_seat wl_webos_shell wl_webos_shell_surface wl_webos_surface_group wl_webos_surface_group_compositor wl_webos_surface_group_layer 
+== /usr/lib/libmali.so.0.46.0
+mali_buffer_sharing wl_buffer wl_callback wl_drm wl_registry wl_surface zwp_linux_buffer_release_v1 zwp_linux_explicit_synchronization_v1 zwp_linux_surface_synchronization_v1 
+

@@ -1,0 +1,46 @@
+== /usr/sbin/sam (2530720 bytes)
+      1 luna://com.webos.surfacemanager/setPinOverlayView
+      1 luna://com.webos.surfacemanager/getRecentsAppList
+      1 luna://com.webos.surfacemanager/getForegroundAppInfo
+      1 luna://com.webos.coverUI/getStatus
+      1 com.webos.surfacemanager.windowext
+      1 com.webos.surfacemanager
+      1 com.webos.coverUI
+== /usr/palm/applications/com.webos.app.home/lib/libplover_platform_webos_plugin.so (402100 bytes)
+== /usr/palm/applications/com.webos.app.home/lib/libapp.so (10289756 bytes)
+      1 luna://com.webos.service.systemUIManager/launch
+      1 luna://com.webos.service.systemUIManager/closeByAppId
+      1 luna://com.webos.service.recent/listRecents
+      1 luna://com.webos.service.recent
+== /usr/lib/libStarfishServiceIntegration.so.0.0.1 (173548 bytes)
+      2 com.webos.surfacemanager.pointerResourceStyle
+      2 com.webos.surfacemanager.cursorHoverHandlers
+      1 com.webos.surfacemanager.input/getKeyInputBlockState
+      1 com.webos.surfacemanager.input
+      1 com.webos.service.sysuicompmgr
+      1 com.webos.service.systemUIManager/getForegroundAppInfo
+      1 com.webos.service.systemUIManager
+== /usr/lib/flutter/3.22.2/release/libflutter_elinux_wayland.so (1210284 bytes)
+
+== sam: all luna services it names
+      5 luna://com.webos.service.webappportable
+      5 luna://com.webos.service.tvpower
+      5 luna://com.webos.service.bus
+      5 luna://com.webos.accountdb
+      5 luna://com.palm.webappmanager
+      4 luna://com.webos.service.sdx
+      4 luna://com.webos.service.db
+      3 luna://com.webos.surfacemanager
+      3 luna://com.webos.settingsservice
+      3 luna://com.webos.service.attachedstoragemanager
+      3 luna://com.webos.notification
+      3 luna://com.webos.applicationManager
+      2 luna://com.webos.service.sm
+      2 luna://com.webos.service.pkgInstall
+      2 luna://com.webos.booster
+      2 luna://com.webos.appInstallService
+      1 luna://com.webos.service.connectionmanager
+      1 luna://com.webos.memorymanager
+      1 luna://com.webos.coverUI
+-rwx------    1 root     root       2530720 Apr  5  2011 /usr/sbin/sam
+
