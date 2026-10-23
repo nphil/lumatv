@@ -5,6 +5,9 @@ g = 1
 row(g, 'Home', 'shelves, hero banner, Q-cards, app row, recents, edit mode; hero is off here (`homePromotion` off)',
     'com.webos.app.home', 'daily', 'Yes', 'Replace',
     "LumaHome draws it; LG's Flutter Home stays resident behind it as the fallback", 'Home stub', 1)
+row(g, 'Senior (Simple) Home', 'large-print home for Simple Mode, hosted as window type `home`',
+    ['com.webos.app.seniorhome', F('WebOSCompositor/views/StarfishHomeView.qml', 'compositor-qml', '61 lines')], 'never', 'No', 'Keep (dormant)',
+    'Simple Mode is unsupported here (`seniorMode.support` false)', '—', '—')
 row(g, 'Apps tile (LG Content Store)', 'server-rendered store page: featured, categories, search, install',
     'com.webos.app.discovery', 'sometimes', 'Yes', 'Replace',
     "own all-apps grid with search and favourites (mock 12); LG's store stays reachable for installs", 'Key filter and launch redirect', 7)
@@ -22,7 +25,7 @@ row(g, 'Recents (app switcher)', 'row of recent app cards, drawn by Home from `r
     'sometimes', 'Yes · mock 14', 'Replace',
     'lives in LumaHome (close with `closeByAppId` before `removeRecent`); PLAN files it as a compositor restyle, but LG draws it in Home', 'Home stub', 1)
 row(g, 'Multi View window frames', 'boundary line, option panel (more, mute, switch sound, mixing, quit, volume), PiP drag handle, standby tile for empty slots; hides after 10 s',
-    F('WebOSCompositor/views/decoration/StarfishServerDecoration.qml', 'compositor-qml', '1038 lines + StarfishDecorationButton, StarfishDecorationButtonLayer, StarfishDecorationExtendedButtonLayer, StarfishDecorationStyle, StarfishServerDecorationService'),
+    F('WebOSCompositor/views/decoration/StarfishServerDecoration.qml', 'compositor-qml', '1038 lines + StarfishDecorationButton.qml, StarfishDecorationButtonLayer.qml, StarfishDecorationExtendedButtonLayer.qml, StarfishDecorationStyle.qml, StarfishServerDecorationService.qml'),
     'rare', 'Yes', 'Restyle', "Multi View only; do last, and drop if Nitin never uses it", 'Shadow module', '5*')
 row(g, 'Multi View picker', 'Side by Side, PiP, Dual PC Monitor, 3-4 screens, recent and recommended combinations, options bar',
     'com.webos.app.multiviewsettings', 'rare', 'Part', 'Restyle', 'web overlay; takes the shared web theme with the Settings sub-apps', 'Overlay mount (theme)', 6)
@@ -47,6 +50,10 @@ g = 2
 row(g, 'Input picker', 'bottom ribbon: Home Hub tile first, then one tile per connected input with icon, CEC name (AVR-S760H) and tick on the current one; add-on buttons (Eject, Universal Control, Channel Tuning); repeated Input presses step and a 5 s idle launches',
     [F('InputPicker/InputPicker.qml', 'system-qml', '89 files / 51 qml; id `com.webos.app.quickinputpicker`')],
     'sometimes', 'Yes · mock 08', 'Replace', 'rebuilt resident, own inputs only (no Home Hub tile)', 'System UI redirect', 4)
+row(g, 'Home Hub', 'hub of TV inputs, ThinQ and Matter devices, Bluetooth, screen share, Google Home, USB and recordings; first tile of the input picker, opened by holding Input',
+    'com.webos.app.homeconnect', 'rare', 'No', 'Off', 'LumaTV\'s picker lists inputs only; repoint `keyaction.inputHub`', 'Key filter and launch redirect', 4)
+row(g, 'Touch edge swipes and Touch Lock', 'curved bulge from the left or bottom edge with a back, home or recents icon; "Touch Lock" toast',
+    [F('WebOSCompositor/views/StarfishGestureUIFeedbackView.qml', 'compositor-qml', '464 lines')], 'never', 'No', 'Keep (dormant)', 'the C4 has no touch panel', '—', '—')
 row(g, 'HDMI input banner', 'dark pill, lower left, 5 s: input name and CEC label; OK adds an Options button; INFO opens a detail banner (resolution, HDR, audio codec, Dolby Vision or Atmos, clock)',
     ['com.webos.app.inputcommon', F('inputcommon/UserInterfaceLayer/Containers/MainViewLayer/InputBanner/*', 'qml', 'SimpleBanner, InputBanner, DetailInfoBanner, MiniBanner (JP only)')],
     'sometimes', 'Part · no mock (mock 20 is the channel banner)', 'Restyle', 'PLAN names the Live TV banner only; the HDMI one is what Nitin sees most', 'Overlay mount', 6)
@@ -136,8 +143,10 @@ row(g, 'App permission prompts', '"Do you want to enable microphone access on {a
     [S('ppm', 'blegatt')], 'rare', 'No', 'Replace', 'alert contract; granting stays a human choice', 'View swap', 2)
 row(g, 'Software update prompt', '"The latest version of the software is available for your TV. Do you want to update now?", "Restart your TV to finish installing important updates"; the banner adds a download badge',
     [S('update')], 'rare', 'Part · mock 22', 'Replace', "'Not now' focused; a firmware update can undo the root", 'View swap', 2)
+row(g, 'App launch prompts', '"A new version of the app is available. Launch current version of app or update to latest version.", "You must update this app to launch it ... Do you want to update?", "This app or service is currently not available in your country."',
+    [S('sam')], 'sometimes', 'No', 'Replace', '[INFERENCE: frequency] update-blocked apps hit these; alert contract, Launch focused', 'View swap', 2)
 row(g, 'App, AI package and storage messages', '"Application has been installed.", "Some apps are available for update", "AI 8K Upscaling is Updated.", "Not enough storage available"',
-    [S('appinstalld', 'pkginstall', 'adaptive-partition-installer', 'sam', 'ai-inference-manager', 'nn-proxy', 'aiservice')], 'rare', 'No', 'Replace', 'alert contract', 'View swap', 2)
+    [S('appinstalld', 'pkginstall', 'adaptive-partition-installer', 'ai-inference-manager', 'nn-proxy', 'aiservice')], 'rare', 'No', 'Replace', 'alert contract', 'View swap', 2)
 row(g, 'Low-memory app restart', '"This app will now restart to free up more memory."',
     [S('memchute')], 'rare', 'No', 'Replace', 'toast; a 2 GB set restarts heavy apps now and then', 'View swap', 2)
 row(g, 'Smart-home and ThinQ messages', 'appliance finished or door open, DR Mode, Independa incoming call',

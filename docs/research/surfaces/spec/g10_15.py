@@ -13,7 +13,7 @@ row(g, 'DLNA remote control', '"The external device is requesting TV control. Do
 row(g, 'Sound Share', 'phone audio through the TV: black "Playing the sound from your connected device." screen, Bluetooth Audio Playback panel (device list, play, pause, Screen off), "{Device} requests Sound Share to your TV" Accept, Decline or Block',
     ['com.webos.app.hdmioptical', 'com.webos.app.btspeakerapp', S('bluetooth-audio-sink', 'soundshare')], 'rare', 'No', 'Keep', 'phone-audio panels; prompts use the alert contract', 'View swap (prompts)', 2)
 row(g, 'Mobile pairing PIN popup', 'grey centred panel "<device> is trying to connect." with the PIN digits and a 10-device note, Cancel, 30 s; plus "Currently connecting to the mobile device" toasts (LG ThinQ, TV Plus)',
-    [F('RemoteUserList/PinPopup.qml', 'system-qml', '182 files / 11 qml; id `com.webos.systemui.mobileconnection`')], 'rare', 'No', 'Replace', 'registered in configd `systemUIManager`, so the redirect already reaches it', 'System UI redirect', '3*')
+    [F('RemoteUserList/PinPopup.qml', 'system-qml', '182 files / 11 qml; id `com.webos.systemui.mobileconnection`'), F('WebOSCompositor/views/StarfishRemoteUserListView.qml', 'compositor-qml', '17 lines')], 'rare', 'No', 'Replace', 'registered in configd `systemUIManager`, so the redirect already reaches it', 'System UI redirect', '3*')
 row(g, 'TV Plus guide and device row', 'five-page "LG TV Plus Guide" and a device row with Disconnect, Screen Share and Content Share; nothing instantiates it',
     [F('RemoteUserList/RemoteUserListTooltip.qml', 'system-qml', '1171 lines + Delegate, Model, Shadow, OpacityMaskImage, Style')], 'never', 'No', 'Keep (dormant)', 'dead code in the module', '—', '—')
 

@@ -26,3 +26,4 @@ Thumbs.db
 *.log
 payload/frame/
 tools/__pycache__/
+docs/research/arch/drmplanes
