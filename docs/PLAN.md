@@ -26,6 +26,26 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 
 ## Rules every surface meets
 
+- The rule (Nitin, 2026-10-23): smooth 60 fps everywhere, no stutter. Every
+  frame of every LumaTV surface lands on its 60 Hz deadline, at rest and in
+  motion; the gate below is how it is checked, and nothing ships that misses
+  it. Today's known misses are fixed before new surfaces: returning to Home
+  still shows one or two gaps of 57-87 ms, and every separate-window probe
+  so far (64-bit and LG's 32-bit alike) dropped frames.
+- Output: the UI is drawn at 1920x1080, 60 Hz, and LG's scaler fills the 4K
+  panel. The graphics plane also lists a 3840x2160 mode, but a 4K UI is not
+  planned:
+  - Visible gain is nil at the viewing distance. On the 65-inch panel
+    (1439 mm wide) a 1080p pixel is 0.75 mm, which at 3 m subtends 0.86
+    arcminutes, already below the 1-arcminute limit of 20/20 vision; it
+    only becomes visible closer than about 2.6 m.
+  - Cost is four times the pixels: blur and composition scale with area,
+    and one 4K buffer is 33 MB, so a triple-buffered UI (100 MB) does not
+    fit in the 41-65 MB of contiguous memory free.
+  - 120 Hz: the compositor paces its clients at 60 Hz (frame callbacks
+    peaked at 60.8 fps in every probe), so the UI clock is 60 Hz; 120 Hz
+    would also halve the frame budget to 8.3 ms. Video and games keep the
+    panel's own 120 Hz modes.
 - Built once and kept resident; an open shows the item and moves focus. A
   cold build freezes one frame for the whole build: Quick Settings 215-360 ms,
   the input picker 110-190 ms. Resident Quick Settings is fully open at
