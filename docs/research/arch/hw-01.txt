@@ -1,0 +1,34 @@
+MemTotal:        2030392 kB
+MemFree:           81164 kB
+MemAvailable:     778128 kB
+Unevictable:        9576 kB
+Mlocked:              16 kB
+Shmem:              2392 kB
+CmaTotal:         692224 kB
+CmaFree:           49772 kB
+CmaDeviceAlloc:	  258652 kB
+
+1400000 
+performance
+1400000
+
+core_mask driver driver_override dvfs_period gpuinfo js_ctx_scheduling_mode js_scheduling_period js_timeouts lp_mem_pool_max_size lp_mem_pool_size mem_pool_max_size mem_pool_size mempool misc modalias of_node pm_poweroff power power_policy reset_timeout scheduling soft_job_timeout subsystem uevent 
+gpuinfo: Mali-G52 3 cores r1p0 0x07040002 
+core_mask: Current core mask (JS0) : 0x7 Current core mask (JS1) : 0x7 Current core mask (JS2) : 0x7 
+power_policy: [coarse_demand] always_on  
+dvfs_period: 100 
+/sys/class/devfreq/*:  cur= gov=
+CPU part	: 0xd0b
+Features	: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp
+3
+coreavs_type:2 NORMAL coreavs_current(mA):139
+cpuavs_type:3 FAST cpuavs_current(mA):36
+73
+0
+1400000
+1
+1
+20 ms
+governor: GOV_ENABLE
+cpu_num: 3
+afbc_sw afe base be cec de demod demod_khal dolby emmc fbdev gfx gpio hdmi20 iic irb lgbus mpro ovi pe pm pqepm pwm se sys ucom vbi 

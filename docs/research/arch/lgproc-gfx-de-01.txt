@@ -1,0 +1,231 @@
+== /proc/lg/gfx/author
+raxis.lim (raxis.lim@lge.com)
+== /proc/lg/gfx/status
+chip.usLine: 0x0
+chip.bStatus: 0x0
+chip.usRemainSpace: 0x100
+chip.bFull: 0x0
+chip.usRemainParam: 0x0
+chip.bBatchStatus: 0x0
+chip.clk.gating: off
+== /proc/lg/gfx/surface
+ 80(0128) 0,  0,   2,000029ae, 1,001e,  256x256 , 0,1024, 0, 0x87ac0000,0x00898000,  262144, -9999:-9999(----)
+ 81(0129) 0,  0,   3,000029e0, 1,001e,  256x256 , 0,1024, 0, 0x87b00000,0x008d8000,  262144, -9999:-9999(----)
+ 82(0130) 0,  0,   4,00002a02, 1,001e,  384x216 , 0,1536, 0, 0x87b40000,0x00918000,  331776, -9999:-9999(----)
+<!> total 3 surfaces created
+== /proc/lg/gfx/mem_stat
+-- mem base   :   2162 MB (0x87228000 - physical)
+-- mem length :     79 MB ( 82837504)
+-- mem rgn    :      1
+-- mem len[0] :     79 MB ( 82837504)
+-- alloc size :     33 MB ( 34900096)
+-- free  size :     45 MB ( 47937408)
+-- alloc cnt  :      3
+== /proc/lg/de/author
+dongho7.park (dongho7.park@lge.com)
+== /proc/lg/de/status
+fw_verion: 7356 (2025/4/14)
+socts_option=0
+display_type: LCD (0x0)
+display_mirror: off (0x0)
+frc_type: Internal (0x0)
+trid_type: off (0x0)
+fc_mem: 0x0
+display_size: 3840x2160 (0x4)
+==========================================================
+name                 = base      ,    size
+==========================================================
+g_m0_pqe_svp         = 0x72c00000,   54 MB (  56623104 B)
+----------------------------------------------------------
+g_de_svp_m0          = 0x72c00000,    0 MB (         0 B)
+g_de_svp_m1          = 0x72c00000,   54 MB (  56623104 B)
+g_m0_pqe_svp_end     = 0x76200000,    0 MB (         0 B)
+==========================================================
+g_m0_pqe_nsv         = 0x7ea80000,   35 MB (  37388288 B)
+----------------------------------------------------------
+g_fw_mcu0            = 0x7ea80000,    4 MB (   4194304 B)
+g_fw_mcu3            = 0x7ee80000,    0 MB (         0 B)
+g_fw_mcu4            = 0x7ee80000,    0 MB (         0 B)
+g_de_nsvp_m1         = 0x7ee80000,    3 MB (   3145728 B)
+g_be_fpp             = 0x7f180000,   19 MB (  19922944 B)
+g_de_hdr             = 0x80480000,    3 MB (   3145728 B)
+g_fw_shared          = 0x80780000,    2 MB (   2097152 B)
+g_be_wcg             = 0x80980000,    1 MB (   1572864 B)
+g_be_led             = 0x80b00000,    0 MB (    131072 B)
+g_be_phdr            = 0x80b20000,    0 MB (     32768 B)
+g_pe_db              = 0x80b28000,    2 MB (   2097152 B)
+g_pe_hdr             = 0x80d28000,    1 MB (   1048576 B)
+g_m0_pqe_nsv_end     = 0x80e28000,    0 MB (         0 B)
+==========================================================
+g_m0_pqe_usr         = 0x80e28000,   24 MB (  25165824 B)
+----------------------------------------------------------
+g_de_vt_m1           = 0x80e28000,   24 MB (  25165824 B)
+g_m0_pqe_usr_end     = 0x82628000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_svp         = 0x91800000,   83 MB (  87031808 B)
+----------------------------------------------------------
+g_de_svp_m2          = 0x91800000,   83 MB (  87031808 B)
+g_m1_pqe_svp_end     = 0x96b00000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_nsv         = 0x96e00000,   58 MB (  60817408 B)
+----------------------------------------------------------
+g_fw_mcu1            = 0x96e00000,    4 MB (   4194304 B)
+g_fw_mcu2            = 0x97200000,   13 MB (  13631488 B)
+g_de_nsvp_m2         = 0x97f00000,    0 MB (         0 B)
+g_be_frc0            = 0x97f00000,   33 MB (  34603008 B)
+g_be_frc1            = 0x9a000000,    0 MB (         0 B)
+g_be_frc2            = 0x9a000000,    0 MB (         0 B)
+g_fw_dnn             = 0x9a000000,    8 MB (   8388608 B)
+g_chipinfo           = 0x9a800000,    0 MB (         0 B)
+g_m1_pqe_nsv_end     = 0x9a800000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_usr         = 0x9a800000,   12 MB (  12582912 B)
+----------------------------------------------------------
+g_de_vt_m2           = 0x9a800000,   12 MB (  12582912 B)
+g_m1_pqe_usr_end     = 0x9b400000,    0 MB (         0 B)
+==========================================================
+dbg                 
+----------------------------------------------------------
+g_de_dbg_m1          = 0x8d0b0000,   64 MB (  67108864 B)
+g_de_dbg_m2          = 0x9b46c000,   31 MB (  33112064 B)
+==========================================================
+fw_shared           
+----------------------------------------------------------
+vtm                  = 0x80780000,   32 KB
+vtv                  = 0x80788000,   32 KB
+gps                  = 0x80790000,   32 KB
+== /proc/lg/de/usages
+----------------------------------------
+vsc_set_sub_mode
+----------------------------------------
+echo 3 (flag) (wid) (win_mode) (mirror_mode) (mem_type)
+flag : 0:get, 1:set
+win_mode     : 0:none, 1:pip, 2:pbp
+mirror_mode  : 0:none, 1:on, 2:off
+mem_type     : 0:none, 1:single, 2:multi
+pip on  : echo 3 1 1 1 2 2 > /proc/lg/de/v4l2_vsc_debug_func
+----------------------------------------
+vsc_set_input
+----------------------------------------
+echo 0 (flag) (wid) (src) (idx) (attr) (disp) > /proc/lg/de/v4l2_vsc_debug_func
+flag : 0:get, 1:set
+src  : 0:none, 1:avd, 2:adc, 3:hdmi, 4:vdec, 5:jpeg
+idx  : 0~3:hdmi port
+attr : 0:atv, 1:av
+curr 0 : src:0, idx:0, attr:0, disp:0
+curr 1 : src:0, idx:0, attr:0, disp:0
+curr 2 : src:0, idx:0, attr:0, disp:0
+curr 3 : src:0, idx:0, attr:0, disp:0
+atv(w0)   : echo 0 1 0 1 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+av(w0)    : echo 0 1 0 1 1 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+comp(w0)  : echo 0 1 0 2 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi0(w0) : echo 0 1 0 3 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi1(w0) : echo 0 1 0 3 1 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi2(w0) : echo 0 1 0 3 2 2 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi3(w0) : echo 0 1 0 3 3 3 1 > /proc/lg/de/v4l2_vsc_debug_func
+vdec(w0)  : echo 0 1 0 4 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+jpeg(w0)  : echo 0 1 0 5 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+atv(w1)   : echo 0 1 1 1 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+av(w1)    : echo 0 1 1 1 1 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+comp(w1)  : echo 0 1 1 2 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi0(w1) : echo 0 1 1 3 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi1(w1) : echo 0 1 1 3 1 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi2(w1) : echo 0 1 1 3 2 2 1 > /proc/lg/de/v4l2_vsc_debug_func
+hdmi3(w1) : echo 0 1 1 3 3 3 1 > /proc/lg/de/v4l2_vsc_debug_func
+vdec(w1)  : echo 0 1 1 4 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+jpeg(w1)  : echo 0 1 1 5 0 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+----------------------------------------
+vsc_set_win_info
+----------------------------------------
+echo 2 (flag) (wid) (iw:x,y,w,h) (src:w,h) (ow:x,y,w,h) (rot)
+flag : 0:get, 1:set
+2k(w0) : echo 2 1 0 0 0 1920 1080 1920 1080 0 0 3840 2160 0 > /proc/lg/de/v4l2_vsc_debug_func
+2k(w1) : echo 2 1 1 0 0 1920 1080 1920 1080 0 0 3840 2160 0 > /proc/lg/de/v4l2_vsc_debug_func
+----------------------------------------
+vsc_set_mute
+----------------------------------------
+echo 1 (flag) (wid) (color)
+flag  : 0:get, 1:set
+color : 0:off, 1:black, 2:blue, 3:gray
+mute(w0) on  : echo 1 1 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+mute(w1) on  : echo 1 1 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+mute(w0) off : echo 1 1 0 0 > /proc/lg/de/v4l2_vsc_debug_func
+mute(w1) off : echo 1 1 1 0 > /proc/lg/de/v4l2_vsc_debug_func
+----------------------------------------
+bbd
+----------------------------------------
+register(w0)   : echo 12 1 0 > /proc/lg/de/v4l2_vsc_debug_func
+unregister(w0) : echo 12 0 0 > /proc/lg/de/v4l2_vsc_debug_func
+register(w1)   : echo 12 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+unregister(w1) : echo 12 0 1 > /proc/lg/de/v4l2_vsc_debug_func
+dbg off        : echo 13 1 0 > /proc/lg/de/v4l2_vsc_debug_func
+dbg(w0) on     : echo 13 1 1 > /proc/lg/de/v4l2_vsc_debug_func
+dbg(w1) on     : echo 13 1 2 > /proc/lg/de/v4l2_vsc_debug_func
+----------------------------------------
+hdr
+----------------------------------------
+echo 11 (flag) (wid) (0:sdr,1:h10,2:dovi,3:hlg)
+== /proc/lg/de/help
+== /proc/lg/afbc_sw/ctx
+afbc1.1 1920x1080 hdr:130048 img:8424448
+== /proc/lg/pe/version
+20210514 10:35
+== /proc/lg/pe/histo0
+src_hist: nds:0, state curr,next:2,6, out,in_fr,mod:0,0,0
+w0: mux_sel:0,6,7 win_sel:0,0,0 size:0,0,960,1080 win_a:0,0,959,1079 win_b:0,0,0,0 pxl_cnt:0 s_state:0 pre,cur_h:0,0
+w1: mux_sel:0,6,7 win_sel:0,0,0 size:0,0,1920,1080 win_a:0,0,1919,1079 win_b:0,0,0,0 pxl_cnt:0 s_state:0 pre,cur_h:0,0
+ y0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ cb0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ cr0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ g0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ b0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ r0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ h0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ s0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ v0: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ y1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ cb1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ cr1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ g1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ b1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ r1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ h1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ s1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+ v1: [32]:0
+ 0]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+16]       0       0       0       0|      0       0       0       0|      0       0       0       0|      0       0       0       0
+

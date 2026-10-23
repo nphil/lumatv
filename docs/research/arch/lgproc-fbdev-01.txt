@@ -1,0 +1,205 @@
+== fbdev/author
+raxis.lim@lge.com
+== fbdev/osdinfo
+FB(0)
+ cfg.b_active         = 1
+ cfg.b_cursor         = 0
+ cfg.b_use_afbc       = 1
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 1920
+ cfg.max_yres         = 1080
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c128000
+ fb_base              = 000000004c775542
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c12a000
+ osd_hdr_base         = 000000001bad4c93
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c129000
+ osd_plte_base        = 000000009d60fd18
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 173834
+ status.total_fb_flip_cnt= 173835
+
+ pixel.fb_dev_id      = 1
+ pixel.fbc_fmtid      = 0
+ pixel.osd_bm_paddr   = 0x87b94000
+ pixel.stride         = 7680
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+ pixel.input_win.x    = 0
+ pixel.input_win.y    = 0
+ pixel.input_win.w    = 1920
+ pixel.input_win.h    = 1080
+ pixel.output_win.x   = 0
+ pixel.output_win.y   = 0
+ pixel.output_win.w   = 1920
+ pixel.output_win.h   = 1080
+ pixel.test_output_win.x = 0
+ pixel.test_output_win.y = 0
+ pixel.test_output_win.w = 0
+ pixel.test_output_win.h = 0
+ pixel.user_win_ctrl_en= 0
+ pixel.color_key_en   = 0
+ pixel.pixel_order_en = 0
+ pixel.global_alpha_en= 0
+ pixel.color_key      = 0x0
+ pixel.global_alpha   = 0xff
+
+ fbinfo.state           = 0x0
+ fbinfo.flags           = 0x0
+ fbinfo.screen_base     = 000000004c775542
+ fbinfo.screen_size     = 4096
+ fbinfo.fbcon_par       = 0000000000000000
+ fbinfo.par             = 00000000f20aab5c
+ fbinfo.fix.id          = osd0_fb
+ fbinfo.fix.smem_start  = 0x8c128000
+ fbinfo.fix.smem_len    = 4096
+ fbinfo.fix.type        = 0x0
+== fbdev/status
+<osd_drm info>
+osd_drm.freezed: 0
+osd_drm.cursor.src_rgn.w: 1920
+osd_drm.cursor.src_rgn.h: 1080
+osd_drm.cursor.dst_rgn.w: 3840
+osd_drm.cursor.dst_rgn.h: 2160
+osd_drm.sw_cursor.addr[0]: 0x87228000
+osd_drm.sw_cursor.addr[1]: 0x87268000
+osd_drm.sw_cursor.width: 256
+osd_drm.sw_cursor.height: 256
+== fbdev/pm_status
+pm_runtime.status: active
+pm_runtime.usage_count: 3
+dev_show_status: 0x0003
+== fbdev/fb0:
+-r--r--r--    1 root     root             0 Oct 23 19:22 fbmem
+-r--r--r--    1 root     root             0 Oct 23 19:22 flip_cnt
+-r--r--r--    1 root     root             0 Oct 23 19:22 pan_disp_cnt
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-- fb0/fbmem
+0x883ac000 7680 1920 1080 afbc 32x8 abgr
+-- fb0/flip_cnt
+173835
+-- fb0/pan_disp_cnt
+0
+-- fb0/status
+ cfg.b_active         = 1
+ cfg.b_cursor         = 0
+ cfg.b_use_afbc       = 1
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 1920
+ cfg.max_yres         = 1080
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c128000
+ fb_base              = 000000004c775542
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c12a000
+ osd_hdr_base         = 000000001bad4c93
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c129000
+ osd_plte_base        = 000000009d60fd18
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 173836
+ status.total_fb_flip_cnt= 173837
+
+ pixel.fb_dev_id      = 1
+ pixel.fbc_fmtid      = 0
+ pixel.osd_bm_paddr   = 0x87b94000
+ pixel.stride         = 7680
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+== fbdev/fb1:
+-r--r--r--    1 root     root             0 Oct 23 19:22 fbmem
+-r--r--r--    1 root     root             0 Oct 23 19:22 flip_cnt
+-r--r--r--    1 root     root             0 Oct 23 19:22 pan_disp_cnt
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-- fb1/fbmem
+0x89234000 3072 768 2160 afbc 32x8 abgr
+-- fb1/flip_cnt
+1
+-- fb1/pan_disp_cnt
+0
+-- fb1/status
+ cfg.b_active         = 1
+ cfg.b_cursor         = 0
+ cfg.b_use_afbc       = 1
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 512
+ cfg.max_yres         = 2160
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c12b000
+ fb_base              = 00000000f92c1d03
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c12d000
+ osd_hdr_base         = 00000000aaf65f6f
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c12c000
+ osd_plte_base        = 00000000545c9cc6
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 1
+ status.total_fb_flip_cnt= 1
+
+ pixel.fb_dev_id      = 1
+ pixel.fbc_fmtid      = 1
+ pixel.osd_bm_paddr   = 0x89234000
+ pixel.stride         = 3072
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+== fbdev/fb3:
+-r--r--r--    1 root     root             0 Oct 23 19:22 fbmem
+-r--r--r--    1 root     root             0 Oct 23 19:22 flip_cnt
+-r--r--r--    1 root     root             0 Oct 23 19:22 pan_disp_cnt
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-- fb3/fbmem
+0x8c131000 1024 256 256 raw none argb
+-- fb3/flip_cnt
+0
+-- fb3/pan_disp_cnt
+0
+-- fb3/status
+ cfg.b_active         = 1
+ cfg.b_cursor         = 1
+ cfg.b_use_afbc       = 0
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 256
+ cfg.max_yres         = 256
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c131000
+ fb_base              = 000000002d5d85a3
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c133000
+ osd_hdr_base         = 000000006e1e8546
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c132000
+ osd_plte_base        = 00000000e02fc433
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 0
+ status.total_fb_flip_cnt= 0
+
+ pixel.fb_dev_id      = 0
+ pixel.fbc_fmtid      = 3
+ pixel.osd_bm_paddr   = 0x8c131000
+ pixel.stride         = 1024
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+

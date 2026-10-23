@@ -1,0 +1,139 @@
+0-3
+
+0-3
+== /proc/lg/fbdev:
+total 0
+dr-xr-xr-x   27 root     root             0 Oct 23 19:22 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-r--r--r--    1 root     root             0 Oct 23 19:22 author
+-rw-r--r--    1 root     root             0 Oct 23 19:22 capture
+-rw-r--r--    1 root     root             0 Oct 23 19:22 chgres
+dr-xr-xr-x   10 root     root             0 Oct 23 19:22 chip
+-rw-r--r--    1 root     root             0 Oct 23 19:22 drm_freeze
+dr-xr-xr-x    6 root     root             0 Oct 23 19:22 fb0
+dr-xr-xr-x    6 root     root             0 Oct 23 19:22 fb1
+dr-xr-xr-x    6 root     root             0 Oct 23 19:22 fb3
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fb_bkup
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fbmem_hook
+-rw-r--r--    1 root     root             0 Oct 23 19:22 flip_test
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fps_mon
+-rw-r--r--    1 root     root             0 Oct 23 19:22 freeze
+-rw-r--r--    1 root     root             0 Oct 23 19:22 glalpha
+-r--r--r--    1 root     root             0 Oct 23 19:22 osdinfo
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pathctrl
+-r--r--r--    1 root     root             0 Oct 23 19:22 pm_status
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pm_test
+-r--r--r--    1 root     root             0 Oct 23 19:22 regdump
+-r--r--r--    1 root     root             0 Oct 23 19:22 render_event
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-rw-r--r--    1 root     root             0 Oct 23 19:22 syncctrl
+-rw-r--r--    1 root     root             0 Oct 23 19:22 test_output_win
+-rw-r--r--    1 root     root             0 Oct 23 19:22 user_flip_opt
+-rw-r--r--    1 root     root             0 Oct 23 19:22 viewctrl
+== /proc/lg/gfx:
+total 0
+dr-xr-xr-x   16 root     root             0 Oct 23 19:22 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-r--r--r--    1 root     root             0 Oct 23 19:22 author
+-rw-r--r--    1 root     root             0 Oct 23 19:22 clkctl
+-rw-r--r--    1 root     root             0 Oct 23 19:22 cmd_delay
+-rw-r--r--    1 root     root             0 Oct 23 19:22 draw_test
+-r--r--r--    1 root     root             0 Oct 23 19:22 mem_stat
+-r--r--r--    1 root     root             0 Oct 23 19:22 pidref
+-r--r--r--    1 root     root             0 Oct 23 19:22 pm_status
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pm_test
+-r--r--r--    1 root     root             0 Oct 23 19:22 reg_dump
+-rw-r--r--    1 root     root             0 Oct 23 19:22 reset
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-r--r--r--    1 root     root             0 Oct 23 19:22 surface
+-rw-r--r--    1 root     root             0 Oct 23 19:22 synctm
+-rw-r--r--    1 root     root             0 Oct 23 19:22 user_command
+== /proc/lg/de:
+total 0
+dr-xr-xr-x   53 root     root             0 Dec 31  2022 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-rw-r--r--    1 root     root             0 Oct 23 19:22 activate_cmn_history
+-rw-r--r--    1 root     root             0 Oct 23 19:22 alloc_dbg_map
+-r--r--r--    1 root     root             0 Oct 23 19:22 author
+-rw-r--r--    1 root     root             0 Oct 23 19:22 bbd
+-rw-r--r--    1 root     root             0 Oct 23 19:22 bin_download
+-rw-r--r--    1 root     root             0 Oct 23 19:22 bwm
+-r--r--r--    1 root     root             0 Oct 23 19:22 cmn_history
+-rw-r--r--    1 root     root             0 Oct 23 19:22 command
+-rw-r--r--    1 root     root             0 Oct 23 19:22 debug_function
+-rw-r--r--    1 root     root             0 Oct 23 19:22 dft_mode
+-rw-r--r--    1 root     root             0 Oct 23 19:22 disp
+-r--r--r--    1 root     root             0 Oct 23 19:22 dnn_value
+-rw-r--r--    1 root     root             0 Oct 23 19:22 enable_dbg_map
+-rw-r--r--    1 root     root             0 Oct 23 19:22 force_cma_error
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fpp_finalize
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fpp_initialize
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fr_rate
+-rw-r--r--    1 root     root             0 Oct 23 19:22 function_args
+-r--r--r--    1 root     root             0 Oct 23 19:22 fw-status
+-rw-r--r--    1 root     root             0 Oct 23 19:22 fw_dl_history
+-r--r--r--    1 root     root             0 Oct 23 19:22 help
+-r--r--r--    1 root     root             0 Oct 23 19:22 history
+-rw-r--r--    1 root     root             0 Oct 23 19:22 ipc_history
+-rw-r--r--    1 root     root             0 Oct 23 19:22 ipc_mask
+-rw-r--r--    1 root     root             0 Oct 23 19:22 keep_submode
+-rw-r--r--    1 root     root             0 Oct 23 19:22 log_level
+-rw-r--r--    1 root     root             0 Oct 23 19:22 netsync
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pip
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pm_test
+-rw-r--r--    1 root     root             0 Oct 23 19:22 set_delay_intr
+-rw-r--r--    1 root     root             0 Oct 23 19:22 set_hist_func
+-rw-r--r--    1 root     root             0 Oct 23 19:22 set_venc
+-r--r--r--    1 root     root             0 Oct 23 19:22 slt_status
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-rw-r--r--    1 root     root             0 Oct 23 19:22 switch_mcu
+-r--r--r--    1 root     root             0 Oct 23 19:22 usages
+-rw-r--r--    1 root     root             0 Oct 23 19:22 v4l2_capture
+== /proc/lg/afbc_sw:
+total 0
+dr-xr-xr-x    5 root     root             0 Oct 23 19:22 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-r--r--r--    1 root     root             0 Oct 23 19:22 ctx
+-rw-r--r--    1 root     root             0 Oct 23 19:22 info
+-rw-r--r--    1 root     root             0 Oct 23 19:22 op_fill
+== /proc/lg/ovi:
+total 0
+dr-xr-xr-x    8 root     root             0 Oct 23 19:22 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-r--r--r--    1 root     root             0 Oct 23 19:22 author
+-r--r--r--    1 root     root             0 Oct 23 19:22 cc_count
+-rw-r--r--    1 root     root             0 Oct 23 19:22 command
+-rw-r--r--    1 root     root             0 Oct 23 19:22 dbg_func
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pat
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+== /proc/lg/pe:
+total 0
+dr-xr-xr-x   17 root     root             0 Oct 23 19:22 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-rw-r--r--    1 root     root             0 Oct 23 19:22 bypass_block
+-r--r--r--    1 root     root             0 Oct 23 19:22 cid_list
+-rw-r--r--    1 root     root             0 Oct 23 19:22 cid_mask
+-rw-r--r--    1 root     root             0 Oct 23 19:22 command
+-rw-r--r--    1 root     root             0 Oct 23 19:22 dbg_kdrv_func
+-rw-r--r--    1 root     root             0 Oct 23 19:22 dbg_wrap_func
+-rw-r--r--    1 root     root             0 Oct 23 19:22 hdr_func
+-r--r-----    1 root     root             0 Oct 23 19:22 hdr_status
+-r--r--r--    1 root     root             0 Oct 23 19:22 histo0
+-r--r--r--    1 root     root             0 Oct 23 19:22 histo1
+-rw-r--r--    1 root     root             0 Oct 23 19:22 latency
+-rw-r--r--    1 root     root             0 Oct 23 19:22 mask_ioctl
+-r--r-----    1 root     root             0 Oct 23 19:22 pe-status
+-rw-r--r--    1 root     root             0 Oct 23 19:22 pm_test
+-r--r--r--    1 root     root             0 Oct 23 19:22 version
+== /proc/lg/gpio:
+total 0
+dr-xr-xr-x    9 root     root             0 Oct 23 19:22 .
+dr-xr-xr-x   29 root     root             0 Dec 31  2022 ..
+-r--r--r--    1 root     root             0 Oct 23 19:22 author
+-rw-r--r--    1 root     root             0 Oct 23 19:22 command
+-rw-r--r--    1 root     root             0 Oct 23 19:22 debugpin
+-rw-r--r--    1 root     root             0 Oct 23 19:22 direction
+-r--r--r--    1 root     root             0 Oct 23 19:22 status
+-r--r--r--    1 root     root             0 Oct 23 19:22 sw_cfg
+-rw-r--r--    1 root     root             0 Oct 23 19:22 val
+

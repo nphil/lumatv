@@ -5,24 +5,68 @@ Rule under test: every frame on its 60 Hz deadline, at rest and in motion.
 
 ## Resume here
 
-- Done: platform survey (below), kernel-side frame probe verified
-  (`drm_vblank_event_delivered` = one presented frame; 60 Hz vblank).
-- Next: baseline runs (idle, d-pad sweep, Quick Settings, app-to-Home, video
-  behind Home), then tweaks one at a time, then root causes of the gaps.
-- Scripts: `docs/research/perf/capture.sh` (on the set at
-  `/tmp/perf/capture.sh`: `start NAME [full|basic]`, `mark TEXT`,
-  `stop NAME`), `docs/research/perf/analyse.py` (frame stats and gap
-  attribution from a trace; `--gap MS` threshold, `--sm PID`).
-  Workloads are driven from the workstation (HA `webostv.button` keys,
-  markers through `capture.sh mark P:<phase>`); raw traces live in
-  `/tmp/perf` on the workstation, not in the repo.
-- TV state (handed back to Nitin 2026-10-23 19:35): Active, LG Home in
-  front with LumaHome over it, Filmmaker confirmed. Nothing was ever
-  applied: no governor, GPU policy, priority, affinity, env-file, service or
-  Qt-env change was made before the handback. All probes stopped: ftrace
-  off, events disabled, buffer back to 1408 kB, sampler gone, `/tmp/perf`
-  holds only `capture.sh`. Do not touch the TV until Main says it is free.
-- Revert list for anything still applied: none.
+Status 2026-10-23 20:00: TV handed back to Nitin (watching). Hold all TV
+work until Main says "TV is free". Nothing is applied on the set; nothing
+to revert. TV state at handback: Active, LG Home in front with LumaHome
+over it, Filmmaker confirmed, ftrace off and events disabled, buffer back
+to 1408 kB, `/tmp/perf` on the set holds only `capture.sh`.
+
+Done: platform survey, probe verified (`drm_vblank_event_delivered` = one
+presented frame), one 5 s idle trace analysed (sections "How a frame is
+produced" and "What the idle frame draws"), orchestrator written, tweak
+plan and gap hypotheses written. Not done: everything that needs the TV.
+
+Remaining TV plan (about 85 min of screen time), run from the
+workstation (`pip install --break-system-packages paramiko` if missing;
+`/data/home/tmp/ha-token-fetch.sh` first so `/data/home/tmp/ha-token`
+exists):
+
+1. Pre-flight (2 min). `luna-send -n 1
+   luna://com.webos.service.tvpower/power/getPowerState {}` must not show
+   Active with a non-Home app in `getForegroundAppInfo`. From Active
+   Standby: `power/powerOn {"reason":"remoteKey"}` then `turnOnScreen`
+   (it answers -102 if the screen is already on; fine). Confirm
+   `settingsservice/getSystemSettings {"category":"picture","keys":["pictureMode"]}`
+   = filmMaker. Copy `docs/research/perf/capture.sh` to
+   `/tmp/perf/capture.sh` on the set (sftp) and `chmod +x` it.
+2. Baseline (25 min):
+   `python3 docs/research/perf/run.py --tag base --repeat 3 --workloads idle,dpad,qs,apphome`
+   then `python3 docs/research/perf/run.py --tag base --repeat 2 --workloads video`
+   (YouTube `youtube.leanback.v4` with a free video, Home over it). Each
+   run prints one summary line per phase and appends to
+   `/tmp/perf/summary.txt`; per-run detail in `/tmp/perf/<name>.txt`.
+   Copy the summary into the Baseline table below.
+3. Root causes (10 min): for every gap over 17 ms in the dpad, qs and
+   apphome traces read the gap block in `<name>.txt` (compositor run /
+   runnable / sleep split, GPU busy, what ran on each CPU, reclaim, cpuhp,
+   block I/O, wakeups) and classify. Write the classes into "Root causes".
+4. Tweaks (45 min), one at a time with `--apply` and `--revert`, for the
+   workloads the tweak can touch, 2 repeats each:
+   - T1 `--apply 'echo always_on > /sys/class/misc/mali0/device/power_policy' --revert 'echo coarse_demand > /sys/class/misc/mali0/device/power_policy'`
+   - T2 `--apply 'echo 0 > /proc/lg/pm/mp_enable; echo 1 > /sys/devices/system/cpu/cpu3/online' --revert 'echo 1 > /proc/lg/pm/mp_enable'`
+   - T3 `--apply 'for i in 176 178; do echo 2 > /proc/irq/$i/smp_affinity; done; echo 4 > /proc/irq/124/smp_affinity' --revert 'for i in 176 178 124; do echo f > /proc/irq/$i/smp_affinity; done'`
+   - T4 `--apply 'python3 /tmp/perf/tweak.py fifo 1' --revert 'python3 /tmp/perf/tweak.py other'`
+   - T5 `--apply 'python3 /tmp/perf/tweak.py affinity 2' --revert 'python3 /tmp/perf/tweak.py affinity f'` (copy `docs/research/perf/tweak.py` to `/tmp/perf/` in pre-flight; busybox here may lack taskset and chrt)
+   - T6 `--apply '/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass theme set "{\"wallpaperMotion\":{\"fps\":10}}"' --revert '... {\"fps\":30}'`, and a second run with `{"enabled":false}` / `{"enabled":true}`; wait 3 s after apply (2 s theme poll).
+   - T7 threaded render loop: add `QSG_RENDER_LOOP=threaded` to
+     `/var/systemd/system/env/surface-manager.env`, then `lumaglass apply`
+     will not restart (env unchanged from its view), so restart with the
+     tool's path: `systemctl restart surface-manager-daemon` is NOT allowed
+     bare; use `lumaglass fps on` then `lumaglass fps off` (each rebuilds
+     and restarts through `restart_surface`, which also sweeps the crash
+     reports). Check Home recovers (capture > 79 kB). Measure. Remove the
+     line, restart the same way. Risk: LG's QML may assume the basic loop;
+     if the screen stays black, remove the line and restart.
+   - T8 `--apply 'echo 20 > /proc/sys/vm/swappiness' --revert 'echo 100 > /proc/sys/vm/swappiness'` with `apphome` only.
+5. Stability (5 min): compositor RSS from the sampler (`rss=` pages in
+   `<name>.sys`) across the 3 apphome runs and 3 qs runs; `dmesg | grep -i
+   -E "oom|killed process"`; `/proc/lg/pm/status` temperature.
+6. Finish: `luna-send -n 1 luna://com.webos.service.tvpower/power/powerOff '{"reason":"remoteKey"}'`,
+   confirm `getPowerState` = Active Standby, confirm Filmmaker, and check
+   every revert in step 4 took (`power_policy`, `mp_enable`, IRQ masks
+   `f`, compositor policy/nice, affinity `f`, env file = only
+   `QML2_IMPORT_PATH=...`, theme fps 30). Fill the Baseline, Tweaks and
+   Recommendations sections of this file.
 
 ## Platform facts that bound the search
 
@@ -129,3 +173,44 @@ it (input-to-photon is 2-3 vblanks).
   during this trace; it was stopped. Its presence on CPU2/3 did not touch
   the compositor on CPU0, which is itself a data point: one busy core of
   unrelated work does not reach the frame at idle.
+
+## What the idle frame draws (from `LumaHome.qml`)
+
+Qt Quick re-renders the whole window for every presented frame, so the
+7.5 ms fragment pass is the full scene no matter what changed: the live
+wallpaper (`liveWall`, one full-screen `ShaderEffect` over a 64x36
+`GridMesh`, one texture read plus scrim per pixel, ticked by a Timer at
+`wallpaperMotion.fps`, 30 by default), every Glass quad (cards, dock,
+tiles, status bar: each an SDF `ShaderEffect` sampling the baked
+`blurTex`), text and icons. The blur chain itself is baked once. The
+wallpaper motion block lives in `theme.json`, which Home polls every 2 s,
+so `fps`, `enabled` and the look parameters can be A/B-tested live with
+`lumaglass theme set` and no restart.
+
+## Tweak plan (each applied alone, measured, reverted)
+
+| id | tweak | apply | revert |
+|---|---|---|---|
+| T1 | GPU cores never power-gated | `echo always_on > /sys/class/misc/mali0/device/power_policy` | `echo coarse_demand > ...` |
+| T2 | LG core hot-plug off | `echo 0 > /proc/lg/pm/mp_enable; echo 1 > /sys/devices/system/cpu/cpu3/online` | `echo 1 > /proc/lg/pm/mp_enable` |
+| T3 | GPU and network IRQs off CPU0 | `echo 2 > /proc/irq/{176,178}/smp_affinity; echo 4 > /proc/irq/124/smp_affinity` | `echo f > ...` (stock mask) |
+| T4 | Compositor GUI thread SCHED_FIFO | python3 `os.sched_setscheduler(pid, SCHED_FIFO, 1)` | `SCHED_OTHER`, then nice -19 back |
+| T5 | Compositor GUI thread pinned off CPU0 | `os.sched_setaffinity(pid, {1})` | `{0,1,2,3}` |
+| T6 | Wallpaper motion 30 -> 10 fps, and off | `lumaglass theme set wallpaperMotion.fps 10` (live) | `... 30` |
+| T7 | `QSG_RENDER_LOOP=threaded` | env file + restart through the tool | remove, restart |
+| T8 | swappiness 100 -> 20 | `echo 20 > /proc/sys/vm/swappiness` | `echo 100 > ...` |
+
+None survives a reboot by itself; a kept tweak goes into the tool's apply
+and boot hook (sysfs/procfs writes at boot-bind) or the env file.
+
+## Hypotheses for the 57-87 ms Home-return gaps (to be tested by trace)
+
+- Direct reclaim inside the compositor's own allocations while an app that
+  just ran still holds memory (`mm_vmscan_direct_reclaim_begin` with
+  pid = compositor; 133 MB free, swappiness 100).
+- Compositor pages swapped out while the app was in front, faulted back on
+  show (`majflt` delta in the sampler, swap on the RAM-backed `f2io`).
+- LG's compositor capturing the departing app's frame for the recents card
+  (a readback on the GUI thread) or re-layout of its own views.
+- LumaHome's show path: theme poll with `triggeredOnStart`, feed refresh
+  and clock catch-up all on the first visible frame.

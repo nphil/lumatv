@@ -1,0 +1,271 @@
+N: Name="LGE RCU"
+H: Handlers=kbd event0 
+B: EV=7
+B: REL=0
+N: Name="LGE M-RCU - Builtin [0]"
+H: Handlers=kbd js0 event2 
+B: EV=f
+B: REL=100
+B: ABS=3
+N: Name="LGE M-RCU - Builtin [1]"
+H: Handlers=kbd js1 event3 
+B: EV=f
+B: REL=100
+B: ABS=3
+N: Name="LGE M-RCU - Builtin [2]"
+H: Handlers=kbd js2 event4 
+B: EV=f
+B: REL=100
+B: ABS=3
+N: Name="LGE TONE+ - Builtin [3]"
+H: Handlers=kbd js3 event5 
+B: EV=f
+B: REL=100
+B: ABS=3
+N: Name="LGE W-RCU - Builtin [5]"
+H: Handlers=kbd js4 event6 
+B: EV=f
+B: REL=100
+B: ABS=3
+N: Name="LGE Simple Premium"
+H: Handlers=kbd js5 event7 
+B: EV=f
+B: REL=100
+B: ABS=3
+N: Name="Bluetooth-audio-source"
+H: Handlers=kbd event11 
+B: EV=3
+N: Name="ClickableMouse"
+H: Handlers=js7 event12 
+B: EV=f
+B: REL=3
+B: ABS=3
+N: Name="IoT keypad"
+H: Handlers=kbd event8 
+B: EV=3
+N: Name="CHECK INPUT"
+H: Handlers=kbd event1 
+B: EV=3
+N: Name="Smart Remote RCU Input"
+H: Handlers=kbd event9 
+B: EV=f
+B: REL=143
+B: ABS=cff003f
+N: Name="LGE Network Input"
+H: Handlers=kbd event10 
+B: EV=f
+B: REL=143
+B: ABS=cff003f
+N: Name="LGE Smart Remote - TouchPad"
+H: Handlers=event13 
+B: EV=7
+B: REL=143
+
+total 0
+drwxrwxr-x    2 root     composit       820 Oct 23 19:09 .
+drwxr-xr-x   17 root     root          6760 Oct 23 19:17 ..
+crw-rw----    1 root     composit   13,  64 Dec 31  2022 event0
+crw-rw----    1 root     composit   13,  65 Oct 23 11:50 event1
+crw-rw----    1 root     composit   13,  74 Oct 23 15:23 event10
+crw-rw----    1 root     composit   13,  75 Oct 23 11:49 event11
+crw-rw----    1 root     composit   13,  76 Oct 23 11:49 event12
+crw-rw----    1 root     composit   13,  77 Oct 23 15:23 event13
+crw-rw----    1 root     composit   13,  78 Oct 23 19:09 event14
+crw-rw----    1 root     composit   13,  79 Oct 23 19:09 event15
+crw-rw----    1 root     composit   13,  80 Oct 23 19:09 event16
+crw-rw----    1 root     composit   13,  81 Dec 31  2022 event17
+crw-rw----    1 root     composit   13,  82 Dec 31  2022 event18
+crw-rw----    1 root     composit   13,  83 Dec 31  2022 event19
+crw-rw----    1 root     composit   13,  66 Oct 23 11:49 event2
+crw-rw----    1 root     composit   13,  84 Dec 31  2022 event20
+crw-rw----    1 root     composit   13,  85 Dec 31  2022 event21
+crw-rw----    1 root     composit   13,  86 Dec 31  2022 event22
+crw-rw----    1 root     composit   13,  87 Dec 31  2022 event23
+crw-rw----    1 root     composit   13,  88 Dec 31  2022 event24
+crw-rw----    1 root     composit   13,  89 Dec 31  2022 event25
+crw-rw----    1 root     composit   13,  90 Dec 31  2022 event26
+crw-rw----    1 root     composit   13,  91 Dec 31  2022 event27
+crw-rw----    1 root     composit   13,  92 Dec 31  2022 event28
+crw-rw----    1 root     composit   13,  93 Dec 31  2022 event29
+crw-rw----    1 root     composit   13,  67 Oct 23 11:49 event3
+crw-rw----    1 root     composit   13,  94 Dec 31  2022 event30
+crw-rw----    1 root     composit   13,  95 Dec 31  2022 event31
+crw-rw----    1 root     composit   13,  68 Oct 23 11:49 event4
+
+== lginput2
+      6 /dev/uinput
+      1 socket:[102210]
+      1 socket:[102349]
+      1 socket:[1114966]
+      1 socket:[1126660]
+      1 socket:[1153309]
+      1 socket:[38191]
+      1 socket:[40062]
+      1 socket:[40333]
+      1 socket:[40345]
+      1 socket:[40347]
+      1 socket:[40348]
+      1 socket:[40350]
+      1 socket:[40423]
+      1 socket:[40435]
+      1 socket:[40452]
+      1 socket:[40454]
+      1 socket:[40456]
+      1 socket:[40473]
+      1 socket:[40633]
+      1 socket:[42841]
+      1 socket:[44323]
+      1 socket:[45568]
+      1 socket:[46293]
+      1 socket:[46318]
+      1 socket:[46320]
+      1 socket:[4683917]
+      1 socket:[52382]
+      1 socket:[58869]
+      1 socket:[62660]
+      1 socket:[64202]
+      1 socket:[65199]
+== surface-manager
+      1 /dev/input/event0
+      1 /dev/input/event1
+      1 /dev/input/event10
+      1 /dev/input/event11
+      1 /dev/input/event12
+      1 /dev/input/event13
+      1 /dev/input/event2
+      1 /dev/input/event3
+      1 /dev/input/event4
+      1 /dev/input/event5
+      1 /dev/input/event6
+      1 /dev/input/event7
+      1 /dev/input/event8
+      1 /dev/input/event9
+      1 /dev/uinput
+      1 socket:[100275]
+      1 socket:[100555]
+      1 socket:[100556]
+      1 socket:[100557]
+      1 socket:[100561]
+      1 socket:[100570]
+      1 socket:[100573]
+      1 socket:[100578]
+      1 socket:[100579]
+      1 socket:[101400]
+      1 socket:[102118]
+      1 socket:[102120]
+      1 socket:[102122]
+      1 socket:[102125]
+      1 socket:[102127]
+      1 socket:[102129]
+      1 socket:[102131]
+      1 socket:[102133]
+      1 socket:[102135]
+      1 socket:[102138]
+      1 socket:[102140]
+      1 socket:[102163]
+      1 socket:[102165]
+      1 socket:[102167]
+      1 socket:[102169]
+      1 socket:[102171]
+      1 socket:[102173]
+      1 socket:[102175]
+      1 socket:[102177]
+      1 socket:[102179]
+      1 socket:[102181]
+      1 socket:[102185]
+      1 socket:[102187]
+      1 socket:[102189]
+      1 socket:[102191]
+      1 socket:[102193]
+      1 socket:[102195]
+      1 socket:[102197]
+      1 socket:[102198]
+      1 socket:[102199]
+      1 socket:[102200]
+      1 socket:[102201]
+      1 socket:[102203]
+      1 socket:[102205]
+      1 socket:[102207]
+      1 socket:[102209]
+      1 socket:[102211]
+      1 socket:[102213]
+      1 socket:[102215]
+      1 socket:[102231]
+      1 socket:[102291]
+      1 socket:[102293]
+      1 socket:[102295]
+      1 socket:[102297]
+      1 socket:[102299]
+      1 socket:[102301]
+      1 socket:[102308]
+      1 socket:[102309]
+      1 socket:[102317]
+      1 socket:[102321]
+      1 socket:[102340]
+      1 socket:[102342]
+      1 socket:[102344]
+      1 socket:[102346]
+      1 socket:[102348]
+      1 socket:[102350]
+      2 socket:[102376]
+      1 socket:[102392]
+      1 socket:[102393]
+      1 socket:[102394]
+      1 socket:[102400]
+      1 socket:[105182]
+      1 socket:[105531]
+      1 socket:[105541]
+      1 socket:[106023]
+      1 socket:[106025]
+      1 socket:[106027]
+      1 socket:[106029]
+      1 socket:[106031]
+      1 socket:[109627]
+      1 socket:[109634]
+      1 socket:[109725]
+      1 socket:[109970]
+      1 socket:[109971]
+      1 socket:[109972]
+      1 socket:[109979]
+      1 socket:[110098]
+      1 socket:[1114967]
+      2 socket:[1123075]
+      1 socket:[1123250]
+      1 socket:[1238683]
+      1 socket:[1238685]
+      1 socket:[1249615]
+      1 socket:[2930992]
+      2 socket:[4681792]
+      1 socket:[4683924]
+      2 socket:[5855600]
+      1 socket:[5882245]
+      1 socket:[6207103]
+      2 socket:[6208582]
+      1 socket:[98444]
+      1 socket:[98469]
+      1 socket:[98741]
+      1 socket:[98742]
+      1 socket:[98743]
+      1 socket:[98744]
+      1 socket:[98745]
+      1 socket:[98746]
+      1 socket:[98751]
+      1 socket:[98752]
+      1 socket:[98753]
+      1 socket:[98754]
+      1 socket:[98755]
+      1 socket:[98756]
+      1 socket:[99671]
+      1 socket:[99672]
+      1 socket:[99673]
+      2 socket:[99680]
+      1 socket:[99745]
+      1 socket:[99802]
+      1 socket:[99804]
+      1 socket:[99806]
+      1 socket:[99808]
+      1 socket:[99810]
+      1 socket:[99812]
+      1 socket:[99814]
+      1 socket:[99816]
+
