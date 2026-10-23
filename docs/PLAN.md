@@ -219,20 +219,33 @@ ways (best of 3 runs): 64-bit is level at byte hashing (736 vs 686 ms), 8-10 %
 faster at sorting and text parsing, and 31 % faster at float loops (91 vs
 119 ms). The helper and plugins are 64-bit already.
 
-- Replacing the compositor means reimplementing that luna API and LG's
-  Wayland extensions to the behaviour SAM, the media pipeline and each app
-  expect, then re-checking them on every firmware update. Not planned: the
-  visible gain over drawing inside it is small and a gap breaks apps or video.
-- What is replaced instead is everything it draws: LG's QML is shadowed by
-  LumaTV's, and LG's own surfaces are stubbed as each LumaTV one passes
-  the gate.
-- Research spike (after phase 3): LumaShow OS's Rust `ui` and renderer built
-  for aarch64 on the 64-bit driver below (armv7 on LG's driver as the
-  fallback) as a Wayland client of LG's compositor, drawing LumaHome in one
-  surface, measured with the frame probe against the QML version. If it
-  holds the gate with headroom, surfaces move to it one at a time, LG's
-  compositor keeps only window stacking, video holes and key routing, and
-  LumaTV shares one UI toolkit with LumaShow.
+- Compositor replacement is open, decided by measurement
+  (`docs/research/shell-architecture.md`, 2026-10-23). LG's compositor
+  repaints the whole 1080p window every frame on one thread, with LG's JS
+  key filters and luna callbacks on the same thread; it holds 100 MB and
+  13 % of a core at rest, and an idle LumaHome frame costs 2.8-3.4 ms CPU
+  plus 8.1 ms GPU of the 16.7 ms budget. A Rust compositor would replace 56
+  luna methods on 12 service names, the tvpower power handshake, 9 public
+  webOS protocol files (84 requests, 49 events) and two small starfish
+  protocols; WAM's contract is 8 window types. Video, copy protection and
+  HDR never pass through a compositor: decoded frames sit in 137 MB of
+  secure memory on the display engine's video windows, and the compositor
+  only places them through videooutputd. Owning a spare plane beside LG's
+  is not possible: the set has one CRTC, one connector and three planes
+  (primary and overlay are LG's, the cursor plane carries LG's pointer), and
+  only the DRM master can commit.
+- Path: (1) the 64-bit Rust UI from LumaShow's toolkit as a client of LG's
+  compositor, written so it can later run inside LumaTV's own; (2) the
+  experiments that decide the rest:
+  - X1/X1b: does LG's compositor hold zero frames over 20 ms even for a
+    trivial client? If not, only an own compositor can meet the 60 fps rule.
+  - X2: can a test compositor on a private socket accept buffers from LG's
+    32-bit Mali driver (`wl_drm` and Arm's `mali_buffer_sharing`, no
+    linux-dmabuf)? Nothing is shown on screen.
+  - X4: a read-only census of the surfacemanager luna methods SAM and WAM
+    actually call.
+  If X1 fails and X2 passes, LumaTV's compositor replaces surface-manager,
+  with a watchdog and a firmware check that both fall back to LG's.
 - 64-bit drawing path: works on screen (2026-10-22). LG's `mali_kbase`
   speaks kernel interface 11.40 and accepts 64-bit callers. Rockchip's
   aarch64 Mali-G52 Bifrost builds (`libmali-bifrost-g52-g24p0`, g13p0 too),
