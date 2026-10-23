@@ -4,6 +4,7 @@
   const q = new URLSearchParams(location.search);
   const theme = q.get('theme') || document.documentElement.dataset.theme || 'dark';
   document.documentElement.dataset.theme = theme;
+  if (q.get('v')) document.documentElement.dataset.v = q.get('v');
 
   /* The nine curated sections. Live one-line summaries read the current values (illustrative here). */
   const RAIL = [

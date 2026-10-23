@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · HDMI 4</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  body { background: #000; }
+  /* no signal: nearly black, dim text, the block drifts to a new spot every minute (here 180, -120 from centre) */
+  .nosig { --drift-x: 180px; --drift-y: -120px; }
+  .nosig .pick { margin-top: 10px; display: flex; gap: 10px; }
+  .nosig .btn { height: 60px; font-size: 24px; min-width: 0; padding: 0 22px; opacity: .9; }
+  [data-v="connected"] .nosig { display: none; }
+  html:not([data-v="connected"]) .frame, html:not([data-v="connected"]) .toast { display: none; }
+  .frame { background-image: url("img/still.jpg"); }
+</style>
+</head>
+<body>
+<div class="nosig">
+  <i data-ic="unplug"></i>
+  <div class="port">HDMI 4</div>
+  <div class="t">Nothing is connected here</div>
+  <div class="d">Plug a device into HDMI 4, or pick another input. The screen stays dark to protect the panel.</div>
+  <div class="pick"><span class="btn focusable" tabindex="0" data-autofocus><i data-ic="cable"></i>Inputs</span><span class="btn focusable" tabindex="0"><i data-ic="house"></i>Home</span></div>
+</div>
+
+<div class="frame"></div>
+<div class="overlay toast wide" role="alertdialog" aria-labelledby="dc">
+  <span class="lead"><i data-ic="gamepad-2"></i></span>
+  <div style="flex:1;min-width:0">
+    <div class="t" id="dc">PlayStation 5 turned on</div>
+    <div class="d">On HDMI 3. Switch to it? The Denon follows.</div>
+    <div class="acts"><span class="btn small primary focusable" tabindex="0" id="sw">Switch to HDMI 3</span><span class="btn small focusable" tabindex="0">Stay here</span></div>
+  </div>
+  <div class="bar"><i style="width:70%"></i></div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  if (document.documentElement.dataset.v === 'connected') { document.documentElement.setAttribute('data-video', ''); window.addEventListener('DOMContentLoaded', () => { document.querySelectorAll('.focus').forEach(e => e.classList.remove('focus')); document.getElementById('sw').classList.add('focus'); }); }
+</script>
+</body>
+</html>

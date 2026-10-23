@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Quick panel</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* over video: no blur, tinted glass; over Home: the Home dims and the panel blurs it */
+  [data-v="video"] .home-behind { display: none; }
+  [data-v="video"] .frame { background-image: url("img/still.jpg"); }
+  [data-v="video"] .scrim { background: rgba(8,7,14,.30); }
+  html:not([data-v="video"]) .frame { display: none; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="frame"></div>
+<div class="scrim"></div>
+
+<aside class="pane qpanel" role="dialog" aria-label="Quick settings">
+  <div class="head">
+    <h1>Quick settings</h1>
+    <span class="time num">9:52 PM</span>
+  </div>
+
+  <div class="qtile focusable" tabindex="0" data-autofocus>
+    <span class="lead"><i data-ic="image"></i></span>
+    <div class="text"><div class="t">Picture mode</div><div class="v">HDMI 1 · Dolby Vision</div></div>
+    <span class="stepper"><i data-ic="chevron-left"></i><span class="sv">Filmmaker</span><i data-ic="chevron-right"></i></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="speaker"></i></span>
+    <div class="text"><div class="t">Sound out</div><div class="v">eARC · Atmos</div></div>
+    <span class="stepper"><i data-ic="chevron-left"></i><span class="sv">Denon AVR</span><i data-ic="chevron-right"></i></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="moon"></i></span>
+    <div class="text"><div class="t">Sleep timer</div><div class="v">TV stays on</div></div>
+    <span class="stepper"><i data-ic="chevron-left"></i><span class="sv">Off</span><i data-ic="chevron-right"></i></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="wifi"></i></span>
+    <div class="text"><div class="t">Wi-Fi</div><div class="v">Nate’s Home · Strong</div></div>
+    <span class="v" style="font-size:23px;color:var(--lu-ink-2)"><i data-ic="chevron-right" style="width:26px;height:26px"></i></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="lamp"></i></span>
+    <div class="text"><div class="t">Ambient light</div><div class="v">Follows the picture · 70%</div></div>
+    <span class="toggle" role="switch" aria-checked="true"></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="bot"></i></span>
+    <div class="text"><div class="t">AI access</div><div class="v">LAN only · 2 paired</div></div>
+    <span class="chip on"><span class="dot"></span>On</span>
+  </div>
+
+  <div class="foot">
+    <span class="btn wide focusable" tabindex="0"><i data-ic="settings"></i>All settings</span>
+    <span class="hint">Left and right change a value · Back closes</span>
+  </div>
+</aside>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  if (document.documentElement.dataset.v === 'video') document.documentElement.setAttribute('data-video', '');
+</script>
+</body>
+</html>

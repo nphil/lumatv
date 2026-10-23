@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Recent apps</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .thumb.plex { background-image: url("img/still.jpg"); }
+  .thumb.home { background-image: url("img/home.jpg"); }
+  .thumb.netflix { background: linear-gradient(160deg, #2A0D12, #0C0A14); }
+  .thumb.youtube { background: linear-gradient(160deg, #241216, #0C0A14); }
+  .thumb.browser { background: linear-gradient(160deg, #141A2E, #0C0A14); }
+  .thumb.geforce { background: linear-gradient(160deg, #10241A, #0C0A14); }
+  .recents .hints { display: flex; gap: 28px; font-size: 22px; color: var(--lu-ink-3); font-weight: 500; }
+  .recents .hints kbd { font: inherit; font-weight: 600; color: var(--lu-ink-2); border: 1px solid var(--lu-edge); border-radius: 8px; padding: 0 8px; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<div class="recents" role="dialog" aria-label="Recent apps">
+  <div class="title">Recent apps <span class="sub">4 open · Plex is playing</span></div>
+  <div class="rrow">
+    <div class="rcard focusable" tabindex="0">
+      <div class="thumb netflix"><img class="app" src="img/apps/netflix.png" alt=""></div>
+      <div class="meta"><img src="img/apps/netflix.png" alt=""><div><div class="n">Netflix</div><div class="w">25 min ago</div></div><span class="close"><i data-ic="x"></i></span></div>
+    </div>
+    <div class="rcard focusable" tabindex="0" data-autofocus>
+      <div class="thumb plex"><span class="live"><span class="dot"></span>Playing</span></div>
+      <div class="meta"><img src="img/apps/plex.png" alt=""><div><div class="n">Plex</div><div class="w">Now · Dolby Vision</div></div><span class="close"><i data-ic="x"></i></span></div>
+    </div>
+    <div class="rcard focusable" tabindex="0">
+      <div class="thumb youtube"><img class="app" src="img/apps/youtube.png" alt=""></div>
+      <div class="meta"><img src="img/apps/youtube.png" alt=""><div><div class="n">YouTube</div><div class="w">1 hr ago</div></div><span class="close"><i data-ic="x"></i></span></div>
+    </div>
+    <div class="rcard focusable" tabindex="0">
+      <div class="thumb geforce"><img class="app" src="img/apps/geforce.png" alt=""></div>
+      <div class="meta"><img src="img/apps/geforce.png" alt=""><div><div class="n">GeForce Now</div><div class="w">Yesterday</div></div><span class="close"><i data-ic="x"></i></span></div>
+    </div>
+  </div>
+  <div class="hints"><span><kbd>OK</kbd>Switch to it</span><span><kbd>Hold OK</kbd>Close the app</span><span><kbd>Back</kbd>Return</span></div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Apps</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .lib-rail .rail-entry { height: 80px; grid-template-columns: 48px 1fr; }
+  .lib-rail .rail-entry .tile { width: 48px; height: 48px; border-radius: 14px; }
+  .lib-rail .rail-entry .tile .ic { width: 26px; height: 26px; }
+  .lib-rail .rail-entry .name { font-size: 27px; }
+  .lib-rail .rail-entry .line { font-size: 22px; }
+  .lib-rail .bottom { margin-top: auto; }
+  .lib .head { display: flex; align-items: baseline; gap: 18px; }
+  .lib .head h1 { margin: 0; font-size: 40px; font-weight: 600; letter-spacing: -.01em; }
+  .lib .head .sub { font-size: 24px; color: var(--lu-ink-2); font-weight: 500; }
+  .lib .head .search { margin-left: auto; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px 0 16px; border-radius: 16px; background: var(--tile-ink-wash); font-size: 24px; font-weight: 600; color: var(--lu-ink-2); border: 1px solid transparent; }
+  .lib .head .search .ic { width: 26px; height: 26px; }
+  /* the hold-OK menu variant */
+  .menu { position: absolute; left: 528px; top: 470px; display: none; }
+  [data-v="menu"] .menu { display: flex; }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="pane topbar">
+  <i data-ic="chevron-left" class="ic"></i>
+  <span class="title">Apps</span>
+  <span class="spacer"></span>
+  <span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span>
+  <span class="time num">9:53 PM</span>
+</div>
+
+<nav class="pane lib-rail" aria-label="App categories">
+  <div class="rail-entry focusable" tabindex="0"><div class="tile"><i data-ic="layout-grid"></i></div><div><div class="name">All apps</div><div class="line">23 installed</div></div></div>
+  <div class="rail-entry focusable" tabindex="0" aria-current="page"><div class="tile"><i data-ic="clapperboard"></i></div><div><div class="name">Streaming</div><div class="line">7 apps</div></div></div>
+  <div class="rail-entry focusable" tabindex="0"><div class="tile"><i data-ic="gamepad-2"></i></div><div><div class="name">Gaming</div><div class="line">GeForce Now, 8 Ball Pool</div></div></div>
+  <div class="rail-entry focusable" tabindex="0"><div class="tile"><i data-ic="wrench"></i></div><div><div class="name">Utilities</div><div class="line">Browser, Hue Sync, Homebrew</div></div></div>
+  <div class="rail-entry focusable" tabindex="0"><div class="tile"><i data-ic="star"></i></div><div><div class="name">On the dock</div><div class="line">24 tiles · reorder here</div></div></div>
+  <div class="rail-entry focusable bottom" tabindex="0"><div class="tile"><i data-ic="eye-off"></i></div><div><div class="name">Hidden</div><div class="line">2 apps · restore any time</div></div></div>
+</nav>
+
+<main class="pane lib">
+  <div class="head">
+    <h1>Streaming</h1>
+    <span class="sub">Films, series and live TV</span>
+    <span class="search focusable" tabindex="0"><i data-ic="search"></i>Search apps</span>
+  </div>
+  <div class="apps-grid" role="grid" aria-label="Streaming apps">
+    <div class="app focusable" tabindex="0" data-autofocus><img src="img/apps/netflix.png" alt=""><div class="n">Netflix</div></div>
+    <div class="app focusable" tabindex="0"><img src="img/apps/appletv.png" alt=""><div class="n">Apple TV</div></div>
+    <div class="app focusable" tabindex="0"><img src="img/apps/plex.png" alt=""><div class="n">Plex</div></div>
+    <div class="app focusable" tabindex="0"><img src="img/apps/youtube.png" alt=""><div class="n">YouTube</div></div>
+    <div class="app focusable" tabindex="0"><img src="img/apps/crunchyroll.png" alt=""><div class="n">Crunchyroll</div></div>
+    <div class="app focusable" tabindex="0"><img src="img/apps/lgmovies.png" alt=""><div class="n">LG Movies &amp; TV</div></div>
+    <div class="app focusable" tabindex="0"><img src="img/apps/livetv.png" alt=""><div class="n">Live TV</div><div class="s">14 channels</div></div>
+  </div>
+  <div class="keyhints"><span><kbd>OK</kbd>Open</span><span><kbd>Hold OK</kbd>Move, hide, rename, uninstall</span><span><kbd>1–9</kbd>Open a dock tile</span></div>
+</main>
+
+<div class="overlay menu" role="menu" aria-label="Netflix options">
+  <div class="mh"><img src="img/apps/netflix.png" alt=""><div><div class="t">Netflix</div><div class="d">On the dock · tile 2</div></div></div>
+  <div class="mi focusable" role="menuitem" tabindex="0" id="mi-open"><i data-ic="play"></i>Open</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="layout-grid"></i>Move on the dock</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="eye-off"></i>Hide</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="keyboard"></i>Rename</div>
+  <div class="sep"></div>
+  <div class="mi focusable danger" role="menuitem" tabindex="0"><i data-ic="trash-2"></i>Uninstall</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  if (document.documentElement.dataset.v === 'menu') window.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.focusable.focus').forEach(e => e.classList.remove('focus'));
+    document.querySelector('.app').classList.add('src');
+    document.getElementById('mi-open').classList.add('focus');
+  });
+</script>
+</body>
+</html>

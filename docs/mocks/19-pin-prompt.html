@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · PIN</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .dialog.pin { width: 620px; align-items: center; text-align: center; gap: 16px; padding: 38px 40px 32px; }
+  .dialog.pin h1 { font-size: 36px; }
+  .dialog.pin p { font-size: 25px; }
+  .dialog.pin .foot { justify-content: center; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<div class="overlay dialog pin" role="dialog" aria-labelledby="pt">
+  <span class="lead" style="width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:var(--tile-ink-wash)"><i data-ic="lock-keyhole" class="ic"></i></span>
+  <h1 id="pt">Enter the TV PIN</h1>
+  <p>HDMI 3 · PlayStation 5 is locked for the kids.</p>
+  <div class="cells" aria-label="2 of 4 digits entered">
+    <span class="cell on"><i></i></span><span class="cell on"><i></i></span><span class="cell"><i></i></span><span class="cell"><i></i></span>
+  </div>
+  <div class="kp" role="group" aria-label="Number pad">
+    <span class="key kpk focusable" tabindex="0">1</span><span class="key kpk focusable" tabindex="0">2</span><span class="key kpk focusable" tabindex="0">3</span>
+    <span class="key kpk focusable" tabindex="0">4</span><span class="key kpk focusable" tabindex="0" data-autofocus>5</span><span class="key kpk focusable" tabindex="0">6</span>
+    <span class="key kpk focusable" tabindex="0">7</span><span class="key kpk focusable" tabindex="0">8</span><span class="key kpk focusable" tabindex="0">9</span>
+    <span class="key kpk fn focusable" tabindex="0">Clear</span><span class="key kpk focusable" tabindex="0">0</span><span class="key kpk fn focusable" tabindex="0" aria-label="Delete"><i data-ic="delete"></i></span>
+  </div>
+  <div class="foot"><i data-ic="hash"></i>The remote’s number keys work too · Back cancels</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

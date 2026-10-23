@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Opening Netflix</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* splash: the canvas, darkened, with the app's identity; nothing else moves but the arc */
+  .splash-bg { position: absolute; inset: 0; background: url("img/wall.jpg") center / cover no-repeat; filter: saturate(1.2) brightness(.55); }
+  [data-v="ring"] .splash-bg, [data-v="ring"] .splash { display: none; }
+  html:not([data-v="ring"]) .home-behind, html:not([data-v="ring"]) .ring { display: none; }
+  /* ring: around the focused (raised) Apps tile in the Home capture, centre about (213, 761) */
+  .ring { left: 123px; top: 671px; width: 180px; height: 180px; }
+</style>
+</head>
+<body>
+<div class="splash-bg"></div>
+<div class="splash">
+  <img src="img/apps/netflix.png" alt="">
+  <div class="n">Netflix</div>
+  <div class="st"><span class="arc"></span>Opening</div>
+</div>
+
+<div class="home-behind"></div>
+<div class="ring" aria-label="Keep holding for options">
+  <svg viewBox="0 0 180 180"><circle cx="90" cy="90" r="84" fill="none" stroke="rgba(242,239,246,.18)" stroke-width="6"/><circle cx="90" cy="90" r="84" fill="none" stroke="#A79BF5" stroke-width="6" stroke-linecap="round" stroke-dasharray="527.8" stroke-dashoffset="211"/></svg>
+  <span class="lbl">Keep holding for options</span>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

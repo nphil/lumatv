@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Power</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .dialog.power { width: 760px; gap: 6px; padding: 34px 40px 30px; }
+  .dialog.power h1 { margin-bottom: 10px; }
+  .power .seg { margin-left: auto; }
+  .power .seg > span { height: 50px; min-width: 0; padding: 0 16px; font-size: 22px; }
+  [data-v="countdown"] .dialog { display: none; }
+  [data-v="countdown"] .scrim { display: none; }
+  html:not([data-v="countdown"]) .toast { display: none; }
+  .toast.count { position: absolute; width: 700px; height: auto; padding: 18px 20px 22px 18px; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<div class="overlay dialog power" role="dialog" aria-labelledby="pw">
+  <h1 id="pw">Power</h1>
+  <div class="prow focusable" tabindex="0" data-autofocus>
+    <span class="lead"><i data-ic="power"></i></span>
+    <div class="text"><div class="t">Turn off</div><div class="d">The Denon turns off with it over HDMI-CEC.</div></div>
+  </div>
+  <div class="prow focusable" tabindex="0">
+    <span class="lead"><i data-ic="monitor"></i></span>
+    <div class="text"><div class="t">Screen off, sound on</div><div class="d">Keeps playing through the Denon. Any key wakes the screen.</div></div>
+  </div>
+  <div class="prow focusable" tabindex="0">
+    <span class="lead"><i data-ic="moon"></i></span>
+    <div class="text"><div class="t">Sleep timer</div><div class="d">Turns the TV off after this long.</div></div>
+    <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">Off</span><span role="radio" aria-selected="false">15</span><span role="radio" aria-selected="false">30</span><span role="radio" aria-selected="false">60</span><span role="radio" aria-selected="false">90 min</span></span>
+  </div>
+  <div class="prow focusable" tabindex="0">
+    <span class="lead"><i data-ic="rotate-ccw"></i></span>
+    <div class="text"><div class="t">Restart</div><div class="d">About 40 seconds. Fixes a stuck app or no sound.</div></div>
+  </div>
+  <div class="foot" style="margin-top:14px"><i data-ic="mouse-pointer-2"></i>Hold the power key for one second to turn off at once</div>
+</div>
+
+<div class="overlay toast count" role="alert">
+  <span class="lead"><i data-ic="moon"></i></span>
+  <div style="flex:1;min-width:0">
+    <div class="t">TV turns off in <span class="num">60 s</span></div>
+    <div class="d">Sleep timer. Any key cancels it.</div>
+  </div>
+  <span class="btn small focusable" tabindex="0">Cancel</span>
+  <div class="bar"><i style="width:100%"></i></div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Volume</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .frame { background-image: url("img/still.jpg"); }
+  [data-v="muted"] .unmuted { display: none; }
+  html:not([data-v="muted"]) .muted { display: none; }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<div class="overlay osd" role="status" aria-live="polite">
+  <span class="lead unmuted"><i data-ic="volume-2"></i></span>
+  <span class="lead muted"><i data-ic="volume-x"></i></span>
+  <div class="body">
+    <div class="line1">
+      <span class="db unmuted">−32.5<span class="unit"> dB</span></span>
+      <span class="db muted">Muted</span>
+      <span class="meta unmuted">Denon · Atmos · TrueHD</span>
+      <span class="meta muted">Denon · was −32.5 dB</span>
+    </div>
+    <div class="track"><i style="width:59%"></i></div>
+  </div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

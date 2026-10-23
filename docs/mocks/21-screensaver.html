@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Screensaver</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* clock frame: black, 60% brightness, the block has drifted to its current spot (one of many); nothing else lit */
+  .ss-clock { --x: 36%; --y: 58%; }
+  [data-v="art"] .ss-clock { display: none; }
+  html:not([data-v="art"]) .art, html:not([data-v="art"]) .art-cap, html:not([data-v="art"]) .art-time { display: none; }
+  /* art frame: the print at 60% brightness on a dark wall, cream matte, thin dark frame */
+  .ss.art-wall { background: radial-gradient(ellipse at 50% 45%, #121014 0%, #050406 70%); }
+  .art { opacity: .78; }
+  .art img { width: 1040px; height: 699px; }
+</style>
+</head>
+<body>
+<div class="ss"></div>
+<div class="ss-clock">
+  <div class="time">11:48</div>
+  <div class="date">Thursday 22 October</div>
+  <div class="glance"><i data-ic="moon"></i><span>46° Clear</span><span>·</span><i data-ic="lock"></i><span>Front door locked</span></div>
+</div>
+
+<div class="ss art-wall" style="display:none"></div>
+<div class="art"><div class="matte"><img src="img/art-hokusai.jpg" alt="Under the Wave off Kanagawa"></div></div>
+<div class="art-cap"><b>Katsushika Hokusai</b> · Under the Wave off Kanagawa, about 1831 · Public domain</div>
+<div class="art-time">11:48</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  if (document.documentElement.dataset.v === 'art') { document.querySelector('.ss').classList.add('art-wall'); }
+</script>
+</body>
+</html>

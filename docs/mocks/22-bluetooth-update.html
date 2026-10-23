@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Pair device</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .dialog .head { display: flex; align-items: center; gap: 22px; }
+  .dialog .head .lead { width: 72px; height: 72px; border-radius: 20px; display: grid; place-items: center; background: var(--tile-ink-wash); flex: none; }
+  .dialog .head .lead .ic { width: 38px; height: 38px; }
+  [data-v="update"] .bt { display: none; }
+  html:not([data-v="update"]) .upd { display: none; }
+  .meta-row { display: flex; gap: 10px; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<div class="overlay dialog bt" role="alertdialog" aria-labelledby="bt">
+  <div class="head"><span class="lead"><i data-ic="headphones"></i></span><h1 id="bt">Pair Nate’s AirPods Pro?</h1></div>
+  <p>They are asking to connect. Sound would play in the AirPods instead of the Denon until they disconnect.</p>
+  <div class="actions">
+    <span class="btn focusable" tabindex="0" data-autofocus>Not now</span>
+    <span class="btn primary focusable" tabindex="0"><i data-ic="check"></i>Pair</span>
+  </div>
+  <div class="foot"><i data-ic="info"></i>Paired devices live in Settings › Inputs &amp; devices</div>
+</div>
+
+<div class="overlay dialog upd" role="alertdialog" aria-labelledby="up">
+  <div class="head"><span class="lead"><i data-ic="download"></i></span><h1 id="up">A TV update is ready</h1></div>
+  <p>webOS 10.2.3 · 412 MB. Installing takes about 10 minutes and restarts the TV. It installs only when you choose to; LumaTV never does this by itself.</p>
+  <div class="meta-row"><span class="chip">Downloaded</span><span class="chip">LumaTV checks itself after</span></div>
+  <div class="actions">
+    <span class="btn focusable" tabindex="0" data-autofocus>Later</span>
+    <span class="btn primary focusable" tabindex="0"><i data-ic="download"></i>Install and restart</span>
+  </div>
+  <div class="foot"><i data-ic="file-text"></i>What changed: Settings › System › TV update</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

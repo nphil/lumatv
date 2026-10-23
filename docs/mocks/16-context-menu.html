@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Tile options</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* anchored beside the tile it belongs to (Netflix, dock tile 2 at 288,702 in the capture); the rest of Home dims */
+  .scrim { background: rgba(11,9,20,.40); }
+  .menu { position: absolute; left: 430px; top: 494px; }
+  .src { position: absolute; left: 282px; top: 696px; width: 132px; height: 132px; border-radius: 28px; box-shadow: var(--focus-halo), 0 18px 44px rgba(0,0,0,.45); background: url("img/apps/netflix.png") center / cover; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+<div class="src" aria-hidden="true"></div>
+
+<div class="overlay menu" role="menu" aria-label="Netflix options">
+  <div class="mh"><img src="img/apps/netflix.png" alt=""><div><div class="t">Netflix</div><div class="d">Dock tile 2 · press 2 to open</div></div></div>
+  <div class="mi focusable" role="menuitem" tabindex="0" data-autofocus><i data-ic="play"></i>Open</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="layout-grid"></i>Move<span class="k">then ← →</span></div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="eye-off"></i>Hide from the dock</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="keyboard"></i>Rename</div>
+  <div class="sep"></div>
+  <div class="mi focusable danger" role="menuitem" tabindex="0"><i data-ic="trash-2"></i>Uninstall</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

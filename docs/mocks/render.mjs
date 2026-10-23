@@ -17,6 +17,30 @@ const SHOTS = [
   ['07-toast', '07-toast.html'],
   ['08-input-picker', '08-input-picker.html'],
   ['09-search-keyboard', '09-search-keyboard.html'],
+  ['10-quick-panel', '10-quick-panel.html'],
+  ['10-quick-panel-light', '10-quick-panel.html?theme=light'],
+  ['10-quick-panel-video', '10-quick-panel.html?v=video'],
+  ['11-volume-osd', '11-volume-osd.html'],
+  ['11-volume-osd-muted', '11-volume-osd.html?v=muted'],
+  ['12-all-apps', '12-all-apps.html'],
+  ['12-all-apps-light', '12-all-apps.html?theme=light'],
+  ['12-all-apps-menu', '12-all-apps.html?v=menu'],
+  ['13-notifications', '13-notifications.html'],
+  ['14-recents', '14-recents.html'],
+  ['15-launch-splash', '15-launch-splash.html'],
+  ['15-long-press-ring', '15-launch-splash.html?v=ring'],
+  ['16-context-menu', '16-context-menu.html'],
+  ['17-power-menu', '17-power-menu.html'],
+  ['17-power-countdown', '17-power-menu.html?v=countdown'],
+  ['18-no-signal', '18-no-signal.html'],
+  ['18-device-connected', '18-no-signal.html?v=connected'],
+  ['19-pin-prompt', '19-pin-prompt.html'],
+  ['20-channel-banner', '20-channel-banner.html'],
+  ['21-screensaver-clock', '21-screensaver.html'],
+  ['21-screensaver-art', '21-screensaver.html?v=art'],
+  ['22-bluetooth-pair', '22-bluetooth-update.html'],
+  ['22-update-prompt', '22-bluetooth-update.html?v=update'],
+  ['23-boot', '23-boot.html'],
 ];
 const only = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--force-device-scale-factor=1'] });
@@ -29,12 +53,12 @@ for (const [name, file] of SHOTS) {
   await page.waitForTimeout(80);
   const overflow = await page.evaluate(() => {
     const out = [];
-    document.querySelectorAll('.t,.d,.v,.name,.line,.mt,.ms,.tab,.seg>span,.btn,.chip,.sub,h1,p,.k,.a,.q,.e .what').forEach(e => {
+    document.querySelectorAll('.t,.d,.v,.name,.line,.mt,.ms,.tab,.seg>span,.btn,.chip,.sub,h1,p,.k,.a,.q,.e .what,.n,.s,.mi,.sv,.meta,.prog,.lbl,.state,.port,.hint,.keyhints span').forEach(e => {
       if (e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'hidden') out.push(`overflow: "${e.textContent.trim().slice(0, 40)}" ${e.scrollWidth}>${e.clientWidth}`);
       const fs = parseFloat(getComputedStyle(e).fontSize);
       if (e.textContent.trim() && fs < 21) out.push(`small ${fs}px: "${e.textContent.trim().slice(0, 30)}"`);
     });
-    const page = document.querySelector('.page-body, .dialog, .sheet');
+    const page = document.querySelector('.page-body, .dialog, .sheet, .qpanel, .drawer, .lib, .menu');
     if (page && page.scrollHeight > page.clientHeight + 1) out.push(`page overflows vertically ${page.scrollHeight}>${page.clientHeight}`);
     return out;
   });
