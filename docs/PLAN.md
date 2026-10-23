@@ -108,7 +108,7 @@ button-only remote. Turning it off removes accidental hover moves; any frame
 cost of the pointer itself is measured with the frame probe before claiming
 one.
 
-## Receiver volume
+## Receiver: volume and controls
 
 webOS's ARC volume is the TV's own up/down counter, not the receiver's level:
 `audio/master/getVolume` reports `externalDeviceControl: true`,
@@ -128,12 +128,29 @@ Before building:
 
 1. Confirm drift on the set: with the TV and AVR on, change volume on the
    Denon remote and compare `getVolume` with the receiver's level.
-2. Check whether this Denon model accepts more than one control connection.
-   Home Assistant's Denon integration may already hold it
-   (`media_player.living_room_avr`). If only one is allowed, read through
-   Home Assistant's WebSocket API instead, at the cost of one hop.
+2. The receiver is a Denon AVR-S760H at 192.168.1.93 (D&M MAC prefix
+   00:06:78). Its HTTP interface on port 8080 answers without a held
+   connection (`/goform/formMainZone_MainZoneXmlStatusLite.xml`: power,
+   input, absolute volume such as -34.5 dB, mute), so status reads never
+   compete with Home Assistant. Push events need the telnet port (23), which
+   Home Assistant's `denonavr` integration holds (`use_telnet: true`); check
+   whether the S760H accepts a second telnet client. If not, events come
+   from Home Assistant's WebSocket (`media_player.living_room_avr`, one hop)
+   and commands go over HTTP.
 3. Volume keys still go to the receiver through HDMI-CEC as today; LG's own
    volume popup is suppressed only once the OSD has passed the gate.
+
+Receiver controls in Settings › Sound › Receiver, shown only while the AVR is
+reachable, with the same reach as Home Assistant's Denon integration: power,
+input (the receiver's own source names: Apple TV, Bluetooth, HEOS Music,
+MAGNAVOX 4K BD, PS4, TV Audio), sound mode (MOVIE, MUSIC, GAME, DIRECT, PURE
+DIRECT, STEREO, DOLBY DIGITAL, DTS SURROUND, AURO3D, MCH STEREO, and the DSP
+styles under More), Audyssey (Dynamic EQ, Dynamic Volume, MultEQ), dialog
+and subwoofer levels, bass and treble, Cinema EQ, ECO mode, Quick Select 1-4
+and Zone 2. A receiver tile in the quick panel shows input, sound mode and
+volume. Every command is the receiver's own (`SI`, `MS`, `PS`, `MV`...);
+values are read back after each change, and any value older than 6 s
+without an answer is hidden rather than shown.
 
 ## Native helper
 
