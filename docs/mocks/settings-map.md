@@ -1,4 +1,4 @@
-# LG settings → LumaShell sections
+# LG settings → LumaTV sections
 
 Source: LG's Settings app for this C4 (`com.palm.app.settings`, copied to
 `/data/home/lgtv/research/lgsettings/`). The item names below are the English
@@ -8,19 +8,19 @@ Network, Family Settings and the LG account live in separate sub-apps and are
 not in this bundle; they are marked *(sub-app)*.
 
 LG's top level is Picture · Sound · General · Support, with roughly 130 items
-below. LumaShell shows nine sections. Each section keeps the few items a person
+below. LumaTV shows nine sections. Each section keeps the few items a person
 changes from the sofa, worded plainly, and ends with a "More in LG settings"
 row that opens LG's own screen (themed) for the rest.
 
 ## Picture
 
-LumaShell rows: picture mode chooser (Mode tab), OLED pixel brightness,
+LumaTV rows: picture mode chooser (Mode tab), OLED pixel brightness,
 Filmmaker ambient light, AI Picture Pro, aspect ratio, energy saving. Tabs:
 Mode · Brightness · Colour · Advanced.
 
-| LG item (path under Picture) | LumaShell |
+| LG item (path under Picture) | LumaTV |
 |---|---|
-| Select Mode: Vivid, Standard, Eco, Cinema, Sports, Game Optimizer, FILMMAKER MODE, Expert (Bright space, daytime), Expert (Dark space, night), Personalized Picture; HDR variants Cinema Home, HDR Effect | Mode tab, the chooser. LumaShell names: Filmmaker, Cinema, Standard, Vivid, Game Optimizer, Sports, Eco, Expert · day, Expert · night, Personalised |
+| Select Mode: Vivid, Standard, Eco, Cinema, Sports, Game Optimizer, FILMMAKER MODE, Expert (Bright space, daytime), Expert (Dark space, night), Personalized Picture; HDR variants Cinema Home, HDR Effect | Mode tab, the chooser. LumaTV names: Filmmaker, Cinema, Standard, Vivid, Game Optimizer, Sports, Eco, Expert · day, Expert · night, Personalised |
 | FILMMAKER MODE Ambient Light | Mode tab, switch "Filmmaker ambient light" |
 | Aspect Ratio: 16:9, Original, 4:3, Vertical Zoom, 4-Way Zoom, Just Scan | Mode tab, value row "Aspect ratio" |
 | Advanced Settings › Brightness: OLED Pixel Brightness, Adjust Contrast, Screen Brightness, Auto Dynamic Contrast, Dynamic Tone Mapping, Peak Brightness, Gamma(Adjust Brightness), Black Level, Video Range, Motion Eye Care, Expression Enhancer, Near Black Detail | Brightness tab (OLED pixel brightness also on the Mode tab) |
@@ -33,21 +33,21 @@ Mode · Brightness · Colour · Advanced.
 
 ## Sound
 
-LumaShell rows: sound out, receiver volume (read from the Denon), sound mode
+LumaTV rows: sound out, receiver volume (read from the Denon), sound mode
 (disabled while a receiver plays, with the reason), match screen and sound,
 HDMI input audio format, TV speakers too. Tabs: Output · Mode · Advanced.
 
-| LG item (path under Sound) | LumaShell |
+| LG item (path under Sound) | LumaTV |
 |---|---|
 | Sound Out: Use TV Speaker; Use Wired Speaker (HDMI(ARC) Device, Optical Out Device, Wired Headphones, Audio Out Device, USB Device); Use Wireless Speaker (Bluetooth Device, WiSA Speakers, LG WOWCAST); Use External Speakers with TV Speaker | "Sound out" value row (Denon AVR-S760H, eARC on HDMI 2); "TV speakers too" switch |
 | Select Mode: AI Sound Pro, Standard, Cinema, Clear Voice Pro, Sports, Music, Game Optimizer | Mode tab; shown disabled while sound goes to the receiver |
 | Advanced Settings: Balance, Equalizer, Installation Type (Stand, Wall-mounted), Automatic Volume Adjustment, TV Power Sound Volume, DTV Audio Setting, Select HDMI Input Audio Format, Digital Sound Output, eARC Support, LG Sound Sync, TV Sound Mode Share, Dolby Atmos, Match Screen and Sound | "Match screen and sound" slider, "HDMI input audio format" value row; eARC shown as state on the Sound out row. Rest → More in LG settings |
-| Volume shown on screen | "Receiver volume": LumaShell's own, fed by the Denon (not an LG item) |
+| Volume shown on screen | "Receiver volume": LumaTV's own, fed by the Denon (not an LG item) |
 | General › AI Service: AI Sound Pro, AI Acoustic Tuning | Advanced tab |
 
 ## Inputs & devices
 
-| LG item | LumaShell |
+| LG item | LumaTV |
 |---|---|
 | Inputs (Home Dashboard / input list; names from SIMPLINK) | Input picker tiles; this section lists the same inputs with rename and hide |
 | General › External Devices › HDMI Settings: SIMPLINK (HDMI-CEC), Auto Input Switch, Quick Media Switching, HDMI Deep Color, 4:4:4 Pass Through, Dolby Vision PC | HDMI-CEC switch, auto input switch, deep colour per input |
@@ -56,7 +56,7 @@ HDMI input audio format, TV speakers too. Tabs: Output · Mode · Advanced.
 
 ## Network
 
-| LG item | LumaShell |
+| LG item | LumaTV |
 |---|---|
 | Wi-Fi Connection, Wired Connection (Ethernet), network status *(sub-app)* | Network name and strength as the live line ("Nate's Home · Strong"); forget, choose network |
 | Device Connection Settings, Screen Share, AirPlay and HomeKit *(sub-apps)* | More in LG settings |
@@ -64,38 +64,38 @@ HDMI input audio format, TV speakers too. Tabs: Output · Mode · Advanced.
 
 ## Ambient light
 
-LumaShell's own feature (lights around the TV following the picture); LG has
+LumaTV's own feature (lights around the TV following the picture); LG has
 no equivalent on the C4. LG's Lighting (Lighting Mode, Lighting Brightness,
 Lighting Color) exists in the bundle for other models and is not shown.
 
 ## Home & look
 
-| LG item | LumaShell |
+| LG item | LumaTV |
 |---|---|
-| General › System › Home Settings: Home Promotion, Content Recommendation, Home Animation, Recent Input, Power On Screen | Replaced by LumaShell Home: wallpaper, dynamic tint, clock style, widgets, dock order, wallpaper slideshow |
+| General › System › Home Settings: Home Promotion, Content Recommendation, Home Animation, Recent Input, Power On Screen | Replaced by LumaTV Home: wallpaper, dynamic tint, clock style, widgets, dock order, wallpaper slideshow |
 | General › System › Additional Settings › Screen Saver Settings, Screen Saver Standby Time, Screen Saver Promotion | Screensaver rows |
 | General › Always Ready, Always-on Off Time | Standby look row |
 | Standby Light, "Show LG logo when turning on" (`other.lgLogoDisplay`) | Boot look rows |
 
 ## Remote & pointer
 
-| LG item | LumaShell |
+| LG item | LumaTV |
 |---|---|
 | General › System › Additional Settings › Pointer Options: Pointer Speed (Slow, Normal, Fast), Pointer Size (Small, Medium, Large) | Segmented rows "Pointer speed", "Pointer size" |
 | `general.remotePointer` (settingsservice; "Remote Pointer" string in Accessibility › Simple Mode) | Switch "Magic Remote pointer" |
-| Hold Home opens LG's Home; number keys open dock tiles | LumaShell's own rows |
+| Hold Home opens LG's Home; number keys open dock tiles | LumaTV's own rows |
 | Universal Control Settings, Learn Remote Control, Extend Pressing Time on Remote (Activate time for long press, Interval time for repeated actions), Settings Help | More in LG settings |
 
 ## AI access
 
-Entirely LumaShell's: allow switch (Off / LAN only), paired assistants,
+Entirely LumaTV's: allow switch (Off / LAN only), paired assistants,
 per-assistant capability levels, activity, lock out. No LG item maps here;
 LG's "AI Service" items are picture and sound features and stay in those
 sections.
 
 ## System
 
-| LG item | LumaShell |
+| LG item | LumaTV |
 |---|---|
 | General › System › Language (Menu Language, Keyboard Languages, Audio Language), Location (Broadcast Country, LG Services Country, Zip Code, Weather Location Setting), Time & Timer (Set Automatically, Time, Date, Timezone, Timers: Sleep Timer, Power On Timer, Power Off Timer, No Operation Auto Off) | Language, time zone, sleep timer rows |
 | General › Energy Saving › Auto Power Off, No Signal Auto Off, Quick Start+ | Power rows |
@@ -104,7 +104,7 @@ sections.
 | Support › Software Update (Auto Update, Check for Updates), TV Information (Software Version, Serial Number, Model Code, webOS TV Version, Total Power On Time, MAC addresses), Screen Self-diagnosis, Sound Self-diagnosis, Memory Optimizer, Quick Help, User Guide, LG Support Center | "About this TV" row; the rest → More in LG settings |
 | Support › Privacy & Terms (User Agreements, Legal Notice, Open Source Licenses, Advertisement / Limit AD Tracking, Delete My Personal Information, App Permissions), Home/Store Mode, Live Plus, Set ID, Reset to Initial Settings | More in LG settings only |
 | General › Channels (Channel Tuning & Settings, Channel Manager, Multi Channel Audio, HbbTV, Interactive Service, Copy Channels), Family Settings *(sub-app)*, LG Account *(sub-app)*, Simple Mode | More in LG settings only |
-| LumaShell itself: version, on/off, LG Home escape, logs | LumaShell rows |
+| LumaTV itself: version, on/off, LG Home escape, logs | LumaTV rows |
 
 ## Live lines on the rail
 

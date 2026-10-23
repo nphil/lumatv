@@ -1,4 +1,4 @@
-/* Shared behaviour for the LumaShell mocks: the Settings rail, icons, theme and a D-pad focus model.
+/* Shared behaviour for the LumaTV mocks: the Settings rail, icons, theme and a D-pad focus model.
  * Query string: ?theme=light|dark  ?focus=<id> (initial focus)  ?hover=<id> (pointer hover state). */
 (function () {
   const q = new URLSearchParams(location.search);

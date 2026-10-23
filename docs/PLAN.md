@@ -1,7 +1,7 @@
-# LumaShell implementation plan
+# LumaTV implementation plan
 
-LumaShell (formerly LumaGlass) replaces every visible part of the LG C4's
-interface with surfaces in the Lucent design language, while webOS keeps
+LumaTV (formerly LumaShell, LumaGlass) replaces every visible part of the LG
+C4's interface with surfaces in the Lucent design language, while webOS keeps
 providing tuning, inputs, playback and settings. The current Home is the
 visual reference. Nothing is written to `/usr`; each surface is switched on
 through a reversible hook and falls back to LG's own on failure.
@@ -58,7 +58,7 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 
 ## Surfaces
 
-| Surface | LG today | LumaShell | Hook |
+| Surface | LG today | LumaTV | Hook |
 |---|---|---|---|
 | Home | LumaHome over LG's Flutter Home (67 MB resident) | LumaHome only | Phase 8 |
 | Apps tile | LG Store (`com.webos.app.discovery`) | Own all-apps grid | Launch redirect |
@@ -97,7 +97,7 @@ remote or knob. The third-party Webos-EARC-Volume-Overlay reads that counter
 and relaunches a web app per change, so it is neither accurate nor fast, and is
 not used.
 
-The LumaShell volume OSD takes its level from the Denon AVR on the LAN instead:
+The LumaTV volume OSD takes its level from the Denon AVR on the LAN instead:
 the receiver pushes every master-volume and mute change (`MV`, `MU` events),
 so the OSD matches the front panel in the receiver's own units (dB or 0-98),
 including changes made on the receiver. The connection lives in the native
@@ -129,7 +129,7 @@ own: measured at 0-1 ms per feed on the compositor thread.
 
 ## Plugins
 
-LumaShell hosts LumaShow's plugins, so one plugin package runs on every Luma
+LumaTV hosts LumaShow's plugins, so one plugin package runs on every Luma
 device. LumaShow's plugin API (`lumashow/docs/plugin-api.md`, level 1)
 already fits: a plugin never draws. It declares settings pages, cards, quick
 tiles, notifications and timeline items as records, and each device's shell
@@ -139,8 +139,8 @@ static aarch64 binaries, and the Show, the Lenovo and the TV are all aarch64,
 so the same build installs on each.
 
 - The broker in the helper speaks the same protocol; records become QML
-  surfaces in LumaShell: cards on Home, tiles in the quick panel, pages in
-  Settings, notifications as LumaShell toasts.
+  surfaces in LumaTV: cards on Home, tiles in the quick panel, pages in
+  Settings, notifications as LumaTV toasts.
 - Device facts in `welcome` (screen class, input methods: touch, remote,
   pointer, controller) are an additive field, for plugins with their own
   views that must adapt; record-only plugins need nothing per device.
@@ -187,7 +187,7 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
   expect, then re-checking them on every firmware update. Not planned: the
   visible gain over drawing inside it is small and a gap breaks apps or video.
 - What is replaced instead is everything it draws: LG's QML is shadowed by
-  LumaShell's, and LG's own surfaces are stubbed as each LumaShell one passes
+  LumaTV's, and LG's own surfaces are stubbed as each LumaTV one passes
   the gate.
 - Research spike (after phase 3): LumaShow OS's Rust `ui` and renderer built
   for aarch64 on the 64-bit driver below (armv7 on LG's driver as the
@@ -195,7 +195,7 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
   surface, measured with the frame probe against the QML version. If it
   holds the gate with headroom, surfaces move to it one at a time, LG's
   compositor keeps only window stacking, video holes and key routing, and
-  LumaShell shares one UI toolkit with LumaShow.
+  LumaTV shares one UI toolkit with LumaShow.
 - 64-bit drawing path: works on screen (2026-10-22). LG's `mali_kbase`
   speaks kernel interface 11.40 and accepts 64-bit callers. Rockchip's
   aarch64 Mali-G52 Bifrost builds (`libmali-bifrost-g52-g24p0`, g13p0 too),
@@ -247,14 +247,14 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
   of LG's shipped models, so it needs options or a resource lease first.
   Spike: reverse the delegate's options and the inference manager's
   resource flow, then run one LG package with `run_lgnpu` and time it against
-  the CPU. Uses for LumaShell come after that number: on-device scene
+  the CPU. Uses for LumaTV come after that number: on-device scene
   classification for ambient light and picture profiles, or local voice
   commands (the microphone is Nitin's decision).
 
 ## Settings
 
 LG's Settings (`com.palm.app.settings`, an Enact web app, 25 MB on disk,
-+93 MB while open) is replaced by LumaShell's own Settings, drawn in the
++93 MB while open) is replaced by LumaTV's own Settings, drawn in the
 compositor and resident like Quick Settings. It writes the same places LG's
 app does (`settingsservice` categories such as `picture`, `sound`, `general`,
 `option`, and the audio, network and input services), so LG's processing,
@@ -292,7 +292,7 @@ widen or approve its own access.
   removed only from the TV's screen. "Lock out all AI" revokes every token
   and stops the listener.
 - Typed tools only: no raw luna, shell, key-injection or file tools, so an
-  assistant cannot drive LG's screens or LumaShell's own menus. Each tool has
+  assistant cannot drive LG's screens or LumaTV's own menus. Each tool has
   a level set per assistant: Always, Ask on TV, or Never.
 
 | Group | Default |
@@ -305,10 +305,10 @@ widen or approve its own access.
 | See the screen (capture) | Never |
 
 - Never exposed, at any level: AI access itself, pairing, network and
-  developer settings, uninstalling apps, resets, software updates, LumaShell
+  developer settings, uninstalling apps, resets, software updates, LumaTV
   install or updates, the microphone.
-- "Ask on TV" opens a LumaShell prompt over whatever is playing: who asks,
-  the action in LumaShell's own words, the assistant's reason labelled as
+- "Ask on TV" opens a LumaTV prompt over whatever is playing: who asks,
+  the action in LumaTV's own words, the assistant's reason labelled as
   its own, Allow once or Deny, expiring after 30 s. A denial pauses that
   assistant's requests until it is resumed in Settings. Every call is logged
   and shown in Settings › AI access.
@@ -334,7 +334,7 @@ cleared on every stage change.
 
 ## Ambient light
 
-LumaShell reads the colour of whatever the set is showing and drives the Hue
+LumaTV reads the colour of whatever the set is showing and drives the Hue
 backlights and an RGBIC strip from it, with no Hue Bridge and no Hue Sync app.
 It works during DRM playback (Netflix, Prime, Disney+), where frame capture
 returns black on webOS 24 and 25.
@@ -381,7 +381,7 @@ Before building, with the set free:
 1. Probe: call the four functions during Netflix playback and log the zones;
    find the zone layout (grid or edges), the value range (8-bit, float,
    SDR or HDR), the update rate and the CPU cost. The zones come from the
-   video plane, so LumaShell's own UI is likely not in them.
+   video plane, so LumaTV's own UI is likely not in them.
 2. Lights: pair the Hue backlights to Zigbee2MQTT (2.14.2, running as a Home
    Assistant app). Bifrost is not installed anywhere yet; installing it is
    Nitin's step. It needs its own IP on the LAN, since it answers as a Hue
@@ -395,7 +395,7 @@ Before building, with the set free:
 ## Reference: ecklf/lg-luma
 
 Luma (MIT, Rust/SDL app) is a separate launcher app that the Home key is
-rerouted to; LumaShell already owns Home inside the compositor, so only its
+rerouted to; LumaTV already owns Home inside the compositor, so only its
 ideas are taken, not its architecture.
 
 - Inputs on Home: `com.webos.service.eim/getAllInputStatus` gives each HDMI
@@ -430,7 +430,7 @@ Taken:
 - App library: hold OK for Move to start/left/right/end, Hide and
   Uninstall. Uninstall is offered only with positive evidence the app is
   user-installed (under `/media/developer/apps` or `/media/cryptofs/apps`,
-  not a `com.webos.`/`com.palm.`/`com.lge.` id, never LumaShell, Home or the
+  not a `com.webos.`/`com.palm.`/`com.lge.` id, never LumaTV, Home or the
   Homebrew Channel).
 - Back on the dock row jumps to its first tile.
 - Wallpaper slideshow from a USB drive or `/media/developer`, with interval
@@ -520,7 +520,7 @@ Platform findings:
 Not taken: locking the SSAP port 3001 to localhost (Home Assistant controls
 the set through it), neutralising the remote microphone (voice uses it),
 lginputhook's admin server (LAN port with path traversal), self-updaters, and
-webos-mcp (raw control with no on-TV permissions; LumaShell's own MCP server
+webos-mcp (raw control with no on-TV permissions; LumaTV's own MCP server
 above replaces it).
 
 ## Phases
@@ -549,7 +549,7 @@ above replaces it).
 Glasshouse (rorygallagher2024/lg-webos-dashboard) is installed on the set: a
 Node server (`/var/lib/tvweb`, about 34 MB resident) that bridges the TV to
 Home Assistant over MQTT and holds LG's ad and telemetry hosts blocked with a
-bind-mounted `/etc/hosts`. LumaShell coexists with it and does not duplicate
+bind-mounted `/etc/hosts`. LumaTV coexists with it and does not duplicate
 what it already does.
 
 - Background services. Glasshouse masks LG daemons under
@@ -561,10 +561,10 @@ what it already does.
   webOS 10) or hiding system apps through `appinfo.json` bind-mounts needs SAM
   restarted, and on webOS 10 and 11 that restart has been followed by lost
   picture, lost ARC sound and dead HDMI-CEC until a power cut (Glasshouse
-  #366). This set sends sound to the Denon over eARC, so LumaShell never
+  #366). This set sends sound to the Denon over eARC, so LumaTV never
   restarts SAM: a replacement screensaver either lands before SAM first starts
   (the early boot hook, if it runs first) or is drawn by the compositor.
-  System apps are hidden in LumaShell's own launcher, not through
+  System apps are hidden in LumaTV's own launcher, not through
   `appinfo.json`.
 - OLED care. The luna calls Glasshouse uses are a ready source for an OLED
   care screen in the curated settings: `panelcontroller/getPanelUsageTime`,
@@ -575,22 +575,22 @@ what it already does.
   FreeSync, ALLM, black stabiliser) and the live VRR refresh readout are
   candidates for a quick-panel game card.
 - Screensaver designs. Its QML screensavers (clock, starfield, bokeh) keep
-  every element drifting to avoid retention; LumaShell's screensaver follows
+  every element drifting to avoid retention; LumaTV's screensaver follows
   the same rule.
 - Version on the set predates Glasshouse Home and Remote keys (no
-  `home.json`, no `glasshouse.remoteKeys`). Both hook what LumaShell owns: the
+  `home.json`, no `glasshouse.remoteKeys`). Both hook what LumaTV owns: the
   Home key and the first slot of the compositor's key-filter chain. Neither is
-  switched on while LumaShell runs; an update of Glasshouse is checked for
+  switched on while LumaTV runs; an update of Glasshouse is checked for
   that.
 - Key-filter writes: writing `com.webos.surfacemanager.keyFilters` reloads
   every filter and reruns LG's `init()`, which in Game mode opens the Game
   Dashboard. Glasshouse keeps one fixed filter file in the chain and passes
-  its settings through a configd value the filter subscribes to. LumaShell's
+  its settings through a configd value the filter subscribes to. LumaTV's
   filter does the same and is written to the chain only when absent.
 - Apps kept ready (phase 8): preloads are configd
   `com.webos.service.preloadmanager.supportAppList`; on webOS 10 the preload
   manager forgets the stored value at every switch-on, so `setPreloadPolicy`
-  is sent again at each wake. Glasshouse already does this; LumaShell uses it.
+  is sent again at each wake. Glasshouse already does this; LumaTV uses it.
   On the set: Netflix, YouTube, Prime Video, the browser and LG Channels are
   enabled.
 - Retiring LG's Home: tested on the set on 2026-10-22 (webOS 10.2.1). A web
@@ -642,9 +642,14 @@ what it already does.
   Channels (100 MB) and the web browser (72 MB) are dropped from
   `preloadmanager.supportAppList`, about 307 MB, re-sent at every wake as
   webOS 10 requires (Nitin, 2026-10-23). Phase 8.
+- Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
+  name and every internal identifier come from one file (`brand.json`:
+  display name, short id, app id, data directory), read by the build, the
+  tool, QML and the web theme; nothing hard-codes the name. Phase 1 starts
+  with the switch from `lumaglass`: app id `org.nphil.lumatv`, data in
+  `/var/lib/lumatv`, repo renamed on the forge, and the tool migrating the
+  old data directory and removing the old app on first run.
 
 ## Open decisions
 
 - Curated settings list and layout.
-- Rename of internal names (repo, app id `org.nphil.lumaglass`,
-  `/var/lib/lumaglass`) to LumaShell, done once during phase 1.

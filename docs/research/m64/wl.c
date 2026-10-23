@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
   wl_webos_shell_surface_add_listener(ws, &wsl, NULL);
   wl_webos_shell_surface_set_property(ws, "appId", "org.nphil.lumaglass");
   wl_webos_shell_surface_set_property(ws, "_WEBOS_WINDOW_TYPE", wtype);
-  wl_webos_shell_surface_set_property(ws, "title", "LumaShell 64-bit probe");
+  wl_webos_shell_surface_set_property(ws, "title", "LumaTV 64-bit probe");
   wl_shell_surface_set_toplevel(ss);
   wl_webos_shell_surface_set_state(ws, WL_WEBOS_SHELL_SURFACE_STATE_FULLSCREEN);
 
