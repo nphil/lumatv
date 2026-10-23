@@ -225,13 +225,36 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
     held for video), and in standby a second 8.3 MB 1080p dumb buffer
     already failed. `dma_buf_te` (the exporter LG's compositor holds open)
     allocated twelve 1080p buffers from ordinary RAM without trouble.
-  - Production shape: no interposer. The renderer uses the windowless
-    `-gbm` build and its own swapchain: three buffers allocated once and
-    kept (contiguous when CMA allows at start, `dma_buf_te` otherwise),
-    imported with `EGL_EXT_image_dma_buf_import`, attached through
-    `zwp_linux_dmabuf_v1`, paced by `wl_surface.frame`. Before relying on
-    contiguous buffers, check that holding about 25 MB of CMA never starves
-    4K HDR decoding in Netflix and PlxNative.
+  - Own swapchain without an interposer (2026-10-23): works and shows the
+    right picture, but is slower. The windowless blob renders into three
+    dma-bufs allocated once, imported with `EGL_EXT_image_dma_buf_import`
+    and attached through `zwp_linux_dmabuf_v1` (the compositor offers only
+    the linear modifier for ARGB8888), paced by `wl_surface.frame`:
+    50.2-51.7 fps with 122-153 frames over 20 ms in 8 s. The cost is the
+    import itself. The same 1080p frame (three clears and `glFinish`),
+    offscreen, per render target:
+
+    | Render target | 64-bit g24p0 | LG 32-bit r46p0 |
+    |---|---|---|
+    | Driver's own pbuffer or texture | 1.3-1.4 ms | 1.4-2.4 ms |
+    | Imported DRM dumb buffer | 8.5 ms | 6.3 ms |
+    | Imported `dma_buf_te` buffer | 29.0 ms | 30.4 ms |
+
+    Imported memory costs both drivers 5-20 times the driver's own, so a
+    renderer cannot draw into buffers it hands in. The driver's window path
+    is fast because it allocates through what it takes for a dma-heap
+    ("system-uncached") and treats the memory as its own.
+  - Production shape: the driver's own window path (`-wayland-gbm`) with a
+    minimal heap shim: it answers only opens of `/dev/dma_heap/*` and their
+    `DMA_HEAP_IOCTL_ALLOC`, allocating DRM dumb buffers on `card0` and
+    falling back to `dma_buf_te` when contiguous memory runs out; every
+    other call passes straight through. The blob ships with LumaTV, so its
+    version changes only with a LumaTV release that passes the gate. If the
+    64-bit path fails to start, LumaTV draws through LG's 32-bit driver.
+    The kernel-side alternative, a module adding `/dev/dma_heap`, needs LG's
+    GPL source for 5.4.268 and is Nitin's decision.
+    Before relying on contiguous buffers, check that holding about 25 MB of
+    CMA never starves 4K HDR decoding in Netflix and PlxNative.
   - Probe sources kept in `docs/research/m64/`.
 
 - NPU: LG's own (`DNE`, vendor LGE, driver 1.0, `/dev/npu0`, module
