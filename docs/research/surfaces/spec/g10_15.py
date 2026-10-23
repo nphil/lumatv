@@ -12,7 +12,7 @@ row(g, 'DLNA remote control', '"The external device is requesting TV control. Do
     [S('dmr')], 'rare', 'No', 'Replace', 'alert contract', 'View swap', 2)
 row(g, 'Sound Share', 'phone audio through the TV: black "Playing the sound from your connected device." screen, Bluetooth Audio Playback panel (device list, play, pause, Screen off), "{Device} requests Sound Share to your TV" Accept, Decline or Block',
     ['com.webos.app.hdmioptical', 'com.webos.app.btspeakerapp', S('bluetooth-audio-sink', 'soundshare')], 'rare', 'No', 'Keep', 'phone-audio panels; prompts use the alert contract', 'View swap (prompts)', 2)
-row(g, 'Mobile pairing PIN popup', 'grey centred panel "<device> is trying to connect." with the PIN digits and a 10-device note, Cancel, 30 s; plus "Currently connecting to the mobile device" toasts (LG ThinQ, TV Plus)',
+row(g, 'Mobile pairing PIN popup', 'grey centred panel "{device} is trying to connect." with the PIN digits and a 10-device note, Cancel, 30 s; plus "Currently connecting to the mobile device" toasts (LG ThinQ, TV Plus)',
     [F('RemoteUserList/PinPopup.qml', 'system-qml', '182 files / 11 qml; id `com.webos.systemui.mobileconnection`'), F('WebOSCompositor/views/StarfishRemoteUserListView.qml', 'compositor-qml', '17 lines')], 'rare', 'No', 'Replace', 'registered in configd `systemUIManager`, so the redirect already reaches it', 'System UI redirect', '3*')
 row(g, 'TV Plus guide and device row', 'five-page "LG TV Plus Guide" and a device row with Disconnect, Screen Share and Content Share; nothing instantiates it',
     [F('RemoteUserList/RemoteUserListTooltip.qml', 'system-qml', '1171 lines + Delegate, Model, Shadow, OpacityMaskImage, Style')], 'never', 'No', 'Keep (dormant)', 'dead code in the module', '—', '—')
@@ -28,7 +28,7 @@ row(g, 'New & Hot and Music card', 'upcoming and popular titles with reminders a
 row(g, 'Premium', 'loader for a legacy store page at `lgrecommends.lgappstv.com`',
     'com.webos.app.premium', 'never', 'No', 'Off', 'legacy; only a MIME launch reaches it', 'Launcher filter', 7)
 row(g, 'LG Channels', 'server-hosted free channel guide and VOD with ads; account required; the remote has an LG Channels key',
-    'com.webos.app.lgchannels', 'rare', 'No', 'Off', 'ad-funded; not offered in LumaTV (preload already dropped); the remote key still opens it unless remapped', 'Launcher filter', 7)
+    'com.webos.app.lgchannels', 'rare', 'No', 'Off', 'ad-funded; not offered in LumaTV (its preload goes in phase 8, Decided); the remote key still opens it unless remapped', 'Launcher filter', 7)
 row(g, 'LG Movies & TV', 'LG rental and purchase store', 'com.lgtvod.us.app', 'never', 'No', 'Off', 'store promotion; not offered in LumaTV', 'Launcher filter', 7)
 row(g, 'Sports (My Team) and sports alarm', 'league and team setup, schedules; popups "The {League} game starts soon" with Watch Live, scores, Open with',
     ['com.webos.app.sportsteamsettings', F('SportsAlarm/SportsAlarm.qml', 'system-qml', '245 files / 50 qml; id `com.webos.app.sportsalarm`'), S('sportsalarm')], 'never', 'Yes', 'Off', 'no team set (`mySportTeamList` empty); empty view through the redirect', 'System UI redirect', 7)
@@ -99,7 +99,7 @@ row(g, 'Accessibility', 'Vision (Audio Guidance, zoom, high contrast, invert, gr
 row(g, 'Accessibility quick panel', 'compact shortcuts panel over the current app; opens when Mute is held 2 s or on the Multikey code',
     'com.webos.app.accessibility-overlay', 'rare', 'No', 'Keep', 'a deliberate 2 s hold on Mute; the key filter must not swallow Mute', '—', '—')
 row(g, 'Screen Zoom, grayscale and invert', 'whole-UI shader: zoom 110-200 % with a pan minimap, key guide and four arrows, grayscale, inverted colours; Home held 2.5 s starts it',
-    [F('WebOSCompositor/views/StarfishViewAdjustments.qml', 'compositor-qml', '868 lines'), F('WebOSCompositorBase/zoom/ZoomView.qml', 'compositor-qml', '3 files incl. ZoomKeyGuide.qml, ZoomDecorationStyle.qml')], 'rare', 'No', 'Keep', 'accessibility; PLAN\'s 650 ms Home hold reaches LG\'s Home first, so offer zoom as a Settings row', 'Key filter and launch redirect', '1*')
+    [F('WebOSCompositor/views/StarfishViewAdjustments.qml', 'compositor-qml', '868 lines'), F('WebOSCompositorBase/zoom/ZoomView.qml', 'compositor-qml', '3 files incl. ZoomKeyGuide.qml, ZoomDecorationStyle.qml')], 'rare', 'Part', 'Keep', 'accessibility; PLAN\'s 650 ms Home hold reaches LG\'s Home first, so offer zoom as a Settings row', 'Key filter and launch redirect', '1*')
 row(g, 'Learn Remote Control', 'press a key on the real remote and its function appears; Back twice to leave',
     'com.webos.app.remotecontrolguide', 'rare', 'No', 'Restyle', 'Enact web app', 'Overlay mount (theme)', 6)
 row(g, 'Sign Language Zoom', 'a magnifier window over the chosen picture area and an "Select the area for sign language" frame; `isSLZoomOn` is off',
@@ -109,6 +109,6 @@ row(g, 'Sign-language avatar', '3D avatar drawn over content in a top-UI window;
 row(g, 'AI Caption', '"Analyzing sound to generate AI Caption.", "AI Caption has ended.", "{mobile} is requesting to connect to the device."',
     [S('nais-offloading-manager')], 'never', 'No', 'Replace', 'alert contract', 'View swap', 2)
 row(g, 'Audio Guidance and language packs', 'spoken focus and alert text through `tts`; prompts to download a high-quality language pack; `audioGuidance` is off',
-    [S('tts')], 'never', 'No', 'Keep', 'LG voice; the spoken hooks in alerts must survive the rebuild', '—', '—')
+    [S('tts')], 'never', 'Part', 'Keep', 'LG voice; the spoken hooks in alerts must survive the rebuild', '—', '—')
 row(g, 'Captions and subtitle layers', 'caption and subtitle layers under the transparent inputcommon window on Live TV and inputs',
-    [F('inputcommon window-group layers', 'qml', 'subtitle, ttxSubtitle, ttmlSubtitle')], 'rare', 'No', 'Keep', 'drawn by the media pipeline; the style is a Settings row', '—', '—')
+    [F('inputcommon window-group layers', 'qml', 'subtitle, ttxSubtitle, ttmlSubtitle')], 'rare', 'Part', 'Keep', 'drawn by the media pipeline; the style is a Settings row', '—', '—')

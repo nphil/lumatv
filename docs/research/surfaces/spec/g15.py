@@ -9,11 +9,11 @@ row(g, 'PlxNative', 'unofficial native Plex client with its own renderer', 'com.
 row(g, 'Moonlight and Punktfunk', 'game and desktop streaming clients', ['com.limelight.webos', 'io.unom.punktfunk.client-webos'], 'rare', 'Out', 'Keep', 'homebrew UI', '—', '—')
 row(g, 'Hue Sync', "Signify's sync app", 'com.lighting.huesync', 'rare', 'Out', 'Keep', "third-party UI; LumaTV's Ambient light replaces its use", '—', '—')
 row(g, 'Web Browser', 'Chromium-based Crow UI: URL bar, tabs, bookmarks, start page with Most Visited and Recommended Sites; microphone allowed',
-    'com.webos.app.browser', 'rare', 'Part', 'Keep', 'web content in LG\'s browser; its 72 MB preload is already dropped', '—', '—')
+    'com.webos.app.browser', 'rare', 'Part', 'Keep', 'web content in LG\'s browser; its 72 MB preload is dropped in phase 8 (Decided)', '—', '—')
 row(g, 'Browser helpers', 'floating voice-search browser (Naver, Korea), PWA shell that opens a URL, web-app host with a grey spinner and an error image, single-image viewer',
     ['com.webos.app.beanbrowser', 'com.webos.app.tinybrowser', 'com.webos.app.webapphost', 'com.webos.app.tvsimpleviewer'], 'rare', 'No', 'Keep', 'content shells opened with a URL or a file; nothing of their own to restyle', '—', '—')
 row(g, 'Store stubs', 'Viewster, 8 Ball Pool, Twitch, DAZN, Highbrow, Tennis TV and Karaoke Smart folders; only the first two are in the snapshot or `listApps`',
-    ['com.lge.app.viewster', 'com.miniclip.eightballpool (live `listApps` only)', 'tv.twitch.tv.starshot.lg, dazn, com.joinhighbrow.highbrow, com.deltatre.tennistv.lgapp, karaokesmart (folders under `/media/cryptofs`)'], 'never', 'No', 'Keep (dormant)', 'stubs without a UI of ours', '—', '—')
+    ['com.lge.app.viewster', '`com.miniclip.eightballpool` · stub · live `listApps` only', '`tv.twitch.tv.starshot.lg`, `dazn`, `com.joinhighbrow.highbrow`, `com.deltatre.tennistv.lgapp`, `karaokesmart` · stubs · folders under `/media/cryptofs`'], 'never', 'No', 'Keep (dormant)', 'stubs without a UI of ours', '—', '—')
 row(g, 'AmazOff', 'Prime Video ad patcher; an nginx and a monitor run in the background without UI', 'com.amazoff.patcher', 'rare', 'No', 'Keep', 'homebrew; background processes only', '—', '—')
 row(g, 'Homebrew Channel and helpers', 'installer, its updater, the LG app-update blocker and the input-hook front',
     ['org.webosbrew.hbchannel', 'org.webosbrew.safeupdate', 'org.webosbrew.appupdateblocker', 'org.webosbrew.inputhook'], 'rare', 'Part', 'Keep', 'root access and update blocking depend on them; the input-hook admin server is a PLAN "not taken"', 'Launcher filter', '1*')

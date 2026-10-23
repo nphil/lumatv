@@ -9,7 +9,7 @@ row(g, 'Senior (Simple) Home', 'large-print home for Simple Mode, hosted as wind
     ['com.webos.app.seniorhome', F('WebOSCompositor/views/StarfishHomeView.qml', 'compositor-qml', '61 lines')], 'never', 'No', 'Keep (dormant)',
     'Simple Mode is unsupported here (`seniorMode.support` false)', '—', '—')
 row(g, 'Apps tile (LG Content Store)', 'server-rendered store page: featured, categories, search, install',
-    'com.webos.app.discovery', 'sometimes', 'Yes', 'Replace',
+    'com.webos.app.discovery', 'sometimes', 'Yes · mock 12', 'Replace',
     "own all-apps grid with search and favourites (mock 12); LG's store stays reachable for installs", 'Key filter and launch redirect', 7)
 row(g, 'Launch splash', 'full-screen app image from `splashBackground` (47 of 149 apps, incl. Netflix, YouTube, Prime, Plex), else grey default with 8 dots; skipped for Home and `noSplashOnLaunch`',
     F('WebOSCompositor/views/StarfishImageSplash.qml', 'compositor-qml', '333 lines'), 'daily', 'Yes · mock 15', 'Replace',
@@ -41,7 +41,7 @@ row(g, 'Pointer right-click menu', 'two round buttons, Back and Home, beside the
 row(g, '"More Actions" panel (on-screen remote)', 'side panel: Quit App, User Guide, Info, Quick Help for apps; number pad, colour keys, Guide, Record, Scheduler on TV; trick-play and SIMPLINK keys for CEC devices',
     [F('ScreenRemote/ScreenRemote.qml', 'system-qml', '133 files / 57 qml; id `com.webos.app.screenremote`')],
     'rare', 'Yes · no mock', 'Replace', 'rebuilt resident; Quit App is the one item an app user needs', 'System UI redirect', 5)
-row(g, 'Quick Access (number keys)', 'digit held 1 s starts slot N with a toast, empty slot asks "add <app> to Quick Access N?"; 0 held opens the editor',
+row(g, 'Quick Access (number keys)', 'digit held 1 s starts slot N with a toast, empty slot asks "add {app} to Quick Access N?"; 0 held opens the editor',
     ['com.webos.app.magicnum', F('WebOSCompositor/controllers/base/StarfishMagicNumber.qml', 'compositor-qml', '489 lines')],
     'sometimes', 'Part', 'Replace', "LumaHome's dock numbers take over (mock 03); LG's digit handling stays untouched outside LumaHome", 'Key filter and launch redirect', '1*')
 
@@ -64,12 +64,12 @@ row(g, 'Set-top and lock states on an input', '"Do you want to turn on your set-
     [F('inputcommon/Interfaces/ScreensaverInterfaces/NoSignalAlertController.qml', 'qml', '254 lines + PincodePromptController 56'), F('inputcommon/UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml', 'qml', '432 lines')],
     'rare', 'Part', 'Restyle', 'inputcommon popups share the Overlay mount', 'Overlay mount', 6)
 row(g, 'HDMI input apps 1-4', 'no UI of their own: a transparent inputcommon window over the video plane; a cold launch shows `HDMI-N_splash.png`; HDMI 2 (Denon AVR, `lastInputApp`) is the daily one',
-    ['com.webos.app.hdmi1', 'com.webos.app.hdmi2', 'com.webos.app.hdmi3', 'com.webos.app.hdmi4'], 'daily', 'Out', 'Keep',
+    ['com.webos.app.hdmi1', 'com.webos.app.hdmi2', 'com.webos.app.hdmi3', 'com.webos.app.hdmi4'], 'daily', 'Part', 'Keep',
     'window host over protected video; its banners and no-signal rows are above', '—', '—')
 row(g, 'Inputs the C4 does not have', 'DisplayPort, USB-C, AV, Component and SCART placeholders: same inputcommon window, never selectable',
     ['com.webos.app.dp1', 'com.webos.app.dp2', 'com.webos.app.usbc1', 'com.webos.app.usbc2', 'com.webos.app.externalinput.av1', 'com.webos.app.externalinput.av2', 'com.webos.app.externalinput.component', 'com.webos.app.externalinput.scart'],
     'never', 'No', 'Keep (dormant)', '`eim` reports 4 HDMI ports and none of these (`maxDisplayportCount` 0, `maxUsbcCount` 0)', '—', '—')
-row(g, 'HDMI or CEC device connected', 'input alert: white parallelogram cards with port icon and name ("Do you want to switch to the screen of the connected device?" / "[AVR-S760H] is connected.")',
+row(g, 'HDMI or CEC device connected', 'input alert: white parallelogram cards with port icon and name ("Do you want to switch to the screen of the connected device?", "[AVR-S760H] is connected.", "SIMPLINK : On", "The current input has been changed to {device1} from {device2}.")',
     [S('eim')], 'sometimes', 'Yes · mock 18', 'Replace', 'same item contract as toasts and alerts', 'View swap', 2)
 row(g, 'HDMI format prompts', '"the Ultra HD Deep Color of the current HDMI port will be changed to 8K" with Go to Settings; "Audio is not supported"',
     [S('extinput-integration')], 'rare', 'Part', 'Replace', 'plain alert contract', 'View swap', 2)
@@ -86,7 +86,7 @@ row(g, 'Bluetooth keyboard, mouse and gamepad pairing', '"[Device] wants to conn
 row(g, 'Magic Remote status', '"Magic Remote battery is low", "signal is unstable", "Press OK(Wheel) to pair"',
     [S('lginput2')], 'rare', 'No', 'Replace', 'toasts and alerts; battery warning must never be filtered', 'View swap', 2)
 row(g, 'On-TV button panel', 'the TV\'s one-key joystick: press opens a small Local Control Panel; Quick Settings and the input picker show "Press: OK, hold: Power Off"; first power-on by the button shows a key guide for 5 s',
-    ['com.webos.app.tvhotkey', F('inputcommon/.../LocalKeyView.qml, LocalKeyPowerOnOSD.qml; QuickSettings and InputPicker LocalKeyGuidance.qml', 'qml', 'local-key variants')],
+    ['com.webos.app.tvhotkey', F('inputcommon/UserInterfaceLayer/Containers/PopupLayer/LocalKeyView.qml', 'qml', '136 lines + LocalKeyPowerOnOSD.qml 182'), F('QuickSettings/Containers/LocalKeyGuidance.qml', 'system-qml', '123 lines + InputPicker/Containers/LocalKeyGuidance.qml 96')],
     'rare', 'No', 'Keep', "the recovery path when the remote is lost; LumaTV's panels must still accept the `localkey` launch", '—', '—')
 row(g, 'Wi-Fi Direct, cable and Bluetooth turn-on toasts', '"Wired LAN cable disconnected.", "[%s] wants to connect via Wi-Fi Direct. Accept?", "{Mobile} is ready to connect."',
     [S('event-monitor-network-starfish','bluetooth-asc-service')], 'rare', 'No', 'Replace', 'alert contract', 'View swap', 2)
@@ -104,7 +104,7 @@ row(g, 'ARC, soundbar and wireless-speaker suggestions', '"change Digital Sound 
 row(g, 'Bluetooth headphone or speaker connection', '"[Device] is connected.", "Failed to connect to [Device]", "reconnect the previously connected [Device]?"; Sound Out falls back to the TV speaker when it drops',
     [S('bluetooth-audio-source', 'bluetooth-le-audio')], 'rare', 'No', 'Replace', 'toasts and alerts through the one renderer', 'View swap', 2)
 row(g, 'Auracast broadcast settings', 'Start or Stop Broadcasting, TV name, authentication code, audio quality, registered devices, sound test',
-    'com.webos.app.leaudio', 'never', 'No', 'Keep (dormant)', 'sound goes to the Denon over eARC, which blocks Auracast', '—', '—')
+    'com.webos.app.leaudio', 'never', 'No', 'Keep (dormant)', 'sound goes to the Denon over eARC; the app says some Sound Out modes block Auracast', '—', '—')
 row(g, 'Personalized Sound Wizard and AI Acoustic Tuning', 'pick audio samples for vocal tone, bass-treble balance and spatial sound, then Before/After and Apply; the tuning app plays an 8 s test heard by the Magic Remote microphone',
     ['com.webos.app.soundwizard', 'com.webos.app.onetouchsoundtuning'], 'rare', 'Part', 'Restyle', 'Enact web apps; sound goes to the Denon, so they are seldom opened', 'Overlay mount (theme)', 6)
 row(g, 'Bluetooth surround tuning and LG soundbar app', 'one or two Bluetooth speakers, auto and manual tuning; LG soundbar mode, room calibration, EQ, night mode',

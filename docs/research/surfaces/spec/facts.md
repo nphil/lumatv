@@ -30,11 +30,15 @@ Notifications (phase 2):
 
 Keys (phase 1):
 
-- Slot 5 of the chain (`handleScreenSaver`) restarts the 120 s idle timer on
-  every key. A key swallowed in slot 1 never reaches it, so LumaTV calls the
-  exposed `restartUserActivityTimer` (service app id `LS.appId +
-  '.screenSaver'`) or the screensaver starts about two minutes into
-  remote-only navigation.
+- Slot 5 of the chain (`handleScreenSaver`) restarts the compositor's 120 s
+  activity timer (`userActivityTimeout`) on every key. When it expires with
+  the pointer hidden, the compositor closes overlays, alerts, the PIN prompt,
+  the keyboard, the spinner, the splash and the Home-type view; it does not
+  start the screensaver, `tvpowerd` does. A key swallowed in slot 1 never
+  restarts it, so LumaTV calls the exposed `restartUserActivityTimer`
+  (service app id `LS.appId + '.screenSaver'`) for the keys it takes, or LG's
+  pending alerts and overlays close after two minutes. Whether `tvpowerd`
+  counts keys the compositor swallows is unverified [INFERENCE].
 - Slot 4 (`handleLongPressKeys`) swallows the press of Back, Gear, Input,
   Guide, 123 and Red and delivers it on release; it also shows and hides the
   Magic Remote pointer for them. A slot-1 handler that takes such a key calls

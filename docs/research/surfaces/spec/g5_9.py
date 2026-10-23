@@ -24,11 +24,11 @@ row(g, 'Personalized Picture Wizard', 'pick images for preference, sharpness, co
 row(g, 'Support tools', 'Quick Help symptom list and recommended settings, picture and sound self-test, LG Remote Service (shows a code to read to an LG agent); nothing opens them unasked',
     ['com.webos.app.self-diagnosis', 'com.webos.app.customersupport', 'com.webos.app.remoteservice'], 'rare', 'Part', 'Restyle', 'Enact web apps; Remote Service needs Nitin to read out the code', 'Overlay mount (theme)', 6)
 row(g, 'Help and guides', 'Tips cards, offline TV User Guide (Help key is not on the Magic Remote), "Try Now" links into Settings',
-    ['com.webos.app.helpandtips', 'com.webos.app.tvuserguide'], 'rare', 'No', 'Restyle', 'Enact web apps', 'Overlay mount (theme)', 6)
+    ['com.webos.app.helpandtips', 'com.webos.app.tvuserguide'], 'rare', 'Part', 'Restyle', 'Enact web apps', 'Overlay mount (theme)', 6)
 row(g, 'Usage Care', 'weekly viewing time and top apps, Time Locks, Parental Control Mode, Eye Care, Volume Limit, input, app and channel locks; the service opens it at end of use when limits are set',
     'com.webos.app.familycare', 'rare', 'Part', 'Restyle', 'Enact web app', 'Overlay mount (theme)', 6)
 row(g, 'Weather location', 'city search that stores the Home weather location; needs LG weather servers',
-    'com.webos.app.weatherlocation', 'rare', 'No', 'Off', "LumaHome's weather widget has its own location", 'Launcher filter', 7)
+    'com.webos.app.weatherlocation', 'rare', 'Part', 'Off', "LumaHome's weather widget has its own location", 'Launcher filter', 7)
 
 # ---------------------------------------------------------------- 6 Live TV
 g = 6
@@ -49,12 +49,12 @@ row(g, 'Channel tuning and Channel Manager', 'auto and manual tuning for antenna
 row(g, 'Emergency alert (US EAS)', 'popup, bottom then top every 2 min: title ("BLUE ALERT"), locations and text, scrollbar, Close; video keeps playing; auto-hides after 2 min',
     [F('inputcommon/.../PopupLayer/EwsUsView.qml', 'qml', '369 lines')], 'rare', 'No', 'Keep', 'safety text from the broadcaster; appears only on the antenna input', '—', '—')
 row(g, 'Live Pick and recording indicators', 'Live Pick strip ("Would you like to learn more about ...?") and REC or Live Playback chips on banners',
-    [F('inputcommon/.../LivePick/LivePickView.qml', 'qml', '549 lines + 3 qml; RecInfoIcon, DvrIndicatorView')], 'never', 'Part', 'Off', '`livepick` service absent, `broadcastInfoNoti` off, `dvrReady` false', 'LG setting', 7)
+    [F('inputcommon/.../LivePick/LivePickView.qml', 'qml', '549 lines + 3 qml; RecInfoIcon, DvrIndicatorView')], 'never', 'No', 'Off', '`livepick` service absent, `broadcastInfoNoti` off, `dvrReady` false', 'LG setting', 7)
 row(g, 'DVR, recordings and live playback', 'transport bar, info chip, storage and CI-password dialogs, record dialogs, recordings list',
     ['com.webos.app.dvrpopup', 'com.webos.app.recordings', F('inputcommon/.../Dvr/DvrMainView.qml', 'qml', '742 lines + DvrPlayView, DvrProgressBarView, DvrIconButton, DvrFormattedTimeText, DvrInfoView, DvrPopupView, DvrCiPincodeView, DvrInputText, LoadingMessageView')],
     'never', 'No', 'Keep (dormant)', '`dvrReady` false in `tv.model` and `tv.rmm`', '—', '—')
 row(g, 'Broadcast families that cannot appear', 'CI+ menus, Teletext, LCN pickers (UK, Italy), Music Catch, Ginga list, EMM and CA messages, Japan mini banners, Freeview Play splash, Indonesia EWS, on-screen clock, voice zapping, LG Channels splash and activation; HbbTV, Ginga, Interactive and Red Button layers',
-    ['com.webos.app.crb', 'com.webos.app.livedmost', S('hybridtv-manager', 'hbbtv3-pluggable', 'opapp-manager', 'dmost'), F('inputcommon/.../PopupLayer + BgViewLayer regional views', 'qml', 'CiPopup, TeletextOptionView, LcnConflictGbr, LcnConflictIta, MusicCatchPopupView, GingaAppCatalog, EmmMessageView, CaMessageView, FvpSplash, EwsView, ClockView, VoiceChannelZapping, LgChannelSplash, LgChannelActivation, MiniBanner')],
+    ['com.webos.app.crb', 'com.webos.app.livedmost', S('hybridtv-manager', 'hbbtv3-pluggable', 'opapp-manager', 'dmost'), F('inputcommon/UserInterfaceLayer/Containers/PopupLayer, BgViewLayer', 'qml', '19 regional views: CiPopup, TeletextOptionView, LcnConflict*, MusicCatchPopupView, GingaAppCatalog, EwsView, EmmMessageView, CaMessageView, FvpSplash, ClockView, VoiceChannelZapping, LgChannel*')],
     'never', 'No', 'Keep (dormant)', 'US ATSC set, HbbTV off, no CAM, country gates', '—', '—')
 row(g, 'Live TV prompts', '"To watch Live TV, channels must be tuned. Start Channel Tuning now?", "The program you set a reminder for will begin in 1 minute", "TV is turned on because your scheduled program is about to start"',
     [S('broadcast-systemui-manager', 'tv-reservation-agent'), F('inputcommon/Interfaces/ChannelStatusInterfaces', 'qml', '514 lines')], 'rare', 'No', 'Replace', 'alert contract; inputcommon pop-ups restyle with the banner', 'View swap', 2)
@@ -94,12 +94,12 @@ row(g, 'Startup cover', 'black screen with the first app name (120 px) and "Load
     [F('CoverUI/CoverUI.qml', 'system-qml', '55 files / 35 qml'), F('WebOSCompositor/views/StarfishCoverUIView.qml', 'compositor-qml', '67 lines'), F('WebOSCompositor/views/cover/StarfishCoverUI.qml', 'compositor-qml', '16 lines')], 'sometimes', 'No', 'Restyle', 'boot dependency: restyle the picture, keep the sequencing', 'Shadow module', '5*')
 row(g, 'Boot popup', 'black bar 130 px high slides up: "One moment please. Smart service will be available shortly."; a hotkey pressed before boot finishes',
     F('WebOSCompositor/views/StarfishBootPopup.qml', 'compositor-qml', '121 lines'), 'rare', 'No', 'Replace', 'small; same toast look', 'Shadow module', '5*')
-row(g, 'Screensaver', 'default particles with text, analogue or digital clock with date, sponsored image slideshow (off), Gallery+ art (off); starts when `tvpowerd` reports Screen Saver, any key wakes it; a 120 s timer closes overlays',
-    ['com.webos.app.screensaver', F('WebOSCompositor/views/StarfishScreenSaverView.qml', 'compositor-qml', '136 lines'), F('WebOSCompositor/views/screenSaver/StarfishScreenSaver.qml', 'compositor-qml', '40 lines')], 'sometimes', 'Yes · mock 21', 'Replace', 'drawn in the compositor with OLED pixel shift; swallowed keys must still reset the idle timer', 'Shadow module (research)', 8)
+row(g, 'Screensaver', 'default particles with text, analogue or digital clock with date, sponsored image slideshow (off), Gallery+ art (off); starts when `tvpowerd` reports Screen Saver, any key wakes it; a separate 120 s compositor timer closes overlays and alerts',
+    ['com.webos.app.screensaver', F('WebOSCompositor/views/StarfishScreenSaverView.qml', 'compositor-qml', '136 lines'), F('WebOSCompositor/views/screenSaver/StarfishScreenSaver.qml', 'compositor-qml', '40 lines')], 'sometimes', 'Yes · mock 21', 'Replace', 'drawn in the compositor with OLED pixel shift; `tvpowerd` starts it and any key ends it', 'Shadow module (research)', 8)
 row(g, 'Video screensaver container', 'blank web page that loads an LG Channels video-ad page',
     'com.webos.app.videoads', 'never', 'Part', 'Off', '`lgchannels.isVideoScreenSaverEnabled` false and LG hosts blocked', 'LG setting', 7)
-row(g, 'Always Ready and Gallery+', 'art and clock when the set is "off": themes, AI art, photos, briefing; `lifeOnScreenMode` is `alwaysReady` today; the service asks "Going to {screen} screen within 1 minute" OK or Cancel',
-    ['com.webos.app.lifeonscreen', S('alwaysready')], 'daily', 'Part', 'Replace', "[INFERENCE: what the set shows in standby is unverified] LumaTV's screensaver or standby look takes over (Needs Nitin)", 'Shadow module (research)', 8)
+row(g, 'Always Ready and Gallery+', 'art and clock when the set is "off": themes, AI art, photos, briefing; `lifeOnScreenMode` is `alwaysReady` and the power state reads Screen Saver in standby [INFERENCE: what is drawn is unverified]; the service asks "Going to {screen} screen within 1 minute" OK or Cancel',
+    ['com.webos.app.lifeonscreen', S('alwaysready')], 'daily', 'Part', 'Replace', "LumaTV's screensaver or standby look takes over (Needs Nitin)", 'Shadow module (research)', 8)
 row(g, 'Line View (rollable TVs)', 'clock, music player, weather, home menu for partial view of rollable TVs',
     'com.webos.app.atelier', 'never', 'No', 'Keep (dormant)', '`supportScreenType` is none on a fixed panel', '—', '—')
 row(g, 'Auto power-off countdown', 'toast "TV will be turned off in 5 minutes." then alert "in 1 minute ... press any button except Power"; the silent 15-minute no-signal off has no UI',
