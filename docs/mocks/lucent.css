@@ -45,7 +45,7 @@
   --well: rgba(8, 6, 16, .34);
   --well-inset: inset 2px 2px 4px rgba(0,0,0,.32), inset -2px -2px 4px rgba(255,255,255,.08);
   --control-raised: -2px -2px 4px rgba(255,255,255,.10), 2px 2px 4px rgba(0,0,0,.32);
-  --landing: rgba(242,239,246,.85);
+  --focus-halo: 0 0 0 1px color-mix(in srgb, var(--lu-accent) 45%, transparent), 0 12px 36px color-mix(in srgb, var(--lu-accent) 30%, transparent);
   --tile-ink-wash: rgba(242,239,246,.10);
 }
 [data-theme="light"] {
@@ -82,7 +82,7 @@
   --well: rgba(23,19,31,.08);
   --well-inset: inset 2px 2px 4px rgba(23,19,31,.12), inset -2px -2px 4px rgba(255,255,255,.86);
   --control-raised: -2px -2px 4px rgba(255,255,255,.86), 2px 2px 4px rgba(23,19,31,.10);
-  --landing: rgba(23,19,31,.80);
+  --focus-halo: 0 0 0 1px color-mix(in srgb, var(--lu-accent) 50%, transparent), 0 12px 32px color-mix(in srgb, var(--lu-accent) 24%, transparent);
   --tile-ink-wash: rgba(23,19,31,.08);
 }
 
@@ -289,26 +289,23 @@ body {
 /* ---- focus and hover: light on the existing material, never an outline ----------------- */
 .focusable { transition: transform var(--lu-motion-focus) var(--lu-ease), box-shadow var(--lu-motion-focus) var(--lu-ease); outline: none; }
 .focusable.hover { background: var(--hover-wash); }
+/* Focus is the item itself coming forward: it lifts, its glass brightens, and a soft accent halo spreads under it.
+   No line or underline (Nitin, 2026-10-23). The halo carries the cue for controls that do not lift (tabs, segments). */
 .focusable.focus {
   background: var(--sheen), var(--lu-glass-raised);
   border-color: var(--lu-edge-raised);
-  box-shadow: var(--highlight-raised), var(--shadow-raised);
+  box-shadow: var(--highlight-raised), var(--shadow-raised), var(--focus-halo);
   transform: translateY(calc(-1 * var(--lu-lift))) scale(var(--lu-scale-row));
   z-index: 2;
 }
-.focusable.focus::after { content: ""; position: absolute; left: 24px; right: 24px; bottom: 6px; height: 3px; border-radius: 2px; background: var(--landing); }
 .row.focusable.focus::before { display: none; }
 .row.focusable.focus { border: 1px solid var(--lu-edge-raised); padding: 13px 19px; }
 .row.focusable.focus + .row::before { display: none; }
 .rail-entry.focusable.focus { border: 1px solid var(--lu-edge-raised); padding-left: 19px; padding-right: 15px; }
 .rail-entry.focusable.focus[aria-current="page"] { transform: translateY(calc(-1 * var(--lu-lift))) scale(var(--lu-scale-row)); }
 .btn.focusable.focus { border-color: var(--lu-edge-raised); transform: translateY(calc(-1 * var(--lu-lift))) scale(1.04); }
-.btn.focusable.focus::after { left: 20px; right: 20px; bottom: 5px; }
 .btn.primary.focusable.focus { background: var(--sheen), var(--lu-accent); color: var(--lu-accent-ink); }
-.btn.primary.focusable.focus::after { background: var(--lu-accent-ink); opacity: .7; }
-.tab.focusable.focus, .seg > span.focusable.focus { transform: none; }
-.tab.focusable.focus::after, .seg > span.focusable.focus::after { left: 18px; right: 18px; bottom: 5px; }
-.seg > span.focusable.focus::after { left: 14px; right: 14px; bottom: 4px; height: 3px; }
+.tab.focusable.focus, .seg > span.focusable.focus { transform: none; background: var(--sheen), var(--lu-glass-raised); }
 .focusable.focus .d, .focusable.focus .line { color: var(--lu-ink-2); }
 
 /* mode tiles (picture mode chooser) */
@@ -323,7 +320,6 @@ body {
 .mode .check { display: none; }
 .mode[aria-checked="true"] .check { display: block; }
 .mode.focusable.focus { transform: translateY(calc(-1 * var(--lu-lift))) scale(var(--lu-scale-card)); }
-.mode.focusable.focus::after { left: 18px; right: 18px; bottom: 6px; }
 
 /* ---- dialog (overlay, level 4) ---------------------------------------------------------- */
 .dialog { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 820px; padding: 40px 44px 36px; display: flex; flex-direction: column; gap: 22px; }
@@ -359,7 +355,6 @@ body {
 .input-tile.off .ic.big, .input-tile.off .name { color: var(--lu-ink-2); }
 .input-tile.off .state .dot { background: var(--lu-ink-3); }
 .input-tile.focusable.focus { transform: translateY(calc(-1 * var(--lu-lift))) scale(var(--lu-scale-card)); }
-.input-tile.focusable.focus::after { left: 22px; right: 22px; bottom: 8px; }
 
 /* ---- AI access page specifics ---------------------------------------------------------- */
 .cols { display: grid; grid-template-columns: 512px 1fr; gap: 36px; flex: 1; min-height: 0; margin-top: 4px; }

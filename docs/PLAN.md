@@ -671,7 +671,10 @@ what it already does.
 
 ## Decided
 
-- Focus cue: the bright lower edge stays (Nitin, 2026-10-23).
+- Focus cue: no line under the focused item (Nitin, 2026-10-23, replacing
+  the earlier "keep the bright lower edge"). The focused item lifts, its
+  glass brightens and a soft accent halo spreads under it; tabs and
+  segments, which do not lift, rely on the brighter glass and the halo.
 - Dark-mode depth: a step stronger than today's Home, so panes lift further
   off the wallpaper (Nitin, 2026-10-23).
 - Home wallpaper motion: about 10 updates a second, so idle Home stops
