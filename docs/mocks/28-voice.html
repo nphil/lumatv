@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Voice</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .frame { background-image: url("img/still.jpg"); }
+  /* listening (default) · heard (?v=heard) · results (?v=results) · mic indicator only (?v=mic) */
+  .st { display: none; }
+  html:not([data-v]) .st.listen, [data-v="heard"] .st.heard, [data-v="results"] .st.results, [data-v="results"] .st.heard, [data-v="mic"] .st.mic { display: flex; }
+  [data-v="results"] .vbar.heard .hint { display: none; }
+  [data-v="mic"] .frame { filter: none; }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<!-- listening: mic key held, one accent arc around the mic, no 485-frame animation -->
+<div class="overlay vbar st listen" role="status" aria-live="polite">
+  <span class="lead"><i data-ic="mic"></i></span>
+  <div class="body"><div class="k">Listening</div><div class="q">Speak now<span class="pend">…</span></div></div>
+  <span class="hint">Release the key when done</span>
+</div>
+
+<!-- heard: the transcript settles in place -->
+<div class="overlay vbar st heard" role="status" aria-live="polite">
+  <span class="lead" style="background:var(--tile-ink-wash);color:var(--lu-ink)"><i data-ic="mic"></i></span>
+  <div class="body"><div class="k">Heard</div><div class="q">“open Plex”</div></div>
+  <span class="hint">Opening…</span>
+</div>
+
+<!-- results: when the words are not one command, the matches come up above the bar; the bar keeps the words -->
+<div class="overlay vresults st results" role="listbox" aria-label="Results for netflix series about chess">
+  <div class="vr focusable" tabindex="0" data-autofocus><span class="lead"><img src="img/apps/netflix.png" alt=""></span><div><div class="t">Search Netflix for “series about chess”</div><div class="d">Opens Netflix with the search filled in</div></div></div>
+  <div class="vr focusable" tabindex="0"><span class="lead"><img src="img/apps/plex.png" alt=""></span><div><div class="t">Search Plex</div><div class="d">Your library</div></div></div>
+  <div class="vr focusable" tabindex="0"><span class="lead"><i data-ic="globe"></i></span><div><div class="t">Search the web</div><div class="d">Opens the browser</div></div></div>
+</div>
+
+<!-- the always-visible microphone indicator: an app has the mic open -->
+<div class="micind st mic" role="status" aria-label="Microphone in use by Netflix"><i data-ic="mic"></i><span class="dot"></span></div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  if (document.documentElement.dataset.v === 'results') window.addEventListener('DOMContentLoaded', () => {
+    const b = document.querySelector('.vbar.heard'); b.querySelector('.q').textContent = '“netflix series about chess”'; b.querySelector('.k').textContent = 'Heard · pick one';
+  });
+</script>
+</body>
+</html>

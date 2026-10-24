@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Standby</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* standby ("off" with Always Ready): clock (default), art (?v=art), nothing (?v=off). Dimmer than the screensaver (42 %), drifting. */
+  .standby-clock { --x: 62%; --y: 44%; }
+  .st { display: none; }
+  html:not([data-v]) .st.clock, [data-v="art"] .st.art, [data-v="off"] .st.off { display: block; }
+  .ss.art-wall { background: radial-gradient(ellipse at 50% 45%, #0E0C10 0%, #030304 70%); }
+  .art img { width: 920px; height: 618px; }
+  .standby-art .art .matte { padding: 56px; }
+  .standby-note { position: absolute; left: var(--lu-edge-x); bottom: var(--lu-edge-y); font-size: 22px; color: var(--lu-ink-3); font-weight: 500; opacity: .6; }
+</style>
+</head>
+<body>
+<div class="ss"></div>
+
+<div class="st clock">
+  <div class="standby-clock">
+    <div class="time">11:52</div>
+    <div class="date">Thursday 22 October · TV is off</div>
+    <div class="glance"><i data-ic="moon"></i><span>46° Clear</span><span>·</span><i data-ic="lock"></i><span>Front door locked</span><span>·</span><i data-ic="power"></i><span>Any key wakes the TV</span></div>
+  </div>
+</div>
+
+<div class="st art standby-art">
+  <div class="ss art-wall"></div>
+  <div class="art"><div class="matte"><img src="img/art-hokusai.jpg" alt="Under the Wave off Kanagawa"></div></div>
+  <div class="art-cap"><b>Katsushika Hokusai</b> · Under the Wave off Kanagawa, about 1831 · Public domain</div>
+  <div class="art-time">11:52</div>
+</div>
+
+<div class="st off">
+  <div class="standby-off"><span class="led"></span></div>
+  <div class="standby-note">Standby look “Nothing”: the panel is dark; only the set’s own red standby light shows.</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

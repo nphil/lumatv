@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · App prompts</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* update required (default) · not available (?v=unavailable) · advanced toast with icon and link (?v=toast) */
+  .st { display: none; }
+  html:not([data-v]) .st.upd, [data-v="unavailable"] .st.na, [data-v="toast"] .st.toast { display: flex; }
+  [data-v="toast"] .scrim { display: none; }
+  .dialog .head { display: flex; align-items: center; gap: 22px; }
+  .dialog .head img { width: 72px; height: 72px; border-radius: 18px; flex: none; box-shadow: var(--highlight-raised); }
+  .dialog .head .lead { width: 72px; height: 72px; border-radius: 18px; display: grid; place-items: center; background: var(--tile-ink-wash); flex: none; }
+  .dialog .head .lead .ic { width: 38px; height: 38px; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<!-- sam: "A new version of the app is available. Launch current version or update to latest" -->
+<div class="overlay dialog st upd" role="alertdialog" aria-labelledby="u1">
+  <div class="head"><img src="img/apps/crunchyroll.png" alt=""><h1 id="u1">Crunchyroll has an update</h1></div>
+  <p>Version 3.2 is ready (18 MB). The one on the TV still works. Updating takes about a minute and happens only when you choose.</p>
+  <div class="actions">
+    <span class="btn focusable" tabindex="0" data-autofocus><i data-ic="play"></i>Open as it is</span>
+    <span class="btn primary focusable" tabindex="0"><i data-ic="download"></i>Update, then open</span>
+  </div>
+  <div class="foot"><i data-ic="info"></i>“You must update this app to launch it” shows the same card with Open as it is greyed out.</div>
+</div>
+
+<!-- sam: "This app or service is currently not available in your country." -->
+<div class="overlay dialog st na" role="alertdialog" aria-labelledby="u2">
+  <div class="head"><span class="lead"><i data-ic="ban"></i></span><h1 id="u2">LG Movies &amp; TV isn’t available here</h1></div>
+  <p>LG says this app or service is not offered in this country right now. Nothing on the TV changed.</p>
+  <div class="actions">
+    <span class="btn focusable" tabindex="0" data-autofocus>OK</span>
+    <span class="btn focusable" tabindex="0"><i data-ic="eye-off"></i>Hide this app</span>
+  </div>
+</div>
+
+<!-- advanced toast: icon plus a link action; pointer click runs it, no key focus -->
+<div class="overlay toast link st toast" role="status">
+  <span class="lead"><img src="img/apps/plex.png" alt=""></span>
+  <div style="flex:1;min-width:0">
+    <div class="t">Plex finished adding “Dune: Part Two”</div>
+    <div class="d">4K Dolby Vision · ready to play</div>
+  </div>
+  <span class="go"><i data-ic="play"></i>Play<i data-ic="chevron-right"></i></span>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

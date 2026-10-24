@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · HDMI 3</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .frame { background-image: url("img/still.jpg"); }
+  /* one file, four states: pill on switch (default), OK banner (?v=ok), INFO detail (?v=info), update badge (?v=update) */
+  .st { display: none; }
+  html:not([data-v]) .st.pill, [data-v="ok"] .st.ok, [data-v="info"] .st.info, [data-v="update"] .st.pill, [data-v="update"] .st.update { display: flex; }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<!-- the pill: every input switch, 5 s -->
+<div class="overlay ipill st pill" role="status">
+  <span class="lead"><i data-ic="gamepad-2"></i></span>
+  <div><div class="t">HDMI 3 · PlayStation 5</div><div class="d">4K · 120 Hz · HDR10</div></div>
+</div>
+
+<!-- OK while the pill shows: the same pill grows two actions -->
+<div class="overlay ipill st ok" role="dialog" aria-label="HDMI 3 options">
+  <span class="lead"><i data-ic="gamepad-2"></i></span>
+  <div><div class="t">HDMI 3 · PlayStation 5</div><div class="d">4K · 120 Hz · HDR10 · Game Optimizer</div></div>
+  <span class="sep"></span>
+  <span class="btn small focusable" tabindex="0" data-autofocus><i data-ic="info"></i>Details</span>
+  <span class="btn small focusable" tabindex="0"><i data-ic="cable"></i>Inputs</span>
+  <span class="btn small focusable" tabindex="0"><i data-ic="image"></i>Picture</span>
+</div>
+
+<!-- INFO: the detail card -->
+<div class="overlay ibanner st info" role="dialog" aria-label="HDMI 3 details">
+  <div class="head">
+    <span class="lead"><i data-ic="gamepad-2"></i></span>
+    <div><div class="t">HDMI 3 · PlayStation 5</div><div class="d">Connected over HDMI-CEC · named by the device</div></div>
+    <span class="time num">9:58 PM</span>
+  </div>
+  <div class="facts">
+    <div class="fact"><div class="k">Signal</div><div class="v">4K<small>3840 × 2160 · 120 Hz</small></div></div>
+    <div class="fact"><div class="k">HDR</div><div class="v">HDR10</div></div>
+    <div class="fact"><div class="k">Audio</div><div class="v">Atmos<small>to the Denon</small></div></div>
+    <div class="fact"><div class="k">Colour</div><div class="v">4:2:2 · 10-bit</div></div>
+    <div class="fact"><div class="k">VRR</div><div class="v" style="color:var(--lu-positive)">On<small>48–120 Hz</small></div></div>
+    <div class="fact"><div class="k">ALLM</div><div class="v" style="color:var(--lu-positive)">On<small>auto game mode</small></div></div>
+    <div class="fact"><div class="k">Input lag</div><div class="v">9.8 ms</div></div>
+    <div class="fact"><div class="k">Picture mode</div><div class="v">Game Optimizer</div></div>
+  </div>
+  <div class="acts">
+    <span class="btn small focusable" tabindex="0" data-autofocus><i data-ic="image"></i>Picture for this input</span>
+    <span class="btn small focusable" tabindex="0"><i data-ic="keyboard"></i>Rename</span>
+    <span class="hint">Back closes · INFO again for the pill</span>
+  </div>
+</div>
+
+<!-- update badge: a download in the background, shown with the pill -->
+<div class="overlay badge st update" role="status">
+  <i data-ic="download"></i>
+  <span class="t">TV update · 64%</span>
+  <span class="bar"><i style="width:64%"></i></span>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

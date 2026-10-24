@@ -48,15 +48,19 @@ exists):
    - T4 `--apply 'python3 /tmp/perf/tweak.py fifo 1' --revert 'python3 /tmp/perf/tweak.py other'`
    - T5 `--apply 'python3 /tmp/perf/tweak.py affinity 2' --revert 'python3 /tmp/perf/tweak.py affinity f'` (copy `docs/research/perf/tweak.py` to `/tmp/perf/` in pre-flight; busybox here may lack taskset and chrt)
    - T6 `--apply '/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass theme set "{\"wallpaperMotion\":{\"fps\":10}}"' --revert '... {\"fps\":30}'`, and a second run with `{"enabled":false}` / `{"enabled":true}`; wait 3 s after apply (2 s theme poll).
-   - T7 threaded render loop: add `QSG_RENDER_LOOP=threaded` to
-     `/var/systemd/system/env/surface-manager.env`, then `lumaglass apply`
-     will not restart (env unchanged from its view), so restart with the
-     tool's path: `systemctl restart surface-manager-daemon` is NOT allowed
-     bare; use `lumaglass fps on` then `lumaglass fps off` (each rebuilds
-     and restarts through `restart_surface`, which also sweeps the crash
-     reports). Check Home recovers (capture > 79 kB). Measure. Remove the
-     line, restart the same way. Risk: LG's QML may assume the basic loop;
-     if the screen stays black, remove the line and restart.
+   - T9 first, then T7, both env-file tweaks: `QT_QPA_UPDATE_IDLE_TIME=0`
+     (removes the 5 ms Qt update timer from every animated frame, see
+     the finding below) and `QSG_RENDER_LOOP=threaded`. The tool rewrites
+     `/var/systemd/system/env/surface-manager.env` to `QML2_IMPORT_PATH`
+     alone on every apply (`env_line` / `env_live`), so `fps on/off` or
+     `apply` would drop the extra line. How to apply is waiting on Main:
+     (a) an `env.extra` hook in the tool's `env_line`, deployed for the
+     test, or (b) one manual restart mirroring `restart_surface` +
+     `home_back_after_restart`. Either way: check Home recovers (capture at
+     320x180 > 79 kB), measure `dpad`, `qs`, `apphome` x2, remove the line,
+     restart the same way, confirm the env file is back to the single
+     line. Risk for T7: LG's compositor may assume the basic loop; if the
+     screen stays black, remove the line and restart.
    - T8 `--apply 'echo 20 > /proc/sys/vm/swappiness' --revert 'echo 100 > /proc/sys/vm/swappiness'` with `apphome` only.
 4b. For ShellArchitecture (10 min, numbers go in "Compositor floor"):
    - Floor: wallpaper motion off (`theme set {"wallpaperMotion":{"enabled":false}}`),
@@ -212,6 +216,7 @@ so `fps`, `enabled` and the look parameters can be A/B-tested live with
 | T6 | Wallpaper motion 30 -> 10 fps, and off | `lumaglass theme set wallpaperMotion.fps 10` (live) | `... 30` |
 | T7 | `QSG_RENDER_LOOP=threaded` | env file + restart through the tool | remove, restart |
 | T8 | swappiness 100 -> 20 | `echo 20 > /proc/sys/vm/swappiness` | `echo 100 > ...` |
+| T9 | `QT_QPA_UPDATE_IDLE_TIME=0` (no 5 ms wait before each animated frame) | env file + compositor restart | remove, restart |
 
 None survives a reboot by itself; a kept tweak goes into the tool's apply
 and boot hook (sysfs/procfs writes at boot-bind) or the env file.
@@ -227,3 +232,86 @@ and boot hook (sysfs/procfs writes at boot-bind) or the env file.
   (a readback on the GUI thread) or re-layout of its own views.
 - LumaHome's show path: theme poll with `triggeredOnStart`, feed refresh
   and clock catch-up all on the first visible frame.
+
+## Finding: a fixed 5 ms idle in every animated frame (Qt's update timer)
+
+In the idle trace, during the second hand's 160 ms animation (60 fps), the
+GUI thread returns from the swap and then sleeps exactly 5.0 ms before
+rendering the next frame, every frame (17.59 -> 22.60, 1.16 -> 6.15,
+34.61 -> 39.65 ms in the timeline above). That is Qt 5's default
+`QPlatformWindow::requestUpdate()`: the basic render loop schedules the
+next animation frame through `requestUpdate()`, eglfs does not override
+it, and the default posts the update request after
+`QT_QPA_UPDATE_IDLE_TIME` ms, 5 by default ("to give the event loop a bit
+of idle time").
+
+Because the basic loop is serial, the 5 ms sits inside the frame budget:
+
+| step | ms |
+|---|---|
+| flip done -> GUI thread -> driver thread -> GPU start | 0.4 |
+| GPU tiler + fragment (idle Home) | 8.1 |
+| job IRQ -> GUI thread, atomic commit | 0.8 |
+| **Qt update timer** | **5.0** |
+| render next frame on CPU (sync + scene graph render) | 1.9-2.1 |
+| slack before the next flip | 0.6 |
+
+At idle the chain is 16.1 of 16.7 ms. Each frame whose CPU render plus
+GPU pass exceeds about 10.6 ms makes the next one late by the excess; the
+lateness accumulates frame over frame, and once it passes about 7.7 ms a
+frame misses its vblank (a 33 ms interval), which resets the chain. So a
+focus move or panel open whose frames need 3.5-4 ms of CPU render drops a
+frame every 6-10 frames. `QT_QPA_UPDATE_IDLE_TIME=0` returns the 5 ms to
+the budget (chain 11.1 ms at idle). To be measured as T9. It is set in
+the compositor's env file, which the tool currently rewrites to
+`QML2_IMPORT_PATH` alone (`env_line`), so the tool needs an extra-env
+line for it, the same change the decided `QML_FORCE_DISK_CACHE=1` needs.
+
+## Finding: why idle Home runs at an uneven 36-38 fps
+
+Two unrelated clocks request frames:
+
+- `liveWall`'s Timer at `Math.round(1000 / 30)` = 33 ms. Its frames land
+  on alternate vblanks (33.4 ms); the timer runs 0.36 ms short of two
+  vblanks, so every 46 ticks (1.5 s) its phase slips past a vblank and one
+  interval becomes 50 ms: the 2 intervals over 33 ms in 5 s of idle, a
+  visible hitch in the wallpaper motion.
+- The analog clock's second hand (`ClockWidget.qml`, 1 s Timer, a 160 ms
+  `OutBack` NumberAnimation on the angle): 160 ms of 60 fps every second,
+  about 9.6 extra frames a second, out of phase with the wallpaper ticks.
+
+Measured intervals in 5 s: 106 of two vblanks, 80 of one, 2 of three:
+150 wallpaper frames plus 39 clock frames = 189. At the decided 10 updates
+a second the idle rate becomes about 10 + 9.6, still uneven unless both
+run off one clock: one Timer at 100 ms that advances the wallpaper phase
+and the second hand together (the hand then snaps per tick or keeps its
+160 ms ease, which is then the only 60 fps stretch), with the wallpaper
+phase taken from elapsed time rather than tick count so a late tick does
+not slow the motion.
+
+## Background load at idle Home (5.5 s trace, probe processes excluded)
+
+| thread | % of one core | wakeups/s | what |
+|---|---|---|---|
+| surface-manager (GUI thread) | 10.7 | 133 | the compositor |
+| pq_thread | 5.5 | 31 | LG picture-quality kernel thread |
+| tAiToneService | 2.1 | 49 | LG AI picture/sound tone |
+| servicemanager | 1.8 | 2.5 | LG service manager |
+| MainWebModule + Rasterizer | 2.0 | 208 | a background WebAppMgr app |
+| ls-hubd | 1.3 | 3.4 | luna bus (partly the probe's own luna calls) |
+| mrcu_ls2 | 1.0 | 99 | Magic Remote service, RR 99 |
+| lginput2 | 1.0 | **1969** | input daemon, polls every 0.507 ms, RR 99 |
+| memchute | 0.9 | 87 | LG low-memory manager (kills apps) |
+| kswapd0 | 0.9 | 2.7 | reclaim with 133 MB free, swappiness 100 |
+| mali-cmar-backe | 0.9 | 209 | Mali driver's submit thread (compositor) |
+| node | 0.7 | 4 | Glasshouse |
+| cobalt | 0.2 | 51 | preloaded YouTube |
+
+Everything outside the compositor adds up to about 25 % of one core of
+four; the compositor's GUI thread sees at most 0.21 ms of scheduling
+latency. Background daemons do not delay idle frames. Stopping them is a
+memory and power question (each wakeup keeps a core out of idle), not a
+frame-rate fix at rest; whether they matter under load is measured in the
+app-to-Home runs. `lginput2`'s 2 kHz poll at RT 99 is a replaceable cost
+(LG input stack, about 1 % of a core and 2,000 timer interrupts a second
+on CPU2); it does not reach the compositor.

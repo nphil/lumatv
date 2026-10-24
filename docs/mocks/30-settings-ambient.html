@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Settings · Ambient light</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .layout { display: flex; gap: 28px; align-items: center; margin: 4px 0 10px; }
+  .tvpic { position: relative; width: 300px; height: 169px; border-radius: 14px; background: #0C0A14 url("img/still.jpg") center / cover; box-shadow: 0 0 0 10px rgba(167,155,245,.22), 0 0 0 22px rgba(126,170,210,.10), 0 0 60px rgba(167,155,245,.35); flex: none; }
+  .tvpic .zone { position: absolute; border-radius: 6px; background: var(--lu-accent); opacity: .9; }
+  .tvpic .lbl { position: absolute; left: 50%; bottom: -46px; transform: translateX(-50%); font-size: 21px; color: var(--lu-ink-2); white-space: nowrap; }
+  .layout .txt { flex: 1; font-size: 24px; color: var(--lu-ink-2); line-height: 1.35; }
+  .layout .txt b { color: var(--lu-ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="pane topbar">
+  <i data-ic="chevron-left" class="ic"></i>
+  <span class="title">Settings</span>
+  <span class="spacer"></span>
+  <span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span>
+  <span class="time num">9:56 PM</span>
+</div>
+
+<nav class="pane rail" data-open="ambient" aria-label="Settings sections"></nav>
+
+<main class="pane page">
+  <div class="page-head">
+    <h1>Ambient light</h1>
+    <span class="sub">Follows the picture · 58 sections on 4 edges</span>
+  </div>
+  <div class="tabs" role="tablist">
+    <div class="tab focusable" role="tab" aria-selected="true">Light</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Layout</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Colour</div>
+  </div>
+  <div class="page-body">
+    <div class="rows">
+      <div class="row focusable no-line" tabindex="0" data-autofocus>
+        <div class="lead"><i data-ic="lamp"></i></div>
+        <div class="text"><div class="t">Ambient light</div><div class="d">Lights around the TV follow what is on the screen.</div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="sun"></i></div>
+        <div class="text"><div class="t">Brightness</div><div class="d">How bright the strip goes. Dims with the room at night.</div></div>
+        <div class="slider"><i data-ic="sun-dim"></i><div class="track"><div class="fill" style="width:70%"></div><div class="thumb" style="left:70%"></div></div><i data-ic="sun"></i></div>
+        <div class="v num" style="min-width:90px;justify-content:flex-end;color:var(--lu-ink)">70%</div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="sliders-horizontal"></i></div>
+        <div class="text"><div class="t">Mode</div><div class="d">Follows the picture, a still colour, or off on Home and menus.</div></div>
+        <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">Picture</span><span role="radio" aria-selected="false">Colour</span><span role="radio" aria-selected="false">Off on Home</span></span>
+      </div>
+    </div>
+      <div class="group-label">Strip</div>
+    <div class="layout">
+      <div class="tvpic" aria-hidden="true"><span class="zone" style="left:18px;top:-8px;width:40px;height:6px"></span><span class="zone" style="right:-8px;top:40px;width:6px;height:40px"></span></div>
+      <div class="txt"><b>Gledopto GL-C-619WL · 58 sections</b><br>Top 18 · right 11 · bottom 18 · left 11, clockwise from top-left. Delay 40 ms. More on the Layout tab.</div>
+    </div>
+    <div class="rows">
+      <div class="row focusable no-line" tabindex="0">
+        <div class="lead"><i data-ic="cable"></i></div>
+        <div class="text"><div class="t">Test pattern</div><div class="d">Lights each section in turn so the layout can be checked.</div></div>
+        <span class="btn small focusable" tabindex="0"><i data-ic="play"></i>Run</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

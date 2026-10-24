@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Pointer menu</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .frame { background-image: url("img/still.jpg"); }
+  /* the pointer is where the wheel was pressed; the menu opens down-right of it, inside the safe area */
+  .cursor { left: 1180px; top: 560px; }
+  .pmenu { position: absolute; left: 1216px; top: 598px; }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<div class="cursor" aria-hidden="true">
+  <svg viewBox="0 0 44 44"><path d="M10 6 L34 22 L22 24 L16 36 Z" fill="#F2EFF6" stroke="#17131F" stroke-width="2.5" stroke-linejoin="round"/></svg>
+</div>
+
+<div class="overlay menu pmenu" role="menu" aria-label="Pointer menu">
+  <div class="mi focusable hover" role="menuitem" tabindex="0"><i data-ic="arrow-left"></i>Back</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="house"></i>Home</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="layout-grid"></i>LumaTV menu</div>
+  <div class="sep"></div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="cable"></i>Inputs</div>
+  <div class="mi focusable" role="menuitem" tabindex="0"><i data-ic="settings"></i>Quick settings</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

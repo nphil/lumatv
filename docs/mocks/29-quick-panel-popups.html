@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Quick panel popups</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* slider popup (default) · value picker (?v=picker) · edit mode (?v=edit) · add a tile (?v=add) */
+  .st { display: none; }
+  html:not([data-v]) .st.slider, [data-v="picker"] .st.picker, [data-v="add"] .st.add { display: flex; }
+  [data-v="edit"] .qpanel .foot .btn, [data-v="add"] .qpanel .foot .btn { display: none; }
+  [data-v="edit"] .qpanel .foot .hint, [data-v="add"] .qpanel .foot .hint { display: block; }
+  html:not([data-v="edit"]):not([data-v="add"]) .qpanel .edit-head { display: none; }
+  [data-v="edit"] .qpanel .head, [data-v="add"] .qpanel .head { display: none; }
+  .qpanel .edit-head { display: flex; align-items: center; gap: 14px; padding: 0 8px 18px; }
+  .qpanel .edit-head h1 { margin: 0; font-size: 34px; font-weight: 600; letter-spacing: -.01em; flex: 1; }
+  .qpanel .edit-head .d { font-size: 22px; color: var(--lu-ink-2); font-weight: 500; }
+  .qpanel .addrow { display: none; align-items: center; gap: 14px; height: 76px; padding: 0 16px; border-radius: var(--lu-radius-row); border: 1px dashed var(--lu-edge-raised); color: var(--lu-ink-2); font-size: 24px; font-weight: 600; margin-top: 10px; }
+  .qpanel .addrow .ic { width: 28px; height: 28px; }
+  [data-v="edit"] .qpanel .addrow { display: flex; }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<aside class="pane qpanel" role="dialog" aria-label="Quick settings">
+  <div class="head">
+    <h1>Quick settings</h1>
+    <span class="time num">9:52 PM</span>
+  </div>
+  <div class="edit-head">
+    <h1>Edit tiles</h1>
+    <span class="d">Up and down moves · OK drops</span>
+  </div>
+
+  <div class="qtile focusable" tabindex="0" id="q-picture">
+    <span class="lead"><i data-ic="image"></i></span>
+    <div class="text"><div class="t">Picture mode</div><div class="v">HDMI 1 · Dolby Vision</div></div>
+    <span class="stepper"><i data-ic="chevron-left"></i><span class="sv">Filmmaker</span><i data-ic="chevron-right"></i></span>
+    <span class="grip"><span class="btn small focusable" tabindex="0" aria-label="Move up"><i data-ic="chevron-left" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Move down"><i data-ic="chevron-right" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Remove"><i data-ic="x"></i></span></span>
+  </div>
+  <div class="qtile focusable" tabindex="0" id="q-denon">
+    <span class="lead"><i data-ic="speaker"></i></span>
+    <div class="text"><div class="t">Denon receiver</div><div class="v">TV Audio · Dolby Surround</div></div>
+    <span class="stepper"><i data-ic="chevron-left"></i><span class="sv num">−34.5 dB</span><i data-ic="chevron-right"></i></span>
+    <span class="grip"><span class="btn small focusable" tabindex="0" aria-label="Move up"><i data-ic="chevron-left" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Move down"><i data-ic="chevron-right" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Remove"><i data-ic="x"></i></span></span>
+  </div>
+  <div class="qtile focusable" tabindex="0" id="q-sleep">
+    <span class="lead"><i data-ic="moon"></i></span>
+    <div class="text"><div class="t">Sleep timer</div><div class="v">TV stays on</div></div>
+    <span class="stepper"><i data-ic="chevron-left"></i><span class="sv">Off</span><i data-ic="chevron-right"></i></span>
+    <span class="grip"><span class="btn small focusable" tabindex="0" aria-label="Move up"><i data-ic="chevron-left" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Move down"><i data-ic="chevron-right" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Remove"><i data-ic="x"></i></span></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="wifi"></i></span>
+    <div class="text"><div class="t">Wi-Fi</div><div class="v">Nate’s Home · Strong</div></div>
+    <span class="v" style="font-size:23px;color:var(--lu-ink-2)"><i data-ic="chevron-right" style="width:26px;height:26px"></i></span>
+    <span class="grip"><span class="btn small focusable" tabindex="0" aria-label="Move up"><i data-ic="chevron-left" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Move down"><i data-ic="chevron-right" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Remove"><i data-ic="x"></i></span></span>
+  </div>
+  <div class="qtile focusable" tabindex="0" id="q-ambient">
+    <span class="lead"><i data-ic="lamp"></i></span>
+    <div class="text"><div class="t">Ambient light</div><div class="v">Follows the picture · 70%</div></div>
+    <span class="toggle" role="switch" aria-checked="true"></span>
+    <span class="grip"><span class="btn small focusable" tabindex="0" aria-label="Move up"><i data-ic="chevron-left" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Move down"><i data-ic="chevron-right" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Remove"><i data-ic="x"></i></span></span>
+  </div>
+  <div class="qtile focusable" tabindex="0">
+    <span class="lead"><i data-ic="bot"></i></span>
+    <div class="text"><div class="t">AI access</div><div class="v">LAN only · 2 paired</div></div>
+    <span class="chip on"><span class="dot"></span>On</span>
+    <span class="grip"><span class="btn small focusable" tabindex="0" aria-label="Move up"><i data-ic="chevron-left" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Move down"><i data-ic="chevron-right" style="transform:rotate(90deg)"></i></span><span class="btn small focusable" tabindex="0" aria-label="Remove"><i data-ic="x"></i></span></span>
+  </div>
+  <div class="addrow focusable" tabindex="0" id="q-addrow"><i data-ic="plus"></i>Add a tile</div>
+
+  <div class="foot">
+    <span class="btn wide focusable" tabindex="0"><i data-ic="settings"></i>All settings</span>
+    <span class="hint">Hold OK on a tile to edit · Back closes</span>
+  </div>
+</aside>
+
+<!-- slider popup: OK on the ambient tile opens its value beside the panel -->
+<div class="overlay qpop st slider" role="dialog" aria-label="Ambient light brightness">
+  <div class="head"><span class="t">Ambient light</span><span class="v num">70%</span></div>
+  <div class="d">How bright the lights behind the TV go. Left and right change it; the lights follow live.</div>
+  <div class="srow focusable" tabindex="0" id="srow">
+    <div class="slider"><i data-ic="sun-dim"></i><div class="track"><div class="fill" style="width:70%"></div><div class="thumb" style="left:70%"></div></div><i data-ic="sun"></i></div>
+    <div class="ticks"><span>Off</span><span>50%</span><span>100%</span></div>
+  </div>
+</div>
+
+<!-- value picker: OK on the sleep tile lists its values -->
+<div class="overlay qpop st picker" role="listbox" aria-label="Sleep timer">
+  <div class="head"><span class="t">Sleep timer</span></div>
+  <div class="d">The TV turns off after this long. A minute before, a toast lets you cancel.</div>
+  <div class="opt focusable" role="option" aria-checked="true" tabindex="0"><i data-ic="moon"></i>Off<i data-ic="check" class="check"></i></div>
+  <div class="opt focusable" role="option" aria-checked="false" tabindex="0" data-autofocus><i data-ic="timer"></i>15 minutes<span class="d">10:07 PM</span><i data-ic="check" class="check"></i></div>
+  <div class="opt focusable" role="option" aria-checked="false" tabindex="0"><i data-ic="timer"></i>30 minutes<span class="d">10:22 PM</span><i data-ic="check" class="check"></i></div>
+  <div class="opt focusable" role="option" aria-checked="false" tabindex="0"><i data-ic="timer"></i>60 minutes<span class="d">10:52 PM</span><i data-ic="check" class="check"></i></div>
+  <div class="opt focusable" role="option" aria-checked="false" tabindex="0"><i data-ic="timer"></i>90 minutes<span class="d">11:22 PM</span><i data-ic="check" class="check"></i></div>
+</div>
+
+<!-- add-tile list: everything not on the panel yet -->
+<div class="overlay qpop st add" role="listbox" aria-label="Add a tile">
+  <div class="head"><span class="t">Add a tile</span></div>
+  <div class="d">Tiles not on the panel. OK adds one at the bottom.</div>
+  <div class="opt focusable" role="option" tabindex="0" data-autofocus><i data-ic="monitor"></i>Screen off, sound on</div>
+  <div class="opt focusable" role="option" tabindex="0"><i data-ic="gamepad-2"></i>Game Optimizer</div>
+  <div class="opt focusable" role="option" tabindex="0"><i data-ic="leaf"></i>Energy saving</div>
+  <div class="opt focusable" role="option" tabindex="0"><i data-ic="sun-dim"></i>OLED pixel brightness</div>
+  <div class="opt focusable" role="option" tabindex="0"><i data-ic="headphones"></i>Bluetooth audio</div>
+  <div class="opt focusable" role="option" tabindex="0"><i data-ic="mouse-pointer-2"></i>Magic Remote pointer</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+<script>
+  (function () {
+    const v = document.documentElement.dataset.v;
+    window.addEventListener('DOMContentLoaded', () => {
+      const clear = () => document.querySelectorAll('.focusable.focus').forEach(e => e.classList.remove('focus'));
+      if (!v) { clear(); document.getElementById('srow').classList.add('focus'); document.getElementById('q-ambient').classList.add('src'); }
+      if (v === 'picker') { document.getElementById('q-sleep').classList.add('src'); }
+      if (v === 'edit' || v === 'add') { document.querySelector('.qpanel').classList.add('edit'); }
+      if (v === 'edit') { clear(); const d = document.getElementById('q-denon'); d.classList.add('moving'); d.querySelector('.grip .btn:nth-child(2)').classList.add('focus'); }
+      if (v === 'add') { document.getElementById('q-addrow').classList.add('src'); }
+    });
+  })();
+</script>
+</body>
+</html>

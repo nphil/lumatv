@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Quick Access</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  /* toast on a number key (default) · "Assign to 4?" alert when a slot is empty (?v=assign) */
+  html:not([data-v]) .dialog, html:not([data-v]) .scrim { display: none; }
+  [data-v="assign"] .toast { display: none; }
+  .slot { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; background: var(--tile-ink-wash); font-size: 32px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
+  .dialog .head { display: flex; align-items: center; gap: 22px; }
+  .picks { display: flex; gap: 12px; margin-top: 4px; }
+  .pick { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 12px 12px; border-radius: var(--lu-radius-tile); border: 1px solid transparent; width: 136px; }
+  .pick img, .pick .glyph { width: 88px; height: 88px; border-radius: 20px; }
+  .pick .glyph { display: grid; place-items: center; background: var(--tile-ink-wash); }
+  .pick .glyph .ic { width: 40px; height: 40px; }
+  .pick .n { font-size: 21px; font-weight: 600; white-space: nowrap; }
+  .pick.focusable.focus { transform: translateY(calc(-1 * var(--lu-lift))) scale(1.05); }
+</style>
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<!-- held 1 on the remote: the slot opens and a toast says what happened -->
+<div class="overlay toast" role="status">
+  <span class="slot">1</span>
+  <div style="flex:1;min-width:0">
+    <div class="t">1 · Netflix</div>
+    <div class="d">Opening. Hold 0 to change what the numbers open.</div>
+  </div>
+</div>
+
+<!-- held 4 with nothing assigned -->
+<div class="overlay dialog" role="alertdialog" aria-labelledby="qa">
+  <div class="head"><span class="slot">4</span><h1 id="qa">Nothing on 4 yet. Assign it?</h1></div>
+  <p>Holding 4 will open what you pick. The dock’s own order is unchanged.</p>
+  <div class="picks" role="radiogroup" aria-label="Pick what 4 opens">
+    <div class="pick focusable" role="radio" tabindex="0" data-autofocus><img src="img/apps/youtube.png" alt=""><div class="n">YouTube</div></div>
+    <div class="pick focusable" role="radio" tabindex="0"><img src="img/apps/plex.png" alt=""><div class="n">Plex</div></div>
+    <div class="pick focusable" role="radio" tabindex="0"><span class="glyph"><i data-ic="gamepad-2"></i></span><div class="n">HDMI 3</div></div>
+    <div class="pick focusable" role="radio" tabindex="0"><span class="glyph"><i data-ic="antenna"></i></span><div class="n">Live TV</div></div>
+    <div class="pick focusable" role="radio" tabindex="0"><span class="glyph"><i data-ic="ellipsis"></i></span><div class="n">More…</div></div>
+  </div>
+  <div class="actions">
+    <span class="btn focusable" tabindex="0">Not now</span>
+  </div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

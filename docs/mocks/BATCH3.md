@@ -1,6 +1,41 @@
-# Batch 2 mocks: the rest of the shell
+# Shell mocks: batches 2 and 3
 
-## Resume here
+## Resume here (batch 3)
+
+Scope (Main, 2026-10-23, from SURFACES.md "Not yet mocked"): 25 HDMI input banner family · 26 power-off
+logo + startup cover · 27 standby / Always Ready · 28 voice bar + mic indicator · 29 quick-panel popups and
+edit mode · 30 remaining Settings sections (Inputs & devices, Network, Ambient light, Home & look, System) ·
+31 Quick Access toast + assign alert · 32 second-screen pairing prompt · 33 pointer right-click menu ·
+34 Game Dashboard · 35 app launch prompts + advanced toast.
+
+Status: BUILT, first render done (30 new shots, 72 total). In progress: fixing the render checks (fact/stat
+labels 20 → 21 px; the five Settings pages overflow their pane: trim rows), then full-size review, gallery
+entries, detector run, report. Batch 2 (10-24) is complete and documented below.
+
+Plan per screen (file → shots), all with the batch-2 kit (`lucent.css`, `mock.js`, `render.mjs`, `index.html`):
+- `25-input-banner.html` → 25-input-pill (`default`), 25-input-banner (`?v=ok`), 25-input-info (`?v=info`),
+  25-input-update (`?v=update`)
+- `26-power-off.html` → 26-power-off-logo (`default`), 26-startup-cover (`?v=cover`)
+- `27-standby.html` → 27-standby-clock (`default`), 27-standby-art (`?v=art`), 27-standby-off (`?v=off`)
+- `28-voice.html` → 28-voice-listening (`default`), 28-voice-heard (`?v=heard`), 28-voice-results (`?v=results`),
+  28-mic-indicator (`?v=mic`)
+- `29-quick-panel-popups.html` → 29-qp-slider (`default`), 29-qp-picker (`?v=picker`), 29-qp-edit (`?v=edit`),
+  29-qp-add (`?v=add`)
+- `30-settings-inputs.html`, `30-settings-network.html`, `30-settings-ambient.html`, `30-settings-home.html`,
+  `30-settings-system.html` → one shot each
+- `31-quick-access.html` → 31-quick-access-toast (`default`), 31-quick-access-assign (`?v=assign`)
+- `32-pairing-prompt.html` → 32-pairing-prompt
+- `33-pointer-menu.html` → 33-pointer-menu
+- `34-game-dashboard.html` → 34-game-dashboard
+- `35-app-prompts.html` → 35-app-update-required (`default`), 35-app-not-available (`?v=unavailable`),
+  35-toast-advanced (`?v=toast`)
+
+Commands: `cd /data/home/lumaglass/docs/mocks && node render.mjs <prefix …>` (no args = all 42+ shots).
+TV state: untouched (mocks only).
+
+## Batch 2 (complete)
+
+### Resume notes kept from batch 2
 
 Status: complete. 42 shots in `shots/` (11 from batch 1, 31 from this batch), all in the `index.html`
 gallery with captions and the live viewer. Nothing left to build; nothing applied to the TV.
@@ -12,7 +47,7 @@ Detector: `/data/home/.agents/skills/impeccable/scripts/impeccable detect --json
 (from `/data/home/lumaglass`). Remaining findings are intentional: `dark-glow` is the accent focus halo
 Nitin chose; `nested-cards` is Lucent's sheet → well → raised-control stacking.
 
-## Files
+### Files (batch 2)
 
 | Screen | File (variants) | Shots |
 |---|---|---|
@@ -37,7 +72,7 @@ Shared: `lucent.css` (kit + depth step + over-video rule), `mock.js` (`?v=` → 
 `img/apps/*.png` (13 tiles cropped from the Home capture), `img/art-hokusai.jpg` (public domain).
 Batch-1 edits: `02-settings-sound.html` Sound out row now says it opens the receiver's controls.
 
-## Rationale, one line each
+### Rationale, one line each (batch 2)
 
 - **10 Quick panel**: one right-edge pane as tall as its tiles (no empty slab), steppers so left/right
   changes picture mode and receiver volume in place; the receiver tile shows input · sound mode with
@@ -75,7 +110,7 @@ Batch-1 edits: `02-settings-sound.html` Sound out row now says it opens the rece
   Select), Levels (volume, dialog, sub, bass, treble, Cinema EQ), Audyssey (MultEQ, Dynamic EQ,
   reference offset, Dynamic Volume), Zones & power (Zone 2, ECO, escape to the Denon's menu).
 
-## Kit changes (lucent.css, applied)
+### Kit changes (lucent.css, applied in batch 2)
 
 - Dark depth step (Nitin, 2026-10-23): edge `#FFFFFF1F` → `#FFFFFF2B` (12 → 17 % white), raised edge
   `#FFFFFF33` → `#FFFFFF3D`, rest highlight `.07` → `.10`, rest shadow `0 24px 60px .28` →
@@ -90,7 +125,7 @@ Batch-1 edits: `02-settings-sound.html` Sound out row now says it opens the rece
   `.drawer/.ngroup/.nitem`, `.recents/.rcard`, `.splash/.arc/.ring`, `.prow`, `.toast.wide` + `.toast .bar`,
   `.nosig`, `.cells/.cell/.kp/.kpk`, `.banner`, `.ss/.ss-clock/.art`, `.boot/.wordmark`.
 
-## Lucent proposals (not applied to the skill)
+### Lucent proposals (not applied to the skill)
 
 - `material.video`: the tinted no-blur reading surface for overlays over video (values above), as a
   named material beside `overlay`.
@@ -105,7 +140,7 @@ Batch-1 edits: `02-settings-sound.html` Sound out row now says it opens the rece
 - Wordmark: mark gradient `#B7ADF8 → #A79BF5 → #7FB3C9` at 135°, 28 px radius at 96 px; word Manrope 400 +
   700, −.03em.
 
-## Progress log
+### Progress log (batch 2)
 
 - 19:05 kit additions written; 14 HTML files written; first render of all 25 shots OK.
 - 19:15 fixed variant selectors (`html:not([data-v=…])`), OSD wrapping (640 wide, meta on the right),

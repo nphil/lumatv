@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Game Dashboard</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  .frame { background-image: url("img/game.jpg"); }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<!-- replaces the quick panel while an HDMI input is in game mode; tinted glass, no blur over the game -->
+<div class="overlay gdash" role="dialog" aria-label="Game Dashboard">
+  <div class="head">
+    <span class="lead" style="width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--tile-ink-wash)"><i data-ic="gamepad-2" style="width:28px;height:28px"></i></span>
+    <span class="t">Game Dashboard</span>
+    <span class="d">HDMI 3 · PlayStation 5 · Game Optimizer</span>
+    <span class="right"><span class="btn small focusable" tabindex="0"><i data-ic="settings"></i>All settings</span></span>
+  </div>
+  <div class="live" aria-label="Live signal">
+    <div class="stat"><div class="k">Frame rate</div><div class="v">118<small>fps</small></div></div>
+    <div class="stat on"><div class="k">VRR</div><div class="v">On<small>48–120 Hz</small></div></div>
+    <div class="stat on"><div class="k">Low latency</div><div class="v">9.8 ms</div></div>
+    <div class="stat"><div class="k">HDR</div><div class="v">HDR10</div></div>
+    <div class="stat"><div class="k">Signal</div><div class="v">4K<small>4:2:2 · 10-bit</small></div></div>
+    <div class="stat"><div class="k">Sound</div><div class="v">Denon<small>−34.5 dB</small></div></div>
+  </div>
+  <div class="row2">
+    <div class="gtile focusable" tabindex="0" data-autofocus>
+      <span class="lead"><i data-ic="sliders-horizontal"></i></span>
+      <div><div class="t">Genre</div><div class="d">Picture preset for the game</div></div>
+      <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">Standard</span><span role="radio" aria-selected="false">FPS</span><span role="radio" aria-selected="false">RPG</span><span role="radio" aria-selected="false">RTS</span><span role="radio" aria-selected="false">Sports</span></span>
+    </div>
+    <div class="gtile focusable" tabindex="0">
+      <span class="lead"><i data-ic="moon"></i></span>
+      <div><div class="t">Dark room</div><div class="d">Softer whites</div></div>
+      <span class="toggle" role="switch" aria-checked="false"></span>
+    </div>
+    <div class="gtile focusable" tabindex="0">
+      <span class="lead"><i data-ic="contrast"></i></span>
+      <div><div class="t">Black stabiliser</div><div class="d">Lift shadows</div></div>
+      <span class="stepper"><i data-ic="chevron-left"></i><span class="sv" style="min-width:60px">+2</span><i data-ic="chevron-right"></i></span>
+    </div>
+    <div class="gtile focusable" tabindex="0">
+      <span class="lead"><i data-ic="lamp"></i></span>
+      <div><div class="t">Ambient light</div><div class="d">Fast mode</div></div>
+      <span class="toggle" role="switch" aria-checked="true"></span>
+    </div>
+    <span class="hint">Left and right change · Back closes</span>
+  </div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

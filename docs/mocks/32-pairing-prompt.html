@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Connection request</title>
+<link rel="stylesheet" href="lucent.css">
+</head>
+<body>
+<div class="home-behind"></div>
+<div class="scrim"></div>
+
+<div class="overlay dialog pair" role="alertdialog" aria-labelledby="pt">
+  <div class="who"><span class="lead" style="width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--tile-ink-wash)"><i data-ic="smartphone" style="width:28px;height:28px"></i></span><span style="font-size:24px;color:var(--lu-ink-2);font-weight:500">Something on the home network wants to control this TV</span></div>
+  <h1 id="pt">Let “Home Assistant” connect?</h1>
+  <div class="who-row">
+    <span class="lead"><i data-ic="house-wifi"></i></span>
+    <div><div class="t">Home Assistant · homeassistant.local</div><div class="d">192.168.1.10 · first time this device has asked</div></div>
+  </div>
+  <div class="grants">
+    <div class="g"><i data-ic="check"></i><span><b>Can:</b> turn the TV on and off, change volume and input, open apps, send remote keys</span></div>
+    <div class="g"><i data-ic="check"></i><span><b>Can see:</b> what is playing, the input and volume</span></div>
+    <div class="g no"><i data-ic="x"></i><span>Cannot change settings or pair other devices. Remove it any time in Settings › Inputs &amp; devices.</span></div>
+  </div>
+  <div class="actions">
+    <span class="btn focusable" tabindex="0" data-autofocus>Don’t allow</span>
+    <span class="btn primary focusable" tabindex="0"><i data-ic="check"></i>Allow</span>
+  </div>
+  <div class="foot"><i data-ic="lock"></i>Only this remote can answer. Nothing on the network can press these buttons.</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

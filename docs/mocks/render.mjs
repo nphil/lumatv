@@ -48,6 +48,36 @@ const SHOTS = [
   ['24-settings-receiver-levels', '24-settings-receiver.html?tab=levels'],
   ['24-settings-receiver-audyssey', '24-settings-receiver.html?tab=audyssey'],
   ['24-settings-receiver-zones', '24-settings-receiver.html?tab=zones'],
+  ['25-input-pill', '25-input-banner.html'],
+  ['25-input-banner', '25-input-banner.html?v=ok'],
+  ['25-input-info', '25-input-banner.html?v=info'],
+  ['25-input-update', '25-input-banner.html?v=update'],
+  ['26-power-off-logo', '26-power-off.html'],
+  ['26-startup-cover', '26-power-off.html?v=cover'],
+  ['27-standby-clock', '27-standby.html'],
+  ['27-standby-art', '27-standby.html?v=art'],
+  ['27-standby-off', '27-standby.html?v=off'],
+  ['28-voice-listening', '28-voice.html'],
+  ['28-voice-heard', '28-voice.html?v=heard'],
+  ['28-voice-results', '28-voice.html?v=results'],
+  ['28-mic-indicator', '28-voice.html?v=mic'],
+  ['29-qp-slider', '29-quick-panel-popups.html'],
+  ['29-qp-picker', '29-quick-panel-popups.html?v=picker'],
+  ['29-qp-edit', '29-quick-panel-popups.html?v=edit'],
+  ['29-qp-add', '29-quick-panel-popups.html?v=add'],
+  ['30-settings-inputs', '30-settings-inputs.html'],
+  ['30-settings-network', '30-settings-network.html'],
+  ['30-settings-ambient', '30-settings-ambient.html'],
+  ['30-settings-home', '30-settings-home.html'],
+  ['30-settings-system', '30-settings-system.html'],
+  ['31-quick-access-toast', '31-quick-access.html'],
+  ['31-quick-access-assign', '31-quick-access.html?v=assign'],
+  ['32-pairing-prompt', '32-pairing-prompt.html'],
+  ['33-pointer-menu', '33-pointer-menu.html'],
+  ['34-game-dashboard', '34-game-dashboard.html'],
+  ['35-app-update-required', '35-app-prompts.html'],
+  ['35-app-not-available', '35-app-prompts.html?v=unavailable'],
+  ['35-toast-advanced', '35-app-prompts.html?v=toast'],
 ];
 const only = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--force-device-scale-factor=1'] });
@@ -60,12 +90,12 @@ for (const [name, file] of SHOTS) {
   await page.waitForTimeout(80);
   const overflow = await page.evaluate(() => {
     const out = [];
-    document.querySelectorAll('.t,.d,.v,.name,.line,.mt,.ms,.tab,.seg>span,.btn,.chip,.sub,h1,p,.k,.a,.q,.e .what,.n,.s,.mi,.sv,.meta,.prog,.lbl,.state,.port,.hint,.keyhints span').forEach(e => {
+    document.querySelectorAll('.t,.d,.v,.name,.line,.mt,.ms,.tab,.seg>span,.btn,.chip,.sub,h1,p,.k,.a,.q,.e .what,.n,.s,.mi,.sv,.meta,.prog,.lbl,.state,.port,.hint,.keyhints span,.fact .v,.stat .v,.q,.reply,.g').forEach(e => {
       if (e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'hidden') out.push(`overflow: "${e.textContent.trim().slice(0, 40)}" ${e.scrollWidth}>${e.clientWidth}`);
       const fs = parseFloat(getComputedStyle(e).fontSize);
       if (e.textContent.trim() && fs < 21) out.push(`small ${fs}px: "${e.textContent.trim().slice(0, 30)}"`);
     });
-    const page = document.querySelector('.page-body, .dialog, .sheet, .qpanel, .drawer, .lib, .menu');
+    const page = document.querySelector('.page-body, .dialog, .sheet, .qpanel, .drawer, .lib, .menu, .qpop, .ibanner, .gdash, .vbar');
     if (page && page.scrollHeight > page.clientHeight + 1) out.push(`page overflows vertically ${page.scrollHeight}>${page.clientHeight}`);
     return out;
   });

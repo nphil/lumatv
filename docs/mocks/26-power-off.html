@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Turning off</title>
+<link rel="stylesheet" href="lucent.css">
+<style>
+  html:not([data-v]) .cover { display: none; }
+  [data-v="cover"] .offlogo { display: none; }
+</style>
+</head>
+<body>
+<!-- power-off logo: ~3 s still; the frame tvpowerd waits for -->
+<div class="offlogo" aria-label="Turning off">
+  <div class="wordmark">
+    <span class="mark"><i></i></span>
+    <span class="word"><span>Luma</span><b>TV</b></span>
+  </div>
+</div>
+
+<!-- startup cover: CoverUI's frame before the first app, replaces LG's 120 px name + "Loading..." -->
+<div class="cover" aria-label="Starting HDMI 2">
+  <img src="img/apps/inputs.png" alt="">
+  <div class="n">HDMI 2 · Denon AVR-S760H</div>
+  <div class="st"><span class="arc"></span>Starting where you left off</div>
+  <div class="wm"><span class="mark"></span>LumaTV</div>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>
