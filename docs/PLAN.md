@@ -78,9 +78,13 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 
 ## Surfaces
 
+The full catalogue of LG's UI on the set is `docs/SURFACES.md` (178 rows:
+62 replace, 25 restyle, 24 off, 67 keep, of which 31 cannot appear on this
+set). The table below is the summary; SURFACES.md is the source.
+
 | Surface | LG today | LumaTV | Hook |
 |---|---|---|---|
-| Home | LumaHome over LG's Flutter Home (67 MB resident) | LumaHome only | Phase 8 |
+| Home | LumaHome over LG's Flutter Home (67 MB resident) | LumaHome only | Home stub (phase 1) |
 | Apps tile | LG Store (`com.webos.app.discovery`) | Own all-apps grid | Launch redirect |
 | Quick panel | 165-file QML, rebuilt per open | Rebuilt resident | System UI redirect |
 | Input picker | 51-file QML, rebuilt per open | Rebuilt resident, own inputs only | System UI redirect |
@@ -94,11 +98,32 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 | Settings sub-apps | Enact web apps | One shared theme | Overlay mount |
 | Notification Centre | Web app | Own drawer | Launch redirect |
 | Context menu, on-screen remote | Compositor QML | Rebuilt | System UI redirect |
-| Recents, multi-view frames | Compositor QML | Restyled | Shadow module |
+| Recents | Drawn by LG's Home | Own switcher | Home stub |
+| Multi-view frames | Compositor QML | Restyled | Shadow module |
 | Boot and power-off logo | Compositor QML | Own animation | System UI redirect |
 | Screensaver | Flutter | Own, keeping OLED pixel shift | Research |
 | Nudges, sports alarm, store promotions | Compositor QML | Off (empty view) | System UI redirect |
 | Ad and content-recognition overlays | Native | Off through LG settings | Settings |
+| HDMI input banner, OK/INFO banners, no signal | `inputcommon` QML | Rebuilt (input pill, detail, burn-in-safe no-signal) | Overlay mount |
+| Power-off logo, startup cover | Compositor QML, `CoverUI` (bootd opens it; it launches the first app) | Own; CoverUI's launch duty kept | System UI redirect |
+| Standby screen (Always Ready, Gallery+) | `lifeOnScreenMode: alwaysReady`, LG art and clock | Own burn-in-safe standby, or off (Nitin) | Research |
+| Voice listening bar, microphone indicator | `VoiceAgent` QML | Restyled; indicator always shown | Shadow module |
+| Pairing prompts (SSAP "Connection Request", mobile PIN) | SystemUI alert, configd popup | Rebuilt; answered only with the remote | View swap |
+| Pointer right-click menu | Compositor QML (Back/Home) | Rebuilt | Shadow module |
+| App launch prompts (update required, unavailable) | SAM alerts | Rebuilt through the item contract | View swap |
+| Quick Access (number keys) | Toast and slot alert | Rebuilt | View swap |
+| Game Dashboard | HDMI game-mode overlay | Restyled | Overlay mount |
+| Setting confirmations and recommendations | pqcontroller, ocp alerts | Rebuilt | View swap |
+
+Messages that are never filtered or delayed, whatever LumaTV's state: US
+emergency alerts (EAS), thermal shutdown, Magic Remote battery, LG Remote
+Service sessions, permission and pairing prompts. They are restyled only
+where the restyle cannot fail; otherwise LG's own is shown.
+
+Keys LumaTV must not break: the hidden combinations (gear x3 AV reset,
+Yellow 5 s, Green/Blue x7), Home hold for Screen Zoom at 2.5 s (the 650 ms
+LG-Home escape sits below it), the one-key TV button path, and the remote's
+app keys (Disney+ and Sling start LG's auto-install).
 
 Not owned: third-party app UIs (Netflix, YouTube, PlxNative), video, and the
 Magic Remote pointer image (native; swap unverified). The pointer stays
