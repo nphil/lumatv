@@ -280,11 +280,24 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
   experiments that decide the rest:
   - X1/X1b: does LG's compositor hold zero frames over 20 ms even for a
     trivial client? If not, only an own compositor can meet the 60 fps rule.
-  - X2: can a test compositor on a private socket accept buffers from LG's
-    32-bit Mali driver (`wl_drm` and Arm's `mali_buffer_sharing`, no
-    linux-dmabuf)? Nothing is shown on screen.
-  - X4: a read-only census of the surfacemanager luna methods SAM and WAM
-    actually call.
+  - X2, passed (2026-10-24): every LG app draws through LG's 32-bit
+    `libmali`, which binds only `mali_buffer_sharing` v5 (three messages)
+    and hands over AFBC-compressed dma-bufs from `/dev/dma_buf_te`. A test
+    compositor on a private socket imported them pixel-exact, 6 of 6
+    frames, both with LG's driver (`eglBindWaylandDisplayWL`) and with the
+    64-bit Rockchip blob, so an own compositor can be 64-bit and needs no
+    buffer protocol code of its own.
+  - X4, partly captured (launches, Quick Settings, Settings, browser,
+    YouTube): the compositor's live contract is about ten pushed
+    subscriptions (foreground app, focused window, window list, video
+    window, input type, Home UI state) plus a few calls (`listRecents`,
+    `systemUIManager/launch`, `launchDefaultApp {home}`, per-video
+    `setDisplayWindowProperty`). Apps place their own video rectangle; the
+    compositor reports it. Standby and wake, Netflix, PlxNative, the input
+    picker and PIN are still to capture.
+  - Still open for an own compositor: LG's window and view behaviour (the
+    webOS Wayland extensions), the tvpower handshake, punch-through and key
+    routing.
   If X1 fails and X2 passes, LumaTV's compositor replaces surface-manager,
   with a watchdog and a firmware check that both fall back to LG's.
 - 64-bit drawing path: works on screen (2026-10-22). LG's `mali_kbase`
