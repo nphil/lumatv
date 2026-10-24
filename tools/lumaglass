@@ -14,8 +14,10 @@
 #   webglass on|off|status -> glass stylesheet in the settings web apps
 #   version                -> version string from appinfo.json
 #
-# Nothing is ever written outside $APPDIR, $STATE (/var/lib/lumaglass), and
-# /var/lib/webosbrew/init.d/50-lumaglass.
+# Nothing is ever written outside $APPDIR, $STATE (/var/lib/lumaglass),
+# /var/lib/webosbrew/init.d/50-lumaglass, the env files under
+# /var/systemd/system/env, and the compositor's QML cache, which is only ever
+# deleted.
 
 set -u
 
@@ -145,6 +147,21 @@ SHADOW_STOCK_FP="$STATE/.shadow-stock"
 SHADOW_SELF_FP="$STATE/.shadow-self"
 ENV_DIR=/var/systemd/system/env
 ENV_FILE="$ENV_DIR/surface-manager.env"
+# Extra compositor variables for tuning and measurement, one KEY=VALUE per
+# line (QT_QPA_UPDATE_IDLE_TIME=0, QSG_RENDER_LOOP=threaded, ...). env_line
+# copies only lines whose key is allowlisted and whose value is plain, so a
+# typo can reach neither systemd's parser nor the compositor. A change to it
+# restarts the compositor at the next apply; revert deletes it, and so does
+# the boot fail-safe, so an experiment cannot outlive a compositor that
+# failed to start with it.
+ENV_EXTRA="$STATE/env.extra"
+ENV_EXTRA_KEYS='QT_QPA_UPDATE_IDLE_TIME|QML_FORCE_DISK_CACHE|QSG_[A-Z0-9_]+|QV4_[A-Z0-9_]+'
+# LG starts the compositor with QML_DISABLE_DISK_CACHE=1; QML_FORCE_DISK_CACHE=1
+# in our env file overrides it and cut restart-to-Home from 5.8 s to
+# 4.6-5.2 s. Qt validates each cached unit against its source, but the cache
+# is cleared whenever the staged compositor set changes, and at revert, so it
+# never outlives the tree it was compiled from. 6.2 MB when full.
+QML_CACHE_DIR=/home/root/.cache/surface-manager/qmlcache
 STOCK_ASSETS=/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets
 
 HOME_PKILL_PATTERN="flutter-client -i com.webos.app.home"
@@ -843,7 +860,22 @@ shadow_current() {
   return 0
 }
 
-env_line() { printf 'QML2_IMPORT_PATH=%s:/usr/lib/qt5/qml\n' "$SHADOW_ROOT"; }
+env_extra_lines() {
+  # Allowlisted KEY=VALUE lines of $ENV_EXTRA in file order; values limited to
+  # characters systemd's EnvironmentFile takes literally. QML_FORCE_DISK_CACHE
+  # is accepted but dropped: env_line always sets it, and Qt treats any value,
+  # 0 included, as set.
+  [ -f "$ENV_EXTRA" ] || return 0
+  grep -E "^($ENV_EXTRA_KEYS)=[A-Za-z0-9_.:/,+-]+\$" "$ENV_EXTRA" 2>/dev/null \
+    | grep -v '^QML_FORCE_DISK_CACHE='
+  return 0
+}
+
+env_line() {
+  printf 'QML2_IMPORT_PATH=%s:/usr/lib/qt5/qml\n' "$SHADOW_ROOT"
+  printf 'QML_FORCE_DISK_CACHE=1\n'
+  env_extra_lines
+}
 
 env_live() { [ "$(cat "$ENV_FILE" 2>/dev/null)" = "$(env_line)" ]; }
 
@@ -854,6 +886,8 @@ write_env() {
 }
 
 remove_env() { rm -f "$ENV_FILE" "$ENV_FILE.tmp."* 2>/dev/null; return 0; }
+
+clear_qml_cache() { rm -rf "$QML_CACHE_DIR" 2>/dev/null; return 0; }
 
 compositor_has_shadow() {
   # Whether the running compositor was started with our import path. Only its
@@ -952,6 +986,8 @@ do_revert_internal() {
   # not the restart below succeeds.
   if [ -f "$ENV_FILE" ]; then REVERT_CHANGED=1; fi
   remove_env
+  rm -f "$ENV_EXTRA"
+  clear_qml_cache
   keyfilter_set remove
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
@@ -1112,6 +1148,11 @@ verb_apply() {
      && [ "$(tree_fp "$LUMA_STAGE.next")" = "$(tree_fp "$LUMA_STAGE")" ]; then
     compositor_changed=0
   fi
+  # The env file is read only when the compositor starts, so a change to it
+  # (env.extra edited, or a tool update that changes env_line) needs the
+  # restart too. Taken before write_env below makes the file current.
+  env_changed=0
+  env_live || env_changed=1
   changed=1
   if [ "$compositor_changed" -eq 0 ] && all_binds_live && shadow_current && env_live; then
     changed=0
@@ -1188,8 +1229,11 @@ verb_apply() {
   # about what the running process loaded.
   restart_needed=0
   if surface_start_uptime >/dev/null 2>&1; then
-    if ! compositor_has_shadow || [ "$compositor_changed" -eq 1 ]; then restart_needed=1; fi
+    if ! compositor_has_shadow || [ "$compositor_changed" -eq 1 ] || [ "$env_changed" -eq 1 ]; then restart_needed=1; fi
   fi
+  # A changed compositor set starts from an empty QML cache; a restart for an
+  # env change or a stock compositor at boot keeps it.
+  [ "$compositor_changed" -eq 1 ] && clear_qml_cache
 
   if [ "$restart_needed" -eq 1 ]; then
     marker=$(wc -l < "$MSGLOG" 2>/dev/null | tr -d ' '); [ -n "$marker" ] || marker=0
@@ -1273,6 +1317,7 @@ verb_boot_bind() {
   if [ -f "$ENV_FILE" ] && ! surface_start_uptime >/dev/null 2>&1; then
     log_line "boot-bind: no compositor running with our env file present, reverting to stock"
     remove_env
+    rm -f "$ENV_EXTRA"
     systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
     ntfy_notify "LumaGlass disabled itself: compositor did not start"
     printf '{"ok":true,"bound":false,"reason":"compositor-absent"}\n'

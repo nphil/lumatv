@@ -19,11 +19,15 @@ fps idle, background load. Orchestrator, analyser, scheduler helper and
 the env-file patch written; provisional recommendations and the
 replace-vs-tune list at the end. Not done: every before/after number.
 
-Open with Main (asked 21:00): how env-file tweaks T7/T9 may be applied,
-(a) `perf/env-extra.patch` on the deployed tool, backed up and restored,
-or (b) one manual restart mirroring `restart_surface`. Ask again if no
-answer. Priority order when the TV is free: baseline, T9, T6, T7, then
-T1-T5 and T8, then the ShellArchitecture floor (step 4b).
+Decided by Main (21:55): option (a). The `env.extra` hook is implemented in
+the repo's `tools/lumaglass` (uncommitted; Main commits): allowlisted
+`KEY=VALUE` lines of `/var/lib/lumaglass/env.extra` go into the env file,
+an env change restarts the compositor at `apply`, `revert` deletes the
+file, and `QML_FORCE_DISK_CACHE=1` (decided) is always set, with the QML
+cache cleared when the staged compositor set changes. Deploy it to the set
+only in the TV window, backed up and restored (step 4, T9/T7). Priority
+when the TV is free: baseline, T9, T6, T7, then T1-T5 and T8, then the
+ShellArchitecture floor (step 4b).
 
 Remaining TV plan (about 85 min of screen time), run from the
 workstation (`pip install --break-system-packages paramiko` if missing;
@@ -57,19 +61,28 @@ exists):
    - T4 `--apply 'python3 /tmp/perf/tweak.py fifo 1' --revert 'python3 /tmp/perf/tweak.py other'`
    - T5 `--apply 'python3 /tmp/perf/tweak.py affinity 2' --revert 'python3 /tmp/perf/tweak.py affinity f'` (copy `docs/research/perf/tweak.py` to `/tmp/perf/` in pre-flight; busybox here may lack taskset and chrt)
    - T6 `--apply '/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass theme set "{\"wallpaperMotion\":{\"fps\":10}}"' --revert '... {\"fps\":30}'`, and a second run with `{"enabled":false}` / `{"enabled":true}`; wait 3 s after apply (2 s theme poll).
-   - T9 first, then T7, both env-file tweaks: `QT_QPA_UPDATE_IDLE_TIME=0`
-     (removes the 5 ms Qt update timer from every animated frame, see
-     the finding below) and `QSG_RENDER_LOOP=threaded`. The tool rewrites
-     `/var/systemd/system/env/surface-manager.env` to `QML2_IMPORT_PATH`
-     alone on every apply (`env_line` / `env_live`), so `fps on/off` or
-     `apply` would drop the extra line. How to apply is waiting on Main:
-     (a) an `env.extra` hook in the tool's `env_line`, deployed for the
-     test, or (b) one manual restart mirroring `restart_surface` +
-     `home_back_after_restart`. Either way: check Home recovers (capture at
-     320x180 > 79 kB), measure `dpad`, `qs`, `apphome` x2, remove the line,
-     restart the same way, confirm the env file is back to the single
-     line. Risk for T7: LG's compositor may assume the basic loop; if the
-     screen stays black, remove the line and restart.
+   - T9 then T7, the env-file tweaks, with the repo's tool deployed for
+     the test (`TOOL=/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass`):
+     1. `md5sum $TOOL` against `git show HEAD:tools/lumaglass | md5sum`;
+        if they match, sftp the working copy over it, else apply
+        `git diff tools/lumaglass` to the deployed copy. Backup first:
+        `cp $TOOL /var/lib/lumaglass/lumaglass.bak`.
+     2. `$TOOL apply` (env gains `QML_FORCE_DISK_CACHE=1`, restart). Check
+        Home recovers (capture at 320x180 > 79 kB). Run `--tag cache`
+        `dpad,qs,apphome` x2: the baseline for T9/T7 with the same tool.
+     3. `echo QT_QPA_UPDATE_IDLE_TIME=0 > /var/lib/lumaglass/env.extra;
+        $TOOL apply`; confirm with `tr '\0' '\n' < /proc/$(pidof
+        surface-manager)/environ | grep QT_QPA`; run `--tag t9` x2.
+     4. `echo QSG_RENDER_LOOP=threaded > /var/lib/lumaglass/env.extra;
+        $TOOL apply`; if the panel stays black, `rm` the file and `apply`
+        again. Run `--tag t7` x2.
+     5. Restore: `rm /var/lib/lumaglass/env.extra; cp
+        /var/lib/lumaglass/lumaglass.bak $TOOL`, then `$TOOL fps on` and
+        `$TOOL fps off` (the old tool rewrites the env to its single line
+        and restarts on the QML change), `rm -rf
+        /home/root/.cache/surface-manager/qmlcache`, `rm
+        /var/lib/lumaglass/lumaglass.bak`; env file must read only
+        `QML2_IMPORT_PATH=/var/lib/lumaglass/qml:/usr/lib/qt5/qml`.
    - T8 `--apply 'echo 20 > /proc/sys/vm/swappiness' --revert 'echo 100 > /proc/sys/vm/swappiness'` with `apphome` only.
 4b. For ShellArchitecture (10 min, numbers go in "Compositor floor"):
    - Floor: wallpaper motion off (`theme set {"wallpaperMotion":{"enabled":false}}`),
@@ -275,10 +288,8 @@ frame misses its vblank (a 33 ms interval), which resets the chain. So a
 focus move or panel open whose frames need 3.5-4 ms of CPU render drops a
 frame every 6-10 frames. `QT_QPA_UPDATE_IDLE_TIME=0` returns the 5 ms to
 the budget (chain about 10.7 ms at idle). To be measured as T9. It is set
-in the compositor's env file, which the tool currently rewrites to
-`QML2_IMPORT_PATH` alone (`env_line`), so the tool needs an extra-env line
-for it (`perf/env-extra.patch`), the same change the decided
-`QML_FORCE_DISK_CACHE=1` needs.
+in the compositor's env file through the tool's new `env.extra` hook
+(the decided `QML_FORCE_DISK_CACHE=1` goes through the same env line).
 
 ## Finding: why idle Home runs at an uneven 36-38 fps
 
@@ -335,8 +346,8 @@ on CPU2); it does not reach the compositor.
    5 ms Qt update timer leaves every animated frame, so a frame's CPU
    render can grow from about 2.6 ms to about 7.6 ms before lateness
    accumulates; the main candidate for the missed deadlines during
-   focus moves and panel opens. Needs the tool's env-file change
-   (`perf/env-extra.patch`), which the decided disk cache needs too.
+   focus moves and panel opens. Kept, it becomes a fixed line of the
+   tool's `env_line`, like the disk cache.
 2. One clock for idle Home: wallpaper phase and second hand advanced by
    one 100 ms Timer (the decided 10 updates a second), wallpaper phase from
    elapsed time. Expected: idle drops from 37.7 to about 10-16 presented

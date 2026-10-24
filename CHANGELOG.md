@@ -48,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Home, power, another app) still exits as stock, because the manager
   refuses to relaunch an app whose last event was a close; the first press
   after one is a normal cold open. Compositor RSS is flat across 40 relaunches.
+- `/var/lib/lumaglass/env.extra` passes extra variables to the compositor,
+  one `KEY=VALUE` per line, for tuning and measurement. Only
+  `QT_QPA_UPDATE_IDLE_TIME`, `QML_FORCE_DISK_CACHE`, `QSG_*` and `QV4_*` keys
+  with plain values are copied into its env file; anything else is ignored.
+  `revert` and the boot fail-safe delete the file, so an experiment does not
+  outlive a compositor that failed to start with it.
 
 ### Changed
 
@@ -66,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The frame probe reports pacing rather than a rate: worst interval and missed
   60Hz deadlines per second, plus one line per gap over 20 ms. A single dropped
   frame is invisible in a per-second average.
+- The compositor keeps its compiled QML between starts: `QML_FORCE_DISK_CACHE=1`
+  in its env file overrides LG's `QML_DISABLE_DISK_CACHE=1`, which cut
+  restart-to-Home from 5.8 s to 4.6-5.2 s. The cache
+  (`/home/root/.cache/surface-manager/qmlcache`) is cleared whenever the
+  staged compositor set changes, and at revert.
+- `apply` restarts the compositor when its env file changes, not only when
+  its QML does; the file is read only at start.
 
 ## [0.4.0] - 2026-09-15
 
