@@ -99,7 +99,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Notification Centre | Web app | Own drawer | Launch redirect |
 | Context menu, on-screen remote | Compositor QML | Rebuilt | System UI redirect |
 | Recents | Drawn by LG's Home | Own switcher | Home stub |
-| Multi-view frames | Compositor QML | Restyled | Shadow module |
+| Multi-view frames | Compositor QML | Kept as LG's: Multi View is not used (Nitin, 2026-10-23) | None |
 | Boot and power-off logo | Compositor QML | Own animation | System UI redirect |
 | Screensaver | Flutter | Own, keeping OLED pixel shift | Research |
 | Nudges, sports alarm, store promotions | Compositor QML | Off (empty view) | System UI redirect |
@@ -107,12 +107,12 @@ set). The table below is the summary; SURFACES.md is the source.
 | HDMI input banner, OK/INFO banners, no signal | `inputcommon` QML | Rebuilt (input pill, detail, burn-in-safe no-signal) | Overlay mount |
 | Power-off logo, startup cover | Compositor QML, `CoverUI` (bootd opens it; it launches the first app) | Own; CoverUI's launch duty kept | System UI redirect |
 | Standby screen (Always Ready, Gallery+) | `lifeOnScreenMode: alwaysReady`, LG art and clock | Off: the panel goes fully dark in standby (Nitin, 2026-10-23); instant wake kept | Settings |
-| Voice listening bar, microphone indicator | `VoiceAgent` QML | Restyled; indicator always shown | Shadow module |
+| Voice listening bar, microphone indicator | `VoiceAgent` QML | Own voice bar for search only: app and title results from what is on the set, no LG cloud answers (Nitin, 2026-10-23); mic indicator always shown | Shadow module |
 | Pairing prompts (SSAP "Connection Request", mobile PIN) | SystemUI alert, configd popup | Rebuilt; answered only with the remote | View swap |
 | Pointer right-click menu | Compositor QML (Back/Home) | Rebuilt | Shadow module |
 | App launch prompts (update required, unavailable) | SAM alerts | Rebuilt through the item contract | View swap |
 | Quick Access (number keys) | Toast and slot alert | Rebuilt | View swap |
-| Game Dashboard | HDMI game-mode overlay | Restyled | Overlay mount |
+| Game Dashboard | HDMI game-mode overlay | Restyled; a PC is used on HDMI (Nitin, 2026-10-23), so input details show PC facts (4:4:4 chroma, refresh, VRR, ALLM); game mode, VRR and latency untouched | Overlay mount |
 | Setting confirmations and recommendations | pqcontroller, ocp alerts | Rebuilt | View swap |
 
 Messages that are never filtered or delayed, whatever LumaTV's state: US
@@ -121,9 +121,20 @@ Service sessions, permission and pairing prompts. They are restyled only
 where the restyle cannot fail; otherwise LG's own is shown.
 
 Keys LumaTV must not break: the hidden combinations (gear x3 AV reset,
-Yellow 5 s, Green/Blue x7), Home hold for Screen Zoom at 2.5 s (the 650 ms
-LG-Home escape sits below it), the one-key TV button path, and the remote's
-app keys (Disney+ and Sling start LG's auto-install).
+Yellow 5 s, Green/Blue x7) and the one-key TV button path. Holding Home
+(650 ms) is the LG-Home escape only; Screen Zoom moves to the context menu
+(Nitin, 2026-10-23), so LG's 2.5 s Home hold is filtered.
+
+The notification drawer opens from the bell on Home's top bar and by holding
+the Settings (gear) key; the library opens from the Apps tile (Nitin,
+2026-10-23). The gear hold must not collide with the gear x3 AV reset: a
+hold is a single press held 650 ms, the reset is three taps.
+
+The remote's app keys (Netflix, Prime Video, Disney+, LG Channels and the
+rest) are set per key in Settings › Remote & pointer: open any installed
+app, or do nothing (Nitin, 2026-10-23). The default is LG's target where that
+app is installed and nothing where it is not, so no key starts LG's
+auto-install.
 
 Not owned: third-party app UIs (Netflix, YouTube, PlxNative), video, and the
 Magic Remote pointer image (native; swap unverified). The pointer stays
