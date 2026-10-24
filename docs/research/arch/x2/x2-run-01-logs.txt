@@ -1,0 +1,91 @@
+===== r1-all server
+[srv   0.000] listening on /tmp/x2/wayland-x2 (own globals: mali_buffer_sharing wl_drm linux-dmabuf)
+[srv   0.406] client connected: pid 2766 uid 0
+[srv   0.422] wl_compositor.create_surface -> wl_surface@3
+[srv   0.422] wl_shell_surface.set_title("x2 probe")
+[srv   0.422] wl_shell_surface@7.set_toplevel
+[srv   0.422] client bound mali_buffer_sharing v5; sending alloc_device("/dev/dma_buf_te")
+[srv   0.424] mali_buffer_sharing.create_buffer(new wl_buffer@11, 256, 256, 1024, 875708993(AB24), 134217728(0x8000000), 337(0x151), fd 15)
+[srv   0.424]   fd 15: /dmabuf:, fstat size 266240, lseek end 266240, mode 00
+[srv   0.425] wl_surface@3.attach(wl_buffer@11, 0, 0)
+[srv   0.425] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   0.425] wl_surface@3.commit #1
+[srv   0.425]   mmap sample: pixel(0,0)=00000000 center=00000000 last=00000000, 129 runs in row 0, sync ioctl ok
+[srv   0.425] mali_buffer_sharing.create_buffer(new wl_buffer@13, 256, 256, 1024, 875708993(AB24), 134217728(0x8000000), 337(0x151), fd 16)
+[srv   0.425]   fd 16: /dmabuf:, fstat size 266240, lseek end 266240, mode 00
+[srv   0.425] wl_surface@3.attach(wl_buffer@13, 0, 0)
+[srv   0.425] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   0.425] wl_surface@3.commit #2
+[srv   0.425]   mmap sample: pixel(0,0)=00000000 center=00000000 last=00000000, 129 runs in row 0, sync ioctl ok
+[srv   0.426] wl_surface@3.attach(wl_buffer@11, 0, 0)
+[srv   0.426] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   0.426] wl_surface@3.commit #3
+[srv   0.426]   mmap sample: pixel(0,0)=00000000 center=00000000 last=00000000, 129 runs in row 0, sync ioctl ok
+[srv   0.426] mali_buffer_sharing.create_buffer(new wl_buffer@14, 256, 256, 1024, 875708993(AB24), 134217728(0x8000000), 337(0x151), fd 17)
+[srv   0.426]   fd 17: /dmabuf:, fstat size 266240, lseek end 266240, mode 00
+[srv   0.426] wl_surface@3.attach(wl_buffer@14, 0, 0)
+[srv   0.426] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   0.426] wl_surface@3.commit #4
+[srv   0.426]   mmap sample: pixel(0,0)=00000000 center=00000000 last=00000000, 129 runs in row 0, sync ioctl ok
+[srv   0.426] wl_surface@3.attach(wl_buffer@13, 0, 0)
+[srv   0.426] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   0.426] wl_surface@3.commit #5
+[srv   0.427]   mmap sample: pixel(0,0)=00000000 center=00000000 last=00000000, 129 runs in row 0, sync ioctl ok
+[srv   0.427] wl_surface@3.attach(wl_buffer@11, 0, 0)
+[srv   0.427] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   0.427] wl_surface@3.commit #6
+[srv   0.427]   mmap sample: pixel(0,0)=00000000 center=00000000 last=00000000, 129 runs in row 0, sync ioctl ok
+[srv   0.427] wl_buffer@14 destroyed (mali_buffer_sharing.create_buffer)
+[srv   0.427] wl_buffer@13 destroyed (mali_buffer_sharing.create_buffer)
+[srv   0.427] wl_buffer@11 destroyed (mali_buffer_sharing.create_buffer)
+[srv   0.428] client disconnected
+[srv   0.428] summary: 3 buffers created, 6 commits, 6 frame callbacks, pixel checks ok 0 bad 6 unread 0
+===== r1-all client
+[cli] global  1 wl_shm                               v1
+[cli] global  2 wl_compositor                        v3
+[cli] global  3 wl_shell                             v1
+[cli] global  4 mali_buffer_sharing                  v5
+[cli] global  5 wl_drm                               v2
+[cli] global  6 zwp_linux_dmabuf_v1                  v3
+[cli] 6 globals; compositor 0x40b870 shell 0x40b8d0 shm 0x40b818
+[cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
+[cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf51abf21
+[cli] EGL 1.5 vendor "ARM" version "1.5 Bifrost-"r46p0-01eac1""
+[cli] EGL display extensions: EGL_WL_bind_wayland_display EGL_NV_context_priority_realtime EGL_KHR_partial_update EGL_EXT_swap_buffers_with_damage EGL_KHR_swap_buffers_with_damage EGL_KHR_config_attribs EGL_KHR_image EGL_KHR_image_base EGL_KHR_fence_sync EGL_KHR_wait_sync EGL_KHR_gl_colorspace EGL_KHR_get_all_proc_addresses EGL_IMG_context_priority EGL_KHR_no_config_context EGL_EXT_image_dma_buf_import EGL_EXT_image_dma_buf_import_modifiers EGL_EXT_yuv_surface EGL_EXT_pixel_format_float EGL_ARM_pixmap_multisample_discard EGL_ANDROID_native_fence_sync EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_renderbuffer_image EGL_KHR_create_context EGL_KHR_surfaceless_context EGL_KHR_gl_texture_cubemap_image EGL_EXT_image_gl_colorspace EGL_EXT_create_context_robustness
+[cli] GL "Mali-G52" / "OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416"
+[cli] frame 0: eglSwapBuffers ok (0x0) took 0.2 ms
+[cli] configure 256x256
+[cli] frame 1: eglSwapBuffers ok (0x0) took 0.1 ms
+[cli] frame 2: eglSwapBuffers ok (0x0) took 0.2 ms
+[cli] frame 3: eglSwapBuffers ok (0x0) took 0.1 ms
+[cli] frame 4: eglSwapBuffers ok (0x0) took 0.1 ms
+[cli] frame 5: eglSwapBuffers ok (0x0) took 0.2 ms
+[cli] 6 frames in 3.1 ms
+[cli] done
+===== r2-nomali server
+[srv   0.000] listening on /tmp/x2/wayland-x2 (own globals: wl_drm linux-dmabuf)
+[srv   0.407] client connected: pid 2803 uid 0
+[srv   0.419] wl_compositor.create_surface -> wl_surface@3
+[srv   0.419] wl_shell_surface.set_title("x2 probe")
+[srv   0.419] wl_shell_surface@7.set_toplevel
+[srv   0.423] client disconnected
+[srv   0.423] summary: 0 buffers created, 0 commits, 0 frame callbacks, pixel checks ok 0 bad 0 unread 0
+===== r2-nomali client
+[cli] global  1 wl_shm                               v1
+[cli] global  2 wl_compositor                        v3
+[cli] global  3 wl_shell                             v1
+[cli] global  4 wl_drm                               v2
+[cli] global  5 zwp_linux_dmabuf_v1                  v3
+[cli] 5 globals; compositor 0xfca7d8 shell 0xfca838 shm 0xfca780
+[cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
+[cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf554bf21
+[cli] eglInitialize: 0x3001
+===== r5-egl server
+[srv   0.009] missing eglBindWaylandDisplayWL
+===== r5-egl client
+[cli] wl_display_connect failed: Connection refused
+===== r8-egl64-render server
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[srv   0.012] missing eglBindWaylandDisplayWL
+===== r8-egl64-render client
+[cli] wl_display_connect failed: Connection refused

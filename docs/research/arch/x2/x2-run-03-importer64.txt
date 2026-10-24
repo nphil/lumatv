@@ -1,0 +1,69 @@
+r8b-egl64: client exit 0
+  [srv   1.048] summary: 0 buffers created, 6 commits, 6 frame callbacks, pixel checks ok 6 bad 0 unread 0
+left running: none
+MemAvailable:     580076 kB
+CmaFree:           13432 kB
+===== r8b-egl64 server
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+[srv   0.012] gbm_create_device(/dev/dri/renderD128) = (nil)
+arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+[srv   0.019] EGL 1.5 ARM | 1.5 Bifrost-"g24p0-00eac0"
+[srv   0.019] no pbuffer config (0x3000); using a no-config surfaceless context
+[srv   0.028] surfaceless context current
+[srv   0.028] eglBindWaylandDisplayWL ok: the driver now serves its own buffer globals on this socket
+[srv   0.028] listening on /tmp/x2/wayland-x2 (buffer globals from the driver)
+[srv   1.009] client connected: pid 4743 uid 0
+[srv   1.031] wl_compositor.create_surface -> wl_surface@3
+[srv   1.031] wl_shell_surface.set_title("x2 probe")
+[srv   1.031] wl_shell_surface@7.set_toplevel
+[srv   1.035] wl_surface@3.attach(wl_buffer@11, 0, 0)
+[srv   1.035] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   1.035] wl_surface@3.commit #1
+[srv   1.035]   eglQueryWaylandBufferWL: width 256 (1) height 256 (1) texture_format 0x305e (1) y_inverted 1 (1)
+[srv   1.037]   EGL import + glReadPixels RGBA: (0,0)=0080ffff center=0080ffff last=0080ffff gl error 0x0
+[srv   1.037] wl_surface@3.attach(wl_buffer@12, 0, 0)
+[srv   1.037] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   1.037] wl_surface@3.commit #2
+[srv   1.037]   eglQueryWaylandBufferWL: width 256 (1) height 256 (1) texture_format 0x305e (1) y_inverted 1 (1)
+[srv   1.039]   EGL import + glReadPixels RGBA: (0,0)=1980e6ff center=1980e6ff last=1980e6ff gl error 0x0
+[srv   1.039] wl_surface@3.attach(wl_buffer@13, 0, 0)
+[srv   1.039] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   1.039] wl_surface@3.commit #3
+[srv   1.039]   eglQueryWaylandBufferWL: width 256 (1) height 256 (1) texture_format 0x305e (1) y_inverted 1 (1)
+[srv   1.040]   EGL import + glReadPixels RGBA: (0,0)=3280cdff center=3280cdff last=3280cdff gl error 0x0
+[srv   1.041] wl_surface@3.attach(wl_buffer@11, 0, 0)
+[srv   1.041] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   1.041] wl_surface@3.commit #4
+[srv   1.041]   eglQueryWaylandBufferWL: width 256 (1) height 256 (1) texture_format 0x305e (1) y_inverted 1 (1)
+[srv   1.044]   EGL import + glReadPixels RGBA: (0,0)=4b80b4ff center=4b80b4ff last=4b80b4ff gl error 0x0
+[srv   1.044] wl_surface@3.attach(wl_buffer@12, 0, 0)
+[srv   1.044] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   1.044] wl_surface@3.commit #5
+[srv   1.044]   eglQueryWaylandBufferWL: width 256 (1) height 256 (1) texture_format 0x305e (1) y_inverted 1 (1)
+[srv   1.045]   EGL import + glReadPixels RGBA: (0,0)=64809bff center=64809bff last=64809bff gl error 0x0
+[srv   1.046] wl_surface@3.attach(wl_buffer@13, 0, 0)
+[srv   1.046] wl_surface.damage(0,0 2147483647x2147483647)
+[srv   1.046] wl_surface@3.commit #6
+[srv   1.046]   eglQueryWaylandBufferWL: width 256 (1) height 256 (1) texture_format 0x305e (1) y_inverted 1 (1)
+[srv   1.047]   EGL import + glReadPixels RGBA: (0,0)=7d8082ff center=7d8082ff last=7d8082ff gl error 0x0
+[srv   1.048] client disconnected
+[srv   1.048] summary: 0 buffers created, 6 commits, 6 frame callbacks, pixel checks ok 6 bad 0 unread 0
+===== r8b-egl64 client
+[cli] global  1 wl_shm                               v1
+[cli] global  2 wl_compositor                        v3
+[cli] global  3 wl_shell                             v1
+[cli] global  4 mali_buffer_sharing                  v5
+[cli] 4 globals; compositor 0x1b68748 shell 0x1b687a8 shm 0x1b686f0
+[cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
+[cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf529bf21
+[cli] EGL 1.5 vendor "ARM" version "1.5 Bifrost-"r46p0-01eac1""
+[cli] GL "Mali-G52" / "OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416"
+[cli] frame 0: eglSwapBuffers ok (0x0) took 0.3 ms
+[cli] configure 256x256
+[cli] frame 1: eglSwapBuffers ok (0x0) took 0.1 ms
+[cli] frame 2: eglSwapBuffers ok (0x0) took 1.4 ms
+[cli] frame 3: eglSwapBuffers ok (0x0) took 0.1 ms
+[cli] frame 4: eglSwapBuffers ok (0x0) took 0.7 ms
+[cli] frame 5: eglSwapBuffers ok (0x0) took 0.2 ms
+[cli] 6 frames in 8.2 ms
+[cli] done

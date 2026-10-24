@@ -5,12 +5,12 @@ Rule under test: every frame on its 60 Hz deadline, at rest and in motion.
 
 ## Resume here
 
-Status 2026-10-23 22:10: TV with Nitin since 19:35; this session paused
-for the TV window. Hold all TV work until Main says "TV is free". Nothing
-is applied on the set; nothing to revert. TV state at handback: Active, LG
-Home in front with LumaHome over it, Filmmaker confirmed, ftrace off and
-events disabled, buffer back to 1408 kB, `/tmp/perf` on the set holds only
-`capture.sh`.
+Status 2026-10-24 19:20: TV window open (Main, 19:13). Set rebooted today
+(uptime 7 h at 19:14; compositor pid 6183); found in Screen Saver with
+Netflix paused in front, taken to Home and Netflix closed with
+`closeByAppId`. Filmmaker confirmed. `capture.sh` and `tweak.py`
+redeployed to `/tmp/perf`. Running the baseline now. Tweaks applied on
+the set at this moment: none.
 
 Done offline: platform survey, probe verified (`drm_vblank_event_delivered`
 = one presented frame), one 5 s idle trace analysed: frame pipeline, a
@@ -167,6 +167,89 @@ ran on each CPU during it (`sched_switch`), interrupts, GPU power state and
 job slots, hot-plug, reclaim and CMA events. The GPU profiler is never on.
 A 1 s sampler records per-CPU time, PSI, memory, vmstat, GPU busy/idle,
 compositor faults, CPU online mask and SoC temperature alongside.
+
+Dropped frame, defined: Home at rest presents at 30-37 fps by design
+(wallpaper ticks), so an interval of two vblanks is not a miss by itself.
+The analyser tells the two apart by what asked for the frame: a render
+burst that follows the previous commit after Qt's 5 ms update timer was
+requested by the animation driver (60 Hz wanted); one after a longer idle
+was requested by a slower timer (wallpaper or clock, 30 Hz or less
+wanted). "Dropped" below counts animation-driven frames that took two or
+more vblanks. Workloads: `docs/research/perf/run.py` drives them with HA
+remote keys and luna launches; each capture is one workload run.
+
+## Baseline (stock settings, 2026-10-24; wallpaper motion 30 fps)
+
+Three runs each unless noted. "anim" = frames the animation driver asked
+for, "dropped" = those that took 2+ vblanks, "render" = GUI-thread CPU
+per animation frame (p90), "GPU" = fragment+tiler busy per presented
+frame. Compositor scheduling latency never exceeded 3.7 ms in any window
+and was under 1.3 ms in most; no window shows direct reclaim, CMA
+allocation or block I/O inside a gap.
+
+| workload | fps | anim | dropped | render p90 ms | worst ms |
+|---|---|---|---|---|---|
+| Home idle 10 s | 36.4-36.6 | 83-108 | 10-12 (9-13 %) | 1.87-1.88 | 33.4 (one run 50.1 x4) |
+| D-pad sweep (18 keys, 6.7 s) | 53.0-53.9 | 132-160 | 13 (8-10 %) | 2.08-2.22 | 50.1 |
+| Quick Settings open (9 opens) | 44.7-48.3 | 18-22 | 10-13 (48-65 %) | 2.6-3.2 | 50-66.7 |
+| Quick Settings close (9) | 41.7-48.3 | 13-44 | 3-7 (14-30 %) | 1.8-2.6 | 33.4-50.1 |
+| Settings overlay open, 7 s | 28.7-39.5 | 36-63 | 6-13 (17-23 %) | 2.0 | 50.1 |
+| Home after Settings overlay, 4 s | 38.5-40.7 | 35-43 | 4-6 (9-17 %) | 1.7-1.9 | 33.4-66.7 |
+
+The per-frame GPU cost is 7.6-8.1 ms in every window (fragment pass of
+the whole 1080p scene), the commit 0.6-0.8 ms, and the Qt update timer
+5.0 ms, so an animation frame meets its vblank only when its CPU render
+stays under about 2.4 ms. Every dropped frame in every baseline trace had
+a render of 2.0-4.9 ms (median of all animation frames: 1.65-2.1 ms).
+Nothing else moves in a gap: in the d-pad and Quick Settings gaps the
+other three cores are 90 % idle, and the compositor's wait for a CPU is
+at most 1.3 ms.
+
+Quick Settings' open transition is the worst case because its frames
+(LG's QML plus LumaHome still ticking underneath) render in 2.0-3.2 ms,
+so about 6 of every 10 are late; it does not matter that the panel is
+resident. Settings is a transparent overlay: Home keeps drawing under it
+at 36 fps for the whole 7 s it is open.
+
+| workload | fps | anim | dropped | render p90 ms | worst ms |
+|---|---|---|---|---|---|
+| Browser (full-screen card) in front, 7 s | 6.7-12.3 | 2-38 | 2-7 | 0.9-2.2 | 400-1700 (the browser's own first paints) |
+| Home after the browser, 4 s | 35.2-38.0 | 29-35 | 4-7 (12-24 %) | 1.7-3.4 | **116.8** (run 1), 50.1, 50.0 |
+| YouTube playing, HOME pressed, first 1 s | 38.9 | 11 | 6 (55 %) | 5.6 | 50.0 |
+| Home over YouTube video, idle 6 s | 35.7-35.8 | 45-52 | 4-5 (8-11 %) | 1.9 | 33.4-50.1 |
+| Home over YouTube video, d-pad 10 keys | 51.0-51.2 | 73-81 | 8 (10-11 %) | 2.3 | 33.4-50.0 |
+
+## Root causes of the Home-return gaps
+
+Traced frame by frame in `base-appfull-0` (first browser launch after the
+reboot, Home back after 7 s; the 116.8 ms gap) and `base-video-1` (Home
+over YouTube; six of the first eleven frames dropped):
+
+1. Page-cache eviction of the compositor itself. The sampler's
+   `/proc/<pid>/stat` shows the compositor taking about 1,400 major
+   faults around the browser launch and the return (7,447 -> 8,857 in
+   4 s); in the next two runs, with the browser's pages already cached,
+   it took 23 and 6. Inside the 116.8 ms gap the GUI thread is in D state
+   on `kworker/1:1H` (dm-verity) a dozen times and 2.7 MB is read from
+   the rootfs (`mmcblk0p28`) plus 0.56 MB from `/var` (`p58`); 348 block
+   requests land in the 4 s window. With 240 MB free and swappiness 100,
+   a 70 MB app launch evicts the compositor's mapped libraries and QML
+   data, and the first frames after the return page them back in at
+   about 0.5 ms per fault on the GUI thread. The earlier 57-87 ms gaps
+   are the partial-eviction case.
+2. Texture rebuild on show. Before the first real frame the compositor
+   runs four short GPU jobs of 4 ms (the blur chain and other
+   `ShaderEffectSource`s re-rendering) and its `QQuickPixmapReader`
+   thread decodes images from `/var` while the GUI thread blocks on
+   reads of its own: textures of the hidden Home are not kept, so the
+   return re-decodes icons and re-bakes the wallpaper blur. That is the
+   50 ms (3 vblank) return seen in every run even with a warm cache, and
+   the 5.6 ms renders of the first Home frames over YouTube.
+3. Nothing else: no direct reclaim or CMA allocation in any gap, no
+   kswapd on the compositor's CPU inside a gap, compositor scheduling
+   latency under 1 ms in the gaps, GPU jobs of normal length, no
+   hot-plug inside the gaps (CPU3 came and went 0-2 times per window,
+   each unplug a 0.5-1 ms `migration/3` stop on the other cores).
 
 ## How a frame is produced (from the first idle trace, 5 s, 189 frames)
 

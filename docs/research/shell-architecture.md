@@ -10,27 +10,46 @@ screen, power state or picture mode. Probe sources and raw logs:
 
 ## Resume here
 
-- Done: stack map, DRM/KMS inventory, per-process cost, Wayland interfaces
-  per client stack, luna API inventory and permission census, OSE source
-  sizing, options A-E, hardware utilisation, experiments, ranked
-  recommendation. The study is complete on offline and read-only evidence.
-- Open (needs the TV free; each is listed with its command under
-  Experiments): X1 floor of LG's compositor for a client and X1b its
-  per-present charge for app frames (in PerfDeepDive's run plan, step 4b;
-  results due in its "Compositor floor" section), X2 the 32-bit libmali
-  buffer protocol against a private Wayland socket (no screen change), X4
-  `ls-monitor` census of compositor luna traffic, X3/X6 (need a
-  compositor restart, so a maintenance window with Nitin's OK).
-- TV state left: untouched by this study. Read at 19:10: power `Active`,
-  picture mode `filmMaker`. At 19:35 LG's screensaver was up over Home.
-  No tweak applied, nothing to revert; `/tmp/drmplanes` (the read-only DRM
-  tool) is the only file this study put on the set (`rm /tmp/drmplanes` to
-  remove; `/tmp` is volatile anyway).
+- 2026-10-24 19:40: **X2 done (passed), X4 captured** for launches, Quick
+  Settings, Settings, browser and YouTube (results in the evidence log
+  and in the Experiments table). PerfDeepDive owns the screen; it will
+  message "slot open" (about 20:30-20:45) for the last X4 part: scripted
+  launches with the monitor on, standby and wake last. Commands for that
+  slot: `sh /tmp/x4-monitor.sh start` (writes `/tmp/x4/all.jsonl`, which
+  then also holds the first capture; move it aside first:
+  `mv /tmp/x4/all.jsonl /tmp/x4/pass1.jsonl`), then with `luna-send -n 1`
+  (PTY) launch `netflix`, `com.beb.plxnative`, `com.webos.app.quickinputpicker`
+  through `luna://com.webos.applicationManager/launch {"id": ...}`, open and
+  close Settings, then `tvpower/power/powerOff {"reason":"remoteKey"}`,
+  wait 20 s, wake with Wake-on-LAN (MAC in `/data/home/lgtv/RESUME-NOTES.md`),
+  `sh /tmp/x4-monitor.sh stop`, download, run
+  `python3 arch/x4/x4-analyse.py all.jsonl`. Leave the set Active on Home,
+  Filmmaker, afterwards (`turnOnScreen` if the screen stayed off).
+- Done earlier: stack map, DRM/KMS inventory, per-process cost, Wayland
+  interfaces per client stack, luna API inventory and permission census,
+  OSE source sizing, options A-E, hardware utilisation, experiments,
+  ranked recommendation.
+- Open: X1 and X1b (PerfDeepDive's run plan, step 4b; results due in its
+  "Compositor floor" section), X3 (LG's libwayland ignores
+  `WAYLAND_DEBUG`, so X3 needs a preload tap), X5/X6 (compositor restart,
+  maintenance window with Nitin's OK).
+- TV state left: Active, Filmmaker, LG Home in front (PerfDeepDive
+  restarted the compositor for its own env tweaks; pid 5206 at 19:40). No
+  tweak of ours applied, nothing to revert. Files this study put on the
+  set, all under volatile `/tmp`: `/tmp/drmplanes`,
+  `/tmp/wlproto_from_elf.py`, `/tmp/x2/*` (server, client, logs),
+  `/tmp/m64/*` (60 MB: the 64-bit blob, Debian arm64 libs, `x2srv64`),
+  `/tmp/x4-monitor.sh`, `/tmp/x4/*` (capture). Nothing of ours runs
+  between experiments (`pgrep x2srv`, `pgrep ls-monitor` must be empty).
 - Tools: `python3 docs/research/arch/tv.py '<cmd>'` runs one command on
   the set (paramiko; `pip install --break-system-packages paramiko` if
   missing); `arch/drmplanes.c` builds with
   `zig cc -target aarch64-linux-musl -static -O2 -o drmplanes drmplanes.c`
-  and only issues GET ioctls.
+  and only issues GET ioctls; the X2 pair builds with
+  `zig cc -target arm-linux-gnueabi.2.28 -O1 -o x2srv x2srv.c x2proto.c ../sysroot32/libwayland-server.so.0.20.0 -ldl -Wl,--allow-shlib-undefined`
+  (client: `x2cli.c` against `libwayland-client.so.0.20.0`); `sysroot32/`
+  holds the set's own libwayland copies (soft-float EABI, `e_flags`
+  0x5000200, interpreter `/lib/ld-linux.so.3`).
 
 ## Verdict in brief
 
@@ -41,18 +60,24 @@ compositor is a single-threaded Qt 5.12 scene graph that redraws the whole
 commit), with LG's JavaScript key filters and luna callbacks on the same
 thread. That design is the measured ceiling of today's LumaTV and of any
 Wayland client of it, so the gain from owning the compositor is large, not
-small. The cost is equally large: 56 luna methods on 12 bus names, a power
-handshake with `tvpower`, video placement through `videooutputd`, 9 public
-and 3 private Wayland protocol families, and about 37 000 lines of LG TV
-behaviour in QML and JavaScript that SAM and the system services rely on.
+small. The cost is large but, after X2 and X4, better bounded than it
+looked: the buffer path is solved by the GPU driver itself
+(`eglBindWaylandDisplayWL` serves `mali_buffer_sharing` v5 and imports
+LG's AFBC app buffers, proven with LG's 32-bit driver and with the
+64-bit blob, pixel-exact), the live luna contract is about ten pushed
+subscriptions and a handful of calls, and what remains is LG's window
+and view behaviour (9 public Wayland protocol families, the `tvpower`
+handshake, video placement through `videooutputd`, the key filters) that
+SAM, the apps and the services rely on, about 37 000 lines of QML and
+JavaScript on LG's side.
 
 Ranked path: build the 64-bit Rust UI first as a client of LG's compositor
 (option B), in a shape that later runs unchanged inside LumaTV's own
-compositor; prove or kill the replacement compositor (option C) with the
-seven experiments below, four of which need no compositor restart; adopt C
-only if they pass. Option D (a second compositor on a spare plane) is
-impossible on this hardware: one CRTC, and DRM leases must take a CRTC
-and a connector.
+compositor; decide C on X1 (whether LG's compositor can hold the gate
+for a client at all) and on the remaining experiments; adopt C only if
+they pass. Option D (a second compositor on a spare plane) is impossible
+on this hardware: one CRTC, and DRM leases must take a CRTC and a
+connector.
 
 ## The stack, layer by layer
 
@@ -158,11 +183,11 @@ features off, not by writing code.
 - **Work:** very large. Sizing from the sources:
   - Wayland core from Smithay (Rust): `wl_compositor`, `wl_surface`,
     `wl_region`, `wl_shm`, `wl_seat`, `wl_output`, `wl_subcompositor`,
-    `wl_data_device`, `wp_presentation`, `zwp_linux_dmabuf_v1`. Added by
-    hand: `wl_shell` (every LG client still uses it), `wl_drm` (Mesa's
-    public protocol) and possibly `mali_buffer_sharing` (ARM-private, no
-    public XML): LG's 32-bit `libmali` references only those two for
-    window buffers, not `zwp_linux_dmabuf_v1` (X2 decides).
+    `wl_data_device`, `wp_presentation`. Added by hand: `wl_shell` (every
+    LG client still uses it). Buffers: `mali_buffer_sharing` v5, served
+    by the GPU driver's own `eglBindWaylandDisplayWL` (X2 proved this
+    with LG's 32-bit driver and with the 64-bit blob; LG's clients bind
+    nothing else, not `wl_drm`, not `zwp_linux_dmabuf_v1`).
   - webOS extensions: 9 public XML files, 84 requests and 49 events
     (`wl_webos_shell`, `wl_webos_foreign` with punch-through,
     `wl_webos_surface_group`, input manager, xinput, `input_method` and
@@ -300,13 +325,13 @@ restart; X3, X5 and X6 restart the compositor.
 |---|---|---|---|---|
 | X1 | Is LG's compositor the floor that blocks the gate for a client? | A trivial full-screen 64-bit client (the m64 probe, dumb buffers, one small moving rect) presenting at 60 Hz for 60 s over Home with wallpaper motion off; count presented frames over 20 ms with PerfDeepDive's `drm_vblank_event_delivered` harness; repeat with the threaded loop (T7). Requested from PerfDeepDive. | B as the end state if late frames persist with a trivial client (then only C meets the rule) | B as the end state if zero late frames |
 | X1b | What does LG charge per app frame? | `surface-manager` CPU per presented frame and GPU busy during YouTube, still versus animating UI (PerfDeepDive's video workload). | C's direct scan-out gain if the charge is small | the gain if it is a large share of a core |
-| X2 | Can a non-LG compositor receive LG's 32-bit EGL buffers? | A Rust Wayland server on a private socket (no DRM, nothing on screen) offering `wl_drm` and `zwp_linux_dmabuf_v1` but not `mali_buffer_sharing`; a 32-bit test client linked against LG's `libmali` with `WAYLAND_DEBUG=1`; import the received dma-buf into the 64-bit blob and read back pixels. Then `eglBindWaylandDisplayWL` from the 64-bit blob, to see whether it serves `mali_buffer_sharing` to 32-bit clients. | C if neither works and `mali_buffer_sharing` cannot be reproduced | C's buffer path |
-| X3 | What do the real apps use of the protocol? | `WAYLAND_DEBUG=server` in `surface-manager.env`, compositor restart through the tool, a scripted session (Netflix, YouTube, Prime, Disney+, PlxNative, LG Settings, keyboard, Live TV), env line removed, restart. Needs a maintenance window. | nothing on its own | the exact request and event subset C must implement |
-| X4 | Which luna methods are live? | `ls-monitor` filtered to `com.webos.surfacemanager*`, `sysuicompmgr`, `systemUIManager`, `service.recent`, `coverUI` and `tvpower` `power2` during the same scripted session plus standby and wake; read-only. | nothing on its own | the method subset and the power handshake timing |
+| X2 | Can a non-LG compositor receive LG's 32-bit EGL buffers? | **Done 2026-10-24.** Private-socket server (`arch/x2/`), LG's libmali as the client. | - | **Passed**: the client needs only `mali_buffer_sharing` v5, hands over AFBC dma-bufs, and both LG's driver and the 64-bit blob imported them pixel-exact through `eglBindWaylandDisplayWL`. See the evidence log. |
+| X3 | What do the real apps use of the protocol? | LG's libwayland ignores `WAYLAND_DEBUG`, so: an `LD_PRELOAD` tap on `wl_closure` dispatch or a socket-level trace of `/tmp/xdg/wayland-0`, compositor restart through the tool, a scripted session (Netflix, YouTube, Prime, Disney+, PlxNative, LG Settings, keyboard, Live TV), tap removed, restart. Needs a maintenance window. | nothing on its own | the exact request and event subset C must implement |
+| X4 | Which luna methods are live? | **Done 2026-10-24** for launches, Quick Settings, Settings, browser, YouTube (one unfiltered `ls-monitor`, `arch/x4/`); standby/wake, Netflix, PlxNative, input picker and PIN prompt follow in the scripted slot. | - | **Result**: about ten pushed subscriptions plus a handful of calls; details in the evidence log. |
 | X5 | Can app buffers be scanned out directly? | In the C prototype: `ADDFB2` with the client dma-buf and modifier, test-only atomic commit (`DRM_MODE_ATOMIC_TEST_ONLY`) before any real one. | direct scan-out (C keeps the other gains) | the app-frame gain |
 | X6 | Does osd1 scale, and where does it stack? | D1: a test QML on the secondary window through `WEBOS_COMPOSITOR_EXTRA_WINDOWS` at 1920x1080, compositor restart through the tool, capture, revert. Maintenance window. | E2 if osd1 is 4K-native only | E2, and osd1 overlays for C |
 
-Running X1, X1b, X4 needs only the TV free. X3, X5, X6 restart the
+Running X1 and X1b needs only the TV free. X3, X5, X6 restart the
 compositor, which restarts every app; the mod already does this on every
 boot, and SSH plus `reboot` recover from any state, but each run is
 followed by a check that the Denon still follows volume over eARC and
@@ -531,6 +556,153 @@ Premium`, `IoT keypad`, `Smart Remote RCU Input`, `LGE Network Input`,
   between 2026-09-29 and 2026-10-09. `crates/ui` 61 files, 45 506 lines.
   Its protocol is its own (one client, layers as records), not Wayland.
 
+### X2 preparation: the buffer protocols inside LG's libmali (2026-10-24, 19:25)
+
+`arch/wlproto_from_elf.py` reads the `wl_interface` tables straight out
+of an ELF (symbol or name scan, a few hundred KB of reads, nothing
+executed). On `/usr/lib/libmali.so.0.46.0` (`arch/x2-libmali32-protocols.txt`):
+
+| Interface | Version | Requests | Events |
+|---|---|---|---|
+| `mali_buffer_sharing` | 5 | `create_buffer(new_id wl_buffer, int, int, uint, uint, uint, uint, fd)`, `auth(uint)` | `alloc_device(string)` |
+| `wl_drm` | 2 | `authenticate(u)`, `create_buffer(n,u,i,i,u,u)`, `create_planar_buffer(n,u,i,i,u,i,i,i,i,i,i)`, `create_prime_buffer(n,fd,i,i,u,i,i,i,i,i,i)` (since v2) | `device(s)`, `format(u)`, `authenticated()`, `capabilities(u)` |
+| `zwp_linux_explicit_synchronization_v1` | 2 | `destroy`, `get_synchronization(new_id, wl_surface)` | - |
+| `zwp_linux_surface_synchronization_v1` | 2 | `destroy`, `set_acquire_fence(fd)`, `get_release(new_id)` | - |
+| `zwp_linux_buffer_release_v1` | 1 | - | `fenced_release(fd)`, `immediate_release()` |
+
+So LG's `mali_buffer_sharing` is three messages: a buffer is one dma-buf
+fd plus width, height, stride, format and two more words (the probe
+below shows what they carry), and the server tells the client which
+device to allocate from. The same library's strings
+(`arch/x2-libmali32-strings.txt`) show the client allocating from
+`/dev/dma_buf_te` (fallback `/dev/dma_buf_unified`, also `/dev/hma`),
+an `WAYLAND_AFBC` / `WAYLAND_AFRC` switch (not set in any app's
+environment: `arch/x2-libmali32-gbm-env.txt`), and the server-side
+support a compositor needs from this driver: `EGL_WL_bind_wayland_display`
+(`eglBindWaylandDisplayWL`, `eglQueryWaylandBufferWL`),
+`EGL_EXT_image_dma_buf_import(_modifiers)`, `EGL_KHR_platform_gbm` with
+`gbm_create_device`/`gbm_surface_create` built in, `EGL_KHR_partial_update`
+and `EGL_KHR_swap_buffers_with_damage`. `libgbm.so.1` and `libEGL.so.1`
+on the set are 7 kB wrappers around `libmali.so.0`.
+
+LG's libwayland (1.20) ignores `WAYLAND_DEBUG` and its own
+`WAYLAND_DEBUG_PATH` (no output with `1`, `client`, `server`), so X3 as
+written (a `WAYLAND_DEBUG=server` capture of LG's compositor) will not
+work; a protocol census of the real apps needs an `LD_PRELOAD` tap on
+`wl_closure` dispatch or a socket-level trace instead. The X2 server
+logs every request itself, so X2 does not depend on it.
+
+### X2 result: a non-LG compositor process receives LG's app buffers (2026-10-24, 19:35)
+
+Harness: `arch/x2/` (`x2srv.c` test compositor, `x2cli.c` client,
+`x2proto.c` tables, `x2-run.sh` matrix; logs `x2-run-01.txt`,
+`x2-run-01-logs.txt`, `x2-run-02-importers.txt`, `x2-run-03-importer64.txt`).
+Private socket `/tmp/x2/wayland-x2`, no DRM master, LG's socket and
+screen untouched. The client is a 32-bit program drawing through LG's
+own `libmali.so.0.46.0` (EGL 1.5 Bifrost r46p0, "Mali-G52 / OpenGL ES
+3.2"), the library every LG app renders with; each frame k is cleared to
+R=25k G=0x80 B=255-25k so the server can check what it received.
+
+| Run | Server | What the client did | Server-side result |
+|---|---|---|---|
+| r1 | own globals: `mali_buffer_sharing` v5 + `wl_drm` v2 + `zwp_linux_dmabuf_v1` v3 | bound **only `mali_buffer_sharing`** (never `wl_drm`, never dmabuf); 3 buffers for 6 frames; every swap 0.1-0.2 ms | 3 x `create_buffer(256, 256, stride 1024, AB24, 0x08000000, 0x151, fd)`; the fd is a dma-buf (`/dmabuf:`, 266 240 bytes); mmap works but the pixels are not linear (AFBC) |
+| r2 | `wl_drm` + dmabuf, no `mali_buffer_sharing` | `eglInitialize` fails, `EGL_NOT_INITIALIZED` | nothing created |
+| r3 | dmabuf only | same failure | nothing |
+| r4 | none | same failure | nothing |
+| r6 | as r1, 1920x1080 | 3 buffers | `create_buffer(1920, 1080, 7680, AB24, 0x08000000, 0x151, fd)`, 8 986 624 bytes each |
+| r7 | as r1 plus AFBC advertised on dmabuf | same as r1 | same as r1 (the client ignores dmabuf) |
+| r5 | **LG's 32-bit libmali as the importer**: EGL on GBM over `/dev/dri/renderD128`, `eglBindWaylandDisplayWL` | bound the driver-served `mali_buffer_sharing` v5 (the driver also registered `wl_drm` v2) | every attached buffer imported with `eglCreateImageKHR(EGL_WAYLAND_BUFFER_WL)`, `eglQueryWaylandBufferWL` 256x256 RGBA y-inverted, `glReadPixels` **6/6 frames pixel-exact** (0080ffff, 1980e6ff, 3280cdff, ...) |
+| r8b | **the 64-bit Rockchip g24p0 blob as the importer** (Debian bookworm arm64 glibc in a private directory, `gbm_create_device` refuses LG's DRM so a no-config surfaceless context is used) | bound the blob's `mali_buffer_sharing` v5 (the only global it registers) | `eglBindWaylandDisplayWL` ok, **6/6 frames pixel-exact** through the 64-bit import |
+
+Reading of the `create_buffer` words: width, height, stride in bytes,
+DRM fourcc (`AB24` = ABGR8888), modifier high and low words
+(`0x0800000000000151` = ARM AFBC, 16x16 blocks, YTR, sparse, tiled;
+1080p rounds up to 1152 rows plus 138 240 bytes of headers), the
+dma-buf fd. So LG's clients hand over **AFBC-compressed dma-bufs** by
+default (no `WAYLAND_AFBC` needed), allocated from `/dev/dma_buf_te`
+(ordinary pages), and the compositor's GPU samples them directly. The
+64-bit blob's own `mali_buffer_sharing` table is byte-for-byte the same
+protocol (version 5, `niiuuuuh` / `u` / `s`), which is why r8b works
+without any protocol code of ours.
+
+What this settles for option C:
+
+- The buffer path is not a risk any more. A replacement compositor
+  must advertise `mali_buffer_sharing` v5 before any LG client
+  initialises EGL (without it, `eglInitialize` itself fails), and the
+  cheapest way is the driver's own `eglBindWaylandDisplayWL`, which works
+  with LG's 32-bit driver and with the 64-bit blob. Implementing the
+  three messages by hand (`arch/x2/x2proto.c`, 30 lines) and importing
+  the fd with `EGL_EXT_image_dma_buf_import_modifiers` is the fallback.
+- The compositor can be 64-bit. The 64-bit blob imports and samples LG's
+  32-bit clients' AFBC buffers in a plain surfaceless context, so option
+  C keeps B's CPU gain (64-bit, about 36 % less CPU per draw).
+- The `wl_drm` and `zwp_linux_dmabuf_v1` globals are not needed by any
+  LG client stack (`libgm-wayland`, Chromium's Ozone, flutter-elinux, Qt
+  Wayland all render through this same libmali).
+- Cost of the proof: the 32-bit server + client are 500 lines of C and
+  run in 40 ms per frame set; nothing LG-owned was touched.
+
+Not covered by X2: scan-out of these AFBC buffers on the primary plane
+(X5; the plane accepts AFBC `0x0800000000000062`, a different block
+layout, so direct scan-out of app buffers may need a copy or a format
+hint to the client), explicit-sync (`zwp_linux_explicit_synchronization_v1`
+is in LG's libmali; whether LG's compositor offers it was not checked),
+and the `auth`/`alloc_device` exchange, which the client never used.
+
+### X4 result: the compositor's live luna traffic (2026-10-24, 19:31-19:35)
+
+One unfiltered `ls-monitor -j -e` (the hub mirrors every message to a
+monitor whatever the filter) for 181 s during PerfDeepDive's `x4`-tagged
+pass: d-pad on Home, Quick Settings, LG Settings overlay, the web
+browser, YouTube and Home over it. Raw capture `arch/x4/all.jsonl`
+(13 033 lines, 9.3 MB), analysis `arch/x4/x4-analyse.py`, output
+`arch/x4/x4-census.md`. 6 490 messages on the whole bus, 36 per second
+(1 408 calls, 4 028 returns, 1 053 cancels).
+
+What the compositor pushes (subscriptions held since boot; counts are
+pushes in the window):
+
+| Push | Payload | Subscribers |
+|---|---|---|
+| `getForegroundAppInfo` | `mode`, `foregroundAppInfo[]` (appId, windowType, processId, displayId, order, pip, multiview, primary, viewType, windowGroup, params) | `activitymanager` 134, `voiceconductor` 55, `ics` 7, `applicationManager` 7 |
+| `getFocusedWindowInfo` | `focusedWindowInfo[]` (appId, type) | `multiviewcontroller` 88, `eim` 48, the browser 7 |
+| window list (`getCurrentState`/`getForegroundWindowInfo` shape) | `windows[]` (appId, windowType) | `alwaysready`, `voiceclick`, `blegattsoundbar`, `ghp.runtime`, 36 each |
+| `getForegroundVideoWindow` | `windowId`, `appId`, `context`, `appWindow`, `displayOutput`, `fullScreen`, `isPig` | `screenmanager` 4, YouTube 1 |
+| `getLastInputType` | `lastInputType: key` | YouTube 7, LG Settings 1 |
+| `surfacemanager.home/getCurrentHomeUIState` | `homeUIState[]` (toast, inputAlert, alert, pincodePrompt, ... visibility) | `livetv`, `hdmi2` |
+| `systemUIManager/getForegroundAppInfo` | `foregroundAppInfo[]` of system UI (quicksettings) | `platformstarfish` 12 |
+| `service.recent` events | `eventType: removed`, appId | LG Home 30 |
+
+Calls into the compositor in the window: `recent/listRecents` (LG Home,
+20), `systemUIManager/launch {quicksettings}` (the compositor's own key
+filters, 3), and the subscription opens above (YouTube, Settings, the
+browser, livetv, hdmi2). Calls the compositor made:
+`videooutput/display/setDisplayWindowProperty` per video context
+(`appRotation`, `aspectRatio`, `fastMode`, `textureRotation`, 5),
+`multiviewcontroller/setInputMode` (4), `applicationManager/launchDefaultApp
+{category: home, launchType: homeKey}` on the Home key (2) and
+`applicationManager/closeByAppId {reason: windowPolicy}` (1). Pushes it
+received: `applicationManager` running-app events (the screensaver
+closing, 66 + 43 to `.windowext`), `tvpower/power2/getPowerState`
+(`screen saver` to `active` at t = 11 s), `bootManager/getBootStatus`,
+`videooutput` replies. The video rectangle itself was set by the app:
+YouTube called `videooutput/display/setDisplayWindow {context, sourceInput,
+originalInput, displayOutput 1920x1080}`; the compositor only reported
+the window (`_Window_Id_77`, context `_0mXDZk7eQBALU4`) and set its
+properties.
+
+What this settles for option C: the live luna contract during normal use
+is about ten subscriptions pushing foreground, focus, window-list,
+video-window and input-type state to system services, plus a handful of
+calls (recents, system UI launch, Home key through `launchDefaultApp`,
+video window properties). Everything else in the 56-method inventory is
+either internal (`sysuicompmgr`, key filters calling their own
+compositor) or rare (PIN overlay, multi-view, capture, zoom). Not yet
+captured: standby and wake (the `power2` prepare handshake), Netflix and
+PlxNative (DRM playback), the input picker and a PIN prompt; the
+scripted-launch slot covers those.
+
 ## Ranked recommendation
 
 1. **Now, inside A (no new architecture):** finish the gate work that
@@ -549,19 +721,21 @@ Premium`, `IoT keypad`, `Smart Remote RCU Input`, `LGE Network Input`,
    cutover, per surface: PLAN's frame-probe gate over Home and over
    video, plus 4K HDR playback in Netflix and PlxNative with LumaTV's
    buffers allocated (the CMA check).
-3. **In parallel, the cheap proofs for C:** X1 and X1b (PerfDeepDive),
-   X2 off-screen, X4 with the set free. Decision rule: if X1 shows LG's
-   compositor cannot hold zero frames over 20 ms even for a trivial
+3. **In parallel, the cheap proofs for C:** X1 and X1b (PerfDeepDive).
+   X2 passed and X4 is captured (2026-10-24). Decision rule: if X1 shows
+   LG's compositor cannot hold zero frames over 20 ms even for a trivial
    client, the 60 fps rule cannot be met under A or B, and C proceeds; if
    it can, B is the end state and C stays a research branch.
-4. **C, only after X2 passes and with X3/X4 in hand:** a Rust compositor
+4. **C, with X3 and the rest of X4 in hand:** a 64-bit Rust compositor
    on Smithay and LumaShow's renderer, developed against a private
    Wayland socket first (no screen), then in maintenance windows on the
-   set with LG's compositor restored after each run. Order of work:
-   buffers and `wl_shell`/`wl_webos_shell` for LumaTV's own windows; the
-   `tvpower` handshake and SAM's foreground and recents methods;
-   punch-through and `videooutputd` placement; key routing, masks and
-   IME; then direct scan-out (X5) and osd1 overlays (X6). Production only
+   set with LG's compositor restored after each run. Order of work: the
+   64-bit blob's `eglBindWaylandDisplayWL` for buffers (proven) plus
+   `wl_shell`/`wl_webos_shell` for LumaTV's own windows; the pushed
+   subscriptions X4 found (foreground app, focused window, window list,
+   video window, input type) and the `tvpower` handshake; punch-through
+   and `videooutputd` placement; key routing, masks and IME; then direct
+   scan-out (X5) and osd1 overlays (X6). Production only
    behind a watchdog that brings back LG's compositor after a crash or a
    stall, and a firmware fingerprint that does the same after any LG
    update.

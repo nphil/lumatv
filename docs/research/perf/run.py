@@ -78,10 +78,19 @@ class Set:
 
     def key(self, button):
         req = urllib.request.Request(f'{HA}/api/services/webostv/button',
-                                     data=json.dumps({'entity_id': 'media_player.living_room_tv', 'button': button, 'wait': False}).encode(),
+                                     data=json.dumps({'entity_id': 'media_player.living_room_tv', 'button': button}).encode(),
                                      headers={'Authorization': f'Bearer {self.tok}', 'Content-Type': 'application/json'}, method='POST')
-        with urllib.request.urlopen(req, timeout=15) as r:
-            r.read()
+        # HA's webostv link drops now and then (HTTP 500); one retry after a
+        # short pause is enough, and the gap is visible in the trace timeline
+        for attempt in range(6):
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    r.read()
+                return
+            except urllib.error.HTTPError as e:
+                if e.code != 500 or attempt == 5:
+                    raise
+                time.sleep(2.0)
 
     def keys(self, button, n, gap):
         for i in range(n):
@@ -89,9 +98,13 @@ class Set:
             time.sleep(gap)
 
     def get(self, remote, local):
-        s = self.cli.open_sftp()
-        s.get(remote, local)
-        s.close()
+        # dropbear's sftp channel drops under load; traces are text, so read
+        # them over an exec channel instead
+        rc, out, err = self.sh(f'cat {remote}', timeout=300)
+        if rc != 0:
+            raise RuntimeError(f'cat {remote}: {err.strip()}')
+        with open(local, 'w') as f:
+            f.write(out)
 
     def capture(self, name, mode='full'):
         rc, out, err = self.sh(f'/tmp/perf/capture.sh start {name} {mode}')
@@ -137,13 +150,15 @@ def wl_qs(s):
 
 
 def wl_apphome(s, app='com.palm.app.settings'):
-    for i in range(3):
-        s.mark(f'P:app-{i}')
-        s.luna('luna://com.webos.applicationManager/launch', json.dumps({'id': app}))
-        time.sleep(7)
-        s.mark(f'P:home-{i}')
-        s.key('HOME')
-        time.sleep(4)
+    # one launch-and-return per capture: three in one trace overflowed the
+    # 8 MB per-CPU ring (the app launch alone is about 2 MB/s of sched events)
+    s.mark('P:app')
+    s.luna('luna://com.webos.applicationManager/launch', json.dumps({'id': app}))
+    time.sleep(7)
+    s.mark('P:home')
+    s.key('HOME')
+    time.sleep(4)
+    s.mark('P:closing')
     s.luna('luna://com.webos.applicationManager/closeByAppId', json.dumps({'id': app}))
     time.sleep(1)
 
@@ -166,8 +181,14 @@ def wl_video(s, video='https://www.youtube.com/tv?v=LXb3EKWsInQ'):
     time.sleep(2)
 
 
-WORKLOADS = {'idle': wl_idle, 'dpad': wl_dpad, 'qs': wl_qs, 'apphome': wl_apphome, 'video': wl_video}
-GAP = {'idle': 34, 'dpad': 17.5, 'qs': 17.5, 'apphome': 17.5, 'video': 34}
+def wl_appfull(s):
+    # a full-screen card app (the web browser), so Home really hides and shows
+    # again; Settings is a transparent overlay and leaves Home drawing underneath
+    wl_apphome(s, app='com.webos.app.browser')
+
+
+WORKLOADS = {'idle': wl_idle, 'dpad': wl_dpad, 'qs': wl_qs, 'apphome': wl_apphome, 'appfull': wl_appfull, 'video': wl_video}
+GAP = {'idle': 34, 'dpad': 17.5, 'qs': 17.5, 'apphome': 17.5, 'appfull': 17.5, 'video': 34}
 
 
 def analyse(name, sm_pid, gap):
@@ -183,16 +204,16 @@ def analyse(name, sm_pid, gap):
 def summary_rows(name, rep):
     rows = []
     for w in rep['windows']:
-        rows.append(f"{name:28s} {w['name']:14s} {w['dur_s']:6.2f}s {w['frames']:5d}f {w['fps']:5.1f}fps >17:{w['over17']:3d} >33:{w['over33']:3d} >50:{w['over50']:3d} worst {w['worst_ms']:6.1f}ms  smrun {w['sm_run_ms']:7.1f}ms lat {w['sm_max_sched_latency_ms']:5.2f} gpu {w['gpu_busy_ms']:7.1f}ms hp {w['cpuhp']}")
+        rows.append(f"{name:28s} {w['name']:14s} {w['dur_s']:6.2f}s {w['frames']:5d}f {w['fps']:5.1f}fps anim {w['anim_frames']:4d} drop {w['dropped']:3d} ({w['dropped_pct']:5.1f}%) rend p90 {(w['anim_render_ms'] or {}).get('p90', 0):5.2f} >33:{w['over33']:3d} worst {w['worst_ms']:6.1f}ms  smrun {w['sm_run_ms']:7.1f}ms lat {w['sm_max_sched_latency_ms']:5.2f} gpu {w['gpu_busy_ms']:7.1f}ms hp {w['cpuhp']}")
     return rows
 
 
-def run(s, tag, workloads, repeat, apply=None, revert=None):
+def run(s, tag, workloads, repeat, apply=None, revert=None, start=0):
     rows = []
     if apply:
         print('apply:', s.sh(apply)[1].strip())
     try:
-        for n in range(repeat):
+        for n in range(start, start + repeat):
             for wl in workloads:
                 name = f'{tag}-{wl}-{n}'
                 s.capture(name, 'full')
@@ -219,6 +240,7 @@ if __name__ == '__main__':
     ap.add_argument('--workloads', default='idle,dpad,qs,apphome')
     ap.add_argument('--apply')
     ap.add_argument('--revert')
+    ap.add_argument('--start', type=int, default=0, help='first repeat index (to resume a run)')
     a = ap.parse_args()
     s = Set()
-    run(s, a.tag, a.workloads.split(','), a.repeat, a.apply, a.revert)
+    run(s, a.tag, a.workloads.split(','), a.repeat, a.apply, a.revert, a.start)

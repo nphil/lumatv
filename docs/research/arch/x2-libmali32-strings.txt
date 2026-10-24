@@ -1,0 +1,62 @@
+#define MALI_CLCC_SHARED_H_
+#ifndef MALI_CLCC_SHARED_H_
+%s.%d: HMA_IOCTL_GET_DMABUF failed. %s
+%s.%d: open(dma_buf_te) failed. %s
+%s.%d: open(dma_buf_te) failed. try dma_buf_unified. %s
+/dev/dma_buf_te
+/dev/dma_buf_unified
+/dev/dri/renderD128
+/dev/fb
+/dev/hma
+/dev/lg/logm0
+/dev/mali
+/dev/null
+/dev/urandom
+/sys/module/mali_kbase/parameters/large_page_conf
+ARM_MALI_HW_REV_MAJOR_str.5
+ARM_MALI_HW_REV_MINOR_str.6
+ARM_MALI_str.4
+BASE_MALI_UKU_DDK_HWVER
+BASE_MALI_UKU_DDK_HWVER_MAJOR
+BASE_MALI_UKU_DDK_HWVER_MINOR
+BASE_MALI_UKU_DDK_STATUS_END
+BASE_MALI_UKU_DDK_STATUS_START
+EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
+EGL_KHR_config_attribs EGL_KHR_image EGL_KHR_image_base EGL_KHR_fence_sync EGL_KHR_wait_sync EGL_KHR_gl_colorspace EGL_KHR_get_all_proc_addresses EGL_IMG_context_priority EGL_KHR_no_config_context EGL_EXT_image_dma_buf_import EGL_EXT_image_dma_buf_import_modifiers EGL_EXT_yuv_surface EGL_EXT_pixel_format_float EGL_ARM_pixmap_multisample_discard EGL_ANDROID_native_fence_sync EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_renderbuffer_image EGL_KHR_create_context EGL_KHR_surfaceless_context EGL_KHR_gl_texture_cubemap_image EGL_EXT_image_gl_colorspace EGL_EXT_create_context_robustness
+EGL_KHR_partial_update
+EGL_KHR_partial_update EGL_EXT_swap_buffers_with_damage EGL_KHR_swap_buffers_with_damage
+EGL_WL_bind_wayland_display
+Invalid value for MALI_CSF_SCHEDULER_TIME_TICK_MS: %u
+Invalid value for environment variable MALI_INSTANCE
+MALI_
+MALI_CDBG_ABORT
+MALI_CDBG_PERMISSIONS
+MALI_CSF_SCHEDULER_TIME_TICK_MS
+MALI_DEBUG_CONFIG
+MALI_DEVICE_INFO
+MALI_PLATFORM_CONFIG
+MALI_PREROTATE
+WAYLAND_AFBC
+WAYLAND_AFRC
+XB24AB24EGL_KHR_partial_update
+[TIMELINE] "%s" (MALI_%s) enabled.
+[TIMELINE] "%s" (MALI_%s) not available for this build configuration
+__ARM_MALI_HW_REV_MAJOR__
+__ARM_MALI_HW_REV_MINOR__
+__ARM_MALI__
+alloc_device
+alloc_device_handler
+fbdev_display_window_buffer_dmabuf
+mali_buffer_destroy_request
+mali_buffer_implementation
+mali_buffer_resource_destroy
+mali_buffer_sharing
+mali_buffer_sharing_bind
+mali_buffer_sharing_events
+mali_buffer_sharing_interface
+mali_buffer_sharing_requests
+the data pointed to by <binary> is not GL_MALI_SHADER_BINARY_ARM
+wl_drm
+wl_drm_events
+wl_drm_interface
+wl_drm_requests

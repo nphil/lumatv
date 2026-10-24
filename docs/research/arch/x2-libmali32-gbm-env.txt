@@ -1,0 +1,9 @@
+eglBindWaylandDisplayWL eglCreateImageKHR eglCreatePlatformWindowSurfaceEXT eglGetPlatformDisplay eglGetPlatformDisplayEXT eglQueryWaylandBufferWL gbm_bo_create gbm_create_device gbm_surface_create glEGLImageTargetTexture2DOES 
+lrwxrwxrwx    1 root     root            15 Apr  5  2011 /usr/lib/libgbm.so -> libgbm.so.1.0.0
+lrwxrwxrwx    1 root     root            15 Apr  5  2011 /usr/lib/libgbm.so.1 -> libgbm.so.1.0.0
+-rwxr-xr-x    1 root     root          7112 Apr  5  2011 /usr/lib/libgbm.so.1.0.0
+== netflix 8480: QT_WAYLAND_DISABLE_WINDOWDECORATION=1 QT_WAYLAND_HARDWARE_INTEGRATION=wayland-egl QT_WAYLAND_SHELL_INTEGRATION=webos QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us:: XDG_RUNTIME_DIR=/tmp/xdg QT_WAYLAND_HARDWARE_INTERGRATION=wayland-egl 
+== cobalt 14096: QT_WAYLAND_DISABLE_WINDOWDECORATION=1 QT_WAYLAND_HARDWARE_INTEGRATION=wayland-egl QT_WAYLAND_SHELL_INTEGRATION=webos QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us:: XDG_RUNTIME_DIR=/tmp/xdg QT_WAYLAND_HARDWARE_INTERGRATION=wayland-egl 
+== flutter-client 6492: QT_WAYLAND_DISABLE_WINDOWDECORATION=1 QT_WAYLAND_HARDWARE_INTEGRATION=wayland-egl QT_WAYLAND_SHELL_INTEGRATION=webos QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us:: XDG_RUNTIME_DIR=/tmp/xdg 
+== WebAppMgr 13375: EGL_PLATFORM=wayland QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us:: QT_WAYLAND_DISABLE_WINDOWDECORATION=1 QT_WAYLAND_SHELL_INTEGRATION=webos XDG_RUNTIME_DIR=/tmp/xdg QT_WAYLAND_HARDWARE_INTEGRATION=wayland-egl 
+== surface-manager 6183: QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us:: QT_WAYLAND_DISABLE_WINDOWDECORATION=1 QT_WAYLAND_SHELL_INTEGRATION=webos XDG_RUNTIME_DIR=/tmp/xdg QT_WAYLAND_HARDWARE_INTEGRATION=linux-dmabuf-unstable-v1 

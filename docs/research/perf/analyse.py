@@ -294,6 +294,45 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         ic = collections.Counter(nm_ for t0, t1, cpu, irq, nm_ in in_range(irqs, irq_starts, a, b))
         w['irq_counts'] = dict(ic.most_common(8))
 
+        # Per-frame chain: which frames were requested by the animation driver
+        # (the GUI thread's render burst follows the previous commit after
+        # Qt's 5 ms update timer) and which by a slower timer (wallpaper tick,
+        # clock). Only an animation-driven frame that took 2+ vblanks is a
+        # dropped frame; a timer-driven one at 2 vblanks is content at 30 fps.
+        frag = [(t0, t1) for t0, t1, slot, tg in gpu_jobs if slot == 0]
+        bursts = []
+        for t0, t1, cpu, st in sm_run:
+            if bursts and t0 - bursts[-1][1] < 0.0003 and bursts[-1][2].startswith('R'):
+                bursts[-1][1] = t1
+                bursts[-1][2] = st
+            else:
+                bursts.append([t0, t1, st])
+        bstarts = [x[0] for x in bursts]
+        anim = []
+        timer = []
+        for i in range(1, len(fr)):
+            f0, f1 = fr[i - 1][0], fr[i][0]
+            gj2 = [(x, y) for x, y in frag if f0 < y <= f1]
+            gpu_end = max([y for x, y in gj2], default=None)
+            lo = bisect.bisect_left(bstarts, f0)
+            bs = [(x, y) for x, y, st in bursts[lo:lo + 40] if x >= f0 and y <= f1]
+            after = [(x, y) for x, y in bs if gpu_end is None or x > gpu_end + 0.0005]
+            if not after:
+                timer.append(((f1 - f0) * 1000, 0.0))
+                continue
+            rx, ry = max(after, key=lambda p: p[1] - p[0])
+            prev = [y for x, y in bs if y <= rx]
+            idle = (rx - max(prev)) * 1000 if prev else None
+            rec = ((f1 - f0) * 1000, (ry - rx) * 1000)
+            (anim if idle is not None and idle < 7.5 else timer).append(rec)
+        w['anim_frames'] = len(anim)
+        w['dropped'] = sum(1 for iv, r in anim if iv > 20)
+        w['dropped_pct'] = round(100.0 * w['dropped'] / len(anim), 1) if anim else 0
+        w['timer_frames'] = len(timer)
+        rends = sorted(r for iv, r in anim)
+        w['anim_render_ms'] = {'median': round(rends[len(rends) // 2], 2), 'p90': round(rends[int(0.9 * (len(rends) - 1))], 2), 'max': round(rends[-1], 2)} if rends else None
+        w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > 20)[-12:]
+
         for i, x in enumerate(ivals):
             if x <= gap_ms:
                 continue
@@ -331,6 +370,7 @@ def fmt(report, top=10):
     out = [f"trace {report['trace']}  sm_pid {report['sm_pid']}  span {report['span_s']} s  frames {report['frames_total']}  vblank {report['vblank_hz']} Hz  cpuhp {report['cpuhp_events']}  gpu_pm {report['gpu_pm_events']}"]
     for w in report['windows']:
         out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}")
+        out.append(f"   animation-driven frames {w['anim_frames']}, dropped {w['dropped']} ({w['dropped_pct']} %), render ms {w['anim_render_ms']}, dropped-frame render {w['dropped_render_ms']}; timer-driven frames {w['timer_frames']}")
         out.append(f"   compositor: run {w['sm_run_ms']} ms, runnable {w['sm_runnable_ms']} ms, max sched latency {w['sm_max_sched_latency_ms']} ms, migrations {w['sm_migrations']}; gpu jobs {w['gpu_jobs']} busy {w['gpu_busy_ms']} ms, pm transitions {w['gpu_pm_transitions']}; cpuhp {w['cpuhp']} reclaim {w['reclaim_events']} cma {w['cma_events']} block {w['block_rq']}")
         out.append(f"   top cpu: {w['top_cpu_ms']}")
         out.append(f"   irqs: {w['irq_counts']}")

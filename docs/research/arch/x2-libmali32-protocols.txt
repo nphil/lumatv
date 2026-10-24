@@ -1,0 +1,29 @@
+symbol tables: 8 *_interface symbols (.dynsym, .symtab)
+# mali_buffer_sharing_interface at vaddr 0x246e11c (symbol)
+interface mali_buffer_sharing version 5
+  request[0] create_buffer(n:-, i:-, i:-, u:-, u:-, u:-, u:-, h:-)  sig=niiuuuuh
+  request[1] auth(u:-)  sig=u
+  event[0] alloc_device(s:-)  sig=s
+# wl_drm_interface at vaddr 0x246e17c (symbol)
+interface wl_drm version 2
+  request[0] authenticate(u:-)  sig=u
+  request[1] create_buffer(n:-, u:-, i:-, i:-, u:-, u:-)  sig=nuiiuu
+  request[2] create_planar_buffer(n:-, u:-, i:-, i:-, u:-, i:-, i:-, i:-, i:-, i:-, i:-)  sig=nuiiuiiiiii
+  request[3] create_prime_buffer(n:-, h:-, i:-, i:-, u:-, i:-, i:-, i:-, i:-, i:-, i:-)  sig=2nhiiuiiiiii
+  event[0] device(s:-)  sig=s
+  event[1] format(u:-)  sig=u
+  event[2] authenticated()  sig=
+  event[3] capabilities(u:-)  sig=u
+# zwp_linux_explicit_synchronization_v1_interface at vaddr 0x246e1f4 (symbol)
+interface zwp_linux_explicit_synchronization_v1 version 2
+  request[0] destroy()  sig=
+  request[1] get_synchronization(n:zwp_linux_surface_synchronization_v1, o:-)  sig=no
+# zwp_linux_surface_synchronization_v1_interface at vaddr 0x246e224 (symbol)
+interface zwp_linux_surface_synchronization_v1 version 2
+  request[0] destroy()  sig=
+  request[1] set_acquire_fence(h:-)  sig=h
+  request[2] get_release(n:zwp_linux_buffer_release_v1)  sig=n
+# zwp_linux_buffer_release_v1_interface at vaddr 0x246e1dc (symbol)
+interface zwp_linux_buffer_release_v1 version 1
+  event[0] fenced_release(h:-)  sig=h
+  event[1] immediate_release()  sig=

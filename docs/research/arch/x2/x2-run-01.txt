@@ -1,0 +1,21 @@
+r1-all: client exit 0
+  [srv   0.428] summary: 3 buffers created, 6 commits, 6 frame callbacks, pixel checks ok 0 bad 6 unread 0
+r2-nomali: client exit 4
+  [srv   0.423] summary: 0 buffers created, 0 commits, 0 frame callbacks, pixel checks ok 0 bad 0 unread 0
+r3-dmabuf-only: client exit 4
+  [srv   0.419] summary: 0 buffers created, 0 commits, 0 frame callbacks, pixel checks ok 0 bad 0 unread 0
+r4-none: client exit 4
+  [srv   0.420] summary: 0 buffers created, 0 commits, 0 frame callbacks, pixel checks ok 0 bad 0 unread 0
+r5-egl: client exit 2
+  
+r6-all-1080p: client exit 0
+  [srv   0.441] summary: 3 buffers created, 4 commits, 4 frame callbacks, pixel checks ok 0 bad 4 unread 0
+r7-afbc: client exit 0
+  [srv   0.422] summary: 3 buffers created, 4 commits, 4 frame callbacks, pixel checks ok 0 bad 4 unread 0
+r8-egl64-render: client exit 2
+  
+r9-egl64-card0: client exit 2
+  
+left running: none
+MemAvailable:     581864 kB
+CmaFree:           14516 kB
