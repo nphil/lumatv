@@ -744,7 +744,11 @@ what it already does.
 - Dark-mode depth: a step stronger than today's Home, so panes lift further
   off the wallpaper (Nitin, 2026-10-23).
 - Home wallpaper motion: about 10 updates a second, so idle Home stops
-  redrawing at an uneven 36 fps (Nitin, 2026-10-23).
+  redrawing at an uneven 36 fps (Nitin, 2026-10-23). Measured cause
+  (`docs/research/perf-tweaks.md`): the wallpaper's 33 ms timer and the
+  clock's 160 ms second-hand animation run on separate clocks, adding about
+  9.6 frames a second and a 50 ms hitch every 1.5 s. Both move to one
+  shared 100 ms clock, with the wallpaper phase taken from elapsed time.
 - QML disk cache on, cleared on every stage change (Nitin, 2026-10-23).
 - The set is wall-mounted: the strip runs all four edges, the 5 m strip on
   order (Nitin, 2026-10-23).
