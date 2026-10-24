@@ -106,7 +106,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Ad and content-recognition overlays | Native | Off through LG settings | Settings |
 | HDMI input banner, OK/INFO banners, no signal | `inputcommon` QML | Rebuilt (input pill, detail, burn-in-safe no-signal) | Overlay mount |
 | Power-off logo, startup cover | Compositor QML, `CoverUI` (bootd opens it; it launches the first app) | Own; CoverUI's launch duty kept | System UI redirect |
-| Standby screen (Always Ready, Gallery+) | `lifeOnScreenMode: alwaysReady`, LG art and clock | Own burn-in-safe standby, or off (Nitin) | Research |
+| Standby screen (Always Ready, Gallery+) | `lifeOnScreenMode: alwaysReady`, LG art and clock | Off: the panel goes fully dark in standby (Nitin, 2026-10-23); instant wake kept | Settings |
 | Voice listening bar, microphone indicator | `VoiceAgent` QML | Restyled; indicator always shown | Shadow module |
 | Pairing prompts (SSAP "Connection Request", mobile PIN) | SystemUI alert, configd popup | Rebuilt; answered only with the remote | View swap |
 | Pointer right-click menu | Compositor QML (Back/Home) | Rebuilt | Shadow module |
