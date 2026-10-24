@@ -1,0 +1,48 @@
+Option (a) for the env-file tweaks (T7, T9): lets the compositor env file
+carry extra variables from /var/lib/lumaglass/env.extra, so apply, fps on/off
+and boot-bind keep them instead of rewriting the file to QML2_IMPORT_PATH
+alone. The second hunk counts an env change as a compositor change: without
+it apply rewrites the file but does not restart (compositor_changed looks
+only at the staged QML, wallpaper and key filter), and the variable would
+reach the compositor only at its next restart. Not applied to
+tools/lumaglass; for the test, back up the deployed copy on the set, apply
+this to it, and restore the backup after.
+
+--- a/tools/lumaglass
++++ b/tools/lumaglass
+@@ -843,7 +843,13 @@
+ 
+-env_line() { printf 'QML2_IMPORT_PATH=%s:/usr/lib/qt5/qml\n' "$SHADOW_ROOT"; }
++# Extra compositor variables (QT_QPA_UPDATE_IDLE_TIME, QML_FORCE_DISK_CACHE,
++# QSG_RENDER_LOOP...), one VAR=value per line; comments and blank lines skipped.
++ENV_EXTRA="$STATE/env.extra"
++env_line() {
++  printf 'QML2_IMPORT_PATH=%s:/usr/lib/qt5/qml\n' "$SHADOW_ROOT"
++  [ -f "$ENV_EXTRA" ] && grep -E '^[A-Z_][A-Z0-9_]*=' "$ENV_EXTRA" 2>/dev/null
++  return 0
++}
+ 
+ env_live() { [ "$(cat "$ENV_FILE" 2>/dev/null)" = "$(env_line)" ]; }
+@@ -1106,9 +1112,11 @@
+   # set can be reached with a restart alone.
+   compositor_changed=1
+   if [ "$kf_changed" -eq 0 ] \
+      && [ "$(md5sum < "$COMPOSITOR_STAGE.next" 2>/dev/null)" = "$(md5sum < "$COMPOSITOR_STAGE" 2>/dev/null)" ] \
+      && [ "$(md5sum < "$WALL_SRC" 2>/dev/null)" = "$(md5sum < "$WALLPAPER_STAGE" 2>/dev/null)" ] \
+-     && [ "$(tree_fp "$LUMA_STAGE.next")" = "$(tree_fp "$LUMA_STAGE")" ]; then
++     && [ "$(tree_fp "$LUMA_STAGE.next")" = "$(tree_fp "$LUMA_STAGE")" ] \
++     && env_live; then
+     compositor_changed=0
+   fi
+
+Test sequence on the set (TOOL=/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass):
+  cp $TOOL /var/lib/lumaglass/lumaglass.bak
+  (patch $TOOL as above; check `sh -n $TOOL`)
+  echo QT_QPA_UPDATE_IDLE_TIME=0 > /var/lib/lumaglass/env.extra
+  $TOOL apply            # env not live -> rewrite, restart_surface, Home back
+  tr '\0' '\n' < /proc/$(pidof surface-manager)/environ | grep QT_QPA_UPDATE
+  ... measure (capture at 320x180 > 79 kB first) ...
+  rm /var/lib/lumaglass/env.extra
+  $TOOL apply            # back to the single line, restart
+  cp /var/lib/lumaglass/lumaglass.bak $TOOL && rm /var/lib/lumaglass/lumaglass.bak
+  cat /var/systemd/system/env/surface-manager.env   # one line again

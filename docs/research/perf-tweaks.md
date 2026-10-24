@@ -5,16 +5,25 @@ Rule under test: every frame on its 60 Hz deadline, at rest and in motion.
 
 ## Resume here
 
-Status 2026-10-23 20:00: TV handed back to Nitin (watching). Hold all TV
-work until Main says "TV is free". Nothing is applied on the set; nothing
-to revert. TV state at handback: Active, LG Home in front with LumaHome
-over it, Filmmaker confirmed, ftrace off and events disabled, buffer back
-to 1408 kB, `/tmp/perf` on the set holds only `capture.sh`.
+Status 2026-10-23 21:15: TV with Nitin since 19:35. Hold all TV work until
+Main says "TV is free". Nothing is applied on the set; nothing to revert.
+TV state at handback: Active, LG Home in front with LumaHome over it,
+Filmmaker confirmed, ftrace off and events disabled, buffer back to
+1408 kB, `/tmp/perf` on the set holds only `capture.sh`.
 
-Done: platform survey, probe verified (`drm_vblank_event_delivered` = one
-presented frame), one 5 s idle trace analysed (sections "How a frame is
-produced" and "What the idle frame draws"), orchestrator written, tweak
-plan and gap hypotheses written. Not done: everything that needs the TV.
+Done offline: platform survey, probe verified (`drm_vblank_event_delivered`
+= one presented frame), one 5 s idle trace analysed: frame pipeline, a
+fixed 5 ms Qt update timer inside every animated frame (strongest
+candidate for missed deadlines, tweak T9), the cause of the uneven 36-38
+fps idle, background load. Orchestrator, analyser, scheduler helper and
+the env-file patch written; provisional recommendations and the
+replace-vs-tune list at the end. Not done: every before/after number.
+
+Open with Main (asked 21:00): how env-file tweaks T7/T9 may be applied,
+(a) `perf/env-extra.patch` on the deployed tool, backed up and restored,
+or (b) one manual restart mirroring `restart_surface`. Ask again if no
+answer. Priority order when the TV is free: baseline, T9, T6, T7, then
+T1-T5 and T8, then the ShellArchitecture floor (step 4b).
 
 Remaining TV plan (about 85 min of screen time), run from the
 workstation (`pip install --break-system-packages paramiko` if missing;
@@ -253,19 +262,23 @@ Because the basic loop is serial, the 5 ms sits inside the frame budget:
 | GPU tiler + fragment (idle Home) | 8.1 |
 | job IRQ -> GUI thread, atomic commit | 0.8 |
 | **Qt update timer** | **5.0** |
-| render next frame on CPU (sync + scene graph render) | 1.9-2.1 |
-| slack before the next flip | 0.6 |
+| render next frame on CPU (sync + scene graph render) | 1.64 median, 2.0 max |
+| slack before the next flip | 1.05 median, 0.16 min |
 
-At idle the chain is 16.1 of 16.7 ms. Each frame whose CPU render plus
-GPU pass exceeds about 10.6 ms makes the next one late by the excess; the
+Slack measured over the 33 chained 60 fps frames of the trace (renders
+that follow a commit by the 5 ms timer); GPU fragment 7.55 ms in all 206
+frames (p95 7.56), tiler 0.47. At idle the chain uses about 15.7 of
+16.7 ms. Each frame whose CPU render plus GPU pass exceeds about 10.7 ms
+makes the next one late by the excess; the
 lateness accumulates frame over frame, and once it passes about 7.7 ms a
 frame misses its vblank (a 33 ms interval), which resets the chain. So a
 focus move or panel open whose frames need 3.5-4 ms of CPU render drops a
 frame every 6-10 frames. `QT_QPA_UPDATE_IDLE_TIME=0` returns the 5 ms to
-the budget (chain 11.1 ms at idle). To be measured as T9. It is set in
-the compositor's env file, which the tool currently rewrites to
-`QML2_IMPORT_PATH` alone (`env_line`), so the tool needs an extra-env
-line for it, the same change the decided `QML_FORCE_DISK_CACHE=1` needs.
+the budget (chain about 10.7 ms at idle). To be measured as T9. It is set
+in the compositor's env file, which the tool currently rewrites to
+`QML2_IMPORT_PATH` alone (`env_line`), so the tool needs an extra-env line
+for it (`perf/env-extra.patch`), the same change the decided
+`QML_FORCE_DISK_CACHE=1` needs.
 
 ## Finding: why idle Home runs at an uneven 36-38 fps
 
@@ -315,3 +328,45 @@ frame-rate fix at rest; whether they matter under load is measured in the
 app-to-Home runs. `lginput2`'s 2 kHz poll at RT 99 is a replaceable cost
 (LG input stack, about 1 % of a core and 2,000 timer interrupts a second
 on CPU2); it does not reach the compositor.
+
+## Recommendations so far (provisional: from one idle trace and the code; before/after numbers pending the TV window)
+
+1. `QT_QPA_UPDATE_IDLE_TIME=0` for the compositor (T9). Expected: the
+   5 ms Qt update timer leaves every animated frame, so a frame's CPU
+   render can grow from about 2.6 ms to about 7.6 ms before lateness
+   accumulates; the main candidate for the missed deadlines during
+   focus moves and panel opens. Needs the tool's env-file change
+   (`perf/env-extra.patch`), which the decided disk cache needs too.
+2. One clock for idle Home: wallpaper phase and second hand advanced by
+   one 100 ms Timer (the decided 10 updates a second), wallpaper phase from
+   elapsed time. Expected: idle drops from 37.7 to about 10-16 presented
+   frames a second, the 50 ms wallpaper hitch every 1.5 s disappears, and
+   idle GPU busy falls from 30 % to about 8-13 %.
+3. Not worth doing, from the platform facts: CPU governor or minimum
+   frequency (one 1.4 GHz OPP, already `performance`); GPU `always_on`
+   (power-up is 40 us before each job and never on the critical path);
+   stopping LG daemons for frame rate at rest (all background work is
+   about 25 % of one core and the compositor waits at most 0.21 ms for a
+   CPU). To be confirmed under load in the T1/T2 runs.
+4. Small: the frame probe's `onFrameSwapped` handler runs JS on every
+   frame even with the probe off; guard the Connections with
+   `enabled: root.fpsEnabled`.
+
+## LG layers whose replacement (not tuning) would remove a measured cost
+
+- Serial frame pipeline in the compositor (Qt 5.12 basic loop on LG's
+  `eglfs_starfish`): the GUI thread blocks for the whole GPU pass
+  (8.1 ms of each idle frame) and does the atomic commit only after the
+  GPU finishes, so CPU and GPU work add instead of overlapping. A
+  compositor that commits with an in-fence (`IN_FENCE_FD`) and renders
+  ahead would give the CPU and the GPU 16.7 ms each. Tuning gets part of
+  it: T9 removes the 5 ms timer, T7 (threaded loop) moves the blocking
+  off the GUI thread.
+- Full-scene redraw per frame: Qt Quick 2 has no damage regions, so a
+  4 px wallpaper ripple re-renders all 1920x1080 (7.5 ms fragment, 30 %
+  of the GPU at 30 updates a second). A compositor with damage tracking,
+  or the wallpaper on its own hardware plane (the lg1k has an overlay
+  plane used once since boot), would cost a fraction of that.
+- `lginput2`: 2 kHz poll at RT 99, about 1 % of a core and 2,000 timer
+  interrupts a second; event-driven input would cost close to nothing.
+  CPU only, no frame cost measured.
