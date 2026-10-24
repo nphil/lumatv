@@ -8,7 +8,7 @@
   /* standby ("off" with Always Ready): clock (default), art (?v=art), nothing (?v=off). Dimmer than the screensaver (42 %), drifting. */
   .standby-clock { --x: 62%; --y: 44%; }
   .st { display: none; }
-  html:not([data-v]) .st.clock, [data-v="art"] .st.art, [data-v="off"] .st.off { display: block; }
+  html:not([data-v]) .st.clock, [data-v="art"] .st.artmode, [data-v="off"] .st.off { display: block; }
   .ss.art-wall { background: radial-gradient(ellipse at 50% 45%, #0E0C10 0%, #030304 70%); }
   .art img { width: 920px; height: 618px; }
   .standby-art .art .matte { padding: 56px; }
@@ -26,7 +26,7 @@
   </div>
 </div>
 
-<div class="st art standby-art">
+<div class="st artmode standby-art">
   <div class="ss art-wall"></div>
   <div class="art"><div class="matte"><img src="img/art-hokusai.jpg" alt="Under the Wave off Kanagawa"></div></div>
   <div class="art-cap"><b>Katsushika Hokusai</b> · Under the Wave off Kanagawa, about 1831 · Public domain</div>

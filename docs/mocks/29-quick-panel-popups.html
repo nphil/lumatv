@@ -7,7 +7,7 @@
 <style>
   /* slider popup (default) · value picker (?v=picker) · edit mode (?v=edit) · add a tile (?v=add) */
   .st { display: none; }
-  html:not([data-v]) .st.slider, [data-v="picker"] .st.picker, [data-v="add"] .st.add { display: flex; }
+  html:not([data-v]) .st.sliderpop, [data-v="picker"] .st.picker, [data-v="add"] .st.add { display: flex; }
   [data-v="edit"] .qpanel .foot .btn, [data-v="add"] .qpanel .foot .btn { display: none; }
   [data-v="edit"] .qpanel .foot .hint, [data-v="add"] .qpanel .foot .hint { display: block; }
   html:not([data-v="edit"]):not([data-v="add"]) .qpanel .edit-head { display: none; }
@@ -79,7 +79,7 @@
 </aside>
 
 <!-- slider popup: OK on the ambient tile opens its value beside the panel -->
-<div class="overlay qpop st slider" role="dialog" aria-label="Ambient light brightness">
+<div class="overlay qpop st sliderpop" role="dialog" aria-label="Ambient light brightness">
   <div class="head"><span class="t">Ambient light</span><span class="v num">70%</span></div>
   <div class="d">How bright the lights behind the TV go. Left and right change it; the lights follow live.</div>
   <div class="srow focusable" tabindex="0" id="srow">

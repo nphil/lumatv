@@ -2,36 +2,80 @@
 
 ## Resume here (batch 3)
 
-Scope (Main, 2026-10-23, from SURFACES.md "Not yet mocked"): 25 HDMI input banner family · 26 power-off
-logo + startup cover · 27 standby / Always Ready · 28 voice bar + mic indicator · 29 quick-panel popups and
-edit mode · 30 remaining Settings sections (Inputs & devices, Network, Ambient light, Home & look, System) ·
-31 Quick Access toast + assign alert · 32 second-screen pairing prompt · 33 pointer right-click menu ·
-34 Game Dashboard · 35 app launch prompts + advanced toast.
+Status: complete. 72 shots in `shots/` (11 batch 1, 31 batch 2, 30 batch 3), all in the `index.html`
+gallery with captions and the live viewer. Nothing left to build; nothing applied to the TV.
 
-Status: BUILT, first render done (30 new shots, 72 total). In progress: fixing the render checks (fact/stat
-labels 20 → 21 px; the five Settings pages overflow their pane: trim rows), then full-size review, gallery
-entries, detector run, report. Batch 2 (10-24) is complete and documented below.
+If more screens are asked for: copy the nearest HTML file, add it to `SHOTS` in `render.mjs` and in
+`index.html`, run `cd /data/home/lumaglass/docs/mocks && node render.mjs <prefix>` and look at the PNG at
+1:1. Variants are query strings on one file (`?theme=light`, `?v=…`, `?tab=…`). Detector:
+`/data/home/.agents/skills/impeccable/scripts/impeccable detect --json docs/mocks/lucent.css docs/mocks/*.html`
+from `/data/home/lumaglass`. Remaining findings are intentional: `dark-glow` (the accent focus halo),
+`nested-cards` (sheet → well → raised control), and `low-contrast` on 27 (standby text is dimmed to 42 % on
+purpose for the panel; the detector measures against the palette canvas, the real ground is #000).
+Gotcha learned twice: a state class on a container must not reuse a kit class name (`art`, `slider`
+clashed); state classes are now `artmode`, `sliderpop`.
 
-Plan per screen (file → shots), all with the batch-2 kit (`lucent.css`, `mock.js`, `render.mjs`, `index.html`):
-- `25-input-banner.html` → 25-input-pill (`default`), 25-input-banner (`?v=ok`), 25-input-info (`?v=info`),
-  25-input-update (`?v=update`)
-- `26-power-off.html` → 26-power-off-logo (`default`), 26-startup-cover (`?v=cover`)
-- `27-standby.html` → 27-standby-clock (`default`), 27-standby-art (`?v=art`), 27-standby-off (`?v=off`)
-- `28-voice.html` → 28-voice-listening (`default`), 28-voice-heard (`?v=heard`), 28-voice-results (`?v=results`),
-  28-mic-indicator (`?v=mic`)
-- `29-quick-panel-popups.html` → 29-qp-slider (`default`), 29-qp-picker (`?v=picker`), 29-qp-edit (`?v=edit`),
-  29-qp-add (`?v=add`)
-- `30-settings-inputs.html`, `30-settings-network.html`, `30-settings-ambient.html`, `30-settings-home.html`,
-  `30-settings-system.html` → one shot each
-- `31-quick-access.html` → 31-quick-access-toast (`default`), 31-quick-access-assign (`?v=assign`)
-- `32-pairing-prompt.html` → 32-pairing-prompt
-- `33-pointer-menu.html` → 33-pointer-menu
-- `34-game-dashboard.html` → 34-game-dashboard
-- `35-app-prompts.html` → 35-app-update-required (`default`), 35-app-not-available (`?v=unavailable`),
-  35-toast-advanced (`?v=toast`)
+### Files (batch 3)
 
-Commands: `cd /data/home/lumaglass/docs/mocks && node render.mjs <prefix …>` (no args = all 42+ shots).
-TV state: untouched (mocks only).
+| Screen | File (variants) | Shots |
+|---|---|---|
+| HDMI input banner family | `25-input-banner.html` (`?v=ok`, `?v=info`, `?v=update`) | 25-input-pill, 25-input-banner, 25-input-info, 25-input-update |
+| Power-off logo, startup cover | `26-power-off.html` (`?v=cover`) | 26-power-off-logo, 26-startup-cover |
+| Standby (Always Ready) | `27-standby.html` (`?v=art`, `?v=off`) | 27-standby-clock, -art, -off |
+| Voice bar, mic indicator | `28-voice.html` (`?v=heard`, `?v=results`, `?v=mic`) | 28-voice-listening, -heard, -results, 28-mic-indicator |
+| Quick-panel popups, edit | `29-quick-panel-popups.html` (`?v=picker`, `?v=edit`, `?v=add`) | 29-qp-slider, -picker, -edit, -add |
+| Settings sections | `30-settings-inputs.html`, `-network`, `-ambient`, `-home`, `-system` | one shot each |
+| Quick Access | `31-quick-access.html` (`?v=assign`) | 31-quick-access-toast, -assign |
+| Pairing prompt | `32-pairing-prompt.html` | 32-pairing-prompt |
+| Pointer menu | `33-pointer-menu.html` | 33-pointer-menu |
+| Game Dashboard | `34-game-dashboard.html` | 34-game-dashboard |
+| App prompts, advanced toast | `35-app-prompts.html` (`?v=unavailable`, `?v=toast`) | 35-app-update-required, 35-app-not-available, 35-toast-advanced |
+
+Shared: `lucent.css` (batch-3 kit section: `.ipill/.ibanner/.facts/.fact/.badge`, `.offlogo/.cover`,
+`.standby-*`, `.vbar/.vresults/.micind`, `.qpop/.srow/.opt`, `.qpanel.edit` + `.grip`, `.dialog.pair` +
+`.who-row/.grants`, `.pmenu/.cursor`, `.gdash/.gtile`, `.toast.link`, generic `.src`), `render.mjs` (30 new
+entries, checks extended), `index.html` (30 new entries), `img/game.jpg` (generated game frame, provenance
+embedded).
+
+### Rationale, one line each (batch 3)
+
+- **25 Input banner family**: one lower-left pill on every switch (device glyph, port · CEC name, signal in
+  one line); OK grows the same pill into three actions instead of opening a second surface; INFO is a card
+  of eight facts with two actions; a background update is a small opposite-corner badge, never a dialog.
+- **26 Power-off / cover**: the wordmark at 72 % on black for the ~3 s power-off still; the cover names what is
+  starting (HDMI 2 · Denon) with one arc and a corner mark, replacing LG's bare "Loading…".
+- **27 Standby**: three answers to Needs-Nitin #1 side by side: clock block at 42 % drifting with glance
+  facts, the art frame at half, or nothing but the set's own standby light.
+- **28 Voice**: a lower-left bar, one accent ring around the mic (no 485-frame animation), words in quotes
+  when heard; a one-word command acts, anything else lists three local choices above the bar; the mic
+  indicator is a small disc with a green dot.
+- **29 Quick-panel popups**: values open beside the panel (slider with marks, picker with the resulting
+  time) while the source tile stays raised; edit mode swaps controls for move/remove on every tile and an
+  "Add a tile" row; the add list sits in the same popup slot.
+- **30 Settings sections**: the Live-list page pattern with real items from settings-map.md; each page fits
+  without scrolling (two tabs hold the rest), and every page ends in the LG escape row where LG keeps
+  something deep.
+- **31 Quick Access**: a toast with the number plate on launch; an empty slot asks "Nothing on 4 yet.
+  Assign it?" with five picks and Not now.
+- **32 Pairing prompt**: who (name, host, address, first time), what it can do, see and cannot; Don't allow
+  focused; "Only this remote can answer" (Principle 0).
+- **33 Pointer menu**: a 300 px menu beside the cursor with Back, Home, LumaTV menu, then Inputs and Quick
+  settings; the hover state is the pointer's.
+- **34 Game Dashboard**: a bottom-centre strip over the game (tinted, no blur): six live stats, then genre,
+  dark room and black stabiliser; All settings in the head.
+- **35 App prompts / advanced toast**: sam's three messages in plain words with the safe action focused
+  and "updates only when you choose"; the advanced toast is icon + a Play link that a pointer click runs.
+
+### Progress log (batch 3)
+
+- 20:05 BATCH2.md → BATCH3.md with a resume section; kit section appended; 14 HTML files written; first
+  render 30 shots.
+- 20:20 fixes: fact/stat labels 21 px; five Settings pages trimmed to fit (removed a row or label each);
+  info banner 1240 wide; slider popup and standby art had class clashes (`slider`, `art`) → renamed;
+  game dashboard 1700 wide, three tiles; pairing and assign copy shortened; designer commentary removed
+  from the update prompt.
+- 20:30 gallery entries added; full re-render (72 shots); detector run (two mechanical fixes); live
+  navigation checked.
 
 ## Batch 2 (complete)
 

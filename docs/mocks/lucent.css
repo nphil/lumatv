@@ -636,14 +636,15 @@ body {
 .cover img { width: 160px; height: 160px; border-radius: 34px; box-shadow: 0 30px 70px rgba(0,0,0,.5); }
 .cover .n { font-size: 40px; font-weight: 600; letter-spacing: -.01em; }
 .cover .st { display: flex; align-items: center; gap: 14px; font-size: 24px; color: var(--lu-ink-2); font-weight: 500; }
-.cover .wm { position: absolute; left: var(--lu-edge-x); bottom: var(--lu-edge-y); display: flex; align-items: center; gap: 12px; opacity: .55; font-size: 24px; color: var(--lu-ink-2); }
+.cover .wm { position: absolute; left: var(--lu-edge-x); bottom: var(--lu-edge-y); display: flex; align-items: center; gap: 12px; opacity: .65; font-size: 24px; color: var(--lu-ink-2); }
 .cover .wm .mark { width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(135deg, #B7ADF8, #7FB3C9); }
 
 /* ---- standby (Always Ready replacement): dimmer than the screensaver, no chrome ---------- */
 .standby-clock { position: absolute; left: var(--x, 50%); top: var(--y, 50%); transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 10px; opacity: .42; }
 .standby-clock .time { font-size: 128px; font-weight: 500; letter-spacing: -.03em; line-height: .95; font-variant-numeric: tabular-nums; }
 .standby-clock .date { font-size: 28px; font-weight: 500; color: var(--lu-ink-2); }
-.standby-clock .glance { display: flex; gap: 20px; font-size: 23px; color: var(--lu-ink-2); font-weight: 500; margin-top: 8px; align-items: center; }
+.standby-clock { width: max-content; }
+.standby-clock .glance { display: flex; gap: 20px; font-size: 23px; color: var(--lu-ink-2); font-weight: 500; margin-top: 8px; align-items: center; white-space: nowrap; }
 .standby-clock .glance .ic { width: 24px; height: 24px; }
 .standby-art .art { opacity: .5; }
 .standby-art .art-cap, .standby-art .art-time { opacity: .45; }
@@ -719,7 +720,7 @@ body {
 .cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
 
 /* ---- game dashboard: bottom-centre strip over the game, tinted glass ------------------- */
-.gdash { left: 50%; bottom: var(--lu-edge-y); transform: translateX(-50%); width: 1500px; padding: 22px 26px 22px; border-radius: 28px; display: flex; flex-direction: column; gap: 16px; }
+.gdash { left: 50%; bottom: var(--lu-edge-y); transform: translateX(-50%); width: 1700px; padding: 22px 26px 22px; border-radius: 28px; display: flex; flex-direction: column; gap: 16px; }
 .gdash .live { display: flex; align-items: center; gap: 10px; }
 .gdash .live .stat { flex: 1; border-radius: 18px; background: var(--tile-ink-wash); padding: 12px 18px 10px; min-width: 0; }
 .gdash .live .stat .k { font-size: 21px; font-weight: 600; color: var(--lu-ink-2); letter-spacing: .01em; }
@@ -727,7 +728,12 @@ body {
 .gdash .live .stat .v small { font-size: 21px; font-weight: 500; color: var(--lu-ink-2); margin-left: 6px; }
 .gdash .live .stat.on .v { color: var(--lu-positive); }
 .gdash .row2 { display: flex; align-items: center; gap: 10px; }
-.gtile { display: flex; align-items: center; gap: 14px; height: 76px; padding: 0 20px 0 14px; border-radius: 20px; background: var(--tile-ink-wash); border: 1px solid transparent; position: relative; white-space: nowrap; }
+.gdash .row2 .gtile { flex: 1 1 0; min-width: 0; }
+.gdash .row2 .gtile:first-child { flex: 1.6 1 0; }
+.gdash .row2 .gtile > div { min-width: 0; }
+.gdash .row2 .gtile .seg { margin-left: auto; }
+.gdash .row2 .gtile .toggle, .gdash .row2 .gtile .stepper { margin-left: auto; }
+.gtile { display: flex; align-items: center; gap: 14px; height: 76px; padding: 8px 20px 8px 14px; border-radius: 20px; background: var(--tile-ink-wash); border: 1px solid transparent; position: relative; white-space: nowrap; }
 .gtile .lead { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--tile-ink-wash); flex: none; }
 .gtile .lead .ic { width: 28px; height: 28px; }
 .gtile .t { font-size: 24px; font-weight: 600; }
