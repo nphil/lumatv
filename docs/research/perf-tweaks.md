@@ -5,11 +5,12 @@ Rule under test: every frame on its 60 Hz deadline, at rest and in motion.
 
 ## Resume here
 
-Status 2026-10-23 21:15: TV with Nitin since 19:35. Hold all TV work until
-Main says "TV is free". Nothing is applied on the set; nothing to revert.
-TV state at handback: Active, LG Home in front with LumaHome over it,
-Filmmaker confirmed, ftrace off and events disabled, buffer back to
-1408 kB, `/tmp/perf` on the set holds only `capture.sh`.
+Status 2026-10-23 22:10: TV with Nitin since 19:35; this session paused
+for the TV window. Hold all TV work until Main says "TV is free". Nothing
+is applied on the set; nothing to revert. TV state at handback: Active, LG
+Home in front with LumaHome over it, Filmmaker confirmed, ftrace off and
+events disabled, buffer back to 1408 kB, `/tmp/perf` on the set holds only
+`capture.sh`.
 
 Done offline: platform survey, probe verified (`drm_vblank_event_delivered`
 = one presented frame), one 5 s idle trace analysed: frame pipeline, a
@@ -19,8 +20,8 @@ fps idle, background load. Orchestrator, analyser, scheduler helper and
 the env-file patch written; provisional recommendations and the
 replace-vs-tune list at the end. Not done: every before/after number.
 
-Decided by Main (21:55): option (a). The `env.extra` hook is implemented in
-the repo's `tools/lumaglass` (uncommitted; Main commits): allowlisted
+Decided by Main (21:55): option (a). The `env.extra` hook is in
+`tools/lumaglass`, committed as `cb57f53` (not deployed): allowlisted
 `KEY=VALUE` lines of `/var/lib/lumaglass/env.extra` go into the env file,
 an env change restarts the compositor at `apply`, `revert` deletes the
 file, and `QML_FORCE_DISK_CACHE=1` (decided) is always set, with the QML
@@ -63,10 +64,11 @@ exists):
    - T6 `--apply '/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass theme set "{\"wallpaperMotion\":{\"fps\":10}}"' --revert '... {\"fps\":30}'`, and a second run with `{"enabled":false}` / `{"enabled":true}`; wait 3 s after apply (2 s theme poll).
    - T9 then T7, the env-file tweaks, with the repo's tool deployed for
      the test (`TOOL=/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass`):
-     1. `md5sum $TOOL` against `git show HEAD:tools/lumaglass | md5sum`;
-        if they match, sftp the working copy over it, else apply
-        `git diff tools/lumaglass` to the deployed copy. Backup first:
-        `cp $TOOL /var/lib/lumaglass/lumaglass.bak`.
+     1. Backup first: `cp $TOOL /var/lib/lumaglass/lumaglass.bak`. If
+        `md5sum $TOOL` equals `git show 98071c7:tools/lumaglass | md5sum`
+        (the version before the hook), sftp `git show cb57f53:tools/lumaglass`
+        over it; otherwise apply `git show cb57f53 -- tools/lumaglass` to
+        the deployed copy. Check `sh -n $TOOL`.
      2. `$TOOL apply` (env gains `QML_FORCE_DISK_CACHE=1`, restart). Check
         Home recovers (capture at 320x180 > 79 kB). Run `--tag cache`
         `dpad,qs,apphome` x2: the baseline for T9/T7 with the same tool.
