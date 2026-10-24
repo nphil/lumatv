@@ -15,13 +15,18 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 
 - Done: resident Quick Settings, resident LumaHome (idle while hidden), key
   filter written only on change, Home stub tested on the set and reverted,
-  ambient-light hardware chosen.
-- Mockups ready for Nitin's review: Settings, windows, AI access
-  (`docs/mocks/`). 64-bit drawing proven on screen (Rendering stack).
-- Waiting on Nitin: go to build; mockup feedback. Design and setup choices
-  are recorded under Decided.
-- TV tests when the set is free: receiver volume drift, histogram during
-  Netflix, which input device network and CEC keys arrive on, pointer cost.
+  ambient-light hardware chosen, 64-bit drawing proven on screen, the env
+  hook for compositor tuning (`env.extra`) in the tool.
+- Research done: full catalogue of LG's UI (`docs/SURFACES.md`, 178 rows),
+  72 mockups in three batches (`docs/mocks/`), the shell architecture study
+  (`docs/research/shell-architecture.md`), and the offline half of the
+  performance study (`docs/research/perf-tweaks.md`).
+- Waiting on Nitin: "TV is free" for about 85 minutes of measurement (perf
+  baseline, tweaks T1-T9, compositor tests X1, X1b, X2, X4); then the
+  decision whether LumaTV owns the compositor; then go to build.
+- TV tests that need Nitin present: receiver volume drift, histogram during
+  Netflix, contiguous memory during 4K HDR, which input device network and
+  CEC keys arrive on, pointer cost.
 - Next build step: phase 1.
 
 ## Rules every surface meets
