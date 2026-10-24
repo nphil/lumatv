@@ -611,7 +611,22 @@ Screensaver [8]:
 - Burn-in rules (tv-tools, zzeppieri): mostly black, moving elements, scenes
   45-75 s with 4 s black fades, dim to 60 % over an hour, a clock that drifts
   to a new spot every 60 s; standby after a set number of hours.
-- Art mode: public-domain paintings with mattes and frames (Lumen Gallery).
+- Art mode: public-domain paintings with mattes and frames (Lumen Gallery),
+  stored on the set with per-image licence checks rather than fetched at
+  view time. Next picture decoded before the swap, 1.4 s opacity crossfade,
+  broken pictures skipped after 300 ms, weighted shuffle across
+  collections, a quick bar (Previous, Like, Hide, Next). Frames and mattes
+  orbit and dim with the picture; Lumen Gallery's static layers have no
+  burn-in protection.
+
+From Lumen (`docs/research/lumen.md`) for Home [1]: the focused tile grows
+without a clip (a clipped scale rebuilds a mask every frame); wallpaper
+image and motion are released 5 s after Home is hidden; only the first row
+is built at start, the rest 3.5 s later or at the first key, and wallpaper
+motion starts after 1.5 s without a key; a hover counts only when the
+pointer moved (a resting pointer otherwise fires hover on whatever slides
+under it); wallpaper dim Off / At night / Always; focus strength Subtle /
+Normal / Strong.
 
 Receiver OSD [4]: receiver values older than 6 s without a successful read are
 hidden rather than shown stale (webos-av-overlay).
