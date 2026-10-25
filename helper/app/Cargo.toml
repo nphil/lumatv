@@ -33,3 +33,4 @@ serde_json.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 lumashow-sdk.workspace = true
+fetch = { workspace = true, features = ["testing"] }

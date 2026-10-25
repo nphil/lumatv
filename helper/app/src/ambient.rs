@@ -1,18 +1,23 @@
 //! Ambient light, the helper's side: the settings the person chose, the engine that turns the picture's areas into colours, and
-//! the strip they go to.
+//! the lights they go to.
 //!
 //! ```text
-//!   Settings page ──► base.ambient ──► plan (lumatv-ambient: engine config + the strip's lights)
-//!   capture helper ──► unix socket ──► Engine ──► DDP over UDP ──► the WLED strip named in helper.json
+//!   Settings page ──► base.ambient ──► plan (lumatv-ambient: engine config + the strip's lights + the Hue area's lights)
+//!   capture helper ──► unix socket ──► Engine ──┬─► DDP over UDP ──► the WLED strip named in helper.json
+//!                                               └─► hue::Output ──► the Hue bridge: HTTPS start/stop, DTLS HueStream
 //! ```
 //!
 //! - **Nothing is sent to a device nobody named.** The strip's address is `ambient.wled` in `helper.json` (a private IPv4
-//!   address: the picture's colours never leave the home network); with none, ambient light has nothing to drive, says so in the
-//!   `ambient` topic's `problem`, and the test pattern is refused.
+//!   address: the picture's colours never leave the home network); the Hue bridge is the one `lumatv-helper hue-link` saved
+//!   (`hue_store`, also a private address, with the keys and the certificate the bridge must present). With neither, ambient light
+//!   has nothing to drive, says so in the `ambient` topic's `problem`, and the test pattern is refused.
 //! - **Nothing runs while it is not wanted.** The thread sleeps until the settings, the screen, the context or a frame change what
 //!   is wanted; it ticks at 30 Hz (the reader polls at 10 a second by default) only while the picture is moving the lights, sends a still colour once a second (WLED leaves
 //!   realtime mode 2.5 s after the last packet), and after the lights have faded to black it sends one black frame and goes quiet.
-//!   The capture socket exists only while a picture is wanted.
+//!   The capture socket exists only while a picture is wanted. The Hue stream is open exactly while the lights are lit: when the
+//!   screen goes off (or ambient light is switched off, or Home covers the picture in the mode that goes dark there) the lights
+//!   fade, then the stream ends and the area is handed back to the bridge. Before the bridge's lights are known (the engine needs
+//!   one light per channel) the area is read once, without starting it, as soon as ambient light is on and the screen is lit.
 //! - **The picture comes from the capture helper** (32-bit, `ambient/capture`): one `wire` frame per poll, already
 //!   reduced to a colour per area. The helper answers with one byte, the hardware preset the engine wants (`Engine::wanted_preset`:
 //!   plain, letterbox, pillarbox or games), on connect and whenever it changes.
@@ -20,14 +25,18 @@
 //!   service unless `/var/luna/preferences/vt_devmode` exists; creating it is the owner's decision, made for short supervised probe
 //!   slots (`ambient/capture/tv_probe_slot.py`), and no code of the helper creates it.
 //!
-//! The topic `ambient`: `{enabled, mode, brightness, sections, available, strip, hue, state, problem, covered}`. `state` is `off`
-//! (not enabled), `idle` (enabled, but nothing to do now: the screen is off, or Home covers the picture in the mode that goes dark
-//! there), `waiting` (enabled, no picture frames yet), `running` or `testing`. `available` says there is a light to drive; `hue` is
-//! reserved (the Hue stream needs the bridge's REST start, which the helper cannot make yet) and always false.
+//! The topic `ambient`: `{enabled, mode, brightness, sections, available, strip, hue, hueState, state, problem, covered}`. `state` is
+//! `off` (not enabled), `idle` (enabled, but nothing to do now: the screen is off, or Home covers the picture in the mode that goes
+//! dark there), `waiting` (enabled, no picture frames yet), `running` or `testing`. `available` says there is a light to drive;
+//! `strip` and `hue` say which (`hue`: a bridge is linked with an area); `hueState` is the Hue output's own: `idle`, `connecting`,
+//! `streaming` or `error` (its words are in `problem`).
 
 use crate::config::WledConfig;
 use crate::control::Stop;
 use crate::ctx::Ctx;
+use crate::hue::{self, Demand, Event, Frame};
+use crate::hue_rest::Tls;
+use crate::hue_store;
 use crate::screen;
 use crate::settings::{SettingsStore, wake_on_change};
 use lumatv_ambient::ddp::{self, Format};
@@ -35,7 +44,7 @@ use lumatv_ambient::engine::Engine;
 use lumatv_ambient::plan::{Edges, Mode, Plan, Settings, Still};
 use lumatv_ambient::wire;
 use lumatv_ambient::zones::Preset;
-use lumatv_ambient::{Rgb, ZoneFrame, wled_leds};
+use lumatv_ambient::{Light, Rgb, Target, ZoneFrame, hue_channels, wled_leds};
 use parking_lot::{Condvar, Mutex};
 use serde_json::{Value as Json, json};
 use settings_schema::{Value, Values};
@@ -144,6 +153,16 @@ struct Inner {
     /// The thread is waiting with no deadline: a frame or a change must wake it.
     sleeping: bool,
     dirty: bool,
+    /// The Hue output, when a bridge is linked with an area.
+    hue: Option<Arc<hue::Output>>,
+    /// Why Hue is not driven although a bridge was linked: no area chosen, or a link that cannot be read.
+    hue_note: Option<String>,
+    /// The area's channels as lights, once the area has been read (nothing until then).
+    hue_lights: Vec<Light>,
+    /// What the Hue output is sent after this step.
+    hue_frame: Option<Frame>,
+    /// The last Hue frame had a lit channel.
+    hue_lit: bool,
 }
 
 /// What one step of the thread has to do.
@@ -188,6 +207,11 @@ impl Ambient {
                 state: "off",
                 sleeping: false,
                 dirty: true,
+                hue: None,
+                hue_note: None,
+                hue_lights: Vec::new(),
+                hue_frame: None,
+                hue_lit: false,
             }),
             wake: Condvar::new(),
         });
@@ -199,6 +223,7 @@ impl Ambient {
                 }
             });
         }
+        ambient.reload_hue();
         {
             let mut g = ambient.inner.lock();
             ambient.rebuild(&mut g);
@@ -321,7 +346,8 @@ impl Ambient {
     /// Makes the plan and the engine from the settings now in `g`. A plan that cannot be made is the `problem`.
     fn rebuild(&self, g: &mut Inner) {
         g.dirty = false;
-        match g.settings.plan(&[]) {
+        let others = g.hue_lights.clone();
+        match g.settings.plan(&others) {
             Ok(plan) => match Engine::new(plan.engine.clone(), plan.lights.clone()) {
                 Ok(mut engine) => {
                     engine.set_games(plan.game_edges && g.game);
@@ -345,21 +371,120 @@ impl Ambient {
         }
     }
 
+    /// Whether the plan has a light something of this helper can show: a strip's LED when there is a strip to send to, a Hue channel
+    /// when there is a bridge.
+    fn drives(&self, hue: bool, plan: &Plan) -> bool {
+        (self.target.is_some() && plan.sections > 0) || (hue && plan.lights.len() > plan.sections)
+    }
+
+    /// What the Hue output is asked for after a step: the stream while the lights are lit; a look at the area (without starting it)
+    /// while its lights are not known and ambient light is on; nothing otherwise, which ends a stream that is open (the screen went
+    /// off, ambient light was switched off, the lights have faded).
+    fn offer_hue(&self, g: &mut Inner, want: Want, screen_on: bool) {
+        let frame = g.hue_frame.take();
+        let Some(output) = g.hue.clone() else {
+            return;
+        };
+        let known = !g.hue_lights.is_empty();
+        let demand = if known && g.live && want != Want::Test {
+            Demand::Stream
+        } else if !known && g.settings.enabled && screen_on {
+            Demand::Discover
+        } else {
+            Demand::Off
+        };
+        output.set(demand, frame);
+    }
+
+    /// Reads the saved Hue link again and starts the Hue output for it (a running one is ended first). The command line asks for
+    /// this after it changes the link (`POST /v1/ambient/refresh`).
+    pub fn reload_hue(self: &Arc<Self>) {
+        let (output, note) = match hue_store::load(&self.ctx.paths.data_dir) {
+            Ok(Some(link)) if link.area.is_some() => {
+                let weak = Arc::downgrade(self);
+                let events: Arc<dyn Fn(Event) + Send + Sync> = Arc::new(move |event| {
+                    if let Some(ambient) = weak.upgrade() {
+                        ambient.hue_event(event);
+                    }
+                });
+                let tls = Tls::from_config(&self.ctx.config.fetch);
+                match hue::Output::spawn(link, &self.ctx.paths.data_dir, tls, events) {
+                    Ok(output) => (Some(Arc::new(output)), None),
+                    Err(e) => (None, Some(format!("the Hue output cannot start: {e}"))),
+                }
+            }
+            Ok(Some(_)) => (
+                None,
+                Some(
+                    "Hue is linked but no entertainment area is chosen: run lumatv-helper hue-area"
+                        .to_owned(),
+                ),
+            ),
+            Ok(None) => (None, None),
+            Err(e) => (None, Some(format!("the Hue link cannot be used: {e}"))),
+        };
+        if let Some(note) = &note {
+            crate::log_warn!("ambient: {note}");
+        }
+        let old = {
+            let mut g = self.inner.lock();
+            let old = std::mem::replace(&mut g.hue, output);
+            g.hue_note = note;
+            g.hue_lights.clear();
+            g.hue_frame = None;
+            g.hue_lit = false;
+            g.dirty = true;
+            self.publish(&g);
+            old
+        };
+        // Ending a stream takes a moment (the bridge is told): not with the lock held.
+        drop(old);
+        self.wake.notify_all();
+    }
+
+    /// What the Hue output says, from its own thread.
+    fn hue_event(&self, event: Event) {
+        let mut g = self.inner.lock();
+        if let Event::Lights(lights) = event
+            && g.hue_lights != lights
+        {
+            g.hue_lights = lights;
+            g.dirty = true;
+        }
+        self.publish(&g);
+        let dirty = g.dirty;
+        drop(g);
+        if dirty {
+            self.wake.notify_all();
+        }
+    }
+
     /// The topic's value.
     fn topic_json(&self, g: &Inner) -> Json {
-        let problem = g.problem.clone().or_else(|| {
-            self.target
-                .is_none()
-                .then(|| "No strip is set up: helper.json needs ambient.wled.host".to_owned())
-        });
+        let hue = g.hue.as_ref().map(|o| o.status());
+        let hue_words = hue
+            .as_ref()
+            .and_then(|s| s.problem.as_deref())
+            .map(|p| format!("Hue: {p}"));
+        let problem = g
+            .problem
+            .clone()
+            .or(hue_words)
+            .or_else(|| g.hue_note.clone())
+            .or_else(|| {
+                (self.target.is_none() && g.hue.is_none()).then(|| {
+                    "No light is set up: helper.json needs ambient.wled.host, or run lumatv-helper hue-link".to_owned()
+                })
+            });
         json!({
             "enabled": g.settings.enabled,
             "mode": g.settings.mode.word(),
             "brightness": g.settings.brightness,
             "sections": g.settings.edges.sum(),
-            "available": self.target.is_some(),
+            "available": self.target.is_some() || g.hue.is_some(),
             "strip": self.target.is_some(),
-            "hue": false,
+            "hue": g.hue.is_some(),
+            "hueState": hue.map_or("off", |s| s.state),
             "state": g.state,
             "problem": problem,
             "covered": g.covered,
@@ -387,10 +512,11 @@ impl Ambient {
             }
             g.test = None;
         }
-        let Some(plan) = g.plan.as_ref().filter(|p| p.sections > 0) else {
+        let hue = g.hue.is_some();
+        let Some(plan) = g.plan.as_ref().filter(|p| self.drives(hue, p)) else {
             return Want::Idle;
         };
-        if self.target.is_none() || !plan.enabled || !screen_on {
+        if !plan.enabled || !screen_on {
             return Want::Idle;
         }
         match plan.mode {
@@ -433,6 +559,7 @@ impl Ambient {
         }
         let want = self.refresh_state(&mut g, screen_on, now);
         let leds = g.plan.as_ref().map_or(0, |p| p.sections);
+        g.hue_frame = None;
         let step = match want {
             Want::Test => self.step_test(&mut g, now, leds),
             Want::Still => self.step_still(&mut g, now, leds),
@@ -440,9 +567,10 @@ impl Ambient {
             Want::Idle => {
                 if g.engine.is_some()
                     && g.live
-                    && g.last_sent
-                        .as_ref()
-                        .is_some_and(|(f, _)| f.iter().any(|b| *b != 0))
+                    && (g.hue_lit
+                        || g.last_sent
+                            .as_ref()
+                            .is_some_and(|(f, _)| f.iter().any(|b| *b != 0)))
                 {
                     // The picture's lights fade out through the engine; anything else is cut to black at once.
                     if g.settings.mode.follows_picture() && g.last_frame.is_some() {
@@ -463,12 +591,14 @@ impl Ambient {
         // The state may have moved while stepping (a test ended, the lights went dark).
         let screen_now = screen_on;
         let _ = self.refresh_state(&mut g, screen_now, now);
+        self.offer_hue(&mut g, want, screen_on);
         self.publish(&g);
         step
     }
 
     fn black(g: &mut Inner, now: Instant, leds: usize) -> Step {
         g.live = false;
+        g.hue_lit = false;
         let frame = vec![0u8; leds * 3];
         g.last_sent = Some((frame.clone(), now));
         Step {
@@ -487,6 +617,11 @@ impl Ambient {
         let rgb = plan.still.to_u8();
         let frame: Vec<u8> = (0..leds).flat_map(|_| rgb).collect();
         g.live = true;
+        let on_hue = |l: &Light| matches!(l.target, Target::Hue { .. });
+        let hue_lit = plan.lights.iter().any(on_hue) && rgb != [0; 3];
+        let colours = vec![plan.still; plan.lights.len()];
+        g.hue_frame = Some(hue_channels(&plan.lights, &colours));
+        g.hue_lit = hue_lit;
         let due = g.last_sent.as_ref().is_none_or(|(sent, at)| {
             *sent != frame || now.saturating_duration_since(*at) >= KEEPALIVE
         });
@@ -523,7 +658,14 @@ impl Ambient {
         engine.set_games(game);
         let colours: Vec<Rgb> = engine.tick(ms).to_vec();
         let frame = wled_leds(&plan.lights, &colours, leds);
-        let dark = frame.iter().all(|b| *b == 0);
+        let hue_frame = hue_channels(&plan.lights, &colours);
+        let hue_lit = plan
+            .lights
+            .iter()
+            .zip(&colours)
+            .any(|(l, c)| matches!(l.target, Target::Hue { .. }) && c.to_u8() != [0; 3]);
+        // Dark is every light, the strip's and the Hue area's, rounding to black.
+        let dark = colours.iter().all(|c| c.to_u8() == [0; 3]);
         let quiet =
             last_frame.is_none_or(|t| now.saturating_duration_since(t) >= FADE_GRACE) || !on;
         if dark && quiet {
@@ -534,6 +676,7 @@ impl Ambient {
                 .as_ref()
                 .is_none_or(|(f, _)| f.iter().all(|b| *b == 0));
             g.live = false;
+            g.hue_lit = false;
             if already_black {
                 return Step {
                     frame: None,
@@ -547,6 +690,8 @@ impl Ambient {
             };
         }
         g.live = true;
+        g.hue_lit = hue_lit;
+        g.hue_frame = Some(hue_frame);
         g.last_sent = Some((frame.clone(), now));
         Step {
             frame: Some(frame),
@@ -564,6 +709,7 @@ impl Ambient {
         // 60 %: bright enough to see across a room, not a flash.
         frame[lit * 3..lit * 3 + 3].copy_from_slice(&[153, 153, 153]);
         g.live = true;
+        g.hue_lit = false;
         g.last_sent = Some((frame.clone(), now));
         let into = now.saturating_duration_since(started).as_millis() % TEST_STEP.as_millis();
         let next =
@@ -574,14 +720,15 @@ impl Ambient {
         }
     }
 
-    /// Whether the capture socket should exist: a picture is wanted and a strip can show it.
+    /// Whether the capture socket should exist: a picture is wanted and something can show it.
     pub fn wants_capture(&self) -> bool {
         let g = self.inner.lock();
-        self.target.is_some()
+        let hue = g.hue.is_some();
+        (self.target.is_some() || hue)
             && screen::is_on(&self.ctx.hub)
             && g.plan
                 .as_ref()
-                .is_some_and(|p| p.enabled && p.sections > 0 && p.mode.follows_picture())
+                .is_some_and(|p| p.enabled && self.drives(hue, p) && p.mode.follows_picture())
     }
 
     /// Starts the thread that drives the strip.
@@ -630,6 +777,11 @@ impl Ambient {
             }
         }
         drop(link);
+        // The stream to the bridge ends with the helper: black, closed, and the area handed back.
+        let output = self.inner.lock().hue.take();
+        if let Some(output) = output {
+            output.shutdown();
+        }
     }
 
     fn send(&self, sender: &mut Option<ddp::Sender>, frame: &[u8], last_warning: &mut String) {

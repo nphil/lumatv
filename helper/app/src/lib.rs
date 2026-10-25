@@ -14,6 +14,7 @@
 //! | [`plugins`] | the plugin broker: LumaShow's plugin API level 1 for settings pages, cards, tiles and notifications |
 //! | [`device`] | what this device is (screen class, how a person drives it): the facts plugins get in `welcome`, and `/v1/device` |
 //! | [`ambient`] | ambient light: the Settings page's values as the engine's plan, the picture from the capture helper, DDP to the strip |
+//! | [`hue`], [`hue_rest`], [`hue_store`] | ambient light's Hue Entertainment output: the stream thread, the bridge's HTTPS, the saved link |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
@@ -30,6 +31,9 @@ pub mod fetcher;
 pub mod homefeeds;
 pub mod http;
 pub mod hub;
+pub mod hue;
+pub mod hue_rest;
+pub mod hue_store;
 pub mod log;
 pub mod plugins;
 pub mod preload;

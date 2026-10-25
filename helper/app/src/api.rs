@@ -79,6 +79,11 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "what covers the picture: {\"covered\": bool, \"game\": bool}, either may be left out",
     ),
     (
+        "POST",
+        "/v1/ambient/refresh",
+        "read the saved Hue link again (the command line asks after it changes the link)",
+    ),
+    (
         "GET",
         "/v1/events",
         "long poll: ?after=<seq>&boot=<boot>&timeout=<seconds, max 30>&topics=<a,b>",
@@ -253,6 +258,12 @@ impl Api {
             ),
             Err(crate::ambient::TestError::NoLights(why)) => error_response(409, "no_lights", &why),
         }
+    }
+
+    /// Reads the saved Hue link again (the command line asks after it changes the link).
+    fn ambient_refresh(&self) -> Response {
+        self.ambient.reload_hue();
+        self.ok(json!({"ambient": self.ambient.status()}))
     }
 
     fn ambient_context(&self, request: &Request) -> Response {
@@ -478,6 +489,7 @@ impl Handler for Api {
             ["v1", "ambient"] if get => self.ambient_status(),
             ["v1", "ambient", "test"] if post => self.ambient_test(request),
             ["v1", "ambient", "context"] if post => self.ambient_context(request),
+            ["v1", "ambient", "refresh"] if post => self.ambient_refresh(),
             ["v1", "receiver", "nudge"] if post => {
                 let _ = self.receiver_tx.send(receiver::Cmd::Nudge);
                 self.ok(json!({"requested": true}))
@@ -521,15 +533,15 @@ fn is_known_path(segments: &[&str]) -> bool {
             ]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
-            | ["v1", "ambient", "test" | "context"]
+            | ["v1", "ambient", "test" | "context" | "refresh"]
     )
 }
 
 fn allowed_methods(segments: &[&str]) -> &'static str {
     match segments {
-        ["v1", "refresh"] | ["v1", "receiver", "nudge"] | ["v1", "ambient", "test" | "context"] => {
-            "POST"
-        }
+        ["v1", "refresh"]
+        | ["v1", "receiver", "nudge"]
+        | ["v1", "ambient", "test" | "context" | "refresh"] => "POST",
         ["v1", "settings", _] => "GET, POST",
         _ => "GET",
     }

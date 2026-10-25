@@ -47,8 +47,9 @@ Next, in order:
 2. Done offline (not verified on the set): the reader's default is 10 polls a second (`-r`, 1..120), it logs a `cost:`
    line when a capture ends, `tv_probe_slot.py` runs one minute of Home at 10/s (`--hz`), and the helper's ambient
    engine, fed by the reader's own host build over the capture socket, drives a fake WLED socket (test
-   `the_capture_reader_at_its_default_rate_drives_the_strip_end_to_end`). Hue streaming is not wired: see "Hue
-   streaming: Nitin's steps" under "Probe slots".
+   `the_capture_reader_at_its_default_rate_drives_the_strip_end_to_end`). Hue Entertainment streaming is wired in the helper
+   (offline, against a fake bridge): see "Hue Entertainment streaming" under "Probe slots" for the design, Nitin's steps to
+   link the bridge and the TV checklist.
 3. Next TV slot: `python3 ambient/capture/tv_probe_slot.py --go --no-standby`, then read "Reader CPU at 10 polls a
    second" under "Probe slots". `tools/lumatv apply` installs the reader as the package does (`capture.sh install`).
 
@@ -301,22 +302,79 @@ core, ms a poll, and CPU per step: `getHistogram`, reduce, send; wall time of `g
 where the 1.8 ms goes. If it is over 1 % at 10/s: rerun with `--hz 5` (the two points give the model's slope and fixed
 part), and decide between 5/s and accepting a number between.
 
-### Hue streaming: Nitin's steps (a key action, so not done by an AI)
+### Hue Entertainment streaming (wired offline; not verified on the TV)
 
-The helper cannot start an entertainment stream by itself: the bridge needs an application key with a client key, an
-entertainment area, and an HTTPS call to start it. Steps for Nitin:
+Built 2026-10-25, all against a fake bridge on the loopback (HTTPS from python's `ssl`, DTLS-PSK from OpenSSL's `s_server`,
+`helper/app/tests/hue.rs` and `tests/support/fake_hue_bridge.py`); no traffic to any real bridge, Bifrost or lamp.
 
-1. Press the bridge's link button, then create an application key that also returns a client key: `POST
-   https://<bridge>/api` with `{"devicetype":"lumatv#tv","generateclientkey":true}`; keep `username` (the application
-   key) and `clientkey`.
-2. In the Hue app create an Entertainment area with the lights wanted, placed where they stand; note its id (`GET
-   https://<bridge>/clip/v2/resource/entertainment_configuration`, header `hue-application-key`).
-3. Give the helper the bridge address, application key, client key, application id (`GET /auth/v1`, response header
-   `hue-application-id`) and the area id in its config; the helper will start the stream with `PUT
-   .../entertainment_configuration/<id>` (`{"action":"start"}`) over HTTPS, then DTLS on UDP 2100.
-4. Bifrost instead of a bridge: the area must exist in Bifrost; the client key is its fixed `BifrostHueTlsKey`.
+```text
+ ambient (engine, 30 Hz) --set(demand, frame)--> hue::Output thread --HTTPS--> GET /auth/v1, GET area, PUT area {"action":"start"|"stop"}
+                                                                    --DTLS--> UDP 2100, HueStream v2, PSK identity = application id,
+                                                                              key = client key
+```
 
-None of the config keys in step 3 exist yet; adding them is the next code step once Nitin has the key action done.
+- **Modules** (`helper/app/src/`): `hue_store.rs` (the saved link: `<data dir>/ambient/hue.json`, mode 0600, and the pinned
+  certificate `hue-cert.pem`), `hue_rest.rs` (HTTPS through the image's `openssl s_client`, the same child `fetch::TlsFetch` and
+  Home Assistant use; `fetch` itself only does `GET`/`HEAD` and checks public authorities, so the shared crate is untouched),
+  `hue.rs` (the thread that owns the stream), `ambient.rs` (demand, lights, status), `cli.rs` (`hue-link`, `hue-area`,
+  `hue-unlink`), `api.rs` (`POST /v1/ambient/refresh`, what the command line calls to make a running helper read the link
+  again). In `ambient/`: `huestream::channel_light` (an area's channel position as a light) and `is_uuid` made public.
+- **Trust**: the bridge's certificate is made by Signify's own authority (Bifrost's by itself), so `hue-link` pins the certificate
+  the bridge shows at link time (the person is at the bridge) and every later connection must present exactly that one
+  (`-CAfile <pin> -partial_chain`, no host name check: the pin is the identity). A bridge that is replaced, or an impostor on the
+  address, fails the handshake and is sent nothing, not even a key (test `a_bridge_that_shows_another_certificate...`).
+- **Keys**: read from the bridge's reply (`--pair`) or from standard input, kept in a 0600 file, sent only after the pinned
+  handshake and on the TLS child's standard input, never on a command line, never in a log, a topic, an API answer or an error
+  (`Debug` of the link says `<redacted>`; tests grep every output for both keys).
+- **Sequence** (one stream): read the area (channels, positions, status), refuse if it is already streaming (for another
+  application, or for an earlier stream the bridge has not yet let go of: wait and look again; an area is never taken over), `PUT
+  start`, open DTLS (handshake up to 6 s), then the latest frame at most 25 times a second and again at least once a second
+  (the bridge ends a stream after about 10 s of silence; Zigbee lamps take about 25 updates a second). A stream the bridge ends is
+  noticed within 250 ms, the area is stopped to put it right, and it is started again after 5 s (then 10, up to 60, on repeated
+  failures; the words are the topic's `problem`, prefixed `Hue:`).
+- **Stop**: the stream is open exactly while the lights are lit. Screen off, ambient light switched off, Home covering the picture
+  in the mode that goes dark there, or the lights faded out: black is sent twice (a lamp left at its last colour would stay
+  there), the DTLS session is closed with its alert, `PUT stop` hands the area back. The helper ending does the same (at most 4 s
+  on the stop call). Test: `the_still_colour_streams_to_the_started_area_and_the_screen_going_off_ends_it` (real screen watcher,
+  fake `luna-send`), `the_pictures_colours_reach_each_channel...` (picture frames on the capture socket, then none).
+- **Lights**: one engine light per channel of the area, placed by its position: `x` from -1 (left) to 1 (right) is the picture's
+  left to right and `z` from -1 (floor) to 1 (ceiling) is bottom to top; the depth `y` does not move it (a first guess, see the
+  list for the TV). With no strip configured, Hue alone is enough; the strip and Hue are driven from the same engine.
+- **Topic** `ambient`: `hue` (linked with an area), `hueState` (`idle`, `connecting`, `streaming`, `error`), `available` is a
+  strip or Hue, and `problem` carries the Hue output's words, or "linked but no area chosen: run `lumatv-helper hue-area`".
+
+Nitin's steps (key actions, so none of them is done by an AI; the keys are made by him, here, once). On the TV, as root over
+the Homebrew Channel's ssh, `H=/var/lib/lumatv/bin/lumatv-helper`:
+
+1. In the Hue app make an Entertainment area with the lights wanted, placed where they stand and the TV at the front. With
+   Bifrost: the area has to exist in Bifrost.
+2. Find the bridge's address (the router's client list, or the Hue app). It must be a private address.
+3. Press the bridge's round link button, then within 30 s run `$H hue-link --data-dir /var/lib/lumatv --host <bridge> --pair`.
+   It pins the certificate the bridge shows (nothing to do), makes the application key and the client key, proves the key by
+   using it, saves everything and prints the areas (never a key). If the bridge has exactly one area it is chosen. Bifrost
+   answers the registration at once (its source: `POST /api` returns the standard application id and `BifrostHueTlsKey` as the
+   client key): no button.
+4. With more than one area: `$H hue-area --data-dir /var/lib/lumatv` lists them, `$H hue-area --data-dir /var/lib/lumatv --area
+   <id>` chooses one.
+5. Without `--pair` the keys come on standard input instead: press the button, run from any computer on the home network
+   `curl -k -X POST https://<bridge>/api -d '{"devicetype":"lumatv#tv","generateclientkey":true}'` (`-k` because the bridge's
+   certificate is its own) and pipe the whole answer into `hue-link` on the TV (`... | ssh <tv> $H hue-link --data-dir
+   /var/lib/lumatv --host <bridge>`); neither key is ever an argument.
+6. Switch ambient light on in Settings, Ambient light. A running helper is told by the command itself. `$H hue-unlink
+   --data-dir /var/lib/lumatv` removes the link, the keys and the pin; the bridge keeps its own list of authorised keys.
+
+Not verified on the TV (next slot, in this order):
+
+- `hue-link` on the set: the set's `openssl` accepts `-partial_chain` and `-verify_return_error` (`check-config` shows the
+  program), the pinned certificate can be read by the TLS child (it runs as `fetch.user`, default `nobody`; `<data
+  dir>/ambient/` is made 0755 for that; if the data dir above it is closed, set `fetch.user` to `null`).
+- Against the real bridge or Bifrost: the DTLS handshake time (the client gives it 6 s), `PUT start` answered without errors, the
+  area's `active_streamer.rid` equal to the application id (assumed, it only decides the words of "streaming to another
+  application"), the lamps' state after `PUT stop` (the helper sends black first because it is not known whether the bridge
+  restores them).
+- The channel placement on the picture (`x`, `z`, depth ignored) against where the lamps really are, and the 25 updates a second
+  against Bifrost's `streaming_fps` (default 20).
+- Helper CPU with the stream open (DTLS AES-GCM at 25 Hz plus the 30 Hz engine) and the screen-off stop within a second.
 
 ## Open
 

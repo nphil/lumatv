@@ -28,6 +28,7 @@
 //! ```
 
 use crate::dtls::{DtlsError, PskClient, PskConfig};
+use crate::layout::{Light, Target};
 use std::fmt;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -76,7 +77,8 @@ impl fmt::Display for StreamError {
 
 impl std::error::Error for StreamError {}
 
-fn is_uuid(s: &str) -> bool {
+/// Whether `s` is a resource id as the bridge writes it (36 characters, hex digits and four dashes).
+pub fn is_uuid(s: &str) -> bool {
     s.len() == CONFIG_ID_LEN
         && s.bytes().enumerate().all(|(i, b)| {
             if matches!(i, 8 | 13 | 18 | 23) {
@@ -166,6 +168,26 @@ pub fn decode_client_key(hex: &str) -> Result<Vec<u8>, StreamError> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&h[i..i + 2], 16).expect("checked hex"))
         .collect())
+}
+
+/// The light an entertainment channel is, in picture coordinates ([`crate::layout`]): the area's own placement of the channel is
+/// `x` from -1 (left) to 1 (right), `y` from -1 (back) to 1 (front) and `z` from -1 (floor) to 1 (ceiling), seen from the
+/// seat, so the picture is the plane the channel is projected onto: left to right is `x` and top to bottom is `-z`. The depth
+/// does not move a light on the picture. A first guess for the area drawn around a set (the Hue app places the set at the front,
+/// where `y` is 1); tune it on the lights.
+pub fn channel_light(channel: u8, x: f32, z: f32) -> Light {
+    let unit = |v: f32| {
+        if v.is_finite() {
+            v.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    Light {
+        target: Target::Hue { channel },
+        x: (unit(x) + 1.0) / 2.0,
+        y: (1.0 - unit(z)) / 2.0,
+    }
 }
 
 /// A REST request the helper sends over HTTPS (the bridge's certificate is self-signed): method, path, JSON body.
@@ -291,6 +313,21 @@ mod tests {
         let x = encode(0, ColorSpace::XyBrightness, CFG, &[]).unwrap();
         assert_eq!(x[14], 1);
         assert_eq!(x.len(), 52);
+    }
+
+    #[test]
+    fn a_channel_lands_on_the_picture_by_its_side_and_height() {
+        let at = |x, z| {
+            let l = channel_light(3, x, z);
+            assert_eq!(l.target, Target::Hue { channel: 3 });
+            (l.x, l.y)
+        };
+        assert_eq!(at(-1.0, 1.0), (0.0, 0.0));
+        assert_eq!(at(1.0, -1.0), (1.0, 1.0));
+        assert_eq!(at(0.0, 0.0), (0.5, 0.5));
+        // Out of range or not a number is held to the nearest edge, or the middle.
+        assert_eq!(at(9.0, -9.0), (1.0, 1.0));
+        assert_eq!(at(f32::NAN, f32::INFINITY), (0.5, 0.5));
     }
 
     #[test]

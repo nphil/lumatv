@@ -11,23 +11,29 @@
 //! lumatv-helper check-config --brand ...
 //! lumatv-helper voice-link --brand ... --url <Home Assistant>   the access token is read from standard input
 //! lumatv-helper voice-unlink --brand ...
+//! lumatv-helper hue-link --brand ... --host <bridge> (--pair | keys on standard input) [--area <id>]
+//! lumatv-helper hue-area --brand ... [--area <id>]         list the bridge's entertainment areas, or choose one
+//! lumatv-helper hue-unlink --brand ...
 //! ```
 //!
 //! `voice-link` is how voice search is pointed at Home Assistant: the address is an argument and the token comes on standard input,
 //! so it is in no process list and no shell history that the owner does not choose, and neither is ever printed. It is the only
-//! way to set either (see `voice_store`); a helper that is running is told to read the link again.
+//! way to set either (see `voice_store`); a helper that is running is told to read the link again. `hue-link` does the same for
+//! the Hue bridge (see `hue_store`): the keys never appear in an argument or in any output.
 //!
 //! `--data-dir <dir>` replaces `--brand` for tests and development. The data dir from `brand.json` is checked by the tool's own
 //! rule (a directory directly under `/var/lib`).
 
 use crate::config::{Config, Paths, data_dir_from_brand, find_ca_bundle};
+use crate::hue_rest::{self, Area, Bridge, HueError, Tls};
+use crate::hue_store::{self, HueLink};
 use crate::log::{self, Level, Logger};
 use crate::service::{Service, StartOptions};
 use crate::sys::{self, Forked};
 use serde_json::{Value, json};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -43,6 +49,11 @@ struct Args {
     data_dir: Option<PathBuf>,
     url: Option<String>,
     stderr: bool,
+    host: Option<String>,
+    port: Option<u16>,
+    stream_port: Option<u16>,
+    area: Option<String>,
+    pair: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -55,6 +66,11 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 out.data_dir = Some(it.next().ok_or("--data-dir needs a directory")?.into())
             }
             "--url" => out.url = Some(it.next().ok_or("--url needs an address")?.clone()),
+            "--host" => out.host = Some(it.next().ok_or("--host needs an address")?.clone()),
+            "--area" => out.area = Some(it.next().ok_or("--area needs an id")?.clone()),
+            "--port" => out.port = Some(port_arg(it.next(), "--port")?),
+            "--stream-port" => out.stream_port = Some(port_arg(it.next(), "--stream-port")?),
+            "--pair" => out.pair = true,
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -66,6 +82,15 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         return Err("no command".to_owned());
     }
     Ok(out)
+}
+
+fn port_arg(value: Option<&String>, flag: &str) -> Result<u16, String> {
+    value
+        .ok_or_else(|| format!("{flag} needs a port"))?
+        .parse::<u16>()
+        .ok()
+        .filter(|p| *p != 0)
+        .ok_or_else(|| format!("{flag} needs a port from 1 to 65535"))
 }
 
 fn emit(value: &Value) {
@@ -80,7 +105,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge> [--port <n>] [--stream-port <n>] [--pair] [--area <id>]]",
     })
 }
 
@@ -134,6 +159,9 @@ pub fn main(args: Vec<String>) -> i32 {
             voice_link(&paths, &config, args.url.as_deref())
         }),
         "voice-unlink" => with_config(&args, voice_unlink),
+        "hue-link" => with_config(&args, |paths, config| hue_link(&paths, &config, &args)),
+        "hue-area" => with_config(&args, |paths, config| hue_area(&paths, &config, &args)),
+        "hue-unlink" => with_config(&args, hue_unlink),
         other => fail(2, &format!("unknown command {other}")),
     }
 }
@@ -416,7 +444,7 @@ fn voice_link(paths: &Paths, config: &Config, url: Option<&str>) -> i32 {
     }
     match crate::voice_store::save(&paths.data_dir, url, &token) {
         Ok(link) => {
-            let told = tell_helper_voice(paths, config);
+            let told = tell_helper(paths, config, "/v1/voice/refresh");
             emit(&json!({
                 "ok": true,
                 "linked": true,
@@ -433,13 +461,13 @@ fn voice_link(paths: &Paths, config: &Config, url: Option<&str>) -> i32 {
 /// Removes the saved link.
 fn voice_unlink(paths: Paths, config: Config) -> i32 {
     let removed = crate::voice_store::clear(&paths.data_dir);
-    let told = tell_helper_voice(&paths, &config);
+    let told = tell_helper(&paths, &config, "/v1/voice/refresh");
     emit(&json!({"ok": true, "linked": false, "removed": removed, "helperTold": told}));
     0
 }
 
-/// Asks a running helper to read the voice link again (`POST /v1/voice/refresh`). False when none runs or it did not answer.
-fn tell_helper_voice(paths: &Paths, config: &Config) -> bool {
+/// Asks a running helper to read a link again (`POST <path>`). False when none runs or it did not answer.
+fn tell_helper(paths: &Paths, config: &Config, path: &str) -> bool {
     // The lock is held only by a running helper.
     if !matches!(sys::try_lock(&paths.lock_file()), Ok(None)) {
         return false;
@@ -456,13 +484,242 @@ fn tell_helper_voice(paths: &Paths, config: &Config) -> bool {
         return false;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-    let request = "POST /v1/voice/refresh HTTP/1.0\r\nX-Luma-Client: cli\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}";
+    let request = format!(
+        "POST {path} HTTP/1.0\r\nX-Luma-Client: cli\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}"
+    );
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
     let mut reply = Vec::new();
     let _ = stream.take(8192).read_to_end(&mut reply);
     String::from_utf8_lossy(&reply).starts_with("HTTP/1.1 200")
+}
+
+// ------------------------------------------------------------------------------------------------- the Hue bridge
+
+/// How long `hue-link --pair` waits for the bridge's link button.
+const PAIR_WAIT: Duration = Duration::from_secs(30);
+
+fn area_json(area: &Area) -> Value {
+    json!({
+        "id": area.id,
+        "name": area.name,
+        "type": area.kind,
+        "channels": area.channels.len(),
+        "streaming": area.active,
+    })
+}
+
+fn area_list(areas: &[Area]) -> String {
+    if areas.is_empty() {
+        return "the bridge has no entertainment area: make one in the Hue app".to_owned();
+    }
+    areas
+        .iter()
+        .map(|a| format!("{} ({})", a.id, a.name))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The two keys from the bridge's own answer to the registration, pasted on standard input (the whole answer, or just its
+/// `success` part). Never echoed, whatever is wrong with them.
+fn read_hue_keys() -> Result<(String, String), String> {
+    let mut text = String::new();
+    std::io::stdin()
+        .take(4096)
+        .read_to_string(&mut text)
+        .map_err(|e| format!("could not read the keys from standard input: {e}"))?;
+    let value: Value = serde_json::from_str(&text).map_err(|_| {
+        "standard input is not the bridge's answer to the registration (give --pair to make the keys here)".to_owned()
+    })?;
+    let node = value.get(0).unwrap_or(&value);
+    let node = node.get("success").unwrap_or(node);
+    let take = |key: &str| node.get(key).and_then(Value::as_str).map(str::to_owned);
+    match (take("username"), take("clientkey")) {
+        (Some(app), Some(client)) => Ok((app, client)),
+        _ => Err("the answer on standard input has no username and clientkey".to_owned()),
+    }
+}
+
+/// Presses nothing: waits for a person to press the link button, up to [`PAIR_WAIT`], and takes the keys the bridge makes.
+fn hue_pair(bridge: &Bridge) -> Result<(String, String), (i32, String)> {
+    let until = Instant::now() + PAIR_WAIT;
+    loop {
+        match bridge.register() {
+            Ok((app, client)) => return Ok((app.expose().to_owned(), client.expose().to_owned())),
+            Err(HueError::LinkButton) if Instant::now() < until => {
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            Err(HueError::LinkButton) => {
+                return Err((
+                    1,
+                    "the link button was not pressed within 30 seconds: press it, then run this again"
+                        .to_owned(),
+                ));
+            }
+            Err(e) => return Err((1, e.to_string())),
+        }
+    }
+}
+
+/// The link the arguments and the bridge make, and every area the bridge has.
+fn hue_make_link(
+    bridge: &Bridge,
+    args: &Args,
+    ip: Ipv4Addr,
+    port: u16,
+    stream_port: u16,
+) -> Result<(HueLink, Vec<Area>), (i32, String)> {
+    let (app, client) = if args.pair {
+        hue_pair(bridge)?
+    } else {
+        read_hue_keys().map_err(|e| (2, e))?
+    };
+    let link = HueLink::new(&ip.to_string(), port, stream_port, None, &app, &client)
+        .map_err(|e| (2, e.to_string()))?;
+    // The key is proved by asking something with it before it is kept.
+    bridge
+        .application_id(&link.app_key)
+        .map_err(|e| (1, e.to_string()))?;
+    let areas = bridge
+        .areas(&link.app_key)
+        .map_err(|e| (1, e.to_string()))?;
+    let chosen = match args.area.as_deref() {
+        Some(wanted) => {
+            let wanted = wanted.trim().to_ascii_lowercase();
+            if !areas.iter().any(|a| a.id == wanted) {
+                return Err((
+                    2,
+                    format!("the bridge has no such area; it has {}", area_list(&areas)),
+                ));
+            }
+            Some(wanted)
+        }
+        None if areas.len() == 1 => Some(areas[0].id.clone()),
+        None => None,
+    };
+    let link = match chosen {
+        Some(id) => link.with_area(&id).map_err(|e| (2, e.to_string()))?,
+        None => link,
+    };
+    Ok((link, areas))
+}
+
+/// Links the Hue bridge: finds out which certificate it presents and pins it, gets the two keys (`--pair`: made here after the link
+/// button; otherwise the bridge's answer to the registration on standard input), checks the key by using it, and saves it all with
+/// the entertainment area (`--area`, or the only one there is).
+fn hue_link(paths: &Paths, config: &Config, args: &Args) -> i32 {
+    let Some(host) = args.host.as_deref() else {
+        return fail(2, "hue-link needs --host <the bridge's address>");
+    };
+    let Ok(ip) = host.trim().parse::<Ipv4Addr>() else {
+        return fail(2, "the bridge's address must be an IPv4 address");
+    };
+    if !sys::is_lan_address(ip) {
+        return fail(
+            2,
+            "the bridge's address must be a private (or loopback) IPv4 address",
+        );
+    }
+    let port = args.port.unwrap_or(hue_store::DEFAULT_PORT);
+    let stream_port = args.stream_port.unwrap_or(hue_store::DEFAULT_STREAM_PORT);
+    let addr = SocketAddr::from((ip, port));
+    let tls = Tls::from_config(&config.fetch);
+    // The certificate the bridge shows now is the one every later connection must show: this is the moment to be at the bridge.
+    let pem = match hue_rest::scan_certificate(&tls, addr) {
+        Ok(pem) => pem,
+        Err(e) => return fail(1, &e.to_string()),
+    };
+    let staged = match hue_store::stage_certificate(&paths.data_dir, &pem) {
+        Ok(path) => path,
+        Err(e) => return fail(1, &e.to_string()),
+    };
+    let bridge = Bridge::new(tls, addr, staged);
+    let made = hue_make_link(&bridge, args, ip, port, stream_port);
+    let saved = made.and_then(|(link, areas)| {
+        hue_store::settle_certificate(&paths.data_dir, true).map_err(|e| (1, e.to_string()))?;
+        hue_store::save(&paths.data_dir, &link).map_err(|e| (1, e.to_string()))?;
+        Ok((link, areas))
+    });
+    match saved {
+        Ok((link, areas)) => {
+            let told = tell_helper(paths, config, "/v1/ambient/refresh");
+            let chosen = link
+                .area
+                .as_deref()
+                .and_then(|id| areas.iter().find(|a| a.id == id));
+            emit(&json!({
+                "ok": true,
+                "linked": true,
+                "bridge": format!("{}:{}", link.host, link.port),
+                "area": chosen.map(area_json),
+                "areas": areas.iter().map(area_json).collect::<Vec<_>>(),
+                "helperTold": told,
+                "next": if chosen.is_some() {
+                    "switch ambient light on in Settings, Ambient light"
+                } else {
+                    "choose the entertainment area: lumatv-helper hue-area --area <id>"
+                },
+            }));
+            0
+        }
+        Err((code, why)) => {
+            let _ = hue_store::settle_certificate(&paths.data_dir, false);
+            fail(code, &why)
+        }
+    }
+}
+
+/// Lists the bridge's entertainment areas, and with `--area` chooses the one ambient light streams to.
+fn hue_area(paths: &Paths, config: &Config, args: &Args) -> i32 {
+    let link = match hue_store::load(&paths.data_dir) {
+        Ok(Some(link)) => link,
+        Ok(None) => return fail(2, "no bridge is linked: run lumatv-helper hue-link"),
+        Err(e) => return fail(1, &e.to_string()),
+    };
+    let bridge = Bridge::new(
+        Tls::from_config(&config.fetch),
+        SocketAddr::from((link.host, link.port)),
+        hue_store::certificate_file(&paths.data_dir),
+    );
+    let areas = match bridge.areas(&link.app_key) {
+        Ok(areas) => areas,
+        Err(e) => return fail(1, &e.to_string()),
+    };
+    let Some(wanted) = args.area.as_deref() else {
+        emit(&json!({
+            "ok": true,
+            "areas": areas.iter().map(area_json).collect::<Vec<_>>(),
+            "chosen": link.area,
+        }));
+        return 0;
+    };
+    let wanted = wanted.trim().to_ascii_lowercase();
+    let Some(area) = areas.iter().find(|a| a.id == wanted) else {
+        return fail(
+            2,
+            &format!("the bridge has no such area; it has {}", area_list(&areas)),
+        );
+    };
+    let saved = link
+        .with_area(&area.id)
+        .and_then(|link| hue_store::save(&paths.data_dir, &link));
+    match saved {
+        Ok(()) => {
+            let told = tell_helper(paths, config, "/v1/ambient/refresh");
+            emit(&json!({"ok": true, "area": area_json(area), "helperTold": told}));
+            0
+        }
+        Err(e) => fail(1, &e.to_string()),
+    }
+}
+
+/// Removes the saved bridge, its keys and its certificate.
+fn hue_unlink(paths: Paths, config: Config) -> i32 {
+    let removed = hue_store::clear(&paths.data_dir);
+    let told = tell_helper(&paths, &config, "/v1/ambient/refresh");
+    emit(&json!({"ok": true, "linked": false, "removed": removed, "helperTold": told}));
+    0
 }
 
 /// A one-shot `GET /v1/health`: whether the API answers.
