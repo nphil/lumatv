@@ -536,11 +536,53 @@ fn keyboard_focus_enters_the_mapped_card_and_keys_reach_it() {
     let buf = client.shm_buffer(64, 64, 0xff00_0000);
     client.present(&win.surface, &buf);
     assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1), "enter follows the map");
-    let delivered = server.eval(|s| lumatv_compositor::server::seat::send_key(s, 412, true) && lumatv_compositor::server::seat::send_key(s, 412, false));
+    let delivered = server.eval(|s| {
+        use lumatv_compositor::server::seat::{SeatId, send_key};
+        send_key(s, SeatId(0), 412, true) && send_key(s, SeatId(0), 412, false)
+    });
     assert!(delivered);
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 2));
     assert_eq!(client.state.keys[0], (412, 1));
     assert_eq!(client.state.keys[1], (412, 0));
+}
+
+#[test]
+fn a_keyboard_made_after_focus_enters_at_once_and_keys_follow_their_devices_seat() {
+    use lumatv_compositor::server::seat::{SeatId, send_key};
+    use wayland_client::protocol::wl_seat::WlSeat;
+    let mut server = Server::start();
+    // A second seat, as every input device gets one on the set.
+    let remote = server.eval(|s| s.add_seat("test remote"));
+    assert_eq!(remote, SeatId(1));
+    let mut client = Client::connect(&mut server);
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Late keyboard");
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    // The focus settled on the window before any keyboard existed; a key is held on seat 0 meanwhile.
+    server.eval(|s| send_key(s, SeatId(0), 412, true));
+    let kb0 = client.seat.get_keyboard(&client.qh, ());
+    assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1), "enter at the bind, not at the next focus change");
+    assert_eq!(client.state.enter_keys, vec![412], "the key held on that seat comes with the enter");
+    server.eval(|s| send_key(s, SeatId(0), 412, false));
+
+    let names: Vec<(u32, u32)> = client.globals.contents().with_list(|l| l.iter().filter(|g| g.interface == "wl_seat").map(|g| (g.name, g.version)).collect());
+    assert_eq!(names.len(), 2, "two wl_seat globals: {names:?}");
+    let second: WlSeat = client.globals.registry().bind(names[1].0, names[1].1.min(4), &client.qh, ());
+    let kb1 = second.get_keyboard(&client.qh, ());
+    assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 2), "the second seat's keyboard enters too");
+    assert!(client.state.enter_keys.is_empty(), "nothing held on seat 1");
+
+    // A key from the remote's device goes out on seat 1's keyboard only; one from seat 0 on seat 0's.
+    server.eval(|s| {
+        send_key(s, SeatId(1), 103, true);
+        send_key(s, SeatId(1), 103, false);
+        send_key(s, SeatId(0), 108, true);
+        send_key(s, SeatId(0), 108, false);
+    });
+    assert!(client.wait_until(WAIT, |s| s.keys_by_keyboard.len() >= 5));
+    let (id0, id1) = (kb0.id().protocol_id(), kb1.id().protocol_id());
+    assert_eq!(client.state.keys_by_keyboard, vec![(id0, 412), (id1, 103), (id1, 103), (id0, 108), (id0, 108)], "the held key's release went to the first keyboard");
 }
 
 #[test]
@@ -1000,11 +1042,12 @@ fn volume_and_mute_keys_become_audio_calls_and_reach_no_app() {
     };
     let sent = server.eval(move |s| {
         s.luna_register();
-        s.key_event(KEY_VOLUMEUP, true, false);
-        s.key_event(KEY_VOLUMEUP, true, false); // key repeat
-        s.key_event(KEY_VOLUMEUP, false, false);
-        s.key_event(KEY_MUTE, true, false);
-        s.key_event(KEY_MUTE, false, false);
+        let seat = lumatv_compositor::server::seat::SeatId(0);
+        s.key_event(seat, KEY_VOLUMEUP, true, false);
+        s.key_event(seat, KEY_VOLUMEUP, true, false); // key repeat
+        s.key_event(seat, KEY_VOLUMEUP, false, false);
+        s.key_event(seat, KEY_MUTE, true, false);
+        s.key_event(seat, KEY_MUTE, false, false);
         calls(s)
     });
     let uris: Vec<&str> = sent.iter().map(|(_, u, _)| u.as_str()).collect();
@@ -1016,8 +1059,9 @@ fn volume_and_mute_keys_become_audio_calls_and_reach_no_app() {
     let token = sent.iter().find(|(_, u, _)| u.ends_with("/master/getVolume")).unwrap().0;
     let last = server.eval(move |s| {
         s.luna_event(Event { token, payload: json!({"returnValue": true, "volumeStatus": {"muteStatus": true, "volume": 0}}) });
-        s.key_event(KEY_MUTE, true, false);
-        s.key_event(KEY_MUTE, false, false);
+        let seat = lumatv_compositor::server::seat::SeatId(0);
+        s.key_event(seat, KEY_MUTE, true, false);
+        s.key_event(seat, KEY_MUTE, false, false);
         calls(s).into_iter().rev().find(|(_, u, _)| u.ends_with("/master/muteVolume")).unwrap().2
     });
     assert_eq!(last, json!({"mute": false}));

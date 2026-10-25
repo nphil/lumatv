@@ -197,6 +197,8 @@ fn run(config: Config) -> io::Result<()> {
         epoll.add(fd, TAG_UI)?;
     }
     let mut inputs = if config.input { lumatv_compositor::input::open_all() } else { Vec::new() };
+    // One wl_seat per device, as LG's compositor has them: a device's keys go out on its own seat.
+    let seats: Vec<lumatv_compositor::server::seat::SeatId> = inputs.iter().map(|d| state.add_seat(&d.name)).collect();
     for (i, d) in inputs.iter().enumerate() {
         epoll.add(d.fd(), TAG_INPUT | i as u64)?;
     }
@@ -308,7 +310,7 @@ fn run(config: Config) -> io::Result<()> {
                         });
                         for &ev in &evs[..n] {
                             match ev {
-                                lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(code, pressed, from_network),
+                                lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(seats[i], code, pressed, from_network),
                                 lumatv_compositor::input::Event::Motion { x, y } => {
                                     lumatv_compositor::server::seat::pointer_motion(&mut state, x, y);
                                 }

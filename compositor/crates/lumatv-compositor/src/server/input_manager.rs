@@ -40,9 +40,10 @@ impl Dispatch<WlWebosInputManager, ()> for State {
         match request {
             wl_webos_input_manager::Request::GetWebosSeat { id, seat } => {
                 let ws = data_init.init(id, ());
-                // id, name, designator and capabilities: the remote is one keyboard-and-pointer seat, no sensors.
-                ws.info(1, "seat0".into(), 0, Capability::Default as u32);
-                state.note_request("wl_webos_input_manager", 0, &format!("get_webos_seat(wl_seat@{})", seat.id().protocol_id()));
+                let sid = seat.data::<crate::server::seat::SeatId>().copied().unwrap_or_default();
+                // id, name, designator and capabilities: a keyboard-and-pointer seat per input device, no sensors.
+                ws.info(sid.0 + 1, sid.name(), 0, Capability::Default as u32);
+                state.note_request("wl_webos_input_manager", 0, &format!("get_webos_seat({})", sid.name()));
             }
             wl_webos_input_manager::Request::SetCursorVisibility { visibility } => {
                 // An app may hide the cursor (video playback does); showing it is the pointer's own business, so a

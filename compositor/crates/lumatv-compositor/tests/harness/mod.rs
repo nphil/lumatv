@@ -163,7 +163,11 @@ pub struct ClientState {
     pub destination_changed: Vec<(u32, u32)>,
     pub alloc_devices: Vec<String>,
     pub keyboard_enters: u32,
+    /// The keys the last `enter` carried.
+    pub enter_keys: Vec<u32>,
     pub keys: Vec<(u32, u32)>,
+    /// `(wl_keyboard protocol id, key)` per key event, to tell the seats apart.
+    pub keys_by_keyboard: Vec<(u32, u32)>,
     pub pointer_enters: Vec<(f64, f64)>,
     pub pointer_leaves: u32,
     pub motions: Vec<(f64, f64)>,
@@ -369,11 +373,17 @@ impl Dispatch<MaliBufferSharing, ()> for ClientState {
 }
 
 impl Dispatch<WlKeyboard, ()> for ClientState {
-    fn event(state: &mut Self, _: &WlKeyboard, event: wayland_client::protocol::wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(state: &mut Self, kb: &WlKeyboard, event: wayland_client::protocol::wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         use wayland_client::protocol::wl_keyboard::Event;
         match event {
-            Event::Enter { .. } => state.keyboard_enters += 1,
-            Event::Key { key, state: st, .. } => state.keys.push((key, st.into_result().map(|s| s as u32).unwrap_or(99))),
+            Event::Enter { keys, .. } => {
+                state.keyboard_enters += 1;
+                state.enter_keys = keys.chunks(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            }
+            Event::Key { key, state: st, .. } => {
+                state.keys.push((key, st.into_result().map(|s| s as u32).unwrap_or(99)));
+                state.keys_by_keyboard.push((kb.id().protocol_id(), key));
+            }
             _ => {}
         }
     }

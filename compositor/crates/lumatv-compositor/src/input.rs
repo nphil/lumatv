@@ -285,8 +285,8 @@ pub struct Keys {
 }
 
 impl State {
-    /// One key from a device.
-    pub fn key_event(&mut self, code: u32, pressed: bool, from_network: bool) {
+    /// One key from a device, delivered on `seat` (the device's own; seat 0 for the control socket and the tests).
+    pub fn key_event(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool) {
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key.
         if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && self.seat.pointer_focus.is_some() {
@@ -320,7 +320,7 @@ impl State {
         }
         match r {
             Route::Client => {
-                if seat::send_key(self, code, pressed) {
+                if seat::send_key(self, seat, code, pressed) {
                     self.keys.delivered += 1;
                 } else {
                     self.keys.dropped += 1;

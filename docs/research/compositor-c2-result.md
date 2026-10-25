@@ -28,7 +28,7 @@ exercised. LG's compositor is live (set in Active Standby, `enabled`
 absent, Home stub on, receiver unmuted).
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
-libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 28
+libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 29
 protocol, 1 bridge, 1 control, 2 warm, 2 LG-table), the same with
 `--features ui` plus `ui`, `ui_output` and `ui_scanout` under
 `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
@@ -77,8 +77,9 @@ compositor/tools/build-tv.sh` builds the bundle.
 - Built and host-tested after it, unverified on the set ("Built after the
   sixth gate"): the luna writer thread and the one-line push journal; the
   held frame while a driver buffer warms; the budgeted `bury`; `flip
-  reached`. What the seventh gate must show is listed at the end of that
-  section.
+  reached`; `wl_keyboard.enter` at a late `get_keyboard` and one `wl_seat`
+  per input device. What the seventh gate must show is listed at the end
+  of that section.
 - Next: the seventh gate with that list; x1's rule read against `flip
   reached` lines (nothing of the compositor's is logged at its 31-50 s
   gaps; a 4 ms callback delay under the thresholds is not excluded); a
@@ -217,7 +218,7 @@ makes obvious.
 | `wl_subcompositor` | 1 | Qt apps, LG Home | full: subsurface tree, sync/desync, place above/below |
 | `wl_shm` | 1 | all | full: ARGB8888/XRGB8888 pools, mmap, composite |
 | `wl_shell` | 1 | all | full: toplevel, `ping`/`pong`, `configure` at output size, title, class |
-| `wl_seat` | 4 | all | keyboard and pointer objects, focus on map; keys and the Magic Remote's absolute pointer from evdev (`input.rs`), OK as `BTN_LEFT` while the cursor shows, the sprite composed above the scene |
+| `wl_seat` | 4 | all | one global per input device plus `seat0` (LG's model, `WebOSInputDevice`); keyboard and pointer objects, focus on map, `enter` at a late `get_keyboard` with the held keys; keys from evdev on the sending device's seat, the Magic Remote's absolute pointer (`input.rs`), OK as `BTN_LEFT` while the cursor shows, the sprite composed above the scene |
 | `wl_output` | 2 | LG Home, Qt, WAM | geometry 1920x1080, 1439x809 mm, 60 Hz, scale 1 |
 | `wl_data_device_manager` | 1 | Qt, LG Home | objects only, no offers |
 | `wl_webos_shell` | 2 | all | `get_shell_surface`, `set_property`, `set_state`, `set_location_hint`, `set_key_mask`, `set_addon` (answers `addon_status_changed(denied)`), events `state_changed`, `position_changed`, `close`, `exposed`, `state_about_to_change`; `get_system_pip` ignored |
@@ -1505,6 +1506,27 @@ mapping: its buffers are dma-bufs); `bury:` lines at Netflix's exit with no
 `x1.log` read against `flip reached` lines (CutoverWatchdog was asked to
 add `flip reached|frame held|warm done|bury:|tick:` to `tv-gate.sh`'s
 x1-compositor filter).
+
+**Keyboards and seats (same build).** CardKeys found that `refocus` returns
+early when the focus is unchanged, so a `wl_keyboard` a client makes after
+its window took focus never got `wl_keyboard.enter` (Qt's compositor sends
+it at the bind, `checkFocusResource`); WAM and LG's Qt apps make their
+keyboards after mapping, and a client with no `enter` has nowhere to put a
+key. `get_keyboard` now sends `enter` at once when the seat's focus surface
+is that client's, with the keys held on that seat (`SeatState.pressed`,
+kept by `send_key`), then `modifiers`. And LG's seat model is followed: one
+`wl_seat` per input device (webOS OSE's `WebOSInputDevice`, a seat per
+device id; a key goes out on the seat of the device that sent it). Seat 0
+(`seat0`) exists in every build and carries the control socket's and the
+tests' keys; `main.rs` adds one per opened evdev device (`seat1`, `seat2`,
+… logged with the device's name) and routes its keys through
+`key_event(seat, …)` to the keyboards of that seat; `wl_webos_seat.info`
+carries the seat's id and name. Pointers are not per seat yet (one Magic
+Remote). Host test
+`a_keyboard_made_after_focus_enters_at_once_and_keys_follow_their_devices_seat`.
+On the set the seventh gate's `probe` output lists the seats, and a key
+from the remote must still reach the focused app (`keys delivered` in
+`ctl status` after a D-pad press) with LG's clients binding every seat.
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 

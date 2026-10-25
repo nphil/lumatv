@@ -148,7 +148,7 @@ impl State {
             surfaces: Surfaces::default(),
             scene: Scene::default(),
             output,
-            seat: SeatState::default(),
+            seat: SeatState { seats: 1, ..SeatState::default() },
             foreign: ForeignState::default(),
             luna,
             luna_state: crate::luna_methods::LunaState::default(),
@@ -177,7 +177,7 @@ impl State {
         dh.create_global::<State, WlSubcompositor, ()>(1, ());
         dh.create_global::<State, WlShm, ()>(1, ());
         dh.create_global::<State, WlShell, ()>(1, ());
-        dh.create_global::<State, WlSeat, ()>(4, ());
+        dh.create_global::<State, WlSeat, super::seat::SeatId>(4, super::seat::SeatId(0));
         dh.create_global::<State, WlOutput, ()>(2, ());
         dh.create_global::<State, WlDataDeviceManager, ()>(1, ());
         dh.create_global::<State, WlWebosShell, ()>(1, ());
@@ -197,6 +197,16 @@ impl State {
             dh.create_global::<State, WlStarfishPointer, ()>(1, ());
             dh.create_global::<State, WlStarfishOutput, ()>(1, ());
         }
+    }
+
+    /// One more `wl_seat` global, for an input device (`create_globals` made seat 0); returns its id, which the
+    /// device's keys are sent on.
+    pub fn add_seat(&mut self, device: &str) -> super::seat::SeatId {
+        let id = super::seat::SeatId(self.seat.seats);
+        self.seat.seats += 1;
+        self.dh.create_global::<State, WlSeat, super::seat::SeatId>(4, id);
+        log::info!("{}: {device}", id.name());
+        id
     }
 
     pub fn next_serial(&mut self) -> u32 {

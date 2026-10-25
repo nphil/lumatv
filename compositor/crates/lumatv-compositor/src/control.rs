@@ -62,15 +62,16 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             None => json!({"ok": false, "error": "capture PATH"}),
         },
         "key" => {
-            // key CODE [press|release|tap]
+            // key CODE [press|release|tap]: on seat 0, straight to the focused client.
+            use crate::server::seat::{SeatId, send_key};
             let code: Option<u32> = words.next().and_then(|c| c.parse().ok());
             let how = words.next().unwrap_or("tap");
             match code {
                 Some(code) => {
                     let sent = match how {
-                        "press" => crate::server::seat::send_key(state, code, true),
-                        "release" => crate::server::seat::send_key(state, code, false),
-                        _ => crate::server::seat::send_key(state, code, true) && crate::server::seat::send_key(state, code, false),
+                        "press" => send_key(state, SeatId(0), code, true),
+                        "release" => send_key(state, SeatId(0), code, false),
+                        _ => send_key(state, SeatId(0), code, true) && send_key(state, SeatId(0), code, false),
                     };
                     json!({"ok": true, "delivered": sent})
                 }
@@ -84,12 +85,13 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             let how = words.next().unwrap_or("tap");
             match code {
                 Some(code) => {
+                    let seat = crate::server::seat::SeatId(0);
                     match how {
-                        "press" => state.key_event(code, true, false),
-                        "release" => state.key_event(code, false, false),
+                        "press" => state.key_event(seat, code, true, false),
+                        "release" => state.key_event(seat, code, false, false),
                         _ => {
-                            state.key_event(code, true, false);
-                            state.key_event(code, false, false);
+                            state.key_event(seat, code, true, false);
+                            state.key_event(seat, code, false, false);
                         }
                     }
                     json!({"ok": true, "delivered": state.keys.delivered, "dropped": state.keys.dropped})
@@ -112,12 +114,13 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         "click" => {
             // click [press|release|tap]: OK through the key routing while the cursor shows, i.e. BTN_LEFT.
             let how = words.next().unwrap_or("tap");
+            let seat = crate::server::seat::SeatId(0);
             match how {
-                "press" => state.key_event(crate::input::code::KEY_ENTER, true, false),
-                "release" => state.key_event(crate::input::code::KEY_ENTER, false, false),
+                "press" => state.key_event(seat, crate::input::code::KEY_ENTER, true, false),
+                "release" => state.key_event(seat, crate::input::code::KEY_ENTER, false, false),
                 _ => {
-                    state.key_event(crate::input::code::KEY_ENTER, true, false);
-                    state.key_event(crate::input::code::KEY_ENTER, false, false);
+                    state.key_event(seat, crate::input::code::KEY_ENTER, true, false);
+                    state.key_event(seat, crate::input::code::KEY_ENTER, false, false);
                 }
             }
             json!({"ok": true, "delivered": state.keys.delivered, "visible": state.seat.cursor_visible})

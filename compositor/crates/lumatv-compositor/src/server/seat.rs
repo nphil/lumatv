@@ -16,9 +16,26 @@ use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, 
 use crate::State;
 use crate::surface::SurfaceId;
 
+/// One `wl_seat` per input device, as LG's compositor has them (webOS OSE's `WebOSInputDevice`: a seat per device
+/// id, keys delivered on the seat of the device that sent them). Seat 0 exists in every build and carries the
+/// control socket's and the tests' keys; the evdev devices take 1, 2, … in the order they were opened.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SeatId(pub u32);
+
+impl SeatId {
+    pub fn name(self) -> String {
+        format!("seat{}", self.0)
+    }
+}
+
 #[derive(Default)]
 pub struct SeatState {
+    /// Every bound `wl_keyboard`; its seat is its user data (`SeatId`).
     pub keyboards: Vec<WlKeyboard>,
+    /// How many `wl_seat` globals exist (`State::add_seat`).
+    pub seats: u32,
+    /// Keys currently down, per seat: what a keyboard made mid-press is told in `enter`.
+    pub pressed: Vec<(SeatId, u32)>,
     /// Every bound `wl_webos_input_manager`, for the cursor visibility broadcast.
     pub input_managers: Vec<lumatv_wl_protocols::webos_input_manager::server::wl_webos_input_manager::WlWebosInputManager>,
     pub pointers: Vec<WlPointer>,
@@ -65,38 +82,38 @@ xkb_symbols \"basic\" {
 };
 ";
 
-impl GlobalDispatch<WlSeat, ()> for State {
-    fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlSeat>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+impl GlobalDispatch<WlSeat, SeatId> for State {
+    fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlSeat>, seat: &SeatId, data_init: &mut DataInit<'_, Self>) {
         state.note_bind(client, "wl_seat");
-        let seat = data_init.init(resource, ());
-        seat.capabilities(Capability::Keyboard | Capability::Pointer);
-        if seat.version() >= 2 {
-            seat.name("seat0".into());
+        let res = data_init.init(resource, *seat);
+        res.capabilities(Capability::Keyboard | Capability::Pointer);
+        if res.version() >= 2 {
+            res.name(seat.name());
         }
     }
 }
 
-impl Dispatch<WlSeat, ()> for State {
+impl Dispatch<WlSeat, SeatId> for State {
     fn request(
         state: &mut Self,
         client: &Client,
         _resource: &WlSeat,
         request: wl_seat::Request,
-        _data: &(),
+        seat: &SeatId,
         _dh: &DisplayHandle,
         data_init: &mut DataInit<'_, Self>,
     ) {
         state.touch_client(client);
         match request {
             wl_seat::Request::GetKeyboard { id } => {
-                let kb = data_init.init(id, ());
+                let kb = data_init.init(id, *seat);
                 send_keymap(&kb);
                 if kb.version() >= 4 {
                     kb.repeat_info(0, 0);
                 }
-                state.seat.keyboards.push(kb);
                 state.note_request("wl_seat", 0, "get_keyboard");
-                refocus(state);
+                enter_if_focused(state, &kb);
+                state.seat.keyboards.push(kb);
             }
             wl_seat::Request::GetPointer { id } => {
                 let p = data_init.init(id, ());
@@ -141,13 +158,13 @@ fn memfd_with(bytes: &[u8]) -> std::io::Result<std::os::fd::OwnedFd> {
     Ok(owned)
 }
 
-impl Dispatch<WlKeyboard, ()> for State {
+impl Dispatch<WlKeyboard, SeatId> for State {
     fn request(
         state: &mut Self,
         _client: &Client,
         resource: &WlKeyboard,
         request: wl_keyboard::Request,
-        _data: &(),
+        _data: &SeatId,
         _dh: &DisplayHandle,
         _di: &mut DataInit<'_, Self>,
     ) {
@@ -217,8 +234,7 @@ pub fn refocus(state: &mut State) {
         && let Some(res) = state.seat.surfaces.get(&n).cloned()
     {
         for kb in state.seat.keyboards.iter().filter(|k| k.id().same_client_as(&res.id())) {
-            kb.enter(serial, &res, Vec::new());
-            kb.modifiers(serial, 0, 0, 0, 0);
+            enter(&state.seat, kb, serial, &res);
         }
     }
     state.seat.focus = new;
@@ -227,14 +243,47 @@ pub fn refocus(state: &mut State) {
     }
 }
 
-/// Delivers a key to the focused surface's client (C4 feeds this from evdev; tests and the control socket now).
-pub fn send_key(state: &mut State, code: u32, pressed: bool) -> bool {
+/// A keyboard made after focus settled on its client's surface gets `enter` now, as Qt's compositor sends it at
+/// the bind (`checkFocusResource`): WAM and LG's Qt apps create their keyboards after their window mapped, and a
+/// client that saw no `enter` has no focus to deliver keys into.
+fn enter_if_focused(state: &mut State, kb: &WlKeyboard) {
+    let Some(focus) = state.seat.focus else { return };
+    let Some(res) = state.seat.surfaces.get(&focus).cloned() else { return };
+    if !kb.id().same_client_as(&res.id()) {
+        return;
+    }
+    let serial = state.next_serial();
+    enter(&state.seat, kb, serial, &res);
+}
+
+/// `enter` with the keys held on the keyboard's seat (little-endian codes, as the protocol's array).
+fn enter(seat: &SeatState, kb: &WlKeyboard, serial: u32, surface: &WlSurface) {
+    let sid = seat_of(kb);
+    let keys: Vec<u8> = seat.pressed.iter().filter(|(s, _)| *s == sid).flat_map(|(_, code)| code.to_le_bytes()).collect();
+    kb.enter(serial, surface, keys);
+    kb.modifiers(serial, 0, 0, 0, 0);
+}
+
+fn seat_of(kb: &WlKeyboard) -> SeatId {
+    kb.data::<SeatId>().copied().unwrap_or(SeatId(0))
+}
+
+/// Delivers a key to the focused surface's client on the keyboards of `seat`, the seat of the device that sent
+/// it (C4 feeds this from evdev; the control socket and the tests use seat 0).
+pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bool {
+    if pressed {
+        if !state.seat.pressed.contains(&(seat, code)) {
+            state.seat.pressed.push((seat, code));
+        }
+    } else {
+        state.seat.pressed.retain(|k| *k != (seat, code));
+    }
     let Some(focus) = state.seat.focus else { return false };
     let Some(res) = state.seat.surfaces.get(&focus).cloned() else { return false };
     let serial = state.next_serial();
     let time = crate::output::monotonic_ms();
     let mut sent = false;
-    for kb in state.seat.keyboards.iter().filter(|k| k.id().same_client_as(&res.id())) {
+    for kb in state.seat.keyboards.iter().filter(|k| k.id().same_client_as(&res.id()) && seat_of(k) == seat) {
         kb.key(serial, time, code, if pressed { KeyState::Pressed } else { KeyState::Released });
         sent = true;
     }
