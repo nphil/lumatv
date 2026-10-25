@@ -18,13 +18,18 @@ Phases, Decided); this file holds the proven mechanics.
   below. "go": start phase 1 in this order: rename from `brand.json`, T9
   plus disk-cache env lines, shared 100 ms clock, Home stub, heap shim,
   Rust helper.
-- Remote tests (no one needed at the set): X4 capture during Netflix,
-  PlxNative and the input picker (`docs/research/arch/x4/x4-session.sh`,
-  `x4-monitor.sh`, `x4-analyse.py`); histogram probe during Netflix; three
-  contiguous 1080p buffers held during 4K HDR; which input device SSAP keys
-  (Home Assistant `webostv.button`) arrive on. Mute the receiver first
-  (`media_player.living_room_avr`) and restore it after. Protected video
-  captures black; the tests record compositor behaviour, not pixels.
+- Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
+  pass 3, contiguous-buffer hold) and the SSAP key device; results in
+  PLAN.md. Still open: X4 during PlxNative playback
+  (`docs/research/arch/x4/x4-monitor.sh`, `x4-analyse.py`); the histogram
+  probe, which first needs the `libvtcapture` histogram call signatures
+  (LG's Hue Sync service is the reference caller). Mute the receiver first
+  (`media_player.living_room_avr`) and restore it after. Netflix deep link
+  for the 4K Dolby Vision test film: launch `netflix` with `contentTarget`
+  `m=https://www.netflix.com/watch/80141336&source_type=4`, then ENTER.
+  Protected video captures black; the tests record compositor behaviour.
+  During Dolby Vision playback Picture Mode reads `dolbyHdrCinema` (the
+  set's own Dolby Vision mode); it returns to `filmMaker` on Home.
 - Tests that need the owner: PIN prompt (a lock is a security setting he
   sets), pointer cost (Magic Remote moved by hand), CEC keys from other
   remotes, receiver volume drift.

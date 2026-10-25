@@ -1,0 +1,4 @@
+[3946.99] netflix meridian launch
+[3979.37] meridian play pressed
+[4004.43] cmahold 3x1080p 40s
+[4058.49] home

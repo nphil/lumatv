@@ -24,10 +24,9 @@ Kept current with every change to this plan. Building starts on Nitin's go.
   holds 51.2 fps for a trivial client), X2 passed, X4 partly captured.
 - Decided 2026-10-24: LumaTV replaces LG's compositor, in stages (Phases,
   track C). Waiting on Nitin's go to build.
-- TV tests run remotely when the set is free: X4 during Netflix, PlxNative
-  and the input picker, histogram during Netflix, contiguous memory during
-  4K HDR, which input device SSAP keys arrive on. Need Nitin present: PIN,
-  pointer cost, CEC keys, receiver volume drift.
+- TV tests still open: X4 during PlxNative playback (Netflix done); the
+  histogram probe (needs the `libvtcapture` histogram signatures first).
+  Need Nitin present: PIN, pointer cost, CEC keys, receiver volume drift.
 - Next build step: phase 1.
 
 ## Rules every surface meets
@@ -320,14 +319,16 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
     frames, both with LG's driver (`eglBindWaylandDisplayWL`) and with the
     64-bit Rockchip blob, so an own compositor can be 64-bit and needs no
     buffer protocol code of its own.
-  - X4, partly captured (launches, Quick Settings, Settings, browser,
-    YouTube): the compositor's live contract is about ten pushed
+  - X4, captured (launches, Quick Settings, Settings, browser, YouTube,
+    input picker, toast, standby and wake, Netflix 4K Dolby Vision
+    playback): the compositor's live contract is about ten pushed
     subscriptions (foreground app, focused window, window list, video
     window, input type, Home UI state) plus a few calls (`listRecents`,
     `systemUIManager/launch`, `launchDefaultApp {home}`, per-video
     `setDisplayWindowProperty`). Apps place their own video rectangle; the
-    compositor reports it. Standby and wake, Netflix, PlxNative, the input
-    picker and PIN are still to capture.
+    compositor reports it. During playback the compositor makes no luna
+    calls; videooutput sends it four `setDisplayWindowProperty` calls and
+    the rest is Wayland. PlxNative playback and PIN are still to capture.
   - Still open for an own compositor: LG's window and view behaviour (the
     webOS Wayland extensions), the tvpower handshake, punch-through and key
     routing.
@@ -390,8 +391,13 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
     64-bit path fails to start, LumaTV draws through LG's 32-bit driver.
     The kernel-side alternative, a module adding `/dev/dma_heap`, needs LG's
     GPL source for 5.4.268 and is Nitin's decision.
-    Before relying on contiguous buffers, check that holding about 25 MB of
-    CMA never starves 4K HDR decoding in Netflix and PlxNative.
+    Contiguous buffers hold during 4K Dolby Vision playback (Netflix
+    Meridian, 3840x2160 at 59.94 Hz, 2026-10-24): three 1080p dumb buffers
+    allocated and held 40 s with no decoder errors. CmaFree reads 4-9 MB
+    while video plays and 31-34 MB after, yet every allocation succeeded,
+    because the kernel migrates movable pages out of CMA on demand; that
+    migration took 30-48 ms per buffer, so buffers are allocated once at
+    start, never per frame or per open. Probe: `docs/research/m64/cmahold.c`.
   - Probe sources kept in `docs/research/m64/`.
 
 - NPU: LG's own (`DNE`, vendor LGE, driver 1.0, `/dev/npu0`, module
@@ -474,11 +480,13 @@ widen or approve its own access.
   and shown in Settings › AI access.
 - The prompt and the AI access page answer only to keys from a physical
   remote. All remotes reach the compositor as `lginput2` virtual devices (IR
-  `LGE RCU`, Magic Remote `LGE M-RCU`, `IoT keypad` and others), and Home
-  Assistant's `webostv.button` presses (SSAP, port 3001) arrive the same way.
-  Before building, measure which device SSAP and CEC keys appear on; if
-  network keys cannot be told apart from the remote, approvals go through
-  HomeLabber's Face ID gate instead of the on-screen prompt.
+  `LGE RCU` on event0, Magic Remote `LGE M-RCU` on event2-4, `IoT keypad`
+  and others). Home Assistant's `webostv.button` presses (SSAP, port 3001)
+  arrive on their own device, `Smart Remote RCU Input` (2026-10-24), so
+  network keys are told apart from the physical remotes by device name and
+  the prompt ignores that device. CEC keys from other remotes are still to
+  measure; if they share a remote's device, approvals from that device go
+  through HomeLabber's Face ID gate instead of the on-screen prompt.
 - TV root bypasses all of this. While an AI holds root SSH on the set (the
   development path today), the permissions bind only assistants that use the
   MCP server; root access for development stays a separate decision of
