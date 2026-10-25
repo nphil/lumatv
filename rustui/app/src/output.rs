@@ -5,7 +5,7 @@ use lumatv_render::host::Engine;
 use std::io;
 use std::time::Duration;
 
-use crate::home::Key;
+use lumatv_rustui::home::Key;
 
 pub trait Output {
     /// Shows the frame the engine drew into the window's framebuffer. On a window this waits for the compositor's frame callback.

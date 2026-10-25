@@ -14,6 +14,10 @@ device-profile = { path = "../../../LumaShow/lumashow/crates/device-profile" }
 libc = "0.2"
 png = "0.17"
 
+[[bin]]
+name = "lumatv-damage-bench"
+path = "src/bin/damage_bench.rs"
+
 [features]
 default = []
 # the Wayland window (needs the Wayland client libraries at run time: the bundle's, on the set)

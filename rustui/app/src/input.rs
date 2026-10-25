@@ -1,7 +1,7 @@
 //! Keys from the remote through evdev: the arrows, OK and Back, read without grabbing the devices (LG's compositor and the key filters
 //! keep receiving them). A host has none and the set's scripted runs do not use it.
 
-use crate::home::Key;
+use lumatv_rustui::home::Key;
 use std::fs;
 use std::io::Read;
 use std::os::fd::AsRawFd;

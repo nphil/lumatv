@@ -133,6 +133,8 @@ pub struct Home {
     lift_at: Option<u64>,
     lifted: bool,
     last_second: i64,
+    /// A wall clock to show instead of the real one (hours, minutes, seconds): for runs on a clock of their own.
+    clock: Option<(i32, i32, i32)>,
     cols: usize,
     /// Per-widget centre, for the nearest-in-direction move.
     pub keys_handled: u64,
@@ -530,6 +532,7 @@ impl Home {
             lift_at: None,
             lifted: false,
             last_second: -1,
+            clock: None,
             cols,
             keys_handled: 0,
         };
@@ -755,8 +758,17 @@ impl Home {
     // ------------------------------------------------------------------------------------------------------------------------
     // the clock
 
-    fn tick_clock(&mut self, force: bool) {
-        let (h, m, s, ..) = local_time();
+    /// Shows this time instead of the wall clock's (`None`: the wall clock's again) from the next `tick_clock`.
+    pub fn set_clock(&mut self, hms: Option<(i32, i32, i32)>) {
+        self.clock = hms;
+    }
+
+    /// Draws the hands for the wall clock's second now (`force`) or when it has changed since the last time.
+    pub fn tick_clock(&mut self, force: bool) {
+        let (h, m, s) = self.clock.unwrap_or_else(|| {
+            let now = local_time();
+            (now.0, now.1, now.2)
+        });
         let stamp = i64::from(h) * 3600 + i64::from(m) * 60 + i64::from(s);
         if !force && stamp == self.last_second {
             return;

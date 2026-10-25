@@ -2,23 +2,20 @@
 //! pbuffer). The phase 3 spike of `docs/research/rustui-result.md`.
 //!
 //!   lumatv-rustui [--mode window|offscreen] [--run idle:60,mix:30] [--assets DIR] [--shm DIR] [--log FILE]
-//!                 [--shot FILE] [--direct] [--gpu-sync] [--no-trim] [--keys script|evdev|both] [--libmali PATH]
+//!                 [--shot FILE] [--direct] [--gpu-sync] [--no-trim] [--pages N] [--verify] [--keys script|evdev|both] [--libmali PATH]
 //!
 //! `--run` is a list of `phase:seconds`; a phase is `idle`, `dpad`, `sweep` or `mix` (dpad and sweep in turn), named as in the QML
 //! gate. Each phase ends with a summary line; the whole run ends with one more.
 
-mod home;
 mod input;
-mod look;
 mod metrics;
 mod output;
-mod raster;
-mod script;
 #[cfg(feature = "window")]
 mod window;
 
 use compositor_protocol::Event;
-use home::{Home, Key};
+use lumatv_rustui::home::{self, Home, Key};
+use lumatv_rustui::script;
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, now_ns};
 use metrics::{Frame, Log, Marker, Phase};
@@ -39,6 +36,8 @@ struct Options {
     direct: bool,
     gpu_sync: bool,
     trim: bool,
+    pages: usize,
+    verify: bool,
     keys: String,
     libmali: Option<String>,
     window_type: String,
@@ -56,6 +55,8 @@ fn parse() -> Result<Options, String> {
         direct: false,
         gpu_sync: false,
         trim: true,
+        pages: 0,
+        verify: false,
         keys: "script".into(),
         libmali: std::env::var("LUMATV_GFX_LIB").ok(),
         window_type: "_WEBOS_WINDOW_TYPE_OVERLAY".into(),
@@ -82,6 +83,8 @@ fn parse() -> Result<Options, String> {
             "--direct" => o.direct = true,
             "--gpu-sync" => o.gpu_sync = true,
             "--no-trim" => o.trim = false,
+            "--pages" => o.pages = value("--pages")?.parse().map_err(|e| format!("--pages: {e}"))?,
+            "--verify" => o.verify = true,
             "--keys" => o.keys = value("--keys")?,
             "--libmali" => o.libmali = Some(value("--libmali")?),
             "--window-type" => o.window_type = value("--window-type")?,
@@ -133,6 +136,9 @@ fn run(o: Options) -> io::Result<()> {
             direct: o.direct,
             gpu_sync: o.gpu_sync,
             idle_trim: o.trim,
+            pages: o.pages,
+            reference: o.verify,
+            blit: true,
         },
     )?;
     let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
@@ -246,6 +252,15 @@ fn run(o: Options) -> io::Result<()> {
                 let cost = engine.draw(started);
                 if let Some(code) = cost.gl_error {
                     log.line(&format!("GL error {code:#x}"));
+                }
+                if cost.mismatch_px > 0 {
+                    log.line(&format!("MISMATCH frame {drawn_frames}: {} px differ from the same frame drawn whole, first {:?}", cost.mismatch_px, engine.mismatch()));
+                }
+                if std::env::var_os("LUMATV_TRACE_FRAMES").is_some() {
+                    log.line(&format!(
+                        "frame {drawn_frames}: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us",
+                        cost.damage_px, cost.region_px, cost.rects, cost.region_px as f64 / 20736.0, cost.layers, cost.culled, cost.cpu_us, cost.gpu_us
+                    ));
                 }
                 let swap_began = now_ns();
                 out.present(&mut engine)?;

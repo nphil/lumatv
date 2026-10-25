@@ -13,7 +13,7 @@ mod atlas;
 mod backdrop;
 mod census;
 mod clock;
-mod damage;
+pub mod damage;
 mod feather;
 mod geometry;
 pub mod host;
@@ -38,6 +38,7 @@ mod shadow;
 mod shm;
 pub mod stats;
 mod still;
+pub mod tiles;
 mod wallpaper;
 mod wallpapers;
 

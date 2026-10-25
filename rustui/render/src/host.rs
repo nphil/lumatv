@@ -47,6 +47,14 @@ pub struct HostConfig {
     pub gpu_sync: bool,
     /// Run the compositor's idle housekeeping (frees pooled render targets and heap pages after 5 s of quiet).
     pub idle_trim: bool,
+    /// Render targets frames go into in turn, each drawn only where it differs from what it holds (0 or 1: every frame in full).
+    pub pages: usize,
+    /// Also draw every frame whole into another render target and compare it with the one the frame went into: what `draw`
+    /// reports as [`FrameCost::mismatch_px`]. For the tests and a host's check; it doubles the GPU's work.
+    pub reference: bool,
+    /// Copy the page into the window's framebuffer, turned over (the window is the other way up from a scan-out page). A
+    /// compositor draws into its own page and needs none; a measurement of the renderer leaves it out.
+    pub blit: bool,
 }
 
 /// What one frame cost the host.
@@ -61,12 +69,21 @@ pub struct FrameCost {
     pub plan_us: u32,
     pub backdrop_us: u32,
     pub draw_us: u32,
+    /// Of `draw_us`: working out what changed and what the frame's page owes.
+    pub damage_us: u32,
     pub layers: u32,
     pub culled: u32,
     pub backdrops: u16,
     pub uploaded_bytes: u32,
     pub draw_calls: u32,
     pub gl_error: Option<u32>,
+    /// The panel pixels the frame drew, and the passes it drew them in.
+    pub region_px: u64,
+    pub rects: u16,
+    /// The panel pixels the frame changed from the one before.
+    pub damage_px: u64,
+    /// How many pixels differ between the frame as it was drawn and the same frame drawn whole (`HostConfig::reference`).
+    pub mismatch_px: u64,
 }
 
 /// What reading the app's requests did.
@@ -91,8 +108,12 @@ pub struct Engine {
     outbox: Vec<u8>,
     drawn: Vec<Drawn>,
     shown: Vec<Drawn>,
-    target: RenderTarget,
+    pages: Vec<RenderTarget>,
+    next_page: usize,
+    reference: Option<RenderTarget>,
+    mismatch: Option<Mismatch>,
     blit: Blit,
+    copy: bool,
     window: (u32, u32),
     direct: bool,
     gpu_sync: bool,
@@ -178,10 +199,16 @@ impl Engine {
             width: config.width,
             height: config.height,
         };
-        let target = gles.new_render_target(config.width, config.height)?;
+        let pages = (0..config.pages.max(1))
+            .map(|_| gles.new_render_target(config.width, config.height))
+            .collect::<io::Result<Vec<_>>>()?;
+        let reference = config.reference.then(|| gles.new_render_target(config.width, config.height)).transpose()?;
         let blit = Blit::new(&gles, config.width, config.height)?;
         let mut renderer = Renderer::new(gles, panel)?;
         renderer.set_importer(None);
+        if config.pages > 1 {
+            renderer.set_targets(0, config.pages);
+        }
         if std::env::var("LUMASHOW_WARMUP").as_deref() != Ok("off") {
             let began = Instant::now();
             let error = renderer.warm_up();
@@ -232,10 +259,14 @@ impl Engine {
                 outbox: Vec::new(),
                 drawn: Vec::new(),
                 shown: Vec::new(),
-                target,
+                pages,
+                reference,
+                mismatch: None,
+                next_page: 0,
                 blit,
                 window: (config.width, config.height),
                 direct: config.direct,
+                copy: config.blit,
                 gpu_sync: config.gpu_sync,
                 highest_tag: 0,
                 taken_tag: 0,
@@ -434,11 +465,24 @@ impl Engine {
         self.scene.advance(now_ns);
         self.scene.resolve(now_ns, &mut self.drawn);
         self.renderer.set_time(now_ns);
-        let target = if self.direct { 0 } else { self.target.framebuffer };
-        let draws = [Draw { surface: Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false }, slot: None, target }];
-        let report: DrawReport = self.renderer.draw_frame(&self.drawn, &draws, &self.scene).remove(0);
-        if !self.direct {
-            self.blit.run(self.renderer.gles(), self.target.texture, self.window.0, self.window.1);
+        let page = self.next_page;
+        let ring = self.pages.len() > 1;
+        if ring {
+            self.next_page = (page + 1) % self.pages.len();
+        }
+        let target = if self.direct { 0 } else { self.pages[page].framebuffer };
+        let slot = ring.then_some(page);
+        let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
+        let own = Draw { surface, slot, target };
+        let whole = self.reference.map(|r| Draw { surface, slot: None, target: r.framebuffer });
+        let draws = [own, whole.unwrap_or(own)];
+        let draws = &draws[..1 + usize::from(whole.is_some())];
+        let report: DrawReport = self.renderer.draw_frame(&self.drawn, draws, &self.scene).remove(0);
+        if let Some(reference) = self.reference {
+            self.mismatch = self.compare(&self.pages[page], &reference);
+        }
+        if !self.direct && self.copy {
+            self.blit.run(self.renderer.gles(), self.pages[page].texture, self.window.0, self.window.1);
         }
         self.shown.clone_from(&self.drawn);
         self.renderer.set_shown(&self.shown);
@@ -460,12 +504,17 @@ impl Engine {
             plan_us: (report.plan_ns / 1000) as u32,
             backdrop_us: (report.backdrop_ns / 1000) as u32,
             draw_us: (report.draw_ns / 1000) as u32,
+            damage_us: (report.damage_ns / 1000) as u32,
             layers: report.drawn,
             culled: report.culled,
             backdrops: report.backdrops,
             uploaded_bytes: uploaded.saturating_add(self.uploaded_bytes),
             draw_calls: calls.draws,
             gl_error: report.gl_error,
+            region_px: report.region_px,
+            rects: report.rects,
+            damage_px: report.damage_px,
+            mismatch_px: self.mismatch.map_or(0, |m| m.pixels),
         }
     }
 
@@ -494,7 +543,52 @@ impl Engine {
         gl.read_pixels(0, 0, self.window.0, self.window.1)
     }
 
+    /// Where the frame drawn last differs from the same frame drawn whole, if it does (`HostConfig::reference`): the pages are read
+    /// back and compared pixel for pixel.
+    pub fn mismatch(&self) -> Option<Mismatch> {
+        self.mismatch
+    }
+
+    fn compare(&self, page: &RenderTarget, whole: &RenderTarget) -> Option<Mismatch> {
+        let gl = self.renderer.gles();
+        gl.bind_framebuffer(page.framebuffer);
+        let drawn = gl.read_pixels(0, 0, page.width, page.height);
+        gl.bind_framebuffer(whole.framebuffer);
+        let expected = gl.read_pixels(0, 0, whole.width, whole.height);
+        let mut mismatch: Option<Mismatch> = None;
+        for (at, (a, b)) in drawn.chunks_exact(4).zip(expected.chunks_exact(4)).enumerate() {
+            if a != b {
+                let m = mismatch.get_or_insert(Mismatch {
+                    pixels: 0,
+                    first: (at as u32 % page.width, at as u32 / page.width),
+                    page: [a[0], a[1], a[2], a[3]],
+                    whole: [b[0], b[1], b[2], b[3]],
+                });
+                m.pixels += 1;
+            }
+        }
+        mismatch
+    }
+
+    /// The pixels of render target `page` of the ring, as RGBA rows from the first in memory (the top of the screen).
+    pub fn read_page(&self, page: usize) -> Vec<u8> {
+        let gl = self.renderer.gles();
+        gl.bind_framebuffer(self.pages[page].framebuffer);
+        gl.read_pixels(0, 0, self.window.0, self.window.1)
+    }
+
     pub fn layers(&self) -> usize {
         self.scene.len()
     }
+}
+
+/// Where a frame drawn as it was owed differs from the same frame drawn whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mismatch {
+    /// How many pixels differ.
+    pub pixels: u64,
+    /// The first one (x, y; row 0 is the top of the screen), as the frame was drawn and as drawn whole.
+    pub first: (u32, u32),
+    pub page: [u8; 4],
+    pub whole: [u8; 4],
 }

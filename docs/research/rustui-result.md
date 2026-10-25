@@ -5,10 +5,12 @@ faster or smoother than today's QML LumaHome inside LG's Qt 5.12 compositor? The
 
 ## Resume here
 
-State (2026-10-25 07:16 EDT): the TV slot ran; results and the recommendation are below (keep QML now). The spike is closed. The one open
-follow-up, if Rust surfaces are wanted after the cutover: draw the scene flipped (projection) instead of the copy pass, measure again with
-`python3 rustui/tools/tv-run.py NAME idle:30,mix:30 [--direct] [--gpu-sync] --frames /tmp/rustui/NAME.csv` (screen on; a slot from Main), and
-add damage tracking so an idle frame costs under 1 ms of GPU. The set was returned in Active Standby (powerOff remoteKey).
+State (2026-10-25 08:30 EDT): the TV slot ran; results and the recommendation are below (keep QML now). The spike is closed. The
+prerequisite it named is being built (section "Damage-only redraw, 2026-10-25" at the end, UiDamage): the renderer redraws only the 16 px
+tiles a page owes (host-tested, 300 frames equal to the full redraw), `Gles` wraps the compositor's context, and the compositor has a
+`ui` feature that draws a demo surface into its page; the C4's GPU cost of an idle frame is estimated there and measured by
+`rustui/tools/tv-damage.py` in a later slot (screen on; a slot from Main). Not yet run on the set. The set was returned in Active
+Standby (powerOff remoteKey).
 
 ## What was built
 

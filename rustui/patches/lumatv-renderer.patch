@@ -1,0 +1,449 @@
+--- a/renderer.rs
++++ b/renderer.rs
+@@ -20,6 +20,7 @@
+ use crate::shaders;
+ use crate::shm::ImageFile;
+ use crate::still::{self, Still};
++use crate::tiles::{self, TileSet};
+ use crate::wallpapers::{self, Look, Wallpapers};
+ use compositor_protocol::{
+     Backdrop, Content, Fill, LayerId, Props, Rgba, Shape, SourceId, frames, ideas,
+@@ -205,8 +206,12 @@
+     /// The first GL error the frame raised, if any.
+     pub gl_error: Option<u32>,
+     /// What the frame changed from the frame before it, on the panel: nothing (or, for a frame drawn without the account
+-    /// of the frames before, the whole panel).
++    /// of the frames before, the whole panel). `damage_px` counts the pixels of the tiles it changed, and `damage` is the
++    /// rectangles they are cut into (`TileSet::region`).
+     pub damage: Region,
++    pub damage_px: u64,
++    /// Nanoseconds the frame spent working out what changed and what its target owes (`damage_px` and the rest of it).
++    pub damage_ns: u64,
+     /// The panel pixels the frame drew: the whole panel for a frame drawn in full, the part its target owed otherwise; and
+     /// the rectangles it drew them as (1 for a frame drawn whole, none for a frame that drew nothing).
+     pub region_px: u64,
+@@ -244,6 +249,8 @@
+         self.meshes += other.meshes;
+         self.gl_error = self.gl_error.or(other.gl_error);
+         self.damage.union(&other.damage);
++        self.damage_px = self.damage_px.max(other.damage_px);
++        self.damage_ns += other.damage_ns;
+         self.region_px += other.region_px;
+         self.rects += other.rects;
+         self.culled += other.culled;
+@@ -465,20 +472,23 @@
+ /// What the frames drawn into one set of render targets leave to say about the next one.
+ struct Account {
+     /// What each render target owes when it is drawn into.
+-    ring: Ring,
++    ring: tiles::Ring,
+     /// The layers of the frame before, as a damaged frame shows them; `None` before the first, and after the targets were
+     /// forgotten.
+     prev: Option<Vec<Frozen>>,
+     /// What the app has damaged of image layers' pictures since the frame before: where each picture changed.
+     damaged: Vec<(LayerId, PixRect)>,
++    /// The sets that held what each layer showed in the frame before that, for the next frame to fill again.
++    spare: Vec<TileSet>,
+ }
+ 
+ impl Account {
+     fn new(targets: usize, everything: Area) -> Self {
+         Self {
+-            ring: Ring::new(targets, everything),
++            ring: tiles::Ring::new(targets, everything[2] as u32, everything[3] as u32),
+             prev: None,
+             damaged: Vec::new(),
++            spare: Vec::new(),
+         }
+     }
+ }
+@@ -527,7 +537,7 @@
+     /// The layers the target shows, among `layers`.
+     members: std::ops::Range<usize>,
+     layers: &'a [Drawn],
+-    seen: &'a [Option<Area>],
++    seen: &'a [TileSet],
+     extents: &'a [Option<Area>],
+     asks: &'a [Option<Ask>],
+     revisions: &'a [u64],
+@@ -746,13 +756,23 @@
+ /// Where a layer is drawn in a frame, and what the picture of the prepared backdrop on it is a picture of: what the frame is
+ /// compared with the one before by (`Frozen`).
+ #[derive(Clone, Copy)]
+-struct Now {
+-    /// The part of the layer that is drawn, and everything it draws, seen or not.
+-    seen: Option<Area>,
++struct Now<'a> {
++    /// The tiles of the layer that are drawn, and everything it draws, seen or not.
++    seen: &'a TileSet,
+     extent: Option<Area>,
+     revision: u64,
+ }
+ 
++/// What a layer changes from the frame before: where the tiles it was seen in (`[0]`) and is seen in (`[1]`) are drawn again
++/// (within `within`, when it is a picture the app changed in places), and where what it draws is changed in the pictures behind
++/// the glass above it (everything it drew, everything it draws).
++#[derive(Clone, Copy, Default)]
++struct Dirt {
++    seen: [bool; 2],
++    within: Option<Area>,
++    extent: [Damage; 2],
++}
++
+ /// The bytes of `pixels` RGBA pixels, for the count of bytes uploaded.
+ fn picture_bytes(pixels: u64) -> u32 {
+     u32::try_from(pixels * 4).unwrap_or(u32::MAX)
+@@ -772,8 +792,8 @@
+     /// its glass blurs. A layer that moves from one plane to another is drawn where it was not, and no longer where it was,
+     /// though it is what it was in every other way.
+     member: bool,
+-    /// The rectangle of it that was drawn in the frame (`damage::Sight`); `None` when none of it was.
+-    seen: Option<Area>,
++    /// The tiles of it that were drawn in the frame (`tiles::visible`); none when none of it was.
++    seen: TileSet,
+     /// Everything it draws, seen or not: what the pictures behind the glass above it are made of.
+     extent: Option<Area>,
+ }
+@@ -2234,22 +2254,22 @@
+         damage::intersect(&grown, &panel_area_of(&self.panel))
+     }
+ 
+-    /// What of the panel differs between the frame before and this one: the part of each layer that changed (where it was
+-    /// seen and where it is now), the parts of the pictures the app damaged, the places layers that are gone were, and what
+-    /// a glass surface shows of what changed below it; each a rectangle of its own as far as the region keeps them apart.
++    /// What of the panel differs between the frame before and this one, in tiles: the part of each layer that changed (where
++    /// it was seen and where it is now), the parts of the pictures the app damaged, the places layers that are gone were, and
++    /// what a glass surface shows of what changed below it.
+     ///
+-    /// `seen` is the part of each layer that is drawn in the frame, by layer, and `extents` all that it draws, seen or
+-    /// not: a layer that an opaque one covers is not in the frame, but it is in the blur behind the glass above it, so
+-    /// what changes in it changes that glass. `stale` are the layers whose cached backdrop is made again (they look
+-    /// different), and `sharing` the layers of each live backdrop that several surfaces share (they cast their shadows into
+-    /// one picture, which every one of them shows).
++    /// `seen` is what can be seen of each layer in the frame (`tiles::visible`), and `extents` all that it draws, seen or not:
++    /// a layer that an opaque one covers is not in the frame, but it is in the blur behind the glass above it, so what changes
++    /// in it changes that glass. `stale` are the layers whose cached backdrop is made again (they look different), and `sharing`
++    /// the layers of each live backdrop that several surfaces share (they cast their shadows into one picture, which every one
++    /// of them shows).
+     fn frame_damage(
+         &self,
+         stack: usize,
+         facts: Facts,
+         stale: &[usize],
+         sharing: &[&[usize]],
+-    ) -> Region {
++    ) -> TileSet {
+         let Facts {
+             members,
+             layers,
+@@ -2258,8 +2278,9 @@
+             asks,
+             revisions,
+         } = facts;
++        let (width, height) = (self.panel.width, self.panel.height);
+         let Some(prev) = &self.accounts[stack].prev else {
+-            return Region::of(panel_area_of(&self.panel));
++            return TileSet::full(width, height);
+         };
+         let before: HashMap<LayerId, &Frozen> = prev.iter().map(|f| (f.layer.id, f)).collect();
+         // Layers that were there and are still are stacked as they were (a layer that is made again is a new one, and
+@@ -2273,44 +2294,46 @@
+                 .filter(|l| before.contains_key(&l.id))
+                 .map(|l| l.id));
+         if !same_order {
+-            return Region::of(panel_area_of(&self.panel));
++            return TileSet::full(width, height);
+         }
+-        let was_seen = |i: usize| before.get(&layers[i].id).and_then(|f| f.seen);
+-        // Layer by layer: what each changes in the frame, and in the pictures behind the glass above it; where it was and
+-        // where it is each a rectangle of its own (the region merges the two when they are close).
++        // Layer by layer: what each changes in the frame, and in the pictures behind the glass above it.
+         let count = layers.len();
+-        let mut visible: Vec<[Damage; 2]> = vec![[None; 2]; count];
+-        let mut mirrored: Vec<[Damage; 2]> = vec![[None; 2]; count];
+-        for (i, layer) in layers.iter().enumerate() {
+-            (visible[i], mirrored[i]) = match before.get(&layer.id) {
+-                None => ([None, seen[i]], [None, extents[i]]),
++        let mut dirt: Vec<Dirt> = layers
++            .iter()
++            .enumerate()
++            .map(|(i, layer)| match before.get(&layer.id) {
++                None => Dirt {
++                    seen: [false, true],
++                    within: None,
++                    extent: [None, extents[i]],
++                },
+                 Some(old) => {
+                     let now = Now {
+-                        seen: seen[i],
++                        seen: &seen[i],
+                         extent: extents[i],
+                         revision: revisions[i],
+                     };
+                     self.change(stack, old, members.contains(&i), layer, now)
+                 }
+-            };
+-        }
++            })
++            .collect();
+         // A cached backdrop that is made again shows on its surfaces, but not in what is drawn above.
+         for &i in stale {
+-            visible[i] = [
+-                damage::union(visible[i][0], was_seen(i)),
+-                damage::union(visible[i][1], seen[i]),
+-            ];
++            dirt[i].seen = [true, true];
++            dirt[i].within = None;
+         }
+         // Where layers that are gone were.
+         let here: std::collections::HashSet<LayerId> = layers.iter().map(|l| l.id).collect();
+-        let (mut gone_visible, mut gone_mirrored) = (Region::NONE, Region::NONE);
++        let mut total = TileSet::new(width, height);
++        let mut gone_mirrored = Region::NONE;
+         for f in prev.iter().filter(|f| !here.contains(&f.layer.id)) {
+-            gone_visible.add_damage(f.seen);
++            total.union(&f.seen);
+             gone_mirrored.add_damage(f.extent);
+         }
+         // A glass surface with a live backdrop shows the layers below it, blurred: what changes anywhere near its body
+-        // changes it, all of it; and the surfaces that share its picture show what any of them casts into it. What a
+-        // surface does to the ones above it in this way is no change of its own (it is drawn flat in their pictures).
++        // (as far as the blur reaches) changes it, all of it; and the surfaces that share its picture show what any of them
++        // casts into it. What a surface does to the ones above it in this way is no change of its own (it is drawn flat in
++        // their pictures).
+         let panel = panel_area_of(&self.panel);
+         let mut forced = vec![false; count];
+         loop {
+@@ -2330,13 +2353,13 @@
+                         grew = true;
+                     }
+                 }
+-                below.add_damage(mirrored[i][0]);
+-                below.add_damage(mirrored[i][1]);
++                below.add_damage(dirt[i].extent[0]);
++                below.add_damage(dirt[i].extent[1]);
+             }
+             for users in sharing {
+                 if users
+                     .iter()
+-                    .any(|&u| mirrored[u] != [None; 2] || stale.contains(&u))
++                    .any(|&u| dirt[u].extent != [None; 2] || stale.contains(&u))
+                 {
+                     for &u in *users {
+                         grew |= !std::mem::replace(&mut forced[u], true);
+@@ -2347,13 +2370,18 @@
+                 break;
+             }
+         }
+-        let mut total = gone_visible;
+-        for i in 0..count {
+-            total.add_damage(visible[i][0]);
+-            total.add_damage(visible[i][1]);
++        for (i, layer) in layers.iter().enumerate() {
+             if forced[i] {
+-                total.add_damage(was_seen(i));
+-                total.add_damage(seen[i]);
++                dirt[i].seen = [true, true];
++                dirt[i].within = None;
++            }
++            let Dirt { seen: asked, within, .. } = dirt[i];
++            let was = before.get(&layer.id).map(|f| &f.seen).filter(|_| asked[0]);
++            for set in [was, asked[1].then_some(&seen[i])].into_iter().flatten() {
++                match within {
++                    Some(area) => total.union_within(set, area),
++                    None => total.union(set),
++                }
+             }
+         }
+         total
+@@ -2361,31 +2389,30 @@
+ 
+     /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
+     /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
+-    /// picture of the prepared backdrop on it is a picture of. Each as `[was, is]`, either of which may be nothing.
+-    fn change(
+-        &self,
+-        stack: usize,
+-        old: &Frozen,
+-        member: bool,
+-        layer: &Drawn,
+-        now: Now,
+-    ) -> ([Damage; 2], [Damage; 2]) {
++    /// picture of the prepared backdrop on it is a picture of.
++    fn change(&self, stack: usize, old: &Frozen, member: bool, layer: &Drawn, now: Now) -> Dirt {
+         let Now {
+-            seen,
+-            extent,
+-            revision,
++            extent, revision, ..
+         } = now;
+         if old.member != member {
+             // Another plane's layer now, or this plane's no longer: what it was and what it is are both to be drawn.
+-            return ([old.seen, seen], [old.extent, extent]);
++            return Dirt {
++                seen: [true, true],
++                within: None,
++                extent: [old.extent, extent],
++            };
+         }
+         if old.layer == *layer {
+             if old.revision == revision {
+-                return ([None; 2], [None; 2]);
++                return Dirt::default();
+             }
+             // What a glass surface shows through its body is another picture: the surface is drawn again, and nothing above
+             // or below it is touched (a picture that glass above makes of it has it flat, without its backdrop).
+-            return ([old.seen, seen], [None; 2]);
++            return Dirt {
++                seen: [true, true],
++                within: None,
++                extent: [None; 2],
++            };
+         }
+         // A picture the app changed in places, on a layer that is what it was in every other way: only those places.
+         let unversioned = Drawn {
+@@ -2404,34 +2431,46 @@
+                 places = damage::union(places, self.image_area(layer, *rect));
+             }
+             if any {
+-                let within = |area: Option<Area>| {
+-                    places
+-                        .zip(area)
+-                        .and_then(|(a, b)| damage::intersect(&a, &b))
++                return match places {
++                    Some(within) => Dirt {
++                        seen: [false, true],
++                        within: Some(within),
++                        extent: [None, extent.and_then(|e| damage::intersect(&within, &e))],
++                    },
++                    None => Dirt::default(),
+                 };
+-                return ([None, within(seen)], [None, within(extent)]);
+             }
+         }
+-        ([old.seen, seen], [old.extent, extent])
++        Dirt {
++            seen: [true, true],
++            within: None,
++            extent: [old.extent, extent],
++        }
+     }
+ 
+-    /// Keeps the layers of this frame, and where they are drawn, to say what the next one changes.
++    /// Keeps the layers of this frame, and where they are drawn, to say what the next one changes. The tiles each was seen in
++    /// are taken from `seen`, which is left empty; the sets of the frame before them are kept for the frame after.
+     fn remember(
+         &mut self,
+         stack: usize,
+         members: std::ops::Range<usize>,
+         layers: &[Drawn],
+-        seen: &[Option<Area>],
++        seen: &mut Vec<TileSet>,
+         extents: &[Option<Area>],
+         revisions: &[u64],
+     ) {
+         let account = &mut self.accounts[stack];
++        let spare: Vec<TileSet> = account
++            .prev
++            .take()
++            .map(|prev| prev.into_iter().map(|f| f.seen).collect())
++            .unwrap_or_default();
+         account.prev = Some(
+             layers
+                 .iter()
+                 .enumerate()
+-                .zip(seen.iter().zip(extents))
+-                .map(|((i, layer), (&seen, &extent))| Frozen {
++                .zip(seen.drain(..).zip(extents))
++                .map(|((i, layer), (seen, &extent))| Frozen {
+                     layer: *layer,
+                     revision: revisions[i],
+                     member: members.contains(&i),
+@@ -2440,6 +2479,7 @@
+                 })
+                 .collect(),
+         );
++        account.spare = spare;
+         account.damaged.clear();
+     }
+ 
+@@ -2771,17 +2811,32 @@
+             .iter()
+             .filter(|&&k| sights[k] == Sight::Hidden)
+             .count() as u32;
+-        let seen: Vec<Option<Area>> = frame
+-            .job_of
+-            .iter()
+-            .map(|job| job.and_then(|k| sights[k].area()))
+-            .collect();
++        let (width, height) = (self.panel.width, self.panel.height);
+ 
+         // What the frame has to draw: all of it, or the part of it that this render target owes. The target's account
+         // covers the layers it shows and the ones below them, which show through the glass above.
+-        let changed = match draw.slot {
+-            None => Region::of(panel_area),
+-            Some(_) => {
++        let region = match draw.slot {
++            None => {
++                report.damage = Region::of(panel_area);
++                report.damage_px = damage::pixels(&panel_area);
++                Region::of(panel_area)
++            }
++            Some(slot) => {
++                // What of each layer can be seen, in tiles.
++                let accounting = Instant::now();
++                let mut seen = std::mem::take(&mut self.accounts[stack].spare);
++                let culling = self.culling;
++                let pieces: Vec<(Area, &[Area])> = (0..to)
++                    .map(|layer| match frame.job_of[layer] {
++                        Some(k) if layer >= from => {
++                            let job = &self.jobs[k];
++                            (job.extent, if culling { job.cover.rects() } else { &[] })
++                        }
++                        _ => ([0; 4], &[][..]),
++                    })
++                    .collect();
++                tiles::visible(width, height, &pieces, &mut seen);
++                drop(pieces);
+                 let asks: Vec<Option<Ask>> =
+                     frame.plan_layers[..to].iter().map(|l| l.ask).collect();
+                 let stale_layers: Vec<usize> = frame
+@@ -2802,28 +2857,27 @@
+                 let facts = Facts {
+                     members: from..to,
+                     layers: &layers[..to],
+-                    seen: &seen[..to],
++                    seen: &seen,
+                     extents: &frame.extents[..to],
+                     asks: &asks,
+                     revisions: &frame.revisions[..to],
+                 };
+-                self.frame_damage(stack, facts, &stale_layers, &sharing)
+-            }
+-        };
+-        report.damage = changed;
+-        let region = match draw.slot {
+-            None => Region::of(panel_area),
+-            Some(slot) => {
+-                let region = self.accounts[stack].ring.frame(slot, &changed);
++                let changed = self.frame_damage(stack, facts, &stale_layers, &sharing);
++                report.damage = changed.region();
++                report.damage_px = changed.pixels();
++                let mut owed = TileSet::new(width, height);
++                self.accounts[stack].ring.frame(slot, &changed, &mut owed);
+                 self.remember(
+                     stack,
+                     from..to,
+                     &layers[..to],
+-                    &seen[..to],
++                    &mut seen,
+                     &frame.extents[..to],
+                     &frame.revisions[..to],
+                 );
+-                region
++                let owed = owed.region();
++                report.damage_ns += nanos(accounting);
++                owed
+             }
+         };
+         if region.is_empty() {

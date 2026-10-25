@@ -22,8 +22,9 @@ use crate::backdrop::Area;
 pub type Damage = Option<Area>;
 
 /// The most rectangles a [`Region`] keeps apart. Each costs the GPU a scissored clear and a pass over the layers that touch
-/// it, so past this many the two that waste the least pixels merged are merged.
-pub const MAX_RECTS: usize = 6;
+/// it, so past this many the two that waste the least pixels merged are merged. A 1080p home whose wallpaper steps shows it in
+/// the margins and gutters between its cards, which are more rectangles than a page of a 960 x 480 panel has.
+pub const MAX_RECTS: usize = 16;
 
 /// The pixels a pass is worth besides the layers it draws: two rectangles whose one cover costs no more than both and this are
 /// drawn as the cover (its scissored clear and the state it sets: about a tile row of pixels). The layers are not in this: a
