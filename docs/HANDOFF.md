@@ -69,7 +69,7 @@ Phases, Decided); this file holds the proven mechanics.
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
   (`docs/research/arch/x4/x4-monitor.sh`, `x4-analyse.py`); the histogram
-  probe (`docs/research/ambient`-side work has recovered the ABI offline). Mute
+  probe (its ABI was recovered offline, commit dd3c57a). Mute
   the receiver first (`media_player.living_room_avr`) and restore it after.
   Netflix deep link for the 4K Dolby Vision test film: launch `netflix` with
   `contentTarget` `m=https://www.netflix.com/watch/80141336&source_type=4`,
