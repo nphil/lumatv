@@ -38,7 +38,7 @@ var lastFaultMs = 0;
 
 var GEAR_HOLD_MS = 650;  // PLAN: a hold is one press held 650 ms; the AV reset is three taps
 var GEAR_KEY = null;     // WebOS.Key_webOS_Settings, read at init: a scope without WebOS leaves the gear to LG
-var GEAR_WATCH_MS = 4000; // a release that never arrives must not swallow the gear for good
+var GEAR_WATCH_MS = 30000; // a release that never arrives must not hold the gear's state for good (a hold without repeat events is not cut short either)
 var gear = { down: false, fired: false, hold: -1, watch: -1, option: false };
 var APP_KEYS = {};       // key code -> "netflix" | "amazon" | "disneyplus" | "lgchannels", read at init
 

@@ -748,6 +748,7 @@ Item {
     property int numberEaten: 0
     function tileForKey(k) { return k >= Qt.Key_1 && k <= Qt.Key_9 ? k - Qt.Key_1 : k === Qt.Key_0 ? 9 : -1 }
     function numberKey(k, tile, pressed, autoRepeat) {
+        if (pressed && !autoRepeat) numberEaten = 0                // a new press supersedes one whose release never came
         if (numberEaten === k) {
             if (!pressed) numberEaten = 0
             return true

@@ -60,6 +60,8 @@ class KeyPath(HostCase):
             (60, key("Qt.Key_2", "false"), "stray_release"), (500, CALLS, "calls_two"), (500, STATE, "state_two"),
             # 9 is the ninth and 0 the tenth
             (600, key("Qt.Key_9"), "nine"), (620, key("Qt.Key_9", "false"), "nine_up"), (700, key("Qt.Key_0"), "zero"), (720, key("Qt.Key_0", "false"), "zero_up"),
+            # a press whose release never came does not make the next press of that digit a no-op
+            (800, key("Qt.Key_4"), "lost"), (900, key("Qt.Key_4"), "again"),
             (1000, CALLS, "calls_all"),
             # 1 is the Apps tile: LumaTV's library, not LG's store
             (1100, key("Qt.Key_1"), "one"), (1120, key("Qt.Key_1", "false"), "one_up"), (1700, STATE, "state_one"),
@@ -72,7 +74,8 @@ class KeyPath(HostCase):
         self.assertEqual(launches(got["calls_two"]), ["netflix"], "2 is the second tile of the dock, once")
         self.assertEqual(got["state_two"], "/dock/0/1/", "the tile keeps Home's focus, as if OK had been pressed on it")
         self.assertEqual((got["nine"], got["nine_up"], got["zero"], got["zero_up"]), ("true",) * 4)
-        self.assertEqual(launches(got["calls_all"]), ["netflix", "com.webos.app.browser", "com.lighting.huesync"], "9 is the ninth tile, 0 the tenth")
+        self.assertEqual(launches(got["calls_all"]), ["netflix", "com.webos.app.browser", "com.lighting.huesync", "com.apple.appletv", "com.apple.appletv"],
+                         "9 is the ninth tile, 0 the tenth, and a lost release is forgiven at the next press")
         self.assertEqual((got["one"], got["one_up"]), ("true", "true"))
         self.assertEqual(got["state_one"], "apps/dock/0/0/")
         self.assertNotIn("com.webos.app.discovery", launches(got["calls_all"]))

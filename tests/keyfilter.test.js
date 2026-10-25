@@ -342,7 +342,9 @@ test("a release that never comes does not swallow the gear for good", () => {
   down(f, GEAR);
   advance(650);
   expect(held()).toBe(1);
-  advance(4001);                                 // the events stopped: the watch clears the hold
+  advance(29_999);
+  expect(down(f, GEAR, true)).toBe(A);           // a hold that is still going is not cut short ...
+  advance(30_001);                               // ... but one whose events stopped is cleared
   lgCalls = [];
   expect(down(f, GEAR)).toBe(N);
   advance(100);

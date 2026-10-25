@@ -68,7 +68,7 @@ The filter (`lumatv.js`) is first in the chain and only watches the press, so a 
 
 - LG's own timer for the press is cancelled the way the Home hold cancels Screen Zoom's: `longPressTimer.setBlockCancel(false); cancel(); setDeviceId(-1)` (`StarfishKeyFilter.qml:1508-1600`: `cancel()` also closes the ring). LG's state is then as after a cancelled press (`skipKeyPress`, `skipKeyRelease` and `lastKeyPress` untouched).
 - The repeats of the hold and its release end at the filter, so LG never replays a tap and never opens Quick Settings after a drawer.
-- The hold's timers are LG's `genericTimer` (the filter's own timer service), so the state machine is plain JS and is tested in bun. A watch of 4 s after the last event clears a hold whose release never came.
+- The hold's timers are LG's `genericTimer` (the filter's own timer service), so the state machine is plain JS and is tested in bun. A watch of 30 s after the last event (each repeat restarts it) clears a hold whose release never came; the next press clears it too.
 
 When nothing can show the drawer, or the drawer does not open, nothing is touched and the hold is LG's (Settings at 1 s). The safety net is `Key_Option`: while the gear is down, LG's 1 s conversion is taken as the hold (the drawer opens, LG's Settings does not), and if the hold had already been taken and the cancel failed, the conversion is swallowed. In that one case LG must see the gear's release to end its own hold, so the filter lets it through, and takes the `Key_Option` release LG answers it with. A `Key_Option` with no gear down is not ours.
 
