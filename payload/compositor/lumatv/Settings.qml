@@ -25,7 +25,7 @@ Item {
     // what the host connects
     signal themePatch(var patch)         // applied live (Home reads it back on its next poll)
     signal themePersist(var patch)       // written to the user's theme.json
-    signal launchApp(string appId)
+    signal launchApp(string appId, var params)     // params: LG's launch parameters ({target: "Brightness"} lands on that screen)
     signal closeRequested()
 
     property string zone: "rail"
@@ -44,6 +44,7 @@ Item {
         { id: "sound", title: "Sound", icon: "volume-2", page: "settings/PageSound.qml", rail: true },
         { id: "inputs", title: "Inputs & devices", icon: "cable", page: "settings/PageInputs.qml", rail: true },
         { id: "network", title: "Network", icon: "wifi", page: "settings/PageNetwork.qml", rail: true },
+        { id: "ambient", title: "Ambient light", icon: "lamp", page: "settings/PageAmbient.qml", rail: true },
         { id: "look", title: "Home & look", icon: "house", page: "settings/PageLook.qml", rail: true },
         { id: "remote", title: "Remote & pointer", icon: "mouse-pointer-2", page: "settings/PageRemote.qml", rail: true },
         { id: "ai", title: "AI access", icon: "bot", page: "settings/PageAi.qml", rail: true },
@@ -100,7 +101,7 @@ Item {
             if (dir === "up") { railIndex = Math.max(0, railIndex - 1); return true }
             if (dir === "down") { railIndex = Math.min(railCount - 1, railIndex + 1); return true }
             if (dir === "back") { closeRequested(); return true }
-            if (dir === "ok" && lgRow) { launchApp("com.palm.app.settings"); closeRequested(); return true }
+            if (dir === "ok" && lgRow) { launchApp("com.palm.app.settings", {}); closeRequested(); return true }
             if (dir === "right" || dir === "ok") {
                 if (!lgRow) {
                     zone = "page"
@@ -171,7 +172,7 @@ Item {
                 detail: "Everything else, themed"
                 focused: settings.zone === "rail" && settings.lgRow
                 rested: settings.rested
-                onActivated: { settings.launchApp("com.palm.app.settings"); settings.closeRequested() }
+                onActivated: { settings.launchApp("com.palm.app.settings", {}); settings.closeRequested() }
                 onHoverFocus: { settings.railIndex = settings.sections.length; settings.zone = "rail" }
             }
         }

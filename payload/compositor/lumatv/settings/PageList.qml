@@ -10,7 +10,7 @@ import "../kit"
 //
 // A descriptor is an object: `kind` (toggle, seg, slider, value, action, cards, stepper, head, note), `tab`
 // (default 0), `id`, `icon` (a Lucide name), `label`, `detail`, and per kind `on` (toggle), `options` and
-// `index` (seg, stepper, cards), `min`, `max`, `step`, `num` and `unit` (slider), `value` (value, a text),
+// `index` (seg, stepper, cards), `min`, `max`, `step`, `num`, `unit` and `valueText` (slider; a text for the number at the right, which replaces the rounded value), `value` (value, a text), `zones` and `text` (figure: a small TV with the lit edges and a caption; shown, never focused),
 // `button` (action), `cols` (cards), `text` (note, head), `chevron`, `info` (a row that only shows: full strength,
 // never focused). Any of label, detail, value, on, index,
 // num, options, text, enabled and visible may be a function: it runs inside the binding that draws the row,
@@ -47,7 +47,7 @@ Item {
     function shown(i) { var r = rows[i]; return !!r && rowTab(r) === tab && ev(r.visible) !== false }
     function focusable(i) {
         var r = rows[i]
-        return shown(i) && r.kind !== "head" && r.kind !== "note" && r.info !== true && ev(r.enabled) !== false
+        return shown(i) && r.kind !== "head" && r.kind !== "note" && r.kind !== "figure" && r.info !== true && ev(r.enabled) !== false
     }
     function first() { for (var i = 0; i < rows.length; i++) if (focusable(i)) return i; return -2 }
     function step(from, dir) {
@@ -65,7 +65,9 @@ Item {
         if (stop < 0 || !focusable(stop)) enter(first())
         opened()
     }
-    onTabChanged: { enter(first()); offset = 0 }
+    // Right and Left on the tab bar change the tab and leave the focus on the bar, so the next press goes to the next tab; a tab picked
+    // any other way (the pointer sets the bar's stop first) has its first row focused.
+    onTabChanged: { if (stop !== -1) enter(first()); offset = 0 }
     // A pointer that lands on a row takes the focus as the D-pad would.
     function pointAt(i) { if (host) host.zone = "page"; if (focusable(i)) enter(i) }
 
@@ -87,8 +89,8 @@ Item {
         if (stop === -2) { var f0 = first(); if (f0 >= 0) enter(f0) }      // rows that were not there yet
         if (stop === -1 || (stop < 0 && tabs.length > 0)) {
             // the tab bar
-            if (dir === "left") { if (tab === 0) return false; tab--; return true }
-            if (dir === "right") { tab = Math.min(tabs.length - 1, tab + 1); return true }
+            if (dir === "left") { if (tab === 0) return false; stop = -1; tab--; return true }
+            if (dir === "right") { stop = -1; tab = Math.min(tabs.length - 1, tab + 1); return true }
             if (dir === "down") { var f = first(); if (f >= 0) enter(f); return true }
             if (dir === "up") return false
             return dir !== "back"
@@ -221,7 +223,7 @@ Item {
                         width: cell.width
                         sourceComponent: cell.r.kind === "toggle" ? cToggle : cell.r.kind === "seg" ? cSeg : cell.r.kind === "slider" ? cSlider
                                        : cell.r.kind === "value" ? cValue : cell.r.kind === "action" ? cAction : cell.r.kind === "cards" ? cCards
-                                       : cell.r.kind === "stepper" ? cStepper : cell.r.kind === "nudge" ? cNudge : cell.r.kind === "head" ? cHead : cNote
+                                       : cell.r.kind === "stepper" ? cStepper : cell.r.kind === "nudge" ? cNudge : cell.r.kind === "head" ? cHead : cell.r.kind === "figure" ? cFigure : cNote
                     }
 
                     Component {
@@ -314,7 +316,7 @@ Item {
                                     width: Lu.target * 1.5; horizontalAlignment: Text.AlignRight
                                     anchors.verticalCenter: parent.verticalCenter
                                     role: "label"
-                                    text: String(Math.round(page.ev(cell.r.num) || 0)) + (cell.r.unit || "")
+                                    text: cell.r.valueText !== undefined ? page.ev(cell.r.valueText) : String(Math.round(page.ev(cell.r.num) || 0)) + (cell.r.unit || "")
                                 }
                             }
                         }
@@ -349,16 +351,23 @@ Item {
                         Item {
                             id: grid
                             readonly property var opts: page.ev(cell.r.options) || []
-                            readonly property int cols: cell.r.cols || 4
+                            readonly property bool strip: cell.r.strip === true
+                            readonly property int cols: strip ? 1000 : (cell.r.cols || 4)
+                            readonly property real inView: (cell.r.inView || 4) + (strip ? 0.4 : 0)     // a strip shows part of the next card: it scrolls
                             readonly property int gap: Lu.space(3)
-                            readonly property int cw: Math.floor((cell.width - gap * (cols - 1)) / cols)
+                            readonly property int cw: strip ? Math.floor((cell.width - gap * Math.ceil(inView - 1)) / inView) : Math.floor((cell.width - gap * (cols - 1)) / cols)
+                            // the strip moves just far enough to keep the focused (or chosen) card whole
+                            readonly property int at: cell.isFocus ? page.seg : Math.max(0, page.ev(cell.r.index) || 0)
+                            readonly property real scroll: strip ? Math.max(0, Math.min(opts.length * (cw + gap) - gap - cell.width, (at + 1) * (cw + gap) - gap - cell.width)) : 0
                             width: cell.width
-                            height: Math.ceil(opts.length / cols) * (Math.round(Lu.row * 0.95) + gap)
+                            height: (strip ? 1 : Math.ceil(opts.length / cols)) * (Math.round(Lu.row * 0.95) + gap)
+                            clip: strip
                             Repeater {
                                 model: grid.opts
                                 delegate: LuCard {
-                                    x: (index % grid.cols) * (grid.cw + grid.gap)
-                                    y: Math.floor(index / grid.cols) * (height + grid.gap)
+                                    x: (grid.strip ? index : index % grid.cols) * (grid.cw + grid.gap) - grid.scroll
+                                    y: grid.strip ? 0 : Math.floor(index / grid.cols) * (height + grid.gap)
+                                    Behavior on x { enabled: grid.strip && !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
                                     width: grid.cw
                                     icon: modelData.icon || ""; title: modelData.title || ""; sub: modelData.sub || ""
                                     selected: page.ev(cell.r.index) === index
@@ -376,6 +385,31 @@ Item {
                             width: cell.width
                             height: Math.round(Lu.row * 0.6)
                             LuText { x: Lu.space(2); anchors.bottom: parent.bottom; anchors.bottomMargin: Lu.space(2); role: "caption"; color: Lu.ink3; text: page.ev(cell.r.text) || page.ev(cell.r.label) || "" }
+                        }
+                    }
+                    Component {
+                        id: cFigure
+                        Item {
+                            id: fig
+                            readonly property var zn: page.ev(cell.r.zones) || ({})
+                            readonly property int tvW: Math.round(Lu.target * 2.4)
+                            readonly property int tvH: Math.round(tvW * 0.56)
+                            width: cell.width
+                            height: tvH + Lu.space(8)
+                            Item {
+                                id: tv
+                                x: Lu.space(2); y: Lu.space(4); width: fig.tvW; height: fig.tvH
+                                Rectangle { anchors.fill: parent; anchors.margins: 6; radius: 4; color: Lu.wash("selected"); border.width: 1; border.color: Lu.edge }
+                                Rectangle { visible: (fig.zn.top || 0) > 0; x: 6; y: 0; width: parent.width - 12; height: 4; radius: 2; color: Lu.accent }
+                                Rectangle { visible: (fig.zn.bottom || 0) > 0; x: 6; y: parent.height - 4; width: parent.width - 12; height: 4; radius: 2; color: Lu.accent }
+                                Rectangle { visible: (fig.zn.left || 0) > 0; x: 0; y: 6; width: 4; height: parent.height - 12; radius: 2; color: Lu.accent }
+                                Rectangle { visible: (fig.zn.right || 0) > 0; x: parent.width - 4; y: 6; width: 4; height: parent.height - 12; radius: 2; color: Lu.accent }
+                            }
+                            LuText {
+                                x: tv.x + tv.width + Lu.space(6); width: parent.width - x - Lu.space(2); anchors.verticalCenter: tv.verticalCenter
+                                role: "caption"; color: Lu.ink2; wrapMode: Text.WordWrap
+                                text: page.ev(cell.r.text) || ""
+                            }
                         }
                     }
                     Component {

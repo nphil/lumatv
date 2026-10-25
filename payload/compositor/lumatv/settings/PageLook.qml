@@ -19,11 +19,20 @@ PageList {
     readonly property string clockStyle: theme.clock && theme.clock.enabled === false ? "off" : ((theme.clock && theme.clock.style) || "analog")
     readonly property bool motionOn: !theme.wallpaperMotion || theme.wallpaperMotion.enabled !== false
     readonly property var saver: theme.screensaver || ({})
+    readonly property var art: saver.art || ({})
+    readonly property string saverStyle: saver.style || "clock"
+    readonly property var artEvery: [5, 15, 60]
     readonly property var logo: theme.logo || ({})
     subtitle: (tintOn ? "Dynamic tint" : "Fixed accent") + " \u00b7 " + material
     summary: (tintOn ? "Dynamic tint" : "Fixed accent") + " \u00b7 " + wallName()
 
     function patch(p) { if (host) host.patch(p) }
+    // Theme patches merge one level deep, so a change to one art option carries the whole art block.
+    function artPatch(field, v) {
+        var a = { everyMin: art.everyMin || 15, order: art.order || "shuffle", caption: art.caption !== false }
+        a[field] = v
+        patch({ screensaver: { art: a } })
+    }
     // The shipped wallpaper is "Aurora"; another file shows as its own name.
     function wallName() {
         var f = theme.wallpaper ? String(theme.wallpaper).replace(/^.*\//, "").replace(/\.[a-z]+$/i, "") : ""
@@ -44,7 +53,7 @@ PageList {
           act: function(i) { page.patch(i === 2 ? { clock: { enabled: false } } : { clock: { enabled: true, style: page.clockStyles[i] } }) } },
         { kind: "toggle", tab: 0, icon: "waves", label: "Wallpaper motion", detail: "The wallpaper drifts about ten times a second. Off keeps it still.",
           on: function() { return page.motionOn }, act: function(v) { page.patch({ wallpaperMotion: { enabled: v } }) } },
-        R.lg(page, { tab: 0, detail: "Home promotion, content recommendation, Always Ready, standby light." }),
+        R.lg(page, { tab: 0, target: "HomeSettings", detail: "Home promotion, content recommendation, Home animation, power-on screen." }),
 
         { kind: "toggle", tab: 1, icon: "clock", label: "12-hour clock", detail: "Off shows 24-hour time on Home and in the bar.",
           on: function() { return !theme.clock || theme.clock.twelveHour !== false }, act: function(v) { page.patch({ clock: { twelveHour: v } }) } },
@@ -55,22 +64,35 @@ PageList {
           act: function(i) { page.patch({ weather: { units: i === 1 ? "celsius" : "fahrenheit" } }) } },
 
         { kind: "seg", tab: 2, icon: "moon", label: "Screensaver", detail: "Starts after a while with no key. It moves so the panel never holds one picture.",
-          options: ["Clock", "Art", "Off"], index: function() { var s = page.saver.style || "clock"; return s === "off" ? 2 : s === "art" ? 1 : 0 },
+          options: ["Clock", "Art", "Off"], index: function() { var s = page.saverStyle; return s === "off" ? 2 : s === "art" ? 1 : 0 },
           act: function(i) { page.patch({ screensaver: { style: ["clock", "art", "off"][i] } }) } },
         { kind: "seg", tab: 2, icon: "hourglass", label: "Start after", detail: "Minutes with no key or sound.",
           options: ["5 min", "10 min", "30 min"], index: function() { var m = page.saver.afterMin || 10; return m <= 5 ? 0 : m <= 10 ? 1 : 2 },
-          enabled: function() { return (page.saver.style || "clock") !== "off" }, act: function(i) { page.patch({ screensaver: { afterMin: [5, 10, 30][i] } }) } },
+          enabled: function() { return page.saverStyle !== "off" }, act: function(i) { page.patch({ screensaver: { afterMin: [5, 10, 30][i] } }) } },
         { kind: "seg", tab: 2, icon: "gauge", label: "Dim over time", detail: "Dims to 60 % across the first hour so a long stay is gentle on the panel.",
           options: ["On", "Off"], index: function() { return page.saver.dim === false ? 1 : 0 },
-          enabled: function() { return (page.saver.style || "clock") !== "off" }, act: function(i) { page.patch({ screensaver: { dim: i === 0 } }) } },
+          enabled: function() { return page.saverStyle !== "off" }, act: function(i) { page.patch({ screensaver: { dim: i === 0 } }) } },
+        { kind: "toggle", tab: 2, icon: "house-wifi", label: "Weather and a home fact", detail: "Under the clock: the temperature and one thing about the house, such as a door locked.",
+          visible: function() { return page.saverStyle === "clock" }, on: function() { return page.saver.glance !== false },
+          act: function(v) { page.patch({ screensaver: { glance: v } }) } },
+        { kind: "seg", tab: 2, icon: "timer", label: "Change the art every", detail: "A new painting from the public-domain set.",
+          visible: function() { return page.saverStyle === "art" }, options: ["5 min", "15 min", "1 hour"],
+          index: function() { var m = page.art.everyMin || 15; return m <= 5 ? 0 : m <= 15 ? 1 : 2 }, act: function(i) { page.artPatch("everyMin", page.artEvery[i]) } },
+        { kind: "seg", tab: 2, icon: "list-video", label: "Order", detail: "Shuffle mixes the set; In order walks through it.",
+          visible: function() { return page.saverStyle === "art" }, options: ["Shuffle", "In order"],
+          index: function() { return page.art.order === "sequence" ? 1 : 0 }, act: function(i) { page.artPatch("order", i === 1 ? "sequence" : "shuffle") } },
+        { kind: "toggle", tab: 2, icon: "type", label: "Artist and title", detail: "A small caption with the artist, the title and the year.",
+          visible: function() { return page.saverStyle === "art" }, on: function() { return page.art.caption !== false },
+          act: function(v) { page.artPatch("caption", v) } },
         R.note("The screensaver is mostly black, everything on it drifts to a new spot every minute, and the panel goes to standby after a few hours (docs/PLAN.md, Phase 8).", 2),
 
-        { kind: "seg", tab: 3, icon: "power", label: "Power-on logo", detail: "Shown for a second when the TV starts. Three styles, one chosen.",
-          options: ["Style 1", "Style 2", "Style 3"], index: function() { return Math.max(0, Math.min(2, (page.logo.on || 1) - 1)) },
+        { kind: "seg", tab: 3, icon: "power", label: "Power-on logo", detail: "Shown for a second when the TV starts.",
+          options: ["Panes", "Arc", "Name only"], index: function() { return Math.max(0, Math.min(2, (page.logo.on || 1) - 1)) },
           act: function(i) { page.patch({ logo: { on: i + 1 } }) } },
         { kind: "seg", tab: 3, icon: "moon", label: "Power-off logo", detail: "Shown for half a second as the TV goes dark.",
-          options: ["Style 1", "Style 2", "Style 3"], index: function() { return Math.max(0, Math.min(2, (page.logo.off || 1) - 1)) },
+          options: ["Panes", "Arc", "Name only"], index: function() { return Math.max(0, Math.min(2, (page.logo.off || 1) - 1)) },
           act: function(i) { page.patch({ logo: { off: i + 1 } }) } },
-        R.note("In standby the panel goes fully dark: LG's Always Ready and Gallery+ screens are off, and the TV still wakes at once.", 3)
+        R.note("In standby the panel goes fully dark: LG's Always Ready and Gallery+ screens are off, and the TV still wakes at once.", 3),
+        R.lg(page, { tab: 3, target: "LifeOnScreenMode", label: "LG standby screens", detail: "Always Ready and the standby light, in LG's own screen." })
     ]
 }

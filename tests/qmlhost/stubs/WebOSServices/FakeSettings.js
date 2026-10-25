@@ -1,25 +1,34 @@
 .pragma library
+.import "LgSettings.js" as Lg
 
 // A stand-in settings service for the offline host: the values the owner's TV answered in the X4 capture
 // (picture mode Filmmaker, OLED pixel brightness 80, sound out the receiver over eARC) and plausible
-// others, held in one place for every Service and for LS.adhoc's setSystemSettings. The host reads and
-// writes it exactly as the pages do; whether the real service has the same keys is the set's to say
-// (tools/settings_check.py, in the slot script).
+// others, held in one place for every Service and for LS.adhoc's setSystemSettings. Keys sit in the categories
+// LG's own Settings app uses (LgSettings.js); a write to any other key or to a value that key does not take is
+// refused and kept in `rejected`, so a test can see that no page wrote one. Whether the real service answers
+// the same keys is the set's to say (tools/settings_check.py, in the slot script).
 var data = {
     picture: { pictureMode: "filmMaker", backlight: "80", contrast: "85", brightness: "50", color: "50", tint: "0", sharpness: "10",
-               energySaving: "off", screenShift: "on", logoLuminanceAdjust: "strong", truMotionMode: "off", aspectRatio: "original",
-               filmMakerMode: "on", aiPictureEnable: "off", eyeComfortMode: "off" },
-    aspectRatio: { arcPerApp: "original" },
-    sound: { soundMode: "standard", soundOutput: "external_arc", balance: "0", soundSyncDelay: "0", digitalSoundOut: "bitstream",
-             avSyncAdjustment: "0", eArcSupport: "on", dolbyAtmos: "on", autoVolume: "off" },
-    general: { deviceName: "Living Room TV", remotePointer: "on", pointerSpeed: "normal", pointerSize: "medium", quickStartMode: "on",
-               simplinkEnable: "true", autoInput: "true", wolwowlOnOff: "true", timeZone: "America/New_York", timeZoneAuto: "on",
-               autoOff4Hours: "on", autoOff2Hours: "off", language: "en-US" },
-    option: { homeAutoLaunch: "on", lgLogoDisplay: "on", numberKeysDock: "on", holdHomeForLgHome: "on", audioGuidance: "off", highContrast: "off",
-              country: "USA", localeCountryGroup: "US", ssuServer: "on", ambientLight: "off" },
-    network: { },
-    other: { lgLogoDisplay: "on", lightingEnable: "on" }
+               energySaving: "off", screenShift: "on", logoLuminanceAdjust: "strong", truMotionMode: "off", blackLevel: "auto",
+               filmMakerMode: "on", filmmakerAmbientLight: "on", eyeComfortMode: "off" },
+    aiPicture: { ai_Picture: "off", ai_Genre: "off", ai_Brightness: "on" },
+    aspectRatio: { arcPerApp: "original", justScan: "on" },
+    sound: { soundMode: "standard", soundOutput: "external_arc", audioBalance: "0", soundOutputDigital: "passThrough",
+             avSync: "0", eArcSupport: "on", autoVolume: "off" },
+    general: { remotePointer: "on", lifeOnScreenMode: "off", homeAutoLaunch: "on" },
+    network: { deviceName: "Living Room TV", wolwowlOnOff: "true" },
+    option: { pointerSpeed: "normal", pointerSize: "medium", quickStartMode: "on", audioGuidance: "off", highContrast: "off", country: "USA",
+              localeCountryGroup: "US", screenSaverTimer: "10" },
+    other: { simplinkEnable: "on", lgLogoDisplay: "on", lightingEnable: "on", oledCareMode: "off" },
+    time: { noOperationAutoOff: "3", autoOff15Min: "on", noSignalAutoOff: "on", timeZone: { ZoneID: "America/New_York", City: "New York" } },
+    caption: { captionEnable: "off" },
+    localeInfo: { locales: { UI: "en-US", STT: "en-US" } }
 };
+
+// What the service refused, as {category, key, value, why}; a test reads it back through LS.
+var rejected = [];
+// "category.key" -> false: the service says the setting exists but cannot be changed now (its description's ui.active).
+var inactive = {};
 
 function read(category, keys) {
     var out = {};
@@ -31,9 +40,30 @@ function read(category, keys) {
     return doc;
 }
 
+// Applies what the real service would accept and returns {returnValue, errorText?}. One bad key refuses the whole call.
 function write(category, settings) {
+    for (var k in settings) {
+        var why = Lg.refuse(category, k, settings[k]);
+        if (why) {
+            rejected.push({ category: category, key: k, value: settings[k], why: why });
+            return { returnValue: false, errorText: why };
+        }
+    }
     if (!data[category]) data[category] = {};
-    for (var k in settings) data[category][k] = settings[k];
+    for (var j in settings) data[category][j] = settings[j];
+    return { returnValue: true };
+}
+
+// getSystemSettingDesc: per key, whether the screen may show it and let it change (what LG's app reads as `ui`).
+function desc(category, keys) {
+    var cat = data[category] || {};
+    var out = {};
+    var list = keys && keys.length ? keys : Object.keys(cat);
+    for (var i = 0; i < list.length; i++) {
+        if (cat[list[i]] === undefined) continue;
+        out[list[i]] = { ui: { visible: true, active: inactive[category + "." + list[i]] !== false } };
+    }
+    return { returnValue: true, category: category, settings: out };
 }
 
 // The other services the Settings pages and the input picker read, answered as the host's make-believe TV
@@ -59,6 +89,7 @@ var services = {
 
 function call(service, method, params) {
     if (method === "getSystemSettings") return read(params.category, params.keys || (params.key ? [params.key] : null));
+    if (method === "getSystemSettingDesc") return desc(params.category, params.keys || (params.key ? [params.key] : null));
     var doc = services[service + "/" + method];
     return doc || { returnValue: true };
 }

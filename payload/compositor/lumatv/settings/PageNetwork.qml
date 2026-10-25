@@ -13,7 +13,9 @@ PageList {
     subtitle: Net.wired ? "Wired" + (Net.ip ? " \u00b7 " + Net.ip : "") : Net.wifi ? (Net.ssid || "Wi-Fi") + (Net.band ? " \u00b7 " + Net.band : "") + (Net.strength ? " \u00b7 " + Net.strength : "") : "Not connected"
     summary: Net.summary
 
-    Component.onCompleted: Sio.read("general", ["wolwowlOnOff"])
+    function refresh() { Sio.read("network", ["wolwowlOnOff", "deviceName"]) }
+    Component.onCompleted: refresh()
+    onOpened: refresh()
 
     rows: [
         { kind: "value", tab: 0, icon: "wifi", label: function() { return Net.wifi ? Net.ssid : "Wi-Fi" },
@@ -24,9 +26,10 @@ PageList {
           detail: function() { return (Net.ip || "No address") + (Net.method ? " \u00b7 " + (Net.method === "dhcp" ? "from the router (DHCP)" : "set by hand") : "") },
           value: function() { return Net.method === "dhcp" ? "Automatic" : Net.method === "manual" ? "Manual" : "" }, chevron: false, info: true },
         R.head("Network features", 0),
-        R.toggle(Sio, { ds: "general.wolwowlOnOff", tab: 0, on: "true", off: "false", icon: "power", label: "Wake from the network",
+        R.toggle(Sio, { ds: "network.wolwowlOnOff", tab: 0, on: "true", off: "false", icon: "power", label: "Wake from the network",
                         detail: "Lets Home Assistant turn the TV on (Wake-on-LAN)." }),
-        R.lg(page, { tab: 0, detail: "Other networks, Ethernet details, Screen Share, AirPlay and HomeKit, IP control, LG Connect Apps." }),
+        R.lg(page, { tab: 0, id: "others", label: "Other networks", detail: "Join another Wi-Fi network in LG's Network screen." }),
+        R.lg(page, { tab: 0, detail: "Ethernet details, Screen Share, AirPlay and HomeKit, IP control, LG Connect Apps." }),
 
         { kind: "value", tab: 1, icon: "ethernet-port", label: "Wired connection", chevron: false, info: true,
           detail: function() { return Net.wired ? "Connected" + (Net.ip ? " \u00b7 " + Net.ip : "") : "No cable connected." },

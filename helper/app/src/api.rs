@@ -968,7 +968,7 @@ mod tests {
             .iter()
             .map(|o| o["owner"].as_str().unwrap().to_owned())
             .collect();
-        assert_eq!(owners, ["base.news", "base.receiver", "base.weather"]);
+        assert_eq!(owners, ["base.ambient", "base.news", "base.receiver", "base.weather"]);
 
         let view = body(
             &rig.api

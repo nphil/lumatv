@@ -1,0 +1,275 @@
+{
+  "format": 1,
+  "owner": "base.ambient",
+  "revision": 1,
+  "title": "Ambient light",
+  "sections": [
+    {
+      "id": "light",
+      "title": "Light",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Ambient light",
+          "help": "Lights around the TV follow what is on the screen.",
+          "kind": {
+            "type": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": false
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "brightness",
+          "label": "Brightness",
+          "help": "How bright the strip goes.",
+          "kind": {
+            "type": "integer",
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "unit": "%"
+          },
+          "default": {
+            "type": "integer",
+            "value": 70
+          },
+          "enabled_when": {
+            "type": "equals",
+            "key": "enabled",
+            "value": {
+              "type": "bool",
+              "value": true
+            }
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "mode",
+          "label": "Mode",
+          "help": "Follows the picture, a still colour, or off on Home and menus.",
+          "kind": {
+            "type": "choice",
+            "options": {
+              "inline": [
+                {
+                  "id": "picture",
+                  "label": "Picture"
+                },
+                {
+                  "id": "colour",
+                  "label": "Colour"
+                },
+                {
+                  "id": "picture-off-home",
+                  "label": "Off on Home"
+                }
+              ]
+            }
+          },
+          "default": {
+            "type": "choice",
+            "value": "picture"
+          },
+          "enabled_when": {
+            "type": "equals",
+            "key": "enabled",
+            "value": {
+              "type": "bool",
+              "value": true
+            }
+          },
+          "apply": "on-commit"
+        }
+      ]
+    },
+    {
+      "id": "layout",
+      "title": "Layout",
+      "fields": [
+        {
+          "key": "top",
+          "label": "Top sections",
+          "help": "Sections along the top edge, left to right.",
+          "kind": {
+            "type": "integer",
+            "min": 0,
+            "max": 120,
+            "step": 1
+          },
+          "default": {
+            "type": "integer",
+            "value": 18
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "right",
+          "label": "Right sections",
+          "help": "Sections down the right edge.",
+          "kind": {
+            "type": "integer",
+            "min": 0,
+            "max": 120,
+            "step": 1
+          },
+          "default": {
+            "type": "integer",
+            "value": 11
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "bottom",
+          "label": "Bottom sections",
+          "help": "Sections along the bottom edge, right to left.",
+          "kind": {
+            "type": "integer",
+            "min": 0,
+            "max": 120,
+            "step": 1
+          },
+          "default": {
+            "type": "integer",
+            "value": 18
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "left",
+          "label": "Left sections",
+          "help": "Sections up the left edge.",
+          "kind": {
+            "type": "integer",
+            "min": 0,
+            "max": 120,
+            "step": 1
+          },
+          "default": {
+            "type": "integer",
+            "value": 11
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "delay_ms",
+          "label": "Delay",
+          "help": "Lights follow the picture this late, to line up with the sound.",
+          "kind": {
+            "type": "integer",
+            "min": 0,
+            "max": 2000,
+            "step": 10,
+            "unit": "ms"
+          },
+          "default": {
+            "type": "integer",
+            "value": 40
+          },
+          "apply": "on-commit"
+        }
+      ]
+    },
+    {
+      "id": "colour",
+      "title": "Colour",
+      "fields": [
+        {
+          "key": "still_colour",
+          "label": "Still colour",
+          "help": "The colour in Colour mode.",
+          "kind": {
+            "type": "choice",
+            "options": {
+              "inline": [
+                {
+                  "id": "warm",
+                  "label": "Warm white"
+                },
+                {
+                  "id": "cool",
+                  "label": "Cool white"
+                },
+                {
+                  "id": "rose",
+                  "label": "Rose"
+                },
+                {
+                  "id": "iris",
+                  "label": "Iris"
+                },
+                {
+                  "id": "foam",
+                  "label": "Foam"
+                }
+              ]
+            }
+          },
+          "default": {
+            "type": "choice",
+            "value": "warm"
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "saturation",
+          "label": "Saturation",
+          "help": "How strong the colours are next to the picture.",
+          "kind": {
+            "type": "integer",
+            "min": 50,
+            "max": 150,
+            "step": 5,
+            "unit": "%"
+          },
+          "default": {
+            "type": "integer",
+            "value": 100
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "dark_hold",
+          "label": "Keep a glow in dark scenes",
+          "help": "A very dim glow instead of off, which a lamp can flicker at.",
+          "kind": {
+            "type": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": true
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "skip_bars",
+          "label": "Skip black bars",
+          "help": "Ignore the black bars of letterboxed and pillarboxed films.",
+          "kind": {
+            "type": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": true
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "game_edges",
+          "label": "Weight the edges for games",
+          "help": "Picks the edge-weighted capture on a game input.",
+          "kind": {
+            "type": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": true
+          },
+          "apply": "on-commit"
+        }
+      ]
+    }
+  ]
+}

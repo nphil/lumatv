@@ -7,6 +7,7 @@ directory) or the TV's settings service (the host's fake one, read back through 
 leaves it, and the pages draw the state of the helper (a fake one serves the topics). Timing and Qt 5.12 are
 the set's to say.
 """
+import ast
 import json
 import os
 import re
@@ -31,12 +32,27 @@ class HostCase(unittest.TestCase):
         body = "".join("root.key(%s,true,false,0);root.key(%s,false,false,0);" % (self.CODES[n], self.CODES[n]) for n in names)
         return ["--eval", "%d:(function(){%s return 1})()" % (at, body)]
 
-    def host(self, *args, data=None):
-        cmd = [sys.executable, HOST, "LumaHome.qml", "--fake-helper", "--prop", "hostActive=true", "--theme", '{"perf":{"syncResidents":true}}', *args]
+    def host(self, *args, data=None, surface="LumaHome.qml"):
+        cmd = [sys.executable, HOST, surface, "--fake-helper", "--prop", "hostActive=true", "--theme", '{"perf":{"syncResidents":true}}', *args]
         if data:
             cmd += ["--data", data]
         r = subprocess.run(cmd, env=dict(os.environ, DISPLAY=DISPLAY), capture_output=True, text=True, timeout=180)
         return r.returncode, r.stdout + r.stderr
+
+    def docs(self, out):
+        """Each `--eval` that returned a JSON string, parsed (the host prints `[eval] ('<text>', True)`)."""
+        found = []
+        for line in out.splitlines():
+            m = re.match(r"\[eval\] \((.*), (True|False)\)$", line)
+            if m:
+                v = ast.literal_eval(m.group(1))
+                if isinstance(v, str) and v[:1] in "[{":
+                    found.append(json.loads(v))
+        return found
+
+    def tagged(self, out, tag):
+        """What an `--eval` script logged as `[tag] <json>`."""
+        return [json.loads(m.group(1)) for m in re.finditer(r"\[%s\] (\{.*\}|\[.*\])" % tag, out)]
 
     def values(self, out):
         vals = []
@@ -48,8 +64,8 @@ class HostCase(unittest.TestCase):
         return vals
 
 
-# The rail, in order: picture, sound, inputs, network, look, remote, ai, system, then LG's Settings.
-RAIL = {"picture": 0, "sound": 1, "inputs": 2, "network": 3, "look": 4, "remote": 5, "ai": 6, "system": 7, "lg": 8}
+# The rail, in order: picture, sound, inputs, network, ambient, look, remote, ai, system, then LG's Settings.
+RAIL = {"picture": 0, "sound": 1, "inputs": 2, "network": 3, "ambient": 4, "look": 5, "remote": 6, "ai": 7, "system": 8, "lg": 9}
 OPEN_AT = 1500          # Home asks for Settings
 READY = 6000            # Home has presented, built the chain (Settings and its pages) and warmed up
 LUNA = "JSON.stringify(root.lunaCalls.filter(function(c) { return c.method === '/setSystemSettings' }).map(function(c) { return JSON.parse(c.payload) }))"
@@ -65,12 +81,26 @@ class Settings(HostCase):
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, "--eval", "%d:root.settingsOpen" % (READY + 400), "--wait", str(READY + 1200))
         self.assertEqual(rc, 0, out[-1500:])
         self.assertEqual(self.values(out)[-1], "true")
-        self.assertIn("[Resident] settings built", out)          # built in the background, before it was opened a second time
+        self.assertNotIn("did not load", out)
 
     def test_every_page_is_built_with_it_and_the_rail_shows_each_pages_own_summary(self):
-        rc, out = self.host("--eval", "%d:root.openSettings()" % READY, "--snap", "%d:/dev/null" % (READY + 800), "--wait", str(READY + 1400))
+        # Settings on its own, the pages built in the background: every page loaded and each rail section has the line its page keeps
+        rc, out = self.host("--eval", "%d:JSON.stringify({loaded: root.loaded, pages: root.pages.length, built: root.built, summaries: root.summaries})" % 5000,
+                            "--wait", "5600", surface="Settings.qml")
         self.assertEqual(rc, 0, out[-1500:])
         self.assertNotIn("did not load", out)
+        doc = self.docs(out)[-1]
+        self.assertTrue(doc["built"])
+        self.assertEqual(doc["loaded"], doc["pages"])
+        s = doc["summaries"]
+        self.assertEqual(s["picture"], "Filmmaker \u00b7 Brightness 80")                 # the fake TV's picture mode and OLED pixel brightness
+        self.assertEqual(s["sound"], "Receiver \u00b7 eARC")
+        self.assertEqual(s["network"], "Nate's Home \u00b7 Strong")
+        self.assertEqual(s["ambient"], "Off")                                           # the helper's base.ambient default
+        self.assertEqual(s["remote"], "Pointer on \u00b7 Normal speed")
+        self.assertEqual(s["system"], "webOS \u00b7 Living Room TV")
+        for section in ("inputs", "look", "ai"):
+            self.assertTrue(s.get(section), section)
 
     def test_a_switch_changes_the_theme_and_is_written_to_the_user_file(self):
         with tempfile.TemporaryDirectory() as d:
@@ -94,15 +124,16 @@ class Settings(HostCase):
 
     def test_the_tabs_switch_without_building_anything(self):
         # Home & look has four tabs; Up from the first row is the tab bar, Right on it the next tab, Down the first row of that tab
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("look", "right", "up", "right", "right", "down", "ok"),
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("look", "right", "up", "right", "right", "down", "right", "ok"),
                             "--eval", "%d:JSON.stringify(root.theme.screensaver || {})" % (READY + 3200), "--wait", str(READY + 3800))
         self.assertEqual(rc, 0, out[-1500:])
-        # Screensaver tab, first row (style Clock | Art | Off), OK picks the current one: nothing breaks, nothing warns
+        # Screensaver tab, first row (style Clock | Art | Off): Right moves to Art, OK picks it
         self.assertNotIn("did not load", out)
+        self.assertEqual(self.docs(out)[-1]["style"], "art")
 
     def test_a_slider_writes_the_tvs_setting_with_the_dimension_it_was_read_for(self):
-        # Picture, Mode tab: the first stop is the picture mode cards (two rows of them), then OLED pixel brightness (80 in the fake service)
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "right", "right"),
+        # Picture, Mode tab: the first stop is the picture mode cards (one scrolling row), then OLED pixel brightness (80 in the fake service)
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "right", "right"),
                             "--eval", "%d:%s" % (READY + 3200, LUNA), "--wait", str(READY + 3800))
         self.assertEqual(rc, 0, out[-1500:])
         calls = json.loads(re.findall(r"\[eval\] \('(\[.*\])'", out)[-1])
@@ -111,12 +142,13 @@ class Settings(HostCase):
         self.assertEqual(sent[0]["dimension"]["pictureMode"], "filmMaker")
 
     def test_a_row_the_service_does_not_answer_is_dimmed_and_does_not_take_focus(self):
-        # Sound: Receiver volume only shows, so Down from Sound out lands on HDMI input audio format, not the info rows
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("sound", "right", "down", "right", "ok"),
+        # Sound: Receiver volume and Sound mode only show, so Down from Sound out lands on Match screen and sound, then on Digital
+        # sound output (Pass through now): Left picks PCM
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("sound", "right", "down", "down", "left", "ok"),
                             "--eval", "%d:%s" % (READY + 3200, LUNA), "--wait", str(READY + 3800))
         self.assertEqual(rc, 0, out[-1500:])
         calls = json.loads(re.findall(r"\[eval\] \('(\[.*\])'", out)[-1])
-        self.assertEqual([c["settings"] for c in calls if c["category"] == "sound"], [{"digitalSoundOut": "pcm"}])
+        self.assertEqual([c["settings"] for c in calls if c["category"] == "sound"], [{"soundOutputDigital": "pcm"}])
 
     def test_back_from_the_rail_closes_it_and_back_from_the_page_returns_to_the_rail(self):
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, "right", "back"),
@@ -143,6 +175,138 @@ class Settings(HostCase):
         # the last row of the rail launches LG's app and closes Settings
         self.assertEqual(self.values(out)[-1], "false")
 
+    def test_art_options_carry_the_whole_art_block_and_show_only_with_the_art_style(self):
+        # Screensaver tab: style Art, then (afterMin, dim) down to "Change the art every" (15 min now): Right picks 1 hour
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
+                            *self.go("look", "right", "up", "right", "right", "down", "right", "ok"),
+                            *self.keys(READY + 3000, "down", "down", "down", "right", "ok"),
+                            "--eval", "%d:JSON.stringify(root.theme.screensaver)" % (READY + 4200), "--wait", str(READY + 4800))
+        self.assertEqual(rc, 0, out[-1500:])
+        s = self.docs(out)[-1]
+        self.assertEqual(s["style"], "art")
+        self.assertEqual(s["art"], {"everyMin": 60, "order": "shuffle", "caption": True})      # one change, the other two kept
+
+    def test_the_power_on_and_off_logos_are_chosen_among_three_and_kept_in_the_theme_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            # Standby tab: Power-on logo (Panes now), Right to Arc, OK; Down to Power-off logo, Right twice to Name only, OK
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
+                                *self.go("look", "right", "up", "right", "right", "right", "down", "right", "ok"),
+                                *self.keys(READY + 3000, "down", "right", "right", "ok"),
+                                "--eval", "%d:JSON.stringify(root.theme.logo)" % (READY + 4000), "--wait", str(READY + 4600), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            self.assertEqual(self.docs(out)[-1], {"on": 2, "off": 3})
+            with open(os.path.join(data, "theme", "theme.json")) as f:
+                self.assertEqual(json.load(f)["logo"], {"on": 2, "off": 3})
+
+    def test_number_keys_are_a_theme_switch_and_hold_home_only_shows(self):
+        # Remote & pointer: pointer, speed, size, then "Hold Home" only shows, so the fourth stop is the number keys switch
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "down", "down", "down", "ok"),
+                            "--eval", "%d:JSON.stringify(root.theme.remote)" % (READY + 3200), "--wait", str(READY + 3800))
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.docs(out)[-1], {"numberKeys": False})
+
+    def test_the_aspect_ratio_is_written_for_the_input_in_front(self):
+        # Picture, Mode tab: cards, OLED pixel brightness, Filmmaker ambient light, AI Picture Pro, Aspect ratio (Original now): Left is 16:9
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "down", "down", "left", "ok"),
+                            "--eval", "%d:%s" % (READY + 3600, LUNA), "--wait", str(READY + 4200))
+        self.assertEqual(rc, 0, out[-1500:])
+        calls = self.docs(out)[-1]
+        self.assertEqual([c for c in calls if c["category"] == "aspectRatio"],
+                         [{"category": "aspectRatio", "settings": {"arcPerApp": "16x9"}, "app_id": "com.webos.app.hdmi2"}])
+
+    def ambient_posts(self, *keys):
+        """Home opens Settings, the rail goes down to Ambient light and the D-pad does `keys`; what the helper was asked to change or do.
+        Later than the other tests press: the page is built last and asks the helper for its values when it is."""
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 3000, *(["down"] * RAIL["ambient"])), *self.keys(READY + 4500, "right", *keys),
+                            "--eval", "%d:%s" % (READY + 5800, POSTS), "--wait", str(READY + 6400))
+        self.assertEqual(rc, 0, out[-1500:])
+        return self.tagged(out, "posts")[-1]["posts"]
+
+    def test_the_ambient_light_switch_is_a_helper_setting_the_helper_checks(self):
+        posts = [p for p in self.ambient_posts("ok", "down", "right", "right") if p[0] == "/v1/settings/base.ambient"]
+        self.assertEqual([p[1]["changes"][0] for p in posts],
+                         [{"key": "enabled", "value": {"type": "bool", "value": True}},               # in the order made, one at a time,
+                          {"key": "brightness", "value": {"type": "integer", "value": 80}}])         # and a held slider sends the value it ended on
+
+    def test_the_test_pattern_button_starts_and_the_helpers_state_turns_it_into_stop(self):
+        # toggle, brightness, mode, then the Run button
+        self.assertIn(["/v1/ambient/test", {"run": True}], self.ambient_posts("down", "down", "down", "ok"))
+
+    def test_the_layout_tab_writes_one_edge_at_a_time(self):
+        # up to the tab bar, Right to Layout (the focus stays on the bar), Down to Top, Right adds a section
+        posts = [p for p in self.ambient_posts("up", "right", "down", "right") if p[0] == "/v1/settings/base.ambient"]
+        self.assertEqual([p[1]["changes"] for p in posts], [[{"key": "top", "value": {"type": "integer", "value": 19}}]])
+
+    def test_the_tab_bar_keeps_the_focus_so_right_walks_through_the_tabs(self):
+        # two Rights on the tab bar reach Colour (the third tab); Down then focuses its first row (Still colour: Warm now), Right picks Cool
+        posts = [p for p in self.ambient_posts("up", "right", "right", "down", "right", "ok") if p[0] == "/v1/settings/base.ambient"]
+        self.assertEqual([p[1]["changes"] for p in posts], [[{"key": "still_colour", "value": {"type": "choice", "value": "cool"}}]])
+
+    def test_an_ambient_value_the_helper_refuses_goes_back_to_what_is_in_force(self):
+        # 73 % is off the 5 % step the schema allows: the fake enforces the helper's own schema file, answers 400, and the page re-reads
+        write = "(function(){var s=root.pageItem('ambient').settings;s.write('brightness', 73);return s.get('brightness')})()"
+        read = "(function(){var s=root.pageItem('ambient').settings;return JSON.stringify({brightness: s.get('brightness'), problem: s.problem})})()"
+        rc, out = self.host("--eval", "5000:" + write, "--eval", "6000:" + read, "--wait", "6600", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(float(self.values(out)[0]), 73)               # shown at once ...
+        doc = self.docs(out)[-1]
+        self.assertEqual(doc["brightness"], 70)                       # ... and back to the helper's value once it said no
+        self.assertTrue(doc["problem"])
+
+    # ---- every row against the service's own rules
+    WALK = ("(function(){var n=0;for(var i=0;i<root.pages.length;i++){var p=root.pageItem(root.pages[i].id);if(!p||!p.rows)continue;"
+            "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(!row.act||row.info===true||p.ev(row.enabled)===false)continue;var k=row.kind;"
+            "if(k==='toggle'){row.act(true);row.act(false);n+=2}"
+            "else if(k==='seg'||k==='cards'){var c=p.count(r);for(var j=0;j<c;j++){row.act(j);n++}}"
+            "else if(k==='slider'){row.act(p.ev(row.min));row.act(p.ev(row.max));n+=2}}}return n})()")
+    SET_OUTPUT = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSServices 1.0; QtObject { function set(c, s) { LS.adhoc.call(\"luna://com.webos.service.settings\", \"/setSystemSettings\", JSON.stringify({category: c, settings: s})) } }', root);"
+                  "o.set('sound', {soundOutput: 'tv_speaker'});root.pageItem('sound').refresh();return 1})()")
+    CALLS = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSServices 1.0; QtObject { property var calls: LS.calls }', root);"
+             "return JSON.stringify(o.calls.filter(function(c){return c.method==='/setSystemSettings'}).map(function(c){return {payload: JSON.parse(c.payload), error: c.error}}))})()")
+
+    def test_no_row_writes_a_setting_or_value_the_service_refuses(self):
+        # Every switch both ways, every choice, every slider at both ends, against the stub that refuses what LG's own service has
+        # no key for (keys and value tables taken from LG's Settings app). Sound's modes only answer while the TV speakers play.
+        rc, out = self.host("--eval", "5000:" + self.WALK, "--eval", "5200:" + self.SET_OUTPUT, "--eval", "6000:" + self.WALK, "--eval", "6400:" + self.CALLS,
+                            "--wait", "7000", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        calls = self.docs(out)[-1]
+        walked = [v for v in self.values(out) if str(v).isdigit()]
+        self.assertGreater(int(walked[0]), 40, "the walk found too few rows")
+        self.assertGreater(len(calls), 40)
+        self.assertEqual([c for c in calls if c["error"]], [])
+        written = {k for c in calls for k in c["payload"]["settings"]}
+        self.assertTrue({"soundMode", "pictureMode", "ai_Picture", "noOperationAutoOff", "pointerSpeed", "simplinkEnable", "wolwowlOnOff"} <= written, written)
+
+    def test_the_stub_refuses_what_the_real_service_would(self):
+        # the check above means something only if the stub says no: a key LG has no such name for, and a value outside a key's table
+        rc, out = self.host("--eval", "5000:(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSServices 1.0; QtObject { function set(c, s) { LS.adhoc.call(\"u\", \"/setSystemSettings\", JSON.stringify({category: c, settings: s})) } property var calls: LS.calls }', root);"
+                            "o.set('general', {pointerSpeed: 'fast'});o.set('sound', {soundMode: 'cinema'});o.set('picture', {backlight: '101'});o.set('picture', {backlight: '70'});"
+                            "return JSON.stringify(o.calls.filter(function(c){return c.method==='/setSystemSettings'}).map(function(c){return c.error !== ''}))})()", "--wait", "5600", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.docs(out)[-1], [True, True, True, False])
+
+    def test_every_row_that_leaves_for_LG_names_a_screen_LG_has(self):
+        collect = ("(function(){var out=[];for(var i=0;i<root.pages.length;i++){var p=root.pageItem(root.pages[i].id);if(!p||!p.rows)continue;"
+                   "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(row.app!==undefined)out.push({page:root.pages[i].id,label:p.ev(row.label),target:row.target,app:row.app})}}"
+                   "return JSON.stringify(out)})()")
+        rc, out = self.host("--eval", "5000:" + collect, "--wait", "5600", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        rows = self.docs(out)[-1]
+        with open(os.path.join(HERE, "qmlhost", "stubs", "WebOSServices", "LgSettings.js")) as f:
+            js = f.read()
+        known = set(re.findall(r'"([A-Za-z0-9_]+)"', js[js.index("var targets"):js.index("function domain")]))
+        self.assertGreater(len(rows), 12)
+        for r in rows:
+            if r["app"] == "com.palm.app.settings" and r["target"]:
+                self.assertIn(r["target"], known, r)
+        # the ones that matter, by page: each page's escape lands where its own text says
+        by = {(r["page"], r["label"], r["target"]) for r in rows}
+        self.assertIn(("picture", "More in LG settings", "Brightness"), by)
+        self.assertIn(("system", "Software update", "SoftwareUpdate"), by)
+        self.assertIn(("inputs", "Game Optimizer", ""), by)
+
 
 AI_BASE = {"listener": {"enabled": False, "bound": False, "addr": None, "port": 18732, "since": None, "error": None}, "pairing": None,
            "assistants": [{"id": "cody", "name": "Cody", "createdAt": 1, "lastSeenAt": 0, "paused": False, "calls": 12,
@@ -152,6 +316,8 @@ AI_BASE = {"listener": {"enabled": False, "bound": False, "addr": None, "port": 
                       {"id": "launch", "title": "Open apps, switch inputs", "default": "ask"}, {"id": "power", "title": "Turn the TV off", "default": "ask"}],
            "tools": []}
 
+POSTS = ('(function(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState===4)console.info("[posts] "+x.responseText)};'
+         'x.open("GET","http://127.0.0.1:18731/__posts");x.send();return 1})()')
 REQUESTS = ('(function(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState===4)console.info("[req] "+x.responseText)};'
             'x.open("GET","http://127.0.0.1:18731/__requests");x.send();return 1})()')
 APPROVE = ('(function(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState===4)console.info("[approval] "+x.status)};'
@@ -234,9 +400,30 @@ class Prompt(HostCase):
     PROMPT = {"kind": "tv_standby", "title": "Cody wants to turn off the TV", "detail": "The TV turns off now. The receiver stays as it is.",
               "assistant": {"id": "cody", "name": "Cody"}, "reason": "Nate asked me to shut everything down for the night.", "expiresAt": 4102444800000}
 
+    DRAWN = ("(function(){var p=null,out=[];function find(o){if(o.who!==undefined&&o.secondsLeft!==undefined){p=o;return}var c=o.children;for(var i=0;i<c.length&&!p;i++)find(c[i])}"
+             "function walk(o){if(o.text!==undefined&&o.visible)out.push(String(o.text));var c=o.children;for(var i=0;i<c.length;i++)walk(c[i])}"
+             "find(root);if(!p)return 'null';walk(p);return JSON.stringify({visible:p.visible,up:p.up,texts:out})})()")
+
     def test_the_prompt_draws_who_what_and_the_assistants_own_words_apart(self):
-        rc, out = self.host("--publish", "2000:ai.prompt:" + json.dumps(self.PROMPT), "--eval", "3000:root.children.length > 0", "--snap", "3500:/dev/null", "--wait", "4000")
+        rc, out = self.host("--publish", "2000:ai.prompt:" + json.dumps(self.PROMPT), "--eval", "3000:" + self.DRAWN, "--wait", "3600")
         self.assertEqual(rc, 0, out[-1500:])
+        doc = self.docs(out)[-1]
+        self.assertTrue(doc["visible"] and doc["up"])
+        texts = doc["texts"]
+        self.assertIn("Cody is asking \u00b7 through AI access", texts)               # who asks
+        self.assertIn("Cody wants to turn off the TV", texts)                        # the helper's own title
+        self.assertIn("The TV turns off now. The receiver stays as it is.", texts)   # what will happen, the helper's words
+        self.assertIn("Cody\u2019s reason, in its own words", texts)                  # the assistant's words are labelled as its own
+        self.assertIn("\u201cNate asked me to shut everything down for the night.\u201d", texts)
+        self.assertTrue(any(x.startswith("Closes in ") for x in texts))
+        # the label of the assistant's words comes before them, and the helper's detail before both
+        self.assertLess(texts.index("The TV turns off now. The receiver stays as it is."), texts.index("Cody\u2019s reason, in its own words"))
+
+    def test_nothing_is_drawn_while_no_prompt_is_open(self):
+        rc, out = self.host("--eval", "3000:" + self.DRAWN, "--wait", "3600")
+        self.assertEqual(rc, 0, out[-1500:])
+        doc = self.docs(out)[-1]
+        self.assertFalse(doc["visible"] or doc["up"])
 
 
 class Icons(unittest.TestCase):

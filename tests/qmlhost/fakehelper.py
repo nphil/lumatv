@@ -10,6 +10,7 @@ Not a model of the helper's behaviour; the helper's own tests cover that.
 """
 import argparse
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -54,6 +55,32 @@ def assistant(i, name, levels=None, paused=False, calls=0):
             "levels": levels or {g: d for g, _, d in GROUPS}}
 
 
+def ambient_schema():
+    """The `base.ambient` settings owner, from the helper's own schema file, so what the fake accepts is what the real store accepts."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "helper", "app", "src", "schemas", "base.ambient.json")
+    with open(path) as f:
+        doc = json.load(f)
+    return {fl["key"]: fl for s in doc["sections"] for fl in s["fields"]}
+
+
+def ambient_check(schema, key, value):
+    """Why the helper's schema would refuse `value` for `key`, or None."""
+    f = schema.get(key)
+    if f is None:
+        return "no such setting " + key
+    kind, v = f["kind"], value.get("value")
+    if value.get("type") != kind["type"]:
+        return "%s takes a %s" % (key, kind["type"])
+    if kind["type"] == "integer":
+        if not isinstance(v, int) or isinstance(v, bool) or v < kind["min"] or v > kind["max"] or (v - kind["min"]) % kind["step"]:
+            return "%s must be %d to %d in steps of %d" % (key, kind["min"], kind["max"], kind["step"])
+    if kind["type"] == "choice" and v not in [o["id"] for o in kind["options"]["inline"]]:
+        return "%s is not one of the listed choices" % v
+    if kind["type"] == "bool" and not isinstance(v, bool):
+        return "%s is a switch" % key
+    return None
+
+
 class State:
     def __init__(self, a):
         self.boot = NOW()
@@ -68,7 +95,12 @@ class State:
         self.topics["ai"] = ai_doc()
         self.topics["ai.prompt"] = None
         self.requests = []      # (method, path, body) of every /v1/ai call, for the tests to read back
+        self.posts = []         # (path, body) of every other POST (plugin actions, receiver nudge and set), read back at /__posts
         self.audit = []
+        self.ambient_schema = ambient_schema()
+        self.ambient = {k: f["default"] for k, f in self.ambient_schema.items()}      # key -> {type, value}: the owner's stored values over its defaults
+        self.ambient_state = "idle"
+        self.ambient_strip = True
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
 
     def publish(self, topic, data):
@@ -80,6 +112,11 @@ class State:
             self.topics[topic] = data
             self.events.append((self.seq, topic, data))
             self.cv.notify_all()
+
+
+def ambient_view(st):
+    return {"ok": True, "api": 1, "owner": "base.ambient", "version": 1, "schema": {"sections": [{"id": "all", "fields": list(st.ambient_schema.values())}]},
+            "values": st.ambient, "effective": st.ambient, "invalid": {}, "unknown": []}
 
 
 def handler(st):
@@ -190,8 +227,21 @@ def handler(st):
             q = parse_qs(u.query)
             if u.path.startswith("/v1/ai"):
                 return self.ai_route("GET", u.path, {})
+            if u.path == "/v1/settings/base.ambient":
+                return self.send(200, ambient_view(st))
+            if u.path == "/v1/ambient":
+                on = st.ambient["enabled"]["value"]
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "enabled": on, "mode": st.ambient["mode"]["value"], "state": st.ambient_state if on or st.ambient_state == "testing" else "off",
+                                       "sections": sum(st.ambient[k]["value"] for k in ("top", "right", "bottom", "left")), "strip": st.ambient_strip, "hue": False, "problem": None})
             if u.path == "/__requests":
                 return self.send(200, {"requests": st.requests})
+            if u.path == "/__posts":
+                return self.send(200, {"posts": st.posts})
+            if u.path.startswith("/v1/state/"):         # one topic's newest copy, as the helper's GET /v1/state/{topic}
+                name = u.path[len("/v1/state/"):]
+                if name not in st.topics:
+                    return self.send(404, {"ok": False, "error": {"code": "no_such_topic"}})
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "boot": st.boot, "seq": st.seq, "topic": name, "value": st.topics[name]})
             if u.path == "/v1/state":
                 self.send(200, {"ok": True, "api": 1, "now": NOW(), "boot": st.boot, "seq": st.seq, "helper": {}, "topics": st.topics})
             elif u.path == "/v1/events":
@@ -214,6 +264,11 @@ def handler(st):
             if u.path.startswith("/__publish/"):
                 st.publish(u.path.rsplit("/", 1)[1], body)
                 self.send(200, {"ok": True})
+            elif u.path.startswith("/__quiet/"):
+                # a topic's retained value changes with no event, as a stamp that moves on every poll does (hub.set_ignoring)
+                with st.cv:
+                    st.topics[u.path.rsplit("/", 1)[1]] = body
+                self.send(200, {"ok": True})
             elif u.path in ("/__approve", "/__deny"):
                 # the physical remote: only this test door answers a prompt, as only the real remote does
                 if st.pending:
@@ -223,9 +278,25 @@ def handler(st):
                     if u.path == "/__approve":
                         st.publish("ai", apply_fn(json.loads(json.dumps(st.topics["ai"]))))
                 self.send(200, {"ok": True})
+            elif u.path == "/v1/settings/base.ambient":
+                changes = body.get("changes", [])
+                for c in changes:
+                    why = ambient_check(st.ambient_schema, c["key"], c["value"])
+                    if why:
+                        st.posts.append([u.path, body])
+                        return self.send(400, {"ok": False, "api": 1, "error": {"code": "invalid", "message": why}})
+                for c in changes:
+                    st.ambient[c["key"]] = c["value"]
+                st.posts.append([u.path, body])
+                self.send(200, {"ok": True, "api": 1, "changed": [c["key"] for c in changes], "version": 1, "settings": ambient_view(st)})
+            elif u.path == "/v1/ambient/test":
+                st.ambient_state = "testing" if body.get("run") else "idle"
+                st.posts.append([u.path, body])
+                self.send(200, {"ok": True, "api": 1})
             elif u.path.startswith("/v1/ai"):
                 self.ai_route("POST", u.path, body)
             else:
+                st.posts.append([u.path, body])
                 self.send(200, {"ok": True, "api": 1})
     return H
 

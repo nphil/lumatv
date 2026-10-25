@@ -241,6 +241,7 @@ impl SettingsStore {
                 Some(weather_rule as Rule),
             ),
             (include_str!("schemas/base.news.json"), None),
+            (include_str!("schemas/base.ambient.json"), None),
             (
                 include_str!("schemas/base.receiver.json"),
                 Some(receiver_rule as Rule),
@@ -611,7 +612,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (_, store) = store(dir.path());
         let owners: Vec<_> = store.owners().into_iter().map(|s| s.owner).collect();
-        assert_eq!(owners, ["base.news", "base.receiver", "base.weather"]);
+        assert_eq!(owners, ["base.ambient", "base.news", "base.receiver", "base.weather"]);
     }
 
     #[test]
@@ -988,7 +989,7 @@ mod tests {
         .unwrap();
         s.register(schema.clone(), None).unwrap();
         s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
-        assert_eq!(s.owners().len(), 4);
+        assert_eq!(s.owners().len(), 5);
         // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
         let mut older = schema.clone();
         older.revision = 0;
