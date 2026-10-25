@@ -205,34 +205,51 @@ impl State {
         self.luna.send(ToBridge::Reply(Reply { token: m.token, payload }));
     }
 
-    /// Pushes every subscription whose payload changed. Called after the scene or input state changed.
+    /// Pushes every subscription whose payload changed. Called after the scene or input state changed. A method is
+    /// computed once however many subscribe to it (activitymanager holds 14 `getForegroundAppInfo` subscriptions on
+    /// the set), the replies go to the bridge's queue, and one journal line covers a foreground push to all of them.
     pub fn luna_notify(&mut self) {
         if self.luna_state.subscriptions.is_empty() {
             return;
         }
-        let mut pushes = Vec::new();
-        let subs: Vec<(usize, String, String, String)> =
-            self.luna_state.subscriptions.iter().enumerate().map(|(i, s)| (i, s.service.clone(), s.method.clone(), s.sender.clone())).collect();
-        for (i, service, method, sender) in subs {
-            if let Some(p) = self.luna_method(&service, &method, &json!({}), &sender) {
-                let sub = &mut self.luna_state.subscriptions[i];
-                if sub.last != p {
-                    sub.last = p.clone();
-                    if method == "getForegroundAppInfo" {
-                        let apps: Vec<&str> = p["foregroundAppInfo"].as_array().into_iter().flatten().filter_map(|a| a["appId"].as_str()).collect();
-                        pushes.push((Reply { token: sub.token, payload: p.clone() }, Some(format!("luna: foreground {apps:?} pushed to {sender}"))));
-                    } else {
-                        pushes.push((Reply { token: sub.token, payload: p }, None));
-                    }
+        let mut subs = std::mem::take(&mut self.luna_state.subscriptions);
+        // (first subscription with this service and method, its payload)
+        let mut computed: Vec<(usize, Option<Value>)> = Vec::new();
+        let mut pushed = vec![false; subs.len()];
+        for i in 0..subs.len() {
+            let k = match computed.iter().position(|(j, _)| subs[*j].service == subs[i].service && subs[*j].method == subs[i].method) {
+                Some(k) => k,
+                None => {
+                    let p = self.luna_method(&subs[i].service, &subs[i].method, &json!({}), &subs[i].sender);
+                    computed.push((i, p));
+                    computed.len() - 1
                 }
+            };
+            let Some(p) = &computed[k].1 else { continue };
+            let sub = &mut subs[i];
+            if sub.last != *p {
+                sub.last = p.clone();
+                self.luna.send(ToBridge::Reply(Reply { token: sub.token, payload: p.clone() }));
+                pushed[i] = true;
             }
         }
-        for (r, line) in pushes {
-            self.luna.send(ToBridge::Reply(r));
-            if let Some(l) = line {
-                self.journal(l);
+        for (j, p) in &computed {
+            let Some(p) = p else { continue };
+            if subs[*j].method != "getForegroundAppInfo" {
+                continue;
             }
+            let to: Vec<&Subscription> =
+                (0..subs.len()).filter(|i| pushed[*i] && subs[*i].service == subs[*j].service && subs[*i].method == subs[*j].method).map(|i| &subs[i]).collect();
+            if to.is_empty() {
+                continue;
+            }
+            let apps: Vec<&str> = p["foregroundAppInfo"].as_array().into_iter().flatten().filter_map(|a| a["appId"].as_str()).collect();
+            let mut senders: Vec<&str> = to.iter().map(|s| s.sender.as_str()).collect();
+            senders.dedup();
+            let line = format!("luna: foreground {apps:?} pushed to {} subscriber(s) ({})", to.len(), senders.join(", "));
+            self.journal(line);
         }
+        self.luna_state.subscriptions = subs;
     }
 
     /// The method table. `None` for a method this compositor does not have.

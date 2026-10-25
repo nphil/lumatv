@@ -157,6 +157,8 @@ pub struct Kms {
     in_run: bool,
     pub direct_frames: u64,
     pub split_frames: u64,
+    /// Flips the loop handled more than 3 ms after they landed (their callbacks went out that late).
+    flips_reached_late: u64,
     seq: u64,
 }
 
@@ -349,6 +351,7 @@ impl Kms {
             in_run: false,
             direct_frames: 0,
             split_frames: 0,
+            flips_reached_late: 0,
             seq: 0,
         })
     }
@@ -468,6 +471,16 @@ impl Kms {
         }
         if let Some((old, new)) = landed.rate_change {
             log::info!("kms: the panel refreshes every {:.2} ms now ({:.2} before): the pacer is keyed to it", new as f64 / 1e6, old as f64 / 1e6);
+        }
+        // The frame callbacks of a landed flip go out right after this returns, so the loop's distance from the
+        // flip is the compositor's share of a client's gap: X1's two 20.6-21.0 ms gaps on the sixth gate came with
+        // nothing logged above 8 ms, and this says whether a 4 ms delay was here or in the client.
+        let reached_ns = mono_ns().saturating_sub(presented_ns);
+        if reached_ns > 3_000_000 {
+            self.flips_reached_late += 1;
+            if self.flips_reached_late <= 200 {
+                log::info!("kms: flip reached {:.1} ms after it landed", reached_ns as f64 / 1e6);
+            }
         }
     }
 
@@ -754,10 +767,11 @@ impl Output for Kms {
         let ui = self.gl.ui_stats_line();
         let t = &self.timing;
         format!(
-            "flips {} late {} lost {} direct {} split {} odd stamps {} refresh {:.2} ms (changed {}){}{}",
+            "flips {} late {} lost {} reached late {} direct {} split {} odd stamps {} refresh {:.2} ms (changed {}){}{}",
             t.flips,
             t.late_frames,
             t.lost_refreshes,
+            self.flips_reached_late,
             self.direct_frames,
             self.split_frames,
             t.odd_stamps,
@@ -788,6 +802,10 @@ impl Output for Kms {
         self.gl.prepare(buffer)
     }
 
+    fn warming(&mut self) -> bool {
+        self.gl.warming()
+    }
+
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
         self.gl.forget_buffer(buffer);
         if let Some(d) = self.direct.remove(&buffer.id()) {
@@ -800,6 +818,11 @@ impl Output for Kms {
     /// decides), kicks the GPU. The commit is in `present`.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let now = self.now_ns();
+        // Frees left over from the last flip's budget: on a still screen no flip is coming to carry them, nothing
+        // is in flight, and this frame is unpaced (it draws on damage), so they cost no paced frame here.
+        if !self.pending_flip && !self.flowing(now) {
+            self.gl.bury();
+        }
         let slot_ns = self.timing.pacer.plan(now).slot_ns;
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose

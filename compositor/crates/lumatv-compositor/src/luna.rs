@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -160,10 +161,15 @@ impl Bridge for Null {
     }
 }
 
-/// A connected bridge over a Unix stream socket, JSON lines both ways.
+/// A connected bridge over a Unix stream socket, JSON lines both ways. Writes go through a queue to a thread of
+/// their own: on the set a card's exit pushes the foreground to 15 subscribers, and 15 socket writes from the loop
+/// thread cost it 8-10 ms (sixth gate, `callbacks, releases and luna 8.1` at X1's exit; sub-millisecond at a
+/// mapping, so it is the scheduling round the write triggers, not the bytes). The loop only serializes; the thread
+/// writes everything queued in one go.
 pub struct Pipe {
     reader: BufReader<UnixStream>,
-    writer: UnixStream,
+    fd: RawFd,
+    queue: Sender<String>,
     line: String,
 }
 
@@ -171,7 +177,41 @@ impl Pipe {
     pub fn connect(path: &str) -> io::Result<Pipe> {
         let stream = UnixStream::connect(path)?;
         stream.set_nonblocking(true)?;
-        Ok(Pipe { reader: BufReader::new(stream.try_clone()?), writer: stream, line: String::new() })
+        let fd = stream.as_raw_fd();
+        let writer = stream.try_clone()?;
+        let (queue, rx) = mpsc::channel::<String>();
+        std::thread::Builder::new().name("luna-writer".into()).spawn(move || write_queue(writer, rx))?;
+        Ok(Pipe { reader: BufReader::new(stream), fd, queue, line: String::new() })
+    }
+}
+
+/// Writes queued lines until the queue's sender is gone, as many as are waiting per write. The socket is shared
+/// with the reader and non-blocking; a full send buffer is waited out with `poll`, on this thread only.
+fn write_queue(mut writer: UnixStream, rx: Receiver<String>) {
+    let mut buf = String::new();
+    while let Ok(first) = rx.recv() {
+        buf.clear();
+        buf.push_str(&first);
+        while let Ok(more) = rx.try_recv() {
+            buf.push_str(&more);
+        }
+        let mut bytes = buf.as_bytes();
+        while !bytes.is_empty() {
+            match writer.write(bytes) {
+                Ok(0) => return,
+                Ok(n) => bytes = &bytes[n..],
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    let mut pfd = libc::pollfd { fd: writer.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+                    // SAFETY: one stack pollfd for a live descriptor.
+                    unsafe { libc::poll(&mut pfd, 1, 1000) };
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => {
+                    log::warn!("luna bridge write: {e}");
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -179,8 +219,8 @@ impl Bridge for Pipe {
     fn send(&mut self, msg: ToBridge) {
         let mut s = serde_json::to_string(&msg).unwrap_or_default();
         s.push('\n');
-        if let Err(e) = self.writer.write_all(s.as_bytes()) {
-            log::warn!("luna bridge write: {e}");
+        if self.queue.send(s).is_err() {
+            log::warn!("luna bridge write: the writer is gone");
         }
     }
 
@@ -209,7 +249,7 @@ impl Bridge for Pipe {
     }
 
     fn fd(&self) -> Option<RawFd> {
-        Some(self.writer.as_raw_fd())
+        Some(self.fd)
     }
 }
 

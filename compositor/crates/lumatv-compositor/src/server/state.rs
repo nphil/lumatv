@@ -58,6 +58,8 @@ pub struct Stats {
     pub prepared: u64,
     /// Buffers a frame had to import itself (zero while every commit prepares its buffer).
     pub frame_imports: u64,
+    /// Ticks that drew nothing because the driver was still busy with a buffer a commit had prepared.
+    pub held_ticks: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +136,8 @@ pub struct State {
     /// Per surface: when its last new buffer came and how many came in a row within 20 ms of each other, to log
     /// the gaps of a client that was keeping up (what the X1 gate counts, seen from this side).
     cadence: HashMap<SurfaceId, (Instant, u32)>,
+    /// The last tick drew nothing because a driver buffer was warming (one log line per such run).
+    holding: bool,
 }
 
 impl State {
@@ -162,6 +166,7 @@ impl State {
             release_after_present: Vec::new(),
             cadence: HashMap::new(),
             frames_in_flight: std::collections::VecDeque::new(),
+            holding: false,
         }
     }
 
@@ -332,9 +337,23 @@ impl State {
 
     /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases. A tick over half a
     /// refresh logs what each phase took, so a stall the loop's line attributes to `tick` is read without guessing.
+    /// While the driver is busy with a buffer a commit just prepared (`Output::warming`) nothing is drawn: the previous
+    /// frame stays on the screen, commits and callbacks keep their place, and the next tick tries again.
     pub fn tick(&mut self) -> Presented {
         let t0 = Instant::now();
         self.stats.ticks += 1;
+        if self.output.warming() {
+            self.stats.held_ticks += 1;
+            if !self.holding {
+                self.holding = true;
+                log::info!("tick: frame held while a driver buffer warms");
+            }
+            return Presented::default();
+        }
+        if self.holding {
+            self.holding = false;
+            log::info!("tick: warm done, drawing again");
+        }
         self.scene.cursor =
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
         let State { scene, surfaces, output, stats, .. } = self;
@@ -372,6 +391,7 @@ impl State {
         }
         let callbacks = self.surfaces.take_frame_callbacks();
         self.route_callbacks(callbacks, presented);
+        let t_callbacks = Instant::now();
         let retired = self.surfaces.take_retired();
         for b in self.release_after_present.drain(..).chain(retired) {
             if b.is_alive() {
@@ -380,6 +400,7 @@ impl State {
             }
         }
         self.surfaces.clear_damage();
+        let t_released = Instant::now();
         if drew {
             self.luna_notify();
         }
@@ -391,11 +412,13 @@ impl State {
         let t_end = Instant::now();
         if t_end - t0 > Duration::from_millis(8) {
             log::warn!(
-                "tick: {:.1} ms: plan and draw {:.1}, present {:.1}, callbacks, releases and luna {:.1}",
+                "tick: {:.1} ms: plan and draw {:.1}, present {:.1}, callbacks {:.1}, releases {:.1}, luna {:.1}",
                 (t_end - t0).as_secs_f64() * 1000.0,
                 (t_rendered - t0).as_secs_f64() * 1000.0,
                 (t_presented - t_rendered).as_secs_f64() * 1000.0,
-                (t_end - t_presented).as_secs_f64() * 1000.0
+                (t_callbacks - t_presented).as_secs_f64() * 1000.0,
+                (t_released - t_callbacks).as_secs_f64() * 1000.0,
+                (t_end - t_released).as_secs_f64() * 1000.0
             );
         }
         presented
@@ -498,7 +521,7 @@ impl State {
         let s = &self.stats;
         let out = self.output.stats_line();
         format!(
-            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us prepared {} frame imports {} check ok {} bad {} unread {}{}{}",
+            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us prepared {} frame imports {} held ticks {} check ok {} bad {} unread {}{}{}",
             self.started.elapsed().as_secs_f64(),
             self.clients.len(),
             s.clients_total,
@@ -517,6 +540,7 @@ impl State {
             s.render_us_max,
             s.prepared,
             s.frame_imports,
+            s.held_ticks,
             self.check.ok,
             self.check.bad,
             self.check.unread,

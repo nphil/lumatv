@@ -736,6 +736,43 @@ fn luna_tier_one_methods_answer_from_the_scene() {
 }
 
 #[test]
+fn a_foreground_change_reaches_every_subscriber_as_one_journal_line() {
+    // activitymanager holds 14 getForegroundAppInfo subscriptions on the set beside SAM's: every token gets the
+    // same payload, computed once, and the journal says so in one line rather than fifteen.
+    use lumatv_compositor::luna::{Inbound, ToBridge};
+    use serde_json::json;
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    server.eval(|s| {
+        for token in 20..35u64 {
+            s.luna_inbound(Inbound {
+                token,
+                service: "com.webos.surfacemanager".into(),
+                method: "getForegroundAppInfo".into(),
+                payload: json!({"subscribe": true}),
+                subscribe: true,
+                sender: if token == 20 { "com.webos.applicationManager".into() } else { "com.webos.service.activitymanager".into() },
+                cancelled: false,
+            });
+        }
+    });
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    let buf = client.shm_buffer(1920, 1080, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    std::thread::sleep(Duration::from_millis(20));
+    let (history, journal) = server.eval(|s| (s.luna.history(), s.journal.clone()));
+    let pushes: Vec<&ToBridge> = history
+        .iter()
+        .filter(|m| matches!(m, ToBridge::Reply(r) if (20..35).contains(&r.token) && r.payload["foregroundAppInfo"][0]["appId"] == "org.test.player"))
+        .collect();
+    assert_eq!(pushes.len(), 15, "every subscription got the mapped card");
+    let lines: Vec<&String> = journal.iter().filter(|l| l.contains("foreground [\"org.test.player\"] pushed")).collect();
+    assert_eq!(lines.len(), 1, "one line for the batch: {journal:?}");
+    assert!(lines[0].contains("15 subscriber(s) (com.webos.applicationManager, com.webos.service.activitymanager)"), "{}", lines[0]);
+}
+
+#[test]
 fn destroying_the_shown_buffer_keeps_the_last_frame() {
     // LG's libmali destroys its swapchain on eglTerminate while the last frame is still on screen; the X2
     // client's last frame went black for it on the set (first light 2026-10-25, own case).

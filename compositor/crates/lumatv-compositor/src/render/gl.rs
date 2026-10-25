@@ -5,12 +5,13 @@
 use std::collections::HashMap;
 use std::ffi::{CString, c_void};
 use std::io;
+use std::time::{Duration, Instant};
 
 use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
-use super::egl::{self, EGLImage, Egl, GLuint, Platform};
+use super::egl::{self, EGLImage, EGLSync, Egl, GLuint, Platform};
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
@@ -26,6 +27,11 @@ pub enum BufferPath {
     Own,
 }
 
+/// A warm fence that has not signalled by then is given up on: the frame is drawn anyway.
+const WARM_LIMIT: Duration = Duration::from_millis(100);
+/// How long one `bury` call may spend freeing driver imports.
+const BURY_BUDGET: Duration = Duration::from_millis(2);
+
 struct Tex {
     /// Kept for liveness: the entry goes when the client destroys the buffer (`prune`).
     buffer: WlBuffer,
@@ -35,6 +41,12 @@ struct Tex {
     y_invert: bool,
     /// Shm textures are re-uploaded on damage; imported ones never change.
     uploaded: bool,
+    /// An import of the driver's own buffer (`EGL_WAYLAND_BUFFER_WL`), the kind whose first GPU job is slow on the set.
+    external: bool,
+    /// The fence behind the warm draw (`prepare`), while it has not signalled: the driver is still busy with the
+    /// buffer. `None` once it signalled, or for a buffer imported by a frame.
+    warm_sync: Option<EGLSync>,
+    prepared: Instant,
 }
 
 /// A render target: the offscreen one `Gl::new` makes (id 0) or a dma-buf page added for scan-out.
@@ -370,7 +382,7 @@ impl Gl {
                         set_params(a);
                         (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, fmt as i32, shm.width, shm.height, 0, fmt, egl::GL_UNSIGNED_BYTE, std::ptr::null());
                     }
-                    Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false }
+                    Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false, external: false, warm_sync: None, prepared: Instant::now() }
                 }
                 BufferKindRef::Dmabuf(d) => {
                     let plane = d.planes.first()?;
@@ -382,7 +394,7 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true }
+                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true, external: false, warm_sync: None, prepared: Instant::now() }
                 }
                 BufferKindRef::External => {
                     let Some(ptr) = Self::resource_ptr(buffer) else {
@@ -404,7 +416,7 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true }
+                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true, external: true, warm_sync: None, prepared: Instant::now() }
                 }
             };
             self.textures.insert(id, tex);
@@ -417,7 +429,9 @@ impl Gl {
     /// import (the driver's mapping of a client buffer) and one draw from it into the warm target, started with a fence
     /// and not waited for. `true` when the buffer was new. On the set a new client's second and third buffers each cost
     /// the frame that first drew them a refresh (X1's first second on the third to fifth gates: 13.7-18.8 ms passes with
-    /// nothing of it in the draw itself), so the cost belongs in the clients' pass, before the pacer's latch.
+    /// nothing of it in the draw itself), so the cost belongs in the clients' pass, before the pacer's latch. The fence
+    /// is kept: while it has not signalled the driver is still busy with the buffer, and a frame drawn then waits on
+    /// it (`warming`).
     pub fn prepare(&mut self, buffer: &WlBuffer) -> bool {
         if self.import(buffer) != Some(true) {
             return false;
@@ -451,8 +465,14 @@ impl Gl {
         // The whole output rectangle fills the 16x16 viewport: every texel row is sampled.
         self.draw_quad(tex, &Rect::new(0, 0, self.width as i32, self.height as i32), y_invert);
         if let Some(sync) = self.egl.kick_fence() {
-            // SAFETY: a fence this renderer just created, consumed here.
-            unsafe { self.egl.wait_fence(sync, 0) };
+            // SAFETY: a fence this renderer just created; the flush starts the job, the sync lives on in the entry.
+            if unsafe { self.egl.fence_signalled(sync, true) } {
+                // SAFETY: as above, done with.
+                unsafe { self.egl.destroy_fence(sync) };
+            } else if let Some(t) = self.textures.get_mut(&buffer.id()) {
+                t.warm_sync = Some(sync);
+                t.prepared = Instant::now();
+            }
         } else {
             // SAFETY: plain call.
             unsafe { (a.glFlush)() };
@@ -463,6 +483,31 @@ impl Gl {
             log::warn!("gl error 0x{err:x} warming a buffer");
         }
         true
+    }
+
+    /// Whether a driver buffer's warm draw is still running, which is when a frame must not be drawn: on the set the
+    /// first job on a driver buffer (LG's `mali_buffer_sharing` imports: Home's, HDMI 2's, Netflix's player's) held
+    /// the frame that came while it ran for 10-16 ms, in the draw or in the fence export (sixth gate). Fences of
+    /// other buffers are polled and dropped too; a fence that has not signalled after 100 ms is given up on.
+    pub fn warming(&mut self) -> bool {
+        let mut busy = false;
+        for t in self.textures.values_mut() {
+            let Some(sync) = t.warm_sync else { continue };
+            // SAFETY: a fence this renderer created, still alive.
+            let done = unsafe { self.egl.fence_signalled(sync, false) };
+            let stale = !done && t.prepared.elapsed() > WARM_LIMIT;
+            if done || stale {
+                // SAFETY: as above, destroyed once.
+                unsafe { self.egl.destroy_fence(sync) };
+                t.warm_sync = None;
+                if stale {
+                    log::warn!("warm draw of a buffer not done after {} ms; drawing anyway", WARM_LIMIT.as_millis());
+                }
+            } else if t.external {
+                busy = true;
+            }
+        }
+        busy
     }
 
     /// The texture for a buffer, imported now if the commit did not (`prepare`); `new` says which. Shm content is
@@ -852,15 +897,42 @@ impl Gl {
         }
     }
 
-    /// Frees the retired textures. Called once the GPU is done with the last frame that could have read them (KMS:
-    /// when the next page flip lands; offscreen: before the next frame), never between a frame's draw and its commit.
-    pub fn bury(&mut self) {
-        for t in self.graveyard.drain(..) {
+    /// Frees retired textures, a few at a time. Called once the GPU is done with the last frame that could have read
+    /// them (KMS: when the next page flip lands; offscreen: before the next frame), never between a frame's draw and
+    /// its commit. Each free of a driver import stalls the caller until the driver has unmapped it: Netflix's buffers
+    /// cost a 10.1 ms pass at its exit and WebAppMgr's first ones 13.2 ms (sixth gate), so a call stops after
+    /// `BURY_BUDGET` and leaves the rest for the next one. Returns how many are left.
+    pub fn bury(&mut self) -> usize {
+        if self.graveyard.is_empty() {
+            return 0;
+        }
+        let began = Instant::now();
+        let mut freed = 0;
+        while let Some(t) = self.graveyard.pop() {
             // SAFETY: objects this renderer created, dropped once.
-            unsafe {
-                (self.egl.api.glDeleteTextures)(1, &t.tex);
-                self.egl.destroy_image(t.image);
+            unsafe { self.free(t) };
+            freed += 1;
+            if began.elapsed() >= BURY_BUDGET {
+                break;
             }
+        }
+        let left = self.graveyard.len();
+        if left > 0 || began.elapsed() >= BURY_BUDGET {
+            log::info!("bury: {freed} freed in {:.1} ms, {left} left for the next pass", began.elapsed().as_secs_f64() * 1000.0);
+        }
+        left
+    }
+
+    /// # Safety
+    /// Objects this renderer created, dropped once.
+    unsafe fn free(&self, t: Tex) {
+        // SAFETY: the caller's.
+        unsafe {
+            if let Some(sync) = t.warm_sync {
+                self.egl.destroy_fence(sync);
+            }
+            (self.egl.api.glDeleteTextures)(1, &t.tex);
+            self.egl.destroy_image(t.image);
         }
     }
 }
@@ -964,9 +1036,8 @@ impl Drop for Gl {
         drop(self.ui.take());
         // SAFETY: objects this renderer created, dropped once; the EGL display outlives them until `egl` drops.
         unsafe {
-            for t in self.textures.values().chain(&self.graveyard) {
-                (self.egl.api.glDeleteTextures)(1, &t.tex);
-                self.egl.destroy_image(t.image);
+            for t in std::mem::take(&mut self.textures).into_values().chain(std::mem::take(&mut self.graveyard)) {
+                self.free(t);
             }
             if let Some((fbo, tex)) = self.warm {
                 (self.egl.api.glDeleteFramebuffers)(1, &fbo);
@@ -1004,6 +1075,10 @@ impl Output for Gl {
 
     fn prepare_buffer(&mut self, buffer: &WlBuffer) -> bool {
         self.prepare(buffer)
+    }
+
+    fn warming(&mut self) -> bool {
+        Gl::warming(self)
     }
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {

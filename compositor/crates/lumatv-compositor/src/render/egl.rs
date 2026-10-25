@@ -468,6 +468,27 @@ impl Egl {
             r == EGL_CONDITION_SATISFIED_KHR
         }
     }
+
+    /// Whether `sync` has signalled, without waiting. `flush` submits the commands before it (once, right after the
+    /// kick: the Mali blob starts no work until a flush or a fence). The sync stays alive for the next poll.
+    ///
+    /// # Safety
+    /// `sync` came from `kick_fence` on this display and has not been destroyed.
+    pub unsafe fn fence_signalled(&self, sync: EGLSync, flush: bool) -> bool {
+        let Some(wait) = self.opt.eglClientWaitSyncKHR else { return true };
+        let flags = if flush { EGL_SYNC_FLUSH_COMMANDS_BIT_KHR } else { 0 };
+        // SAFETY: a sync this object created; a zero timeout never blocks.
+        unsafe { wait(self.display, sync, flags, 0) == EGL_CONDITION_SATISFIED_KHR }
+    }
+
+    /// # Safety
+    /// `sync` came from `kick_fence` on this display and is destroyed once.
+    pub unsafe fn destroy_fence(&self, sync: EGLSync) {
+        if let Some(destroy) = self.opt.eglDestroySyncKHR {
+            // SAFETY: a sync this object created.
+            unsafe { destroy(self.display, sync) };
+        }
+    }
 }
 
 impl Drop for Egl {

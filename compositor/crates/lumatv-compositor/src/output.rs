@@ -66,6 +66,13 @@ pub trait Output {
         false
     }
 
+    /// Whether the driver is still busy with a buffer `prepare_buffer` started on (its warm draw's fence has not
+    /// signalled): a frame drawn now would wait on it, so the tick keeps the previous frame on the screen instead
+    /// and tries again next time. The default is never.
+    fn warming(&mut self) -> bool {
+        false
+    }
+
     /// Forgets anything cached for a buffer the client destroyed. A released buffer keeps its import: clients
     /// re-attach the same buffers every few frames.
     fn forget_buffer(&mut self, buffer: &WlBuffer);

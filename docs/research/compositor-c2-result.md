@@ -9,26 +9,27 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 17:55 EDT, code `f3ed5a6`): C2 passed; the sixth gate
-ran on the set 17:30-17:38 with the build of "Built for the sixth gate" and
-the split/refresh code of `f3ed5a6` ("Sixth gate on the set"; files in
-`docs/research/compositor/slot-2026-10-25-1730/`): live, volume,
+State (2026-10-25 18:20 EDT, code after `f3ed5a6`): C2 passed; the sixth
+gate ran on the set 17:30-17:38 with the build of "Built for the sixth
+gate" and the split/refresh code of `f3ed5a6` ("Sixth gate on the set";
+files in `docs/research/compositor/slot-2026-10-25-1730/`): live, volume,
 **netflix** (a fresh instance, `dolbyHdrCinema`), hdmi, standby/wake and
 escape PASS; x1 FAIL by the rule with a new shape: the first second is
 clean (worst 19.7 ms, no `loop:`/`tick:`/`render:` at the mapping, pacer
 `late` 0 → 0), the 2 gaps over 20 ms (20.6, 21.0 ms) came at 31-50 s with
-nothing on the compositor's side. `frame imports 0` throughout, no
-`render:` at x1's disconnect; the slow passes left are attributed (the
-luna foreground pushes, 8-10 ms at a card's exit; the first GPU job on a
-new client's buffer, 10-16 ms in the fence export or the draw; the deferred
-frees in a `flip` pass). The stale-Netflix path, the split (no UI feature
-in the bundle) and the refresh re-keying (the panel stayed at 60 Hz) were
-not exercised. LG's compositor is live (set in Active Standby, `enabled`
+nothing on the compositor's side. Built since, offline ("Built after the
+sixth gate"): the luna pushes on a writer thread with one journal line a
+batch; the frame held while a driver buffer's warm fence is pending (`held
+ticks`); `bury` on a 2 ms budget a flip; `kms: flip reached N ms after it
+landed` for x1's steady-state gaps; the tick line split into callbacks,
+releases and luna. The stale-Netflix path, the split (no UI feature in the
+bundle) and the refresh re-keying (the panel stayed at 60 Hz) were not
+exercised. LG's compositor is live (set in Active Standby, `enabled`
 absent, Home stub on, receiver unmuted).
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
-libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 26
-protocol, 1 bridge, 1 control, 1 warm, 2 LG-table), the same with
+libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 28
+protocol, 1 bridge, 1 control, 2 warm, 2 LG-table), the same with
 `--features ui` plus `ui`, `ui_output` and `ui_scanout` under
 `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
 compositor/tools/build-tv.sh` builds the bundle.
@@ -73,12 +74,15 @@ compositor/tools/build-tv.sh` builds the bundle.
   and HDMI 2), the texture frees out of the frame, x1's first second clean
   (19.7 ms worst), Netflix playing from a fresh instance, every slow pass
   attributed by `tick:`/`present:`/`render:`.
-- Next: x1's rule with its steady-state gaps (20.6 and 21.0 ms with the
-  compositor idle and on time: measure the client's side, or decide the
-  rule); the luna foreground pushes off the loop thread (8-10 ms for 15
-  subscribers at a card's exit); the first GPU job on a new client's buffer
-  (10-16 ms: a warm draw that reads the whole buffer, or accept it); a slot
-  with the `ui` feature over a direct window for the split and the
+- Built and host-tested after it, unverified on the set ("Built after the
+  sixth gate"): the luna writer thread and the one-line push journal; the
+  held frame while a driver buffer warms; the budgeted `bury`; `flip
+  reached`. What the seventh gate must show is listed at the end of that
+  section.
+- Next: the seventh gate with that list; x1's rule read against `flip
+  reached` lines (nothing of the compositor's is logged at its 31-50 s
+  gaps; a 4 ms callback delay under the thresholds is not excluded); a
+  slot with the `ui` feature over a direct window for the split and the
   overlay's alpha; a stale-Netflix case for `recover-home.sh`;
   `getWindowGroupInfo` (HDMI 2 subscribes; no capture shows LG's answer).
   `tv_ui_measure.py` need not run again unless the engine changes (idle
@@ -1394,6 +1398,113 @@ had a rate to key to. Both need a slot of their own: `tv_ui_measure.py`'s
 build over a direct window for the split, and a source the compositor's own
 mode follows (the mode is set by the compositor at 1920x1080@60; whether a
 24p stream changes the CRTC's rate under it is unknown).
+
+## Built after the sixth gate (2026-10-25, offline; not run on the set)
+
+The three slow passes of the sixth gate, each moved off the frame path, and
+one more line of attribution for x1's steady-state gaps. Host-tested (Mesa
+and the software output); the set has not run any of it.
+
+**The luna pushes (8-10 ms at a card's exit).** What the log shows: at x1's
+exit the 15 `luna: foreground` lines span 3651.098-104 and the tick's last
+phase took 8.1 ms; at HDMI 2's mapping the same 15 lines span 2 ms. Each
+push was a `write` on the bridge socket from the loop thread plus a
+`writeln` to the log file (`compositor.log` on `/var/lib`), fifteen times.
+Changes (`luna.rs`, `luna_methods.rs`):
+
+- `Pipe::send` queues the serialized line to a `luna-writer` thread; the
+  thread writes everything queued in one `write` (a full send buffer is
+  waited out there with `poll`, never on the loop). The loop thread does no
+  socket write for luna any more.
+- `luna_notify` computes each subscribed method once however many hold it
+  (activitymanager holds 14 `getForegroundAppInfo` subscriptions, SAM one),
+  and journals one line per push batch: `luna: foreground [apps] pushed to
+  15 subscriber(s) (com.webos.applicationManager, com.webos.service.
+  activitymanager)`. One log write where there were fifteen.
+- The tick's line now reads `tick: N ms: plan and draw A, present B,
+  callbacks C, releases D, luna E`. Needed because the 10.1 ms last phase at
+  Netflix's exit (3689.723-733) had no push inside it: the 15 lines at
+  3689.705-707 were the previous tick's, so those 10 ms were callbacks,
+  releases or the notify's compute, and the old line could not say which.
+  Host test `a_foreground_change_reaches_every_subscriber_as_one_journal_line`
+  (`tests/protocol.rs`): 15 subscriptions, 15 replies, one journal line.
+
+**The first GPU job on a driver buffer (10-16 ms).** The evidence reads as
+the driver's backend thread being busy with the warm job's buffer when the
+frame's own job comes, not as the warm draw sampling too little: Netflix's
+player frame drew for 0.4 ms and its fence export waited 16.1 ms 18 ms after
+the player connected (a fence export waits for the submission, and the
+submission thread was mapping); HDMI 2's first draw took 10.3 ms with 0
+imports in the same loop pass as the commit that prepared it (`loop: 12.9
+ms (clients tick)`: the draw-now tick came straight after the warm job was
+kicked and its draw calls waited on the same buffer). x1's own dma-bufs show
+neither (`prepared 3`, no slow pass at its mapping on this gate), so the
+hold below is for driver buffers only; a dma-buf's warm fence is polled and
+dropped and never holds a frame, so x1's first second cannot regress by it.
+Changes (`gl.rs`, `egl.rs`, `output.rs`, `state.rs`):
+
+- `prepare` keeps the warm draw's fence in the texture entry
+  (`warm_sync`, with its stamp) instead of destroying it at once;
+  `Egl::fence_signalled` polls without waiting and `destroy_fence` frees.
+- `Output::warming` (`Gl::warming`): true while a driver buffer's
+  (`EGL_WAYLAND_BUFFER_WL` import) warm fence has not signalled. Other
+  kinds are polled and cleared. A fence not signalled after 100 ms is
+  given up on with a `warm draw of a buffer not done after 100 ms` line.
+- `State::tick` draws nothing while `warming`: the previous frame stays on
+  the screen, commits, damage, retired buffers and frame callbacks keep
+  their place, and the next tick (the periodic one on a still screen, the
+  latch when flowing) tries again. One line per run: `tick: frame held
+  while a driver buffer warms` then `tick: warm done, drawing again`;
+  `held ticks N` in the summary and `ctl status`. The cost of the first job
+  is still paid, on the driver's thread, while the loop keeps serving
+  clients; the frame that shows the new buffer is at most a refresh later
+  than it would have been, which is what the stall cost anyway.
+  Host test `the_tick_holds_the_frame_while_a_prepared_buffer_warms`
+  (`tests/warm.rs`, the software output wrapped to report busy for five
+  ticks per prepared buffer): five held ticks, then the frame, the pixel
+  right, the client's callback after the hold; the second buffer the same.
+- If the next slot shows the first draw of a driver buffer still slow
+  *after* `warm done`, the other reading holds (the driver maps on the
+  first job that samples a full frame) and the warm target must be the
+  output's size; nothing built for that yet.
+
+**The deferred frees (10.1 and 13.2 ms `flip` passes).** `Gl::bury` frees
+until 2 ms have passed and leaves the rest for the next page flip (`bury: N
+freed in M ms, K left for the next pass`); on a still screen, where no flip
+is coming, the leftovers are freed at the start of the next unpaced frame
+(`Kms::render` with no flip pending and no run on). Each free of a driver
+import is one driver unmapping, so a Netflix exit's frees now spread over a
+few flips at 2 ms each instead of one 10 ms pass. The Mesa test's destroy
+path is unchanged (one texture, freed in the first call).
+
+**x1's 31-50 s gaps.** Checked against the evidence rather than taken over:
+`x1.log` puts the 20.6 ms gap in x1's 38th second (3628-3629 on the
+compositor's clock) and the 21.0 ms one in its 46th (3636-3637);
+`compositor.log` has no line of any kind between 3591.103 and 3651.090, and
+the pacer's `late` stayed 0. That rules out anything the compositor logs
+(a pass over 8 ms, a frame late to its latch, an odd flip stamp, a frame
+gap on x1's surface). It does not rule out a 4 ms delay under those
+thresholds between a flip landing and its callbacks going out (the loop
+busy in a short pass, the DRM event read late), which is exactly the size
+of both gaps over a refresh; x1 swaps on its frame callback, so such a
+delay is x1's gap. "Client-side" is therefore the likelier reading, not a
+proven one. Built for the next slot: `kms: flip reached N ms after it
+landed` for any flip the loop handled more than 3 ms after its stamp, and
+`reached late N` in the kms stats line. A gap in `x1.log` with that line at
+its time is the loop's; without it, x1's own.
+
+The seventh gate must show, in order: at x1's and Netflix's exit no `tick:`
+line, or one whose `luna` phase is under a millisecond; one `luna:
+foreground ... pushed to 15 subscriber(s)` line per card change; at
+Netflix's player and at HDMI 2's first buffer `tick: frame held` followed
+by `warm done` with no `render:` over 4 ms and no `present: fence export`
+over 4 ms after it; `held ticks` small (a handful for the whole gate) and
+x1's first second as clean as the sixth gate's (no held tick at x1's
+mapping: its buffers are dma-bufs); `bury:` lines at Netflix's exit with no
+`loop: ... (flip)` over 8 ms; and for x1's rule, every gap over 20 ms in
+`x1.log` read against `flip reached` lines (CutoverWatchdog was asked to
+add `flip reached|frame held|warm done|bury:|tick:` to `tv-gate.sh`'s
+x1-compositor filter).
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 
