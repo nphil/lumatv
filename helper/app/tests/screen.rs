@@ -180,6 +180,7 @@ fn a_garbled_answer_is_not_a_reading() {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
+    settle(&script);
     let ctx = ctx(dir.path(), script.to_str().unwrap(), 20);
     let handle = screen::spawn(&ctx, Arc::new(|| {}))
         .unwrap()

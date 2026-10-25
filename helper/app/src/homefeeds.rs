@@ -26,6 +26,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+/// The least time between two fetches of one feed unless a refresh is asked for (guards against a clock that keeps jumping).
+const MIN_GAP_MS: u64 = 60_000;
+
 pub const WEATHER_TOPIC: &str = "weather";
 pub const NEWS_TOPIC: &str = "news";
 
@@ -222,7 +225,8 @@ impl<F: Feed> Lane<F> {
         self.doc.as_ref().map_or(0, |d| {
             let fetched = F::fetched_at(d);
             if fetched > now_ms().saturating_add(FUTURE_SKEW_MS) {
-                return 0;
+                // But not faster than once a minute, however the clock jumps about.
+                return self.last_attempt.saturating_add(MIN_GAP_MS);
             }
             fetched.saturating_add(interval.saturating_sub(5_000))
         })

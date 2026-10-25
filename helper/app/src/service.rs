@@ -188,8 +188,9 @@ impl Service {
         &self.ctx.settings
     }
 
-    /// Stops everything: the stop is requested (long polls end, runners wake), the API stops accepting, and each thread gets
-    /// up to five seconds in all to finish a request it is in the middle of (a fetch can take ten).
+    /// Stops everything: the stop is requested (long polls end, runners wake), the API stops accepting, and the threads get up
+    /// to four seconds in all to finish a request they are in the middle of (a fetch can take ten; the process exit ends it).
+    /// The whole stop stays under the eight seconds `lumatv-helper stop` allows before it uses SIGKILL.
     pub fn stop(mut self) {
         self.shutdown();
     }
@@ -197,9 +198,9 @@ impl Service {
     fn shutdown(&mut self) {
         self.ctx.stop.request();
         if let Some(server) = self.server.take() {
-            server.stop(Duration::from_secs(3));
+            server.stop(Duration::from_secs(2));
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(4);
         for (name, handle) in self.threads.drain(..) {
             while !handle.is_finished() && Instant::now() < deadline {
                 thread::sleep(Duration::from_millis(10));

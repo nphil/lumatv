@@ -28,6 +28,24 @@ pub const BBC_US_URL: &str = "https://feeds.bbci.co.uk/news/world/us_and_canada/
 pub const NYT_WORLD_URL: &str = "https://rss.nytimes.com/services/xml/rss/nyt/World.xml";
 pub const NYT_US_URL: &str = "https://rss.nytimes.com/services/xml/rss/nyt/US.xml";
 
+/// Runs a script that was just written until the system lets it run: another test thread's fork can hold the script's write
+/// descriptor for a moment, and exec of a file that is open for writing fails with "text file busy". Once one exec has worked
+/// no later one can fail that way.
+pub fn settle(program: &Path) {
+    for _ in 0..300 {
+        let result = std::process::Command::new(program)
+            .arg("probe")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match result {
+            Err(e) if e.raw_os_error() == Some(26) => thread::sleep(Duration::from_millis(10)),
+            _ => return,
+        }
+    }
+}
+
 /// Polls `condition` every few milliseconds until it holds or `timeout` passes.
 pub fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + timeout;
@@ -291,6 +309,7 @@ impl FakeLuna {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        settle(&program);
         Self {
             program,
             state_file,

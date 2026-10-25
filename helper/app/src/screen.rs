@@ -230,9 +230,14 @@ fn end_child(slot: &Mutex<Option<Child>>) {
 /// How a spell of subscription ended.
 enum Spell {
     Stopped,
+    /// It ran well for a while and then its child went away: subscribe again soon.
+    Ended,
     /// Failed or disagreed: poll for a while.
     Failed(String),
 }
+
+/// A subscription that delivered readings for at least this long before it ended is worth restarting at once.
+const WORTH_RESTARTING: Duration = Duration::from_secs(30);
 
 /// Starts the watcher. With `screen.source = "on"` the topic is set once and no thread runs. `notify` is called after every
 /// change of the topic (the runners re-check the screen then).
@@ -280,6 +285,12 @@ fn watch(ctx: &Ctx, notify: &(dyn Fn() + Send + Sync)) {
         if Instant::now() >= subscribe_after {
             match subscribe_spell(&program, &stop, &mut publisher, &slot) {
                 Spell::Stopped => return,
+                Spell::Ended => {
+                    crate::log_info!("screen: the subscription ended; subscribing again");
+                    if stop.sleep(Duration::from_secs(2)) {
+                        return;
+                    }
+                }
                 Spell::Failed(why) => {
                     crate::log_info!(
                         "screen: using the poll ({why}); the subscription is tried again in ten minutes"
@@ -339,6 +350,7 @@ fn subscribe_spell(
             }
         };
         publisher.reading(&first, "luna-subscribe");
+        let delivering_since = Instant::now();
         let mut last = first;
         loop {
             match subscription.rx.recv_timeout(CROSS_CHECK) {
@@ -359,6 +371,8 @@ fn subscribe_spell(
                 Err(RecvTimeoutError::Disconnected) => {
                     return if stop.is_set() {
                         Spell::Stopped
+                    } else if delivering_since.elapsed() >= WORTH_RESTARTING {
+                        Spell::Ended
                     } else {
                         Spell::Failed("the subscription ended".to_owned())
                     };
