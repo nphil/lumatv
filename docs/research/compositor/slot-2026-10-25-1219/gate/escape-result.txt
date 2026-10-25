@@ -1,0 +1,1 @@
+unmounted after 0s; [12:26:00] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 14s; panel 437729 bytes; wam active

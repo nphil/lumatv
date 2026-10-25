@@ -9,18 +9,23 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 12:00 EDT, code at `bdfbb1e` and after): C2 passed; the
-second gate ran on the set 11:24-11:31 at `bdfbb1e` ("Second gate on the
-set"; files in `docs/research/compositor/slot-2026-10-25-1124/`): live,
-volume, netflix (Dolby Vision), hdmi, standby/wake and escape PASS, x1 FAIL
-(16 gaps of 20-33.5 ms in 60 s, 59.82 fps), so LG's compositor is live, as
-the decision requires (set left in Active Standby, `enabled` absent, Home
-stub on, receiver unmuted). The two fixes it asked for are built and
-host-tested, not run on the set ("Second gate on the set"). Host: `cd
-compositor && cargo test` (73 unit, 23 protocol, 1 bridge, 2 LG-table),
-the same with `--features ui` plus `ui`, `ui_output` and `ui_scanout`
-under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
-compositor/tools/build-tv.sh` builds the bundle.
+State (2026-10-25 12:40 EDT, code at `c91148d`): C2 passed; the third gate
+ran on the set 12:19-12:27 with the latch and covered-card changes of
+`8f250c1` ("Third gate on the set"; files in
+`docs/research/compositor/slot-2026-10-25-1219/`): live, volume,
+standby/wake and escape PASS; x1 FAIL by the rule but down from 16 gaps
+over 20 ms to 6 (59.92 fps, `late` 2, the worst in the first second);
+netflix FAIL inside Netflix's own player (error 18/2331 at Loading, the
+class the ambient slot saw under LG's compositor); hdmi FAIL because the
+preloaded HDMI 2 instance, relaunched to the front, attaches no buffer
+(open). LG's compositor is live (set in Active Standby, `enabled` absent,
+Home stub on, receiver unmuted). `tv_ui_measure.py` ran after it: the
+engine's idle frame costs 0.49 ms of GPU at 10 fps, the RustUi gate
+passes; its DIRECT phase shows no direct frame for a libmali client, as
+known. Host: `cd compositor && cargo test` (73 unit, 23 protocol, 1 bridge,
+2 LG-table), the same with `--features ui` plus `ui`, `ui_output` and
+`ui_scanout` under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean
+both ways; `sh compositor/tools/build-tv.sh` builds the bundle.
 
 - Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
   trial and three gate runs live with no watchdog fallback, `READY=1`
@@ -33,33 +38,36 @@ compositor/tools/build-tv.sh` builds the bundle.
   turn), HDMI 2 mapped and in front, Volume keys as LG's audio calls (the
   receiver stepped 0.355 → 0.36 → 0.355), clients named at accept (the 7 s
   client is gone), frame callbacks at the page flip.
-- Built and host-tested for the next slot ("Second gate on the set", its
-  last paragraph): the frame latch learns the GPU's completion from the
-  in-fence's signal time (X1's 11 late flips a minute); a card that a
-  newer card covers is minimized and a `set_state(fullscreen)` from it
-  raises it (Home's relaunch over HDMI 2 did nothing, so HDMI 2 stayed in
-  front through standby and wake); the gate's x1 rule compares `late`
-  only, and odd page-flip stamps are counted and logged. Still unverified
-  live: composed frames top row first, flattened luna payloads.
-- Next slot (about 10 min, exclusive; the whole script ran in 8): `python3
-  compositor/tools/tv_next_slot.py` (trial and gate in one, results in
-  `docs/research/compositor/slot-<date>-<HHMM>/`). The set needs the
-  current `tools/lumatv` (`comp_live` guard) or the script turns the Home
-  stub off for the session and back on. In the same slot, after it (LG's
-  compositor live again), about 5 more minutes: `python3
-  compositor/tools/tv_ui_measure.py`, the engine host's frame cost in the
-  KMS maintenance window (its own bundle, `LUMATV_FEATURES=ui`; results
-  in `docs/research/compositor/ui-measure-<date>-<HHMM>/`), with the idle
-  gate of the RustUi spike: under 1 ms of GPU a 10 fps frame.
+- Run on the set in the third gate: the frame latch learns the GPU's
+  completion from the in-fence's signal time (x1's `late` 11 → 2 a minute,
+  gaps over 20 ms 16 → 6, the worst one at start); odd page-flip stamps
+  counted (7 in 160 s) and logged; the covered card minimized (Home under
+  Netflix) and fullscreen again when the card goes. Not exercised: a
+  covered card asking for fullscreen (the HDMI 2 instance never attached
+  a buffer). Still unverified live: composed frames top row first,
+  flattened luna payloads.
+- Open from the third gate: a preloaded (`snapshot`) card app relaunched
+  to the front attaches no buffer and asks for no state under this
+  compositor (HDMI 2, pid 2513: window created bufferless in the trial,
+  `getCurrentHomeUIState` subscribed about 30 times a second there, after
+  the launch only exports and three subscriptions); Netflix restarted
+  three times during the trial (`reason: preload`, crash reports 1-3); the
+  x1 rule (no gap over 20 ms in 60 s) is still missed by 6, two of them
+  seen on the compositor's side (21.8 and 20.0 ms) and one 43.5 ms at
+  start.
+- Next slot: `python3 compositor/tools/tv_next_slot.py` again once the
+  preloaded-card case is handled, with the HDMI 2 app preloaded (the
+  memory note keeps it so); the set needs the current `tools/lumatv`
+  (`comp_live` guard) or the script turns the Home stub off for the
+  session and back on. `tv_ui_measure.py` need not run again unless the
+  engine changes (idle 0.49 ms, anim60 0.39 ms, volume 0.69 ms of GPU a
+  frame; results in `docs/research/compositor/ui-measure-2026-10-25-1229/`).
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
-  engine host (feature `ui`) is built and host-tested, not run on the set
-  (`cargo test --features ui` adds `ui`, `ui_output` and `ui_scanout`);
-  the RustUi spike's prerequisite, an idle frame under 1 ms of GPU, is
-  unmeasured there until `tv_ui_measure.py` runs. The surface gate
-  (`perf/gate.py`) under this compositor waits on a client for the QML
-  surfaces, which does not exist.
+  engine host (feature `ui`) is built, host-tested and measured on the set
+  (idle gate passed). The surface gate (`perf/gate.py`) under this
+  compositor waits on a client for the QML surfaces, which does not exist.
 - Built and host-tested, unverified on the set: the Magic Remote's pointer
   (`ctl pointer X Y`, `ctl click`).
 
@@ -945,7 +953,48 @@ Home fullscreen; HDMI 2 maps, Home gets minimized; Home's
 `set_state(fullscreen)` raises it (HDMI 2 minimized, Home's pixels on the
 output, SAM's foreground Home); Home goes, HDMI 2 is fullscreen again.
 
-Not run: `tv_ui_measure.py` (the slot was closed on the gate's result).
+Not run in that slot: `tv_ui_measure.py` (the slot was closed on the gate's
+result); it ran in the third slot below.
+
+## Third gate on the set (2026-10-25 12:19-12:27) and the UI engine's cost (12:29-12:33)
+
+One slot from `compositor/tools/tv_next_slot.py` at `c91148d` (code of
+`8f250c1`: the latch learns the GPU's finish, covered cards minimized), from
+a clean worktree with `LumaShow` beside it, then `compositor/tools/
+tv_ui_measure.py`. Receiver muted by the scripts, Home stub on with the
+`comp_live` guard, preload list of the memory note's fix (Netflix, Home and
+the HDMI input apps warm: the HDMI 2 app was preloaded, pid 2513, which the
+second gate did not have). Files in
+`docs/research/compositor/slot-2026-10-25-1219/` (`summary.txt`, `trial/`,
+`gate/`) and `ui-measure-2026-10-25-1229/`; gate lines in
+`gate-2026-10-25.txt`. The slot took 7 minutes, the measurement 3.5.
+
+| Step | Result |
+|---|---|
+| `install` + `probe` | 12 allowed, 0 free, 0 refused |
+| `trial 120` | live 123 s, no fallback, 2 clients (3 in all), SAM subscribed (9 calls queued before the compositor connected), 1 disconnect (WebAppMgr's first connection, 2.1 s), protocol errors 0, two loop passes over 8 ms, `late 0 lost 471 odd stamps 0`; windows Home and `com.webos.app.hdmi2` (the preloaded input app connected and created window 3 without a buffer, state Default) |
+| live | PASS: mounted, 12 names, WAM active, Home (stub) mapped |
+| volume | PASS: receiver 0.355 → 0.36 → 0.355 |
+| x1 | FAIL by the rule, better by 10: 3596 frames in 60.02 s = 59.92 fps; gaps ≤17.5 ms 3551, 17.5-20 ms 38, 20-33.5 ms 5, over 33.5 ms 1 (43.5 ms, in the first second: a 13.7 ms loop pass `clients draw-now` and two page-flip stamps 33.36 ms apart); compositor side 2 frame gaps on the X1 surface (21.8 ms after 291 steady frames, 20.0 ms after 1971), 1 loop stall; pacer `late` 0 → 2 (second gate 3 → 11), `lost` 469 → 2132; 59-60 swaps in every second after the first. Session end: flips 4363, late 4, odd stamps 7, gl errors 0 |
+| netflix | FAIL, in Netflix's player, not in the compositor: card mapped, Home minimized, foreground pushed, `_Window_Id_3` exported, punch-through attached, `setDisplayWindow` 1920x1080 from 3840x2160, then the pipeline unloaded (0.9 s), the same again on Netflix's retry (0.6 s); Picture Mode stayed `filmMaker`, `video` empty. The set's log (`messages.2.gz`): `VideoESPlayerNative::decoderTask::getNextMediaSample returns ERROR`, `PF_EVENT_TYPE_INT_ERROR 18`, `PlaybackDevice::errorReported code 2331 Playing Error`, pipeline state `Loading`, stream `video/x-h265 3840x2160 59.94, audio/x-eac3, Dolby Vision`. The same error class stopped the ambient slot's Netflix at 05:19 under LG's compositor (`ambient-result.md`, Audio results), so it is a Netflix-side failure [INFERENCE]; the 11:24 gate played the film. Netflix also restarted three times in the trial (crash reports count 1-3 at 12:19:49, 12:21:55, 12:22:13; `reason: preload`), which the second gate's trial did not show and which is open |
+| hdmi | FAIL: `com.webos.app.hdmi2` window 1 (the preloaded instance's window 3 from the trial), mapped 0, bufferless commits 0, SAM's foreground stayed Home. After `launch com.webos.app.hdmi2` the app exported surface 6 as `_Window_Id_5` (type 2) and subscribed to `getForegroundAppInfo`, `getLastInputType` and `getForegroundWindowInfo`, but attached no buffer and asked for no state; in the trial it had subscribed to `getCurrentHomeUIState` about 30 times in one second, twice over (12:19:53, 12:22:17), a retry loop on that reply [INFERENCE]. The second gate's HDMI 2 launched fresh (not preloaded) and mapped. A preloaded (`snapshot`) card relaunched to the front is therefore the open case; the covered-card change was exercised only by Netflix (Home minimized at 12:23:45, fullscreen again at 12:24:22 when Netflix went) |
+| standby | PASS: PreparePowerOff and PreparePowerOn acked, state active, still mounted, panel the stub's (6863 bytes) |
+| escape | PASS: Home held 650 ms, `escaped` written, LG's compositor back, recovery 14 s |
+| end | LG's compositor live, flag absent, stub on, `filmMaker`, `external_arc`, receiver unmuted, Active Standby |
+
+`tv_ui_measure.py` (engine host, `LUMATV_FEATURES=ui`, LG's compositor
+stopped for the window and restored by the script): idle10 GPU busy 0.49 %
+over 28 s = 0.49 ms a frame at 10 fps, compositor CPU 3.3 %, **idle gate
+PASS** (under 1 ms); anim60 2.35 % = 0.39 ms a frame at 60 fps, CPU 9.2 %;
+volume 0.69 % = 0.69 ms a frame at 10 fps, CPU 4.1 %; direct (x2cli at
+1920x1080 through LG's libmali, 1500 frames) GPU 47.34 % = 7.89 ms a
+composed frame at 60 fps, CPU 9.5 %, `direct 0`, gl errors 0, five frame
+gaps of 32-33.5 ms on the client's surface and one 209 ms loop pass
+(`control-client`) at the end: the script's DIRECT check fails because no
+frame went to the plane, which is the known rule of this driver (driver
+buffers compose; only the compositor's own buffers scan out directly),
+not a GL error. Engine figures: 259 frames in idle10 at 75,631 px a frame
+(26,009 changed), 10 draws and 5 layers a frame, 651 us CPU a frame.
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 

@@ -1,0 +1,11 @@
+# UI engine measurement 2026-10-25-1229
+
+preflight: LG's compositor live, nothing of ours running
+deploy (features ui): exit 0
+measure: restored LG's compositor
+idle10: GPU busy 0.49 % over 28 s = 0.49 ms per frame at 10 fps, compositor CPU 3.3 %; IDLE GATE PASS (under 1 ms)
+anim60: GPU busy 2.35 % over 18 s = 0.39 ms per frame at 60 fps, compositor CPU 9.2 %
+volume: GPU busy 0.69 % over 22 s = 0.69 ms per frame at 10 fps, compositor CPU 4.1 %
+direct: GPU busy 47.34 % over 28 s = 7.89 ms per frame at 60 fps, compositor CPU 9.5 %; DIRECT FAIL (no direct frame, or a GL error)
+RESULT FAIL
+set put in Active Standby

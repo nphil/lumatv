@@ -29,3 +29,15 @@ GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; stat
 GATE escape: PASS unmounted after 0s; [11:30:58] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 437324 bytes; wam active
 GATE: FAIL
 
+
+# C4 gate 2026-10-25 12:26
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 6863 bytes fg com.webos.app.home
+GATE volume: PASS receiver volume_level before 0.355 after Volume+ 0.36 after Volume- 0.355
+GATE x1: FAIL [x1] RESULT frames=3596 in 60.02 s = 59.92 fps; gaps: <=17.5 ms 3551, 17.5-20 38, 20-33.5 5, >33.5 1; worst 43.5 ms; ended at monotonic 29704.260 | pacer before: flips 29 late 0 lost 469 after: flips 3628 late 2 lost 2132 | compositor: loop stalls 1, frame gaps 2, clients connected 0
+GATE netflix: FAIL netflix windows 1 video "video":[] placements 8 protocol errors 0 pictureMode playing filmMaker after filmMaker fg playing netflix now com.webos.app.home panel 163003 bytes
+GATE hdmi: FAIL hdmi2 windows 1 mapped 0 bufferless commits 0 fg while open com.webos.app.home now com.webos.app.home panel 6863 bytes
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 29766.45 now 29839.42; mounted yes; panel 6863 bytes
+GATE escape: PASS unmounted after 0s; [12:26:00] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 14s; panel 437729 bytes; wam active
+GATE: FAIL
+

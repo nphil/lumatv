@@ -1,0 +1,6 @@
+[srv  29644.315] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+[srv  29644.345] warn loop: 13.7 ms in one pass (clients draw-now)
+[srv  29644.381] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+[srv  29649.258] warn frame gap 21.8 ms on surface 7 (org.nphil.lumatv.x1) after 291 steady frames
+[srv  29682.152] warn frame gap 20.0 ms on surface 7 (org.nphil.lumatv.x1) after 1971 steady frames
+[srv  29704.299] info client disconnected: pid 2997 uid 0 after 60068 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"
