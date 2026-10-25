@@ -65,6 +65,19 @@ struct Inner {
     closed: bool,
 }
 
+/// A JSON object without some of its top-level keys (any other value is returned as it is).
+fn without_keys(value: &Value, keys: &[&str]) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(k, _)| !keys.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 pub struct Hub {
     inner: Mutex<Inner>,
     changed: Condvar,
@@ -111,6 +124,27 @@ impl Hub {
         let mut inner = self.inner.lock();
         if inner.topics.get(topic) == Some(&value) {
             return false;
+        }
+        inner.topics.insert(topic.to_owned(), value.clone());
+        Self::push(&mut inner, topic, "changed", value);
+        drop(inner);
+        self.changed.notify_all();
+        true
+    }
+
+    /// Like [`Hub::set`], but a change that touches only the top-level keys in `quiet` is stored without an event: a
+    /// "last updated" stamp that moves on every poll must not wake every long poll on the TV. The retained value is always the
+    /// newest, so a snapshot shows the fresh stamp.
+    pub fn set_ignoring(&self, topic: &str, value: Value, quiet: &[&str]) -> bool {
+        let mut inner = self.inner.lock();
+        if let Some(current) = inner.topics.get(topic) {
+            if current == &value {
+                return false;
+            }
+            if without_keys(current, quiet) == without_keys(&value, quiet) {
+                inner.topics.insert(topic.to_owned(), value);
+                return false;
+            }
         }
         inner.topics.insert(topic.to_owned(), value.clone());
         Self::push(&mut inner, topic, "changed", value);
@@ -261,6 +295,43 @@ mod tests {
                 (2, "screen", "changed", json!({"on": false})),
             ]
         );
+    }
+
+    #[test]
+    fn a_quiet_key_updates_the_value_without_an_event() {
+        let hub = Hub::new(1);
+        assert!(hub.set_ignoring(
+            "receiver",
+            json!({"volume": 5, "updatedAt": 100}),
+            &["updatedAt"]
+        ));
+        assert!(!hub.set_ignoring(
+            "receiver",
+            json!({"volume": 5, "updatedAt": 200}),
+            &["updatedAt"]
+        ));
+        assert_eq!(
+            hub.get("receiver"),
+            Some(json!({"volume": 5, "updatedAt": 200}))
+        );
+        assert_eq!(hub.snapshot().seq, 1);
+        assert!(hub.set_ignoring(
+            "receiver",
+            json!({"volume": 6, "updatedAt": 300}),
+            &["updatedAt"]
+        ));
+        assert_eq!(hub.snapshot().seq, 2);
+        // A key that appears or disappears is a change even when it is quiet's neighbour.
+        assert!(hub.set_ignoring(
+            "receiver",
+            json!({"volume": 6, "updatedAt": 300, "extra": 1}),
+            &["updatedAt"]
+        ));
+        assert!(!hub.set_ignoring(
+            "receiver",
+            json!({"volume": 6, "updatedAt": 301, "extra": 1}),
+            &["updatedAt"]
+        ));
     }
 
     #[test]

@@ -105,13 +105,13 @@ fn a_change_at_the_receiver_is_an_event() {
         .expect("input and power");
     assert_eq!(changed["mute"], true);
 
-    // Keep the receiver transitions in order while allowing fresh-reading heartbeats between them.
+    // Each change was one event on the topic; unchanged polls raised none.
     let events = get(
         rig.addr,
         &format!("/v1/events?after={seq}&topics=receiver&timeout=0.2"),
     )
     .json();
-    let mut volumes: Vec<_> = events["events"]
+    let volumes: Vec<_> = events["events"]
         .as_array()
         .unwrap()
         .iter()
@@ -123,7 +123,6 @@ fn a_change_at_the_receiver_is_an_event() {
             )
         })
         .collect();
-    volumes.dedup();
     assert_eq!(
         volumes,
         [
@@ -136,24 +135,30 @@ fn a_change_at_the_receiver_is_an_event() {
 }
 
 #[test]
-fn unchanged_volume_still_delivers_fresh_readings_to_the_display() {
+fn polls_that_change_nothing_move_the_stamp_in_the_snapshot_and_raise_no_event() {
     let avr = FakeAvr::start();
-    let (rig, _luna) = rig_with(&avr, "Active", json!({}));
+    let (rig, _luna) = rig_with(&avr, "Active", json!({"pollMs": 40}));
     rig.wait_topic("receiver", WAIT, fresh)
         .expect("first reading");
-    let snapshot = get(rig.addr, "/v1/state").json();
-    let seq = snapshot["seq"].as_u64().unwrap();
-    let previous = &snapshot["topics"]["receiver"];
+    let before = get(rig.addr, "/v1/state/receiver").json();
+    let seq = before["seq"].as_u64().unwrap();
+    let at = before["value"]["updatedAt"].as_u64().unwrap();
+    // Several polls later the snapshot carries a newer stamp (a surface that asks the helper learns the receiver
+    // is still answering) while the event log has nothing new: no long poll was woken for a stamp.
+    assert!(
+        wait_until(WAIT, || {
+            get(rig.addr, "/v1/state/receiver").json()["value"]["updatedAt"]
+                .as_u64()
+                .is_some_and(|now| now > at + 100)
+        }),
+        "the stamp never moved"
+    );
     let events = get(
         rig.addr,
-        &format!("/v1/events?after={seq}&topics=receiver&timeout=5"),
+        &format!("/v1/events?after={seq}&topics=receiver&timeout=0.2"),
     )
     .json();
-    let readings = events["events"].as_array().unwrap();
-    let reading = &readings.last().expect("fresh-reading heartbeat")["data"];
-    assert!(reading["updatedAt"].as_u64().unwrap() > previous["updatedAt"].as_u64().unwrap());
-    assert_eq!(reading["volumeDb"], previous["volumeDb"]);
-    assert_eq!(reading["fresh"], true);
+    assert_eq!(events["events"].as_array().unwrap().len(), 0, "{events}");
 }
 
 #[test]
