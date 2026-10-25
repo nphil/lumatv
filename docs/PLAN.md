@@ -1092,6 +1092,9 @@ what it already does.
   as a registered native service whose LS2 role allows reading screen colours
   (LG's histogram capture) and nothing else; it is removed with LumaTV. Its
   readings are never exposed to AI access (Nitin, 2026-10-25).
+- Light-sync reader rate: 10 polls a second, about 1.9 % of a core measured,
+  above the 1 % budget, accepted so the lights follow every change the set
+  reports; the reduce is to be optimised toward 1.2 % (Nitin, 2026-10-25).
 - Voice search: speech becomes text through Nitin's Home Assistant Assist
   pipeline, never LG's cloud; the result fills LumaTV's search (Nitin,
   2026-10-25). It listens with the TV's built-in microphone (ALSA hw:1,0), so
