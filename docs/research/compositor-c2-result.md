@@ -735,7 +735,11 @@ no `escaped`, `failures < 2`) and falls back by itself; the watchdog
 (heartbeat 500 ms, two misses or a child exit) and the hold-Home escape
 fall back at run time; every fallback brings WebAppMgr and Home back.
 
-Requested in `tools/lumatv`:
+Requested in `tools/lumatv` and landed there as `tools/compositor.sh`
+(458fc0b, SurfacesP2b: `lumatv compositor-boot` from the autostart
+worker, `lumatv compositor on|off|status` implemented natively over the
+same state files, the guards below, 17 host tests; not yet run on the
+set, which needs `cutover.sh install` first):
 
 1. Boot: in the early hook, before the restart of `surface-manager-daemon`
    that picks up the env file, place the mount when the state says so:
