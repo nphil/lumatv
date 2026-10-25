@@ -259,6 +259,7 @@ static void spawn_recovery(void) {
 }
 
 // ---- fallback to LG's compositor ----
+static void release_for_exec(void);
 static void fallback(const char *reason, bool count_failure) {
     logline("fallback: %s", reason);
     write_text(path_in_state("last-fallback"), reason);
@@ -280,6 +281,7 @@ static void fallback(const char *reason, bool count_failure) {
     // The bind mount placed by the early hook: once it is gone, the path is LG's file again, and so is every later
     // restart of the unit until the next boot decides anew.
     if (umount2(lg_binary, MNT_DETACH) != 0 && errno != EINVAL) logline("umount %s: %s", lg_binary, strerror(errno));
+    release_for_exec();
     execv(lg_binary, saved_argv);
     logline("exec %s: %s", lg_binary, strerror(errno));
     exit(1);
@@ -394,6 +396,25 @@ static void inbound_free(struct inbound *in) {
 struct bus { const char *name; LSHandle *sh; };
 static struct bus buses[16];
 static int nbuses;
+
+// Before LG's compositor is exec'd in this process: every bus name this supervisor holds is given back and every
+// descriptor above stderr is closed. Without it the luna-service2 sockets would survive the exec inside LG's
+// process, ls-hubd would go on seeing their owner alive, and LG's own LSRegister of the same names would be
+// refused. The unit is not socket-activated, so nothing above fd 2 is LG's to inherit.
+static void release_for_exec(void) {
+    for (int i = 0; i < nbuses; i++) {
+        LSError e; LSErrorInit(&e);
+        if (buses[i].sh && !LSUnregister(buses[i].sh, &e)) logline("LSUnregister %s: %s", buses[i].name, e.message ? e.message : "?");
+        LSErrorFree(&e);
+        buses[i].sh = NULL;
+    }
+    logline("released %d bus name(s); exec %s", nbuses, lg_binary);
+    nbuses = 0;
+    if (logf) { fclose(logf); logf = NULL; }
+    long max = sysconf(_SC_OPEN_MAX);
+    if (max < 0 || max > 65536) max = 4096;
+    for (int fd = 3; fd < max; fd++) close(fd);
+}
 
 static bool on_method(LSHandle *sh, LSMessage *msg, void *ctx) {
     struct bus *b = ctx;
