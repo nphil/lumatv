@@ -2,26 +2,25 @@
 
 `lumatv-helper` is a static aarch64 musl daemon that runs beside the compositor, in Rust, on LumaShow OS's crates. Phase 1
 gives QML a loopback JSON API, a schema-checked settings store, saved-first weather and news, and the Denon receiver's
-status, all idle while the screen is off. Source: `helper/`. TV-side status: built and tested on the host only; the TV
-smoke test is written and waits for "TV is yours".
+status, all idle while the screen is off. Source: `helper/`. TV-side status: the smoke test ran on the set and passed (below).
 
 ## Resume here
 
-State at 2026-10-25 01:50 EDT. Everything in the assignment is committed and pushed.
+State at 2026-10-25 02:10 EDT. Phase 1 is committed and pushed and PROVEN ON THE SET: Main ran `helper/smoke-tv.py` and got
+`VERDICT PASS`, 35 of 35 checks (RSS 808 kB, nice 10, the LAN address refused). Next slice (offline only, the TV belongs to
+SurfacesP1): the MCP server module; see "MCP slice" below once it exists.
 
 - Done: `helper/` builds (`./build.sh check` passes: rustfmt, clippy `-D warnings`, 243 host tests, release build); static
   AArch64 binary `helper/dist/lumatv-helper`, 1,415,744 bytes (1382 KiB), sha256 `e60762abcd8e8e0714c2c971bdf9cc6142250e2866431cefdc138f53d56b7375`.
   The suite ran ten times in a row with no failure (the first runs found four races between tests, all fixed).
   The daemon was run on this host end to end (detached start, status, stop, the real receiver, the real weather and news
   through `openssl` and through `curl`); `helper/smoke.sh` passed 34 checks on the host against a fake `luna-send`.
-- NOT done, needs the TV: `python3 helper/smoke-tv.py` (about a minute, uploads to `/tmp`, removes it again). It settles what
-  the host cannot: the set's `openssl` version and CA bundle, whether a `luna-send` subscription (`-n 1000000`, the form `tools/lumatv` uses) reaches a pipe, whether the
-  `nobody` user can run the TLS child, the real power-state strings. Expected results are below.
+- TV smoke test: DONE by Main, PASS 35/35 (`python3 helper/smoke-tv.py`; about a minute, uploads to `/tmp`, removes it again).
+  The expected results below are the checks it makes; the per-fact values the run printed (openssl version, bundle, whether
+  a `luna-send` subscription reaches a pipe, the power-state strings) are in Main's run output, not copied here.
 - Not mine, to do in `tools/lumatv` and the ipk build: start/stop wiring (snippet below) and QML consuming the API.
 - If the helper misbehaves on the set: `lumatv-helper stop --brand <app dir>/brand.json`, read `/var/lib/lumatv/log-helper`,
   set `"fetch": {"backend": "curl"}` or `"fetch": {"user": null}` in `/var/lib/lumatv/helper.json` for TLS trouble.
-- To have the TV test run for you: message `NativeHelper` "TV is yours" (this agent wakes and runs `python3 helper/smoke-tv.py`),
-  or run it yourself; it needs the set idle for about a minute and refuses nothing else.
 - Git: shared working tree; stage only `helper/` and this file; `git push -q forge main`; never `git pull`.
 
 ## What is in `helper/`
@@ -222,7 +221,7 @@ customised ZIP or units, post it once.
   (2 ticks in 10 s). With the screen off the receiver and feeds threads block on their channels; the screen watcher alone
   wakes (once a minute for its cross-check, plus `pollMs` if it has fallen back to polling).
 
-## TV smoke test: `python3 helper/smoke-tv.py` (needs `helper/build.sh` first)
+## TV smoke test: `python3 helper/smoke-tv.py` (needs `helper/build.sh` first). Ran on the set: PASS 35/35
 
 Uploads the binary and `smoke.sh` to `/tmp/lumatv-helper-smoke`, runs the helper detached on port 18741 with a temporary data
 dir, and prints PASS/FAIL per check, FACT lines, and `VERDICT PASS|FAIL` (exit status 0 = pass; output saved to
@@ -234,7 +233,7 @@ FACT lines to read: `openssl: ... OpenSSL x.y`, `luna-send -n 1000000 through a 
 CA bundle, `nobody`. If the weather check fails, the `weather status` FACT carries the error code (`denied`/`untrusted` mean
 set `fetch.user` to `null` or force `backend: curl`).
 
-## Unknowns the TV settles
+## Unknowns the TV settled (see Main's run output for the values; the helper worked with whatever it found)
 
 - `openssl` version and bundle on the set (decides openssl or curl; either works by design), and whether `curl` trusts the bundle.
 - Whether a `luna-send` subscription flushes through a pipe (if not, the watcher polls every 5 s: one process spawn per poll).
