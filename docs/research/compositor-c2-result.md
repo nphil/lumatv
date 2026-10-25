@@ -22,7 +22,7 @@ preloaded HDMI 2 instance, relaunched to the front, attaches no buffer
 Home stub on, receiver unmuted). `tv_ui_measure.py` ran after it: the
 engine's idle frame costs 0.49 ms of GPU at 10 fps, the RustUi gate
 passes; its DIRECT phase shows no direct frame for a libmali client, as
-known. Host: `cd compositor && cargo test` (73 unit, 23 protocol, 1 bridge,
+known. Host: `cd compositor && cargo test` (73 unit, 25 protocol, 1 bridge, 1 control,
 2 LG-table), the same with `--features ui` plus `ui`, `ui_output` and
 `ui_scanout` under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean
 both ways; `sh compositor/tools/build-tv.sh` builds the bundle.
@@ -46,22 +46,25 @@ both ways; `sh compositor/tools/build-tv.sh` builds the bundle.
   covered card asking for fullscreen (the HDMI 2 instance never attached
   a buffer). Still unverified live: composed frames top row first,
   flattened luna payloads.
-- Open from the third gate: a preloaded (`snapshot`) card app relaunched
-  to the front attaches no buffer and asks for no state under this
-  compositor (HDMI 2, pid 2513: window created bufferless in the trial,
-  `getCurrentHomeUIState` subscribed about 30 times a second there, after
-  the launch only exports and three subscriptions); Netflix restarted
-  three times during the trial (`reason: preload`, crash reports 1-3); the
-  x1 rule (no gap over 20 ms in 60 s) is still missed by 6, two of them
-  seen on the compositor's side (21.8 and 20.0 ms) and one 43.5 ms at
-  start.
-- Next slot: `python3 compositor/tools/tv_next_slot.py` again once the
-  preloaded-card case is handled, with the HDMI 2 app preloaded (the
-  memory note keeps it so); the set needs the current `tools/lumatv`
-  (`comp_live` guard) or the script turns the Home stub off for the
-  session and back on. `tv_ui_measure.py` need not run again unless the
-  engine changes (idle 0.49 ms, anim60 0.39 ms, volume 0.69 ms of GPU a
-  frame; results in `docs/research/compositor/ui-measure-2026-10-25-1229/`).
+- Built and host-tested after the third gate, not run on the set ("Third
+  gate on the set", "After the third gate"): a card's `set_state(fullscreen)`
+  makes it the foreground card before its first buffer, as LG's fullscreen
+  container does, so SAM tells a preloaded app it is foreground (HDMI 2);
+  the control socket never holds the loop (non-blocking clients, PNGs
+  written off it: the 209 ms pass); the GL first-use costs are paid at
+  start and a slow first frame is attributed in the log; video placements
+  are in the panel's pixels with `fullScreen` (3840x2160, as LG's leave
+  videooutputd), none before the element has a rectangle. Still open:
+  the x1 rule (6 gaps in 60 s), Netflix's player error (its own class; the
+  placement differences are fixed, the cause is not proven), Netflix's
+  three restarts in the trial (it never connected to the compositor then).
+- Next slot: `python3 compositor/tools/tv_next_slot.py` again, with the
+  HDMI 2 app preloaded (the memory note keeps it so); the set needs the
+  current `tools/lumatv` (`comp_live` guard) or the script turns the Home
+  stub off for the session and back on. `tv_ui_measure.py` need not run
+  again unless the engine changes (idle 0.49 ms, anim60 0.39 ms, volume
+  0.69 ms of GPU a frame; results in
+  `docs/research/compositor/ui-measure-2026-10-25-1229/`).
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
@@ -995,6 +998,76 @@ frame went to the plane, which is the known rule of this driver (driver
 buffers compose; only the compositor's own buffers scan out directly),
 not a GL error. Engine figures: 259 frames in idle10 at 75,631 px a frame
 (26,009 changed), 10 draws and 5 layers a frame, 651 us CPU a frame.
+
+## After the third gate (offline, 2026-10-25)
+
+Three changes, host-tested, none run on the set.
+
+- The preloaded card. LG preloads HDMI 2 with `launch {launchHidden: true,
+  preload: "partial"}` (X4 pass 1, 163 s): the app registers with SAM
+  (`registerApp`, `getAppLifeStatus`), makes its window, commits it without
+  a buffer and waits. On its relaunch it sent this compositor
+  `set_state(fullscreen)` (window 3 went Default to Fullscreen between the
+  netflix and hdmi snapshots), exported its surface and subscribed, and
+  drew nothing in 10 s, while SAM's foreground stayed Home. The X4
+  captures show what LG's compositor does with that request: preloaded
+  YouTube relaunched is SAM's foreground 120 ms after the launch call
+  (pass 1, 114.3 s), preloaded Netflix 640 ms after (pass 3), too soon for
+  a first frame, and LG's `FullscreenView` takes `fullscreenRequested` (the
+  client's `set_state(fullscreen)`) exactly as a mapping: the current item
+  minimized, the item fullscreen and current, the foreground pushed, with
+  or without a buffer. SAM then tells the app it is foreground, which is
+  when a hidden app draws [INFERENCE: the app's trigger is not captured;
+  the compositor's side now matches LG's either way]. `Window::front` is
+  that order, set at a mapping and at a fullscreen request; `foreground`,
+  `front_card` and `settle_cards` use it, a card's `set_state(fullscreen)`
+  raises it mapped or not, and its first buffer keeps it in front. The
+  covered card is minimized at once, so the output shows no card until the
+  new one draws (LG hides the old item then too, behind its capture of it).
+  The note's "`getCurrentHomeUIState` subscribed about 30 times a second"
+  is not in the logs kept (one subscription line per compositor run); not
+  chased. Host test `tests/protocol.rs`,
+  `a_preloaded_card_relaunched_is_the_foreground_before_its_first_buffer`.
+- The loop. `ctl capture` read the page back and encoded a 1080p PNG on
+  the loop (the 209 ms `control-client` pass of the measurement's direct
+  phase); control clients were blocking streams, so a client sending half
+  a line held the loop. Now the loop reads the page back and a thread
+  encodes and answers (`capture::Writer` for `--capture-every` too, one
+  picture at a time), control clients are non-blocking with a line buffer,
+  and a client that stops reading loses its reply instead of holding the
+  loop. Host test `tests/control.rs` (the real binary: a silent client, a
+  half line, a capture answered once the file is there, the loop ticking
+  throughout). The 13.7 ms `clients draw-now` pass in X1's first second
+  cannot be reproduced here (the Mali driver's first import and draw of a
+  client's buffer are the suspects); the GL first-use costs are now paid at
+  start (`Gl::warm_up`: a quad through the frame's program from an uploaded
+  texture and from a dma-buf page, logged as `kms: gl warm-up N ms`), and a
+  frame over 4 ms logs its new imports and their time (`render: N ms for
+  ...`), so the next slot says what the pass was.
+- Video placement, against LG's (X4 captures; the compositor's own calls
+  were captured in pass 1 and their replies in passes 2 and 3; LG's QML
+  `StarfishFullscreenContainer.qml` and `punchThrough.js`):
+
+  | | LG's compositor | This compositor, before | Now |
+  |---|---|---|---|
+  | `setDisplayWindow` space | the panel's pixels: after a full-screen placement videooutputd holds `displayOutput` 3840x2160 (Netflix, YouTube); the Plex first screen leaves 134,196 3584x1964, twice its 1080p rectangle (`makeScreenRequest` scales by `screenRatio`) | the output's: 1920x1080 | `--panel WxH` (3840x2160), the rectangle scaled |
+  | `fullScreen` | true for a full-screen video (videooutputd holds `fullScreen: true`); LG's multiview path sends it with every rectangle | always false | true when the element covers the output |
+  | when | the real rectangle 0.5 s after the attach, once the pipeline's `setVideoData` is in; never an empty one at attach; 0x0 hides a video ("Hidden: call setDisplayWindow 0x0") | 0x0 at attach (the element had no rectangle yet), then the rectangle, then 0x0 again when the app emptied it | none while the element has no rectangle; once with the rectangle; once to hide when it is emptied, detached or destroyed |
+  | `setDisplayWindowProperty` | appRotation Deg0, aspectRatio original, fastMode on, textureRotation Deg0 at attach | the same | the same |
+  | video mute | `avmutemanager/register` and `setAvMute videoMute on` at attach, off once the pipeline plays (2.7 s later); whether the compositor or the app's `wl_webos_exported.set_property("mute")` drives it is not in the capture | the app's `set_property` is passed through (`mute`, `registerMute`), nothing of the compositor's own | the same, and every exported property is journalled so the next slot shows who drives it |
+
+  Netflix's error (`getNextMediaSample returns ERROR`, 2331 at Loading) came
+  200 ms after the 1920x1080, `fullScreen: false` placement; the same title
+  played with that placement on the second gate, and the error class
+  stopped Netflix once under LG's compositor (the ambient slot). The
+  placement differences are fixed; the error's cause is not proven. The
+  three Netflix restarts during the trial (`reason: preload`) happened
+  while Netflix had no connection to the compositor (its preload makes no
+  window), so they are not a protocol matter; open. Host tests
+  `tests/protocol.rs`, `exported_video_region_becomes_a_hole_and_a_placement_call`
+  (a partial window scaled) and
+  `a_full_screen_video_is_placed_once_its_rectangle_is_known_in_the_panels_pixels`
+  (Netflix's order).
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 

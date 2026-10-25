@@ -286,6 +286,11 @@ impl Kms {
                 .map_err(|e| other(format!("page {i}: {e}")))?;
             pages.push(Page { dumb, fd, fb, target });
         }
+        // The first draw from an imported image and the program's first use are paid here, into page 0 from page 1,
+        // not by the first client's first frame.
+        gl.set_target(pages[0].target);
+        let warmed = gl.warm_up(Some(pages[1].target));
+        log::info!("kms: gl warm-up {:.1} ms", warmed.as_secs_f64() * 1000.0);
         let period_ns = 1_000_000_000 / mode.vrefresh().max(1) as u64;
         let monotonic_flips = card.get_driver_capability(DriverCapability::MonotonicTimestamp).map(|v| v != 0).unwrap_or(false);
         log::info!("kms: page-flip timestamps are {}", if monotonic_flips { "CLOCK_MONOTONIC" } else { "CLOCK_REALTIME (translated)" });

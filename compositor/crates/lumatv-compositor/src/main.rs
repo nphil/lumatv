@@ -1,6 +1,6 @@
 //! `lumatv-compositor`: the process. Sockets, the 60 Hz tick and the control socket on one epoll loop.
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::Arc;
@@ -121,7 +121,12 @@ fn run(config: Config) -> io::Result<()> {
     };
     let output: Box<dyn Output> = match config.renderer {
         RendererKind::Software => Box::new(Software::new(config.width, config.height)),
-        RendererKind::Gl => Box::new(make_gl()?),
+        RendererKind::Gl => {
+            let mut gl = make_gl()?;
+            let warmed = gl.warm_up(None);
+            log::info!("gl warm-up {:.1} ms", warmed.as_secs_f64() * 1000.0);
+            Box::new(gl)
+        }
         RendererKind::Kms => {
             let gl = make_gl()?;
             Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height)?)
@@ -196,7 +201,7 @@ fn run(config: Config) -> io::Result<()> {
         epoll.add(d.fd(), TAG_INPUT | i as u64)?;
     }
     let client_events = Arc::new(Mutex::new(Vec::new()));
-    let mut control_clients: Vec<(u64, BufReader<UnixStream>)> = Vec::new();
+    let mut control_clients: Vec<ControlClient> = Vec::new();
     let mut next_control = 0u64;
     let mut deadline = config.seconds.map(|s| Instant::now() + Duration::from_secs(s));
     let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; 16];
@@ -280,11 +285,12 @@ fn run(config: Config) -> io::Result<()> {
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {
                         while let Ok((s, _)) = l.accept() {
-                            s.set_nonblocking(false)?;
+                            // Never blocking: a client that sends half a line or stops reading must not hold the loop.
+                            s.set_nonblocking(true)?;
                             let tag = TAG_CONTROL_CLIENT | next_control;
                             next_control += 1;
                             epoll.add(s.as_raw_fd(), tag)?;
-                            control_clients.push((tag, BufReader::new(s)));
+                            control_clients.push(ControlClient { tag, stream: s, line: Vec::new() });
                         }
                     }
                 }
@@ -311,20 +317,24 @@ fn run(config: Config) -> io::Result<()> {
                     }
                 }
                 t if t & TAG_CONTROL_CLIENT != 0 => {
-                    if let Some(pos) = control_clients.iter().position(|(t, _)| *t == tag) {
-                        let mut line = String::new();
-                        let done = match control_clients[pos].1.read_line(&mut line) {
-                            Ok(0) | Err(_) => true,
-                            Ok(_) => {
-                                let reply = control::handle(&mut state, line.trim());
-                                let s = control_clients[pos].1.get_mut();
-                                let _ = s.write_all(reply.as_bytes()).and_then(|_| s.write_all(b"\n"));
-                                false
-                            }
+                    if let Some(pos) = control_clients.iter().position(|c| c.tag == tag) {
+                        let done = match control_clients[pos].read() {
+                            Ok(Some(line)) => match control::handle(&mut state, line.trim()) {
+                                control::Reply::Now(reply) => !control_clients[pos].answer(&reply),
+                                // The job and the socket go to a thread; the loop is done with this client.
+                                control::Reply::Later(job) => {
+                                    let client = control_clients.remove(pos);
+                                    epoll.del(client.stream.as_raw_fd());
+                                    client.answer_later(job);
+                                    continue;
+                                }
+                            },
+                            Ok(None) => false,
+                            Err(_) => true,
                         };
                         if done {
-                            let (_, r) = control_clients.remove(pos);
-                            epoll.del(r.get_ref().as_raw_fd());
+                            let client = control_clients.remove(pos);
+                            epoll.del(client.stream.as_raw_fd());
                         }
                     }
                 }
@@ -356,6 +366,7 @@ fn run(config: Config) -> io::Result<()> {
         }
     }
     display.flush_clients()?;
+    state.pngs.finish();
     log::info!("summary: {}", state.summary());
     println!("summary: {}", state.summary());
     if let Some(l) = control_listener {
@@ -374,6 +385,72 @@ fn luna_poll(state: &mut State) {
             luna::FromBridge::Ping { seq } => state.luna.send(luna::ToBridge::Pong { seq }),
             luna::FromBridge::Inbound(i) => state.luna_inbound(i),
             luna::FromBridge::Event(e) => state.luna_event(e),
+        }
+    }
+}
+
+/// One client of the control socket: a non-blocking stream and the bytes of the line it is sending.
+struct ControlClient {
+    tag: u64,
+    stream: UnixStream,
+    line: Vec<u8>,
+}
+
+impl ControlClient {
+    /// Reads what has arrived: `Some(line)` once a whole line is in, `None` while it is not, `Err` when the client is
+    /// gone (or sends more than a command's worth without a newline).
+    fn read(&mut self) -> io::Result<Option<String>> {
+        let mut chunk = [0u8; 512];
+        loop {
+            match io::Read::read(&mut self.stream, &mut chunk) {
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+                Ok(n) => self.line.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if let Some(end) = self.line.iter().position(|&b| b == b'\n') {
+            let line = String::from_utf8_lossy(&self.line[..end]).into_owned();
+            self.line.drain(..=end);
+            return Ok(Some(line));
+        }
+        if self.line.len() > 4096 {
+            return Err(io::Error::from(io::ErrorKind::InvalidData));
+        }
+        Ok(None)
+    }
+
+    /// Writes a reply line without waiting: a client that is not reading loses it (and is dropped). `false` when it is
+    /// gone.
+    fn answer(&mut self, reply: &str) -> bool {
+        let mut bytes = reply.as_bytes().to_vec();
+        bytes.push(b'\n');
+        let mut sent = 0;
+        while sent < bytes.len() {
+            match self.stream.write(&bytes[sent..]) {
+                Ok(0) => return false,
+                Ok(n) => sent += n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => {
+                    if e.kind() != io::ErrorKind::WouldBlock {
+                        log::warn!("control: {e}");
+                    }
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Runs `job` on a thread with the socket and writes its reply there (a capture's PNG).
+    fn answer_later(mut self, job: Box<dyn FnOnce() -> String + Send + 'static>) {
+        if let Err(e) = std::thread::Builder::new().name("control".into()).spawn(move || {
+            let reply = job();
+            let _ = self.stream.set_nonblocking(false);
+            let _ = self.stream.write_all(reply.as_bytes()).and_then(|_| self.stream.write_all(b"\n"));
+        }) {
+            log::warn!("control: no thread: {e}");
         }
     }
 }

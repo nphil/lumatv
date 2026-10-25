@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use crate::State;
+use crate::capture::write_png;
 
 pub const SOCKET_NAME: &str = "lumatv-control";
 
@@ -16,7 +17,7 @@ pub fn socket_path(runtime_dir: &Path) -> PathBuf {
 }
 
 /// Answers one command line.
-pub fn handle(state: &mut State, line: &str) -> String {
+pub fn handle(state: &mut State, line: &str) -> Reply {
     let mut words = line.split_whitespace();
     let cmd = words.next().unwrap_or("");
     let reply = match cmd {
@@ -47,8 +48,14 @@ pub fn handle(state: &mut State, line: &str) -> String {
             "subscriptions": state.luna_state.subscriptions.iter().map(|s| json!({"token": s.token, "service": s.service, "method": s.method, "sender": s.sender, "last": s.last})).collect::<Vec<_>>(),
         }),
         "capture" => match words.next() {
-            Some(path) => match state.capture_to(Path::new(path)) {
-                Ok(()) => json!({"ok": true, "path": path}),
+            Some(path) => match state.capture_image() {
+                Ok(image) => {
+                    let path = path.to_string();
+                    return Reply::Later(Box::new(move || match write_png(Path::new(&path), &image) {
+                        Ok(()) => json!({"ok": true, "path": path}).to_string(),
+                        Err(e) => json!({"ok": false, "error": e.to_string()}).to_string(),
+                    }));
+                }
                 Err(e) => json!({"ok": false, "error": e.to_string()}),
             },
             None => json!({"ok": false, "error": "capture PATH"}),
@@ -130,7 +137,24 @@ pub fn handle(state: &mut State, line: &str) -> String {
             json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
         }
     };
-    reply.to_string()
+    Reply::Now(reply.to_string())
+}
+
+/// How a command is answered: at once, or by a job that runs on a thread of its own with the client's socket (a PNG
+/// of the output takes a few hundred milliseconds to encode on the set, which the loop cannot spend).
+pub enum Reply {
+    Now(String),
+    Later(Box<dyn FnOnce() -> String + Send + 'static>),
+}
+
+impl Reply {
+    /// The reply's text, running a deferred job here (tests; the loop never does).
+    pub fn text(self) -> String {
+        match self {
+            Reply::Now(s) => s,
+            Reply::Later(job) => job(),
+        }
+    }
 }
 
 /// The `ctl` subcommand: sends one line and prints the answer.

@@ -115,6 +115,8 @@ pub struct State {
     pub journal: Vec<String>,
     pub should_exit: bool,
     pub last_capture: Option<PathBuf>,
+    /// Captured frames are encoded and written on its thread.
+    pub pngs: capture::Writer,
     /// The `wl_webos_shell_surface` of each window that has one.
     pub webos_shells: HashMap<crate::window::WindowId, lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::WlWebosShellSurface>,
     pub started: Instant,
@@ -149,6 +151,7 @@ impl State {
             journal: Vec::new(),
             should_exit: false,
             last_capture: None,
+            pngs: capture::Writer::default(),
             webos_shells: HashMap::new(),
             started: Instant::now(),
             serial: 0,
@@ -453,17 +456,15 @@ impl State {
         }
         if want_capture && let Some(dir) = &self.config.capture_dir {
             let path = dir.join(format!("frame-{:04}.png", self.stats.frames_drawn));
-            match capture::write_png(&path, &image) {
-                Ok(()) => self.last_capture = Some(path),
-                Err(e) => log::warn!("capture {}: {e}", path.display()),
+            if self.pngs.write(path.clone(), image) {
+                self.last_capture = Some(path);
             }
         }
     }
 
-    /// Writes the current output to `path` on demand (control socket).
-    pub fn capture_to(&mut self, path: &std::path::Path) -> std::io::Result<()> {
-        let image = self.output.capture()?;
-        capture::write_png(path, &image)
+    /// Reads the current output back, for a picture written off the loop (the control socket's `capture`).
+    pub fn capture_image(&mut self) -> std::io::Result<crate::output::Image> {
+        self.output.capture()
     }
 
     /// One line per field, for the control socket and the exit summary.

@@ -519,6 +519,49 @@ impl Gl {
         Ok(TargetId(self.targets.len() - 1))
     }
 
+    /// Pays the driver's first-use costs before any client does: a quad drawn through the frame's program from an
+    /// uploaded texture and, when `page` names a dma-buf target, from that page's EGLImage into the current target
+    /// (the first draw from an imported image cost X1's first frame a refresh on the third gate). Returns how long it
+    /// took, GPU included.
+    pub fn warm_up(&mut self, page: Option<TargetId>) -> std::time::Duration {
+        let began = std::time::Instant::now();
+        let full = Rect::new(0, 0, self.width as i32, self.height as i32);
+        let a = &self.egl.api;
+        let mut tex = 0;
+        // SAFETY: GL object creation and draws on the current context with this renderer's program; the pixels are
+        // the 4 bytes given.
+        unsafe {
+            (a.glGenTextures)(1, &mut tex);
+            (a.glBindTexture)(egl::GL_TEXTURE_2D, tex);
+            set_params(a);
+            let fmt = if self.bgra_upload { egl::GL_BGRA_EXT } else { egl::GL_RGBA };
+            (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, fmt as i32, 1, 1, 0, fmt, egl::GL_UNSIGNED_BYTE, [0u8, 0, 0, 255].as_ptr() as *const c_void);
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.targets[self.current.0].fbo);
+            (a.glViewport)(0, 0, self.width as i32, self.height as i32);
+            (a.glUseProgram)(self.program);
+            (a.glEnable)(egl::GL_SCISSOR_TEST);
+            (a.glEnable)(egl::GL_BLEND);
+            (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
+        }
+        self.scissor(&full);
+        self.draw_quad(tex, &full, true);
+        if let Some(page) = page.filter(|p| p.0 < self.targets.len() && *p != self.current) {
+            self.draw_quad(self.targets[page.0].tex, &full, false);
+        }
+        // SAFETY: the texture was made above; the clear puts the target back to black; glFinish waits for the GPU.
+        unsafe {
+            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
+            (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+            (a.glFinish)();
+            (a.glDeleteTextures)(1, &tex);
+        }
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            log::warn!("gl warm-up: error 0x{err:x}");
+        }
+        began.elapsed()
+    }
+
     /// Adds a page in the context's own memory, laid out as a scan-out page is (row 0 at the top): a host's stand-in for a
     /// dma-buf page, so that the ring's frame logic runs without a device.
     pub fn add_target(&mut self) -> io::Result<TargetId> {
@@ -589,11 +632,18 @@ impl Gl {
             (a.glEnable)(egl::GL_BLEND);
             (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
         }
+        let (mut imports, mut import_us) = (0u32, 0u64);
         for item in &plan.items {
+            let new = !self.textures.contains_key(&item.buffer.id());
+            let began = std::time::Instant::now();
             let Some((tex, _size, y_invert)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
                 stats.skipped += 1;
                 continue;
             };
+            if new {
+                imports += 1;
+                import_us += began.elapsed().as_micros() as u64;
+            }
             let mut drawn = false;
             for r in rects {
                 let clip = item.rect.intersect(r);
@@ -654,6 +704,19 @@ impl Gl {
         }
         stats.gl_errors = self.gl_errors;
         stats.render_us = t0.elapsed().as_micros() as u64;
+        // A frame that cost more than half a refresh on the CPU is one the loop's own line will show as a stall; what
+        // of it was the driver taking in a client's buffer for the first time is only known here (X1's first second
+        // on the third gate: a 13.7 ms pass, a refresh lost).
+        if stats.render_us > 4000 {
+            log::info!(
+                "render: {:.1} ms for {} items in {} rects, {} new imports in {:.1} ms",
+                stats.render_us as f64 / 1000.0,
+                plan.items.len(),
+                rects.len(),
+                imports,
+                import_us as f64 / 1000.0
+            );
+        }
         Ok(stats)
     }
 
