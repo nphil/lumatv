@@ -144,7 +144,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Quick panel | 165-file QML, rebuilt per open | Rebuilt resident | System UI redirect |
 | Input picker | 51-file QML, rebuilt per open | Rebuilt resident, own inputs only | System UI redirect |
 | Volume and mute OSD | Compositor QML; shows webOS's own counter | Rebuilt, fed by the receiver (below) | Shadow module |
-| Toasts, alerts, PIN, input popups | `SystemUI/Notification`, 38 files | Rebuilt to the item contract | View swap |
+| Toasts, alerts, PIN, input popups | `SystemUI/Notification`, 38 files | LG's view kept for its contract and data layer, patched into the Luma look with no shadow layers (`lumatv notifications on`, `tools/notification_patch.py`); own visuals later | View swap |
 | Launch splash, spinner, long-press ring | Compositor QML | Rebuilt | Shadow module |
 | Live TV banner, info, no-signal | `inputcommon` QML | Restyled | Overlay mount |
 | On-screen keyboard | maliit QML | Restyled | Overlay mount |
@@ -808,7 +808,10 @@ above replaces it).
    the wallpaper tint, the disk cache, the Home stub, the warm-up, the harness's
    per-surface gate, the helper's start and stop and Home's cards fed by it.
    Open: the registry of every surface's state and fallback.
-2. Notifications: toasts, alerts, PIN prompt, input popups.
+2. Notifications: toasts, alerts, PIN prompt, input popups. First step built:
+   LG's view patched (Manrope, the toast's colours, DropShadow layers off) and
+   pointed at through `changeSystemUIView`; gated against LG's own toast and
+   alert (`gate.py --surfaces toast,alert`) before the visuals are rebuilt.
 3. Quick panel, Settings, and AI access (MCP server, permissions, prompt).
 4. Input picker, the receiver-fed volume and mute OSD, and ambient light.
 5. Launch splash, spinners, context menu, on-screen remote. The boot and
