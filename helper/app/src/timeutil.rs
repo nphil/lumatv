@@ -54,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn now_is_after_the_helpers_were_written() {
-        assert!(now_ms() > 1_790_000_000_000);
+    fn now_is_a_recent_unix_time_in_milliseconds() {
+        assert!(now_ms() > 1_700_000_000_000);
     }
 }

@@ -114,7 +114,7 @@ fn a_reading_older_than_six_hours_is_not_shown() {
 }
 
 #[test]
-fn a_document_that_the_clock_makes_expire_while_served_is_hidden_by_the_api() {
+fn a_saved_document_carries_the_time_it_stops_being_shown() {
     let script = Script::new();
     let now = now_ms();
     let (rig, _luna) = rig("Active Standby", &script, |rig| {

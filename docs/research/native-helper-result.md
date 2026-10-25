@@ -4,17 +4,21 @@
 
 ## Resume here
 
-State at 2026-10-25 01:10 EDT (updated at each milestone; newest facts first).
+State at 2026-10-25 01:40 EDT (updated at each milestone; newest facts first).
 
-- Done and tested on the host: `helper/denon` (status XML parser, plain-HTTP client, tests against a fake receiver, one
-  live read of the real receiver) and `helper/feeds` (weather, news, saved-first cache; 69 tests pass). Both are committed.
-- Written, not yet compiled together: `helper/app` modules `timeutil`, `log`, `config`, `control`, `hub`, `http`,
-  `settings` (+ `schemas/*.json`), `sys`, `ctx`, `screen`, `receiver`. Still to write: `homefeeds` (the runner that uses
-  `lumatv-feeds`), `api`, `service`, `lib.rs` wiring, `main.rs` CLI (`run|start|stop|status|version|check-config`).
-- Then: IPC tests (`helper/app/tests/`), `helper/build.sh`, `helper/smoke-tv.sh`, size, this note's API reference.
-- Host commands: `cd helper && PATH=/tmp/zigcc:$PATH cargo test --workspace` (the shim `/tmp/zigcc/cc` is
-  `exec /data/home/.local/bin/cargo-zigbuild zig cc -- "$@"`; this container has no `cc`; `build.sh` will create it).
-- TV: not touched. The receiver was read twice from the host (GET only).
+- Done, committed and pushed (last commit "programs resolved through PATH..."): everything in the assignment except the
+  final write-up. `helper/` builds (`./build.sh`: static AArch64, 1.3 MB), 233 host tests pass, clippy and rustfmt clean,
+  the daemon was exercised end to end on this host (start detached, status, stop, real receiver, real weather and news
+  through `openssl` and through `curl`). `helper/smoke.sh` + `helper/smoke-tv.py` are written and dry-run on the host
+  (34 checks PASS against a fake `luna-send`).
+- Open: (1) fold in the findings of the read-only review (`NativeHelper.HelperReview`, if it has reported), (2) finish this
+  note (API reference, tools/lumatv wiring, TV smoke expectations), (3) final `./build.sh check` and size.
+- NOT done and needs the TV ("TV is yours"): `python3 helper/smoke-tv.py` (about a minute; uploads to `/tmp`, removes it
+  again). Unknowns it settles: the set's `openssl` version and CA bundle, whether `luna-send -i` output reaches a pipe, whether
+  `nobody` can run the TLS child, that QML's `XMLHttpRequest` sends no `Origin` header (QML side, not in the smoke test).
+- Host commands: `cd helper && ./build.sh test` (clippy + tests), `./build.sh` (aarch64 release). `build.sh` creates the
+  `cc` shim it needs in this container (no C compiler here).
+- TV: not touched. The receiver was read from the host a few times (GET only).
 - Git: shared working tree. Stage only `helper/` and this file; `git push -q forge main`; never `git pull`.
 
 ## Facts that shaped the design

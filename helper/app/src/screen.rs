@@ -154,9 +154,13 @@ impl Subscription {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("could not run {program}: {e}"))?;
-        let out = child.stdout.take().ok_or("no output pipe")?;
+        let Some(out) = child.stdout.take() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("no output pipe".to_owned());
+        };
         let (tx, rx) = mpsc::channel();
-        let reader = thread::Builder::new()
+        let spawned = thread::Builder::new()
             .name("screen-sub".to_owned())
             .stack_size(128 * 1024)
             .spawn(move || {
@@ -177,8 +181,15 @@ impl Subscription {
                         pending.clear();
                     }
                 }
-            })
-            .map_err(|e| format!("could not start a reader: {e}"))?;
+            });
+        let reader = match spawned {
+            Ok(reader) => reader,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("could not start a reader: {e}"));
+            }
+        };
         *slot.lock() = Some(child);
         Ok(Self {
             slot,
