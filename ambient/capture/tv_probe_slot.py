@@ -1,34 +1,48 @@
 #!/usr/bin/env python3
-"""One probe slot for the ambient light's picture capture, on the set: Home, HDMI 2 and Netflix, 60 s each.
+"""One probe slot for the ambient light's picture capture, on the set: Home, HDMI 2 and Netflix, 60 s each, through the package's
+own colour reader (lumatv-capture) with the LS2 role it ships with.
 
     python3 ambient/capture/tv_probe_slot.py --plan                    # the steps and the script that runs on the set; touches nothing
     python3 ambient/capture/tv_probe_slot.py --go                      # the slot, from the repository root, with Main's go
-    python3 ambient/capture/tv_probe_slot.py --go --scenarios home,hdmi2 --secs 30 --no-mute
+    python3 ambient/capture/tv_probe_slot.py --go --scenarios home,hdmi2 --secs 30 --no-mute --role-type privileged
+
+What a slot installs is what the package installs, by the same script (payload/capture/capture.sh): the 32-bit service staged
+under the data directory (`/var/lib/lumatv/bin/lumatv-capture`) and its LS2 role written for that path (LG's library registers a bus
+client once its permission gate has passed, and ls-hubd refuses an executable it has no role for: the slot of 2026-10-25 12:35,
+docs/research/ambient-result.md). The set's own LumaTV package need not carry it yet: the slot puts the same files there and takes
+them away again if they were not there (`capture.sh remove`), or starts the service again if it was running. The slot's copy reads a
+socket of the slot's own (`slot_collect.py` on the set stands in for the helper on it), so the helper's capture socket is left alone.
 
 LG's library refuses the histogram to any process that is not LG's own Hue Sync service unless the file
 /var/luna/preferences/vt_devmode exists (docs/research/ambient-result.md, "Permission gate"). Nitin allowed that file for
 short probe slots, removed at the end of each (docs/PLAN.md, Decided). The slot is built around the removal:
 
-- the file exists only while a probe runs: it is created straight before each 60 s capture and removed straight after,
-  never while an app is launching or the receiver is being muted. Each window's create and remove time (seconds since the
-  epoch, from the set's clock) is in `slot-log.json` under `flag.windows`, with who removed it;
+- the file exists only while a capture runs: created straight before the service starts for a window and removed straight after
+  the service has given the capture back, never while an app is launching or the receiver is being muted. Each window's create and
+  remove time (whole seconds since the epoch, the set's busybox `date` has no fractions) is in `slot-log.json` under `flag.windows`,
+  with who removed it;
 - three things remove it, so a dropped SSH session or a crashed script cannot leave it: the shell script that runs on the set
   (EXIT/INT/TERM/HUP trap; it carries on and finishes without this script), a dead-man timer started before each window that
-  removes the file `secs + DEADMAN_MARGIN` (25) s later even if that script is killed, and this script's own `finally`;
+  removes the file `secs + DEADMAN_MARGIN` (45) s later even if that script is killed, and this script's own `finally`;
 - the slot ends by reading the set: the file is gone (`test ! -e`), or the exit status is non-zero and the first line printed
   says so;
 - it never starts on a set where the file already exists (an earlier slot left it), unless `--adopt-flag` says to remove it
   at the end.
 
-A slot is Main's: "TV slot for PluginsSlice-N: 10 min, measure", wait for "go", "TV back" when this returns. It writes only under
-/tmp on the set, apart from the flag. The receiver is muted through Home Assistant first and put back as it was; the set is left
-in Active Standby (`--no-standby` leaves it on), as the earlier slots leave it; Picture Mode is read before and after, never set.
-A new failed systemd unit while it runs ends the captures early. The one thing the script cannot make right by itself is a
+A slot is Main's: "TV slot for PluginsSlice-N: 10 min, measure", wait for "go", "TV back" when this returns. It writes under /tmp on the
+set, the role file and the staged service (put back as found), and the flag. The receiver is muted through Home Assistant first and
+put back as it was; the set is left in Active Standby (`--no-standby` leaves it on); Picture Mode is read before and after, never
+set. A new failed systemd unit while it runs ends the captures early. The one thing the script cannot make right by itself is a
 receiver that fails to unmute: that is printed last, as a PROBLEM.
 
-Results: docs/research/ambient/probe-<date>-<time>/ (or `--out`): `<scenario>.txt` (the probe's report), `.csv` (one line per
-poll), `.bin` (the raw histograms, replay with `ambient/examples/replay.rs`), `interrupts-<scenario>-{before,after}.txt`,
-`slot-log.json` (every step, with times) and `summary.txt`, which has what goes in the note's "Probe results".
+If a window says ls-hubd refused the registration (`LSHUB_` lines in `<scenario>.log.txt`, "LSRegisterPubPriv FAILED" in
+`<scenario>.service.log`), the role is what to change: `--role-type privileged` writes the other type of role (payload/capture/role.json
+ships `regular`; which one LG's library needs is not known offline).
+
+Results: docs/research/ambient/probe-<date>-<time>/ (or `--out`): `<scenario>.json` (frames, changes, intervals, the service's CPU,
+the last colour of every area), `.service.log` (what the service said), `.log.txt` (ls-hubd's and LG's capture lines), `.txt`
+(the collector's line), `interrupts-<scenario>-{before,after}.txt`, `slot-log.json` (every step, with times) and `summary.txt`,
+which has what goes in the note's "Probe results".
 """
 import argparse
 import json
@@ -42,7 +56,11 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-PROBE = os.path.join(HERE, "build", "arm", "ambient-probe")
+SERVICE = os.path.join(HERE, "build", "arm", "lumatv-capture")
+COLLECT = os.path.join(HERE, "slot_collect.py")
+PACKAGE = os.path.join(REPO, "payload", "capture")
+CAPTURE_SH = os.path.join(PACKAGE, "capture.sh")
+ROLE = os.path.join(PACKAGE, "role.json")
 HA = "http://192.168.1.146"
 RECEIVER = "media_player.living_room_avr"
 TV_ENTITY = "media_player.living_room_tv"
@@ -50,7 +68,7 @@ FLAG = "/var/luna/preferences/vt_devmode"
 LIBRARY = "/usr/lib/libvtcapture.so.1.0.0"
 LIBRARY_MD5 = "35d3fec6"          # the prefix recorded at the read-only slot (ambient-result.md)
 NETFLIX_TARGET = "m=https://www.netflix.com/watch/80141336&source_type=4"
-DEADMAN_MARGIN = 25               # seconds past a capture's length at which the dead-man timer removes the flag
+DEADMAN_MARGIN = 45               # seconds past a capture's length at which the dead-man timer removes the flag
 
 # How each scenario gets its picture on the screen: LG's own services, nothing installed. `settle` is the wait after the
 # launch, `key` a button pressed through Home Assistant once `settle` is over (the title page's Play), `after_key` the wait
@@ -65,21 +83,31 @@ SCENARIOS = {
 }
 
 
+def data_dir():
+    """The brand's data directory on the set (brand.json), where the package stages the service."""
+    with open(os.path.join(REPO, "brand.json")) as f:
+        return json.load(f)["dataDir"]
+
+
 # ---- the plan (pure; tests/test_ambient_slot.py reads it) ------------------------------------------------------------------
 
 def plan(scenarios, secs, mute=True, standby=True):
     """The slot as ordered (step, why, always): `always` marks what runs even after a failure."""
-    steps = [("preflight", "read-only: the set answers and is Active, the library is the one the probe was written for, nobody "
+    steps = [("preflight", "read-only: the set answers and is Active, the library is the one the reader was written for, nobody "
                            "holds /dev/video60, %s is absent, the failed units and Picture Mode are recorded" % FLAG, False),
-             ("upload", "the probe and the on-set script to /tmp/ambient-slot-<time>/, and a dry run that resolves the four "
-                        "library functions without taking the capture", False)]
+             ("upload", "the service, its role template, capture.sh and the collector to /tmp/ambient-slot-<time>/, and a dry run that "
+                        "resolves the four library functions without taking the capture", False),
+             ("install", "capture.sh stages the service under the data directory and writes its LS2 role for that path (what the package "
+                         "does at apply); whether it was installed or running before is recorded", False)]
     if mute:
         steps.append(("mute", "the receiver is muted through Home Assistant (its state is read first)", False))
     steps.append(("start", "the on-set script runs the scenarios one after the other; this script watches it", False))
     for s in scenarios:
-        steps.append(("scenario:" + s, "%s (launch, %d s settle, then flag created, %d s capture, flag removed)" % (
-            SCENARIOS[s]["what"], SCENARIOS[s]["settle"] + SCENARIOS[s].get("after_key", 0), secs), False))
+        steps.append(("scenario:" + s, "%s (launch, %d s settle, then flag created, the service started, %d s collected, the capture "
+                                       "given back, flag removed)" % (SCENARIOS[s]["what"], SCENARIOS[s]["settle"] + SCENARIOS[s].get("after_key", 0), secs), False))
     steps.append(("flag-check", "%s is gone, from this script's own look at the set; it is removed here if not" % FLAG, True))
+    steps.append(("package", "the service and its role are removed again if they were not there before, and the service started again "
+                             "if it was running", True))
     if mute:
         steps.append(("unmute", "the receiver is put back as it was", True))
     steps += [("fetch", "the results are copied here and summary.txt is written", True),
@@ -89,22 +117,32 @@ def plan(scenarios, secs, mute=True, standby=True):
     return steps
 
 
-def remote_script(remote, scenarios, secs, hz=30):
+def remote_script(remote, state, scenarios, secs, hz=30):
     """The shell script that runs on the set: the captures one after the other; the flag lives only inside each capture."""
     head = """#!/bin/sh
-# written by tv_probe_slot.py; runs on the set, under @R@ only (and the flag file, which is created and removed below)
+# written by tv_probe_slot.py; runs on the set, under @R@ only, with the staged service under @STATE@ and the flag file, which is
+# created and removed below
 R=@R@
+STATE=@STATE@
 FLAG=@FLAG@
 cd "$R" || exit 9
 mkdir "$R/run.lock" || exit 8
 echo $$ > "$R/slot.pid"
 DM=
+SVC=
+COL=
 now() { date +%s; }
 removed() { if [ -e "$FLAG" ]; then rm -f "$FLAG"; echo "removed $1 $(now)" >> "$R/flag-events.txt"; fi; }
+stop_service() {
+  if [ -n "$COL" ]; then kill "$COL" 2>/dev/null; wait "$COL" 2>/dev/null; COL=; fi
+  if [ -n "$SVC" ]; then kill "$SVC" 2>/dev/null; wait "$SVC" 2>/dev/null; SVC=; fi
+}
 finish() { removed "$1"; if [ -n "$DM" ]; then kill "$DM" 2>/dev/null; DM=; fi; }
 waitfor() { n=0; while [ ! -e "$1" ] && [ "$n" -lt "$2" ]; do sleep 1; n=$((n + 1)); done; }
-trap 'finish trap' EXIT
+trap 'stop_service; finish trap' EXIT
 trap 'exit 130' INT TERM HUP
+# the helper's own copy of the service, if one runs, leaves the capture to this one
+sh "$R/capture.sh" stop "$STATE" >/dev/null 2>&1
 """
     body = ""
     for name in scenarios:
@@ -120,72 +158,64 @@ waitfor "$R/@N@-key-sent.txt" 30
 sleep @AFTER@
 """
         block += """luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' > "$R/@N@-foreground.txt" 2>&1
+LOG0=$(wc -c < /var/log/messages 2>/dev/null || echo 0)
 ( sleep @DEAD@; if [ -e "$FLAG" ]; then rm -f "$FLAG"; echo "removed deadman $(now)" >> "$R/flag-events.txt"; fi ) >/dev/null 2>&1 &
 DM=$!
 touch "$FLAG" && echo "created @N@ $(now)" >> "$R/flag-events.txt"
-"$R/ambient-probe" -s @SECS@ -r @HZ@ -L @N@ -c "$R/@N@.csv" -d "$R/@N@.bin" > "$R/@N@.txt" 2>&1
+"$STATE/bin/lumatv-capture" -s "$R/cap.sock" -r @HZ@ -i 100 -b 1000 > "$R/@N@.service.log" 2>&1 &
+SVC=$!
+echo $SVC > "$R/svc.pid"
+python3 "$R/slot_collect.py" "$R/cap.sock" @SECS@ @N@ "$R/@N@.json" --pid $SVC > "$R/@N@.txt" 2>&1 &
+COL=$!
+wait $COL
 echo "exit=$?" >> "$R/@N@.txt"
+COL=
+n=0; while [ "$n" -lt 40 ] && ! grep -q "capture ended" "$R/@N@.service.log" 2>/dev/null; do sleep 0.1; n=$((n + 1)); done
+stop_service
 finish end
+tail -c +$((LOG0 + 1)) /var/log/messages 2>/dev/null | grep -E 'LSHUB|capture|vtCapture' | tail -n 40 > "$R/@N@.log.txt"
 cat /proc/interrupts > "$R/interrupts-@N@-after.txt"
 """
         block = (block.replace("@N@", name).replace("@LAUNCH@", shlex.quote(json.dumps(s["launch"], separators=(",", ":"))))
                  .replace("@SETTLE@", str(s["settle"])).replace("@AFTER@", str(s.get("after_key", 0)))
                  .replace("@DEAD@", str(secs + DEADMAN_MARGIN)).replace("@SECS@", str(secs)).replace("@HZ@", str(hz)))
         body += block
-    return head.replace("@R@", remote).replace("@FLAG@", FLAG) + body + 'echo done > "$R/done.txt"\n'
+    return head.replace("@R@", remote).replace("@STATE@", state).replace("@FLAG@", FLAG) + body + 'echo done > "$R/done.txt"\n'
 
 
 # ---- reading what the set wrote --------------------------------------------------------------------------------------------
 
 def parse_report(text):
-    """The numbers a note wants from one probe report."""
-    out = {}
-    m = re.search(r"summary preset (\d+): wall=([\d.]+)s calls=(\d+) ok=(\d+) changed=(\d+) \(([\d.]+)/s\) rc:((?: \d+ x\d+)*)", text)
-    if m:
-        out.update(preset=int(m.group(1)), wall_s=float(m.group(2)), calls=int(m.group(3)), ok=int(m.group(4)), changed=int(m.group(5)),
-                   changes_per_s=float(m.group(6)), rc={int(a): int(b) for a, b in re.findall(r"(\d+) x(\d+)", m.group(7))})
-    m = re.search(r"call latency us: p50=(\d+) p90=(\d+) p99=(\d+) max=(\d+)", text)
-    if m:
-        out["latency_us"] = dict(zip(("p50", "p90", "p99", "max"), map(int, m.groups())))
-    m = re.search(r"change interval us: n=(\d+) p50=(\d+) p90=(\d+) p99=(\d+) max=(\d+)", text)
-    if m:
-        out["change_interval_us"] = dict(zip(("n", "p50", "p90", "p99", "max"), map(int, m.groups())))
-    m = re.search(r"cpu: probe ([\d.]+)% of one core .*system busy ([\d.]+)%", text)
-    if m:
-        out["cpu_probe_pct"], out["cpu_system_pct"] = float(m.group(1)), float(m.group(2))
-    m = re.search(r"initHistogram ok in (\d+) ms", text)
-    if m:
-        out["init_ms"] = int(m.group(1))
-    m = re.search(r"^exit=(\d+)$", text, re.M)
-    if m:
-        out["exit"] = int(m.group(1))
-    out["init_refused"] = "initHistogram returned NULL" in text
-    out["flag_seen"] = bool(re.search(r"dev flag \S+: present", text))
-    return out
-
-
-def verdict(report):
-    """What the numbers say about that picture, in words for the note."""
-    if report.get("init_refused"):
-        return "LG refused the histogram (initHistogram returned NULL): not allowed, capture busy or no driver"
-    if "exit" in report and report["exit"] != 0:
-        return "no capture (exit %d)" % report["exit"]
-    if not report.get("calls"):
-        return "no report"
-    note = "" if report.get("flag_seen") else "; the flag was not there when the probe started"
-    if report.get("ok", 0) == 0:
-        return "every call failed (return codes %s)%s" % (report.get("rc"), note)
-    if report.get("changed", 0) < 5:
-        return "the zones did not change: a still picture, no signal, or protected video that comes back black%s" % note
-    cpu = report.get("cpu_probe_pct", 0)
-    return "the zones change %.1f times a second, probe CPU %.2f%% of a core%s%s" % (
-        report.get("changes_per_s", 0), cpu, "" if cpu < 1 else " (over the plan's 1 %)", note)
+    """The collector's JSON report of one window ({} when there is none)."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return {}
+    return doc if isinstance(doc, dict) else {}
 
 
 def seconds(text):
     """An epoch time as the set wrote it. The set's busybox `date` has no %N and prints it literally, so only the whole seconds count."""
     m = re.match(r"\d+(\.\d+)?", text)
     return float(m.group()) if m else None
+
+
+def verdict(report, service_log="", hub_log=""):
+    """What the numbers say about that picture, in words for the note."""
+    if not report:
+        return "no report"
+    if not report.get("connected"):
+        return "the service never connected to the slot's socket (it did not start: see the service log)"
+    if not report.get("frames"):
+        if "initHistogram returned NULL" in service_log:
+            why = "ls-hubd has no role for the executable (LSHUB_NO_ROLE_FILE)" if "LSHUB_NO_ROLE_FILE" in hub_log else "see the log lines"
+            return "LG refused the histogram (initHistogram returned NULL): %s" % why
+        return "the service connected and sent no frames (the polls failed: see the service log)"
+    if report.get("changed", 0) < 5:
+        return "the zones did not change: a still picture, no signal, or protected video that comes back black"
+    cpu = report.get("service_cpu_pct")
+    return "%.1f frames a second, the zones change %.1f times a second, service CPU %s%% of a core%s" % (
+        report.get("frames_per_s", 0), report.get("changes_per_s", 0), "?" if cpu is None else cpu, "" if cpu is None or cpu < 1 else " (over the plan's 1 %)")
 
 
 def parse_events(text):
@@ -243,8 +273,9 @@ def run(a):
     unknown = [s for s in scenarios if s not in SCENARIOS]
     if unknown:
         raise SystemExit("unknown scenario %s (home, hdmi2, netflix)" % unknown)
-    if not os.path.exists(PROBE):
-        raise SystemExit("%s is not built: run ambient/capture/build.sh first" % PROBE)
+    for path in (SERVICE, COLLECT, CAPTURE_SH, ROLE):
+        if not os.path.exists(path):
+            raise SystemExit("%s is not there%s" % (path, ": run ambient/capture/build.sh first" if path == SERVICE else ""))
     # The same helpers the compositor slots use: tv (ssh, sftp), tv_gate (wake, receiver mute, power state).
     sys.path[:0] = [os.path.join(REPO, "compositor", "tools"), os.path.join(REPO, "docs", "research", "arch")]
     import tv
@@ -253,12 +284,14 @@ def run(a):
     stamp = time.strftime("%Y-%m-%d-%H%M")
     out = a.out or os.path.join(REPO, "docs", "research", "ambient", "probe-" + stamp)
     remote = "/tmp/ambient-slot-" + stamp.replace("-", "")
+    state = data_dir()
     log = Log(out)
     problems = []
     muted_before = None     # None: the receiver was not touched
     owns_flag = False       # this slot may remove the flag (it was absent at the start, or --adopt-flag)
     woke = False            # the set was in standby when the slot began
-    uploaded = started = False
+    uploaded = started = installed = False
+    before = {}             # capture.sh status before the slot put anything there
 
     def sh(cmd, timeout=60):
         return tv.tv(cmd, timeout)
@@ -279,23 +312,23 @@ def run(a):
                 time.sleep(2)
 
     def stop_remote():
-        # The pid file, not pkill -f: a pattern naming the script would match the shell that runs this very command line.
-        # The probe is stopped as well, because the script's own trap waits for its foreground command.
-        sh("kill -TERM $(cat %s/slot.pid 2>/dev/null) 2>/dev/null; pkill -TERM ambient-probe 2>/dev/null; sleep 2; true" % remote)
+        # The pid files, not pkill -f: a pattern naming the script would match the shell that runs this very command line.
+        # The service is stopped as well, because the script's own trap waits for the collector.
+        sh("kill -TERM $(cat %s/slot.pid 2>/dev/null) 2>/dev/null; kill -TERM $(cat %s/svc.pid 2>/dev/null) 2>/dev/null; sleep 2; true" % (remote, remote))
 
     try:
         # ---- preflight: read-only, apart from waking the set
         try:
-            before = tv_gate.power_state()
+            before_power = tv_gate.power_state()
         except Exception:
-            before = "unreachable"
-        log.step("power-state", state=before)
+            before_power = "unreachable"
+        log.step("power-state", state=before_power)
         if not tv_gate.wake():
             raise SystemExit("the set does not answer; nothing was changed")
-        woke = before != "active"
-        state = tv_gate.power_state()
-        if state != "active":
-            raise SystemExit("the set is %r, not active" % state)
+        woke = before_power != "active"
+        power = tv_gate.power_state()
+        if power != "active":
+            raise SystemExit("the set is %r, not active" % power)
         existed = has(FLAG)
         log.doc["flag"]["existedBefore"] = existed
         log.step("preflight", flag_existed_before=existed, woke=woke)
@@ -305,7 +338,7 @@ def run(a):
         md5 = sh("md5sum %s" % LIBRARY).split()[0]
         log.step("library", md5=md5)
         if not md5.startswith(LIBRARY_MD5):
-            raise SystemExit("libvtcapture is not the one the probe was written for (md5 %s)" % md5)
+            raise SystemExit("libvtcapture is not the one the reader was written for (md5 %s)" % md5)
         holders = sh("for p in /proc/[0-9]*; do ls -l $p/fd 2>/dev/null | grep -q /dev/video60 && echo ${p#/proc/}; done").split()
         log.step("holders", pids=holders)
         if holders:
@@ -313,19 +346,33 @@ def run(a):
         failed_before = sh(FAILED).split()
         log.step("baseline", failed_units=failed_before, picture=sh(PICTURE).strip()[:200])
 
-        # ---- upload, dry run
+        # ---- upload, dry run, install
         sh("mkdir -p %s" % remote)
         uploaded = True
-        tv.put(PROBE, remote + "/ambient-probe")
-        script = os.path.join(out, "slot.sh")
-        with open(script, "w") as f:
-            f.write(remote_script(remote, scenarios, a.secs))
-        tv.put(script, remote + "/slot.sh")
-        sh("chmod +x %s/ambient-probe %s/slot.sh" % (remote, remote))
-        dry = sh("%s/ambient-probe -n" % remote)
-        log.step("dry-run", output=dry.strip()[:400])
+        role_local = os.path.join(out, "role.json")
+        with open(role_local, "w") as f:
+            f.write(slurp(ROLE).replace('"type": "regular"', '"type": "%s"' % a.role_type))
+        for local, name in ((SERVICE, "lumatv-capture"), (COLLECT, "slot_collect.py"), (CAPTURE_SH, "capture.sh"), (role_local, "role.json")):
+            tv.put(local, "%s/%s" % (remote, name))
+        sh("chmod +x %s/lumatv-capture %s/capture.sh" % (remote, remote))
+        dry = sh("%s/lumatv-capture -n" % remote)
+        log.step("dry-run", output=dry.strip()[:300])
         if "library: init=0x" not in dry:
             raise SystemExit("the dry run did not resolve the library functions: " + dry[:200])
+        try:
+            before = json.loads(sh("sh %s/capture.sh status %s" % (remote, shlex.quote(state))).strip().splitlines()[0])
+        except (ValueError, IndexError):
+            before = {}
+        log.step("package-before", status=before)
+        script = os.path.join(out, "slot.sh")
+        with open(script, "w") as f:
+            f.write(remote_script(remote, state, scenarios, a.secs))
+        tv.put(script, remote + "/slot.sh")
+        installed = True          # from here the package state is this slot's to put back
+        res = sh("sh %s/capture.sh install %s/lumatv-capture %s/role.json %s; echo rc=$?" % (remote, remote, remote, shlex.quote(state)))
+        log.step("installed", role_type=a.role_type, output=res.strip()[:300])
+        if "rc=0" not in res:
+            raise SystemExit("capture.sh install failed: " + res[:200])
 
         # ---- the receiver
         if not a.no_mute:
@@ -339,7 +386,7 @@ def run(a):
         started = True
         sh("nohup sh %s/slot.sh > %s/slot.out 2>&1 < /dev/null &" % (remote, remote))
         log.step("started", remote=remote)
-        budget = sum(SCENARIOS[s]["settle"] + SCENARIOS[s].get("after_key", 0) + 30 for s in scenarios) + len(scenarios) * (a.secs + 15) + 60
+        budget = sum(SCENARIOS[s]["settle"] + SCENARIOS[s].get("after_key", 0) + 30 for s in scenarios) + len(scenarios) * (a.secs + 45) + 60
         deadline = time.time() + budget
         pressed = set()
         while time.time() < deadline:
@@ -395,6 +442,21 @@ def run(a):
                     problems.append("a flag window has no removal time: %s" % windows)
             except Exception as e:
                 problems.append("COULD NOT CONFIRM THE FLAG IS GONE (%s): on the set, rm -f %s" % (e, FLAG))
+        # ---- the package as it was: the service and its role gone if they were not there, the service running again if it was
+        if installed:
+            try:
+                if before.get("installed") or before.get("role"):
+                    if before.get("running"):
+                        sh("sh %s/capture.sh start %s %s/ambient.sock" % (remote, shlex.quote(state), state))
+                        log.step("service-restarted")
+                else:
+                    sh("sh %s/capture.sh remove %s" % (remote, shlex.quote(state)))
+                    left = sh("sh %s/capture.sh status %s" % (remote, shlex.quote(state))).strip().splitlines()
+                    log.step("package-removed", status=left[0] if left else "")
+                    if left and ('"installed":true' in left[0] or '"role":true' in left[0] or '"running":true' in left[0]):
+                        problems.append("the service or its role is still on the set: sh %s/capture.sh remove %s" % (remote, state))
+            except Exception as e:
+                problems.append("could not put the package back as it was (%s): capture.sh remove %s" % (e, state))
         # ---- the receiver, while the set is still on
         try:
             if muted_before is False:
@@ -402,7 +464,7 @@ def run(a):
                 log.step("receiver-unmuted")
         except Exception as e:
             problems.append("THE RECEIVER IS STILL MUTED (%s): unmute %s" % (e, RECEIVER))
-        # ---- the results, then back as found: Home, and standby unless the set was left on
+        # ---- the results, then home and standby unless the set was left on
         try:
             if started:
                 fetch(tv, sh, remote, scenarios, out, log)
@@ -433,21 +495,20 @@ def fetch(tv, sh, remote, scenarios, out, log):
         lines.append("flag %s: created %s, removed %s by %s" % (w["scenario"], w["created"], w["removed"], w["removedBy"]))
     lines.append("")
     for name in scenarios:
-        for ext in ("txt", "csv", "bin"):
-            if sh("test -e %s/%s.%s && echo yes || echo no" % (remote, name, ext)).split()[0] == "yes":
-                tv.get("%s/%s.%s" % (remote, name, ext), os.path.join(out, "%s.%s" % (name, ext)))
-        for extra in ("launch", "foreground"):
-            with open(os.path.join(out, "%s-%s.txt" % (name, extra)), "w") as f:
-                f.write(sh("cat %s/%s-%s.txt 2>/dev/null" % (remote, name, extra)))
+        for suffix in ("json", "txt", "service.log", "log.txt", "launch.txt", "foreground.txt"):
+            remote_name = name + ("-" + suffix if suffix in ("launch.txt", "foreground.txt") else "." + suffix)
+            with open(os.path.join(out, remote_name), "w") as f:
+                f.write(sh("cat %s/%s 2>/dev/null" % (remote, remote_name)))
         for when in ("before", "after"):
             with open(os.path.join(out, "interrupts-%s-%s.txt" % (name, when)), "w") as f:
                 f.write(sh("cat %s/interrupts-%s-%s.txt 2>/dev/null" % (remote, name, when)))
-        path = os.path.join(out, name + ".txt")
-        report = parse_report(slurp(path)) if os.path.exists(path) else {}
-        lines += ["%s: %s" % (name, verdict(report)), "  " + json.dumps(report)]
-        fg = os.path.join(out, name + "-foreground.txt")
-        m = re.search(r'"appId"\s*:\s*"([^"]*)"', slurp(fg)) if os.path.exists(fg) else None
+        report = parse_report(slurp(os.path.join(out, name + ".json")))
+        service_log, hub_log = slurp(os.path.join(out, name + ".service.log")), slurp(os.path.join(out, name + ".log.txt"))
+        lines += ["%s: %s" % (name, verdict(report, service_log, hub_log)), "  " + json.dumps({k: v for k, v in report.items() if k != "zones"})]
+        fg = slurp(os.path.join(out, name + "-foreground.txt"))
+        m = re.search(r'"appId"\s*:\s*"([^"]*)"', fg)
         lines.append("  foreground when the capture started: %s" % (m.group(1) if m else "unknown"))
+        lines += ["  ls-hubd / capture: " + l for l in hub_log.strip().splitlines()[-6:]]
     with open(os.path.join(out, "summary.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print("\n".join(lines))
@@ -461,6 +522,7 @@ def main(argv=None):
     ap.add_argument("--scenarios", default="home,hdmi2,netflix")
     ap.add_argument("--secs", type=int, default=60)
     ap.add_argument("--out", help="where the results go (default docs/research/ambient/probe-<date>-<time>)")
+    ap.add_argument("--role-type", choices=("regular", "privileged"), default="regular", help="the `type` of the LS2 role the slot writes")
     ap.add_argument("--no-mute", action="store_true", help="leave the receiver alone")
     ap.add_argument("--no-standby", action="store_true", help="leave the set on instead of Active Standby")
     ap.add_argument("--adopt-flag", action="store_true", help="run although the flag exists already, and remove it at the end")
@@ -472,7 +534,7 @@ def main(argv=None):
     for n, (step, why, always) in enumerate(plan(a.scenarios.split(","), a.secs, not a.no_mute, not a.no_standby), 1):
         print("%2d. %-16s %s%s" % (n, step, why, "   [always, even after a failure]" if always else ""))
     print("\nruns on the set:\n")
-    print(remote_script("/tmp/ambient-slot-<time>", a.scenarios.split(","), a.secs))
+    print(remote_script("/tmp/ambient-slot-<time>", data_dir(), a.scenarios.split(","), a.secs))
     return 0
 
 

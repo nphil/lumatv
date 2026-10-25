@@ -9,6 +9,7 @@
 #   fps on|off             -> toggle the compositor FPS debug overlay
 #   restart                -> restart the compositor and bring Home back (what apply does when it must)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
+#   capture start|stop|remove|status -> the ambient light's colour reader and its bus role (payload/capture/capture.sh)
 #   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
 #   compositor on|off|status -> LumaTV's own compositor in place of LG's (tools/compositor.sh)
 #   notifications on|off|status -> LG's toast, alert and PIN views in the Luma look, without their shadow layers
@@ -112,6 +113,13 @@ PRELOAD_STATE="$STATE/preload.json"
 PRELOAD_ORIG="$STATE/preload.orig"
 HELPER_SRC="$APPDIR/payload/helper/lumatv-helper"
 HELPER_BIN="$STATE/bin/lumatv-helper"
+# The ambient light's colour reader (ambient/capture/service.c): a 32-bit service that reads LG's histogram and hands the
+# areas' colours to the helper over $CAPTURE_SOCKET (which exists only while a picture is wanted). It needs an LS2 role for its
+# executable, written with the package and removed with it (payload/capture/capture.sh).
+CAPTURE_SH="$APPDIR/payload/capture/capture.sh"
+CAPTURE_SRC="$APPDIR/payload/capture/lumatv-capture"
+CAPTURE_ROLE="$APPDIR/payload/capture/role.json"
+CAPTURE_SOCKET="$STATE/ambient.sock"
 
 # Quick Settings, drawn by the compositor from a QML tree in /usr that configd
 # names per app id. The stock tree is copied to /var once, our replacement
@@ -1800,6 +1808,35 @@ verb_helper() {
   return 0
 }
 
+# The colour reader. Not fatal: without it the ambient light has no picture and says so; everything else is as it was.
+capture_start() {
+  [ -f "$CAPTURE_SRC" ] || return 0   # a package built before it existed
+  out=$(sh "$CAPTURE_SH" install "$CAPTURE_SRC" "$CAPTURE_ROLE" "$STATE" 2>&1) \
+    && out=$(sh "$CAPTURE_SH" start "$STATE" "$CAPTURE_SOCKET" 2>&1) && return 0
+  log_line "capture: $(printf '%s' "$out" | tr -d '\n' | cut -c1-200)"
+  return 1
+}
+
+capture_stop() { [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" stop "$STATE" >/dev/null 2>&1; return 0; }
+
+# Revert takes the role and the staged binary away with it: nothing of the reader stays on the set once LumaTV is off.
+capture_remove() { [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" remove "$STATE" >/dev/null 2>&1; return 0; }
+
+capture_json() {
+  [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" status "$STATE" 2>/dev/null | tr -d '\n' || printf '{"installed":false,"role":false,"running":false,"pid":0}'
+}
+
+verb_capture() {
+  case "$1" in
+    start) if capture_start; then printf '{"ok":true,"capture":%s}\n' "$(capture_json)"; else emit_error "capture did not start; see $LOGFILE"; return 1; fi ;;
+    stop) capture_stop; printf '{"ok":true,"capture":%s}\n' "$(capture_json)" ;;
+    remove) capture_remove; printf '{"ok":true,"capture":%s}\n' "$(capture_json)" ;;
+    status) printf '{"ok":true,"capture":%s}\n' "$(capture_json)" ;;
+    *) emit_error "capture: start, stop, remove or status"; return 1 ;;
+  esac
+  return 0
+}
+
 verb_preload() {
   case "$1" in
     on|off|status)
@@ -1856,6 +1893,7 @@ do_revert_internal() {
   REVERT_CHANGED=0
 
   helper_stop
+  capture_remove
   comp_release
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
 
@@ -2108,6 +2146,8 @@ verb_apply() {
 
   # 5d. The helper before the compositor restarts, so Home's first request finds it. Not fatal.
   helper_start
+  # 5e. The colour reader and its bus role. Not fatal: it idles until the helper wants a picture.
+  capture_start || true
   # The preload list is configd's and survives a restart; re-asserted only where `preload on` was
   # run, and written only when it differs.
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" on "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>>"$LOGFILE"
@@ -2798,6 +2838,7 @@ case "$VERB" in
   fps) verb_fps "${2:-}"; exit $? ;;
   restart) verb_restart; exit $? ;;
   helper) verb_helper "${2:-status}"; exit $? ;;
+  capture) verb_capture "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
   notifications) verb_notifications "${2:-status}"; exit $? ;;

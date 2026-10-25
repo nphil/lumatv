@@ -57,7 +57,52 @@ State at 2026-10-25, offline only.
   never black if nothing was lit before). The capture side talks over a unix socket (`ambient.sock` in the data dir, or
   `ambient.captureSocket`) that exists only while a picture is wanted: it reads `wire` frames and answers one byte, the wanted
   hardware preset. Hue is not driven (see Open).
-- **Light-sync probe slot**: `ambient/capture/tv_probe_slot.py` (below). Not run.
+- **The colour reader** (Nitin's decision, 2026-10-25): `lumatv-capture`, a 32-bit native service the package ships with the one LS2 role
+  it needs (below). Built, tested on the host against the fake library, packaged, wired into `tools/lumatv`; **not run on the set**.
+- **Light-sync probe slot**: `ambient/capture/tv_probe_slot.py`, now installs the reader and its role as the package does and captures
+  through it (below). It ran once before the reader existed (12:35, see below).
+
+## The colour reader: `lumatv-capture`
+
+`ambient/capture/service.c`, built by `ambient/capture/build.sh` (`build/arm/lumatv-capture`, 16 KB, ELF32 ARM, glibc 2.28; the same
+build gives `build/host/lumatv-capture` for the tests). Idle it is one `connect()` every 2 s: no library loaded, no bus client, no
+`/dev/video60`. The helper (`helper/app/src/ambient.rs`) listens on `ambient.sock` in its data dir only while a picture is wanted; the
+reader connects, is told the hardware preset (one byte; more bytes later), takes the capture (`initHistogram`, `setPresetHistogram`),
+polls at 30 Hz and writes one `AMB1` frame per poll (`ambient/src/wire.rs`, 204 bytes). It gives the capture back (finalize) when the
+helper closes, when LG's resource manager takes it (policy callback), after two seconds of failing polls, and on SIGTERM; a refused
+init is logged with the lines the library and ls-hubd left in `/var/log/messages` and retried after 5 s, never in a tight loop.
+
+- **Wiring**: `tools/lumatv` `capture start|stop|remove|status`; `apply` installs and starts it (`capture_start`, not fatal), `revert` removes
+  it with the role (`capture_remove`), so nothing of it stays once LumaTV is off. `tools/build-ipk.sh` requires and packages
+  `payload/capture/{lumatv-capture,capture.sh,role.json}` (the build says to run `ambient/capture/build.sh` if the binary is missing).
+  `payload/capture/capture.sh` is the one installer, used by the tool and by the probe slot.
+- **The role** (`payload/capture/role.json`, `@EXE@` filled in with the staged path `/var/lib/lumatv/bin/lumatv-capture`, written to
+  `/var/luna-service2-dev/roles.d/lumatv-capture.json`, then `ls-control scan-volatile-dirs` and `scan-services`): it allows only LG's
+  histogram capture. `allowedNames` are the library's client names (`com.webos.service.capture.client`, `.*`), `inbound` is empty (nothing is
+  offered), `outbound` is `com.webos.service.capture`, `com.webos.service.capturepermission` and `com.palm.bus`. A test pins that set.
+- **Sources**: the slot of 12:35 (ls-hubd's `LSHUB_NO_ROLE_FILE {"EXE": ...}` shows a role is matched by executable path, and the
+  library's own strings give the bus names: `ambient-result.md`, "Probe slot (2026-10-25 12:35 EDT)"); `strings` of the workstation copy of
+  `libvtcapture.so.1.0.0` (`com.webos.service.capture.client` is followed by `/dev/urandom`, so the registered name may carry a suffix: hence
+  the `.*` form); `docs/research/home-launcher-replacements.md` (a rooted launcher writes its Luna ACG file under `/var/luna-service2-dev`,
+  PlainHome's `autostart.sh`); `compositor/tools/tv-inspect.sh` (the three trees searched for roles: `/usr/share/luna-service2`,
+  `/var/luna-service2`, `/etc/luna-service2`) and `compositor-c2-result.md` ("ls-hubd matches a role file by the executable path
+  (`exeName`)", marked there as inference); the slot's note that `appInstallService/dev/install` writes a role for a service declared in an
+  ipk (not used: the tool, which runs as root, writes it, as the launcher precedent does).
+- **Not exposed**: the frames go to the helper's socket and nowhere else. The helper publishes the ambient light's status (`GET /v1/ambient`:
+  enabled, mode, state, problem; no colours) and sends DDP to the strip; no topic, route, notification or AI-access/MCP tool carries a picture
+  reading, and the reader offers no bus service at all.
+- **The developer flag stays the owner's**: LG's permission gate still wants `/var/luna/preferences/vt_devmode` (or Hue Sync's command
+  line). The reader never creates it; without it the init is refused, logged, and the ambient light shows no picture (a still colour
+  works). Only the probe slot creates it, per capture. Keeping it for everyday light sync is the separate decision PLAN records.
+- **Tests**: `tests/test_capture_service.py` (9: idle until the socket exists, frames carry what the library said, the preset byte, EAGAIN,
+  finalized exactly once on close and on SIGTERM, policy callback, refused init not retried in a tight loop, dry run),
+  `ambient/tests/capture_service.rs` (the crate's own `wire::decode` reads the C service's frames for presets 0 and 3),
+  `tests/test_capture_install.py` (role written for the staged path with exactly the allowed names, no rescan when unchanged, a binary
+  swap, remove, start/stop, and the started service really sending frames to a socket).
+- **Not verified on the TV**: the role directory and that ls-hubd reads it after `ls-control scan-volatile-dirs`; the role's `type`
+  (`regular`; the slot takes `--role-type privileged`); that `allowedNames`/`outbound` cover everything the library registers and calls
+  (`LSHUB_` lines in the slot's `<scenario>.log.txt` say what was refused); `/tmp` is not needed, the staged path is under `/var/lib`;
+  the `ls-control` verbs; the reader's CPU against the plan's 1 %.
 
 ## The probe slot (Nitin's `vt_devmode` approval, 2026-10-25)
 
@@ -67,15 +112,23 @@ python3 ambient/capture/tv_probe_slot.py --go            # from the repository r
 python3 ambient/capture/tv_probe_slot.py --go --scenarios home,hdmi2 --secs 30 --no-mute
 ```
 
-Ask Main for a slot of 10 minutes, "measure". Needs `ambient/capture/build.sh` run first (`build/arm/ambient-probe`), paramiko, the
+Ask Main for a slot of 10 minutes, "measure". Needs `ambient/capture/build.sh` run first (`build/arm/lumatv-capture`), paramiko, the
 HA token (`/data/home/tmp/ha-token-fetch.sh`). It reuses `compositor/tools/{tv,tv_gate}.py` (wake, power state, receiver mute).
 
-- The flag exists only while a capture runs: created straight before each 60 s probe, removed straight after, never while an app
-  launches or the receiver is muted. Create and remove time (set clock, epoch seconds) and who removed it (`end`, `trap`,
+**Since the first run (12:35) the slot captures through the package's reader**: it uploads `lumatv-capture`, `role.json`, `capture.sh` and
+`slot_collect.py` (a Python 3 stand-in for the helper's socket, stdlib only), runs `capture.sh install` (the package's own installer, so
+the role and path are what the ipk will have), runs one window per scenario (flag created, the staged reader started on a socket of the
+slot's own, the collector reads its frames for 60 s, the reader gives the capture back, flag removed), and puts the package back as it
+found it (`capture.sh remove` if it was not installed, `capture.sh start` if it had been running). `--role-type privileged` is the one
+knob if ls-hubd refuses the `regular` role (`<scenario>.log.txt` has the `LSHUB_` lines, `<scenario>.service.log` what the reader said).
+
+- The flag exists only while a capture runs: created straight before the reader starts for a window and removed once it has given the
+  capture back (about 1 s after the 60 s collected), never while an app launches or the receiver is muted. Create and remove time (set clock, epoch seconds) and who removed it (`end`, `trap`,
   `deadman`, `finally`) are in `slot-log.json` under `flag.windows`, plus `createdAt`/`removedAt` for the whole slot.
 - Removal has three independent paths: the on-set script's EXIT/INT/TERM/HUP trap (it carries on without the workstation), a
-  dead-man timer per window (probe length + 25 s, survives a SIGKILL of the script), and the workstation script's own `finally`,
-  which stops the on-set script first and then checks `test ! -e`. A flag that is there at the end exits non-zero and says so.
+  dead-man timer per window (window length + 45 s, survives a SIGKILL of the script), and the workstation script's own `finally`,
+  which stops the on-set script first and then checks `test ! -e`. The collector runs in the background and the script `wait`s for it, so a
+  stop reaches the trap at once instead of after the window. A flag that is there at the end exits non-zero and says so.
 - It does not start if the flag exists already (`--adopt-flag` overrides and removes it at the end), if the library is not the
   recorded one (md5 `35d3fec6`), if someone holds `/dev/video60`, or if the set is not Active. A new failed unit ends the captures.
 - Home, HDMI 2 (`com.webos.app.hdmi2`), Netflix (the 4K title by deep link, then ENTER through Home Assistant; the last attempt on
@@ -90,11 +143,12 @@ HA token (`/data/home/tmp/ha-token-fetch.sh`). It reuses `compositor/tools/{tv,t
   service with an LS2 role, installed with the ipk (a role file is a permission grant on the TV: Nitin's decision). The set's busybox
   `date` has no `%N`, so the first run reported "COULD NOT CONFIRM THE FLAG IS GONE" although the trap had removed it (checked by hand);
   times are whole seconds now and a literal `%N` reads back as seconds (`tests/test_ambient_slot.py`).
-- Results: `docs/research/ambient/probe-<date>-<time>/`: `<scenario>.txt|csv|bin`, `interrupts-*`, `slot-log.json`, `summary.txt`
-  (rate of change, latency, CPU, return codes, a verdict per scenario). Then fill "Probe results" in `ambient-result.md`.
-- `tests/test_ambient_slot.py` runs the generated on-set script for real (stand-in `luna-send`, the host probe on its fake
-  library): the flag is there when each probe starts and gone between them, a stopped script and a killed script both lose it,
-  and the orchestration against a stand-in set (flag already there, failure mid-way, receiver already muted).
+- Results: `docs/research/ambient/probe-<date>-<time>/`: `<scenario>.json|txt|service.log|log.txt`, `interrupts-*`, `slot-log.json`,
+  `summary.txt` (frames and changes a second, interval percentiles, the reader's CPU, the last colour of each area, a verdict per scenario). Then fill "Probe results" in `ambient-result.md`.
+- `tests/test_ambient_slot.py` (23) runs the generated on-set script for real (stand-in `luna-send`, the host reader on its fake library, the
+  real collector): the flag is there when each reader starts and gone between windows, a stopped script and a killed script both lose it,
+  frames come through; and the orchestration against a stand-in set (flag already there, failure mid-way, an install that fails, the package
+  put back as found or running again, receiver already muted, the role type asked for).
 
 ## Checks run (2026-10-25, offline)
 

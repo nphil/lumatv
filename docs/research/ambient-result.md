@@ -242,8 +242,9 @@ Standby by the script.
 
 ## Open
 
-- Zone values, update rate, latency, CPU of the histogram: an LS2 role for the probe's executable (above), then one
-  probe slot.
+- Zone values, update rate, latency, CPU of the histogram: the role is now shipped with the package (`lumatv-capture`,
+  `payload/capture/`, `plugins-slice-result.md` "The colour reader") and the next probe slot installs it as the package does and captures
+  through it (`tv_probe_slot.py`); what is open is whether ls-hubd accepts that role (`--role-type privileged` is the other try).
 - Netflix playback error of 05:19: the title played at 12:35 (`dolbyHdrCinema`) and failed at 12:23 under LumaTV's
   compositor with a video `INT_ERROR 18` (compositor-c2-result.md, third gate); not reproducible at will.
 - Home Assistant showed the receiver `off` while the TV was in Active Standby, and `on`, unmuted, 0.355 once the screen
