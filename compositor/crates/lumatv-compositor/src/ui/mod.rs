@@ -102,6 +102,11 @@ impl Ui {
         Ok(self.engine.pump()?.closed)
     }
 
+    /// The app's socket, for the compositor's poll set: a commit wakes the loop instead of waiting for the tick.
+    pub fn fd(&self) -> Option<std::os::fd::RawFd> {
+        self.engine.fd()
+    }
+
     /// Whether a frame is due at `now_ns`: commits wait, work between frames changed the picture, an animation runs, or a
     /// wallpaper's step is due.
     pub fn wants_frame(&self, now_ns: u64) -> bool {

@@ -639,6 +639,10 @@ impl Output for Kms {
         self.gl.ui_needs_frame()
     }
 
+    fn ui_fd(&self) -> Option<RawFd> {
+        self.gl.ui_fd()
+    }
+
     fn query_buffer(&mut self, buffer: &WlBuffer) -> Option<((i32, i32), bool)> {
         self.gl.query_buffer(buffer)
     }

@@ -754,6 +754,10 @@ impl Output for Gl {
     }
 
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
+        // A redraw the UI's going left owed is a frame whoever asks (the wake that saw the hang-up may not have drawn).
+        if self.redraw_all {
+            return Ok(true);
+        }
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
             let now = lumatv_render::now_ns();
@@ -771,6 +775,17 @@ impl Output for Gl {
             return Ok(ui.wants_frame(now));
         }
         Ok(false)
+    }
+
+    fn ui_fd(&self) -> Option<std::os::fd::RawFd> {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.as_ref().and_then(|ui| ui.fd())
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            None
+        }
     }
 
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {

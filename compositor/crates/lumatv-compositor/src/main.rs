@@ -175,6 +175,7 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_LUNA: u64 = 6;
     const TAG_CONTROL_CLIENT: u64 = 1 << 32;
     const TAG_INPUT: u64 = 1 << 33;
+    const TAG_UI: u64 = 10;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
     epoll.add(timer.as_raw_fd(), TAG_TICK)?;
@@ -186,6 +187,9 @@ fn run(config: Config) -> io::Result<()> {
     }
     if let Some(fd) = state.luna.fd() {
         epoll.add(fd, TAG_LUNA)?;
+    }
+    if let Some(fd) = state.output.ui_fd() {
+        epoll.add(fd, TAG_UI)?;
     }
     let mut inputs = if config.input { lumatv_compositor::input::open_all() } else { Vec::new() };
     for (i, d) in inputs.iter().enumerate() {
@@ -229,7 +233,7 @@ fn run(config: Config) -> io::Result<()> {
                 } else if tag & TAG_CONTROL_CLIENT != 0 {
                     8
                 } else {
-                    tag.min(9) as u32
+                    tag.min(10) as u32
                 });
             match tag {
                 TAG_WL => {
@@ -264,6 +268,14 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_LUNA => {
                     luna_poll(&mut state);
+                }
+                TAG_UI => {
+                    // The UI app committed: taken in now; drawn now on a still screen, else at the tick.
+                    if state.ui_wake() {
+                        handled |= 1 << 9;
+                        state.tick();
+                        rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                    }
                 }
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {
@@ -331,8 +343,8 @@ fn run(config: Config) -> io::Result<()> {
         // line says what ran, on the clock the clients' own logs use.
         let spent = woke.elapsed();
         if spent > Duration::from_millis(8) {
-            const NAMES: [&str; 10] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now"];
-            let what: Vec<&str> = (0..10).filter(|b| handled & (1 << b) != 0).map(|b| NAMES[b]).collect();
+            const NAMES: [&str; 11] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now", "ui"];
+            let what: Vec<&str> = (0..NAMES.len()).filter(|b| handled & (1 << b) != 0).map(|b| NAMES[b]).collect();
             log::warn!("loop: {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, what.join(" "));
         }
         if let Some(d) = deadline

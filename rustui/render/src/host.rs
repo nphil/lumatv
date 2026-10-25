@@ -472,6 +472,13 @@ impl Engine {
         !self.waiting.is_empty()
     }
 
+    /// The engine's end of the app's socket, for a host that polls it (a commit then wakes the host's loop). `None` until the
+    /// handshake is finished.
+    pub fn fd(&self) -> Option<std::os::fd::RawFd> {
+        use std::os::fd::AsRawFd;
+        self.stream.as_ref().map(|stream| stream.as_raw_fd())
+    }
+
     /// What the scene wants on its own: an animation at every refresh, a wallpaper's step at its time, or nothing.
     pub fn demand(&self) -> Demand {
         self.scene.demand()

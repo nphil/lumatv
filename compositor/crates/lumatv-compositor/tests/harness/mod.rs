@@ -119,11 +119,19 @@ fn run_server(
     let mut last_tick = Instant::now();
     while !stop.load(std::sync::atomic::Ordering::SeqCst) {
         let fd = display.backend().poll_fd();
-        let mut pfd = libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(&fd), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one pollfd, 2 ms timeout.
-        unsafe { libc::poll(&mut pfd, 1, 2) };
-        if pfd.revents != 0 {
+        // the display, and the system UI app's socket when there is one (as the main loop's epoll has it)
+        let mut pfds = [
+            libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(&fd), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: state.output.ui_fd().unwrap_or(-1), events: libc::POLLIN, revents: 0 },
+        ];
+        // SAFETY: two pollfds (a negative fd is skipped by poll), 2 ms timeout.
+        unsafe { libc::poll(pfds.as_mut_ptr(), 2, 2) };
+        if pfds[0].revents != 0 {
             display.dispatch_clients(&mut state).unwrap();
+        }
+        if pfds[1].revents != 0 && state.ui_wake() {
+            state.tick();
+            last_tick = Instant::now();
         }
         while let Ok(job) = jobs.try_recv() {
             job(&mut state);

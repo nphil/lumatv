@@ -67,6 +67,12 @@ pub trait Output {
         Ok(false)
     }
 
+    /// The system UI app's socket, for the main loop to poll: readable means requests wait (`State::ui_wake`). `None`
+    /// without a UI.
+    fn ui_fd(&self) -> Option<RawFd> {
+        None
+    }
+
     /// Draws the plan into the output's target.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats>;
 

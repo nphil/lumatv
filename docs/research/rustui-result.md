@@ -148,15 +148,18 @@ The prerequisite above, built and host-tested; nothing of it has run on the set.
   goes is direct again. The pages miss every frame of a direct run, so the first composed frame after one is drawn whole (the ring
   forgets its pages). The app's commits are taken in and answered on direct frames too (the engine's frame is planned and finished
   undrawn, its receipt rides with the direct frame).
+- The app's socket is in the loop's poll set (`Output::ui_fd`, `State::ui_wake`, `main.rs` and the test harness alike): a commit
+  wakes the loop and is taken in at once, and on a still screen (KMS: no flip in flight, no run of frames) it is drawn at once, as
+  a window's commit is; while frames flow, the tick draws it. Before this a commit waited for the next tick (up to a refresh).
 
 Host checks (Mesa software GL, `LIBGL_ALWAYS_SOFTWARE=1`): `cd compositor && cargo test --features ui` (73 unit, 22 protocol,
 1 bridge, 2 LG-table, `ui`: 240 frames pixel-equal with 237 drawn in part and the demo's ground and volume bar on the page,
 `ui_output`: Home and the panel on the first frame, the panel over a card over Home, a panel-only move redrawing two tile runs and
 uncovering the card, zero GL errors, the hang-up; `ui_scanout`: composed, then direct under a full-screen card, direct while Home
 changes under it with the app answered, composed and drawn whole the frame a system layer appears, direct again the frame it goes,
-zero GL errors); `cargo test` without the feature unchanged; `cd rustui && cargo test` (10 tile tests, the two damage tests of
+zero GL errors; with the tick off, 30 commits each drawn by the socket's wake alone, commit to receipt 0.32 ms median, 0.94 ms
+worst); `cargo test` without the feature unchanged; `cd rustui && cargo test` (10 tile tests, the two damage tests of
 `app/tests/damage.rs`, the embedded engine test); clippy clean both ways.
 
 Not done: no run on the set (the GPU cost of an idle frame under the compositor, the frame gate under it), no measurement script
-for it, the UI socket is not in the compositor's epoll (an app commit waits for the next tick, at most one refresh), the UI channel
-for keys and focus, and LumaHome itself on stack 0.
+for it, the UI channel for keys and focus, and LumaHome itself on stack 0.
