@@ -44,14 +44,19 @@ Next, in order:
 
 1. Tune `engine::Config` defaults from the dumps (`probe-2026-10-25-1627/<scenario>.json`, 16 areas each; replay
    through `zones::parse_dump`).
-2. Done offline (not verified on the set): the reader's default is 10 polls a second (`-r`, 1..120), it logs a `cost:`
-   line when a capture ends, `tv_probe_slot.py` runs one minute of Home at 10/s (`--hz`), and the helper's ambient
-   engine, fed by the reader's own host build over the capture socket, drives a fake WLED socket (test
+2. Done on the set (17:46-17:49, "Reader CPU at 10 and 5 polls a second"): the reader's default of 10 polls a second
+   costs 1.87 % of a core on Home, 1.77-1.87 ms a poll with nothing fixed, 1.1 ms of it inside `getHistogram` and
+   0.6-0.7 ms in the reader's own reduce; 5 polls a second costs 0.88 %. The helper's ambient engine, fed by the
+   reader's own host build over the capture socket, drives a fake WLED socket (test
    `the_capture_reader_at_its_default_rate_drives_the_strip_end_to_end`). Hue Entertainment streaming is wired in the helper
    (offline, against a fake bridge): see "Hue Entertainment streaming" under "Probe slots" for the design, Nitin's steps to
    link the bridge and the TV checklist.
-3. Next TV slot: `python3 ambient/capture/tv_probe_slot.py --go --no-standby`, then read "Reader CPU at 10 polls a
-   second" under "Probe slots". `tools/lumatv apply` installs the reader as the package does (`capture.sh install`).
+3. Decide the rate (for Nitin or the plan's owner): 5/s is under the 1 % line and samples 4.9 of the hardware's ~8 zone
+   changes a second; 10/s takes all 7.6 of them at 1.9 %. 1 % at 10/s is not reachable by the reader alone: `getHistogram`
+   is 1.1 % of a core at that rate before any reduce. The reduce (16 areas x 3 x 256 bins, 0.6-0.7 ms on the ARM core
+   against 0.022 ms on the host) is the one part the reader owns; a bins-to-mean pass in NEON or a coarser bin walk would
+   bring 10/s to about 1.2 %. The service is not installed on the set (the slot removed it); `tools/lumatv apply`
+   installs the reader as the package does (`capture.sh install`) when it ships.
 
 ## ABI
 
@@ -290,17 +295,29 @@ Problem found in the room: the slot unmuted the receiver at 16:31:44 while Netfl
 leaves the set on, and Home was launched only after the unmute), so the title was heard; Nitin stopped the session at
 16:31. Fixed in the script: the scenario app is closed and Home launched before the receiver is restored.
 
-### Reader CPU at 10 polls a second (offline; not verified on the set)
+### Reader CPU at 10 and 5 polls a second (2026-10-25 17:46-17:49 EDT)
 
-Measured at 30/s: 5.17-5.55 % of a core, i.e. 1.7-1.85 ms of CPU per poll, if the cost is all per poll. On the host
-(fake library) a poll's own work in the reader is 0.022 ms reducing 16 areas x 3 x 256 bins plus 0.008 ms sending, about
-0.03 ms (a few times that on the ARM core), so nearly all of the 1.8 ms is inside `getHistogram` (library and kernel).
-Model: CPU % = hz x per-poll ms / 10 + fixed. At 10/s that predicts **about 1.8 %, still over 1 %**; 1 % needs under
-1 ms a poll, or about 5 polls a second (0.9 %). The hardware changes the zones about 8 times a second, so 5/s samples
-every second change at best. The slot's service log now ends each capture with a `cost:` line (process CPU, % of a
-core, ms a poll, and CPU per step: `getHistogram`, reduce, send; wall time of `getHistogram`) so the next slot shows
-where the 1.8 ms goes. If it is over 1 % at 10/s: rerun with `--hz 5` (the two points give the model's slope and fixed
-part), and decide between 5/s and accepting a number between.
+Two slots from a clean worktree at `f3ed5a6` (the reader of `3045dec`, md5 `02da86dc`), `tv_probe_slot.py --go
+--no-standby` and then `--hz 5`, one minute of Home each (LumaHome's wallpaper, the set woken from Active Standby, LG's
+compositor); the service staged by `capture.sh install`, its role through the manifest, and removed by the slot after
+each run (`capture.sh status` `installed false, role false, running false` before and after); flag windows 17:46:12-17:47:12
+and 17:47:45-17:48:45 (set clock), each removed by the script's `end`; receiver muted 17:46:07 and 17:47:40 (was on,
+unmuted, 0.355) and unmuted after Home was confirmed in front; Picture Mode `filmMaker` before and after. Files in
+`docs/research/ambient/probe-2026-10-25-1746/` (10/s) and `probe-2026-10-25-1747/` (5/s).
+
+| Rate | Frames in 60 s | Zone changes a second | Interval p50 / p90 / p99 / max (ms) | Reader CPU (of a core) | Per poll (ms) | `getHistogram` CPU / wall (ms) | reduce (ms) | send (ms) |
+|---|---:|---:|---|---:|---:|---|---:|---:|
+| 10/s | 600 | 7.6 | 100.0 / 100.2 / 101.0 / 102.7 | 1.87 % (1.9 % by the collector) | 1.866 | 1.102 / 1.136 | 0.716 | 0.015 |
+| 5/s | 300 | 4.9 | 200.0 / 200.5 / 202.6 / 204.8 | 0.88 % (0.92 %) | 1.769 | 1.123 / 1.163 | 0.597 | 0.014 |
+
+The model's two points: slope 0.198 % per poll a second, fixed part about zero (1.87 - 10 x 0.198 = -0.11), so the
+cost is all per poll, 1.77-1.87 ms: `getHistogram` 1.1 ms of CPU with no waiting (wall 1.14-1.16 ms: the library and
+the kernel's secure-world read), the reader's reduce 0.6-0.7 ms (0.022 ms on the host; the ARM core and a bin walk with
+no vector code), send 0.015 ms. Against the offline estimate: the 1.8 ms held, but a third of it is the reader's own
+reduce, not the library. At 10/s the zones changed 7.6 times a second (all of the hardware's ~8); at 5/s 4.9 (every
+change is a new sample, every second one of the hardware's is missed). 1 % at 10/s is out of the reader's reach alone
+(`getHistogram` is 1.1 % at that rate); the reduce is what the reader can shrink (NEON, or sum fewer bins), to about
+1.2 % at 10/s. The decision between 5/s at 0.9 % and 10/s at 1.9 % is in "Resume here".
 
 ### Hue Entertainment streaming (wired offline; not verified on the TV)
 
@@ -378,8 +395,8 @@ Not verified on the TV (next slot, in this order):
 
 ## Open
 
-- Latency of the histogram against the picture (a flash on the screen to the zone change) and the reader at 10 polls a
-  second: the next slot, with the helper side on the socket.
+- Latency of the histogram against the picture (a flash on the screen to the zone change): the next slot, with the
+  helper side on the socket. The reader at 10 and 5 polls a second is measured ("Reader CPU at 10 and 5 polls a second").
 - Netflix playback error of 05:19: the title played at 12:35 (`dolbyHdrCinema`) and failed at 12:23 under LumaTV's
   compositor with a video `INT_ERROR 18` (compositor-c2-result.md, third gate); not reproducible at will. At 16:30 the
   title stayed at 15 % of its loading for the whole window.

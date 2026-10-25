@@ -1,0 +1,40 @@
+2026-10-25T21:48:42.908328Z [4474.695559000] user.info captureservice [] capture PROPERTY {} captureClient.h.print():139 clinet ID : -699356
+2026-10-25T21:48:42.908442Z [4474.695667000] user.info captureservice [] capture PROPERTY {} captureClient.h.print():140 clinet name : com.webos.service.oledepl
+2026-10-25T21:48:42.908469Z [4474.695692600] user.info captureservice [] capture PROPERTY {} captureClient.h.print():141 method : 2
+2026-10-25T21:48:42.908490Z [4474.695713960] user.info captureservice [] capture PROPERTY {} captureClient.h.print():52 ===< capture data >===
+2026-10-25T21:48:42.908511Z [4474.695734520] user.info captureservice [] capture PROPERTY {} captureClient.h.print():53 width : 640
+2026-10-25T21:48:42.908531Z [4474.695754920] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-25T21:48:42.908551Z [4474.695774780] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-25T21:48:42.908571Z [4474.695794840] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-25T21:48:42.908592Z [4474.695815840] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-25T21:48:42.908614Z [4474.695837360] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-25T21:48:42.908634Z [4474.695857420] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-25T21:48:42.908654Z [4474.695877900] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-25T21:48:42.908674Z [4474.695897620] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-25T21:48:42.908694Z [4474.695917360] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-25T21:48:42.908715Z [4474.695938340] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-25T21:48:42.913520Z [4474.700753040] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+2026-10-25T21:48:45.911831Z [4477.699063940] user.info captureservice [] capture PROPERTY {} captureClient.h.print():139 clinet ID : -699356
+2026-10-25T21:48:45.911944Z [4477.699168780] user.info captureservice [] capture PROPERTY {} captureClient.h.print():140 clinet name : com.webos.service.oledepl
+2026-10-25T21:48:45.911981Z [4477.699204920] user.info captureservice [] capture PROPERTY {} captureClient.h.print():141 method : 2
+2026-10-25T21:48:45.912006Z [4477.699229620] user.info captureservice [] capture PROPERTY {} captureClient.h.print():52 ===< capture data >===
+2026-10-25T21:48:45.912028Z [4477.699251320] user.info captureservice [] capture PROPERTY {} captureClient.h.print():53 width : 640
+2026-10-25T21:48:45.912049Z [4477.699272560] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-25T21:48:45.912070Z [4477.699293640] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-25T21:48:45.912090Z [4477.699313800] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-25T21:48:45.912111Z [4477.699334340] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-25T21:48:45.912131Z [4477.699355020] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-25T21:48:45.912152Z [4477.699375240] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-25T21:48:45.912172Z [4477.699395260] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-25T21:48:45.912192Z [4477.699415200] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-25T21:48:45.912211Z [4477.699434840] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-25T21:48:45.912244Z [4477.699467640] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-25T21:48:45.913950Z [4477.701179620] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+2026-10-25T21:48:45.971791Z [4477.759022220] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.release():215 try to release the resources : [{"qty":1,"index":0,"resource":"VT_CAPTURE"}]
+2026-10-25T21:48:45.971884Z [4477.759109380] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.release():219 complete to release the resources
+2026-10-25T21:48:45.971914Z [4477.759137700] user.info lumatv-capture [] capture LIB {} vtHistogram.cpp.resourceManagerClientEventCallback():255 ev: onResourcesReleased
+2026-10-25T21:48:45.971937Z [4477.759160220] user.warning lumatv-capture [] capture WARN {} resourceManagerClient.cpp.release():211 return error ('m_resources.size()')
+2026-10-25T21:48:45.971958Z [4477.759181700] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():153 try to finalize RMC.
+2026-10-25T21:48:45.971979Z [4477.759202560] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():183 complete to finalize RMC.
+2026-10-25T21:48:45.972001Z [4477.759224260] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():80 try to unregister RMC Instance.
+2026-10-25T21:48:45.972021Z [4477.759244980] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():89 complete to unregister RMC Instance.
