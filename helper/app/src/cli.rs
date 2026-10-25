@@ -11,7 +11,7 @@
 //! lumatv-helper check-config --brand ...
 //! lumatv-helper voice-link --brand ... --url <Home Assistant>   the access token is read from standard input
 //! lumatv-helper voice-unlink --brand ...
-//! lumatv-helper hue-link --brand ... --host <bridge> (--pair | keys on standard input) [--area <id>]
+//! lumatv-helper hue-link --brand ... --host <bridge or Bifrost> (--pair | keys on standard input) [--area <id>] [--fps <n>]
 //! lumatv-helper hue-area --brand ... [--area <id>]         list the bridge's entertainment areas, or choose one
 //! lumatv-helper hue-unlink --brand ...
 //! ```
@@ -54,6 +54,7 @@ struct Args {
     stream_port: Option<u16>,
     area: Option<String>,
     pair: bool,
+    fps: Option<u8>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -70,6 +71,14 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--area" => out.area = Some(it.next().ok_or("--area needs an id")?.clone()),
             "--port" => out.port = Some(port_arg(it.next(), "--port")?),
             "--stream-port" => out.stream_port = Some(port_arg(it.next(), "--stream-port")?),
+            "--fps" => {
+                out.fps = Some(
+                    it.next()
+                        .and_then(|v| v.parse::<u8>().ok())
+                        .filter(|v| (1..=hue_store::MAX_FPS).contains(v))
+                        .ok_or("--fps needs a rate from 1 to 60")?,
+                );
+            }
             "--pair" => out.pair = true,
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
@@ -105,7 +114,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge> [--port <n>] [--stream-port <n>] [--pair] [--area <id>]]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge or Bifrost> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>]]",
     })
 }
 
@@ -576,6 +585,7 @@ fn hue_make_link(
         read_hue_keys().map_err(|e| (2, e))?
     };
     let link = HueLink::new(&ip.to_string(), port, stream_port, None, &app, &client)
+        .and_then(|link| link.with_fps(args.fps.unwrap_or(hue_store::DEFAULT_FPS)))
         .map_err(|e| (2, e.to_string()))?;
     // The key is proved by asking something with it before it is kept.
     bridge

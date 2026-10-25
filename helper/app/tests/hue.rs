@@ -421,6 +421,76 @@ fn an_area_that_is_streaming_for_another_application_is_left_alone_until_it_is_f
 }
 
 #[test]
+fn the_helpers_own_stale_stream_is_stopped_and_started_afresh() {
+    if !have_tools() {
+        return;
+    }
+    // The helper was killed before it could stop the area (Bifrost never clears an area when a stream ends): it is still active, under
+    // this application's own id.
+    let mut fake = Fake::start(|pki| pki.good(), false, false);
+    fake.say(&format!("takeover {APP_ID}"));
+    std::thread::sleep(Duration::from_millis(200));
+    let s = setup(&fake, "colour", Some(AREA));
+    assert!(
+        hue_state(&s.rig, "streaming"),
+        "{:?}",
+        s.rig.topic("ambient")
+    );
+    assert_eq!(
+        (fake.stops(), fake.starts()),
+        (1, 1),
+        "{:?}",
+        fake.requests()
+    );
+    // Stopped first, then started, then streamed.
+    let puts: Vec<String> = fake
+        .requests()
+        .iter()
+        .filter(|r| r["method"] == "PUT")
+        .map(|r| r["body"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(puts, [r#"{"action":"stop"}"#, r#"{"action":"start"}"#]);
+    assert!(wait_until(WAIT, || !fake.packets().is_empty()));
+}
+
+#[test]
+fn the_stream_is_paced_to_bifrosts_default_of_twenty_updates_a_second() {
+    if !have_tools() {
+        return;
+    }
+    let fake = Fake::start(|pki| pki.good(), false, false);
+    let s = setup(&fake, "picture", Some(AREA));
+    let socket = s.rig.paths.data_dir.join("ambient.sock");
+    assert!(wait_until(WAIT, || socket.exists()), "no capture socket");
+    let mut capture = UnixStream::connect(&socket).unwrap();
+    let bytes = wire::encode(&left_red_right_blue(), 1000);
+    // The capture side sends fast (every 10 ms) and the engine ticks at 30 Hz: what reaches the bridge is the pace set for it. The
+    // stream opens when the first lit frame has reached the engine.
+    let opened = Instant::now() + WAIT;
+    while fake.packets().is_empty() && Instant::now() < opened {
+        capture.write_all(&bytes).unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(hue_state(&s.rig, "streaming"));
+    let mut counts = vec![fake.packets().len()];
+    let mut at = Instant::now();
+    let end = at + Duration::from_secs(4);
+    while Instant::now() < end {
+        capture.write_all(&bytes).unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+        if at.elapsed() >= Duration::from_secs(1) {
+            counts.push(fake.packets().len());
+            at = Instant::now();
+        }
+    }
+    let per_second: Vec<usize> = counts.windows(2).map(|w| w[1] - w[0]).collect();
+    assert!(!per_second.is_empty(), "{counts:?}");
+    for n in &per_second {
+        assert!((12..=22).contains(n), "{n} updates in a second: {counts:?}");
+    }
+}
+
+#[test]
 fn a_bridge_that_shows_another_certificate_than_the_linked_one_is_sent_nothing() {
     if !have_tools() {
         return;

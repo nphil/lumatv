@@ -21,6 +21,9 @@ use std::path::{Path, PathBuf};
 /// The bridge's HTTPS port, and the UDP port of its entertainment stream.
 pub const DEFAULT_PORT: u16 = 443;
 pub const DEFAULT_STREAM_PORT: u16 = lumatv_ambient::huestream::PORT;
+/// Bifrost's default `streaming_fps`, which is what the stream is paced to unless told otherwise.
+pub const DEFAULT_FPS: u8 = 20;
+pub const MAX_FPS: u8 = 60;
 
 /// `<data dir>/ambient/`.
 fn dir(data_dir: &Path) -> PathBuf {
@@ -63,6 +66,9 @@ pub struct HueLink {
     pub host: Ipv4Addr,
     pub port: u16,
     pub stream_port: u16,
+    /// Updates a second sent to the bridge. Bifrost forwards at most its own `streaming_fps` (default 20) and smooths for the rate it
+    /// sees, so this is best equal to that setting; a Hue bridge takes more, but Zigbee lamps about 25.
+    pub fps: u8,
     /// The entertainment area (its id, a UUID) that is streamed to; none until one is chosen.
     pub area: Option<String>,
     /// `hue-application-key`.
@@ -123,6 +129,7 @@ impl HueLink {
             ));
         }
         Ok(Self {
+            fps: DEFAULT_FPS,
             host,
             port,
             stream_port,
@@ -131,6 +138,10 @@ impl HueLink {
             client_key: Secret(client_key.to_ascii_lowercase()),
         })
     }
+}
+
+fn default_fps() -> u8 {
+    DEFAULT_FPS
 }
 
 impl HueLink {
@@ -144,6 +155,18 @@ impl HueLink {
             self.app_key.expose(),
             self.client_key.expose(),
         )
+        .and_then(|link| link.with_fps(self.fps))
+    }
+
+    /// The same link with another stream rate, in updates a second.
+    pub fn with_fps(mut self, fps: u8) -> Result<Self, StoreError> {
+        if !(1..=MAX_FPS).contains(&fps) {
+            return Err(StoreError(format!(
+                "the stream rate is 1 to {MAX_FPS} updates a second"
+            )));
+        }
+        self.fps = fps;
+        Ok(self)
     }
 }
 
@@ -153,6 +176,8 @@ struct Stored {
     host: String,
     port: u16,
     stream_port: u16,
+    #[serde(default = "default_fps")]
+    fps: u8,
     #[serde(default)]
     area: Option<String>,
     app_key: String,
@@ -232,6 +257,7 @@ pub fn save(data_dir: &Path, link: &HueLink) -> Result<(), StoreError> {
         host: link.host.to_string(),
         port: link.port,
         stream_port: link.stream_port,
+        fps: link.fps,
         area: link.area.clone(),
         app_key: link.app_key.expose().to_owned(),
         client_key: link.client_key.expose().to_owned(),
@@ -259,6 +285,7 @@ pub fn load(data_dir: &Path) -> Result<Option<HueLink>, StoreError> {
         &stored.app_key,
         &stored.client_key,
     )
+    .and_then(|link| link.with_fps(stored.fps))
     .map_err(|e| StoreError(format!("{}: {e}", path.display())))?;
     if !certificate_file(data_dir).is_file() {
         return Err(StoreError(format!(
@@ -350,5 +377,25 @@ mod tests {
         let text = format!("{:?}", link());
         assert!(!text.contains(APP) && !text.contains(&CLIENT.to_ascii_lowercase()));
         assert!(text.contains("192.168.1.60"));
+    }
+
+    #[test]
+    fn the_stream_rate_defaults_to_bifrosts_and_is_kept_with_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        stage_certificate(dir.path(), "PEM").unwrap();
+        settle_certificate(dir.path(), true).unwrap();
+        assert_eq!(link().fps, DEFAULT_FPS);
+        save(dir.path(), &link().with_fps(12).unwrap()).unwrap();
+        let back = load(dir.path()).unwrap().unwrap();
+        assert_eq!(back.fps, 12);
+        // Choosing another area keeps the rate; a rate outside 1..=60 is refused.
+        assert_eq!(back.with_area(AREA).unwrap().fps, 12);
+        assert!(link().with_fps(0).is_err() && link().with_fps(61).is_err());
+        // A link saved before the rate existed reads as the default.
+        let text = std::fs::read_to_string(file(dir.path())).unwrap();
+        let old = text.replace(",\"fps\":12", "");
+        assert_ne!(old, text);
+        std::fs::write(file(dir.path()), old).unwrap();
+        assert_eq!(load(dir.path()).unwrap().unwrap().fps, DEFAULT_FPS);
     }
 }

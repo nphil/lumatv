@@ -15,13 +15,15 @@
 //! - **Discover**: the area is read (its channels and where each sits) so the engine can have a light for each, and nothing is
 //!   started. Asked for while ambient light is on and the lights are not known yet.
 //! - **Stream**: read the area, start it, open DTLS with the application id as identity and the client key, then send the latest
-//!   frame at most 25 times a second (what Zigbee lamps take; the bridge itself accepts 60) and again at least once a second so the
-//!   bridge, which ends a stream after about 10 s of silence, never does. The bridge ending the session (another application took
-//!   the area, or it was stopped from the Hue app) is noticed within 250 ms and the stream is started again after a pause.
+//!   frame at most `fps` times a second (the link's rate, 20 by default: Bifrost's own `streaming_fps` default, which it cannot tell
+//!   a client; it drops what comes faster and smooths for the rate it sees) and again at least once a second so the bridge, which
+//!   ends a stream after about 10 s of silence, never does. The bridge ending the session (another application took the area, or
+//!   it was stopped from the Hue app) is noticed within 250 ms and the stream is started again after a pause.
 //!
-//! An area that is already streaming is never taken over: if it is streaming for another application, or for an earlier run of
-//! this one that the bridge has not yet timed out, the thread waits and looks again. A failure waits 5 s, then 10, up to 60, and
-//! the words of it are the output's [`Status`], which ambient light shows as the `problem`.
+//! An area that is streaming for another application is never taken over: the thread waits and looks again. One that is streaming
+//! under this application's own id is this helper's own earlier stream (it was killed before it could stop the area, or the bridge
+//! never cleared it: Bifrost leaves an area active when a stream ends): it is stopped and started afresh. A failure waits 5 s, then
+//! 10, up to 60, and the words of it are the output's [`Status`], which ambient light shows as the `problem`.
 //!
 //! The keys are only used here, to speak to the address they were saved with; nothing here logs, prints or returns them.
 
@@ -40,8 +42,6 @@ use std::time::{Duration, Instant};
 /// One update for the entertainment channels: `(channel id, [r, g, b])` as 16-bit values.
 pub type Frame = Vec<(u8, [u16; 3])>;
 
-/// The fastest a stream is sent (Zigbee lamps take about 25 updates a second whatever the rate).
-const MIN_INTERVAL: Duration = Duration::from_millis(40);
 /// A frame is sent again after this long without a new one (the bridge ends a stream after about 10 s of silence).
 const KEEPALIVE: Duration = Duration::from_secs(1);
 /// How often a stream is asked whether the bridge has closed it.
@@ -231,6 +231,11 @@ struct Pass {
 }
 
 impl Worker {
+    /// The least time between two updates.
+    fn interval(&self) -> Duration {
+        Duration::from_millis(1000 / u64::from(self.link.fps.max(1)))
+    }
+
     fn run(mut self) {
         loop {
             let pass = self.wait();
@@ -297,7 +302,7 @@ impl Worker {
                 if self.last_frame.is_some() {
                     next = next.min(from_sent(KEEPALIVE));
                     if slot.fresh || self.pending {
-                        next = next.min(from_sent(MIN_INTERVAL));
+                        next = next.min(from_sent(self.interval()));
                     }
                 } else if slot.fresh {
                     // Nothing to send yet, but a first frame is waiting to be taken.
@@ -411,6 +416,7 @@ impl Worker {
             return;
         }
         let now = Instant::now();
+        let interval = self.interval();
         let Some(live) = self.live.as_mut() else {
             return;
         };
@@ -424,7 +430,7 @@ impl Worker {
             .sent_at
             .map_or(Duration::MAX, |t| now.saturating_duration_since(t));
         // A new frame goes out as soon as the pace allows; the last one goes again when nothing new has come for a second.
-        let send = (since >= MIN_INTERVAL && self.pending) || since >= KEEPALIVE;
+        let send = (since >= interval && self.pending) || since >= KEEPALIVE;
         let Some(frame) = self.last_frame.as_ref().filter(|_| send) else {
             return;
         };
@@ -469,11 +475,21 @@ impl Worker {
             return Err("the entertainment area has no lights in it".to_owned());
         }
         if area.active {
-            return Err(if area.streamer.as_deref().is_some_and(|s| s != app_id) {
-                "the entertainment area is streaming to another application".to_owned()
+            if area.streamer.as_deref() == Some(app_id.as_str()) {
+                // The same application id is this one's own earlier stream: the helper was killed before it could stop the area, or
+                // the bridge never cleared it (Bifrost leaves an area active when a stream ends, until it is stopped). Nobody else
+                // can hold it under this id, so it is stopped and started afresh.
+                crate::log_info!("hue: stopping the area's stale stream before starting");
+                self.bridge
+                    .stop(&self.link.app_key, &self.area)
+                    .map_err(|e| e.to_string())?;
+            } else if area.streamer.is_some() {
+                return Err("the entertainment area is streaming to another application".to_owned());
             } else {
-                "the entertainment area is still held by an earlier stream; waiting for the bridge to let go".to_owned()
-            });
+                return Err(
+                    "the entertainment area is in use; waiting for the bridge to let go".to_owned(),
+                );
+            }
         }
         let wanted = {
             let slot = self.shared.slot.lock();
