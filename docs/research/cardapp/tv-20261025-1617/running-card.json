@@ -1,0 +1,26 @@
+{
+    "running": [
+        {
+            "webprocessid": "",
+            "defaultWindowType": "card",
+            "id": "netflix",
+            "processid": "3754",
+            "appType": "native_mvpd"
+        },
+        {
+            "webprocessid": "",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.hdmi2",
+            "processid": "2513",
+            "appType": "native"
+        },
+        {
+            "webprocessid": "3169",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.home",
+            "processid": "3169",
+            "appType": "web"
+        }
+    ],
+    "returnValue": true
+}

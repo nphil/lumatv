@@ -1,0 +1,22 @@
+INFO evidence: /tmp/lumatv-slot/docs/research/cardapp/tv-20261025-1615
+INFO facts: id: uid=0(root) gid=0(root) groups=0(root),10(wheel),506(pulse-access),509(se),777(crashd),995(lpadmin)
+INFO facts: machine: aarch64
+INFO facts: crw-rw-rw-    1 root     root       10,  60 Dec 31  1969 /dev/dma_buf_te
+INFO facts: crw-------    1 root     root      226,   0 Dec 31  1969 /dev/dri/card0
+INFO facts: crw-rw-rw-    1 root     root       10,  58 Dec 31  1969 /dev/mali0
+INFO facts: tmpfs /tmp tmpfs rw,relatime 0 0
+INFO facts: overlay /var overlay ro,relatime,lowerdir=/overlay/bsppart/bsp/var:/var 0 0
+INFO facts: /dev/mmcblk0p58 /var ext4 rw,nosuid,relatime,data=ordered 0 0
+INFO facts: /dev/mmcblk0p59        6296308   2150444   4129480  34% /mnt/lg/appstore
+INFO facts: tmpfs                  1015196     99680    915516  10% /tmp
+INFO facts: MemAvailable:     878144 kB
+INFO facts: CmaFree:          104752 kB
+INFO facts: compositor: LG
+INFO SAM lists the card app: no
+INFO foreground: nothing
+INFO running apps: com.webos.app.hdmi2, com.webos.app.home, netflix
+INFO dev-installed native apps: amazon, com.apple.appletv, com.beb.plxnative, com.limelight.webos, io.unom.punktfunk.client-webos, netflix, org.webosbrew.bridge-64to32, youtube.leanback.v4
+PASS install: {"installed":true,"version":"0.1.0","shipped":"0.1.0","running":false}
+PASS the launcher is executable: -rwxr-xr-x    1 root     root         17148 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card
+FAIL SAM lists the app as native with lifecycle 2: {}
+FAIL a launch point exists (the switcher needs one): 

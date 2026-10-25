@@ -4,13 +4,13 @@ Todo: "64-bit app as a registered card window (launch, Back, Home, switcher)". A
 
 ## Resume here
 
-State (2026-10-25, offline): built, packed into the ipk and tested on the host under LumaTV's compositor and against a fake hub. **Nothing has run on the TV**; every claim about LG's compositor, SAM and the hub below is marked, and the TV step list is the way to settle them. The TV script has run only against a simulated set.
+State (2026-10-25 16:25 EDT): ran on the TV once (16:15-16:21, "TV results"). The package installs, SAM lists and launches it, the launcher registers with SAM and starts the 64-bit app, and the app exits at once: SAM runs a dev-installed native app inside LG's jailer (`jail_native_devmode.conf`, uid 5227 gid 5000, root `/var/palm/jail/<appId>`), whose `/dev` has `mali0` and `dma_buf_unified` but no `dri/card0`, no `dma_buf_te` and no `dma_heap`, so `gfx64/launch.sh` finds no buffer allocator. The app was removed again; nothing of it is on the set.
 
-Next slot (screen on, Home in front, about 15 minutes, Nitin's go for the install; see "Principle 0"):
+Next:
 
-1. `sh tools/build-ipk.sh` (needs `rustui/tools/build-card.sh` and `gfx64/fetch-blob.sh` + `gfx64/build.sh` first), then `python3 rustui/tools/tv-card.py all --approved` (`install`, `remove` and `all` refuse without the flag, which says Nitin has said yes).
-2. Read `docs/research/cardapp/tv-<time>/summary.txt`; every FAIL line has a row in "TV step list".
-3. Fill "TV results" and move what held from "Inferred" to "Observed".
+1. A buffer allocator the jail allows. The candidates, in order: `/dev/dma_buf_unified` (LG's MediaTek allocator, 10:59, `crw-rw-rw-` in the jail; its ioctl ABI is not recovered: `research/` has no reader of it yet), or the blob's own `/dev/mali0` allocations if the 64-bit driver can be told to allocate window buffers from the GPU device rather than a heap (`gfx64-result.md` says why it asks for `dma_heap/system-uncached`). `heapcore.h` takes a third source behind the same ops table.
+2. Then the same TV step list again (`tv-card.py all --approved`); every check after `launch: the 64-bit path was used` is unexercised.
+3. Fill the rest of "TV results" and move what held from "Inferred".
 
 For Main:
 
@@ -144,14 +144,22 @@ Needs: power state `Active`, Home in front, nothing else of ours running, Nitin'
 4. `remove`. Leaves the set as found.
 5. Afterwards: write the TV results below, with the evidence directory.
 
-TV results: none yet.
+TV results (2026-10-25 16:15-16:21, `docs/research/cardapp/tv-20261025-{1615,1617,1621}/`, code `e981d5e`; the set on Home, LG's compositor, power `Active`):
+
+- `facts`: over SSH the shell is root; the set is aarch64; `/dev/dma_buf_te` 666, `/dev/dri/card0` 600 root, `/dev/mali0` 666; `/media/developer` has no mount entry of its own (it is under `/var`, ext4 `rw,nosuid` on `/dev/mmcblk0p58`; SAM executed the launcher from it, so no `noexec`); MemAvailable 878 MB, CmaFree 105 MB. Dev-installed native apps on the set: amazon, com.apple.appletv, com.beb.plxnative, com.limelight.webos, io.unom.punktfunk.client-webos, netflix, org.webosbrew.bridge-64to32, youtube.leanback.v4.
+- `install`: PASS through `appInstallService/dev/install` (rc 0, `{"installed":true,"version":"0.1.0"}`, the launcher executable). The two SAM checks that follow at once FAILED because SAM had not rescanned yet: a `listApps` a minute later lists `org.nphil.lumatv.card` as `native`, `nativeLifeCycleInterfaceVersion` 2, `main` `bin/lumatv-card`, `handlesRelaunch` true, `visible` true, `removable` true, `trustLevel` default, `privilegedJail` false. The check should wait for SAM's rescan (open in the script).
+- `scenario` (launched four times by the script's steps, `card.log`): SAM starts the launcher as uid 5227 gid 5000 with `reason undefined`; the launcher registers (`registered org.nphil.lumatv.card`, `SAM: registered`): a dev install does give the launcher a bus name and SAM accepts `registerApp` (was "Inferred"). The 64-bit app starts and ends with 69 within 20 ms: `gfx64: 64-bit path unavailable: no buffer allocator (/dev/dri/card0, /dev/dma_buf_te); no fallback given`. The app's root is LG's jail, `/var/palm/jail/org.nphil.lumatv.card` (`jail_native_devmode.conf`): its `/dev` holds `console dma_buf_unified dvb fb0-3 gfx hidraw0 hma input lg log logfunnel mali0 null pts pvrsrvkm shm snd urandom vdec video video20 video60 vo` and no `dri`, `dma_buf_te` or `dma_heap`. In that file `/dev/dma_buf_te` is inside `if $mstar == true` and `/dev/dri/card0` inside `if $rtk == true` / `if $nvt == true`, none of which this set is (`LG1213`, `chip=O22A3`). PlxNative's jail (`/var/palm/jail/com.beb.plxnative/dev`) has the same list: LG's 32-bit driver allocates through `dma_buf_unified`/`mali0`. Every later check (keys, Home, switcher, relaunch, close, exit) is unexercised: the FAIL lines of `summary.txt` for them say the app was not running, the PASS lines (Back ends the app, Home in front, nothing left) hold trivially.
+- The script's first scenario run aborted on the foreground read: SAM's `getForegroundAppInfo` with `{}` answers a flat object (`appId`, `processId`, `windowId`); the list with `windowType` needs `{"extraInfo":true}` (fixed in `e981d5e`).
+- `remove`: PASS (rc 0, the directory gone, SAM no longer lists it). The jail skeleton `/var/palm/jail/org.nphil.lumatv.card` stays, as LG's jailer leaves it for every removed app (the other removed apps' are there too); `rm -rf` it if wanted.
+
+Settled by the run: the `/media/developer` mount is executable; SAM runs a dev-installed version 2 native app and keeps the launcher's registration; the hub gives the launcher a role for its own app id (`LSHUB_NO_ROLE_FILE` did not appear). Not settled: everything from the first buffer on.
 
 ## Inferred, not observed
 
-- That `appInstallService/dev/install` gives the launcher's executable a hub role for its own app id (PlxNative registers that way; nothing here has installed one of ours). The role files other workers write by hand (`payload/capture/role.json`) are unverified too.
+- Observed on the TV (2026-10-25): `appInstallService/dev/install` gives the launcher a hub role for its own app id (it registered; `LSHUB_NO_ROLE_FILE` did not appear). The role files other workers write by hand (`payload/capture/role.json`) are a separate question.
 - That SAM does not require `registerApp` of a version 2 app to keep it running, what it does to one that never registers, and that `handlesRelaunch: true` is right for an app that handles SAM's `relaunch` itself (Netflix and the browser, which do, have it; YouTube, PlxNative and Moonlight have `false`).
 - That SAM does not compare the window's `processId` (the app) with the pid it started or the registration's (the launcher).
-- The environment and user SAM starts a dev-installed native app with, and whether `/dev/dri/card0` and `/dev/mali0` are open to it; that `/bin/sh`, `awk`, `ls`, `head` and `uname` are on its `PATH` (the launcher sets the usual four directories).
+- Observed: SAM starts the app as uid 5227 gid 5000 in LG's jail (`jail_native_devmode.conf`), with `/dev/mali0` (660 root:video) and `/dev/dma_buf_unified` but no `/dev/dri` or `/dev/dma_buf_te`; `/bin/sh`, `awk`, `ls`, `head` and `uname` were found (the launcher ran to the app's exit). Whether `/dev/mali0` opens for that uid is still unseen (the app ended before the GPU).
 - That LG's compositor sends `state_changed(minimized)` to a covered card and sends no frame callbacks to it.
 - What LG's compositor sends for OK and the arrows (the card reads the usual Linux codes and shows what arrived).
 - That a card with `set_state(fullscreen)` at creation is shown by LG's compositor as it is by LumaTV's (Qt apps send it on every `showFullScreen`).

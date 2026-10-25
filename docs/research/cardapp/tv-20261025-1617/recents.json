@@ -1,0 +1,46 @@
+{
+    "returnValue": true,
+    "ready": true,
+    "recentsAppList": [
+        {
+            "customImageFilePath": "",
+            "appId": "com.webos.app.discovery",
+            "splashBackground": "/mnt/otncabi/usr/palm/applications/com.webos.app.discovery/asset/hd1080/lgstore_splash.png",
+            "subtitle": "lgapps2024",
+            "cardSnapShotFilePath": "",
+            "title": "Apps"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.webos.app.browser",
+            "splashBackground": "/mnt/otncabi/usr/palm/applications/com.webos.app.browser/assets/hd1080/webbrowser_splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Web Browser"
+        },
+        {
+            "customImageFilePath": "/media/cryptofs/apps/usr/palm/applications/netflix/RECENTS.png",
+            "appId": "netflix",
+            "splashBackground": "/media/cryptofs/apps/usr/palm/applications/netflix/Netflix_Splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Netflix"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.apple.appletv",
+            "splashBackground": "/media/cryptofs/apps/usr/palm/applications/com.apple.appletv/AppleTV_Splash_1920x1080.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Apple TV"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.beb.plxnative",
+            "splashBackground": "/media/developer/apps/usr/palm/applications/com.beb.plxnative/splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "PlxNative"
+        }
+    ]
+}

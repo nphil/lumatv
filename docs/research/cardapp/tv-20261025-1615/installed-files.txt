@@ -1,0 +1,4 @@
+-rwxr-xr-x    1 root     root         17148 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card
+-rwxr-xr-x    1 root     root       2079496 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app
+-rwxr-xr-x    1 root     root         30328 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so
+-rwxr-xr-x    1 root     root          4416 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/launch.sh

@@ -1,0 +1,2 @@
+INFO evidence: /tmp/lumatv-slot/docs/research/cardapp/tv-20261025-1621
+PASS remove: rc=0

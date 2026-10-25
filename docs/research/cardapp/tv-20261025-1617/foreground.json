@@ -1,0 +1,19 @@
+{
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "order": 0,
+            "displayId": 0,
+            "processId": "2739",
+            "windowType": "_WEBOS_WINDOW_TYPE_CARD",
+            "viewType": "normal",
+            "params": {
+            },
+            "windowGroup": false,
+            "appId": "com.webos.app.home",
+            "appCategory": [
+                "home"
+            ]
+        }
+    ]
+}

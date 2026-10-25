@@ -1,0 +1,38 @@
+INFO evidence: /tmp/lumatv-slot/docs/research/cardapp/tv-20261025-1617
+FAIL launch: the card is in front: foreground is ['com.webos.app.home']
+FAIL launch: the launcher and the 64-bit app run: {}
+PASS launch: the window is a card: {"order": 0, "displayId": 0, "processId": "2739", "windowType": "_WEBOS_WINDOW_TYPE_CARD", "viewType": "normal", "params": {}, "windowGroup": false, "appId": "com.webos.app.home", "appCategory": ["hom
+INFO launch: users: {}
+INFO launch: processId in SAM's foreground info: 2739 (the app is 0, the launcher 0)
+PASS launch: the launcher registered with SAM: 
+FAIL launch: the 64-bit path was used: gfx64: 64-bit path unavailable: no buffer allocator (/dev/dri/card0, /dev/dma_buf_te); no fallback given
+PASS launch: no GL error: 
+FAIL launch: SAM lists it as running: 
+INFO screenshot status: not fetched: [Errno 2] No such file
+FAIL launch: SAM leaves it running for 20 s: 
+FAIL keys: OK reaches the app and opens the keys page: 
+INFO screenshot keys: not fetched: [Errno 2] No such file
+FAIL keys: Back goes up a page and the app stays: 
+INFO keys: codes the compositor sent (presses): 
+PASS home: Home is in front: com.webos.app.home
+FAIL home: the card was told it is minimized: 
+FAIL home: the covered card keeps running: 
+FAIL home: the app switcher lists the card: {"returnValue": true, "ready": true, "recentsAppList": [{"customImageFilePath": "", "appId": "com.webos.app.discovery", "splashBackground": "/mnt/otncabi/usr/palm/applications/com.webos.app.discovery/
+INFO screenshot home: not fetched: [Errno 2] No such file
+FAIL relaunch: the card comes back to the front: com.webos.app.home
+FAIL relaunch: SAM's relaunch reached the app: 
+FAIL relaunch: the same process (no second start): 
+FAIL relaunch: the window is fullscreen again: 
+INFO screenshot relaunched: not fetched: [Errno 2] No such file
+PASS back: Back at the first page ends the app: {}
+PASS back: Home is in front again: com.webos.app.home
+FAIL back: the launcher ended with the app's status: [lumatv-card 43706.739] done: status 69
+PASS back: SAM no longer lists it as running: 
+PASS back: its picture files are gone: 
+INFO screenshot after-back: not fetched: [Errno 2] No such file
+FAIL close: SAM's close reaches the app: 
+PASS close: the app and its launcher end: {}
+PASS exit: Back held closes the app: {}
+INFO exit: how it ended: no close or exit line
+PASS end: Home is in front, nothing of the card runs: 
+INFO done: 16 checks failed
