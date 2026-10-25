@@ -33,6 +33,17 @@ class Table(unittest.TestCase):
     def test_shipped_table_is_valid(self):
         self.assertTrue(gate.validate(gate.SURFACES))
 
+    def test_the_stock_notification_surfaces_run_only_when_named(self):
+        defaults = [e['name'] for e in gate.SURFACES if gate.surface(e)['default']]
+        self.assertNotIn('toast', defaults)
+        self.assertNotIn('alert', defaults)
+        self.assertEqual([s['name'] for s in gate.find(['toast', 'alert'])], ['toast', 'alert'])
+
+    def test_a_luna_token_is_not_a_key_and_takes_no_time(self):
+        self.assertEqual(gate.token_seconds('!toast'), 0.0)
+        s = gate.find(['toast'])[0]
+        self.assertIn('!toast', gate.cycle_tokens(s))
+
     def test_marker_tokens_are_required(self):
         with self.assertRaises(ValueError):
             gate.validate([{'name': 'x', 'open': 'MENU', 'close': '@x-close BACK'}])

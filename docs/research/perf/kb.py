@@ -15,6 +15,8 @@ Tokens:
   KEYxN@G   N taps, G seconds apart (default 0.35)
   sS        sleep S seconds
   @NAME     trace marker "P:NAME" (a phase boundary for analyse.py) written at this instant
+  !NAME     a luna call from LUNA below, started at this instant without waiting for its answer
+            (a surface that no key opens: a toast, an alert)
 KEY is UP DOWN LEFT RIGHT OK BACK HOME MENU or an evdev code.
 """
 import os
@@ -53,9 +55,25 @@ def mark(name):
         f.write('P:' + name + '\n')
 
 
+LUNA = {
+    'toast': ('luna://com.webos.notification/createToast', '{"sourceId":"com.webos.app.home","message":"A toast for the gate"}'),
+    'alert': ('luna://com.webos.notification/createAlert',
+              '{"sourceId":"com.webos.app.home","title":"An alert for the gate","message":"Closed by the gate with OK.","buttons":[{"label":"OK"}]}'),
+}
+
+
+def luna(name):
+    import subprocess
+    uri, payload = LUNA[name]
+    subprocess.Popen(['luna-send', '-n', '1', uri, payload], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, close_fds=True)
+
+
 def run(token):
     if token[0] == '@':
         mark(token[1:])
+    elif token[0] == '!':
+        luna(token[1:])
     elif token[0] == 's' and token[1:].replace('.', '').isdigit():
         time.sleep(float(token[1:]))
     elif token.endswith('+'):

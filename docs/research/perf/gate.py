@@ -53,6 +53,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # reopen        shell commands run before every cycle, outside the measured windows, for a
 #               surface the close key tears down for good (reopen_wait_s waits for it to build)
 # soak          False when cycling it says nothing about memory (Home idle)
+# default       False: part of the gate only when named with --surfaces
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
 SURFACES = [
     {'name': 'home-idle',
@@ -73,6 +74,14 @@ SURFACES = [
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
     # D-pad move inside the built gallery (open) and BACK (close).
+    # LG's own toast and alert, for the baseline the rebuilt ones (PLAN phase 2) must beat. A luna call
+    # opens them (`!toast`, `!alert` in kb.py) and nothing closes the toast but its own timer (about 5 s);
+    # the alert is closed by OK. Run on request (`--surfaces toast,alert`): the stock ones are not
+    # expected to pass.
+    {'name': 'toast', 'default': False,
+     'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 8, 'transition': False},
+    {'name': 'alert', 'default': False,
+     'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
     {'name': 'kit-gallery',
      'setup': ["lumatv theme set '{\"kitGallery\":true}'", 'sleep 3'],
      'teardown': ["lumatv theme set '{\"kitGallery\":false}'"],
@@ -81,7 +90,7 @@ SURFACES = [
 ]
 
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0,
-                    'transition': True, 'soak': True, 'thresholds': {}}
+                    'transition': True, 'soak': True, 'default': True, 'thresholds': {}}
 
 # The PLAN gate. An override in a surface may set any of these to None to turn the check off.
 THRESHOLDS = {
@@ -180,7 +189,7 @@ def find(names, entries=None):
 
 def token_seconds(token):
     """How long kb.py takes to run one token (mirrors kb.py's run())."""
-    if token[0] == '@':
+    if token[0] in '@!':
         return 0.0
     if token[0] == 's' and token[1:].replace('.', '').isdigit():
         return float(token[1:])
@@ -682,7 +691,7 @@ def main(argv=None):
         ap.error(f'--cycles must be at least {RSS_SKIP_CYCLES + 1}: the first {RSS_SKIP_CYCLES} are warm-up')
     validate(SURFACES)
     try:
-        chosen = find(a.surfaces.split(',') if a.surfaces else [e['name'] for e in SURFACES])
+        chosen = find(a.surfaces.split(',') if a.surfaces else [e['name'] for e in SURFACES if surface(e)['default']])
     except ValueError as e:
         ap.error(str(e))
     tag = re.sub(r'[^\w.-]', '_', a.tag)
