@@ -8,10 +8,14 @@
 #   persist on|off         -> toggle the boot-hook symlink in webosbrew init.d
 #   fps on|off             -> toggle the compositor FPS debug overlay
 #   restart                -> restart the compositor and bring Home back (what apply does when it must)
+#   boot-restart           -> the boot hook's early compositor restart, right after boot-bind; lands on Home, or on the input
+#                            bootd opened when the TV is set to start on its last input (general.homeAutoLaunch off)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
 #   capture start|stop|remove|status -> the ambient light's colour reader and its bus role (payload/capture/capture.sh)
 #   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
-#   compositor on|off|status -> LumaTV's own compositor in place of LG's (tools/compositor.sh)
+#   compositor on|off|status|check -> LumaTV's own compositor in place of LG's (tools/compositor.sh); `on` is the
+#                            persistent enable and needs a firmware build on verified.list; `check` is what the
+#                            boot hook would decide (flag, firmware hashes, bundle, supervisor, Home held), changing nothing
 #   notifications on|off|status -> LG's toast, alert and PIN views in the Luma look, without their shadow layers
 #   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
 #   preload on|off|status  -> keep only Netflix warm in the background (payload/preload.json)
@@ -1884,13 +1888,16 @@ verb_compositor() {
       log_line "compositor $1"
       printf '{"ok":true,"compositor":%s}\n' "$(comp_json)" ;;
     status) printf '{"ok":true,"compositor":%s}\n' "$(comp_json)" ;;
-    *) emit_error "compositor: on, off or status"; return 1 ;;
+    check) printf '{"ok":true,"check":%s}\n' "$(comp_check_json)" ;;
+    *) emit_error "compositor: on, off, status or check"; return 1 ;;
   esac
   return 0
 }
 
 verb_compositor_boot() {
-  # The early hook's step before apply restarts the compositor: place the mount when it is wanted.
+  # The early hook's step before apply restarts the compositor: place the mount when everything allows it
+  # (the flag, a firmware build the gate passed on, an intact bundle, a supervisor that answers, Home not held).
+  # comp_boot_mount logs the reason of a refusal itself; the word is logged here.
   r=$(comp_boot_mount)
   log_line "compositor-boot: $r"
   printf '{"ok":true,"compositor":"%s"}\n' "$r"
@@ -2341,6 +2348,99 @@ verb_boot_ok() {
   # Called by the boot hook once the boot's apply reported ok.
   rm -f "$BOOT_PENDING"
   printf '{"ok":true}\n'
+  return 0
+}
+
+# ------------------------------------------------------------- boot-restart
+
+get_general_setting() {
+  # $1 = key in the "general" category. Prints the value, or nothing.
+  luna-send -n 1 "$SETTINGS_GET_URI" "{\"category\":\"general\",\"keys\":[\"$1\"]}" 2>/dev/null \
+    | tr -d '\n' | sed -n "s/.*\"$1\"[ ]*:[ ]*\"\\([^\"]*\\)\".*/\\1/p"
+}
+
+foreground_app_id() {
+  luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' 2>/dev/null \
+    | tr -d '\n' | sed -n 's/.*"appId"[ ]*:[ ]*"\([^"]*\)".*/\1/p'
+}
+
+boot_landing_app() {
+  # What the boot's compositor restart puts back in front. Home, unless the owner set the TV to start on
+  # its last input (general.homeAutoLaunch off): then the app in front now, which is the input bootd
+  # opened at ~14 s. Prints the app id, or nothing for Home.
+  [ "$(get_general_setting homeAutoLaunch)" = off ] || return 0
+  la_app=$(foreground_app_id)
+  case "$la_app" in ''|"$HOME_APP_ID") return 0 ;; esac
+  printf '%s\n' "$la_app"
+}
+
+land_on_app() {
+  # $1 = app id. One launch, then a bounded wait for it to be in front; the panel's pixels say nothing
+  # here (an input with a signal is video). If it does not arrive, Home is what the set gets.
+  luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$1\"}" >/dev/null 2>&1
+  la_i=0
+  while [ "$la_i" -lt 10 ] && [ "$(foreground_app_id)" != "$1" ]; do sleep 1; la_i=$((la_i+1)); done
+  if [ "$(foreground_app_id)" = "$1" ]; then
+    log_line "boot-restart: $1 back in front after $la_i s"
+    # The teardown crash report of the restart lands ~3 s after it (see home_back_after_restart).
+    sleep 3
+    disarm_restart_crashes "$reports_before"
+    return 0
+  fi
+  log_line "boot-restart: $1 did not come back, Home instead"
+  home_back_after_restart
+}
+
+verb_boot_restart() {
+  # The boot hook's step after boot-bind. The compositor's first start of a boot is stock and is restarted
+  # once to read the shadow module. That restart used to follow the whole of apply's preparation (staging,
+  # mounts, helper, preload: 30 s of it, at uptime 55 s on 2026-10-25 17:51), and the panel showed the last
+  # input until then. boot-bind has just verified the set and written the env file, so the restart comes
+  # first, and apply finds a compositor that has the module and does the rest without one.
+  # Only a set that is on, only a boot-bind that went the whole way (it leaves BOOT_PENDING, the env file
+  # and the assets bind); anything else is apply's, as before. Never fatal: a restart that fails is left
+  # for apply to repeat.
+  if ! take_mutation_lock; then
+    emit_error "another apply or revert is still running"
+    return 1
+  fi
+  if [ "${LUMA_BOOT:-0}" != 1 ]; then
+    emit_error "boot-restart is the boot hook's step; use restart"
+    return 1
+  fi
+  br_why=""
+  if [ ! -f "$BOOT_PENDING" ]; then br_why="boot-bind did not verify the set"
+  elif ! surface_start_uptime >/dev/null 2>&1; then br_why="no compositor running"
+  elif compositor_has_shadow; then br_why="the compositor has the module already"
+  elif ! all_binds_live || ! env_live || [ ! -d "$SHADOW_ROOT" ]; then br_why="the module, env file or assets bind is not in place"
+  elif ! panel_is_active; then br_why="the set is not on"
+  fi
+  if [ -n "$br_why" ]; then
+    log_line "boot-restart: left to apply ($br_why)"
+    printf '{"ok":true,"restarted":false,"reason":"%s"}\n' "$br_why"
+    return 0
+  fi
+  br_land=$(boot_landing_app)
+  br_up=$(uptime_s)
+  # Home's first request for weather and news finds the helper, as it does in apply's order.
+  helper_start || true
+  marker=$(wc -l < "$MSGLOG" 2>/dev/null | tr -d ' '); [ -n "$marker" ] || marker=0
+  if ! restart_surface; then
+    log_line "boot-restart: the compositor did not come back active, left to apply"
+    printf '{"ok":true,"restarted":false,"reason":"restart failed"}\n'
+    return 0
+  fi
+  log_line "boot-restart: compositor restarted at uptime $br_up s to read the shadow module"
+  if [ -n "$br_land" ]; then land_on_app "$br_land"; else home_back_after_restart; fi
+  if sed -n "$((marker+1)),\$p" "$MSGLOG" 2>/dev/null | grep -qa 'shader compilation failed'; then
+    log_line "boot-restart: shader compilation failure detected post-restart, auto-reverting"
+    rm -f "$VERIFIED"
+    do_revert_internal
+    ntfy_notify "$DISPLAY_NAME boot restart failed: shader compilation error, auto-reverted to stock"
+    emit_error "shader compilation failed; auto-reverted to stock"
+    return 1
+  fi
+  printf '{"ok":true,"restarted":true,"at":%s,"landed":"%s"}\n' "$br_up" "${br_land:-home}"
   return 0
 }
 
@@ -2799,7 +2899,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -2851,6 +2951,7 @@ case "$VERB" in
   status) verb_status; exit $? ;;
   apply) verb_apply; exit $? ;;
   boot-bind) verb_boot_bind; exit $? ;;
+  boot-restart) verb_boot_restart; exit $? ;;
   boot-ok) verb_boot_ok; exit $? ;;
   revert) verb_revert; exit $? ;;
   persist) verb_persist "${2:-}"; exit $? ;;

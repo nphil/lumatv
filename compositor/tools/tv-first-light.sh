@@ -11,9 +11,11 @@
 #   tv-first-light.sh inspect     read-only: the compositor unit, its wrapper, the role files for /usr/bin/surface-manager,
 #                                 initctl, the state of webapp-mgr; written to docs/research/compositor/set-inspect-<date>.txt
 #   tv-first-light.sh cutover ARGS  /tmp/lumatv/cutover.sh ARGS on the set under a PTY (install | probe | trial SECS |
-#                                 enable | disable | status | revert)
-#   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): enable, live, volume, x1, netflix, hdmi, standby/wake, escape;
-#                                 --enable-after makes LumaTV's compositor live when every check passed
+#                                 enable [--session] | disable | status | revert | firmware check|record | boot-check)
+#   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): firmware, homeheld, then a session of enable --session with live,
+#                                 volume, x1 (zero gaps over 20 ms in 60 s), netflix, hdmi, standby/wake, homekey, wd-hang,
+#                                 wd-crash, escape; --enable-after lists the build the gate passed on and makes LumaTV's
+#                                 compositor live for good when every check passed
 #   tv-first-light.sh clean       kill everything of ours on the set
 #   tv-first-light.sh probe       read-only (tools/tv-readonly-probe.sh): LG's wl_webos_* tables in every copy on the set
 #                                 and the Wayland clients of LG's compositor; written to
@@ -108,5 +110,5 @@ EOF2
     clean)
         tv "sh /tmp/lumatv/run.sh clean"
         ;;
-    *) sed -n 2,21p "$0" ;;
+    *) sed -n 2,24p "$0" ;;
 esac

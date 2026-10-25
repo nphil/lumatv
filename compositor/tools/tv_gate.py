@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""Drives the C4 gate from the workstation: LumaTV's compositor goes live (cutover.sh enable), the checks of
-tools/tv-gate.sh run in order with the receiver muted, the set is woken after the standby check, and the escape
-check ends the live session. Exit 0 only when every check passed; the result lines and files land in
-/tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
+"""Drives the C4 gate from the workstation: LumaTV's compositor goes live as a session (cutover.sh enable --session: this
+boot only, on any firmware), the checks of tools/tv-gate.sh run in order with the receiver muted, the set is woken after
+the standby check, and the checks that end the live session (Home held on a virtual remote, the compositor stopped and
+killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
+lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
     tv_gate.py [--skip netflix,hdmi,...] [--x1-seconds N] [--enable-after]
 
-Afterwards LG's compositor is live and the enabled flag is removed, whatever failed. --enable-after re-installs
-and re-enables LumaTV's compositor when every check passed (Nitin's decision: live once the gate passes)."""
-import argparse, os, socket, subprocess, sys, time, json, urllib.request
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'docs', 'research', 'arch'))
+The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
+can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, standby, homekey, wd-hang,
+wd-crash, escape.
+
+Afterwards LG's compositor is live and the enabled flag is removed, whatever failed. --enable-after (Nitin's decision:
+live once the gate passes) takes the firmware build the gate has just passed on into compositor/firmware/verified.list
+(the working tree: commit it), installs it on the set, and enables LumaTV's compositor for good; a pass on another build
+than the list holds is what makes that build one LumaTV may start on at boot."""
+import argparse, os, re, socket, subprocess, sys, time, json, urllib.request
+here = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(here, '..', '..', 'docs', 'research', 'arch'))
 import tv, paramiko
 
 TV_MAC = "74:c1:7e:bd:ae:30"
 HA = "http://192.168.1.146"
 AVR = "media_player.living_room_avr"
+VERIFIED_LIST = os.path.join(here, "..", "firmware", "verified.list")
+LIBRARY = os.path.join(here, "..", "..", "tools", "compositor.sh")
 
 def pty(cmd, timeout=600):
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -105,6 +115,64 @@ def wake():
     print("power state after wake:", power_state())
     return True
 
+def entry_from(text):
+    """The verified.list entry `cutover.sh firmware record` printed, from its `build` line to its `end`, without the
+    carriage returns a PTY adds; None when there is none."""
+    out, on = [], False
+    for line in (l.rstrip("\r") for l in text.splitlines()):
+        if line.startswith("build "):
+            out, on = [line], True
+        elif on:
+            out.append(line)
+            if line == "end":
+                return "\n".join(out) + "\n"
+    return None
+
+def entry_problem(entry):
+    """Why an entry must not be listed, or None: it needs the release line, a 16-digit fingerprint and a SHA-256 for every
+    file (a `-` stands for a file that could not be read, and listing it would verify a build nobody hashed)."""
+    lines = entry.splitlines()
+    files = [l.split() for l in lines if l.startswith("file ")]
+    if not any(l.startswith("release ") and len(l) > 8 for l in lines):
+        return "no release line"
+    fp = [l.split()[1] for l in lines if l.startswith("fingerprint ") and len(l.split()) > 1]
+    if not fp or len(fp[0]) != 16 or any(c not in "0123456789abcdef" for c in fp[0]):
+        return "no 16-digit fingerprint"
+    if len(files) < 9:
+        return "only %d file lines" % len(files)
+    for f in files:
+        if len(f) != 4 or len(f[1]) != 64 or any(c not in "0123456789abcdef" for c in f[1]):
+            return "file %s has no SHA-256" % (f[3] if len(f) > 3 else "?")
+    return None
+
+def add_entry(path, entry):
+    """Appends an entry to the list unless one with its fingerprint is there. Returns "added", "listed" or the reason it is
+    refused."""
+    problem = entry_problem(entry)
+    if problem:
+        return "refused: " + problem
+    fp = [l.split()[1] for l in entry.splitlines() if l.startswith("fingerprint ")][0]
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError:
+        text = ""
+    if any(l.split()[:2] == ["fingerprint", fp] for l in text.splitlines()):
+        return "listed"
+    body = text.rstrip("\n")
+    with open(path, "w") as f:
+        f.write(body + "\n\n" + entry if body else entry)
+    return "added"
+
+VERDICT = re.compile(r"^GATE [^:]+: (PASS|FAIL)\b")
+
+
+def all_passed(lines):
+    """The gate passes when it has verdicts and every one is PASS. A line that is no verdict (`GATE standby: requested`,
+    which only says the power-off call went out) is not one: counted as a failure, it made the gate unpassable."""
+    verdicts = [VERDICT.match(l) for l in lines if VERDICT.match(l)]
+    return bool(verdicts) and all(m.group(1) == "PASS" for m in verdicts)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip", default="")
@@ -112,10 +180,13 @@ def main():
     ap.add_argument("--enable-after", action="store_true")
     a = ap.parse_args()
     skip = set(a.skip.split(",")) - {""}
-    here = os.path.dirname(os.path.abspath(__file__))
     tv.put(os.path.join(here, "tv-gate.sh"), "/tmp/lumatv/gate.sh")
     tv.put(os.path.join(here, "tv-cutover.sh"), "/tmp/lumatv/cutover.sh")
     tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
+    tv.put(os.path.join(here, "tv-uinput-key.py"), "/tmp/lumatv/uinput-key.py")
+    tv.put(LIBRARY, "/tmp/lumatv/compositor.sh")
+    if os.path.exists(VERIFIED_LIST):
+        tv.put(VERIFIED_LIST, "/tmp/lumatv/verified.list")
     tv.tv("rm -rf /tmp/lumatv/out/gate; mkdir -p /tmp/lumatv/out/gate")
     lines = []
     def step(name, cmd, timeout=600):
@@ -123,14 +194,23 @@ def main():
         print(out)
         for l in out.splitlines():
             if l.startswith("GATE "):
-                lines.append(l)
+                lines.append(l.rstrip("\r"))
         return out
+    def session(label=None):
+        """LumaTV's compositor live for this boot only, then `live` says so (the label names the line when it is a
+        second session of the run)."""
+        print(pty("sh /tmp/lumatv/cutover.sh enable --session", 300))
+        step("live", "sh /tmp/lumatv/gate.sh live%s" % (" " + label if label else ""))
     if not wake():
         sys.exit("the set does not answer; nothing was changed")
     avr_mute(True)
     try:
-        print(pty("sh /tmp/lumatv/cutover.sh enable", 300))
-        step("live", "sh /tmp/lumatv/gate.sh live")
+        # Not live yet: the firmware check on the set's own files, and the supervisor's question about a held Home key.
+        if "firmware" not in skip:
+            step("firmware", "sh /tmp/lumatv/gate.sh firmware", 300)
+        if "homeheld" not in skip:
+            step("homeheld", "sh /tmp/lumatv/gate.sh homeheld", 120)
+        session()
         if "volume" not in skip:
             line = volume_check()
             print(line)
@@ -150,6 +230,13 @@ def main():
                 lines.append("GATE standby: FAIL no SSH after the wake")
                 raise SystemExit("the set did not come back; LumaTV's compositor may still be enabled on it")
             step("woke", "sh /tmp/lumatv/gate.sh woke", 180)
+        # Each of these ends the live session (that is what they test), so each one that follows gets a fresh one.
+        ended = ["homekey", "wd-hang", "wd-crash"]
+        for name in ended:
+            if name in skip:
+                continue
+            step(name, "sh /tmp/lumatv/gate.sh %s" % name, 300)
+            session("after-" + name)
         if "escape" not in skip:
             step("escape", "sh /tmp/lumatv/gate.sh escape", 300)
     finally:
@@ -163,12 +250,24 @@ def main():
         # start of LumaTV's compositor truncates it.
         tv.tv("cp /var/lib/lumatv/compositor/compositor.log /tmp/lumatv/out/gate/compositor-final.log; cp /var/lib/lumatv/compositor/sm.log /tmp/lumatv/out/gate/sm-final.log")
         avr_mute(False)
-    ok = lines and all(": PASS" in l for l in lines)
+    ok = all_passed(lines)
     print("\n".join(lines))
     print("GATE: %s" % ("PASS" if ok else "FAIL"))
     if ok and a.enable_after:
-        print(pty("sh /tmp/lumatv/cutover.sh install > /dev/null; sh /tmp/lumatv/cutover.sh enable", 300))
-        print(pty("sh /tmp/lumatv/gate.sh live", 120))
+        # The gate has passed on this firmware: it is a build LumaTV's compositor may start on at boot. The entry comes
+        # from the set's own files; it is added to the list in the working tree (to be committed), the list goes to the set
+        # with the install, and only then does the persistent enable find the build verified.
+        record = pty("sh /tmp/lumatv/cutover.sh firmware record", 300)
+        entry = entry_from(record)
+        result = add_entry(VERIFIED_LIST, entry) if entry else "refused: no entry in the set's answer"
+        print("verified.list: %s" % result)
+        if result.startswith("refused"):
+            print("not enabling: %s" % record[-600:])
+        else:
+            tv.put(VERIFIED_LIST, "/tmp/lumatv/verified.list")
+            print(pty("sh /tmp/lumatv/cutover.sh install", 300))
+            print(pty("sh /tmp/lumatv/cutover.sh enable", 300))
+            print(pty("sh /tmp/lumatv/gate.sh live enabled", 120))
     tv.tv("cd /tmp/lumatv && tar czf /tmp/lumatv-gate.tgz out/gate")
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
     tv.get("/tmp/lumatv-gate.tgz", "/tmp/lumatv-tv-out/gate.tgz")

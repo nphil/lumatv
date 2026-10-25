@@ -1,16 +1,23 @@
 // lumatv-sm: the process systemd starts as /usr/bin/surface-manager once LumaTV's compositor is live (track C4).
 // It is 32-bit and dynamically linked against the set's own libluna-service2 and glib, because ls-hubd grants the
 // compositor's bus names to the executable at that path and a 64-bit process cannot load LG's 32-bit libraries.
-// Three duties, in order (docs/research/compositor-c2-result.md §5 and §8):
+// Four duties (docs/research/compositor-c2-result.md §5 and §8, docs/research/cutover-result.md):
 //
-//   1. Decide. LumaTV runs only if /var/lib/lumatv/compositor/enabled exists, the firmware fingerprint equals the
-//      verified one, no escape is recorded, and fewer than 2 consecutive failures are. Otherwise, and on any later
-//      failure, fall back: remove the bind mount that put this file at /usr/bin/surface-manager and exec LG's
-//      compositor at the same path, so the unit, the role and the exe name stay LG's.
+//   1. Decide (decide()). LumaTV runs only if the enabled flag is a persistent one or a session of this boot, the
+//      bundle is whole, no escape is recorded, the firmware fingerprint equals the one `install` recorded, a persistent
+//      enable also finds that fingerprint on verified.list (a build the gate passed on), and fewer than 2 consecutive
+//      failures are on record (a start whose predecessor never settled or ended cleanly counts as one). Otherwise,
+//      and on any later failure, fall back: remove the bind mount that put this file at /usr/bin/surface-manager and
+//      exec LG's compositor at the same path, so the unit, the role and the exe name stay LG's. The unit's main
+//      process becomes LG's compositor in place: nothing is restarted, and SAM is never touched.
 //   2. Supervise. Spawn the 64-bit compositor through its private loader on LG's socket (/tmp/xdg/wayland-0),
-//      heartbeat it over the bridge socket every 500 ms, and fall back when it exits or misses two beats. The
-//      compositor can ask for the fallback itself (the hold-Home escape), which also records the escape.
-//   3. Bridge luna. Register the compositor's bus names, forward every call as a JSON line, send the compositor's
+//      heartbeat it over the bridge socket every 500 ms and fall back when it exits, misses two beats, draws frames
+//      the panel never shows (6 s) or leaves no window mapped (45 s) while the set is on. The compositor can ask for
+//      the fallback itself (the hold-Home escape), which also records the escape.
+//   3. Hold Home. Independently of the compositor, read the remotes' evdev nodes: Home held 650 ms, or still held when
+//      this process starts (a boot with Home held down), is the same escape. The way back to LG's therefore works
+//      while the compositor is starting, wedged or blind to its input.
+//   4. Bridge luna. Register the compositor's bus names, forward every call as a JSON line, send the compositor's
 //      replies (subscriptions kept by token) and make its outbound calls.
 //
 // JSON lines on the bridge socket (compositor/crates/lumatv-compositor/src/luna.rs):
@@ -20,8 +27,15 @@
 //   from the compositor: {"kind":"reply","token":N,"payload":P}   {"kind":"outbound","token":N,"uri":U,"payload":P,"subscribe":B}
 //                        {"kind":"cancel","token":N}   {"kind":"pong","seq":N}   {"kind":"fallback","reason":R}
 //
+// State files in --state DIR (default /var/lib/lumatv/compositor): enabled (empty or "persistent": every boot;
+// "session <boot id>": this boot only), escaped, failures, fingerprint (recorded by install), verified.list (builds
+// the gate passed on: "fingerprint <hex>" lines), running (written once a start is decided, removed after 120 s
+// healthy or on SIGTERM or a deliberate fallback: a file found at start means the last run was cut short and counts
+// as a failure), last-fallback, sm.log.
+//
 // Build: compositor/sm/build.sh (zig cc, arm-linux-gnueabi glibc 2.28, stub libraries for the link; the set's
 // libraries at run time). Usage: lumatv-sm [--dry-run|--probe] [--state DIR] [--print-fingerprint]
+//                                          [--would-run] [--home-held [MS]]
 //   --dry-run   never touches the mount or execs LG's binary; registers the bus names with a ".lumatv" suffix and
 //               runs the compositor offscreen on the private socket, for a test of the bridge beside LG's compositor
 //               (the hub refuses the suffixed names, since no role file allows them: that part proves nothing).
@@ -30,11 +44,19 @@
 //               before it checks for a duplicate (luna-service2 hub.cpp _LSHubHandleRequestName). Exit 0 = every
 //               name is allowed to this executable path (all answered "already exists"), 2 = at least one refused.
 //   --print-fingerprint prints the firmware fingerprint the enable step records.
+//   --would-run read-only: prints "run" (exit 0) or "no WORD: reason" (exit 3) as decide() would answer now. The early
+//               boot hook asks it before it places the mount, so the decision has one implementation; any other
+//               exit means this binary cannot run on this firmware (missing library, wrong ABI) and no mount is made.
+//   --home-held [MS] exit 0 when a remote's Home key is down now and stays down for MS (default 700), else 1.
 // The unit is Type=notify: READY=1 goes to systemd's socket once the compositor is connected (else the start
 // times out and the unit is restarted), and /tmp/lsm-ready is touched, which is what webapp-mgr.service waits for.
 #define _GNU_SOURCE
+#include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/input.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -43,6 +65,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -105,6 +129,8 @@ static const char *state_dir = "/var/lib/lumatv/compositor";
 static const char *lg_binary = "/usr/bin/surface-manager";
 static const char *runtime_dir = "/tmp/xdg";
 static const char *socket_name = "wayland-0";
+static const char *input_dir = "/dev/input";
+static const char *boot_id_path = "/proc/sys/kernel/random/boot_id";
 static bool dry_run = false, probe = false;
 static bool supervising = false;
 static char **saved_argv;
@@ -113,7 +139,8 @@ static pid_t child_pid = 0;
 static int bridge_listen = -1, bridge_fd = -1;
 static unsigned long ping_seq = 0, pong_seq = 0;
 static unsigned long inbound_token = 0;
-static time_t started_at;
+static double started_mono;
+static char running_path[600];
 static FILE *logf;
 
 static void logline(const char *fmt, ...) {
@@ -201,6 +228,203 @@ static void fingerprint(char out[17]) {
     snprintf(out, 17, "%016llx", (unsigned long long)h);
 }
 
+// ---- clocks, state files and the start-up decision ----
+// The wall clock is unset for the first seconds of a boot (systemd stamps early units in 2022) and jumps when time
+// syncs, so every interval here is measured on CLOCK_MONOTONIC.
+static double mono_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+
+static bool read_first_line(const char *p, char *out, size_t n) {
+    out[0] = 0;
+    FILE *f = fopen(p, "r");
+    if (!f) return false;
+    bool ok = fgets(out, (int)n, f) != NULL;
+    fclose(f);
+    if (!ok) { out[0] = 0; return false; }
+    out[strcspn(out, "\r\n")] = 0;
+    return true;
+}
+
+static void current_boot_id(char *out, size_t n) {
+    if (!read_first_line(boot_id_path, out, n) || !out[0]) snprintf(out, n, "unknown");
+}
+
+enum flag_kind { FLAG_OFF, FLAG_PERSISTENT, FLAG_SESSION, FLAG_STALE };
+
+// The enabled flag. An empty file or "persistent" (what `touch enabled` made before sessions existed) holds across
+// boots; "session <boot id>" holds in the boot it was made in only, so a gate or trial that was cut short can never
+// turn into a boot-time enable.
+static enum flag_kind read_flag(void) {
+    char line[200];
+    if (!file_exists(path_in_state("enabled"))) return FLAG_OFF;
+    read_first_line(path_in_state("enabled"), line, sizeof line);
+    if (!strncmp(line, "session", 7) && (line[7] == ' ' || line[7] == 0)) {
+        char id[64];
+        current_boot_id(id, sizeof id);
+        return strcmp(line[7] ? line + 8 : "", id) == 0 ? FLAG_SESSION : FLAG_STALE;
+    }
+    return FLAG_PERSISTENT;
+}
+
+// verified.list is what the gate passed on: blocks written by `cutover.sh firmware record`, of which only the
+// "fingerprint <hex>" lines matter here (the hashes are checked by the shell side, which can read LG's own binary).
+static bool verified_has(const char *fp) {
+    FILE *f = fopen(path_in_state("verified.list"), "r");
+    if (!f) return false;
+    char line[256];
+    bool found = false;
+    while (!found && fgets(line, sizeof line, f)) {
+        char tok[64] = "";
+        if (!strncmp(line, "fingerprint ", 12) && sscanf(line + 12, "%63s", tok) == 1 && !strcmp(tok, fp)) found = true;
+    }
+    fclose(f);
+    return found;
+}
+
+// One failure more than the file says while the last run's marker is still there: that run never settled or ended
+// cleanly (power cut, kill, hang). A power cut on a black screen is the case this exists for.
+static long failures_effective(void) {
+    return read_number(path_in_state("failures"), 0) + (file_exists(path_in_state("running")) ? 1 : 0);
+}
+
+// At a real start: a leftover marker is counted for good and removed.
+static void consume_unclean(void) {
+    if (!file_exists(path_in_state("running"))) return;
+    long f = read_number(path_in_state("failures"), 0) + 1;
+    write_number(path_in_state("failures"), f);
+    unlink(path_in_state("running"));
+    logline("the previous run never settled or ended cleanly (power cut, kill or hang): failures now %ld", f);
+}
+
+static void mark_running(void) {
+    char id[64], line[128];
+    current_boot_id(id, sizeof id);
+    snprintf(line, sizeof line, "%s %ld\n", id, (long)time(NULL));
+    write_text(running_path, line);
+}
+
+static void forget_running(void) {
+    if (running_path[0]) unlink(running_path);
+}
+
+// What a recovery after a fallback needs, and what the compositor cannot start without: all of it is checked here
+// rather than found out by a crash.
+static const char *bundle_files[] = { "bin/lumatv-compositor", "bin/recover-home.sh", "lib/ld-linux-aarch64.so.1", "lib/libmali-bifrost-g52-g24p0-wayland-gbm.so", NULL };
+
+static const char *bundle_missing(void) {
+    for (int i = 0; bundle_files[i]; i++) if (!file_exists(path_in_state(bundle_files[i]))) return bundle_files[i];
+    return NULL;
+}
+
+struct verdict { bool run; char word[16]; char why[200]; };
+
+static void verdict_no(struct verdict *v, const char *word, const char *fmt, ...) {
+    v->run = false;
+    snprintf(v->word, sizeof v->word, "%s", word);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(v->why, sizeof v->why, fmt, ap);
+    va_end(ap);
+}
+
+// Whether LumaTV may run now. Read-only (a leftover `running` marker counts as a failure here without being
+// consumed), so the early boot hook can ask before it places the mount; the real start asks the same function.
+static void decide(struct verdict *v) {
+    char fp[17], want[64] = "";
+    fingerprint(fp);
+    FILE *f = fopen(path_in_state("fingerprint"), "r");
+    if (f) { if (fscanf(f, "%63s", want) != 1) want[0] = 0; fclose(f); }
+    enum flag_kind flag = read_flag();
+    v->run = true;
+    snprintf(v->word, sizeof v->word, "run");
+    v->why[0] = 0;
+    if (flag == FLAG_OFF) { verdict_no(v, "off", "not enabled"); return; }
+    if (flag == FLAG_STALE) { verdict_no(v, "session", "the enable was a session of an earlier boot"); return; }
+    if (file_exists(path_in_state("escaped"))) { verdict_no(v, "escaped", "escape recorded; re-enable from the tool"); return; }
+    const char *missing = bundle_missing();
+    if (missing) { verdict_no(v, "bundle", "the bundle is incomplete: %s is missing", missing); return; }
+    if (strcmp(fp, want) != 0) { verdict_no(v, "firmware", "firmware fingerprint differs from the verified one"); return; }
+    if (flag == FLAG_PERSISTENT && !verified_has(fp)) { verdict_no(v, "firmware", "firmware build is not on the verified list"); return; }
+    if (failures_effective() >= 2) { verdict_no(v, "failures", "two consecutive failures"); return; }
+}
+
+// ---- Home held (the escape's second reader) ----
+// The compositor's own escape (input.rs, 650 ms) needs the compositor running and reading the remote. This one
+// needs neither: evdev nodes opened here, so a boot with Home held down, a compositor still starting and one
+// wedged before it reads any key all end the same way. The network key devices (the SSAP keys of the TV's own app
+// and of automations) are left out: this is a person's escape, at the TV.
+#define HOLD_HOME_SECS 0.65
+#define MAX_INPUTS 32
+
+struct home { double down_at; };    // 0 while no Home key is down
+static struct home home_state;
+
+static bool is_home_key(int code) { return code == KEY_HOME || code == KEY_HOMEPAGE; }
+
+// A key event of a remote: press and repeat start the hold, release ends it.
+static void home_event(struct home *h, int code, int value, double now) {
+    if (!is_home_key(code)) return;
+    if (value != 0) { if (h->down_at == 0) h->down_at = now; }
+    else h->down_at = 0;
+}
+
+static bool home_due(const struct home *h, double now) { return h->down_at != 0 && now - h->down_at >= HOLD_HOME_SECS; }
+
+static bool name_is_network_keys(const char *name) {
+    return strstr(name, "Smart Remote RCU Input") != NULL || strstr(name, "LGE Network Input") != NULL;
+}
+
+// The event node, read-only and non-blocking; -1 for one that does not open or is a network key device.
+static int open_input(const char *path) {
+    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return -1;
+    char name[96] = "";
+    if (ioctl(fd, EVIOCGNAME(sizeof name - 1), name) >= 0 && name_is_network_keys(name)) { close(fd); return -1; }
+    return fd;
+}
+
+// Whether a Home key is down on this device right now (the kernel keeps the state of every key it saw pressed).
+static bool input_home_down(int fd) {
+    unsigned char bits[KEY_MAX / 8 + 1];
+    memset(bits, 0, sizeof bits);
+    if (ioctl(fd, EVIOCGKEY(sizeof bits), bits) < 0) return false;
+    return ((bits[KEY_HOME / 8] >> (KEY_HOME % 8)) & 1) || ((bits[KEY_HOMEPAGE / 8] >> (KEY_HOMEPAGE % 8)) & 1);
+}
+
+static int open_inputs_all(int *fds, int n) {
+    DIR *d = opendir(input_dir);
+    if (!d) return 0;
+    int got = 0;
+    struct dirent *e;
+    while (got < n && (e = readdir(d))) {
+        if (strncmp(e->d_name, "event", 5) != 0) continue;
+        char path[300];
+        snprintf(path, sizeof path, "%s/%s", input_dir, e->d_name);
+        int fd = open_input(path);
+        if (fd >= 0) fds[got++] = fd;
+    }
+    closedir(d);
+    return got;
+}
+
+static bool home_down_any(const int *fds, int n) {
+    for (int i = 0; i < n; i++) if (input_home_down(fds[i])) return true;
+    return false;
+}
+
+// Home down now and still down `ms` milliseconds later (polled every 50 ms). Returns at once when it is not down.
+static bool home_held_for(int ms) {
+    int fds[MAX_INPUTS];
+    int n = open_inputs_all(fds, MAX_INPUTS);
+    bool held = home_down_any(fds, n);
+    for (int waited = 0; held && waited < ms; waited += 50) { usleep(50000); held = home_down_any(fds, n); }
+    for (int i = 0; i < n; i++) close(fds[i]);
+    return held;
+}
+
 // ---- systemd and the rest of webOS ----
 // READY=1 on $NOTIFY_SOCKET (a datagram socket, "@" for the abstract namespace), as LG's compositor does.
 static void sd_notify_ready(void) {
@@ -264,6 +488,8 @@ static void fallback(const char *reason, bool count_failure) {
     logline("fallback: %s", reason);
     write_text(path_in_state("last-fallback"), reason);
     if (count_failure) write_number(path_in_state("failures"), read_number(path_in_state("failures"), 0) + 1);
+    // Handing the screen over on purpose is not an unclean end: the next start must not count it a second time.
+    forget_running();
     if (child_pid > 0) {
         kill(child_pid, SIGTERM);
         for (int i = 0; i < 20 && waitpid(child_pid, NULL, WNOHANG) == 0; i++) usleep(50000);
@@ -629,13 +855,15 @@ static gboolean on_bridge_accept(GIOChannel *ch, int cond, gpointer data) {
 static gboolean on_heartbeat(gpointer data) {
     (void)data;
     if (bridge_fd < 0) {
-        if (time(NULL) - started_at > 20) fallback("compositor did not connect to the bridge within 20 s", true);
+        if (mono_now() - started_mono > 20) fallback("compositor did not connect to the bridge within 20 s", true);
         return 1;
     }
     if (ping_seq > pong_seq + 2) { fallback("heartbeat: two beats missed", true); return 1; }
     char line[64];
     snprintf(line, sizeof line, "{\"kind\":\"ping\",\"seq\":%lu}", ++ping_seq);
     send_line(line);
+    // Two minutes healthy: this start has proved itself, and a power cut after it is no failed boot.
+    if (ping_seq == 240 && running_path[0]) { forget_running(); logline("settled: two minutes healthy"); }
     // Ten minutes healthy clears the failure count: a crash a week later is not "consecutive".
     if (ping_seq == 1200) write_number(path_in_state("failures"), 0);
     return 1;
@@ -778,11 +1006,269 @@ static void open_bridge(void) {
     g_io_add_watch(g_io_channel_unix_new(bridge_listen), G_IO_IN, on_bridge_accept, NULL);
 }
 
+// ---- the watchdog: what the compositor shows, not only that it answers ----
+// A compositor can answer every ping and still leave the panel dead: frames drawn that no flip ever presents (the
+// display driver wedged, a commit refused for good), or no window mapped at all while the set is on (WebAppMgr
+// never brought Home back). Both are read from the compositor's control socket and its own counters (`status`:
+// "drawn" and the summary's "flips"; `windows`: "mapped") and answered like a crash: a counted fallback to LG's.
+// Whether the set is on comes from tvpower, so a boot into standby, where nothing may map for minutes, is not a
+// black panel.
+#define WD_FROZEN_SECS 6.0
+#define WD_FROZEN_DRAWN 20
+#define WD_BLANK_SECS 45.0
+
+struct wd {
+    bool have_prev;
+    long prev_drawn, prev_flips;
+    double anchor_t;                // the last moment the output was demonstrably fine
+    long anchor_drawn;
+    double blank_since;             // 0 = a window is mapped or the set is not on
+};
+
+struct wd_in {
+    double now;
+    bool have_flips;                // `status` gave both counters (the offscreen renderer has no flips)
+    long drawn, flips;
+    bool have_windows;
+    int mapped;
+    bool power_known, power_active;
+};
+
+enum wd_verdict { WD_OK, WD_FROZEN, WD_BLANK };
+
+static enum wd_verdict wd_step(struct wd *w, const struct wd_in *in, char *why, size_t whysz) {
+    if (in->have_flips) {
+        // An idle screen draws nothing and a landing flip is progress: either one makes this moment the new
+        // baseline. Frames drawn with no flip since the baseline are the freeze, once 20 of them and 6 s add up.
+        if (!w->have_prev || in->drawn == w->prev_drawn || in->flips > w->prev_flips || (in->power_known && !in->power_active)) {
+            w->anchor_t = in->now;
+            w->anchor_drawn = in->drawn;
+        } else if (in->drawn - w->anchor_drawn >= WD_FROZEN_DRAWN && in->now - w->anchor_t >= WD_FROZEN_SECS) {
+            snprintf(why, whysz, "output frozen: %ld frames drawn and no page flip for %.0f s", in->drawn - w->anchor_drawn, in->now - w->anchor_t);
+            return WD_FROZEN;
+        }
+        w->have_prev = true;
+        w->prev_drawn = in->drawn;
+        w->prev_flips = in->flips;
+    }
+    if (in->have_windows && in->power_known) {
+        if (in->power_active && in->mapped == 0) {
+            if (w->blank_since == 0) w->blank_since = in->now;
+            else if (in->now - w->blank_since >= WD_BLANK_SECS) {
+                snprintf(why, whysz, "nothing on the panel: no window mapped for %.0f s with the set on", in->now - w->blank_since);
+                return WD_BLANK;
+            }
+        } else {
+            w->blank_since = 0;
+        }
+    }
+    return WD_OK;
+}
+
+// One command on the compositor's control socket: the reply line (newline cut) lands in out and its length is
+// returned, -1 when the socket does not answer within timeout_ms. Everything is non-blocking and bounded: this
+// loop also carries the heartbeat and every luna call, and must not wait on a compositor that is stuck.
+static int control_query(const char *dir, const char *cmd, char *out, size_t outsz, int timeout_ms) {
+    struct sockaddr_un a = { .sun_family = AF_UNIX };
+    snprintf(a.sun_path, sizeof a.sun_path, "%s/lumatv-control", dir);
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (fd < 0) return -1;
+    if (connect(fd, (struct sockaddr *)&a, sizeof a) < 0) { close(fd); return -1; }
+    char line[128];
+    int ln = snprintf(line, sizeof line, "%s\n", cmd);
+    if (send(fd, line, (size_t)ln, MSG_NOSIGNAL) != ln) { close(fd); return -1; }
+    size_t got = 0;
+    double end = mono_now() + timeout_ms / 1000.0;
+    for (;;) {
+        char *nl = memchr(out, '\n', got);
+        if (nl) { *nl = 0; close(fd); return (int)(nl - out); }
+        if (got + 1 >= outsz) { out[got] = 0; close(fd); return (int)got; }
+        int left = (int)((end - mono_now()) * 1000.0);
+        if (left <= 0) break;
+        struct pollfd p = { .fd = fd, .events = POLLIN };
+        if (poll(&p, 1, left) <= 0) break;
+        ssize_t n = recv(fd, out + got, outsz - 1 - got, 0);
+        if (n == 0) break;
+        if (n < 0) { if (errno == EAGAIN || errno == EINTR) continue; break; }
+        got += (size_t)n;
+    }
+    out[0] = 0;
+    close(fd);
+    return -1;
+}
+
+static bool scan_long_after(const char *text, const char *needle, long *out) {
+    const char *p = strstr(text, needle);
+    if (!p) return false;
+    p += strlen(needle);
+    char *end;
+    long v = strtol(p, &end, 10);
+    if (end == p) return false;
+    *out = v;
+    return true;
+}
+
+// `ctl status`: "stats":{..."drawn":N...} and, in the summary text, "flips N" (the KMS output's counter).
+static void parse_status(const char *json, struct wd_in *in) {
+    in->have_flips = scan_long_after(json, "\"drawn\":", &in->drawn) && scan_long_after(json, " flips ", &in->flips);
+}
+
+// `ctl windows`: one "mapped":true per window on the panel.
+static int count_mapped(const char *json) {
+    int n = 0;
+    for (const char *p = json; (p = strstr(p, "\"mapped\":true")) != NULL; p += 13) n++;
+    return n;
+}
+
+static struct wd wd;
+static bool power_known, power_active;
+static char power_state[40];
+static LSMessageToken power_token;
+static bool power_call_live;
+static double power_asked = -100, last_scan = -100, last_report;
+static bool progress_announced, progress_warned, seen_flips, seen_windows;
+static char reply_buf[64 * 1024];
+
+// tvpower's state, as the compositor itself subscribes to it (the same call through the same handle, so the role
+// that lets the compositor ask lets this ask). Asked again every 10 s until a state arrives.
+static bool on_power(LSHandle *sh, LSMessage *msg, void *ctx) {
+    (void)sh; (void)ctx;
+    const char *payload = LSMessageGetPayload(msg);
+    char state[40];
+    if (!payload || !json_string(payload, "state", state, sizeof state)) return true;
+    if (!power_known || strcmp(state, power_state) != 0) logline("watchdog: the set is %s", state);
+    snprintf(power_state, sizeof power_state, "%s", state);
+    power_known = true;
+    power_active = strcasecmp(state, "active") == 0;
+    return true;
+}
+
+static void ask_power(void) {
+    if (nbuses == 0) return;
+    LSError e;
+    LSErrorInit(&e);
+    if (power_call_live) LSCallCancel(buses[0].sh, power_token, &e);
+    power_call_live = LSCall(buses[0].sh, "luna://com.webos.service.tvpower/power2/getPowerState", "{\"subscribe\":true}", on_power, NULL, &power_token, &e);
+    if (!power_call_live) logline("watchdog: asking tvpower for the power state: %s", e.message ? e.message : "?");
+    LSErrorFree(&e);
+    power_asked = mono_now();
+}
+
+// ---- the Home watcher's devices ----
+static struct { int fd; char path[300]; } inputs[MAX_INPUTS];
+
+static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
+    (void)ch;
+    int idx = (int)(intptr_t)data;
+    int fd = inputs[idx].fd;
+    if (fd < 0) return 0;
+    bool gone = (cond & (G_IO_HUP | G_IO_ERR)) != 0;
+    struct input_event ev[32];
+    while (!gone) {
+        ssize_t n = read(fd, ev, sizeof ev);
+        if (n < 0) { if (errno != EAGAIN && errno != EINTR) gone = true; break; }
+        if (n == 0) break;
+        for (size_t i = 0; i < (size_t)n / sizeof ev[0]; i++)
+            if (ev[i].type == EV_KEY) home_event(&home_state, ev[i].code, ev[i].value, mono_now());
+        if ((size_t)n < sizeof ev) break;
+    }
+    if (gone) { close(fd); inputs[idx].fd = -1; return 0; }
+    return 1;
+}
+
+// Opens the event nodes not yet watched, again every few seconds: a remote that pairs later is a new node. A Home
+// key already down on a new node starts its hold.
+static void scan_inputs(void) {
+    DIR *d = opendir(input_dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strncmp(e->d_name, "event", 5) != 0) continue;
+        char path[300];
+        snprintf(path, sizeof path, "%s/%s", input_dir, e->d_name);
+        int slot = -1;
+        bool known = false;
+        for (int i = 0; i < MAX_INPUTS; i++) {
+            if (inputs[i].fd >= 0 && !strcmp(inputs[i].path, path)) known = true;
+            else if (inputs[i].fd < 0 && slot < 0) slot = i;
+        }
+        if (known) continue;
+        if (slot < 0) break;
+        int fd = open_input(path);
+        if (fd < 0) continue;
+        inputs[slot].fd = fd;
+        snprintf(inputs[slot].path, sizeof inputs[slot].path, "%s", path);
+        if (input_home_down(fd)) home_event(&home_state, KEY_HOMEPAGE, 1, mono_now());
+        g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_ERR | G_IO_HUP, on_input, (gpointer)(intptr_t)slot);
+    }
+    closedir(d);
+}
+
+static gboolean on_home_timer(gpointer data) {
+    (void)data;
+    if (home_due(&home_state, mono_now())) {
+        write_text(path_in_state("escaped"), "hold Home 650 ms (supervisor)");
+        fallback("hold Home 650 ms (supervisor)", false);
+    }
+    return 1;
+}
+
+// Every 2 s: new input nodes, tvpower's state when it is not known, then the compositor's counters.
+static gboolean on_progress(gpointer data) {
+    (void)data;
+    double now = mono_now();
+    if (now - last_scan >= 6) { last_scan = now; scan_inputs(); }
+    if (nbuses > 0 && !power_known && now - power_asked >= 10) ask_power();
+    // A heartbeat already late is the heartbeat's to judge; this asks the compositor nothing meanwhile.
+    if (bridge_fd < 0 || ping_seq > pong_seq + 1) return 1;
+    struct wd_in in = { .now = now, .power_known = power_known, .power_active = power_active };
+    if (control_query(runtime_dir, "status", reply_buf, sizeof reply_buf, 150) >= 0) parse_status(reply_buf, &in);
+    if (control_query(runtime_dir, "windows", reply_buf, sizeof reply_buf, 150) >= 0 && strstr(reply_buf, "\"windows\":[")) { in.have_windows = true; in.mapped = count_mapped(reply_buf); }
+    // Said once both inputs have been read (a single slow answer is not a rule that is off); said otherwise after a
+    // minute, so that a watchdog that cannot see what it needs shows in the log and not only in what it never catches.
+    if (in.have_flips) seen_flips = true;
+    if (in.have_windows) seen_windows = true;
+    if (!progress_announced && seen_flips && seen_windows) {
+        progress_announced = true;
+        logline("watchdog: progress rules on (frozen output watched, empty panel watched)");
+    } else if (!progress_announced && !progress_warned && now - started_mono > 60) {
+        progress_warned = true;
+        logline("watchdog: progress rules not fully on after a minute (frozen output %s, empty panel %s)", seen_flips ? "watched" : "off: no flip counter in `status`", seen_windows ? "watched" : "off: no window list");
+    }
+    char why[160];
+    enum wd_verdict v = wd_step(&wd, &in, why, sizeof why);
+    if (v != WD_OK) { fallback(why, true); return 1; }
+    if (now - last_report >= 300) {
+        last_report = now;
+        logline("watchdog: drawn %ld flips %ld mapped %d set %s", in.drawn, in.flips, in.mapped, power_known ? power_state : "unknown");
+    }
+    return 1;
+}
+
+static void on_term(int sig) {
+    (void)sig;
+    // Stopped on purpose (systemctl restart, shutdown): not an unclean end.
+    if (running_path[0]) unlink(running_path);
+    if (child_pid > 0) kill(child_pid, SIGTERM);
+    _exit(0);
+}
+
+// Removes one stale log from the last runs: the file is appended to by every start and every watchdog line.
+static void rotate_log(void) {
+    struct stat st;
+    char p[600], old[620];
+    snprintf(p, sizeof p, "%s/sm.log", state_dir);
+    if (stat(p, &st) == 0 && st.st_size > 256 * 1024) {
+        snprintf(old, sizeof old, "%s.old", p);
+        rename(p, old);
+    }
+}
+
 #ifdef LUMATV_SM_TEST
 // The JSON scanner against lines as serde_json writes them on the compositor's side.
 static int failures_seen;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, #c); failures_seen++; } } while (0)
-int main(void) {
+static void test_json(void) {
     const char *reply = "{\"kind\":\"reply\",\"token\":11,\"payload\":{\"returnValue\":true,\"foregroundAppInfo\":[{\"appId\":\"x,}\",\"params\":{}}],\"subscribed\":true}}";
     char kind[32]; unsigned long tok = 0; const char *v; size_t n;
     CHECK(json_string(reply, "kind", kind, sizeof kind) && !strcmp(kind, "reply"));
@@ -818,21 +1304,390 @@ int main(void) {
     CHECK(r > 0 && !strcmp(got, "{\"kind\":\"inbound\",\"token\":1}\n{\"kind\":\"inbound\",\"token\":2}\n"));
     CHECK(npending == 0);
     close(sv[0]); close(sv[1]); bridge_fd = -1;
+}
+
+// ---- the decision, the markers, the watchdog, the control socket and the Home hold ----
+static char tdir[256];
+static char made[16][256];
+static int nmade;
+
+static void put(const char *name, const char *text) {
+    char p[400];
+    snprintf(p, sizeof p, "%s/%s", tdir, name);
+    FILE *f = fopen(p, "w");
+    if (f) { fputs(text, f); fclose(f); }
+}
+
+static void drop(const char *name) { char p[400]; snprintf(p, sizeof p, "%s/%s", tdir, name); unlink(p); }
+
+static bool has(const char *name) { char p[400]; snprintf(p, sizeof p, "%s/%s", tdir, name); return file_exists(p); }
+
+static void slurp(const char *name, char *out, size_t n) {
+    char p[400];
+    snprintf(p, sizeof p, "%s/%s", tdir, name);
+    read_first_line(p, out, n);
+}
+
+// A state directory with a whole bundle, the current fingerprint recorded and listed as verified, and this boot's id.
+static void fresh_state(void) {
+    snprintf(tdir, sizeof tdir, "/tmp/lumatv-sm-test-XXXXXX");
+    CHECK(mkdtemp(tdir) != NULL);
+    state_dir = tdir;
+    if (nmade < 16) snprintf(made[nmade++], sizeof made[0], "%s", tdir);
+    char p[400];
+    snprintf(p, sizeof p, "%s/bin", tdir); mkdir(p, 0755);
+    snprintf(p, sizeof p, "%s/lib", tdir); mkdir(p, 0755);
+    for (int i = 0; bundle_files[i]; i++) put(bundle_files[i], "x");
+    char fp[17], line[64];
+    fingerprint(fp);
+    snprintf(line, sizeof line, "%s\n", fp);
+    put("fingerprint", line);
+    snprintf(line, sizeof line, "build test\nfingerprint %s\nend\n", fp);
+    put("verified.list", line);
+    snprintf(p, sizeof p, "%s/boot_id", tdir);
+    FILE *f = fopen(p, "w");
+    if (f) { fputs("BOOT-A\n", f); fclose(f); }
+    boot_id_path = strdup(p);
+}
+
+static void test_decide(void) {
+    struct verdict v;
+    fresh_state();
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "off") && !strcmp(v.why, "not enabled"));
+    put("enabled", "");                                   // what `touch enabled` made: persistent
+    decide(&v);
+    CHECK(v.run && !strcmp(v.word, "run"));
+    put("enabled", "persistent\n");
+    decide(&v);
+    CHECK(v.run);
+    put("escaped", "hold Home 650 ms");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "escaped") && !strcmp(v.why, "escape recorded; re-enable from the tool"));
+    drop("escaped");
+    // a bundle with a part missing is refused before anything is started
+    drop("bin/recover-home.sh");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "bundle") && strstr(v.why, "recover-home.sh"));
+    put("bin/recover-home.sh", "x");
+    // the firmware: another fingerprint than the one `install` recorded, and a build that is not on the verified list
+    put("fingerprint", "0000000000000000\n");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "firmware") && !strcmp(v.why, "firmware fingerprint differs from the verified one"));
+    char fp[17], line[96];
+    fingerprint(fp);
+    snprintf(line, sizeof line, "%s\n", fp);
+    put("fingerprint", line);
+    put("verified.list", "build other\nfingerprint 1111111111111111\nend\n");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "firmware") && !strcmp(v.why, "firmware build is not on the verified list"));
+    drop("verified.list");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "firmware"));
+    // a session enable of this boot runs on a build that was never verified; one of an earlier boot does not
+    put("enabled", "session BOOT-A\n");
+    decide(&v);
+    CHECK(v.run);
+    put("enabled", "session BOOT-B\n");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "session"));
+    put("enabled", "session\n");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "session"));
+    // the verified list: several blocks, the fingerprint on any of them
+    snprintf(line, sizeof line, "# list\nbuild a\nfingerprint 1111111111111111\nend\nbuild b\nfingerprint %s\nend\n", fp);
+    put("verified.list", line);
+    put("enabled", "");
+    decide(&v);
+    CHECK(v.run);
+    CHECK(verified_has(fp) && !verified_has("2222222222222222") && !verified_has(""));
+    // failures: two on record, or one and a run that never ended
+    put("failures", "1\n");
+    decide(&v);
+    CHECK(v.run);
+    put("running", "BOOT-A 1\n");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "failures") && !strcmp(v.why, "two consecutive failures"));
+    CHECK(failures_effective() == 2);
+    drop("running");
+    put("failures", "2\n");
+    decide(&v);
+    CHECK(!v.run && !strcmp(v.word, "failures"));
+    // decide() reads and never writes
+    put("failures", "1\n");
+    put("running", "BOOT-A 1\n");
+    decide(&v);
+    char buf[64];
+    slurp("failures", buf, sizeof buf);
+    CHECK(!strcmp(buf, "1") && has("running"));
+}
+
+static void test_running_marker(void) {
+    fresh_state();
+    snprintf(running_path, sizeof running_path, "%s/running", tdir);
+    char buf[64];
+    consume_unclean();                                    // nothing left over: nothing counted
+    CHECK(!has("failures"));
+    mark_running();
+    CHECK(has("running"));
+    slurp("running", buf, sizeof buf);
+    CHECK(!strncmp(buf, "BOOT-A ", 7));
+    consume_unclean();                                    // the last run never settled or ended: one failure, marker gone
+    slurp("failures", buf, sizeof buf);
+    CHECK(!strcmp(buf, "1") && !has("running"));
+    mark_running();
+    forget_running();                                     // a clean end or a deliberate fallback leaves nothing to count
+    CHECK(!has("running"));
+    consume_unclean();
+    slurp("failures", buf, sizeof buf);
+    CHECK(!strcmp(buf, "1"));
+    running_path[0] = 0;
+}
+
+static void test_watchdog(void) {
+    struct wd w;
+    struct wd_in in;
+    char why[160];
+    // frames drawn and landing: fine for as long as it lasts
+    memset(&w, 0, sizeof w);
+    for (int i = 0; i < 60; i++) {
+        memset(&in, 0, sizeof in);
+        in.now = 100 + i * 2.0; in.have_flips = true; in.drawn = 1000 + i * 120; in.flips = 1000 + i * 120;
+        CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    }
+    // an idle screen draws nothing and flips nothing, for as long as it likes
+    memset(&w, 0, sizeof w);
+    for (int i = 0; i < 300; i++) {
+        memset(&in, 0, sizeof in);
+        in.now = 100 + i * 2.0; in.have_flips = true; in.drawn = 5000; in.flips = 5000;
+        CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    }
+    // frames drawn and no flip: the third sample after the last good one is 6 s on
+    memset(&w, 0, sizeof w);
+    memset(&in, 0, sizeof in);
+    in.have_flips = true; in.now = 100; in.drawn = 500; in.flips = 500;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 102; in.drawn = 530;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 104; in.drawn = 560;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 106; in.drawn = 590;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_FROZEN);
+    CHECK(strstr(why, "output frozen") && strstr(why, "90 frames") && strstr(why, "6 s"));
+    // a flip that lands in between is the all-clear
+    memset(&w, 0, sizeof w);
+    memset(&in, 0, sizeof in);
+    in.have_flips = true; in.now = 100; in.drawn = 500; in.flips = 500;
+    wd_step(&w, &in, why, sizeof why);
+    in.now = 104; in.drawn = 560;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 106; in.drawn = 590; in.flips = 501;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 110; in.drawn = 650;
+    CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);    // the clock restarted at the flip
+    // a trickle below 20 frames is no freeze, a set that is off is not frozen, and a screen without a flip counter is not asked
+    memset(&w, 0, sizeof w);
+    memset(&in, 0, sizeof in);
+    in.have_flips = true; in.now = 0; in.drawn = 10; in.flips = 10;
+    wd_step(&w, &in, why, sizeof why);
+    for (int i = 1; i <= 9; i++) { in.now = i * 2.0; in.drawn += 1; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK); }
+    memset(&w, 0, sizeof w);
+    memset(&in, 0, sizeof in);
+    in.have_flips = true; in.power_known = true; in.power_active = false; in.now = 0; in.drawn = 10; in.flips = 10;
+    wd_step(&w, &in, why, sizeof why);
+    for (int i = 1; i <= 9; i++) { in.now = i * 2.0; in.drawn += 100; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK); }
+    memset(&w, 0, sizeof w);
+    memset(&in, 0, sizeof in);
+    for (int i = 1; i <= 9; i++) { in.now = i * 2.0; in.drawn += 100; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK); }
+    // nothing mapped while the set is on: 45 s, restarted by a window, by the set going off or by not knowing
+    memset(&w, 0, sizeof w);
+    memset(&in, 0, sizeof in);
+    in.have_windows = true; in.power_known = true; in.power_active = true; in.mapped = 0;
+    in.now = 1000; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 1044; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 1046; CHECK(wd_step(&w, &in, why, sizeof why) == WD_BLANK);
+    CHECK(strstr(why, "nothing on the panel") && strstr(why, "46 s"));
+    memset(&w, 0, sizeof w);
+    in.now = 2000; wd_step(&w, &in, why, sizeof why);
+    in.now = 2040; in.mapped = 1; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 2041; in.mapped = 0; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 2080; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);          // 39 s since the window left
+    in.now = 2087; CHECK(wd_step(&w, &in, why, sizeof why) == WD_BLANK);
+    memset(&w, 0, sizeof w);
+    in.now = 3000; in.mapped = 0; wd_step(&w, &in, why, sizeof why);
+    in.now = 3030; in.power_active = false; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 3100; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);          // a standby of any length
+    in.now = 3101; in.power_active = true; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);   // the 45 s start again at the wake
+    in.now = 3140; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);
+    in.now = 3147; CHECK(wd_step(&w, &in, why, sizeof why) == WD_BLANK);
+    memset(&w, 0, sizeof w);
+    in.power_known = false; in.now = 4000; wd_step(&w, &in, why, sizeof why);
+    in.now = 4500; CHECK(wd_step(&w, &in, why, sizeof why) == WD_OK);          // tvpower never answered: no guess
+}
+
+static void test_status_parsing(void) {
+    // the shape of `ctl status` and `ctl windows` on the set (docs/research/compositor/slot-2026-10-25-1606/gate)
+    const char *status = "{\"buffers\":\"Driver\",\"check\":{\"bad\":0,\"ok\":0,\"unread\":0},\"clients\":[{\"bound\":[\"wl_compositor\"],\"cmd\":\"/usr/bin/WebAppMgr --flips 9\",\"pid\":3856,\"seconds\":156,\"uid\":505}],\"focus\":2,\"ok\":true,\"output\":\"kms\","
+        "\"stats\":{\"buffers\":0,\"callbacks\":3885,\"commits\":3890,\"drawn\":3902,\"frameImports\":3,\"prepared\":4,\"releases\":3881,\"renderUsLast\":252,\"renderUsMax\":11134,\"requests\":15720,\"skipped\":0,\"ticks\":9618},"
+        "\"summary\":\"uptime 159.8s clients 3 (total 8) surfaces 5 windows 2 requests 15720 commits 3890 buffers 0 ticks 9618 drawn 3902 callbacks 3885 releases 3881 skipped 0 gl errors 0 render last 252 us max 11134 us prepared 4 frame imports 3 check ok 0 bad 0 unread 0 flips 3902 late 4 lost 5197 direct 0 odd stamps 7\"}";
+    struct wd_in in;
+    memset(&in, 0, sizeof in);
+    parse_status(status, &in);
+    CHECK(in.have_flips && in.drawn == 3902 && in.flips == 3902);
+    // the offscreen renderer's summary has no flips: nothing to compare
+    const char *offscreen = "{\"stats\":{\"drawn\":17,\"ticks\":3},\"summary\":\"uptime 2.0s clients 1 ticks 3 drawn 17 check ok 0 bad 0 unread 0\"}";
+    memset(&in, 0, sizeof in);
+    parse_status(offscreen, &in);
+    CHECK(!in.have_flips);
+    memset(&in, 0, sizeof in);
+    parse_status("", &in);
+    CHECK(!in.have_flips);
+    const char *windows = "{\"groups\":[],\"ok\":true,\"video\":[],\"windows\":[{\"appId\":\"com.webos.app.home\",\"id\":2,\"keyMask\":4286578682,\"mapped\":true,\"position\":[0,0]},{\"appId\":\"com.webos.app.hdmi2\",\"id\":3,\"keyMask\":1,\"mapped\":false,\"position\":[0,0]}]}";
+    CHECK(count_mapped(windows) == 1);
+    CHECK(count_mapped("{\"ok\":true,\"windows\":[]}") == 0);
+    CHECK(count_mapped("{\"windows\":[{\"mapped\":true},{\"mapped\":true},{\"mapped\":false}]}") == 2);
+}
+
+static pid_t serve(const char *dir, int mode) {
+    // mode 0: answer at once; 1: answer in two pieces 80 ms apart; 2: accept and stay silent; 3: a reply with no newline
+    char path[300];
+    struct sockaddr_un a = { .sun_family = AF_UNIX };
+    snprintf(path, sizeof path, "%s/lumatv-control", dir);
+    unlink(path);
+    snprintf(a.sun_path, sizeof a.sun_path, "%s", path);
+    int ls = socket(AF_UNIX, SOCK_STREAM, 0);
+    CHECK(ls >= 0 && bind(ls, (struct sockaddr *)&a, sizeof a) == 0 && listen(ls, 4) == 0);
+    pid_t p = fork();
+    if (p == 0) {
+        int c = accept(ls, NULL, NULL);
+        char cmd[64] = "";
+        ssize_t n = c >= 0 ? read(c, cmd, sizeof cmd - 1) : -1;
+        if (n > 0) cmd[n] = 0;
+        if (mode == 0) dprintf(c, "{\"ok\":true,\"cmd\":\"%.*s\"}\n", (int)strcspn(cmd, "\n"), cmd);
+        else if (mode == 1) { dprintf(c, "{\"ok\":true,"); usleep(80000); dprintf(c, "\"x\":1}\n"); }
+        else if (mode == 2) usleep(1500000);
+        else if (mode == 3) { for (int i = 0; i < 40; i++) dprintf(c, "0123456789"); usleep(300000); }
+        _exit(0);
+    }
+    close(ls);
+    return p;
+}
+
+static void test_control_query(void) {
+    fresh_state();
+    char out[512];
+    CHECK(control_query(tdir, "status", out, sizeof out, 150) == -1);          // nobody listens
+    pid_t p = serve(tdir, 0);
+    int n = control_query(tdir, "status", out, sizeof out, 500);
+    CHECK(n > 0 && !strcmp(out, "{\"ok\":true,\"cmd\":\"status\"}"));
+    waitpid(p, NULL, 0);
+    p = serve(tdir, 1);
+    n = control_query(tdir, "windows", out, sizeof out, 500);
+    CHECK(n > 0 && !strcmp(out, "{\"ok\":true,\"x\":1}"));                     // a reply that arrives in two pieces
+    waitpid(p, NULL, 0);
+    p = serve(tdir, 2);
+    double t0 = mono_now();
+    n = control_query(tdir, "status", out, sizeof out, 150);
+    double took = mono_now() - t0;
+    CHECK(n == -1 && took >= 0.14 && took < 0.5);                             // a stuck compositor costs one bounded wait
+    kill(p, SIGKILL);
+    waitpid(p, NULL, 0);
+    p = serve(tdir, 3);
+    char small[64];
+    n = control_query(tdir, "status", small, sizeof small, 500);
+    CHECK(n == 63 && strlen(small) == 63);                                     // a reply with no newline fills the buffer and stops
+    kill(p, SIGKILL);
+    waitpid(p, NULL, 0);
+}
+
+static void test_home(void) {
+    struct home h = { 0 };
+    CHECK(!home_due(&h, 100));
+    home_event(&h, KEY_HOMEPAGE, 1, 100.0);
+    CHECK(!home_due(&h, 100.0) && !home_due(&h, 100.6) && home_due(&h, 100.65) && home_due(&h, 105));
+    home_event(&h, KEY_HOMEPAGE, 2, 100.5);                                    // a repeat does not restart the hold
+    CHECK(home_due(&h, 100.65));
+    home_event(&h, KEY_HOMEPAGE, 0, 100.7);
+    CHECK(!home_due(&h, 105));                                                // a release ends it
+    home_event(&h, KEY_ENTER, 1, 200.0);
+    CHECK(!home_due(&h, 205));                                                // other keys do not count
+    home_event(&h, KEY_HOME, 1, 300.0);                                       // the older code counts as well
+    CHECK(home_due(&h, 300.7));
+    home_event(&h, KEY_HOME, 0, 300.3);
+    CHECK(!home_due(&h, 301));                                                // a tap is not a hold
+    CHECK(name_is_network_keys("Smart Remote RCU Input") && name_is_network_keys("LGE Network Input"));
+    CHECK(!name_is_network_keys("LGE RCU") && !name_is_network_keys("LGE M-RCU - Builtin [0]"));
+    // no event nodes, or ones that are no input devices: Home is not held, and nothing is waited for
+    fresh_state();
+    char dir[320];
+    snprintf(dir, sizeof dir, "%s/input", tdir);
+    mkdir(dir, 0755);
+    input_dir = strdup(dir);
+    double t0 = mono_now();
+    CHECK(!home_held_for(700) && mono_now() - t0 < 0.1);
+    put("input/event0", "not a device");
+    put("input/mouse0", "not an event node");
+    int fds[MAX_INPUTS];
+    CHECK(open_inputs_all(fds, MAX_INPUTS) == 1);
+    CHECK(!input_home_down(fds[0]));
+    close(fds[0]);
+    t0 = mono_now();
+    CHECK(!home_held_for(700) && mono_now() - t0 < 0.1);
+}
+
+static void test_log_rotation(void) {
+    fresh_state();
+    put("sm.log", "short\n");
+    rotate_log();
+    CHECK(has("sm.log") && !has("sm.log.old"));
+    char *big = malloc(300 * 1024);
+    memset(big, 'x', 300 * 1024 - 1);
+    big[300 * 1024 - 1] = 0;
+    put("sm.log", big);
+    free(big);
+    rotate_log();
+    CHECK(!has("sm.log") && has("sm.log.old"));
+}
+
+int main(void) {
+    test_json();
+    test_decide();
+    test_running_marker();
+    test_watchdog();
+    test_status_parsing();
+    test_control_query();
+    test_home();
+    test_log_rotation();
+    for (int i = 0; i < nmade; i++) { char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", made[i]); if (system(cmd) != 0) failures_seen++; }
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
     return failures_seen ? 1 : 0;
 }
 #else
 int main(int argc, char **argv) {
     saved_argv = argv;
+    bool would_run = false, home_held = false;
+    int home_ms = 700;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--dry-run")) dry_run = true;
         else if (!strcmp(argv[i], "--probe")) probe = true;
         else if (!strcmp(argv[i], "--state") && i + 1 < argc) state_dir = argv[++i];
         else if (!strcmp(argv[i], "--print-fingerprint")) { char fp[17]; fingerprint(fp); printf("%s\n", fp); return 0; }
+        else if (!strcmp(argv[i], "--would-run")) would_run = true;
+        else if (!strcmp(argv[i], "--home-held")) { home_held = true; if (i + 1 < argc && isdigit((unsigned char)argv[i + 1][0])) home_ms = atoi(argv[++i]); }
     }
+    // The two questions the early boot hook asks before it mounts anything: read-only, no log, no state written.
+    if (would_run) {
+        struct verdict v;
+        decide(&v);
+        if (v.run) { printf("run\n"); return 0; }
+        printf("no %s: %s\n", v.word, v.why);
+        return 3;
+    }
+    if (home_held) return home_held_for(home_ms) ? 0 : 1;
     mkdir(state_dir, 0755);
+    rotate_log();
     logf = fopen(path_in_state("sm.log"), "a");
-    started_at = time(NULL);
+    started_mono = mono_now();
     signal(SIGPIPE, SIG_IGN);
     if (probe) {
         char exe[256] = "?";
@@ -843,28 +1698,45 @@ int main(int argc, char **argv) {
         return probe_buses();
     }
 
-    // 1. Decide.
+    // 1. Decide. A run that never settled or ended cleanly is counted first, so the decision sees it.
+    if (!dry_run) consume_unclean();
     char fp[17];
     fingerprint(fp);
     char want[64] = "";
     FILE *f = fopen(path_in_state("fingerprint"), "r");
     if (f) { if (fscanf(f, "%63s", want) != 1) want[0] = 0; fclose(f); }
     long failures = read_number(path_in_state("failures"), 0);
-    logline("start: enabled %d fingerprint %s (verified %s) failures %ld escaped %d dry-run %d", file_exists(path_in_state("enabled")), fp, want[0] ? want : "none", failures, file_exists(path_in_state("escaped")), dry_run);
+    logline("start: enabled %d fingerprint %s (verified %s) failures %ld escaped %d dry-run %d flag %d on-verified-list %d", file_exists(path_in_state("enabled")), fp, want[0] ? want : "none", failures, file_exists(path_in_state("escaped")), dry_run, (int)read_flag(), verified_has(fp));
     if (!dry_run) {
-        if (!file_exists(path_in_state("enabled"))) fallback("not enabled", false);
-        if (file_exists(path_in_state("escaped"))) fallback("escape recorded; re-enable from the tool", false);
-        if (strcmp(fp, want) != 0) fallback("firmware fingerprint differs from the verified one", false);
-        if (failures >= 2) fallback("two consecutive failures", false);
+        struct verdict v;
+        decide(&v);
+        if (!v.run) fallback(v.why, false);
+        // Home held down at this moment (a boot with the key held, a restart under a hand on it) is the escape
+        // before anything of LumaTV's has started: nothing of LG's has been disturbed, so it is a plain hand-back.
+        if (home_held_for(700)) {
+            write_text(path_in_state("escaped"), "hold Home at start");
+            fallback("hold Home at start", false);
+        }
+        snprintf(running_path, sizeof running_path, "%s", path_in_state("running"));
+        mark_running();
+        signal(SIGTERM, on_term);
+        signal(SIGINT, on_term);
     }
 
-    // 2 and 3. Supervise and bridge. From here a fallback also brings LG's Home back (spawn_recovery).
+    // 2 to 4. Supervise, hold Home, bridge. From here a fallback also brings LG's Home back (spawn_recovery).
     supervising = true;
+    for (int i = 0; i < MAX_INPUTS; i++) inputs[i].fd = -1;
     loop = g_main_loop_new(NULL, 0);
     open_bridge();
     register_buses();
     spawn_compositor();
     g_timeout_add(500, on_heartbeat, NULL);
+    if (!dry_run) {
+        last_report = mono_now();
+        scan_inputs();
+        g_timeout_add(100, on_home_timer, NULL);
+        g_timeout_add(2000, on_progress, NULL);
+    }
     g_main_loop_run(loop);
     return 0;
 }
