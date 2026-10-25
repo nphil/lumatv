@@ -1,0 +1,14 @@
+# name|profile|what it removes|what it costs
+# profile: ads = applied by `on ads` and `on lean`; lean = only by `on lean`;
+# opt = only when named with --group.
+uploaders|ads|log, crash and diagnostic uploaders|nothing the set is used for; local logging stays
+ads|ads|ad, content-recognition and promotion services|LG promotional tiles and sports alerts stop
+push|ads|server push chain: sdx, push client, nudges|no LG nudges, no server-pushed app list, no server-set promotions
+settings|ads|telemetry, ad and promotion switches in LG's settings store|none; every value is restored exactly by off
+apps|ads|the two server-pushed stub apps and their re-install entries|8 Ball Pool and LG Movies & TV are gone from the launcher
+voice|lean|voice assistants, voice input, Google Home, AI inference|Magic Remote microphone button and LG/Alexa/ThinQ voice stop working
+connectivity|lean|iconnectivity (IoT/ThinQ discovery), rule engine, IoT clients|LG ThinQ app control of the set stops
+share|lean|AirPlay, Miracast, DLNA/UPnP, app casting, TV Link, My Car, fitness|casting from phones through these protocols stops; DIAL (YouTube/Netflix cast) and Chromecast stay
+misc|lean|printing sockets|none
+livetv|opt|the broadcast TV stack|Live TV and the programme guide stop working
+cast|opt|Chromecast built-in|Home Assistant's Cast session and Cast from phones stop

@@ -1,0 +1,106 @@
+# kind|group|name|arg|evidence
+# unit    name = systemd unit; stopped and masked in /run/systemd/system
+# luna    name = executable of an on-demand ls-hubd service, matched by path
+#         suffix against /proc/PID/exe (a jail prefixes the path). arg = stub:
+#         kill it and bind a do-nothing script over the file, so ls-hubd's next
+#         launch exits at once; kill: only kill it (services inside a jail, and
+#         shared interpreters, where a bind mount cannot or must not reach)
+# setting name = category.key in LG's settings service; arg = JSON value to hold
+# app     name = app id removed through appInstallService
+# Every name here was seen running or enabled on the set (docs/research/declutter-result.md).
+
+unit|uploaders|rdxd.service||diagnostics collector; rdx.lgtvcommon.com in the boot log
+unit|uploaders|remotelogger.service||ships logs to LG
+unit|uploaders|crashd.service||crash dump collector feeding the uploader
+unit|uploaders|service-logger.service||LG service usage logger
+unit|uploaders|faultmanager.service||fault watcher; 69 MB written to flash in 2.4 h; calls uploadd/uploadLog
+unit|uploaders|uploadd.service||already failed at boot (exit 1); masked so it stays down
+luna|uploaders|/usr/sbin/uploadd|stub|on-demand uploader, launched by faultmanager
+
+unit|ads|contentminer.service||fetches the server app list (RequestServerInfo) and mines content data
+luna|ads|/usr/sbin/admanager|stub|ad manager; US.info.lgsmartad.com in the boot log
+luna|ads|/usr/sbin/adoverlay-service|stub|ad overlay
+luna|ads|/usr/sbin/acr2|stub|content recognition; launched at every boot although consent is off
+luna|ads|/usr/sbin/sportsalarm|stub|sports alarm nudges
+luna|ads|/usr/sbin/pbs|stub|promotion banner prefetch; 190 MB written to flash in 2.4 h, pluto.tv images
+
+unit|push|com.webos.service.pushclient.service||AWS IoT MQTT push channel (port 8883, iot.us-west-2.amazonaws.com)
+unit|push|nudge.service||nudge engine
+unit|push|user-context-manager.service||feeds nudge; only nudge requires it
+unit|push|iot-client.service||already failed at boot (exit 127); masked so it stays down
+luna|push|/usr/sbin/sdx|stub|server config and app-list authentication (nextlgsdp.com); sdx_auth gates the app sync
+luna|push|/usr/sbin/sdp-server-notice|stub|server notice client
+
+setting|settings|option.livePlus|"off"|Live Plus content recognition
+setting|settings|option.livePromotion|"off"|live promotion
+setting|settings|option.promotionStreamer|"off"|promotion streamer
+setting|settings|option.webOSPromotionVideo|"off"|promotion video
+setting|settings|option.watchedListCollection|"off"|viewing history collection
+setting|settings|option.thirdPartyCookie|"off"|third-party cookies
+setting|settings|option.dbgLogUpload|false|debug log upload
+setting|settings|option.usageCare|false|usage statistics
+setting|settings|general.adCookie|"off"|ad cookie
+setting|settings|general.homePromotion|"off"|home promotion
+setting|settings|general.screenSaverAd|"off"|screen saver ads
+setting|settings|general.customizedAd|"off"|personalised ads
+setting|settings|general.sportsAlarm|"off"|sports alarm
+setting|settings|general.aiNudge|"off"|AI nudge
+setting|settings|general.aiSettingsNudge|"off"|settings nudge
+setting|settings|other.contentRecommendation|"off"|content recommendation
+
+app|apps|com.miniclip.eightballpool||stub installed 2026-10-13 03:47 by the boot-time app sync
+app|apps|com.lgtvod.us.app||LG Movies & TV, installed 2026-09-22 by the same sync
+
+unit|voice|voiceconductor.service||voice assistant conductor; spawns performer, ThinQ AI, Alexa adapters
+unit|voice|voiceinput.service||voice input
+unit|voice|google-home-controller.service||Google Home controller
+unit|voice|ai-inference-manager.service||NPU inference manager, idle in Filmmaker mode
+unit|voice|nais.service||AI inference service
+luna|voice|/usr/sbin/nlpmanager|stub|natural language manager
+luna|voice|/usr/sbin/trigger_alexa|stub|Alexa wake trigger
+luna|voice|/usr/sbin/trigger_thinq|stub|ThinQ wake trigger
+luna|voice|/usr/sbin/voiceclick|stub|voice click
+luna|voice|/usr/sbin/voiceinput_sound|stub|voice input sound
+luna|voice|/usr/sbin/voiceinput_network|stub|voice input network
+luna|voice|/usr/sbin/voiceinput_hidraw|stub|voice input remote microphone
+luna|voice|/usr/sbin/voiceinput_preprocessor|stub|voice preprocessor; 25 MB of it sits in swap
+luna|voice|/usr/sbin/tts|stub|text to speech
+luna|voice|/usr/sbin/performer|kill|voice performer (jailed)
+luna|voice|/usr/sbin/amazon-alexa-adapter|kill|Alexa adapter (jailed); 16 MB resident, AVS connection
+luna|voice|/usr/sbin/lg.thinqai.adapter|kill|ThinQ AI adapter (jailed)
+luna|voice|/usr/palm/services/com.webos.ghp.runtime/com.webos.ghp.runtime|kill|Google Home runtime (jailed)
+
+unit|connectivity|com.webos.service.ruleengine.service||home rule engine; starts iot-client
+luna|connectivity|/usr/sbin/iconnectivity|stub|IoT discovery; 19.8 MB resident, 260 s of CPU in 2.4 h, 3 670 boot log lines
+luna|connectivity|/usr/palm/services/com.webos.service.buddyconnector/com.webos.service.buddyconnector|kill|ThinQ buddy connector
+luna|connectivity|/usr/bin/iotjs|kill|family care IoT service
+
+unit|share|miracast.service||Miracast sink
+unit|share|airplay-adaptor.service||AirPlay adaptor
+unit|share|dmr.service||DLNA renderer
+unit|share|appcasting.service||app casting
+unit|share|com.webos.service.mycar.service||My Car
+unit|share|ftms.service||Bluetooth fitness machine service
+unit|share|tvlinkcmdprocessor.service||TV Link
+unit|share|tvlink-network-proxy.service||TV Link network proxy
+luna|share|/usr/sbin/airplay|stub|AirPlay receiver
+luna|share|/usr/sbin/upnpd|stub|UPnP/DLNA; ten random listening ports
+luna|share|/usr/sbin/mfi|stub|Apple MFi
+
+unit|misc|cups.path||printing
+unit|misc|cups.socket||printing, listens on port 631
+unit|misc|cups-lpd.socket||line printer daemon, listens on port 515
+
+unit|livetv|utp.service||UTP broadcast stack
+unit|livetv|iepg.service||programme guide
+unit|livetv|dmost.service||broadcast media
+unit|livetv|hybridtv-manager.service||HbbTV
+unit|livetv|broadcast-systemui-manager.service||broadcast UI manager
+unit|livetv|broadcast-conf-downloader.service||broadcast configuration download
+unit|livetv|multiviewcontroller.service||multi-view
+unit|livetv|com.webos.app.multiview.service||multi-view app service
+luna|livetv|/usr/sbin/legacy-broadcast-atsc|stub|ATSC tuner service; 7 MB resident, 84 s of CPU in 2.4 h
+
+unit|cast|chromecast-provisioning.service||Chromecast provisioning; launches the Cast cell
+luna|cast|/usr/palm/services/com.webos.chromecast.cell/com.webos.chromecast.cell|kill|Chromecast cell (jailed)
+luna|cast|/usr/palm/services/com.webos.chromecast.log/com.webos.chromecast.log|kill|Chromecast log
