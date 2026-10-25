@@ -14,7 +14,7 @@
 //! what is queued for a plugin that does not read is capped at 256 frames and 1 MiB, at which the connection ends.
 
 use super::roster::Roster;
-use super::session::{Outlet, Reply, Session, Shared};
+use super::session::{Outlet, Reply, Session, Shared, wire_body};
 use parking_lot::Mutex;
 use plugin_api::limits::{MESSAGES_PER_S, OUTBOX_BYTES, OUTBOX_FRAMES, RATE_STRIKES};
 use plugin_api::transport::{Inbox, Read};
@@ -56,6 +56,7 @@ pub struct ConnCtl {
     tx: Mutex<Option<SyncSender<Vec<u8>>>>,
     queued: AtomicUsize,
     closed: AtomicBool,
+    shared: Arc<Shared>,
     plugin: Mutex<Option<String>>,
 }
 
@@ -82,7 +83,10 @@ impl Outlet for ConnCtl {
         if self.closed.load(Ordering::SeqCst) {
             return false;
         }
-        let body = serde_json::to_vec(&message).expect("plain data serializes");
+        let device = matches!(message, ToPlugin::Welcome(_))
+            .then(|| self.shared.device_facts())
+            .flatten();
+        let body = wire_body(&message, device);
         let Ok(frame) = plugin_api::frame::encode(&body) else {
             return false;
         };
@@ -338,6 +342,7 @@ fn accept_loop(inner: &Arc<Inner>, listener: &UnixListener) {
         }
         let (tx, rx) = sync_channel::<Vec<u8>>(OUTBOX_FRAMES);
         let ctl = Arc::new(ConnCtl {
+            shared: inner.shared.clone(),
             stream: copy,
             wake_tx,
             tx: Mutex::new(Some(tx)),

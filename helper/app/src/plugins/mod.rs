@@ -74,6 +74,13 @@ impl Plugins {
             Duration::from_secs(cfg.answer_seconds),
             Arc::new(crate::timeutil::now_ms),
         );
+        {
+            let config = ctx.config.clone();
+            shared.set_device_source(Arc::new(move || {
+                crate::device::facts(&config.device, std::path::Path::new(&config.ai.sys_input_dir))
+                    .to_json()
+            }));
+        }
         let wake = Arc::new(Wake {
             pending: Mutex::new(false),
             changed: Condvar::new(),

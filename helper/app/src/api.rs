@@ -59,6 +59,11 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1/news", "the news topic"),
     (
         "GET",
+        "/v1/device",
+        "what this device is: its screen class and how a person drives it (what plugins are told in welcome)",
+    ),
+    (
+        "GET",
         "/v1/events",
         "long poll: ?after=<seq>&boot=<boot>&timeout=<seconds, max 30>&topics=<a,b>",
     ),
@@ -197,6 +202,14 @@ struct ApplyBody {
 impl Api {
     fn ok(&self, body: Value) -> Response {
         Response::json(200, &envelope(body, now_ms()))
+    }
+
+    /// The facts plugins are told in `welcome`, as they stand now (a game controller that is plugged in shows).
+    fn device(&self) -> Response {
+        match self.plugins.shared().device_facts() {
+            Some(device) => self.ok(json!({"device": device})),
+            None => error_response(404, "no_device_facts", "this helper has no device facts"),
+        }
     }
 
     fn helper_info(&self, now: u64) -> Value {
@@ -400,6 +413,7 @@ impl Handler for Api {
             ["v1", "state", topic] if get => self.topic(topic),
             ["v1", name @ ("screen" | "receiver" | "weather" | "news")] if get => self.topic(name),
             ["v1", "events"] if get => self.events(request),
+            ["v1", "device"] if get => self.device(),
             ["v1", "receiver", "nudge"] if post => {
                 let _ = self.receiver_tx.send(receiver::Cmd::Nudge);
                 self.ok(json!({"requested": true}))
@@ -437,6 +451,7 @@ fn is_known_path(segments: &[&str]) -> bool {
                     | "receiver"
                     | "weather"
                     | "news"
+                    | "device"
             ]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
@@ -591,6 +606,19 @@ mod tests {
                 String::from_utf8_lossy(&r.body)
             );
         }
+    }
+
+    #[test]
+    fn the_device_route_serves_what_a_plugin_is_told() {
+        let rig = rig();
+        let b = body(&rig.api.handle(&request("GET", "/v1/device", "")));
+        assert_eq!(b["ok"], true);
+        assert_eq!(b["device"]["screen"]["class"], "tv");
+        assert_eq!(b["device"]["screen"]["width"], 1920);
+        // The same facts the broker puts in welcome (a controller may have been plugged in between, hence only the fixed part).
+        assert_eq!(b["device"]["input"][0], "remote");
+        let r = rig.api.handle(&request("POST", "/v1/device", ""));
+        assert_eq!(r.status, 405);
     }
 
     #[test]

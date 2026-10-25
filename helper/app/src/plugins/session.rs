@@ -47,6 +47,27 @@ pub const MAX_FACT_LINE: usize = 160;
 /// Settings transactions and actions waiting for an answer, at most, per plugin.
 const MAX_OUTSTANDING: usize = plugin_api::limits::MAX_OUTSTANDING;
 
+/// Where the facts about this device come from (`device.rs`): asked each time a plugin says hello, because a controller comes and
+/// goes.
+pub type DeviceSource = Arc<dyn Fn() -> Json + Send + Sync>;
+
+/// What goes on the wire for `message`: the contract's own JSON, and for `welcome` the device facts as the additive field
+/// `device`. LumaShow's plugin API changes only by addition inside a level (a message may gain optional fields and a receiver
+/// skips one it does not know), so a plugin built on the shared crate as it is reads the welcome it always did, and one that wants
+/// to adapt to the device finds the facts beside it.
+pub fn wire_body(message: &ToPlugin, device: Option<Json>) -> Vec<u8> {
+    match (message, device) {
+        (ToPlugin::Welcome(_), Some(device)) => {
+            let mut value = serde_json::to_value(message).expect("plain data serializes");
+            if let Some(map) = value.as_object_mut() {
+                map.insert("device".to_owned(), device);
+            }
+            serde_json::to_vec(&value).expect("plain data serializes")
+        }
+        _ => serde_json::to_vec(message).expect("plain data serializes"),
+    }
+}
+
 /// How the helper speaks to a plugin from any thread. `false`: the plugin cannot be reached (the connection is going away).
 pub trait Outlet: Send + Sync {
     fn send(&self, message: ToPlugin) -> bool;
@@ -104,6 +125,7 @@ pub struct Shared {
     live: Mutex<BTreeMap<String, Arc<Live>>>,
     counter: AtomicU64,
     roster: Mutex<RosterView>,
+    device: Mutex<Option<DeviceSource>>,
 }
 
 #[derive(Default)]
@@ -167,11 +189,23 @@ impl Shared {
             live: Mutex::new(BTreeMap::new()),
             counter: AtomicU64::new(1),
             roster: Mutex::new(RosterView::default()),
+            device: Mutex::new(None),
         })
     }
 
     pub fn now_ms(&self) -> u64 {
         (self.now_ms)()
+    }
+
+    /// Says where the device facts for `welcome` come from.
+    pub fn set_device_source(&self, source: DeviceSource) {
+        *self.device.lock() = Some(source);
+    }
+
+    /// The device facts now, if a source was given.
+    pub fn device_facts(&self) -> Option<Json> {
+        let source = self.device.lock().clone()?;
+        Some(source())
     }
 
     fn next(&self) -> u64 {
@@ -1169,5 +1203,48 @@ mod tests {
         let mut twice = Session::new(member(), shared, 3, Arc::new(Quiet));
         assert!(!say(&mut twice, json!({"t": "hello", "min": 1, "target": 1})).hangup);
         assert!(say(&mut twice, json!({"t": "hello", "min": 1, "target": 1})).hangup);
+    }
+
+    #[test]
+    fn only_the_welcome_gains_the_device_and_a_plugin_on_the_shared_crate_still_reads_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Arc::new(Hub::new(1));
+        let shared = Shared::new(
+            hub.clone(),
+            Arc::new(SettingsStore::new(dir.path(), hub)),
+            Duration::from_secs(10),
+            Arc::new(|| 0),
+        );
+        assert_eq!(shared.device_facts(), None, "no source, no facts");
+        shared.set_device_source(Arc::new(
+            || json!({"screen": {"class": "tv", "width": 1920, "height": 1080}, "input": ["remote"]}),
+        ));
+        let mut session = Session::new(member(), shared.clone(), 1, Arc::new(Quiet));
+        let welcome = say(&mut session, json!({"t": "hello", "min": 1, "target": 1}))
+            .messages
+            .remove(0);
+        let on_the_wire = wire_body(&welcome, shared.device_facts());
+        let doc: Json = serde_json::from_slice(&on_the_wire).unwrap();
+        assert_eq!(doc["t"], "welcome");
+        assert_eq!(doc["device"]["screen"]["class"], "tv");
+        assert_eq!(doc["device"]["input"], json!(["remote"]));
+        // The shared crate's own types do not know the field and read the message as they always did (the contract's
+        // change rule: a receiver skips a field it does not know).
+        let read: ToPlugin = serde_json::from_slice(&on_the_wire).unwrap();
+        assert_eq!(read, welcome);
+        // Nothing else gains it, and a welcome with no source is the contract's own JSON.
+        let refused = ToPlugin::Refused {
+            what: "x".into(),
+            code: "y".into(),
+            reason: "z".into(),
+        };
+        assert_eq!(
+            wire_body(&refused, shared.device_facts()),
+            serde_json::to_vec(&refused).unwrap()
+        );
+        assert_eq!(
+            wire_body(&welcome, None),
+            serde_json::to_vec(&welcome).unwrap()
+        );
     }
 }

@@ -88,6 +88,8 @@ pub struct Config {
     pub ai: AiConfig,
     /// The plugin broker. It exists only while `plugins/enabled.json` lists a plugin; these are only how it runs.
     pub plugins: PluginsConfig,
+    /// What the device is, told to plugins in `welcome` and served at `/v1/device` (the TV by default; see `device.rs`).
+    pub device: DeviceConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -112,6 +114,7 @@ impl Default for Config {
             luna: LunaConfig::default(),
             ai: AiConfig::default(),
             plugins: PluginsConfig::default(),
+            device: DeviceConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -355,6 +358,39 @@ impl Default for PluginsConfig {
     }
 }
 
+/// What the device is (`device.rs`): the TV unless `helper.json` says otherwise. The screen and the remote are facts of the
+/// device; a game controller is looked for in the kernel's input list each time it is asked.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct DeviceConfig {
+    /// A Lucent device profile: `tv`, `smart`, `phone`, `tablet` or `desktop`.
+    pub screen_class: String,
+    /// The logical pixels the UI is drawn in (the TV draws 1920 by 1080 and LG's scaler fills the panel).
+    pub width: u32,
+    pub height: u32,
+    pub touch: bool,
+    /// The D-pad remote.
+    pub remote: bool,
+    /// The Magic Remote's pointer. Its on/off switch is LG's (`general.remotePointer`); this says the TV has one.
+    pub pointer: bool,
+    /// Whether a connected game controller adds `controller` to the input methods.
+    pub detect_controllers: bool,
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            screen_class: "tv".to_owned(),
+            width: 1920,
+            height: 1080,
+            touch: false,
+            remote: true,
+            pointer: true,
+            detect_controllers: true,
+        }
+    }
+}
+
 /// The CA bundles a Linux image keeps, in the order they are tried when the config names none.
 pub const CA_BUNDLE_CANDIDATES: [&str; 5] = [
     fetch::IMAGE_CA_BUNDLE,
@@ -473,6 +509,16 @@ impl Config {
         if self.plugins.first_uid > u32::MAX - plugin_api::MAX_PLUGINS {
             return err("plugins.firstUid leaves no room for 64 plugin user ids");
         }
+        if !matches!(
+            self.device.screen_class.as_str(),
+            "tv" | "smart" | "phone" | "tablet" | "desktop"
+        ) {
+            return err("device.screenClass must be tv, smart, phone, tablet or desktop");
+        }
+        if !(1..=16_384).contains(&self.device.width) || !(1..=16_384).contains(&self.device.height)
+        {
+            return err("device.width and device.height are 1 to 16384");
+        }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");
         }
@@ -550,6 +596,27 @@ mod tests {
             r#"{"plugins":{"handshakeSeconds":61}}"#,
             r#"{"plugins":{"firstUid":4294967290}}"#,
             r#"{"plugins":{"enabled":true}}"#,
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_device_is_the_tv_unless_the_file_says_otherwise_and_nonsense_is_refused() {
+        let tv = Config::parse("{}").unwrap().device;
+        assert_eq!((tv.screen_class.as_str(), tv.width, tv.height), ("tv", 1920, 1080));
+        assert!(tv.remote && tv.pointer && tv.detect_controllers && !tv.touch);
+        let smart = Config::parse(
+            r#"{"device":{"screenClass":"smart","width":960,"height":480,"touch":true,"remote":false}}"#,
+        )
+        .unwrap()
+        .device;
+        assert!(smart.touch && !smart.remote);
+        for bad in [
+            r#"{"device":{"screenClass":"fridge"}}"#,
+            r#"{"device":{"width":0}}"#,
+            r#"{"device":{"height":100000}}"#,
+            r#"{"device":{"inputs":["remote"]}}"#,
         ] {
             assert!(Config::parse(bad).is_err(), "{bad}");
         }

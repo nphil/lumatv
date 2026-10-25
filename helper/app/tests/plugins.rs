@@ -819,3 +819,43 @@ fn bad_frames_unknown_types_and_floods_are_answered_and_bounded() {
         "the well-behaved connection was not touched"
     );
 }
+
+/// Reads one frame (a `u32` little-endian length, then that many bytes of JSON) from a plugin's socket.
+fn read_frame(stream: &mut UnixStream) -> Value {
+    let mut length = [0u8; 4];
+    stream.read_exact(&mut length).unwrap();
+    let mut body = vec![0u8; u32::from_le_bytes(length) as usize];
+    stream.read_exact(&mut body).unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[test]
+fn the_welcome_tells_the_plugin_what_device_it_is_on_and_the_api_says_the_same() {
+    let (mut rig, socket) = PluginRig::prepare();
+    let config = test_config(json!({
+        "plugins": {"socket": socket, "rescanSeconds": 1, "handshakeSeconds": 2, "answerSeconds": 1, "firstUid": my_uid()},
+        "device": {"pointer": false, "detectControllers": false}
+    }));
+    rig.start(config, Script::new());
+    let rig = PluginRig { rig, socket };
+    rig.switch_on("hello", r#""cards""#);
+    // A plugin built on the shared crate reads the welcome as it always did, whatever is added beside it.
+    let plugin = rig.connect();
+    assert_eq!(plugin.welcome().id, "hello");
+
+    let mut raw = UnixStream::connect(&rig.socket).unwrap();
+    let hello = br#"{"t":"hello","min":1,"target":1}"#;
+    let mut frame = (hello.len() as u32).to_le_bytes().to_vec();
+    frame.extend_from_slice(hello);
+    raw.write_all(&frame).unwrap();
+    raw.set_read_timeout(Some(WAIT)).unwrap();
+    let welcome = read_frame(&mut raw);
+    assert_eq!(welcome["t"], "welcome");
+    assert_eq!(welcome["api"], 1);
+    let device = json!({"screen": {"class": "tv", "width": 1920, "height": 1080}, "input": ["remote"]});
+    assert_eq!(welcome["device"], device);
+
+    let served = get(rig.rig.addr, "/v1/device").json();
+    assert_eq!(served["ok"], true);
+    assert_eq!(served["device"], device);
+}
