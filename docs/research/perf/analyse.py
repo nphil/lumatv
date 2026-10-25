@@ -347,6 +347,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         bstarts = [x[0] for x in bursts]
         anim = []
         anim_t = []       # presentation time of each animated frame, parallel to anim
+        anim_late = []    # parallel to anim: the previous presented frame was animated too
         timer = []
         for i in range(1, len(fr)):
             f0, f1 = fr[i - 1][0], fr[i][0]
@@ -363,6 +364,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
                 x, y = max(fused, key=lambda p: p[1] - p[0])
                 anim.append(((f1 - f0) * 1000, (y - x) * 1000 - 0.7))
                 anim_t.append(f1)
+                anim_late.append(len(anim_t) > 1 and anim_t[-2] == f0)
                 continue
             if not after:
                 timer.append(((f1 - f0) * 1000, 0.0))
@@ -374,14 +376,20 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             if idle is not None and idle < 7.5:
                 anim.append(rec)
                 anim_t.append(f1)
+                anim_late.append(len(anim_t) > 1 and anim_t[-2] == f0)
             else:
                 timer.append(rec)
         w['anim_frames'] = len(anim)
         w['dropped'] = sum(1 for iv, r in anim if iv > 20)
+        # A frame over 20 ms that follows another animated frame is a miss inside a running
+        # animation; the first animated frame after an idle gap is late by construction (the update
+        # that starts it fires when the key does) and is not counted here.
+        w['dropped_in_motion'] = sum(1 for (iv, r), late in zip(anim, anim_late) if iv > 20 and late)
         w['dropped_pct'] = round(100.0 * w['dropped'] / len(anim), 1) if anim else 0
         w['timer_frames'] = len(timer)
         rends = sorted(r for iv, r in anim)
         w['anim_render_ms'] = {'median': round(rends[len(rends) // 2], 2), 'p90': round(rends[int(0.9 * (len(rends) - 1))], 2), 'max': round(rends[-1], 2)} if rends else None
+        w['anim_render_samples'] = [round(r, 2) for iv, r in anim]
         w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > 20)[-12:]
 
         # The burst that starts at the window's marker: the response to the key
@@ -393,6 +401,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         w['burst_over20'] = bu['over20']
         b_rends = sorted(r for (iv, r), t in zip(anim, anim_t) if bu['frames'] and bu['first_t'] < t <= bu['last_t'])
         w['burst_anim_p90_ms'] = round(b_rends[int(0.9 * (len(b_rends) - 1))], 2) if b_rends else None
+        w['burst_anim_samples'] = [round(r, 2) for r in b_rends]
 
         for i, x in enumerate(ivals):
             if x <= gap_ms:

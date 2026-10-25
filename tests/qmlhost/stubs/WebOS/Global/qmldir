@@ -1,0 +1,2 @@
+module WebOS.Global
+singleton WebOS 1.0 WebOS.qml
