@@ -40,6 +40,8 @@ pub struct Config {
     pub log_protocol: bool,
     pub width: u32,
     pub height: u32,
+    /// The panel's pixels: videooutputd places video in them, not in the output's (a 4K panel under a 1080p output).
+    pub panel: (u32, u32),
     pub tick_ns: u64,
     pub control: bool,
     pub exit_on_disconnect: bool,
@@ -69,6 +71,7 @@ impl Default for Config {
             log_protocol: false,
             width: crate::OUTPUT_WIDTH,
             height: crate::OUTPUT_HEIGHT,
+            panel: (3840, 2160),
             tick_ns: 16_666_667,
             control: true,
             exit_on_disconnect: false,
@@ -95,6 +98,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --starfish             also advertise wl_starfish_pointer/output (WebAppMgr binds them on LG's compositor)
   --log-protocol         log every request
   --output WxH           output size (default 1920x1080)
+  --panel WxH            the panel's size, the space of videooutputd's display windows (default 3840x2160)
   --tick-hz HZ           frame tick (default 60)
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
@@ -157,6 +161,11 @@ impl Config {
                     let (w, h) = v.split_once('x').ok_or("--output WxH")?;
                     c.width = w.parse().map_err(|_| "--output")?;
                     c.height = h.parse().map_err(|_| "--output")?;
+                }
+                "--panel" => {
+                    let v = value()?;
+                    let (w, h) = v.split_once('x').ok_or("--panel WxH")?;
+                    c.panel = (w.parse().map_err(|_| "--panel")?, h.parse().map_err(|_| "--panel")?);
                 }
                 "--tick-hz" => {
                     let hz: f64 = value()?.parse().map_err(|_| "--tick-hz")?;

@@ -42,6 +42,8 @@ pub struct ForeignState {
     next_id: u32,
     pub exported: HashMap<String, Exported>,
     pub imported: HashMap<wayland_backend::server::ObjectId, Imported>,
+    /// Whether each element's last placement had a rectangle (`true`) or hid it (`false`).
+    placed: HashMap<String, bool>,
     next_token: u64,
 }
 
@@ -178,6 +180,8 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
                     e.props.retain(|(n, _)| *n != name);
                     e.props.push((name.clone(), value.clone()));
                 }
+                // Who drives the video mute (the app through these, or nobody) is what the next slot's journal shows.
+                state.journal(format!("foreign: {} property {name} = {value} ({} contexts)", data.window_id, contexts.len()));
                 for ctx in contexts {
                     let (uri, payload) = luna::video::set_property(&ctx, &name, &value);
                     state.luna_call(uri, payload);
@@ -189,9 +193,10 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
     }
 
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosExported, data: &ExportedData) {
+        state.foreign.placed.remove(&data.window_id);
         if let Some(e) = state.foreign.exported.remove(&data.window_id) {
             for ctx in &e.contexts {
-                let (uri, payload) = luna::video::set_display_window(ctx, None, &Rect::default(), None);
+                let (uri, payload) = luna::video::set_display_window(ctx, None, &Rect::default(), false, None);
                 state.luna_call(uri, payload);
             }
             state.scene.holes.retain(|h| h.surface != e.surface);
@@ -291,6 +296,15 @@ impl State {
         e.destination.translated(origin.0, origin.1)
     }
 
+    /// An output rectangle in the panel's pixels, the space videooutputd places video in (LG's compositor scales by the
+    /// panel's ratio: 3840x2160 for a full-screen video on the C4, 134,196 3584x1964 for the Plex player's window).
+    fn panel_rect(&self, r: &Rect) -> Rect {
+        let (pw, ph) = self.config.panel;
+        let (ow, oh) = (self.config.width.max(1) as i64, self.config.height.max(1) as i64);
+        let scale = |v: i32, p: u32, o: i64| (i64::from(v) * i64::from(p) / o) as i32;
+        Rect::new(scale(r.x, pw, ow), scale(r.y, ph, oh), scale(r.w, pw, ow), scale(r.h, ph, oh))
+    }
+
     fn exported_changed(&mut self, window_id: &str) {
         let Some(e) = self.foreign.exported.get(window_id) else { return };
         let (surface, dest, source, original, contexts) = (e.surface, e.destination, e.source, e.original, e.contexts.clone());
@@ -307,10 +321,18 @@ impl State {
                 res.destination_region_changed(dest.w.max(0) as u32, dest.h.max(0) as u32);
             }
         }
+        // Nothing to place until the element has a rectangle: LG's first placement carries the real one (0.5 s after the
+        // attach on the X4 Netflix capture), never an empty one. An element that empties its rectangle is hidden.
+        if contexts.is_empty() || (dest.is_empty() && self.foreign.placed.get(window_id).is_none_or(|placed| !placed)) {
+            return;
+        }
+        self.foreign.placed.insert(window_id.to_string(), !dest.is_empty());
+        let full_screen = out_rect.x <= 0 && out_rect.y <= 0 && out_rect.right() >= self.config.width as i32 && out_rect.bottom() >= self.config.height as i32;
+        let panel = self.panel_rect(&out_rect);
         for ctx in contexts {
             let (uri, payload) = match (original, source) {
-                (Some(o), Some(s)) => luna::video::set_crop_region(&ctx, &o, &s, &out_rect, None),
-                _ => luna::video::set_display_window(&ctx, source.as_ref(), &out_rect, None),
+                (Some(o), Some(s)) => luna::video::set_crop_region(&ctx, &o, &s, &panel, full_screen, None),
+                _ => luna::video::set_display_window(&ctx, source.as_ref(), &panel, full_screen, None),
             };
             self.luna_call(uri, payload);
         }
@@ -343,8 +365,9 @@ impl State {
                 None => e.contexts.clear(),
             }
         }
+        // Hidden: a 0x0 window, as LG's container hides a video ("Hidden : hide video. call setDisplayWindow 0x0").
         if let Some(c) = &ctx {
-            let (uri, payload) = luna::video::set_display_window(c, None, &Rect::default(), None);
+            let (uri, payload) = luna::video::set_display_window(c, None, &Rect::default(), false, None);
             self.luna_call(uri, payload);
         }
         self.exported_changed(window_id);

@@ -223,8 +223,12 @@ pub mod video {
         json!({"x": r.x, "y": r.y, "width": r.w, "height": r.h})
     }
 
-    pub fn set_display_window(context: &str, source: Option<&Rect>, destination: &Rect, app_output: Option<&Rect>) -> (String, Value) {
-        let mut p = json!({"displayOutput": rect(destination), "context": context, "fullScreen": false});
+    /// `displayOutput` is in the panel's pixels, not the compositor's: LG's compositor scales its 1080p rectangle by the
+    /// panel's ratio (the X4 captures of 2026-10-24: a full-screen video leaves videooutputd holding 3840x2160 and the
+    /// Plex player's window 134,196 3584x1964, twice its 1080p rectangle). `full_screen` is what LG sends when the
+    /// element covers the output.
+    pub fn set_display_window(context: &str, source: Option<&Rect>, destination: &Rect, full_screen: bool, app_output: Option<&Rect>) -> (String, Value) {
+        let mut p = json!({"displayOutput": rect(destination), "context": context, "fullScreen": full_screen});
         if let Some(s) = source {
             p["sourceInput"] = rect(s);
         }
@@ -234,9 +238,8 @@ pub mod video {
         ("luna://com.webos.service.videooutput/display/setDisplayWindow".into(), p)
     }
 
-    pub fn set_crop_region(context: &str, original: &Rect, source: &Rect, destination: &Rect, app_output: Option<&Rect>) -> (String, Value) {
-        let mut p =
-            json!({"originalInput": rect(original), "sourceInput": rect(source), "displayOutput": rect(destination), "context": context, "fullScreen": false});
+    pub fn set_crop_region(context: &str, original: &Rect, source: &Rect, destination: &Rect, full_screen: bool, app_output: Option<&Rect>) -> (String, Value) {
+        let mut p = json!({"originalInput": rect(original), "sourceInput": rect(source), "displayOutput": rect(destination), "context": context, "fullScreen": full_screen});
         if let Some(a) = app_output.filter(|a| a.w != 0 && a.h != 0) {
             p["appOutput"] = rect(a);
         }
@@ -294,10 +297,14 @@ mod tests {
 
     #[test]
     fn placement_payloads_match_lg() {
-        let (uri, p) = video::set_display_window("_ctx", None, &Rect::new(160, 0, 960, 540), None);
+        let (uri, p) = video::set_display_window("_ctx", None, &Rect::new(320, 0, 1920, 1080), false, None);
         assert!(uri.ends_with("/display/setDisplayWindow"));
-        assert_eq!(p["displayOutput"]["width"], 960);
+        assert_eq!(p["displayOutput"]["x"], 320);
+        assert_eq!(p["displayOutput"]["width"], 1920);
         assert_eq!(p["fullScreen"], false);
+        let (_, p) = video::set_display_window("_ctx", Some(&Rect::new(0, 0, 3840, 2160)), &Rect::new(0, 0, 3840, 2160), true, None);
+        assert_eq!(p["fullScreen"], true);
+        assert_eq!(p["sourceInput"]["width"], 3840);
         let (uri, p) = video::set_property("_ctx", "mute", "on");
         assert!(uri.contains("avmutemanager/setAvMute"));
         assert_eq!(p["muteOn"], true);

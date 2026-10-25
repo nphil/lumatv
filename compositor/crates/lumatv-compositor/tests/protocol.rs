@@ -180,6 +180,71 @@ fn a_covered_card_is_minimized_and_comes_back_when_it_asks_for_fullscreen_or_the
     assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
 }
 
+/// A preloaded app's window (LG's `launchHidden` preload: created, properties set, committed without a buffer, never
+/// asked for a state) relaunched to the front: its `set_state(fullscreen)` makes it the foreground card before it has a
+/// buffer, as LG's fullscreen container does, and SAM's subscribers learn it then (a preloaded app draws once SAM has
+/// it foreground; HDMI 2 never drew on the third gate, 2026-10-25). Its first buffer keeps it in front.
+#[test]
+fn a_preloaded_card_relaunched_is_the_foreground_before_its_first_buffer() {
+    use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
+    use serde_json::json;
+    let (fullscreen, minimized) = (WlState::Fullscreen as u32, WlState::Minimized as u32);
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let states = |s: &harness::ClientState, id: u32| -> Vec<u32> { s.states_of.iter().filter(|(w, _)| *w == id).map(|(_, st)| *st).collect() };
+    fn foreground(s: &mut lumatv_compositor::State) -> Vec<String> {
+        let info = s.luna_method("com.webos.surfacemanager", "getForegroundAppInfo", &json!({}), "com.webos.applicationManager").unwrap();
+        info["foregroundAppInfo"].as_array().unwrap().iter().map(|a| a["appId"].as_str().unwrap().to_string()).collect()
+    }
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    let home_id = home.webos.id().protocol_id();
+    let red = client.shm_buffer(1920, 1080, 0xffff_0000);
+    client.present(&home.surface, &red);
+    assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen]));
+
+    // Preloaded: the window exists without a buffer and asks for nothing; Home stays in front.
+    let hdmi = client.card("_WEBOS_WINDOW_TYPE_CARD", "HDMI2");
+    let hdmi_id = hdmi.webos.id().protocol_id();
+    hdmi.surface.commit();
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(server.eval(foreground), ["org.test.home"]);
+    assert!(states(&client.state, hdmi_id).is_empty());
+
+    // Relaunched: it asks for fullscreen, still without a buffer. It is the foreground card at once, Home is minimized.
+    hdmi.webos.set_state(fullscreen);
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| states(s, hdmi_id) == [fullscreen] && states(s, home_id) == [fullscreen, minimized]));
+    std::thread::sleep(Duration::from_millis(30));
+    let (fg, mapped, image) = server.eval(|s| {
+        let mapped = s.scene.windows().find(|w| w.title == "HDMI2").map(|w| w.map_serial > 0).unwrap();
+        (foreground(s), mapped, s.output.capture().unwrap())
+    });
+    assert_eq!(fg, ["org.test.hdmi2"], "SAM is told before the first buffer");
+    assert!(!mapped);
+    assert_eq!(image.pixel(5, 5), [0, 0, 0, 0xff], "the covered card is hidden, as LG hides it");
+
+    // Its first buffer: drawn, still in front, Home still minimized.
+    let blue = client.shm_buffer(1920, 1080, 0xff00_00ff);
+    client.present(&hdmi.surface, &blue);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 2));
+    std::thread::sleep(Duration::from_millis(30));
+    let (fg, image) = server.eval(|s| (foreground(s), s.output.capture().unwrap()));
+    assert_eq!(fg, ["org.test.hdmi2"]);
+    assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
+    assert_eq!(states(&client.state, hdmi_id), [fullscreen], "no second state change for the buffer");
+    assert_eq!(states(&client.state, home_id), [fullscreen, minimized]);
+
+    // Home relaunched over it: back in front, HDMI 2 minimized.
+    home.webos.set_state(fullscreen);
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen, minimized, fullscreen] && states(s, hdmi_id) == [fullscreen, minimized]));
+    std::thread::sleep(Duration::from_millis(30));
+    let (fg, image) = server.eval(|s| (foreground(s), s.output.capture().unwrap()));
+    assert_eq!(fg, ["org.test.home"]);
+    assert_eq!(image.pixel(5, 5), [0xff, 0, 0, 0xff]);
+}
+
 #[test]
 fn overlay_stacks_above_the_card_at_its_position() {
     let mut server = Server::start();
@@ -292,11 +357,68 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     });
     assert_eq!(image.pixel(10, 10), [0x20, 0x20, 0x20, 0xff], "UI stays");
     assert_eq!(image.pixel(640, 360), [0, 0, 0, 0], "the exported region is a transparent hole");
-    assert!(calls.iter().any(|c| c.contains("display/setDisplayWindow") && c.contains("\"width\":960") && c.contains("_ctx_1")), "{calls:?}");
+    // 160,90 960x540 of the output is 320,180 1920x1080 of the 4K panel; it is not the whole output.
+    assert!(
+        calls.iter().any(|c| c.contains("display/setDisplayWindow")
+            && c.contains("\"x\":320")
+            && c.contains("\"y\":180")
+            && c.contains("\"width\":1920")
+            && c.contains("\"fullScreen\":false")
+            && c.contains("_ctx_1")),
+        "{calls:?}"
+    );
     assert!(calls.iter().any(|c| c.contains("setDisplayWindowProperty") && c.contains("fastMode")), "{calls:?}");
     assert!(calls.iter().any(|c| c.contains("setCompositing") && c.contains("_ctx_1")), "{calls:?}");
     assert_eq!(video.len(), 1);
     assert_eq!(video[0]["windowId"], window_id);
+}
+
+/// Netflix's order (third gate, 2026-10-25): the pipeline attaches its punch-through before the app gives the element a
+/// rectangle, then `set_crop_region` says the source is 3840x2160 and the destination the whole output. No placement
+/// goes out for the empty element; the one that does is in the panel's pixels with `fullScreen` (what videooutputd holds
+/// after LG's placement: 3840x2160, full screen); emptying the rectangle hides the video once.
+#[test]
+fn a_full_screen_video_is_placed_once_its_rectangle_is_known_in_the_panels_pixels() {
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "Netflix");
+    let ui = client.shm_buffer(1920, 1080, 0xff20_2020);
+    client.present(&app.surface, &ui);
+    let exported = client.foreign.export_element(&app.surface, 0, &client.qh, ());
+    client.roundtrip();
+    let (window_id, _) = client.state.window_ids[0].clone();
+    let imported = client.foreign.import_element(window_id.clone(), 0, &client.qh, ());
+    imported.attach_punchthrough("_ctx_nf".into());
+    client.roundtrip();
+    assert!(client.wait_until(WAIT, |s| s.punchthrough_attached == vec!["_ctx_nf".to_string()]));
+    let placements = |s: &mut lumatv_compositor::State| -> Vec<serde_json::Value> {
+        s.luna_sent().iter().filter(|(u, _)| u.ends_with("/setDisplayWindow")).map(|(_, p)| p.clone()).collect()
+    };
+    assert!(server.eval(placements).is_empty(), "no placement before the element has a rectangle");
+
+    let original = client.region(0, 0, 3840, 2160);
+    let src = client.region(0, 0, 3840, 2160);
+    let dst = client.region(0, 0, 1920, 1080);
+    exported.set_crop_region(&original, &src, &dst);
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(20));
+    let placed = server.eval(placements);
+    assert_eq!(placed.len(), 1, "{placed:?}");
+    assert_eq!(placed[0]["displayOutput"], serde_json::json!({"x": 0, "y": 0, "width": 3840, "height": 2160}));
+    assert_eq!(placed[0]["sourceInput"]["width"], 3840);
+    assert_eq!(placed[0]["originalInput"]["height"], 2160);
+    assert_eq!(placed[0]["fullScreen"], true);
+    assert_eq!(placed[0]["context"], "_ctx_nf");
+
+    // The app empties the rectangle (its player went away): hidden once, not placed again while empty.
+    let none = client.region(0, 0, 0, 0);
+    exported.set_exported_window(&none, &none);
+    exported.set_exported_window(&none, &none);
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(20));
+    let placed = server.eval(placements);
+    assert_eq!(placed.len(), 2, "{placed:?}");
+    assert_eq!(placed[1]["displayOutput"]["width"], 0);
 }
 
 #[test]
@@ -379,17 +501,17 @@ fn home_held_through_the_remote_command_asks_for_the_fallback() {
     client.present(&win.surface, &buf);
     assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
     // A tap goes to launchDefaultApp (Home is the compositor's), never to the client.
-    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 tap"));
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 tap").text());
     assert!(reply.contains("\"ok\":true"), "{reply}");
     let launched = server.eval(|s| s.luna.sent().iter().any(|(uri, _)| uri.ends_with("/launchDefaultApp")));
     assert!(launched, "a tapped Home launches the home app");
     // Held past 650 ms, the tick's hold poll sends the fallback to the supervisor.
-    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 press"));
+    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 press").text());
     std::thread::sleep(std::time::Duration::from_millis(700));
     server.eval(|s| s.poll_holds());
     let fallback = server.eval(|s| s.luna.history().iter().any(|m| matches!(m, ToBridge::Fallback { .. })));
     assert!(fallback, "a held Home is the escape to LG's compositor");
-    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 release"));
+    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 release").text());
     let launches = server.eval(|s| s.luna.sent().iter().filter(|(uri, _)| uri.ends_with("/launchDefaultApp")).count());
     assert_eq!(launches, 1, "the release after an escape does not launch Home again");
     assert!(client.state.keys.is_empty(), "Home never reached the client");
@@ -414,34 +536,34 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     assert!(!server.eval(|s| s.seat.cursor_visible));
     std::thread::sleep(Duration::from_millis(30));
     // Off the window: nothing enters, the cursor shows all the same and every client hears it.
-    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 500 500"));
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 500 500").text());
     assert!(reply.contains("\"delivered\":false"), "{reply}");
     assert!(server.eval(|s| s.seat.cursor_visible && s.seat.last_input == "pointer"));
     assert!(client.wait_until(WAIT, |s| s.cursor_visibility.last() == Some(&1)));
     // Onto the 64x64 card at the origin: enter at the surface-local point, then the motion.
-    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 10 20"));
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 10 20").text());
     assert!(reply.contains("\"delivered\":true"), "{reply}");
     assert!(client.wait_until(WAIT, |s| !s.pointer_enters.is_empty() && !s.motions.is_empty()));
     assert_eq!(client.state.pointer_enters[0], (10.0, 20.0));
     assert_eq!(client.state.motions[0], (10.0, 20.0));
     // OK while the cursor shows is BTN_LEFT, never a key.
-    server.eval(|s| lumatv_compositor::control::handle(s, "click tap"));
+    server.eval(|s| lumatv_compositor::control::handle(s, "click tap").text());
     assert!(client.wait_until(WAIT, |s| s.buttons.len() >= 2));
     assert_eq!(client.state.buttons[0], (0x110, 1));
     assert_eq!(client.state.buttons[1], (0x110, 0));
     assert!(client.state.keys.is_empty(), "the click did not arrive as KEY_ENTER");
     // An arrow key hides the cursor (leave) and reaches the window as a key; OK is a key again.
-    server.eval(|s| lumatv_compositor::control::handle(s, "remote 108 tap"));
+    server.eval(|s| lumatv_compositor::control::handle(s, "remote 108 tap").text());
     assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 1 && s.keys.len() >= 2));
     assert!(!server.eval(|s| s.seat.cursor_visible));
     assert!(client.wait_until(WAIT, |s| s.cursor_visibility.last() == Some(&0)), "the hide reaches every client");
-    server.eval(|s| lumatv_compositor::control::handle(s, "click tap"));
+    server.eval(|s| lumatv_compositor::control::handle(s, "click tap").text());
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 4));
     assert_eq!(client.state.keys[2], (28, 1));
     assert_eq!(client.state.buttons.len(), 2, "no button without the cursor");
     // Moving again re-enters and the sprite is composed at the pointer: white at its centre, the card's red
     // untouched beside it. A cursor left alone past the timeout hides from the tick and the red comes back.
-    server.eval(|s| lumatv_compositor::control::handle(s, "pointer 30 30"));
+    server.eval(|s| lumatv_compositor::control::handle(s, "pointer 30 30").text());
     assert!(client.wait_until(WAIT, |s| s.pointer_enters.len() >= 2));
     std::thread::sleep(Duration::from_millis(30));
     let shown = server.eval(|s| s.output.capture().unwrap());
