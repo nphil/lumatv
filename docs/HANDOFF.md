@@ -20,8 +20,8 @@ Phases, Decided); this file holds the proven mechanics.
   `apply` restored LumaHome, and a reboot came up live through the new boot
   hooks with no failsafe. A copy of the old data dir is kept off the set in
   `/data/home/lumatv-backups/lumaglass-data-2026-10-24.tgz`.
-- `brand.json` `repo` stays `nphil/lumaglass` until the owner renames the
-  GitHub and forge repositories; the release URLs follow that key.
+- Repositories renamed 2026-10-24: forge `nphilip89/lumatv` (remote `forge`)
+  and GitHub `nphil/lumatv`; `brand.json` `repo` matches.
 - Next, phase 1 in order: T9 plus disk-cache env lines (tool already
   carries them; enable and measure), shared 100 ms clock, Home stub, heap
   shim, Rust helper.

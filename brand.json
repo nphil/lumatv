@@ -4,5 +4,5 @@
   "appId": "org.nphil.lumatv",
   "dataDir": "/var/lib/lumatv",
   "qmlModule": "lumatv",
-  "repo": "nphil/lumaglass"
+  "repo": "nphil/lumatv"
 }
