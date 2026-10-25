@@ -23,6 +23,7 @@ PageList {
     readonly property string saverStyle: saver.style || "clock"
     readonly property var artEvery: [5, 15, 60]
     readonly property var logo: theme.logo || ({})
+    readonly property var depthLevels: ["flat", "normal", "deep"]      // the steps of theme.depth.steps
     subtitle: (tintOn ? "Dynamic tint" : "Fixed accent") + " \u00b7 " + material
     summary: (tintOn ? "Dynamic tint" : "Fixed accent") + " \u00b7 " + wallName()
 
@@ -40,8 +41,6 @@ PageList {
     }
 
     rows: [
-        { kind: "value", tab: 0, icon: "image", label: "Wallpaper", detail: "The wallpaper is a file in the theme folder; a slideshow from a USB drive is not built yet.",
-          value: function() { return page.wallName() }, info: true },
         { kind: "toggle", tab: 0, icon: "palette", label: "Dynamic tint", detail: "Panes take a hint of colour from the wallpaper.",
           on: function() { return page.tintOn }, act: function(v) { page.patch({ accent: v ? "wallpaper" : "tile" }) } },
         { kind: "seg", tab: 0, icon: "moon", label: "Appearance",
@@ -53,6 +52,9 @@ PageList {
           act: function(i) { page.patch(i === 2 ? { clock: { enabled: false } } : { clock: { enabled: true, style: page.clockStyles[i] } }) } },
         { kind: "toggle", tab: 0, icon: "waves", label: "Wallpaper motion", detail: "The wallpaper drifts about ten times a second. Off keeps it still.",
           on: function() { return page.motionOn }, act: function(v) { page.patch({ wallpaperMotion: { enabled: v } }) } },
+        { kind: "seg", tab: 0, icon: "blend", label: "Glass depth", detail: "How far panes lift off the wallpaper (shadow and edge).",
+          options: ["Flat", "Normal", "Deep"], index: function() { var i = page.depthLevels.indexOf(Lu.depthLevel); return i < 0 ? undefined : i },
+          act: function(i) { page.patch({ depth: { level: page.depthLevels[i] } }) } },
         R.lg(page, { tab: 0, target: "HomeSettings", detail: "Home promotion, content recommendation, Home animation, power-on screen." }),
 
         { kind: "toggle", tab: 1, icon: "clock", label: "12-hour clock", detail: "Off shows 24-hour time on Home and in the bar.",

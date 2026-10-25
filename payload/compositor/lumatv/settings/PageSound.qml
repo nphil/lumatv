@@ -27,7 +27,13 @@ PageList {
     subtitle: !Sio.has("sound.soundOutput") ? "" : toReceiver ? "Playing through the receiver" : "Playing through " + outName.toLowerCase()
     summary: !Sio.has("sound.soundOutput") ? "" : toReceiver ? "Receiver \u00b7 eARC" : outName
 
-    function refresh() { Sio.read("sound", ["soundOutput", "soundMode", "soundOutputDigital", "audioBalance", "avSync", "autoVolume"]) }
+    // LG's delay slider is one key per way out of the TV (its `fre` row in main.js), with its limits in the key's description
+    // (`values.range`: min, max, interval). `sound.avSync` itself is a switch (the set answers "on").
+    readonly property var delayKeys: ({ external_arc: "avSyncSpdif", external_optical: "avSyncSpdif", wow_cast: "avSyncSpdif", wisa_speaker: "avSyncWisa", tv_speaker_bluetooth: "avSyncBtSurround" })
+    readonly property string delayDs: "sound." + (delayKeys[output] || "avSyncSpeaker")
+    readonly property var delayRange: { var d = Sio.descs[delayDs]; return d && d.values && d.values.range && d.values.range.max !== undefined ? d.values.range : null }
+
+    function refresh() { Sio.read("sound", ["soundOutput", "soundMode", "soundOutputDigital", "audioBalance", "avSyncSpdif", "avSyncSpeaker", "avSyncWisa", "avSyncBtSurround", "autoVolume"]) }
     Component.onCompleted: refresh()
     onOpened: refresh()
 
@@ -43,7 +49,12 @@ PageList {
           detail: function() { return page.toReceiver ? "Not used while sound goes to the receiver. Pick a mode on the Denon." : "The TV's own sound processing. Change it on the Mode tab." },
           value: function() { return R.name(page.modeNames, Sio.get("sound.soundMode"), "") },
           enabled: function() { return !page.toReceiver } },
-        R.slider(Sio, { ds: "sound.avSync", tab: 0, min: 0, max: 100, step: 10, unit: " ms", icon: "timer", label: "Match screen and sound", detail: "Delay the sound if lips move first." }),
+        { kind: "slider", tab: 0, icon: "timer", label: "Match screen and sound", unit: " ms",
+          detail: function() { return page.delayRange === null || !Sio.has(page.delayDs) ? "Not available on this TV" : Sio.usable(page.delayDs) ? "Delay the sound if lips move first." : "Not available right now" },
+          enabled: function() { return page.delayRange !== null && Sio.usable(page.delayDs) },
+          min: function() { return page.delayRange ? page.delayRange.min : 0 }, max: function() { return page.delayRange ? page.delayRange.max : 0 },
+          step: function() { return page.delayRange && page.delayRange.interval ? page.delayRange.interval : 1 },
+          num: function() { return Sio.num(page.delayDs, 0) }, act: function(v) { Sio.write(page.delayDs, v) } },
         R.seg(Sio, { ds: "sound.soundOutputDigital", tab: 0, icon: "cable", label: "Digital sound output", detail: "Pass through hands the original soundtrack to the receiver.",
                      options: ["Auto", "PCM", "Pass through"], values: ["auto", "pcm", "passThrough"], segWidth: 150 }),
         { kind: "toggle", tab: 0, icon: "tv", label: "TV speakers too", detail: function() { return page.toReceiver ? "Also play through the TV's own speakers." : "Only while sound goes to the receiver." },

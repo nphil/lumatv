@@ -206,6 +206,179 @@ class Settings(HostCase):
         self.assertEqual(rc, 0, out[-1500:])
         self.assertEqual(self.docs(out)[-1], {"numberKeys": False})
 
+    # ---- the remote's app keys (settings/AppKeys.js, PageAppKey): the answer is `remote.appKeys` in the user's theme.json
+    def probe(self, data, js):
+        """JS for `--eval` that runs `js` with `o.power`, `o.lu` and `o.apps` the app's own singletons (kit/Power, Lu, Apps): the host's
+        expressions see `root` and the module's types, not the names a QML file imports, so the probe imports the staged kit directory itself
+        (`data` is the host's --data directory, where the module is staged)."""
+        base = "file://%s/qml/WebOSCompositor/lumatv" % data
+        return ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import \"%s/kit\"; QtObject { property var power: Power; property var lu: Lu; property var apps: Apps }', "
+                "root, '%s/probe.qml');%s})()" % (base, base, js))
+
+    def run_probe(self, js, *args, surface="Settings.qml", wait="5800", at=5000):
+        """Runs `js` through `probe` on `surface`; returns (the parsed JSON documents the eval printed, the host's output)."""
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:%s" % (at, self.probe(data, js)), *args, "--wait", wait, data=data, surface=surface)
+        self.assertEqual(rc, 0, out[-1500:])
+        return self.docs(out), out
+
+    CHOOSER = ("root.openPage('appkey',{key:'%s'});var p=root.pageItem('appkey');"
+               "return JSON.stringify({title:p.title,back:p.back,stop:p.stop,apps:o.apps.list.length,"
+               "rows:p.rows.map(function(r){return {label:p.ev(r.label)||p.ev(r.text)||'',selected:p.ev(r.selected),detail:p.ev(r.detail)||''}})})")
+    KEY_ROWS = ("var p=root.pageItem('remote');return JSON.stringify(p.rows.filter(function(r){return /key$/.test(p.ev(r.label)||'')&&r.kind==='value'}).map(function(r){"
+                "return {label:p.ev(r.label),value:p.ev(r.value),detail:p.ev(r.detail)}}))")
+
+    def test_the_app_key_chooser_offers_lgs_default_nothing_and_every_app_and_marks_what_is_in_force(self):
+        docs, out = self.run_probe(self.CHOOSER % "amazon")
+        prime = docs[-1]
+        self.assertEqual((prime["title"], prime["back"]), ("Prime Video key", "Remote & pointer"))
+        labels = [r["label"] for r in prime["rows"]]
+        self.assertEqual(labels[:3], ["LG's default", "Does nothing", "Open an app"])
+        self.assertEqual(len(labels) - 3, prime["apps"])                                   # every app the library lists, once
+        self.assertIn("Netflix", labels[3:])
+        self.assertEqual([r["selected"] for r in prime["rows"][:2]], [True, False])           # nothing was chosen: LG's default is in force
+        self.assertEqual(prime["stop"], 0)                                                 # and the focus starts on it
+        self.assertIn("not installed", prime["rows"][0]["detail"])                         # Prime Video is not on the fake TV: the key would do nothing
+        docs, out = self.run_probe(self.CHOOSER % "netflix")
+        self.assertEqual(docs[-1]["rows"][0]["detail"], "Opens Netflix.")
+
+    def test_the_remote_page_says_what_each_app_key_does(self):
+        # LG Channels is a hidden system app: the library does not list it, but it is installed, so LG's default holds
+        rows = self.run_probe(self.KEY_ROWS)[0][-1]
+        self.assertEqual([(r["label"], r["value"]) for r in rows],
+                         [("Netflix key", "Netflix"), ("Prime Video key", "Nothing"), ("Disney+ key", "Nothing"), ("LG Channels key", "LG Channels")])
+        self.assertEqual(rows[0]["detail"], "LG's choice.")
+        self.assertIn("not installed", rows[1]["detail"])
+
+    def test_a_configured_key_shows_its_app_or_nothing_and_an_app_that_is_gone_does_nothing(self):
+        theme = {"remote": {"appKeys": {"netflix": "", "amazon": "youtube.leanback.v4", "disneyplus": "com.gone.app"}}}
+        rows = self.run_probe("o.lu.theme = %s;" % json.dumps(theme) + self.KEY_ROWS)[0][-1]
+        self.assertEqual([(r["label"], r["value"]) for r in rows],
+                         [("Netflix key", "Nothing"), ("Prime Video key", "YouTube"), ("Disney+ key", "Nothing"), ("LG Channels key", "LG Channels")])
+        self.assertEqual(rows[0]["detail"], "The key does nothing.")
+        self.assertEqual(rows[1]["detail"], "Opens the app chosen here.")
+        self.assertIn("no longer installed", rows[2]["detail"])
+
+    def test_choosing_writes_one_entry_each_and_leaving_the_default_removes_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            # Remote page: four stops (pointer, speed, size, number keys), then Netflix. Right enters, Down x4 lands on Netflix, OK opens the chooser
+            # on LG's default; Down + OK is "Does nothing" and returns to the page; Down is Prime Video, the same; Up and OK reopens Netflix on
+            # "Does nothing" (the one in force), Up + OK is LG's default again, which removes the entry. One key every 350 ms: each choice is
+            # written to the file before the next, as a person's presses are.
+            steps = ["right"] + ["down"] * 4 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
+            presses = [a for i, s in enumerate(steps) for a in self.keys(READY + 1500 + 350 * i, s)]
+            end = READY + 1500 + 350 * len(steps)
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, *(["down"] * RAIL["remote"])), *presses,
+                                "--eval", "%d:JSON.stringify({remote: root.theme.remote, open: root.settingsOpen})" % (end + 600), "--wait", str(end + 1200), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            doc = self.docs(out)[-1]
+            self.assertEqual(doc["remote"], {"numberKeys": True, "appKeys": {"amazon": ""}})     # Netflix is back on LG's default
+            self.assertTrue(doc["open"])
+            with open(os.path.join(data, "theme", "theme.json")) as f:
+                self.assertEqual(json.load(f)["remote"]["appKeys"], {"amazon": ""})
+
+    def test_an_app_chosen_for_a_key_is_that_apps_id(self):
+        # the first app row: Down x2 from LG's default (past Does nothing and the heading), then OK
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", *["down"] * 4, "ok", "down", "down", "ok"),
+                                "--eval", "%d:JSON.stringify(root.theme.remote.appKeys)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            self.assertEqual(self.docs(out)[-1], {"netflix": "com.webos.app.discovery"})        # the dock's first tile: the all-apps store
+
+    # ---- Glass depth (Lucent token theme.depth, read by Glass)
+    def glass(self, level=None):
+        theme = {"perf": {"syncResidents": True}}
+        if level:
+            theme["depth"] = {"level": level}
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            js = ("var g=Qt.createComponent('file://%s/qml/WebOSCompositor/lumatv/Glass.qml').createObject(root);g.isLight=false;"
+                  "return JSON.stringify({level:o.lu.depthLevel,depth:o.lu.depth,margin:g.margin,shadow:[g.shadow.x,g.shadow.y,g.shadow.z],edge:g.edge.w})" % data)
+            rc, out = self.host("--theme", json.dumps(theme), "--eval", "%d:%s" % (READY + 500, self.probe(data, js)), "--wait", str(READY + 1200), data=data)
+        self.assertEqual(rc, 0, out[-1500:])
+        return self.docs(out)[-1]
+
+    def test_glass_depth_scales_the_shadow_and_the_margin_that_holds_it(self):
+        normal, flat, deep = self.glass(), self.glass("flat"), self.glass("deep")
+        self.assertEqual((normal["level"], normal["depth"], normal["margin"]), ("normal", 1, 60))
+        self.assertAlmostEqual(normal["shadow"][0], 0.28, places=5)                          # the material as designed
+        self.assertEqual(normal["shadow"][1:], [24, 30])
+        self.assertEqual((flat["depth"], flat["margin"]), (0, 60))
+        self.assertEqual(flat["shadow"][0], 0)                                               # no shadow, and a blur the shader can divide by
+        self.assertGreaterEqual(flat["shadow"][2], 1)
+        self.assertLess(flat["edge"], normal["edge"])                                        # the edge is lighter, not gone
+        self.assertGreater(flat["edge"], 0.5 * normal["edge"])
+        self.assertEqual((deep["depth"], deep["margin"]), (1.5, 90))                         # the quad grows with the shadow it has to hold
+        self.assertAlmostEqual(deep["shadow"][0], 0.42, places=5)
+        self.assertEqual(deep["shadow"][1:], [36, 45])
+
+    def test_the_glass_depth_row_writes_the_level_to_the_theme_file(self):
+        # Home & look, Look tab: Dynamic tint, Appearance, Clock, Wallpaper motion, then Glass depth (Normal now): Right is Deep
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("look", "right", *["down"] * 4, "right", "ok"),
+                                "--eval", "%d:JSON.stringify(root.theme.depth)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            self.assertEqual(self.docs(out)[-1]["level"], "deep")
+            with open(os.path.join(data, "theme", "theme.json")) as f:
+                self.assertEqual(json.load(f)["depth"], {"level": "deep"})
+
+    # ---- sleep timer and panel hours (kit/Power: LG's tvReservationAgent and panelcontroller)
+    def test_the_sleep_timer_is_set_in_minutes_and_shows_what_is_left(self):
+        # System, Power tab (the tab bar, Right, back down): the sleep timer is the first row and a stepper (Off now): Right is 10 min
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            read = ("var c=root.lunaCalls.filter(function(c) { return c.method === '/timer/sleep/add' }).map(function(c) { return c.payload });"
+                    "return JSON.stringify({calls: c, left: o.power.sleepLeft, index: o.power.sleepIndex})")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("system", "right", "up", "right", "down", "right"),
+                                "--eval", "%d:%s" % (READY + 3600, self.probe(data, read)), "--wait", str(READY + 4200), data=data)
+        self.assertEqual(rc, 0, out[-1500:])
+        doc = self.docs(out)[-1]
+        self.assertEqual(doc["calls"], ['{"sleepTimeMinute":"10"}'])
+        self.assertEqual((doc["left"], doc["index"]), ("Off in 10 min", 1))                  # read back from the service a moment later
+
+    def test_the_sleep_timer_rounds_up_to_LGs_choices_the_way_LGs_own_row_does(self):
+        def at(doc):
+            return "o.power.parseSleep(%s);out.push([o.power.sleepIndex, o.power.sleepLeft]);" % json.dumps(json.dumps(doc))
+        js = ("var out=[];" + at({"returnValue": True, "sleepTimeMinute": 25, "sleepTimeSecond": 10}) + at({"returnValue": True, "sleepTimeSecond": 40})
+              + at({"returnValue": True, "sleepTimeMinute": 61, "sleepTimeSecond": 0}) + at({"returnValue": True, "sleepTimeSecond": 0})
+              + at({"returnValue": True, "sleepTimeMinute": 300}) + "return JSON.stringify(out)")
+        self.assertEqual(self.run_probe(js)[0][-1], [[3, "Off in 25 min"], [1, "Off in under a minute"], [5, "Off in 61 min"], [0, ""], [8, "Off in 300 min"]])
+
+    def test_panel_hours_are_LGs_counter_in_ten_minute_ticks_and_only_where_LG_shows_them(self):
+        row = ("var p=root.pageItem('system');var r=null;for(var i=0;i<p.rows.length;i++)if(p.ev(p.rows[i].label)==='Panel hours')r=p.rows[i];")
+        js = (row + "var on={hours:o.power.panelHours,shown:o.power.panelShown,value:p.ev(r.value),visible:p.ev(r.visible)};"
+              "o.power.parseConfig(JSON.stringify({returnValue:true,configs:{'tv.conti.supportUsedTime':false}}));"
+              "return JSON.stringify([on,{shown:o.power.panelShown,visible:p.ev(r.visible)}])")
+        on, gone = self.run_probe(js)[0][-1]
+        self.assertEqual(on, {"hours": "1,705 h", "shown": True, "value": "1,705 h", "visible": True})     # the fake TV's 10230 ticks
+        self.assertEqual(gone, {"shown": False, "visible": False})
+
+    def test_the_sound_delay_is_the_key_of_the_way_out_and_takes_its_limits_from_the_service(self):
+        read = ("(function(){var p=root.pageItem('sound');var r=null;for(var i=0;i<p.rows.length;i++)if(p.ev(p.rows[i].label)==='Match screen and sound')r=p.rows[i];"
+                "return JSON.stringify({ds:p.delayDs,min:p.ev(r.min),max:p.ev(r.max),step:p.ev(r.step),enabled:p.ev(r.enabled)})})()")
+        rc, out = self.host("--eval", "5000:" + read, "--eval", "5200:" + self.SET_OUTPUT, "--eval", "5700:" + read, "--wait", "6300", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        earc, speakers = self.docs(out)[-2:]
+        self.assertEqual(earc, {"ds": "sound.avSyncSpdif", "min": 0, "max": 400, "step": 10, "enabled": True})
+        self.assertEqual(speakers["ds"], "sound.avSyncSpeaker")
+
+    def test_the_rows_that_wrote_nothing_the_tv_has_are_gone(self):
+        # sound.avSync is a switch on the set ("on"), not a delay in ms; the Wallpaper row only said a slideshow is not built
+        rc, out = self.host("--eval", "5000:" + self.WALK, "--eval", "5600:" + self.CALLS, "--eval",
+                            "5800:JSON.stringify(['sound','look'].map(function(id){var p=root.pageItem(id);return p.rows.map(function(r){return p.ev(r.label)||''})}))",
+                            "--wait", "6400", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        sound, look = self.docs(out)[-1]
+        calls = self.docs(out)[-2]
+        self.assertNotIn("Wallpaper", look)
+        self.assertIn("Glass depth", look)
+        self.assertIn("Match screen and sound", sound)
+        self.assertNotIn("avSync", {k for c in calls for k in c["payload"]["settings"]})
+
     def test_the_aspect_ratio_is_written_for_the_input_in_front(self):
         # Picture, Mode tab: cards, OLED pixel brightness, Filmmaker ambient light, AI Picture Pro, Aspect ratio (Original now): Left is 16:9
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "down", "down", "left", "ok"),

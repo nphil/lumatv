@@ -38,7 +38,8 @@ Item {
     readonly property bool built: loaded >= pages.length
     property var clock: new Date()
 
-    // The rail's sections in the mock's order, then the pages that are children of one.
+    // The rail's sections in the mock's order, then the pages that are children of one. `search: false` keeps a page out of Home's
+    // search: the app chooser is only meaningful when opened for a key (`openPage("appkey", { key })`).
     readonly property var pages: [
         { id: "picture", title: "Picture", icon: "image", page: "settings/PagePicture.qml", rail: true },
         { id: "sound", title: "Sound", icon: "volume-2", page: "settings/PageSound.qml", rail: true },
@@ -49,7 +50,8 @@ Item {
         { id: "remote", title: "Remote & pointer", icon: "mouse-pointer-2", page: "settings/PageRemote.qml", rail: true },
         { id: "ai", title: "AI access", icon: "bot", page: "settings/PageAi.qml", rail: true },
         { id: "system", title: "System", icon: "settings", page: "settings/PageSystem.qml", rail: true },
-        { id: "receiver", title: "Receiver", icon: "boom-box", page: "settings/PageReceiver.qml", rail: false }
+        { id: "receiver", title: "Receiver", icon: "boom-box", page: "settings/PageReceiver.qml", rail: false },
+        { id: "appkey", title: "App key", icon: "layout-grid", page: "settings/PageAppKey.qml", rail: false, search: false }
     ]
     readonly property var sections: pages.filter(function(p) { return p.rail })
     readonly property int railCount: sections.length + 1        // the last row is LG's Settings
@@ -70,14 +72,16 @@ Item {
         s[id] = text
         summaries = s
     }
-    function openPage(id) {
+    // `arg` is what a child page is opened for (the app chooser: which key); the page reads it as `arg`.
+    function openPage(id, arg) {
         current = id
         var p = pageItem(id)
+        if (p && arg !== undefined) p.arg = arg
         if (p && p.reset) p.reset()
     }
     // Come to a page from outside (a tile of the quick panel): its section is the one on the rail and the page has the focus.
     function goTo(id) {
-        var parentId = id === "receiver" ? "sound" : id
+        var parentId = id === "receiver" ? "sound" : id === "appkey" ? "remote" : id
         for (var i = 0; i < sections.length; i++) if (sections[i].id === parentId) { railIndex = i; break }
         current = id
         zone = "page"

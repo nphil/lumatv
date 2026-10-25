@@ -57,3 +57,33 @@ register("look", 2, "30-settings-home-screensaver-art", "right", "ok")
 @scene("03-settings-remote-focused")
 def _():
     return page("remote") + [("snap", READY + 2600, "03-settings-remote-focused")]
+
+
+# the remote's app keys: the rows (the fourth stop below the pointer rows is the first key; the focus on the last one scrolls all four in),
+# and the chooser opened for the Netflix key
+@scene("03-settings-remote-appkeys")
+def _():
+    return page("remote", 0, *["down"] * 7) + [("snap", READY + 2600, "03-settings-remote-appkeys")]
+
+
+@scene("03-settings-appkey-chooser")
+def _():
+    return page("remote", 0, *["down"] * 4, "ok") + [("snap", READY + 2800, "03-settings-appkey-chooser")]
+
+
+@scene("03-settings-appkey-chosen")
+def _():
+    # the Prime Video key set to "Does nothing": the chooser is left and the row says Nothing
+    return page("remote", 0, *["down"] * 5, "ok", "down", "ok") + [("snap", READY + 3000, "03-settings-appkey-chosen")]
+
+
+# Glass depth (Home & look › Look): the row focused at the shipped step, and the panes at each of the other two
+def depth(name, level):
+    @scene(name)
+    def _():
+        return [("theme", 0, {"depth": {"level": level}})] + page("look", 0, *["down"] * 4) + [("snap", READY + 2600, name)]
+
+
+depth("30-settings-home-glass-normal", "normal")
+depth("30-settings-home-glass-flat", "flat")
+depth("30-settings-home-glass-deep", "deep")

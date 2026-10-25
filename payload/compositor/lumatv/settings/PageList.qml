@@ -11,9 +11,9 @@ import "../kit"
 // A descriptor is an object: `kind` (toggle, seg, slider, value, action, cards, stepper, head, note), `tab`
 // (default 0), `id`, `icon` (a Lucide name), `label`, `detail`, and per kind `on` (toggle), `options` and
 // `index` (seg, stepper, cards), `min`, `max`, `step`, `num`, `unit` and `valueText` (slider; a text for the number at the right, which replaces the rounded value), `value` (value, a text), `zones` and `text` (figure: a small TV with the lit edges and a caption; shown, never focused),
-// `button` (action), `cols` (cards), `text` (note, head), `chevron`, `info` (a row that only shows: full strength,
+// `button` (action), `cols` (cards), `text` (note, head), `chevron`, `selected` (value: the chosen one of a list of rows, drawn with a wash and a check at the right), `info` (a row that only shows: full strength,
 // never focused). Any of label, detail, value, on, index,
-// num, options, text, enabled and visible may be a function: it runs inside the binding that draws the row,
+// num, options, text, selected, enabled and visible may be a function: it runs inside the binding that draws the row,
 // so what it reads (the settings service, the helper's topics) redraws the row when it changes. `act(v)` is
 // called with the new value: a boolean for a toggle, the segment or card index for seg, stepper and cards, the
 // number for a slider, nothing for value and action.
@@ -25,6 +25,7 @@ import "../kit"
 Item {
     id: page
     property var host                                   // the Settings surface
+    property var arg: ({})                              // what this page was opened for (host.openPage(id, arg))
     property string title: ""
     property string subtitle: ""
     property string back: ""                            // a page this one is a child of: "Sound", shown as a pill
@@ -328,10 +329,16 @@ Item {
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
                             value: page.ev(cell.r.value) || ""
                             enabled: page.ev(cell.r.enabled) !== false
+                            selected: page.ev(cell.r.selected) === true
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
                             onHoverFocus: page.pointAt(cell.ri)
-                            trailing: LuIcon { visible: cell.r.chevron !== false; name: "chevron-right"; size: cell.r.chevron === false ? 0 : Math.round(Lu.target * 0.5); color: Lu.ink2 }
+                            trailing: LuIcon {
+                                visible: cell.r.chevron !== false || page.ev(cell.r.selected) === true
+                                name: page.ev(cell.r.selected) === true ? "check" : "chevron-right"
+                                size: cell.r.chevron === false && page.ev(cell.r.selected) !== true ? 0 : Math.round(Lu.target * 0.5)
+                                color: page.ev(cell.r.selected) === true ? Lu.accent : Lu.ink2
+                            }
                         }
                     }
                     Component {

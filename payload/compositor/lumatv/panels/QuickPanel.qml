@@ -12,6 +12,7 @@ import "../settings"
 // the TV (`audio/master/volumeUp` and `volumeDown`, which webOS sends to the receiver over HDMI-CEC), so the number
 // it shows is always the receiver's own and the TV's counter is never involved; the helper is told to read the
 // receiver now so the new level appears at once. OK on the tile opens Settings at the receiver's page.
+// The sleep timer tile steps through LG's choices (kit/Power) and shows what is left while one runs.
 //
 // Tiles of plugins (PLAN, Plugins: `plugin.<id>.tiles`, settings/PluginTiles) follow the built-in ones; OK on one is
 // a POST to the plugin's action route. "All settings" is the button under the list, one Down past the last tile.
@@ -31,7 +32,7 @@ Item {
     property bool footFocus: false                      // the All settings button has the focus, not a tile
     property var clock: new Date()
     Timer { interval: 15000; running: panel.visible; repeat: true; onTriggered: panel.clock = new Date() }
-    onVisibleChanged: if (visible) { clock = new Date(); footFocus = false; touched = false; Sio.read("picture", ["pictureMode"]); Inputs.refresh(); list.reset() }
+    onVisibleChanged: if (visible) { clock = new Date(); footFocus = false; touched = false; Sio.read("picture", ["pictureMode"]); Inputs.refresh(); Power.readSleep(); list.reset() }
     onFootFocusChanged: zone = footFocus ? "foot" : "page"
     // The first tile (Picture mode) is only focusable once the settings service has answered; until a key is pressed the
     // focus goes to it when it can.
@@ -138,6 +139,9 @@ Item {
                   Helper.post("/v1/receiver/nudge", {})
               },
               open: function() { panel.openSettingsPage("receiver") } },
+            { id: "sleep", kind: "stepper", icon: "moon", label: "Sleep timer",
+              detail: function() { return Power.sleepLeft !== "" ? Power.sleepLeft : "TV stays on" },
+              options: Power.sleepLabels, index: function() { return Power.sleepIndex }, act: function(i) { Power.setSleep(i) } },
             { id: "wifi", kind: "value", icon: "wifi", label: "Wi-Fi", detail: function() { return Net.summary }, value: "", act: function() { panel.openSettingsPage("network") } },
             { id: "ai", kind: "value", icon: "bot", label: "AI access",
               detail: function() { var a = Helper.ai; return !a ? "Off" : (a.listener && a.listener.enabled ? "LAN only" : "Off") + " \u00b7 " + (a.assistants || []).length + " paired" },

@@ -47,12 +47,13 @@ var values = {
 
 var onoff = ["picture.eyeComfortMode", "picture.screenShift", "picture.filmMakerMode", "picture.filmmakerAmbientLight", "aiPicture.ai_Picture", "aiPicture.ai_Genre",
              "aiPicture.ai_Brightness", "general.remotePointer", "option.quickStartMode", "other.simplinkEnable", "option.audioGuidance", "option.highContrast",
-             "time.autoOff15Min", "time.noSignalAutoOff", "caption.captionEnable", "sound.autoVolume"];
+             "time.autoOff15Min", "time.noSignalAutoOff", "caption.captionEnable", "sound.autoVolume", "sound.avSync"];
 var truefalse = ["network.wolwowlOnOff"];
 
 // Numbers: [min, max]. LG's slider limits are in the service's own descriptions; these are the outer bounds the pages stay inside.
 var ranges = {"picture.backlight": [0, 100], "picture.contrast": [0, 100], "picture.brightness": [0, 100], "picture.color": [0, 100], "picture.tint": [-50, 50],
-              "picture.sharpness": [0, 50], "sound.audioBalance": [-50, 50], "sound.avSync": [0, 400]};
+              "picture.sharpness": [0, 50], "sound.audioBalance": [-50, 50],
+              "sound.avSyncSpdif": [0, 400], "sound.avSyncSpeaker": [0, 400], "sound.avSyncWisa": [0, 400], "sound.avSyncBtSurround": [0, 400]};
 
 // The screens LG's Settings app opens from launch parameters ({target: name}): the keys of its router table (`rV` in main.js).
 // An unknown name lands on its Picture page, so only a row that names one of these goes where its text says.

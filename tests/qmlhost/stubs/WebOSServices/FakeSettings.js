@@ -14,7 +14,7 @@ var data = {
     aiPicture: { ai_Picture: "off", ai_Genre: "off", ai_Brightness: "on" },
     aspectRatio: { arcPerApp: "original", justScan: "on" },
     sound: { soundMode: "standard", soundOutput: "external_arc", audioBalance: "0", soundOutputDigital: "passThrough",
-             avSync: "0", eArcSupport: "on", autoVolume: "off" },
+             avSync: "on", avSyncSpdif: "0", avSyncSpeaker: "0", avSyncWisa: "0", avSyncBtSurround: "0", eArcSupport: "on", autoVolume: "off" },
     general: { remotePointer: "on", lifeOnScreenMode: "off", homeAutoLaunch: "on" },
     network: { deviceName: "Living Room TV", wolwowlOnOff: "true" },
     option: { pointerSpeed: "normal", pointerSize: "medium", quickStartMode: "on", audioGuidance: "off", highContrast: "off", country: "USA",
@@ -62,6 +62,8 @@ function desc(category, keys) {
     for (var i = 0; i < list.length; i++) {
         if (cat[list[i]] === undefined) continue;
         out[list[i]] = { ui: { visible: true, active: inactive[category + "." + list[i]] !== false } };
+        // a delay's limits come in the description, as LG's own app reads them (values.range); these are the fixture's, the TV's own are read
+        if (category === "sound" && /^avSync(Spdif|Speaker|Wisa|BtSurround)$/.test(list[i])) out[list[i]].values = { range: { min: 0, max: 400, interval: 10 } };
     }
     return { returnValue: true, category: category, settings: out };
 }
@@ -80,6 +82,9 @@ var services = {
         ]
     },
     "luna://com.webos.service.applicationmanager/getForegroundAppInfo": { returnValue: true, foregroundAppInfo: [{ appId: "com.webos.app.hdmi2" }] },
+    // the panel's usage counter in LG's ten-minute ticks (10230 ticks = 1,705 h) and the config that says LG shows it
+    "luna://com.webos.service.panelcontroller/getPanelUsageTime": { returnValue: true, panelUsageTime: 10230 },
+    "luna://com.webos.service.config/getConfigs": { returnValue: true, configs: { "tv.conti.supportUsedTime": true } },
     "luna://com.webos.service.connectionmanager/getStatus": {
         returnValue: true,
         wifi: { state: "connected", ssid: "Nate's Home", signalBars: 4, signalLevel: -52, channelFrequency: 5180, ipAddress: "192.168.1.146", method: "dhcp" },
@@ -87,9 +92,23 @@ var services = {
     }
 };
 
+// The sleep timer (tvReservationAgent): what is left, in seconds, set by `timer/sleep/add` (minutes as a string, "0" clears it).
+var sleepSeconds = 0;
+var sleepAdds = [];
+function sleepAdd(params) {
+    var m = Number(params && params.sleepTimeMinute);
+    sleepAdds.push(params);
+    if (isNaN(m) || m < 0) return { returnValue: false, errorText: "bad sleepTimeMinute" };
+    sleepSeconds = m * 60;
+    return { returnValue: true };
+}
+
 function call(service, method, params) {
     if (method === "getSystemSettings") return read(params.category, params.keys || (params.key ? [params.key] : null));
     if (method === "getSystemSettingDesc") return desc(params.category, params.keys || (params.key ? [params.key] : null));
+    if (service.indexOf("tvReservationAgent") >= 0 && method === "getRemainTime") {
+        return sleepSeconds > 0 ? { returnValue: true, sleepTimeMinute: Math.floor(sleepSeconds / 60), sleepTimeSecond: sleepSeconds % 60 } : { returnValue: true, sleepTimeSecond: 0 };
+    }
     var doc = services[service + "/" + method];
     return doc || { returnValue: true };
 }

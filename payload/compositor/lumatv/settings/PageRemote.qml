@@ -1,6 +1,7 @@
 import QtQuick 2.4
 import "../kit"
 import "Rows.js" as R
+import "AppKeys.js" as AK
 import "."
 
 // Remote & pointer (docs/mocks/03-settings-remote). The Magic Remote's pointer is the TV's own switch
@@ -8,6 +9,8 @@ import "."
 // moves. Speed and size are the service's own settings (`option.pointerSpeed`, `option.pointerSize`). Holding Home
 // for LG's Home stays on: it is the escape if LumaTV's Home ever misbehaves, so it is shown, not switchable.
 // Whether the number keys open the dock's tiles is LumaTV's own (`remote.numberKeys` in theme.json, default on).
+// Each app key (Netflix, Prime Video, Disney+, LG Channels) opens the chooser (PageAppKey) and keeps its answer in `remote.appKeys`
+// (settings/AppKeys.js): LG's app where it is installed until the owner picks another app or nothing.
 // Voice search is the mic key's: the helper's `base.voice` owner has its switch (off until the owner turns it on here), and the
 // helper's `voice` topic says whether it can listen yet and, when it cannot, why. Which Home Assistant it speaks to is not a
 // setting: it is linked from a command line on the TV (docs/research/voice-result.md).
@@ -38,6 +41,20 @@ PageList {
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
+    // One row per app key: what it does now, and OK opens the chooser (PageAppKey) for it.
+    readonly property var keyCfg: AK.config(theme)
+    readonly property var installed: AK.installed(Apps.launchPoints)
+    function appKeyRow(k) {
+        return { kind: "value", icon: k.icon, label: k.label + " key",
+                 detail: function() {
+                     var t = AK.target(page.keyCfg, k.id, page.installed)
+                     return t.kind === "nothing" ? "The key does nothing."
+                          : t.kind === "default" ? (t.installed ? "LG's choice." : "LG's app is not installed here, so the key does nothing.")
+                          : t.installed ? "Opens the app chosen here." : "The app chosen here is no longer installed, so the key does nothing."
+                 },
+                 value: function() { var t = AK.target(page.keyCfg, k.id, page.installed); return t.installed ? t.title : "Nothing" },
+                 act: function() { if (page.host) page.host.openPage("appkey", { key: k.id }) } }
+    }
 
     rows: [
         R.head("Pointer"),
@@ -53,10 +70,12 @@ PageList {
         { kind: "toggle", icon: "hash", label: "Number keys open dock tiles", detail: "1 opens the first tile on the dock, 2 the second, and so on.",
           on: function() { return !page.theme.remote || page.theme.remote.numberKeys !== false },
           act: function(v) { if (page.host) page.host.patch({ remote: { numberKeys: v } }) } },
+        R.head("App keys")
+    ].concat(AK.keys.map(function(k) { return page.appKeyRow(k) }), [
         R.head("Voice"),
         R.toggle(voiceSettings, { ds: "enabled", on: "true", off: "false", icon: "mic", label: "Search by voice",
                                   detail: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),
         R.note(function() { return page.voiceNeeds }, 0, function() { return page.voiceOn && page.voiceNeeds !== "" }),
         R.lg(page, { target: "RemoteSlowInput", detail: "Universal remote control, extended press times, Settings help." })
-    ]
+    ])
 }

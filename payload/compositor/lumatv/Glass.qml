@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import "kit"
 
 // Card material for widgets, the dock, the status bar and popovers: one quad, one shader.
 // The fragment samples the shared blurred-wallpaper texture at the card's own screen rect
@@ -22,9 +23,12 @@ ShaderEffect {
     property real screenW: 100
     property real screenH: 100
     property Item backdrop: null           // ShaderEffectSource of the blurred wallpaper
+    // Lucent depth (theme.depth, kit/Lu.qml): 0 is flat (no shadow, a lighter edge), 1 the material as designed, above 1 a
+    // longer and darker shadow. The shadow's reach scales with it, so the margin grows with a deeper step.
+    property real depth: Lu.depth
     // Shadow reach is shadowY + shadowB (74px focused); the last few pixels of tail are
     // below 1/255 and can be clipped.
-    property real margin: 60
+    property real margin: Math.ceil(60 * Math.max(1, depth))
 
     anchors.fill: parent
     anchors.margins: -margin
@@ -38,12 +42,12 @@ ShaderEffect {
     // straight-alpha colours; the shader premultiplies its own output
     property vector4d tint: mix4(c4(glassC), c4(glassFocusC), focusMix)
     property real edgeFocus: 0             // edge-only focus (the dock's "active" state)
-    property vector4d edge: mix4(c4(edgeC), c4(edgeFocusC), Math.max(focusMix, edgeFocus))
+    property vector4d edge: edgeWeight(mix4(c4(edgeC), c4(edgeFocusC), Math.max(focusMix, edgeFocus)))
     property real rim: (isLight ? 1.0 : 0.42) * focusMix
     property real sheen: focusMix
     // CSS: normal 0 24px 60px .28 | focus 0 34px 80px .55 + 0 10px 24px .30 (light: .18/.28/.14)
-    property vector4d shadow: Qt.vector4d(isLight ? 0.18 + 0.10 * liftMix : 0.28 + 0.27 * liftMix, 24 + 10 * liftMix, 30 + 10 * liftMix, 0)
-    property vector4d shadow2: Qt.vector4d((isLight ? 0.14 : 0.30) * liftMix, 10, 12, 0)
+    property vector4d shadow: Qt.vector4d(Math.min(1, (isLight ? 0.18 + 0.10 * liftMix : 0.28 + 0.27 * liftMix) * depth), (24 + 10 * liftMix) * depth, Math.max(1, (30 + 10 * liftMix) * depth), 0)
+    property vector4d shadow2: Qt.vector4d(Math.min(1, (isLight ? 0.14 : 0.30) * liftMix * depth), 10 * depth, Math.max(1, 12 * depth), 0)
     property vector4d region: Qt.vector4d(screenX / 1920, screenY / 1080, screenW / 1920, screenH / 1080)
     property vector2d dims: Qt.vector2d(width, height)
     property real radius: cardRadius
@@ -52,6 +56,8 @@ ShaderEffect {
     function mix4(a, b, t) {
         return Qt.vector4d(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t)
     }
+    // the edge keeps most of its weight when flat (a pane still needs its outline) and gains a little when deep
+    function edgeWeight(e) { return Qt.vector4d(e.x, e.y, e.z, Math.min(1, e.w * (0.7 + 0.3 * depth))) }
 
     fragmentShader: "
         uniform sampler2D src;

@@ -27,6 +27,9 @@ QtObject {
             if (method === "/setSystemSettings") {
                 try { var p = JSON.parse(payload); error = Fake.write(p.category, p.settings).errorText || "" } catch (e) { error = "bad payload" }
             }
+            if (method === "/timer/sleep/add") {
+                try { error = Fake.sleepAdd(JSON.parse(payload)).errorText || "" } catch (e2) { error = "bad payload" }
+            }
             ls.record(uri, method, payload, error)
         }
     }

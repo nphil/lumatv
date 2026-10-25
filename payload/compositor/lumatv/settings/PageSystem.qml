@@ -25,6 +25,8 @@ PageList {
         Sio.read("picture", ["screenShift", "logoLuminanceAdjust"])
         Sio.read("caption", ["captionEnable"])
         Sio.read("network", ["deviceName"])
+        Power.readSleep()
+        Power.readPanel()
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
@@ -44,10 +46,16 @@ PageList {
         R.toggle(Sio, { ds: "option.quickStartMode", tab: 0, icon: "zap", label: "Quick Start+", detail: "Wakes in about 2 s from standby. Uses a little power while off." }),
         R.lg(page, { tab: 0, label: "Open LG settings", detail: "LG's full Settings app, themed. Channels, privacy, account, reset." }),
 
+        { kind: "stepper", tab: 1, id: "sleep", icon: "hourglass", label: "Sleep timer",
+          detail: function() { return Power.sleepLeft !== "" ? Power.sleepLeft : "The TV turns itself off after this long." },
+          options: Power.sleepLabels, index: function() { return Power.sleepIndex }, act: function(i) { Power.setSleep(i) } },
         R.toggle(Sio, { ds: "time.autoOff15Min", tab: 1, icon: "power", label: "Turn off with no signal", detail: "Switches off after 15 minutes without a picture." }),
         R.note("In standby the panel goes fully dark; the TV still wakes at once.", 1),
-        R.lg(page, { tab: 1, target: "Timer", label: "Timers", detail: "Sleep timer and the power-on and power-off timers." }),
+        R.lg(page, { tab: 1, target: "Timer", label: "Power-on and power-off timers", detail: "Start or stop the TV at set times, in LG's own screen." }),
 
+        { kind: "value", tab: 2, icon: "clock", label: "Panel hours", detail: "How long the panel has been on, as LG counts it. It does not reset.",
+          value: function() { return Power.panelHours !== "" ? Power.panelHours : "Not read" }, info: true, chevron: false,
+          visible: function() { return Power.panelShown } },
         R.toggle(Sio, { ds: "picture.screenShift", tab: 2, icon: "scan-eye", label: "Screen shift", detail: "Moves the picture a pixel now and then so the panel wears evenly." }),
         R.seg(Sio, { ds: "picture.logoLuminanceAdjust", tab: 2, icon: "contrast", label: "Dim logos and subtitles", detail: "Lowers the brightness of static logos and subtitles so they do not burn in.",
                      options: ["Off", "Light", "Strong"], values: ["off", "light", "strong"] }),

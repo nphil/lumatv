@@ -61,6 +61,12 @@ QtObject {
     }
     readonly property real disabledOpacity: states.disabledOpacity || 1
 
+    // ---- depth: how far glass lifts off the wallpaper (the shadow's reach and strength, the edge's weight) ----
+    // theme.depth.level names a step of theme.depth.steps; Glass reads the number. 1 is the material as designed.
+    readonly property var depthTokens: theme.depth || ({})
+    readonly property string depthLevel: depthTokens.level || "normal"
+    readonly property real depth: depthTokens.steps && depthTokens.steps[depthLevel] !== undefined ? depthTokens.steps[depthLevel] : 1
+
     // ---- type ----
     readonly property string family: theme.font && theme.font.family ? theme.font.family : ""
     function weightOf(name) {
