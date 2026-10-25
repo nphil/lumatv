@@ -38,18 +38,33 @@ pub fn try_lock(path: &Path) -> io::Result<Option<File>> {
     }
 }
 
-/// Replaces the content of a lock file we hold with `pid`.
-pub fn write_pid(file: &mut File, pid: u32) -> io::Result<()> {
+/// What a lock file says about the process that holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LockInfo {
+    pub pid: u32,
+    /// The port the API listens on, once it does.
+    pub port: Option<u16>,
+}
+
+/// Replaces the content of a lock file we hold with our pid and, once known, the API's port: `pid\nport\n`.
+pub fn write_info(file: &mut File, pid: u32, port: Option<u16>) -> io::Result<()> {
     file.set_len(0)?;
-    // `write_all` after `set_len` on an O_RDWR descriptor writes at the current offset, which must be 0.
     std::io::Seek::seek(file, io::SeekFrom::Start(0))?;
-    file.write_all(format!("{pid}\n").as_bytes())?;
+    let text = match port {
+        Some(port) => format!("{pid}\n{port}\n"),
+        None => format!("{pid}\n"),
+    };
+    file.write_all(text.as_bytes())?;
     file.flush()
 }
 
-/// The pid a lock file names, if it holds a number.
-pub fn read_pid(path: &Path) -> Option<u32> {
-    std::fs::read_to_string(path).ok()?.trim().parse().ok().filter(|p| *p > 1)
+/// What a lock file names, if it holds a pid.
+pub fn read_info(path: &Path) -> Option<LockInfo> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut lines = text.lines();
+    let pid = lines.next()?.trim().parse::<u32>().ok().filter(|p| *p > 1)?;
+    let port = lines.next().and_then(|l| l.trim().parse::<u16>().ok());
+    Some(LockInfo { pid, port })
 }
 
 pub fn pid() -> u32 {
@@ -270,34 +285,37 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.lock");
         let mut first = try_lock(&path).unwrap().expect("first lock");
-        write_pid(&mut first, 4242).unwrap();
+        write_info(&mut first, 4242, Some(18731)).unwrap();
         assert!(try_lock(&path).unwrap().is_none());
-        assert_eq!(read_pid(&path), Some(4242));
+        assert_eq!(read_info(&path), Some(LockInfo { pid: 4242, port: Some(18731) }));
         drop(first);
         assert!(try_lock(&path).unwrap().is_some());
     }
 
     #[test]
-    fn the_pid_file_is_rewritten_not_appended() {
+    fn the_info_is_rewritten_not_appended() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.lock");
         let mut file = try_lock(&path).unwrap().unwrap();
-        write_pid(&mut file, 123456).unwrap();
-        write_pid(&mut file, 7).unwrap();
+        write_info(&mut file, 123456, Some(18731)).unwrap();
+        write_info(&mut file, 7, None).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "7\n");
-        assert_eq!(read_pid(&path), Some(7));
+        assert_eq!(read_info(&path), Some(LockInfo { pid: 7, port: None }));
     }
 
     #[test]
-    fn pids_that_are_not_processes_are_not_read() {
+    fn info_that_is_not_a_pid_is_not_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("x");
+        assert_eq!(read_info(&path), None);
         std::fs::write(&path, "").unwrap();
-        assert_eq!(read_pid(&path), None);
+        assert_eq!(read_info(&path), None);
         std::fs::write(&path, "abc\n").unwrap();
-        assert_eq!(read_pid(&path), None);
+        assert_eq!(read_info(&path), None);
         std::fs::write(&path, "1\n").unwrap();
-        assert_eq!(read_pid(&path), None);
+        assert_eq!(read_info(&path), None);
+        std::fs::write(&path, "55\nnot-a-port\n").unwrap();
+        assert_eq!(read_info(&path), Some(LockInfo { pid: 55, port: None }));
     }
 
     #[test]

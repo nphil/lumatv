@@ -74,6 +74,9 @@ pub struct Config {
     pub receiver: ReceiverTuning,
     pub fetch: FetchConfig,
     pub luna: LunaConfig,
+    /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
+    /// compositor. 0 leaves it as started.
+    pub nice: i32,
     /// Browser origins allowed to call the API (empty: none). Requests from the compositor's QML and from `curl` carry no
     /// `Origin` header and are always allowed; a web page does carry one, and a page on the TV's browser must not be able to
     /// drive the helper.
@@ -89,6 +92,7 @@ impl Default for Config {
             receiver: ReceiverTuning::default(),
             fetch: FetchConfig::default(),
             luna: LunaConfig::default(),
+            nice: 10,
             allowed_origins: Vec::new(),
         }
     }
@@ -277,6 +281,9 @@ impl Config {
                 return err(&format!("{name} must be above 0"));
             }
         }
+        if !(0..=19).contains(&self.nice) {
+            return err("nice must be between 0 and 19");
+        }
         if self.fetch.openssl.is_empty() || self.luna.send.is_empty() {
             return err("fetch.openssl and luna.send must not be empty");
         }
@@ -326,6 +333,7 @@ mod tests {
         assert_eq!(config.receiver.hide_after_ms, 6_000);
         assert_eq!(config.fetch.user.as_deref(), Some("nobody"));
         assert!(config.allowed_origins.is_empty());
+        assert_eq!(config.nice, 10);
     }
 
     #[test]
@@ -361,6 +369,8 @@ mod tests {
         assert!(Config::parse(r#"{"log":{"level":"loud"}}"#).unwrap_err().0.contains("log.level"));
         assert!(Config::parse(r#"{"screen":{"source":"magic"}}"#).unwrap_err().0.contains("screen.source"));
         assert!(Config::parse(r#"{"receiver":{"pollMs":0}}"#).unwrap_err().0.contains("receiver.pollMs"));
+        assert!(Config::parse(r#"{"nice":20}"#).unwrap_err().0.contains("nice"));
+        assert!(Config::parse(r#"{"nice":-1}"#).unwrap_err().0.contains("nice"));
     }
 
     #[test]
