@@ -1,0 +1,28 @@
+[package]
+name = "lumatv-helper"
+description = "LumaTV's native helper: loopback JSON API, settings, saved-first weather and news, receiver status"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lib]
+name = "lumatv_helper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lumatv-helper"
+path = "src/main.rs"
+
+[dependencies]
+fetch.workspace = true
+settings-schema.workspace = true
+lumatv-denon.workspace = true
+lumatv-feeds.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

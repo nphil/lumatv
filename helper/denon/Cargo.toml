@@ -1,0 +1,12 @@
+[package]
+name = "lumatv-denon"
+description = "Denon AVR status over the receiver's HTTP interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[dev-dependencies]

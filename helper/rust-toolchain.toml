@@ -1,0 +1,7 @@
+# The compiler LumaShow's crates are built and gated with, so the shared crates compile here exactly as
+# they do there. aarch64 musl is the set's binary; the host target runs the tests.
+[toolchain]
+channel = "nightly-2026-09-13"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-unknown-linux-musl"]
