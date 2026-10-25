@@ -612,7 +612,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (_, store) = store(dir.path());
         let owners: Vec<_> = store.owners().into_iter().map(|s| s.owner).collect();
-        assert_eq!(owners, ["base.ambient", "base.news", "base.receiver", "base.weather"]);
+        assert_eq!(
+            owners,
+            ["base.ambient", "base.news", "base.receiver", "base.weather"]
+        );
     }
 
     #[test]
