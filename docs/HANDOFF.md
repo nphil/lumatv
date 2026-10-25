@@ -6,7 +6,7 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 04:40 EDT)
+## Resume here (LumaTV, 2026-10-25 05:35 EDT)
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
@@ -24,14 +24,19 @@ Phases, Decided); this file holds the proven mechanics.
     startup A/B in `docs/research/perf`, the offline QML host
     (`tests/qmlhost`), Home's weather and news from the native helper, the
     helper's start and stop in the tool, the preload trim, the boot and
-    power-off logo windows. Which of those the set has run is in that note's
-    Log; slot 2 (queued) is the first to run the helper wiring, the preload
-    trim and the logos.
+    power-off logo windows, `lumatv surfaces` (the registry of every switch and
+    its way back) and the first step of the notification view (`lumatv
+    notifications on|off`: LG's tree copied on the set and patched there, never
+    shipped). The set has run the warm-up and the Home gate (slot 1); that note's
+    Log has the numbers. Slot 2 is the first to run the helper wiring, the
+    preload trim, the logos and the notification view.
   - The native helper (`helper/`, `docs/research/native-helper-result.md`):
-    proven on the set (smoke test 35 of 35); its API is on
-    `127.0.0.1:18731`; files under `/var/lib/lumatv`: `log-helper`,
-    `helper.lock`, `helper.json` (optional), `cache/weather.json` and
-    `news.json`, `settings/<owner>.json`, `bin/lumatv-helper` (the staged copy
+    proven on the set (smoke test 35 of 35; AI-access smoke 42 of 42, which skips
+    the two checks that touch the TV and the receiver). The plugin broker
+    (LumaShow's plugin API level 1) is built and host-tested, not yet run on the
+    set. Its API is on `127.0.0.1:18731`; files under `/var/lib/lumatv`:
+    `log-helper`, `helper.lock`, `helper.json` (optional), `cache/weather.json`
+    and `news.json`, `settings/<owner>.json`, `bin/lumatv-helper` (the staged copy
     the tool runs). Stop it with `lumatv helper stop` or `lumatv-helper stop
     --brand <app dir>/brand.json`; if TLS misbehaves set `"fetch":
     {"backend":"curl"}` in `helper.json`.
@@ -52,9 +57,21 @@ Phases, Decided); this file holds the proven mechanics.
     launch `com.webos.app.home` (`tools/tv-recover-home.sh` does it, and
     holds `/tmp/lumatv-recover.lock` while it runs; the tool never restarts the
     compositor's unit while that exists).
-  - Hardware census and LumaShow lessons (`docs/research/hardware-census.md`,
-    `docs/research/lumashow-lessons.md`; nice -19 on surface-manager is LG's
-    own, nothing to adopt).
+  - Hardware census (`docs/research/hardware-census.md`), the top five by benefit
+    over risk, none run yet and none needing a kernel module: 1 the video tap and
+    picture histogram (`libvtcapture`, for ambient light), 2 the TV's own audio
+    mix (`hw:1,2`, `hw:1,3`), 3 the hardware JPEG block, 4 hardware video decode
+    for a video-plane wallpaper, 5 Bluetooth LE through LG's `bluetooth2` service
+    (PLAN.md, Hardware census). LumaShow lessons:
+    `docs/research/lumashow-lessons.md` (nice -19 on surface-manager is LG's own,
+    nothing to adopt).
+  - Declutter (`tools/declutter.sh`, `docs/research/declutter-result.md`): the
+    `lean` profile is on and persisted on the set (uploaders, ads, push,
+    settings, apps, voice, connectivity, share, misc; `ai`, `livetv` and `cast`
+    off). Rebooted clean at 04:08 and checked at 05:15: Netflix, YouTube,
+    PlxNative, Apple TV (about 20 s), Crunchyroll and Prime Video launch;
+    GeForce NOW, a web app, opens the browser as before; the receiver is
+    connected on HDMI 2 with sound on `external_arc`; Home Assistant sees the TV.
 - Nitin's decisions of 2026-10-25 (also in PLAN.md Decided): the approved
   mockups in `docs/mocks` are the design, Settings layout included; LumaTV's
   compositor goes live as soon as it passes the C4 gate, LG's staying as the
@@ -85,8 +102,8 @@ Phases, Decided); this file holds the proven mechanics.
   and `/var/systemd/system/env`; revert every experiment; leave it in
   Active Standby unless the owner is about to watch; no DRM bypass. Slots on
   the set are asked of the main agent and answered "go <name>".
-- Tests: `python3 -m unittest discover -s tests -p 'test_*.py'` (68, of which
-  13 start the offline QML host and need PyQt5 and an X display;
+- Tests: `python3 -m unittest discover -s tests -p 'test_*.py'` (101, about
+  55 s; the ones that start the offline QML host need PyQt5 and an X display,
   `tests/xdisplay.py` starts Xvfb itself) and `TZ=America/New_York bun test
   tests/` (36). The frame gate on the set: `python3 docs/research/perf/gate.py`
   (every number and rule is in its docstring); startup and preload A/B:

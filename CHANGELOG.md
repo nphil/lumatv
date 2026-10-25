@@ -133,6 +133,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by revert, by `off` or by the supervisor. While it is live, the Home stub's guard does not
   read LumaHome's heartbeat, apply does not restart the compositor, and nothing restarts it
   while a Home recovery holds `/tmp/lumatv-recover.lock`.
+- `lumatv notifications on|off|status` points the compositor's notification view
+  (toasts, alerts, input popups, the PIN prompt) at a copy of LG's own tree that is
+  made and patched on the set: Manrope, the toast in the theme's colours, and the
+  live shadow layer of each toast, alert and button turned off. LG's data layer and
+  item contract are untouched, so a notification of any kind arrives as before; a
+  stage or a compositor that refuses the file leaves LG's view in place, and revert
+  puts LG's view back.
+- `lumatv surfaces` lists every switch (Home, Quick Settings, the settings theme,
+  notifications, logos, helper, preload, compositor) with whether it is on, read
+  from the flag or state its own verb uses, and the way back to LG's version.
+- The gate has entries for LG's own toast and alert (`gate.py --surfaces
+  toast,alert`), opened by a luna call, as the baseline the rebuilt ones must beat.
 - Wallpaper tint: LumaHome samples the wallpaper at 32x18, cuts each channel
   into 8 levels, skips near-black pixels and takes the most common bin; a
   newer wallpaper cancels a sample still running. The result is kept in

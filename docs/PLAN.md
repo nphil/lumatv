@@ -31,29 +31,48 @@ Kept current with every change to this plan. Building is under way (Nitin said g
   drawn from the native helper (`kit/Helper.qml`, saved file first); the helper
   started, staged and stopped by `tools/lumatv` (`lumatv helper`); the preload
   trim (`lumatv preload on|off`); the power-on and power-off logo windows
-  (`lumatv logo on|off`) with three options each (`docs/mocks/logo`).
-- Done outside the surfaces: the native helper (`helper/`, proven on the set, 35 of
-  35 checks; MCP module and the preload re-apply built offline), the 64-bit
+  (`lumatv logo on|off`) with three options each (`docs/mocks/logo`); the registry
+  of every switch and its way back (`lumatv surfaces`); the first step of the
+  notification view, LG's own tree patched on the set (`lumatv notifications
+  on|off`, `tools/notification_patch.py`). On the set so far: the warm-up and the
+  Home gate (slot 1). The helper wiring, the preload trim, the logos and the
+  notification view wait for slot 2.
+- Done outside the surfaces: the native helper (`helper/`): the API, settings,
+  feeds and receiver proven on the set (35 of 35 checks) and the AI-access (MCP)
+  server too (42 of 42, two checks that touch the TV and the receiver skipped by
+  design); the plugin broker on LumaShow's plugin API level 1 and the preload
+  re-apply are built and host-tested, the broker not yet run on the set. The
+  declutter tool (`tools/declutter.sh`, `docs/research/declutter-result.md`): the
+  `lean` profile is applied and persisted on the set (nine groups: uploaders, ads,
+  push, settings, apps, voice, connectivity, share, misc; `ai`, `livetv` and `cast`
+  stay off), rebooted clean at 04:08 on 2026-10-25 and checked at 05:15: Netflix,
+  YouTube, PlxNative, Apple TV (about 20 s), Crunchyroll and Prime Video launch;
+  GeForce NOW, a web app, opens the browser as before; the receiver is connected on
+  HDMI 2 with sound on `external_arc`; Home Assistant sees the TV. The 64-bit
   drawing path with its heap shim (`gfx64/`, proven on screen), and LumaTV's own
-  compositor through C2 (an unmodified LG app maps and draws, pixel-exact imports),
-  with C3 and C4 built offline and the first KMS window and bridge dry run run
-  on the set (Track C below; `docs/research/compositor-c2-result.md`).
+  compositor through C2 (an unmodified LG app maps and draws, pixel-exact
+  imports), with C3 and C4 built offline and the first KMS window and bridge dry
+  run run on the set (Track C below; `docs/research/compositor-c2-result.md`).
 - Research done: full catalogue of LG's UI (`docs/SURFACES.md`, 178 rows),
   72 mockups in three batches (`docs/mocks/`), the shell architecture study
   (`docs/research/shell-architecture.md`), the performance study measured
   on the set (`docs/research/perf-tweaks.md`), the hardware census
-  (`docs/research/hardware-census.md`) and the LumaShow lessons
-  (`docs/research/lumashow-lessons.md`). X1 failed (LG's compositor
-  holds 51.2 fps for a trivial client), X2 passed, X4 partly captured.
+  (`docs/research/hardware-census.md`; its ranked top five are under Hardware
+  census below) and the LumaShow lessons (`docs/research/lumashow-lessons.md`). X1
+  failed (LG's compositor holds 51.2 fps for a trivial client), X2 passed, X4
+  partly captured.
 - Decided 2026-10-24: LumaTV replaces LG's compositor, in stages (Phases,
   track C); since 2026-10-25 it goes live as soon as it passes the C4 gate.
 - TV tests still open: X4 during PlxNative playback (Netflix done); the
-  histogram probe (needs the `libvtcapture` histogram signatures first).
+  histogram probe (needs the `libvtcapture` histogram signatures first); the five
+  census experiments, each its own slot; a TV smoke test of the plugin broker.
   Need Nitin present: PIN prompt; keys from his universal remote once set up.
-- Next, in order: the frame gate on Quick Settings and the kit gallery under the
-  new rules, the boot and power-off logo test on the set, then notifications
-  (phase 2), the quick panel, Settings and AI access (phase 3). The Rust helper's
-  receiver, MCP and preload modules are wired into the surfaces as each needs them.
+- Next, in order: slot 2 (install the build, the helper's cards on Home, the
+  startup A/B on early keys, the frame gate on Quick Settings and the kit gallery,
+  the preload A/B, the logo windows, then the toast and alert gate with LG's own
+  views and the patched ones), the rebuilt notification visuals (phase 2), the
+  quick panel, Settings and AI access (phase 3). The Rust helper's receiver, MCP
+  and preload modules are wired into the surfaces as each needs them.
 
 ## Rules every surface meets
 
@@ -253,18 +272,22 @@ without an answer is hidden rather than shown.
 
 ## Native helper
 
-Built and proven on the set (`helper/`, `docs/research/native-helper-result.md`):
-a static aarch64 musl daemon of 1.4-1.7 MB, 5-6 MB resident on the host (808 kB
-measured on the set), at nice 10, idle while the screen is off, with a loopback
-JSON API on `127.0.0.1:18731` (state, a long poll for changes, settings, receiver
-nudge, refresh), a schema-checked settings store (`base.weather`, `base.news`,
-`base.receiver`), weather and news saved first and fetched later, the Denon's
-volume, mute and input, an MCP module with its gate, store and broker (built
-offline), and the preload policy re-applied at every switch-on. The smoke test ran
-on the set: 35 of 35 checks. `tools/lumatv` stages and starts it (`lumatv helper
-start|stop|status`; apply and revert call the same code); Home's weather and news
-cards draw what the helper serves through `kit/Helper.qml` and read its saved file
-at a cold start. What follows is the design it was built to.
+Built (`helper/`, `docs/research/native-helper-result.md`): a static aarch64 musl
+daemon of 2.4 MB (2,461,360 bytes with the AI and plugin modules), 5-6 MB resident
+on the host (808 kB measured on the set at phase 1), at nice 10, idle while the
+screen is off, with a loopback JSON API on `127.0.0.1:18731` (state, a long poll for
+changes, settings, receiver nudge, refresh), a schema-checked settings store
+(`base.weather`, `base.news`, `base.receiver`), weather and news saved first and
+fetched later, the Denon's volume, mute and input, and the preload policy
+re-applied at every switch-on. Proven on the set: the smoke test of the API, feeds
+and receiver (35 of 35 checks) and the one of the AI-access (MCP) server (42 of 42;
+its `--actions` and `--receiver` checks, which touch the TV and the receiver, were
+not run). Built and host-tested, not yet run on the set: the plugin broker
+(LumaShow's plugin API level 1, 12 end-to-end tests through LumaShow's own SDK).
+`tools/lumatv` stages and starts it (`lumatv helper start|stop|status`; apply and
+revert call the same code); Home's weather and news cards draw what the helper
+serves through `kit/Helper.qml` and read its saved file at a cold start. What
+follows is the design it was built to.
 
 A static aarch64 helper in Rust runs beside the compositor, in the language
 of LumaShow OS so the two share crates rather than reimplement them
@@ -584,6 +607,14 @@ widen or approve its own access.
   MCP server; root access for development stays a separate decision of
   Nitin's.
 
+Status: the server side is built in the helper and proven on the set (42 of 42
+checks, `docs/research/native-helper-result.md`): off by default, no listener
+before the physical OK, the pairing code shown only after it, an OK from the
+network key device refused, 13 typed tools, a denial pausing the assistant. Not
+built: the TV's prompt and the Settings › AI access page, which read the helper's
+`ai` and `ai.prompt` topics (phase 3), and the settings flow behind the physical
+remote that switches a plugin on (`plugins/enabled.json`).
+
 ## Compositor startup
 
 `QML_FORCE_DISK_CACHE=1` in `/var/systemd/system/env/surface-manager.env`
@@ -651,6 +682,26 @@ Before building, with the set free:
    kit for the corners, Gledopto Elite GL-C-619WL (ESP32, WLED, Ethernet,
    level shifter, relay) and a 24 V 100 W supply. About 58 sections around
    the 65-inch frame; bottom edge depends on wall mount or stand.
+
+## Hardware census
+
+One read-only slot on the set (2026-10-25, `docs/research/hardware-census.md`) ranked
+what the SoC offers that LG's UI leaves idle, by benefit and feasibility over risk and
+effort. None of the top five needs a kernel module. None has run: each needs its own TV
+slot, and ranks 1 and 3 first need their call signatures recovered offline.
+
+| # | Block | What it gives LumaTV | First experiment |
+|---|---|---|---|
+| 1 | Video tap and picture-engine histogram (`/dev/video60`, `libvtcapture`) | Per-zone colour statistics from the video hardware: the ambient-light input at under 1 % CPU | A 32-bit `dlopen` probe, 60 s each at Home, on HDMI and on Netflix |
+| 2 | The TV's own audio mix (ALSA card 1: `MixerCapture`, `SoundEngineCapture`) | Audio-reactive lights and a loudness meter with no microphone | Five seconds from `hw:1,2` and `hw:1,3` while LG plays a tone, receiver muted; the DSP reset count checked |
+| 3 | Hardware JPEG (`/dev/lg/mjpeg0`) | Poster and wallpaper decode off the CPU, a 4K still on a video window with no GPU, cheap screenshots for the gated view | A 1080p and a 4K JPEG through `DILE_JPEG_Decode`: ms and CPU against libjpeg-turbo |
+| 4 | Hardware video decode (`video21`, `/dev/lg/vdec0-7`) | A looping 1080p wallpaper or screensaver on a video plane; LG's Screen Saver costs 54.5 % Mali and 60 flips a second, Home 10 % and 12.4 | 60 s of a looping 1080p HEVC clip through LG's pipeline in a test web app |
+| 5 | Bluetooth LE through LG's `bluetooth2` service | Presence and BLE sensors for Home Assistant (raw HCI does not exist on this set) | `adapter/getStatus`, then one 15 s passive scan, with Main's OK first |
+
+The NPU (0.4 TOPS, programs compiled offline into LG's own format, no public
+compiler) is parked at rank 6; video encode, the 2D blitter, the TrustZone group and
+the compressed-swap engine are left alone. Open for Nitin: any microphone path, key
+custody for the AI-access secret, network-facing radio use and any kernel change.
 
 ## Reference: ecklf/lg-luma
 
@@ -806,8 +857,10 @@ above replaces it).
    LG's Home's place (Home stub, see Glasshouse). Done: kit, tokens, Manrope
    (QML, web theme, Quick Settings), the fail-open key filter, the focus rule,
    the wallpaper tint, the disk cache, the Home stub, the warm-up, the harness's
-   per-surface gate, the helper's start and stop and Home's cards fed by it.
-   Open: the registry of every surface's state and fallback.
+   per-surface gate, the helper's start and stop and Home's cards fed by it, and
+   the registry of every switch and its way back (`lumatv surfaces`: one entry per
+   switch, `on` read from the flag or state the switch's own verb uses, and the
+   call that returns LG's version).
 2. Notifications: toasts, alerts, PIN prompt, input popups. First step built:
    LG's view patched (Manrope, the toast's colours, DropShadow layers off) and
    pointed at through `changeSystemUIView`; gated against LG's own toast and
@@ -824,9 +877,10 @@ above replaces it).
 7. Removal: nudges, ads and store promotions off; LG's telemetry, ad and
    app-push services removed outright, not only stopped, with two reversible
    profiles, `ads` and `lean`, that trim webOS to what it needs (Nitin,
-   2026-10-25; the work of `docs/research/declutter-result.md`, `tools/declutter.sh`);
-   Prime Video stays unless an LG surface clearly pushes it; Apps tile to the own
-   grid; Notification Centre to the own drawer.
+   2026-10-25; the work of `docs/research/declutter-result.md`, `tools/declutter.sh`).
+   `lean` is applied and persisted on the set (Status); Prime Video stays unless an
+   LG surface clearly pushes it. Still to do: the Apps tile to the own grid and the
+   Notification Centre to the own drawer.
 8. Background preloads trimmed (done: `lumatv preload on`, YouTube, LG Channels and the
    browser dropped, Netflix and Prime Video kept) and the screensaver replaced.
    Research first, under the app-manager constraint below.
