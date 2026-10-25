@@ -98,6 +98,19 @@ Process split (unchanged from PLAN): the 32-bit capture helper polls LG's librar
                                               -> wled_leds()    -> ddp::Sender::send         (UDP 4048)
 ```
 
+The 32-bit capture helper (not built yet; `probe.c` is its core) has this lifecycle:
+
+- Runs only while the screen is on and ambient light is enabled; initialises on a start message from the helper, and
+  finalizes on stop, on standby, on a failed poll streak, and when LG's policy callback fires (LG's resource manager
+  wants the capture: release at once, retry after 2 s).
+- `initHistogram` returning NULL: retry with a 5 s back-off and tell the helper why (the PmLog `capture` lines say
+  whether it is the permission gate, a busy scaler, or no driver). While LG's own Hue Sync service or LG's capture
+  service holds the scaler, this cannot run; that is a state to show in Settings, not an error to fight.
+- Poll 20 to 30 times a second, `setPresetHistogram` whenever the helper's control message names a new preset
+  (`Engine::wanted_preset`), reduce each poll to a `wire` frame, send it. A return of 11 (EAGAIN) is "nothing new".
+- Cost per poll: one ioctl, a 24 KB copy, 12 K multiply-adds for the means: the probe's CPU line is the number that
+  confirms it stays under the plan's 1 %.
+
 HyperHDR features and where they are:
 
 - Zone to light mapping (`layout`): lights are points around the picture; area weight = `exp(-(d/spread)^2) *
