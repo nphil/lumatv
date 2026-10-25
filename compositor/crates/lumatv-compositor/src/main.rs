@@ -96,6 +96,10 @@ fn run(config: Config) -> io::Result<()> {
     let output: Box<dyn Output> = match config.renderer {
         RendererKind::Software => Box::new(Software::new(config.width, config.height)),
         RendererKind::Gl => Box::new(Gl::new(config.driver.as_deref().unwrap(), config.platform, config.width, config.height, config.buffers, wl_display_ptr)?),
+        RendererKind::Kms => {
+            let gl = Gl::new(config.driver.as_deref().unwrap(), config.platform, config.width, config.height, config.buffers, wl_display_ptr)?;
+            Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height)?)
+        }
     };
     let own_mali = config.renderer == RendererKind::Software || config.buffers == BufferPath::Own;
     State::create_globals(&dh, &config, own_mali);
@@ -185,6 +189,10 @@ fn run(config: Config) -> io::Result<()> {
                     // SAFETY: reading the 8-byte expiration count the timerfd owes.
                     unsafe { libc::read(timer.as_raw_fd(), expirations.as_mut_ptr() as *mut libc::c_void, 8) };
                     state.tick();
+                    if let Some(at) = state.output.next_frame_at(Instant::now()) {
+                        // The output paces itself: the next frame starts at its latch, not at the fixed tick.
+                        arm_once(&timer, at.saturating_duration_since(Instant::now()).max(Duration::from_micros(500)))?;
+                    }
                     for m in state.luna.poll() {
                         match m {
                             luna::FromBridge::Ping { seq } => state.luna.send(luna::ToBridge::Pong { seq }),
@@ -243,6 +251,19 @@ fn run(config: Config) -> io::Result<()> {
     }
     if state.check.bad > 0 {
         std::process::exit(3);
+    }
+    Ok(())
+}
+
+/// Re-arms the tick as a one-shot `delay` from now.
+fn arm_once(timer: &OwnedFd, delay: Duration) -> io::Result<()> {
+    // SAFETY: arming a timerfd with a stack itimerspec.
+    unsafe {
+        let value = libc::timespec { tv_sec: delay.as_secs() as libc::time_t, tv_nsec: delay.subsec_nanos() as libc::c_long };
+        let spec = libc::itimerspec { it_interval: libc::timespec { tv_sec: 0, tv_nsec: 0 }, it_value: value };
+        if libc::timerfd_settime(timer.as_raw_fd(), 0, &spec, std::ptr::null_mut()) < 0 {
+            return Err(io::Error::last_os_error());
+        }
     }
     Ok(())
 }

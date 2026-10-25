@@ -37,12 +37,22 @@ struct Tex {
     uploaded: bool,
 }
 
+/// A render target: the offscreen one `Gl::new` makes (id 0) or a dma-buf page added for scan-out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TargetId(pub usize);
+
+struct Target {
+    fbo: GLuint,
+    tex: GLuint,
+    image: EGLImage,
+}
+
 pub struct Gl {
     egl: Egl,
     width: u32,
     height: u32,
-    fbo: GLuint,
-    target: GLuint,
+    targets: Vec<Target>,
+    current: TargetId,
     program: GLuint,
     a_pos: GLuint,
     a_uv: GLuint,
@@ -105,8 +115,8 @@ impl Gl {
             egl,
             width,
             height,
-            fbo,
-            target,
+            targets: vec![Target { fbo, tex: target, image: std::ptr::null_mut() }],
+            current: TargetId(0),
             program,
             a_pos,
             a_uv,
@@ -285,6 +295,145 @@ impl Gl {
         self.import_failures
     }
 
+    /// Makes a dma-buf (a scan-out page) a render target: imported as an EGLImage, bound to a texture and an FBO.
+    pub fn add_dmabuf_target(&mut self, fd: i32, width: i32, height: i32, fourcc: u32, pitch: u32, modifier: u64) -> io::Result<TargetId> {
+        let image = self.egl.image_from_dmabuf(fd, width, height, fourcc, 0, pitch, modifier)?;
+        let a = &self.egl.api;
+        let tex = bind_image(a, image);
+        let mut fbo = 0;
+        // SAFETY: GL object creation with a current context; the texture exists.
+        let status = unsafe {
+            (a.glGenFramebuffers)(1, &mut fbo);
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
+            (a.glFramebufferTexture2D)(egl::GL_FRAMEBUFFER, egl::GL_COLOR_ATTACHMENT0, egl::GL_TEXTURE_2D, tex, 0);
+            (a.glCheckFramebufferStatus)(egl::GL_FRAMEBUFFER)
+        };
+        if status != egl::GL_FRAMEBUFFER_COMPLETE {
+            return Err(egl::other(format!("dma-buf target framebuffer incomplete: 0x{status:x}")));
+        }
+        // Defined-texture rule: a new page starts opaque black.
+        // SAFETY: as above.
+        unsafe {
+            (a.glDisable)(egl::GL_SCISSOR_TEST);
+            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
+            (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+            (a.glFinish)();
+        }
+        self.targets.push(Target { fbo, tex, image });
+        Ok(TargetId(self.targets.len() - 1))
+    }
+
+    /// Selects the target the next `render` draws into.
+    pub fn set_target(&mut self, target: TargetId) {
+        if target.0 < self.targets.len() {
+            self.current = target;
+        }
+    }
+
+    /// A native fence fd for the work submitted so far (`EGL_ANDROID_native_fence_sync`, which the blob on the set
+    /// has): the atomic commit's `IN_FENCE_FD`. `None` without the extension.
+    pub fn export_fence(&mut self) -> Option<std::os::fd::OwnedFd> {
+        let (Some(create), Some(dup), Some(destroy)) = (self.egl.opt.eglCreateSyncKHR, self.egl.opt.eglDupNativeFenceFDANDROID, self.egl.opt.eglDestroySyncKHR)
+        else {
+            return None;
+        };
+        const EGL_SYNC_NATIVE_FENCE_ANDROID: u32 = 0x3144;
+        // SAFETY: a native fence sync with no attributes; the fd is owned from here; the sync is destroyed.
+        unsafe {
+            let sync = create(self.egl.display, EGL_SYNC_NATIVE_FENCE_ANDROID, std::ptr::null());
+            if sync.is_null() {
+                return None;
+            }
+            (self.egl.api.glFlush)();
+            let fd = dup(self.egl.display, sync);
+            destroy(self.egl.display, sync);
+            if fd < 0 { None } else { Some(<std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd)) }
+        }
+    }
+
+    /// Finishes every queued GL command (before a CPU read of a page).
+    pub fn finish(&self) {
+        // SAFETY: plain call on the current context.
+        unsafe { (self.egl.api.glFinish)() };
+    }
+
+    /// Draws the plan into the current target, but only inside `rects` (output pixels): the tiles a scan-out page
+    /// owes, or the frame's damage bounds.
+    pub fn render_rects(&mut self, plan: &Plan, surfaces: &Surfaces, rects: &[Rect]) -> io::Result<RenderStats> {
+        let t0 = std::time::Instant::now();
+        self.prune(surfaces);
+        let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
+        if rects.is_empty() {
+            return Ok(stats);
+        }
+        let fbo = self.targets[self.current.0].fbo;
+        // SAFETY: GL state calls on the current context and this renderer's objects.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
+            (a.glViewport)(0, 0, self.width as i32, self.height as i32);
+            (a.glUseProgram)(self.program);
+            (a.glEnable)(egl::GL_SCISSOR_TEST);
+            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
+            for r in rects {
+                self.scissor(r);
+                (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+            }
+            (a.glEnable)(egl::GL_BLEND);
+            (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
+        }
+        for item in &plan.items {
+            let Some((tex, _size, y_invert)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
+                stats.skipped += 1;
+                continue;
+            };
+            let mut drawn = false;
+            for r in rects {
+                let clip = item.rect.intersect(r);
+                if clip.is_empty() {
+                    continue;
+                }
+                self.scissor(&clip);
+                self.draw_quad(tex, &item.rect, y_invert);
+                drawn = true;
+            }
+            if drawn {
+                stats.drawn += 1;
+            }
+        }
+        for h in &plan.holes {
+            for r in rects {
+                let c = h.intersect(r);
+                if c.is_empty() {
+                    continue;
+                }
+                self.scissor(&c);
+                // SAFETY: as above.
+                unsafe {
+                    (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
+                    (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
+                }
+            }
+        }
+        // Start the GPU work now (LumaShow lesson 3: a fence, not glFlush, is what starts it on Mali). The KMS
+        // output exports its own native fence for the commit right after.
+        if let Some(sync) = self.egl.kick_fence() {
+            // SAFETY: a fence this renderer just created, consumed here.
+            unsafe { self.egl.wait_fence(sync, 0) };
+        } else {
+            // SAFETY: plain call.
+            unsafe { (self.egl.api.glFlush)() };
+        }
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
+            log::warn!("gl error 0x{err:x} during render");
+        }
+        stats.gl_errors = self.gl_errors;
+        stats.render_us = t0.elapsed().as_micros() as u64;
+        Ok(stats)
+    }
+
     /// Drops textures of buffers the clients destroyed and no surface shows any more. A destroyed buffer that is
     /// still a surface's current one keeps its import: the surface goes on showing it until the client commits
     /// another (the driver's own buffers have no destroy callback here, so liveness is the only signal).
@@ -372,6 +521,23 @@ fn link(egl: &Egl) -> io::Result<GLuint> {
 
 use std::os::fd::AsRawFd;
 
+impl Drop for Gl {
+    fn drop(&mut self) {
+        // SAFETY: objects this renderer created, dropped once; the EGL display outlives them until `egl` drops.
+        unsafe {
+            for t in self.textures.values() {
+                (self.egl.api.glDeleteTextures)(1, &t.tex);
+                self.egl.destroy_image(t.image);
+            }
+            for t in &self.targets {
+                (self.egl.api.glDeleteFramebuffers)(1, &t.fbo);
+                (self.egl.api.glDeleteTextures)(1, &t.tex);
+                self.egl.destroy_image(t.image);
+            }
+        }
+    }
+}
+
 impl Output for Gl {
     fn name(&self) -> &'static str {
         "gl"
@@ -404,67 +570,11 @@ impl Output for Gl {
     }
 
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
-        let t0 = std::time::Instant::now();
-        self.prune(surfaces);
-        let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
-        let area = plan.damage;
-        if area.is_empty() {
-            return Ok(stats);
+        if plan.damage.is_empty() {
+            return Ok(RenderStats { items: plan.items.len(), ..Default::default() });
         }
-        // SAFETY: GL state calls on the current context and this renderer's objects.
-        unsafe {
-            let a = &self.egl.api;
-            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.fbo);
-            (a.glViewport)(0, 0, self.width as i32, self.height as i32);
-            (a.glUseProgram)(self.program);
-            (a.glEnable)(egl::GL_SCISSOR_TEST);
-            self.scissor(&area);
-            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
-            (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
-            (a.glEnable)(egl::GL_BLEND);
-            (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
-        }
-        for item in &plan.items {
-            let clip = item.rect.intersect(&area);
-            if clip.is_empty() {
-                continue;
-            }
-            let Some((tex, _size, y_invert)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
-                stats.skipped += 1;
-                continue;
-            };
-            self.scissor(&clip);
-            self.draw_quad(tex, &item.rect, y_invert);
-            stats.drawn += 1;
-        }
-        for h in &plan.holes {
-            let r = h.intersect(&area);
-            if r.is_empty() {
-                continue;
-            }
-            self.scissor(&r);
-            // SAFETY: as above.
-            unsafe {
-                (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
-                (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
-            }
-        }
-        // Start the GPU work now; C3 hands this fence to the atomic commit as the in-fence.
-        if let Some(sync) = self.egl.kick_fence() {
-            // SAFETY: a fence this renderer just created, consumed here.
-            unsafe { self.egl.wait_fence(sync, 0) };
-        } else {
-            // SAFETY: plain call.
-            unsafe { (self.egl.api.glFlush)() };
-        }
-        let err = self.egl.gl_error();
-        if err != egl::GL_NO_ERROR {
-            self.gl_errors += 1;
-            log::warn!("gl error 0x{err:x} during render");
-        }
-        stats.gl_errors = self.gl_errors;
-        stats.render_us = t0.elapsed().as_micros() as u64;
-        Ok(stats)
+        let area = [plan.damage];
+        self.render_rects(plan, surfaces, &area)
     }
 
     fn present(&mut self) -> io::Result<Presented> {
@@ -477,7 +587,7 @@ impl Output for Gl {
         // SAFETY: reading the bound offscreen framebuffer into a buffer of exactly w*h*4 bytes.
         unsafe {
             let a = &self.egl.api;
-            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.fbo);
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.targets[self.current.0].fbo);
             (a.glFinish)();
             (a.glReadPixels)(0, 0, w as i32, h as i32, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, bottom_up.as_mut_ptr() as *mut c_void);
         }
@@ -489,7 +599,6 @@ impl Output for Gl {
         for row in bottom_up.chunks_exact(w * 4).rev() {
             rgba.extend_from_slice(row);
         }
-        let _ = self.target;
         Ok(Image { width: self.width, height: self.height, rgba })
     }
 }

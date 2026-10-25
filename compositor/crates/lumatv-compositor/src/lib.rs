@@ -16,6 +16,7 @@ pub mod capture;
 pub mod config;
 pub mod control;
 pub mod damage;
+pub mod kms;
 pub mod luna;
 pub mod luna_methods;
 pub mod output;

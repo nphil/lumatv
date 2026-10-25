@@ -9,6 +9,8 @@ use crate::render::gl::BufferPath;
 pub enum RendererKind {
     Software,
     Gl,
+    /// The GL renderer scanning out through KMS as DRM master (C3; only in a maintenance window until C4).
+    Kms,
 }
 
 /// A self-check of what reached the output, for the scripted TV runs.
@@ -26,6 +28,7 @@ pub struct Config {
     pub socket: String,
     pub renderer: RendererKind,
     pub driver: Option<String>,
+    pub card: String,
     pub platform: Platform,
     pub buffers: BufferPath,
     pub seconds: Option<u64>,
@@ -49,6 +52,7 @@ impl Default for Config {
             socket: "wayland-lumatv".into(),
             renderer: RendererKind::Software,
             driver: None,
+            card: "/dev/dri/card0".into(),
             platform: Platform::GbmNull,
             buffers: BufferPath::Driver,
             seconds: None,
@@ -70,7 +74,8 @@ impl Default for Config {
 pub const USAGE: &str = "lumatv-compositor [options]
   --runtime-dir DIR      XDG_RUNTIME_DIR for the socket (default /tmp/lumatv)
   --socket NAME          WAYLAND_DISPLAY name (default wayland-lumatv)
-  --renderer software|gl (default software; gl when --driver is given)
+  --renderer software|gl|kms (default software; gl when --driver is given; kms = gl + DRM master scan-out)
+  --card PATH            the DRM device for --renderer kms (default /dev/dri/card0)
   --driver PATH          the 64-bit Mali blob to dlopen for the GL renderer
   --egl-platform gbm|surfaceless  how the EGL display is made (gbm with a null device for the blob; surfaceless for Mesa)
   --buffers driver|own   who serves mali_buffer_sharing: the driver (eglBindWaylandDisplayWL) or this compositor
@@ -103,10 +108,12 @@ impl Config {
                     c.renderer = match value()?.as_str() {
                         "software" => RendererKind::Software,
                         "gl" => RendererKind::Gl,
+                        "kms" => RendererKind::Kms,
                         o => return Err(format!("unknown renderer {o}")),
                     }
                 }
                 "--driver" => c.driver = Some(value()?),
+                "--card" => c.card = value()?,
                 "--egl-platform" => {
                     c.platform = match value()?.as_str() {
                         "gbm" => Platform::GbmNull,
@@ -153,8 +160,8 @@ impl Config {
         if !renderer_set && c.driver.is_some() {
             c.renderer = RendererKind::Gl;
         }
-        if c.renderer == RendererKind::Gl && c.driver.is_none() {
-            return Err("--renderer gl needs --driver PATH".into());
+        if matches!(c.renderer, RendererKind::Gl | RendererKind::Kms) && c.driver.is_none() {
+            return Err("--renderer gl|kms needs --driver PATH".into());
         }
         if c.capture_every == 0 {
             c.capture_every = 1;

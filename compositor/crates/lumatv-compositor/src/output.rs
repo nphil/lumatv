@@ -64,6 +64,12 @@ pub trait Output {
 
     /// Reads the target back.
     fn capture(&mut self) -> io::Result<Image>;
+
+    /// When the next frame should start, for outputs that pace themselves (KMS: the pacer's latch, from the
+    /// page-flip timestamps). `None` means the fixed tick.
+    fn next_frame_at(&self, _now: Instant) -> Option<Instant> {
+        None
+    }
 }
 
 /// Monotonic milliseconds since the first call, 32-bit wrapping, for frame callbacks.
