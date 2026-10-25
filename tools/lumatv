@@ -177,6 +177,10 @@ ENV_EXTRA_KEYS='QT_QPA_UPDATE_IDLE_TIME|QML_FORCE_DISK_CACHE|QSG_[A-Z0-9_]+|QV4_
 # 4.6-5.2 s. Qt validates each cached unit against its source, but the cache
 # is cleared whenever the staged compositor set changes, and at revert, so it
 # never outlives the tree it was compiled from. 6.2 MB when full.
+# Qt's platform plugin waits a fixed 5 ms (QT_QPA_UPDATE_IDLE_TIME) before
+# every update request, which pushes animated frames past the vblank. 0 cut
+# dropped frames on the set from 8-9 % to 3.4-4 % on a D-pad sweep and from
+# 46-67 % to 2.5-4 % opening Quick Settings (2026-10-24).
 QML_CACHE_DIR=/home/root/.cache/surface-manager/qmlcache
 STOCK_ASSETS=/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets
 
@@ -890,6 +894,7 @@ env_extra_lines() {
 env_line() {
   printf 'QML2_IMPORT_PATH=%s:/usr/lib/qt5/qml\n' "$SHADOW_ROOT"
   printf 'QML_FORCE_DISK_CACHE=1\n'
+  printf 'QT_QPA_UPDATE_IDLE_TIME=0\n'
   env_extra_lines
 }
 

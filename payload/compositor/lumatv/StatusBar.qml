@@ -161,7 +161,7 @@ Item {
             { label: "Depth", kind: "slider", key: "depth", value: wm.depth === undefined ? 0.25 : wm.depth, min: 0, max: 1, step: 0.05, unit: "" },
             { label: "Wave size", kind: "slider", key: "scale", value: wm.scale === undefined ? 1 : wm.scale, min: 0.5, max: 2.5, step: 0.1, unit: "x" },
             { label: "Detail", kind: "slider", key: "detail", value: wm.detail === undefined ? 0.35 : wm.detail, min: 0, max: 1, step: 0.05, unit: "" },
-            { label: "Frame rate", kind: "slider", key: "fps", value: wm.fps === undefined ? 30 : wm.fps, min: 15, max: 60, step: 5, unit: " fps" },
+            { label: "Frame rate", kind: "slider", key: "fps", value: wm.fps === undefined ? 10 : wm.fps, min: 5, max: 60, step: 5, unit: " fps" },
             { label: "Vignette", kind: "slider", key: "vignette", value: wm.vignette || 0, min: 0, max: 1, step: 0.05, unit: "" },
             { label: "Specular", kind: "slider", key: "specular", value: wm.specular || 0, min: 0, max: 1, step: 0.05, unit: "" },
             { label: "Bloom", kind: "slider", key: "bloom", value: wm.bloom || 0, min: 0, max: 1, step: 0.05, unit: "" },

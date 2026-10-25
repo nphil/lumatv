@@ -315,6 +315,27 @@ Item {
     // blur is baked from the still image.
     property var wallMotion: theme.wallpaperMotion || {}
     property bool wallMotionOn: (wallMotion.enabled !== false) && !root.motionReduced
+    // One clock for everything that moves at rest: the wallpaper phase and the clock's
+    // hands advance on the same tick, so idle Home presents one frame per tick. Separate
+    // 33 ms wallpaper and 1 s + 160 ms second-hand timers measured an uneven 37 fps with
+    // a 50 ms hitch every 1.5 s (2026-10-23). The phase follows real elapsed time, so
+    // timer jitter never shows as uneven motion; a gap over 200 ms (Home hidden) counts
+    // as one tick.
+    property int frameTick: 0
+    property double lastTickMs: 0
+    Timer {
+        interval: Math.round(1000 / (root.wallMotion.fps || 10))
+        running: root.hostActive
+        repeat: true
+        onTriggered: {
+            var now = Date.now()
+            var dt = now - root.lastTickMs
+            if (dt <= 0 || dt > 200) dt = interval
+            root.lastTickMs = now
+            if (liveWall.visible) liveWall.t += dt / 1000 * liveWall.speed
+            root.frameTick++
+        }
+    }
     ShaderEffect {
         id: liveWall
         anchors.fill: parent
@@ -342,12 +363,6 @@ Item {
         property real bloom: root.wallMotion.bloom === undefined ? 0 : root.wallMotion.bloom
         property vector4d look: Qt.vector4d(vignette, specular, bloom, 0)
         property variant glow: blurTex
-        Timer {
-            interval: Math.round(1000 / (root.wallMotion.fps || 30))
-            running: liveWall.visible && root.hostActive
-            repeat: true
-            onTriggered: liveWall.t += interval / 1000 * liveWall.speed
-        }
         // The fields are at most 6 cycles across the screen, so they are evaluated per
         // vertex on a grid and interpolated; the fragment is one read plus the scrim.
         mesh: GridMesh { resolution: Qt.size(64, 36) }
@@ -695,6 +710,7 @@ Item {
                 cardEasing: root.cardEasing
                 motionReduced: root.motionReduced
                 live: root.hostActive
+                frameTick: root.frameTick
                 onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData.id) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData.id; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData.id) root.focusLayer = "widgets" }
             }
         }

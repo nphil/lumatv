@@ -1,0 +1,8 @@
+Phase 1 step 2 on the set, 2026-10-24 22:25: QT_QPA_UPDATE_IDLE_TIME=0 and QML disk cache in the env file,
+wallpaper and clock on one shared tick at 10/s, second hand without its overshoot animation. 2 repeats.
+
+idle Home 10 s:    12.5 fps presented (by design ~10), compositor CPU 4.3 % of a core, GPU busy 10 %  (stock: 30 % GPU, 10.3 % CPU)
+D-pad sweep:       3.9-4.4 % of animated frames dropped (stock 8-9 %)
+Quick Settings:    open 1.1-2.2 % dropped (stock 46-67 %), close 0-3.7 % (stock 12-29 %)
+The first Quick Settings open of each run presented no frames (panel not opened by the first key).
+Remaining drops are the compositor floor (X1); track C removes it.

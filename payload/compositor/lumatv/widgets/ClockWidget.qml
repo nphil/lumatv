@@ -123,7 +123,7 @@ Item {
             transform: Rotation { origin.x: 3; origin.y: 62; angle: root.minuteAngle }
         }
         Rectangle {
-            // second hand: ticks with a short overshoot, transform only
+            // second hand: steps once a second on Home's shared tick, transform only
             x: analogView.cx - 1; y: analogView.cy - 66
             width: 2; height: 84; radius: 1
             color: root.secondC
@@ -131,7 +131,6 @@ Item {
             transform: Rotation {
                 origin.x: 1; origin.y: 66
                 angle: root.secondAngle
-                Behavior on angle { NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
             }
         }
         Rectangle {
@@ -208,6 +207,8 @@ Item {
     property real minuteAngle: 0
     property real secondAngle: 0
     property int calMonthKey: -1
+    property int frameTick: 0
+    property int lastSecond: -1
 
     function pad(n) { return (n < 10 ? "0" : "") + n }
     function greetingFor(h) {
@@ -228,6 +229,8 @@ Item {
     function tick() {
         var d = new Date()
         var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds()
+        if (s === root.lastSecond) return
+        root.lastSecond = s
         if (root.analog) {
             root.hourAngle = ((h % 12) + m / 60) * 30
             root.minuteAngle = (m + s / 60) * 6
@@ -251,7 +254,10 @@ Item {
             dateText.text = Qt.formatDate(d, "dddd, MMMM d")
         }
     }
-    onAnalogChanged: { calMonthKey = -1; tick() }
-    // Stopped while Home is hidden; starting again ticks at once, so the hands never show a stale time.
-    Timer { interval: 1000; running: root.live; repeat: true; triggeredOnStart: true; onTriggered: root.tick() }
+    onAnalogChanged: { calMonthKey = -1; lastSecond = -1; tick() }
+    // Driven by Home's shared tick, which stops while Home is hidden; showing Home again
+    // ticks at once, so the hands never show a stale time.
+    onFrameTickChanged: tick()
+    onLiveChanged: if (live) { lastSecond = -1; tick() }
+    Component.onCompleted: tick()
 }

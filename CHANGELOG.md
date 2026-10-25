@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The compositor starts with `QT_QPA_UPDATE_IDLE_TIME=0`, removing Qt's fixed
+  5 ms wait before each update; dropped animation frames fell from 8-9 % to
+  3.4-4 % on a D-pad sweep and from 46-67 % to 2.5-4 % opening Quick Settings.
+- Home's wallpaper motion and clock hands step on one shared tick (default
+  10 a second) instead of separate timers, and the second hand steps without
+  its overshoot animation, so idle Home no longer presents an uneven stream of
+  frames with a periodic hitch.
 - The project is renamed LumaTV. Every name (display name, app id, data dir,
   QML module directory, tool and boot-hook names) comes from `brand.json`;
   the build fills the `{{displayName}}`, `{{shortId}}`, `{{appId}}`, `{{dataDir}}`
