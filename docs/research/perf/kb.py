@@ -56,9 +56,13 @@ def mark(name):
 
 
 LUNA = {
-    'toast': ('luna://com.webos.notification/createToast', '{"sourceId":"com.webos.app.home","message":"A toast for the gate"}'),
+    # The fields LG's view reads of every notification (`userData.id` of a toast, `readable` and `showTimeout` of an
+    # alert): without them its own code logs a TypeError or a binding warning per notification, which the gate counts.
+    'toast': ('luna://com.webos.notification/createToast',
+              '{"sourceId":"com.webos.app.home","message":"A toast for the gate","readable":"A toast for the gate","userData":{"id":"gate"}}'),
     'alert': ('luna://com.webos.notification/createAlert',
-              '{"sourceId":"com.webos.app.home","title":"An alert for the gate","message":"Closed by the gate with OK.","buttons":[{"label":"OK"}]}'),
+              '{"sourceId":"com.webos.app.home","title":"An alert for the gate","message":"Closed by the gate with OK.","readable":"An alert for the gate",'
+              '"showTimeout":false,"buttons":[{"label":"OK"}]}'),
 }
 
 

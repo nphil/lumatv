@@ -39,8 +39,10 @@ FocusScope {
     readonly property int pad: style.getRValue(20)
     readonly property int tile: style.getRValue(52)
     readonly property int gap: style.getRValue(18)
-    readonly property bool hasIcon: root.iconPath !== "" && !lightToast
-    readonly property var lines: String(root.message).split("\n")
+    // LG draws an icon only for an advanced toast (a standard one carries a default that is never shown).
+    readonly property bool hasIcon: root.iconPath !== "" && advancedToast
+    // A line break is a newline or, as in LG's own messages, a <br> tag.
+    readonly property var lines: String(root.message).split(/\n|<br\s*\/?>/i)
     readonly property string title: lines[0]
     readonly property string subtitle: lines.length > 1 ? lines.slice(1).join(" ") : ""
     readonly property string linkLabel: (model.actionLabel !== undefined && model.actionLabel !== null) ? String(model.actionLabel) : ""
