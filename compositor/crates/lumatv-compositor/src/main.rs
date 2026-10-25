@@ -229,6 +229,9 @@ fn run(config: Config) -> io::Result<()> {
         drop(l);
         let _ = std::fs::remove_file(control::socket_path(&config.runtime_dir));
     }
+    if state.check.bad > 0 {
+        std::process::exit(3);
+    }
     Ok(())
 }
 

@@ -185,18 +185,13 @@ fn damage_without_a_new_buffer_redraws_only_that_rectangle() {
     client.conn.flush().unwrap();
     std::thread::sleep(Duration::from_millis(20));
     let plan_damage = server.eval(|s| {
-        let State { scene, surfaces, output, .. } = s;
         // Re-plan from the current state without presenting: layout unchanged, so the item's damage is used.
-        win_damage(scene, surfaces, output)
+        let plan = s.scene.plan(&s.surfaces);
+        (plan.damage.is_empty(), plan.damage.w * plan.damage.h)
     });
     assert!(plan_damage.1 <= 4 * 4 || plan_damage.0, "damage after a 4 px commit is 4 px (or already consumed): {plan_damage:?}");
 }
 
-use lumatv_compositor::State;
-fn win_damage(scene: &mut lumatv_compositor::scene::Scene, surfaces: &lumatv_compositor::surface::Surfaces, output: &mut Box<dyn lumatv_compositor::output::Output>) -> (bool, i32) {
-    let plan = scene.plan(surfaces, |b| output.query_buffer(b).map(|(_, i)| i).unwrap_or(true));
-    (plan.damage.is_empty(), plan.damage.w * plan.damage.h)
-}
 
 #[test]
 fn surface_group_member_draws_above_its_owner() {
@@ -213,9 +208,8 @@ fn surface_group_member_draws_above_its_owner() {
     client.present(&member_surface, &yellow);
     assert!(client.wait_until(WAIT, |s| s.frames_done >= 2));
     let (image, items) = server.eval(|s| {
-        let State { scene, surfaces, output, .. } = s;
-        let plan = scene.plan(surfaces, |_| true);
-        (output.capture().unwrap(), plan.items.len())
+        let plan = s.scene.plan(&s.surfaces);
+        (s.output.capture().unwrap(), plan.items.len())
     });
     assert_eq!(items, 2, "owner and member");
     assert_eq!(image.pixel(100, 100), [0xff, 0xff, 0, 0xff]);

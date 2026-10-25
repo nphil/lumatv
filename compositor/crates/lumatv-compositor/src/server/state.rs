@@ -178,7 +178,10 @@ impl State {
     pub fn commit(&mut self, id: SurfaceId) {
         self.stats.commits += 1;
         let State { surfaces, output, .. } = self;
-        let effects = surfaces.commit(id, |b| crate::buffer::size_of(b).or_else(|| output.query_buffer(b).map(|(s, _)| s)));
+        let effects = surfaces.commit(id, |b| match crate::buffer::size_of(b) {
+            Some(size) => Some((size, true)),
+            None => output.query_buffer(b),
+        });
         for (sid, eff) in effects {
             if eff.new_buffer
                 && let Some(s) = self.surfaces.get(sid)
@@ -229,8 +232,7 @@ impl State {
     /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases.
     pub fn tick(&mut self) -> Presented {
         self.stats.ticks += 1;
-        let State { scene, surfaces, output, .. } = self;
-        let plan = scene.plan(surfaces, |b| output.query_buffer(b).map(|(_, inv)| inv).unwrap_or(true));
+        let plan = self.scene.plan(&self.surfaces);
         let mut drew = false;
         if !plan.damage.is_empty() {
             match self.output.render(&plan, &self.surfaces) {

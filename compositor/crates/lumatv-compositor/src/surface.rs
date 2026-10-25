@@ -83,6 +83,8 @@ pub struct Current {
     pub buffer: Option<WlBuffer>,
     /// Size in surface pixels once known (shm and dma-buf at attach; driver buffers at import).
     pub size: Option<(i32, i32)>,
+    /// Whether the buffer's rows run top-down (shm, LG's Mali buffers) rather than GL's bottom-up.
+    pub y_invert: bool,
     pub opaque: Option<Vec<Rect>>,
     pub input: Option<Vec<Rect>>,
     pub scale: i32,
@@ -120,7 +122,7 @@ impl Surface {
             role: Role::None,
             pending: Pending::default(),
             cached: None,
-            current: Current { scale: 1, ..Default::default() },
+            current: Current { scale: 1, y_invert: true, ..Default::default() },
             children: Vec::new(),
             position: (0, 0),
             sync: true,
@@ -208,7 +210,7 @@ impl Surfaces {
 
     /// `wl_surface.commit`. A synchronized subsurface caches; otherwise the pending state is applied, then the
     /// cached state of every synchronized child, recursively (the protocol's "parent commit applies children").
-    pub fn commit(&mut self, id: SurfaceId, mut known_size: impl FnMut(&WlBuffer) -> Option<(i32, i32)>) -> Vec<(SurfaceId, CommitEffects)> {
+    pub fn commit(&mut self, id: SurfaceId, mut known_size: impl FnMut(&WlBuffer) -> Option<((i32, i32), bool)>) -> Vec<(SurfaceId, CommitEffects)> {
         let mut effects = Vec::new();
         let Some(s) = self.map.get_mut(&id) else { return effects };
         let is_sync_child = matches!(s.role, Role::Subsurface { .. }) && self.effective_sync(id);
@@ -242,7 +244,7 @@ impl Surfaces {
         }
     }
 
-    fn apply_pending(&mut self, id: SurfaceId, known_size: &mut impl FnMut(&WlBuffer) -> Option<(i32, i32)>, effects: &mut Vec<(SurfaceId, CommitEffects)>) {
+    fn apply_pending(&mut self, id: SurfaceId, known_size: &mut impl FnMut(&WlBuffer) -> Option<((i32, i32), bool)>, effects: &mut Vec<(SurfaceId, CommitEffects)>) {
         let Some(s) = self.map.get_mut(&id) else { return };
         let mut p = s.pending.take();
         if let Some(cached) = s.cached.take() {
@@ -262,7 +264,13 @@ impl Surfaces {
                     {
                         s.current.retired.push(o);
                     }
-                    s.current.size = known_size(&nb);
+                    match known_size(&nb) {
+                        Some((size, y_invert)) => {
+                            s.current.size = Some(size);
+                            s.current.y_invert = y_invert;
+                        }
+                        None => s.current.size = None,
+                    }
                     s.current.buffer = Some(nb);
                     s.current.buffer_commits += 1;
                     eff.new_buffer = true;

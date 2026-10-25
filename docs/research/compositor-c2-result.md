@@ -9,25 +9,26 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 01:05 EDT): design written; the compositor builds on the
-host (`cargo build` in `compositor/`); host tests and the aarch64 build are
-next.
+State (2026-10-25 01:20 EDT): first light works offline on the host; the
+aarch64 bundle builds; the TV run is a ready script waiting for "TV is
+yours". Nothing of this slice has run on the set yet.
 
-- Done: design (below), workspace `compositor/` (crates `wl-protocols`
-  with the public webOS XMLs + `mali_buffer_sharing` + unverified
-  `starfish`, and `lumatv-compositor`: wl_compositor/subcompositor/shm/
-  shell/seat/output, webOS shell, surface groups, foreign punch-through
-  with the videooutputd call shapes, input manager, xinput/text/input
-  method/system UX stubs, linux-dmabuf v3, own mali_buffer_sharing, scene
-  with LG's window layers, software renderer, GL renderer on the blob
-  (EGL_WAYLAND_BUFFER_WL + dma-buf import, offscreen FBO, readback), 60 Hz
-  timerfd tick, frame callbacks and releases from the tick, PNG capture,
-  X2 self-check, control socket, luna bridge contract).
-- Half-done: host integration tests (none yet); `cargo zigbuild` for
-  aarch64 not yet run on this crate; `compositor/tools/tv-first-light.sh`
-  not written.
-- Next command: `cd /data/home/lumaglass/compositor && cargo test`, then
-  `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36`.
+- Done: design (below); workspace `compositor/` builds and tests on the
+  host (`cargo test`: 5 unit + 13 protocol tests, a real `wayland-client`
+  over a socketpair); the real binaries ran end to end on the host
+  (`lumatv-compositor --renderer software --check x2` + `lumatv-testclient`:
+  6/6 frames pixel-exact, PNGs written, `state_changed(fullscreen)`,
+  `configure 1920x1080`, releases paced by the tick); release build for the
+  set with `tools/build-tv.sh` (1.46 MB compositor, 0.57 MB test client,
+  16 KB `x2cli`, only `libc.so.6` as a DT_NEEDED, max GLIBC_2.34; libwayland
+  and the blob are `dlopen`ed from the private directory).
+- Half-done: nothing offline. The `luna` module is the bridge contract and
+  the null bridge; the 32-bit bridge program itself is C4 (§5).
+- Next command (needs the TV): `sh compositor/tools/tv-first-light.sh
+  deploy`, then `… run all`, `… app`, `… fetch` (expected results in "TV
+  run" below), then `… clean`.
+- Without the TV: nothing left in this slice; C3/C4 items are listed at
+  the end.
 - TV state: not touched by this slice.
 
 ## Design
@@ -155,7 +156,7 @@ makes obvious.
 | `wl_data_device_manager` | 1 | Qt, LG Home | objects only, no offers |
 | `wl_webos_shell` | 2 | all | `get_shell_surface`, `set_property`, `set_state`, `set_location_hint`, `set_key_mask`, `set_addon` (answers `addon_status_changed(denied)`), events `state_changed`, `position_changed`, `close`, `exposed`, `state_about_to_change`; `get_system_pip` ignored |
 | `wl_webos_surface_group_compositor` | 1 | Netflix, cobalt, LG Home, WAM, Qt | groups by name, layers with z and key index, attach/detach, anonymous layers, owner_destroyed; scene stacking honoured |
-| `wl_webos_foreign` | 1 (exported/imported 2) | Netflix, cobalt, Prime, LG Home, WAM, Qt | `export_element` answers `window_id_assigned("_Window_Id_N", type)`; `set_exported_window`/`set_crop_region` keep rects; `attach_punchthrough[_with_context]` makes a transparent hole in the scene and emits a video placement request (§7) |
+| `wl_webos_foreign` | 1 (exported/imported 2) | Netflix, cobalt, Prime, LG Home, WAM, Qt | `export_element` answers `window_id_assigned("_Window_Id_N", type)`; `set_exported_window`/`set_crop_region` keep rects; `attach_punchthrough[_with_context]` makes a transparent hole in the scene and emits a video placement request (§7). LG creates exported/imported at version 2 under the version-1 global (OSE `webosforeign.cpp`), so the copy of the XML drops the eight `since="2"` marks: with them, libwayland refuses the version-2 requests of a version-1 child ("invalid method 7 (since 1 < 2)", seen in the host test) |
 | `wl_webos_input_manager` / `wl_webos_seat` | 1 | WAM, LG Home, Netflix, Qt | `get_webos_seat` answers `info`; `set_cursor_visibility` stored and echoed; gyroscope/accelerometer objects answer nothing |
 | `wl_webos_xinput_extension` / `wl_webos_xinput` | 1 | WAM, LG Home, Qt | objects created; `activated`/`deactivated`/`invoke_action` logged |
 | `text_model_factory`, `input_method`, `input_panel` | 1 / 2 / 1 | WAM, LG Home, Qt (`zwp_text_input_v2` not offered) | objects created and tracked; no IME routing (maliit is phase 6) |
@@ -410,3 +411,99 @@ registry binds, the window properties and the first frame.
    PNGs to `/tmp/lumatv/out/` and prints PASS/FAIL per frame.
 4. `… app` launches the first LG app and captures.
 5. `… clean` kills everything of ours; nothing of LG's was touched.
+
+## What was built (2026-10-25)
+
+`compositor/` (Cargo workspace, Rust 2024):
+
+- `crates/wl-protocols`: server and client code generated by
+  `wayland-scanner` from `protocol/webos/*.xml` (OSE, pinned above) and
+  `protocol/private/{mali-buffer-sharing,starfish}.xml`.
+- `crates/lumatv-compositor`: `server/` (one module per global: compositor,
+  shm, shell, webos_shell, foreign, group, seat, output, input_manager,
+  misc, dmabuf, mali, starfish, state), `surface.rs` (double-buffered
+  state, subsurfaces, damage, frame callbacks, retired buffers),
+  `window.rs` (LG's 24 window types and properties), `scene.rs` (layers,
+  foreground card, groups, holes, `sole_fullscreen()`), `render/software.rs`
+  (CPU, exact), `render/egl.rs` + `render/gl.rs` (the blob, offscreen FBO,
+  `EGL_WAYLAND_BUFFER_WL` and dma-buf import, fence kick), `output.rs` (the
+  C3 seam), `luna.rs` (bridge contract, LG's placement and power payloads),
+  `control.rs` (status/windows/journal/capture/key/quit), `capture.rs`
+  (PNG, the X2 colour check), `main.rs` (epoll: Wayland, listener, 60 Hz
+  timerfd, control), `bin/lumatv-testclient.rs` (shm X2 pattern).
+- Host checks: `cargo test` in `compositor/`. Tests cover the advertised
+  globals, a card reaching the output pixel-exact, a small card over black,
+  properties/type/key mask/state, foreground switching on close, overlay
+  stacking at `windowPosX/Y`, release after replacement, damage after a
+  4 px commit, group members above the owner, export → hole + placement
+  calls, own `mali_buffer_sharing` create_buffer, synchronized subsurfaces,
+  keyboard enter and key delivery.
+- Build for the set: `sh compositor/tools/build-tv.sh` → `compositor/deploy/`
+  (ignored by git). Toolchain: `cargo zigbuild --target
+  aarch64-unknown-linux-gnu.2.36`; host linker is zig's clang
+  (`compositor/.cargo/config.toml`, the workstation has no `cc`).
+
+## TV run (ready; not yet run)
+
+`sh compositor/tools/tv-first-light.sh deploy` builds and copies the bundle
+to `/tmp/lumatv` on the set (37 MB of libraries, the same files X2 r8b used
+from `/tmp/m64`). Then `… run all` executes `/tmp/lumatv/run.sh` on the
+set: four cases, each prints `PASS`/`FAIL` plus the server's summary line;
+logs and PNGs land in `/tmp/lumatv/out/<case>/`; `… fetch` pulls them and
+writes `docs/research/compositor/first-light-<date>.txt`. LG's compositor,
+its socket, the screen and the picture mode are never touched; `… clean`
+kills anything of ours.
+
+Expected results:
+
+| Case | What runs | Pass means |
+|---|---|---|
+| `first-light` (driver) | server `--driver <blob> --buffers driver --check x2 --frames 6`; `x2cli /usr/lib/libmali.so.0 --frames 6 --size 1920x1080` | client log lists `mali_buffer_sharing v5` among the globals and 6 `eglSwapBuffers ok`; server log has `egl: eglBindWaylandDisplayWL ok`, `window 1 mapped (Card … size Some((1920, 1080)))`, six `check x2 frame k … ok` lines with centres `0080ffff`, `1980e6ff`, `3280cdff`, `4b80b4ff`, `64809bff`, `7d8082ff`; summary `check ok 6 bad 0`; six `frame-000N.png` |
+| `own` | same client; server `--buffers own` | server log: `client bound mali_buffer_sharing v5 (own)`, six `mali_buffer_sharing.create_buffer … 1920x1080 stride 7680 AB24 modifier 0x0800000000000151`, same six `ok` lines. A `FAIL` here with `import: eglCreateImageKHR(dma-buf …)` in the log means the blob will not import LG's AFBC layout through dma-buf import, and C3's direct scan-out needs another way to the fd (the X2 doc's open question) |
+| `shm` | 64-bit `lumatv-testclient` (glibc, through the private loader) | `check ok 6 bad 0`; proves the loader, the C libwayland backend and the GL upload path without the 32-bit driver |
+| `protocols` | `wlproto_from_elf.py` on LG's client libraries (needs python3 on the set; otherwise fetch the libraries and run it here) | `out/protocols.txt`: versions of every `wl_webos_*`, `text_model`, `input_method`, `wl_starfish_*` table. Compare with §4; anything newer than the OSE XML is a difference to fold into `protocol/`; the starfish opcode order unblocks `--starfish` |
+| `app` | `/usr/bin/com.webos.exampleapp.systemui` then `/usr/bin/com.webos.app.tvhotkey` by hand with the socket env | `windows-<bin>.json` shows a window with its `_WEBOS_WINDOW_TYPE`, `appId`, size; `app-<bin>.png` is not all black. A client that connects and exits at once points at a missing global (its log says which) |
+
+If `first-light` fails before any frame: `egl:` lines name the step
+(dlopen, display, context, bind); `eglBindWaylandDisplayWL failed` means
+the blob did not find the same `libwayland-server.so.0` as the compositor
+(both must come from `/tmp/lumatv/lib`); a client stuck at `eglInitialize`
+means no `mali_buffer_sharing` global was advertised (check the server's
+`listening on` line for the buffer path).
+
+## What C3 and C4 need next
+
+C3 (60 fps work, on the screen):
+
+- The KMS `Output`: become DRM master of `card0` (only possible once
+  LG's compositor is stopped, so this is the first C4-style maintenance
+  window), atomic commits of the composed buffer on the primary plane with
+  the GL fence as the in-fence, presented timestamps from the page-flip
+  event into the pacer (LumaShow `pacer.rs` by path dependency).
+- Render into scan-out buffers instead of the FBO: the heap shim (phase 1)
+  gives the blob's window path contiguous dumb buffers; or `gbm` on the
+  blob if it accepts `card0` as a GBM device (it refused the render node).
+- Direct scan-out (X5): `Plan::sole_fullscreen()` + the dma-buf fd kept by
+  `--buffers own` → `ADDFB2` with modifier `0x0800000000000151` (the plane
+  lists `…62`; a test-only commit says whether the 16x16 layout scans out).
+- Damage: tile the output damage (16 px, merge pricing), partial-update
+  with `EGL_KHR_partial_update` on the blob.
+- Explicit sync: offer `zwp_linux_explicit_synchronization_v1` (LG's
+  libmali binds it); acquire fences replace the implicit wait.
+- `wp_presentation` for flutter and LumaTV's own client.
+- A render thread behind the `Output` seam, measured against the
+  single-thread loop.
+
+C4 (cutover, LG's compositor kept installed):
+
+- The 32-bit luna bridge (§5) at the bind-mounted `/usr/bin/surface-manager`
+  path with the watchdog and the fallback (§8); the tier-1 methods; the
+  tvpower handshake (`luna::power`).
+- Input: evdev readers for the `lginput2` devices, key masks and access
+  policies, the Home key → `launchDefaultApp`, the hold-Home escape;
+  pointer through the cursor plane; `getLastInputType`.
+- Boot: the early hook's bind mount, the firmware fingerprint, the boot
+  cover (`coverUI`), the hand-over from LG's boot logo.
+- Verify on the set: `wl_keyboard` keymap and key code convention (X3
+  tap), the starfish tables, LG's protocol versions, SAM's reaction to the
+  first foreground push, standby and wake with the handshake.

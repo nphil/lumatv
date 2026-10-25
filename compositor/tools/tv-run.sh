@@ -90,7 +90,7 @@ case_shm() {
 case_app() {
     kill_ours
     if [ $# -gt 0 ]; then apps="$*"; else apps="/usr/bin/com.webos.exampleapp.systemui /usr/bin/com.webos.app.tvhotkey"; fi
-    start_server app --driver $BLOB --buffers driver --seconds 20 --capture-every 30 --log-protocol || return 1
+    LUMATV_LOG=debug start_server app --driver $BLOB --buffers driver --seconds 20 --capture-every 30 --log-protocol || return 1
     for bin in $apps; do
         [ -x "$bin" ] || { echo "app: $bin not executable, skipped"; continue; }
         echo "app: launching $bin"

@@ -206,7 +206,7 @@ impl Scene {
     }
 
     /// Builds this frame's plan.
-    pub fn plan(&mut self, surfaces: &Surfaces, mut known_y_invert: impl FnMut(&WlBuffer) -> bool) -> Plan {
+    pub fn plan(&mut self, surfaces: &Surfaces) -> Plan {
         let output = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         let mut items = Vec::new();
         let mut damage = Rect::default();
@@ -214,11 +214,11 @@ impl Scene {
             let origin = if w.kind.is_card() { (0, 0) } else { w.position };
             let members = self.group_members(w.surface);
             for (s, _) in members.iter().filter(|(_, below)| *below) {
-                push_tree(surfaces, w.id, *s, origin, &mut known_y_invert, &mut items, &mut damage);
+                push_tree(surfaces, w.id, *s, origin, &mut items, &mut damage);
             }
-            push_tree(surfaces, w.id, w.surface, origin, &mut known_y_invert, &mut items, &mut damage);
+            push_tree(surfaces, w.id, w.surface, origin, &mut items, &mut damage);
             for (s, _) in members.iter().filter(|(_, below)| !*below) {
-                push_tree(surfaces, w.id, *s, origin, &mut known_y_invert, &mut items, &mut damage);
+                push_tree(surfaces, w.id, *s, origin, &mut items, &mut damage);
             }
         }
         let holes: Vec<Rect> = self
@@ -250,7 +250,6 @@ fn push_tree(
     window: WindowId,
     root: SurfaceId,
     origin: (i32, i32),
-    known_y_invert: &mut impl FnMut(&WlBuffer) -> bool,
     items: &mut Vec<Item>,
     damage: &mut Rect,
 ) {
@@ -275,7 +274,7 @@ fn push_tree(
         }
         let opaque = s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
             || crate::buffer::kind_of(&buffer).is_opaque_format();
-        let y_invert = known_y_invert(&buffer);
+        let y_invert = s.current.y_invert;
         items.push(Item { window, surface: sid, buffer, rect, damage: item_damage, opaque, y_invert });
     }
 }
