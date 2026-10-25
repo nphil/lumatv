@@ -201,12 +201,15 @@ FocusScope {
     // configd-registered key filter (payload/keyfilter/lumatv.js), never through QtQuick
     // focus: the compositor's KeyFilter sends keys straight to the focused Wayland window.
     //
-    // Built the first time Home is this container's surface and kept from then on, shown only
-    // while Home is in front. Rebuilding it on every return to Home froze the panel for one
-    // frame of 187-320 ms and then 3-6 more of 43-116 ms while widgets reloaded. While hidden
-    // it is idle: hostActive is false and its timers and fetches stop.
+    // Built when the compositor starts (the base container) or, for any other container, the
+    // first time Home is its surface, and kept from then on, shown only while Home is in
+    // front. Rebuilding it on every return to Home froze the panel for one frame of
+    // 187-320 ms and then 3-6 more of 43-116 ms while widgets reloaded. While hidden it is
+    // idle: hostActive is false and its timers and fetches stop. Building it at the start
+    // also puts its heartbeat and a load error in front of the Home stub's guard at once,
+    // instead of when Home is first opened.
     property bool lumaHomeCurrent: !!root.__surfaceItem && root.__surfaceItem.appId === "com.webos.app.home"
-    property bool lumaHomeBuilt: false
+    property bool lumaHomeBuilt: root.objectName === "baseContainer"
     onLumaHomeCurrentChanged: if (lumaHomeCurrent) lumaHomeBuilt = true
     // LG's own Home is meant to be on screen (Home held for 650 ms, or the stub gave way):
     // the layer steps aside and the Home surface draws, with LG's keys.
@@ -231,7 +234,7 @@ FocusScope {
     Binding {
         target: lumaHome.item
         property: "hostActive"
-        value: root.lumaHomeCurrent && root.visibleState && lumaHome.status === Loader.Ready && !root.lumaHomeAside
+        value: root.lumaHomeCurrent && root.visibleState && !root.lumaHomeAside
         when: lumaHome.status === Loader.Ready
     }
     Binding {
