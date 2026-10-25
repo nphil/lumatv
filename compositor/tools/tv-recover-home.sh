@@ -36,16 +36,23 @@ trap 'rm -rf $LOCK' EXIT INT TERM
 n=0
 while [ "$(systemctl is-active $SM)" != "active" ] && [ $n -lt 40 ]; do sleep 1; n=$((n+1)); done
 say "$SM $(systemctl is-active $SM) after ${n}s; exe $(readlink /proc/$(pgrep -x surface-manager | head -1)/exe 2>/dev/null)"
+# The compositor is back when its bus name answers. After the supervisor execs LG's binary the unit never leaves
+# "active" and the old socket file is still there, so neither says anything; LG's compositor registers the name
+# during its start-up, the supervisor once LumaTV's compositor listens.
 n=0
-while [ ! -S /tmp/xdg/wayland-0 ] && [ $n -lt 20 ]; do sleep 1; n=$((n+1)); done
-[ -S /tmp/xdg/wayland-0 ] || say "no /tmp/xdg/wayland-0 after ${n}s"
-
-st=$(systemctl is-active $WAM)
-if [ "$st" != "active" ]; then
-    systemctl reset-failed $WAM 2>/dev/null
-    systemctl start $WAM
-    say "$WAM was $st; started: $(systemctl is-active $WAM)"
-fi
+while [ $n -lt 40 ]; do
+    timeout 5 luna-send -n 1 luna://com.webos.surfacemanager/getForegroundAppInfo '{}' 2>/dev/null | ls_ok && break
+    sleep 1; n=$((n+1))
+done
+say "compositor answering on the bus after ${n}s"
+sleep 2
+# What LG's lsm-ready.service does once its compositor is ready: WebAppMgr, booster and maliit-server each hold a
+# Wayland connection to the compositor that went away, so they are restarted. booster and maliit only when they
+# run (both were inactive in the census), so nothing the set was not running gets started.
+systemctl reset-failed $WAM 2>/dev/null
+systemctl restart $WAM
+systemctl try-restart booster.service maliit-server.service 2>/dev/null
+say "$WAM restarted: $(systemctl is-active $WAM); booster $(systemctl is-active booster.service); maliit $(systemctl is-active maliit-server.service)"
 n=0
 while [ $n -lt 30 ]; do
     if timeout 10 luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null | ls_ok; then break; fi
