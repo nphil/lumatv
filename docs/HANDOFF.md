@@ -6,23 +6,25 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-24 21:15 EDT)
+## Resume here (LumaTV, 2026-10-24 22:20 EDT)
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
 
 - State: research done, compositor replacement decided (PLAN.md track C).
-  Phase 1 step 1 is done in the tree: the rename to LumaTV, every name from
-  `brand.json` (result: `docs/research/rename-result.md`). Nothing is
-  deployed. The set still runs the LumaGlass layout (app
-  `org.nphil.lumaglass`, data `/var/lib/lumaglass`); the first verb of the new
-  tool, `tools/lumatv`, moves it over (see the result note). The tool carries
-  the env.extra allowlist and disk cache from cb57f53.
-- Waiting on the owner for two words. "TV is free": run the remote tests
-  below. "go": continue phase 1 after the rename: T9 plus disk-cache env
-  lines, shared 100 ms clock, Home stub, heap shim, Rust helper. The new ipk
-  still has to be built, installed and run once on the set to prove the
-  migration.
+  The owner said go (2026-10-24); the build is under way. Phase 1 step 1,
+  the rename to LumaTV with every name from `brand.json`
+  (`docs/research/rename-result.md`), is deployed and proven on the set:
+  migration moved `/var/lib/lumaglass` to `/var/lib/lumatv`, rewrote the env
+  line, replaced the init.d link with `50-lumatv`, removed both old apps;
+  `apply` restored LumaHome, and a reboot came up live through the new boot
+  hooks with no failsafe. A copy of the old data dir is kept off the set in
+  `/data/home/lumatv-backups/lumaglass-data-2026-10-24.tgz`.
+- `brand.json` `repo` stays `nphil/lumaglass` until the owner renames the
+  GitHub and forge repositories; the release URLs follow that key.
+- Next, phase 1 in order: T9 plus disk-cache env lines (tool already
+  carries them; enable and measure), shared 100 ms clock, Home stub, heap
+  shim, Rust helper.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
