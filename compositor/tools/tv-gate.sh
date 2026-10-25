@@ -8,7 +8,8 @@
 #   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: no frame gap over 20 ms; pacer late 0 lost 0
 #   gate.sh netflix   the Dolby Vision test film by deep link: card mapped, video window exported, Picture Mode
 #                     dolbyHdrCinema while playing, filmMaker back on Home
-#   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, then Home
+#   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home
+#   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
 #   gate.sh woke      after the wake: PreparePowerOff and PreparePowerOn acked, no fallback, Home on the panel
 #   gate.sh escape    Home held 1 s through the compositor's own routing: the supervisor falls back to LG's,
@@ -60,7 +61,13 @@ x1)
     over=$((${over:-1+1}))
     fps=$(echo "$res" | sed -n 's/.* = \([0-9.]*\) fps.*/\1/p')
     late_before=$(echo "$before" | awk '{print $4+$6}'); late_after=$(echo "$after" | awk '{print $4+$6}')
-    detail="$res | pacer before: $before after: $after"
+    # The compositor's own view of the run (its log is on CLOCK_MONOTONIC like x1's): loop stalls, frame gaps of the
+    # X1 surface, clients coming and going, refused commits, lost flips. The gaps' cause is read from these lines.
+    t0=$(sed -n 's/.*starting at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log); t1=$(sed -n 's/.*ended at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log)
+    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held/) print }' \
+        $STATE/compositor.log > $OUT/x1-compositor.txt
+    stalls=$(grep -c 'loop:' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
+    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn"
     echo "$detail" > $OUT/x1-result.txt
     if [ -n "$res" ] && [ "$over" = 0 ] && [ "${late_before:-0}" = "${late_after:-1}" ]; then pass x1 "$fps fps, no gap over 20 ms, pacer late/lost unchanged"; else fail x1 "$detail"; fi
     ;;
@@ -73,13 +80,15 @@ netflix)
     ctl journal > $OUT/netflix-journal.json
     card=$(grep -c '"netflix"' $OUT/netflix-windows.json)
     video=$(grep -o '"video":\[[^]]*\]' $OUT/netflix-windows.json | head -c 300)
-    placements=$(grep -c 'setDisplayWindow' $OUT/netflix-journal.json)
+    placements=$(grep -o 'setDisplayWindow\|setCropRegion' $OUT/netflix-journal.json | wc -l)
+    drops=$(grep -c 'message too short\|error in client communication' $STATE/compositor.log)
     pm=$(picture_mode)
+    fgp=$(fg)
     b=$(cap $OUT/netflix.png)
     ls1 com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null
     sleep 2; home; sleep 6
     pm2=$(picture_mode)
-    detail="netflix windows $card video $video placements $placements pictureMode playing $pm after $pm2 fg $(fg) panel ${b:-0} bytes"
+    detail="netflix windows $card video $video placements $placements protocol errors $drops pictureMode playing $pm after $pm2 fg playing $fgp now $(fg) panel ${b:-0} bytes"
     echo "$detail" > $OUT/netflix-result.txt
     if [ "$card" -ge 1 ] && [ "$pm" = dolbyHdrCinema ] && [ "$pm2" = filmMaker ]; then pass netflix "$detail"; else fail netflix "$detail"; fi
     ;;
@@ -87,13 +96,27 @@ hdmi)
     ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.hdmi2"}' > /dev/null
     sleep 10
     ctl windows > $OUT/hdmi-windows.json
+    ctl journal > $OUT/hdmi-journal.json
     card=$(grep -c '"com.webos.app.hdmi2"' $OUT/hdmi-windows.json)
+    # serde_json writes keys in order: appId, id, keyMask, mapped.
+    mapped=$(grep -o '"appId":"com.webos.app.hdmi2","id":[0-9]*,"keyMask":[0-9]*,"mapped":true' $OUT/hdmi-windows.json | wc -l)
+    bare=$(grep -o 'committed without a buffer ([A-Za-z]* app \\"com.webos.app.hdmi2' $OUT/hdmi-journal.json | wc -l)
     f=$(fg)
     b=$(cap $OUT/hdmi.png)
     home; sleep 6
-    detail="hdmi2 windows $card fg while open $f now $(fg) panel ${b:-0} bytes"
+    detail="hdmi2 windows $card mapped $mapped bufferless commits $bare fg while open $f now $(fg) panel ${b:-0} bytes"
     echo "$detail" > $OUT/hdmi-result.txt
-    if [ "$card" -ge 1 ] && [ "$f" = com.webos.app.hdmi2 ]; then pass hdmi "$detail"; else fail hdmi "$detail"; fi
+    if [ "$mapped" -ge 1 ] && [ "$f" = com.webos.app.hdmi2 ]; then pass hdmi "$detail"; else fail hdmi "$detail"; fi
+    ;;
+evidence)
+    # While LumaTV's compositor is live: who subscribed to what (SAM's foreground subscription first), the clients
+    # with their command lines and globals, and both logs as they stand. Not a check: no GATE line.
+    ctl luna > $OUT/luna.json
+    ctl status > $OUT/status.json
+    run_log | grep -E 'subscription|bridge:' > $OUT/sm-subscriptions.txt
+    grep -E 'client (dis)?connected' $STATE/compositor.log > $OUT/clients.txt
+    cp $STATE/compositor.log $OUT/compositor.log; run_log > $OUT/sm.log
+    echo "evidence: $(grep -c applicationManager $OUT/sm-subscriptions.txt) subscription(s) from SAM, $(wc -l < $OUT/clients.txt) client lines, $(grep -c 'loop:' $OUT/compositor.log) loop stalls"
     ;;
 standby)
     ctl journal > $OUT/standby-journal-before.json
@@ -131,5 +154,5 @@ escape)
     echo "$detail" > $OUT/escape-result.txt
     if ! is_mounted && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home' && [ "${b:-0}" -gt 4096 ]; then pass escape "$detail"; else fail escape "$detail"; fi
     ;;
-*) sed -n 2,17p $0 ;;
+*) sed -n 2,18p $0 ;;
 esac

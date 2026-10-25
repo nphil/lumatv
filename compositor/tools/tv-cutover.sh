@@ -94,9 +94,11 @@ trial|enable)
         # compositor journalled, and the panel as LG's capture service reads it.
         O=$D/out/trial; mkdir -p $O
         if pgrep -f 'bin/lumatv-compositor' > /dev/null; then
-            for c in status windows journal; do
+            for c in status windows journal luna; do
                 $STATE/lib/ld-linux-aarch64.so.1 --library-path $STATE/lib $STATE/bin/lumatv-compositor ctl --runtime-dir /tmp/xdg $c > $O/$c.json 2>/dev/null
             done
+            # SAM's own view next to the compositor's: the foreground SAM reports is what the gate's checks read.
+            timeout 10 luna-send -n 1 -f luna://com.webos.applicationManager/getForegroundAppInfo '{}' > $O/sam-foreground.json 2>&1
             timeout 10 luna-send -n 1 luna://com.webos.service.capture/executeOneShot "{\"path\":\"$O/panel.png\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":960,\"height\":540}" > /dev/null 2>&1
             timeout 10 luna-send -n 1 -f luna://com.webos.surfacemanager/getForegroundAppInfo '{}' > $O/foreground.json 2>&1
             echo "trial evidence: $(grep -o '"summary":"[^"]*"' $O/status.json) windows $(grep -o '"appId":"[^"]*"' $O/windows.json | sort -u | tr '\n' ' ')"

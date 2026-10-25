@@ -276,6 +276,11 @@ impl Dispatch<WlWebosImported, ()> for State {
 impl State {
     pub fn luna_call(&mut self, uri: String, payload: serde_json::Value) {
         self.foreign.next_token += 1;
+        // Placements are what the gate's Netflix check counts; the per-video property calls are left out.
+        if uri.ends_with("/setDisplayWindow") || uri.ends_with("/setCropRegion") || uri.ends_with("/setCompositing") {
+            let method = uri.rsplit('/').next().unwrap_or_default();
+            self.journal(format!("luna: {method} {payload}"));
+        }
         self.luna.send(ToBridge::Outbound(Outbound { token: self.foreign.next_token, uri, payload, subscribe: false }));
     }
 

@@ -116,6 +116,7 @@ def main():
             step("netflix", "sh /tmp/lumatv/gate.sh netflix")
         if "hdmi" not in skip:
             step("hdmi", "sh /tmp/lumatv/gate.sh hdmi")
+        step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
             time.sleep(25)
@@ -132,6 +133,9 @@ def main():
             print(pty("sh /tmp/lumatv/cutover.sh disable", 300))
         except Exception as e:
             print("disable failed: %s" % e)
+        # The session's whole log (the escape and the fallback included) stays in the state directory until the next
+        # start of LumaTV's compositor truncates it.
+        tv.tv("cp /var/lib/lumatv/compositor/compositor.log /tmp/lumatv/out/gate/compositor-final.log; cp /var/lib/lumatv/compositor/sm.log /tmp/lumatv/out/gate/sm-final.log")
         avr_mute(False)
     ok = lines and all(": PASS" in l for l in lines)
     print("\n".join(lines))
