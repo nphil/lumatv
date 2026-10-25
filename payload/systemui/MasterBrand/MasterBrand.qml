@@ -53,7 +53,9 @@ StarfishSystemUIWindow {
         root.show()
         giveUp.restart()
         loader.source = ""
-        loader.source = logoDir + files[choice() - 1]
+        var n = choice()
+        console.info("[Logo] power-off logo " + n)
+        loader.source = logoDir + files[n - 1]
     }
     function close(payload) {
         giveUp.stop()

@@ -52,7 +52,9 @@ StarfishSystemUIWindow {
         if (typeof webOSShell !== "undefined") webOSShell.setWindowProperty("delayCloseWindowTimeout", root.fadeOutDuration)
         root.show()
         loader.source = ""
-        loader.source = logoDir + files[choice() - 1]
+        var n = choice()
+        console.info("[Logo] power-on logo " + n)
+        loader.source = logoDir + files[n - 1]
         limit.restart()
         if (p.type === "fadeOut") fadeOut()
     }

@@ -6,6 +6,7 @@ exactly once whatever happens (finished, logo missing, logo broken), and the pow
 exits on close. Stand-ins for LG's window and TextFile are in tests/qmlhost/stubs; timing is the
 set's to say.
 """
+import json
 import os
 import re
 import subprocess
@@ -61,6 +62,14 @@ class Logos(unittest.TestCase):
         rc, out = self.host("systemui/BootLogo/BootLogo.qml", "--wait", "600", "--fire", '100:launch:{"params":{"type":"image"}}',
                             "--fire", '300:close:{"reason":"powerSuspend"}')
         self.assertEqual(len(re.findall(r"\[host\] exit", out)), 1, out[-600:])
+
+    def test_the_owners_choice_picks_the_logo_and_anything_else_is_option_1(self):
+        for window, launch, kind, key in (("systemui/BootLogo/BootLogo.qml", '100:launch:{"params":{"type":"image"}}', "power-on", "on"),
+                                          ("systemui/MasterBrand/MasterBrand.qml", '100:launch:{"reason":"powerOff"}', "power-off", "off")):
+            for setting, want in ((1, 1), (2, 2), (3, 3), (0, 1), (4, 1), ("x", 1)):
+                rc, out = self.host(window, "--wait", "900", "--theme", json.dumps({"logo": {key: setting}}), "--fire", launch)
+                self.assertEqual(rc, 0, out[-600:])
+                self.assertIn("[Logo] %s logo %d" % (kind, want), out, "%s %s=%r" % (window, key, setting))
 
     def test_power_on_with_a_missing_logo_stays_black_and_still_exits(self):
         rc, out = self.host("systemui/BootLogo/BootLogo.qml", "--wait", "900", "--remove", "logo",
