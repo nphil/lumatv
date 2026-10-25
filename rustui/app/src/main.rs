@@ -14,10 +14,10 @@ mod output;
 mod window;
 
 use compositor_protocol::Event;
-use lumatv_rustui::home::{self, Home, Key};
-use lumatv_rustui::script;
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, now_ns};
+use lumatv_rustui::home::{self, Home, Key};
+use lumatv_rustui::script;
 use metrics::{Frame, Log, Marker, Phase};
 use output::Output;
 use std::io;
@@ -256,12 +256,23 @@ fn run(o: Options) -> io::Result<()> {
                     log.line(&format!("GL error {code:#x}"));
                 }
                 if cost.mismatch_px > 0 {
-                    log.line(&format!("MISMATCH frame {drawn_frames}: {} px differ from the same frame drawn whole, first {:?}", cost.mismatch_px, engine.mismatch()));
+                    log.line(&format!(
+                        "MISMATCH frame {drawn_frames}: {} px differ from the same frame drawn whole, first {:?}",
+                        cost.mismatch_px,
+                        engine.mismatch()
+                    ));
                 }
                 if std::env::var_os("LUMATV_TRACE_FRAMES").is_some() {
                     log.line(&format!(
                         "frame {drawn_frames}: damage {} px, drew {} px in {} rects ({:.1} %), layers {} culled {} cpu {} us gpu {} us",
-                        cost.damage_px, cost.region_px, cost.rects, cost.region_px as f64 / 20736.0, cost.layers, cost.culled, cost.cpu_us, cost.gpu_us
+                        cost.damage_px,
+                        cost.region_px,
+                        cost.rects,
+                        cost.region_px as f64 / 20736.0,
+                        cost.layers,
+                        cost.culled,
+                        cost.cpu_us,
+                        cost.gpu_us
                     ));
                 }
                 let swap_began = now_ns();

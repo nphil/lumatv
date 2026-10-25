@@ -35,14 +35,7 @@ impl TileSet {
         let cols = (width as usize).div_ceil(TILE as usize);
         let rows = (height as usize).div_ceil(TILE as usize);
         let words = cols.div_ceil(64).max(1);
-        Self {
-            width: width as i32,
-            height: height as i32,
-            cols,
-            rows,
-            words,
-            bits: vec![0; rows * words],
-        }
+        Self { width: width as i32, height: height as i32, cols, rows, words, bits: vec![0; rows * words] }
     }
 
     /// Every tile.
@@ -215,12 +208,7 @@ impl TileSet {
                         index
                     }
                     None => {
-                        out.push([
-                            start as i32 * TILE,
-                            row as i32 * TILE,
-                            (end as i32 * TILE).min(self.width),
-                            bottom,
-                        ]);
+                        out.push([start as i32 * TILE, row as i32 * TILE, (end as i32 * TILE).min(self.width), bottom]);
                         out.len() - 1
                     }
                 };
@@ -264,9 +252,7 @@ fn any_in_range(words: &[u64], c0: usize, c1: usize) -> bool {
         return false;
     }
     let (first, last) = (c0 / 64, (c1 - 1) / 64);
-    (first..=last).any(|w| {
-        words[w] & range_mask(if w == first { c0 % 64 } else { 0 }, if w == last { (c1 - 1) % 64 + 1 } else { 64 }) != 0
-    })
+    (first..=last).any(|w| words[w] & range_mask(if w == first { c0 % 64 } else { 0 }, if w == last { (c1 - 1) % 64 + 1 } else { 64 }) != 0)
 }
 
 /// Bits `lo..hi` of a word.
@@ -340,9 +326,7 @@ pub struct Ring {
 impl Ring {
     /// A ring of `pictures` none of which is known to hold anything.
     pub fn new(pictures: usize, width: u32, height: u32) -> Self {
-        Self {
-            owed: vec![TileSet::full(width, height); pictures],
-        }
+        Self { owed: vec![TileSet::full(width, height); pictures] }
     }
 
     pub fn len(&self) -> usize {
@@ -373,10 +357,7 @@ impl Ring {
 
     /// The pixels picture `slot` owes now (everything for one that does not exist).
     pub fn owed_pixels(&self, slot: usize) -> u64 {
-        self.owed.get(slot).map_or_else(
-            || self.owed.first().map_or(0, |set| u64::from(set.panel().0) * u64::from(set.panel().1)),
-            TileSet::pixels,
-        )
+        self.owed.get(slot).map_or_else(|| self.owed.first().map_or(0, |set| u64::from(set.panel().0) * u64::from(set.panel().1)), TileSet::pixels)
     }
 
     /// Nothing is known of what the pictures hold: each owes everything.

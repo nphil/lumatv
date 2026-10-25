@@ -74,7 +74,9 @@ fn main() {
         }
         eprintln!("repetition {} of {reps} done", rep + 1);
     }
-    println!("| script | frames drawn | how | drawn px / frame (mean, p50, max) | of the panel | changed px / frame (mean) | passes | layers drawn | render ms p50 / p90 / max |");
+    println!(
+        "| script | frames drawn | how | drawn px / frame (mean, p50, max) | of the panel | changed px / frame (mean) | passes | layers drawn | render ms p50 / p90 / max |"
+    );
     println!("|---|---|---|---|---|---|---|---|---|");
     let mut summary = Vec::new();
     for (s, (name, _)) in seconds.iter().enumerate() {

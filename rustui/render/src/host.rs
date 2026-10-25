@@ -663,11 +663,7 @@ impl Engine {
     /// Whether the planned frame has any layer on `stack`.
     pub fn has_layers(&self, stack: usize) -> bool {
         let Some(external) = self.external.as_ref() else { return false };
-        if stack == 0 {
-            external.split > 0
-        } else {
-            external.split < self.drawn.len()
-        }
+        if stack == 0 { external.split > 0 } else { external.split < self.drawn.len() }
     }
 
     /// Draws stack 0 or 1 of the planned frame into the framebuffer `target` (a page of the compositor's), inside `areas` and

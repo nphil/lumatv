@@ -40,7 +40,11 @@ fn lumahome_drawn_as_it_is_owed_is_the_frame_drawn_whole_over_300_frames() {
     }
     assert!(frames >= 300, "{frames} frames drawn");
     assert!(partial > 150, "only {partial} of {frames} frames were drawn in part");
-    eprintln!("{frames} frames, {partial} drawn in part, {:.1} % of the panel drawn on average, {:.1} % changed", 100.0 * drew as f64 / (frames as f64 * 2_073_600.0), 100.0 * damaged as f64 / (frames as f64 * 2_073_600.0));
+    eprintln!(
+        "{frames} frames, {partial} drawn in part, {:.1} % of the panel drawn on average, {:.1} % changed",
+        100.0 * drew as f64 / (frames as f64 * 2_073_600.0),
+        100.0 * damaged as f64 / (frames as f64 * 2_073_600.0)
+    );
 }
 
 mod stage {
@@ -112,8 +116,8 @@ mod stage {
             if k == 60 {
                 toast = Some(stage.ui.scene.shape(420, 90, 20, solid(30.0, 240, 240, 250), Props { opacity: 0.0, ..Props::at(750.0, 40.0) }));
             }
-            if k == 62 {
-                toast.as_ref().map(|t| t.animate(Props::at(750.0, 40.0), 200, compositor_protocol::Ease::Out));
+            if let (62, Some(toast)) = (k, &toast) {
+                toast.animate(Props::at(750.0, 40.0), 200, compositor_protocol::Ease::Out);
             }
             if k == 150 {
                 toast = None;

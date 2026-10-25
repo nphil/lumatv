@@ -28,6 +28,9 @@ pub mod render;
 pub mod scene;
 pub mod server;
 pub mod surface;
+/// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).
+#[cfg(feature = "ui")]
+pub mod ui;
 pub mod window;
 
 pub use server::state::State;

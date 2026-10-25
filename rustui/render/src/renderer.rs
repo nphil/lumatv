@@ -2409,7 +2409,11 @@ impl Renderer {
                 dirt[i].seen = [true, true];
                 dirt[i].within = None;
             }
-            let Dirt { seen: asked, within, .. } = dirt[i];
+            let Dirt {
+                seen: asked,
+                within,
+                ..
+            } = dirt[i];
             let was = before.get(&layer.id).map(|f| &f.seen).filter(|_| asked[0]);
             for set in [was, asked[1].then_some(&seen[i])].into_iter().flatten() {
                 match within {
@@ -2971,9 +2975,7 @@ impl Renderer {
             (slot, areas) => {
                 let accounting = Instant::now();
                 self.account(frame, draw.surface, changed);
-                let changed = changed[stack]
-                    .as_ref()
-                    .expect("the plane was accounted");
+                let changed = changed[stack].as_ref().expect("the plane was accounted");
                 report.damage = changed.region();
                 report.damage_px = changed.pixels();
                 let region = match (slot, areas) {
@@ -3005,7 +3007,8 @@ impl Renderer {
             Self::merge_passes(region, frame, sights)
         };
         let exact = draw.slot.is_none() && draw.areas.is_some();
-        let partial = (exact || region.pixels() * 20 < damage::pixels(&panel_area) * 19).then_some(region);
+        let partial =
+            (exact || region.pixels() * 20 < damage::pixels(&panel_area) * 19).then_some(region);
         let drawn_region = partial.unwrap_or(Region::of(panel_area));
         report.region_px = drawn_region.pixels();
         report.rects = drawn_region.rects().len() as u16;

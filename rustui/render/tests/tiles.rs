@@ -134,8 +134,8 @@ fn what_is_seen_leaves_out_what_an_opaque_layer_above_covers_whole() {
     let page = [0, 0, W as i32, H as i32];
     let card = [64, 64, 640, 480];
     let layers: [(_, &[[i32; 4]]); 3] = [
-        (page, &[]),                // a wallpaper under everything
-        (card, &[card]),            // an opaque card
+        (page, &[]),                 // a wallpaper under everything
+        (card, &[card]),             // an opaque card
         ([100, 100, 200, 200], &[]), // a label on the card
     ];
     let mut out = Vec::new();
