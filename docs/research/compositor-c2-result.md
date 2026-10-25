@@ -9,34 +9,72 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 01:35 EDT, slice yielded): first light works offline on
-the host; the aarch64 bundle builds; the TV run is a ready script waiting
-for "TV is yours". Nothing of this slice has run on the set yet. Last
-commit of this slice: `709b15c`.
+State (2026-10-25 02:10 EDT): **first light passed on the set** for LG's
+own client through the driver-served buffers (6/6 pixel-exact) and an
+unmodified LG Qt app mapped and rendered through this compositor (403
+frames at ~50 fps, render max 11.9 ms). Two bugs the run exposed are fixed
+offline and need one re-run. Log of the run:
+`docs/research/compositor/first-light-2026-10-25.txt`; PNGs were fetched
+to `/tmp/lumatv-tv-out/out/` on the workstation (not committed).
 
-- Done: design (below); workspace `compositor/` builds and tests on the
-  host (`cargo test`: 6 unit + 14 protocol tests, a real `wayland-client`
-  over a socketpair); the real binaries ran end to end on the host
-  (`lumatv-compositor --renderer software --check x2` + `lumatv-testclient`:
-  6/6 frames pixel-exact, PNGs written, `state_changed(fullscreen)`,
-  `configure 1920x1080`, releases paced by the tick); release build for the
-  set with `tools/build-tv.sh` (1.46 MB compositor, 0.57 MB test client,
-  16 KB `x2cli`, only `libc.so.6` as a DT_NEEDED, max GLIBC_2.34; libwayland
-  and the blob are `dlopen`ed from the private directory).
-- Also done offline: the tier-1 luna methods answer from the scene
-  (`luna_methods.rs`: foreground app, focused window, window list, video
-  window, last input type, closeByAppId → `close`, recents, coverUI,
-  setPinOverlayView, screen visible, key block and key mask, home UI state;
-  subscriptions pushed when the scene changes; the tvpower rounds answered
-  with their timestamp), tested in `luna_tier_one_methods_answer_from_the_scene`.
-  The 32-bit bridge program itself is C4 (§5).
-- Half-done: nothing offline.
-- Next command (needs the TV): `sh compositor/tools/tv-first-light.sh
-  deploy`, then `… run all`, `… app`, `… fetch` (expected results in "TV
-  run" below), then `… clean`.
-- Without the TV: nothing left in this slice; C3/C4 items are listed at
-  the end.
-- TV state: not touched by this slice.
+- TV results (main agent ran `tv-first-light.sh deploy / run all / app /
+  fetch / clean`, LG's compositor untouched):
+  - `driver` (X2 client on LG's 32-bit libmali, blob serves
+    `mali_buffer_sharing` via `eglBindWaylandDisplayWL`, import by
+    `EGL_WAYLAND_BUFFER_WL`): PASS, `check ok 6 bad 0`, centres
+    `0080ffff 1980e6ff 3280cdff 4b80b4ff 64809bff 7d8082ff`, six PNGs.
+    `render max 13.8 ms` for the first frame (shader/texture setup), then
+    0.4 ms.
+  - `own` (our `mali_buffer_sharing` global, dma-buf fd kept, import by
+    `EGL_EXT_image_dma_buf_import` with modifier `0x0800000000000151`):
+    frames 0-4 pixel-exact, so **the blob imports LG's AFBC buffers through
+    dma-buf import**, which is what C3's direct scan-out needs (the X2
+    open question). Frame 5 read black: a compositor bug, fixed (below).
+  - `shm` (64-bit test client, upload path): 0/6, `gl error 0x502` per
+    frame: a compositor bug, fixed (below). This path matters only for
+    shm clients (LumaTV's own test client; LG's apps use the driver path).
+  - `app`: `/usr/bin/com.webos.exampleapp.systemui` (an LG Qt app)
+    connected, bound the globals, took the keymap (1140 bytes, "Using
+    shared XKB keymap"), created `wl_shell` + `wl_webos_shell_surface`
+    with `_WEBOS_WINDOW_TYPE_SYSTEM_UI`, `appId`, title "System UI
+    Example", mapped 1920x1080, got `position_changed`, committed 403
+    frames in 8 s on three driver buffers; captures are a uniform red
+    whose intensity changes between frames (0x18 → 0xab → 0xb2: an
+    animated fill, not black). `com.webos.app.tvhotkey` connected but
+    created no window in 8 s (a popup app that waits for luna).
+  - `protocols`: `out/protocols.txt` written (479-line log has the
+    tables; `input_method` v2, `text_model` v1 match the OSE XML; the
+    rest is to compare, see "Protocol versions on the set" below).
+- Fixes since the run (host tests cover both; both are in the rebuilt
+  bundle):
+  1. `shm` 0x502: a BGRA `glTexSubImage2D` into a texture allocated as
+     RGBA; ES 2.0 §3.7.2 requires the sub-image format to equal the
+     texture's, and Mali enforces it (Mesa does not, so the host test
+     `gl_renderer_uploads_shm_pixel_exact`, which runs the real GL
+     renderer on Mesa llvmpipe, checks pixels and a zero GL-error count
+     but could not have caught this one). The texture is now allocated
+     with `GL_BGRA_EXT` when the upload is BGRA.
+  2. `own` frame 5 black: the X2 client's `eglTerminate` destroys its
+     three `wl_buffer`s while the last one is still committed; the
+     compositor's destroy handler unmapped the surface. Now a destroyed
+     buffer stays the surface's current one (its mapping or dma-buf lives
+     in the buffer data; the renderer's import is kept while any surface
+     shows it) until the client commits another; nothing is released to a
+     dead resource. Test `destroying_the_shown_buffer_keeps_the_last_frame`.
+     The driver path was immune because the driver's buffers are not the
+     compositor's resources (no destroy callback), which is also why
+     `driver` passed 6/6.
+  Also: after `--frames N` the server lingers up to 2 s while a client is
+  connected, so the client's teardown is served instead of "Connection
+  reset by peer"; `clients_total` counted; `gl errors` in the summary.
+- Next command (needs the TV, ~3 min): `sh compositor/tools/tv-first-light.sh
+  deploy && sh compositor/tools/tv-first-light.sh run all && sh
+  compositor/tools/tv-first-light.sh fetch && sh compositor/tools/tv-first-light.sh
+  clean`. Expected: `driver` PASS 6/6 (as before), `own` PASS 6/6, `shm`
+  PASS 6/6 with `gl errors 0`. The `app` case is optional (already proven).
+- Without the TV: nothing left in this slice; C3/C4 items at the end.
+- TV state: not touched by this slice itself; the main agent's run left
+  nothing running (`clean`).
 
 ## Design
 
@@ -478,6 +516,36 @@ the blob did not find the same `libwayland-server.so.0` as the compositor
 (both must come from `/tmp/lumatv/lib`); a client stuck at `eglInitialize`
 means no `mali_buffer_sharing` global was advertised (check the server's
 `listening on` line for the buffer path).
+
+## Protocol versions on the set (from `protocols`, 2026-10-25)
+
+Read by `wlproto_from_elf.py` on the set's client and server libraries
+(`docs/research/compositor/first-light-2026-10-25.txt` from line 251).
+Compared with the OSE XML copies in `compositor/protocol/webos/` and
+folded in where they differ (opcodes are positional, so LG's order is the
+one that works):
+
+- `text_model` v1 requests: LG has `set_enter_key_type` at 6 before
+  `invoke_action`, and `set_max_text_length`/`set_platform_data` (9, 10)
+  before `show_input_panel`/`hide_input_panel` (11, 12); OSE orders them
+  differently. `text.xml` reordered. Events match.
+- `input_method_context` v1 events: LG has `enter_key_type` at 3, OSE
+  last. `input-method.xml` reordered. Requests match.
+- `input_method` v2, `input_panel` v1, `input_panel_surface` v1,
+  `text_model_factory` v1: match.
+- Not dumped yet: the `wl_webos_*` and `wl_starfish_*` tables. The tool
+  skips `wl_*` symbols unless named, so the run showed none of them; the
+  `protocols` case now names every LG interface explicitly (name scan for
+  the libraries that link them statically) and also reads the server
+  library and the starfish compositor plugin. The next run fills this in;
+  until then the webOS shell, foreign, group, input-manager and xinput
+  tables are the OSE ones, which the Qt app run exercised without a
+  protocol error (shell, webOS shell, surface group compositor, foreign,
+  input manager, xinput all bound and used).
+- Qt apps also want `qt_extended_surface`, `qt_surface_extension`,
+  `qt_server_buffer`, `zqt_key_v1`, `zwp_text_input_v2`,
+  `zxdg_output_v1` (tables in the log); none is offered and the example
+  app ran without them.
 
 ## What C3 and C4 need next
 

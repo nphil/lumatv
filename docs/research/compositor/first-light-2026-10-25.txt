@@ -1,0 +1,479 @@
+# First-light run 2026-10-25 (compositor/tools/tv-first-light.sh)
+
+## driver
+
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    [srv    0.022] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.022] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
+    [srv    0.038] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.123] info client pid 3605 uid 0
+    [srv    0.123] info window 1 created on surface 1 by pid 3605
+    [srv    0.131] info window 1 mapped (Card app "" title "x2 probe" size Some((1920, 1080)))
+    [srv    0.131] info focus -> surface 1
+    [srv    0.185] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
+    [srv    0.297] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
+    [srv    0.396] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
+    [srv    0.495] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
+    [srv    0.596] info check x2 frame 4: centre 64809bff expected 64809bff ok
+    [srv    0.677] info check x2 frame 5: centre 7d8082ff expected 7d8082ff ok
+    [srv    0.734] info summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 28 commits 6 buffers 0 ticks 16 drawn 6 callbacks 6 releases 5 skipped 0 render last 381 us max 13806 us check ok 6 bad 0 unread 0
+    summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 28 commits 6 buffers 0 ticks 16 drawn 6 callbacks 6 releases 5 skipped 0 render last 381 us max 13806 us check ok 6 bad 0 unread 0
+    arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+
+    --- client.log
+    [cli] global  1 mali_buffer_sharing                  v5
+    [cli] global  2 wl_compositor                        v4
+    [cli] global  3 wl_subcompositor                     v1
+    [cli] global  4 wl_shm                               v1
+    [cli] global  5 wl_shell                             v1
+    [cli] global  6 wl_seat                              v4
+    [cli] global  7 wl_output                            v2
+    [cli] global  8 wl_data_device_manager               v1
+    [cli] global  9 wl_webos_shell                       v2
+    [cli] global 10 wl_webos_surface_group_compositor    v1
+    [cli] global 11 wl_webos_foreign                     v1
+    [cli] global 12 wl_webos_input_manager               v1
+    [cli] global 13 wl_webos_xinput_extension            v1
+    [cli] global 14 text_model_factory                   v1
+    [cli] global 15 input_method                         v2
+    [cli] global 16 input_panel                          v1
+    [cli] global 17 wl_webos_system_ux                   v1
+    [cli] global 18 zwp_linux_dmabuf_v1                  v3
+    [cli] 18 globals; compositor 0x104a030 shell 0x104a0e8 shm 0x104a090
+    [cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
+    [cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf50cbf21
+    [cli] EGL 1.5 vendor "ARM" version "1.5 Bifrost-"r46p0-01eac1""
+    [cli] GL "Mali-G52" / "OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416"
+    [cli] frame 0: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] configure 1920x1080
+    [cli] frame 1: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 2: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] frame 3: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 4: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 5: eglSwapBuffers ok (0x0) took 0.1 ms
+    Exit client due to a fatal connection failure: Connection reset by peer
+    [cli] 6 frames in 430.6 ms
+    PNG /tmp/lumatv-tv-out/out/driver/frame-0001.png
+    PNG /tmp/lumatv-tv-out/out/driver/frame-0002.png
+    PNG /tmp/lumatv-tv-out/out/driver/frame-0003.png
+    PNG /tmp/lumatv-tv-out/out/driver/frame-0004.png
+    PNG /tmp/lumatv-tv-out/out/driver/frame-0005.png
+    PNG /tmp/lumatv-tv-out/out/driver/frame-0006.png
+
+## own
+
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    [srv    0.026] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.039] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Own, own mali_buffer_sharing, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.123] info client pid 3663 uid 0
+    [srv    0.123] info window 1 created on surface 1 by pid 3663
+    [srv    0.124] info client bound mali_buffer_sharing v5 (own); alloc_device /dev/dma_buf_te
+    [srv    0.131] info mali_buffer_sharing.create_buffer -> wl_buffer@11 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
+    [srv    0.133] info window 1 mapped (Card app "" title "x2 probe" size Some((1920, 1080)))
+    [srv    0.133] info focus -> surface 1
+    [srv    0.138] info mali_buffer_sharing.create_buffer -> wl_buffer@13 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
+    [srv    0.186] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
+    [srv    0.253] info mali_buffer_sharing.create_buffer -> wl_buffer@14 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
+    [srv    0.279] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
+    [srv    0.363] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
+    [srv    0.446] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
+    [srv    0.529] info check x2 frame 4: centre 64809bff expected 64809bff ok
+    [srv    0.618] info check x2 frame 5: centre 000000ff expected 7d8082ff BAD
+    [srv    0.676] info summary: uptime 0.6s clients 1 (total 0) surfaces 1 windows 1 requests 31 commits 6 buffers 3 ticks 16 drawn 6 callbacks 6 releases 4 skipped 0 render last 153 us max 15745 us check ok 5 bad 1 unread 0
+    summary: uptime 0.6s clients 1 (total 0) surfaces 1 windows 1 requests 31 commits 6 buffers 3 ticks 16 drawn 6 callbacks 6 releases 4 skipped 0 render last 153 us max 15745 us check ok 5 bad 1 unread 0
+    arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+
+    --- client.log
+    [cli] global  1 wl_compositor                        v4
+    [cli] global  2 wl_subcompositor                     v1
+    [cli] global  3 wl_shm                               v1
+    [cli] global  4 wl_shell                             v1
+    [cli] global  5 wl_seat                              v4
+    [cli] global  6 wl_output                            v2
+    [cli] global  7 wl_data_device_manager               v1
+    [cli] global  8 wl_webos_shell                       v2
+    [cli] global  9 wl_webos_surface_group_compositor    v1
+    [cli] global 10 wl_webos_foreign                     v1
+    [cli] global 11 wl_webos_input_manager               v1
+    [cli] global 12 wl_webos_xinput_extension            v1
+    [cli] global 13 text_model_factory                   v1
+    [cli] global 14 input_method                         v2
+    [cli] global 15 input_panel                          v1
+    [cli] global 16 wl_webos_system_ux                   v1
+    [cli] global 17 zwp_linux_dmabuf_v1                  v3
+    [cli] global 18 mali_buffer_sharing                  v5
+    [cli] 18 globals; compositor 0x19c0030 shell 0x19c00e8 shm 0x19c0090
+    [cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
+    [cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf53ebf21
+    [cli] EGL 1.5 vendor "ARM" version "1.5 Bifrost-"r46p0-01eac1""
+    [cli] GL "Mali-G52" / "OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416"
+    [cli] frame 0: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] configure 1920x1080
+    [cli] frame 1: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 2: eglSwapBuffers ok (0x0) took 0.5 ms
+    [cli] frame 3: eglSwapBuffers ok (0x0) took 0.3 ms
+    [cli] frame 4: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] frame 5: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] 6 frames in 374.9 ms
+    [cli] done
+    PNG /tmp/lumatv-tv-out/out/own/frame-0001.png
+    PNG /tmp/lumatv-tv-out/out/own/frame-0002.png
+    PNG /tmp/lumatv-tv-out/out/own/frame-0003.png
+    PNG /tmp/lumatv-tv-out/out/own/frame-0004.png
+    PNG /tmp/lumatv-tv-out/out/own/frame-0005.png
+    PNG /tmp/lumatv-tv-out/out/own/frame-0006.png
+
+## shm
+
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    [srv    0.020] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.020] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
+    [srv    0.030] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.105] info client pid 3727 uid 0
+    [srv    0.105] info window 1 created on surface 1 by pid 3727
+    [srv    0.105] info webOS shell surface on window 1 (surface 1) by pid 3727
+    [srv    0.105] info window 1: appId = org.nphil.lumatv.testclient (Card)
+    [srv    0.105] info window 1: title = lumatv test client (Card)
+    [srv    0.123] info window 1 mapped (Card app "org.nphil.lumatv.testclient" title "lumatv test client" size Some((1920, 1080)))
+    [srv    0.123] info focus -> surface 1
+    [srv    0.151] warn gl error 0x502 during render
+    [srv    0.179] info check x2 frame 0: centre 000000ff expected 0080ffff BAD
+    [srv    0.274] warn gl error 0x502 during render
+    [srv    0.293] info check x2 frame 1: centre 000000ff expected 1980e6ff BAD
+    [srv    0.396] warn gl error 0x502 during render
+    [srv    0.413] info check x2 frame 2: centre 000000ff expected 3280cdff BAD
+    [srv    0.504] warn gl error 0x502 during render
+    [srv    0.520] info check x2 frame 3: centre 000000ff expected 4b80b4ff BAD
+    [srv    0.604] warn gl error 0x502 during render
+    [srv    0.620] info check x2 frame 4: centre 000000ff expected 64809bff BAD
+    [srv    0.704] warn gl error 0x502 during render
+    [srv    0.722] info check x2 frame 5: centre 000000ff expected 7d8082ff BAD
+    [srv    0.780] info summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 38 commits 6 buffers 3 ticks 21 drawn 6 callbacks 6 releases 5 skipped 0 render last 7086 us max 21216 us check ok 0 bad 6 unread 0
+    summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 38 commits 6 buffers 3 ticks 21 drawn 6 callbacks 6 releases 5 skipped 0 render last 7086 us max 21216 us check ok 0 bad 6 unread 0
+    arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+
+    --- client.log
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    [cli] global  1 mali_buffer_sharing                  v5
+    [cli] global  2 wl_compositor                        v4
+    [cli] global  3 wl_subcompositor                     v1
+    [cli] global  4 wl_shm                               v1
+    [cli] global  5 wl_shell                             v1
+    [cli] global  6 wl_seat                              v4
+    [cli] global  7 wl_output                            v2
+    [cli] global  8 wl_data_device_manager               v1
+    [cli] global  9 wl_webos_shell                       v2
+    [cli] global 10 wl_webos_surface_group_compositor    v1
+    [cli] global 11 wl_webos_foreign                     v1
+    [cli] global 12 wl_webos_input_manager               v1
+    [cli] global 13 wl_webos_xinput_extension            v1
+    [cli] global 14 text_model_factory                   v1
+    [cli] global 15 input_method                         v2
+    [cli] global 16 input_panel                          v1
+    [cli] global 17 wl_webos_system_ux                   v1
+    [cli] global 18 zwp_linux_dmabuf_v1                  v3
+    [cli] configure 1920x1080
+    [cli] state_changed 3
+    [cli] position_changed 0,0
+    [cli] frame 0: colour 0080ffff, callback after 111.0 ms
+    [cli] frame 1: colour 1980e6ff, callback after 102.4 ms
+    [cli] frame 2: colour 3280cdff, callback after 111.5 ms
+    [cli] frame 3: colour 4b80b4ff, callback after 93.7 ms
+    [cli] frame 4: colour 64809bff, callback after 88.8 ms
+    [cli] frame 5: colour 7d8082ff, callback after 96.6 ms
+    [cli] 6 frames in 674.7 ms; releases [0, 1, 2, 0, 1]; states [3]; configures [(1920, 1080)]
+    Io error: Connection reset by peer (os error 104)
+    [cli] done
+    PNG /tmp/lumatv-tv-out/out/shm/frame-0001.png
+    PNG /tmp/lumatv-tv-out/out/shm/frame-0002.png
+    PNG /tmp/lumatv-tv-out/out/shm/frame-0003.png
+    PNG /tmp/lumatv-tv-out/out/shm/frame-0004.png
+    PNG /tmp/lumatv-tv-out/out/shm/frame-0005.png
+    PNG /tmp/lumatv-tv-out/out/shm/frame-0006.png
+
+## app
+
+    ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+    [srv    0.023] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.023] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
+    [srv    0.036] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.162] info client pid 3801 uid 0
+    [srv    0.187] info webOS shell surface on window 1 (surface 2) by pid 3801
+    [srv    0.187] info window 1 created on surface 2 by pid 3801
+    [srv    0.187] info window 1: appId = com.webos.exampleapp.systemui (Card)
+    [srv    0.187] info window 1: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_SYSTEM_UI (SystemUi)
+    [srv    0.197] info window 1 mapped (SystemUi app "com.webos.exampleapp.systemui" title "System UI Example" size Some((1920, 1080)))
+    [srv    0.197] info focus -> surface 2
+    [srv    8.242] info client disconnected: pid 3801 (ConnectionClosed)
+    [srv    9.301] info client pid 3907 uid 0
+    [srv   17.382] info client disconnected: pid 3907 (ConnectionClosed)
+    [srv   18.385] info summary: uptime 18.3s clients 0 (total 0) surfaces 0 windows 0 requests 1626 commits 403 buffers 0 ticks 1044 drawn 403 callbacks 402 releases 401 skipped 0 render last 134 us max 11904 us check ok 0 bad 0 unread 0
+    summary: uptime 18.3s clients 0 (total 0) surfaces 0 windows 0 requests 1626 commits 403 buffers 0 ticks 1044 drawn 403 callbacks 402 releases 401 skipped 0 render last 134 us max 11904 us check ok 0 bad 0 unread 0
+    arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+
+    --- client-com.webos.app.tvhotkey.log
+
+    --- client-com.webos.exampleapp.systemui.log
+    entered
+    Use default devicePixelRatio 1
+    Adding screen 0x28750f8 for wl_output 7 with displayId of "" details: "OLED65C4PUA" true
+    Using Wayland-EGL
+    Library qttestability load failed!
+    QT_WAYLAND_SHELL_INTEGRATION is not set. Setting as "webos".
+    [Client:WebOSPlatform] WebOSSurfaceGroupCompositor created: WebOSSurfaceGroupCompositor(0x28df668)
+    [Client:WebOSForeignPrivate] constructed: WebOSForeignPrivate(0x28df0e8)
+    [Client:WebOSForeign] constructed: WebOSForeign(0x28df778)
+    [Client:WebOSPlatform] WebOSForeign created: WebOSForeign(0x28df778)
+    [Client:WebOSPlatform] WebOSInputManager created: WebOSInputManager(0x28deb50)
+    Using the 'webos' shell integration
+    Received XKB keymap, QtWaylandClient::QWaylandInputDevice::Keyboard(0x2876130) fd: 12 size: 1140
+    loaded
+    Passing paramter to QML
+    static void WebOSShellSurfacePrivate::position_changed(void*, wl_webos_shell_surface*, int32_t, int32_t)
+    XKB keymap created fd: 12 size: 1140 mapped: "/memfd:lumatv-keymap (deleted)"
+    Using shared XKB keymap, QtWaylandClient::QWaylandInputDevice::Keyboard(0x2876130) fd: 12 size: 1140
+    PNG /tmp/lumatv-tv-out/out/app/app-com.webos.app.tvhotkey.png
+    PNG /tmp/lumatv-tv-out/out/app/app-com.webos.exampleapp.systemui.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0030.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0060.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0090.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0120.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0150.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0180.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0210.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0240.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0270.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0300.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0330.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0360.png
+    PNG /tmp/lumatv-tv-out/out/app/frame-0390.png
+
+## protocols
+
+    == /usr/lib/libwayland-webos-client.so.1.0.0
+    symbol tables: 20 *_interface symbols (.dynsym)
+    # input_method_context_interface at vaddr 0x12b54 (symbol)
+    interface input_method_context version 1
+      request[0] destroy()  sig=
+      request[1] commit_string(u:-, s:-)  sig=us
+      request[2] preedit_string(u:-, s:-, s:-)  sig=uss
+      request[3] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[4] preedit_cursor(u:-, i:-)  sig=ui
+      request[5] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      request[6] cursor_position(u:-, i:-, i:-)  sig=uii
+      request[7] modifiers_map(a:-)  sig=a
+      request[8] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      request[9] grab_keyboard(n:-)  sig=n
+      request[10] key(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[11] modifiers(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[0] surrounding_text(s:-, u:-, u:-)  sig=suu
+      event[1] reset(u:-)  sig=u
+      event[2] content_type(u:-, u:-)  sig=uu
+      event[3] enter_key_type(u:-)  sig=u
+      event[4] invoke_action(u:-, u:-)  sig=uu
+      event[5] commit()  sig=
+      event[6] max_text_length(u:-)  sig=u
+      event[7] platform_data(s:-)  sig=s
+    # input_method_interface at vaddr 0x12b00 (symbol)
+    interface input_method version 2
+      request[0] set_display_id(u:-)  sig=u
+      event[0] activate(n:-, u:-)  sig=nu
+      event[1] deactivate(o:-)  sig=o
+      event[2] show_input_panel(o:-)  sig=o
+      event[3] hide_input_panel(o:-)  sig=o
+    # input_panel_interface at vaddr 0x12adc (symbol)
+    interface input_panel version 1
+      request[0] get_input_panel_surface(n:-, o:-)  sig=no
+    # input_panel_surface_interface at vaddr 0x12ab8 (symbol)
+    interface input_panel_surface version 1
+      request[0] set_toplevel(u:-)  sig=u
+    # text_model_factory_interface at vaddr 0x12938 (symbol)
+    interface text_model_factory version 1
+      request[0] create_text_model(n:-)  sig=n
+    # text_model_interface at vaddr 0x1295c (symbol)
+    interface text_model version 1
+      request[0] set_surrounding_text(s:-, u:-, u:-)  sig=suu
+      request[1] activate(u:-, o:-, o:-)  sig=uoo
+      request[2] deactivate(o:-)  sig=o
+      request[3] reset(u:-)  sig=u
+      request[4] set_cursor_rectangle(i:-, i:-, i:-, i:-)  sig=iiii
+      request[5] set_content_type(u:-, u:-)  sig=uu
+      request[6] set_enter_key_type(u:-)  sig=u
+      request[7] invoke_action(u:-, u:-)  sig=uu
+      request[8] commit()  sig=
+      request[9] set_max_text_length(u:-)  sig=u
+      request[10] set_platform_data(s:-)  sig=s
+      request[11] show_input_panel()  sig=
+      request[12] hide_input_panel()  sig=
+      request[13] set_input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
+      request[14] reset_input_panel_rect()  sig=
+      event[0] commit_string(u:-, s:-)  sig=us
+      event[1] preedit_string(u:-, s:-, s:-)  sig=uss
+      event[2] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      event[3] cursor_position(u:-, i:-, i:-)  sig=uii
+      event[4] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      event[5] preedit_cursor(u:-, i:-)  sig=ui
+      event[6] modifiers_map(a:-)  sig=a
+      event[7] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[8] enter(o:-)  sig=o
+      event[9] leave()  sig=
+      event[10] input_panel_state(u:-)  sig=u
+      event[11] input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
+    == /usr/lib/libgm-wayland.so.1.0.0
+    symbol tables: 0 *_interface symbols (.dynsym)
+    == /usr/lib/libwayland-starfish-client.so.1.0.0
+    symbol tables: 2 *_interface symbols (.dynsym)
+    == /usr/lib/libwayland-input-helper.so.1.0.0
+    symbol tables: 0 *_interface symbols (.dynsym)
+    == /usr/lib/libwebos-platform-interface.so.1.0.0
+    symbol tables: 12 *_interface symbols (.dynsym)
+    == /usr/lib/flutter/3.22.2/release/libflutter_elinux_wayland.so
+    symbol tables: 2 *_interface symbols (.dynsym)
+    # wp_presentation_feedback_interface at vaddr 0x133224 (symbol)
+    interface wp_presentation_feedback version 1
+      event[0] sync_output(o:-)  sig=o
+      event[1] presented(u:-, u:-, u:-, u:-, u:-, u:-, u:-)  sig=uuuuuuu
+      event[2] discarded()  sig=
+    # wp_presentation_interface at vaddr 0x1331e8 (symbol)
+    interface wp_presentation version 1
+      request[0] destroy()  sig=
+      request[1] feedback(o:-, n:-)  sig=on
+      event[0] clock_id(u:-)  sig=u
+    == /usr/lib/libQt5WaylandClient.so.5.12.4
+    symbol tables: 11 *_interface symbols (.dynsym)
+    # qt_extended_surface_interface at vaddr 0x87284 (symbol)
+    interface qt_extended_surface version 1
+      request[0] update_generic_property(s:-, a:-)  sig=sa
+      request[1] set_content_orientation_mask(i:-)  sig=i
+      request[2] set_window_flags(i:-)  sig=i
+      request[3] raise()  sig=
+      request[4] lower()  sig=
+      event[0] onscreen_visibility(i:-)  sig=i
+      event[1] set_generic_property(s:-, a:-)  sig=sa
+      event[2] close()  sig=
+    qt_hardware_integration_interface @0x875e4: vaddr 0x8b340 not in a PT_LOAD
+    # qt_server_buffer_interface at vaddr 0x875c0 (symbol)
+    interface qt_server_buffer version 1
+      request[0] release()  sig=
+    # qt_surface_extension_interface at vaddr 0x872fc (symbol)
+    interface qt_surface_extension version 1
+      request[0] get_extended_surface(n:-, o:-)  sig=no
+    qt_touch_extension_interface @0x87320: vaddr 0x8b300 not in a PT_LOAD
+    qt_windowmanager_interface @0x87380: vaddr 0x8b338 not in a PT_LOAD
+    # zqt_key_v1_interface at vaddr 0x8735c (symbol)
+    interface zqt_key_v1 version 1
+      event[0] key(o:-, u:-, u:-, u:-, u:-, u:-, u:-, u:-, s:-, u:-, u:-)  sig=ouuuuuuusuu
+    # zwp_text_input_manager_v2_interface at vaddr 0x873bc (symbol)
+    interface zwp_text_input_manager_v2 version 1
+      request[0] destroy()  sig=
+      request[1] get_text_input(n:-, o:-)  sig=no
+    # zwp_text_input_v2_interface at vaddr 0x873ec (symbol)
+    interface zwp_text_input_v2 version 1
+      request[0] destroy()  sig=
+      request[1] enable(o:-)  sig=o
+      request[2] disable(o:-)  sig=o
+      request[3] show_input_panel()  sig=
+      request[4] hide_input_panel()  sig=
+      request[5] set_surrounding_text(s:-, i:-, i:-)  sig=sii
+      request[6] set_content_type(u:-, u:-)  sig=uu
+      request[7] set_cursor_rectangle(i:-, i:-, i:-, i:-)  sig=iiii
+      request[8] set_preferred_language(s:-)  sig=s
+      request[9] update_state(u:-, u:-)  sig=uu
+      event[0] enter(u:-, o:-)  sig=uo
+      event[1] leave(u:-, o:-)  sig=uo
+      event[2] input_panel_state(u:-, i:-, i:-, i:-, i:-)  sig=uiiii
+      event[3] preedit_string(s:-, s:-)  sig=ss
+      event[4] preedit_styling(u:-, u:-, u:-)  sig=uuu
+      event[5] preedit_cursor(i:-)  sig=i
+      event[6] commit_string(s:-)  sig=s
+      event[7] cursor_position(i:-, i:-)  sig=ii
+      event[8] delete_surrounding_text(u:-, u:-)  sig=uu
+      event[9] modifiers_map(a:-)  sig=a
+      event[10] keysym(u:-, u:-, u:-, u:-)  sig=uuuu
+      event[11] language(s:-)  sig=s
+      event[12] text_direction(u:-)  sig=u
+      event[13] configure_surrounding_text(i:-, i:-)  sig=ii
+      event[14] input_method_changed(u:-, u:-)  sig=uu
+    # zxdg_output_manager_v1_interface at vaddr 0x87590 (symbol)
+    interface zxdg_output_manager_v1 version 2
+      request[0] destroy()  sig=
+      request[1] get_xdg_output(n:-, o:-)  sig=no
+    # zxdg_output_v1_interface at vaddr 0x87530 (symbol)
+    interface zxdg_output_v1 version 2
+      request[0] destroy()  sig=
+      event[0] logical_position(i:-, i:-)  sig=ii
+      event[1] logical_size(i:-, i:-)  sig=ii
+      event[2] done()  sig=
+      event[3] name(s:-)  sig=2s
+      event[4] description(s:-)  sig=2s
+    == /usr/lib/libWebOSCoreCompositor.so.0.0.1
+    symbol tables: 10 *_interface symbols (.dynsym)
+    == /usr/lib/libwayland-webos-server.so.1.0.0
+    symbol tables: 20 *_interface symbols (.dynsym)
+    # input_method_context_interface at vaddr 0x12b54 (symbol)
+    interface input_method_context version 1
+      request[0] destroy()  sig=
+      request[1] commit_string(u:-, s:-)  sig=us
+      request[2] preedit_string(u:-, s:-, s:-)  sig=uss
+      request[3] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[4] preedit_cursor(u:-, i:-)  sig=ui
+      request[5] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      request[6] cursor_position(u:-, i:-, i:-)  sig=uii
+      request[7] modifiers_map(a:-)  sig=a
+      request[8] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      request[9] grab_keyboard(n:-)  sig=n
+      request[10] key(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[11] modifiers(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[0] surrounding_text(s:-, u:-, u:-)  sig=suu
+      event[1] reset(u:-)  sig=u
+      event[2] content_type(u:-, u:-)  sig=uu
+      event[3] enter_key_type(u:-)  sig=u
+      event[4] invoke_action(u:-, u:-)  sig=uu
+      event[5] commit()  sig=
+      event[6] max_text_length(u:-)  sig=u
+      event[7] platform_data(s:-)  sig=s
+    # input_method_interface at vaddr 0x12b00 (symbol)
+    interface input_method version 2
+      request[0] set_display_id(u:-)  sig=u
+      event[0] activate(n:-, u:-)  sig=nu
+      event[1] deactivate(o:-)  sig=o
+      event[2] show_input_panel(o:-)  sig=o
+      event[3] hide_input_panel(o:-)  sig=o
+    # input_panel_interface at vaddr 0x12adc (symbol)
+    interface input_panel version 1
+      request[0] get_input_panel_surface(n:-, o:-)  sig=no
+    # input_panel_surface_interface at vaddr 0x12ab8 (symbol)
+    interface input_panel_surface version 1
+      request[0] set_toplevel(u:-)  sig=u
+    # text_model_factory_interface at vaddr 0x12938 (symbol)
+    interface text_model_factory version 1
+      request[0] create_text_model(n:-)  sig=n
+    # text_model_interface at vaddr 0x1295c (symbol)
+    interface text_model version 1
+      request[0] set_surrounding_text(s:-, u:-, u:-)  sig=suu
+      request[1] activate(u:-, o:-, o:-)  sig=uoo
+      request[2] deactivate(o:-)  sig=o
+      request[3] reset(u:-)  sig=u
+      request[4] set_cursor_rectangle(i:-, i:-, i:-, i:-)  sig=iiii
+      request[5] set_content_type(u:-, u:-)  sig=uu
+      request[6] set_enter_key_type(u:-)  sig=u
+      request[7] invoke_action(u:-, u:-)  sig=uu
+      request[8] commit()  sig=
+      request[9] set_max_text_length(u:-)  sig=u
+      request[10] set_platform_data(s:-)  sig=s
+      request[11] show_input_panel()  sig=
+      request[12] hide_input_panel()  sig=
+      request[13] set_input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
+      request[14] reset_input_panel_rect()  sig=
+      event[0] commit_string(u:-, s:-)  sig=us
+      event[1] preedit_string(u:-, s:-, s:-)  sig=uss
+      event[2] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      event[3] cursor_position(u:-, i:-, i:-)  sig=uii
+      event[4] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      event[5] preedit_cursor(u:-, i:-)  sig=ui
+      event[6] modifiers_map(a:-)  sig=a
+      event[7] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[8] enter(o:-)  sig=o
+      event[9] leave()  sig=
+      event[10] input_panel_state(u:-)  sig=u
+      event[11] input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu

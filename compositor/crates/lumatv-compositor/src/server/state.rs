@@ -52,6 +52,7 @@ pub struct Stats {
     pub render_us_last: u64,
     pub render_us_max: u64,
     pub skipped_items: u64,
+    pub gl_errors: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +244,7 @@ impl State {
                     self.stats.render_us_last = st.render_us;
                     self.stats.render_us_max = self.stats.render_us_max.max(st.render_us);
                     self.stats.skipped_items += st.skipped as u64;
+                    self.stats.gl_errors = st.gl_errors;
                 }
                 Err(e) => log::error!("render: {e}"),
             }
@@ -343,7 +345,7 @@ impl State {
     pub fn summary(&self) -> String {
         let s = &self.stats;
         format!(
-            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} render last {} us max {} us check ok {} bad {} unread {}",
+            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us check ok {} bad {} unread {}",
             self.started.elapsed().as_secs_f64(),
             self.clients.len(),
             s.clients_total,
@@ -357,6 +359,7 @@ impl State {
             s.callbacks_sent,
             s.releases,
             s.skipped_items,
+            s.gl_errors,
             s.render_us_last,
             s.render_us_max,
             self.check.ok,
@@ -425,8 +428,10 @@ impl State {
         for ev in evs {
             match ev {
                 ClientEvent::Connected(id) => {
-                    self.stats.clients_total += 1;
-                    self.clients.insert(id, ClientInfo { pid: 0, uid: 0, since: Instant::now() });
+                    if !self.clients.contains_key(&id) {
+                        self.stats.clients_total += 1;
+                        self.clients.insert(id, ClientInfo { pid: 0, uid: 0, since: Instant::now() });
+                    }
                     self.journal("client connected".to_string());
                 }
                 ClientEvent::Disconnected(id, reason) => {
@@ -450,6 +455,9 @@ impl State {
             return;
         }
         if let Ok(c) = client.get_credentials(&self.dh) {
+            if !self.clients.contains_key(&id) {
+                self.stats.clients_total += 1;
+            }
             let entry = self.clients.entry(id).or_insert(ClientInfo { pid: 0, uid: 0, since: Instant::now() });
             if entry.pid == 0 {
                 entry.pid = c.pid;

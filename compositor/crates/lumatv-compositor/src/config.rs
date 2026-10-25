@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::render::egl::Platform;
 use crate::render::gl::BufferPath;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,6 +26,7 @@ pub struct Config {
     pub socket: String,
     pub renderer: RendererKind,
     pub driver: Option<String>,
+    pub platform: Platform,
     pub buffers: BufferPath,
     pub seconds: Option<u64>,
     pub frames: Option<u64>,
@@ -47,6 +49,7 @@ impl Default for Config {
             socket: "wayland-lumatv".into(),
             renderer: RendererKind::Software,
             driver: None,
+            platform: Platform::GbmNull,
             buffers: BufferPath::Driver,
             seconds: None,
             frames: None,
@@ -69,6 +72,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --socket NAME          WAYLAND_DISPLAY name (default wayland-lumatv)
   --renderer software|gl (default software; gl when --driver is given)
   --driver PATH          the 64-bit Mali blob to dlopen for the GL renderer
+  --egl-platform gbm|surfaceless  how the EGL display is made (gbm with a null device for the blob; surfaceless for Mesa)
   --buffers driver|own   who serves mali_buffer_sharing: the driver (eglBindWaylandDisplayWL) or this compositor
   --seconds N            exit after N seconds
   --frames N             exit after N frames with content were presented
@@ -103,6 +107,13 @@ impl Config {
                     }
                 }
                 "--driver" => c.driver = Some(value()?),
+                "--egl-platform" => {
+                    c.platform = match value()?.as_str() {
+                        "gbm" => Platform::GbmNull,
+                        "surfaceless" => Platform::Surfaceless,
+                        o => return Err(format!("unknown EGL platform {o}")),
+                    }
+                }
                 "--buffers" => {
                     c.buffers = match value()?.as_str() {
                         "driver" => BufferPath::Driver,

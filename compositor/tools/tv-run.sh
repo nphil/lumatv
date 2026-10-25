@@ -110,20 +110,31 @@ case_app() {
     ls -la $D/out/app/*.png 2>/dev/null
 }
 
+# wlproto_from_elf.py dumps only the *_interface symbols not starting with wl_ by default, so the LG ones are named
+# explicitly; a library without the symbol (libgm-wayland links them statically) falls back to the tool's name scan.
+WEBOS_IFACES="wl_webos_shell_interface wl_webos_shell_surface_interface wl_webos_foreign_interface wl_webos_exported_interface wl_webos_imported_interface \
+ wl_webos_surface_group_compositor_interface wl_webos_surface_group_interface wl_webos_surface_group_layer_interface wl_webos_input_manager_interface \
+ wl_webos_seat_interface wl_webos_gyroscope_interface wl_webos_accelerometer_interface wl_webos_xinput_interface wl_webos_xinput_extension_interface \
+ wl_webos_system_ux_interface wl_webos_tablet_interface text_model_interface text_model_factory_interface input_method_interface input_method_context_interface \
+ input_panel_interface input_panel_surface_interface"
 case_protocols() {
     out=$D/out/protocols.txt
     : > $out
-    for lib in /usr/lib/libwayland-webos-client.so.1.0.0 /usr/lib/libgm-wayland.so.1.0.0 /usr/lib/libwayland-starfish-client.so.1.0.0 \
-               /usr/lib/libwayland-input-helper.so.1.0.0 /usr/lib/libwebos-platform-interface.so.1.0.0 /usr/lib/flutter/3.22.2/release/libflutter_elinux_wayland.so \
-               /usr/lib/libQt5WaylandClient.so.5.12.4 /usr/lib/libWebOSCoreCompositor.so.0.0.1 /usr/lib/libwayland-webos-server.so.1.0.0; do
-        [ -f "$lib" ] || continue
-        echo "== $lib" >> $out
-        if command -v python3 >/dev/null 2>&1; then
-            python3 $D/wlproto_from_elf.py "$lib" >> $out 2>&1 || echo "(wlproto_from_elf failed)" >> $out
-        else
-            echo "(no python3 on the set: fetch this file and run docs/research/arch/wlproto_from_elf.py on the workstation)" >> $out
-        fi
-    done
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "(no python3 on the set: fetch the libraries and run docs/research/arch/wlproto_from_elf.py on the workstation)" >> $out
+        wc -l $out; return
+    fi
+    dump() { lib=$1; shift; [ -f "$lib" ] || return; echo "== $lib" >> $out; python3 $D/wlproto_from_elf.py "$lib" "$@" >> $out 2>&1 || echo "(wlproto_from_elf failed)" >> $out; }
+    dump /usr/lib/libwayland-webos-client.so.1.0.0 $WEBOS_IFACES
+    dump /usr/lib/libwayland-webos-server.so.1.0.0 $WEBOS_IFACES
+    dump /usr/lib/libwebos-platform-interface.so.1.0.0 $WEBOS_IFACES
+    dump /usr/lib/libgm-wayland.so.1.0.0 wl_webos_shell_interface wl_webos_shell_surface_interface wl_webos_foreign_interface wl_webos_exported_interface wl_webos_imported_interface wl_webos_surface_group_compositor_interface wl_webos_surface_group_interface
+    dump /usr/lib/libwayland-starfish-client.so.1.0.0 wl_starfish_pointer_interface wl_starfish_output_interface
+    dump /usr/lib/libwayland-input-helper.so.1.0.0 wl_webos_shell_interface wl_webos_shell_surface_interface
+    dump /usr/lib/flutter/3.22.2/release/libflutter_elinux_wayland.so wl_webos_shell_interface wl_webos_shell_surface_interface wl_webos_surface_group_interface wl_webos_surface_group_layer_interface wl_webos_foreign_interface wl_webos_xinput_interface wp_presentation_interface
+    dump /usr/lib/libQt5WaylandClient.so.5.12.4
+    dump /usr/lib/libWebOSCoreCompositor.so.0.0.1
+    dump /usr/lib/plugins/compositor/libstarfishcompositorplugin.so wl_starfish_pointer_interface wl_starfish_output_interface
     wc -l $out
 }
 

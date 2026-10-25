@@ -400,3 +400,66 @@ fn luna_tier_one_methods_answer_from_the_scene() {
     assert_eq!(closed["closed"], 1);
     assert!(client.wait_until(WAIT, |s| s.closes >= 1));
 }
+
+#[test]
+fn destroying_the_shown_buffer_keeps_the_last_frame() {
+    // LG's libmali destroys its swapchain on eglTerminate while the last frame is still on screen; the X2
+    // client's last frame went black for it on the set (first light 2026-10-25, own case).
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Last");
+    let buf = client.shm_buffer(1920, 1080, 0xff7d_8082);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    buf.destroy();
+    client.roundtrip();
+    // Force a redraw of the whole output and look again.
+    server.eval(|s| s.scene.layout_changed = true);
+    std::thread::sleep(Duration::from_millis(30));
+    let (image, mapped) = server.eval(|s| (s.output.capture().unwrap(), s.scene.foreground(&s.surfaces).is_some()));
+    assert!(mapped, "the window stays mapped");
+    assert_eq!(image.pixel(960, 540), [0x7d, 0x80, 0x82, 0xff], "the last frame stays on screen");
+}
+
+/// The GL renderer on Mesa's llvmpipe (surfaceless), the same code that runs on the 64-bit Mali blob: an shm
+/// buffer uploaded as a texture must come back pixel-exact. On the set this path drew black with GL error 0x502
+/// (first light 2026-10-25, shm case): a BGRA upload into an RGBA texture.
+#[test]
+fn gl_renderer_uploads_shm_pixel_exact() {
+    const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
+    if !std::path::Path::new(MESA).exists() {
+        eprintln!("no Mesa libEGL on this host; skipping");
+        return;
+    }
+    // SAFETY: set before the server thread (the only EGL user) starts.
+    unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+    let mut server = Server::start_with(Box::new(|| {
+        use lumatv_compositor::render::egl::Platform;
+        use lumatv_compositor::render::gl::{BufferPath, Gl};
+        Box::new(Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).expect("Mesa GL renderer"))
+    }));
+    let mut client = Client::connect(&mut server);
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Gl");
+    let buf = client.shm_buffer(1920, 1080, 0xff19_80e6); // X2 frame 1: R 0x19 G 0x80 B 0xe6
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    let overlay = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Half");
+    overlay.webos.set_property("windowPosX".into(), "100".into());
+    overlay.webos.set_property("windowPosY".into(), "100".into());
+    let half = client.shm_buffer(200, 200, 0x8080_8080); // premultiplied half-transparent white
+    client.present(&overlay.surface, &half);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 2));
+    std::thread::sleep(Duration::from_millis(30));
+    let (image, name, skipped, gl_errors) = server.eval(|s| (s.output.capture().unwrap(), s.output.name(), s.stats.skipped_items, s.stats.gl_errors));
+    assert_eq!(name, "gl");
+    assert_eq!(skipped, 0);
+    assert_eq!(gl_errors, 0);
+    assert_eq!(image.pixel(10, 10), [0x19, 0x80, 0xe6, 0xff], "card pixel through the GL upload");
+    assert_eq!(image.pixel(1919, 1079), [0x19, 0x80, 0xe6, 0xff]);
+    let p = image.pixel(150, 150);
+    // Half white over the card: each channel = 0x80 + card * 0.5 (within rounding).
+    let expect = [0x80 + 0x19 / 2, 0x80 + 0x80 / 2, 0x80 + 0xe6 / 2, 0xff];
+    for (i, (got, want)) in p.iter().zip(expect.iter()).enumerate() {
+        assert!(got.abs_diff(*want) <= 2, "channel {i}: got {got:#x} want {want:#x} (pixel {p:?})");
+    }
+}

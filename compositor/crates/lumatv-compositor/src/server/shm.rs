@@ -110,12 +110,14 @@ impl Dispatch<WlBuffer, BufferData> for State {
     }
 
     fn destroyed(state: &mut Self, _client: ClientId, resource: &WlBuffer, _data: &BufferData) {
-        state.output.forget_buffer(resource);
-        // A destroyed buffer must drop out of every surface that still points at it.
+        // A surface showing the destroyed buffer keeps showing it (the mapping or the dma-buf lives on in the
+        // buffer data) until the client commits another: LG's libmali destroys its swapchain on eglTerminate
+        // while the last frame is still on screen, and the X2 client's last frame went black for it (first light
+        // 2026-10-25, own case). Nothing is released to a dead resource; a pending attach becomes a detach.
+        let mut shown = false;
         for s in state.surfaces.iter_mut() {
             if s.current.buffer.as_ref().map(|b| b.id() == resource.id()).unwrap_or(false) {
-                s.current.buffer = None;
-                s.current.size = None;
+                shown = true;
             }
             s.current.retired.retain(|b| b.id() != resource.id());
             if let Some(Some(b)) = &s.pending.buffer
@@ -123,6 +125,9 @@ impl Dispatch<WlBuffer, BufferData> for State {
             {
                 s.pending.buffer = Some(None);
             }
+        }
+        if !shown {
+            state.output.forget_buffer(resource);
         }
     }
 }

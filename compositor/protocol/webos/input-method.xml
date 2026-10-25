@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <protocol name="input_method">
+  <!-- LumaTV: input_method_context's events are in the order of LG's own tables on the C4 (webOS 10.2.1,
+       docs/research/compositor/first-light-2026-10-25.txt): enter_key_type is event 3, before invoke_action,
+       where the public OSE file has it last. -->
   <copyright>
     Copyright © 2012 Intel Corporation
     Copyright © 2013-2020 LG Electronics, Inc.
@@ -172,14 +175,12 @@
       <arg name="cursor" type="uint"/>
       <arg name="anchor" type="uint"/>
     </event>
-
     <event name="reset">
       <description summary="reset">
         Resets the input state.
       </description>
       <arg name="serial" type="uint"/>
     </event>
-
     <event name="content_type">
       <description summary="set content purpose and hint">
         Sets the content purpose and content hint.
@@ -187,7 +188,12 @@
       <arg name="hint" type="uint"/>
       <arg name="purpose" type="uint"/>
     </event>
-
+    <event name="enter_key_type">
+      <description summary="set type of enter key">
+        Sets the type of the enter key on an input panel (virtual keyboard).
+      </description>
+      <arg name="enter_key_type" type="uint"/>
+    </event>
     <event name="invoke_action">
       <description summary="invoke action">
         Invokes a button action on a given position.
@@ -197,32 +203,22 @@
       <arg name="button" type="uint"/>
       <arg name="index" type="uint"/>
     </event>
-
     <event name="commit">
       <description summary="commit state">
         Requests to apply state changes sent so far.
       </description>
     </event>
-
     <event name="max_text_length">
       <description summary="set max length of input field">
         Notifies the maximum length of an input field.
       </description>
       <arg name="length" type="uint"/>
     </event>
-
     <event name="platform_data">
       <description summary="set platform specific data">
         Notifies the platform specific data (text).
       </description>
       <arg name="text" type="string"/>
-    </event>
-
-    <event name="enter_key_type">
-      <description summary="set type of enter key">
-        Sets the type of the enter key on an input panel (virtual keyboard).
-      </description>
-      <arg name="enter_key_type" type="uint"/>
     </event>
 
   </interface>

@@ -38,6 +38,8 @@ pub struct RenderStats {
     pub drawn: usize,
     pub skipped: usize,
     pub render_us: u64,
+    /// GL errors seen so far (cumulative); zero for the software renderer.
+    pub gl_errors: u64,
 }
 
 pub trait Output {

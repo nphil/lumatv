@@ -32,6 +32,7 @@ use wayland_server::Display;
 
 use lumatv_compositor::config::Config;
 use lumatv_compositor::luna;
+use lumatv_compositor::output::Output;
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::server::state::{ClientHandler, State};
 
@@ -54,13 +55,20 @@ pub struct Server {
     pub client_stream: Option<UnixStream>,
 }
 
+pub type OutputFactory = Box<dyn FnOnce() -> Box<dyn Output> + Send>;
+
 impl Server {
     pub fn start() -> Server {
+        Self::start_with(Box::new(|| Box::new(Software::new(1920, 1080))))
+    }
+
+    /// Starts the server with an output made on the server thread (a GL context is bound to its thread).
+    pub fn start_with(output: OutputFactory) -> Server {
         let (server_end, client_end) = UnixStream::pair().unwrap();
         let (jobs, rx) = channel::<Job>();
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop2 = stop.clone();
-        let thread = std::thread::spawn(move || run_server(server_end, rx, stop2));
+        let thread = std::thread::spawn(move || run_server(server_end, rx, stop2, output));
         Server { jobs, thread: Some(thread), stop, client_stream: Some(client_end) }
     }
 
@@ -89,12 +97,12 @@ impl Drop for Server {
     }
 }
 
-fn run_server(stream: UnixStream, jobs: Receiver<Job>, stop: Arc<std::sync::atomic::AtomicBool>) {
+fn run_server(stream: UnixStream, jobs: Receiver<Job>, stop: Arc<std::sync::atomic::AtomicBool>, output: OutputFactory) {
     let mut display: Display<State> = Display::new().unwrap();
     let dh = display.handle();
     let config = Config { frames: None, ..Config::default() };
     State::create_globals(&dh, &config, true);
-    let output = Box::new(Software::new(config.width, config.height));
+    let output = output();
     let mut state = State::new(dh, config, output, Box::new(luna::Null::default()));
     let events = Arc::new(Mutex::new(Vec::new()));
     display.handle().insert_client(stream, Arc::new(ClientHandler { events: events.clone() })).unwrap();

@@ -40,6 +40,7 @@ pub const EGL_DMA_BUF_PLANE0_PITCH_EXT: EGLint = 0x3274;
 pub const EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT: EGLint = 0x3443;
 pub const EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT: EGLint = 0x3444;
 pub const EGL_PLATFORM_GBM_KHR: GLenum = 0x31D7;
+pub const EGL_PLATFORM_SURFACELESS_MESA: GLenum = 0x31DD;
 pub const EGL_OPENGL_ES_API: GLenum = 0x30A0;
 pub const EGL_SURFACE_TYPE: EGLint = 0x3033;
 pub const EGL_PBUFFER_BIT: EGLint = 0x0001;
@@ -194,6 +195,16 @@ pub struct Optional {
     pub eglDupNativeFenceFDANDROID: Option<unsafe extern "C" fn(EGLDisplay, EGLSync) -> EGLint>,
 }
 
+/// How the EGL display is made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Platform {
+    /// `EGL_PLATFORM_GBM_KHR` with a null device: what the 64-bit blob accepts on the set (X2 r8b), where it refuses
+    /// LG's render node as a GBM device.
+    GbmNull,
+    /// `EGL_PLATFORM_SURFACELESS_MESA`: Mesa's llvmpipe on the workstation, for the host tests.
+    Surfaceless,
+}
+
 pub struct Egl {
     lib: *mut c_void,
     pub api: Api,
@@ -209,7 +220,7 @@ pub struct Egl {
 
 impl Egl {
     /// Opens `path`, initialises a display and makes an ES 2 context current.
-    pub fn open(path: &str) -> io::Result<Egl> {
+    pub fn open(path: &str, platform: Platform) -> io::Result<Egl> {
         let cpath = CString::new(path).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "driver path"))?;
         // SAFETY: dlopen of a path; RTLD_GLOBAL so the blob's own dependencies resolve its symbols.
         let lib = unsafe { libc::dlopen(cpath.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
@@ -258,7 +269,11 @@ impl Egl {
         let (display, context, extensions) = unsafe {
             let mut display: EGLDisplay = std::ptr::null_mut();
             if let Some(gpd) = opt.eglGetPlatformDisplayEXT {
-                display = gpd(EGL_PLATFORM_GBM_KHR, std::ptr::null_mut(), std::ptr::null());
+                let p = match platform {
+                    Platform::GbmNull => EGL_PLATFORM_GBM_KHR,
+                    Platform::Surfaceless => EGL_PLATFORM_SURFACELESS_MESA,
+                };
+                display = gpd(p, std::ptr::null_mut(), std::ptr::null());
             }
             if display.is_null() {
                 display = (api.eglGetDisplay)(std::ptr::null_mut());

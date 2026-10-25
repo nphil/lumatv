@@ -10,7 +10,7 @@ use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
-use super::egl::{self, EGLImage, Egl, GLuint};
+use super::egl::{self, EGLImage, Egl, GLuint, Platform};
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
@@ -51,6 +51,7 @@ pub struct Gl {
     clock: FrameClock,
     path: BufferPath,
     import_failures: u64,
+    gl_errors: u64,
 }
 
 const VS: &str = "attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;\nvoid main() { gl_Position = vec4(a_pos, 0.0, 1.0); v_uv = a_uv; }\n";
@@ -58,8 +59,8 @@ const FS: &str = "precision mediump float; uniform sampler2D u_tex; varying vec2
 
 impl Gl {
     /// Opens the driver, binds the Wayland display when `path` is `Driver`, and makes the offscreen target.
-    pub fn new(driver: &str, width: u32, height: u32, path: BufferPath, wl_display: Option<*mut c_void>) -> io::Result<Gl> {
-        let egl = Egl::open(driver)?;
+    pub fn new(driver: &str, platform: Platform, width: u32, height: u32, path: BufferPath, wl_display: Option<*mut c_void>) -> io::Result<Gl> {
+        let egl = Egl::open(driver, platform)?;
         log::info!("egl: {} {} on {}", egl.vendor, egl.version, egl.renderer);
         log::debug!("egl extensions: {}", egl.extensions);
         if path == BufferPath::Driver {
@@ -114,6 +115,7 @@ impl Gl {
             clock: FrameClock::new(),
             path,
             import_failures: 0,
+            gl_errors: 0,
         })
     }
 
@@ -146,22 +148,17 @@ impl Gl {
             let tex = match kind_of(buffer) {
                 BufferKindRef::Shm(shm) => {
                     let mut t = 0;
+                    // In ES 2 a TexSubImage's format must equal the texture's own (ES 2.0 §3.7.2), so a BGRA upload
+                    // needs a BGRA texture (GL_EXT_texture_format_BGRA8888 allows it as the internal format).
+                    // Uploading BGRA into an RGBA texture was GL_INVALID_OPERATION on the set (first light
+                    // 2026-10-25, shm case); Mesa tolerates it, so the host test cannot see the difference.
+                    let fmt = if self.bgra_upload { egl::GL_BGRA_EXT } else { egl::GL_RGBA };
                     // SAFETY: GL object creation with a current context.
                     unsafe {
                         (a.glGenTextures)(1, &mut t);
                         (a.glBindTexture)(egl::GL_TEXTURE_2D, t);
                         set_params(a);
-                        (a.glTexImage2D)(
-                            egl::GL_TEXTURE_2D,
-                            0,
-                            egl::GL_RGBA as i32,
-                            shm.width,
-                            shm.height,
-                            0,
-                            egl::GL_RGBA,
-                            egl::GL_UNSIGNED_BYTE,
-                            std::ptr::null(),
-                        );
+                        (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, fmt as i32, shm.width, shm.height, 0, fmt, egl::GL_UNSIGNED_BYTE, std::ptr::null());
                     }
                     Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false }
                 }
@@ -288,9 +285,16 @@ impl Gl {
         self.import_failures
     }
 
-    /// Drops textures of buffers the clients destroyed (the driver's own buffers have no destroy callback here).
-    fn prune(&mut self) {
-        let dead: Vec<ObjectId> = self.textures.iter().filter(|(_, t)| !t.buffer.is_alive()).map(|(id, _)| id.clone()).collect();
+    /// Drops textures of buffers the clients destroyed and no surface shows any more. A destroyed buffer that is
+    /// still a surface's current one keeps its import: the surface goes on showing it until the client commits
+    /// another (the driver's own buffers have no destroy callback here, so liveness is the only signal).
+    fn prune(&mut self, surfaces: &Surfaces) {
+        let dead: Vec<ObjectId> = self
+            .textures
+            .iter()
+            .filter(|(id, t)| !t.buffer.is_alive() && !surfaces.iter().any(|s| s.current.buffer.as_ref().map(|b| b.id() == **id).unwrap_or(false)))
+            .map(|(id, _)| id.clone())
+            .collect();
         for id in dead {
             if let Some(t) = self.textures.remove(&id) {
                 // SAFETY: objects this renderer created, dropped once.
@@ -399,8 +403,9 @@ impl Output for Gl {
         }
     }
 
-    fn render(&mut self, plan: &Plan, _surfaces: &Surfaces) -> io::Result<RenderStats> {
+    fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let t0 = std::time::Instant::now();
+        self.prune(surfaces);
         let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
         let area = plan.damage;
         if area.is_empty() {
@@ -454,18 +459,16 @@ impl Output for Gl {
         }
         let err = self.egl.gl_error();
         if err != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
             log::warn!("gl error 0x{err:x} during render");
         }
+        stats.gl_errors = self.gl_errors;
         stats.render_us = t0.elapsed().as_micros() as u64;
         Ok(stats)
     }
 
     fn present(&mut self) -> io::Result<Presented> {
-        let p = self.clock.stamp();
-        if p.seq % 60 == 0 {
-            self.prune();
-        }
-        Ok(p)
+        Ok(self.clock.stamp())
     }
 
     fn capture(&mut self) -> io::Result<Image> {

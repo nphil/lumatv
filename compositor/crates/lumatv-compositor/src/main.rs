@@ -95,7 +95,7 @@ fn run(config: Config) -> io::Result<()> {
 
     let output: Box<dyn Output> = match config.renderer {
         RendererKind::Software => Box::new(Software::new(config.width, config.height)),
-        RendererKind::Gl => Box::new(Gl::new(config.driver.as_deref().unwrap(), config.width, config.height, config.buffers, wl_display_ptr)?),
+        RendererKind::Gl => Box::new(Gl::new(config.driver.as_deref().unwrap(), config.platform, config.width, config.height, config.buffers, wl_display_ptr)?),
     };
     let own_mali = config.renderer == RendererKind::Software || config.buffers == BufferPath::Own;
     State::create_globals(&dh, &config, own_mali);
@@ -150,8 +150,14 @@ fn run(config: Config) -> io::Result<()> {
     let mut next_control = 0u64;
     let deadline = config.seconds.map(|s| Instant::now() + Duration::from_secs(s));
     let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; 16];
+    // After --frames is reached the server stays up to 2 s more while a client is connected, so the client's own
+    // teardown (eglTerminate, buffer destroys) is served rather than cut with a connection reset.
+    let mut linger_until: Option<Instant> = None;
 
-    while !state.should_exit {
+    while !state.should_exit || (linger_until.map(|t| Instant::now() < t).unwrap_or(false) && !state.clients.is_empty()) {
+        if state.should_exit && linger_until.is_none() && config.exit_on_disconnect && !state.clients.is_empty() {
+            linger_until = Some(Instant::now() + Duration::from_secs(2));
+        }
         let timeout = match deadline {
             Some(d) => d.saturating_duration_since(Instant::now()).as_millis().min(1000) as i32,
             None => 1000,
