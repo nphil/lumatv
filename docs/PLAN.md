@@ -268,10 +268,12 @@ Before building:
    connection (`/goform/formMainZone_MainZoneXmlStatusLite.xml`: power,
    input, absolute volume such as -34.5 dB, mute), so status reads never
    compete with Home Assistant. Push events need the telnet port (23), which
-   Home Assistant's `denonavr` integration holds (`use_telnet: true`); check
-   whether the S760H accepts a second telnet client. If not, events come
-   from Home Assistant's WebSocket (`media_player.living_room_avr`, one hop)
-   and commands go over HTTP.
+   Home Assistant's `denonavr` integration holds (`use_telnet: true`); the
+   S760H accepts a second telnet client beside it (checked from the TV on
+   2026-10-25: read queries answered, HA's steps pushed to both connections,
+   HA's entity unaffected; `docs/research/native-helper-result.md`,
+   "Receiver"), so the helper takes events over its own connection and
+   commands can go over HTTP or that connection.
 3. Volume keys still go to the receiver through HDMI-CEC as today; LG's own
    volume popup is suppressed only once the OSD has passed the gate.
 

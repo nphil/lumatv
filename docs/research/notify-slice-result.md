@@ -3,13 +3,18 @@
 ## Resume here
 
 Built and tested offline: the toast, the alert, the input popup and the PIN prompt in the Luma look on top of LG's
-notification view, their scenes (dark and light), and the boot and power-off logo choice. Nothing here has run on the
-set. Next, in order:
+notification view, their scenes (dark and light), and the boot and power-off logo choice. On the set: one restart for
+the power-on logo (2026-10-25 16:34, "Restart on the set"), which answered nothing about the logo: the set was
+restarted from Active Standby, booted back into Active Standby with the panel off, and no `[Logo]` line was written.
+Next, in order:
 
 1. `lumatv notifications on` on the set (stages LG's tree, patches it, overlays `payload/notification`), then
    `python3 docs/research/perf/gate.py --surfaces toast,alert` with Home on screen (see "Set steps").
 2. A PIN prompt on the set with Nitin present (a locked input), see "Set steps".
-3. A cold boot for BootLogo, see "Set steps".
+3. The power-on logo again, from a set that is ON (a `reboot` with the screen on comes back with the screen on, HANDOFF),
+   with the capture loop started before the reboot's SSH session ends and retried until the new system answers (the
+   script of 16:34 reconnected to the old system at 8 s and to the new one only at 46 s; `/tmp/lt/reboot_logo.py` has the
+   fix, outside the repo). And the boot path's Home stub fault, below, before any restart that matters.
 
 ## What changed
 
@@ -75,3 +80,30 @@ Cold-boot logo check: `lumatv logo on`, pick the styles in Settings > Look > Sta
 Watch the panel from power-on: the chosen power-on logo, then Home with no flash of LG's red logo. After boot, `grep '\[Logo\]'` in the compositor
 log must show `power-on logo 2`; turn the TV off and the log shows `power-off logo 3` and the TV goes dark within the logo's time (about 0.5 s).
 A logo that fails to load answers tvpowerd at once (tested), so the worst case is a black screen for the old logo's time, not a stuck boot.
+
+## Restart on the set (2026-10-25 16:34-16:48, `docs/research/notify/boot-2026-10-25-1634/`)
+
+`logo on` was in place (`lumatv surfaces`: `logos` on; `theme.json` has no `logo` key, so option 1 of each). A plain
+`reboot` over SSH at 16:34:00 with the set in Active Standby. What happened, from `/var/lib/lumatv/log` and
+`/var/log/messages*` (all rotated files of the boot kept their lines):
+
+- The set booted into Active Standby (panel off) and stayed there: `getPowerState` `ActiveStandby` at uptime 729 s,
+  `/sys/power/mode` `resume`. From standby a `reboot` comes back in standby; HANDOFF's "returns powered on" is from
+  reboots of a set that was on. The one panel capture (uptime 122 s, 480x270) is black; the other 468 captures in the
+  loop came back as empty files, each call answering in about 0.1 s (not read why).
+- No `[Logo]` line in any log of this boot (`messages.4.gz` starts at uptime 13 s). With the panel off there was
+  nothing for BootLogo to draw on, and LG's own `com.webos.app.bootlogo` was closed by Flutter Home at uptime 212 s
+  (`closeAnimation bootlogo`), so whether LumaTV's QML logs to `/var/log/messages` at all is still unread.
+- The boot path: `homestub: stub in place at uptime 15 s`, `compositor-boot {"compositor":"off"}` (LG's compositor,
+  no `enabled`), `boot-bind` 1 mount, `apply` at 16:34:40 took 188 s and restarted LG's compositor at 16:37:05 to read
+  the shadow module; then `home up after 0 relaunch attempt(s), panel not presenting` and the stub guard:
+  `LumaHome's heartbeat stopped (30 s, file 1792960512 s old), giving LG's Home back`, `fault 1 of 2`. The heartbeat
+  file was never written in this boot (its age is the epoch), so after the compositor restart the stub never beat with
+  the panel off, the guard gave LG's Flutter Home back, and the set sat in standby with `homestub` `state lg, faults 1`.
+  Woken at 16:47 (screen on, LG's Home in front), `lumatv homestub on` put the stub back in 6 s (`state stub, mounted,
+  sam web, guard, beat true, faults 0`). Everything else came back by itself: the helper (pid 6933, healthy on 18731),
+  `lean` (`nudge.service` masked), the preload trim (`preload status` on, backup present), Picture Mode `filmMaker`,
+  LG's compositor live with no `enabled` flag, no `vt_devmode`. For the tool's owner: with the panel off the stub cannot
+  beat, so the guard's 30 s rule after a boot-time compositor restart hands LG's Home back on every reboot into standby;
+  the guard should wait for the panel (or `apply` should not restart the compositor on a boot whose shadow is current).
+- The receiver turned off with the set and on again at the wake, as before.

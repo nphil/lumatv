@@ -177,6 +177,16 @@ port. Polled every 2 s while the screen is on and the receiver is enabled; a nud
 failures back off 4, 8, 16 s to a cap of 30 s; a reading is hidden 6 s after it was last confirmed. No telnet yet (phase 4).
 `volumeText` for Relative mode ("-44.5 dB") and the fractional rule for Absolute are inferred from the panel, not measured.
 
+Second control connection (2026-10-25 16:48, `docs/research/native-helper/denon2-2026-10-25-1648/`): the S760H
+accepts a second telnet client on port 23 beside Home Assistant's (`denonavr`, `use_telnet`). From the TV
+(`denon2.py`, 192.168.1.242:50122), read queries only, held 60 s: `PW?` → `PWON`, `MV?` → `MV355` + `MVMAX 665`,
+`MU?` → `MUOFF`, `SI?` → `SITV` + `SVOFF`, then `SYSDA PCM` pushed on its own; the receiver pushes every change to
+both clients (HA's `volume_up` at t=20 s arrived on the TV's connection as `MV36` 1.0 s later, its `volume_down` at
+35 s as `MV355`). HA's entity stayed `on` and followed (0.355 → 0.36 at 20:49:04 → 0.355 at 20:49:19, `ha.log`); its
+link never dropped, so no recovery was needed. Closed cleanly after 6 queries. So the helper can take push events over
+its own telnet connection (PLAN "Receiver: volume and controls", item 2) without touching HA's; commands can go the
+same way, though HTTP stays enough for them.
+
 ## Settings
 
 Three owners, JSON schemas in `app/src/schemas/` in LumaShow's format 1, the pages the TV's Settings will draw:

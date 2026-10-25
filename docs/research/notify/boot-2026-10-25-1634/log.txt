@@ -1,0 +1,13 @@
+before: 44719.36 122448.03
+{"returnValue":true,"state":"ActiveStandby"}
+resume
+ls: /var/lib/lumatv/compositor/enabled: No such file or directory
+
+reboot at 16:34:00
+ssh back after 8.1 s (uptime 44727.49 122466.20)
+capture only at 16:34:54: waiting for the set to come back from the reboot already issued
+ssh answers at 16:34:54, uptime 45.7 s
+capture only at 16:36:08: waiting for the set to come back from the reboot already issued
+ssh answers at 16:36:08, uptime 120.6 s
+frames: 1 (uptime 121.85 .. 121.85); sizes 1777
+logo lines: 
