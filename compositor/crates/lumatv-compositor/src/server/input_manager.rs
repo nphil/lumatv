@@ -7,9 +7,23 @@ use lumatv_wl_protocols::webos_input_manager::server::wl_webos_gyroscope::WlWebo
 use lumatv_wl_protocols::webos_input_manager::server::wl_webos_input_manager::{self, WlWebosInputManager};
 use lumatv_wl_protocols::webos_input_manager::server::wl_webos_seat::{self, Capability, WlWebosSeat};
 
-use crate::{State, noop_dispatch, plain_global};
+use crate::{State, noop_dispatch};
 
-plain_global!(WlWebosInputManager);
+impl wayland_server::GlobalDispatch<WlWebosInputManager, ()> for State {
+    fn bind(
+        state: &mut Self,
+        _handle: &DisplayHandle,
+        _client: &Client,
+        resource: wayland_server::New<WlWebosInputManager>,
+        _global_data: &(),
+        data_init: &mut DataInit<'_, Self>,
+    ) {
+        let r = data_init.init(resource, ());
+        // A client bound late learns the current state at once (LG's apps pick pointer or 5-way focus from it).
+        r.cursor_visibility(state.seat.cursor_visible as u32, None);
+        state.seat.input_managers.push(r);
+    }
+}
 
 impl Dispatch<WlWebosInputManager, ()> for State {
     fn request(
@@ -30,14 +44,14 @@ impl Dispatch<WlWebosInputManager, ()> for State {
                 state.note_request("wl_webos_input_manager", 0, &format!("get_webos_seat(wl_seat@{})", seat.id().protocol_id()));
             }
             wl_webos_input_manager::Request::SetCursorVisibility { visibility } => {
+                // An app may hide the cursor (video playback does); showing it is the pointer's own business, so a
+                // 1 here does not put a sprite on screen before the remote moves.
                 state.note_request("wl_webos_input_manager", 0, &format!("set_cursor_visibility({visibility})"));
                 if visibility == 0 {
                     crate::server::seat::hide_cursor(state);
                 } else {
-                    state.seat.cursor_visible = true;
-                    state.seat.cursor_shown_at = Some(std::time::Instant::now());
+                    resource.cursor_visibility(state.seat.cursor_visible as u32, None);
                 }
-                resource.cursor_visibility(visibility, None);
             }
             _ => {}
         }

@@ -156,6 +156,7 @@ pub struct ClientState {
     pub pointer_leaves: u32,
     pub motions: Vec<(f64, f64)>,
     pub buttons: Vec<(u32, u32)>,
+    pub cursor_visibility: Vec<u32>,
 }
 
 pub struct Client {
@@ -368,6 +369,21 @@ impl Dispatch<WlPointer, ()> for ClientState {
             Event::Motion { surface_x, surface_y, .. } => state.motions.push((surface_x, surface_y)),
             Event::Button { button, state: st, .. } => state.buttons.push((button, st.into_result().map(|s| s as u32).unwrap_or(99))),
             _ => {}
+        }
+    }
+}
+
+impl Dispatch<lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_manager::WlWebosInputManager, ()> for ClientState {
+    fn event(
+        state: &mut Self,
+        _: &lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_manager::WlWebosInputManager,
+        event: lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_manager::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_manager::Event::CursorVisibility { visibility, .. } = event {
+            state.cursor_visibility.push(visibility);
         }
     }
 }

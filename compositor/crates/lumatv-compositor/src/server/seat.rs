@@ -19,6 +19,8 @@ use crate::surface::SurfaceId;
 #[derive(Default)]
 pub struct SeatState {
     pub keyboards: Vec<WlKeyboard>,
+    /// Every bound `wl_webos_input_manager`, for the cursor visibility broadcast.
+    pub input_managers: Vec<lumatv_wl_protocols::webos_input_manager::server::wl_webos_input_manager::WlWebosInputManager>,
     pub pointers: Vec<WlPointer>,
     pub touches: Vec<WlTouch>,
     pub focus: Option<SurfaceId>,
@@ -245,7 +247,7 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     let (x, y) = (x.clamp(0, crate::OUTPUT_WIDTH as i32 - 1), y.clamp(0, crate::OUTPUT_HEIGHT as i32 - 1));
     state.seat.pointer_position = (x, y);
     state.seat.last_input = "pointer";
-    state.seat.cursor_visible = true;
+    set_cursor_visible(state, true);
     state.seat.cursor_shown_at = Some(std::time::Instant::now());
     state.seat.motions += 1;
     let hit = state.scene.surface_at(x, y);
@@ -303,7 +305,7 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
 /// Hides the cursor (a navigation key, the timeout, a client's `set_cursor_visibility(0)`): the surface under it
 /// is left, so a hover state does not linger.
 pub fn hide_cursor(state: &mut State) {
-    state.seat.cursor_visible = false;
+    set_cursor_visible(state, false);
     if let Some(old) = state.seat.pointer_focus.take()
         && let Some(res) = state.seat.surfaces.get(&old).cloned()
         && res.is_alive()
@@ -312,5 +314,18 @@ pub fn hide_cursor(state: &mut State) {
         for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
             p.leave(serial, &res);
         }
+    }
+}
+
+/// Every client hears when the cursor appears or goes (`wl_webos_input_manager.cursor_visibility`): LG's web and
+/// native apps switch between pointer hover and 5-way focus on it.
+fn set_cursor_visible(state: &mut State, visible: bool) {
+    if state.seat.cursor_visible == visible {
+        return;
+    }
+    state.seat.cursor_visible = visible;
+    state.seat.input_managers.retain(|r| r.is_alive());
+    for r in &state.seat.input_managers {
+        r.cursor_visibility(visible as u32, None);
     }
 }

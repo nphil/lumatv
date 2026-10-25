@@ -353,15 +353,23 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     let mut client = Client::connect(&mut server);
     let _kb = client.seat.get_keyboard(&client.qh, ());
     let _ptr = client.seat.get_pointer(&client.qh, ());
+    let input: lumatv_wl_protocols::webos_input_manager::client::wl_webos_input_manager::WlWebosInputManager =
+        client.globals.bind(&client.qh, 1..=1, ()).unwrap();
     let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Pointed");
     let buf = client.shm_buffer(64, 64, 0xffff_0000);
     client.present(&win.surface, &buf);
     assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+    assert_eq!(client.state.cursor_visibility, vec![0], "a new input manager hears the current state");
+    // An app asking for the cursor does not put a sprite up before the remote moves.
+    input.set_cursor_visibility(1);
+    client.roundtrip();
+    assert!(!server.eval(|s| s.seat.cursor_visible));
     std::thread::sleep(Duration::from_millis(30));
-    // Off the window: nothing enters, the cursor shows all the same.
+    // Off the window: nothing enters, the cursor shows all the same and every client hears it.
     let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 500 500"));
     assert!(reply.contains("\"delivered\":false"), "{reply}");
     assert!(server.eval(|s| s.seat.cursor_visible && s.seat.last_input == "pointer"));
+    assert!(client.wait_until(WAIT, |s| s.cursor_visibility.last() == Some(&1)));
     // Onto the 64x64 card at the origin: enter at the surface-local point, then the motion.
     let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 10 20"));
     assert!(reply.contains("\"delivered\":true"), "{reply}");
@@ -378,6 +386,7 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     server.eval(|s| lumatv_compositor::control::handle(s, "remote 108 tap"));
     assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 1 && s.keys.len() >= 2));
     assert!(!server.eval(|s| s.seat.cursor_visible));
+    assert!(client.wait_until(WAIT, |s| s.cursor_visibility.last() == Some(&0)), "the hide reaches every client");
     server.eval(|s| lumatv_compositor::control::handle(s, "click tap"));
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 4));
     assert_eq!(client.state.keys[2], (28, 1));
