@@ -116,8 +116,19 @@ class Run:
     def shot(self, name):
         time.sleep(1.0)
         remote = "%s/%s.png" % (REMOTE, name)
-        self.sh("mkdir -p %s && luna-send -n 1 -f luna://com.webos.service.capture/executeOneShot "
-                "'{\"path\":\"%s\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":960,\"height\":540}' >/dev/null 2>&1" % (REMOTE, remote))
+        self.sh("mkdir -p %s && rm -f %s && luna-send -n 1 -f luna://com.webos.service.capture/executeOneShot "
+                "'{\"path\":\"%s\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":960,\"height\":540}' >/dev/null 2>&1" % (REMOTE, remote, remote))
+        # The capture's file lands after executeOneShot has answered (17:41 run): wait for it, then for its size to hold.
+        def size():
+            return self.sh("wc -c < %s 2>/dev/null" % remote).strip()
+
+        def written():
+            before = size()
+            time.sleep(0.5)
+            return before.isdigit() and before != "0" and before == size()
+
+        if self.wait("capture", lambda: size().isdigit() and size() != "0", 10):
+            self.wait("capture written", written, 5)
         try:
             self.tv.get(remote, os.path.join(self.out, name + ".png"))
         except Exception as e:  # a screenshot is evidence, not a verdict
@@ -172,8 +183,15 @@ def install(run):
     listing = run.sh("ls -l %s/bin/lumatv-card %s/bin64/lumatv-card-app %s/gfx64/launch.sh %s/gfx64/heapshim.so 2>&1" % (DIR, DIR, DIR, DIR))
     run.save("installed-files.txt", listing)
     run.check("the launcher is executable", re.search(r"^-rwx.* %s/bin/lumatv-card$" % re.escape(DIR), listing, re.M) is not None, listing.strip().splitlines()[0] if listing.strip() else "")
-    apps = run.luna(SAM + "/listApps", name="listApps-after-install")
-    mine = [a for a in apps.get("apps", []) if a.get("id") == APP]
+    # SAM rescans the apps directory on its own time (a minute on the first run, 16:17): the checks wait for it.
+    began = time.time()
+
+    def listed():
+        apps = run.luna(SAM + "/listApps", name="listApps-after-install")
+        return [a for a in apps.get("apps", []) if a.get("id") == APP]
+
+    mine = run.wait("SAM's rescan", listed, 120) or []
+    run.info("SAM listed the app after", "%.0f s" % (time.time() - began) if mine else "not within 120 s")
     run.check("SAM lists the app as native with lifecycle 2", bool(mine) and mine[0].get("type") == "native" and mine[0].get("nativeLifeCycleInterfaceVersion") == 2,
               json.dumps(mine[0] if mine else {})[:240])
     lp = run.luna(SAM + "/listLaunchPoints", name="launchpoints")
@@ -230,7 +248,14 @@ def scenario(run):
     alive = bool(run.processes().get("app")) and APP in run.foreground()[:1]
     run.check("launch: SAM leaves it running for 20 s", alive)
 
-    # 2. Keys: OK opens the keys page, Back goes up.
+    # 2. Keys: OK opens the keys page, Back goes up. LG's compositor has a seat per input device and sends a key on its device's
+    # seat alone (17:41 run: nothing reached an app bound to the first seat), so the app binds every seat; the log says how many.
+    log = run.app_log()
+    seats = re.search(r"seats: (\d+) bound, (\d+) with a keyboard", log)
+    run.check("keys: the app bound the compositor's seats, with a keyboard each", seats is not None and int(seats.group(1)) >= 1 and seats.group(1) == seats.group(2),
+              seats.group(0) if seats else "no seats line in card.log")
+    run.info("keys: seats the compositor advertised (name, version)", ", ".join("%s v%s" % m for m in re.findall(r"wl_seat (\d+) bound at version (\d+)", log)) or "none")
+    run.info("keys: keyboard focus came on seats", ", ".join(re.findall(r"keyboard focus on seat (\d+)(?! left)", log)) or "none (no wl_keyboard.enter)")
     run.key("OK", "s1")
     run.check("keys: OK reaches the app and opens the keys page", '"page":"keys"' in run.app_log())
     run.shot("keys")
@@ -239,6 +264,9 @@ def scenario(run):
     run.check("keys: Back goes up a page and the app stays", log.count('"page":"status"') >= 1 and bool(run.processes().get("app")))
     codes = re.findall(r"input Key \{ code: (\d+), pressed: true \}", log)
     run.info("keys: codes the compositor sent (presses)", ", ".join(codes))
+    # Seats bound after the app's count line are ones the compositor made while the card ran (a device's first key).
+    after = log[seats.end():] if seats else ""
+    run.info("keys: seats that appeared while the card ran", ", ".join(re.findall(r"wl_seat (\d+) bound", after)) or "none")
 
     # 3. Home: Home in front, the card minimized, idle, in the switcher.
     run.key("HOME", "s3")

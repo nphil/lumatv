@@ -12,7 +12,7 @@
 mod harness;
 
 use harness::{Client, Server};
-use lumatv_compositor::server::state::{ClientEvent, ClientHandler};
+use lumatv_compositor::server::state::{ClientEvent, ClientHandler, State};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
@@ -23,6 +23,8 @@ use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use wayland_server::protocol::wl_keyboard::KeyState;
+use wayland_server::protocol::wl_seat::WlSeat;
 
 const APP: &str = "org.nphil.lumatv.card";
 /// llvmpipe builds the shaders of the page on the first frame.
@@ -134,13 +136,22 @@ impl App {
 
     /// Whether the app has sent a message with these fields (all of them, as given).
     fn heard(&mut self, fields: Value) -> bool {
+        self.heard_times(fields) > 0
+    }
+
+    /// How many messages with these fields the app has sent.
+    fn heard_times(&mut self, fields: Value) -> usize {
         self.listen();
-        self.seen.iter().any(|m| fields.as_object().unwrap().iter().all(|(k, v)| m.get(k) == Some(v)))
+        self.seen.iter().filter(|m| fields.as_object().unwrap().iter().all(|(k, v)| m.get(k) == Some(v))).count()
     }
 
     fn wait_heard(&mut self, timeout: Duration, fields: Value) {
-        let ok = wait_for(timeout, || self.heard(fields.clone()));
-        assert!(ok, "the app never sent {fields}; sent {:?}\n{}", self.seen, self.log_text());
+        self.wait_heard_times(timeout, fields, 1);
+    }
+
+    fn wait_heard_times(&mut self, timeout: Duration, fields: Value, times: usize) {
+        let ok = wait_for(timeout, || self.heard_times(fields.clone()) >= times);
+        assert!(ok, "the app never sent {fields} {times} time(s); sent {:?}\n{}", self.seen, self.log_text());
     }
 
     fn exited(&mut self) -> Option<ExitStatus> {
@@ -194,6 +205,19 @@ fn remote(server: &Server, code: u32) {
     server.eval(move |s| {
         s.key_event(code, true, false);
         s.key_event(code, false, false);
+    });
+}
+
+/// A key press and release on one keyboard of the app's client, by its place in the compositor's list (LG's compositor sends a key on
+/// the seat of the device that pressed it, and on no other).
+fn tap_on(server: &Server, keyboard: usize, code: u32) {
+    server.eval(move |s| {
+        let kb = s.seat.keyboards[keyboard].clone();
+        let time = lumatv_compositor::output::monotonic_ms();
+        let serial = s.next_serial();
+        kb.key(serial, time, code, KeyState::Pressed);
+        let serial = s.next_serial();
+        kb.key(serial, time, code, KeyState::Released);
     });
 }
 
@@ -322,6 +346,37 @@ fn back_goes_up_a_page_and_at_the_first_page_the_app_ends_and_the_card_below_com
     app.wait_heard(Duration::from_secs(1), json!({"kind": "exit", "why": "Back at the first page"}));
     assert!(wait_for(Duration::from_secs(5), || window(&server, APP).is_none_or(|w| w["mapped"] == false)), "the card is gone");
     assert!(foreground(&server).is_empty(), "nothing in front");
+}
+
+#[test]
+fn a_key_on_a_seat_the_compositor_adds_after_the_app_started_reaches_it() {
+    // LG's compositor has a `wl_seat` per input device, made when the device sends its first key, and a key goes out on its device's
+    // seat alone: the app binds every seat, the ones that appear later too.
+    let _one = ONE_AT_A_TIME.lock();
+    let mut server = Server::start();
+    let mut app = start(&mut server, "seats", &[]);
+    assert_eq!(server.eval(|s| s.seat.keyboards.len()), 1, "one seat, one keyboard");
+
+    let second = server.eval(|s| s.dh.create_global::<State, WlSeat, ()>(4, ()));
+    assert!(wait_for(Duration::from_secs(5), || server.eval(|s| s.seat.keyboards.len()) == 2), "the app took the new seat's keyboard\n{}", app.log_text());
+    // OK on the new seat only: the keys page opens.
+    tap_on(&server, 1, OK);
+    app.wait_heard_times(Duration::from_secs(10), json!({"kind": "page", "page": "keys"}), 1);
+    // The first seat still works: Back goes up.
+    tap_on(&server, 0, BACK);
+    app.wait_heard_times(Duration::from_secs(10), json!({"kind": "page", "page": "status"}), 1);
+    assert!(app.exited().is_none());
+
+    // A seat that goes away is let go of, and the one that stays still delivers.
+    server.eval(move |s| s.dh.remove_global::<State>(second));
+    assert!(wait_for(Duration::from_secs(5), || server.eval(|s| s.seat.keyboards.len()) == 1), "the app released the keyboard of the seat that went");
+    tap_on(&server, 0, OK);
+    app.wait_heard_times(Duration::from_secs(10), json!({"kind": "page", "page": "keys"}), 2);
+
+    let log = app.log_text();
+    assert!(log.contains("seats: 1 bound, 1 with a keyboard"), "{log}");
+    assert!(log.contains("bound at version 4 (2 seats)"), "{log}");
+    assert!(log.contains("went away (1 seats)"), "{log}");
 }
 
 #[test]

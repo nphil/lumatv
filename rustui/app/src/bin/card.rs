@@ -165,6 +165,8 @@ fn run(o: Options) -> io::Result<i32> {
     let (gles, mut win) = window::open(W as u32, H as u32, libmali, &spec)?;
     let graphics = graphics(&gles);
     log(&format!("GL: {}", gles.describe()));
+    let (seats, keyboards) = win.seats();
+    log(&format!("seats: {seats} bound, {keyboards} with a keyboard"));
     let (mut engine, app_end) = Engine::new(
         gles,
         HostConfig {

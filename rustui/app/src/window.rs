@@ -7,6 +7,12 @@
 //! `wl_webos_shell`: the window is then an `xdg_shell` toplevel, for the plumbing.
 //!
 //! What the compositor says comes back as [`Event`]s: the state of the window (`state_changed`), a request to close, the keys.
+//!
+//! Keys: LG's compositor (`luna-surfacemanager` built with its multi-input support) has one `wl_seat` per input device: the default
+//! seat, one for each device that has sent a key since boot (the remote, the network remote `kb.py` writes into, a keyboard), made
+//! when the device's first key arrives, and one spare already advertised for the next device. A key goes out on the seat of the
+//! device that sent it (`WebOSSurfaceItem::processKeyEvent`, `seatFor`), so a client bound to the first seat alone hears nothing
+//! from the remote. Every seat is bound, the ones that appear later too, and each one's keyboard is asked for.
 
 use lumatv_render::Gles;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell::WlWebosShell;
@@ -18,7 +24,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_keyboard::{self, WlKeyboard};
-use wayland_client::protocol::wl_registry::WlRegistry;
+use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_seat::{self, WlSeat};
 use wayland_client::protocol::wl_shell::WlShell;
 use wayland_client::protocol::wl_shell_surface::{self, WlShellSurface};
@@ -40,7 +46,7 @@ pub struct Spec {
     /// The state to ask for at once (`wl_webos_shell_surface.set_state`): 3 (fullscreen) for a window that shows. `None` for an app
     /// that was preloaded: it asks when SAM relaunches it, which is how SAM learns it is in front.
     pub state: Option<u32>,
-    /// Bind the seat's keyboard.
+    /// Bind the seats' keyboards.
     pub keys: bool,
 }
 
@@ -55,14 +61,58 @@ pub enum Event {
     Key { code: u32, pressed: bool },
 }
 
+/// The newest `wl_seat` version asked for: LG's compositor serves 4 (Qt 5.12), the rest is not needed.
+const SEAT_VERSION: u32 = 5;
+
+/// One of the compositor's seats, bound for its keyboard.
+struct Seat {
+    /// The global's registry name, which the seat's and the keyboard's events carry as their data.
+    name: u32,
+    seat: WlSeat,
+    keyboard: Option<WlKeyboard>,
+}
+
 #[derive(Default)]
 struct State {
     events: VecDeque<Event>,
-    seat_keyboard: Option<WlKeyboard>,
+    /// `Spec::keys`: whether seats are bound at all.
+    keys: bool,
+    seats: Vec<Seat>,
+}
+
+impl State {
+    fn bind_seat(&mut self, registry: &WlRegistry, name: u32, version: u32, qh: &QueueHandle<Self>) {
+        if self.seats.iter().any(|s| s.name == name) {
+            return;
+        }
+        let seat: WlSeat = registry.bind(name, version.min(SEAT_VERSION), qh, name);
+        eprintln!("window: wl_seat {name} bound at version {} ({} seats)", seat.version(), self.seats.len() + 1);
+        self.seats.push(Seat { name, seat, keyboard: None });
+    }
+
+    fn drop_seat(&mut self, name: u32) {
+        let Some(at) = self.seats.iter().position(|s| s.name == name) else { return };
+        let seat = self.seats.remove(at);
+        if let Some(kb) = seat.keyboard
+            && kb.version() >= 3
+        {
+            kb.release();
+        }
+        if seat.seat.version() >= 5 {
+            seat.seat.release();
+        }
+        eprintln!("window: wl_seat {name} went away ({} seats)", self.seats.len());
+    }
 }
 
 impl Dispatch<WlRegistry, GlobalListContents> for State {
-    fn event(_: &mut Self, _: &WlRegistry, _: wayland_client::protocol::wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(state: &mut Self, registry: &WlRegistry, event: wl_registry::Event, _: &GlobalListContents, _: &Connection, qh: &QueueHandle<Self>) {
+        match event {
+            wl_registry::Event::Global { name, interface, version } if state.keys && interface == "wl_seat" => state.bind_seat(registry, name, version, qh),
+            wl_registry::Event::GlobalRemove { name } => state.drop_seat(name),
+            _ => {}
+        }
+    }
 }
 
 impl Dispatch<WlShellSurface, ()> for State {
@@ -83,21 +133,46 @@ impl Dispatch<WlWebosShellSurface, ()> for State {
     }
 }
 
-impl Dispatch<WlSeat, ()> for State {
-    fn event(state: &mut Self, seat: &WlSeat, event: wl_seat::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_seat::Event::Capabilities { capabilities: WEnum::Value(c) } = event {
-            if c.contains(wl_seat::Capability::Keyboard) && state.seat_keyboard.is_none() {
-                state.seat_keyboard = Some(seat.get_keyboard(qh, ()));
+impl Dispatch<WlSeat, u32> for State {
+    fn event(state: &mut Self, seat: &WlSeat, event: wl_seat::Event, name: &u32, _: &Connection, qh: &QueueHandle<Self>) {
+        match event {
+            wl_seat::Event::Capabilities { capabilities } => {
+                // A capability bit the generated enum does not know must not hide the keyboard bit.
+                let has_keyboard = match capabilities {
+                    WEnum::Value(c) => c.contains(wl_seat::Capability::Keyboard),
+                    WEnum::Unknown(bits) => bits & wl_seat::Capability::Keyboard.bits() != 0,
+                };
+                let Some(s) = state.seats.iter_mut().find(|s| s.name == *name) else { return };
+                match (has_keyboard, s.keyboard.is_some()) {
+                    (true, false) => s.keyboard = Some(seat.get_keyboard(qh, *name)),
+                    (false, true) => {
+                        if let Some(kb) = s.keyboard.take()
+                            && kb.version() >= 3
+                        {
+                            kb.release();
+                        }
+                    }
+                    _ => {}
+                }
             }
+            wl_seat::Event::Name { name: label } => eprintln!("window: wl_seat {name} is {label:?}"),
+            _ => {}
         }
     }
 }
 
-impl Dispatch<WlKeyboard, ()> for State {
-    fn event(state: &mut Self, _: &WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_keyboard::Event::Key { key, state: WEnum::Value(s), .. } = event {
+impl Dispatch<WlKeyboard, u32> for State {
+    fn event(state: &mut Self, _: &WlKeyboard, event: wl_keyboard::Event, seat: &u32, _: &Connection, _: &QueueHandle<Self>) {
+        match event {
             // The compositor sends Linux input codes as the kernel numbers them (the xkb keycode is this plus 8).
-            state.events.push_back(Event::Key { code: key, pressed: !matches!(s, wl_keyboard::KeyState::Released) });
+            wl_keyboard::Event::Key { key, state: WEnum::Value(s), .. } => {
+                state.events.push_back(Event::Key { code: key, pressed: !matches!(s, wl_keyboard::KeyState::Released) });
+            }
+            // The keymap's descriptor is closed with the event: codes are what the app reads.
+            wl_keyboard::Event::Keymap { format, size, .. } => eprintln!("window: seat {seat} keymap {format:?}, {size} bytes"),
+            wl_keyboard::Event::Enter { .. } => eprintln!("window: keyboard focus on seat {seat}"),
+            wl_keyboard::Event::Leave { .. } => eprintln!("window: keyboard focus on seat {seat} left"),
+            _ => {}
         }
     }
 }
@@ -135,11 +210,12 @@ pub struct Window {
     conn: Connection,
     queue: EventQueue<State>,
     state: State,
+    /// Kept so that seats which appear later are bound (`Dispatch<WlRegistry>`).
+    _registry: WlRegistry,
     _surface: WlSurface,
     _shell_surface: Option<WlShellSurface>,
     webos: Option<WlWebosShellSurface>,
     _xdg: Option<(XdgSurface, XdgToplevel)>,
-    _seat: Option<WlSeat>,
 }
 
 fn blob_symbol(name: &str) -> io::Result<*mut c_void> {
@@ -154,13 +230,21 @@ pub fn open(width: u32, height: u32, libmali: &str, spec: &Spec) -> io::Result<(
     let conn = Connection::connect_to_env().map_err(|e| io::Error::other(format!("wayland connect: {e}")))?;
     let (globals, mut queue) = registry_queue_init::<State>(&conn).map_err(|e| io::Error::other(format!("{e}")))?;
     let qh = queue.handle();
-    let mut state = State::default();
+    let mut state = State { keys: spec.keys, ..State::default() };
     let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).map_err(|e| io::Error::other(format!("wl_compositor: {e}")))?;
     // LG's compositor speaks wl_shell with wl_webos_shell; anything else (a host's Weston, for the plumbing) gets xdg_shell.
     let shell: Option<WlShell> = globals.bind(&qh, 1..=1, ()).ok();
     // LG's tables, which the generated client follows, have the interface at version 1 (`compositor/protocol/webos/webos-shell.xml`).
     let webos_shell: Option<WlWebosShell> = globals.bind(&qh, 1..=1, ()).ok();
-    let seat: Option<WlSeat> = if spec.keys { globals.bind(&qh, 1..=5, ()).ok() } else { None };
+    let registry = globals.registry().clone();
+    if spec.keys {
+        // Every seat, not the first: LG's compositor has one per input device (see the module's account).
+        for g in globals.contents().clone_list() {
+            if g.interface == "wl_seat" {
+                state.bind_seat(&registry, g.name, g.version, &qh);
+            }
+        }
+    }
 
     let surface = compositor.create_surface(&qh, ());
     let (mut shell_surface, mut webos, mut xdg) = (None, None, None);
@@ -224,7 +308,7 @@ pub fn open(width: u32, height: u32, libmali: &str, spec: &Spec) -> io::Result<(
     gles.set_swap_interval(1);
     let _ = queue.dispatch_pending(&mut state);
     let _ = conn.flush();
-    Ok((gles, Window { conn, queue, state, _surface: surface, _shell_surface: shell_surface, webos, _xdg: xdg, _seat: seat }))
+    Ok((gles, Window { conn, queue, state, _registry: registry, _surface: surface, _shell_surface: shell_surface, webos, _xdg: xdg }))
 }
 
 impl Window {
@@ -256,6 +340,11 @@ impl Window {
     /// What the compositor has said since the last call.
     pub fn events(&mut self) -> Vec<Event> {
         self.state.events.drain(..).collect()
+    }
+
+    /// How many of the compositor's seats are bound, and how many of them gave a keyboard.
+    pub fn seats(&self) -> (usize, usize) {
+        (self.state.seats.len(), self.state.seats.iter().filter(|s| s.keyboard.is_some()).count())
     }
 
     /// Asks the compositor for a window state (`wl_webos_shell_surface.set_state`). It answers with `state_changed`.

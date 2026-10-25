@@ -37,8 +37,10 @@ def load():
 class FakeSet:
     """Just enough of a TV: the card's life as SAM and the compositor lead it, the keys, and what the script reads back."""
 
-    def __init__(self, registers=True, minimizes=True):
+    def __init__(self, registers=True, minimizes=True, seats=3):
         self.registers = registers
+        # how many wl_seat globals the compositor advertises (LG's: one per input device, plus a spare); 0 is an app that bound none
+        self.seats = seats
         self.minimizes = minimizes
         self.installed = False
         self.running = False
@@ -58,6 +60,11 @@ class FakeSet:
         self.say("[lumatv-card 1.001] the app started: pid 4101")
         self.say("card[1.5]: start: %s reason undefined hidden false" % APP)
         self.say("gfx64: 64-bit path: /x/lib/libmali.so")
+        for i in range(self.seats):
+            self.say("window: wl_seat %d bound at version 4 (%d seats)" % (6 + i, i + 1))
+        self.say("card[1.55]: seats: %d bound, %d with a keyboard" % (self.seats, self.seats))
+        if self.seats:
+            self.say("window: keyboard focus on seat 6")
         self.say("card[1.6]: input State(3)")
         self.say('[lumatv-card 1.7] app: {"kind":"ready"}')
         self.say("[lumatv-card 1.8] " + ("SAM: registered" if self.registers else "LSRegister %s: Denied" % APP))
@@ -147,6 +154,8 @@ class FakeSet:
         if cmd.startswith("rm -f"):
             self.log = ""
             return ""
+        if cmd.startswith("wc -c <"):
+            return "4096\n"
         return ""
 
     def put(self, local, remote):
@@ -217,6 +226,12 @@ class CardTv(unittest.TestCase):
         fake.installed = True
         run = self.run_script(fake, "scenario")
         self.assertTrue(any(l.startswith("FAIL") and "told it is minimized" in l for l in run.lines), "\n".join(run.lines))
+
+    def test_an_app_that_bound_no_seat_is_a_failure_that_names_the_keys_step(self):
+        fake = FakeSet(seats=0)
+        fake.installed = True
+        run = self.run_script(fake, "scenario")
+        self.assertTrue(any(l.startswith("FAIL") and "bound the compositor's seats" in l for l in run.lines), "\n".join(run.lines))
 
     def test_a_busy_covered_card_is_a_failure(self):
         fake = FakeSet()
