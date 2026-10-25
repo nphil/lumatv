@@ -9,6 +9,7 @@
 #   fps on|off             -> toggle the compositor FPS debug overlay
 #   restart                -> restart the compositor and bring Home back (what apply does when it must)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
+#   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
 #   compositor on|off|status -> LumaTV's own compositor in place of LG's (tools/compositor.sh)
 #   notifications on|off|status -> LG's toast, alert and PIN views in the Luma look, without their shadow layers
 #   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
@@ -2298,6 +2299,29 @@ verb_boot_ok() {
 
 # ------------------------------------------------------------------- status
 
+surfaces_json() {
+  # The registry of what LumaTV has taken over and what each one falls back to. One entry per
+  # switch; `on` is read from the same flag or state the verb itself uses, never from a copy.
+  b() { if "$@"; then printf true; else printf false; fi; }
+  hs=$(homestub_json); hs_state=$(printf '%s' "$hs" | sed -n 's/.*"state":"\([a-z]*\)".*/\1/p')
+  hp=$(helper_json); hp_on=false; case "$hp" in *'"running":true'*) hp_on=true ;; esac
+  printf '['
+  printf '{"id":"home","on":%s,"state":"%s","fallback":"LG'"'"'s Home: hold Home 650 ms, the guard, or `homestub off`"},' "$( [ "$hs_state" = stub ] || [ "$hs_state" = trial ] && echo true || echo false )" "$hs_state"
+  printf '{"id":"quicksettings","on":%s,"fallback":"`systemui off` puts the stock entry back in configd"},' "$(b test -f "$SYSTEMUI_ON")"
+  printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
+  printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
+  printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
+  printf '{"id":"helper","on":%s,"fallback":"Home draws the last saved weather and news; `helper stop`"},' "$hp_on"
+  printf '{"id":"preload","on":%s,"fallback":"`preload off` restores LG'"'"'s list from preload.orig"},' "$(b test -f "$PRELOAD_STATE")"
+  printf '{"id":"compositor","on":%s,"fallback":"the supervisor falls back by itself; `compositor off`, revert, or hold Home"}' "$(b comp_live)"
+  printf ']'
+}
+
+verb_surfaces() {
+  printf '{"ok":true,"surfaces":%s}\n' "$(surfaces_json)"
+  return 0
+}
+
 verb_status() {
   ensure_config
   version=$(get_version); [ -n "$version" ] || version="0.0.0"
@@ -2728,7 +2752,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|compositor|compositor-boot)
+  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -2789,6 +2813,7 @@ case "$VERB" in
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
   notifications) verb_notifications "${2:-status}"; exit $? ;;
+  surfaces) verb_surfaces; exit $? ;;
   compositor) verb_compositor "${2:-status}"; exit $? ;;
   compositor-boot) verb_compositor_boot; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
