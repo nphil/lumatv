@@ -85,6 +85,11 @@ say("ssh answers at %s, uptime %.1f s" % (time.strftime("%H:%M:%S"), up))
 end = time.time() + SECS + 30
 while time.time() < end and "done" not in run(cli, "ls %s 2>&1" % CAPDIR, 10).split():
     time.sleep(2)
+# The worker's last act is the harvest of the log (boot-events); .boot-pending goes when its apply is done.
+end = time.time() + 90
+while time.time() < end and ".boot-pending" in run(cli, "ls -a /var/lib/lumatv 2>&1", 10):
+    time.sleep(3)
+time.sleep(3)
 listing = run(cli, "cat %s/frames.txt 2>&1" % CAPDIR, 20)
 sftp = cli.open_sftp()
 frames = []
@@ -102,6 +107,19 @@ say("frames: %d (uptime %s .. %s); bytes %s" % (len(frames), frames[0][1] if fra
     " ".join(f[2] for f in frames)))
 say("hook: " + run(cli, "grep -a 'boot capture' /var/lib/lumatv/log | tail -2", 20).strip())
 say("logo lines: " + run(cli, "for f in /var/log/messages*; do case $f in *.gz) zcat $f;; *) cat $f;; esac; done 2>/dev/null | grep -a '\\[Logo\\]' | head -6", 40).strip())
+# What was in front, once a second (the capture's state.txt), and the two durable records of the logo path: the windows' own
+# (logo-events, written by BootLogo.qml / MasterBrand.qml) and the boot hook's harvest of the log (boot-events, with its
+# .prev of the boot before). All kept in DEST as they are, so that the timeline can be rebuilt from files.
+for remote, name in (("%s/state.txt" % CAPDIR, "state.txt"), ("/var/lib/lumatv/logo-events", "logo-events.txt"),
+                     ("/var/lib/lumatv/boot-events", "boot-events.txt"), ("/var/lib/lumatv/boot-events.prev", "boot-events-prev.txt")):
+    text = run(cli, "cat %s 2>&1" % remote, 30)
+    if "No such file" in text[:60]:
+        say("%s: not on the set" % name)
+        continue
+    with open(os.path.join(DEST, name), "w") as fh:
+        fh.write(text)
+    say("%s: %d lines" % (name, len(text.splitlines())))
+say("boot log lines: " + run(cli, "grep -a 'boot: ' /var/lib/lumatv/log | tail -14", 20).strip())
 say("state after boot:\n" + run(cli, "cat /proc/uptime; cat /sys/power/mode; %s; echo; "
     "luna-send -n 1 -f luna://com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d '\\n ' | head -c 300; echo; "
     "%s homestub status 2>&1 | head -c 300; echo; %s preload status 2>&1 | head -c 300; echo; "

@@ -28,6 +28,20 @@ StarfishSystemUIWindow {
     readonly property var files: ["LogoOn.qml", "LogoOn2.qml", "LogoOn3.qml"]
 
     TextFile { id: themeFile; name: "file://{{dataDir}}/theme/theme.json" }
+    // The window's own record, kept apart from the log: /var/log/messages rotates within minutes and the log keeps
+    // nothing before ~12.7 s of a boot. One line per step, stamped with the monotonic clock (/proc/uptime: the wall
+    // clock is not set for the first seconds of a boot) and the wall clock; the last 60 lines stay across boots.
+    // tools/bootcap.sh and docs/research/notify/reboot_logo.py read it. Never allowed to hold up or break the logo.
+    TextFile { id: eventsFile; name: "file://{{dataDir}}/logo-events" }
+    TextFile { id: uptimeFile; name: "file:///proc/uptime" }
+    function note(text) {
+        try {
+            var up = (uptimeFile.read() || "").split(" ")[0] || "-"
+            var lines = (eventsFile.exists ? eventsFile.read() : "").split("\n").filter(function (l) { return l !== "" })
+            lines.push("up=" + up + " wall=" + new Date().toISOString() + " " + text)
+            eventsFile.write(lines.slice(-60).join("\n") + "\n")
+        } catch (e) {}
+    }
     function choice() {
         var n = 1
         try { n = Math.round(Number(JSON.parse(themeFile.exists ? themeFile.read() : "{}").logo.on)) } catch (e) { n = 1 }
@@ -38,7 +52,8 @@ StarfishSystemUIWindow {
         target: root.lifeCycleStatus
         onLaunch: root.launch(payload)
         onClose: {
-            if (payload && payload.reason === "powerSuspend") { root.finish(); return }
+            if (payload && payload.reason === "powerSuspend") { root.note("power-on close reason=powerSuspend"); root.finish("suspend"); return }
+            root.note("power-on close reason=" + ((payload && payload.reason) || "-") + (root.timedOut ? " (already timed out)" : ""))
             if (!root.timedOut) root.fadeOut()
         }
     }
@@ -54,6 +69,7 @@ StarfishSystemUIWindow {
         loader.source = ""
         var n = choice()
         console.info("[Logo] power-on logo " + n)
+        root.note("power-on logo " + n + " launch type=" + (p.type || "-"))
         loader.source = logoDir + files[n - 1]
         limit.restart()
         if (p.type === "fadeOut") fadeOut()
@@ -64,10 +80,11 @@ StarfishSystemUIWindow {
         limit.stop()
         fade.restart()
     }
-    function finish() {
+    function finish(why) {
         limit.stop()
         fade.stop()
         loader.source = ""
+        root.note("power-on exit (" + why + ")")
         root.exit()
     }
 
@@ -84,8 +101,8 @@ StarfishSystemUIWindow {
             scale: root.width / 1920
             asynchronous: false
             onStatusChanged: {
-                if (status === Loader.Error) console.warn("[Logo] power-on logo did not load: " + source)
-                if (status === Loader.Ready) item.start()
+                if (status === Loader.Error) { console.warn("[Logo] power-on logo did not load: " + source); root.note("power-on logo did not load") }
+                if (status === Loader.Ready) { item.start(); root.note("power-on logo ready") }
             }
         }
     }
@@ -97,12 +114,12 @@ StarfishSystemUIWindow {
         to: 0
         duration: root.fadeOutDuration
         easing.type: Easing.InOutQuad
-        onRunningChanged: if (!running && root.leaving) root.finish()
+        onRunningChanged: if (!running && root.leaving) root.finish("faded")
     }
 
     Timer {
         id: limit
         interval: root.timeOutDuration
-        onTriggered: { root.timedOut = true; root.finish() }
+        onTriggered: { root.timedOut = true; root.finish("timeout") }
     }
 }

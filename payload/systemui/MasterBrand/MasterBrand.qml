@@ -28,6 +28,18 @@ StarfishSystemUIWindow {
     readonly property var files: ["LogoOff.qml", "LogoOff2.qml", "LogoOff3.qml"]
 
     TextFile { id: themeFile; name: "file://{{dataDir}}/theme/theme.json" }
+    // The window's own record, as in BootLogo.qml: one stamped line per step in {{dataDir}}/logo-events (monotonic clock from
+    // /proc/uptime and wall clock), written after tvpowerd has its answer and inside a try, so it can never hold the power-off up.
+    TextFile { id: eventsFile; name: "file://{{dataDir}}/logo-events" }
+    TextFile { id: uptimeFile; name: "file:///proc/uptime" }
+    function note(text) {
+        try {
+            var up = (uptimeFile.read() || "").split(" ")[0] || "-"
+            var lines = (eventsFile.exists ? eventsFile.read() : "").split("\n").filter(function (l) { return l !== "" })
+            lines.push("up=" + up + " wall=" + new Date().toISOString() + " " + text)
+            eventsFile.write(lines.slice(-60).join("\n") + "\n")
+        } catch (e) {}
+    }
     function choice() {
         var n = 1
         try { n = Math.round(Number(JSON.parse(themeFile.exists ? themeFile.read() : "{}").logo.off)) } catch (e) { n = 1 }
@@ -39,6 +51,7 @@ StarfishSystemUIWindow {
         answered = true
         giveUp.stop()
         if (isDevice) root.responseOffLogoRequest(true)
+        root.note("power-off answered tvpowerd")
     }
 
     Connections {
@@ -48,18 +61,20 @@ StarfishSystemUIWindow {
     }
 
     function launch(payload) {
-        if (payload && payload.reason === "preload") { root.hide(); return }
+        if (payload && payload.reason === "preload") { root.hide(); root.note("power-off preload (hidden)"); return }
         answered = false
         root.show()
         giveUp.restart()
         loader.source = ""
         var n = choice()
         console.info("[Logo] power-off logo " + n)
+        root.note("power-off logo " + n + " launch reason=" + ((payload && payload.reason) || "-"))
         loader.source = logoDir + files[n - 1]
     }
     function close(payload) {
         giveUp.stop()
         loader.source = ""
+        root.note("power-off close")
         root.exit()
     }
 
@@ -73,7 +88,7 @@ StarfishSystemUIWindow {
         scale: root.width / 1920
         asynchronous: false
         onStatusChanged: {
-            if (status === Loader.Error) { console.warn("[Logo] power-off logo did not load: " + source); root.answer() }
+            if (status === Loader.Error) { console.warn("[Logo] power-off logo did not load: " + source); root.answer(); root.note("power-off logo did not load") }
             if (status === Loader.Ready) item.start()
         }
         Connections {

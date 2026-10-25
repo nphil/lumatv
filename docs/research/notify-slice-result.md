@@ -10,15 +10,17 @@ place at 15 s, the guard waiting, `apply` 38 s (188 s before), Home in front wit
 the logo itself is still unseen: the boot's panel capture starts at 14.6 s and the first lit frame (16.8 s) is already
 the HDMI 2 input banner, and the log keeps nothing before 12.7 s, so whatever logo there was came and went before
 either could see it, and no `[Logo]` line survives.
-Next, in order:
+Offline since (LogoTiming, not verified on the set): the repo's research settles what can be settled about where the logos sit in a
+boot ("Where the logos sit in a boot"): nothing of LumaTV can run or record before ~12.7 s of uptime, so the missing logo
+cannot be captured by a better hook; the windows now keep their own stamped record (`logo-events`), the hook keeps the
+log's logo lines (`boot-events`) and a per-second record of what is in front (`state.txt`). The set's return on the last
+input, with Home only at 61 s, is fixed by a boot-time compositor restart right after `boot-bind` that lands on Home, or on
+the input when the TV is set to start on its last input ("Home first after a boot"). Next, in order:
 
-1. `lumatv notifications on` on the set (stages LG's tree, patches it, overlays `payload/notification`), then
+1. The TV steps under "Set steps for the logo record and the early restart" (power-off record first: it needs no reboot).
+2. `lumatv notifications on` on the set (stages LG's tree, patches it, overlays `payload/notification`), then
    `python3 docs/research/perf/gate.py --surfaces toast,alert` with Home on screen (see "Set steps").
-2. A PIN prompt on the set with Nitin present (a locked input), see "Set steps".
-3. The logo: a capture that starts before 12 s (the boot hook cannot: it runs at ~14 s), or a log that keeps the
-   compositor's first seconds (`[Logo]` goes to the QML console; where that lands before PmLog starts at 12.7 s is
-   unread), or a person in the room at a power-on. The power-off logo (`logo.off`) is untested the same way.
-   Also to settle: the set restarted into the last input (HDMI 2, selected by the compositor gate before), not Home.
+3. A PIN prompt on the set with Nitin present (a locked input), see "Set steps".
 
 ## What changed
 
@@ -198,3 +200,96 @@ starts at uptime 12.7 s (PmLog's first line), the compositor's system UI launche
 `[Logo]` after that. Either LG's compositor put the boot logo up before 12.7 s (lost before PmLog) or it did not launch
 `com.webos.app.bootlogo` on a `reboot` at all; the frames cannot tell the two apart. What would: a capture or a log
 that reaches back to the compositor's start ("Resume here" 3).
+
+## Where the logos sit in a boot (LogoTiming, from the repo's research; offline)
+
+What the research says, and how sure it is. "Read" = a static read of LG's files on the set (`docs/research/surfaces/*.json`,
+`docs/SURFACES.md`); "measured" = a run on the set; "inferred" = reasoning from those, to be settled by the steps below.
+
+| Question | Answer | Basis |
+|---|---|---|
+| Which process shows LG's power-on logo | The compositor (`surface-manager-daemon`) draws `com.webos.app.bootlogo` (the "webOS" wordmark sprite, 1.2 s fade in, 10 s cap) as a screen-cover system-UI window; `bootd` asks for it through `systemUIManager/launch` and closes it by `closeByAppId`, 3 s after Home (`/etc/palm/bootd.json` `homeAnimation`, `waitAfterHome 3`). `bootd` also opens `CoverUI` (a black "Loading..." cover) which launches the first app. The red LG logo is `MasterBrand`, the power-off logo, launched by the compositor at every power-off. | read (`SysUiModulesA/B.json`, `CompositorViews.json`) |
+| Whether anything shows before the userland | LG's own first splash comes from before any process of the set's userland (bootloader or kernel) | inferred: nothing in the repo names it, and the log, the capture and the hook all start at 12-15 s |
+| What a `reboot` of a set that is on restores | The set resumes from the hibernation image (`snapshot resume=/dev/mmcblk0p54`, `snapshot-resume-done`): its compositor carries the pid and start time of the boot that made the image, and `/sys/power/mode` is `resume`. Only after `snapshot-boot-manager --remove` is the boot a `making` one, which runs the whole sequence (compositor at 2.6 s, `mount-readwrite` 10.8-13.1 s, image at ~15 s) | measured (`HANDOFF.md`) |
+| When `bootd` opens the first app | 13.9 s. On a `reboot` it is the last input (reason `micomPower` is not a full-home boot), never Home | measured (`homestub-result.md`, 17:50 boot) |
+| Whether the panel showed a logo on the boots watched | No. 17:50 reboot: black 14.6-16 s, LG's HDMI 2 banner at 16.8 s, black, then the No Signal page from 23.8 s. The earlier cold wake (`docs/evidence/boot`, a frame every 2 s): live TV at 12 s, black from 17 s, Home at 33 s. Neither has a wordmark frame, and the log has no `bootlogo`, `masterbrand` or `[Logo]` line from 12.7 s on (only `FRESH_LAUNCH_SYSTEMUI` for quick settings and the input picker, 13.2 s) | measured |
+| Why no better hook can see more | Nothing of the mod can run before `kdump.service` starts the early hook (12-15 s; `/var` is not writable before `mount-readwrite`), `/var/log/messages` starts at 12.7 s, and the window files themselves live in `/var/lib/lumatv`, so a launch earlier than ~13 s could not reach LumaTV's `BootLogo.qml` even if the redirect applied | read + measured |
+| Whether LumaTV's BootLogo window is reached on a `reboot` | Probably not. A launch would be `bootd`'s and would come before the first app (13.9 s), i.e. before `/var` is readable, or be inside the image; the only window of ours that is certain to run is one opened after ~13 s. No line of the 17:50 boot says it was opened at all | inferred; settled by `logo-events` after any boot |
+| ... on a power-on from Active Standby | No boot happens (RAM is alive; a warm wake paints Home in 8 s, `HANDOFF.md`), so `bootd` launches nothing; `BootLogo` is the boot logo, `MasterBrand` the power-off one | inferred from `StarfishScreenCoverView` ("boot: bootlogo; closed on power on") and the instant wake; settled by the wake capture below |
+| Does a `reboot` show the logo at all | On this set it looks like no: the screen goes from the kernel's phase straight to the first app's banner. A person at a power-on from true cold (mains, or after the 24 h `instantBootRefreshPeriod` refresh) is the case that can show it | inferred |
+
+What this means for the power-on logo: LumaTV's `logo.on` is reachable only on a boot that `bootd` gives a logo after `/var`
+is up, which has not been seen on any boot so far; `logo.off` (the compositor launches `MasterBrand` at every power-off) is
+the window that runs daily, so its record is the first proof that the redirect, the QML path, `TextFile` and the stamps work.
+
+How it is now captured (offline, not verified on the set):
+
+- **The windows keep their own record**: `BootLogo.qml` and `MasterBrand.qml` append one line per step to
+  `/var/lib/lumatv/logo-events` (last 60 lines, across boots): `up=<seconds from /proc/uptime> wall=<ISO UTC> <step>`. Steps:
+  `power-on logo N launch type=...`, `power-on logo ready`, `power-on close reason=...`, `power-on exit (faded|timeout|suspend)`,
+  `power-on logo did not load`; `power-off logo N launch reason=...`, `power-off preload (hidden)`, `power-off answered tvpowerd`,
+  `power-off close`. The write comes after tvpowerd's answer and inside a `try`. `up=-` would mean `/proc/uptime` is not
+  readable through `TextFile` (the wall stamp still is); the wall clock is not set for the first seconds of a boot.
+- **The hook keeps the log's lines**: at the end of the boot worker, `tools/bootcap.sh events` writes the lines of
+  `/var/log/messages*` that name `bootlogo`, `masterbrand`, `[Logo]`, `screencover`, `coverUI`, `FRESH_LAUNCH_SYSTEMUI`,
+  `closeAnimation`, `bootd` to `/var/lib/lumatv/boot-events` (`.prev` is the boot before), every boot, with the log's own stamps.
+- **The hook's own lines carry the monotonic clock**: `boot: [up 15.0 s] ...` in `/var/lib/lumatv/log`.
+- **The capture** (`bootcap.sh <s> <dir>`) is the worker's first act and cannot start earlier; it now adds `state.txt` beside
+  the frames: once a second the app manager's foreground app, the system UI manager's (a logo window is a system UI, so it
+  shows there), the boot cover's status and the power state, from a second process so the frames keep their pace (0.3 s wait).
+  For a power-on from Active Standby, which starts no hook, it is started by hand over SSH (step 5).
+
+## Home first after a boot (LogoTiming, offline, not verified on the set)
+
+Cause: the first compositor of a boot is stock and has to be restarted once to read LumaTV's module. `apply` made that restart
+after its whole preparation: from the 17:50 log, the worker started at 15 s, `boot-bind` took until ~24 s, `apply` staged until
+36 s, and the 19 s from the stub at 36 s to the restart at 55 s are helper, colour reader and the preload list (apply's order; not
+timed). The set showed the last input (HDMI 2: the banner, then the No Signal page) and LumaHome only at 61 s. `bootd` opens the
+last input at 13.9 s, before the hook can run, and a stock compositor cannot draw LumaHome (the stub is a blank page), so Home
+"before" the input is not reachable; Home as soon as the restart allows is.
+
+Fix: `lumatv boot-restart`, run by the boot worker between `boot-bind` and `apply`. Everything `boot-bind` verified is in
+place (`.boot-pending`, the env file, the assets bind, the shadow module), so the restart comes first and `apply` finds a
+compositor that has the module and does the rest without one (helper and preload, as before; the helper is also started before
+the restart so that Home's first request finds it). Expected: restart at about 25 s, Home on the panel about 12 s later (the earlier
+cold boot reached Home at 33-36 s), against 61 s. Left to `apply`, as before: a set that is not Active after 5 s (a boot into
+standby), a boot-bind that did not verify the set (failsafe, new package, stale module), a compositor that already has the
+module, LumaTV's own compositor live. A shader that does not compile after the restart reverts the set to stock, as `apply`
+does, and the worker then skips `apply`.
+
+Landing: Home, unless the TV is set to start on its last input. LG's own switch for that is `general.homeAutoLaunch`
+(`off` = last input; the worker's own notes say a wake lands on Home, so the setting is on; not read from the set). With it `off`, the app in front before the restart
+(the input `bootd` opened) is launched again and waited for (10 s); if it does not come back, Home. Before this, the
+restart ended in Home whatever the setting was, so a deliberate boot-to-input was already overridden at the end of `apply`.
+`homeAutoLaunch` is only read, never written.
+
+Tests: `python3 -m unittest tests.test_tool_rules` (`BootRestart`: Home after an early restart, an unset or `on` setting,
+`off` keeps the input, an input that does not return gives Home, skipped cases, boot-hook-only, shader revert; `BootCapture`: state
+samples, events, the hook's order) and `tests.test_logos` (the windows' records).
+
+## Set steps for the logo record and the early restart (not verified on the TV)
+
+Deploy `tools/{lumatv,autostart.sh,bootcap.sh}` by rename to the app directory, then `lumatv apply` (restages the two windows;
+a no-change apply restarts nothing). `lumatv logo on`. Receiver muted before any run that makes sound and unmuted after.
+
+1. **Power-off record (no reboot).** Turn the set off with the remote and wake it. `cat /var/lib/lumatv/logo-events`: expect
+   `power-off logo N launch reason=...` and `power-off answered tvpowerd` with `up=` numbers (a `-` means `/proc/uptime` is not readable
+   through `TextFile`) and the gap between them (LumaTV's logo about 0.5 s, LG's about 3 s). Also read `[Logo]` in `/var/log/messages`
+   for its monotonic stamp. This proves the path before anything depends on a boot.
+2. **Reboot from a set that is on**: `python3 docs/research/notify/reboot_logo.py docs/research/notify/boot-<date>-<hhmm>`. Expect in
+   `/var/lib/lumatv/log`: `boot: [up ~25 s] boot-restart: {"ok":true,"restarted":true,"at":~25,"landed":"home"}`, no
+   `apply: compositor restarted`, `apply: success` with `took` shorter than 38 s, `faults 0`, no `giving LG's Home back`; in the
+   frames: LG's input banner, black, LumaHome from ~35-40 s (note the second Home appears in `frames-index.txt`); `state.txt`
+   shows `fg` going from `com.webos.app.hdmi2` to `com.webos.app.home`; `logo-events` and `boot-events` collected beside.
+3. **Boot to input**: with Nitin present, `luna-send -n 1 luna://com.webos.settingsservice/setSystemSettings
+   '{"category":"general","settings":{"homeAutoLaunch":"off"}}'`, repeat step 2 (expect `boot-restart ... com.webos.app.hdmi2
+   back in front after N s`, `"landed":"com.webos.app.hdmi2"`, Home not launched), then set it back to `on` and read it back.
+4. **Boot into standby**, as in "Set steps for the boot path": `boot-restart: left to apply (the set is not on)` after 5 s, then
+   the earlier expectations.
+5. **Power-on from Active Standby**: set in Active Standby; over SSH `nohup sh tools/bootcap.sh 40 /tmp/lumatv-wake </dev/null
+   >/dev/null 2>&1 &`, then the remote's power key. Fetch `/tmp/lumatv-wake` (frames, `state.txt`) and `logo-events`: a wordmark frame or a
+   `power-on` line would show a logo there; none says the wake starts no logo.
+6. **A boot `bootd` must give a logo** (Nitin's OK; LG's own tool, worst case one slow boot): set `echo 90 > /var/lib/lumatv/bootcap`,
+   `snapshot-boot-manager --remove; reboot`, collect as in step 2. This `making` boot is the one that runs the whole sequence
+   (HANDOFF: "expect the making splash once"); `logo-events` and `boot-events` say whether `bootlogo` was opened and when, and
+   whether LumaTV's window or LG's was the one drawn.

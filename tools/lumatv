@@ -2464,7 +2464,12 @@ verb_boot_restart() {
   elif ! surface_start_uptime >/dev/null 2>&1; then br_why="no compositor running"
   elif compositor_has_shadow; then br_why="the compositor has the module already"
   elif ! all_binds_live || ! env_live || [ ! -d "$SHADOW_ROOT" ]; then br_why="the module, env file or assets bind is not in place"
-  elif ! panel_is_active; then br_why="the set is not on"
+  else
+    # The power state can still be a step behind the panel at ~20 s into a boot; a set that stays in
+    # standby past STANDBY_WAIT is a boot into standby, which apply handles.
+    br_w=0
+    while ! panel_is_active && [ "$br_w" -lt "$STANDBY_WAIT" ]; do sleep 1; br_w=$((br_w+1)); done
+    panel_is_active || br_why="the set is not on"
   fi
   if [ -n "$br_why" ]; then
     log_line "boot-restart: left to apply ($br_why)"

@@ -43,7 +43,10 @@ CLI="$APPDIR/tools/$BRAND_SHORT_ID"
 
 log() {
   mkdir -p "$STATE" 2>/dev/null
-  echo "$(date '+%Y-%m-%d %H:%M:%S') boot: $1" >> "$LOG" 2>/dev/null
+  # The uptime is the boot's monotonic clock: the wall clock is not set for the first seconds, and the log's
+  # own stamps say nothing about how far into the boot a step was.
+  read -r up_s _ < /proc/uptime 2>/dev/null
+  echo "$(date '+%Y-%m-%d %H:%M:%S') boot: [up ${up_s:-?} s] $1" >> "$LOG" 2>/dev/null
 }
 
 # Never let anything below abort the boot path.
@@ -65,10 +68,11 @@ fi
 # homestub-boot first, when the Home stub is switched on: LG's Home must not
 # start (bootd opens it about 14 s into a power-on, the hook runs at 12-14 s),
 # so the stub goes over its directory before anything else is done. Then
-# boot-bind, so the binds are live within a second; then the full apply,
-# which restarts the compositor because its first start at boot+2.6s cannot
+# boot-bind, so the binds are live within a second; then boot-restart, which
+# restarts the compositor because its first start at boot+2.6s cannot
 # see our EnvironmentFile - nothing writable is mounted on /var until
-# mount-readwrite.service at ~13s. The early hook (a PATH shim on
+# mount-readwrite.service at ~13s; then the full apply, which restarts it only
+# if boot-restart did not. The early hook (a PATH shim on
 # kdump.service, 14.2s) gets here about 19s before Homebrew Channel's
 # run-parts does, which is the whole difference between a boot that shows
 # stock Home and one that does not.
@@ -96,6 +100,14 @@ if [ "$1" = "--worker" ]; then
   log "compositor-boot: $(echo "$cb" | tr -d '\n' | cut -c1-200)"
   bb=$("$CLI" boot-bind 2>&1)
   log "boot-bind: $(echo "$bb" | tr -d '\n' | cut -c1-200)"
+  # The compositor's restart, as soon as boot-bind has the set in place and before apply's preparation; the panel
+  # shows the last input until it, and apply used to reach it at ~55 s. When it found a shader that does not compile it
+  # has reverted the set to stock, and apply must not put it back this boot.
+  br=$("$CLI" boot-restart 2>&1)
+  log "boot-restart: $(echo "$br" | tr -d '\n' | cut -c1-200)"
+  case "$br" in
+    *'auto-reverted to stock'*) exit 0 ;;
+  esac
   out=$("$CLI" apply 2>&1)
   case "$out" in
     *'"ok":true'*)
@@ -108,6 +120,9 @@ if [ "$1" = "--worker" ]; then
       rm -f "$WORKER_MARK" 2>/dev/null
       ;;
   esac
+  # What this boot's log says about the logo path, kept in $STATE (/var/log/messages rotates; the window's own record,
+  # $STATE/logo-events, is written by BootLogo.qml and MasterBrand.qml).
+  [ -x "$APPDIR/tools/bootcap.sh" ] && "$APPDIR/tools/bootcap.sh" events "$STATE/boot-events" </dev/null >/dev/null 2>&1
   exit 0
 fi
 

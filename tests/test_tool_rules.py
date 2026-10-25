@@ -287,6 +287,174 @@ class BootCapture(unittest.TestCase):
         self.assertIn("</dev/null >/dev/null 2>&1 &", hook)
         self.assertLess(text.index("bootcap"), text.index('"$CLI" homestub-boot'), "the capture starts before the boot work")
 
+    def test_it_samples_what_is_in_front_beside_the_frames(self):
+        with tempfile.TemporaryDirectory() as d:
+            bindir = os.path.join(d, "bin")
+            os.mkdir(bindir)
+            with open(os.path.join(bindir, "luna-send"), "w") as f:
+                f.write('#!/bin/sh\ncase "$3" in\n *getForegroundAppInfo) echo \'{"returnValue":true,\\n"appId":"com.webos.app.hdmi2"}\' ;;\n'
+                        ' *getPowerState) echo \'{"state":"Active"}\' ;;\nesac\n')
+            os.chmod(os.path.join(bindir, "luna-send"), 0o755)
+            out = os.path.join(d, "cap")
+            subprocess.run(["sh", os.path.join(TOOLS, "bootcap.sh"), "2", out], capture_output=True, timeout=30,
+                           env=dict(os.environ, PATH=bindir + ":" + os.environ["PATH"]))
+            with open(os.path.join(out, "state.txt")) as f:
+                lines = [l for l in f.read().split("\n") if l]
+            self.assertGreaterEqual(len(lines), 1)
+            self.assertRegex(lines[0], r'^\d+\.\d+ fg=\{"returnValue":true,"appId":"com\.webos\.app\.hdmi2"\} ui=\S* cover=\S* power=\{"state":"Active"\}$')
+            self.assertIn("done", os.listdir(out))
+
+    def test_events_keep_the_logo_lines_of_every_log_file_oldest_first_and_the_last_boots_copy(self):
+        with tempfile.TemporaryDirectory(prefix="bc") as d:
+            logs = os.path.join(d, "log")
+            os.mkdir(logs)
+            with open(os.path.join(logs, "messages"), "w") as f:
+                f.write("[  40.1] surface-manager: FRESH_LAUNCH_SYSTEMUI quicksettings\n[  41.0] unrelated line\n")
+            import gzip
+            with gzip.open(os.path.join(logs, "messages.4.gz"), "wt") as f:
+                f.write("[  13.2] bootd: launch com.webos.app.bootlogo\n")
+            with gzip.open(os.path.join(logs, "messages.1.gz"), "wt") as f:
+                f.write("[  20.0] qml: [Logo] power-on logo 2\n")
+            out = os.path.join(d, "state", "boot-events")
+            env = dict(os.environ, BOOTCAP_LOGDIR=logs)
+            for _ in range(2):
+                self.assertEqual(subprocess.run(["sh", os.path.join(TOOLS, "bootcap.sh"), "events", out], env=env, timeout=30).returncode, 0)
+            with open(out) as f:
+                body = f.read().split("\n")
+            self.assertTrue(body[0].startswith("# "))
+            self.assertEqual([l.split("] ", 1)[1].split(":")[0] for l in body[1:] if l], ["bootd", "qml", "surface-manager"])
+            self.assertTrue(os.path.exists(out + ".prev"), "the copy of the boot before")
+            self.assertNotIn("unrelated", "".join(body))
+
+    def test_the_hook_runs_boot_restart_after_boot_bind_and_before_apply_and_keeps_the_events_after_it(self):
+        with open(os.path.join(TOOLS, "autostart.sh"), encoding="utf-8") as f:
+            text = f.read()
+        order = [text.index(s) for s in ('"$CLI" boot-bind', '"$CLI" boot-restart', '"$CLI" apply', 'bootcap.sh" events')]
+        self.assertEqual(order, sorted(order))
+        self.assertRegex(text, r"\*'auto-reverted to stock'\*\) exit 0")
+        self.assertIn("[up ${up_s:-?} s]", text, "every hook line carries the boot's monotonic clock")
+
+
+@unittest.skipUnless(shutil.which("sh"), "needs sh")
+class BootRestart(unittest.TestCase):
+    """verb_boot_restart and its helpers from tools/lumatv, run under `set -u` against stubs of the set.
+
+    On 2026-10-25 17:51 the set came back on HDMI 2 and Home followed only after apply's restart at 55 s: the restart
+    waited for 30 s of preparation. It now comes right after boot-bind, and the landing keeps a TV that is set to start
+    on its last input (general.homeAutoLaunch off) on that input.
+    """
+
+    FUNCS = ("get_general_setting", "foreground_app_id", "boot_landing_app", "land_on_app", "verb_boot_restart")
+
+    def run_verb(self, active=True, pending=True, has_shadow=False, fg="com.webos.app.hdmi2", auto=None, launch_works=True,
+                 shader=False, boot=True):
+        with tempfile.TemporaryDirectory() as d:
+            bindir = os.path.join(d, "bin")
+            os.mkdir(bindir)
+            with open(os.path.join(bindir, "luna-send"), "w") as f:
+                f.write(
+                    '#!/bin/sh\n'
+                    'd="%s"\n'
+                    'case "$3" in\n'
+                    ' *getSystemSettings) if [ -e "$d/auto" ]; then echo "{\\"returnValue\\":true,\\"category\\":\\"general\\",\\"settings\\":{\\"homeAutoLaunch\\":\\"$(cat $d/auto)\\"}}"; else echo \'{"returnValue":true,"settings":{}}\'; fi ;;\n'
+                    ' *getForegroundAppInfo) echo "{\\"returnValue\\":true,\\"appId\\":\\"$(cat $d/fg)\\",\\"windowId\\":\\"\\"}" ;;\n'
+                    ' */launch) echo "$4" >> "$d/launched"; if [ -e "$d/launch_works" ]; then echo "$4" | sed -n \'s/.*"id":"\\([^"]*\\)".*/\\1/p\' > "$d/fg"; fi ;;\n'
+                    'esac\n' % d)
+            os.chmod(os.path.join(bindir, "luna-send"), 0o755)
+
+            def mk(name, text=""):
+                with open(os.path.join(d, name), "w") as f:
+                    f.write(text)
+            mk("fg", fg + "\n")
+            mk("messages")
+            os.mkdir(os.path.join(d, "shadow"))
+            for flag, name in ((active, "active"), (pending, "pending"), (has_shadow, "has_shadow"), (launch_works, "launch_works")):
+                if flag:
+                    mk(name)
+            if auto is not None:
+                mk("auto", auto + "\n")
+            defs = (
+                'set -u\nd="%s"\nPATH="%s:$PATH"\n%s\n'
+                'STATE=$d; BOOT_PENDING=$d/pending; VERIFIED=$d/verified; MSGLOG=$d/messages; SHADOW_ROOT=$d/shadow\n'
+                'SETTINGS_GET_URI=luna://com.webos.settingsservice/getSystemSettings\n'
+                'HOME_LAUNCH_URI=luna://com.webos.applicationManager/launch; HOME_APP_ID=com.webos.app.home\n'
+                'STANDBY_WAIT=0; DISPLAY_NAME=LumaTV; reports_before=\n'
+                'take_mutation_lock() { return 0; }\n'
+                'emit_error() { printf \'{"ok":false,"error":"%%s"}\\n\' "$1"; }\n'
+                'log_line() { echo "$1" >> "$d/log"; }\n'
+                'uptime_s() { echo 20; }\n'
+                'surface_start_uptime() { echo 3; }\n'
+                'compositor_has_shadow() { [ -e "$d/has_shadow" ]; }\n'
+                'all_binds_live() { return 0; }\nenv_live() { return 0; }\n'
+                'panel_is_active() { [ -e "$d/active" ]; }\n'
+                'helper_start() { echo helper >> "$d/calls"; }\n'
+                'restart_surface() { echo restart >> "$d/calls"; reports_before=x; : > "$d/fg"; %s }\n'
+                'home_back_after_restart() { echo home >> "$d/calls"; }\n'
+                'disarm_restart_crashes() { echo disarm >> "$d/calls"; }\n'
+                'do_revert_internal() { echo revert >> "$d/calls"; }\n'
+                'ntfy_notify() { :; }\nsleep() { :; }\n'
+            ) % (d, bindir, "LUMA_BOOT=1" if boot else "unset LUMA_BOOT",
+                 'echo "shader compilation failed" >> "$MSGLOG";' if shader else "")
+            script = defs + "".join(function(n) for n in self.FUNCS) + "verb_boot_restart; echo rc=$?\n"
+            r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30)
+
+            def read(name):
+                p = os.path.join(d, name)
+                if not os.path.exists(p):
+                    return []
+                with open(p) as fh:
+                    return fh.read().split("\n")[:-1]
+            return r.stdout.strip(), read("calls"), read("launched"), read("log"), r.stderr
+
+    def test_home_comes_back_after_an_early_restart_with_the_helper_started_first(self):
+        out, calls, launched, log, err = self.run_verb(auto="on")
+        self.assertIn('"restarted":true', out, err)
+        self.assertIn('"landed":"home"', out)
+        self.assertEqual(calls, ["helper", "restart", "home"])
+        self.assertEqual(launched, [])
+        self.assertTrue(any("compositor restarted at uptime 20 s" in l for l in log), log)
+
+    def test_an_unset_setting_is_home_too(self):
+        out, calls, launched, log, err = self.run_verb(auto=None)
+        self.assertIn('"landed":"home"', out, err)
+        self.assertEqual(calls, ["helper", "restart", "home"])
+
+    def test_a_tv_set_to_start_on_its_last_input_keeps_that_input(self):
+        out, calls, launched, log, err = self.run_verb(auto="off", fg="com.webos.app.hdmi2")
+        self.assertIn('"landed":"com.webos.app.hdmi2"', out, err)
+        self.assertEqual(launched, ['{"id":"com.webos.app.hdmi2"}'])
+        self.assertEqual(calls, ["helper", "restart", "disarm"], "Home is not launched over the input")
+
+    def test_an_input_that_does_not_come_back_gives_home(self):
+        out, calls, launched, log, err = self.run_verb(auto="off", launch_works=False)
+        self.assertIn('"restarted":true', out, err)
+        self.assertEqual(calls, ["helper", "restart", "home"])
+        self.assertTrue(any("did not come back, Home instead" in l for l in log), log)
+
+    def test_off_with_home_in_front_is_home(self):
+        out, calls, launched, log, err = self.run_verb(auto="off", fg="com.webos.app.home")
+        self.assertIn('"landed":"home"', out, err)
+        self.assertEqual(launched, [])
+
+    def test_whatever_boot_bind_did_not_verify_is_left_to_apply(self):
+        for kw, why in (({"pending": False}, "boot-bind did not verify"), ({"has_shadow": True}, "has the module already"),
+                        ({"active": False}, "the set is not on")):
+            out, calls, launched, log, err = self.run_verb(**kw)
+            self.assertIn('"restarted":false', out, err)
+            self.assertIn(why, out)
+            self.assertEqual(calls, [], kw)
+
+    def test_it_is_the_boot_hooks_step_only(self):
+        out, calls, launched, log, err = self.run_verb(boot=False)
+        self.assertIn('"ok":false', out, err)
+        self.assertEqual(calls, [])
+
+    def test_a_shader_that_does_not_compile_reverts_the_set_and_says_so(self):
+        out, calls, launched, log, err = self.run_verb(shader=True)
+        self.assertIn("auto-reverted to stock", out, err)
+        self.assertIn("revert", calls)
+
+
 
 if __name__ == "__main__":
     unittest.main()

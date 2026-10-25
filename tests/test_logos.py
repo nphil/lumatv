@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,6 +77,46 @@ class Logos(unittest.TestCase):
                             "--fire", '100:launch:{"params":{"type":"image","fadeOutDuration":200}}', "--fire", "300:close:{}")
         self.assertIn("did not load", out)
         self.assertEqual(len(re.findall(r"\[host\] exit", out)), 1, out[-600:])
+
+    def events(self, window, *args, clean=True):
+        """Runs the window with its data dir kept and returns the lines of its logo-events file. A run that
+        removes the logo ends with the host's warnings (rc 1), which is what it is for: clean=False."""
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host(window, "--data", data, *args)
+            if clean:
+                self.assertEqual(rc, 0, out[-600:])
+            path = os.path.join(data, "logo-events")
+            if not os.path.exists(path):
+                return []
+            with open(path) as f:
+                return [l for l in f.read().split("\n") if l]
+
+    def test_power_on_keeps_a_stamped_line_per_step_in_its_own_file(self):
+        lines = self.events("systemui/BootLogo/BootLogo.qml", "--wait", "1500", "--theme", '{"logo":{"on":2}}',
+                            "--fire", '100:launch:{"params":{"type":"image","fadeOutDuration":200}}', "--fire", "500:close:{}")
+        self.assertEqual([l.split(" ", 2)[2] for l in lines],
+                         ["power-on logo 2 launch type=image", "power-on logo ready", "power-on close reason=-", "power-on exit (faded)"])
+        for l in lines:
+            self.assertRegex(l, r"^up=\d+\.\d+ wall=\d{4}-\d\d-\d\dT[\d:.]+Z ")
+
+    def test_power_on_says_when_the_logo_would_not_load_and_when_suspend_ends_it(self):
+        lines = self.events("systemui/BootLogo/BootLogo.qml", "--wait", "900", "--remove", "logo",
+                            "--fire", '100:launch:{"params":{"type":"image"}}', "--fire", '400:close:{"reason":"powerSuspend"}', clean=False)
+        self.assertEqual([l.split(" ", 2)[2] for l in lines],
+                         ["power-on logo 1 launch type=image", "power-on logo did not load", "power-on close reason=powerSuspend",
+                          "power-on exit (suspend)"])
+
+    def test_power_off_keeps_its_steps_and_the_answer_comes_first(self):
+        lines = self.events("systemui/MasterBrand/MasterBrand.qml", "--wait", "2200", "--theme", '{"logo":{"off":3}}',
+                            "--fire", '100:launch:{"reason":"powerOff"}')
+        steps = [l.split(" ", 2)[2] for l in lines]
+        self.assertEqual(steps[0], "power-off logo 3 launch reason=powerOff")
+        self.assertEqual(steps.count("power-off answered tvpowerd"), 1, steps)
+
+    def test_power_off_preload_is_noted_too(self):
+        lines = self.events("systemui/MasterBrand/MasterBrand.qml", "--wait", "600", "--fire", '100:launch:{"reason":"preload"}')
+        self.assertEqual([l.split(" ", 2)[2] for l in lines], ["power-off preload (hidden)"])
 
 
 if __name__ == "__main__":
