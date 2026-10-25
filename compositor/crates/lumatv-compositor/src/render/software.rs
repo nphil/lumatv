@@ -16,13 +16,21 @@ pub struct Software {
     height: u32,
     /// Premultiplied 0xAARRGGBB, row-major, top-down.
     pixels: Vec<u32>,
+    cursor: Vec<u32>,
     clock: FrameClock,
     skipped_logged: bool,
 }
 
 impl Software {
     pub fn new(width: u32, height: u32) -> Self {
-        Software { width, height, pixels: vec![0xff00_0000; (width * height) as usize], clock: FrameClock::new(), skipped_logged: false }
+        Software {
+            width,
+            height,
+            pixels: vec![0xff00_0000; (width * height) as usize],
+            cursor: super::cursor::sprite_argb(),
+            clock: FrameClock::new(),
+            skipped_logged: false,
+        }
     }
 
     fn fill(&mut self, r: &Rect, value: u32) {
@@ -118,6 +126,16 @@ impl Output for Software {
             let r = h.intersect(&area);
             if !r.is_empty() {
                 self.fill(&r, 0);
+            }
+        }
+        if let Some(c) = plan.cursor {
+            let clip = c.intersect(&area);
+            for y in clip.y..clip.bottom() {
+                for x in clip.x..clip.right() {
+                    let src = self.cursor[((y - c.y) * c.w + (x - c.x)) as usize];
+                    let d = &mut self.pixels[(y as u32 * self.width + x as u32) as usize];
+                    *d = blend(*d, src);
+                }
             }
         }
         stats.render_us = t0.elapsed().as_micros() as u64;

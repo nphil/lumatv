@@ -243,6 +243,8 @@ impl State {
     /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases.
     pub fn tick(&mut self) -> Presented {
         self.stats.ticks += 1;
+        self.scene.cursor =
+            if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
         let State { scene, surfaces, output, stats, .. } = self;
         let plan = scene.plan(surfaces);
         let mut drew = false;

@@ -354,7 +354,7 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     let _kb = client.seat.get_keyboard(&client.qh, ());
     let _ptr = client.seat.get_pointer(&client.qh, ());
     let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Pointed");
-    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    let buf = client.shm_buffer(64, 64, 0xffff_0000);
     client.present(&win.surface, &buf);
     assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
     std::thread::sleep(Duration::from_millis(30));
@@ -382,15 +382,23 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     assert!(client.wait_until(WAIT, |s| s.keys.len() >= 4));
     assert_eq!(client.state.keys[2], (28, 1));
     assert_eq!(client.state.buttons.len(), 2, "no button without the cursor");
-    // Moving again re-enters; a cursor left alone past the timeout hides from the tick.
+    // Moving again re-enters and the sprite is composed at the pointer: white at its centre, the card's red
+    // untouched beside it. A cursor left alone past the timeout hides from the tick and the red comes back.
     server.eval(|s| lumatv_compositor::control::handle(s, "pointer 30 30"));
     assert!(client.wait_until(WAIT, |s| s.pointer_enters.len() >= 2));
+    std::thread::sleep(Duration::from_millis(30));
+    let shown = server.eval(|s| s.output.capture().unwrap());
+    assert_eq!(shown.pixel(30, 30), [0xff, 0xff, 0xff, 0xff], "the sprite's centre");
+    assert_eq!(shown.pixel(60, 60), [0xff, 0, 0, 0xff], "the card beside it");
     server.eval(|s| {
         s.seat.cursor_shown_at = Some(std::time::Instant::now() - lumatv_compositor::server::seat::CURSOR_TIMEOUT);
         s.poll_holds();
     });
     assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 2));
     assert!(!server.eval(|s| s.seat.cursor_visible));
+    std::thread::sleep(Duration::from_millis(30));
+    let hidden = server.eval(|s| s.output.capture().unwrap());
+    assert_eq!(hidden.pixel(30, 30), [0xff, 0, 0, 0xff], "the card is whole again");
 }
 
 #[test]

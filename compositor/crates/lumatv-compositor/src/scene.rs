@@ -63,6 +63,8 @@ pub struct Plan {
     pub damage: Rect,
     /// The changed tiles (`damage::TILE` grid), for the scan-out rings.
     pub tiles: Option<Tiles>,
+    /// Where the pointer's sprite goes, above everything, while the cursor shows.
+    pub cursor: Option<Rect>,
 }
 
 impl Plan {
@@ -71,7 +73,7 @@ impl Plan {
     pub fn sole_fullscreen(&self) -> Option<&Item> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         match self.items.as_slice() {
-            [one] if one.opaque && one.rect == full && self.holes.is_empty() => Some(one),
+            [one] if one.opaque && one.rect == full && self.holes.is_empty() && self.cursor.is_none() => Some(one),
             _ => None,
         }
     }
@@ -85,6 +87,7 @@ impl Plan {
         self.holes.clear();
         self.damage_rects.clear();
         self.damage = Rect::default();
+        self.cursor = None;
         if let Some(t) = &mut self.tiles {
             t.clear();
         }
@@ -99,6 +102,9 @@ pub struct Scene {
     map_counter: u64,
     pub groups: Vec<Group>,
     pub holes: Vec<Hole>,
+    /// The pointer's sprite rectangle while the cursor shows (set by the state before each plan).
+    pub cursor: Option<Rect>,
+    last_cursor: Option<Rect>,
     /// Set whenever something other than surface damage changed the picture (map, unmap, move, restack).
     pub layout_changed: bool,
     /// What the last plan covered, to damage what a vanished window exposed.
@@ -308,6 +314,19 @@ impl Scene {
             self.layout_changed = false;
         }
         std::mem::swap(&mut self.last_rects, &mut self.rects);
+        // The sprite sits above everything: where it was and where it is are redrawn when it moved or hid.
+        self.plan.cursor = self.cursor;
+        if self.cursor != self.last_cursor {
+            let tiles = self.plan.tiles.as_mut().unwrap();
+            for r in self.last_cursor.iter().chain(self.cursor.iter()) {
+                let r = r.intersect(&output);
+                if !r.is_empty() {
+                    self.plan.damage = self.plan.damage.union(&r);
+                    tiles.add(&r);
+                }
+            }
+            self.last_cursor = self.cursor;
+        }
         self.plan.damage = self.plan.damage.intersect(&output);
         &self.plan
     }

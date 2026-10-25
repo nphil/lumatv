@@ -62,6 +62,8 @@ pub struct Gl {
     path: BufferPath,
     import_failures: u64,
     gl_errors: u64,
+    /// The pointer's sprite, uploaded once (RGBA, premultiplied) the first time the cursor shows.
+    cursor_tex: Option<GLuint>,
 }
 
 const VS: &str = "attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;\nvoid main() { gl_Position = vec4(a_pos, 0.0, 1.0); v_uv = a_uv; }\n";
@@ -126,7 +128,38 @@ impl Gl {
             path,
             import_failures: 0,
             gl_errors: 0,
+            cursor_tex: None,
         })
+    }
+
+    /// The sprite's texture: made on first use. RGBA is uploaded as RGBA whatever the shm path uses, so this
+    /// never depends on the BGRA extension.
+    fn cursor_texture(&mut self) -> GLuint {
+        if let Some(t) = self.cursor_tex {
+            return t;
+        }
+        let bytes = super::cursor::sprite();
+        let a = &self.egl.api;
+        let mut t = 0;
+        // SAFETY: GL object creation with a current context; the upload reads exactly SIZE*SIZE*4 bytes.
+        unsafe {
+            (a.glGenTextures)(1, &mut t);
+            (a.glBindTexture)(egl::GL_TEXTURE_2D, t);
+            set_params(a);
+            (a.glTexImage2D)(
+                egl::GL_TEXTURE_2D,
+                0,
+                egl::GL_RGBA as i32,
+                super::cursor::SIZE,
+                super::cursor::SIZE,
+                0,
+                egl::GL_RGBA,
+                egl::GL_UNSIGNED_BYTE,
+                bytes.as_ptr() as *const c_void,
+            );
+        }
+        self.cursor_tex = Some(t);
+        t
     }
 
     pub fn egl(&self) -> &Egl {
@@ -413,6 +446,17 @@ impl Gl {
                     (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
                     (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
                 }
+            }
+        }
+        if let Some(c) = plan.cursor {
+            let tex = self.cursor_texture();
+            for r in rects {
+                let clip = c.intersect(r);
+                if clip.is_empty() {
+                    continue;
+                }
+                self.scissor(&clip);
+                self.draw_quad(tex, &c, true);
             }
         }
         // Start the GPU work now (LumaShow lesson 3: a fence, not glFlush, is what starts it on Mali). The KMS
