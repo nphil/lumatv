@@ -2,17 +2,19 @@
 # C4 cutover, executed ON THE SET as /tmp/lumatv/cutover.sh. LumaTV's compositor becomes the live one with LG's
 # compositor kept installed: the supervisor (lumatv-sm) is bind-mounted over /usr/bin/surface-manager and the unit
 # restarted; on any failure the supervisor itself execs LG's binary at that path and brings LG's Home back. The
-# early boot hook that re-applies the mount on every boot is tools/lumatv's (see docs/research/compositor-c2-result.md
-# "Enable path"): until it exists, LG's compositor is back after a reboot.
+# early boot hook (tools/lumatv compositor-boot, tools/compositor.sh) places the mount at boot while the enabled
+# flag exists, so only `enable` (and a running trial) sets it: a reboot during a test session comes up on LG's.
 #
 #   cutover.sh install     copy the bundle to /var/lib/lumatv/compositor, record the fingerprint, reset failures
+#                          (not enabled)
 #   cutover.sh probe       ask ls-hubd for the real bus names from the real path with LG's compositor running: tells
 #                          whether the role allows them to this file (exit 0) or not (exit 2); ~2 s, nothing restarts
-#   cutover.sh trial SECS  mount, restart the unit, watch for SECS seconds, restore LG's (default 120)
-#   cutover.sh enable      mount, restart the unit and leave LumaTV's compositor live (until a reboot or disable)
+#   cutover.sh trial SECS  mount, restart the unit, watch for SECS seconds, restore LG's (default 120); the flag
+#                          exists only while the trial runs
+#   cutover.sh enable      flag, mount, restart the unit and leave LumaTV's compositor live (also after reboots)
 #   cutover.sh disable     unmount, restart LG's compositor, bring Home back; the enabled flag is removed
 #   cutover.sh status      what is live now
-#   cutover.sh revert      unmount and restart LG's compositor (the flag stays; a trial can follow)
+#   cutover.sh revert      unmount and restart LG's compositor (the flag stays)
 STATE=/var/lib/lumatv/compositor
 D=/tmp/lumatv
 LG=/usr/bin/surface-manager
@@ -43,9 +45,8 @@ install)
     $STATE/bin/lumatv-sm --print-fingerprint > $STATE/fingerprint
     stat -c '%s %Y' $LG > $STATE/lg-binary
     echo 0 > $STATE/failures
-    rm -f $STATE/escaped $STATE/last-fallback
-    touch $STATE/enabled
-    echo "installed: fingerprint $(cat $STATE/fingerprint); LG binary $(cat $STATE/lg-binary); $(du -sh $STATE | cut -f1)"
+    rm -f $STATE/escaped $STATE/last-fallback $STATE/enabled
+    echo "installed (not enabled): fingerprint $(cat $STATE/fingerprint); LG binary $(cat $STATE/lg-binary); $(du -sh $STATE | cut -f1)"
     ;;
 probe)
     [ -x $STATE/bin/lumatv-sm ] || { echo "run install first"; exit 1; }
@@ -66,9 +67,11 @@ status)
     ;;
 trial|enable)
     secs=${2:-120}
-    [ -f $STATE/enabled ] || { echo "run install first"; exit 1; }
+    [ -x $STATE/bin/lumatv-sm ] || { echo "run install first"; exit 1; }
+    if is_mounted; then echo "already mounted; 'cutover.sh status' says what runs"; exit 1; fi
     echo 0 > $STATE/failures; rm -f $STATE/escaped
-    if [ "$1" = trial ]; then trap revert EXIT INT TERM; fi
+    touch $STATE/enabled
+    if [ "$1" = trial ]; then trap 'rm -f $STATE/enabled; revert' EXIT INT TERM; fi
     mount --bind $STATE/bin/lumatv-sm $LG
     echo "mounted; restarting the unit"
     systemctl restart surface-manager-daemon
@@ -86,7 +89,23 @@ trial|enable)
         if ! is_mounted; then echo "the supervisor fell back to LG's compositor: $(cat $STATE/last-fallback 2>/dev/null)"; break; fi
         if [ "$1" = enable ] && [ $t -ge 30 ]; then break; fi
     done
-    if [ "$1" = trial ]; then trap - EXIT INT TERM; revert; else
+    if [ "$1" = trial ]; then
+        # Evidence for the note before LG's compositor comes back: who connected, which windows mapped, what the
+        # compositor journalled, and the panel as LG's capture service reads it.
+        O=$D/out/trial; mkdir -p $O
+        if pgrep -f 'bin/lumatv-compositor' > /dev/null; then
+            for c in status windows journal; do
+                $STATE/lib/ld-linux-aarch64.so.1 --library-path $STATE/lib $STATE/bin/lumatv-compositor ctl --runtime-dir /tmp/xdg $c > $O/$c.json 2>/dev/null
+            done
+            timeout 10 luna-send -n 1 luna://com.webos.service.capture/executeOneShot "{\"path\":\"$O/panel.png\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":960,\"height\":540}" > /dev/null 2>&1
+            timeout 10 luna-send -n 1 -f luna://com.webos.surfacemanager/getForegroundAppInfo '{}' > $O/foreground.json 2>&1
+            echo "trial evidence: $(grep -o '"summary":"[^"]*"' $O/status.json) windows $(grep -o '"appId":"[^"]*"' $O/windows.json | sort -u | tr '\n' ' ')"
+        fi
+        cp $STATE/sm.log $STATE/compositor.log $O/ 2>/dev/null
+        trap - EXIT INT TERM
+        rm -f $STATE/enabled
+        revert
+    else
         n=0; while [ -d /tmp/lumatv-recover.lock ] && [ $n -lt 90 ]; do sleep 1; n=$((n+1)); done
         echo "enabled: LumaTV's compositor stays live (recovery done after ${n}s more); 'cutover.sh disable' restores LG's"
     fi
