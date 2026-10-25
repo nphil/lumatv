@@ -24,6 +24,9 @@ with open(os.path.join(d, "calls"), "a") as f:
     f.write(uri.rsplit("/", 1)[-1] + " " + json.dumps(payload) + "\n")
 if os.path.exists(os.path.join(d, "fail")) and uri.endswith(open(os.path.join(d, "fail")).read().strip()):
     print(json.dumps({"returnValue": False}))
+elif uri.endswith("getPowerState"):
+    if os.path.exists(os.path.join(d, "power")):
+        print(json.dumps({"returnValue": True, "state": open(os.path.join(d, "power")).read().strip()}))
 elif uri.endswith("getConfigs"):
     key = payload["configNames"][0]
     print(json.dumps({"returnValue": True, "configs": {key: json.load(open(os.path.join(d, "list.json")))}}))
@@ -87,6 +90,40 @@ class Preload(unittest.TestCase):
         self.assertEqual(self.read("live.json"), {i: False for i in json.load(open(PAYLOAD))["off"]})
         self.assertEqual(self.read("data/preload.json"), {"off": json.load(open(PAYLOAD))["off"]})
         self.assertEqual(json.load(open(self.orig)), LG)
+
+    def test_on_in_standby_writes_the_list_and_leaves_the_live_manager_to_the_next_screen_on(self):
+        # The live manager holds each setPreloadPolicy call for the timeout while the panel is off
+        # (14 apps at 10 s were 140 s of a boot apply); the helper sends them at the first screen-on.
+        ids = json.load(open(PAYLOAD))["off"]
+        for state in ("ActiveStandby", "Suspend"):
+            with self.subTest(state=state):
+                with open(os.path.join(self.tmp.name, "power"), "w") as f:
+                    f.write(state)
+                rc, out = self.run_tool("on")
+                self.assertEqual(rc, 0, out)
+                self.assertEqual(out["deferred"], ids)
+                self.assertEqual(out["failed"], [])
+                self.assertFalse(self.enabled()["youtube.leanback.v4"])
+                self.assertEqual(self.read("data/preload.json"), {"off": ids})
+                self.assertNotIn("setPreloadPolicy", open(os.path.join(self.tmp.name, "calls")).read())
+                self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "live.json")))
+
+    def test_on_with_the_screen_on_tells_the_live_manager(self):
+        with open(os.path.join(self.tmp.name, "power"), "w") as f:
+            f.write("Active")
+        rc, out = self.run_tool("on")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(out["deferred"], [])
+        self.assertEqual(self.read("live.json"), {i: False for i in json.load(open(PAYLOAD))["off"]})
+
+    def test_on_in_standby_still_fails_when_the_list_cannot_be_written(self):
+        with open(os.path.join(self.tmp.name, "power"), "w") as f:
+            f.write("ActiveStandby")
+        with open(os.path.join(self.tmp.name, "fail"), "w") as f:
+            f.write("setConfigs")
+        rc, out = self.run_tool("on")
+        self.assertEqual(rc, 1)
+        self.assertFalse(out["ok"])
 
     def test_on_twice_keeps_the_first_backup_and_writes_nothing_new(self):
         self.run_tool("on")

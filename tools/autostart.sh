@@ -80,6 +80,14 @@ if [ "$1" = "--worker" ]; then
   echo $$ > "$WORKER_MARK" 2>/dev/null
   # Tells apply it is on the boot path: never force the panel on.
   LUMA_BOOT=1; export LUMA_BOOT
+  # The logo check's frames (tools/bootcap.sh): `echo <seconds> > $STATE/bootcap` before a reboot.
+  # One boot only, and detached like everything else here.
+  if [ -f "$STATE/bootcap" ] && [ -x "$APPDIR/tools/bootcap.sh" ]; then
+    bc_secs=$(cat "$STATE/bootcap" 2>/dev/null)
+    rm -f "$STATE/bootcap"
+    setsid "$APPDIR/tools/bootcap.sh" "$bc_secs" "/tmp/$BRAND_SHORT_ID-bootcap" </dev/null >/dev/null 2>&1 &
+    log "boot capture of ${bc_secs}s started"
+  fi
   hs=$("$CLI" homestub-boot 2>&1)
   log "homestub-boot: $(echo "$hs" | tr -d '\n' | cut -c1-200)"
   # LumaTV's own compositor, when it is enabled: the supervisor goes over LG's binary here, before the

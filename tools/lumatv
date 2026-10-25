@@ -105,7 +105,8 @@ KEYFILTER_HANDLER=handleLumaHome
 # each, loaded at any switch-on with room to spare). $PRELOAD_STATE names them for the helper, which
 # sends the live policy again at every screen-on (webOS 10 forgets it at each switch-on, and the
 # preload manager only answers setPreloadPolicy while the screen is on: in Active Standby the call
-# stays pending, so `preload on` reports those ids failed and the helper's next screen-on applies them).
+# stays pending for 10 s per app, so `preload on` skips the live calls while the screen is off and the helper's
+# next screen-on applies them: the 14 held calls were 140 s of a boot apply in standby).
 # $PRELOAD_ORIG is LG's list as found, so `off` and `revert` put it back.
 PRELOAD_TOOL="$APPDIR/tools/preload.py"
 PRELOAD_SRC="$APPDIR/payload/preload.json"
@@ -286,6 +287,10 @@ CAPTURE_URI="luna://com.webos.service.capture/executeOneShot"
 CAP_TMP=/tmp/$SHORT_ID-ready.png
 CAP_BLANK_BYTES=4096
 READY_WAIT=30
+# On the boot path, a set that still reports itself in standby after this many seconds without pixels
+# is not going to present: the wait ends there instead of at READY_WAIT. Measured: the 16:34 restart
+# from standby spent the whole 30 s here.
+STANDBY_WAIT=5
 WAM_SVC=webapp-mgr.service
 WAM_WAIT=20
 SCREEN_ON_URI="luna://com.webos.service.tvpower/power/turnOnScreen"
@@ -417,6 +422,7 @@ wait_presenting() {
   waited=0
   while [ "$waited" -lt "$READY_WAIT" ]; do
     panel_presenting && return 0
+    if [ "${LUMA_BOOT:-0}" = "1" ] && [ "$waited" -ge "$STANDBY_WAIT" ] && ! panel_is_active; then return 1; fi
     sleep 1
     waited=$((waited+1))
   done
@@ -1658,7 +1664,7 @@ verb_homestub_watch() {
   # Requests and a beat left from before this guard started are stale.
   rm -f "$HS_ESCAPE" "$HS_CONFIRM" "$HS_BEAT"
   read -r hs_up hs_idle < /proc/uptime; hs_now=${hs_up%%.*}
-  hs_last=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE)); hs_cpid=""; hs_gap=0; hs_good=0; hs_mchk=$hs_now
+  hs_last=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE)); hs_cpid=""; hs_gap=0; hs_good=0; hs_mchk=$hs_now; hs_dark=0
   log_line "homestub: guard started"
   while :; do
     if [ -p "$HS_TICK" ]; then read -t 1 hs_x <> "$HS_TICK" 2>/dev/null; else sleep 1; fi
@@ -1718,21 +1724,34 @@ verb_homestub_watch() {
       hs_guard_exit
     fi
     if [ -n "$hs_b" ] && [ "$hs_b" != "$hs_last" ]; then
-      hs_last=$hs_b; hs_ok_at=$hs_now; hs_good=$((hs_good + 1))
+      hs_last=$hs_b; hs_ok_at=$hs_now; hs_good=$((hs_good + 1)); hs_dark=0
       # A minute of beats ends the run of faults.
       if [ "$hs_good" -eq 60 ]; then rm -f "$HS_STRIKES"; fi
     fi
     if [ "$hs_now" -ge "$hs_grace" ] && [ $((hs_now - hs_ok_at)) -ge "$HS_STALE" ]; then
-      # Unchanged for HS_STALE s. The file's own age is checked before LG's Home is
-      # given back: a fault was once logged on the guard's reading alone while
-      # LumaHome's counter showed no stall.
-      hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
-      if [ "$hs_age" -le 2 ]; then
-        log_line "homestub: beat read as unchanged at '$hs_last' for $((hs_now - hs_ok_at)) s but the file is $hs_age s old, kept"
+      # No beat, and the panel is off (standby): not a fault. After a restart of the
+      # compositor with the panel off (a boot into standby) LumaHome never beat in 14
+      # minutes of standby, and the guard gave LG's Home back at 30 s. The beat is checked
+      # again from the first screen-on, with a fresh grace. A set that is on gets no such
+      # allowance.
+      if ! panel_is_active; then
+        if [ "$hs_dark" = 0 ]; then hs_dark=1; log_line "homestub: no beat and the panel is off, waiting for the screen"; fi
         hs_ok_at=$hs_now
+      elif [ "$hs_dark" = 1 ]; then
+        hs_dark=0; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
+        log_line "homestub: screen on, waiting for the beat"
       else
-        homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s, file $hs_age s old)"
-        hs_guard_exit
+        # Unchanged for HS_STALE s. The file's own age is checked before LG's Home is
+        # given back: a fault was once logged on the guard's reading alone while
+        # LumaHome's counter showed no stall.
+        hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
+        if [ "$hs_age" -le 2 ]; then
+          log_line "homestub: beat read as unchanged at '$hs_last' for $((hs_now - hs_ok_at)) s but the file is $hs_age s old, kept"
+          hs_ok_at=$hs_now
+        else
+          homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s, file $hs_age s old)"
+          hs_guard_exit
+        fi
       fi
     fi
     fi

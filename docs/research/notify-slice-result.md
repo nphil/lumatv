@@ -6,15 +6,14 @@ Built and tested offline: the toast, the alert, the input popup and the PIN prom
 notification view, their scenes (dark and light), and the boot and power-off logo choice. On the set: one restart for
 the power-on logo (2026-10-25 16:34, "Restart on the set"), which answered nothing about the logo: the set was
 restarted from Active Standby, booted back into Active Standby with the panel off, and no `[Logo]` line was written.
+The two faults that restart found are fixed offline (below, "Boot from standby (BootPathFix)"), **not verified on the set**.
 Next, in order:
 
 1. `lumatv notifications on` on the set (stages LG's tree, patches it, overlays `payload/notification`), then
    `python3 docs/research/perf/gate.py --surfaces toast,alert` with Home on screen (see "Set steps").
 2. A PIN prompt on the set with Nitin present (a locked input), see "Set steps".
-3. The power-on logo again, from a set that is ON (a `reboot` with the screen on comes back with the screen on, HANDOFF),
-   with the capture loop started before the reboot's SSH session ends and retried until the new system answers (the
-   script of 16:34 reconnected to the old system at 8 s and to the new one only at 46 s; `/tmp/lt/reboot_logo.py` has the
-   fix, outside the repo). And the boot path's Home stub fault, below, before any restart that matters.
+3. The power-on logo from a set that is ON: "Set steps for the boot path and the logo", which also re-checks the
+   stub guard and the boot apply's time on the way.
 
 ## What changed
 
@@ -107,3 +106,53 @@ A logo that fails to load answers tvpowerd at once (tested), so the worst case i
   beat, so the guard's 30 s rule after a boot-time compositor restart hands LG's Home back on every reboot into standby;
   the guard should wait for the panel (or `apply` should not restart the compositor on a boot whose shadow is current).
 - The receiver turned off with the set and on again at the wake, as before.
+
+## Boot from standby (BootPathFix, offline, not verified on the set)
+
+Cause of the 188 s apply: `apply` runs `preload.py on`, which sent one `setPreloadPolicy` per app (14 ids). With the panel off
+the preload manager holds each call until `luna-send` is killed at 10 s: 14 x 10 s = 140 s, and the compositor restart came
+145 s after the apply started (16:34:40 to 16:37:05). The 30 s `READY_WAIT` for pixels after the restart and the Home launch,
+on a panel that stays off, was the rest (188 - 145 = 43 s).
+
+- `preload.py on` reads the power state; unless it is `Active` it writes the list and skips the live calls (`deferred` names
+  the ids, `ok` stays true). The helper already sends the policy at every screen-on from `preload.json`. A failed list read
+  or write is still an error.
+- `wait_presenting` on the boot path (`LUMA_BOOT=1`) gives up after `STANDBY_WAIT` (5 s) when no pixels came and the power
+  state is not `Active`; `relaunch_home` then logs `home up ..., panel not presenting` as before. With the panel on, or
+  off the boot path, the wait is `READY_WAIT` as before.
+- The guard (`homestub-watch`): when the beat is stale past the grace, it asks `panel_is_active` first. Panel off: no fault,
+  no fallback, one log line (`no beat and the panel is off, waiting for the screen`), the beat is re-read every 5 s. At the
+  first screen-on (`screen on, waiting for the beat`) the grace of 30 s starts again; if LumaHome still does not beat, the
+  fault and LG's Home come as before (fail-open kept, fault 1 of 2). A beat clears the dark state. Unchanged: the
+  `error` marker (LumaHome could not load) and the compositor restarted without the module are faults with the panel off too.
+- The apply still restarts the compositor in standby (the shadow module has to be read; an abandoned restart once left a
+  whole session on stock QML). Why LumaHome never wrote its beat with the panel off after that restart is not known (the
+  1 s timer in `LumaHome.qml` has no panel condition; the container may not be built without a surface); the guard no
+  longer needs the answer, but whether the stub beats in standby is a TV question below.
+- Tests: `tests.test_preload` (standby defers, screen on sends, a failed list write still fails), `tests.test_tool_rules`
+  (`GuardWaitsForThePanel`: the guard run against a stub: panel off no fault, fresh grace at the screen-on, beat keeps the stub,
+  panel on a stopped beat is a fault, load error is a fault with the panel off; `WaitForPixelsOnTheBootPath`; `BootCapture`).
+
+## Set steps for the boot path and the logo (not verified on the TV)
+
+The logo is up about 14-30 s into a boot and sshd answers on the new system only at about 46 s, so the 16:34 loop could not
+have seen it even from a set that was on. New: `tools/bootcap.sh`, started by the boot hook at ~14 s when
+`/var/lib/lumatv/bootcap` holds a number of seconds (the flag is removed by that boot); frames and an uptime index land in
+`/tmp/lumatv-bootcap`. `docs/research/notify/reboot_logo.py` sets the flag, reboots, retries SSH until the new system answers
+(uptime below the old one), waits for the capture's `done`, fetches the frames and the `[Logo]` lines of every
+`/var/log/messages*`, and prints the state of the stub, preload and apply.
+
+1. Deploy `tools/{lumatv,preload.py,autostart.sh,bootcap.sh}` to the set's app directory (`bootcap.sh` executable; the ipk
+   build copies it). `lumatv log` is clean; `lumatv homestub status` shows `state stub`, `faults 0`.
+2. Set on, screen on, Home in front; `lumatv logo on`; pick the styles (`lumatv theme set '{"logo":{"on":2,"off":3}}'`) so that a
+   `[Logo] power-on logo 2` line cannot be the default.
+3. `python3 docs/research/notify/reboot_logo.py docs/research/notify/boot-<date>-<hhmm>` (60 s of frames). It refuses a set
+   that is not Active. Check: frames of the logo before Home (look at them), `[Logo] power-on logo 2`, `hook: boot capture of 60s
+   started`, `faults 0`, Home in front, no `giving LG's Home back`.
+4. Standby case, after step 3: put the set in Active Standby, then by hand `echo 30 > /var/lib/lumatv/bootcap; reboot`. From a
+   second SSH session, `lumatv log`: expected
+   `apply ... took` well under 188 s (the 140 s preload hole and 25 s of the pixel wait are gone; the rest is not re-measured), `homestub: no beat and the panel is
+   off, waiting for the screen`, no `fault 1 of 2`; then wake the set: `screen on, waiting for the beat`, `homestub status`
+   `state stub, beat true, faults 0` within 40 s, `preload status` still on, Picture Mode unchanged. If the beat never comes
+   after the wake, the fault and LG's Home arrive 35 s later as before; note the `homestub` and `compositor` lines and the
+   `/tmp/<shortId>-beat` age during standby (does the stub beat at all with the panel off?).

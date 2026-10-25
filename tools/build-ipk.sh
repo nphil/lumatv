@@ -48,6 +48,7 @@ assets/splash.png
 tools/$SRC_NAME
 tools/brand.sh
 tools/autostart.sh
+tools/bootcap.sh
 tools/keyfilter.py
 tools/theme.py
 frame/appinfo.json
@@ -234,8 +235,8 @@ cp assets/splash.png "$DATA_ROOT/"
 mkdir -p "$DATA_ROOT/tools"
 cp "tools/$SRC_NAME" "$DATA_ROOT/tools/$SHORT_ID"
 chmod 755 "$DATA_ROOT/tools/$SHORT_ID"
-cp tools/autostart.sh "$DATA_ROOT/tools/"
-chmod 755 "$DATA_ROOT/tools/autostart.sh"
+cp tools/autostart.sh tools/bootcap.sh "$DATA_ROOT/tools/"
+chmod 755 "$DATA_ROOT/tools/autostart.sh" "$DATA_ROOT/tools/bootcap.sh"
 
 # Copy the payload tree as-is: the tool stages directories (compositor QML,
 # theme, fonts) rather than single files.

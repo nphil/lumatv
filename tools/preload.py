@@ -20,8 +20,10 @@ the list back with those entries off, tells the running preload manager with set
 and records the ids in `state` (`<dataDir>/preload.json`, which the helper reads at every
 screen-on: webOS 10 forgets the list at each switch-on and the preload manager loads the apps
 again). setPreloadPolicy is answered only while the screen is on; in Active Standby the preload
-manager holds the call ("Pending-setPreloadPolicy") until the timeout, so `on` run then reports
-the ids as failed and the helper's next screen-on sends them. `off` puts the entries back as
+manager holds the call ("Pending-setPreloadPolicy") until the timeout: 14 ids at 10 s held the
+boot apply of a restart from standby for 140 s (2026-10-25 16:34). So with the panel off `on`
+writes the list and skips the live calls (`deferred` names the ids and `on` reports ok); the
+helper's next screen-on sends them. `off` puts the entries back as
 `orig` has them. `wake` sends setPreloadPolicy again. Nothing here closes an app: one that is
 loaded stays loaded, and it is not loaded again. The voice app ignores closeByAppId; it ends
 on SIGTERM and is not loaded again once the policy says so.
@@ -45,6 +47,13 @@ def luna(uri, payload):
         return json.loads(r.stdout)
     except ValueError:
         return None
+
+
+def screen_off():
+    """True when the set answers that it is not Active (ActiveStandby, Suspend); False when Active or unanswered."""
+    reply = luna("luna://com.webos.service.tvpower/power/getPowerState", {})
+    state = reply.get("state") if reply else None
+    return isinstance(state, str) and state != "Active"
 
 
 def read_list():
@@ -123,9 +132,10 @@ def turn_on(payload, orig, state):
     target = with_enabled(lst, ids, False)
     if target != lst and not write_list(target):
         return {"ok": False, "error": "the preload list could not be written"}
-    failed = [i for i in ids if not set_live(i, False)]
+    deferred = ids if screen_off() else []
+    failed = [i for i in ids if not deferred and not set_live(i, False)]
     write_json(state, {"off": ids})
-    return {"ok": not failed, "off": ids, "changed": target != lst, "failed": failed}
+    return {"ok": not failed, "off": ids, "changed": target != lst, "failed": failed, "deferred": deferred}
 
 
 def turn_off(payload, orig, state):

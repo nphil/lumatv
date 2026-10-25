@@ -55,6 +55,16 @@ shim, then the Rust helper.
 **Undo:** see "Undo" below. A black screen: `luna-send -n 1
 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}'`.
 
+## Boot into standby (2026-10-25, offline fix, not verified on the set)
+
+A restart from Active Standby boots into standby with the panel off. LumaHome wrote no heartbeat (the file never existed in
+that boot), so the guard's 30 s rule gave LG's Home back at the first boot (fault 1 of 2, `state lg`). Now: a stale or
+missing beat with the panel off (`getPowerState` not `Active`) is not a fault; the guard waits, and from the first screen-on it
+gives LumaHome a fresh 30 s. A stopped beat with the panel on, the `error` marker and a compositor without the module are
+faults as before. The same boot's apply took 188 s: 140 s were `setPreloadPolicy` calls the preload manager holds while the
+screen is off, 30 s the wait for pixels after the restart. Both are cut (`docs/research/notify-slice-result.md`, "Boot from
+standby"). Open: whether the stub beats with the panel off at all, and whether it beats within 30 s of the first screen-on.
+
 ## What passed
 
 - SAM takes the stub as Home within 0.1 s of `blockSystemApp` and

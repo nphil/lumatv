@@ -131,6 +131,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A restart from standby no longer hands LG's Home back. The Home stub guard treats a missing
+  heartbeat with the panel off as not yet and checks again from the first screen-on; a stopped
+  beat on a set that is on is still a fault. The boot apply no longer waits 140 s on the preload
+  manager (it holds `setPreloadPolicy` while the screen is off; the helper sends the policy at
+  the first screen-on) nor 30 s for pixels on a panel that stays off.
 - The ipk now ships the tools `systemui on` and `webglass on` call:
   `tokens.py`, `systemui.py` and `systemui_patch.py`.
 - The "auto" light or dark glass choice read a canvas that stayed empty on
