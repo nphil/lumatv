@@ -266,7 +266,6 @@ impl State {
                 b.release();
                 self.stats.releases += 1;
             }
-            self.output.forget_buffer(&b);
         }
         self.surfaces.clear_damage();
         if let Some(n) = self.config.frames

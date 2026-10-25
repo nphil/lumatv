@@ -27,6 +27,8 @@ pub enum BufferPath {
 }
 
 struct Tex {
+    /// Kept for liveness: the entry goes when the client destroys the buffer (`prune`).
+    buffer: WlBuffer,
     tex: GLuint,
     image: EGLImage,
     size: (i32, i32),
@@ -136,7 +138,7 @@ impl Gl {
                         set_params(a);
                         (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, egl::GL_RGBA as i32, shm.width, shm.height, 0, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, std::ptr::null());
                     }
-                    Tex { tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false }
+                    Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false }
                 }
                 BufferKindRef::Dmabuf(d) => {
                     let Some(plane) = d.planes.first() else { return None };
@@ -148,7 +150,7 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true }
+                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true }
                 }
                 BufferKindRef::External => {
                     let Some(ptr) = Self::resource_ptr(buffer) else {
@@ -168,7 +170,7 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { tex: bind_image(a, image), image, size, y_invert, uploaded: true }
+                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true }
                 }
             };
             self.textures.insert(id.clone(), tex);
@@ -247,6 +249,18 @@ impl Gl {
 
     pub fn import_failures(&self) -> u64 {
         self.import_failures
+    }
+
+    /// Drops textures of buffers the clients destroyed (the driver's own buffers have no destroy callback here).
+    fn prune(&mut self) {
+        let dead: Vec<ObjectId> = self.textures.iter().filter(|(_, t)| !t.buffer.is_alive()).map(|(id, _)| id.clone()).collect();
+        for id in dead {
+            if let Some(t) = self.textures.remove(&id) {
+                // SAFETY: objects this renderer created.
+                unsafe { (self.egl.api.glDeleteTextures)(1, &t.tex) };
+                self.egl.destroy_image(t.image);
+            }
+        }
     }
 }
 
@@ -404,7 +418,11 @@ impl Output for Gl {
     }
 
     fn present(&mut self) -> io::Result<Presented> {
-        Ok(self.clock.stamp())
+        let p = self.clock.stamp();
+        if p.seq % 60 == 0 {
+            self.prune();
+        }
+        Ok(p)
     }
 
     fn capture(&mut self) -> io::Result<Image> {

@@ -49,7 +49,8 @@ pub trait Output {
     /// and whether its rows are stored bottom-up. `None` when the output cannot tell.
     fn query_buffer(&mut self, buffer: &WlBuffer) -> Option<((i32, i32), bool)>;
 
-    /// Forgets anything cached for a buffer that was released or destroyed.
+    /// Forgets anything cached for a buffer the client destroyed. A released buffer keeps its import: clients
+    /// re-attach the same buffers every few frames.
     fn forget_buffer(&mut self, buffer: &WlBuffer);
 
     /// Draws the plan into the output's target.
