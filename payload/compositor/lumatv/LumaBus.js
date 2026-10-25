@@ -15,6 +15,7 @@ var handler = null
 var escapeHandler = null
 var gearHome = null                     // { ready(): bool, hold(): bool }
 var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(): bool, hold(): bool }
+var appKeyHandler = null                // (id, frontAppId) -> true when LumaHome took the remote's app key (launched an app, or does nothing)
 var lastFaultMs = 0
 var beatMs = 0
 
@@ -22,6 +23,7 @@ function setHandler(h) { handler = h }
 function setEscapeHandler(h) { escapeHandler = h }
 function setGear(g) { gearHome = g }
 function setOverlay(o) { overlay = o }
+function setAppKey(h) { appKeyHandler = h }
 
 // LumaHome's once-a-second timer calls this. The filter takes a key only while it has been
 // called within the last 3 s: a layer whose timers have stopped is not answering, and the
@@ -73,6 +75,15 @@ function gearHold() {
         if (overlay && overlay.ready() === true) return overlay.hold() === true
     } catch (e) { fault("gear hold", e) }
     return false
+}
+
+// One of the remote's app keys (Netflix, Prime Video, Disney+, LG Channels: theme `remote.appKeys`) was pressed over whatever is in
+// front. True when LumaHome took it; false hands it to LG, whose own target (and its auto-install) is the default only where that
+// app is installed.
+function appKey(id, frontAppId) {
+    if (!appKeyHandler || !answering()) return false
+    try { return appKeyHandler(id, frontAppId) === true }
+    catch (e) { fault("app key", e); return false }
 }
 
 // Home held 650 ms (LumaKeyBridge.qml has written its request): LumaHome starts following

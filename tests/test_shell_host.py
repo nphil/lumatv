@@ -117,6 +117,31 @@ class KeyPath(HostCase):
         self.assertEqual(got["state_settings"], "false/drawer")
         self.assertEqual(got["state_apps"], "drawer/statusbar/0/0/")
 
+    # ---- the remote's app keys: what LumaHome says to the key filter (settings/AppKeys.js has the shape of remote.appKeys)
+
+    def test_the_owners_app_keys_open_the_app_he_chose_or_nothing_and_an_unset_key_is_LGs_where_its_app_is_installed(self):
+        chosen = {"perf": {"syncResidents": True}, "remote": {"appKeys": {"netflix": "com.beb.plxnative", "amazon": "", "disneyplus": "com.not.installed"}}}
+        unset = "root.patchTheme({ remote: { appKeys: {} } })"
+        got, _ = self.run_host([
+            (0, "root.appKey('netflix', '')", "netflix"), (100, "root.appKey('netflix', 'com.beb.plxnative')", "already"),
+            (200, "root.appKey('amazon', '')", "nothing"), (300, "root.appKey('disneyplus', '')", "missing"),
+            (400, "root.appKey('lgchannels', '')", "unset_installed"), (500, CALLS, "calls"),
+            # every key unset: LG's own target where that app is installed (Netflix is), nothing where it is not (Disney+ is not)
+            (600, do(unset), "reset"), (700, "root.appKey('netflix', '')", "default_netflix"), (800, "root.appKey('disneyplus', '')", "default_disney"),
+            (900, CALLS, "calls_default"),
+            # not from Home: no splash, the same launch
+            (1000, do("root.hostActive = false"), "away"), (1100, "root.patchTheme({ remote: { appKeys: { amazon: 'com.apple.appletv' } } })", "set"),
+            (1200, "root.appKey('amazon', 'netflix')", "over_app"), (1500, CALLS, "calls_over"),
+        ], 2000, "--theme", json.dumps(chosen))
+        self.assertEqual(got["netflix"], "true", "the key is taken: it opens Plex, not Netflix")
+        self.assertEqual((got["already"], got["nothing"], got["missing"]), ("true", "true", "true"),
+                         "over the app it opens, set to nothing, or set to an app that is gone: taken, nothing opens")
+        self.assertEqual(got["unset_installed"], "false", "LG Channels is installed and never chosen: LG's key")
+        self.assertEqual(launches(got["calls"]), ["com.beb.plxnative"])
+        self.assertEqual((got["default_netflix"], got["default_disney"]), ("false", "true"))
+        self.assertEqual(launches(got["calls_default"]), ["com.beb.plxnative"], "an unset key never launches what LG would auto-install")
+        self.assertEqual(launches(got["calls_over"]), ["com.beb.plxnative", "com.apple.appletv"])
+
     def test_home_writes_a_beat_at_load_and_goes_on_beating_with_the_panel_off(self):
         # hostActive is what the container says when Home is not on screen (standby, an app in front); the beat never reads it
         got, out = self.run_host([(-6900, "root.beatSeq", "at_load"), (-2500, "root.beatSeq", "later"), (-1000, "root.beatSeq", "a"), (1500, "root.beatSeq", "b"),

@@ -16,7 +16,7 @@ let now, warnings, front, timers, nextTimer, lgCalls, log, Bus;
 
 function makeBus() {
   const env = { console: { warn: (m) => warnings.push(m), info() {} }, Date: { now: () => now } };
-  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold"];
+  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold"];
   return new Function(...Object.keys(env), BUS_SRC + "\nreturn { " + names.join(", ") + " };")(...Object.values(env));
 }
 
@@ -185,4 +185,22 @@ test("a handler that is taken away (the layer was destroyed) is not asked", () =
   expect(Bus.gearReady()).toBe(false);
   expect(Bus.gearHold()).toBe(false);
   expect(Bus.dispatchOverlay(RIGHT, true, false, 1)).toBe(false);
+});
+
+test("the remote's app keys are LumaHome's to decide while the layer answers, and LG's when it does not, has no handler or throws", () => {
+  expect(Bus.appKey("netflix", "x")).toBe(false);                       // nothing registered
+  Bus.setAppKey((id, front) => { log.push(["appKey", id, front]); return id === "netflix"; });
+  expect(Bus.appKey("netflix", "x")).toBe(false);                       // registered, but Home has not beaten: not answering
+  registerHome(Bus);
+  expect(Bus.appKey("netflix", APP)).toBe(true);
+  expect(Bus.appKey("amazon", APP)).toBe(false);                        // LumaHome left it to LG
+  expect(log).toEqual([["appKey", "netflix", APP], ["appKey", "amazon", APP]]);
+  now += 3500;
+  expect(Bus.appKey("netflix", APP)).toBe(false);                       // stopped answering
+  Bus.beat();
+  Bus.setAppKey(() => { throw new Error("no answer"); });
+  expect(Bus.appKey("netflix", APP)).toBe(false);
+  expect(warnings.length).toBe(1);
+  Bus.setAppKey(null);
+  expect(Bus.appKey("netflix", APP)).toBe(false);
 });

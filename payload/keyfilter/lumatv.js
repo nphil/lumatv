@@ -26,15 +26,21 @@
 // ends here, so LG neither opens Settings nor replays a tap. When nothing of ours can show the
 // drawer, the hold is LG's. Key_Option, the 1 s conversion, is the safety net: while the gear is
 // down it is ours too, and LG's Settings never opens over a drawer.
+//
+// The remote's app keys (Netflix, Prime Video, Disney+, LG Channels) are watched in any foreground: the owner may set each to open
+// any app or nothing (theme `remote.appKeys`, read by LumaHome). While LumaHome answers, the TV is on and nothing of LG's is on top of the
+// app, LumaHome says whether it took the key; if it did, the press, its repeats and its release end here, and if not (the key is
+// LG's default and that app is installed) LG's chain handles it as it always did.
 
 var bridge = null;
-var taken = {};          // key code -> "home" or "overlay" while that surface holds the key's press
+var taken = {};          // key code -> "home", "overlay" or "appkey" while that holds the key's press
 var lastFaultMs = 0;
 
 var GEAR_HOLD_MS = 650;  // PLAN: a hold is one press held 650 ms; the AV reset is three taps
 var GEAR_KEY = null;     // WebOS.Key_webOS_Settings, read at init: a scope without WebOS leaves the gear to LG
 var GEAR_WATCH_MS = 4000; // a release that never arrives must not swallow the gear for good
 var gear = { down: false, fired: false, hold: -1, watch: -1, option: false };
+var APP_KEYS = {};       // key code -> "netflix" | "amazon" | "disneyplus" | "lgchannels", read at init
 
 function fault(where, e) {
     // one line per 5 s: a handler that throws on every key repeat must not flood the log
@@ -55,7 +61,13 @@ function init() {
                 try { longPressTimer.setBlockCancel(false); longPressTimer.cancel(); }
                 catch (e) { console.warn("[LumaKeys] could not stop the stock Home hold: " + e); }
             };
-            try { GEAR_KEY = WebOS.Key_webOS_Settings; } catch (e) { GEAR_KEY = null; console.warn("[LumaKeys] no WebOS.Key_webOS_Settings: the gear stays LG's"); }
+            var webos = null;
+            try { webos = WebOS; } catch (e0) { console.warn("[LumaKeys] no WebOS in scope: the gear and the app keys stay LG's"); }
+            if (webos) {
+                GEAR_KEY = typeof webos.Key_webOS_Settings === "number" ? webos.Key_webOS_Settings : null;
+                var names = { netflix: "Key_webOS_Netflix", amazon: "Key_webOS_Amazon", disneyplus: "Key_webOS_Disneyplus", lgchannels: "Key_webOS_LGChannels" };
+                for (var id in names) if (typeof webos[names[id]] === "number") APP_KEYS[webos[names[id]]] = id;
+            }
             console.info("[LumaKeys] bridge ready");
         } else {
             console.warn("[LumaKeys] bridge failed: " + c.errorString());
@@ -86,6 +98,7 @@ function frontTarget() {
 }
 
 function dispatchTo(target, key, pressed, autoRepeat, deviceId) {
+    if (target === "appkey") return true;          // nothing to tell: LumaHome took the press and the rest of the key ends here
     return target === "overlay" ? bridge.dispatchOverlay(key, pressed, autoRepeat, deviceId)
                                 : bridge.dispatch(key, pressed, autoRepeat, deviceId);
 }
@@ -114,6 +127,17 @@ function takeKey(key, pressed, autoRepeat, deviceId) {
     if (target === "") return false;
     if (!dispatchTo(target, key, true, false, deviceId)) return false;
     taken[key] = target;
+    return true;
+}
+
+// ---- the remote's app keys: only a new press is decided here (the repeats and the release of a press taken follow it in takeKey)
+function appKey(key, pressed, autoRepeat) {
+    if (!pressed || autoRepeat) return false;
+    // LG's own handling stays for everything it does better: the TV off (the key powers it on and opens the app), a modal alert, LG's
+    // overlay or keyboard on top (the focus is not the fullscreen view's), and a layer that is not answering
+    if (global.powerState !== "active" || fullscreenView.activeFocus !== true || !bridge.answering()) return false;
+    if (!bridge.appKey(APP_KEYS[key], global.activeSurfaceAppId)) return false;
+    taken[key] = "appkey";
     return true;
 }
 
@@ -215,6 +239,7 @@ function handleLumaHome(key, pressed, autoRepeat, deviceId) {
         if (key === Qt.Key_Super_L) return bridge.homeKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         // A surface of ours may take any key first: the saver wakes on the gear like on any other key
         if (takeKey(key, pressed, autoRepeat, deviceId)) return KeyPolicy.Accepted;
+        if (APP_KEYS[key] !== undefined) return appKey(key, pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         if (GEAR_KEY !== null && key === GEAR_KEY) return gearKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         if (key === Qt.Key_Option) return optionKey(pressed) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         return KeyPolicy.NextPolicy;

@@ -9,6 +9,7 @@ import "LumaBus.js" as Bus
 import "Tint.js" as Tint
 import "kit"
 import "kit/Match.js" as Match
+import "settings/AppKeys.js" as AppKeys
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
 // driven by {{dataDir}}/theme/{theme.json,layout.json}. Keys arrive through
@@ -774,6 +775,23 @@ Item {
         openLayer("drawer")
         return true
     }
+    // ---- the remote's app keys (Settings, Remote & pointer: theme `remote.appKeys`, the shape is settings/AppKeys.js). Netflix, Prime Video,
+    // Disney+ and LG Channels open what the owner chose, or nothing; a key never chosen is LG's own target where that app is installed and
+    // nothing where it is not, so no key starts LG's auto-install. The key filter asks in any foreground and the TV on; true is a key taken.
+    // Pressed over the app it is set to open, the key does nothing: LG hands such a key to the app, which has no use for another's.
+    function appKey(id, frontId) {
+        var points = Apps.launchPoints
+        if (!points || points.length === 0) return false         // the app list has not loaded: no key is swallowed on a guess
+        var t = AppKeys.target(AppKeys.config(theme), id, AppKeys.installed(points))
+        if (t.kind === "default") return !t.installed           // LG's own, where there is one to open
+        if (t.kind === "app" && t.installed && t.appId !== frontId) openAppById(t.appId)
+        return true
+    }
+    function openAppById(id) {
+        var app = Apps.byId(id)
+        if (hostActive && app) launchApp(app)                  // from Home: the splash, and the layers closed, as for a tile
+        else LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: id }))
+    }
     property int saverEaten: 0              // the key whose press the screensaver took: its release is taken too
     function key(k, pressed, autoRepeat, deviceId) {
         // The volume keys are only watched: the receiver's OSD asks the helper for a fresh reading, and LG's chain
@@ -926,12 +944,12 @@ Item {
     }
     Component.onCompleted: {
         Lu.backdrop = blurTex
-        Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.setGear({ ready: root.gearReady, hold: root.gearHold })
+        Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.setGear({ ready: root.gearReady, hold: root.gearHold }); Bus.setAppKey(root.appKey)
         root.beatOnce()
         console.info("[LumaHome] loaded, first beat written")
         loadAll(); readMode(); Helper.start(); NoteLog.seenAt = Date.now()       // the log's own toast subscription starts when it is first read
     }
-    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null) }
+    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null); Bus.setAppKey(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
     // sees the Magic Remote.

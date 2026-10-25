@@ -11,11 +11,15 @@ const SRC = readFileSync(new URL("../payload/keyfilter/lumatv.js", import.meta.u
 
 const KeyPolicy = { Accepted: 1, NextPolicy: 2, NotAccepted: 3 };
 const OK = 0x01000005, RIGHT = 0x01000014, HOME = 0x01000022;
-const GEAR = 0x01000070, OPTION = 0x01000100, WEBOS = { Key_webOS_Settings: GEAR };
+const GEAR = 0x01000070, OPTION = 0x01000100;
+const NETFLIX = 0x01000071, AMAZON = 0x01000072, DISNEY = 0x01000073, LGCH = 0x01000074;
+const WEBOS = { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX, Key_webOS_Amazon: AMAZON, Key_webOS_Disneyplus: DISNEY, Key_webOS_LGChannels: LGCH };
 
 let calls, front, bridgeAnswers, warnings, now, answering;
 // The gear and the overlay: what the bridge says, the timers the filter asked LG's `genericTimer` for (advanced by hand) and what it did to LG's long press.
 let gearReady, gearOpens, overlayWanted, overlayTakes, timers, nextTimer, lgCalls, timerBroken;
+// The remote's app keys: whether the TV is on and what LumaHome says to a key
+let power, appKeyTakes;
 
 function advance(ms) {
   const end = now + ms;
@@ -43,6 +47,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
     dispatchOverlay(key, pressed, autoRepeat) { calls.push(["overlay", key, pressed, autoRepeat]); return overlayTakes(key, pressed, autoRepeat); },
     gearReady() { return gearReady; },
     gearHold() { calls.push(["gearHold"]); return gearOpens; },
+    appKey(id, frontApp) { calls.push(["appKey", id, frontApp]); return appKeyTakes(id, frontApp); },
   } : bridge;
   const genericTimer = {
     set(ms, fn) { if (timerBroken) return -1; const id = ++nextTimer; timers.push({ id, at: now + ms, fn }); return id; },
@@ -51,7 +56,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
   };
   const env = {
     Qt, KeyPolicy, Component: { Ready: 1 },
-    global: { get activeSurfaceAppId() { return front.app; } },
+    global: { get activeSurfaceAppId() { return front.app; }, get powerState() { return power; } },
     fullscreenView: { get activeFocus() { return front.focus; } },
     longPressTimer: { setBlockCancel(v) { lgCalls.push(["block", v]); }, cancel() { lgCalls.push(["cancel"]); }, setDeviceId(d) { lgCalls.push(["device", d]); } },
     console: { info() {}, warn: (m) => warnings.push(m) },
@@ -80,6 +85,8 @@ beforeEach(() => {
   nextTimer = 0;
   lgCalls = [];
   timerBroken = false;
+  power = "active";
+  appKeyTakes = () => true;
 });
 
 test("a press LumaHome takes ends there, and so does its release", () => {
@@ -489,5 +496,114 @@ test("an exception in the overlay passes the key to the app", () => {
   const f = makeFilter();
   expect(down(f, RIGHT)).toBe(N);
   expect(up(f, RIGHT)).toBe(N);
+  expect(warnings.length).toBe(1);
+});
+
+// ---- the remote's app keys: watched in any foreground, taken when LumaHome says so, LG's when it does not
+
+const asked = () => calls.filter((c) => c[0] === "appKey");
+
+test("an app key LumaHome takes ends here, press, repeat and release, over an app", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(A);
+  expect(down(f, NETFLIX, true)).toBe(A);
+  expect(up(f, NETFLIX)).toBe(A);
+  expect(asked()).toEqual([["appKey", "netflix", "com.webos.app.hdmi2"]]);
+  // the pair is over: the next press is decided afresh
+  expect(down(f, NETFLIX)).toBe(A);
+  expect(asked().length).toBe(2);
+});
+
+test("an app key LumaHome leaves to LG (its default, with the app installed) is LG's from press to release", () => {
+  appKeyTakes = () => false;
+  front = { app: "netflix", focus: true };
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(N);
+  expect(down(f, NETFLIX, true)).toBe(N);
+  expect(up(f, NETFLIX)).toBe(N);
+  expect(asked()).toEqual([["appKey", "netflix", "netflix"]]);
+});
+
+test("each of the four app keys is asked for by its own name", () => {
+  bridgeAnswers = () => false;                   // Home is in front and its key handler has no use for these keys
+  const f = makeFilter();
+  for (const k of [NETFLIX, AMAZON, DISNEY, LGCH]) { down(f, k); up(f, k); }
+  expect(asked().map((c) => c[1])).toEqual(["netflix", "amazon", "disneyplus", "lgchannels"]);
+});
+
+test("on Home the key goes to LumaHome's key handler first and is an app key only if it declines", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  expect(down(f, AMAZON)).toBe(A);
+  expect(calls).toEqual([["dispatch", AMAZON, true, false], ["appKey", "amazon", "com.webos.app.home"]]);
+});
+
+test("the saver wakes the TV on an app key like on any key, and the key is not an app key", () => {
+  bridgeAnswers = () => true;                    // LumaHome's saver eats every key
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(A);
+  expect(up(f, NETFLIX)).toBe(A);
+  expect(asked()).toEqual([]);
+});
+
+test("with the TV off or on its saver the key is LG's: it powers the TV on and opens the app itself", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  for (const state of ["active standby", "screen saver", "screen down", "always on display", ""]) {
+    power = state;
+    expect(down(f, NETFLIX)).toBe(N);
+    expect(up(f, NETFLIX)).toBe(N);
+  }
+  expect(asked()).toEqual([]);
+});
+
+test("an LG overlay, popup, keyboard or alert over the app keeps the key: it is not the fullscreen view's", () => {
+  front = { app: "netflix", focus: false };
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(N);
+  expect(asked()).toEqual([]);
+});
+
+test("a layer that is not answering is not asked: LG's own target, auto-install and all, is the fallback", () => {
+  answering = false;
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(N);
+  expect(up(f, NETFLIX)).toBe(N);
+  expect(asked()).toEqual([]);
+});
+
+test("a release that never came does not leave the next press taken or left", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(A);
+  appKeyTakes = () => false;                      // the owner changed it meanwhile: LG's default now
+  expect(down(f, NETFLIX)).toBe(N);
+  expect(up(f, NETFLIX)).toBe(N);
+});
+
+test("an overlay that wants keys does not take an app key, which is not the D-pad", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = true;
+  overlayTakes = () => false;
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(A);
+  expect(calls).toEqual([["overlay", NETFLIX, true, false], ["appKey", "netflix", "com.webos.app.hdmi2"]]);
+});
+
+test("an app key whose code is not in scope stays LG's", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter({ webos: { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX } });
+  expect(down(f, AMAZON)).toBe(N);
+  expect(down(f, NETFLIX)).toBe(A);
+  expect(asked().map((c) => c[1])).toEqual(["netflix"]);
+});
+
+test("an error in LumaHome's answer leaves the key to LG and logs once", () => {
+  bridgeAnswers = () => false;
+  appKeyTakes = () => { throw new Error("no answer"); };
+  const f = makeFilter();
+  expect(down(f, NETFLIX)).toBe(N);
+  expect(up(f, NETFLIX)).toBe(N);
   expect(warnings.length).toBe(1);
 });

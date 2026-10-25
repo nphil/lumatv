@@ -41,6 +41,8 @@ QtObject {
     function overlayWants() { return Bus.overlayWants() }
     function gearReady() { return Bus.gearReady() }
     function gearHold() { return Bus.gearHold() }
+    // One of the remote's app keys, pressed over whatever is in front: true when LumaHome took it (theme `remote.appKeys`).
+    function appKey(id, frontAppId) { return Bus.appKey(id, frontAppId) }
 
     // true: the event ends here. LG's chain replays a short press as a press and a release
     // straight away, which this takes for a hold that ends at once.
