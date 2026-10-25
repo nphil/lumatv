@@ -80,6 +80,9 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
             wl_webos_shell_surface::Request::SetState { state: st } => {
                 state.note_request("wl_webos_shell_surface", pid, &format!("set_state({st})"));
                 let new = ShellState::from_u32(st);
+                let mapped_card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card() && w.map_serial > 0)
+                    && state.surfaces.get(data.surface).is_some_and(|s| s.is_mapped());
+                let was_top = state.scene.foreground(&state.surfaces).is_some_and(|w| w.id == data.window);
                 if let Some(w) = state.scene.window_mut(data.window) {
                     w.state = new;
                 }
@@ -87,6 +90,18 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 // confirmed, and HDMI 2's card stayed fullscreen but unmapped on the 2026-10-25 gate while only
                 // mapped windows were answered.
                 send_state(resource, new);
+                // A covered card that asks for fullscreen comes to the front (LG's fullscreen container; a relaunch
+                // restores it), and the card it covers is minimized; a foreground card that minimizes itself gives the
+                // one below back. Either is a new foreground for the subscribers.
+                if mapped_card && new == ShellState::Fullscreen && !was_top {
+                    state.scene.raise(data.window);
+                    state.journal(format!("window {}: raised to the front (set_state fullscreen)", data.window.0));
+                    settle_cards(state, None);
+                    state.luna_notify();
+                } else if mapped_card && new == ShellState::Minimized && was_top {
+                    settle_cards(state, Some(data.window));
+                    state.luna_notify();
+                }
                 super::seat::refocus(state);
             }
             wl_webos_shell_surface::Request::SetProperty { name, value } => {
@@ -128,9 +143,13 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 w.has_webos_shell = false;
             }
         } else {
+            let was_card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card());
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {
                 s.role = Role::None;
+            }
+            if was_card {
+                on_card_gone(state);
             }
             super::seat::refocus(state);
         }
@@ -148,23 +167,59 @@ fn send_state(resource: &WlWebosShellSurface, st: ShellState) {
     resource.state_changed(v as u32);
 }
 
-/// A window's surface got its first buffer: a card becomes fullscreen (what LG's fullscreen container does),
-/// and the client is told its position.
+/// A window's surface got its first buffer: a card becomes fullscreen and the cards it covers are minimized (what LG's
+/// fullscreen container does), and the client is told its position.
 pub fn on_mapped(state: &mut State, wid: WindowId) {
     let Some(w) = state.scene.window(wid) else { return };
     let (kind, position, has_webos) = (w.kind, w.position, w.has_webos_shell);
+    if kind.is_card() {
+        settle_cards(state, None);
+    }
     if !has_webos {
         return;
     }
     let Some(res) = state.webos_shell_resource(wid) else { return };
     if kind.is_card() {
-        if let Some(w) = state.scene.window_mut(wid) {
-            w.state = ShellState::Fullscreen;
-        }
-        send_state(&res, ShellState::Fullscreen);
         res.position_changed(0, 0);
     } else {
         res.position_changed(position.0, position.1);
+    }
+}
+
+/// A card's surface lost its last buffer, or its window went: the card below comes back.
+pub fn on_card_gone(state: &mut State) {
+    settle_cards(state, None);
+}
+
+/// The cards' states as LG's fullscreen container keeps them: the newest mapped card is fullscreen and every other
+/// mapped card is minimized, and each is told when its state changes. A client that restores fullscreen on a relaunch
+/// (WAM, from a minimized window) then has a state to change; without this Home's relaunch over HDMI 2 sent nothing
+/// and HDMI 2 stayed in front (second gate, 2026-10-25). `except` is a card that asked to be minimized itself: it keeps
+/// that, and the one below it comes back.
+pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
+    let Some(top) = state.scene.newest_mapped_card(&state.surfaces, except) else { return };
+    let changes: Vec<(WindowId, ShellState)> = state
+        .scene
+        .windows()
+        .filter(|w| w.kind.is_card() && w.map_serial > 0 && Some(w.id) != except)
+        .filter(|w| state.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
+        .filter_map(|w| {
+            let wanted = if w.id == top { ShellState::Fullscreen } else { ShellState::Minimized };
+            (w.state != wanted).then_some((w.id, wanted))
+        })
+        .collect();
+    for (wid, wanted) in changes {
+        if let Some(w) = state.scene.window_mut(wid) {
+            w.state = wanted;
+        }
+        if let Some(res) = state.webos_shell_resource(wid) {
+            send_state(&res, wanted);
+        }
+        state.journal(format!(
+            "window {}: {}",
+            wid.0,
+            if wanted == ShellState::Fullscreen { "fullscreen (the front card)" } else { "minimized (covered by a newer card)" }
+        ));
     }
 }
 

@@ -201,6 +201,30 @@ impl Scene {
             .max_by_key(|w| w.map_serial)
     }
 
+    /// Makes the mapped card `id` the newest: what LG's fullscreen container does for a covered card that asks for
+    /// fullscreen again (a relaunch). Nothing for an unmapped window or one that is not a card.
+    pub fn raise(&mut self, id: WindowId) {
+        if let Some(w) = self.windows.get_mut(&id)
+            && w.kind.is_card()
+            && w.map_serial > 0
+        {
+            self.map_counter += 1;
+            w.map_serial = self.map_counter;
+            self.layout_changed = true;
+        }
+    }
+
+    /// The newest mapped card whatever its state, other than `except`: the one that comes back when the foreground
+    /// card goes or minimizes itself.
+    pub fn newest_mapped_card(&self, surfaces: &Surfaces, except: Option<WindowId>) -> Option<WindowId> {
+        self.windows
+            .values()
+            .filter(|w| w.kind.is_card() && w.map_serial > 0 && Some(w.id) != except)
+            .filter(|w| surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
+            .max_by_key(|w| w.map_serial)
+            .map(|w| w.id)
+    }
+
     /// The window that should hold keyboard focus: the topmost mapped window that wants focus.
     pub fn focus(&mut self, surfaces: &Surfaces) -> Option<WindowId> {
         self.build_stack(surfaces);

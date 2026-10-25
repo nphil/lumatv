@@ -5,7 +5,7 @@
 #
 #   gate.sh live      LumaTV is the compositor: mounted, 12 names registered, no fallback, WAM up, Home (the web
 #                     stub) mapped and on the panel
-#   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: no frame gap over 20 ms; pacer late 0 lost 0
+#   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: no frame gap over 20 ms; pacer late unchanged
 #   gate.sh netflix   the Dolby Vision test film by deep link: card mapped, video window exported, Picture Mode
 #                     dolbyHdrCinema while playing, filmMaker back on Home
 #   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home
@@ -61,7 +61,8 @@ x1)
     over=$(echo "$res" | sed -n 's/.*20-33.5 \([0-9]*\), >33.5 \([0-9]*\).*/\1+\2/p')
     over=$((${over:-1+1}))
     fps=$(echo "$res" | sed -n 's/.* = \([0-9.]*\) fps.*/\1/p')
-    late_before=$(echo "$before" | awk '{print $4+$6}'); late_after=$(echo "$after" | awk '{print $4+$6}')
+    # `late` alone: `lost` sums the idle refreshes of a still screen too (+3957 over 62 s of nothing on the second gate).
+    late_before=$(echo "$before" | awk '{print $4}'); late_after=$(echo "$after" | awk '{print $4}')
     # The compositor's own view of the run (its log is on CLOCK_MONOTONIC like x1's): loop stalls, frame gaps of the
     # X1 surface, clients coming and going, refused commits, lost flips. The gaps' cause is read from these lines.
     t0=$(sed -n 's/.*starting at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log); t1=$(sed -n 's/.*ended at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log)
@@ -70,7 +71,7 @@ x1)
     stalls=$(grep -c 'loop:' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn"
     echo "$detail" > $OUT/x1-result.txt
-    if [ -n "$res" ] && [ "$over" = 0 ] && [ "${late_before:-0}" = "${late_after:-1}" ]; then pass x1 "$fps fps, no gap over 20 ms, pacer late/lost unchanged"; else fail x1 "$detail"; fi
+    if [ -n "$res" ] && [ "$over" = 0 ] && [ "${late_before:-0}" = "${late_after:-1}" ]; then pass x1 "$fps fps, no gap over 20 ms, pacer late unchanged"; else fail x1 "$detail"; fi
     ;;
 netflix)
     ls1 com.webos.applicationManager/launch '{"id":"netflix","params":{"contentTarget":"m=https://www.netflix.com/watch/80141336&source_type=4"}}' > /dev/null

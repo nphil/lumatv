@@ -152,6 +152,8 @@ pub struct ClientState {
     pub releases: Vec<u32>,
     pub configures: Vec<(i32, i32)>,
     pub shell_states: Vec<u32>,
+    /// `state_changed` by the shell surface it came on (its protocol id), in order.
+    pub states_of: Vec<(u32, u32)>,
     pub positions: Vec<(i32, i32)>,
     pub closes: u32,
     pub window_ids: Vec<(String, u32)>,
@@ -321,9 +323,12 @@ impl Dispatch<WlShellSurface, ()> for ClientState {
 }
 
 impl Dispatch<WlWebosShellSurface, ()> for ClientState {
-    fn event(state: &mut Self, _: &WlWebosShellSurface, event: wl_webos_shell_surface::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(state: &mut Self, s: &WlWebosShellSurface, event: wl_webos_shell_surface::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
-            wl_webos_shell_surface::Event::StateChanged { state: st } => state.shell_states.push(st),
+            wl_webos_shell_surface::Event::StateChanged { state: st } => {
+                state.shell_states.push(st);
+                state.states_of.push((s.id().protocol_id(), st));
+            }
             wl_webos_shell_surface::Event::PositionChanged { x, y } => state.positions.push((x, y)),
             wl_webos_shell_surface::Event::Close => state.closes += 1,
             _ => {}

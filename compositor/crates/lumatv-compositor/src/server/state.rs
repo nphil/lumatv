@@ -233,6 +233,7 @@ impl State {
                 self.scene.set_mapped(sid, mapped);
                 if let Some(wid) = self.scene.window_of(sid) {
                     let w = self.scene.window(wid).unwrap();
+                    let is_card = w.kind.is_card();
                     let line = format!(
                         "window {} {} ({:?} app {:?} title {:?} size {:?})",
                         wid.0,
@@ -245,8 +246,10 @@ impl State {
                     self.journal(line);
                     if mapped {
                         super::webos_shell::on_mapped(self, wid);
-                        super::seat::refocus(self);
+                    } else if is_card {
+                        super::webos_shell::on_card_gone(self);
                     }
+                    super::seat::refocus(self);
                 }
             } else if eff.new_buffer {
                 self.scene.layout_changed |= self.surfaces.get(sid).map(|s| s.current.damage.is_none()).unwrap_or(false);
@@ -303,9 +306,13 @@ impl State {
                 drop(cb);
             }
         }
+        let was_card = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind.is_card());
         self.scene.remove_surface(id);
         self.cadence.remove(&id);
         self.foreign.surface_destroyed(id);
+        if was_card {
+            super::webos_shell::on_card_gone(self);
+        }
         super::seat::refocus(self);
     }
 

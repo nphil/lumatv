@@ -95,9 +95,29 @@ struct PlaneState {
     dst: Rect,
 }
 
+/// When a frame was planned for, started and ready: kept with the frame from its draw to its flip, since the next frame
+/// is drawn while this one's flip is pending.
+#[derive(Clone, Copy)]
+struct Timing {
+    slot_ns: u64,
+    started_ns: u64,
+    /// When the draw was submitted; the flip replaces it with the GPU's finish (the in-fence's signal time).
+    ready_ns: u64,
+}
+
 #[derive(Clone, Copy)]
 struct Frame {
     assignment: Assignment,
+    timing: Timing,
+    #[cfg(feature = "ui")]
+    ui: Option<lumatv_render::host::FrameCost>,
+}
+
+/// The commit whose flip is pending: the frame's timing, a duplicate of its in-fence (the kernel holds its own) to read
+/// the GPU's finish from when the flip lands, and the UI's receipt for that frame.
+struct InFlight {
+    timing: Timing,
+    fence: Option<OwnedFd>,
     #[cfg(feature = "ui")]
     ui: Option<lumatv_render::host::FrameCost>,
 }
@@ -135,14 +155,15 @@ pub struct Kms {
     /// Page-flip timestamps are CLOCK_MONOTONIC when the driver says so (DRM_CAP_TIMESTAMP_MONOTONIC), else
     /// CLOCK_REALTIME and translated on arrival; everything else here is CLOCK_MONOTONIC in ns.
     monotonic_flips: bool,
-    frame_started_ns: u64,
-    frame_ready_ns: u64,
-    frame_slot_ns: u64,
+    period_ns: u64,
     last_assignment: Option<Frame>,
-    #[cfg(feature = "ui")]
-    pending_ui: Option<lumatv_render::host::FrameCost>,
+    /// What the flip in flight is of: its frame's timing and in-fence, for the pacer when it lands.
+    in_flight: Option<InFlight>,
     /// When the last flip landed, 0 before the first.
     last_flip_ns: u64,
+    /// Flips whose stamp was not one refresh after the one before (a pair, or a skipped refresh) while frames
+    /// followed one another; the first few are logged.
+    pub odd_stamps: u64,
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
     /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
     in_run: bool,
@@ -294,13 +315,11 @@ impl Kms {
             replacing: false,
             pacer: Pacer::new(period_ns),
             monotonic_flips,
-            frame_started_ns: 0,
-            frame_ready_ns: 0,
-            frame_slot_ns: 0,
+            period_ns,
             last_assignment: None,
-            #[cfg(feature = "ui")]
-            pending_ui: None,
+            in_flight: None,
             last_flip_ns: 0,
+            odd_stamps: 0,
             in_run: false,
             flips: 0,
             direct_frames: 0,
@@ -408,12 +427,38 @@ impl Kms {
             let rt_ns = rt.tv_sec as u64 * 1_000_000_000 + rt.tv_nsec as u64;
             mono_ns().saturating_sub(rt_ns.saturating_sub(stamp_ns))
         };
+        // Consecutive flips are one refresh apart; a stamp that is not (two flips stamped alike, a refresh skipped)
+        // is what the second gate's `lost` count hinted at, so each is logged while frames follow one another.
+        if self.last_flip_ns != 0 {
+            let since = presented_ns.saturating_sub(self.last_flip_ns);
+            let period = self.period_ns;
+            if since < period * 3 / 4 || (since > period * 5 / 4 && since < period * 11 / 4) {
+                self.odd_stamps += 1;
+                if self.odd_stamps <= 200 {
+                    log::info!("kms: page-flip stamp {:.2} ms after the last (one refresh is {:.2})", since as f64 / 1e6, period as f64 / 1e6);
+                }
+            }
+        }
         self.last_flip_ns = presented_ns;
+        let Some(flight) = self.in_flight.take() else {
+            // A flip nothing was waiting for (one taken as overdue): nothing to learn from it.
+            return;
+        };
         #[cfg(feature = "ui")]
-        if let Some(cost) = self.pending_ui.take() {
+        if let Some(cost) = flight.ui {
             self.gl.ui_presented(presented_ns, &cost);
         }
-        let shown = Shown { slot_ns: self.frame_slot_ns, started_ns: self.frame_started_ns, ready_ns: self.frame_ready_ns, presented_ns, content_ns: None };
+        let mut timing = flight.timing;
+        // The pipeline the pacer learns ends when the GPU finished the page, not when the draw was submitted: the
+        // kernel waits on the in-fence before the flip, so a page the GPU finishes after the driver's cutoff slips a
+        // refresh that a CPU-only pipeline never shows (16 gaps of 20-33 ms in the second gate's x1).
+        if let Some(signalled_ns) = flight.fence.as_ref().and_then(fence_signal_ns)
+            && signalled_ns > timing.ready_ns
+            && signalled_ns <= presented_ns
+        {
+            timing.ready_ns = signalled_ns;
+        }
+        let shown = Shown { slot_ns: timing.slot_ns, started_ns: timing.started_ns, ready_ns: timing.ready_ns, presented_ns, content_ns: None };
         let landing = self.pacer.presented(&shown);
         if landing.late > 0 {
             self.late_frames += 1;
@@ -421,15 +466,19 @@ impl Kms {
         self.lost_refreshes += landing.lost as u64;
     }
 
-    /// Commits a drawn frame now: the GL fence of a composed page goes along as the in-fence.
+    /// Commits a drawn frame now: the GL fence of a composed page goes along as the in-fence, and a duplicate of it
+    /// stays with the flip for its signal time.
     fn commit_frame(&mut self, frame: Frame) -> io::Result<()> {
         let a = frame.assignment;
         let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
+        let kept = fence.as_ref().and_then(|f| f.try_clone().ok());
         self.commit(&a, fence)?;
-        #[cfg(feature = "ui")]
-        {
-            self.pending_ui = frame.ui;
-        }
+        self.in_flight = Some(InFlight {
+            timing: frame.timing,
+            fence: kept,
+            #[cfg(feature = "ui")]
+            ui: frame.ui,
+        });
         self.committed_ns = self.now_ns();
         Ok(())
     }
@@ -492,6 +541,54 @@ impl Kms {
             Err(e) => Err(other(format!("atomic commit: {e}"))),
         }
     }
+}
+
+/// `struct sync_fence_info` and `struct sync_file_info` of `<linux/sync_file.h>`, and `SYNC_IOC_FILE_INFO`
+/// (`_IOWR('>', 4, struct sync_file_info)`, 56 bytes).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SyncFenceInfo {
+    obj_name: [u8; 32],
+    driver_name: [u8; 32],
+    status: i32,
+    flags: u32,
+    timestamp_ns: u64,
+}
+
+#[repr(C)]
+struct SyncFileInfo {
+    name: [u8; 32],
+    status: i32,
+    flags: u32,
+    num_fences: u32,
+    pad: u32,
+    sync_fence_info: u64,
+}
+
+const SYNC_IOC_FILE_INFO: libc::c_ulong = ((3u64 << 30) | ((std::mem::size_of::<SyncFileInfo>() as u64) << 16) | ((b'>' as u64) << 8) | 4) as libc::c_ulong;
+
+/// When the sync file `fence` (a GL native fence, the commit's in-fence) signalled: the latest of its fences' timestamps,
+/// CLOCK_MONOTONIC ns (`dma_fence` stamps with `ktime_get`). `None` while it has not, for a file of more fences than a
+/// GL fence has, or when the kernel does not answer.
+fn fence_signal_ns(fence: &OwnedFd) -> Option<u64> {
+    const MOST: usize = 4;
+    let mut info = SyncFileInfo { name: [0; 32], status: 0, flags: 0, num_fences: 0, pad: 0, sync_fence_info: 0 };
+    // SAFETY: an ioctl on a sync file with a struct of the kernel's layout; `num_fences` 0 asks for the count alone.
+    if unsafe { libc::ioctl(fence.as_raw_fd(), SYNC_IOC_FILE_INFO, &mut info) } != 0 || info.status != 1 {
+        return None;
+    }
+    let count = info.num_fences as usize;
+    if count == 0 || count > MOST {
+        return None;
+    }
+    let mut fences = [SyncFenceInfo { obj_name: [0; 32], driver_name: [0; 32], status: 0, flags: 0, timestamp_ns: 0 }; MOST];
+    info.num_fences = count as u32;
+    info.sync_fence_info = fences.as_mut_ptr() as u64;
+    // SAFETY: the kernel writes `count` entries into the array, which holds MOST; `count` was checked above.
+    if unsafe { libc::ioctl(fence.as_raw_fd(), SYNC_IOC_FILE_INFO, &mut info) } != 0 {
+        return None;
+    }
+    fences[..count].iter().filter(|f| f.status == 1 && f.timestamp_ns != 0).map(|f| f.timestamp_ns).max()
 }
 
 /// Adds every property of one plane to the request.
@@ -630,11 +727,12 @@ impl Output for Kms {
     fn stats_line(&self) -> String {
         let ui = self.gl.ui_stats_line();
         format!(
-            "flips {} late {} lost {} direct {}{}{}",
+            "flips {} late {} lost {} direct {} odd stamps {}{}{}",
             self.flips,
             self.late_frames,
             self.lost_refreshes,
             self.direct_frames,
+            self.odd_stamps,
             if ui.is_empty() { "" } else { " " },
             ui
         )
@@ -668,8 +766,7 @@ impl Output for Kms {
     /// decides), kicks the GPU. The commit is in `present`.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let now = self.now_ns();
-        self.frame_started_ns = now;
-        self.frame_slot_ns = self.pacer.plan(now).slot_ns;
+        let slot_ns = self.pacer.plan(now).slot_ns;
         self.prune_direct();
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
@@ -690,10 +787,10 @@ impl Output for Kms {
         }
         self.last_assignment = Some(Frame {
             assignment: Assignment { primary, overlay: None },
+            timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns() },
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });
-        self.frame_ready_ns = self.now_ns();
         Ok(stats)
     }
 

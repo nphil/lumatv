@@ -113,9 +113,13 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
                 w.has_wl_shell = false;
             }
         } else {
+            let was_card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card());
             state.scene.remove_window(data.window);
             if let Some(s) = state.surfaces.get_mut(data.surface) {
                 s.role = Role::None;
+            }
+            if was_card {
+                super::webos_shell::on_card_gone(state);
             }
             super::seat::refocus(state);
         }

@@ -15,9 +15,9 @@ set"; files in `docs/research/compositor/slot-2026-10-25-1124/`): live,
 volume, netflix (Dolby Vision), hdmi, standby/wake and escape PASS, x1 FAIL
 (16 gaps of 20-33.5 ms in 60 s, 59.82 fps), so LG's compositor is live, as
 the decision requires (set left in Active Standby, `enabled` absent, Home
-stub on, receiver unmuted). Two fixes are owed before the next slot (the
-frame latch and the Home relaunch, "Second gate on the set"). Host: `cd
-compositor && cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
+stub on, receiver unmuted). The two fixes it asked for are built and
+host-tested, not run on the set ("Second gate on the set"). Host: `cd
+compositor && cargo test` (73 unit, 23 protocol, 1 bridge, 2 LG-table),
 the same with `--features ui` plus `ui`, `ui_output` and `ui_scanout`
 under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
 compositor/tools/build-tv.sh` builds the bundle.
@@ -33,13 +33,14 @@ compositor/tools/build-tv.sh` builds the bundle.
   turn), HDMI 2 mapped and in front, Volume keys as LG's audio calls (the
   receiver stepped 0.355 → 0.36 → 0.355), clients named at accept (the 7 s
   client is gone), frame callbacks at the page flip.
-- Owed for the next slot ("Second gate on the set"): the frame latch
-  learns the GPU's completion (X1's 11 late flips a minute); a card that a
+- Built and host-tested for the next slot ("Second gate on the set", its
+  last paragraph): the frame latch learns the GPU's completion from the
+  in-fence's signal time (X1's 11 late flips a minute); a card that a
   newer card covers is minimized and a `set_state(fullscreen)` from it
   raises it (Home's relaunch over HDMI 2 did nothing, so HDMI 2 stayed in
-  front through standby and wake); the gate's x1 rule compares `late` only.
-  Still unverified live: composed frames top row first, flattened luna
-  payloads.
+  front through standby and wake); the gate's x1 rule compares `late`
+  only, and odd page-flip stamps are counted and logged. Still unverified
+  live: composed frames top row first, flattened luna payloads.
 - Next slot (about 10 min, exclusive; the whole script ran in 8): `python3
   compositor/tools/tv_next_slot.py` (trial and gate in one, results in
   `docs/research/compositor/slot-<date>-<HHMM>/`). The set needs the
@@ -915,6 +916,34 @@ Two findings, both with their change:
   top card raises it (`scene`: make it the newest card), minimizes the one
   it covers, pushes the foreground and refocuses; a card unmapping gives
   the one below `state_changed(fullscreen)` back.
+
+Both changes are built and host-tested (not run on the set), in the order
+above: the KMS output keeps each frame's timing with the frame (the next
+one is drawn while a flip is pending; `Shown` used to carry whichever frame
+had been drawn last) and a duplicate of the in-fence with the flip;
+`flip_landed` reads `SYNC_IOC_FILE_INFO` and takes the fence's
+`timestamp_ns` as `ready_ns` when it is after the submit and before the
+flip (otherwise the submit time stands, as before); a flip stamped other
+than one refresh after the one before while frames follow one another is
+counted (`odd stamps N` in the status line) and the first 200 are logged
+as `kms: page-flip stamp X ms after the last`, which the gate's
+`x1-compositor.txt` filter collects; `tv-gate.sh x1` compares `late` only.
+The host cannot exercise the fence or a flip (no DRM): the cross-build
+passes, and `fence_signal_ns` answers `None` for anything the kernel does
+not confirm, which leaves the pacer as it was. The card states follow
+LG's fullscreen container in `server/webos_shell.rs`: the newest mapped
+card is fullscreen and every other mapped card is told it is minimized
+(`settle_cards`, from `on_mapped`, from a card unmapping or its window
+going, and from `set_state`); `set_state(fullscreen)` from a covered card
+raises it (`Scene::raise`), minimizes the one it covers, pushes the
+foreground and refocuses; `set_state(minimized)` from the front card
+gives the one below back. Each transition is journalled (`window N:
+minimized (covered by a newer card)`, `raised to the front`, `fullscreen
+(the front card)`). Host test `tests/protocol.rs`,
+`a_covered_card_is_minimized_and_comes_back_when_it_asks_for_fullscreen_or_the_card_over_it_goes`:
+Home fullscreen; HDMI 2 maps, Home gets minimized; Home's
+`set_state(fullscreen)` raises it (HDMI 2 minimized, Home's pixels on the
+output, SAM's foreground Home); Home goes, HDMI 2 is fullscreen again.
 
 Not run: `tv_ui_measure.py` (the slot was closed on the gate's result).
 

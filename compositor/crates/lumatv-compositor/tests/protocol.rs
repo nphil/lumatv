@@ -136,6 +136,51 @@ fn newest_card_is_the_foreground_and_the_older_one_returns_on_close() {
 }
 
 #[test]
+fn a_covered_card_is_minimized_and_comes_back_when_it_asks_for_fullscreen_or_the_card_over_it_goes() {
+    use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
+    let (fullscreen, minimized) = (WlState::Fullscreen as u32, WlState::Minimized as u32);
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    let red = client.shm_buffer(1920, 1080, 0xffff_0000);
+    client.present(&home.surface, &red);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    let (home_id, states) = (home.webos.id().protocol_id(), |s: &harness::ClientState, id: u32| -> Vec<u32> {
+        s.states_of.iter().filter(|(w, _)| *w == id).map(|(_, st)| *st).collect()
+    });
+    assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen]));
+
+    // HDMI 2 maps over Home: Home is told it is minimized, and only HDMI 2 is in front.
+    let hdmi = client.card("_WEBOS_WINDOW_TYPE_CARD", "HDMI2");
+    let hdmi_id = hdmi.webos.id().protocol_id();
+    let blue = client.shm_buffer(1920, 1080, 0xff00_00ff);
+    client.present(&hdmi.surface, &blue);
+    assert!(client.wait_until(WAIT, |s| states(s, hdmi_id) == [fullscreen] && states(s, home_id) == [fullscreen, minimized]));
+    let (fg, states_now) =
+        server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), s.scene.windows().map(|w| (w.title.clone(), w.state)).collect::<Vec<_>>()));
+    assert_eq!(fg.as_deref(), Some("HDMI2"));
+    assert!(states_now.contains(&("Home".to_string(), ShellState::Minimized)), "{states_now:?}");
+
+    // Home is relaunched: it asks for fullscreen again, comes to the front, HDMI 2 is minimized, the picture is Home's.
+    home.webos.set_state(fullscreen);
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen, minimized, fullscreen] && states(s, hdmi_id) == [fullscreen, minimized]));
+    std::thread::sleep(Duration::from_millis(30));
+    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), s.output.capture().unwrap()));
+    assert_eq!(fg.as_deref(), Some("Home"));
+    assert_eq!(image.pixel(5, 5), [0xff, 0, 0, 0xff], "the raised card is drawn");
+
+    // Home goes: HDMI 2, minimized under it, is fullscreen again.
+    home.surface.destroy();
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| states(s, hdmi_id) == [fullscreen, minimized, fullscreen]));
+    std::thread::sleep(Duration::from_millis(30));
+    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), s.output.capture().unwrap()));
+    assert_eq!(fg.as_deref(), Some("HDMI2"));
+    assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
+}
+
+#[test]
 fn overlay_stacks_above_the_card_at_its_position() {
     let mut server = Server::start();
     let mut client = Client::connect(&mut server);
