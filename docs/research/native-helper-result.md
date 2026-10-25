@@ -14,7 +14,7 @@ State at 2026-10-25 01:20 EDT. Everything in the assignment is committed and pus
   The daemon was run on this host end to end (detached start, status, stop, the real receiver, the real weather and news
   through `openssl` and through `curl`); `helper/smoke.sh` passed 34 checks on the host against a fake `luna-send`.
 - NOT done, needs the TV: `python3 helper/smoke-tv.py` (about a minute, uploads to `/tmp`, removes it again). It settles what
-  the host cannot: the set's `openssl` version and CA bundle, whether `luna-send -i` output reaches a pipe, whether the
+  the host cannot: the set's `openssl` version and CA bundle, whether a `luna-send` subscription (`-n 1000000`, the form `tools/lumatv` uses) reaches a pipe, whether the
   `nobody` user can run the TLS child, the real power-state strings. Expected results are below.
 - Not mine, to do in `tools/lumatv` and the ipk build: start/stop wiring (snippet below) and QML consuming the API.
 - If the helper misbehaves on the set: `lumatv-helper stop --brand <app dir>/brand.json`, read `/var/lib/lumatv/log-helper`,
@@ -226,14 +226,14 @@ dir, and prints PASS/FAIL per check, FACT lines, and `VERDICT PASS|FAIL` (exit s
 and feed checks with `screen.source: "on"`. Expected: every check PASS, `screen source` `luna-subscribe` or `luna-poll`,
 `the helper's screen state equals luna-send's`, weather and news fetched on the set, the receiver's volume equal to a direct
 read, idle CPU under 5 % (expect well under 1 %), RSS under 20 MB (expect 5 to 10), no child process left after stop.
-FACT lines to read: `openssl: ... OpenSSL x.y`, `luna-send -i through a pipe delivers/delivered nothing`, `fetchBackend`,
+FACT lines to read: `openssl: ... OpenSSL x.y`, `luna-send -n 1000000 through a pipe delivers/delivered nothing` (and the same for `-i`), `fetchBackend`,
 CA bundle, `nobody`. If the weather check fails, the `weather status` FACT carries the error code (`denied`/`untrusted` mean
 set `fetch.user` to `null` or force `backend: curl`).
 
 ## Unknowns the TV settles
 
 - `openssl` version and bundle on the set (decides openssl or curl; either works by design), and whether `curl` trusts the bundle.
-- Whether `luna-send -i` flushes through a pipe (if not, the watcher polls every 5 s: one process spawn per poll).
+- Whether a `luna-send` subscription flushes through a pipe (if not, the watcher polls every 5 s: one process spawn per poll).
 - The state strings `getPowerState` really returns beyond `Active` (the helper treats `Active` and `Screen Saver` as on).
 - That QML's XHR is accepted (see Safety), and what it costs on the compositor thread (parsing a 6 KB state document).
 

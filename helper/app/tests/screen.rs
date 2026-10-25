@@ -173,7 +173,7 @@ fn a_garbled_answer_is_not_a_reading() {
     let script = dir.path().join("luna-send");
     std::fs::write(
         &script,
-        "#!/bin/sh\nif [ \"$1\" = -i ]; then exit 0; fi\necho 'Unable to connect to the bus'\n",
+        "#!/bin/sh\nif [ \"$2\" != 1 ]; then exit 0; fi\necho 'Unable to connect to the bus'\n",
     )
     .unwrap();
     {

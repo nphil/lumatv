@@ -261,11 +261,11 @@ pub struct FakeLuna {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LunaMode {
-    /// `-n` answers; `-i` exits at once without a word (a luna-send that cannot subscribe).
+    /// `-n 1` answers; a subscription (`-n 1000000`) exits at once without a word (a luna-send that cannot subscribe).
     PollOnly,
-    /// `-n` answers; `-i` prints the state now and again whenever the file changes.
+    /// `-n 1` answers; a subscription prints the state now and again whenever the file changes.
     Subscribes,
-    /// `-n` answers; `-i` stays silent forever (a luna-send that buffers its output on a pipe).
+    /// `-n 1` answers; a subscription stays silent forever (a luna-send that buffers its output on a pipe).
     SilentSubscription,
 }
 
@@ -281,7 +281,7 @@ impl FakeLuna {
             LunaMode::Subscribes => "echo $$ > PIDFILE; last=''; while :; do now=$(cat STATEFILE); if [ \"$now\" != \"$last\" ]; then printf '{\"returnValue\":true,\"state\":\"%s\",\"subscribed\":true}\\n' \"$now\"; last=$now; fi; sleep 0.02; done".to_owned(),
         };
         let script = format!(
-            "#!/bin/sh\ncase \"$1\" in\n  -n) printf '{{\"returnValue\":true,\"state\":\"%s\"}}\\n' \"$(cat STATEFILE)\" ;;\n  -i) {subscribe} ;;\n  *) exit 1 ;;\nesac\n"
+            "#!/bin/sh\ncase \"$1 $2\" in\n  \"-n 1\") printf '{{\"returnValue\":true,\"state\":\"%s\"}}\\n' \"$(cat STATEFILE)\" ;;\n  \"-n \"*) {subscribe} ;;\n  *) exit 1 ;;\nesac\n"
         )
         .replace("STATEFILE", &state_file.display().to_string())
         .replace("PIDFILE", &pid_file.display().to_string());

@@ -6,7 +6,8 @@
 //! `Active Standby`, `Screen Off`, `Suspend` and the rest are off.
 //!
 //! Two ways to read it, tried in this order:
-//! 1. a subscription (`luna-send -i ... {"subscribe":true}`): the power service pushes every change, so nothing runs while the
+//! 1. a subscription (`luna-send -n 1000000 ... {"subscribe":true}`: the form `tools/lumatv` already uses to follow a
+//!    subscribing call, with a count that is never reached): the power service pushes every change, so nothing runs while the
 //!    TV sleeps. It is used only once it has delivered a reading, and it is cross-checked by a one-shot read every minute; a
 //!    subscription that disagrees with the check, or goes quiet before its first reading (a `luna-send` that buffers its
 //!    output on a pipe would), is dropped for the poll below, and tried again after ten minutes.
@@ -160,7 +161,7 @@ struct Subscription {
 impl Subscription {
     fn start(program: &str, slot: Arc<Mutex<Option<Child>>>) -> Result<Self, String> {
         let mut child = Command::new(program)
-            .args(["-i", POWER_STATE_URI, r#"{"subscribe":true}"#])
+            .args(["-n", "1000000", POWER_STATE_URI, r#"{"subscribe":true}"#])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
