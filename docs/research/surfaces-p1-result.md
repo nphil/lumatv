@@ -17,10 +17,10 @@ worked out against the code, so a restart can begin building.
   themselves with the screen on (`tvpower powerOn {"reason":"remoteKey"}`, `turnOnScreen`, and
   `getPowerState` reads Active).
 - The set: `webglass` and `systemui` are on (they are how Settings, Notification Centre and Quick
-  Settings get the theme and Manrope), the kit gallery is off, the user's theme file holds only
-  Nitin's wallpaper-motion edits, dock order is as he had it (a held OK picks a tile up and an OK
-  release drops it, so test scripts must not leave one picked up). It is left in Active Standby
-  (`tvpower powerOff {"reason":"remoteKey"}`).
+  Settings get the theme and Manrope), the kit gallery is off, and the user's theme file holds the
+  wallpaper-motion and idle-dim settings plus `kitGallery: false`. The dock order is as Nitin had it
+  (a held OK picks a tile up and an OK release drops it, so test scripts must not leave one picked
+  up). It is left in Active Standby (`tvpower powerOff {"reason":"remoteKey"}`).
 - Tools used (not in the repo): a paramiko wrapper for the set, and `docs/research/perf/kb.py`
   (key injector with trace markers, copy it to `/tmp/kb.py` on the set).
 - Deploy loop: `sh tools/build-ipk.sh`, push the ipk to `/tmp/lumatv.ipk`, `luna-send -n 4 -f
@@ -139,6 +139,14 @@ and M2 is inside the run-to-run spread, so it is read as noise. Quick Settings i
 panel and was already over 3 ms at the Phase 1 baseline (2.7-2.9 open, 3.4-3.9 close); it is
 rebuilt in Phase 3.
 
+Milestone 3, after token, Manrope and kit deployment (`m3`, 2 runs each): idle p90 was 2.61 and
+2.60 ms; D-pad p90 2.87 and 2.86 ms. Home therefore stays under 3 ms and within the same-session
+M2 range. Quick Settings open p90 was 2.94, 3.10, 2.66, 3.00 and 3.21 ms; close p90 3.20, 3.30,
+3.05, 3.13, 3.70 and 3.51 ms. That is not a regression against its pre-existing 2.7-2.9 / 3.4-3.9
+spread, but it remains the explicit exception to the under-3-ms rule until the own panel in Phase 3.
+The post-run log has no `ShaderEffectSource` report and no crash report; milestone 4 still needs to
+turn that log observation into a gate assertion.
+
 ## 3. Token source, Manrope, component kit
 
 Token source:
@@ -196,10 +204,12 @@ Component kit (`payload/compositor/lumatv/kit/`):
   the one Home piece that now uses a kit component (`LuHalo`); the static Home regions are
   pixel-identical before and after.
 - Checked on the set: the gallery in dark and light glass, D-pad focus through rows, toggle,
-  slider (adjusts), segmented control and buttons; Home text unchanged and Manrope loaded; no
-  new QML errors in the compositor log. `tests/kit.test.js` checks that every `Lu.` member used is
-  declared, that every kit file is in the `qmldir` and that the shipped theme has every key `Lu`
-  asks for.
+  slider (adjusts), segmented control and buttons; Home text unchanged and Manrope loaded. The log
+  scan has no LumaHome or kit QML error. Quick Settings logs a stock
+  `Controllers/ScreenOffInterfaces/Interfaces.qml:52` TypeError when its response callback sees a
+  changed foreground-app array; the font patch does not touch that file. `tests/kit.test.js` checks
+  that every `Lu.` member used is declared, that every kit file is in the `qmldir` and that the
+  shipped theme has every key `Lu` asks for.
 
 ## 4. Not done: the designs for milestones 4 and 5
 
