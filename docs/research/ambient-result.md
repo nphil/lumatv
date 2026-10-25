@@ -81,7 +81,7 @@ refused, which is the "second `vtCapture_init` fails with 11" seen before (one V
 
 ## Helper-side design (`ambient/`, crate `lumatv-ambient`)
 
-Gate: `ambient/build.sh check` (rustfmt, clippy `-D warnings`, 86 unit tests, 5 interop tests, aarch64-musl release
+Gate: `ambient/build.sh check` (rustfmt, clippy `-D warnings`, 87 unit tests, 11 interop tests, aarch64-musl release
 build of the library). Pure std plus RustCrypto (`aes-gcm`, `hmac`, `sha2`) and `getrandom`; `#![forbid(unsafe_code)]`
 like the other helper crates. No traffic to any real device was sent; the Hue and WLED sides are tested against
 loopback fakes, and the DTLS client against OpenSSL's `s_server`.

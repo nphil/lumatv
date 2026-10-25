@@ -9,6 +9,7 @@ use lumatv_ambient::huestream::{self, ColorSpace, Session, SessionConfig};
 use std::io::Read;
 use std::net::{SocketAddr, UdpSocket};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -273,4 +274,109 @@ fn a_huestream_session_reaches_openssl_as_whole_packets() {
         s.dump()
     );
     session.close();
+}
+
+/// A UDP relay between the client and s_server that drops chosen datagrams: `drop_up` counts datagrams going to the
+/// server (1 = the first one), `drop_down` those coming back. Models a lossy Wi-Fi link.
+struct Lossy {
+    addr: SocketAddr,
+    stop: Arc<AtomicBool>,
+    forwarded: Arc<AtomicUsize>,
+}
+
+impl Lossy {
+    fn start(server: SocketAddr, drop_up: &'static [usize], drop_down: &'static [usize]) -> Lossy {
+        let front = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = front.local_addr().unwrap();
+        front
+            .set_read_timeout(Some(Duration::from_millis(10)))
+            .unwrap();
+        let back = UdpSocket::bind("127.0.0.1:0").unwrap();
+        back.connect(server).unwrap();
+        back.set_read_timeout(Some(Duration::from_millis(10)))
+            .unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let forwarded = Arc::new(AtomicUsize::new(0));
+        let (st, fw) = (stop.clone(), forwarded.clone());
+        thread::spawn(move || {
+            let mut client: Option<SocketAddr> = None;
+            let (mut up, mut down) = (0usize, 0usize);
+            let mut buf = [0u8; 2048];
+            while !st.load(Ordering::Relaxed) {
+                if let Ok((n, from)) = front.recv_from(&mut buf) {
+                    client = Some(from);
+                    up += 1;
+                    if !drop_up.contains(&up) {
+                        let _ = back.send(&buf[..n]);
+                        fw.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                if let Ok(n) = back.recv(&mut buf) {
+                    down += 1;
+                    if let (Some(c), false) = (client, drop_down.contains(&down)) {
+                        let _ = front.send_to(&buf[..n], c);
+                    }
+                }
+            }
+        });
+        Lossy {
+            addr,
+            stop,
+            forwarded,
+        }
+    }
+}
+
+impl Drop for Lossy {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+fn lossy_case(drop_up: &'static [usize], drop_down: &'static [usize], listen: bool) {
+    if !have_openssl() {
+        return;
+    }
+    let s = Server::start(listen);
+    let relay = Lossy::start(s.addr, drop_up, drop_down);
+    let mut cfg = PskConfig::new(IDENTITY.as_bytes(), &psk());
+    cfg.handshake_timeout = Duration::from_secs(12);
+    let t = Instant::now();
+    let mut c = PskClient::connect(relay.addr, &cfg)
+        .unwrap_or_else(|e| panic!("{e} (up {drop_up:?} down {drop_down:?})\n{}", s.dump()));
+    assert!(t.elapsed() < Duration::from_secs(11), "{:?}", t.elapsed());
+    c.send(b"through-the-lossy-link\n").unwrap();
+    assert!(
+        s.wait_for(b"through-the-lossy-link\n", Duration::from_secs(3)),
+        "{}",
+        s.dump()
+    );
+    assert!(relay.forwarded.load(Ordering::Relaxed) >= 3);
+}
+
+#[test]
+fn a_lost_client_hello_is_resent() {
+    lossy_case(&[1], &[], false);
+}
+
+#[test]
+fn a_lost_server_flight_is_recovered() {
+    lossy_case(&[], &[1], false);
+}
+
+#[test]
+fn a_lost_client_final_flight_is_recovered() {
+    // Datagram 1 is the ClientHello; the second one up is the ClientKeyExchange, ChangeCipherSpec and Finished.
+    lossy_case(&[2], &[], false);
+}
+
+#[test]
+fn a_lost_server_finished_is_recovered() {
+    // The server's answer to the final flight is its ChangeCipherSpec and Finished: the last datagram it sends.
+    lossy_case(&[], &[2], false);
+}
+
+#[test]
+fn losses_with_a_cookie_round() {
+    lossy_case(&[1], &[2], true);
 }
