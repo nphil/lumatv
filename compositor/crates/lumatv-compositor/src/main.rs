@@ -154,9 +154,15 @@ fn run(config: Config) -> io::Result<()> {
     // teardown (eglTerminate, buffer destroys) is served rather than cut with a connection reset.
     let mut linger_until: Option<Instant> = None;
 
-    while !state.should_exit || (linger_until.map(|t| Instant::now() < t).unwrap_or(false) && !state.clients.is_empty()) {
-        if state.should_exit && linger_until.is_none() && config.exit_on_disconnect && !state.clients.is_empty() {
-            linger_until = Some(Instant::now() + Duration::from_secs(2));
+    loop {
+        if state.should_exit {
+            let lingering = config.exit_on_disconnect && !state.clients.is_empty();
+            match (lingering, linger_until) {
+                (false, _) => break,
+                (true, None) => linger_until = Some(Instant::now() + Duration::from_secs(2)),
+                (true, Some(t)) if Instant::now() >= t => break,
+                _ => {}
+            }
         }
         let timeout = match deadline {
             Some(d) => d.saturating_duration_since(Instant::now()).as_millis().min(1000) as i32,
