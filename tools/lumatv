@@ -1493,8 +1493,17 @@ verb_homestub_watch() {
       if [ "$hs_good" -eq 60 ]; then rm -f "$HS_STRIKES"; fi
     fi
     if [ "$hs_now" -ge "$hs_grace" ] && [ $((hs_now - hs_ok_at)) -ge "$HS_STALE" ]; then
-      homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s)"
-      hs_guard_exit
+      # Seen unchanged for HS_STALE s. Once more, with the file's own age, before LG's
+      # Home is given back: one fault was logged on this guard's reading alone, with
+      # LumaHome's counter showing no stall (reason not found).
+      hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
+      if [ "$hs_age" -le 2 ]; then
+        log_line "homestub: beat read as unchanged at '$hs_last' for $((hs_now - hs_ok_at)) s but the file is $hs_age s old, kept"
+        hs_ok_at=$hs_now
+      else
+        homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s, file $hs_age s old)"
+        hs_guard_exit
+      fi
     fi
 
     # Every 10 s: is the stub still mounted? A guard for a stub that is gone has
