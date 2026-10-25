@@ -1095,7 +1095,9 @@ what it already does.
   2026-10-25).
 - The 64-bit card app (`org.nphil.lumatv.card`) may be installed on the set
   for its TV checks, and the capture-service probe slot may run (Nitin,
-  2026-10-25).
+  2026-10-25). Also approved for 2026-10-25: one full restart of the set to check
+  the power-up logo, a test of a second Denon control connection beside Home
+  Assistant's, and a PIN-screen check with Nitin at the TV.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
