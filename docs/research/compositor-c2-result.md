@@ -525,6 +525,73 @@ one that works):
   `zxdg_output_v1` (tables in the log); none is offered and the example
   app ran without them.
 
+## C3 status (offline, 2026-10-25)
+
+Built, host-tested where pure, compiled for the set, not yet run on it:
+
+- Tile damage and scan-out rings (`damage.rs`): 16 px tiles as a fixed
+  bitmap (no allocation on the frame path), runs merged into at most 12
+  rectangles, a 3-page ring where each page owes the union of every
+  frame's damage since its turn (LumaShow lesson 10). Tests cover the
+  tiling, the merge, the ring's account and the forget.
+- Pacer: LumaShow's `pacer.rs` copied verbatim by `tools/sync-lumashow.sh`
+  (`vendor/LUMASHOW_REV`), with its tests minus the quality-ladder ones
+  (the ladder is LumaShow's layer model). The KMS output feeds it the
+  page-flip timestamps and asks it when the next frame should start; the
+  main loop re-arms the tick at that latch (start late, aim early) instead
+  of the fixed 16.7 ms timer whenever the output paces itself.
+- Allocation-free planning: `Scene::plan` writes into storage the scene
+  keeps (items, holes, damage rectangles, the window stack, group members,
+  surface trees); `planning_a_live_scene_allocates_nothing_once_warm`
+  plans 200 frames of a card + group member + overlay with fresh damage
+  under a counting allocator on the server thread and sees 0 allocations.
+- Frame skip: a tick with empty damage renders nothing and (KMS) commits
+  nothing; the planes keep what they show.
+- KMS output (`kms/mod.rs`): DRM master on `card0`, universal planes and
+  atomic caps, mode blob for 1920x1080@60, properties looked up by name,
+  `IN_FORMATS` parsed; a ring of three dumb-buffer pages (XRGB8888,
+  linear) imported into GL as render targets, each frame drawn only into
+  the tiles its page owes; a native fence exported from EGL
+  (`EGL_ANDROID_native_fence_sync`, present on the set's blob) as the
+  plane's `IN_FENCE_FD`; non-blocking commits with page-flip events, one
+  frame rendered ahead (the wait for the previous flip sits right before
+  the next commit); direct scan-out of a sole full-screen opaque client
+  dma-buf by prime import + `ADDFB2` with its modifier, falling back to
+  composition and remembering refused modifiers (X5 in code: the plane
+  lists AFBC `…62` and LG's clients produce `…151`, so expect a refusal
+  for LG apps and an acceptance for linear/`…62` buffers); plane state
+  cached so unchanged planes stay out of the request. `assign.rs` is the
+  pure decision (tested).
+- Rendering into dumb buffers through dma-buf import was measured slow in
+  PLAN (8.5 ms per 1080p frame for three clears, against 1.3 ms in the
+  driver's own memory). It is the path that proves KMS; the fast path is
+  the blob's own window allocation (GBM on `card0` with the heap shim's
+  dumb buffers, as the X1 client did on the Wayland platform) and is the
+  first thing to add once the window run says GBM accepts `card0`.
+- Not built: the overlay plane for a UI layer above a direct-scanned app
+  (needs X6: whether osd1 scales like osd0), explicit sync for clients,
+  `wp_presentation`, a render thread.
+
+TV step (maintenance window, ~60 s of black screen, LG's compositor
+stopped and restarted; SAM untouched): `sh compositor/tools/tv-first-light.sh
+deploy && sh compositor/tools/tv-first-light.sh kms`. The script
+(`tools/tv_kms.py` driving `tools/tv-kms-window.sh`) stops
+`surface-manager-daemon`, runs two cases, restarts it and sweeps the
+`librdx` report LG's inputcommon leaves (HANDOFF "Standby"). After the
+run, check that the Denon still follows volume over eARC and is listed on
+HDMI 2.
+
+| Case | What runs | Pass means |
+|---|---|---|
+| A | KMS output + the 64-bit shm client, 600 frames | `a-server.log`: `kms: crtc 38 connector 31 mode 1920x1080@60 primary plane 32 … overlay 34`, no `atomic commit:` error, summary `drawn ≈ 600`, `flips` close to drawn; `panel-a.png` (LG's capture service, taken while the client holds `ff8000`) centre ≈ orange; `frame-NNNN.png` captures from the dumb page match |
+| B | KMS output + `x2cli` (LG's libmali, AFBC) | either `direct: fb N for 1920x1080 AB24 modifier 0x800000000000151` (the plane took LG's layout: direct scan-out of LG apps is on) or `direct: ADDFB2 refused … composing instead` (expected from the plane's format list); `panel-b.png` shows the X2 colour either way |
+| restore | `systemctl start surface-manager-daemon` | LG's Home back on the panel within ~15 s; `librdx` swept; `systemctl is-active` = active |
+
+If the server fails at start with `DRM master on /dev/dri/card0: … (is
+LG's compositor still running?)`, something else holds the master; the
+script's `restore` runs on any exit. `kms-restore` restarts LG's compositor
+by itself if the window was interrupted.
+
 ## What C3 and C4 need next
 
 C3 (60 fps work, on the screen):

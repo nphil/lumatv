@@ -5,6 +5,8 @@
 #   tv-first-light.sh app [BIN]   the first-app step
 #   tv-first-light.sh fetch       pull /tmp/lumatv/out to /tmp/lumatv-tv-out and write the log summary to
 #                                 docs/research/compositor/first-light-<date>.txt
+#   tv-first-light.sh kms         the C3 maintenance window (tools/tv_kms.py): LG's compositor stopped, LumaTV as DRM
+#                                 master for ~40 s, LG's compositor restarted; results in /tmp/lumatv-tv-out/out/kms
 #   tv-first-light.sh clean       kill everything of ours on the set
 # Transport: docs/research/arch/tv.py (paramiko). Before `run`: confirm the set is idle (getPowerState Active,
 # getForegroundAppInfo) and that nothing else is being measured on it.
@@ -51,6 +53,12 @@ case "${1:-help}" in
             [ -f /tmp/lumatv-tv-out/out/protocols.txt ] && { echo; echo "## protocols"; echo; sed 's/^/    /' /tmp/lumatv-tv-out/out/protocols.txt; }
         } > "$repo/docs/research/compositor/first-light-$day.txt"
         echo "wrote docs/research/compositor/first-light-$day.txt; PNGs under /tmp/lumatv-tv-out/out/"
+        ;;
+    kms)
+        python3 "$here/tools/tv_kms.py" run
+        ;;
+    kms-restore)
+        python3 "$here/tools/tv_kms.py" restore
         ;;
     clean)
         tv "sh /tmp/lumatv/run.sh clean"
