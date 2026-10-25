@@ -22,9 +22,10 @@ Phases, Decided); this file holds the proven mechanics.
   `/data/home/lumatv-backups/lumaglass-data-2026-10-24.tgz`.
 - Repositories renamed 2026-10-24: forge `nphilip89/lumatv` (remote `forge`)
   and GitHub `nphil/lumatv`; `brand.json` `repo` matches.
-- Next, phase 1 in order: T9 plus disk-cache env lines (tool already
-  carries them; enable and measure), shared 100 ms clock, Home stub, heap
-  shim, Rust helper.
+- Phase 1 step 2 done and measured (06f29fd,
+  `docs/research/perf/summary-2026-10-24-phase1.txt`): T9 and disk cache in
+  the env file, Home motion on one shared 10/s tick. Next: Home stub in LG
+  Home's place, then heap shim, then the Rust helper.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
