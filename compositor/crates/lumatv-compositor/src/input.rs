@@ -38,6 +38,9 @@ pub mod code {
     pub const KEY_GREEN: u32 = 399;
     pub const KEY_YELLOW: u32 = 400;
     pub const KEY_BLUE: u32 = 401;
+    pub const KEY_MUTE: u32 = 113;
+    pub const KEY_VOLUMEDOWN: u32 = 114;
+    pub const KEY_VOLUMEUP: u32 = 115;
 }
 
 /// How long Home is held for the escape to LG's compositor (PLAN: 650 ms).
@@ -54,6 +57,9 @@ pub enum Route {
     Back,
     /// Not in the focused window's mask and not the compositor's: dropped.
     Dropped,
+    /// Volume and Mute: LG's key filters turn them into audio service calls and no app sees them
+    /// (`KeyFilters/systemUi.js`, `KeyPolicy.Accepted`); the compositor does the same.
+    System,
 }
 
 /// Routes `code` for a window with `mask` (`wl_webos_shell_surface.set_key_mask`) that `takes_back`
@@ -103,6 +109,7 @@ pub fn route(code: u32, mask: u32, takes_back: bool, takes_home: bool) -> Route 
                 Route::Dropped
             }
         }
+        KEY_VOLUMEUP | KEY_VOLUMEDOWN | KEY_MUTE => Route::System,
         _ => Route::Client,
     }
 }
@@ -326,6 +333,7 @@ impl State {
                 }
             }
             Route::Dropped => self.keys.dropped += 1,
+            Route::System => self.system_key(code, pressed),
         }
         self.seat.last_input = "key";
     }

@@ -27,6 +27,9 @@ pub struct LunaState {
     next_token: u64,
     /// Outbound tokens of the tvpower registrations, to tell their pushes apart.
     power_tokens: Vec<(u64, &'static str)>,
+    /// The audio service's volume subscription, and the mute state it last pushed (what Mute toggles from).
+    audio_token: Option<u64>,
+    pub muted: bool,
 }
 
 impl Default for LunaState {
@@ -39,6 +42,8 @@ impl Default for LunaState {
             power: Power::default(),
             next_token: 0,
             power_tokens: Vec::new(),
+            audio_token: None,
+            muted: false,
         }
     }
 }
@@ -97,14 +102,16 @@ impl Power {
 
 const HOME_UI_TYPES: [&str; 7] = ["toast", "inputAlert", "alert", "pincodePrompt", "quickSetting", "com.webos.app.voiceagent", "com.webos.app.touchremote"];
 
+const AUDIO: &str = "luna://com.webos.service.audio";
+
 impl State {
     fn luna_token(&mut self) -> u64 {
         self.luna_state.next_token += 1;
         self.luna_state.next_token
     }
 
-    /// Registers with tvpower (call once the bridge reports the service up).
-    pub fn luna_register_power(&mut self) {
+    /// Registers with tvpower and subscribes to the audio service's volume state (call once the bridge is up).
+    pub fn luna_register(&mut self) {
         let calls = power::register_calls();
         let rounds = ["PreparePowerOff", "PreparePowerOn", "PowerOffLogoRequest", "PowerState"];
         for ((uri, payload), round) in calls.into_iter().zip(rounds) {
@@ -112,10 +119,21 @@ impl State {
             self.luna_state.power_tokens.push((token, round));
             self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: true }));
         }
+        let token = self.luna_token();
+        self.luna_state.audio_token = Some(token);
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri: format!("{AUDIO}/master/getVolume"), payload: json!({"subscribe": true}), subscribe: true }));
     }
 
-    /// An answer to one of the compositor's own calls: tvpower pushes are the ones acted on.
+    /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
+    /// ones acted on.
     pub fn luna_event(&mut self, ev: Event) {
+        if Some(ev.token) == self.luna_state.audio_token {
+            // X4: {"volumeStatus": {"muteStatus": false, "soundOutput": "external_arc", "volume": 0, ...}}
+            if let Some(m) = ev.payload.pointer("/volumeStatus/muteStatus").and_then(Value::as_bool) {
+                self.luna_state.muted = m;
+            }
+            return;
+        }
         let Some(round) = self.luna_state.power_tokens.iter().find(|(t, _)| *t == ev.token).map(|(_, r)| *r) else {
             log::debug!("luna event token {}: {}", ev.token, ev.payload);
             return;
@@ -129,6 +147,27 @@ impl State {
             let token = self.luna_token();
             self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: false }));
         }
+    }
+
+    /// Volume and Mute the way LG's key filters and its audio plugin (`AudioService/libaudioserviceplugin.so`, the
+    /// URIs and the `{}`/`{"mute":…}` payloads are its strings) do them: up or down on every press and key repeat,
+    /// `volumeKeeping` on release, Mute toggled on release from the state the audio service last pushed. With the
+    /// receiver on ARC the service passes the steps on over CEC (PLAN: Receiver).
+    pub fn system_key(&mut self, code: u32, pressed: bool) {
+        use crate::input::code::{KEY_MUTE, KEY_VOLUMEDOWN, KEY_VOLUMEUP};
+        let (method, payload) = match (code, pressed) {
+            (KEY_VOLUMEUP, true) => ("master/volumeUp", json!({})),
+            (KEY_VOLUMEDOWN, true) => ("master/volumeDown", json!({})),
+            (KEY_VOLUMEUP | KEY_VOLUMEDOWN, false) => ("volumeKeeping", json!({})),
+            (KEY_MUTE, false) => {
+                self.luna_state.muted = !self.luna_state.muted;
+                ("master/muteVolume", json!({"mute": self.luna_state.muted}))
+            }
+            _ => return,
+        };
+        let token = self.luna_token();
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri: format!("{AUDIO}/{method}"), payload, subscribe: false }));
+        self.keys.delivered += 1;
     }
 
     /// A call to one of the compositor's bus names.
@@ -259,29 +298,19 @@ impl State {
         })
     }
 
-    /// LG's shape (X4, `arch/x4/all.jsonl`): the foreground card first, with `order`, `pip`, `multiview`, `primary`
-    /// and `viewType`; then every mapped app window above it (Settings came as an overlay) in the short form. SAM
-    /// turns these pushes into its own `foreground`/`background` events. The system UI manager's variant lists the
-    /// system UI windows.
+    /// LG's `StarfishForegroundAppInfoMgr.qml` (payloads as X4 captured them): the foreground card first, then every
+    /// mapped app window above it (Settings came as an overlay). Items without an appId are left out; CARD and
+    /// RESTRICTED windows that are not members of another window's group carry `multiview`, `pip`, `primary`,
+    /// `viewType` and `order`; surface-group owners and members say so (`windowGroupOwner`, `windowGroupOwnerId`).
+    /// SAM turns these pushes into its own `foreground`/`background` events. The system UI manager's variant lists
+    /// the system UI windows.
     fn foreground_app_info(&self, system_ui: bool) -> Value {
         let mapped = |w: &&crate::window::Window| w.map_serial > 0 && self.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false);
-        let short = |w: &crate::window::Window| {
-            json!({
-                "appId": w.app_id(), "displayId": 0, "windowType": self.window_type_name(w), "processId": self.window_pid(w),
-                "params": self.window_params(w), "windowGroup": false,
-            })
-        };
-        let mut infos = Vec::new();
+        let mut items: Vec<&crate::window::Window> = Vec::new();
         if system_ui {
-            infos.extend(self.scene.windows().filter(mapped).filter(|w| w.kind == WindowType::SystemUi).map(short));
+            items.extend(self.scene.windows().filter(mapped).filter(|w| w.kind == WindowType::SystemUi));
         } else {
-            if let Some(card) = self.scene.foreground(&self.surfaces) {
-                infos.push(json!({
-                    "order": 0, "displayId": 0, "pip": false, "processId": self.window_pid(card), "multiview": false,
-                    "windowType": self.window_type_name(card), "primary": true, "viewType": "normal",
-                    "params": self.window_params(card), "appId": card.app_id(), "windowGroup": false,
-                }));
-            }
+            items.extend(self.scene.foreground(&self.surfaces));
             let mut above: Vec<&crate::window::Window> = self
                 .scene
                 .windows()
@@ -289,9 +318,35 @@ impl State {
                 .filter(|w| matches!(w.kind, WindowType::Overlay | WindowType::Floating | WindowType::Popup) && w.state != crate::window::ShellState::Minimized)
                 .collect();
             above.sort_by_key(|w| w.map_serial);
-            infos.extend(above.into_iter().map(short));
+            items.extend(above);
         }
+        let infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
         json!({"returnValue": true, "mode": "normal", "foregroundAppInfo": infos})
+    }
+
+    fn foreground_item(&self, w: &crate::window::Window) -> Value {
+        let owner = self.scene.groups.iter().any(|g| g.owner == w.surface);
+        let owner_of_group = self.scene.groups.iter().find(|g| {
+            g.owner != w.surface && (g.layers.values().any(|l| l.member == Some(w.surface)) || g.anonymous.iter().any(|(s, _)| *s == w.surface))
+        });
+        let mut item = json!({
+            "appId": w.app_id(), "displayId": 0, "processId": self.window_pid(w), "windowType": self.window_type_name(w),
+            "windowGroup": false, "params": self.window_params(w),
+        });
+        let obj = item.as_object_mut().unwrap();
+        if owner || owner_of_group.is_some() {
+            obj.insert("windowGroup".into(), json!(true));
+            obj.insert("windowGroupOwner".into(), json!(owner));
+            let owner_app = owner_of_group.and_then(|g| self.scene.window_of(g.owner)).and_then(|id| self.scene.window(id)).map(|o| o.app_id().to_string());
+            obj.insert("windowGroupOwnerId".into(), json!(owner_app.unwrap_or_default()));
+        }
+        let fullscreen_type = matches!(self.window_type_name(w).as_str(), "_WEBOS_WINDOW_TYPE_CARD" | "_WEBOS_WINDOW_TYPE_RESTRICTED");
+        if fullscreen_type && owner_of_group.is_none() {
+            for (k, v) in [("multiview", json!(false)), ("pip", json!(false)), ("primary", json!(true)), ("viewType", json!("normal")), ("order", json!(0))] {
+                obj.insert(k.into(), v);
+            }
+        }
+        item
     }
 
     /// The window's client process id as LG sends it (a string); "" while the client's credentials are unknown.

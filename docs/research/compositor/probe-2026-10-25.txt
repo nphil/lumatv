@@ -2,16 +2,117 @@
 === release
 Rockhopper release 10.2.1-5202 (ponytail-paparoa)
 
-=== libraries and binaries naming wl_webos_imported or attach_punchthrough
+=== libraries mapped by Netflix (preloaded under LG's compositor) that carry wl_webos_imported
+netflix pid 9281
+/usr/lib/libgm-wayland.so.1.0.0
+/usr/lib/liblsm-connector.so.1.0.0
+/usr/lib/libwayland-webos-client.so.1.0.0
 
+== /usr/lib/libgm-wayland.so.1.0.0
+symbol tables: 0 *_interface symbols (.dynsym)
+
+== /usr/lib/liblsm-connector.so.1.0.0
+symbol tables: 0 *_interface symbols (.dynsym)
+
+== /usr/lib/libwayland-webos-client.so.1.0.0
+symbol tables: 20 *_interface symbols (.dynsym)
+# wl_webos_shell_interface at vaddr 0x127f4 (symbol)
+interface wl_webos_shell version 1
+  request[0] get_system_pip()  sig=
+  request[1] get_shell_surface(n:-, o:-)  sig=no
+# wl_webos_shell_surface_interface at vaddr 0x12764 (symbol)
+interface wl_webos_shell_surface version 1
+  request[0] set_location_hint(u:-)  sig=u
+  request[1] set_state(u:-)  sig=u
+  request[2] set_property(s:-, s:-)  sig=ss
+  request[3] set_key_mask(u:-)  sig=u
+  request[4] set_size(i:-, i:-)  sig=ii
+  event[0] state_changed(u:-)  sig=u
+  event[1] position_changed(i:-, i:-)  sig=ii
+  event[2] close()  sig=
+  event[3] exposed(a:-)  sig=a
+  event[4] state_about_to_change(u:-)  sig=u
+# wl_webos_foreign_interface at vaddr 0x12ec0 (symbol)
+interface wl_webos_foreign version 1
+  request[0] destroy()  sig=
+  request[1] export_element(n:-, o:-, u:-)  sig=nou
+  request[2] import_element(n:-, s:-, u:-)  sig=nsu
+# wl_webos_exported_interface at vaddr 0x12e6c (symbol)
+interface wl_webos_exported version 1
+  request[0] destroy()  sig=
+  request[1] set_exported_window(o:-, o:-)  sig=oo
+  request[2] set_crop_region(o:-, o:-, o:-)  sig=ooo
+  request[3] set_property(s:-, s:-)  sig=ss
+  event[0] window_id_assigned(s:-, u:-)  sig=su
+# wl_webos_imported_interface at vaddr 0x12db8 (symbol)
+interface wl_webos_imported version 1
+  request[0] set_surface_alignment(u:-)  sig=u
+  request[1] destroy()  sig=
+  request[2] attach_punchthrough(s:-)  sig=s
+  request[3] set_punchthrough(s:-)  sig=s
+  request[4] detach_punchthrough()  sig=
+  request[5] attach_surface(o:-)  sig=o
+  request[6] detach_surface(o:-)  sig=o
+  request[7] set_z_index(i:-)  sig=i
+  event[0] destination_region_changed(u:-, u:-)  sig=uu
+  event[1] punchthrough_attached(s:-)  sig=s
+  event[2] punchthrough_detached(s:-)  sig=s
+  event[3] surface_attached(o:-)  sig=o
+  event[4] surface_detached(o:-)  sig=o
+# wl_webos_surface_group_compositor_interface at vaddr 0x12908 (symbol)
+interface wl_webos_surface_group_compositor version 1
+  request[0] create_surface_group(n:-, o:-, s:-)  sig=nos
+  request[1] get_surface_group(n:-, s:-)  sig=ns
+# wl_webos_surface_group_interface at vaddr 0x12878 (symbol)
+interface wl_webos_surface_group version 1
+  request[0] create_layer(n:-, s:-, i:-)  sig=nsi
+  request[1] attach(o:-, s:-)  sig=os
+  request[2] attach_anonymous(o:-, u:-)  sig=ou
+  request[3] allow_anonymous_layers(u:-)  sig=u
+  request[4] detach(o:-)  sig=o
+  request[5] focus_owner()  sig=
+  request[6] focus_layer(s:-)  sig=s
+  request[7] commit_key_index(u:-)  sig=u
+  request[8] destroy()  sig=
+  event[0] owner_destroyed()  sig=
+# wl_webos_surface_group_layer_interface at vaddr 0x12824 (symbol)
+interface wl_webos_surface_group_layer version 1
+  request[0] set_z_index(i:-)  sig=i
+  request[1] set_key_index(i:-)  sig=i
+  request[2] destroy()  sig=
+  event[0] surface_attached()  sig=
+  event[1] surface_detached()  sig=
+# wl_webos_input_manager_interface at vaddr 0x12cf8 (symbol)
+interface wl_webos_input_manager version 1
+  request[0] set_cursor_visibility(u:-)  sig=u
+  request[1] get_webos_seat(n:-, o:-)  sig=no
+  event[0] cursor_visibility(u:-, o:-)  sig=u?o
+# wl_webos_seat_interface at vaddr 0x12cbc (symbol)
+interface wl_webos_seat version 1
+  request[0] get_gyroscope(n:-)  sig=n
+  request[1] get_accelerometer(n:-)  sig=n
+  event[0] info(u:-, s:-, u:-, u:-)  sig=usuu
+# wl_webos_xinput_interface at vaddr 0x12d58 (symbol)
+interface wl_webos_xinput version 2
+  request[0] invoke_action(u:-, u:-, u:-)  sig=uuu
+  request[1] invoke_action_with_window(u:-, u:-, u:-, u:-)  sig=uuuu
+  request[2] activated(s:-)  sig=s
+  request[3] deactivated()  sig=
+  event[0] activation_request(s:-)  sig=s
+  event[1] deactivated()  sig=
+# wl_webos_xinput_extension_interface at vaddr 0x12d34 (symbol)
+interface wl_webos_xinput_extension version 1
+  request[0] register_input(n:-)  sig=n
+
+=== LG's volume, mute and system UI calls (strings of the compositor's QML service plugins)
 
 === processes with libwayland-client mapped (pid uid unit cmdline)
 10102 uid=0 unit=ls-hubd.service start_ticks=4644 exe=/usr/palm/services/com.webos.service.iotclient/iot-client cmd=/usr/palm/services/com.webos.service.iotclient/iot-client 
 11085 uid=0 unit=nais.service start_ticks=5420 exe=/usr/sbin/nais cmd=/usr/sbin/nais 
 1994 uid=0 unit=kadpd.service start_ticks=205 exe=/usr/bin/gal_renderd cmd=/usr/bin/gal_renderd 
+22159 uid=6546 unit=sam.service start_ticks=1044401 exe=/var/palm/jail/com.webos.app.browser/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome cmd=/mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {"@system_native_app":true,"reason":"preload","interfaceVersion":2,"event":"launch","interfaceMethod":"registerApp","appId":"com.webos.a
 2255 uid=0 unit=ls-hubd.service start_ticks=259 exe=/usr/sbin/legacy-broadcast-atsc cmd=/usr/sbin/legacy-broadcast-atsc 
 2513 uid=0 unit=sam.service start_ticks=836117 exe=/usr/bin/com.webos.app.inputcommon cmd=/usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.webos.app.inputcommon","parameters":{"snapshot":true},"interfaceVersion":2,"interfaceMethod":"registerApp","@syst
-2517 uid=0 unit=sam.service start_ticks=912917 exe=/usr/bin/com.webos.app.inputcommon cmd=/usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.webos.app.inputcommon","parameters":{"snapshot":true},"interfaceVersion":2,"interfaceMethod":"registerApp","@syst
 2558 uid=5272 unit=sam.service start_ticks=836902 exe=/var/palm/jail/youtube.leanback.v4/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt cmd=/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {"@system_native_app":true,"reason":"preload","interfaceVersion":2,"event":"launch","interfaceMethod":"registerApp","appId":"youtu
 26320 uid=0 unit=umediaserver.service start_ticks=660357 exe=/usr/sbin/starfish-media-pipeline cmd=/usr/sbin/starfish-media-pipeline pipeline_process -scom.webos.pipeline._LLCx3q1vSDE6im -ccom.webos.pipelinectrl._LLCx3q1vSDE6im -a -r1 
 2690 uid=0 unit=pqcontroller.service start_ticks=982 exe=/usr/sbin/pqcontroller cmd=/usr/sbin/pqcontroller 
@@ -55,4 +156,4 @@ umediaserver.service Restart=on-failure RestartUSec=100ms NRestarts=0
 webapp-mgr.service Restart=on-failure RestartUSec=100ms NRestarts=2 
 
 === uptime
-9462.30 25299.54
+10871.45 29468.20

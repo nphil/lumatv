@@ -714,3 +714,52 @@ fn frame_callbacks_wait_for_the_frame_to_land() {
     client.present(&win.surface, &buf);
     assert!(client.wait_until(Duration::from_secs(2), |s| s.frames_done == 2), "sent after 250 ms without a flip");
 }
+
+#[test]
+fn volume_and_mute_keys_become_audio_calls_and_reach_no_app() {
+    use lumatv_compositor::input::code::{KEY_MUTE, KEY_VOLUMEUP};
+    use lumatv_compositor::luna::{Event, ToBridge};
+    use serde_json::json;
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let _kb = client.seat.get_keyboard(&client.qh, ());
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+    let calls = |s: &mut lumatv_compositor::State| -> Vec<(u64, String, serde_json::Value)> {
+        s.luna
+            .history()
+            .into_iter()
+            .filter_map(|m| match m {
+                ToBridge::Outbound(o) => Some((o.token, o.uri, o.payload)),
+                _ => None,
+            })
+            .collect()
+    };
+    let sent = server.eval(move |s| {
+        s.luna_register();
+        s.key_event(KEY_VOLUMEUP, true, false);
+        s.key_event(KEY_VOLUMEUP, true, false); // key repeat
+        s.key_event(KEY_VOLUMEUP, false, false);
+        s.key_event(KEY_MUTE, true, false);
+        s.key_event(KEY_MUTE, false, false);
+        calls(s)
+    });
+    let uris: Vec<&str> = sent.iter().map(|(_, u, _)| u.as_str()).collect();
+    assert_eq!(uris.iter().filter(|u| u.ends_with("/master/volumeUp")).count(), 2, "{uris:?}");
+    assert!(uris.iter().any(|u| u.ends_with("com.webos.service.audio/volumeKeeping")), "{uris:?}");
+    let mute = sent.iter().find(|(_, u, _)| u.ends_with("/master/muteVolume")).unwrap();
+    assert_eq!(mute.2, json!({"mute": true}), "toggled from unmuted");
+    // The audio service says it is muted (X4's shape): the next Mute unmutes.
+    let token = sent.iter().find(|(_, u, _)| u.ends_with("/master/getVolume")).unwrap().0;
+    let last = server.eval(move |s| {
+        s.luna_event(Event { token, payload: json!({"returnValue": true, "volumeStatus": {"muteStatus": true, "volume": 0}}) });
+        s.key_event(KEY_MUTE, true, false);
+        s.key_event(KEY_MUTE, false, false);
+        calls(s).into_iter().rev().find(|(_, u, _)| u.ends_with("/master/muteVolume")).unwrap().2
+    });
+    assert_eq!(last, json!({"mute": false}));
+    client.roundtrip();
+    assert!(client.state.keys.is_empty(), "no app sees Volume or Mute: {:?}", client.state.keys);
+}

@@ -126,7 +126,7 @@ fn run(config: Config) -> io::Result<()> {
     };
     let mut state = State::new(dh, config.clone(), output, luna);
     if state.luna.is_connected() {
-        state.luna_register_power();
+        state.luna_register();
     }
     log::info!(
         "listening on {}/{} ({} renderer, buffers {:?}{}, {} globals incl. {})",

@@ -10,6 +10,7 @@
 #                     dolbyHdrCinema while playing, filmMaker back on Home
 #   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
+#   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
 #   gate.sh woke      after the wake: PreparePowerOff and PreparePowerOn acked, no fallback, Home on the panel
 #   gate.sh escape    Home held 1 s through the compositor's own routing: the supervisor falls back to LG's,
@@ -154,5 +155,9 @@ escape)
     echo "$detail" > $OUT/escape-result.txt
     if ! is_mounted && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home' && [ "${b:-0}" -gt 4096 ]; then pass escape "$detail"; else fail escape "$detail"; fi
     ;;
-*) sed -n 2,18p $0 ;;
+key)
+    # One remote key through the compositor's own routing (tv_gate.py's volume check).
+    ctl remote "$2" tap
+    ;;
+*) sed -n 2,19p $0 ;;
 esac

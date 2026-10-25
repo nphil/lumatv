@@ -47,6 +47,28 @@ def avr_mute(on):
     except Exception as e:
         print("avr mute %s failed: %s" % (on, e))
 
+def avr_volume():
+    try:
+        req = urllib.request.Request(HA + "/api/states/" + AVR, headers={"Authorization": "Bearer " + ha_token()})
+        return json.loads(urllib.request.urlopen(req, timeout=10).read()).get("attributes", {}).get("volume_level")
+    except Exception as e:
+        print("avr state failed: %s" % e)
+        return None
+
+def volume_check():
+    """The remote's Volume keys under LumaTV's compositor: one step up and one down through the compositor's own
+    routing (the audio service passes them to the receiver over CEC); the receiver's level, read from Home
+    Assistant, must rise and come back. Mute is left alone: on ARC it would toggle the receiver's mute, which the
+    gate holds on."""
+    before = avr_volume()
+    pty("sh /tmp/lumatv/gate.sh key 115", 30); time.sleep(3)
+    up = avr_volume()
+    pty("sh /tmp/lumatv/gate.sh key 114", 30); time.sleep(3)
+    back = avr_volume()
+    detail = "receiver volume_level before %s after Volume+ %s after Volume- %s" % (before, up, back)
+    ok = None not in (before, up, back) and up > before and abs(back - before) < 1e-6
+    return "GATE volume: %s %s" % ("PASS" if ok else "FAIL", detail)
+
 def wait_ssh(seconds):
     t0 = time.time()
     while time.time() - t0 < seconds:
@@ -109,6 +131,10 @@ def main():
     try:
         print(pty("sh /tmp/lumatv/cutover.sh enable", 300))
         step("live", "sh /tmp/lumatv/gate.sh live")
+        if "volume" not in skip:
+            line = volume_check()
+            print(line)
+            lines.append(line)
         if "x1" not in skip:
             step("x1", "sh /tmp/lumatv/gate.sh x1 %d" % a.x1_seconds, a.x1_seconds + 120)
         if "netflix" not in skip:
