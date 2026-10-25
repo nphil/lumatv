@@ -16,9 +16,10 @@ LIB=$D/lib
 LD=$LIB/ld-linux-aarch64.so.1
 BLOB=$LIB/libmali-bifrost-g52-g24p0-wayland-gbm.so
 MALI32=/usr/lib/libmali.so.0
-SRV="$LD --library-path $LIB $D/bin/lumatv-compositor --runtime-dir $D"
+SRV="$LD --library-path $LIB $D/bin/lumatv-compositor --runtime-dir $D --log-protocol"
 CLI64="$LD --library-path $LIB $D/bin/lumatv-testclient"
-export XDG_RUNTIME_DIR=$D WAYLAND_DISPLAY=wayland-lumatv LUMATV_LOG=${LUMATV_LOG:-info}
+# Every request is logged (debug level): six frames are a few hundred lines, and the sequence is the evidence.
+export XDG_RUNTIME_DIR=$D WAYLAND_DISPLAY=wayland-lumatv LUMATV_LOG=${LUMATV_LOG:-debug}
 # The private loader sets up the blob's glibc; LG's /etc/ld.so.preload names a 32-bit libSegFault, which the
 # 64-bit loader skips with a warning (seen in X2 r8b).
 
@@ -90,7 +91,7 @@ case_shm() {
 case_app() {
     kill_ours
     if [ $# -gt 0 ]; then apps="$*"; else apps="/usr/bin/com.webos.exampleapp.systemui /usr/bin/com.webos.app.tvhotkey"; fi
-    LUMATV_LOG=debug start_server app --driver $BLOB --buffers driver --seconds 20 --capture-every 30 --log-protocol || return 1
+    start_server app --driver $BLOB --buffers driver --seconds 20 --capture-every 30 || return 1
     for bin in $apps; do
         [ -x "$bin" ] || { echo "app: $bin not executable, skipped"; continue; }
         echo "app: launching $bin"
