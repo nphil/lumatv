@@ -28,7 +28,7 @@ scenes still render.
 """
 import argparse
 import glob
-import importlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -39,7 +39,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 sys.path.insert(0, HERE)
-import xdisplay  # noqa: E402
 
 READY = 7000
 CODES = {"left": "Qt.Key_Left", "right": "Qt.Key_Right", "up": "Qt.Key_Up", "down": "Qt.Key_Down", "ok": "Qt.Key_Return", "back": "Qt.Key_Back",
@@ -86,14 +85,20 @@ def k(*names):
 
 # name -> steps. Names follow docs/mocks/shots.
 SCENES = {}
+META = {}                 # name -> {"runner": bool, "materials": (..)} for what is not a plain Home scene
 LOAD_ERRORS = []
 
 
-def scene(name):
+def scene(name, runner=False, materials=("dark", "light")):
+    """Registers a scene. The function returns its steps. With `runner=True` it is instead called as
+    fn(out_dir, material) -> (exit code, warnings, output) and does the rendering itself, for a surface that is not in
+    Home's tree (the notification view runs through notify.py); it writes `png_path(out_dir, name, material)` and
+    `materials` says which of the two it has."""
     def deco(fn):
         if name in SCENES:
             raise ValueError("scene %r is registered twice" % name)
         SCENES[name] = fn
+        META[name] = {"runner": runner, "materials": tuple(materials)}
         return fn
     return deco
 
@@ -265,6 +270,8 @@ def png_path(out_dir, name, material):
 def run_scene(name, out_dir, material="dark", theme=None):
     """One scene in one material: (exit code, warnings, the host's output). A snap step whose PNG is not there after the
     run is a failure, so a host that died early cannot pass on the strength of an older file."""
+    if META[name]["runner"]:
+        return SCENES[name](out_dir, material)
     steps = SCENES[name]()
     user = merge({"perf": {"syncResidents": True}, "material": material}, theme or {})
     for st in steps:
@@ -295,6 +302,7 @@ def run_scene(name, out_dir, material="dark", theme=None):
         elif kind != "theme":
             raise ValueError("scene %r: unknown step %r" % (name, kind))
     args += ["--wait", str(end + 800)]
+    import xdisplay      # starts an Xvfb when there is no DISPLAY: not for --list or the loader's tests
     env = dict(os.environ, DISPLAY=xdisplay.DISPLAY)
     r = subprocess.run([sys.executable, os.path.join(HERE, "qmlhost.py")] + args, env=env, capture_output=True, text=True, timeout=300)
     text = r.stdout + r.stderr
@@ -304,15 +312,18 @@ def run_scene(name, out_dir, material="dark", theme=None):
     return (r.returncode or (1 if missing else 0)), warn, text
 
 
-def load_modules():
-    """Imports every scenes_<slice>.py beside this file; each registers its scenes with @scene. Run as a script this file
+def load_modules(directory=HERE):
+    """Imports every scenes_<slice>.py in `directory`; each registers its scenes with @scene. Run as a script this file
     is `__main__`, so the name `scenes` is pointed at it first and `from scenes import scene` in a module reaches this
     registry, not a second copy. A module that fails to import is recorded and the rest still load."""
     sys.modules.setdefault("scenes", sys.modules[__name__])
-    for path in sorted(glob.glob(os.path.join(HERE, "scenes_*.py"))):
+    for path in sorted(glob.glob(os.path.join(directory, "scenes_*.py"))):
         mod = os.path.splitext(os.path.basename(path))[0]
         try:
-            importlib.import_module(mod)
+            spec = importlib.util.spec_from_file_location(mod, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules[mod] = module
         except Exception as e:
             LOAD_ERRORS.append("%s: %s: %s" % (mod, type(e).__name__, e))
 
@@ -325,6 +336,7 @@ def main():
     ap.add_argument("--light", action="store_true", help="the light material only")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
+    load_modules()
     for e in LOAD_ERRORS:
         print("scene module failed: " + e, file=sys.stderr)
     if a.list:
@@ -339,7 +351,7 @@ def main():
             print("%-34s unknown scene" % n)
             bad += 1
             continue
-        for material in materials:
+        for material in [m for m in materials if m in META[n]["materials"]]:
             rc, warn, text = run_scene(n, a.out, material)
             print("%-34s %-5s %s" % (n, material, "ok" if rc == 0 else "FAILED (%d warnings)" % len(warn)), flush=True)
             for w in warn[:6]:
@@ -347,8 +359,6 @@ def main():
             bad += rc != 0
     return 1 if bad else 0
 
-
-load_modules()
 
 if __name__ == "__main__":
     sys.exit(main())
