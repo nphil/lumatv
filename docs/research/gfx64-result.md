@@ -2,13 +2,20 @@
 
 ## Resume here
 
-State (2026-10-25): everything offline is done and pushed in `gfx64/`; the TV was never touched (it was busy). Only the
-on-set smoke test is left.
+State (2026-10-25): done and pushed in `gfx64/`. Smoke run on the set by the main agent; this run never touched the TV.
+
+Measured on the set (main agent, 2026-10-25), probe x1client through `launch.sh` and the shim, over idle Home:
+- Screen on, 8 s: 60.63 fps, 4 frames over 20 ms, worst 24.5 ms, three dumb buffers allocated (0.8-2.5 ms each).
+  Inside the PLAN range (60.2-60.8 fps, 2-10 over 20 ms).
+- Screen on, 20 s: 59.81 fps, 6 frames over 20 ms, worst 29.8 ms, buffers: dumb 1 + dma_buf_te 2 (CMA short, so the
+  fallback ran as designed). Not a verdict run; it carries LG's compositor floor and a mixed buffer set.
+- Set in Active Standby (panel off): 152.7 fps, unpaced frame callbacks; the probe passed its verdict although the
+  number means nothing. Fixed: `smoke.sh` now exits 2 with "VERDICT FAIL" unless tvpower's `getPowerState` is
+  "Active", and `smoke-tv.py` refuses before uploading anything. Retest only with the screen on.
 
 - Host check, passes: `gfx64/fetch-blob.sh && gfx64/build.sh && gfx64/check.sh` (policy against mock devices incl. 8
   racing threads, interposer fd bookkeeping under LD_PRELOAD, launcher fallback logic with a fake loader and clients).
-- TV smoke, not yet run. When the main agent says "TV is yours" and the set is idle (`getPowerState`,
-  `getForegroundAppInfo`): `python3 gfx64/smoke-tv.py 20 auto`. It uploads about 37 MB to volatile `/tmp/gfx64`, runs
+- TV smoke (rerun): when the set is idle and the screen is on (`getPowerState` = Active): `python3 gfx64/smoke-tv.py 20 auto`. It uploads about 37 MB to volatile `/tmp/gfx64`, runs
   the on-screen probe (x1client, the wl.c lineage) as a full-screen overlay through `launch.sh` and the shim, an 8 s run
   then a 20 s run, and prints per run: frames, fps, frames over 20 ms, worst gap, shim allocations by source, CmaFree
   before/after, plus a VERDICT line for the 8 s run. Output is also saved to `gfx64/build/smoke-<time>.txt`.

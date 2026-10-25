@@ -9,6 +9,7 @@ when the set is idle and the main agent has released it: the probe covers the sc
 The output is also written to gfx64/build/smoke-<time>.txt.
 """
 import os
+import re
 import sys
 import time
 
@@ -27,6 +28,11 @@ files += [(os.path.join(bundle, f), "bundle/lib/" + f) for f in sorted(os.listdi
 for local, _ in files:
     if not os.path.exists(local):
         sys.exit("missing %s (run gfx64/fetch-blob.sh and gfx64/build.sh)" % local)
+
+# The probe is only meaningful with the screen on; smoke.sh checks again on the set, this stops the upload.
+state = tv.tv("luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}'")
+if not re.search(r'"state"\s*:\s*"Active"', state):
+    sys.exit("refusing to run: power state is not Active (screen on): %s" % state.strip())
 
 # Skip files already on the set with the same size (the blob is 56 MB).
 listing = tv.tv("mkdir -p %s/bundle/lib; cd %s && stat -c '%%s %%n' launch.sh smoke.sh heapshim.so x1client bundle/lib/* 2>/dev/null" % (REMOTE, REMOTE))

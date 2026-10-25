@@ -7,6 +7,10 @@
 # buffer source the shim used.
 #   sh smoke.sh [SECONDS] [auto|dumb|te]
 #
+# Refuses to run (exit 2, "VERDICT FAIL") unless tvpower's getPowerState says "Active": with the panel off (Active
+# Standby, Screen Saver) frame callbacks are not paced and the probe reports 150+ fps, which proves nothing.
+# GFX64_POWER_STATE overrides the query (test hook).
+#
 # Expected (PLAN.md, "64-bit drawing path", 8 s over idle Home):
 #   dumb buffers (CMA)   60.2-60.8 fps, 2-10 frames over 20 ms     -> shim log: "via drm dumb", no dma_buf_te
 #   dma_buf_te (pages)   55.9-56.6 fps, 35-41 frames over 20 ms    -> shim log: "via dma_buf_te (CMA short)"
@@ -20,6 +24,17 @@ MALI=$(ls "$D"/bundle/lib/libmali*.so 2>/dev/null | head -n 1)
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/xdg} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
 export X1_WINDOW_TYPE=${X1_WINDOW_TYPE:-_WEBOS_WINDOW_TYPE_OVERLAY}
 export LUMATV_GFX64_BUNDLE=$D/bundle LUMATV_GFX64_SHIM=$D/heapshim.so LUMATV_HEAP=$HEAP LUMATV_HEAP_LOG=1
+
+power_state() {
+  if [ -n "${GFX64_POWER_STATE:-}" ]; then echo "$GFX64_POWER_STATE"; return; fi
+  luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null |
+    sed -n 's/.*"state" *: *"\([^"]*\)".*/\1/p' | head -n 1
+}
+PSTATE=$(power_state)
+if [ "$PSTATE" != Active ]; then
+  echo "VERDICT FAIL: power state is '${PSTATE:-unknown}', not 'Active' (screen on); nothing was run"
+  exit 2
+fi
 
 cma() { grep CmaFree /proc/meminfo | awk '{print $2}'; }
 
