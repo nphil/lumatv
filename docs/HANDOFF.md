@@ -25,11 +25,15 @@ Phases, Decided); this file holds the proven mechanics.
     (`tests/qmlhost`), Home's weather and news from the native helper, the
     helper's start and stop in the tool, the preload trim, the boot and
     power-off logo windows, `lumatv surfaces` (the registry of every switch and
-    its way back) and the first step of the notification view (`lumatv
-    notifications on|off`: LG's tree copied on the set and patched there, never
-    shipped). The set has run the warm-up and the Home gate (slot 1); that note's
-    Log has the numbers. Slot 2 is the first to run the helper wiring, the
-    preload trim, the logos and the notification view.
+    its way back) and the notification view (`lumatv notifications on|off`: LG's
+    tree copied on the set and patched there with LumaTV's own toast laid over
+    it, nothing of LG's shipped; `tests/qmlhost/notify.py` runs LG's real view
+    offline). LumaTV's Settings (`Settings.qml`, `settings/`: Home & look and AI
+    access pages) is a layer of Home opened from the gear's popover, and the AI
+    prompt (`AiPrompt.qml`) draws the helper's `ai.prompt` over Home; both are
+    tested offline against a fake helper (`tests/qmlhost/fakehelper.py`, which
+    models `/v1/ai`) and have not run on the set. The set has run the warm-up and
+    the Home gate (slot 1); that note's Log has the numbers.
   - The native helper (`helper/`, `docs/research/native-helper-result.md`):
     proven on the set (smoke test 35 of 35; AI-access smoke 42 of 42, which skips
     the two checks that touch the TV and the receiver). The plugin broker

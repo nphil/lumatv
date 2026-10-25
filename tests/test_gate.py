@@ -273,6 +273,15 @@ class Windows(unittest.TestCase):
         self.assertEqual(gate.verdict([ok, bad]), 'FAIL')
         self.assertEqual(gate.verdict([]), 'FAIL')
 
+    def test_no_command_on_the_set_calls_the_tool_by_a_bare_name(self):
+        # the tool is not on the set's PATH: the gallery's setup failed with "lumatv: not found" on the first run
+        for s in gate.SURFACES:
+            for key in ('setup', 'teardown', 'reopen'):
+                for cmd in s.get(key, []):
+                    self.assertFalse(cmd.startswith('lumatv '), cmd)
+                    if 'theme set' in cmd:
+                        self.assertTrue(cmd.startswith(gate.TOOL), cmd)
+
 
 if __name__ == '__main__':
     unittest.main()

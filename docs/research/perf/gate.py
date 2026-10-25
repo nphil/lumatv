@@ -38,6 +38,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The tool is not on the set's PATH.
+TOOL = '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv'
 
 # ------------------------------------------------------------------ surfaces
 #
@@ -83,9 +85,9 @@ SURFACES = [
     {'name': 'alert', 'default': False,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
     {'name': 'kit-gallery',
-     'setup': ["lumatv theme set '{\"kitGallery\":true}'", 'sleep 3'],
-     'teardown': ["lumatv theme set '{\"kitGallery\":false}'"],
-     'reopen': ["lumatv theme set '{\"kitGallery\":true}'"], 'reopen_wait_s': 3,
+     'setup': [TOOL + " theme set '{\"kitGallery\":true}'", 'sleep 3'],
+     'teardown': [TOOL + " theme set '{\"kitGallery\":false}'"],
+     'reopen': [TOOL + " theme set '{\"kitGallery\":true}'"], 'reopen_wait_s': 3,
      'open': '@kit-gallery-open DOWN', 'close': '@kit-gallery-close BACK', 'settle_s': 1.5},
 ]
 
