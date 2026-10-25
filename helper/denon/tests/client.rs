@@ -1,6 +1,8 @@
 //! The client against a fake receiver on the loopback: the reply formats the set's receiver uses, and every way a read fails.
 
-use lumatv_denon::{Client, ClientError, ParseError, Power, STATUS_LITE_PATH};
+use lumatv_denon::{
+    Client, ClientError, ParseError, Power, STATUS_LITE_PATH, mute_command, volume_command,
+};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
@@ -206,4 +208,140 @@ fn a_name_that_does_not_resolve_is_unreachable() {
         matches!(result, Err(ClientError::Unreachable(_))),
         "{result:?}"
     );
+}
+
+// ------------------------------------------------------------------------------------------------ commands
+
+#[test]
+fn a_command_is_one_get_and_an_empty_reply_is_success() {
+    let (port, request) = serve_once(b"HTTP/1.0 200 OK\r\nServer: mongoose2.5\r\n\r\n".to_vec());
+    assert_eq!(client(port).send_command("MV355"), Ok(()));
+    let request = request.join().unwrap();
+    assert!(
+        request.starts_with("GET /goform/formiPhoneAppDirect.xml?MV355 HTTP/1.0\r\n"),
+        "{request}"
+    );
+}
+
+#[test]
+fn a_command_accepts_any_body_on_a_2xx() {
+    let (port, _) = serve_once(b"HTTP/1.0 200 OK\r\n\r\n<html>ok</html>".to_vec());
+    assert_eq!(client(port).send_command("MUON"), Ok(()));
+}
+
+#[test]
+fn a_refused_command_is_an_http_error() {
+    let (port, _) = serve_once(b"HTTP/1.0 403 Forbidden\r\n\r\nAccess Forbidden\r\n".to_vec());
+    assert_eq!(
+        client(port).send_command("MV35"),
+        Err(ClientError::Http(403))
+    );
+}
+
+#[test]
+fn a_command_to_a_closed_port_is_unreachable() {
+    let port = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    assert!(matches!(
+        client(port).send_command("MV35"),
+        Err(ClientError::Unreachable(_))
+    ));
+}
+
+#[test]
+fn an_invalid_command_sends_nothing() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let long = "A".repeat(17);
+    let cases = [
+        "",
+        "M",
+        "mv35",
+        "MV 35",
+        "MV35\r\n",
+        "MV35 HTTP/1.1\r\nX: y",
+        "MV35&Z=1",
+        "MV35#",
+        "MV/35",
+        "MV\u{0662}5",
+        "MÜ35",
+        long.as_str(),
+    ];
+    for command in cases {
+        assert_eq!(
+            client(port).send_command(command),
+            Err(ClientError::InvalidCommand),
+            "{command:?}"
+        );
+    }
+    assert_eq!(ClientError::InvalidCommand.code(), "invalid_command");
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[test]
+fn the_shortest_and_longest_commands_and_queries_are_valid() {
+    let longest = "A".repeat(16);
+    for command in ["MV", "PW?", longest.as_str()] {
+        let (port, request) = serve_once(b"HTTP/1.0 200 OK\r\n\r\n".to_vec());
+        assert_eq!(client(port).send_command(command), Ok(()), "{command}");
+        assert!(
+            request
+                .join()
+                .unwrap()
+                .contains(&format!("?{command} HTTP/1.0"))
+        );
+    }
+}
+
+#[test]
+fn volume_commands_round_to_the_nearest_half_with_ties_up() {
+    let table: [(f64, Option<&str>); 22] = [
+        (0.0, Some("MV00")),
+        (-0.0, Some("MV00")),
+        (0.24, Some("MV00")),
+        (0.25, Some("MV005")),
+        (0.5, Some("MV005")),
+        (0.74, Some("MV005")),
+        (0.75, Some("MV01")),
+        (5.0, Some("MV05")),
+        (5.5, Some("MV055")),
+        (35.0, Some("MV35")),
+        (35.24, Some("MV35")),
+        (35.25, Some("MV355")),
+        (35.5, Some("MV355")),
+        (35.74, Some("MV355")),
+        (35.75, Some("MV36")),
+        (97.5, Some("MV975")),
+        (98.0, Some("MV98")),
+        (98.01, None),
+        (-0.01, None),
+        (f64::NAN, None),
+        (f64::INFINITY, None),
+        (f64::NEG_INFINITY, None),
+    ];
+    for (level, want) in table {
+        assert_eq!(volume_command(level).as_deref(), want, "{level}");
+    }
+}
+
+#[test]
+fn every_volume_command_is_a_valid_command() {
+    let mut level = 0.0;
+    while level <= 98.0 {
+        let command = volume_command(level).unwrap();
+        assert!(command.len() == 4 || command.len() == 5, "{command}");
+        level += 0.25;
+    }
+}
+
+#[test]
+fn mute_commands() {
+    assert_eq!(mute_command(true), "MUON");
+    assert_eq!(mute_command(false), "MUOFF");
 }

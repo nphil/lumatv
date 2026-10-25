@@ -35,7 +35,7 @@ fn health_discovery_and_state_answer_over_tcp() {
     assert_eq!(root.status, 200);
     assert_eq!(
         root.json()["endpoints"].as_array().unwrap().len(),
-        lumatv_helper::api::ROUTES.len()
+        lumatv_helper::api::ROUTES.len() + lumatv_helper::ai::routes::ROUTES.len()
     );
 
     let state = get(rig.addr, "/v1/state").json();

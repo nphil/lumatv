@@ -1,0 +1,582 @@
+{
+ "apps": [
+  {
+   "id": "amazon",
+   "removable": true,
+   "systemApp": false,
+   "title": "Prime Video",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "class": {
+    "hidden": false
+   },
+   "id": "amazon.alexa.view",
+   "removable": false,
+   "systemApp": true,
+   "title": "Amazon Alexa",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.amazoff.patcher",
+   "removable": true,
+   "systemApp": false,
+   "title": "AmazOff",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.apple.appletv",
+   "removable": true,
+   "systemApp": false,
+   "title": "Apple TV",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "id": "com.beb.plxnative",
+   "removable": true,
+   "systemApp": false,
+   "title": "PlxNative",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "id": "com.crunchyroll.webapp",
+   "removable": true,
+   "systemApp": false,
+   "title": "Crunchyroll",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.geforcenow.play",
+   "removable": true,
+   "systemApp": false,
+   "title": "GeForce NOW",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.lgtvod.us.app",
+   "removable": true,
+   "systemApp": false,
+   "title": "LG Movies & TV",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.lighting.huesync",
+   "removable": true,
+   "systemApp": false,
+   "title": "Hue Sync",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.limelight.webos",
+   "removable": true,
+   "systemApp": false,
+   "title": "Moonlight",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "id": "com.palm.app.settings",
+   "removable": false,
+   "systemApp": true,
+   "title": "Settings",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.acrhdmi1",
+   "removable": false,
+   "systemApp": true,
+   "title": "LivePlus",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.acrhdmi2",
+   "removable": false,
+   "systemApp": true,
+   "title": "LivePlus",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.acrhdmi3",
+   "removable": false,
+   "systemApp": true,
+   "title": "LivePlus",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.acrhdmi4",
+   "removable": false,
+   "systemApp": true,
+   "title": "LivePlus",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adhdmi1",
+   "removable": false,
+   "systemApp": true,
+   "title": "Ad Overlay App",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adhdmi2",
+   "removable": false,
+   "systemApp": true,
+   "title": "Ad Overlay App",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adhdmi3",
+   "removable": false,
+   "systemApp": true,
+   "title": "Ad Overlay App",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adhdmi4",
+   "removable": false,
+   "systemApp": true,
+   "title": "Ad Overlay App",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.beanbrowser",
+   "removable": false,
+   "systemApp": true,
+   "title": "BeanBrowser",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.browser",
+   "removable": false,
+   "systemApp": true,
+   "title": "Web Browser",
+   "type": "native_builtin",
+   "visible": true
+  },
+  {
+   "id": "com.webos.app.camera",
+   "removable": false,
+   "systemApp": true,
+   "title": "Camera",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.webos.app.discovery",
+   "removable": false,
+   "systemApp": true,
+   "title": "Apps",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.webos.app.hdmi1",
+   "removable": false,
+   "systemApp": true,
+   "title": "HDMI1",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.hdmi2",
+   "removable": false,
+   "systemApp": true,
+   "title": "HDMI2",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.hdmi3",
+   "removable": false,
+   "systemApp": true,
+   "title": "HDMI3",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.hdmi4",
+   "removable": false,
+   "systemApp": true,
+   "title": "HDMI4",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.hdmioptical",
+   "removable": false,
+   "systemApp": true,
+   "title": "Sound Share",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "appCategory": [
+    "home"
+   ],
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.home",
+   "removable": false,
+   "systemApp": true,
+   "title": "Home",
+   "type": "flutter",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.homeconnect",
+   "removable": false,
+   "systemApp": true,
+   "title": "Home Hub",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "class": {
+    "hidden": false
+   },
+   "id": "com.webos.app.homeoffice",
+   "removable": false,
+   "systemApp": true,
+   "title": "Home Office",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.lgchannels",
+   "removable": false,
+   "systemApp": true,
+   "title": "LG Channels",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "appCategory": [
+    "aod"
+   ],
+   "id": "com.webos.app.lifeonscreen",
+   "removable": false,
+   "systemApp": true,
+   "title": "LG Gallery+",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.webos.app.livetv",
+   "removable": false,
+   "systemApp": true,
+   "title": "Live TV",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.livetvopapp",
+   "removable": false,
+   "systemApp": true,
+   "title": "Live TV OpApp Mode",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": false
+   },
+   "id": "com.webos.app.mediadiscovery",
+   "removable": false,
+   "systemApp": true,
+   "title": "Media Player",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.webos.app.multiviewsettings",
+   "removable": false,
+   "systemApp": true,
+   "title": "Multi View",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.webos.app.sportsteamsettings",
+   "removable": false,
+   "systemApp": true,
+   "title": "Sports",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "com.webos.chromecast-settings",
+   "removable": false,
+   "systemApp": true,
+   "title": "Chromecast built-in Settings",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": false
+   },
+   "id": "com.webos.exampleapp.qmlapp.livetv",
+   "removable": false,
+   "systemApp": true,
+   "title": "com.webos.exampleapp.qmlapp.livetv",
+   "type": "qml",
+   "visible": false
+  },
+  {
+   "id": "io.unom.punktfunk.client-webos",
+   "removable": true,
+   "systemApp": false,
+   "title": "Punktfunk",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "id": "netflix",
+   "removable": true,
+   "systemApp": false,
+   "title": "Netflix",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "id": "org.nphil.lumaglass",
+   "removable": true,
+   "systemApp": false,
+   "title": "LumaGlass",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "org.nphil.lumaglass.frame",
+   "removable": true,
+   "systemApp": false,
+   "title": "LumaGlass Frame",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "org.webosbrew.appupdateblocker",
+   "removable": true,
+   "systemApp": false,
+   "title": "LG App Update Blocker",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "org.webosbrew.bridge-64to32",
+   "removable": true,
+   "systemApp": false,
+   "title": "64 to 32-bit Bridge",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "id": "org.webosbrew.hbchannel",
+   "removable": true,
+   "systemApp": false,
+   "title": "Homebrew Channel",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "org.webosbrew.hyperhdr.loader",
+   "removable": true,
+   "systemApp": false,
+   "title": "HyperHDR",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "org.webosbrew.inputhook",
+   "removable": true,
+   "systemApp": false,
+   "title": "LG Input Hook",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "org.webosbrew.safeupdate",
+   "removable": true,
+   "systemApp": false,
+   "title": "Homebrew Channel Updater",
+   "type": "web",
+   "visible": true
+  },
+  {
+   "id": "youtube.leanback.v4",
+   "removable": true,
+   "systemApp": false,
+   "title": "YouTube",
+   "type": "native",
+   "visible": true
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "airplay",
+   "removable": false,
+   "systemApp": true,
+   "title": "AirPlay",
+   "type": "native",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": false
+   },
+   "id": "amazon.alexapr",
+   "removable": false,
+   "systemApp": true,
+   "title": "Amazon Alexa",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.palm.app.firstuse",
+   "removable": false,
+   "systemApp": true,
+   "title": "First Use",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.accessibility",
+   "removable": false,
+   "systemApp": true,
+   "title": "Accessibility",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.accessibility-overlay",
+   "removable": false,
+   "systemApp": true,
+   "title": "Accessibility Overlay",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.acrcomponent",
+   "removable": false,
+   "systemApp": true,
+   "title": "LivePlus",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.acroverlay",
+   "removable": false,
+   "systemApp": true,
+   "title": "LivePlus",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adapp",
+   "removable": false,
+   "systemApp": true,
+   "title": "Advertisement",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adoverlay",
+   "removable": false,
+   "systemApp": true,
+   "title": "Ad Overlay App",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.adoverlayex",
+   "removable": false,
+   "systemApp": true,
+   "title": "Ad Overlay App extension",
+   "type": "web",
+   "visible": false
+  },
+  {
+   "id": "com.webos.app.aiplatform",
+   "removable": false,
+   "systemApp": true,
+   "title": "Flutter aiplatform app",
+   "type": "flutter",
+   "visible": false
+  },
+  {
+   "class": {
+    "hidden": true
+   },
+   "id": "com.webos.app.aiplatformsupport",
+   "removable": false,
+   "systemApp": true,
+   "title": "Flutter aiplatform_support app",
+   "type": "flutter",
+   "visible": false
+  }
+ ],
+ "returnValue": true,
+ "subscribed": false
+}

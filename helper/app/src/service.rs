@@ -35,11 +35,15 @@ pub struct StartOptions {
     /// The HTTPS transport for weather and news. `None` builds the real one (`openssl s_client`) from the config; a test gives
     /// its own so nothing touches the network.
     pub fetcher: Option<Arc<dyn Fetch>>,
+    /// What the AI-access module acts through. `None` builds the real ones (the TV's input devices, `luna-send`, the receiver);
+    /// a test gives its own so nothing touches a TV.
+    pub ai: Option<crate::ai::Deps>,
 }
 
 /// A running helper.
 pub struct Service {
     ctx: Ctx,
+    ai: Option<Arc<crate::ai::Ai>>,
     server: Option<Server>,
     threads: Vec<(&'static str, JoinHandle<()>)>,
     addr: SocketAddr,
@@ -56,6 +60,7 @@ impl Service {
             paths,
             config,
             fetcher,
+            ai: ai_deps,
         } = options;
         let config = Arc::new(config);
         let stop = Stop::new();
@@ -129,6 +134,17 @@ impl Service {
         };
         threads.push(("feeds", homefeeds::spawn(&ctx, feeds_rx, fetcher)?));
 
+        // AI access: loads its state (off and unpaired when there is none) and binds nothing; the LAN listener exists only while
+        // the TV's owner has turned it on with the remote.
+        let ai_deps = ai_deps.unwrap_or_else(|| real_ai_deps(&config, &settings));
+        let nudge: Arc<dyn Fn() + Send + Sync> = {
+            let tx = receiver_tx.clone();
+            Arc::new(move || {
+                let _ = tx.send(receiver::Cmd::Nudge);
+            })
+        };
+        let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
+
         let ip: IpAddr = config
             .listen
             .host
@@ -137,6 +153,7 @@ impl Service {
         let api = Api {
             hub,
             settings,
+            ai: ai.clone(),
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,
@@ -157,6 +174,7 @@ impl Service {
                 // Nothing else is useful without the API: take the threads down again.
                 let partial = Self {
                     ctx,
+                    ai: Some(ai),
                     server: None,
                     threads,
                     addr: SocketAddr::new(ip, 0),
@@ -169,6 +187,7 @@ impl Service {
         crate::log_info!("listening on {addr} (api {})", crate::API_VERSION);
         Ok(Self {
             ctx,
+            ai: Some(ai),
             server: Some(server),
             threads,
             addr,
@@ -197,6 +216,10 @@ impl Service {
 
     fn shutdown(&mut self) {
         self.ctx.stop.request();
+        // The LAN socket (if the owner turned AI access on) closes first.
+        if let Some(ai) = self.ai.take() {
+            ai.stop();
+        }
         if let Some(server) = self.server.take() {
             server.stop(Duration::from_secs(2));
         }
@@ -211,6 +234,36 @@ impl Service {
                 crate::log_warn!("{name} did not stop in time and was left to the process exit");
             }
         }
+    }
+}
+
+/// The real things the AI module acts through: the TV's input devices (to see the remote), `luna-send` (to read and drive the
+/// TV), the input device that carries network keys (for the playback keys) and the Denon receiver.
+fn real_ai_deps(config: &Config, settings: &Arc<SettingsStore>) -> crate::ai::Deps {
+    use crate::ai::keys::{EvdevInjector, EvdevKeys};
+    use crate::ai::luna::{LunaTv, MediaKeyCodes, RealTv};
+    use crate::ai::receiver_ctl::DenonControl;
+    let ai = &config.ai;
+    let mut luna = LunaTv::new(&config.luna.send);
+    if let Some(id) = &config.brand_app_id {
+        luna = luna.with_deny_prefixes(vec![id.clone()]);
+    }
+    let injector = Arc::new(EvdevInjector::with_dirs(
+        &ai.sys_input_dir,
+        &ai.input_dir,
+        ai.inject_device.clone(),
+    ));
+    let codes = MediaKeyCodes {
+        play: ai.media_keys.play,
+        pause: ai.media_keys.pause,
+        stop: ai.media_keys.stop,
+        rewind: ai.media_keys.rewind,
+        fast_forward: ai.media_keys.fast_forward,
+    };
+    crate::ai::Deps {
+        keys: Arc::new(EvdevKeys::with_dirs(&ai.sys_input_dir, &ai.input_dir)),
+        tv: Arc::new(RealTv::new(luna, injector, codes)),
+        receiver: Arc::new(DenonControl::new(settings.clone(), config.receiver.clone())),
     }
 }
 

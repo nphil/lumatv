@@ -10,10 +10,12 @@
 //! | [`homefeeds`], [`fetcher`] | Home's weather and news: saved first, fetched while the screen is on; the HTTPS transport |
 //! | [`settings`] | the data layer on LumaShow's `settings-schema` |
 //! | [`api`], [`http`] | the v1 API and the loopback server it runs on |
+//! | [`ai`] | the MCP server: AI assistants on the LAN, every permission held on the TV and changed only with the physical remote |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 //!
 //! Phase 3 adds the MCP server and phase 9 the plugin broker as components of [`service::Service`] (see its docs).
 
+pub mod ai;
 pub mod api;
 pub mod cli;
 pub mod config;

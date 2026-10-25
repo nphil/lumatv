@@ -93,6 +93,8 @@ pub struct Api {
     pub data_dir: String,
     /// Which HTTPS transport feeds the weather and news and why: `{"backend": "openssl" | "curl" | "none", "why": "..."}`.
     pub fetch_backend: Value,
+    /// The AI-access module: the TV's UI asks it for changes through `/v1/ai/...`.
+    pub ai: Arc<crate::ai::Ai>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -213,6 +215,7 @@ impl Api {
     fn discovery(&self) -> Response {
         let endpoints: Vec<Value> = ROUTES
             .iter()
+            .chain(crate::ai::routes::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -371,6 +374,11 @@ impl Api {
                         "code": "invalid", "message": "a setting was refused", "fields": map}}),
                 )
             }
+            Err(ApplyError::Protected) => error_response(
+                403,
+                "protected_owner",
+                "these settings can only be changed on the TV",
+            ),
             Err(ApplyError::Io(why)) => error_response(500, "io", &why),
         }
     }
@@ -397,6 +405,7 @@ impl Handler for Api {
             ["v1", "settings"] if get => self.settings_list(),
             ["v1", "settings", owner] if get => self.settings_get(owner),
             ["v1", "settings", owner] if post => self.settings_post(owner, request),
+            ["v1", "ai", rest @ ..] => crate::ai::routes::handle(&self.ai, request, rest),
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -455,10 +464,20 @@ mod tests {
         settings.register_builtin().unwrap();
         let (receiver_tx, receiver_rx) = mpsc::channel();
         let (feeds_tx, feeds_rx) = mpsc::channel();
+        let ctx = crate::ctx::Ctx {
+            config: Arc::new(crate::config::Config::default()),
+            paths: crate::config::Paths::new(dir.path()),
+            hub: hub.clone(),
+            settings: settings.clone(),
+            stop: crate::control::Stop::new(),
+        };
+        let ai =
+            crate::ai::Ai::start(&ctx, crate::ai::testing::inert_deps(), Arc::new(|| {})).unwrap();
         Rig {
             api: Api {
                 hub,
                 settings,
+                ai,
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -486,6 +505,7 @@ mod tests {
                 .collect(),
             headers: vec![],
             body: body.as_bytes().to_vec(),
+            peer: std::net::Ipv4Addr::LOCALHOST.into(),
         }
     }
 
@@ -530,9 +550,15 @@ mod tests {
         let rig = rig();
         let b = body(&rig.api.handle(&request("GET", "/v1", "")));
         let listed = b["endpoints"].as_array().unwrap();
-        assert_eq!(listed.len(), ROUTES.len());
+        assert_eq!(listed.len(), ROUTES.len() + crate::ai::routes::ROUTES.len());
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);
+        // The AI routes have their own tests (tests/ai.rs); here only that the router hands them on.
+        assert_eq!(rig.api.handle(&request("GET", "/v1/ai", "")).status, 200);
+        assert_eq!(
+            rig.api.handle(&request("GET", "/v1/ai/nope", "")).status,
+            404
+        );
         for (method, path, _) in ROUTES {
             let concrete = path
                 .replace("{topic}", "screen")
@@ -560,10 +586,11 @@ mod tests {
     #[test]
     fn state_carries_the_seq_and_every_topic() {
         let rig = rig();
+        let base = rig.api.hub.snapshot().seq;
         rig.api.hub.set("screen", json!({"on": true}));
         rig.api.hub.set("receiver", json!({"fresh": false}));
         let b = body(&rig.api.handle(&request("GET", "/v1/state", "")));
-        assert_eq!(b["seq"], 2);
+        assert_eq!(b["seq"], base + 2);
         assert_eq!(b["boot"], 777);
         assert_eq!(b["topics"]["screen"], json!({"on": true}));
         assert_eq!(b["helper"]["name"], "lumatv-helper");
@@ -574,12 +601,13 @@ mod tests {
     #[test]
     fn one_topic_and_the_aliases() {
         let rig = rig();
+        let base = rig.api.hub.snapshot().seq;
         rig.api.hub.set("screen", json!({"on": false}));
         for path in ["/v1/screen", "/v1/state/screen"] {
             let b = body(&rig.api.handle(&request("GET", path, "")));
             assert_eq!(b["topic"], "screen");
             assert_eq!(b["value"], json!({"on": false}));
-            assert_eq!(b["seq"], 1);
+            assert_eq!(b["seq"], base + 1);
         }
         let r = rig.api.handle(&request("GET", "/v1/receiver", ""));
         assert_eq!(r.status, 404);
@@ -659,9 +687,10 @@ mod tests {
     #[test]
     fn events_without_after_report_the_seq_at_once() {
         let rig = rig();
+        let base = rig.api.hub.snapshot().seq;
         rig.api.hub.set("a", json!(1));
         let b = body(&rig.api.handle(&request("GET", "/v1/events?timeout=20", "")));
-        assert_eq!(b["seq"], 1);
+        assert_eq!(b["seq"], base + 1);
         assert_eq!(b["events"], json!([]));
         assert_eq!(b["reset"], false);
     }
@@ -669,20 +698,22 @@ mod tests {
     #[test]
     fn events_after_a_seq_are_returned_and_filtered() {
         let rig = rig();
+        let base = rig.api.hub.snapshot().seq;
         rig.api.hub.set("a", json!(1));
         rig.api.hub.set("b", json!(2));
-        let b = body(
-            &rig.api
-                .handle(&request("GET", "/v1/events?after=0&boot=777&topics=b", "")),
-        );
+        let b = body(&rig.api.handle(&request(
+            "GET",
+            &format!("/v1/events?after={base}&boot=777&topics=b"),
+            "",
+        )));
         assert_eq!(b["events"].as_array().unwrap().len(), 1);
         assert_eq!(b["events"][0]["topic"], "b");
         assert_eq!(b["events"][0]["kind"], "changed");
         assert_eq!(b["events"][0]["data"], json!(2));
-        assert_eq!(b["seq"], 2);
+        assert_eq!(b["seq"], base + 2);
         let again = body(&rig.api.handle(&request(
             "GET",
-            "/v1/events?after=2&boot=777&timeout=0",
+            &format!("/v1/events?after={}&boot=777&timeout=0", base + 2),
             "",
         )));
         assert_eq!(again["events"], json!([]));
@@ -723,11 +754,16 @@ mod tests {
     fn a_long_poll_wakes_when_something_is_published() {
         let rig = rig();
         let hub = rig.api.hub.clone();
+        let base = hub.snapshot().seq;
         let api = Arc::new(rig.api);
         let waiter = {
             let api = api.clone();
             std::thread::spawn(move || {
-                body(&api.handle(&request("GET", "/v1/events?after=0&timeout=20", "")))
+                body(&api.handle(&request(
+                    "GET",
+                    &format!("/v1/events?after={base}&timeout=20"),
+                    "",
+                )))
             })
         };
         std::thread::sleep(Duration::from_millis(60));

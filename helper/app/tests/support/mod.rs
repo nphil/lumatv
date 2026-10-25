@@ -472,6 +472,7 @@ impl Rig {
             paths: self.paths.clone(),
             config,
             fetcher: Some(fetcher),
+            ai: None,
         })
         .unwrap();
         self.addr = service.addr();

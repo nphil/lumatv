@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 /// The Lite status the receiver serves on its web port.
 pub const STATUS_LITE_PATH: &str = "/goform/formMainZone_MainZoneXmlStatusLite.xml";
 
+/// The path commands are sent to, with the command as the query (`?MV35`). The set's receiver answers `200` with an empty body.
+const COMMAND_PATH: &str = "/goform/formiPhoneAppDirect.xml";
+
 /// The longest reply that is read: the status is a few hundred bytes, so anything near this is not the status.
 const MAX_REPLY: usize = 64 * 1024;
 /// The most the status line and headers may take.
@@ -32,6 +35,8 @@ pub enum ClientError {
     TooLarge,
     /// The reply is HTTP but not the status XML.
     Parse(ParseError),
+    /// The command is not 2 to 16 characters of `A-Z`, `0-9` and `?`; nothing was sent.
+    InvalidCommand,
 }
 
 impl ClientError {
@@ -45,6 +50,7 @@ impl ClientError {
             Self::BadResponse(_) => "bad_response",
             Self::TooLarge => "too_large",
             Self::Parse(_) => "parse",
+            Self::InvalidCommand => "invalid_command",
         }
     }
 }
@@ -59,6 +65,7 @@ impl fmt::Display for ClientError {
             Self::BadResponse(why) => write!(f, "the receiver's reply was not usable ({why})"),
             Self::TooLarge => f.write_str("the receiver's reply was too large"),
             Self::Parse(e) => write!(f, "{e}"),
+            Self::InvalidCommand => f.write_str("the command is not a valid receiver command"),
         }
     }
 }
@@ -132,6 +139,20 @@ impl Client {
         parse_status_lite(&text).map_err(ClientError::Parse)
     }
 
+    /// Sends one command (`MV35`, `MUON`, ...) and succeeds on any `2xx` reply, with or without a body: the receiver's reply
+    /// to a command is empty and its effect shows in the status. A command that is not 2 to 16 characters of `A-Z`, `0-9`
+    /// and `?` is refused without connecting, so nothing a caller passes can add to the request line.
+    pub fn send_command(&self, command: &str) -> Result<(), ClientError> {
+        if !(2..=16).contains(&command.len())
+            || !command
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'?')
+        {
+            return Err(ClientError::InvalidCommand);
+        }
+        self.get(&format!("{COMMAND_PATH}?{command}")).map(|_| ())
+    }
+
     /// The body of `GET path`, at most [`MAX_REPLY`] bytes, within the total deadline.
     fn get(&self, path: &str) -> Result<Vec<u8>, ClientError> {
         let deadline = Instant::now() + self.total_timeout;
@@ -195,6 +216,26 @@ impl Client {
         }
         parse_response(&raw).map(<[u8]>::to_vec)
     }
+}
+
+/// The command that sets the master volume to `level` on the receiver's 0 to 98 scale, or `None` for a level that is not
+/// finite or outside `0.0..=98.0`. The receiver steps in halves: the level is rounded to the nearest 0.5 with ties going up
+/// (`x.25` to `x.5`, `x.75` to the next whole). A whole level is two digits (`MV35`), a half is three (`MV355`, `MV055`).
+pub fn volume_command(level: f64) -> Option<String> {
+    if !level.is_finite() || !(0.0..=98.0).contains(&level) {
+        return None;
+    }
+    let halves = (level * 2.0 + 0.5).floor() as u32;
+    Some(if halves % 2 == 0 {
+        format!("MV{:02}", halves / 2)
+    } else {
+        format!("MV{:02}5", halves / 2)
+    })
+}
+
+/// The command that mutes or unmutes the master zone.
+pub fn mute_command(muted: bool) -> &'static str {
+    if muted { "MUON" } else { "MUOFF" }
 }
 
 fn io_error(e: &std::io::Error) -> ClientError {

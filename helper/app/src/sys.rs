@@ -93,6 +93,98 @@ pub fn which(program: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// Fills `buf` from the kernel's random source (`getrandom`, which blocks only until the pool is first seeded).
+pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        let rest = &mut buf[filled..];
+        // SAFETY: the pointer and the length describe the unfilled tail of `buf`, which is valid for writes.
+        let n = unsafe { libc::getrandom(rest.as_mut_ptr().cast(), rest.len(), 0) };
+        if n < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        filled += usize::try_from(n).unwrap_or(0);
+    }
+    Ok(())
+}
+
+/// The IPv4 addresses of the interfaces that are up, with the interface's name. Loopback is included.
+pub fn ipv4_interfaces() -> Vec<(String, std::net::Ipv4Addr)> {
+    let mut found = Vec::new();
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: `getifaddrs` fills `list` with a linked list that is read below and released with `freeifaddrs`.
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return found;
+    }
+    let mut at = list;
+    while !at.is_null() {
+        // SAFETY: `at` is a node of the list `getifaddrs` returned, which stays valid until `freeifaddrs`.
+        let node = unsafe { &*at };
+        at = node.ifa_next;
+        if node.ifa_addr.is_null() || node.ifa_flags & (libc::IFF_UP as libc::c_uint) == 0 {
+            continue;
+        }
+        // SAFETY: `ifa_addr` is non-null; its first field is the address family.
+        if i32::from(unsafe { (*node.ifa_addr).sa_family }) != libc::AF_INET {
+            continue;
+        }
+        // SAFETY: an `AF_INET` address is a `sockaddr_in`.
+        let raw = unsafe { (*node.ifa_addr.cast::<libc::sockaddr_in>()).sin_addr.s_addr };
+        // SAFETY: `ifa_name` is a NUL-terminated string owned by the list.
+        let name = unsafe { std::ffi::CStr::from_ptr(node.ifa_name) }
+            .to_string_lossy()
+            .into_owned();
+        found.push((name, std::net::Ipv4Addr::from(u32::from_be(raw))));
+    }
+    // SAFETY: `list` came from `getifaddrs` and is not used after this.
+    unsafe { libc::freeifaddrs(list) };
+    found
+}
+
+/// The interface of the default route in the text of `/proc/net/route` (the up route with a gateway and an all-zero
+/// destination and mask, the lowest metric if there are several).
+pub fn default_route_interface(route_table: &str) -> Option<String> {
+    route_table
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            let flags = u32::from_str_radix(f.get(3)?, 16).ok()?;
+            let metric = f.get(6)?.parse::<u32>().ok()?;
+            let is_default = *f.get(1)? == "00000000" && *f.get(7)? == "00000000";
+            (is_default && flags & 0x1 != 0 && flags & 0x2 != 0).then(|| (metric, f[0].to_owned()))
+        })
+        .min_by_key(|(metric, _)| *metric)
+        .map(|(_, name)| name)
+}
+
+/// Whether an address is one a LAN listener may be bound to: loopback, private (RFC 1918) or link-local, never a public one.
+pub fn is_lan_address(ip: std::net::Ipv4Addr) -> bool {
+    ip.is_loopback() || ip.is_private() || ip.is_link_local()
+}
+
+/// The address a LAN listener should bind to: the one given, else the first private address of the default route's interface,
+/// else the first private non-loopback address of any interface. Never a public address.
+pub fn lan_ipv4(explicit: Option<std::net::Ipv4Addr>) -> Option<std::net::Ipv4Addr> {
+    if let Some(ip) = explicit {
+        return is_lan_address(ip).then_some(ip);
+    }
+    let interfaces = ipv4_interfaces();
+    let private = |ip: &std::net::Ipv4Addr| ip.is_private() || ip.is_link_local();
+    if let Some(name) = std::fs::read_to_string("/proc/net/route")
+        .ok()
+        .and_then(|text| default_route_interface(&text))
+        && let Some((_, ip)) = interfaces.iter().find(|(n, ip)| *n == name && private(ip))
+    {
+        return Some(*ip);
+    }
+    interfaces.iter().map(|(_, ip)| *ip).find(private)
+}
+
 pub fn pid() -> u32 {
     std::process::id()
 }
@@ -375,6 +467,64 @@ mod tests {
     fn this_process_is_alive_and_a_huge_pid_is_not() {
         assert!(pid_alive(pid()));
         assert!(!pid_alive(4_000_000_000));
+    }
+
+    #[test]
+    fn random_bytes_differ_and_fill_the_buffer() {
+        let (mut a, mut b) = ([0u8; 32], [0u8; 32]);
+        random_bytes(&mut a).unwrap();
+        random_bytes(&mut b).unwrap();
+        assert_ne!(a, b);
+        assert_ne!(a, [0u8; 32]);
+        let mut big = vec![0u8; 5000];
+        random_bytes(&mut big).unwrap();
+        assert!(big.iter().filter(|b| **b == 0).count() < 100);
+        random_bytes(&mut []).unwrap();
+    }
+
+    #[test]
+    fn the_default_route_is_found_in_the_route_table() {
+        let table = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+                     wlan0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n\
+                     eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n\
+                     eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n";
+        assert_eq!(default_route_interface(table).as_deref(), Some("eth0"));
+        let down = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n\
+                    eth0\t00000000\t0101A8C0\t0002\t0\t0\t100\t00000000\n";
+        assert_eq!(default_route_interface(down), None);
+        assert_eq!(default_route_interface(""), None);
+        assert_eq!(default_route_interface("Iface\nnot a route\n"), None);
+    }
+
+    #[test]
+    fn lan_addresses_are_private_loopback_or_link_local_never_public() {
+        use std::net::Ipv4Addr;
+        for ok in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.9",
+            "172.31.255.1",
+            "192.168.1.75",
+            "169.254.3.4",
+        ] {
+            assert!(is_lan_address(ok.parse().unwrap()), "{ok}");
+        }
+        for bad in [
+            "8.8.8.8",
+            "0.0.0.0",
+            "172.32.0.1",
+            "100.64.0.1",
+            "255.255.255.255",
+            "192.169.0.1",
+        ] {
+            assert!(!is_lan_address(bad.parse().unwrap()), "{bad}");
+        }
+        assert_eq!(
+            lan_ipv4(Some(Ipv4Addr::new(192, 168, 1, 5))),
+            Some(Ipv4Addr::new(192, 168, 1, 5))
+        );
+        assert_eq!(lan_ipv4(Some(Ipv4Addr::new(8, 8, 8, 8))), None);
+        assert!(ipv4_interfaces().iter().any(|(_, ip)| ip.is_loopback()));
     }
 
     #[test]

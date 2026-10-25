@@ -74,6 +74,8 @@ pub struct Config {
     pub receiver: ReceiverTuning,
     pub fetch: FetchConfig,
     pub luna: LunaConfig,
+    /// The AI-access module (the MCP server). Off until the TV's owner turns it on with the remote; these are only how it runs.
+    pub ai: AiConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -81,6 +83,10 @@ pub struct Config {
     /// `Origin` header and are always allowed; a web page does carry one, and a page on the TV's browser must not be able to
     /// drive the helper.
     pub allowed_origins: Vec<String>,
+    /// The brand's app id (from `brand.json`, set by the command line, never read from this file): LumaTV's own app, which an
+    /// assistant must never be able to open.
+    #[serde(skip)]
+    pub brand_app_id: Option<String>,
 }
 
 impl Default for Config {
@@ -92,8 +98,10 @@ impl Default for Config {
             receiver: ReceiverTuning::default(),
             fetch: FetchConfig::default(),
             luna: LunaConfig::default(),
+            ai: AiConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
+            brand_app_id: None,
         }
     }
 }
@@ -233,6 +241,79 @@ impl Default for LunaConfig {
     }
 }
 
+/// How the AI-access module runs. Nothing here switches it on: that is a setting only a physical remote press can change.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct AiConfig {
+    /// The port of the LAN listener while it is on; 0 asks the system for one (tests).
+    pub port: u16,
+    /// The LAN address to bind. Unset: the private address of the default route's interface. Never a public address.
+    pub bind: Option<String>,
+    /// Source networks that may connect (CIDR). Private ranges by default; a peer outside them is dropped unanswered.
+    pub allowed_nets: Vec<String>,
+    /// Input devices that are physical remotes. A name ending in `*` is a prefix. Only keys from these answer a prompt.
+    pub physical_devices: Vec<String>,
+    /// Input devices that carry network keys (named for the log; any device not listed as physical is ignored anyway).
+    pub network_devices: Vec<String>,
+    /// Evdev key codes that approve a prompt (OK) and that deny it (Back).
+    pub approve_codes: Vec<u16>,
+    pub deny_codes: Vec<u16>,
+    /// How long a prompt waits for the remote.
+    pub prompt_seconds: u64,
+    /// Where the input devices are: their nodes and their names (changed in tests).
+    pub input_dir: String,
+    pub sys_input_dir: String,
+    /// The device that carries network keys, which the media keys are pressed through.
+    pub inject_device: String,
+    pub media_keys: MediaKeys,
+}
+
+/// The evdev codes of the playback keys an assistant can press (the standard ones; not yet measured on the set).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct MediaKeys {
+    pub play: u16,
+    pub pause: u16,
+    pub stop: u16,
+    pub rewind: u16,
+    pub fast_forward: u16,
+}
+
+impl Default for MediaKeys {
+    fn default() -> Self {
+        Self {
+            play: 207,
+            pause: 119,
+            stop: 128,
+            rewind: 168,
+            fast_forward: 208,
+        }
+    }
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            port: 18732,
+            bind: None,
+            allowed_nets: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+                .map(str::to_owned)
+                .to_vec(),
+            physical_devices: ["LGE RCU", "LGE M-RCU*"].map(str::to_owned).to_vec(),
+            network_devices: ["Smart Remote RCU Input", "LGE Network Input"]
+                .map(str::to_owned)
+                .to_vec(),
+            approve_codes: vec![28, 352],
+            deny_codes: vec![412, 158, 174],
+            prompt_seconds: 30,
+            input_dir: "/dev/input".to_owned(),
+            sys_input_dir: "/sys/class/input".to_owned(),
+            inject_device: "Smart Remote RCU Input".to_owned(),
+            media_keys: MediaKeys::default(),
+        }
+    }
+}
+
 /// The CA bundles a Linux image keeps, in the order they are tried when the config names none.
 pub const CA_BUNDLE_CANDIDATES: [&str; 5] = [
     fetch::IMAGE_CA_BUNDLE,
@@ -295,6 +376,48 @@ impl Config {
                 return err(&format!("{name} must be above 0"));
             }
         }
+        if let Some(bind) = &self.ai.bind {
+            match bind.parse::<std::net::Ipv4Addr>() {
+                Ok(ip) if crate::sys::is_lan_address(ip) => {}
+                _ => return err("ai.bind must be a private (or loopback) IPv4 address"),
+            }
+        }
+        if self.ai.allowed_nets.is_empty()
+            || self
+                .ai
+                .allowed_nets
+                .iter()
+                .any(|n| crate::http::Cidr::parse(n).is_none())
+        {
+            return err(
+                "ai.allowedNets must be a non-empty list of CIDR networks such as 192.168.0.0/16",
+            );
+        }
+        if self.ai.physical_devices.is_empty()
+            || self.ai.physical_devices.iter().any(String::is_empty)
+        {
+            return err("ai.physicalDevices must name at least one device");
+        }
+        if self.ai.approve_codes.is_empty() || self.ai.deny_codes.is_empty() {
+            return err("ai.approveCodes and ai.denyCodes must not be empty");
+        }
+        if self
+            .ai
+            .approve_codes
+            .iter()
+            .any(|c| self.ai.deny_codes.contains(c))
+        {
+            return err("ai.approveCodes and ai.denyCodes must not share a code");
+        }
+        if !(5..=120).contains(&self.ai.prompt_seconds) {
+            return err("ai.promptSeconds must be between 5 and 120");
+        }
+        if self.ai.input_dir.is_empty()
+            || self.ai.sys_input_dir.is_empty()
+            || self.ai.inject_device.is_empty()
+        {
+            return err("ai.inputDir, ai.sysInputDir and ai.injectDevice must not be empty");
+        }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");
         }
@@ -332,6 +455,18 @@ pub fn data_dir_from_brand(brand_json: &str) -> Result<PathBuf, ConfigError> {
             )
         })?;
     Ok(PathBuf::from(format!("/var/lib/{name}")))
+}
+
+/// The app id from a `brand.json` (LumaTV's own app, which an assistant must never be able to open), by the tool's own rule:
+/// lowercase letters, digits, dots and dashes. `None` when it is missing or not of that shape.
+pub fn app_id_from_brand(brand_json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(brand_json).ok()?;
+    let id = value.get("appId")?.as_str()?;
+    (!id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-'))
+    .then(|| id.to_owned())
 }
 
 /// The first CA bundle that exists, as the config or the usual places give it.
@@ -449,6 +584,85 @@ mod tests {
             "not json",
         ] {
             assert!(data_dir_from_brand(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_ai_section_has_safe_defaults_and_refuses_unsafe_ones() {
+        let config = Config::parse("{}").unwrap();
+        assert_eq!(config.ai.port, 18732);
+        assert_eq!(config.ai.bind, None);
+        assert_eq!(config.ai.prompt_seconds, 30);
+        assert_eq!(config.ai.physical_devices, ["LGE RCU", "LGE M-RCU*"]);
+        assert!(
+            config
+                .ai
+                .network_devices
+                .contains(&"Smart Remote RCU Input".to_owned())
+        );
+        assert_eq!(config.ai.approve_codes, [28, 352]);
+        assert!(config.ai.deny_codes.contains(&412));
+        for bad in [
+            r#"{"ai":{"bind":"8.8.8.8"}}"#,
+            r#"{"ai":{"bind":"0.0.0.0"}}"#,
+            r#"{"ai":{"bind":"not an address"}}"#,
+            r#"{"ai":{"allowedNets":[]}}"#,
+            r#"{"ai":{"allowedNets":["192.168.1.0/33"]}}"#,
+            r#"{"ai":{"allowedNets":["everyone"]}}"#,
+            r#"{"ai":{"physicalDevices":[]}}"#,
+            r#"{"ai":{"approveCodes":[]}}"#,
+            r#"{"ai":{"approveCodes":[28],"denyCodes":[28]}}"#,
+            r#"{"ai":{"promptSeconds":1}}"#,
+            r#"{"ai":{"promptSeconds":500}}"#,
+            r#"{"ai":{"enabled":true}}"#,
+            r#"{"ai":{"listen":"0.0.0.0"}}"#,
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+        for good in [
+            r#"{"ai":{"bind":"192.168.1.75","port":0}}"#,
+            r#"{"ai":{"bind":"127.0.0.1"}}"#,
+            r#"{"ai":{"allowedNets":["192.168.1.0/24"],"promptSeconds":60}}"#,
+        ] {
+            assert!(Config::parse(good).is_ok(), "{good}");
+        }
+    }
+
+    #[test]
+    fn nothing_in_the_config_can_switch_the_ai_listener_on() {
+        // There is no key for it: the switch is a setting only a physical remote press can change.
+        for key in [
+            "enabled",
+            "listener",
+            "on",
+            "start",
+            "autostart",
+            "token",
+            "tokens",
+            "pair",
+            "pairing",
+            "unlock",
+        ] {
+            let doc = format!(r#"{{"ai":{{"{key}":true}}}}"#);
+            assert!(Config::parse(&doc).is_err(), "{key}");
+        }
+    }
+
+    #[test]
+    fn the_brand_app_id_is_read_by_the_tools_rule() {
+        assert_eq!(
+            app_id_from_brand(r#"{"appId":"org.nphil.lumatv"}"#).as_deref(),
+            Some("org.nphil.lumatv")
+        );
+        for bad in [
+            r#"{"appId":""}"#,
+            r#"{"appId":"Org.X"}"#,
+            r#"{"appId":"a b"}"#,
+            r#"{"appId":5}"#,
+            r#"{}"#,
+            "nope",
+        ] {
+            assert_eq!(app_id_from_brand(bad), None, "{bad}");
         }
     }
 

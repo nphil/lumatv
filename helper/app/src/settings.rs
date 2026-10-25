@@ -41,6 +41,9 @@ pub enum ApplyError {
     },
     /// The schema or the owner's rule refused one or more fields.
     Invalid(FieldErrors),
+    /// The owner is protected: only the module that owns it may change its values (the AI permissions, which only a physical
+    /// remote press may widen).
+    Protected,
     /// The values could not be written; nothing changed.
     Io(String),
 }
@@ -51,6 +54,7 @@ impl fmt::Display for ApplyError {
             Self::UnknownOwner => f.write_str("no such settings owner"),
             Self::Conflict { current } => write!(f, "the settings are at version {current} now"),
             Self::Invalid(errors) => write!(f, "{errors}"),
+            Self::Protected => f.write_str("these settings can only be changed on the TV"),
             Self::Io(why) => write!(f, "the settings could not be saved ({why})"),
         }
     }
@@ -112,6 +116,8 @@ pub struct SettingsStore {
     hub: Arc<Hub>,
     owners: Mutex<BTreeMap<String, Owner>>,
     listeners: Mutex<Vec<(String, Listener)>>,
+    /// Owners whose name starts with one of these cannot be changed through [`SettingsStore::apply`].
+    protected: Mutex<Vec<String>>,
 }
 
 /// One owner in the list.
@@ -139,7 +145,22 @@ impl SettingsStore {
             hub,
             owners: Mutex::new(BTreeMap::new()),
             listeners: Mutex::new(Vec::new()),
+            protected: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Makes every owner whose name starts with `prefix` (now or later) refuse [`SettingsStore::apply`]; the module that owns
+    /// them changes them with [`SettingsStore::apply_trusted`]. The generic settings API goes through `apply`, so it can never
+    /// change them, whatever it is sent.
+    pub fn protect_prefix(&self, prefix: &str) {
+        self.protected.lock().push(prefix.to_owned());
+    }
+
+    fn is_protected(&self, owner: &str) -> bool {
+        self.protected
+            .lock()
+            .iter()
+            .any(|p| owner.starts_with(p.as_str()))
     }
 
     fn file_of(&self, owner: &str) -> PathBuf {
@@ -186,6 +207,18 @@ impl SettingsStore {
             },
         );
         Ok(())
+    }
+
+    /// Removes an owner and its stored values (an assistant that was revoked). Nothing is left of it on disk.
+    pub fn unregister(&self, owner: &str) -> bool {
+        let removed = self.owners.lock().remove(owner).is_some();
+        let _ = std::fs::remove_file(self.file_of(owner));
+        self.listeners.lock().retain(|(o, _)| o != owner);
+        if removed {
+            self.hub
+                .emit("settings", "removed", json!({"owner": owner}));
+        }
+        removed
     }
 
     /// Registers the helper's own pages: `base.weather`, `base.news` and `base.receiver`.
@@ -274,7 +307,30 @@ impl SettingsStore {
     }
 
     /// Applies one transaction: all of `changes` or none. With `expect_version`, only to that version of the owner's values.
+    /// A protected owner is refused: see [`SettingsStore::protect_prefix`].
     pub fn apply(
+        &self,
+        owner: &str,
+        changes: Vec<SettingChange>,
+        expect_version: Option<u64>,
+    ) -> Result<Applied, ApplyError> {
+        if self.is_protected(owner) {
+            return Err(ApplyError::Protected);
+        }
+        self.apply_inner(owner, changes, expect_version)
+    }
+
+    /// [`SettingsStore::apply`] for the module that owns a protected owner. Only code inside this crate can call it, and the
+    /// loopback API does not.
+    pub(crate) fn apply_trusted(
+        &self,
+        owner: &str,
+        changes: Vec<SettingChange>,
+    ) -> Result<Applied, ApplyError> {
+        self.apply_inner(owner, changes, None)
+    }
+
+    fn apply_inner(
         &self,
         owner: &str,
         changes: Vec<SettingChange>,
@@ -757,6 +813,66 @@ mod tests {
         let none = s.apply("base.weather", vec![], None).unwrap();
         assert!(!none.changed);
         assert_eq!(hub.events_after(Some(0), None, None).events.len(), 1);
+    }
+
+    #[test]
+    fn a_protected_owner_refuses_the_generic_path_and_serves_the_trusted_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        s.protect_prefix("ai.");
+        let schema = SettingsSchema::parse(
+            br#"{"format":1,"owner":"ai.abc","revision":1,"title":"Cody","sections":[{"id":"p","title":"P","fields":[
+                {"key":"state","label":"State","kind":{"type":"choice","options":{"inline":[{"id":"ask","label":"Ask"},{"id":"always","label":"Always"}]}},"default":{"type":"choice","value":"ask"},"apply":"on-commit"}]}]}"#,
+        )
+        .unwrap();
+        s.register(schema, None).unwrap();
+        let change = choice("state", "always");
+        assert!(matches!(
+            s.apply("ai.abc", vec![change.clone()], None),
+            Err(ApplyError::Protected)
+        ));
+        assert!(matches!(
+            s.apply("ai.abc", vec![], Some(0)),
+            Err(ApplyError::Protected)
+        ));
+        // The unprotected owners are untouched by the rule, and the owner can read.
+        assert!(
+            s.apply("base.news", vec![choice("edition", "nyt")], None)
+                .is_ok()
+        );
+        assert_eq!(
+            s.describe("ai.abc").unwrap()["effective"]["state"]["value"],
+            "ask"
+        );
+        s.apply_trusted("ai.abc", vec![change]).unwrap();
+        assert_eq!(
+            s.describe("ai.abc").unwrap()["effective"]["state"]["value"],
+            "always"
+        );
+        // A prefix is a prefix of the owner's name, not a substring: `nai.x` is not protected.
+        assert!(!s.is_protected("nai.x") && s.is_protected("ai.x"));
+    }
+
+    #[test]
+    fn an_owner_can_be_removed_with_its_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let (hub, s) = store(dir.path());
+        s.apply("base.news", vec![choice("edition", "nyt")], None)
+            .unwrap();
+        assert!(dir.path().join("base.news.json").is_file());
+        assert!(s.unregister("base.news"));
+        assert!(!dir.path().join("base.news.json").exists());
+        assert!(s.describe("base.news").is_none());
+        assert!(!s.unregister("base.news"));
+        let last = hub
+            .events_after(Some(0), None, Some(&["settings".to_owned()]))
+            .events
+            .pop()
+            .unwrap();
+        assert_eq!(
+            (last.kind.as_str(), last.data["owner"].clone()),
+            ("removed", json!("base.news"))
+        );
     }
 
     #[test]

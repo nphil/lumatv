@@ -12,13 +12,18 @@
 //! - a write (`POST`, `PUT`, `DELETE`) without the `X-Luma-Client` header, which no cross-site form or simple request can set.
 //!
 //! Limits: 16 KiB of headers, 64 KiB of body, 64 headers, 10 s to receive a request, request bodies with a `Content-Length` only.
+//!
+//! `Mode::Lan` is the other door: a listener on the TV's own private IPv4 address for AI assistants (MCP clients), which are
+//! not browsers. It serves only peers inside the configured private ranges, refuses every request that carries `Origin` or
+//! `Sec-Fetch-Site` (a browser's mark), allows `GET` and `POST` only, and is tighter on resources: 5 s to receive, a small
+//! connection cap and at most 4 concurrent connections per peer address, so one host cannot hold every slot with slow requests.
 
 use crate::API_VERSION;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -29,6 +34,10 @@ const MAX_HEAD: usize = 16 * 1024;
 const MAX_BODY: usize = 64 * 1024;
 const MAX_HEADERS: usize = 64;
 const RECEIVE_DEADLINE: Duration = Duration::from_secs(10);
+/// The receive deadline in `Mode::Lan`: a slow peer on the LAN gets less time to hold a slot than a local QML client.
+const LAN_RECEIVE_DEADLINE: Duration = Duration::from_secs(5);
+/// Concurrent connections one peer address may hold in `Mode::Lan`.
+const MAX_PER_PEER: usize = 4;
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 /// The header every write must carry. A browser cannot add it to a cross-site request without a preflight that this server refuses.
 pub const CLIENT_HEADER: &str = "x-luma-client";
@@ -44,6 +53,8 @@ pub struct Request {
     /// Header names lower-cased.
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    /// The address the request came from (the peer of the connection; a test handler may use any).
+    pub peer: std::net::IpAddr,
 }
 
 impl Request {
@@ -101,6 +112,82 @@ pub trait Handler: Send + Sync + 'static {
     fn handle(&self, request: &Request) -> Response;
 }
 
+/// Which door the server is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// The loopback API: loopback address and peers only, browser guards.
+    #[default]
+    Loopback,
+    /// A private-network listener for assistants; only peers inside `peers` (and loopback, when bound to loopback) are served.
+    Lan { peers: Vec<Cidr> },
+}
+
+/// An IPv4 network, `192.168.0.0/16`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cidr {
+    pub net: Ipv4Addr,
+    pub prefix: u8,
+}
+
+impl Cidr {
+    /// Parses `a.b.c.d/n` (`n` 0..=32); host bits of the address are masked off.
+    pub fn parse(text: &str) -> Option<Cidr> {
+        let (addr, prefix) = text.split_once('/')?;
+        if prefix.is_empty() || prefix.len() > 2 || !prefix.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let prefix: u8 = prefix.parse().ok()?;
+        if prefix > 32 {
+            return None;
+        }
+        let addr: Ipv4Addr = addr.parse().ok()?;
+        Some(Cidr {
+            net: Ipv4Addr::from(u32::from(addr) & Self::mask(prefix)),
+            prefix,
+        })
+    }
+
+    fn mask(prefix: u8) -> u32 {
+        if prefix == 0 {
+            0
+        } else {
+            u32::MAX << (32 - u32::from(prefix.min(32)))
+        }
+    }
+
+    /// Whether `ip` is inside the network. IPv4 only; an IPv4-mapped IPv6 address counts as its IPv4 address.
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        let v4 = match ip.to_canonical() {
+            IpAddr::V4(v4) => v4,
+            IpAddr::V6(_) => return false,
+        };
+        if self.prefix > 32 {
+            return false;
+        }
+        let mask = Self::mask(self.prefix);
+        u32::from(v4) & mask == u32::from(self.net) & mask
+    }
+}
+
+/// The private ranges of RFC 1918: where a home LAN's assistants live.
+pub fn default_lan_peers() -> Vec<Cidr> {
+    ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+        .iter()
+        .filter_map(|c| Cidr::parse(c))
+        .collect()
+}
+
+/// Whether a LAN listener may be bound to `ip`: loopback, RFC 1918 private or link-local, never a public or unspecified address.
+pub(crate) fn lan_address_ok(ip: Ipv4Addr) -> bool {
+    ip.is_loopback() || ip.is_private() || ip.is_link_local()
+}
+
+/// Whether a connection from `peer` is served in LAN mode: inside one of `peers`, or loopback while the listener is on loopback.
+pub(crate) fn peer_allowed(peer: IpAddr, bound: IpAddr, peers: &[Cidr]) -> bool {
+    peers.iter().any(|c| c.contains(peer))
+        || (peer.to_canonical().is_loopback() && bound.is_loopback())
+}
+
 /// How the server behaves.
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -108,6 +195,8 @@ pub struct Options {
     pub max_connections: usize,
     /// Browser origins that may call (`Origin` header values); empty allows only callers that send none.
     pub allowed_origins: Vec<String>,
+    /// Loopback API (default) or LAN listener.
+    pub mode: Mode,
 }
 
 impl Default for Options {
@@ -115,6 +204,7 @@ impl Default for Options {
         Self {
             max_connections: 32,
             allowed_origins: Vec::new(),
+            mode: Mode::Loopback,
         }
     }
 }
@@ -128,17 +218,30 @@ pub struct Server {
 }
 
 impl Server {
-    /// Binds `addr` (loopback only) and starts accepting.
+    /// Binds `addr` and starts accepting. `Mode::Loopback` needs a loopback address; `Mode::Lan` a loopback, private or
+    /// link-local IPv4 address (never public, never `0.0.0.0`).
     pub fn start(
         addr: SocketAddr,
         handler: Arc<dyn Handler>,
         options: Options,
     ) -> std::io::Result<Self> {
-        if !addr.ip().is_loopback() {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidInput,
-                "the API listens on loopback only",
-            ));
+        match options.mode {
+            Mode::Loopback => {
+                if !addr.ip().is_loopback() {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "the API listens on loopback only",
+                    ));
+                }
+            }
+            Mode::Lan { .. } => {
+                if !matches!(addr.ip(), IpAddr::V4(v4) if lan_address_ok(v4)) {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "the LAN listener needs a loopback, private or link-local IPv4 address",
+                    ));
+                }
+            }
         }
         let listener = TcpListener::bind(addr)?;
         let addr = listener.local_addr()?;
@@ -200,6 +303,7 @@ fn accept_loop(
     stopping: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
 ) {
+    let per_peer: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     for incoming in listener.incoming() {
         if stopping.load(Ordering::SeqCst) {
             break;
@@ -212,21 +316,41 @@ fn accept_loop(
                 continue;
             }
         };
-        if !stream.peer_addr().is_ok_and(|p| p.ip().is_loopback()) {
+        let Ok(peer) = stream.peer_addr().map(|p| p.ip().to_canonical()) else {
             continue;
-        }
+        };
+        let lan = match &options.mode {
+            Mode::Loopback => {
+                if !peer.is_loopback() {
+                    continue;
+                }
+                false
+            }
+            Mode::Lan { peers } => {
+                if !peer_allowed(peer, addr.ip(), peers) {
+                    continue;
+                }
+                true
+            }
+        };
         if active.fetch_add(1, Ordering::SeqCst) >= options.max_connections {
             active.fetch_sub(1, Ordering::SeqCst);
-            let mut stream = stream;
-            let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
-            let _ = write_response(
-                &mut stream,
-                &error_response(503, "busy", "too many connections"),
-                None,
-            );
+            refuse_busy(stream, "too many connections");
             continue;
         }
         let guard = ActiveGuard(active.clone());
+        let peer_guard = if lan {
+            match PeerGuard::acquire(&per_peer, peer) {
+                Some(g) => Some(g),
+                None => {
+                    // `guard` goes out of scope here and gives the global slot back.
+                    refuse_busy(stream, "too many connections from this address");
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
         let handler = handler.clone();
         let options = options.clone();
         let spawned = thread::Builder::new()
@@ -234,11 +358,50 @@ fn accept_loop(
             .stack_size(CONNECTION_STACK)
             .spawn(move || {
                 let _guard = guard;
+                let _peer_guard = peer_guard;
                 serve_connection(stream, addr, handler.as_ref(), &options);
             });
         if let Err(e) = spawned {
-            // The guard moved into the closure that was never run; it is dropped with the failed spawn.
+            // The guards moved into the closure that was never run; they are dropped with the failed spawn.
             crate::log_warn!("http: could not start a connection thread: {e}");
+        }
+    }
+}
+
+fn refuse_busy(mut stream: TcpStream, message: &str) {
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+    let _ = write_response(&mut stream, &error_response(503, "busy", message), None);
+}
+
+/// One of a peer address's concurrent connections; released on drop.
+struct PeerGuard {
+    counts: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    peer: IpAddr,
+}
+
+impl PeerGuard {
+    fn acquire(counts: &Arc<Mutex<HashMap<IpAddr, usize>>>, peer: IpAddr) -> Option<Self> {
+        let mut map = counts.lock();
+        let n = map.entry(peer).or_insert(0);
+        if *n >= MAX_PER_PEER {
+            return None;
+        }
+        *n += 1;
+        Some(Self {
+            counts: counts.clone(),
+            peer,
+        })
+    }
+}
+
+impl Drop for PeerGuard {
+    fn drop(&mut self) {
+        let mut map = self.counts.lock();
+        if let Some(n) = map.get_mut(&self.peer) {
+            *n -= 1;
+            if *n == 0 {
+                map.remove(&self.peer);
+            }
         }
     }
 }
@@ -263,8 +426,18 @@ fn serve_connection(
 ) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_write_timeout(Some(SEND_TIMEOUT));
-    let request = match read_request(&mut stream, Instant::now() + RECEIVE_DEADLINE) {
-        Ok(request) => request,
+    let peer = stream
+        .peer_addr()
+        .map_or(std::net::Ipv4Addr::UNSPECIFIED.into(), |a| a.ip());
+    let deadline = match options.mode {
+        Mode::Loopback => RECEIVE_DEADLINE,
+        Mode::Lan { .. } => LAN_RECEIVE_DEADLINE,
+    };
+    let request = match read_request(&mut stream, Instant::now() + deadline) {
+        Ok(mut request) => {
+            request.peer = peer;
+            request
+        }
         Err(ReadError::Closed) => return,
         Err(e) => {
             let response = match e {
@@ -313,9 +486,9 @@ fn serve_connection(
     let _ = write_response(
         &mut stream,
         &response,
-        origin
-            .as_deref()
-            .filter(|o| options.allowed_origins.iter().any(|a| a == o)),
+        origin.as_deref().filter(|o| {
+            matches!(options.mode, Mode::Loopback) && options.allowed_origins.iter().any(|a| a == o)
+        }),
     );
     let _ = stream.shutdown(Shutdown::Both);
 }
@@ -326,6 +499,9 @@ fn guard(
     local: SocketAddr,
     options: &Options,
 ) -> Option<(Response, &'static str)> {
+    if matches!(options.mode, Mode::Lan { .. }) {
+        return guard_lan(request);
+    }
     let refuse = |status: u16, code: &'static str, message: &str| {
         Some((error_response(status, code, message), code))
     };
@@ -387,6 +563,43 @@ fn guard(
     }
 }
 
+/// The refusals of the LAN door. Assistants are not browsers: any `Origin` or `Sec-Fetch-Site` is a page reaching for the API.
+/// No `Host` check (the peer addresses the TV by IP or by any name) and no `X-Luma-Client` (bearer tokens do that job).
+fn guard_lan(request: &Request) -> Option<(Response, &'static str)> {
+    let refuse = |status: u16, code: &'static str, message: &str| {
+        Some((error_response(status, code, message), code))
+    };
+    if request.header("origin").is_some() {
+        return refuse(403, "origin_not_allowed", "web pages may not call this API");
+    }
+    if request.header("sec-fetch-site").is_some() {
+        return refuse(
+            403,
+            "cross_site_not_allowed",
+            "web pages may not call this API",
+        );
+    }
+    if !matches!(request.method.as_str(), "GET" | "POST") {
+        return Some((
+            error_response(405, "method_not_allowed", "use GET or POST")
+                .with_header("Allow", "GET, POST"),
+            "method_not_allowed",
+        ));
+    }
+    if !request.body.is_empty()
+        && !request
+            .header("content-type")
+            .is_some_and(|t| t.to_ascii_lowercase().starts_with("application/json"))
+    {
+        return refuse(
+            415,
+            "unsupported_media_type",
+            "send the body as application/json",
+        );
+    }
+    None
+}
+
 /// Refusals already written to the log: the first of each kind (and who sent it) is a warning, the rest stay quiet so a page
 /// that keeps trying cannot fill the log. Bounded; when it is full it starts again.
 static SEEN_REFUSALS: LazyLock<Mutex<HashSet<String>>> =
@@ -444,14 +657,17 @@ fn host_is_local(host: &str, local: SocketAddr) -> bool {
 fn reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        202 => "Accepted",
         204 => "No Content",
         400 => "Bad Request",
+        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         408 => "Request Timeout",
         409 => "Conflict",
         413 => "Payload Too Large",
+        429 => "Too Many Requests",
         415 => "Unsupported Media Type",
         422 => "Unprocessable Entity",
         431 => "Request Header Fields Too Large",
@@ -472,10 +688,12 @@ fn write_response(
         response.status,
         reason(response.status)
     );
-    if response.status != 204 {
+    let empty = matches!(response.status, 202 | 204);
+    if !empty {
         head.push_str("Content-Type: application/json; charset=utf-8\r\n");
     }
-    head.push_str(&format!("Content-Length: {}\r\n", response.body.len()));
+    let body: &[u8] = if empty { &[] } else { &response.body };
+    head.push_str(&format!("Content-Length: {}\r\n", body.len()));
     head.push_str(
         "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n",
     );
@@ -492,7 +710,7 @@ fn write_response(
     }
     head.push_str("\r\n");
     stream.write_all(head.as_bytes())?;
-    stream.write_all(&response.body)?;
+    stream.write_all(body)?;
     stream.flush()
 }
 
@@ -643,6 +861,7 @@ fn parse_head(head: &str) -> Result<Request, ReadError> {
         query,
         headers,
         body: Vec::new(),
+        peer: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
     })
 }
 
@@ -762,6 +981,7 @@ mod tests {
             query: vec![],
             headers: vec![("content-length".into(), value.into())],
             body: vec![],
+            peer: std::net::Ipv4Addr::LOCALHOST.into(),
         };
         assert_eq!(body_length(&with("12")), Ok(12));
         assert_eq!(body_length(&with("65536")), Ok(65536));
@@ -773,5 +993,311 @@ mod tests {
             body_length(&with("99999999999999999999999")),
             Err(ReadError::BodyTooLarge)
         );
+    }
+
+    // ------------------------------------------------------------------------------------------------ LAN mode
+
+    fn lan_request(method: &str, headers: &[(&str, &str)], body: &str) -> Request {
+        Request {
+            method: method.into(),
+            path: "/mcp".into(),
+            query: vec![],
+            headers: headers
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
+                .collect(),
+            body: body.as_bytes().to_vec(),
+            peer: Ipv4Addr::new(192, 168, 1, 20).into(),
+        }
+    }
+
+    fn refusal(request: &Request) -> Option<(u16, &'static str)> {
+        guard_lan(request).map(|(r, code)| (r.status, code))
+    }
+
+    fn ip(text: &str) -> IpAddr {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn cidr_parsing() {
+        let ok = |text: &str| Cidr::parse(text).map(|c| (c.net.to_string(), c.prefix));
+        assert_eq!(ok("192.168.0.0/16"), Some(("192.168.0.0".into(), 16)));
+        assert_eq!(ok("10.0.0.0/8"), Some(("10.0.0.0".into(), 8)));
+        assert_eq!(ok("192.168.1.77/24"), Some(("192.168.1.0".into(), 24)));
+        assert_eq!(ok("0.0.0.0/0"), Some(("0.0.0.0".into(), 0)));
+        assert_eq!(ok("1.2.3.4/32"), Some(("1.2.3.4".into(), 32)));
+        for bad in [
+            "",
+            "192.168.0.0",
+            "192.168.0.0/",
+            "192.168.0.0/33",
+            "192.168.0.0/-1",
+            "192.168.0.0/+8",
+            "192.168.0.0/008",
+            "192.168.0/24",
+            "192.168.0.256/24",
+            "::1/128",
+            "/8",
+            "a.b.c.d/8",
+            "192.168.0.0/8/8",
+            "192.168.0.0/ 8",
+        ] {
+            assert_eq!(Cidr::parse(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn cidr_membership() {
+        let lan = Cidr::parse("192.168.0.0/16").unwrap();
+        for yes in ["192.168.0.0", "192.168.1.5", "192.168.255.255"] {
+            assert!(lan.contains(ip(yes)), "{yes}");
+        }
+        for no in [
+            "192.167.255.255",
+            "192.169.0.0",
+            "10.0.0.1",
+            "8.8.8.8",
+            "::1",
+        ] {
+            assert!(!lan.contains(ip(no)), "{no}");
+        }
+        assert!(lan.contains(ip("::ffff:192.168.1.5")));
+        assert!(!lan.contains(ip("::ffff:8.8.8.8")));
+        assert!(!lan.contains(ip("fe80::1")));
+        let all = Cidr::parse("0.0.0.0/0").unwrap();
+        assert!(all.contains(ip("8.8.8.8")));
+        let one = Cidr::parse("10.1.2.3/32").unwrap();
+        assert!(one.contains(ip("10.1.2.3")) && !one.contains(ip("10.1.2.4")));
+        let defaults = default_lan_peers();
+        assert_eq!(defaults.len(), 3);
+        for yes in ["10.9.9.9", "172.16.0.1", "172.31.255.255", "192.168.1.1"] {
+            assert!(defaults.iter().any(|c| c.contains(ip(yes))), "{yes}");
+        }
+        for no in [
+            "172.15.0.1",
+            "172.32.0.1",
+            "11.0.0.1",
+            "169.254.1.1",
+            "8.8.8.8",
+        ] {
+            assert!(!defaults.iter().any(|c| c.contains(ip(no))), "{no}");
+        }
+    }
+
+    #[test]
+    fn the_lan_guard_refuses_what_a_browser_sends() {
+        let json = ("content-type", "application/json");
+        assert_eq!(refusal(&lan_request("GET", &[], "")), None);
+        assert_eq!(refusal(&lan_request("POST", &[json], "{}")), None);
+        assert_eq!(refusal(&lan_request("POST", &[], "")), None);
+        // Host is not checked and X-Luma-Client is not required.
+        assert_eq!(
+            refusal(&lan_request("POST", &[("host", "tv.local:9"), json], "{}")),
+            None
+        );
+        assert_eq!(
+            refusal(&lan_request("POST", &[("origin", "http://x"), json], "{}")),
+            Some((403, "origin_not_allowed"))
+        );
+        assert_eq!(
+            refusal(&lan_request("GET", &[("origin", "")], "")),
+            Some((403, "origin_not_allowed"))
+        );
+        for value in ["cross-site", "same-origin", "none", ""] {
+            assert_eq!(
+                refusal(&lan_request("GET", &[("sec-fetch-site", value)], "")),
+                Some((403, "cross_site_not_allowed")),
+                "{value:?}"
+            );
+        }
+        assert_eq!(
+            refusal(&lan_request("POST", &[("content-type", "text/plain")], "x")),
+            Some((415, "unsupported_media_type"))
+        );
+        assert_eq!(
+            refusal(&lan_request("POST", &[], "{}")),
+            Some((415, "unsupported_media_type"))
+        );
+        assert_eq!(
+            refusal(&lan_request(
+                "POST",
+                &[("content-type", "Application/JSON; charset=utf-8")],
+                "{}"
+            )),
+            None
+        );
+        for method in ["OPTIONS", "PUT", "DELETE", "PATCH", "HEAD"] {
+            let (response, code) = guard_lan(&lan_request(method, &[], "")).unwrap();
+            assert_eq!(
+                (response.status, code),
+                (405, "method_not_allowed"),
+                "{method}"
+            );
+            assert!(
+                response
+                    .headers
+                    .iter()
+                    .any(|(n, v)| *n == "Allow" && v == "GET, POST"),
+                "{method}"
+            );
+        }
+    }
+
+    #[test]
+    fn lan_addresses_are_private_only() {
+        for ok in [
+            "127.0.0.1",
+            "10.0.0.5",
+            "172.16.3.4",
+            "172.31.255.255",
+            "192.168.1.71",
+            "169.254.10.10",
+        ] {
+            assert!(lan_address_ok(ok.parse().unwrap()), "{ok}");
+        }
+        for bad in [
+            "8.8.8.8",
+            "0.0.0.0",
+            "172.32.0.1",
+            "100.64.0.1",
+            "255.255.255.255",
+            "224.0.0.1",
+        ] {
+            assert!(!lan_address_ok(bad.parse().unwrap()), "{bad}");
+        }
+        let lan = || Options {
+            mode: Mode::Lan {
+                peers: default_lan_peers(),
+            },
+            ..Options::default()
+        };
+        for bad in ["8.8.8.8:0", "0.0.0.0:0", "[::1]:0", "[::]:0"] {
+            let err = Server::start(bad.parse().unwrap(), Arc::new(Fixed(200)), lan())
+                .err()
+                .unwrap_or_else(|| panic!("{bad} was bound"));
+            assert_eq!(err.kind(), ErrorKind::InvalidInput, "{bad}");
+        }
+        // Loopback mode still refuses everything but loopback.
+        let err = Server::start(
+            "192.168.1.71:0".parse().unwrap(),
+            Arc::new(Fixed(200)),
+            Options::default(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        Server::start("127.0.0.1:0".parse().unwrap(), Arc::new(Fixed(200)), lan())
+            .unwrap()
+            .stop(Duration::from_millis(100));
+    }
+
+    #[test]
+    fn peers_are_filtered_by_range() {
+        let lan = default_lan_peers();
+        let tv = ip("192.168.1.71");
+        assert!(peer_allowed(ip("192.168.1.20"), tv, &lan));
+        assert!(peer_allowed(ip("10.0.0.2"), tv, &lan));
+        assert!(!peer_allowed(ip("8.8.8.8"), tv, &lan));
+        assert!(!peer_allowed(ip("192.168.1.20"), tv, &[]));
+        // Loopback peers are served only while the listener itself is on loopback.
+        assert!(!peer_allowed(ip("127.0.0.1"), tv, &lan));
+        assert!(peer_allowed(ip("127.0.0.1"), ip("127.0.0.1"), &[]));
+        assert!(peer_allowed(ip("::ffff:127.0.0.1"), ip("127.0.0.1"), &[]));
+        assert!(!peer_allowed(ip("192.168.1.20"), ip("127.0.0.1"), &[]));
+        assert!(peer_allowed(ip("::ffff:192.168.1.20"), tv, &lan));
+    }
+
+    struct Fixed(u16);
+
+    impl Handler for Fixed {
+        fn handle(&self, _request: &Request) -> Response {
+            Response {
+                status: self.0,
+                headers: Vec::new(),
+                body: b"{\"ignored\":true}".to_vec(),
+            }
+        }
+    }
+
+    fn lan_server(status: u16) -> Server {
+        Server::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(Fixed(status)),
+            Options {
+                mode: Mode::Lan { peers: Vec::new() },
+                ..Options::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn read_all(mut stream: TcpStream) -> String {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut data = Vec::new();
+        let _ = stream.read_to_end(&mut data);
+        String::from_utf8_lossy(&data).into_owned()
+    }
+
+    fn exchange(addr: SocketAddr, request: &str) -> String {
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        read_all(stream)
+    }
+
+    #[test]
+    fn a_202_has_no_body_and_no_content_type() {
+        let server = lan_server(202);
+        let reply = exchange(
+            server.local_addr(),
+            "POST /x HTTP/1.1\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}",
+        );
+        server.stop(Duration::from_millis(200));
+        assert!(reply.starts_with("HTTP/1.1 202 Accepted\r\n"), "{reply}");
+        assert!(reply.contains("Content-Length: 0\r\n"), "{reply}");
+        assert!(
+            !reply.to_ascii_lowercase().contains("\r\ncontent-type:"),
+            "{reply}"
+        );
+        assert!(reply.ends_with("\r\n\r\n"), "{reply}");
+    }
+
+    #[test]
+    fn the_lan_door_refuses_pages_and_odd_methods_over_tcp() {
+        let server = lan_server(200);
+        let addr = server.local_addr();
+        let page = exchange(
+            addr,
+            "POST /x HTTP/1.1\r\nOrigin: http://evil.example\r\nContent-Length: 0\r\n\r\n",
+        );
+        assert!(page.starts_with("HTTP/1.1 403 "), "{page}");
+        assert!(page.contains("origin_not_allowed"), "{page}");
+        assert!(
+            !page.to_ascii_lowercase().contains("access-control"),
+            "{page}"
+        );
+        let options = exchange(addr, "OPTIONS /x HTTP/1.1\r\n\r\n");
+        server.stop(Duration::from_millis(200));
+        assert!(options.starts_with("HTTP/1.1 405 "), "{options}");
+        assert!(options.contains("Allow: GET, POST\r\n"), "{options}");
+    }
+
+    #[test]
+    fn one_peer_cannot_hold_every_connection() {
+        let server = lan_server(200);
+        let addr = server.local_addr();
+        // Idle connections: each holds a slot until its 5 s deadline. The accept loop is sequential, so by the time the fifth
+        // is accepted the first four are counted.
+        let held: Vec<TcpStream> = (0..MAX_PER_PEER)
+            .map(|_| TcpStream::connect(addr).unwrap())
+            .collect();
+        let fifth = TcpStream::connect(addr).unwrap();
+        let reply = read_all(fifth);
+        assert!(reply.starts_with("HTTP/1.1 503 "), "{reply}");
+        assert!(reply.contains("\"busy\""), "{reply}");
+        drop(held);
+        server.stop(Duration::from_millis(200));
     }
 }

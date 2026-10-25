@@ -78,17 +78,20 @@ fn usage() -> Value {
 
 /// The data dir and the config for this invocation.
 fn resolve(args: &Args) -> Result<(Paths, Config), String> {
+    let mut brand_app_id = None;
     let data_dir = match (&args.data_dir, &args.brand) {
         (Some(dir), _) => dir.clone(),
         (None, Some(brand)) => {
             let text =
                 std::fs::read_to_string(brand).map_err(|e| format!("{}: {e}", brand.display()))?;
+            brand_app_id = crate::config::app_id_from_brand(&text);
             data_dir_from_brand(&text).map_err(|e| e.to_string())?
         }
         (None, None) => return Err("give --brand <brand.json> or --data-dir <dir>".to_owned()),
     };
     let paths = Paths::new(data_dir);
-    let config = Config::load(&paths.config_file()).map_err(|e| e.to_string())?;
+    let mut config = Config::load(&paths.config_file()).map_err(|e| e.to_string())?;
+    config.brand_app_id = brand_app_id;
     Ok((paths, config))
 }
 
@@ -250,6 +253,7 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
         paths: paths.clone(),
         config,
         fetcher: None,
+        ai: None,
     }) {
         Ok(service) => service,
         Err(e) => {
