@@ -19,11 +19,11 @@ Kept current with every change to this plan. Building starts on Nitin's go.
   hook for compositor tuning (`env.extra`) in the tool.
 - Research done: full catalogue of LG's UI (`docs/SURFACES.md`, 178 rows),
   72 mockups in three batches (`docs/mocks/`), the shell architecture study
-  (`docs/research/shell-architecture.md`), and the offline half of the
-  performance study (`docs/research/perf-tweaks.md`).
-- Waiting on Nitin: "TV is free" for about 85 minutes of measurement (perf
-  baseline, tweaks T1-T9, compositor tests X1, X1b, X2, X4); then the
-  decision whether LumaTV owns the compositor; then go to build.
+  (`docs/research/shell-architecture.md`) and the performance study measured
+  on the set (`docs/research/perf-tweaks.md`). X1 failed (LG's compositor
+  holds 51.2 fps for a trivial client), X2 passed, X4 captured.
+- Waiting on Nitin: whether LumaTV owns the compositor (Rendering stack);
+  then go to build.
 - TV tests that need Nitin present: receiver volume drift, histogram during
   Netflix, contiguous memory during 4K HDR, which input device network and
   CEC keys arrive on, pointer cost.
@@ -34,9 +34,29 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 - The rule (Nitin, 2026-10-23): smooth 60 fps everywhere, no stutter. Every
   frame of every LumaTV surface lands on its 60 Hz deadline, at rest and in
   motion; the gate below is how it is checked, and nothing ships that misses
-  it. Today's known misses are fixed before new surfaces: returning to Home
-  still shows one or two gaps of 57-87 ms, and every separate-window probe
-  so far (64-bit and LG's 32-bit alike) dropped frames.
+  it. Measured causes of today's misses (`docs/research/perf-tweaks.md`):
+  Qt's fixed 5 ms update timer before every animated frame, the serial
+  render loop, full-screen redraws for small changes, and memory pressure on
+  Home return.
+- Phase 1 performance work, by measured gain:
+  1. `QT_QPA_UPDATE_IDLE_TIME=0` in the compositor env, beside the disk
+     cache: dropped animation frames 8-9 % to 3.4-4 % on a D-pad sweep,
+     46-67 % to 2.5-4 % opening Quick Settings, 12-29 % to 3-8 % closing.
+  2. Wallpaper motion at 10 updates/s on one shared 100 ms clock with the
+     second hand: idle GPU 30 % to 16.5 %, compositor CPU 10.3 % to 5.6 % of
+     a core, idle drops 7-10 % to 2.5 %.
+  3. Memory headroom before any memory tweak: the Home-return gaps (50-117
+     ms, 250-920 ms after a 450 MB launch) are the compositor paging itself
+     back in (1,000-4,600 major faults) and LG's memchute closing LG Home.
+     The preload trim and the Home stub remove both; re-measure after.
+  4. New surfaces gated at p90 render under 3 ms with no ShaderEffectSource
+     rebuild on show (the third vblank on every Home return is the blur and
+     icon rebuild).
+  Measured with no effect, not used: GPU always-on, IRQ affinity,
+  SCHED_FIFO, CPU pinning, the CPU governor (one frequency step), stopping
+  LG daemons (all background work is about 25 % of one core and never in a
+  gap). The threaded render loop gives a black screen on this set. CPU3
+  hot-plug off is optional (idle drops 7-10 % to 3-7 %, costs idle power).
 - Output: the UI is drawn at 1920x1080, 60 Hz, and LG's scaler fills the 4K
   panel. The graphics plane also lists a 3840x2160 mode, but a 4K UI is not
   planned:
@@ -278,8 +298,19 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
 - Path: (1) the 64-bit Rust UI from LumaShow's toolkit as a client of LG's
   compositor, written so it can later run inside LumaTV's own; (2) the
   experiments that decide the rest:
-  - X1/X1b: does LG's compositor hold zero frames over 20 ms even for a
-    trivial client? If not, only an own compositor can meet the 60 fps rule.
+  - X1, failed (2026-10-24): a trivial 64-bit client over idle Home with
+    wallpaper motion off held 51.2 fps for 60 s on contiguous buffers, 530
+    of 3,085 presented frames took two vblanks (17 %), worst 33.4 ms; 47.9
+    fps on `dma_buf_te` buffers. With a full-screen client in front LG's
+    compositor spends 6.3 ms GPU and about 5 ms CPU per presented frame on
+    composition alone, and the UI plane follows the content's refresh rate
+    (50 Hz behind a browser page). LG's compositor cannot meet the 60 fps
+    rule for any separate window, LumaTV's 64-bit UI included.
+    What an own compositor gains, measured: direct scan-out of a full-screen
+    app on the unused overlay plane (no composition cost), committing with
+    an in-fence and rendering one frame ahead (CPU and GPU each get the full
+    16.7 ms), damage tracking (a 4 px ripple now redraws 1080p for 7.5 ms),
+    and a UI clock independent of the content's rate.
   - X2, passed (2026-10-24): every LG app draws through LG's 32-bit
     `libmali`, which binds only `mali_buffer_sharing` v5 (three messages)
     and hands over AFBC-compressed dma-bufs from `/dev/dma_buf_te`. A test
