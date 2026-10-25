@@ -1,18 +1,34 @@
 #!/usr/bin/env python3
-"""Renders LumaTV's surfaces through the offline host into docs/mocks/host/, one PNG per mock they answer.
+"""Renders LumaTV's surfaces through the offline host into docs/mocks/host/, one PNG per mock they answer, dark and light.
 
-    python3 tests/qmlhost/scenes.py [--out DIR] [--only NAME[,NAME]] [--list]
+    python3 tests/qmlhost/scenes.py [--out DIR] [--only NAME[,NAME]] [--dark | --light] [--list]
 
 Each scene is Home (LumaHome.qml) with a fake helper, driven by the host's own clock: topics published, keys
 sent, a surface opened by the way Home opens it, and a window grab at the end. The file names follow the mocks
-(`docs/mocks/shots/NN-name.png`), so a host render sits next to the design it answers. Qt 5.15 on software GL
-draws what the set's 5.12 draws up to the look of a pixel: this shows layout, colour, text and states, and measures
-nothing (the gate on the set is the only timing).
+(`docs/mocks/shots/NN-name.png`), so a host render sits next to the design it answers: `NN-name.png` is the dark
+material and `NN-name-light.png` the light one (theme `material` forced, so the wallpaper's luma does not
+choose). Qt 5.15 on software GL draws what the set's 5.12 draws up to the look of a pixel: this shows layout,
+colour, text and states, and measures nothing (the gate on the set is the only timing).
 
-A scene lists steps: ("eval", ms, js), ("keys", ms, "down right ok"), ("publish", ms, topic, doc), ("snap", ms, name).
+A scene lists steps: ("eval", ms, js), ("keys", ms, "down right ok"), ("publish", ms, topic, doc), ("snap", ms, name)
+and, for what the owner would have set in theme.json, ("theme", 0, {...}) merged over the run's theme.
 `READY` is when Home has built its resident surfaces (the build chain starts a second after Home presents).
+
+Another slice adds its scenes without touching this file: every `tests/qmlhost/scenes_<slice>.py` is imported
+here and registers with the decorator,
+
+    from scenes import scene, k, js, READY, receiver, settings_to, APPS
+
+    @scene("12-all-apps")
+    def _():
+        return [("eval", READY, "root.openLayer('apps')"), ("snap", READY + 800, "12-all-apps")]
+
+A name registered twice is an error, and a module that does not import is reported and fails the run, the other
+scenes still render.
 """
 import argparse
+import glob
+import importlib
 import json
 import os
 import subprocess
@@ -22,6 +38,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, HERE)
 import xdisplay  # noqa: E402
 
 READY = 7000
@@ -69,10 +86,13 @@ def k(*names):
 
 # name -> steps. Names follow docs/mocks/shots.
 SCENES = {}
+LOAD_ERRORS = []
 
 
 def scene(name):
     def deco(fn):
+        if name in SCENES:
+            raise ValueError("scene %r is registered twice" % name)
         SCENES[name] = fn
         return fn
     return deco
@@ -231,10 +251,28 @@ def _():
     return [("eval", READY, "root.showRemote()"), ("keys", READY + 500, "right right"), ("snap", READY + 1500, "34-screen-remote")]
 
 
-def run_scene(name, out_dir, theme=None):
+def merge(base, over):
+    out = dict(base)
+    for key, val in over.items():
+        out[key] = merge(out[key], val) if isinstance(val, dict) and isinstance(out.get(key), dict) else val
+    return out
+
+
+def png_path(out_dir, name, material):
+    return os.path.join(out_dir, name + ("" if material == "dark" else "-" + material) + ".png")
+
+
+def run_scene(name, out_dir, material="dark", theme=None):
+    """One scene in one material: (exit code, warnings, the host's output). A snap step whose PNG is not there after the
+    run is a failure, so a host that died early cannot pass on the strength of an older file."""
     steps = SCENES[name]()
-    args = ["LumaHome.qml", "--fake-helper", "--prop", "hostActive=true", "--theme", json.dumps(dict({"perf": {"syncResidents": True}}, **(theme or {})))]
+    user = merge({"perf": {"syncResidents": True}, "material": material}, theme or {})
+    for st in steps:
+        if st[0] == "theme":
+            user = merge(user, st[2])
+    args = ["LumaHome.qml", "--fake-helper", "--prop", "hostActive=true", "--theme", json.dumps(user)]
     end = 0
+    snaps = []
     for st in steps:
         kind, ms = st[0], st[1]
         end = max(end, ms)
@@ -248,34 +286,69 @@ def run_scene(name, out_dir, theme=None):
             if st[2] == "receiver" and doc.get("fresh"):
                 doc["updatedAt"] = int(time.time() * 1000) + ms
             args += ["--publish", "%d:%s:%s" % (ms, st[2], json.dumps(doc))]
+        elif kind == "snap":
+            path = png_path(out_dir, st[2], material)
+            if os.path.exists(path):
+                os.remove(path)
+            snaps.append(path)
+            args += ["--snap", "%d:%s" % (ms, path)]
+        elif kind != "theme":
+            raise ValueError("scene %r: unknown step %r" % (name, kind))
     args += ["--wait", str(end + 800)]
     env = dict(os.environ, DISPLAY=xdisplay.DISPLAY)
     r = subprocess.run([sys.executable, os.path.join(HERE, "qmlhost.py")] + args, env=env, capture_output=True, text=True, timeout=300)
     text = r.stdout + r.stderr
     warn = [ln for ln in text.splitlines() if ln.startswith("[warning]") and "Implicitly defined onFoo" not in ln]
-    return r.returncode, warn, text
+    missing = [p for p in snaps if not os.path.exists(p)]
+    warn += ["[snap] not written: %s" % p for p in missing]
+    return (r.returncode or (1 if missing else 0)), warn, text
+
+
+def load_modules():
+    """Imports every scenes_<slice>.py beside this file; each registers its scenes with @scene. Run as a script this file
+    is `__main__`, so the name `scenes` is pointed at it first and `from scenes import scene` in a module reaches this
+    registry, not a second copy. A module that fails to import is recorded and the rest still load."""
+    sys.modules.setdefault("scenes", sys.modules[__name__])
+    for path in sorted(glob.glob(os.path.join(HERE, "scenes_*.py"))):
+        mod = os.path.splitext(os.path.basename(path))[0]
+        try:
+            importlib.import_module(mod)
+        except Exception as e:
+            LOAD_ERRORS.append("%s: %s: %s" % (mod, type(e).__name__, e))
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=os.path.join(ROOT, "docs", "mocks", "host"))
-    ap.add_argument("--only")
+    ap.add_argument("--only", help="comma-separated scene names")
+    ap.add_argument("--dark", action="store_true", help="the dark material only")
+    ap.add_argument("--light", action="store_true", help="the light material only")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
+    for e in LOAD_ERRORS:
+        print("scene module failed: " + e, file=sys.stderr)
     if a.list:
         print("\n".join(SCENES))
-        return 0
+        return 1 if LOAD_ERRORS else 0
+    materials = [m for m, on in (("dark", a.dark), ("light", a.light)) if on] or ["dark", "light"]
     os.makedirs(a.out, exist_ok=True)
     names = a.only.split(",") if a.only else list(SCENES)
-    bad = 0
+    bad = len(LOAD_ERRORS)
     for n in names:
-        rc, warn, text = run_scene(n, a.out)
-        print("%-34s %s" % (n, "ok" if rc == 0 else "FAILED (%d warnings)" % len(warn)))
-        for w in warn[:6]:
-            print("   " + w[:240])
-        bad += rc != 0
+        if n not in SCENES:
+            print("%-34s unknown scene" % n)
+            bad += 1
+            continue
+        for material in materials:
+            rc, warn, text = run_scene(n, a.out, material)
+            print("%-34s %-5s %s" % (n, material, "ok" if rc == 0 else "FAILED (%d warnings)" % len(warn)), flush=True)
+            for w in warn[:6]:
+                print("   " + w[:240])
+            bad += rc != 0
     return 1 if bad else 0
 
+
+load_modules()
 
 if __name__ == "__main__":
     sys.exit(main())
