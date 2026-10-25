@@ -14,7 +14,11 @@ import "."
 // Denon's commands it adds `controls: true` and these fields, which the rows below read:
 //   model, soundMode, modes [{id, title, sub, icon}], inputs [name], quick [{n, label}], quickSelect,
 //   audyssey {multEq: reference|bypass|flat|off, dynEq, refOffset: 0|5|10|15, dynVol: off|light|medium|heavy},
-//   levels {dialog, subwoofer, bass, treble} (dB), cinemaEq, eco (off|on|auto), zone2 {power, volumeAbs, input}.
+//   levels {dialog, subwoofer, bass, treble} (dB), cinemaEq, eco (off|on|auto),
+//   zone2 {name, power, volumeDb, volumeText, input}.
+// Today's helper publishes none of this (it has no command route and nothing to read these back with: the receiver's
+// full status page answers 403 on port 8080 and the Telnet port is Home Assistant's), which is why the page names that
+// in its first row; scenes `24-settings-receiver*` publish the whole of it as a fixture of the contract.
 PageList {
     id: page
     title: "Receiver"
@@ -22,8 +26,10 @@ PageList {
     backId: "sound"
     tabs: ["Sound mode", "Levels", "Audyssey", "Zones & power"]
 
-    readonly property var rc: Helper.receiver || ({})
-    readonly property bool answers: !!(rc.reachable && rc.fresh)
+    // the receiver's reading, only while it is in date (kit/ReceiverGate): 6 s after the last answer every value goes
+    ReceiverGate { id: gate; active: page.visible }
+    readonly property var rc: gate.doc || ({})
+    readonly property bool answers: gate.fresh
     readonly property bool ctl: Helper.receiverControls && answers
     readonly property var aud: rc.audyssey || ({})
     readonly property var lev: rc.levels || ({})
@@ -36,13 +42,15 @@ PageList {
     function set(what, value) { Helper.receiverSet(what, value) }
     function why() { return !answers ? "The receiver is not answering." : Helper.receiverControls ? "" : "This helper reads the receiver but cannot send it commands yet." }
     function en() { return ctl }
+    // a level in dB the way the receiver's display writes it: a sign and one decimal where it moves by halves
+    function db(v, half) { return v === undefined || v === null ? "\u2013" : (v > 0 ? "+" : v < 0 ? "\u2212" : "") + (half ? Math.abs(v).toFixed(1) : String(Math.abs(v))) + " dB" }
     function indexIn(list, v) { var i = (list || []).indexOf(v); return i < 0 ? undefined : i }
 
     rows: [
         R.note(function() { return page.why() }, 0, function() { return page.why() !== "" }),
         { kind: "toggle", tab: 0, icon: "power", label: "Receiver power", detail: "Turns on with the TV over HDMI-CEC. Off here keeps the TV on.",
           enabled: function() { return page.ctl }, on: function() { return page.rc.power !== false }, act: function(v) { page.set("power", v) } },
-        { kind: "stepper", tab: 0, icon: "cable", label: "Input", detail: function() { return "What the receiver plays. " + (page.rc.input || "") },
+        { kind: "stepper", tab: 0, icon: "cable", label: "Input", detail: function() { return "What the receiver plays." + (page.rc.input === "TV Audio" ? " TV Audio is this TV over eARC." : "") },
           enabled: function() { return page.ctl && (page.rc.inputs || []).length > 0 }, options: function() { return page.rc.inputs || [] },
           index: function() { return page.indexIn(page.rc.inputs, page.rc.input) }, act: function(i) { page.set("input", page.rc.inputs[i]) } },
         R.head(function() { return "Sound mode" + (page.rc.soundMode ? " \u00b7 now " + page.rc.soundMode : "") }, 0),
@@ -54,38 +62,52 @@ PageList {
           enabled: function() { return page.ctl && (page.rc.quick || []).length > 0 }, options: function() { return (page.rc.quick || []).map(function(q) { return q.n + " \u00b7 " + q.label }) },
           index: function() { return page.rc.quickSelect === undefined ? undefined : page.rc.quickSelect - 1 }, act: function(i) { page.set("quickSelect", i + 1) } },
 
-        { kind: "slider", tab: 1, icon: "volume-2", label: "Volume", detail: "Read live. The volume keys move it.", min: 0, max: 98, step: 1, info: true,
-          num: function() { return page.answers && page.rc.volumeAbs !== undefined ? page.rc.volumeAbs : 0 } },
-        { kind: "slider", tab: 1, icon: "mic", label: "Dialogue", detail: "Lifts speech above the effects.", min: -12, max: 12, step: 1, unit: " dB",
-          enabled: function() { return page.ctl && page.lev.dialog !== undefined }, num: function() { return page.lev.dialog || 0 }, act: function(v) { page.set("dialog", v) } },
-        { kind: "slider", tab: 1, icon: "speaker", label: "Subwoofer", detail: "The bass the receiver sends to the sub.", min: -12, max: 12, step: 1, unit: " dB",
-          enabled: function() { return page.ctl && page.lev.subwoofer !== undefined }, num: function() { return page.lev.subwoofer || 0 }, act: function(v) { page.set("subwoofer", v) } },
-        { kind: "slider", tab: 1, icon: "sliders-vertical", label: "Bass", detail: "", min: -6, max: 6, step: 1, unit: " dB",
-          enabled: function() { return page.ctl && page.lev.bass !== undefined }, num: function() { return page.lev.bass || 0 }, act: function(v) { page.set("bass", v) } },
-        { kind: "slider", tab: 1, icon: "sliders-vertical", label: "Treble", detail: "", min: -6, max: 6, step: 1, unit: " dB",
-          enabled: function() { return page.ctl && page.lev.treble !== undefined }, num: function() { return page.lev.treble || 0 }, act: function(v) { page.set("treble", v) } },
-        { kind: "toggle", tab: 1, icon: "theater", label: "Cinema EQ", detail: "Softens harsh highs in film soundtracks.",
+        { kind: "slider", tab: 1, icon: "volume-2", label: "Volume", detail: "Master volume, in the receiver's own dB.", info: true,
+          min: function() { return page.rc.volumeDisplay === "absolute" ? 0 : -80 }, max: function() { return page.rc.volumeDisplay === "absolute" ? 98 : 18 }, step: 0.5,
+          num: function() { return page.answers ? (page.rc.volumeDisplay === "absolute" ? page.rc.volumeAbs : page.rc.volumeDb) || 0 : 0 },
+          valueText: function() { return page.answers && page.rc.volumeText ? String(page.rc.volumeText) : "\u2013" } },
+        { kind: "slider", tab: 1, icon: "mic", label: "Dialog level", detail: "Louder voices without louder everything.", min: -12, max: 12, step: 0.5,
+          enabled: function() { return page.ctl && page.lev.dialog !== undefined }, num: function() { return page.lev.dialog || 0 },
+          valueText: function() { return page.db(page.lev.dialog, true) }, act: function(v) { page.set("dialog", v) } },
+        { kind: "slider", tab: 1, icon: "speaker", label: "Subwoofer level", detail: "More or less bass from the sub only.", min: -12, max: 12, step: 0.5,
+          enabled: function() { return page.ctl && page.lev.subwoofer !== undefined }, num: function() { return page.lev.subwoofer || 0 },
+          valueText: function() { return page.db(page.lev.subwoofer, true) }, act: function(v) { page.set("subwoofer", v) } },
+        { kind: "slider", tab: 1, icon: "sliders-vertical", label: "Bass", detail: "Tone control. Off in Direct and Pure Direct.", min: -6, max: 6, step: 1,
+          enabled: function() { return page.ctl && page.lev.bass !== undefined }, num: function() { return page.lev.bass || 0 },
+          valueText: function() { return page.db(page.lev.bass, false) }, act: function(v) { page.set("bass", v) } },
+        { kind: "slider", tab: 1, icon: "sliders-vertical", label: "Treble", detail: "Tone control. Off in Direct and Pure Direct.", min: -6, max: 6, step: 1,
+          enabled: function() { return page.ctl && page.lev.treble !== undefined }, num: function() { return page.lev.treble || 0 },
+          valueText: function() { return page.db(page.lev.treble, false) }, act: function(v) { page.set("treble", v) } },
+        { kind: "toggle", tab: 1, icon: "theater", label: "Cinema EQ", detail: "Softens bright film soundtracks mixed for a big room.",
           enabled: function() { return page.ctl && page.rc.cinemaEq !== undefined }, on: function() { return !!page.rc.cinemaEq }, act: function(v) { page.set("cinemaEq", v) } },
-        { kind: "seg", tab: 1, icon: "leaf", label: "ECO mode", detail: "Lowers the receiver's power draw.", options: ["Off", "On", "Auto"],
-          enabled: function() { return page.ctl && page.rc.eco !== undefined }, index: function() { return page.indexIn(["off", "on", "auto"], page.rc.eco) },
-          act: function(i) { page.set("eco", ["off", "on", "auto"][i]) } },
 
         R.note("Audyssey is the room correction the receiver measured with its microphone. These switch its parts on and off; re-measuring is done on the receiver.", 2),
         { kind: "seg", tab: 2, icon: "audio-lines", label: "MultEQ", detail: "Reference is Audyssey's curve; Flat keeps the highs.", options: ["Reference", "L/R bypass", "Flat", "Off"],
           enabled: function() { return page.ctl && page.aud.multEq !== undefined }, index: function() { return page.indexIn(["reference", "bypass", "flat", "off"], page.aud.multEq) },
           act: function(i) { page.set("multEq", ["reference", "bypass", "flat", "off"][i]) } },
-        { kind: "toggle", tab: 2, icon: "activity", label: "Dynamic EQ", detail: "Keeps bass and warmth full at low volume.",
+        { kind: "toggle", tab: 2, icon: "activity", label: "Dynamic EQ", detail: "Keeps bass and surround full at low volume.",
           enabled: function() { return page.ctl && page.aud.dynEq !== undefined }, on: function() { return !!page.aud.dynEq }, act: function(v) { page.set("dynEq", v) } },
-        { kind: "seg", tab: 2, icon: "gauge", label: "Reference level offset", detail: "For Dynamic EQ: 0 dB for films, 5 to 15 for TV and music mixed quieter.", options: ["0 dB", "5", "10", "15"],
+        { kind: "seg", tab: 2, icon: "gauge", label: "Reference level offset", detail: "For Dynamic EQ: 0 for films, 5\u201315 for TV and music mixed quieter.", options: ["0 dB", "5", "10", "15"],
           enabled: function() { return page.ctl && page.aud.refOffset !== undefined }, index: function() { return page.indexIn([0, 5, 10, 15], page.aud.refOffset) },
           act: function(i) { page.set("refOffset", [0, 5, 10, 15][i]) } },
         { kind: "seg", tab: 2, icon: "volume-1", label: "Dynamic Volume", detail: "Evens out loud adverts and quiet dialogue.", options: ["Off", "Light", "Medium", "Heavy"],
           enabled: function() { return page.ctl && page.aud.dynVol !== undefined }, index: function() { return page.indexIn(["off", "light", "medium", "heavy"], page.aud.dynVol) },
           act: function(i) { page.set("dynVol", ["off", "light", "medium", "heavy"][i]) } },
 
-        { kind: "toggle", tab: 3, icon: "power", label: "Zone 2", detail: "A second room on the same receiver.",
+        R.head(function() { return "Zone 2" + (page.z2.name ? " \u00b7 " + page.z2.name : "") }, 3),
+        { kind: "toggle", tab: 3, icon: "power", label: "Zone 2 power", detail: "The second pair of speakers, on their own volume and input.",
           enabled: function() { return page.ctl && page.z2.power !== undefined }, on: function() { return !!page.z2.power }, act: function(v) { page.set("zone2Power", v) } },
-        { kind: "slider", tab: 3, icon: "volume-2", label: "Zone 2 volume", detail: "", min: 0, max: 98, step: 1,
-          enabled: function() { return page.ctl && page.z2.volumeAbs !== undefined }, num: function() { return page.z2.volumeAbs || 0 }, act: function(v) { page.set("zone2Volume", v) } }
+        { kind: "slider", tab: 3, icon: "volume-2", label: "Zone 2 volume", detail: "Available while Zone 2 is on.", min: function() { return page.z2.volumeDisplay === "absolute" ? 0 : -80 },
+          max: function() { return page.z2.volumeDisplay === "absolute" ? 98 : 18 }, step: 0.5,
+          enabled: function() { return page.ctl && !!page.z2.power && page.z2.volumeDb !== undefined }, num: function() { return page.z2.volumeDb || 0 },
+          valueText: function() { return page.z2.volumeText ? String(page.z2.volumeText) : "\u2013" }, act: function(v) { page.set("zone2Volume", v) } },
+        { kind: "stepper", tab: 3, icon: "cable", label: "Zone 2 input", detail: "Follows the main zone unless set here.",
+          enabled: function() { return page.ctl && !!page.z2.power && (page.rc.inputs || []).length > 0 }, options: function() { return page.rc.inputs || [] },
+          index: function() { return page.indexIn(page.rc.inputs, page.z2.input) }, act: function(i) { page.set("zone2Input", page.rc.inputs[i]) } },
+        R.head("Power", 3),
+        { kind: "seg", tab: 3, icon: "leaf", label: "ECO mode", detail: "Less power at low volume. Auto decides by level; On always.", options: ["On", "Auto", "Off"],
+          enabled: function() { return page.ctl && page.rc.eco !== undefined }, index: function() { return page.indexIn(["on", "auto", "off"], page.rc.eco) },
+          act: function(i) { page.set("eco", ["on", "auto", "off"][i]) } },
+        R.note("More on the receiver: speaker setup, Audyssey measuring, HEOS and network live in the Denon's own menu.", 3)
     ]
 }

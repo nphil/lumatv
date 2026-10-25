@@ -22,29 +22,15 @@ Item {
     signal closeRequested()
     readonly property bool built: true
 
-    readonly property var choices: Lu.theme.inputs || ({})
-    function visibleFor(key, connected) {
-        var c = choices[key] || "auto"
-        return c === "always" || (c === "auto" && connected)
+    // Live TV, then each HDMI port the owner has not hidden (kit/Inputs.tiles, the same list Home's Inputs row draws).
+    readonly property var tiles: Inputs.tiles(Lu.theme.inputs)
+    // "Sound: Denon on HDMI 2" once the receiver is found among the inputs, else only that the sound goes out over eARC
+    readonly property string soundLine: {
+        if (String(Sio.get("sound.soundOutput")) !== "external_arc") return Sio.has("sound.soundOutput") ? "Sound: TV speakers" : ""
+        for (var i = 0; i < tiles.length; i++)
+            if (tiles[i].sound) return "Sound: " + (/^\w+/.exec(tiles[i].name) || ["Receiver"])[0] + " on " + tiles[i].port.split(" \u00b7 ")[0]
+        return "Sound: receiver on eARC"
     }
-    // Live TV, then each HDMI port the owner has not hidden; a port with nothing connected shows only when it is Always.
-    readonly property var tiles: {
-        var out = []
-        if (visibleFor("livetv", true)) out.push({ appId: "com.webos.app.livetv", port: "LIVE TV", icon: "antenna", name: "Antenna", state: "Live TV", on: true, connected: true })
-        var l = Inputs.list
-        for (var i = 0; i < l.length; i++) {
-            var e = l[i]
-            var key = "hdmi" + (/hdmi(\d)/.exec(e.appId) || [0, i + 1])[1]
-            if (!visibleFor(key, e.connected)) continue
-            var front = e.appId === Inputs.foreground
-            out.push({ appId: e.appId, port: e.port.toUpperCase() + (/denon|marantz|yamaha|receiver|avr/i.test(e.label) && e.connected ? " \u00b7 eARC" : ""),
-                       icon: e.icon, name: e.connected ? (e.label || e.port) : "Nothing connected",
-                       state: !e.connected ? "Plug in a device to use it" : front ? "In front" : "Connected", on: e.connected, connected: e.connected, front: front,
-                       sound: /denon|marantz|yamaha|receiver|avr/i.test(e.label) && e.connected })
-        }
-        return out
-    }
-    readonly property string soundLine: String(Sio.get("sound.soundOutput")) === "external_arc" ? "Sound: receiver on eARC" : Sio.has("sound.soundOutput") ? "Sound: TV speakers" : ""
 
     function open(params) {
         Inputs.refresh()
@@ -109,9 +95,9 @@ Item {
                         border.width: 1; border.color: tile.focused ? Lu.edgeRaised : Lu.edge
                         antialiasing: true
                     }
-                    LuText { x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5) - (soundChip.visible ? soundChip.width : 0); role: "caption"; color: Lu.ink2; text: tile.t.port; elide: Text.ElideRight }
+                    LuText { id: portText; x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5) - (soundChip.visible ? soundChip.width + Lu.space(2) : 0); role: "caption"; color: Lu.ink2; text: tile.t.port; wrapMode: Text.WordWrap; maximumLineCount: 2 }
                     LuChip { id: soundChip; visible: !!tile.t.sound; x: parent.width - width - Lu.space(3); y: Lu.space(3); text: "Sound out"; tone: "positive" }
-                    LuIcon { x: Lu.space(5); y: Lu.space(4) + 48; name: tile.t.icon; size: 56; color: Lu.ink }
+                    LuIcon { x: Lu.space(5); y: Lu.space(4) + Math.max(48, portText.height + Lu.space(3)); name: tile.t.icon; size: 56; color: Lu.ink }
                     Column {
                         x: Lu.space(5); width: parent.width - 2 * Lu.space(5)
                         y: parent.height - height - Lu.space(4)

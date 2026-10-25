@@ -34,6 +34,32 @@ QtObject {
         if (/antenna|tuner|cable box|set.?top/.test(n)) return "antenna"
         return n === "" ? "unplug" : "cable"
     }
+    // What a tile is for: the receiver (the sound output when the sound goes out over eARC) is told from its name.
+    function isReceiver(name) { return /denon|marantz|yamaha|onkyo|receiver|avr/i.test(String(name || "")) }
+    // The owner's choice for an input (theme `inputs.<port>`: auto, always, hidden): Auto shows it only while something is connected.
+    function visibleFor(choices, key, connected) {
+        var c = (choices && choices[key]) || "auto"
+        return c === "always" || (c === "auto" && connected)
+    }
+    // The tiles of the picker and of Home's Inputs row (PLAN, "Inputs on Home"), one shape for both: Live TV first, then each HDMI
+    // port the owner has not hidden. `choices` is theme.inputs. A port with nothing connected is there only when it is Always.
+    //   { appId, key, port, icon, name, state, on, connected, front, sound }
+    function tiles(choices) {
+        var out = []
+        if (visibleFor(choices, "livetv", true))
+            out.push({ appId: "com.webos.app.livetv", key: "livetv", port: "LIVE TV", icon: "antenna", name: "Antenna", state: "Live TV", on: true, connected: true, front: foreground === "com.webos.app.livetv", sound: false })
+        for (var i = 0; i < list.length; i++) {
+            var e = list[i]
+            var key = "hdmi" + (/hdmi(\d)/.exec(e.appId) || [0, i + 1])[1]
+            if (!visibleFor(choices, key, e.connected)) continue
+            var front = e.appId === foreground
+            var sound = e.connected && isReceiver(e.label)
+            out.push({ appId: e.appId, key: key, port: e.port.toUpperCase() + (sound ? " \u00b7 eARC" : ""),
+                       icon: e.icon, name: e.connected ? (e.label || e.port) : "Nothing connected",
+                       state: !e.connected ? "Plug in a device to use it" : front ? "In front" : "Connected", on: e.connected, connected: e.connected, front: front, sound: sound })
+        }
+        return out
+    }
     function portName(appId) {
         var m = /hdmi(\d)/.exec(String(appId))
         return m ? "HDMI " + m[1] : appId === "com.webos.app.livetv" ? "Live TV" : String(appId)

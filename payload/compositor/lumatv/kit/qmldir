@@ -20,3 +20,4 @@ singleton Helper 1.0 Helper.qml
 singleton Sio 1.0 Sio.qml
 singleton PluginHub 1.0 PluginHub.qml
 PluginCard 1.0 PluginCard.qml
+ReceiverGate 1.0 ReceiverGate.qml

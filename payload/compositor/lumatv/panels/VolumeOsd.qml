@@ -10,9 +10,9 @@ import "../kit"
 //   a change of volume or of mute that the receiver reports      the pill for `holdMs`
 //   a volume key (`nudge()`, from the host's key handler)         the pill while the new reading is on its way
 //   a receiver that does not answer                               "Receiver not answering" and that the keys still reach it
-// A reading the helper says is not fresh is not shown: the helper hides every value 6 s after the last good read,
-// and this item hides its own copy after the same 6 s without a new `updatedAt`, so a helper that has stopped
-// talking can never leave a number up that is no longer true.
+// A reading that is not in date is not shown (kit/ReceiverGate): the helper hides every value 6 s after the last good
+// read, and the gate also hides a copy whose stamp is older than that, so a helper that has stopped talking can never leave
+// a number up that is no longer true.
 //
 // `shown` is the host's cue that the pill may be on screen at all (Home in front, or the compositor's volume
 // view when this is mounted there); the item decides by itself when it has something to say.
@@ -22,11 +22,14 @@ Item {
     property bool enabledHere: true
     property int holdMs: 2500
     property int staleMs: 6000
-    readonly property var rc: Helper.receiver
-    readonly property bool fresh: !!(rc && rc.reachable && rc.fresh) && !stale
+    // The age gate every receiver surface shares (kit/ReceiverGate): a reading is shown while the helper is up, says fresh, and its
+    // stamp is under `staleMs` old. This surface is not on screen between keys, so it asks the helper to confirm an aged reading
+    // only when a key is pressed (`nudge`), not every 6 s.
+    ReceiverGate { id: gate; staleMs: osd.staleMs; confirmAged: false; onReading: osd.read(doc) }
+    readonly property var rc: gate.rc
+    readonly property bool fresh: gate.fresh
+    readonly property bool stale: gate.stale
     readonly property bool answering: !!(rc && rc.reachable !== false && rc.fresh !== false && rc.enabled !== false)
-    property double lastReading: 0
-    property bool stale: true
     property bool pill: false
     property bool waiting: false                   // a volume key was pressed and the answer has not come yet
     readonly property bool muted: fresh && !!rc.mute
@@ -45,31 +48,20 @@ Item {
     function nudge() {
         waiting = true
         Helper.post("/v1/receiver/nudge", {})
+        if (gate.stale) gate.confirm()
         show()
         waitEnd.restart()
     }
     Timer { id: hide; interval: osd.holdMs; onTriggered: { osd.pill = false; osd.waiting = false } }
     Timer { id: waitEnd; interval: 1200; onTriggered: osd.waiting = false }
-    // Six seconds without a new reading and the number is not shown.
-    Timer { id: staleTimer; interval: osd.staleMs; onTriggered: osd.stale = true }
 
-    function readReceiver() {
-        var r = rc
-        var at = r ? Number(r.updatedAt) : 0
-        var remaining = staleMs - (Date.now() - at)
-        staleTimer.stop()
-        stale = !(r && r.fresh && r.reachable && isFinite(at) && at > 0 && remaining > 0 && remaining <= staleMs)
-        if (stale) return
-        lastReading = at
-        staleTimer.interval = Math.max(1, Math.ceil(remaining))
-        staleTimer.start()
+    // A reading that is in date: a change of level or of mute, against the last one, shows the pill.
+    function read(r) {
         var nextKey = r.volumeText + "|" + r.mute
         if (levelKey !== nextKey && levelKey !== "") show()
         keepWas(r)
         levelKey = nextKey
     }
-    onRcChanged: readReceiver()
-    Component.onCompleted: readReceiver()
     property string levelKey: ""
     property string lastLevel: ""
     function keepWas(r) { if (!r.mute && r.volumeText) lastLevel = String(r.volumeText) }
