@@ -48,7 +48,7 @@ SHADOW_RE = re.compile(r'layer\.enabled:\s*(?:true|root\.activeFocus)(\s*layer\.
 SHADOW_FILES = ["SimpleButton.qml", "PincodePromptNumButton.qml"]
 
 # Palette names the edits and the overlay draw on.
-NEEDED = ("sheetBottom", "row", "focus", "focusEdge", "hairline", "ink", "inkDim", "accent", "rowRadius", "scrim")
+NEEDED = ("sheetTop", "sheetBottom", "row", "focus", "focusEdge", "hairline", "ink", "inkDim", "accent", "accentInk", "danger", "radius", "rowRadius", "scrim")
 
 # Where the toast goes: below the status bar, right edges level with it (the mock, 07-toast).
 TOAST_TOP = 137
@@ -153,8 +153,9 @@ def patch_simplebutton(text, pal):
     text = sub(name, text, "        radius: 6\n", "        radius: root.style.getRValue(%d)\n" % pal["rowRadius"])
     text = sub(name, text, '        border.width: useStroke ? 1 : 0\n        border.color: "#FFFFFF"\n',
                '        border.width: root.hasFocus ? 2 : (useStroke ? 1 : 0)\n        border.color: root.hasFocus ? "%s" : "#FFFFFF"\n' % pal["focusEdge"])
-    text = sub(name, text, 'PropertyChanges {target: label; color: "#4C5059"}', 'PropertyChanges {target: label; color: "%s"}' % pal["ink"])
-    text = sub(name, text, 'PropertyChanges { target: label; color: "#E6E6E6" }', 'PropertyChanges { target: label; color: "%s" }' % pal["ink"])
+    # The label's colour in both states is the button's `textColor`, which a caller may set (a danger button).
+    text = sub(name, text, 'PropertyChanges {target: label; color: "#4C5059"}', 'PropertyChanges {target: label; color: root.textColor}')
+    text = sub(name, text, 'PropertyChanges { target: label; color: "#E6E6E6" }', 'PropertyChanges { target: label; color: root.textColor }')
     return text
 
 
@@ -167,6 +168,51 @@ def patch_alert(text):
                "        anchors.bottomMargin: isFullAlert ? 0 : root.style.getRValue(180)\n",
                "        anchors.verticalCenter: isFullAlert ? undefined : isPartialScreen ? undefined : parent.verticalCenter\n"
                "        anchors.verticalCenterOffset: 0\n")
+
+
+def patch_notificationview(text):
+    """The input popup at the top right where the toast goes, not at the bottom centre, and with no black
+    scrim: the popup is a question that times out, not a modal. Its click-away area stays (an invisible
+    scrim is not drawn but still takes the click that closes the popup)."""
+    name = "NotificationView.qml"
+    text = sub(name, text, '        color: "black"\n        opacity: 0.6\n        visible: notificationRoot.advancedAlertActive\n',
+               '        color: "black"\n        opacity: 0\n        visible: notificationRoot.advancedAlertActive\n')
+    return sub(name, text,
+               "        anchors {\n"
+               "            horizontalCenter: parent.horizontalCenter\n"
+               "            bottom: parent.bottom\n"
+               "            bottomMargin: style.inputPopupItem.bottomMargin\n"
+               "        }\n"
+               "        width: style.inputPopupItem.viewWidth\n"
+               "        height: style.inputPopupItem.height\n",
+               "        anchors {\n"
+               "            top: parent.top\n"
+               "            topMargin: style.getRValue(%d)\n"
+               "            right: parent.right\n"
+               "            rightMargin: style.getRValue(%d)\n"
+               "        }\n"
+               "        width: style.getRValue(%d)\n"
+               "        height: style.inputPopupItem.height\n" % (TOAST_TOP, TOAST_RIGHT, TOAST_WIDTH))
+
+
+def patch_advancedalertview(text):
+    """The popup comes in from above and leaves upward, where LG's came up from the bottom edge."""
+    name = "AdvancedAlertView.qml"
+    text = sub(name, text, "                    from: root.style.inputPopupItem.height + root.style.inputPopupItem.bottomMargin\n",
+               "                    from: -(root.style.inputPopupItem.height + root.style.inputPopupItem.bottomMargin)\n")
+    return sub(name, text, "                            to: root.style.inputPopupItem.height + root.style.inputPopupItem.bottomMargin +\n",
+               "                            to: -root.style.inputPopupItem.height - root.style.inputPopupItem.bottomMargin -\n")
+
+
+def patch_pincodeview(text):
+    """The prompt is a card over the dimmed screen, not a black full-screen page: the stack's own scrim dims,
+    so the page behind the card draws nothing, and the card rises a short way instead of from the bottom edge."""
+    name = "PincodePromptView.qml"
+    text = sub(name, text, "            color: style.pincodePrompt.backgroundColor\n", '            color: "transparent"\n')
+    text = sub(name, text, "            from: root.height\n            to: root.height - pincodePromptStack.height\n",
+               "            from: root.height * 0.05\n            to: root.height - pincodePromptStack.height\n")
+    return sub(name, text, "            from: root.height - pincodePromptStack.height\n            to: root.height\n",
+               "            from: root.height - pincodePromptStack.height\n            to: root.height * 0.05\n")
 
 
 def patch_shadows(name, text):
@@ -203,7 +249,9 @@ def patch_tree(root, pal, overlay_dir=None):
     if MARKER + ": patched" in text:
         raise ValueError("already patched: stage a fresh copy of LG's tree")
     style.write_text("// Luma: patched, see tools/notification_patch.py\n" + patch_style(text, pal))
-    for name, fn in (("ToastView.qml", patch_toastview), ("SimpleButton.qml", lambda t: patch_simplebutton(t, pal)), ("Alert.qml", patch_alert)):
+    for name, fn in (("ToastView.qml", patch_toastview), ("SimpleButton.qml", lambda t: patch_simplebutton(t, pal)), ("Alert.qml", patch_alert),
+                     ("NotificationView.qml", patch_notificationview), ("AdvancedAlertView.qml", patch_advancedalertview),
+                     ("PincodePromptView.qml", patch_pincodeview)):
         f = root / name
         f.write_text(fn(f.read_text()))
     for name in SHADOW_FILES:

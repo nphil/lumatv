@@ -109,7 +109,7 @@ class NotificationPatch(unittest.TestCase):
         self.assertNotIn("(root.width - style.toast.width) / 2", view)
 
     def test_alert_is_centred_and_buttons_are_in_the_palette(self):
-        self.run_tool()
+        self.run_tool(overlay=None)       # the overlay replaces Alert.qml; this is the patch on LG's own
         alert = self.read("Alert.qml")
         self.assertIn("anchors.verticalCenter: isFullAlert ? undefined : isPartialScreen ? undefined : parent.verticalCenter", alert)
         self.assertNotIn("getRValue(180)", alert.split("MoonstoneShadow")[0])
@@ -120,7 +120,7 @@ class NotificationPatch(unittest.TestCase):
         self.assertNotIn("#4C5059", button)
 
     def test_shadows_are_off_in_the_files_that_have_one(self):
-        self.run_tool()
+        self.run_tool(overlay=None)       # the overlay replaces the pad key; this is the patch on LG's own
         for name in ("SimpleButton.qml", "PincodePromptNumButton.qml"):
             text = self.read(name)
             self.assertNotRegex(text, r"layer\.enabled:\s*(true|root\.activeFocus)\s*layer\.effect: DropShadow")
@@ -128,7 +128,9 @@ class NotificationPatch(unittest.TestCase):
 
     def test_changes_nothing_but_what_it_names(self):
         self.run_tool()
-        named = ("NotificationStyle.qml", "Toast.qml", "ToastView.qml", "Alert.qml", "SimpleButton.qml", "PincodePromptNumButton.qml")
+        named = ("NotificationStyle.qml", "Toast.qml", "ToastView.qml", "Alert.qml", "SimpleButton.qml", "PincodePromptNumButton.qml",
+                 "NotificationView.qml", "AdvancedAlertView.qml", "AdvancedAlertDelegate.qml", "PincodePromptView.qml", "PincodePrompt.qml",
+                 "PincodePromptPasswordButton.qml")
         for name in sorted(os.listdir(CENSUS)):
             p = os.path.join(CENSUS, name)
             if not os.path.isfile(p) or name in named:
@@ -138,12 +140,55 @@ class NotificationPatch(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.dir)), sorted(os.listdir(CENSUS)))
 
     def test_the_shadow_blocks_stay_and_only_the_switch_changes(self):
-        self.run_tool()
+        self.run_tool(overlay=None)
         for name in ("SimpleButton.qml", "PincodePromptNumButton.qml"):
             after = self.read(name)
             before = self.stock(name)
             self.assertEqual(after.count("layer.enabled: false"), len(re.findall(r"layer\.enabled:\s*(?:true|root\.activeFocus)", before)))
             self.assertEqual(len(after.split("DropShadow")), len(before.split("DropShadow")))
+
+    def test_the_overlay_files_are_in_the_palette_and_keep_the_interface_their_views_read(self):
+        self.run_tool()
+        want = {
+            "Alert.qml": ("property string title", "property string message", "property bool modal", "property alias buttonModel",
+                          "property bool isFullAlert", "property bool isCheckBoxAlert", "property alias checkValue", "property bool isProgressAlert",
+                          "property bool isSpinnerAlert", "property bool showTimeoutValue", "property int progressValue",
+                          "property alias discardTimerInterval", "signal buttonClicked(int btnIndex)", "signal closeClicked()", "signal discard()"),
+            "AdvancedAlertDelegate.qml": ("property alias discardTimerInterval", "property alias alertCardContainer", "property bool deviceReady",
+                                          "property bool portReady", "function animateButtonClose()", "signal discard()", "signal discardAndActivate(int cardId)"),
+            "PincodePrompt.qml": ("property string title", "property string message", "property var retry", "property bool isFirstUse", "property bool aboutToClose",
+                                  "property string password", "signal postPassword()", "signal postExitSignal()", "function getPromptTitle(", "function getPromptMessage("),
+        }
+        for name, members in want.items():
+            text = self.read(name)
+            self.assertNotRegex(text, r"@@\w+@@", name)
+            code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("//"))
+            self.assertNotRegex(code, r"layer\.enabled|DropShadow|ConicalGradient", name)
+            for member in members:
+                self.assertIn(member, text, name + ": " + member)
+        for name in ("PincodePromptNumButton.qml", "PincodePromptPasswordButton.qml"):
+            self.assertNotRegex(self.read(name), r"@@\w+@@", name)
+        self.assertIn(self.pal["danger"], self.read("Alert.qml"))
+
+    def test_the_input_popup_goes_to_the_toast_corner_with_no_black_scrim_and_the_pin_page_is_clear(self):
+        self.run_tool()
+        view = self.read("NotificationView.qml")
+        self.assertIn("topMargin: style.getRValue(137)", view)
+        self.assertIn("rightMargin: style.getRValue(64)", view)
+        self.assertNotIn("bottomMargin: style.inputPopupItem.bottomMargin", view)
+        self.assertNotIn("opacity: 0.6", view)
+        self.assertIn('color: "transparent"', self.read("PincodePromptView.qml"))
+
+    def test_a_changed_input_popup_or_pin_anchor_is_fatal(self):
+        for name, old in (("NotificationView.qml", "bottomMargin: style.inputPopupItem.bottomMargin"),
+                          ("AdvancedAlertView.qml", "from: root.style.inputPopupItem.height + root.style.inputPopupItem.bottomMargin"),
+                          ("PincodePromptView.qml", "color: style.pincodePrompt.backgroundColor")):
+            shutil.rmtree(self.dir)
+            shutil.copytree(CENSUS, self.dir)
+            self.write(name, self.stock(name).replace(old, old + " + 1"))
+            rc, err = self.run_tool()
+            self.assertEqual(rc, 1, name)
+            self.assertIn(name, err)
 
     def test_without_an_overlay_the_tree_keeps_LGs_toast(self):
         rc, err = self.run_tool(overlay=None)
@@ -207,7 +252,12 @@ class NotificationPatch(unittest.TestCase):
     def test_a_palette_without_what_it_needs_is_refused(self):
         rc, err = self.run_tool({"ink": "#ffffff"})
         self.assertEqual(rc, 1)
-        self.assertIn("sheetBottom", err)
+        self.assertIn("palette has no", err)
+        pal = dict(self.pal)
+        del pal["danger"]
+        rc, err = self.run_tool(pal)
+        self.assertEqual(rc, 1)
+        self.assertIn("danger", err)
 
     def test_the_patched_tree_still_has_the_files_the_view_imports(self):
         self.run_tool()
@@ -258,6 +308,87 @@ class PatchedViewInTheHost(unittest.TestCase):
                               "userData": {"id": kind}, "readable": ""})
             rc, out = self.run_host("--toast", "300:" + doc, "--wait", "1200")
             self.assertEqual(rc, 0, kind + out[-1200:])
+
+    def test_only_a_generic_icon_file_is_replaced_by_lumatvs_mark(self):
+        # An app's own icon survives a path that merely contains "info" or "default"; the generic file name, or no icon, gets the mark.
+        with tempfile.TemporaryDirectory() as tmp:
+            def source(rel):
+                path = ""
+                if rel:
+                    path = os.path.join(tmp, rel)
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    shutil.copy(os.path.join(ROOT, "assets", "icon160.png"), path)
+                doc = json.dumps({"sourceId": "x", "message": "hi", "type": "advanced", "iconPath": path, "readable": "", "timeout": 8, "userData": {"id": "t"}})
+                rc, out = self.run_host("--toast", "300:" + doc, "--probe", "900:toastIcon:source", "--wait", "1200")
+                self.assertEqual(rc, 0, out[-1200:])
+                return path, re.search(r"\[probe\] toastIcon\.source=(\S+)", out).group(1)
+            for own in ("x/default_icon.png", "com.info.app/icon.png", "notice-board/logo.png"):
+                path, src = source(own)
+                self.assertEqual(src, "file://" + path, own)
+            for generic in ("", "x/info.png", "x/Default.PNG"):
+                self.assertTrue(source(generic)[1].endswith("/images/luma-info.png"), generic)
+
+    ALERT = {"alertInfo": {"sourceId": "x", "title": "Uninstall?", "message": "Sure?", "readable": "", "showTimeout": False, "modal": True, "timeout": 0,
+                           "timestamp": 5, "buttons": [{"label": "Keep it", "focus": True, "action": {"serviceURI": "luna://k", "serviceMethod": "/keep", "launchParams": {}}},
+                                                       {"label": "Uninstall", "danger": True, "action": {"serviceURI": "luna://u", "serviceMethod": "/un", "launchParams": {"a": 1}}}]}}
+
+    def actions(self, out):
+        """The luna calls the view made that are not its own subscriptions: (uri, method, payload)."""
+        line = re.search(r"^\[calls\] (.*)$", out, re.M)
+        self.assertIsNotNone(line, out[-800:])
+        return [(c["uri"], c["method"], c["payload"]) for c in json.loads(line.group(1)) if not c["method"].startswith(("get", "signal/"))]
+
+    def test_the_alert_answers_from_the_keys_only_and_each_button_calls_its_own_action(self):
+        rc, out = self.run_host("--alert", "300:" + json.dumps(self.ALERT), "--press", "1200:OK", "--calls", "--wait", "2200")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [("luna://k", "/keep", "{}")])
+        self.assertEqual(self.states(out)[-1]["alerts"], 0)
+        rc, out = self.run_host("--alert", "300:" + json.dumps(self.ALERT), "--press", "900:RIGHT", "--press", "1300:OK", "--calls", "--wait", "2200")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [("luna://u", "/un", '{"a":1}')])
+
+    def test_a_warning_alert_is_drawn_whole_and_never_filtered(self):
+        # LG's protected kinds (emergency alerts, thermal shutdown, Magic Remote battery) arrive as alerts or toasts like any other;
+        # LumaTV's view draws every one and closes none of them by itself.
+        warn = {"alertInfo": {"sourceId": "x", "type": "warning", "title": "The TV is too hot", "message": "It will turn off to cool down.", "readable": "",
+                              "showTimeout": False, "modal": True, "timeout": 0, "timestamp": 9,
+                              "buttons": [{"label": "OK", "focus": True, "action": {"serviceURI": "luna://k", "serviceMethod": "/ok", "launchParams": {}}}]}}
+        rc, out = self.run_host("--alert", "300:" + json.dumps(warn), "--wait", "3000", "--probe", "2900:alertTitle:text")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.states(out)[-1]["alerts"], 1)
+        self.assertIn("[probe] alertTitle.text=The TV is too hot", out)
+        rc, out = self.run_host("--toast", "300", "--alert", "400:" + json.dumps(warn), "--wait", "1500")
+        self.assertEqual((self.states(out)[-1]["toasts"], self.states(out)[-1]["alerts"]), (1, 1))
+
+    def test_the_pin_goes_out_only_when_four_digits_are_in_and_OK_is_pressed(self):
+        rc, out = self.run_host("--pin", "300", "--press", "800:1,2,3", "--press", "1200:OK", "--calls", "--wait", "1800")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [])
+        rc, out = self.run_host("--pin", "300", "--press", "800:1,2", "--press", "1000:BACKSPACE", "--press", "1100:3,4,5", "--press", "1500:OK", "--calls", "--wait", "2100")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [("luna://com.webos.notification", "/closePincodePrompt",
+                                               '{"pincode":"1345","closeType":"relay","mode":"","appId":"com.webos.app.hdmi3"}')])
+
+    def test_back_on_an_empty_pin_closes_it_and_sends_no_pin(self):
+        rc, out = self.run_host("--pin", "300", "--press", "900:BACKSPACE", "--calls", "--wait", "1800")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [("luna://com.webos.notification", "/closePincodePrompt", '{"closeType":"close"}')])
+
+    def test_the_pin_pad_moves_with_the_direction_keys_and_the_pad_keys_enter_digits(self):
+        # focus starts on 5; Down 8, Down 0, Left Clear; Clear with nothing in is inert; Up from 0 is 8
+        rc, out = self.run_host("--pin", "300", "--press", "800:DOWN,DOWN,RIGHT,LEFT,UP,OK", "--calls", "--wait", "1800", "--probe", "1600:pincodePromptPasswordButton:text")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [])
+        self.assertNotIn("TypeError", out)
+
+    def test_the_input_popup_switches_on_OK_and_stays_on_the_other_button(self):
+        rc, out = self.run_host("--input", "300", "--press", "1200:OK", "--calls", "--wait", "2200")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [("luna://com.webos.applicationManager", "/launch", '{"id":"com.webos.app.hdmi3"}')])
+        rc, out = self.run_host("--input", "300", "--press", "1000:RIGHT", "--press", "1300:OK", "--calls", "--wait", "2200")
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.actions(out), [])
+        self.assertEqual(self.states(out)[-1]["advanced"], 0)
 
     def test_the_alert_keeps_focus_on_its_first_button_and_moves_with_the_keys(self):
         rc, out = self.run_host("--alert", "300", "--press", "900:DOWN", "--wait", "1500")

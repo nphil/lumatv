@@ -37,12 +37,15 @@ os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 os.environ.setdefault('XDG_RUNTIME_DIR', '/tmp/qmlhost-runtime')
 os.makedirs(os.environ['XDG_RUNTIME_DIR'], mode=0o700, exist_ok=True)
 
-# Qt 5.15 deprecates the Connections syntax LG's tree (written for 5.12) uses throughout; and LG's
-# own PIN pad writes through a null KeyNavigation.left when it is not the partial-screen layout.
-IGNORE = re.compile(r'Implicitly defined onFoo|PincodePrompt\.qml:489: TypeError: Value is null')
+# Qt 5.15 deprecates the Connections syntax LG's tree (written for 5.12) uses throughout; LG's own PIN pad
+# writes through a null KeyNavigation.left when it is not the partial-screen layout (the stock tree only).
+IGNORE = re.compile(r'Implicitly defined onFoo|PincodePrompt\.qml:489: TypeError: Value is null'
+                    # LG's delegates bind to `parent` and warn once as the item is removed, stock tree and ours alike
+                    r"|AlertView\.qml:113: TypeError: Cannot read property 'top' of null|AdvancedAlertView\.qml:65: TypeError: Cannot read property 'width' of null")
 
 KEYS = {'LEFT': 'Key_Left', 'RIGHT': 'Key_Right', 'UP': 'Key_Up', 'DOWN': 'Key_Down', 'OK': 'Key_Return',
-        'BACK': 'Key_Escape', 'MENU': 'Key_Menu'}
+        'BACK': 'Key_Escape', 'MENU': 'Key_Menu', 'BACKSPACE': 'Key_Backspace'}
+KEYS.update({str(d): 'Key_%d' % d for d in range(10)})
 
 # What a notification of each kind looks like to the model, with the fields LG's views read.
 DEFAULTS = {
@@ -63,7 +66,28 @@ DEFAULTS = {
 }
 
 
-def stage(dest, patched):
+def palette(light):
+    """The menu palette `lumatv notifications on` stages with. The shipped one always comes from the dark material (the
+    menus are always drawn on it, tokens.py); `light` swaps the light material in for it, to see the same view in a
+    theme whose sheet is light."""
+    shipped = os.path.join(ROOT, 'payload', 'theme', 'theme.json')
+    user = os.devnull
+    tmp = None
+    if light:
+        with open(shipped, encoding='utf-8') as f:
+            tmp = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False)
+            json.dump({'dark': json.load(f)['light']}, tmp)
+            tmp.close()
+        user = tmp.name
+    try:
+        return subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'tokens.py'), shipped, user, 'qml'],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    finally:
+        if tmp:
+            os.unlink(tmp.name)
+
+
+def stage(dest, patched, light=False):
     """The module tree the view runs in, as import root `dest`."""
     qml = os.path.join(dest, 'qml')
     os.makedirs(qml)
@@ -71,10 +95,7 @@ def stage(dest, patched):
     shutil.copytree(STOCK, note)
     if patched:
         sys.path.insert(0, os.path.join(ROOT, 'tools'))
-        pal = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'tokens.py'),
-                              os.path.join(ROOT, 'payload', 'theme', 'theme.json'), os.devnull, 'qml'],
-                             capture_output=True, text=True, check=True).stdout
-        r = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'notification_patch.py'), note, pal.strip(),
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'notification_patch.py'), note, palette(light),
                             os.path.join(ROOT, 'payload', 'notification')], capture_output=True, text=True)
         if r.returncode != 0:
             raise SystemExit('patch failed: ' + r.stderr)
@@ -132,6 +153,20 @@ Item {
                        pin: "/getPincodePromptNotification" }[kind]
         console.log("[publish] " + kind + " to " + LS.deliver("luna://com.webos.notification", method, json) + " service(s)")
     }
+    // The property of the first item named `name` in the drawn tree, however it was reparented.
+    function probe(name, prop) {
+        function walk(item) {
+            if (item.objectName === name) return item
+            for (var i = 0; i < item.children.length; i++) {
+                var found = walk(item.children[i])
+                if (found) return found
+            }
+            return null
+        }
+        var item = walk(screen)
+        return item ? String(item[prop]) : "<no such item>"
+    }
+    function calls() { return JSON.stringify(LS.calls) }
     function state() {
         return JSON.stringify({ toasts: view.toastCount, alerts: view.alertCount, advanced: view.advancedAlertCount, pin: view.pincodePromptCount,
                                 alertActive: view.alertActive, modalAlertActive: view.modalAlertActive, pinActive: view.pincodePromptActive })
@@ -143,12 +178,15 @@ Item {
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--patched', action='store_true', help='run tools/notification_patch.py over the copy first')
+    ap.add_argument('--light', action='store_true', help='with --patched: stage with the light material as the palette')
     ap.add_argument('--shot', action='append', default=[], metavar='MS:PATH', help='PNG of the window at MS after start (repeatable); a bare PATH is taken at --wait')
     ap.add_argument('--wait', type=int, default=2500)
     ap.add_argument('--backdrop', help='image drawn behind the view (a screenshot of Home from qmlhost.py)')
     for kind in DEFAULTS:
         ap.add_argument('--' + kind, action='append', default=[], metavar='MS[:JSON]', help='publish a %s at MS (default document if no JSON)' % kind)
     ap.add_argument('--press', action='append', default=[], metavar='MS:KEYS', help='keys sent at MS, comma separated')
+    ap.add_argument('--probe', action='append', default=[], metavar='MS:OBJECT:PROP', help='print a property of the item with this objectName at MS, as `[probe] OBJECT.PROP=value`')
+    ap.add_argument('--calls', action='store_true', help='at the end print every luna call the view made, as `[calls] JSON`')
     ap.add_argument('--keep', help='keep the staged tree in this directory')
     a = ap.parse_args(argv)
     if not os.path.isdir(STOCK):
@@ -160,7 +198,7 @@ def main(argv=None):
     if a.keep and os.path.exists(work):
         shutil.rmtree(work)
     os.makedirs(work, exist_ok=True)
-    qml, host = stage(work, a.patched)
+    qml, host = stage(work, a.patched, a.light)
 
     messages = []
 
@@ -236,6 +274,15 @@ def main(argv=None):
         ms, _, keys = spec.partition(':')
         QtCore.QTimer.singleShot(int(ms), lambda k=keys: press(k))
 
+    def probe(name, prop):
+        ok = QtCore.QMetaObject.invokeMethod(root, 'probe', QtCore.Qt.DirectConnection, QtCore.Q_RETURN_ARG('QVariant'), QtCore.Q_ARG('QVariant', name), QtCore.Q_ARG('QVariant', prop))
+        print('[probe] %s.%s=%s' % (name, prop, ok), flush=True)
+    probes = []
+    for spec in a.probe:
+        ms, name, prop = spec.split(':', 2)
+        probes.append(int(ms))
+        QtCore.QTimer.singleShot(int(ms), lambda n=name, p=prop: probe(n, p))
+
     def shot(path):
         img = view.grabWindow()
         img.save(path)
@@ -251,7 +298,10 @@ def main(argv=None):
     for ms, path in shots:
         QtCore.QTimer.singleShot(ms, lambda p=path: shot(p))
 
-    QtCore.QTimer.singleShot(max([a.wait] + [m for m, _ in shots]) + 200, app.quit)
+    QtCore.QTimer.singleShot(max([a.wait] + probes + [m for m, _ in shots]) + 200, app.quit)
+    if a.calls:
+        QtCore.QTimer.singleShot(max([a.wait] + probes + [m for m, _ in shots]) + 100, lambda: print('[calls] %s' % QtCore.QMetaObject.invokeMethod(
+            root, 'calls', QtCore.Qt.DirectConnection, QtCore.Q_RETURN_ARG('QVariant')), flush=True))
     app.exec_()
 
     own = [m for m in messages if m[0] in (1, 2, 3) and not IGNORE.search(m[3])]

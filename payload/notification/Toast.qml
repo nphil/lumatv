@@ -42,7 +42,10 @@ FocusScope {
     // LG shows an icon for an advanced toast only (a standard one carries a default that is never shown). Its
     // own generic info picture is a white tile that outshines the pill, so an advanced toast with no icon, or
     // with LG's info glyph, gets LumaTV's own info mark on an accent tile; an app's own icon is kept as it is.
-    readonly property bool genericIcon: root.iconPath === "" || /info|notice|default/i.test(String(root.iconPath))
+    // Generic means the file is named so exactly (the name without its folder or extension), not that the path says so
+    // somewhere: an app's own icon in a folder or app id with "info" in it is kept.
+    readonly property string iconName: { var m = /([^\/\\]+?)(\.[A-Za-z0-9]+)?$/.exec(String(root.iconPath)); return m ? m[1].toLowerCase() : "" }
+    readonly property bool genericIcon: root.iconPath === "" || ["info", "notice", "default"].indexOf(root.iconName) >= 0
     readonly property bool hasIcon: advancedToast
     // A line break is a newline or, as in LG's own messages, a <br> tag.
     readonly property var lines: String(root.message).split(/\n|<br\s*\/?>/i)
@@ -89,6 +92,7 @@ FocusScope {
             anchors.leftMargin: root.pad
             anchors.verticalCenter: parent.verticalCenter
             Image {
+                objectName: "toastIcon"
                 anchors.fill: parent
                 anchors.margins: root.style.getRValue(8)
                 source: root.genericIcon ? "images/luma-info.png" : Utils.applyImagePath(encodeURIComponent(root.iconPath))

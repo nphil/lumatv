@@ -12,6 +12,7 @@ QtObject {
     Component.onCompleted: LS.register(svc)
     Component.onDestruction: LS.unregister(svc)
     function call(uri, meth, payload) { LS.record(uri, meth, payload) }
+    function callForApplication(source, uri, meth, payload) { LS.record(uri, meth, payload) }
     function callService(payload) { LS.record(service, method, JSON.stringify(payload)) }
     function cancel() {}
 }
