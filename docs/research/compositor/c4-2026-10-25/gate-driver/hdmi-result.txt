@@ -1,0 +1,1 @@
+hdmi2 windows 1 fg while open com.webos.app.home now com.webos.app.home panel 43480 bytes

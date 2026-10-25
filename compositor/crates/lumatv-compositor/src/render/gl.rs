@@ -45,6 +45,9 @@ struct Target {
     fbo: GLuint,
     tex: GLuint,
     image: EGLImage,
+    /// Memory row 0 is the screen's top: true for scan-out pages (KMS shows row 0 at the top of the panel), false
+    /// for the offscreen FBO, whose row 0 is the bottom as GL draws it and whose capture flips.
+    top_down: bool,
 }
 
 pub struct Gl {
@@ -117,7 +120,7 @@ impl Gl {
             egl,
             width,
             height,
-            targets: vec![Target { fbo, tex: target, image: std::ptr::null_mut() }],
+            targets: vec![Target { fbo, tex: target, image: std::ptr::null_mut(), top_down: false }],
             current: TargetId(0),
             program,
             a_pos,
@@ -299,9 +302,14 @@ impl Gl {
         let h = self.height as f32;
         let x0 = rect.x as f32 / w * 2.0 - 1.0;
         let x1 = rect.right() as f32 / w * 2.0 - 1.0;
-        // Top of the screen is +1 in NDC; framebuffer row 0 is therefore the screen bottom (capture flips).
-        let y0 = 1.0 - rect.y as f32 / h * 2.0;
-        let y1 = 1.0 - rect.bottom() as f32 / h * 2.0;
+        // Top of the screen is +1 in NDC on the offscreen target, so its row 0 is the screen bottom (capture flips).
+        // A scan-out page is shown row 0 first at the top of the panel, so there the top is -1. Composed KMS frames
+        // were upside down on the set until this (2026-10-25 gate captures); direct scan-out never went through here.
+        let (y0, y1) = if self.targets[self.current.0].top_down {
+            (rect.y as f32 / h * 2.0 - 1.0, rect.bottom() as f32 / h * 2.0 - 1.0)
+        } else {
+            (1.0 - rect.y as f32 / h * 2.0, 1.0 - rect.bottom() as f32 / h * 2.0)
+        };
         let (vt, vb) = if y_invert { (0.0f32, 1.0f32) } else { (1.0, 0.0) };
         let verts: [f32; 16] = [x0, y0, 0.0, vt, x1, y0, 1.0, vt, x0, y1, 0.0, vb, x1, y1, 1.0, vb];
         let a = &self.egl.api;
@@ -318,8 +326,8 @@ impl Gl {
     }
 
     fn scissor(&self, r: &Rect) {
-        // GL scissor is bottom-left based.
-        let y = self.height as i32 - r.bottom();
+        // GL scissor counts rows from row 0: the bottom of the screen offscreen, the top on a scan-out page.
+        let y = if self.targets[self.current.0].top_down { r.y } else { self.height as i32 - r.bottom() };
         // SAFETY: plain state call.
         unsafe { (self.egl.api.glScissor)(r.x, y, r.w, r.h) };
     }
@@ -352,7 +360,7 @@ impl Gl {
             (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
             (a.glFinish)();
         }
-        self.targets.push(Target { fbo, tex, image });
+        self.targets.push(Target { fbo, tex, image, top_down: true });
         Ok(TargetId(self.targets.len() - 1))
     }
 

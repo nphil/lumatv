@@ -378,12 +378,17 @@ impl Egl {
         let q = self.opt.eglQueryWaylandBufferWL?;
         let (mut w, mut h, mut inv) = (0, 0, 0);
         // SAFETY: resource is a live wl_resource of a wl_buffer; outputs are stack ints.
-        unsafe {
+        let answered = unsafe {
             if q(self.display, resource, EGL_WIDTH, &mut w) == EGL_FALSE || q(self.display, resource, EGL_HEIGHT, &mut h) == EGL_FALSE {
                 return None;
             }
-            q(self.display, resource, EGL_WAYLAND_Y_INVERTED_WL, &mut inv);
-        }
+            q(self.display, resource, EGL_WAYLAND_Y_INVERTED_WL, &mut inv) != EGL_FALSE
+        };
+        // On the set, driver buffers drawn with `inv != 0` came out flipped exactly once, by the KMS page's row
+        // order (2026-10-25 gate captures; fixed in gl.rs), so the reading itself stands. Whether the query is
+        // answered at all is logged once, for the next run.
+        static LOGGED: std::sync::Once = std::sync::Once::new();
+        LOGGED.call_once(|| log::info!("egl: Y_INVERTED query {} value {inv} for a {w}x{h} driver buffer", if answered { "answered" } else { "failed" }));
         Some(((w, h), inv != 0))
     }
 

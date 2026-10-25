@@ -1,0 +1,1 @@
+[x1] RESULT frames=3594 in 60.01 s = 59.89 fps; gaps: <=17.5 ms 3527, 17.5-20 54, 20-33.5 11, >33.5 1; worst 58.3 ms; ended at monotonic 8024.119 | pacer before: flips 29 late 1 lost 1554 after: flips 3630 late 3 lost 1557

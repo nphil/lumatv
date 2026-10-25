@@ -1,0 +1,20 @@
+# C4 gate 2026-10-25 06:18
+GATE live: FAIL mounted yes registered 12 fallbacks 0 wam active home-window 0 home-stub 0 panel 6863 bytes fg com.webos.app.home
+GATE x1: FAIL [x1] RESULT frames=3597 in 60.01 s = 59.94 fps; gaps: <=17.5 ms 3546, 17.5-20 42, 20-33.5 8, >33.5 0; worst 28.3 ms; ended at monotonic 7586.874 | pacer before: flips 0 late 0 lost 0 after: flips 3597 late 1 lost 1
+GATE netflix: FAIL netflix windows 0 video "video":[] placements 0 pictureMode playing filmMaker after filmMaker fg com.webos.app.home panel 6863 bytes
+GATE hdmi: FAIL hdmi2 windows 0 fg while open com.webos.app.home now com.webos.app.home panel 6863 bytes
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 7654.22 now 7724.08; mounted yes; panel 6863 bytes
+GATE escape: PASS unmounted after 0s; [06:17:25] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 40959 bytes; wam active
+GATE: FAIL
+
+# C4 gate 2026-10-25 06:25
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 0 panel 13366 bytes fg com.webos.app.home
+GATE x1: FAIL [x1] RESULT frames=3594 in 60.01 s = 59.89 fps; gaps: <=17.5 ms 3527, 17.5-20 54, 20-33.5 11, >33.5 1; worst 58.3 ms; ended at monotonic 8024.119 | pacer before: flips 29 late 1 lost 1554 after: flips 3630 late 3 lost 1557
+GATE netflix: FAIL netflix windows 1 video "video":[] placements 0 pictureMode playing filmMaker after filmMaker fg com.webos.app.home panel 144800 bytes
+GATE hdmi: FAIL hdmi2 windows 1 fg while open com.webos.app.home now com.webos.app.home panel 43480 bytes
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 8091.11 now 8161.00; mounted yes; panel 43480 bytes
+GATE escape: PASS unmounted after 0s; [06:24:42] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 14s; panel 40959 bytes; wam active
+GATE: FAIL
+
