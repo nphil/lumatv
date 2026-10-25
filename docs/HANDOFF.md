@@ -6,6 +6,37 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
+## Resume here (LumaTV, 2026-10-24 21:15 EDT)
+
+Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
+Phases, Decided); this file holds the proven mechanics.
+
+- State: research done, compositor replacement decided (PLAN.md track C).
+  Nothing is built. The set runs the old tool; `tools/lumaglass` at cb57f53
+  (env.extra allowlist, disk cache) is not deployed.
+- Waiting on the owner for two words. "TV is free": run the remote tests
+  below. "go": start phase 1 in this order: rename from `brand.json`, T9
+  plus disk-cache env lines, shared 100 ms clock, Home stub, heap shim,
+  Rust helper.
+- Remote tests (no one needed at the set): X4 capture during Netflix,
+  PlxNative and the input picker (`docs/research/arch/x4/x4-session.sh`,
+  `x4-monitor.sh`, `x4-analyse.py`); histogram probe during Netflix; three
+  contiguous 1080p buffers held during 4K HDR; which input device SSAP keys
+  (Home Assistant `webostv.button`) arrive on. Mute the receiver first
+  (`media_player.living_room_avr`) and restore it after. Protected video
+  captures black; the tests record compositor behaviour, not pixels.
+- Tests that need the owner: PIN prompt (a lock is a security setting he
+  sets), pointer cost (Magic Remote moved by hand), CEC keys from other
+  remotes, receiver volume drift.
+- Set rules: confirm it is idle first (`getPowerState`,
+  `getForegroundAppInfo`); Picture Mode stays `filmMaker`; never restart
+  SAM; write only under `/var/lib/lumaglass`, `/tmp`, configd, bind mounts
+  and `/var/systemd/system/env`; revert every experiment; leave it in
+  Active Standby unless the owner is about to watch; no DRM bypass.
+- Working style: one step at a time, commit and push after each
+  (`git push -q forge main`), results written to files with their own
+  "Resume here" note, so a model switch mid-task loses nothing.
+
 ## The rule that must not be broken
 
 https://rootmy.tv/warning — **never write to the kernel, rootfs or tvservice

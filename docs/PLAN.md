@@ -24,9 +24,10 @@ Kept current with every change to this plan. Building starts on Nitin's go.
   holds 51.2 fps for a trivial client), X2 passed, X4 partly captured.
 - Decided 2026-10-24: LumaTV replaces LG's compositor, in stages (Phases,
   track C). Waiting on Nitin's go to build.
-- TV tests that need Nitin present: receiver volume drift, histogram during
-  Netflix, contiguous memory during 4K HDR, which input device network and
-  CEC keys arrive on, pointer cost.
+- TV tests run remotely when the set is free: X4 during Netflix, PlxNative
+  and the input picker, histogram during Netflix, contiguous memory during
+  4K HDR, which input device SSAP keys arrive on. Need Nitin present: PIN,
+  pointer cost, CEC keys, receiver volume drift.
 - Next build step: phase 1.
 
 ## Rules every surface meets
