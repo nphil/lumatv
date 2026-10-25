@@ -1,0 +1,3 @@
+module Eos.Items
+FastParallelogram 0.1 FastParallelogram.qml
+SmoothClipItem 0.1 SmoothClipItem.qml

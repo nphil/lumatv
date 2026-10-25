@@ -151,6 +151,7 @@ NOTI_STOCK=/usr/lib/qt5/qml/SystemUI/Notification
 NOTI_STAGE="$SYSTEMUI_STAGE/SystemUI/Notification"
 NOTI_ON="$STATE/.notifications-on"
 NOTI_PATCH_TOOL="$APPDIR/tools/notification_patch.py"
+NOTI_OVERLAY="$APPDIR/payload/notification"
 NOTI_VIEW_URI="luna://com.webos.service.sysuicompmgr/changeSystemUIView"
 NOTI_PERSIST=/var/preferences/starfish-luna-surface-manager/systemUiViews.json
 LOGO_BOOT_APP=com.webos.app.bootlogo
@@ -938,7 +939,7 @@ noti_stage() {
   rm -rf "$NOTI_STAGE.new" 2>/dev/null
   mkdir -p "$SYSTEMUI_STAGE/SystemUI" 2>/dev/null || return 1
   cp -a "$NOTI_STOCK" "$NOTI_STAGE.new" 2>/dev/null || { rm -rf "$NOTI_STAGE.new"; return 1; }
-  python3 "$NOTI_PATCH_TOOL" "$NOTI_STAGE.new" "$pal" < /dev/null 2>>"$LOGFILE" || { rm -rf "$NOTI_STAGE.new"; return 1; }
+  python3 "$NOTI_PATCH_TOOL" "$NOTI_STAGE.new" "$pal" "$NOTI_OVERLAY" < /dev/null 2>>"$LOGFILE" || { rm -rf "$NOTI_STAGE.new"; return 1; }
   rm -rf "$NOTI_STAGE.old" 2>/dev/null
   [ -d "$NOTI_STAGE" ] && mv "$NOTI_STAGE" "$NOTI_STAGE.old" 2>/dev/null
   mv "$NOTI_STAGE.new" "$NOTI_STAGE" 2>/dev/null || return 1

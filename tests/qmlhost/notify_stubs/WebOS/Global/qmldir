@@ -1,0 +1,3 @@
+module WebOS.Global
+singleton WebOS 1.0 WebOS.qml
+WebOSMouseArea 1.0 WebOSMouseArea.qml
