@@ -41,8 +41,7 @@ use std::time::Duration;
 /// The default and the longest long-poll wait, in seconds.
 const DEFAULT_WAIT_SECS: f64 = 25.0;
 const MAX_WAIT_SECS: f64 = 30.0;
-/// A reading stamped further than this into the future was written with a wrong clock.
-const FUTURE_SKEW_MS: u64 = 300_000;
+use lumatv_feeds::cache::FUTURE_SKEW_MS;
 
 /// Method, path, and what it does: the discovery document and the router's own test read this.
 pub const ROUTES: &[(&str, &str, &str)] = &[
@@ -118,6 +117,7 @@ fn envelope(mut body: Value, now: u64) -> Value {
 }
 
 /// What a saved document's age makes of it: `fresh`, `stale` (due for a refetch, still shown), `expired` (never shown) or `none`.
+/// A reading stamped further ahead than ordinary clock skew was written by (or is judged by) a wrong clock: it is shown, as stale.
 fn freshness_word(doc: &Value, now: u64) -> (&'static str, Option<u64>) {
     let (Some(fetched), Some(stale), Some(expires)) = (
         doc.get("fetchedAt").and_then(Value::as_u64),
@@ -127,7 +127,9 @@ fn freshness_word(doc: &Value, now: u64) -> (&'static str, Option<u64>) {
         return ("none", None);
     };
     let age = now.saturating_sub(fetched);
-    let word = if fetched > now.saturating_add(FUTURE_SKEW_MS) || now >= expires {
+    let word = if fetched > now.saturating_add(FUTURE_SKEW_MS) {
+        "stale"
+    } else if now >= expires {
         "expired"
     } else if now >= stale {
         "stale"
@@ -621,12 +623,14 @@ mod tests {
         );
         assert_eq!(expired["state"], "expired");
         assert!(expired["doc"].is_null());
+        // Stamped in the future (a clock that was wrong): shown, as stale, never dropped.
         let future = decorate(
             "weather",
             &weather_doc(now + 400_000, now + 1_000_000, now + 22_000_000),
             now,
         );
-        assert_eq!(future["state"], "expired");
+        assert_eq!(future["state"], "stale");
+        assert_eq!(future["doc"]["place"], "Atlanta");
         let none = decorate(
             "weather",
             &json!({"doc": null, "status": {"failures": 1}}),

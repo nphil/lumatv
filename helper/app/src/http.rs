@@ -14,12 +14,14 @@
 //! Limits: 16 KiB of headers, 64 KiB of body, 64 headers, 10 s to receive a request, request bodies with a `Content-Length` only.
 
 use crate::API_VERSION;
+use parking_lot::Mutex;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -167,9 +169,12 @@ impl Server {
     /// Stops accepting and waits up to `grace` for connections in flight (a long poll ends when the hub is closed first).
     pub fn stop(mut self, grace: Duration) {
         self.stopping.store(true, Ordering::SeqCst);
-        // `accept` blocks: one connection to ourselves wakes it so it sees the flag.
-        let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(500));
-        if let Some(handle) = self.accept.take() {
+        // `accept` blocks: one connection to ourselves wakes it so it sees the flag. If that connection cannot be made the thread
+        // is left to the process exit rather than joined, so a stop never hangs.
+        let woke = TcpStream::connect_timeout(&self.addr, Duration::from_millis(500)).is_ok();
+        if let Some(handle) = self.accept.take()
+            && woke
+        {
             let _ = handle.join();
         }
         let deadline = Instant::now() + grace;
@@ -283,7 +288,10 @@ fn serve_connection(
     };
     let origin = request.header("origin").map(str::to_owned);
     let response = match guard(&request, local, options) {
-        Some(refusal) => refusal,
+        Some((refusal, code)) => {
+            note_refusal(code, &request);
+            refusal
+        }
         None if request.method == "OPTIONS" => Response {
             status: 204,
             headers: Vec::new(),
@@ -312,58 +320,108 @@ fn serve_connection(
     let _ = stream.shutdown(Shutdown::Both);
 }
 
-/// The transport-level refusals; `None` lets the request through.
-fn guard(request: &Request, local: SocketAddr, options: &Options) -> Option<Response> {
+/// The transport-level refusals, with the code that names them; `None` lets the request through.
+fn guard(
+    request: &Request,
+    local: SocketAddr,
+    options: &Options,
+) -> Option<(Response, &'static str)> {
+    let refuse = |status: u16, code: &'static str, message: &str| {
+        Some((error_response(status, code, message), code))
+    };
     if let Some(host) = request.header("host")
-        && !host_is_local(host, local.port())
+        && !host_is_local(host, local)
     {
-        return Some(error_response(
+        return refuse(
             403,
             "host_not_allowed",
             "this API answers only to its own loopback address",
-        ));
+        );
     }
-    if let Some(origin) = request.header("origin")
-        && !options.allowed_origins.iter().any(|a| a == origin)
-    {
-        return Some(error_response(
-            403,
-            "origin_not_allowed",
-            "web pages may not call this API",
-        ));
+    match request.header("origin") {
+        Some(origin) if options.allowed_origins.iter().any(|a| a == origin) => {}
+        Some(_) => return refuse(403, "origin_not_allowed", "web pages may not call this API"),
+        // A web page's subresource requests (an image, a frame) carry no Origin but do carry Fetch Metadata saying where they come
+        // from. QML's XMLHttpRequest and curl send none; typing the address into a browser is `none`. Anything else is a page
+        // reaching for the API, which could at best occupy its connections (a long poll holds one for 30 s).
+        None if request
+            .header("sec-fetch-site")
+            .is_some_and(|v| v != "none") =>
+        {
+            return refuse(
+                403,
+                "cross_site_not_allowed",
+                "web pages may not call this API",
+            );
+        }
+        None => {}
     }
     match request.method.as_str() {
         "GET" | "OPTIONS" => None,
         "POST" | "PUT" | "DELETE" => {
             if request.header(CLIENT_HEADER).is_none_or(str::is_empty) {
-                return Some(error_response(
+                return refuse(
                     403,
                     "client_header_required",
                     "writes must send the X-Luma-Client header",
-                ));
+                );
             }
             if !request.body.is_empty()
                 && !request
                     .header("content-type")
                     .is_some_and(|t| t.to_ascii_lowercase().starts_with("application/json"))
             {
-                return Some(error_response(
+                return refuse(
                     415,
                     "unsupported_media_type",
                     "send the body as application/json",
-                ));
+                );
             }
             None
         }
-        _ => Some(
+        _ => Some((
             error_response(405, "method_not_allowed", "use GET, POST, PUT or DELETE")
                 .with_header("Allow", "GET, POST, PUT, DELETE"),
-        ),
+            "method_not_allowed",
+        )),
     }
 }
 
-/// Whether a `Host` header names this listener: loopback by number or as `localhost`, with its port.
-fn host_is_local(host: &str, port: u16) -> bool {
+/// Refusals already written to the log: the first of each kind (and who sent it) is a warning, the rest stay quiet so a page
+/// that keeps trying cannot fill the log. Bounded; when it is full it starts again.
+static SEEN_REFUSALS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn note_refusal(code: &str, request: &Request) {
+    let clean = |value: Option<&str>| -> String {
+        value
+            .unwrap_or("-")
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(80)
+            .collect()
+    };
+    let (origin, host) = (
+        clean(request.header("origin")),
+        clean(request.header("host")),
+    );
+    let key = format!("{code} {origin} {host}");
+    let mut seen = SEEN_REFUSALS.lock();
+    if seen.len() >= 32 {
+        seen.clear();
+    }
+    if seen.insert(key) {
+        crate::log_warn!(
+            "http: refused a request ({code}): Origin {origin}, Host {host}, {} {}",
+            clean(Some(&request.method)),
+            clean(Some(&request.path))
+        );
+    }
+}
+
+/// Whether a `Host` header names this listener: `localhost` or the address it is bound to, with its port. (A request for any
+/// other loopback alias cannot reach a socket bound to one address, and an alias would only give a page one more connection pool.)
+fn host_is_local(host: &str, local: SocketAddr) -> bool {
     let (name, given) = match host.strip_prefix('[') {
         Some(rest) => match rest.split_once(']') {
             Some((name, after)) => (format!("[{name}]"), after.strip_prefix(':')),
@@ -375,12 +433,12 @@ fn host_is_local(host: &str, port: u16) -> bool {
         },
     };
     let name = name.to_ascii_lowercase();
-    let loopback = name == "localhost"
-        || name == "[::1]"
-        || name
-            .parse::<std::net::Ipv4Addr>()
-            .is_ok_and(|ip| ip.is_loopback());
-    loopback && given.is_some_and(|p| p.parse::<u16>().is_ok_and(|p| p == port))
+    let bound = match local.ip() {
+        std::net::IpAddr::V4(v4) => v4.to_string(),
+        std::net::IpAddr::V6(v6) => format!("[{v6}]"),
+    };
+    (name == "localhost" || name == bound)
+        && given.is_some_and(|p| p.parse::<u16>().is_ok_and(|p| p == local.port()))
 }
 
 fn reason(status: u16) -> &'static str {
@@ -597,6 +655,10 @@ fn percent_decode(text: &str, plus_is_space: bool) -> Option<String> {
         match bytes[i] {
             b'%' => {
                 let hex = text.get(i + 1..i + 3)?;
+                // `from_str_radix` would take a sign, and `%+a` is not an escape.
+                if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return None;
+                }
                 out.push(u8::from_str_radix(hex, 16).ok()?);
                 i += 3;
             }
@@ -619,28 +681,31 @@ mod tests {
 
     #[test]
     fn hosts_must_name_this_listener() {
-        for ok in [
-            "127.0.0.1:18731",
-            "localhost:18731",
-            "LOCALHOST:18731",
-            "[::1]:18731",
-            "127.0.0.2:18731",
-        ] {
-            assert!(host_is_local(ok, 18731), "{ok}");
+        let v4: SocketAddr = "127.0.0.1:18731".parse().unwrap();
+        for ok in ["127.0.0.1:18731", "localhost:18731", "LOCALHOST:18731"] {
+            assert!(host_is_local(ok, v4), "{ok}");
         }
         for bad in [
             "127.0.0.1",
             "127.0.0.1:80",
+            "127.0.0.2:18731",
+            "[::1]:18731",
             "evil.example:18731",
             "127.0.0.1.evil.example:18731",
+            "localhost.:18731",
             "192.168.1.5:18731",
+            "0.0.0.0:18731",
             "[::1",
             "",
             "127.0.0.1:",
             "127.0.0.1:abc",
         ] {
-            assert!(!host_is_local(bad, 18731), "{bad}");
+            assert!(!host_is_local(bad, v4), "{bad}");
         }
+        let v6: SocketAddr = "[::1]:18731".parse().unwrap();
+        assert!(host_is_local("[::1]:18731", v6));
+        assert!(host_is_local("localhost:18731", v6));
+        assert!(!host_is_local("127.0.0.1:18731", v6));
     }
 
     #[test]
@@ -655,6 +720,8 @@ mod tests {
         assert_eq!(percent_decode("%zz", false), None);
         assert_eq!(percent_decode("%2", false), None);
         assert_eq!(percent_decode("%ff", false), None);
+        assert_eq!(percent_decode("%+a", false), None);
+        assert_eq!(percent_decode("%-1", false), None);
     }
 
     #[test]

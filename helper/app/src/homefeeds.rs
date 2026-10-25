@@ -15,7 +15,7 @@ use crate::ctx::Ctx;
 use crate::screen;
 use crate::timeutil::now_ms;
 use fetch::Fetch;
-use lumatv_feeds::cache::{self, DocCache};
+use lumatv_feeds::cache::{self, DocCache, FUTURE_SKEW_MS};
 use lumatv_feeds::news::{self, NewsConfig, NewsDoc};
 use lumatv_feeds::weather::{self, Units, WeatherConfig, WeatherDoc};
 use lumatv_feeds::{FeedError, REFRESH_MS};
@@ -194,11 +194,14 @@ impl<F: Feed> Lane<F> {
                 crate::log_info!("{}: settings changed; fetching for the new ones", F::NAME);
             }
         }
+        // A document that was just loaded carries the interval it was saved with; one in hand follows a changed interval.
         let interval_changed = self
             .cfg
             .as_ref()
             .is_some_and(|c| c.interval_ms != cfg.interval_ms);
-        if interval_changed && let Some(doc) = self.doc.as_mut() {
+        if (changed || interval_changed)
+            && let Some(doc) = self.doc.as_mut()
+        {
             F::set_interval(doc, cfg.interval_ms);
         }
         self.cfg = Some(cfg);
@@ -214,9 +217,14 @@ impl<F: Feed> Lane<F> {
         if self.failures > 0 {
             return cache::next_attempt_ms(None, self.failures, self.last_attempt);
         }
-        // The cache's rule, on this feed's own interval: due 5 s before the reading is `interval` old.
+        // The cache's rule, on this feed's own interval: due 5 s before the reading is `interval` old. A reading stamped in the
+        // future (the clock was wrong when it was fetched, or is now) has no usable age: it is due at once.
         self.doc.as_ref().map_or(0, |d| {
-            F::fetched_at(d).saturating_add(interval.saturating_sub(5_000))
+            let fetched = F::fetched_at(d);
+            if fetched > now_ms().saturating_add(FUTURE_SKEW_MS) {
+                return 0;
+            }
+            fetched.saturating_add(interval.saturating_sub(5_000))
         })
     }
 

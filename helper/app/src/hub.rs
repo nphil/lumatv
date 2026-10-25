@@ -201,7 +201,7 @@ impl Hub {
         reset |= after > seq;
         // Events between the client's `seq` and the oldest kept one are gone.
         let oldest = inner.ring.front().map_or(seq + 1, |e| e.seq);
-        reset |= after + 1 < oldest;
+        reset |= after.saturating_add(1) < oldest;
         if reset {
             return Batch {
                 seq,
@@ -377,6 +377,7 @@ mod tests {
         assert!(hub.events_after(Some(1), Some(999), None).reset);
         assert!(!hub.events_after(Some(1), Some(1000), None).reset);
         assert!(hub.events_after(Some(50), None, None).reset);
+        assert!(hub.events_after(Some(u64::MAX), None, None).reset);
         // Without `after` the call only reports the seq (and a boot mismatch).
         let first = hub.events_after(None, None, None);
         assert_eq!((first.seq, first.reset, first.events.len()), (1, false, 0));

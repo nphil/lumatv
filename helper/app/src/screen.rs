@@ -12,6 +12,10 @@
 //!    output on a pipe would), is dropped for the poll below, and tried again after ten minutes.
 //! 2. a poll: `luna-send -n 1 ... {}` every `screen.pollMs`, the call the mod's tool already makes.
 //!
+//! This watcher is the only part of the helper that runs while the TV sleeps: its subscription child blocks without a cost,
+//! and it wakes once a minute for the cross-check (one `luna-send`) and, after a fallback to the poll, retries the
+//! subscription every ten minutes (a child that lives at most four seconds). The poll costs one `luna-send` per `pollMs`.
+//!
 //! If neither produces a reading the screen is *assumed on* and the topic says so (`source: "assumed"`, with the error):
 //! a broken detector must not switch off the receiver and the Home cards.
 //!
@@ -114,18 +118,26 @@ fn read_once(program: &str) -> Result<String, String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("could not run {program}: {e}"))?;
-    let mut out = child.stdout.take().ok_or("no output pipe")?;
+    let Some(mut out) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("no output pipe".to_owned());
+    };
     // The reader thread ends when the child closes its output (exits or is killed below).
     let (tx, rx) = mpsc::channel();
-    thread::Builder::new()
+    let spawned = thread::Builder::new()
         .name("screen-read".to_owned())
         .stack_size(128 * 1024)
         .spawn(move || {
             let mut text = String::new();
             let _ = out.by_ref().take(64 * 1024).read_to_string(&mut text);
             let _ = tx.send(text);
-        })
-        .map_err(|e| format!("could not start a reader: {e}"))?;
+        });
+    if let Err(e) = spawned {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("could not start a reader: {e}"));
+    }
     let text = match rx.recv_timeout(ONE_SHOT_DEADLINE) {
         Ok(text) => text,
         Err(_) => {

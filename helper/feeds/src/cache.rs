@@ -18,9 +18,9 @@ use crate::{EXPIRE_MS, REFRESH_MS, RETRY_MS, SCHEMA};
 /// The largest document file that is read; real ones are a few KiB, so a bigger file is damaged or foreign.
 const MAX_DOC_BYTES: u64 = 1024 * 1024;
 
-/// How far a document's `fetched_at` may lie ahead of the clock before it is distrusted: the clock was wrong (an unset RTC)
-/// when the file was written.
-const FUTURE_SKEW_MS: u64 = 300_000;
+/// How far a document's `fetched_at` may lie ahead of the clock before its age cannot be trusted: the clock was wrong (an unset
+/// RTC at boot) when the file was written or is wrong now.
+pub const FUTURE_SKEW_MS: u64 = 300_000;
 
 /// QML shows Home again and refetches when a reading is within this much of the refresh interval.
 const REFETCH_EARLY_MS: u64 = 5_000;
@@ -30,18 +30,20 @@ const REFETCH_EARLY_MS: u64 = 5_000;
 pub enum Freshness {
     /// Younger than [`REFRESH_MS`].
     Fresh,
-    /// Older than [`REFRESH_MS`] but younger than [`EXPIRE_MS`]: shown while a refetch runs.
+    /// Older than [`REFRESH_MS`] but younger than [`EXPIRE_MS`], or stamped more than 5 minutes in the future (a clock that
+    /// is wrong at one end: the reading is shown, as stale, and fetched again at once rather than dropped, since the cold
+    /// start that needs it most may be the one whose clock is not yet set).
     Stale,
-    /// Never shown: older than [`EXPIRE_MS`], or stamped more than 5 minutes in the future.
+    /// Never shown: older than [`EXPIRE_MS`].
     Expired,
 }
 
 /// The freshness of a reading fetched at `fetched_at`, at `now_ms`. A stamp up to 5 minutes ahead counts as age 0
-/// (ordinary clock skew); further ahead it is expired.
+/// (ordinary clock skew); further ahead it is stale.
 pub fn freshness(fetched_at: u64, now_ms: u64) -> Freshness {
     let age = match now_ms.checked_sub(fetched_at) {
         Some(age) => age,
-        None if fetched_at - now_ms > FUTURE_SKEW_MS => return Freshness::Expired,
+        None if fetched_at - now_ms > FUTURE_SKEW_MS => return Freshness::Stale,
         None => 0,
     };
     if age < REFRESH_MS {

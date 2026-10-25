@@ -51,17 +51,25 @@ fn program_version(program: &str) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let mut out = child.stdout.take()?;
+    let Some(mut out) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
     let (tx, rx) = mpsc::channel();
-    thread::Builder::new()
+    let spawned = thread::Builder::new()
         .name("fetch-probe".to_owned())
         .stack_size(128 * 1024)
         .spawn(move || {
             let mut text = String::new();
             let _ = out.by_ref().take(4096).read_to_string(&mut text);
             let _ = tx.send(text);
-        })
-        .ok()?;
+        });
+    if spawned.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
     match rx.recv_timeout(Duration::from_secs(2)) {
         Ok(text) => {
             let _ = child.wait();
@@ -253,7 +261,8 @@ fn stop(child: &mut Child) {
 impl Fetch for CurlFetch {
     fn get(&self, url: &str, limits: FetchLimits) -> Result<Vec<u8>, FetchError> {
         check_url(url)?;
-        let deadline = Instant::now() + limits.total;
+        let started = Instant::now();
+        let deadline = started + limits.total;
         let mut command = Command::new(&self.program);
         command
             .args([
@@ -314,7 +323,14 @@ impl Fetch for CurlFetch {
                     stop(&mut child);
                     return Err(FetchError::Timeout);
                 }
-                Ok(None) => thread::sleep(Duration::from_millis(5)),
+                // A short nap while a quick answer is likely, a longer one after: no spin for the length of a slow request.
+                Ok(None) => thread::sleep(Duration::from_millis(
+                    if started.elapsed() < Duration::from_millis(300) {
+                        5
+                    } else {
+                        50
+                    },
+                )),
                 Err(e) => {
                     stop(&mut child);
                     return Err(FetchError::Failed(format!("could not wait for curl: {e}")));

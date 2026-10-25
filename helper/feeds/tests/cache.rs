@@ -36,8 +36,8 @@ fn freshness_with_clock_skew() {
     assert_eq!(freshness(T0 + 1, T0), Freshness::Fresh);
     assert_eq!(freshness(T0 + 300_000, T0), Freshness::Fresh);
     // further ahead: the clock was wrong when it was written
-    assert_eq!(freshness(T0 + 300_001, T0), Freshness::Expired);
-    assert_eq!(freshness(u64::MAX, 0), Freshness::Expired);
+    assert_eq!(freshness(T0 + 300_001, T0), Freshness::Stale);
+    assert_eq!(freshness(u64::MAX, 0), Freshness::Stale);
     assert_eq!(freshness(0, 0), Freshness::Fresh);
 }
 
@@ -218,7 +218,7 @@ fn stale_is_returned_and_expired_is_not() {
 }
 
 #[test]
-fn future_dated_beyond_five_minutes_is_ignored() {
+fn future_dated_beyond_five_minutes_is_kept_as_stale_not_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let cache = DocCache::new(dir.path());
     let cfg = NewsConfig::standard();
@@ -226,10 +226,13 @@ fn future_dated_beyond_five_minutes_is_ignored() {
     cache.store_news(&news_doc(T0 + 300_000)).unwrap();
     assert!(cache.load_weather(&atlanta(), T0).is_some());
     assert!(cache.load_news(&cfg, T0).is_some());
+    // A clock that is behind at start must not make the saved readings vanish: they load, and are stale.
     cache.store_weather(&weather_doc(T0 + 300_001)).unwrap();
     cache.store_news(&news_doc(T0 + 300_001)).unwrap();
-    assert_eq!(cache.load_weather(&atlanta(), T0), None);
-    assert_eq!(cache.load_news(&cfg, T0), None);
+    assert!(cache.load_weather(&atlanta(), T0).is_some());
+    assert!(cache.load_news(&cfg, T0).is_some());
+    // An unset clock (1970) against a reading from 2026 is the extreme case of the same thing.
+    assert!(cache.load_weather(&atlanta(), 0).is_some());
 }
 
 #[test]

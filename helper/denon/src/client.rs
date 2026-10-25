@@ -3,7 +3,8 @@
 use crate::status::{ParseError, Status, parse_status_lite};
 use std::fmt;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The Lite status the receiver serves on its web port.
@@ -71,6 +72,9 @@ pub struct Client {
     port: u16,
     connect_timeout: Duration,
     total_timeout: Duration,
+    /// Where a host *name* resolved to: it is looked up once, not on every read (the resolver has no deadline of its own), and
+    /// again after a connection fails. An address given as numbers is never looked up.
+    resolved: Arc<Mutex<Option<SocketAddr>>>,
 }
 
 impl Client {
@@ -81,7 +85,27 @@ impl Client {
             port,
             connect_timeout: Duration::from_millis(1500),
             total_timeout: Duration::from_secs(3),
+            resolved: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// The address to connect to: numbers as given, a name as resolved before, else resolved now (IPv4 first).
+    fn address(&self) -> Result<SocketAddr, ClientError> {
+        if let Ok(ip) = self.host.parse::<IpAddr>() {
+            return Ok(SocketAddr::new(ip, self.port));
+        }
+        if let Some(addr) = self.resolved.lock().ok().and_then(|slot| *slot) {
+            return Ok(addr);
+        }
+        let addr = (self.host.as_str(), self.port)
+            .to_socket_addrs()
+            .map_err(|e| ClientError::Unreachable(short(&e)))?
+            .min_by_key(|a| !a.is_ipv4())
+            .ok_or_else(|| ClientError::Unreachable("no address".to_owned()))?;
+        if let Ok(mut slot) = self.resolved.lock() {
+            *slot = Some(addr);
+        }
+        Ok(addr)
     }
 
     /// Sets the connect timeout and the deadline of the whole request (connect included).
@@ -111,20 +135,21 @@ impl Client {
     /// The body of `GET path`, at most [`MAX_REPLY`] bytes, within the total deadline.
     fn get(&self, path: &str) -> Result<Vec<u8>, ClientError> {
         let deadline = Instant::now() + self.total_timeout;
-        let addr = (self.host.as_str(), self.port)
-            .to_socket_addrs()
-            .map_err(|e| ClientError::Unreachable(short(&e)))?
-            .min_by_key(|a| !a.is_ipv4())
-            .ok_or_else(|| ClientError::Unreachable("no address".to_owned()))?;
+        let addr = self.address()?;
         let connect = self
             .connect_timeout
             .min(deadline.saturating_duration_since(Instant::now()))
             .max(Duration::from_millis(1));
-        let mut stream =
-            TcpStream::connect_timeout(&addr, connect).map_err(|e| match e.kind() {
+        let mut stream = TcpStream::connect_timeout(&addr, connect).map_err(|e| {
+            // The name may now mean another address: look it up again next time.
+            if let Ok(mut slot) = self.resolved.lock() {
+                *slot = None;
+            }
+            match e.kind() {
                 ErrorKind::TimedOut | ErrorKind::WouldBlock => ClientError::Timeout,
                 _ => ClientError::Unreachable(short(&e)),
-            })?;
+            }
+        })?;
         let _ = stream.set_nodelay(true);
         // HTTP/1.0 with a close: the receiver's server is HTTP/1.0 and ends the body by closing, so a 1.0 request can never be
         // answered with chunked framing.

@@ -164,3 +164,46 @@ fn a_closed_port_is_unreachable() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn a_host_name_is_resolved_once_and_read_again_after_a_failure() {
+    let mut reply = RECEIVER_HEAD.as_bytes().to_vec();
+    reply.extend_from_slice(STATUS_ON_THE_SET.as_bytes());
+    let (port, request) = serve_once(reply.clone());
+    let named = Client::new("localhost", port)
+        .with_timeouts(Duration::from_millis(500), Duration::from_secs(2));
+    assert_eq!(named.status().unwrap().power, Power::On);
+    assert!(
+        request
+            .join()
+            .unwrap()
+            .contains(&format!("Host: localhost:{port}"))
+    );
+    // The server is gone: the failure is reported as unreachable, and the next read looks the name up again.
+    assert!(matches!(
+        named.status(),
+        Err(ClientError::Unreachable(_) | ClientError::Timeout)
+    ));
+    let listener = TcpListener::bind(("127.0.0.1", port));
+    if let Ok(listener) = listener {
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 512];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(&reply);
+        });
+        assert_eq!(named.status().unwrap().power, Power::On);
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn a_name_that_does_not_resolve_is_unreachable() {
+    let result = Client::new("no-such-host.invalid", 8080)
+        .with_timeouts(Duration::from_millis(300), Duration::from_secs(1))
+        .status();
+    assert!(
+        matches!(result, Err(ClientError::Unreachable(_))),
+        "{result:?}"
+    );
+}

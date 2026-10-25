@@ -192,8 +192,9 @@ pub enum Forked {
 /// started the helper, and a captured stdout must reach end of file when the starter exits). Call before any thread exists.
 pub fn fork_detached() -> io::Result<Forked> {
     let mut fds: [RawFd; 2] = [0; 2];
-    // SAFETY: `fds` has room for the two descriptors `pipe` writes.
-    check(unsafe { libc::pipe(fds.as_mut_ptr()) })?;
+    // SAFETY: `fds` has room for the two descriptors `pipe2` writes. Close-on-exec: the child keeps the write end for its report,
+    // and no program it starts may inherit it.
+    check(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) })?;
     // SAFETY: `fork` in a process with one thread; the child only calls async-signal-safe functions until it returns to Rust code
     // that does not depend on other threads (there are none).
     let pid = unsafe { libc::fork() };

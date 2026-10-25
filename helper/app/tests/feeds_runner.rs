@@ -340,3 +340,48 @@ fn the_news_source_setting_switches_the_feeds_and_the_interval_moves_the_stale_t
         .expect("a 60-minute interval");
     assert_eq!(slower["state"], "fresh");
 }
+
+#[test]
+fn a_reading_from_a_clock_that_was_ahead_is_shown_as_stale_and_fetched_again_at_once() {
+    let script = Script::internet();
+    let now = now_ms();
+    // Saved with a clock that was an hour fast: in the future now. It must not vanish, and it must not be trusted as fresh.
+    let (rig, luna) = rig("Active Standby", &script, |rig| {
+        let cache = DocCache::new(rig.paths.cache_dir());
+        cache.store_weather(&weather_doc(now + HOUR)).unwrap();
+    });
+    let shown = rig.wait_topic("weather", WAIT, has_doc).expect("shown");
+    assert_eq!(shown["state"], "stale");
+    assert_eq!(shown["doc"]["place"], "Atlanta");
+    thread::sleep(Duration::from_millis(150));
+    assert!(script.requests().is_empty(), "fetched with the screen off");
+    luna.set_state("Active");
+    let fresh = rig
+        .wait_topic("weather", WAIT, |v| v["state"] == "fresh")
+        .expect("fetched when the screen came on");
+    assert!(fresh["doc"]["fetchedAt"].as_u64().unwrap() < now + HOUR);
+}
+
+#[test]
+fn a_saved_news_document_follows_the_configured_interval_from_the_first_look() {
+    let script = Script::new();
+    let now = now_ms();
+    let (rig, _luna) = rig("Active Standby", &script, |rig| {
+        let cache = DocCache::new(rig.paths.cache_dir());
+        cache.store_news(&news_doc(now - MINUTE)).unwrap();
+        seed_settings(
+            &rig.paths,
+            "base.news",
+            json!({"refresh_minutes": {"type": "integer", "value": 60}}),
+        );
+    });
+    let news = rig
+        .wait_topic("news", WAIT, has_doc)
+        .expect("the saved news");
+    let doc = &news["doc"];
+    assert_eq!(
+        doc["staleAt"].as_u64().unwrap() - doc["fetchedAt"].as_u64().unwrap(),
+        60 * MINUTE
+    );
+    assert_eq!(news["state"], "fresh");
+}

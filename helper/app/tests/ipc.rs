@@ -116,6 +116,9 @@ fn a_rebound_name_cannot_reach_the_api() {
         &format!("evil.example:{}", rig.addr.port()),
         "127.0.0.1",
         "127.0.0.1:1",
+        &format!("127.0.0.2:{}", rig.addr.port()),
+        &format!("[::1]:{}", rig.addr.port()),
+        &format!("0.0.0.0:{}", rig.addr.port()),
     ] {
         let request = format!("GET /v1/state HTTP/1.1\r\nHost: {host}\r\n\r\n");
         let r = raw(rig.addr, request.as_bytes());
@@ -479,4 +482,38 @@ fn an_allowed_origin_is_answered_with_its_cors_headers_and_others_still_refused(
         403
     );
     server.stop(Duration::from_secs(2));
+}
+
+#[test]
+fn a_pages_subresource_request_is_refused_by_its_fetch_metadata() {
+    let rig = quiet_rig();
+    // An <img> or <iframe> on a web page carries no Origin but says where it comes from; it could only hold connections.
+    for site in ["cross-site", "same-site", "same-origin"] {
+        let r = http(
+            rig.addr,
+            "GET",
+            "/v1/events?after=0&timeout=30",
+            &[("Sec-Fetch-Site", site)],
+            None,
+        );
+        assert_eq!(r.status, 403, "{site}");
+        assert_eq!(
+            r.json()["error"]["code"],
+            "cross_site_not_allowed",
+            "{site}"
+        );
+    }
+    // Typing the address into a browser is `none`; QML and curl send no such header.
+    assert_eq!(
+        http(
+            rig.addr,
+            "GET",
+            "/v1/health",
+            &[("Sec-Fetch-Site", "none")],
+            None
+        )
+        .status,
+        200
+    );
+    assert_eq!(get(rig.addr, "/v1/health").status, 200);
 }
