@@ -1,13 +1,14 @@
 import QtQuick 2.4
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
+import "kit"
 
 // Status bar: a 60px glass pill (padding 0 10 0 6, 6px between buttons) with items built from
 // layout.statusBar.left/right through a small type registry. Unknown types render a generic
-// glyph so a bad layout entry never breaks the bar. "profile" and "notifications" open a
-// glass popover under their button (rows navigable with Up/Down, OK activates, Back closes);
-// "settings" opens LumaTV's Settings and "search" its own search (Home opens both, `requestOpenSettings`,
-// `requestSearch`). Profile data comes from the LG account
+// glyph so a bad layout entry never breaks the bar. "profile" and "settings" open a glass popover under their
+// button (rows navigable with Up/Down, OK activates, Back closes); "notifications" opens the Notification Centre
+// and "search" LumaTV's own search (Home opens both: `requestNotifications`, `requestSearch`); the bell's badge is
+// the log's unread count (NoteLog). Profile data comes from the LG account
 // (accountmanager/getLoginUserData with serviceName LGE): nickname, initial, avatar colour.
 Item {
     id: bar
@@ -36,11 +37,13 @@ Item {
     signal themePersist(var patch)
     signal requestOpenSettings()
     signal requestSearch()
+    signal requestNotifications()
 
     function activate(index) {
         var type = items[index] ? items[index].type : ""
-        if (type === "notifications" || type === "profile" || type === "settings") { bar.requestOpenPopover(index); return }
-        if (type === "search") bar.requestSearch()
+        if (type === "profile" || type === "settings") { bar.requestOpenPopover(index); return }
+        if (type === "notifications") bar.requestNotifications()
+        else if (type === "search") bar.requestSearch()
     }
 
     function itemAt(index) {
@@ -72,7 +75,7 @@ Item {
                 label: modelData.type === "profile" ? bar.profileName : ""
                 initial: bar.profileInitial
                 avatarColor: bar.profileColor
-                badge: modelData.type === "notifications" ? notifSvc.badgeCount : 0
+                badge: modelData.type === "notifications" ? NoteLog.unread : 0
                 mat: bar.mat
                 isLight: bar.isLight
                 iconSource: modelData.icon ? modelData.icon : ""
@@ -99,7 +102,7 @@ Item {
                 label: modelData.type === "profile" ? bar.profileName : ""
                 initial: bar.profileInitial
                 avatarColor: bar.profileColor
-                badge: modelData.type === "notifications" ? notifSvc.badgeCount : 0
+                badge: modelData.type === "notifications" ? NoteLog.unread : 0
                 mat: bar.mat
                 isLight: bar.isLight
                 iconSource: modelData.icon ? modelData.icon : ""
@@ -137,22 +140,6 @@ Item {
             } catch (e) {}
         }
         Component.onCompleted: call("luna://com.webos.service.accountmanager", "/getLoginUserData", JSON.stringify({ serviceName: "LGE", subscribe: true }))
-    }
-
-    // Toasts are subscribe-only on this firmware (no backlog), so the badge counts what has
-    // arrived since Home was drawn.
-    Service {
-        id: notifSvc
-        appId: LS.appId
-        property var recent: []
-        property int badgeCount: recent.length
-        onResponse: {
-            try {
-                var msg = JSON.parse(payload)
-                if (msg && msg.message) recent = [{ text: msg.message, sourceId: msg.sourceId || "" }].concat(recent).slice(0, 5)
-            } catch (e) {}
-        }
-        Component.onCompleted: call("luna://com.webos.notification", "/getToastNotification", JSON.stringify({ subscribe: true }))
     }
 
     // ---- popover: one glass panel under the focused button; content per item type ----
@@ -249,7 +236,7 @@ Item {
             id: content
             x: 20; y: 20
             width: parent.width - 40
-            height: bar.popoverType === "profile" ? profileBody.height : bar.popoverType === "settings" ? settingsBody.height : notifBody.height
+            height: bar.popoverType === "profile" ? profileBody.height : settingsBody.height
 
             // -- settings: value rows; Left/Right adjust, the change shows on Home behind at once
             Item {
@@ -379,38 +366,6 @@ Item {
                             onEntered: bar.popoverIndex = index
                             onClicked: { bar.popoverIndex = index; bar.popoverActivate() }
                         }
-                    }
-                }
-            }
-
-            // -- notifications
-            Column {
-                id: notifBody
-                visible: bar.popoverType === "notifications"
-                width: parent.width
-                spacing: 12
-                Text {
-                    text: "Notifications"
-                    color: bar.mat.ink
-                    font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 22
-                    renderType: Text.NativeRendering
-                }
-                Text {
-                    visible: notifSvc.recent.length === 0
-                    text: "No notifications"
-                    color: bar.mat.ink2
-                    font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
-                    renderType: Text.NativeRendering
-                }
-                Repeater {
-                    model: notifSvc.recent
-                    delegate: Text {
-                        width: notifBody.width
-                        text: modelData.text
-                        color: bar.mat.ink
-                        wrapMode: Text.WordWrap
-                        font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
-                        renderType: Text.NativeRendering
                     }
                 }
             }

@@ -725,10 +725,19 @@ Item {
             if (layers.open === "apps") layers.hold(); else root.openTileMenu()
         }
     }
+    property int saverEaten: 0              // the key whose press the screensaver took: its release is taken too
     function key(k, pressed, autoRepeat, deviceId) {
         // The volume keys are only watched: the receiver's OSD asks the helper for a fresh reading, and LG's chain
         // still gets the key. Nothing else here depends on them.
         if (pressed && !autoRepeat && (k === Qt.Key_VolumeUp || k === Qt.Key_VolumeDown || k === Qt.Key_VolumeMute)) { layers.volumeKey(); return false }
+        // The screensaver is up: any other key wakes the TV and does nothing else, so the key that wakes it never acts on Home;
+        // the release goes with it (an OK release alone would open whatever is focused). The AI prompt is the exception: it is
+        // drawn over the saver and only the physical remote answers it.
+        if (hostActive && !aiPrompt.up && (layers.saverUp || (!pressed && saverEaten === k))) {
+            if (pressed) { if (!autoRepeat) { saverEaten = k; layers.saverKey() } }
+            else if (saverEaten === k) saverEaten = 0
+            return true
+        }
         // The Menu key: the options of the app under the focus (docs/mocks/16-context-menu: "hold OK or the Menu key on a dock
         // tile", and on a library icon); anywhere else LumaTV's own quick panel when the owner has turned it on (theme
         // `quickPanel.own`), else the library, which is where LG's "Home with My Apps" (this same key) goes.
@@ -856,7 +865,7 @@ Item {
         }
         return best
     }
-    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.beat(); loadAll(); readMode(); Helper.start() }
+    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.beat(); loadAll(); readMode(); Helper.start(); NoteLog.seenAt = Date.now() }       // the log's own toast subscription starts when it is first read
     Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
@@ -891,6 +900,7 @@ Item {
         onThemePersist: root.persistTheme(patch)
         onRequestOpenSettings: root.openSettings()
         onRequestSearch: root.openSearch()
+        onRequestNotifications: root.openLayer("drawer")
         onHoverFocus: { root.statusFocusIndex = index; if (root.focusLayer !== "popover") root.focusLayer = "statusbar" }
     }
 

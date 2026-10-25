@@ -3,11 +3,11 @@ import WebOSServices 1.0
 import "kit"
 
 // The surfaces Home keeps built: Settings, the kit gallery, the input picker, the quick panel, the volume OSD, the
-// small panels (menu, confirm, remote, splash) and the library, search, voice bar and banner. LumaHome owns when each
-// is shown (`open`, its key dispatch and the focus it gives back); this file owns that each exists before it is asked
-// for. After Home has presented, each is built in the background, one after the other, so that showing one is a `visible`
-// flip on a tree that is already laid out, and the startup warm-up (Warmup.qml) starts only when they are all built, so it
-// finds their text styles in Home's item tree.
+// small panels (menu, confirm, remote, splash), the library, search, voice bar and banner, the notification drawer and the
+// screensaver. LumaHome owns when each is shown (`open`, its key dispatch and the focus it gives back); this file owns that
+// each exists before it is asked for. After Home has presented, each is built in the background, one after the other, so
+// that showing one is a `visible` flip on a tree that is already laid out, and the startup warm-up (Warmup.qml) starts only
+// when they are all built, so it finds their text styles in Home's item tree.
 //
 // A surface here is an Item with `key(dir)` (up, down, left, right, ok, back; returns nothing, it owns the keys
 // while it is shown), `built` when it builds parts of itself, and signals the host connects to below. It never
@@ -24,7 +24,7 @@ Item {
     property string open: ""                            // the modal surface that owns the keys ("" none)
     property var below: []                              // the modal surfaces under it, drawn and without keys
     property int buildStep: -1                          // -1: waiting for Home to present
-    readonly property int steps: 12                     // surfaces in the build chain
+    readonly property int steps: 14                     // surfaces in the build chain
     readonly property bool built: buildStep >= steps
     signal closeRequested(string id)
     signal openSettingsPage(string id)
@@ -48,7 +48,8 @@ Item {
     function find(id) {
         return id === "settings" ? settingsRes : id === "gallery" ? galleryRes : id === "picker" ? pickerRes : id === "quick" ? quickRes
              : id === "menu" ? menuRes : id === "confirm" ? confirmRes : id === "remote" ? remoteRes
-             : id === "apps" ? appsRes : id === "search" ? searchRes : id === "voice" ? voiceRes : id === "banner" ? bannerRes : null
+             : id === "apps" ? appsRes : id === "search" ? searchRes : id === "voice" ? voiceRes : id === "banner" ? bannerRes
+             : id === "drawer" ? drawerRes : null
     }
     function key(dir) {
         var r = find(open)
@@ -72,7 +73,7 @@ Item {
     function pickerNext() { if (pickerRes.item) pickerRes.item.next() }
     // A volume key was pressed: the OSD asks the helper for a fresh reading and shows the pill.
     function volumeKey() { if (osdRes.item) osdRes.item.nudge() }
-    onOpenChanged: { if (open === "picker" && pickerRes.item) pickerRes.item.open({}) }
+    onOpenChanged: { if (open === "picker" && pickerRes.item) pickerRes.item.open({}); else if (open === "drawer" && drawerRes.item) drawerRes.item.open() }
 
     // What the host asks of the small panels. They are built, so each is a call on an item that is already there.
     function openMenu(spec) { if (menuRes.item) menuRes.item.open(spec) }
@@ -322,6 +323,42 @@ Item {
         onPicked: layers.bannerPicked(id)
         onCloseRequested: layers.closeRequested("banner")
     }
+
+    // ---- the notification drawer (step 12): down the right side, from the bell on the status bar. It marks what it shows as seen
+    // when it opens, and it owns its keys (Back asks to close).
+    Resident {
+        id: drawerRes
+        name: "drawer"
+        step: 12
+        source: "panels/Drawer.qml"
+        anchors.fill: parent
+        z: 67
+        build: layers.buildStep >= step
+        shown: layers.up("drawer")
+        onDone: layers.advance(step)
+    }
+    Connections {
+        target: drawerRes.item
+        ignoreUnknownSignals: true
+        onCloseRequested: layers.closeRequested("drawer")
+    }
+
+    // ---- the screensaver and art mode (step 13): over everything here, under the AI prompt (Home's own, a level above this item),
+    // while the TV's power state is Screen Saver. It is not a surface Home opens, so it has no name in find(); Home hands it the
+    // key that wakes the TV (saverKey) and the key does nothing else.
+    Resident {
+        id: saverRes
+        name: "saver"
+        step: 13
+        source: "panels/Screensaver.qml"
+        anchors.fill: parent
+        z: 95
+        build: layers.buildStep >= step
+        shown: layers.hostActive && !!item && item.active
+        onDone: layers.advance(step)
+    }
+    readonly property bool saverUp: saverRes.visible
+    function saverKey() { if (saverRes.item) saverRes.item.key("") }
 
     // ---- the kit gallery (development): built the first time the flag asks for it, then kept
     Resident {

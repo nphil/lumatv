@@ -54,7 +54,8 @@ class Shell(HostCase):
             self.assertEqual(stray, [], out[-2000:])
             self.assertIn(warns, out)
         else:
-            self.assertEqual(rc, 0, out[-2000:])
+            stray = [ln for ln in out.splitlines() if ln.startswith("[warning]") and "Implicitly defined onFoo" not in ln]
+            self.assertEqual(rc, 0, "\n".join(stray) + "\n" + out[-1500:])
         got = {}
         for v in self.values(out):
             m = re.match(r"^([a-z0-9_]+)=(.*)$", v, re.S)
@@ -143,6 +144,31 @@ class Shell(HostCase):
         launch = calls("/launch")(got["calls"])[-1]
         self.assertEqual(launch["id"], "com.webos.app.browser")
         self.assertEqual(launch["params"]["target"], "https://duckduckgo.com/?q=x")
+
+    def test_the_bell_opens_the_drawer_back_closes_it_and_the_bar_keeps_the_focus(self):
+        bell = ("(function(){ var i = root.statusItems.map(function(s) { return s.type }).indexOf('notifications'); "
+                "root.focusLayer = 'statusbar'; root.statusFocusIndex = i; return i })()")
+        drawer = probe("sheetWidth", "{ visible: s.visible, width: s.sheetWidth }")
+        got = self.run_host([(-300, "eval", bell, "bell"), (0, "keys", "ok"), (900, "eval", STATE, "opened"), (900, "eval", drawer, "drawer"),
+                             (1000, "keys", "down"), (1500, "keys", "back"), (2400, "eval", STATE, "closed"), (2400, "eval", drawer, "after")], 2900)
+        self.assertGreaterEqual(int(got["bell"]), 0, "the bar has no bell")
+        self.assertEqual(got["opened"], "drawer/statusbar/0/0/", "OK on the bell did not open the drawer")
+        self.assertEqual(json.loads(got["drawer"]), {"visible": True, "width": 640})
+        self.assertEqual(got["closed"], "/statusbar/0/0/", "Back from the drawer must leave the focus on the bell")
+        self.assertFalse(json.loads(got["after"])["visible"])
+
+    def test_the_screensaver_takes_every_key_and_wakes_the_tv_and_gives_the_keys_back_when_it_is_gone(self):
+        def saver(on):
+            return "(function(){ " + FIND + "var s = find(root, 'moveEveryMs', true); s.forced = %s; return s.active })()" % on
+        up = "(function(){ " + FIND + "return find(root, 'saverUp', false).saverUp })()"
+        got = self.run_host([(-300, "eval", saver("true"), "forced"), (0, "keys", "right ok"), (900, "eval", STATE, "taken"), (900, "eval", up, "up"), (900, "eval", CALLS, "calls"),
+                             (1000, "eval", saver("false"), "gone"), (1100, "eval", up, "down"), (1200, "keys", "right"), (2000, "eval", STATE, "back")], 2500)
+        self.assertEqual(got["forced"], "true")
+        self.assertEqual(got["up"], "true")
+        self.assertEqual(got["taken"], "/dock/0/0/", "a key reached Home while the screensaver was up")
+        self.assertEqual(len(calls("/power/turnOnScreen")(got["calls"])), 2, "each key press asks the TV to turn the screen on")
+        self.assertEqual(got["down"], "false")
+        self.assertEqual(got["back"], "/dock/0/1/", "the keys did not come back to Home")
 
     def test_voice_listens_offers_what_is_on_the_set_and_a_command_that_names_an_app_acts(self):
         voice = probe("micOpen", "{ state: s.state, options: s.options.map(function(o) { return o.id }), mic: s.micOpen }")

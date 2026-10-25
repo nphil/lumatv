@@ -30,16 +30,19 @@ Loader {
     onShownChanged: if (shown) wanted = true
     Component.onCompleted: if (build || shown) wanted = true
 
+    // `done()` goes out on the next turn of the event loop, not inside the call that built the surface: with a synchronous build
+    // (the offline host) that call is the host's own `build` binding, and the host moving its step on from inside it is a binding loop.
+    function finish() { Qt.callLater(function() { res.done() }) }
     function check() {
         if (announced || status !== Loader.Ready || !item) return
         if (item.built === false) return
         announced = true
         console.info("[Resident] " + name + " built")
-        done()
+        finish()
     }
     onStatusChanged: {
         if (status === Loader.Ready) check()
-        else if (status === Loader.Error && !announced) { announced = true; console.warn("[Resident] " + name + " did not load: " + source); done() }
+        else if (status === Loader.Error && !announced) { announced = true; console.warn("[Resident] " + name + " did not load: " + source); finish() }
     }
     Connections {
         target: res.item
