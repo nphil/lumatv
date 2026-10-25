@@ -241,3 +241,9 @@ link `52-declutter` from the dev copy to the app's copy (`persist_disable` and
 `/var/lib/lumatv/declutter`). (4) A pass-through verb `lumatv declutter
 on ads|on lean|off|status|list|measure|verify`. Until the ipk carries it, the
 set runs the tool from `/var/lib/lumatv/dc-dev/`.
+
+## Set check 2026-10-25 05:20-06:10 (main agent)
+
+- LG's app store showed "Service is temporarily unavailable" with lean on. Bisected on the set by group, then by item: stubbing `/usr/sbin/sdx` (push group) breaks the store; with every other lean item on and `sdx` kept, the store loads its catalogue. `sdx` moved to kept in `items.txt`.
+- Netflix playback failed twice (tvq-pb-101, "audio codec not supported" on audio-app-es) in an instance of Netflix that had stayed preloaded through the runtime group changes. After the Netflix process was ended and started fresh, Meridian played (Dolby Vision, 59.94 Hz) with lean on. Cause: the warm Netflix instance outlived services it had bound at start; a reboot or a fresh Netflix start clears it. `declutter.sh on/off` at runtime should end preloaded media apps afterwards (open item).
+- The `system.control` masks (62a65e1) are deployed: `nudge.service` LoadState=masked.

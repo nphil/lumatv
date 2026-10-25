@@ -28,7 +28,9 @@ unit|push|com.webos.service.pushclient.service||AWS IoT MQTT push channel (port 
 unit|push|nudge.service||nudge engine
 unit|push|user-context-manager.service||feeds nudge; only nudge requires it
 unit|push|iot-client.service||already failed at boot (exit 127); masked so it stays down
-luna|push|/usr/sbin/sdx|stub|server config and app-list authentication (nextlgsdp.com); sdx_auth gates the app sync
+# Kept: stubbing sdx left LG's app store on "Service is temporarily unavailable" (set, 2026-10-25),
+# and the store is needed to update installed apps.
+#luna|push|/usr/sbin/sdx|stub|server config and app-list authentication (nextlgsdp.com); sdx_auth gates the app sync
 luna|push|/usr/sbin/sdp-server-notice|stub|server notice client
 
 setting|settings|option.livePlus|"off"|Live Plus content recognition
