@@ -9,126 +9,66 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 06:05 EDT, code at `a2c4a12`): C2 passed; the first C3
-window and the C4 dry run ran on the set (02:37-02:42) and their findings
-are fixed offline; the re-run, the probe, the trial and the gate wait for
-a TV slot (asked of the main agent: 07:00-07:45 if the set's Netflix
-playback is repaired by then, else the next day). Everything builds (`sh
-compositor/tools/build-tv.sh`, bundle of 05:59) and tests on the host
-(`cd compositor && cargo test`: 73 unit, 20 protocol, 1 bridge;
-`sm/build.sh` runs the supervisor's scanner tests; clippy clean).
+State (2026-10-25 06:35 EDT, code at `6bca70a`): C2 passed; C3 and C4 ran
+on the set 06:02-06:26 ("C4 on the set" below; logs and captures in
+`docs/research/compositor/c4-2026-10-25/`). The gate failed, so LG's
+compositor is live, as the decision requires. The set was left in Active
+Standby on LG's compositor, `enabled` flag absent, Home stub on, LumaHome in
+front, receiver unmuted. Host: `cd compositor && cargo test` (73 unit, 20
+protocol, 1 bridge), `sm/build.sh` (scanner tests), clippy clean; the
+bundle of 06:31 (`sh compositor/tools/build-tv.sh`) carries every fix below.
 
-- Fixed before the slot (06:00): the supervisor gives back its bus names
-  and closes every inherited descriptor before it execs LG's compositor (a
-  fallback would otherwise leave LG's own registration refused); `install`
-  no longer enables, so a reboot mid-session comes up on LG's; the forward
-  switch runs the WebAppMgr/Home recovery too; the gate ends on LG's
-  compositor whatever failed and counts only the current supervisor run;
-  cursor show/hide reach every client as `cursor_visibility`.
-
-- The Magic Remote's pointer (05:40, offline, host-tested): every
-  `LGE M-RCU` is an evdev device with `ABS_X`/`ABS_Y` and only the wheel
-  as a relative axis (`docs/research/arch/input-devices-01.txt`), so
-  `input.rs` reads the axis ranges with `EVIOCGABS`, maps them onto
-  1920x1080 and reports one motion per `SYN_REPORT`; `seat.rs` enters the
-  topmost drawn surface under the point (`Scene::surface_at`, the last
-  plan), sends `wl_pointer.motion` in surface coordinates, OK/ENTER is
-  `BTN_LEFT` while the cursor shows (never a key), an arrow or Back hides
-  the cursor and goes on as a key, 10 s still hides it from the tick, and
-  a client's `set_cursor_visibility(0)` hides it with a `leave`. The sprite
-  (`render/cursor.rs`, 28 px white disc with a dark rim, hotspot centred)
-  is composed above the scene by both renderers with its old and new
-  rectangles damaged; no direct scan-out while it shows. `ctl pointer X
-  Y` and `ctl click [press|release|tap]` drive it; `ctl status` has
-  `pointer`. Unverified on the set: the axis ranges lginput2 sets, whether
-  LG's clients expect the click as `BTN_LEFT`, and the cost of the
-  composed sprite against the cursor plane (plane 36, unused so far).
-- The gate script judges Home by its mapped window while the Home stub is
-  the Home app (`tools/lumatv homestub`, a transparent page: LumaHome is
-  LG's compositor's QML and has no counterpart under LumaTV's yet), so a
-  black panel is not a failure there; `tv_gate.py` wakes the set first and
-  mutes the receiver again right before Netflix (it was off when the first
-  mute went out).
-- Decision for the slot: `gate` runs without `--enable-after`. Even a full
-  pass leaves LG's compositor live, because under LumaTV's compositor
-  the family would get a black Home (the stub) or, with the stub off, LG's
-  Flutter Home without volume OSD, Quick Settings, input picker or IME
-  (all of them LG compositor QML). Going live waits for LumaTV's own Home
-  as a client of its compositor (PLAN: the 64-bit UI); the gate's evidence
-  is what the slot is for.
-
-- First KMS window (log `/tmp/lumatv-tv-out/out/kms/`, summary in "C3 on
-  the set" below): DRM master, mode, planes and the panel all worked, but
-  only 3 frames were drawn in 30 s. Cause: page-flip timestamps are
-  CLOCK_MONOTONIC and the pacer's clock was process-relative, so the first
-  flip armed the next tick hours ahead; before it, the latch was "now" and
-  the loop spun at 2000 ticks/s. Fixed: one clock, the latch only while
-  frames follow one another, the DRM fd and the bridge socket on epoll, a
-  commit onto a still screen drawn at once, the deadline logged once (the
-  2.1 MB `b-server.log` was that line 52 648 times).
-- First C4 dry run: bridge and compositor connect, fallback dry-run exits
-  75; every `.lumatv`-suffixed name is refused ("Invalid permissions": no
-  role file for `/tmp/lumatv/bin/lumatv-sm`), so registration under the
-  real names is unproven. Now: `cutover.sh probe` bind-mounts the
-  supervisor over `/usr/bin/surface-manager` for two seconds with LG's
-  compositor running and asks the hub for the real names; ls-hubd checks
-  the role before the duplicate, so "already exists" means the role allows
-  the name to that path and "Invalid permissions" means it does not
-  (luna-service2 `hub.cpp`, `_LSHubHandleRequestName`). Live, any refused
-  name is an immediate fallback.
-- Found in LG's unit files (census copy): `surface-manager-daemon.service`
-  is `Type=notify`, `ExecStart=/usr/bin/surface-manager.sh`,
-  `StartLimitBurst=10` in 1 s, `TimeoutStopSec=5`; the supervisor now
-  sends `READY=1` and makes `/tmp/lsm-ready` once the compositor is
-  connected (without the notify the start would time out and the unit
-  restart). `webapp-mgr.service` is `PartOf=surface-manager.service`,
-  `Restart=on-failure`, `ConditionPathExists=/tmp/lsm-ready`: while the
-  compositor is away it restarts into no socket until systemd's start
-  limit leaves it "failed", and the web Home cannot launch (the black panel
-  after the first window). `tools/tv-recover-home.sh` resets and starts it,
-  waits for `listRunningApps`, launches Home once and waits for pixels;
-  `kms-window.sh restore`, `cutover.sh revert|disable` and the supervisor's
-  own fallback (detached before the exec) all run it.
-- Live details added: the compositor keeps `/tmp/xdg`'s mode (0770
-  root:compositor) and makes its socket 0777 so WAM (user wam) and jailed
-  apps can connect; registers with tvpower at start; reads the remotes
-  (`--input`) so the hold-Home escape works; `ctl remote CODE
-  press|release|tap` sends a key through the real routing.
-- Scripts: `tv-first-light.sh inspect` (read-only: unit, wrapper, role
-  files, `/tmp/xdg` modes, initctl, webapp-mgr), `… kms` (re-run), `…
-  cutover install|probe|trial 120|enable|disable|status|revert`, `… gate
-  [--enable-after]` (`tools/tv_gate.py` + `tv-gate.sh`: live, X1 60 s,
-  Netflix Dolby Vision muted, HDMI 2, standby and WoL wake with the
-  tvpower rounds, hold-Home escape; `--enable-after` makes LumaTV live when
-  every check passed).
-- Next TV steps, in one slot, each with a go/no-go (the slot ends at
-  07:45, the set must be LG's, Home up, Active Standby by 07:50), run from
-  the repository root with `F=compositor/tools/tv-first-light.sh`:
-  1. `sh $F deploy && sh $F inspect` (read-only; the inspection lands in
-     `docs/research/compositor/set-inspect-<date>.txt`).
-  2. `sh $F cutover install && sh $F cutover probe` (exit 0; exit 2 means
-     the role refuses the names to this path: only `kms` runs then).
-  3. `sh $F cutover trial 120` (no `fallback:` line, compositor pid stays,
-     WAM active; evidence in `/tmp/lumatv/out/trial` on the set).
-  4. `python3 compositor/tools/tv_gate.py` (add `--skip netflix` while the
-     set's Netflix playback is broken; never `--enable-after`, see the
-     decision above). It mutes and unmutes the receiver itself and always
-     ends with `cutover.sh disable`.
-  5. `sh $F kms` if six minutes remain (expect `drawn ≈ 600`, `flips`
-     close, callback gaps in `a-client.log` ≤ 20 ms).
-  End: `tv.py 'rm -rf /tmp/lumatv/bin /tmp/lumatv/lib'` (38 MB of tmpfs),
-  `…/org.nphil.lumatv/tools/lumatv compositor status` showing `enabled`
-  and `live` false, Home on the panel, then `tvpower power/powerOff
-  {"reason":"remoteKey"}`.
-- Open: the cursor plane for the sprite (no repaint per move), GBM on
-  `card0` for the fast render path, the `wl_webos_*` opcode tables, the
-  `wl_keyboard` key-code convention (the gate's Netflix ENTER is the first
-  test), `BTN_LEFT` as LG's click, whether `/proc/<pid>/exe` of the
-  bind-mounted supervisor reads `/usr/bin/surface-manager` (the probe
-  tells), X6, and the Home question: LumaTV's compositor cannot go live
-  for the family until a Home draws under it.
-- TV state: not touched by this slice since 02:42; one read of the set's
-  MAC (`74:c1:7e:bd:ae:30`, for the gate's wake) at 03:12 outside a slot.
+- Proven on the set: all 12 bus names are LumaTV's at LG's path (probe: 12
+  allowed, 0 refused; `/proc/self/exe` reads `/usr/bin/surface-manager`
+  through the bind mount); a 120 s trial and two gate runs live with no
+  watchdog fallback, `READY=1` accepted, WebAppMgr reconnecting; KMS pacing
+  59.89-59.94 fps over 60 s (3594-3597 flips); standby and wake through the
+  tvpower rounds (PreparePowerOff and PreparePowerOn acked, Active again,
+  still mounted); the hold-Home escape through LumaTV's own key routing
+  (LG's compositor and Home back in 14-15 s); direct scan-out of LG's AFBC
+  buffer (`0x0800000000000151`) on the primary plane (the trial's Home, own
+  buffer path).
+- Failed, fixed offline, not yet run on the set: (1) with the compositor's
+  own `mali_buffer_sharing` LG's 32-bit libmali clients segfault right after
+  binding it (`tvhotkey`: exit 139 with own, runs with the driver's; Flutter
+  Home, `hdmi2` and Netflix died the same way live): the supervisor now runs
+  the compositor on the driver's buffer path, which gives up direct
+  scan-out until the own path matches what LG's libmali expects. (2)
+  Composed KMS frames were upside down (KMS shows a page's row 0 at the top,
+  the renderer drew row 0 at the bottom); scan-out pages are drawn top row
+  first now. (3) A pretty-printed luna payload (`hdmi2`'s
+  `getCurrentHomeUIState`) broke the bridge's one-line protocol; payloads
+  are flattened both ways.
+- Failed, open: (a) Netflix: `wl_webos_imported` opcode 7 arrives without
+  its string (`message too short … attach_punchthrough_with_context(s)`),
+  libwayland drops the media connection, no video window, Netflix shows
+  tvq-pb-101. LG's table differs from OSE's: dump it read-only with
+  `wlproto_from_elf.py` (`run.sh protocols`) and fold it into
+  `protocol/webos/webos-foreign.xml`. (b) The app manager kept reporting
+  `com.webos.app.home` in front while Netflix or HDMI 2 was mapped and
+  focused in the scene: SAM does not take the compositor's foreground
+  pushes; compare the subscription and payload with X4 pass 3. (c) X1: 12
+  gaps over 20 ms (worst 58.3 ms) over LG's Flutter Home, 8 (worst 28.3 ms)
+  in the first run; the gate wants none. (d) A jailed client (pid 0 to the
+  compositor) connects and leaves every 7 s in both runs; unidentified.
+- Side effect, handled: the set runs an older `tools/lumatv` whose Home stub
+  guard does not know LumaTV's compositor; 30 s after each switch it saw
+  LumaHome's heartbeat stop and gave LG's Home back (06:10:26 and during the
+  second gate). `lumatv homestub on` restored the stub both times (stub,
+  guard on, faults 0). Before the next slot the set needs the current
+  `tools/lumatv` (`comp_live` guard), or the stub off for the session.
+- Decision: LG's compositor stays live. Besides the failed checks, PLAN's
+  gate needs every surface gate met, and LumaHome, the volume OSD, Quick
+  Settings, the input picker and the IME are LG compositor QML with no
+  counterpart under LumaTV's compositor yet: under it the family would get
+  LG's Flutter Home or the transparent stub.
+- Next slot (one, about 25 min, commands in "C4 on the set"): deploy,
+  inspect, dump LG's `wl_webos_*` tables, `cutover install`, `cutover trial
+  120` with a panel capture to confirm the picture is upright, the gate.
+- Built and host-tested, unverified on the set: the Magic Remote's pointer
+  (`input.rs` absolute axes, `seat.rs` enter/leave/motion, OK as `BTN_LEFT`
+  while the cursor shows, `cursor_visibility` to every client, the composed
+  sprite in `render/cursor.rs`; `ctl pointer X Y`, `ctl click`).
 
 ## Design
 
@@ -634,8 +574,8 @@ Built, host-tested where pure, compiled for the set, not yet run on it:
   the next commit); direct scan-out of a sole full-screen opaque client
   dma-buf by prime import + `ADDFB2` with its modifier, falling back to
   composition and remembering refused modifiers (X5 in code: the plane
-  lists AFBC `…62` and LG's clients produce `…151`, so expect a refusal
-  for LG apps and an acceptance for linear/`…62` buffers); plane state
+  lists AFBC `…62` and LG's clients produce `…151`; on the set the plane
+  took `…151` all the same, WAM's Home in the 2026-10-25 trial); plane state
   cached so unchanged planes stay out of the request. `assign.rs` is the
   pure decision (tested).
 - Rendering into dumb buffers through dma-buf import was measured slow in
@@ -775,6 +715,48 @@ TV steps, in order, each a separate slot:
    routing: the supervisor falls back, `escaped` written, LG's Home back
    through the recovery). The PIN prompt stays with Nitin (a lock is his
    setting). Result lines go to `docs/research/compositor/gate-<date>.txt`.
+
+## C4 on the set (2026-10-25 06:02-06:26)
+
+One exclusive slot, receiver muted, Netflix closed first. Files in
+`docs/research/compositor/c4-2026-10-25/` (`trial-own`, `gate-own`,
+`gate-driver`, `buffers-test`); gate lines in
+`docs/research/compositor/gate-2026-10-25.txt`.
+
+Unit facts read on the set: `surface-manager-daemon.service` is
+`Type=notify`, `NotifyAccess=main`, `TimeoutStartUSec=1min 30s`,
+`KillMode=control-group`; `/usr/bin/surface-manager.sh` ends in `exec
+/usr/bin/surface-manager -platform ${WEBOS_COMPOSITOR_PLATFORM}` (the
+running one has `-platform eglfs_webos`), so the supervisor is the unit's
+main process and its `READY=1` counts. LG's socket is `0660
+root:compositor`.
+
+| Step | Result |
+|---|---|
+| `inspect` | hung for 6 min (fixed: regular files only, timeouts); the facts above read by hand |
+| `cutover install` + `probe` | 12 allowed, 0 free, 0 refused; probe from `/usr/bin/surface-manager` |
+| `trial 120` (own buffers) | live 120 s, no fallback, WAM active; Home (WAM) mapped and scanned out directly (`direct: fb 45 … AB24 modifier 0x800000000000151`); five `atomic commit: Invalid argument` between 11 and 25 s; 18 clients, 1 left at the end: `hdmi2` and LG's Flutter Home (back after the stub guard fired) died after binding `mali_buffer_sharing`; revert and recovery clean |
+| gate (own) | live FAIL (no Home window, guard had removed the stub), x1 FAIL (59.94 fps, 8 gaps 20-33.5 ms, worst 28.3), netflix FAIL (no window), hdmi FAIL (no window), standby PASS, escape PASS (LG's back in 15 s) |
+| buffers test (private socket beside LG's compositor) | `com.webos.app.tvhotkey`: exit 139 (segfault) 0.5 s after binding own `mali_buffer_sharing`; with the driver's it runs until the timeout |
+| gate (driver) | live PASS (Home mapped, drawing), x1 FAIL (59.89 fps, 11 gaps 20-33.5 ms, 1 over, worst 58.3), netflix FAIL (card mapped, the error screen tvq-pb-101 drawn upside down; media connection dropped on `wl_webos_imported` opcode 7; Picture Mode stayed `filmMaker`), hdmi FAIL (card mapped, app manager still reports Home in front), standby PASS, escape PASS (14 s) |
+| end | `homestub on` (stub, guard on, faults 0), LumaHome in front, `filmMaker`, tmpfs freed, flag absent, Active Standby |
+
+Not run: the separate KMS window re-run; the gate's X1 measured the live
+KMS pacing instead, and stopping LG's compositor again would have tripped
+the stub guard a third time.
+
+Next slot, from the repository root (`F=compositor/tools/tv-first-light.sh`;
+the set must carry the current `tools/lumatv` or have the stub off):
+
+1. `sh $F deploy && sh $F inspect`.
+2. `tv.py 'sh /tmp/lumatv/run.sh protocols'`, fetch `out/protocols.txt`:
+   LG's `wl_webos_imported` (and the other `wl_webos_*`) tables; fold the
+   differences into `protocol/webos/` offline before the trial.
+3. `sh $F cutover install && sh $F cutover probe`.
+4. `sh $F cutover trial 120`; the trial's `panel.png` must show the picture
+   upright.
+5. `python3 compositor/tools/tv_gate.py` (no `--enable-after` until every
+   check passes and the surfaces exist under LumaTV's compositor).
 
 ## Enable path and the hook request for tools/lumatv
 
