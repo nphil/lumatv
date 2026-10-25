@@ -7,6 +7,7 @@ sec "unit properties"; systemctl show surface-manager-daemon.service -p Type,Not
 sec "DefaultTimeoutStartSec"; grep -E 'DefaultTimeout|DefaultStartLimit' /etc/systemd/system.conf 2>/dev/null; systemctl show -p DefaultTimeoutStartUSec,DefaultStartLimitBurst,DefaultStartLimitIntervalUSec 2>/dev/null
 sec "/usr/bin/surface-manager.sh"; cat /usr/bin/surface-manager.sh 2>/dev/null
 sec "surface-manager process"; p=$(pgrep -x surface-manager | head -1); echo "pid $p ppid $(awk '/^PPid/{print $2}' /proc/$p/status) exe $(readlink /proc/$p/exe)"; tr '\0' '\n' < /proc/$p/cmdline; echo "--- environ (names only)"; tr '\0' '\n' < /proc/$p/environ | cut -d= -f1 | sort | tr '\n' ' '; echo
+sec "/tmp/xdg (socket directory and socket modes)"; ls -la /tmp/xdg/ 2>/dev/null; ls -la /var/run/xdg 2>/dev/null
 sec "env file"; cat /var/systemd/system/env/surface-manager.env 2>/dev/null
 sec "/usr/bin/surface-manager"; ls -la /usr/bin/surface-manager; stat -c '%s %Y' /usr/bin/surface-manager
 sec "webapp-mgr.service"; systemctl show webapp-mgr.service -p ActiveState,SubState,Result,NRestarts,StartLimitBurst,StartLimitIntervalUSec,ExecMainStartTimestampMonotonic; ls -la /tmp/lsm-ready 2>/dev/null

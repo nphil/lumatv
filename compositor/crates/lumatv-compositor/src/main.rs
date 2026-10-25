@@ -75,8 +75,12 @@ impl log::Log for StderrLogger {
 }
 
 fn run(config: Config) -> io::Result<()> {
-    std::fs::create_dir_all(&config.runtime_dir)?;
-    std::fs::set_permissions(&config.runtime_dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    // A runtime directory of its own is private; LG's (/tmp/xdg, root:compositor 0770, made by the unit's
+    // ExecStartPre) keeps its mode, since every client relies on the group bit to reach the socket.
+    if !config.runtime_dir.is_dir() {
+        std::fs::create_dir_all(&config.runtime_dir)?;
+        std::fs::set_permissions(&config.runtime_dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    }
     // SAFETY: setting an environment variable at start-up, before any thread exists.
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", &config.runtime_dir) };
     if let Some(dir) = &config.capture_dir {
@@ -86,6 +90,9 @@ fn run(config: Config) -> io::Result<()> {
     let mut display: Display<State> = Display::new().map_err(io::Error::other)?;
     let dh = display.handle();
     let listener = ListeningSocket::bind(&config.socket).map_err(|e| io::Error::other(format!("bind {}: {e}", config.socket)))?;
+    // Clients run as other users (WebAppMgr as wam, native apps in jails) and connect() needs write permission on
+    // the socket file; the directory's mode is what limits who gets that far.
+    std::fs::set_permissions(config.runtime_dir.join(&config.socket), std::os::unix::fs::PermissionsExt::from_mode(0o777))?;
 
     // The C libwayland display pointer, for eglBindWaylandDisplayWL; only the aarch64 build runs on that backend.
     #[cfg(target_arch = "aarch64")]
@@ -115,6 +122,9 @@ fn run(config: Config) -> io::Result<()> {
         Err(_) => Box::new(luna::Null::default()),
     };
     let mut state = State::new(dh, config.clone(), output, luna);
+    if state.luna.is_connected() {
+        state.luna_register_power();
+    }
     log::info!(
         "listening on {}/{} ({} renderer, buffers {:?}{}, {} globals incl. {})",
         config.runtime_dir.display(),
