@@ -2,11 +2,10 @@ import QtQuick 2.4
 import WebOSCompositorBase 1.0
 import TextFile 1.0
 import "../Saved.js" as Saved
+import "../kit"
 
 // Hero image, headline, meta row with page dots. Rows are the mock's grid (hero 262, gap 18,
-// headline 34px/1.22 capped at two lines, meta 22px pinned to the bottom). The stories are
-// saved to {{dataDir}}/cache/news.json after every fetch and drawn from there at once on a cold
-// start (Saved.js). OK opens the article.
+// headline 34px/1.22 capped at two lines, meta 22px pinned to the bottom). OK opens the article.
 Item {
     id: root
     property var theme: ({})
@@ -38,58 +37,17 @@ Item {
     // a manual step holds the slideshow for a while so the story is not swept away
     Timer { id: holdTimer; interval: 30000 }
 
-    property var feeds: (theme.news && theme.news.feeds) || [
-        { tag: "WORLD", src: "BBC News", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
-        { tag: "U.S.", src: "BBC News", url: "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml" }
-    ]
-    property var feedsAlt: [
-        { tag: "WORLD", src: "The New York Times", url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml" },
-        { tag: "U.S.", src: "The New York Times", url: "https://rss.nytimes.com/services/xml/rss/nyt/US.xml" }
-    ]
-    property int perFeed: 4
     property int slideMs: (theme.news && theme.news.slideMs) || 10000
-    property int refreshMs: (theme.news && theme.news.refreshMs) || Saved.REFRESH_MS
-    property bool live: true
-    property double fetchedAt: 0        // when the stories on screen were fetched, also when they came from disk
-    property int failures: 0
-    property double lastAttempt: 0
-    property bool fetching: false
-    property int fetchGen: 0
-    property var feedUrls: feeds.map(function(f) { return f.url })
+    property bool live: true            // Home is on screen: the slideshow runs only then
+    property double fetchedAt: 0        // when the stories on screen were fetched
 
     property var items: []
     property int index: 0
 
-    function decode(s) {
-        return s.replace(/<!\[CDATA\[/g, "").replace(/\]\]>/g, "").replace(/<[^>]+>/g, "")
-                .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"")
-                .replace(/&#0?39;/g, "'").replace(/&apos;/g, "'").replace(/&nbsp;/g, " ")
-                .replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()
-    }
-    function field(block, tag) {
-        var m = new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)<\\/" + tag + ">").exec(block)
-        return m ? decode(m[1]) : ""
-    }
-    function link(block) {
-        var m = /<link>([\s\S]*?)<\/link>/.exec(block)
-        return m ? decode(m[1]) : ""
-    }
     function ichefWidth(px) {
         var buckets = [480, 640, 800, 1024, 1280, 1536, 1920]
         for (var i = 0; i < buckets.length; i++) if (buckets[i] >= px) return buckets[i]
         return buckets[buckets.length - 1]
-    }
-    function imageOf(block) {
-        var re = /<media:(?:content|thumbnail)([^>]*)>/g, m
-        var best = "", bw = -1, over = "", ow = 0
-        while ((m = re.exec(block)) !== null) {
-            var u = /url="([^"]+)"/.exec(m[1]); if (!u) continue
-            var w = /width="([0-9]+)"/.exec(m[1]), ww = w ? parseInt(w[1], 10) : 0
-            if (ww <= 1200) { if (ww > bw) { bw = ww; best = u[1] } }
-            else if (ow === 0 || ww < ow) { ow = ww; over = u[1] }
-        }
-        if (!best) best = over
-        return best
     }
     // The feed gives its hero in one size; the card asks for the width it draws at (the BBC's
     // image host has buckets). The saved stories keep the address as the feed gave it.
@@ -105,108 +63,25 @@ Item {
         if (m < 1440) { var h = Math.round(m / 60); return h + (h === 1 ? " hour ago" : " hours ago") }
         var d = Math.round(m / 1440); return d + (d === 1 ? " day ago" : " days ago")
     }
-    function parseFeed(xml, feed) {
-        var out = [], re = /<item>([\s\S]*?)<\/item>/g, m
-        while ((m = re.exec(xml)) !== null && out.length < perFeed) {
-            var b = m[1], title = field(b, "title")
-            if (!title) continue
-            out.push({ tag: feed.tag, src: feed.src, title: title, summary: field(b, "description"), link: link(b), img: imageOf(b), pub: field(b, "pubDate") })
-        }
-        return out
-    }
-    function merge(buckets) {
-        var out = [], seen = {}, i = 0, more = true
-        while (more) {
-            more = false
-            for (var b = 0; b < buckets.length; b++) {
-                var l = buckets[b] || []
-                if (i >= l.length) continue
-                more = true
-                var k = l[i].title.toLowerCase()
-                if (seen[k]) continue
-                seen[k] = true
-                out.push(l[i])
-            }
-            i++
-        }
-        return out
-    }
-    // done(merged) is called once every feed has answered; merged is empty when none gave a story.
-    function load(feedList, gen, done) {
-        var buckets = [], pending = feedList.length
-        for (var i = 0; i < feedList.length; i++) {
-            (function(k) {
-                var x = new XMLHttpRequest()
-                x.onreadystatechange = function() {
-                    if (x.readyState !== 4 || gen !== root.fetchGen) return
-                    try { buckets[k] = (x.status === 200) ? root.parseFeed(x.responseText, feedList[k]) : [] }
-                    catch (e) { buckets[k] = []; console.warn("[NewsWidget] parse failed: " + e) }
-                    if (--pending > 0) return
-                    done(root.merge(buckets))
-                }
-                x.open("GET", feedList[k].url); x.send()
-            })(i)
-        }
-    }
     function advance() { if (items.length > 1) index = (index + 1) % items.length }
 
-    // ---- saved first. The last stories are on disk in the schema the native helper writes; a
-    // newer file than what is on screen (the helper's) replaces it. Refresh is due 15 min after
-    // the reading, retries after 2, 10 and then every 30 minutes (Saved.js).
+    // The stories come from the native helper (Helper.topics.news: fetched, saved, aged and dropped
+    // there; the edition is its setting, base.news). Until the helper has answered, the document it
+    // saved last time is read from {{dataDir}}/cache/news.json, so a cold start draws the last stories
+    // at once. A document older than the one on screen, or past its six hours, is not drawn.
     TextFile { id: savedFile; name: "file://{{dataDir}}/cache/news.json" }
-    function loadSaved() {
-        var doc = Saved.parse(savedFile.exists ? savedFile.read() : "")
-        if (!Saved.newsUsable(doc, feedUrls, Date.now()) || doc.fetchedAt <= fetchedAt) return
+    function take(doc) {
+        if (!Saved.newsUsable(doc, Date.now()) || doc.fetchedAt <= fetchedAt) return
         items = doc.items
         if (index >= items.length) index = 0
         fetchedAt = doc.fetchedAt
     }
-    function fetchNews() {
-        if (fetching) return
-        fetching = true
-        lastAttempt = Date.now()
-        var gen = ++fetchGen, urls = feedUrls
-        watchdog.restart()
-        load(feeds, gen, function(merged) {
-            if (merged.length) { finish(urls, merged); return }
-            load(feedsAlt, gen, function(alt) { if (alt.length) finish(urls, alt); else fail() })
-        })
+    readonly property var topic: Helper.topics.news || null
+    onTopicChanged: if (topic) take(topic.doc)
+    Component.onCompleted: {
+        take(Saved.parse(savedFile.exists ? savedFile.read() : ""))
+        if (topic) take(topic.doc)
     }
-    function finish(urls, merged) {
-        watchdog.stop(); fetching = false
-        if (urls.join("\n") !== feedUrls.join("\n")) { refresh(); return }   // reconfigured meanwhile
-        var doc = Saved.newsDoc(urls, merged, Date.now())
-        items = merged
-        if (index >= merged.length) index = 0
-        fetchedAt = doc.fetchedAt; failures = 0
-        savedFile.write(JSON.stringify(doc))
-        schedule()
-    }
-    function fail() {
-        watchdog.stop(); fetching = false
-        failures++
-        console.warn("[NewsWidget] no stories; retry in " + Math.round(Saved.retryDelay(failures) / 60000) + " min")
-        schedule()
-    }
-    // A feed that never answers must not hold the card back from its next try.
-    Timer { id: watchdog; interval: 30000; onTriggered: { if (root.fetching) { root.fetchGen++; root.fail() } } }
-    Timer { id: due; repeat: false; onTriggered: root.refresh() }
-    function schedule() {
-        due.stop()
-        if (!live) return
-        due.interval = Math.max(1000, Math.min(Saved.nextAttempt(fetchedAt, failures, lastAttempt, refreshMs) - Date.now(), 3600000))
-        due.restart()
-    }
-    function refresh() {
-        if (!live || fetching) return
-        if (Saved.nextAttempt(fetchedAt, failures, lastAttempt, refreshMs) > Date.now() + 1000) { schedule(); return }
-        fetchNews()
-    }
-    // Stops while Home is hidden: no feed polling or hero decodes behind an app. Showing Home
-    // again looks at the disk (the helper may have fetched) and refreshes if the reading is due.
-    onLiveChanged: { if (live) { loadSaved(); refresh() } else { due.stop() } }
-    onFeedUrlsChanged: { fetchedAt = 0; failures = 0; loadSaved(); refresh() }
-    Component.onCompleted: loadSaved()
     Timer { interval: slideMs; running: root.live && root.items.length > 1 && !root.inner && !holdTimer.running; repeat: true; onTriggered: root.advance() }
 
     // What is on screen. A story change is a cross-fade: the next hero image decodes into

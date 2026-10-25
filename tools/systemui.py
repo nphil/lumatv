@@ -21,6 +21,8 @@ STOCK = {
     "com.webos.app.quicksettings": "file:///usr/lib/qt5/qml/QuickSettings/QuickSettings.qml",
     "com.webos.app.quickinputpicker": "file:///usr/lib/qt5/qml/InputPicker/InputPicker.qml",
     "com.webos.app.contextmenu": "file:///usr/lib/qt5/qml/ContextMenu/ContextMenu.qml",
+    "com.webos.app.masterbrand": "file:///usr/lib/qt5/qml/MasterBrand/MasterBrand.qml",
+    "com.webos.app.bootlogo": "file:///usr/lib/qt5/qml/BootLogo/BootLogo.qml",
 }
 
 

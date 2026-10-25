@@ -225,6 +225,23 @@ class Windows(unittest.TestCase):
     def test_a_key_that_was_not_taken_fails(self):
         self.assertIn('windows', failed(self.evaluate(first=None, end=None)))
 
+    def test_under_lgs_compositor_drops_are_held_to_its_measured_floor(self):
+        s = gate.find(['quick-settings'])[0]
+        r = report('quick-settings', 3)
+        for w in r['windows']:
+            w['anim_frames'] = 100
+            w['dropped_in_motion'] = 10        # 10 % of the frames
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3, lg_compositor=True)), [])
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3, lg_compositor=False)), ['dropped'])
+        for w in r['windows']:
+            w['dropped_in_motion'] = 20        # 20 % is over the 17 % floor
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3, lg_compositor=True)), ['dropped_share'])
+
+    def test_an_idle_surface_without_a_key_is_not_a_dead_key(self):
+        s = gate.find(['home-idle'])[0]
+        r = {'windows': [window('home-idle-open', first=None, end=None, anim={'p90': 2.4}) for _ in range(3)]}
+        self.assertEqual(failed(gate.evaluate_windows(s, r, 3)), [])
+
     def test_a_lost_marker_fails(self):
         s = gate.find(['quick-settings'])[0]
         r = report('quick-settings', 3)

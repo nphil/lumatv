@@ -402,6 +402,10 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         b_rends = sorted(r for (iv, r), t in zip(anim, anim_t) if bu['frames'] and bu['first_t'] < t <= bu['last_t'])
         w['burst_anim_p90_ms'] = round(b_rends[int(0.9 * (len(b_rends) - 1))], 2) if b_rends else None
         w['burst_anim_samples'] = [round(r, 2) for r in b_rends]
+        # In time order, the first animated frames of the burst: the ones that pay for anything the
+        # surface draws for the first time (glyph sets, programs, textures).
+        w['burst_first_render_ms'] = [round(r, 2) for (iv, r), t in zip(anim, anim_t)
+                                      if bu['frames'] and bu['first_t'] < t <= bu['last_t']][:6]
 
         for i, x in enumerate(ivals):
             if x <= gap_ms:

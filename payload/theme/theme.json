@@ -156,5 +156,9 @@
     "enabled": true,
     "startMs": 1500,
     "stepMs": 50
+  },
+  "logo": {
+    "on": 1,
+    "off": 1
   }
 }

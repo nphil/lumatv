@@ -109,10 +109,14 @@ def stage(data_dir, module_src, extra_src=None):
                 shutil.copy(os.path.join(wall, n), os.path.join(theme, 'wall_1080.png'))
                 break
     shutil.copytree(os.path.join(ROOT, 'payload', 'fonts'), os.path.join(data_dir, 'fonts'))
+    sysui = os.path.join(ROOT, 'payload', 'systemui')
+    for name in ('MasterBrand', 'BootLogo'):
+        if os.path.isdir(os.path.join(sysui, name)):
+            shutil.copytree(os.path.join(sysui, name), os.path.join(data_dir, 'systemui', name))
     os.makedirs(os.path.join(data_dir, 'cache'), exist_ok=True)
     subst = {'displayName': b['displayName'], 'shortId': b['shortId'], 'appId': b['appId'],
              'dataDir': data_dir, 'qmlModule': b['qmlModule']}
-    for dirpath, _, files in os.walk(mod):
+    for dirpath, _, files in list(os.walk(mod)) + list(os.walk(os.path.join(data_dir, 'systemui'))):
         for n in files:
             if n.endswith(('.qml', '.js', '.json')):
                 p = os.path.join(dirpath, n)
@@ -123,7 +127,7 @@ def stage(data_dir, module_src, extra_src=None):
                     with open(p, 'w', encoding='utf-8') as f:
                         f.write(s2)
     left = []
-    for dirpath, _, files in os.walk(mod):
+    for dirpath, _, files in list(os.walk(mod)) + list(os.walk(os.path.join(data_dir, 'systemui'))):
         for n in files:
             if n.endswith(('.qml', '.js', '.json')):
                 with open(os.path.join(dirpath, n), encoding='utf-8') as f:
@@ -137,7 +141,7 @@ def stage(data_dir, module_src, extra_src=None):
 # Qt 5.15 and workstation noise that says nothing about the surface: the Connections syntax Qt 5.12
 # requires is deprecated in 5.15, the feeds cannot reach the network (and the TLS stack is the wheel's),
 # and glyphs a font does not have.
-IGNORE = re.compile(r'Implicitly defined onFoo|QSslSocket|OpenSSL|place lookup failed|no stories; retry|'
+IGNORE = re.compile(r'\[host\]|Implicitly defined onFoo|QSslSocket|OpenSSL|place lookup failed|no stories; retry|'
                     r'load glyph failed|XMLHttpRequest: Using GET')
 
 KEYS = {'LEFT': QtCore.Qt.Key_Left, 'RIGHT': QtCore.Qt.Key_Right, 'UP': QtCore.Qt.Key_Up, 'DOWN': QtCore.Qt.Key_Down,
@@ -165,6 +169,18 @@ def main(argv=None):
     ap.add_argument('--press', help='comma-separated keys sent after --wait/2 (LEFT RIGHT UP DOWN OK BACK MENU)')
     ap.add_argument('--data', help='keep the staged data dir here (default: a temp dir)')
     ap.add_argument('--size', default='1920x1080')
+    ap.add_argument('--publish', action='append', default=[], metavar='MS:topic:JSON',
+                    help='with --fake-helper: set a topic at MS after start')
+    ap.add_argument('--eval', action='append', default=[], metavar='MS:EXPR',
+                    help='evaluate a JavaScript expression at MS after start with `root` the surface; prints "[eval] value"')
+    ap.add_argument('--fake-helper', action='store_true', help='serve a stand-in for the native helper on 127.0.0.1:18731 while running')
+    ap.add_argument('--theme', help='JSON written as the user theme.json in the data dir (what the owner changed)')
+    ap.add_argument('--cache', action='append', default=[], metavar='NAME=JSON',
+                    help='write the data dir\'s cache/NAME.json (the helper\'s saved weather.json or news.json) before the surface loads')
+    ap.add_argument('--remove', action='append', default=[], metavar='PATH',
+                    help='delete this path (relative to the staged module dir) after staging, to test a surface without it')
+    ap.add_argument('--fire', action='append', default=[], metavar='MS:launch|close[:JSON]',
+                    help='call the window life cycle of a system-UI surface at MS after start, e.g. 100:launch:{"reason":"x"}')
     a = ap.parse_args(argv)
 
     data = os.path.abspath(a.data) if a.data else tempfile.mkdtemp(prefix='qmlhost-')
@@ -173,6 +189,16 @@ def main(argv=None):
     os.makedirs(data, exist_ok=True)
     src = os.path.join(ROOT, 'payload', 'compositor', 'lumatv')
     mod = stage(data, src)
+    for spec in a.cache:
+        name, _, text = spec.partition('=')
+        with open(os.path.join(data, 'cache', name + '.json'), 'w') as f:
+            f.write(text)
+    if a.theme:
+        with open(os.path.join(data, 'theme', 'theme.json'), 'w') as f:
+            f.write(a.theme)
+    for rel in a.remove:
+        target = os.path.join(mod, rel)
+        shutil.rmtree(target) if os.path.isdir(target) else os.remove(target)
 
     messages = []
 
@@ -197,6 +223,10 @@ def main(argv=None):
 
     qmlRegister = QtQml.qmlRegisterType
     qmlRegister(TextFile, 'TextFile', 1, 0, 'TextFile')
+    if a.fake_helper:
+        sys.path.insert(0, HERE)
+        import fakehelper
+        _srv, helper_state = fakehelper.serve(18731)
 
     w, h = (int(x) for x in a.size.split('x'))
     view = QtQuick.QQuickView()
@@ -208,7 +238,10 @@ def main(argv=None):
     # The surface is the child of a plain Item the size of the window, as in the container.
     host = os.path.join(data, 'Host.qml')
     rel, qml_name = os.path.split(a.qml)
-    mod_import = 'qml/WebOSCompositor/%s' % brand()['qmlModule'] + ('/' + rel if rel else '')
+    if rel.startswith('systemui/'):
+        mod_import = rel                      # staged under the data dir, beside qml/
+    else:
+        mod_import = 'qml/WebOSCompositor/%s' % brand()['qmlModule'] + ('/' + rel if rel else '')
     with open(host, 'w') as f:
         f.write('import QtQuick 2.4\nimport "%s" as M\nItem { width: %d; height: %d\n  M.%s { id: surface; objectName: "surface" }\n}\n'
                 % (mod_import, w, h, os.path.splitext(qml_name)[0]))
@@ -239,6 +272,25 @@ def main(argv=None):
             print(f'shot {a.shot} {img.width()}x{img.height()}')
         app.quit()
 
+    def fire(name, payload):
+        QtCore.QMetaObject.invokeMethod(surface, 'fire', QtCore.Q_ARG('QVariant', name), QtCore.Q_ARG('QVariant', payload))
+
+    for spec in a.fire:
+        ms, name, *rest = spec.split(':', 2)
+        payload = json.loads(rest[0]) if rest else {}
+        QtCore.QTimer.singleShot(int(ms), lambda n=name, p=payload: fire(n, p))
+    for spec in a.publish:
+        ms, topic, data = spec.split(':', 2)
+        QtCore.QTimer.singleShot(int(ms), lambda t=topic, d=json.loads(data): helper_state.publish(t, d))
+    view.rootContext().setContextProperty('root', surface)
+
+    def evaluate(expr):
+        e = QtQml.QQmlExpression(view.rootContext(), surface, expr)
+        v = e.evaluate()
+        print(f'[eval] {v}', flush=True)
+    for spec in a.eval:
+        ms, expr = spec.split(':', 1)
+        QtCore.QTimer.singleShot(int(ms), lambda x=expr: evaluate(x))
     if a.press:
         QtCore.QTimer.singleShot(a.wait // 2, press)
     QtCore.QTimer.singleShot(a.wait, shot)

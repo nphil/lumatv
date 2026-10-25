@@ -7,6 +7,10 @@
 #   revert                 -> drop the env override, unbind, restore icons, back to stock
 #   persist on|off         -> toggle the boot-hook symlink in webosbrew init.d
 #   fps on|off             -> toggle the compositor FPS debug overlay
+#   restart                -> restart the compositor and bring Home back (what apply does when it must)
+#   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
+#   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
+#   preload on|off|status  -> keep only Netflix and Prime Video warm in the background (payload/preload.json)
 #   standby warm|cold      -> Quick Start+ on with webos-sddp off, or fully off
 #   ntfy set <url>|off|test -> configure/test ntfy.sh notifications
 #   log [n]                -> last n log lines (default 20)
@@ -87,6 +91,22 @@ THEME_DIR="$STATE/theme"
 KEYFILTER_DIR="$STATE/keyfilter"
 KEYFILTER_HANDLER=handleLumaHome
 
+# The native helper (helper/): a static aarch64 daemon on 127.0.0.1:18731 that holds weather and news,
+# the receiver and the settings store for the compositor's QML. An ipk update cannot overwrite a
+# running executable (text busy), so the shipped copy is staged under $STATE/bin and swapped when
+# it differs; the daemon is stopped for the swap and started again.
+# LG's background preloads (YouTube, LG Channels, the browser: about 307 MB resident). The tool
+# switches the apps in payload/preload.json off in configd and in the live preload manager;
+# $PRELOAD_STATE names them for the helper, which sends the live policy again at every screen-on
+# (webOS 10 forgets it at each switch-on). $PRELOAD_ORIG is LG's list as found, so `off` and
+# `revert` put it back.
+PRELOAD_TOOL="$APPDIR/tools/preload.py"
+PRELOAD_SRC="$APPDIR/payload/preload.json"
+PRELOAD_STATE="$STATE/preload.json"
+PRELOAD_ORIG="$STATE/preload.orig"
+HELPER_SRC="$APPDIR/payload/helper/lumatv-helper"
+HELPER_BIN="$STATE/bin/lumatv-helper"
+
 # Quick Settings, drawn by the compositor from a QML tree in /usr that configd
 # names per app id. The stock tree is copied to /var once, our replacement
 # files are laid over the copy, and configd is pointed at it - so /usr keeps
@@ -108,6 +128,15 @@ QS_STOCK_FP="$SYSTEMUI_STAGE/.stock-fp"
 # overlay mounts do not survive one) or after a firmware update (which replaces
 # the tree the staged copy was built from).
 SYSTEMUI_ON="$STATE/.systemui-on"
+
+# The power-on and power-off logos: two small system-UI windows (payload/systemui/BootLogo and
+# MasterBrand) that stand in for LG's, redirected through the same configd entry as Quick Settings.
+# They need no copy of LG's tree, only the logo components that LumaHome's module already carries
+# ($SHADOW_ROOT/WebOSCompositor/$QML_MODULE/logo), and answer tvpowerd by themselves if those
+# are missing, so a redirect never holds a power-off.
+LOGO_ON="$STATE/.logo-on"
+LOGO_BOOT_APP=com.webos.app.bootlogo
+LOGO_OFF_APP=com.webos.app.masterbrand
 
 # The web-app settings surfaces. Their UI is Enact/Sandstone drawn as a
 # transparent overlay, so a stylesheet is all it takes; the mount that delivers
@@ -836,6 +865,49 @@ verb_webglass() {
       printf '{"ok":true,"mounted":%s}\n' "$n"
       ;;
     *) emit_error "usage: webglass on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
+logo_set() {
+  # $1 = on|off. The staged windows are laid down first, so a redirect never points at a file that
+  # is not there. The windows are preloaded surfaces: closed after the redirect, the next launch
+  # loads from the new path.
+  if [ "$1" = on ]; then
+    for w in BootLogo MasterBrand; do
+      mkdir -p "$SYSTEMUI_STAGE/$w" 2>/dev/null || return 1
+      cp -f "$SYSTEMUI_SRC/$w/$w.qml" "$SYSTEMUI_STAGE/$w/$w.qml" 2>/dev/null || return 1
+    done
+    python3 "$SYSTEMUI_TOOL" on "$LOGO_BOOT_APP" "$SYSTEMUI_STAGE/BootLogo/BootLogo.qml" < /dev/null 2>>"$LOGFILE" || return 1
+    python3 "$SYSTEMUI_TOOL" on "$LOGO_OFF_APP" "$SYSTEMUI_STAGE/MasterBrand/MasterBrand.qml" < /dev/null 2>>"$LOGFILE" || return 1
+  else
+    python3 "$SYSTEMUI_TOOL" off "$LOGO_BOOT_APP" < /dev/null 2>>"$LOGFILE" || return 1
+    python3 "$SYSTEMUI_TOOL" off "$LOGO_OFF_APP" < /dev/null 2>>"$LOGFILE" || return 1
+  fi
+  for app in "$LOGO_BOOT_APP" "$LOGO_OFF_APP"; do
+    luna-send -n 1 luna://com.webos.service.systemUIManager/closeByAppId "{\"appId\":\"$app\"}" >/dev/null 2>&1
+  done
+  return 0
+}
+
+verb_logo() {
+  case "${1:-status}" in
+    on|off)
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      if logo_set "$1"; then
+        [ "$1" = on ] && : > "$LOGO_ON" || rm -f "$LOGO_ON"
+        log_line "logo $1"
+        printf '{"ok":true,"logo":"%s","main":%s}\n' "$1" "$(python3 "$SYSTEMUI_TOOL" status < /dev/null 2>/dev/null || echo null)"
+      else
+        emit_error "could not switch the logos to $1"
+        return 1
+      fi
+      ;;
+    status)
+      printf '{"ok":true,"on":%s,"main":%s}\n' "$( [ -f "$LOGO_ON" ] && echo true || echo false )" \
+        "$(python3 "$SYSTEMUI_TOOL" status < /dev/null 2>/dev/null || echo null)"
+      ;;
+    *) emit_error "usage: logo on|off|status"; return 1 ;;
   esac
   return 0
 }
@@ -1585,6 +1657,64 @@ TILEICONS="$APPDIR/tools/tileicons.js"
 NODE=/usr/bin/node
 TILES_CHANGED=0
 
+# ------------------------------------------------------------------- helper
+
+helper_start() {
+  # Idempotent. Needs $STATE writable (the boot worker and apply run after /var is). A failure is
+  # logged and never fatal: Home draws the last saved weather and news without it.
+  [ -x "$HELPER_SRC" ] || { log_line "helper: no helper in the package"; return 1; }
+  if ! cmp -s "$HELPER_SRC" "$HELPER_BIN" 2>/dev/null; then
+    [ -x "$HELPER_BIN" ] && "$HELPER_BIN" stop --brand "$APPDIR/brand.json" >/dev/null 2>&1
+    mkdir -p "$STATE/bin" 2>/dev/null \
+      && cp -f "$HELPER_SRC" "$HELPER_BIN.new" 2>/dev/null && chmod 755 "$HELPER_BIN.new" \
+      && mv -f "$HELPER_BIN.new" "$HELPER_BIN" 2>/dev/null \
+      || { rm -f "$HELPER_BIN.new"; log_line "helper: could not stage the binary"; return 1; }
+  fi
+  out=$("$HELPER_BIN" start --brand "$APPDIR/brand.json" 2>&1)
+  case "$out" in
+    *'"ok":true'*) return 0 ;;
+  esac
+  log_line "helper: start failed: $(printf '%s' "$out" | tr -d '\n' | cut -c1-200)"
+  return 1
+}
+
+helper_stop() {
+  [ -x "$HELPER_BIN" ] || return 0
+  "$HELPER_BIN" stop --brand "$APPDIR/brand.json" >/dev/null 2>&1
+  return 0
+}
+
+helper_json() {
+  out=""
+  [ -x "$HELPER_BIN" ] && out=$("$HELPER_BIN" status --brand "$APPDIR/brand.json" 2>/dev/null | tr -d '\n')
+  case "$out" in
+    '{'*'}') printf '%s' "$out" ;;
+    *) printf '{"running":false}' ;;
+  esac
+}
+
+verb_helper() {
+  case "$1" in
+    start) if helper_start; then printf '{"ok":true,"helper":%s}\n' "$(helper_json)"; else emit_error "helper did not start; see $LOGFILE"; return 1; fi ;;
+    stop) helper_stop; printf '{"ok":true,"helper":%s}\n' "$(helper_json)" ;;
+    status) printf '{"ok":true,"helper":%s}\n' "$(helper_json)" ;;
+    *) emit_error "helper: start, stop or status"; return 1 ;;
+  esac
+  return 0
+}
+
+verb_preload() {
+  case "$1" in
+    on|off|status)
+      out=$(python3 "$PRELOAD_TOOL" "$1" "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null 2>>"$LOGFILE"); rc=$?
+      [ -n "$out" ] || out='{"ok":false,"error":"preload tool failed"}'
+      printf '%s\n' "$out"
+      [ "$1" = status ] || log_line "preload $1: $(printf '%s' "$out" | cut -c1-200)"
+      return $rc ;;
+    *) emit_error "preload: on, off or status"; return 1 ;;
+  esac
+}
+
 restart_launchpoint_services() {
   systemctl restart sam.service >/dev/null 2>&1
   i=0; while [ "$i" -lt 20 ] && ! systemctl is-active sam.service >/dev/null 2>&1; do sleep 1; i=$((i+1)); done
@@ -1610,6 +1740,9 @@ do_revert_internal() {
   # compositor restart / Home relaunch is warranted.
   REVERT_CHANGED=0
 
+  helper_stop
+  [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
+
   # LG's Home first, so what the restart below brings up is LG's, not the stub.
   homestub_drop legacy
   if [ "${HS_DROPPED:-0}" = 1 ]; then REVERT_CHANGED=1; fi
@@ -1623,6 +1756,7 @@ do_revert_internal() {
   rm -f "$ENV_EXTRA"
   clear_qml_cache
   keyfilter_set remove
+  [ -f "$LOGO_ON" ] && logo_set off
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
   remove_early_hook
@@ -1772,6 +1906,7 @@ verb_apply() {
   # Both are no-ops when they are already in place.
   [ -f "$SYSTEMUI_ON" ] && { systemui_set on || log_line "apply: could not point Quick Settings at the staged tree"; }
   [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "apply: could not mount the settings-app stylesheet"; }
+  [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
 
   # What the compositor reads (QML, wallpaper) is tracked apart from the rest
   # of the set: a running compositor that already has the shadow only needs a
@@ -1854,6 +1989,12 @@ verb_apply() {
   # 5c. The Home stub, before anything restarts, so the Home the compositor's
   # restart relaunches is the stub.
   homestub_sync
+
+  # 5d. The helper before the compositor restarts, so Home's first request finds it. Not fatal.
+  helper_start
+  # The preload list is configd's and survives a restart; re-asserted only where `preload on` was
+  # run, and written only when it differs.
+  [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" on "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>>"$LOGFILE"
 
   # 6. Bring the change on screen.
   #
@@ -2046,8 +2187,9 @@ verb_status() {
   model_esc=$(json_escape "$(get_model)")
   standby=$(standby_mode)
   homestub=$(homestub_json)
-  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s}\n' \
-    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub"
+  helper=$(helper_json)
+  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s}\n' \
+    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper"
   return 0
 }
 
@@ -2284,6 +2426,26 @@ verb_fps() {
   return 0
 }
 
+# ------------------------------------------------------------------ restart
+
+verb_restart() {
+  # The restart apply performs when the compositor must reread its QML, without a stage change:
+  # the QML cache is kept, so this is the start every boot after the first sees. Used to time
+  # startup (docs/research/perf/startup.py).
+  if ! take_mutation_lock; then
+    emit_error "another apply or revert is still running"
+    return 1
+  fi
+  if ! restart_surface; then
+    emit_error "compositor did not become active after restart"
+    return 1
+  fi
+  home_back_after_restart
+  log_line "restart: compositor restarted"
+  printf '{"ok":true}\n'
+  return 0
+}
+
 # ------------------------------------------------------------------ standby
 
 SETTINGS_GET_URI="luna://com.webos.settingsservice/getSystemSettings"
@@ -2434,7 +2596,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch)
+  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -2490,6 +2652,10 @@ case "$VERB" in
   revert) verb_revert; exit $? ;;
   persist) verb_persist "${2:-}"; exit $? ;;
   fps) verb_fps "${2:-}"; exit $? ;;
+  restart) verb_restart; exit $? ;;
+  helper) verb_helper "${2:-status}"; exit $? ;;
+  preload) verb_preload "${2:-status}"; exit $? ;;
+  logo) verb_logo "${2:-status}"; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
   ntfy) verb_ntfy "${2:-}" "${3:-}"; exit $? ;;
   log) verb_log "${2:-}"; exit $? ;;

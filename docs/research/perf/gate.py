@@ -8,7 +8,8 @@ timing, markers at the instant of the key), captures with capture.sh, cuts the t
 window per marker with analyse.py and checks every window against the thresholds below:
 
   p90 animated-frame render      < 3.0 ms, over every frame of the surface's cycles pooled
-  animated frames over 20 ms     none inside a running animation (`dropped` counts those, and
+  animated frames over 20 ms     none inside a running animation under LumaTV's compositor; under
+                                 LG's, at most LG_COMPOSITOR_DROP_SHARE of them (`dropped` counts those, and
                                  `burst_over20` the intervals inside the burst a key starts); the
                                  first animated frame after an idle gap is late by construction
   first frame after the key      <= 50 ms
@@ -91,6 +92,11 @@ THRESHOLDS = {
     'first_frame_ms': 50.0,   # marker to first presented frame
     'burst_end_ms': 180.0,    # marker to the last frame of that burst: "fully open"
 }
+
+# Under LG's compositor the floor is not ours to fix: a trivial client over idle Home takes two
+# vblanks for 17 % of its frames (X1, PLAN.md), so there `dropped` is held to that share of the
+# animated frames instead of to zero. LumaTV's own compositor is held to zero.
+LG_COMPOSITOR_DROP_SHARE = 0.17
 
 MEASURE_CYCLES = 3
 SOAK_DEFAULT_CYCLES = 10
@@ -360,7 +366,7 @@ def _worst(values):
     return max(vals) if vals else None
 
 
-def evaluate_windows(s, report, cycles):
+def evaluate_windows(s, report, cycles, lg_compositor=False):
     """Checks for one surface from an analyse.py report that holds `cycles` cycles (windows of
     several captures concatenated)."""
     th = s['thresholds']
@@ -368,7 +374,8 @@ def evaluate_windows(s, report, cycles):
     closes = [w for w in report['windows'] if w['name'] == f"{s['name']}-close"]
     keyed = opens + (closes if s['transition'] else [])
     expected = cycles * (2 if s['transition'] else 1)
-    dead = [w['name'] for w in keyed if w['first_frame_ms'] is None]
+    # A surface whose first frame is not checked has no key to answer (Home idle): an empty burst there is not a dead key.
+    dead = [w['name'] for w in keyed if w['first_frame_ms'] is None and th['first_frame_ms'] is not None]
     out = [check('windows', len(keyed) == expected and not dead, f'{len(keyed)}/{expected}', f'== {expected}',
                  ('no frame after the key in ' + ', '.join(dead)) if dead else
                  ('marker lost: trace overflow or key not delivered' if len(keyed) != expected else ''))]
@@ -404,7 +411,13 @@ def evaluate_windows(s, report, cycles):
                              'worst single window'))
     if th['dropped'] is not None:
         v = sum(w.get('dropped_in_motion', w['dropped']) for w in keyed)
-        out.append(check('dropped', v <= th['dropped'], v, f"<= {th['dropped']}"))
+        frames = sum(w.get('anim_frames') or 0 for w in keyed)
+        if lg_compositor and th['dropped'] == 0:
+            share = v / frames if frames else 0.0
+            out.append(check('dropped_share', share <= LG_COMPOSITOR_DROP_SHARE, round(share, 3), f'<= {LG_COMPOSITOR_DROP_SHARE}',
+                             f"{v} of {frames} animated frames, LG's compositor floor"))
+        else:
+            out.append(check('dropped', v <= th['dropped'], v, f"<= {th['dropped']}"))
     if th['burst_over20'] is not None:
         v = sum(w['burst_over20'] for w in keyed)
         out.append(check('burst_over20', v <= th['burst_over20'], v, f"<= {th['burst_over20']}"))
@@ -497,6 +510,11 @@ class Rig:
 
     def remember_compositor(self, pid):
         self.set.sm_pid = pid
+
+    def lg_compositor(self):
+        """True while LG's surface-manager draws; False when LumaTV's compositor is the live one."""
+        rc, out, _ = self.sh('pgrep -f bin/lumatv-compositor')
+        return not (rc == 0 and out.split())
 
     def compositor_pid(self):
         rc, out, _ = self.sh('pidof surface-manager')
@@ -594,7 +612,7 @@ def run_surface(rig, s, tag, soak_cycles, log):
                 checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
             reports.append(rig.analyse(name))
         report = merge_reports(reports)
-        checks += evaluate_windows(s, report, MEASURE_CYCLES)
+        checks += evaluate_windows(s, report, MEASURE_CYCLES, rig.lg_compositor())
         res['windows'] = [{k: w.get(k) for k in WINDOW_KEYS} for w in report['windows']
                           if w['name'] in (f"{s['name']}-open", f"{s['name']}-close")]
         scan(mark)

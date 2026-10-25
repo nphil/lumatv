@@ -11,7 +11,10 @@ UP, DOWN at 350 ms) in a full trace. The conditions alternate off, on, on, off, 
 cancels. The warm-up is switched by theme.json `warmup.enabled`, read at compositor start.
 
 Prints, per run: first present after the restart call, the warm-up's own summary line from the
-compositor log, and for the sweep the worst frame gap, frames over 20 ms and p90 animated render.
+compositor log, and for the sweep the animated frames over 20 ms inside the animation, the p90 of
+the animated render time and the render time of the first frames after the first key (where the
+cost of anything drawn for the first time lands). The window's worst gap is not reported: idle
+Home's 10 updates a second make it 100 ms by construction.
 Home must be in front and the screen on when it starts. The set ends with the warm-up on.
 """
 import argparse
@@ -88,7 +91,8 @@ def one_run(rig, warm, sweep_at, tag):
     report = rig.analyse(name)
     w = next((x for x in report['windows'] if x['name'] == 'sweep'), None)
     if w:
-        res['sweep'] = {k: w.get(k) for k in ('frames', 'anim_frames', 'over20', 'worst_ms', 'dropped', 'anim_render_ms')}
+        res['sweep'] = {k: w.get(k) for k in ('frames', 'anim_frames', 'over20', 'worst_ms', 'dropped', 'dropped_in_motion', 'anim_render_ms',
+                                              'burst_first_render_ms', 'first_frame_ms')}
     lines, _ = log.since(mark)
     res['warmup_log'] = [m.group(1) for m in (WARMUP_LINE.search(ln) for ln in lines) if m]
     res['errors'] = gate.log_failures(lines)[0][:5]
@@ -123,8 +127,9 @@ def main(argv=None):
         if rows:
             print('warmup', 'on ' if warm else 'off',
                   'first present %s s' % sorted(r['first_present_after_call_s'] for r in rows),
-                  'worst frame %s ms' % sorted(round(r['sweep']['worst_ms'], 1) for r in rows),
-                  'over 20 ms %s' % sorted(r['sweep']['over20'] for r in rows))
+                  'drops in motion %s' % sorted(r['sweep']['dropped_in_motion'] for r in rows),
+                  'render p90 %s ms' % sorted(r['sweep']['anim_render_ms']['p90'] for r in rows if r['sweep']['anim_render_ms']),
+                  'first frames max %s ms' % sorted(max(r['sweep']['burst_first_render_ms'] or [0]) for r in rows))
     return 0
 
 

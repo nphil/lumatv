@@ -817,7 +817,7 @@ Item {
         }
         return best
     }
-    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.beat(); loadAll(); readMode() }
+    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.beat(); loadAll(); readMode(); Helper.start() }
     Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
