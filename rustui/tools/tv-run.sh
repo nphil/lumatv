@@ -31,7 +31,7 @@ echo "== $NAME: $PHASES $* | CmaFree $(cma) kB | MemAvailable $(grep MemAvailabl
 sh "$D/capture.sh" start "$NAME" basic
 if [ -n "${SHOT:-}" ]; then
   ( sleep "$SHOT"; luna-send -n 1 -f luna://com.webos.service.capture/executeOneShot \
-      "{\"path\":\"/tmp/rustui/$NAME.png\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":1920,\"height\":1080}" >/dev/null 2>&1 ) &
+      "{\"path\":\"/tmp/rustui/$NAME.png\",\"method\":\"DISPLAY\",\"format\":\"PNG\",\"width\":960,\"height\":540}" >/dev/null 2>&1 ) &
 fi
 sh "$GFX/launch.sh" --grace 5 -- "$D/lumatv-rustui" --mode window --assets "$D/assets" --shm /tmp/rustui/shm \
   --run "$PHASES" --log "$D/$NAME.log" "$@" > "$D/$NAME.out" 2>&1

@@ -26,6 +26,10 @@ RUNS = os.path.join(ROOT, "rustui", "build", "runs")
 
 def upload():
     state = tv.tv("luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}'")
+    if "Screen Saver" in state:  # LG's idle detector starts it 180 s after the last remote key; a key ends it
+        tv.put(os.path.join(ROOT, "docs", "research", "perf", "kb.py"), "/tmp/kb.py")
+        tv.tv("python3 /tmp/kb.py HOME s2")
+        state = tv.tv("luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}'")
     if not re.search(r'"state"\s*:\s*"Active"', state):
         sys.exit("refusing to run: power state is not Active (screen on): %s" % state.strip())
     gfx = os.path.join(ROOT, "gfx64", "build")
@@ -71,7 +75,7 @@ def main():
     out = tv.tv(cmd, timeout=int(seconds) + 120)
     print(out)
     os.makedirs(RUNS, exist_ok=True)
-    for ext, remote_dir in (("log", REMOTE), ("out", REMOTE), ("trace", "/tmp/perf"), ("sys", "/tmp/perf")) + ((("png", REMOTE),) if shot else ()):
+    for ext, remote_dir in (("log", REMOTE), ("out", REMOTE), ("csv", REMOTE), ("trace", "/tmp/perf"), ("sys", "/tmp/perf")) + ((("png", REMOTE),) if shot else ()):
         try:
             tv.get("%s/%s.%s" % (remote_dir, name, ext), os.path.join(RUNS, "%s.%s" % (name, ext)))
         except Exception as e:  # a run that failed early has no trace

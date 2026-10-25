@@ -5,15 +5,10 @@ faster or smoother than today's QML LumaHome inside LG's Qt 5.12 compositor? The
 
 ## Resume here
 
-State (2026-10-25 05:35 EDT): the client is built and passes on the host (Mesa, offscreen and as a window on a headless Weston); the
-aarch64 build is current. No TV run yet: Main postponed the slot (Netflix debugging held the set until 07:00; a 15 minute slot had been
-offered for 07:35-07:50, then withdrawn). The whole slot is scripted. Next steps, in order:
-
-1. When Main grants a slot ("go RustUi2"), with the screen on (`tv-run.sh` refuses in Active Standby): `sh rustui/tools/slot.sh [HHMM]`
-   (deadline default 0748; extras are skipped when time is short). It uploads, takes the 8 s look (`rustui/build/runs/look.png`: the
-   picture must be upright, else the flip pass is wrong), runs `idle:45,mix:30`, then `--direct` and `--gpu-sync` runs if time is left,
-   and prints the RESULT lines. Needs about 6 minutes for the first two steps, 15 with the extras.
-2. Fill "TV results" and the recommendation from the numbers, commit, send "TV back".
+State (2026-10-25 07:16 EDT): the TV slot ran; results and the recommendation are below (keep QML now). The spike is closed. The one open
+follow-up, if Rust surfaces are wanted after the cutover: draw the scene flipped (projection) instead of the copy pass, measure again with
+`python3 rustui/tools/tv-run.py NAME idle:30,mix:30 [--direct] [--gpu-sync] --frames /tmp/rustui/NAME.csv` (screen on; a slot from Main), and
+add damage tracking so an idle frame costs under 1 ms of GPU. The set was returned in Active Standby (powerOff remoteKey).
 
 ## What was built
 
@@ -63,33 +58,60 @@ no figure here says anything about the set). As a window on a headless Weston (l
 Wayland backend, display and surface pointers into EGL, window surface, swap, event dispatch): 198 frames in 5 s of `dpad`, 39 fps because
 llvmpipe is the renderer.
 
-## TV runs
+## TV runs (2026-10-25 07:00-07:16 EDT, one slot, screen on, LG's compositor, QML Home hidden behind the overlay)
 
-Not run yet; `rustui/tools/slot.sh` is the plan (screen on, the QML Home hidden behind the overlay):
+Files are in `docs/research/rustui-runs/` (client logs, per-frame CSVs, 1 s system samples, `qml-gate.txt`, `look.png`). All through `tools/tv-run.py`:
 
-1. Upload, 8 s look with a screenshot.
-2. `idle:45,mix:30` (idle 45 s, then the `dpad` and `sweep` scripts of the QML gate in turn for 30 s).
-3. If time is left: `idle:15,mix:30 --direct` (what the flip pass costs) and `mix:30 --gpu-sync` (frame time through the GPU).
-4. The QML numbers to compare with: `docs/research/surfaces-p2-result.md` Slot 1 (Home idle pooled p90 render 2.57 ms over 69 frames;
-   D-pad 2.79 ms, 6 of 533 animated frames dropped; sweep 2.91 ms, 0 of 250; under LG's compositor 17 % of frames of a trivial client
-   take two vblanks, the X1 floor) and `docs/research/perf/summary-2026-10-24-phase1.txt` (idle Home 12.5 fps presented, compositor CPU
-   4.3 % of a core, GPU busy 10 %; D-pad sweep 3.9-4.4 % of animated frames dropped). The Rust run is an overlay under the same LG
-   compositor, so the X1 floor applies to it as well; compare its drops with that floor, not with zero.
+- `look`: 8 s with a screenshot. The picture is the QML Home's, upright, text sharp (the flip pass is right). The Home builds in 255 ms.
+- `rust1`: idle 60 s, then `mix` 30 s (the gate's `dpad` and `sweep` scripts in turn, 116 keys). `rust2`: idle 30 s, `mix` 30 s.
+- `rust-direct2`: idle 30 s, `mix` 30 s with `--direct` (no flip copy; upside down, irrelevant to the measurement). `rust-gpusync` and
+  `rust-direct`: `--gpu-sync`, the CPU waits for the GPU after each frame, which gives GPU time per frame.
+- QML, same slot and set state: `perf/gate.py --surfaces home-idle,home-dpad,home-sweep --cycles 4`, plus a `capture.sh` sampler (45 s
+  idle, then 25 s of D-pad and sweep keys through `kb.py`) for GPU busy and compositor CPU.
 
 ## TV results
 
-Pending.
+"Over 20 ms" is a gap between presents. GPU is the whole Mali (`mali0` busy over the phase: it includes LG's compositor, which still draws the
+hidden QML Home at 10 fps and composites the overlay). CPU is utime+stime; "LG" is surface-manager.
+
+| | Idle, QML | Idle, Rust | D-pad + sweep, QML | D-pad + sweep, Rust (flip pass) | D-pad + sweep, Rust `--direct` |
+|---|---|---|---|---|---|
+| presented fps | not logged | 10.0 | not logged | 54.3, 54.1 | 54.5 |
+| animated frames over 20 ms | 0 of 32 | 0 | D-pad 2 of 517 (0.4 %), sweep 1 of 212 (0.5 %) | 72 of 1512 (4.8 %), 81 of 1506 (5.4 %) | 6 of 1514 (0.4 %) |
+| animated gap p50 / p90 | | 100 / 100.4 ms (10 fps by design) | | 17.0 / 19.9 ms | 16.5 / 17.6 ms |
+| render p50 / p90 | 2.74 ms p90 (gate) | CPU to issue 1.4 / 1.9 ms; GPU-done p50 6.2 ms (5.1 direct) | 2.61 ms p90 D-pad, 2.93 ms sweep (gate) | draw call 16.6 / 19.3 ms (it blocks on the GPU queue); `--gpu-sync`: CPU 1.6, GPU-done 12.9 / 16.9 ms | draw call 16.1 / 17.2 ms; `--gpu-sync`: GPU-done 5.6 / 16.6 ms |
+| client CPU | 0 | 2.6 % of a core | 0 | 11.8 %, 11.5 % | 10.3 % |
+| LG CPU | 4.9 % | 8.9 % | 11.3 % | 22.2 %, 21.9 % | 22.2 % |
+| GPU busy | 9.9 % | 23.4 %, 23.7 % | 25.2 % | 70.9 %, 70.7 % | 66.5 % |
+| client RSS | n/a | 132-136 MB | n/a | 134-138 MB | 135-138 MB |
+
+The two D-pad columns are not the same workload: the Rust `mix` presses keys for the whole 30 s (about 1510 animated frames), the QML sampler's
+25 s has pauses (860 frames at 31.8 fps), so its GPU and CPU are for fewer animated frames. What compares directly is the drop share and
+the per-frame time (the gate's render p90 of 2.6-2.9 ms against the client's GPU-done 12.9 ms p50 with the flip pass). Idle is the same
+workload on both sides.
+
+1. The client runs on the set: 64-bit Mali-G52 blob (ES 3.2), as an LG overlay, 127 layers, glyph-run text, 116 scripted keys, no GL error, no
+   crash across six runs.
+2. Idle costs more than QML: GPU 23.5 % against 9.9 %, 6.2 ms of GPU for each 10 fps frame, of which the flip copy is 1.1 ms (6.24 against
+   5.14 ms).
+3. In motion a frame takes 12.9 ms p50 and 16.9 ms p90 through the GPU with the flip pass (budget 16.67 ms) with the GPU 66-71 % busy;
+   5 % of frames pass 20 ms (10 % under `--gpu-sync`). Without the copy pass, 6 of 1514 (0.4 %): the same share as QML under this compositor.
+   The copy pass is what tips it over. Drawing the scene flipped (projection) instead of copying was not tried.
+4. Client RSS grew 1.3-3.6 MB during each 30 s `mix` phase; not soaked, so not known to be a leak.
+5. LG's screen saver starts 180 s after the last remote key and it came on between runs; `tv-run.py` now wakes it with a Home key through
+   `kb.py`. The screenshot call needs 960x540 on this firmware (1920x1080 returns ERROR_INTERNAL; `tv-run.sh` fixed).
 
 ## Recommendation
 
-Not decided: there is no TV measurement yet. Established on the host: LumaShow's toolkit draws LumaHome's look and layout as a 64-bit
-Wayland client with zero text pictures, so what is open is speed and smoothness on the C4's Mali. Decision rule, to apply to the TV results:
+Now, under LG's compositor: keep QML for LumaHome and every existing surface. The Rust client is neither faster nor smoother: idle GPU 23.5 %
+against 9.9 %, 5 % of animated frames over 20 ms against 0.4 %, the GPU 66-71 % busy in motion with no headroom, and 132-138 MB of
+client RSS on top of LG's compositor. Without the copy pass it only ties QML on drops, at 66.5 % GPU for the whole set.
 
-- Now (under LG's compositor): Rust is better only if its dropped-frame share is clearly under the QML Home's 1.1 % (D-pad) and its idle
-  GPU busy and CPU are at or under 10 % and 4.3 % of a core. Within the X1 floor (17 % two-vblank frames for a trivial client) it is a
-  tie, and a tie keeps QML for the existing surfaces (no rewrite cost).
-- After the cutover (LumaTV's own compositor, which removes the X1 floor): QML Home's 6 of 533 drops are compositor-made, so what matters
-  is render p50/p90 and RSS. Rust in the app's process adds a GL context and the glyph atlas [INFERENCE]; if its RSS exceeds QML's by more
-  than the compositor-side saving, keep QML for Home and use Rust only for surfaces where QML shows its own floor.
+After the cutover: the copy pass, the app-in-process indirection and LG's two-vblank floor (17 % of frames of a trivial client) do not
+exist under LumaTV's compositor, so drops should match or beat QML. What does not change is the renderer's cost per frame, 5-6 ms of GPU
+for a full redraw. Before Home moves to Rust: an idle 10 fps frame must cost under 1 ms of GPU (redraw only what changed: not in the toolkit
+today [INFERENCE: the idle cost is the same with only the clock hand changing, not tested]) and Home must pass `gate.py` (animated p90 under
+3 ms, none over 20 ms) in LumaTV's compositor. New surfaces: QML until that gate passes with a Rust surface; the toolkit stays the
+compositor's own renderer.
 
-Final text after the TV results.
+Not measured: pointer movement, video behind or in front, Quick Settings in Rust, the same frame under LumaTV's compositor (not live yet).
