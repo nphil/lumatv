@@ -141,12 +141,12 @@ impl TileSet {
         }
         let (c0, c1) = ((x0 / TILE) as usize, ((x1 + TILE - 1) / TILE) as usize);
         let (r0, r1) = ((y0 / TILE) as usize, ((y1 + TILE - 1) / TILE) as usize);
-        let mut mask = vec![0u64; self.words];
-        set_range(&mut mask, c0, c1);
-        for row in r0..r1 {
-            let at = row * self.words;
-            for w in 0..self.words {
-                self.bits[at + w] |= other.bits[at + w] & mask[w];
+        let (first, last) = (c0 / 64, (c1 - 1) / 64);
+        for w in first..=last {
+            let mask = range_mask(if w == first { c0 % 64 } else { 0 }, if w == last { (c1 - 1) % 64 + 1 } else { 64 });
+            for row in r0..r1 {
+                let at = row * self.words + w;
+                self.bits[at] |= other.bits[at] & mask;
             }
         }
     }

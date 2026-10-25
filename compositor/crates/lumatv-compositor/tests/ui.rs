@@ -140,20 +140,21 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
             let mut r: Vec<Rect> = Vec::new();
             tiles.rects(&mut r);
             let state_before = state(ui);
-            ui.draw_under(fbo, tiles).expect("stack 0");
+            ui.draw_under(fbo, &r).expect("stack 0");
             if check {
                 assert_eq!(state(ui), state_before, "frame {k}: draw_under left the context's state changed");
             }
             window(&egl, fbo, at, &r);
             let state_before = state(ui);
-            ui.draw_over(fbo, tiles).expect("stack 1");
+            ui.draw_over(fbo, &r).expect("stack 1");
             if check {
                 assert_eq!(state(ui), state_before, "frame {k}: draw_over left the context's state changed");
             }
         };
         compose(&mut ui, pages[k % 3], &owed, true);
         compose(&mut ui, reference, &all, false);
-        let cost = ui.finish(now).expect("finish");
+        let cost = ui.finish().expect("finish");
+        ui.presented(now, &cost);
         changed_px += cost.damage_px;
         assert_eq!(cost.gl_error, None, "frame {k}: a GL error");
         ui.tidy();
@@ -162,6 +163,13 @@ fn the_demo_surface_is_drawn_into_the_compositors_pages_as_the_ring_owes_them() 
         if drawn != whole {
             let at = drawn.iter().zip(&whole).position(|(a, b)| a != b).expect("a difference") / 4;
             panic!("frame {k}: the page differs from the frame drawn whole, first at ({}, {}); {} px owed", at as u32 % W, at as u32 / W, owed.pixels());
+        }
+        // What the page shows is the demo's, not the black it started as (the engine drew nothing at all once: its attribute
+        // arrays were off, and the two pages agreed on it).
+        let pixel = |x: u32, y: u32| &drawn[((y * W + x) * 4) as usize..][..4];
+        assert_eq!(pixel(40, 40), [18, 20, 32, 255], "frame {k}: the ground is not on the page");
+        if (110..140).contains(&k) {
+            assert_eq!(pixel(770, 942), [245, 245, 255, 255], "frame {k}: the volume bar is not on the page");
         }
         frames += 1;
     }

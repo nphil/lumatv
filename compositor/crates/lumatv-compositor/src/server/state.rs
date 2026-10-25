@@ -317,7 +317,11 @@ impl State {
         let State { scene, surfaces, output, stats, .. } = self;
         let plan = scene.plan(surfaces);
         let mut drew = false;
-        if !plan.damage.is_empty() {
+        let ui_changed = output.ui_needs_frame().unwrap_or_else(|e| {
+            log::error!("system UI: {e}");
+            false
+        });
+        if !plan.damage.is_empty() || ui_changed {
             match output.render(plan, surfaces) {
                 Ok(st) => {
                     drew = true;

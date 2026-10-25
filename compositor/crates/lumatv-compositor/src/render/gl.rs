@@ -67,6 +67,12 @@ pub struct Gl {
     gl_errors: u64,
     /// The pointer's sprite, uploaded once (RGBA, premultiplied) the first time the cursor shows.
     cursor_tex: Option<GLuint>,
+    rects: Vec<Rect>,
+    redraw_all: bool,
+    #[cfg(feature = "ui")]
+    ui: Option<crate::ui::Ui>,
+    #[cfg(feature = "ui")]
+    ui_frame: Option<lumatv_render::host::FrameCost>,
 }
 
 const VS: &str = "attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;\nvoid main() { gl_Position = vec4(a_pos, 0.0, 1.0); v_uv = a_uv; }\n";
@@ -132,7 +138,70 @@ impl Gl {
             import_failures: 0,
             gl_errors: 0,
             cursor_tex: None,
+            rects: Vec::new(),
+            redraw_all: false,
+            #[cfg(feature = "ui")]
+            ui: None,
+            #[cfg(feature = "ui")]
+            ui_frame: None,
         })
+    }
+
+    /// Attaches a system-layer client before rendering starts; the returned socket carries its scene protocol.
+    #[cfg(feature = "ui")]
+    pub fn attach_ui(&mut self, driver: &str, system_z: i32, shm: std::path::PathBuf) -> io::Result<std::os::unix::net::UnixStream> {
+        if self.ui.is_some() {
+            return Err(io::Error::other("a UI client is already attached"));
+        }
+        // SAFETY: this renderer owns the current context, and drops the UI before that context.
+        let (ui, app) = unsafe { crate::ui::Ui::new(driver, self.width, self.height, system_z, shm) }?;
+        self.ui = Some(ui);
+        for target in &mut self.targets {
+            target.top_down = true;
+        }
+        Ok(app)
+    }
+
+    #[cfg(feature = "ui")]
+    pub fn ui(&mut self) -> Option<&mut crate::ui::Ui> {
+        self.ui.as_mut()
+    }
+
+    pub fn has_ui(&self) -> bool {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.is_some()
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            false
+        }
+    }
+
+    pub fn plan_ui(&mut self, _damage: &mut crate::damage::Tiles) -> io::Result<()> {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.plan(lumatv_render::now_ns(), _damage)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "ui")]
+    pub fn take_ui_frame(&mut self) -> Option<lumatv_render::host::FrameCost> {
+        self.ui_frame.take()
+    }
+
+    #[cfg(feature = "ui")]
+    pub fn ui_presented(&mut self, at: u64, cost: &lumatv_render::host::FrameCost) {
+        if let Some(ui) = &mut self.ui {
+            ui.presented(at, cost);
+        }
+    }
+
+    /// Whether the next frame must draw all of its target (a ring forgets what its pages hold): the system UI went away,
+    /// and the pages show its layers wherever nothing has been drawn since.
+    pub fn take_redraw_all(&mut self) -> bool {
+        std::mem::take(&mut self.redraw_all)
     }
 
     /// The sprite's texture: made on first use. RGBA is uploaded as RGBA whatever the shm path uses, so this
@@ -404,8 +473,9 @@ impl Gl {
         let t0 = std::time::Instant::now();
         self.prune(surfaces);
         let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
-        if rects.is_empty() {
-            return Ok(stats);
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.draw_under(self.targets[self.current.0].fbo, rects)?;
         }
         let fbo = self.targets[self.current.0].fbo;
         // SAFETY: GL state calls on the current context and this renderer's objects.
@@ -415,10 +485,12 @@ impl Gl {
             (a.glViewport)(0, 0, self.width as i32, self.height as i32);
             (a.glUseProgram)(self.program);
             (a.glEnable)(egl::GL_SCISSOR_TEST);
-            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
-            for r in rects {
-                self.scissor(r);
-                (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+            if !self.has_ui() {
+                (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
+                for r in rects {
+                    self.scissor(r);
+                    (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+                }
             }
             (a.glEnable)(egl::GL_BLEND);
             (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
@@ -455,6 +527,17 @@ impl Gl {
                     (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
                 }
             }
+        }
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.draw_over(fbo, rects)?;
+            let cost = ui.finish()?;
+            ui.tidy();
+            if let Some(err) = cost.gl_error {
+                self.gl_errors += 1;
+                log::warn!("gl error 0x{err:x} in the system UI's frame");
+            }
+            self.ui_frame = Some(cost);
         }
         if let Some(c) = plan.cursor {
             let tex = self.cursor_texture();
@@ -575,6 +658,8 @@ use std::os::fd::AsRawFd;
 
 impl Drop for Gl {
     fn drop(&mut self) {
+        #[cfg(feature = "ui")]
+        drop(self.ui.take());
         // SAFETY: objects this renderer created, dropped once; the EGL display outlives them until `egl` drops.
         unsafe {
             for t in self.textures.values() {
@@ -621,15 +706,45 @@ impl Output for Gl {
         }
     }
 
-    fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
-        if plan.damage.is_empty() {
-            return Ok(RenderStats { items: plan.items.len(), ..Default::default() });
+    fn ui_needs_frame(&mut self) -> io::Result<bool> {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            let now = lumatv_render::now_ns();
+            if ui.pump()? {
+                // The app is gone, and its layers with it: the next frame draws everything without them.
+                log::error!("system UI: the app closed its socket; its layers are dropped");
+                self.ui = None;
+                self.redraw_all = true;
+                return Ok(true);
+            }
+            if ui.wants_frame(now) {
+                return Ok(true);
+            }
+            ui.idle(now);
+            return Ok(ui.wants_frame(now));
         }
-        let area = [plan.damage];
-        self.render_rects(plan, surfaces, &area)
+        Ok(false)
+    }
+
+    fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
+        let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| crate::damage::Tiles::new(self.width, self.height));
+        tiles.add(&plan.damage);
+        if self.take_redraw_all() {
+            tiles.fill();
+        }
+        self.plan_ui(&mut tiles)?;
+        let mut rects = std::mem::take(&mut self.rects);
+        tiles.rects(&mut rects);
+        let result = self.render_rects(plan, surfaces, &rects);
+        self.rects = rects;
+        result
     }
 
     fn present(&mut self) -> io::Result<Presented> {
+        #[cfg(feature = "ui")]
+        if let Some(cost) = self.take_ui_frame() {
+            self.ui_presented(lumatv_render::now_ns(), &cost);
+        }
         Ok(self.clock.stamp())
     }
 
@@ -646,6 +761,9 @@ impl Output for Gl {
         let err = self.egl.gl_error();
         if err != egl::GL_NO_ERROR {
             return Err(egl::other(format!("glReadPixels: 0x{err:x}")));
+        }
+        if self.targets[self.current.0].top_down {
+            return Ok(Image { width: self.width, height: self.height, rgba: bottom_up });
         }
         let mut rgba = Vec::with_capacity(bottom_up.len());
         for row in bottom_up.chunks_exact(w * 4).rev() {

@@ -62,6 +62,11 @@ pub trait Output {
     /// re-attach the same buffers every few frames.
     fn forget_buffer(&mut self, buffer: &WlBuffer);
 
+    /// Takes in system UI requests, including changes that do not damage any application window.
+    fn ui_needs_frame(&mut self) -> io::Result<bool> {
+        Ok(false)
+    }
+
     /// Draws the plan into the output's target.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats>;
 

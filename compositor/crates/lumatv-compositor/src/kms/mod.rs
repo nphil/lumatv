@@ -95,6 +95,13 @@ struct PlaneState {
     dst: Rect,
 }
 
+#[derive(Clone, Copy)]
+struct Frame {
+    assignment: Assignment,
+    #[cfg(feature = "ui")]
+    ui: Option<lumatv_render::host::FrameCost>,
+}
+
 pub struct Kms {
     card: Card,
     crtc: crtc::Handle,
@@ -123,7 +130,7 @@ pub struct Kms {
     committed_ns: u64,
     /// A drawn frame waiting for the flip in flight to land; `dispatch_events` commits it. The loop never blocks on
     /// a flip (it used to, up to 100 ms, stalling every client's frame callbacks with it).
-    queued: Option<Assignment>,
+    queued: Option<Frame>,
     /// Set when `render` took over the queued frame's page, so the next `present` reports a replacement.
     replacing: bool,
     pub pacer: Pacer,
@@ -133,7 +140,9 @@ pub struct Kms {
     frame_started_ns: u64,
     frame_ready_ns: u64,
     frame_slot_ns: u64,
-    last_assignment: Option<Assignment>,
+    last_assignment: Option<Frame>,
+    #[cfg(feature = "ui")]
+    pending_ui: Option<lumatv_render::host::FrameCost>,
     /// When the last flip landed, 0 before the first.
     last_flip_ns: u64,
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
@@ -293,6 +302,8 @@ impl Kms {
             frame_ready_ns: 0,
             frame_slot_ns: 0,
             last_assignment: None,
+            #[cfg(feature = "ui")]
+            pending_ui: None,
             last_flip_ns: 0,
             in_run: false,
             flips: 0,
@@ -402,6 +413,10 @@ impl Kms {
             mono_ns().saturating_sub(rt_ns.saturating_sub(stamp_ns))
         };
         self.last_flip_ns = presented_ns;
+        #[cfg(feature = "ui")]
+        if let Some(cost) = self.pending_ui.take() {
+            self.gl.ui_presented(presented_ns, &cost);
+        }
         let shown = Shown { slot_ns: self.frame_slot_ns, started_ns: self.frame_started_ns, ready_ns: self.frame_ready_ns, presented_ns, content_ns: None };
         let landing = self.pacer.presented(&shown);
         if landing.late > 0 {
@@ -411,9 +426,14 @@ impl Kms {
     }
 
     /// Commits a drawn frame now: the GL fence of a composed page goes along as the in-fence.
-    fn commit_frame(&mut self, a: Assignment) -> io::Result<()> {
+    fn commit_frame(&mut self, frame: Frame) -> io::Result<()> {
+        let a = frame.assignment;
         let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
         self.commit(&a, fence)?;
+        #[cfg(feature = "ui")]
+        {
+            self.pending_ui = frame.ui;
+        }
         self.committed_ns = self.now_ns();
         Ok(())
     }
@@ -619,6 +639,10 @@ impl Output for Kms {
         (self.width, self.height)
     }
 
+    fn ui_needs_frame(&mut self) -> io::Result<bool> {
+        self.gl.ui_needs_frame()
+    }
+
     fn query_buffer(&mut self, buffer: &WlBuffer) -> Option<((i32, i32), bool)> {
         self.gl.query_buffer(buffer)
     }
@@ -642,21 +666,31 @@ impl Output for Kms {
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
         // flip is pending, one drawn into (a waiting frame's, or the next).
         if let Some(q) = self.queued.take() {
-            if let Source::Page(i) = q.primary {
+            if let Source::Page(i) = q.assignment.primary {
                 self.next_page = i;
             }
             self.replacing = true;
         }
         let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
-        let direct = plan.sole_fullscreen().and_then(|item| {
-            let fb = self.direct_fb(&item.buffer)?;
-            Some(u32::from(fb))
-        });
+        // Until split-plane composition is enabled, direct scan-out would hide the system layers.
+        let direct = if self.gl.has_ui() {
+            None
+        } else {
+            plan.sole_fullscreen().and_then(|item| {
+                let fb = self.direct_fb(&item.buffer)?;
+                Some(u32::from(fb))
+            })
+        };
         let assignment = match direct {
             Some(fb) => Assignment { primary: Source::Direct(fb), overlay: None },
             None => {
                 let page = self.next_page;
-                let tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| Tiles::new(self.width, self.height));
+                let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| Tiles::new(self.width, self.height));
+                tiles.add(&plan.damage);
+                if self.gl.take_redraw_all() {
+                    self.ring.forget();
+                }
+                self.gl.plan_ui(&mut tiles)?;
                 let owed = self.ring.frame(page, &tiles);
                 owed.rects(&mut self.rects);
                 self.gl.set_target(self.pages[page].target);
@@ -669,7 +703,11 @@ impl Output for Kms {
         if matches!(assignment.primary, Source::Direct(_)) {
             self.direct_frames += 1;
         }
-        self.last_assignment = Some(assignment);
+        self.last_assignment = Some(Frame {
+            assignment,
+            #[cfg(feature = "ui")]
+            ui: self.gl.take_ui_frame(),
+        });
         self.frame_ready_ns = self.now_ns();
         Ok(stats)
     }

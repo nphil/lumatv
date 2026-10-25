@@ -8,25 +8,26 @@
 //!
 //! One engine, two stacks. Stack 0 is the layers under the windows (LumaHome, while the Home stub's card is in front); stack 1 is
 //! the system layer over them (the layers whose z is `system_z` or more). A page is drawn as stack 0, the windows, stack 1, each
-//! only inside the tiles the page owes, which the ring below says:
+//! only inside the tiles the page owes, which the ring below says (`Gl::render_rects` and `kms::Kms::render`):
 //!
 //! ```text
-//! let mut tiles = <the windows' damage this frame>;          // Plan::tiles
-//! ui.plan(now_ns, &mut tiles)?;                              // adds what the two stacks changed
-//! let owed = ring.frame(page, &tiles);                       // damage::Ring, as for the windows alone
-//! gl.bind(page) ...
-//! ui.draw_under(fbo, owed)?;                                 // clears the owed tiles and draws stack 0 into them
-//! <the windows, inside the owed tiles>
-//! ui.draw_over(fbo, owed)?;                                  // stack 1 over the windows, under the pointer
-//! ui.finish(presented_ns)?;                                  // the app is told the frame was shown
+//! if ui.wants_frame(now_ns) || <the windows changed> {               // every tick: Output::ui_needs_frame, else ui.idle
+//!     let mut tiles = <the windows' damage this frame>;              // Plan::tiles
+//!     ui.plan(now_ns, &mut tiles)?;                                  // adds what the two stacks changed
+//!     let owed = ring.frame(page, &tiles);                           // damage::Ring, as for the windows alone
+//!     gl.bind(page) ...
+//!     ui.draw_under(fbo, owed)?;                                     // clears the owed rectangles and draws stack 0 into them
+//!     <the windows, inside the owed rectangles>
+//!     ui.draw_over(fbo, owed)?;                                      // stack 1 over the windows, under the pointer
+//!     let cost = ui.finish()?;                                       // the frame's receipt, kept with the page
+//!     ... ui.presented(presented_ns, &cost);                         // once the page's flip has landed: the app is told
+//! }
 //! ```
 //!
-//! `Gl::render_rects` clears the owed tiles itself today, which would wipe stack 0; the two calls go where it clears (`draw_under`
-//! takes the clear over) and after its items, before the cursor (`draw_over`). The context is the compositor's: every call saves its
-//! GL state, makes the context the toolkit's and puts the state back ([`lumatv_render::Gles::enter`]), so `Gl` need not know. The
-//! toolkit's shaders are GLSL ES 3.00: the compositor's context has to be OpenGL ES 3.0 or later (`render/egl.rs` asks for 2, which
-//! Mesa answers with 3.2 and the Mali blob answers [INFERENCE: not seen on the set] with 3.x too; [`Ui::new`] refuses an ES 2
-//! context and says which).
+//! The context is the compositor's: every call saves its GL state, makes the context the toolkit's and puts the state back
+//! ([`lumatv_render::Gles::enter`]), so `Gl` need not know. The toolkit's shaders are GLSL ES 3.00: the compositor's context has
+//! to be OpenGL ES 3.0 or later (`render/egl.rs` asks for 2, which Mesa answers with 3.2 and the Mali blob answers [INFERENCE: not
+//! seen on the set] with 3.x too; [`Ui::new`] refuses an ES 2 context and says which).
 
 pub mod demo;
 
@@ -43,7 +44,6 @@ use std::path::PathBuf;
 /// The engine, and the scratch the compositor's tiles are turned into the engine's areas with.
 pub struct Ui {
     engine: Engine,
-    rects: Vec<Rect>,
     scratch: Vec<[i32; 4]>,
     areas: Vec<[i32; 4]>,
 }
@@ -54,13 +54,6 @@ pub fn add_tiles(into: &mut Tiles, set: &TileSet, scratch: &mut Vec<[i32; 4]>) {
     for area in scratch.iter() {
         into.add(&Rect::new(area[0], area[1], area[2] - area[0], area[3] - area[1]));
     }
-}
-
-/// The rectangles of `tiles` as the engine's areas, at most [`crate::damage::MAX_RECTS`] of them (more collapse to their bounds).
-pub fn areas_of(tiles: &Tiles, rects: &mut Vec<Rect>, areas: &mut Vec<[i32; 4]>) {
-    tiles.rects(rects);
-    areas.clear();
-    areas.extend(rects.iter().map(|r| [r.x, r.y, r.right(), r.bottom()]));
 }
 
 impl Ui {
@@ -92,7 +85,7 @@ impl Ui {
                 system_z,
             },
         )?;
-        Ok((Self { engine, rects: Vec::new(), scratch: Vec::new(), areas: Vec::new() }, app))
+        Ok((Self { engine, scratch: Vec::new(), areas: Vec::new() }, app))
     }
 
     pub fn finish_handshake(&mut self) -> io::Result<()> {
@@ -121,6 +114,18 @@ impl Ui {
             }
     }
 
+    /// A tick with no frame due: the commits that show nothing by themselves (a glyph atlas made, chunks of it) are applied, and
+    /// a round of housekeeping is done while there is any left. What they change asks for a frame through [`Ui::wants_frame`].
+    /// Nothing enters the context when there is neither.
+    pub fn idle(&mut self, now_ns: u64) {
+        if self.engine.has_waiting() {
+            self.engine.apply_waiting(now_ns);
+        }
+        if self.engine.tidy_more() {
+            self.engine.tidy();
+        }
+    }
+
     /// When the engine next wants a frame on its own (a wallpaper's step), if no animation runs.
     pub fn due_at(&self) -> Option<u64> {
         match self.engine.demand() {
@@ -141,28 +146,30 @@ impl Ui {
         Ok(())
     }
 
-    /// Clears the tiles of `owed` in the framebuffer `fbo` (a page) and draws stack 0 into them.
-    pub fn draw_under(&mut self, fbo: u32, owed: &Tiles) -> io::Result<()> {
-        areas_of(owed, &mut self.rects, &mut self.areas);
+    /// Clears the owed rectangles and draws the layer stack under application windows.
+    pub fn draw_under(&mut self, fbo: u32, owed: &[Rect]) -> io::Result<()> {
+        self.areas.clear();
+        self.areas.extend(owed.iter().map(|r| [r.x, r.y, r.right(), r.bottom()]));
         self.engine.draw_stack(0, fbo, &self.areas)
     }
 
-    /// Draws stack 1 into the tiles of `owed`, over what the compositor has drawn there (when it has any layer: otherwise there is
-    /// nothing to draw and nothing is touched).
-    pub fn draw_over(&mut self, fbo: u32, owed: &Tiles) -> io::Result<()> {
+    /// Draws system layers over application windows, before the pointer.
+    pub fn draw_over(&mut self, fbo: u32, owed: &[Rect]) -> io::Result<()> {
         if !self.engine.has_layers(1) {
             return Ok(());
         }
-        areas_of(owed, &mut self.rects, &mut self.areas);
+        self.areas.clear();
+        self.areas.extend(owed.iter().map(|r| [r.x, r.y, r.right(), r.bottom()]));
         self.engine.draw_stack(1, fbo, &self.areas)
     }
 
-    /// The second half of a frame, once the page is drawn: what it showed is kept, and the app is told the frame was shown at
-    /// `presented_ns` (`CLOCK_MONOTONIC`), which retires what its commits replaced.
-    pub fn finish(&mut self, presented_ns: u64) -> io::Result<FrameCost> {
-        let cost = self.engine.finish()?;
-        self.engine.frame_done(presented_ns, &cost);
-        Ok(cost)
+    /// Completes drawing without acknowledging presentation; a queued frame may never reach the panel.
+    pub fn finish(&mut self) -> io::Result<FrameCost> {
+        self.engine.finish()
+    }
+
+    pub fn presented(&mut self, presented_ns: u64, cost: &FrameCost) {
+        self.engine.frame_done(presented_ns, cost);
     }
 
     /// Housekeeping between frames (textures to free, pictures to upload ahead).

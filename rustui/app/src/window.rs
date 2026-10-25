@@ -5,10 +5,10 @@
 //! The Wayland connection is `libwayland-client`'s, loaded at run time: it is the bundle's copy (`gfx64/`), which the blob links as
 //! well, so the display pointer given to EGL is the one the blob's calls go to.
 
-use lumatv_rustui::home::Key;
 use crate::output::{Output, write_png};
 use lumatv_render::Gles;
 use lumatv_render::host::Engine;
+use lumatv_rustui::home::Key;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell::WlWebosShell;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::{self, WlWebosShellSurface};
 use std::ffi::{CString, c_void};

@@ -16,8 +16,9 @@ compositor is live, as the decision requires (set left in Active Standby,
 `enabled` absent, Home stub on). Every failure has a fix built and
 host-tested since, none run on the set yet ("After the first gate"). Host:
 `cd compositor && cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
-`sm/build.sh`, clippy clean; `sh compositor/tools/build-tv.sh` builds the
-bundle.
+the same with `--features ui` plus `ui` and `ui_output` under
+`LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
+compositor/tools/build-tv.sh` builds the bundle.
 
 - Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
   trial and two gate runs live with no watchdog fallback, `READY=1`
@@ -42,9 +43,10 @@ bundle.
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
-  engine host waits on the toolkit's damage-only redraw and a `Gles` over
-  the current context in `rustui/render` (the RustUi spike's prerequisite:
-  an idle frame under 1 ms of GPU).
+  engine host (feature `ui`) is built and host-tested, not run on the set
+  (`cargo test --features ui` adds `ui` and `ui_output`); the RustUi
+  spike's prerequisite, an idle frame under 1 ms of GPU, is unmeasured
+  there.
 - Built and host-tested, unverified on the set: the Magic Remote's pointer
   (`ctl pointer X Y`, `ctl click`).
 
@@ -888,9 +890,10 @@ compositor's own renderer either way.
   splash). A page is drawn as stack 0, then the windows, then stack 1, each
   only in the rectangles the page owes.
 - GL: the engine draws on the compositor's own context and thread (no
-  texture hand-over, no fence); each pass sets the GL state it uses. Needs
-  a `Gles` that wraps the current display and context, and draws limited
-  to given rectangles, in `rustui/render` (its owner's change).
+  texture hand-over, no fence); each pass sets the GL state it uses, and
+  the toolkit's `Gles::enter`/`leave` save and put back the compositor's
+  state round every call (`rustui/patches/lumatv-gl.patch`). Done; host
+  tests `tests/ui.rs` (the ring) and `tests/ui_output.rs` (the live path).
 - Keys and state. The compositor stays the only reader of the remotes. A
   LumaTV UI channel (JSON lines, `/tmp/xdg/lumatv-ui-input`): to the UI,
   keys while a LumaTV layer holds focus (Home while the stub card is in
@@ -924,11 +927,15 @@ tvpower handshake is already answered), context menu, on-screen remote,
 recents (Home draws them), multi-view frames (unused). They follow 4 in the
 same engine. The gate runs again after 4.
 
-Started: Volume and Mute (step 1). The engine host waits on the toolkit's
-damage-only redraw and a `Gles` over the current context in
-`rustui/render`; the other key filters wait on the remote's codes for the
-gear, Input and app keys (an evdev tap on the set while Nitin presses
-them, or LG's keymap, which the read-only probe now looks for).
+Started: Volume and Mute (step 1). The engine host is built and host-tested
+(feature `ui`: the toolkit's damage-only redraw, a `Gles` over the current
+context, the two stacks drawn round the windows on the live tick path, the
+receipts carried through the KMS flips; `docs/research/rustui-result.md`,
+"Engine in the compositor"), not run on the set; the UI channel and Home
+on stack 0 are not started. The other key filters wait on the remote's
+codes for the gear, Input and app keys (an evdev tap on the set while
+Nitin presses them, or LG's keymap, which the read-only probe now looks
+for).
 
 ## Enable path and the hook request for tools/lumatv
 

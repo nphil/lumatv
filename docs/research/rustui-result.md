@@ -5,12 +5,12 @@ faster or smoother than today's QML LumaHome inside LG's Qt 5.12 compositor? The
 
 ## Resume here
 
-State (2026-10-25 08:30 EDT): the TV slot ran; results and the recommendation are below (keep QML now). The spike is closed. The
-prerequisite it named is being built (section "Damage-only redraw, 2026-10-25" at the end, UiDamage): the renderer redraws only the 16 px
-tiles a page owes (host-tested, 300 frames equal to the full redraw), `Gles` wraps the compositor's context, and the compositor has a
-`ui` feature that draws a demo surface into its page; the C4's GPU cost of an idle frame is estimated there and measured by
-`rustui/tools/tv-damage.py` in a later slot (screen on; a slot from Main). Not yet run on the set. The set was returned in Active
-Standby (powerOff remoteKey).
+State (2026-10-25, offline, host-tested only): the TV spike is closed; its results below recommend keeping QML until the compositor
+cutover. The prerequisite it named is built: the renderer redraws only the tiles a page owes (`patches/lumatv-renderer.patch`,
+`render/src/tiles.rs`), `Gles::current`/`enter`/`leave` run the toolkit in the compositor's own context (`patches/lumatv-gl.patch`),
+and the compositor's `ui` feature draws the engine's two stacks into its pages on the live tick path, with the frame receipts
+carried through the KMS flips ("Engine in the compositor", at the end). Nothing of it has run on the set: no partial-redraw GPU cost
+is measured there and no measurement script exists yet. The last TV handback was Active Standby.
 
 ## What was built
 
@@ -117,3 +117,38 @@ today [INFERENCE: the idle cost is the same with only the clock hand changing, n
 compositor's own renderer.
 
 Not measured: pointer movement, video behind or in front, Quick Settings in Rust, the same frame under LumaTV's compositor (not live yet).
+
+## Engine in the compositor (2026-10-25, host only)
+
+The prerequisite above, built and host-tested; nothing of it has run on the set.
+
+- Damage-only redraw (`patches/lumatv-renderer.patch`, `render/src/tiles.rs`): what a frame changes, what each page of a ring still
+  owes and what can be seen of each layer are bitmaps of 16 px tiles; the passes are cut from them by the draw cost model;
+  `--reference` draws every frame whole as well and compares. `rustui/app/tests/damage.rs` holds LumaHome and a glass stage
+  pixel-equal to the full redraw over 300 frames; `damage_bench` prints pixels and time both ways (its author's host figures,
+  commit `d3d4c65`: the idle tick draws 36 % of the panel, D-pad frames 24 %).
+- The engine inside a compositor (`render/src/host.rs`, `HostConfig::external`): `plan(now)` takes the commits in, places the layers
+  and says what each stack changed (`changed(stack)`); `draw_stack(stack, fbo, areas)` draws stack 0 (cleared) or 1 (over what is
+  there) inside the rectangles the compositor owes and nowhere else; `finish()` returns the frame's receipt (`FrameCost`, with the
+  last commit's tag) and `frame_done(presented_ns, &cost)` tells the app once the page is on the panel, so a receipt rides with its
+  page through a queued KMS flip and a page that is superseded tells the app nothing. `Gles::current` wraps the context that is
+  current; `enter`/`leave` save and put back the host's state round every call (`patches/lumatv-gl.patch`).
+- Why the first bridge showed nothing: the toolkit turns vertex attribute arrays 0 and 1 on once, when its vertex buffer is made,
+  and `leave` put the compositor's arrays back, which are off until the compositor has drawn a quad of its own; every draw was then
+  four vertices at the origin, with no GL error. `enter` now sets the arrays the toolkit relies on (0 and 1 on, the rest off). The
+  ring test could not see it (both pages were equally blank); `compositor/tests/ui.rs` and `ui_output.rs` now check pixels.
+- In `lumatv-compositor` (feature `ui`, `src/ui`, `render/gl.rs`, `kms/mod.rs`): `Output::ui_needs_frame` every tick (the app's
+  socket is read, a frame is drawn for UI-only changes, atlas-only commits and housekeeping run between frames), the two stacks
+  round the windows inside the owed rectangles, the receipt carried to the flip, direct scan-out off while a UI is attached, the
+  engine's GL errors counted with the compositor's, and an app that hangs up takes its layers with it (one whole redraw).
+  `--ui-demo` draws the demo surface (`src/ui/demo.rs`) on a `gl`/`kms` output.
+
+Host checks (Mesa software GL, `LIBGL_ALWAYS_SOFTWARE=1`): `cd compositor && cargo test --features ui` (73 unit, 22 protocol,
+1 bridge, 2 LG-table, `ui`: 240 frames pixel-equal with 237 drawn in part and the demo's ground and volume bar on the page,
+`ui_output`: Home and the panel on the first frame, the panel over a card over Home, a panel-only move redrawing two tile runs and
+uncovering the card, zero GL errors, the hang-up); `cargo test` without the feature unchanged; `cd rustui && cargo test` (10 tile
+tests, the two damage tests of `app/tests/damage.rs`, the embedded engine test); clippy clean both ways.
+
+Not done: no run on the set (the GPU cost of an idle frame under the compositor, the frame gate under it), no measurement script
+for it, the UI socket is not in the compositor's epoll (an app commit waits for the next tick, at most one refresh), the UI channel
+for keys and focus, and LumaHome itself on stack 0.

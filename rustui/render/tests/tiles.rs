@@ -116,6 +116,14 @@ fn union_within_takes_only_the_tiles_of_the_area() {
     let mut s = TileSet::new(W, H);
     s.union_within(&other, [32, 0, 64, 16]);
     assert_eq!(rects(&s), [[32, 0, 64, 16]]);
+    for area in [[0, 0, 1024, 32], [1008, 0, 1040, 32], [1024, 0, 1920, 32], [-20, -20, 5000, 2000], [10, 10, 10, 40]] {
+        let other = TileSet::full(W, H);
+        let mut actual = set(&[[96, 96, 112, 112]]);
+        let mut expected = actual.clone();
+        expected.add(area);
+        actual.union_within(&other, area);
+        assert_eq!(actual, expected, "area {area:?}");
+    }
 }
 
 #[test]

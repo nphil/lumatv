@@ -326,9 +326,11 @@ impl State {
 
     fn foreground_item(&self, w: &crate::window::Window) -> Value {
         let owner = self.scene.groups.iter().any(|g| g.owner == w.surface);
-        let owner_of_group = self.scene.groups.iter().find(|g| {
-            g.owner != w.surface && (g.layers.values().any(|l| l.member == Some(w.surface)) || g.anonymous.iter().any(|(s, _)| *s == w.surface))
-        });
+        let owner_of_group = self
+            .scene
+            .groups
+            .iter()
+            .find(|g| g.owner != w.surface && (g.layers.values().any(|l| l.member == Some(w.surface)) || g.anonymous.iter().any(|(s, _)| *s == w.surface)));
         let mut item = json!({
             "appId": w.app_id(), "displayId": 0, "processId": self.window_pid(w), "windowType": self.window_type_name(w),
             "windowGroup": false, "params": self.window_params(w),

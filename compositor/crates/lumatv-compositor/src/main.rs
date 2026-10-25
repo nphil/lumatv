@@ -103,11 +103,27 @@ fn run(config: Config) -> io::Result<()> {
     #[cfg(not(target_arch = "aarch64"))]
     let wl_display_ptr: Option<*mut std::ffi::c_void> = None;
 
+    #[cfg(feature = "ui")]
+    let mut ui_demo = None;
+    #[allow(unused_mut)]
+    let mut make_gl = || -> io::Result<Gl> {
+        #[allow(unused_mut)]
+        let mut gl = Gl::new(config.driver.as_deref().unwrap(), config.platform, config.width, config.height, config.buffers, wl_display_ptr)?;
+        #[cfg(feature = "ui")]
+        if config.ui_demo {
+            let shm = config.runtime_dir.join("ui-shm");
+            std::fs::create_dir_all(&shm)?;
+            let app = gl.attach_ui(config.driver.as_deref().unwrap(), lumatv_compositor::ui::demo::SYSTEM_Z, shm.clone())?;
+            ui_demo = Some(lumatv_compositor::ui::demo::Demo::new(app, &shm)?);
+            gl.ui().unwrap().finish_handshake()?;
+        }
+        Ok(gl)
+    };
     let output: Box<dyn Output> = match config.renderer {
         RendererKind::Software => Box::new(Software::new(config.width, config.height)),
-        RendererKind::Gl => Box::new(Gl::new(config.driver.as_deref().unwrap(), config.platform, config.width, config.height, config.buffers, wl_display_ptr)?),
+        RendererKind::Gl => Box::new(make_gl()?),
         RendererKind::Kms => {
-            let gl = Gl::new(config.driver.as_deref().unwrap(), config.platform, config.width, config.height, config.buffers, wl_display_ptr)?;
+            let gl = make_gl()?;
             Box::new(lumatv_compositor::kms::Kms::open(&config.card, gl, config.width, config.height)?)
         }
     };
@@ -207,14 +223,22 @@ fn run(config: Config) -> io::Result<()> {
         let mut handled = 0u32;
         for ev in &events[..n] {
             let tag = ev.u64;
-            handled |= 1 << (if tag & TAG_INPUT != 0 { 7 } else if tag & TAG_CONTROL_CLIENT != 0 { 8 } else { tag.min(9) as u32 });
+            handled |= 1
+                << (if tag & TAG_INPUT != 0 {
+                    7
+                } else if tag & TAG_CONTROL_CLIENT != 0 {
+                    8
+                } else {
+                    tag.min(9) as u32
+                });
             match tag {
                 TAG_WL => {
                     display.dispatch_clients(&mut state)?;
                 }
                 TAG_LISTEN => {
                     while let Some(stream) = listener.accept()? {
-                        let client = display.handle().insert_client(stream, Arc::new(ClientHandler { events: client_events.clone() })).map_err(io::Error::other)?;
+                        let client =
+                            display.handle().insert_client(stream, Arc::new(ClientHandler { events: client_events.clone() })).map_err(io::Error::other)?;
                         state.client_connected(client.id());
                     }
                 }
@@ -222,6 +246,10 @@ fn run(config: Config) -> io::Result<()> {
                     let mut expirations = [0u8; 8];
                     // SAFETY: reading the 8-byte expiration count the timerfd owes.
                     unsafe { libc::read(timer.as_raw_fd(), expirations.as_mut_ptr() as *mut libc::c_void, 8) };
+                    #[cfg(feature = "ui")]
+                    if let Some(demo) = &mut ui_demo {
+                        demo.tick(lumatv_render::now_ns())?;
+                    }
                     state.tick();
                     state.poll_holds();
                     rearm(&timer, &state, &mut paced, config.tick_ns)?;

@@ -83,6 +83,8 @@ pub struct HostConfig {
 /// What one frame cost the host.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameCost {
+    /// The last app commit included in this frame, retained while a later frame is already being rendered.
+    pub tag: u64,
     /// Taking in the app's commits, placing and drawing the layers, and the copy into the window: the CPU time to issue the frame.
     pub cpu_us: u32,
     /// The same until the GPU had finished (`HostConfig::gpu_sync`), else 0.
@@ -465,6 +467,11 @@ impl Engine {
         self.waiting.iter().any(Transaction::asks_for_frame)
     }
 
+    /// Commits are waiting, whether or not any asks for a frame.
+    pub fn has_waiting(&self) -> bool {
+        !self.waiting.is_empty()
+    }
+
     /// What the scene wants on its own: an animation at every refresh, a wallpaper's step at its time, or nothing.
     pub fn demand(&self) -> Demand {
         self.scene.demand()
@@ -609,6 +616,7 @@ impl Engine {
     fn cost(&mut self, report: &DrawReport, cpu_us: u32, gpu_us: u32) -> FrameCost {
         let (_captures, uploaded) = self.renderer.take_frame_counts();
         FrameCost {
+            tag: self.taken_tag,
             cpu_us,
             gpu_us,
             place_us: (report.place_ns / 1000) as u32,
@@ -727,7 +735,7 @@ impl Engine {
         self.stats.frame(cost.cpu_us.max(cost.gpu_us), 0);
         self.uploaded_bytes = 0;
         self.send(&Event::Frame {
-            tag: self.taken_tag,
+            tag: cost.tag,
             presented_ns,
             render_us: cost.cpu_us.max(cost.gpu_us),
             missed: 0,

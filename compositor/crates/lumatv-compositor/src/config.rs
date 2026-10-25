@@ -46,6 +46,8 @@ pub struct Config {
     /// Read the set's input devices and route keys (C4). Off by default: beside LG's compositor it would only
     /// feed the test clients.
     pub input: bool,
+    /// Exercise the optional system-layer renderer without replacing any TV surfaces.
+    pub ui_demo: bool,
 }
 
 impl Default for Config {
@@ -71,6 +73,7 @@ impl Default for Config {
             control: true,
             exit_on_disconnect: false,
             input: false,
+            ui_demo: false,
         }
     }
 }
@@ -95,6 +98,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --tick-hz HZ           frame tick (default 60)
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
+  --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms)
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
 ";
 
@@ -159,6 +163,7 @@ impl Config {
                 }
                 "--no-control" => c.control = false,
                 "--input" => c.input = true,
+                "--ui-demo" => c.ui_demo = true,
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),
             }
@@ -168,6 +173,9 @@ impl Config {
         }
         if matches!(c.renderer, RendererKind::Gl | RendererKind::Kms) && c.driver.is_none() {
             return Err("--renderer gl|kms needs --driver PATH".into());
+        }
+        if c.ui_demo && (!cfg!(feature = "ui") || c.renderer == RendererKind::Software) {
+            return Err("--ui-demo requires a build with feature ui and --renderer gl|kms".into());
         }
         if c.capture_every == 0 {
             c.capture_every = 1;

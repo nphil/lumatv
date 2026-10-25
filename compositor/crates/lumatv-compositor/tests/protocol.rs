@@ -671,7 +671,11 @@ impl lumatv_compositor::output::Output for FlipOutput {
     fn forget_buffer(&mut self, b: &wayland_server::protocol::wl_buffer::WlBuffer) {
         self.inner.forget_buffer(b)
     }
-    fn render(&mut self, plan: &lumatv_compositor::scene::Plan, s: &lumatv_compositor::surface::Surfaces) -> std::io::Result<lumatv_compositor::output::RenderStats> {
+    fn render(
+        &mut self,
+        plan: &lumatv_compositor::scene::Plan,
+        s: &lumatv_compositor::surface::Surfaces,
+    ) -> std::io::Result<lumatv_compositor::output::RenderStats> {
         self.drew = true;
         self.inner.render(plan, s)
     }

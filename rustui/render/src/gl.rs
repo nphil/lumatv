@@ -1736,9 +1736,19 @@ impl Gles {
             }
         };
         self.known.forget_context();
-        // The toolkit draws from its own vertex buffers into the default vertex array.
-        // SAFETY: binding the default vertex array.
-        unsafe { (self.gl.bind_vertex_array)(0) };
+        // The toolkit draws from its own vertex buffers into the default vertex array, with attribute arrays 0 and 1 on and
+        // no other: `new_vertex_buffer` turns them on once, and `leave` puts the host's back (a compositor that has not drawn
+        // a quad of its own yet has them off, and every draw of the toolkit was then four vertices at the origin: nothing on
+        // the page, no GL error, 2026-10-25).
+        // SAFETY: binding the default vertex array and setting its attribute arrays.
+        unsafe {
+            (self.gl.bind_vertex_array)(0);
+            (self.gl.enable_vertex_attrib_array)(0);
+            (self.gl.enable_vertex_attrib_array)(1);
+            for index in 2..ATTRIBS as u32 {
+                (self.gl.disable_vertex_attrib_array)(index);
+            }
+        }
         // What the toolkit sets once and relies on: its blend function (a compositor's own may be another) and no depth test,
         // stencil test or face culling.
         // SAFETY: state calls on the current context.
