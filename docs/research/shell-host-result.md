@@ -125,6 +125,10 @@ One slot, Home up, the receiver muted, Picture Mode `filmMaker` as found. Deploy
 6. The frame cost of the overlay over video: `python3 docs/research/perf/gate.py` has no banner surface; `lumatv fps on`, then the compositor's `[FPSLOG]` and `[FPSJANK]` lines in `/var/log/messages` while the pill and the drawer are up over Live TV or HDMI.
 7. The heartbeat: with the set in Active Standby, `lumatv apply` or a restart; then `ls -l /tmp/<shortId>-beat` (is there a file and how old), `grep -E 'LumaHome\]|LumaOverlay\]|LumaKeys\]' /var/log/messages*` (is there a `loaded` line with the panel off), and after the wake `the beat was silent for` (timers stopped) or not. The result says which candidate of section 3 holds.
 
+## Under LumaTV's own compositor
+
+The key filter, the overlay and the container patch run only inside LG's compositor. At the cutover LG's key filters go away (`compositor-c2-result.md`, "Surfaces under LumaTV's compositor") and the QML shell with them; the rules here then belong to the compositor's evdev key routing and the Rust UI: a gear that is LG's on a tap and ours at 650 ms (the three-tap AV reset stays three taps), the app keys with their owner's choice and LG's own where installed, the number keys on Home, and a layer over an app that takes keys only while it has a surface that wants them. `tests/keyfilter.test.js` and `tests/bus.test.js` are written as that rule set.
+
 ## Not done
 
 - A feed for the channel banner, the pill's resolution and HDR line and the no-signal screen (the pipeline id, section 1). LG's own banners draw those moments.
