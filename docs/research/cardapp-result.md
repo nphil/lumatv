@@ -22,11 +22,11 @@ For Main:
 
 | What | Where |
 |---|---|
-| The app: rules (Back, state changes, SAM's relaunch and close), 14 unit tests | `rustui/app/src/card.rs` |
-| Its page: LumaHome's Lucent glass on the shipped wallpaper held still, a status page and a keys page, two buttons; geometry test (nothing overlaps) | `rustui/app/src/card_ui.rs` |
+| The app: rules (Back, state changes, SAM's relaunch and close), 8 unit tests | `rustui/app/src/card.rs` |
+| Its page: LumaHome's Lucent glass on the shipped wallpaper held still, a status page and a keys page, two buttons; geometry tests (nothing overlaps), 3 unit tests | `rustui/app/src/card_ui.rs` |
 | The loop (Wayland window, engine, channel); one binary `lumatv-card-app` | `rustui/app/src/bin/card.rs` |
 | The window (generalized from the spike's: app id, type, `KEYS_BACK`, state, events; also the spike's Home) | `rustui/app/src/window.rs`, adapter in `output.rs` |
-| The channel between launcher and app, JSON lines on descriptor 3 | `rustui/app/src/lifecycle.rs` |
+| The channel between launcher and app, JSON lines on descriptor 3, 3 unit tests | `rustui/app/src/lifecycle.rs` |
 | The 32-bit launcher SAM starts (`main`), 15.7 KB; the fake hub and fake app of its test | `rustui/app/stub/{lumatv-card.c,fakels2.c,fakeapp.sh,build.sh}` |
 | The package: appinfo, splash (`gen-splash.py` makes it from the main one), icons from `assets/` | `card/` |
 | Build of the set's programs into `rustui/build/card/` | `rustui/tools/build-card.sh` |
