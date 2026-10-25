@@ -162,8 +162,8 @@ class Preload(unittest.TestCase):
             "youtube.leanback.v4", "com.webos.app.lgchannels", "com.webos.app.browser", "amazon",
             "com.webos.app.livetv", "com.webos.app.livemenu", "com.webos.app.voice", "amazon.alexapr",
             "com.webos.app.miracast", "com.webos.app.miracast-overlay",
-            "com.webos.app.hdmi1", "com.webos.app.hdmi2", "com.webos.app.hdmi3", "com.webos.app.hdmi4",
             "vudu", "pooq", "globoplaywebos", "yandex.alice"]))
+        self.assertFalse([i for i in off if i.startswith("com.webos.app.hdmi")])
         self.assertNotIn("netflix", off)
         self.assertNotIn("com.webos.app.home", off)
 
