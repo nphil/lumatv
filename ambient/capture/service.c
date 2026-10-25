@@ -8,7 +8,7 @@
  *   lumatv-capture [-s SOCKET] [-r HZ] [-i IDLE_MS] [-b BACKOFF_MS] [-n]
  *
  *   -s SOCKET      the helper's capture socket (it exists only while a picture is wanted; default $LUMATV_CAPTURE_SOCKET)
- *   -r HZ          polls a second (default 30, 1..120)
+ *   -r HZ          polls a second (default 10, 1..120)
  *   -i IDLE_MS     how often to look for the socket while nobody wants a picture (default 2000; one connect(), nothing
  *                  else runs: the library is not even loaded until the first connection)
  *   -b BACKOFF_MS  the wait after a capture that could not start or broke off (default 5000)
@@ -64,6 +64,11 @@ static volatile sig_atomic_t g_stop, g_fin_done, g_policy, g_in_fault;
 static const int zones_for_preset[VTH_PRESETS] = {16, 16, 16, 14};
 
 enum end { END_CLOSED, END_INIT, END_POLICY, END_FAILED, END_STOP };
+
+static uint64_t cpu_ns(clockid_t id) {
+    struct timespec ts;
+    return clock_gettime(id, &ts) == 0 ? (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec : 0;
+}
 
 static uint64_t mono_us(void) {
     struct timespec ts;
@@ -319,6 +324,11 @@ static enum end session(int fd, int hz) {
     uint8_t frame[WIRE_MAX];
     uint64_t period = 1000000u / (uint64_t)hz, next = mono_us(), bad_since = 0;
     enum end why = END_CLOSED;
+    /* What a poll costs, for the capture's last line: process CPU over the whole capture (the library's own threads
+     * included) and this thread's CPU inside each of the three steps of a poll. */
+    uint64_t cost_proc0 = cpu_ns(CLOCK_PROCESS_CPUTIME_ID), cost_wall0 = mono_us();
+    uint64_t cost_get = 0, cost_reduce = 0, cost_send = 0, cost_get_wall = 0;
+    unsigned polls = 0, frames = 0;
     while (!g_stop && !g_policy) {
         alarm(30);
         uint64_t now = mono_us();
@@ -344,11 +354,21 @@ static enum end session(int fd, int hz) {
         next += period;
         if (next <= now) next = now + period; /* behind: poll at once, never a catch-up burst */
 
+        uint64_t c0 = cpu_ns(CLOCK_THREAD_CPUTIME_ID), w0 = mono_us();
         int r = p_get(g_handle, buf);
+        uint64_t c1 = cpu_ns(CLOCK_THREAD_CPUTIME_ID);
+        cost_get += c1 - c0;
+        cost_get_wall += mono_us() - w0;
+        polls++;
         if (r == 0) {
             bad_since = 0;
             size_t len = build_frame(frame, buf, preset, (uint32_t)(mono_us() / 1000u));
-            if (send(fd, frame, len, MSG_NOSIGNAL) != (ssize_t)len) { why = END_CLOSED; break; }
+            uint64_t c2 = cpu_ns(CLOCK_THREAD_CPUTIME_ID);
+            ssize_t sent = send(fd, frame, len, MSG_NOSIGNAL);
+            cost_reduce += c2 - c1;
+            cost_send += cpu_ns(CLOCK_THREAD_CPUTIME_ID) - c2;
+            frames++;
+            if (sent != (ssize_t)len) { why = END_CLOSED; break; }
         } else if (r == 11 || r == 13) { /* EAGAIN, ENODATA: nothing new, or no signal on the input right now */
             bad_since = 0;
         } else {
@@ -357,6 +377,14 @@ static enum end session(int fd, int hz) {
         }
     }
     free(buf);
+    if (polls) {
+        double wall_s = (double)(mono_us() - cost_wall0) / 1e6, proc_ms = (double)(cpu_ns(CLOCK_PROCESS_CPUTIME_ID) - cost_proc0) / 1e6;
+        say("cost: %u polls (%u frames) in %.1f s, process CPU %.1f ms = %.2f %% of a core, %.3f ms a poll; per poll: "
+            "getHistogram %.3f ms CPU (%.3f ms wall), reduce %.3f ms, send %.3f ms",
+            polls, frames, wall_s, proc_ms, wall_s > 0 ? proc_ms / 10.0 / wall_s : 0.0, proc_ms / polls,
+            (double)cost_get / 1e6 / polls, (double)cost_get_wall / 1e3 / polls, frames ? (double)cost_reduce / 1e6 / frames : 0.0,
+            frames ? (double)cost_send / 1e6 / frames : 0.0);
+    }
     if (g_policy) why = END_POLICY;
     else if (g_stop) why = END_STOP;
     int frc = finalize_once();
@@ -371,7 +399,7 @@ static void usage(void) {
 
 int main(int argc, char **argv) {
     const char *socket_path = getenv("LUMATV_CAPTURE_SOCKET");
-    int hz = 30, idle_ms = 2000, backoff_ms = 5000, dry = 0, ch;
+    int hz = 10, idle_ms = 2000, backoff_ms = 5000, dry = 0, ch;
     while ((ch = getopt(argc, argv, "s:r:i:b:nh")) != -1) {
         switch (ch) {
         case 's': socket_path = optarg; break;

@@ -10,10 +10,10 @@
 //!   address: the picture's colours never leave the home network); with none, ambient light has nothing to drive, says so in the
 //!   `ambient` topic's `problem`, and the test pattern is refused.
 //! - **Nothing runs while it is not wanted.** The thread sleeps until the settings, the screen, the context or a frame change what
-//!   is wanted; it ticks at 30 Hz only while the picture is moving the lights, sends a still colour once a second (WLED leaves
+//!   is wanted; it ticks at 30 Hz (the reader polls at 10 a second by default) only while the picture is moving the lights, sends a still colour once a second (WLED leaves
 //!   realtime mode 2.5 s after the last packet), and after the lights have faded to black it sends one black frame and goes quiet.
 //!   The capture socket exists only while a picture is wanted.
-//! - **The picture comes from the capture helper** (32-bit, `ambient/capture`; not built yet): one `wire` frame per poll, already
+//! - **The picture comes from the capture helper** (32-bit, `ambient/capture`): one `wire` frame per poll, already
 //!   reduced to a colour per area. The helper answers with one byte, the hardware preset the engine wants (`Engine::wanted_preset`:
 //!   plain, letterbox, pillarbox or games), on connect and whenever it changes.
 //! - **The capture permission flag is not touched here.** LG's library refuses the capture to any process but its own Hue Sync
@@ -1357,6 +1357,91 @@ mod tests {
             thread::sleep(Duration::from_millis(20));
         }
         assert!(!socket.exists());
+        ctx.stop.request();
+        ambient.wake();
+        handle.join().unwrap();
+    }
+
+    /// The reader's host build (fake libvtcapture) drives the whole chain: reader at its default rate -> socket -> engine -> DDP
+    /// packets at a fake WLED socket. Needs `ambient/capture/build.sh` to have run; says so and passes without it.
+    #[test]
+    fn the_capture_reader_at_its_default_rate_drives_the_strip_end_to_end() {
+        let build =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../ambient/capture/build/host");
+        let bin = build.join("lumatv-capture");
+        if !bin.exists() {
+            eprintln!(
+                "skipped: {} is not built (run ambient/capture/build.sh)",
+                bin.display()
+            );
+            return;
+        }
+        let wled = UdpSocket::bind("127.0.0.1:0").unwrap();
+        wled.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let addr = wled.local_addr().unwrap();
+        let r = rig(Some(addr));
+        let socket = r._dir.path().join("capture.sock");
+        let ctx = Ctx {
+            config: Arc::new(Config {
+                ambient: AmbientConfig {
+                    wled: Some(WledConfig {
+                        host: addr.ip().to_string(),
+                        port: addr.port(),
+                    }),
+                    capture_socket: Some(socket.display().to_string()),
+                },
+                ..Config::default()
+            }),
+            ..r.ctx.clone()
+        };
+        let ambient = Ambient::new(&ctx);
+        set(
+            &r,
+            vec![
+                ("enabled", Value::Bool(true)),
+                ("brightness", Value::Integer(100)),
+                ("delay_ms", Value::Integer(0)),
+            ],
+        );
+        let handle = ambient.spawn().unwrap();
+        ambient.wake();
+        // No -r: the reader's own default is what is under test.
+        let log = r._dir.path().join("reader.log");
+        let mut reader = std::process::Command::new(&bin)
+            .args(["-s", socket.to_str().unwrap(), "-i", "50", "-b", "400"])
+            .env("LD_LIBRARY_PATH", &build)
+            .stderr(std::fs::File::create(&log).unwrap())
+            .spawn()
+            .unwrap();
+        let start = Instant::now();
+        let mut packets = 0;
+        let mut strip = Vec::new();
+        let mut buf = [0u8; 2048];
+        while start.elapsed() < Duration::from_secs(2) {
+            if let Ok(n) = wled.recv(&mut buf) {
+                let data = ddp::parse(&buf[..n]).unwrap().data;
+                assert_eq!(data.len(), 58 * 3);
+                packets += 1;
+                strip = data.to_vec();
+            }
+        }
+        // The picture reached the strip: lit, and different along it (the fake gives each area its own colour).
+        let leds: Vec<&[u8]> = strip.chunks(3).collect();
+        assert!(
+            leds.iter().any(|p| p[1] > 30),
+            "the strip stayed dark: {strip:?}"
+        );
+        assert!(
+            leds.iter()
+                .any(|a| leds.iter().any(|b| a[1].abs_diff(b[1]) > 20)),
+            "one colour along the strip"
+        );
+        // The engine ticks at 30 Hz whatever the reader's rate, so the strip is fed about 30 packets a second from 10 frames.
+        assert!(packets >= 25, "{packets} packets in 2 s");
+        let _ = reader.kill();
+        let _ = reader.wait();
+        let said = std::fs::read_to_string(&log).unwrap();
+        assert!(said.contains("10 polls a second"), "{said}");
         ctx.stop.request();
         ambient.wake();
         handle.join().unwrap();

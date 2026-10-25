@@ -10,7 +10,7 @@
 //!   12  per area, 12 bytes: u16 r, u16 g, u16 b (mean code value / 255 * 65535), u16 black (fraction * 65535), u32 pixel count
 //! ```
 //!
-//! 12 + 16 * 12 = 204 bytes per frame; at 30 polls a second that is 6 KB/s. The helper maps the capture clock to its
+//! 12 + 16 * 12 = 204 bytes per frame; at 10 polls a second that is 2 KB/s. The helper maps the capture clock to its
 //! own by the difference at the first frame (both are monotonic; only differences are used).
 
 use crate::rgb::Rgb;

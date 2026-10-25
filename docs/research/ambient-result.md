@@ -43,11 +43,14 @@ Decision for Nitin (the only thing blocking the picture side):
 Next, in order:
 
 1. Tune `engine::Config` defaults from the dumps (`probe-2026-10-25-1627/<scenario>.json`, 16 areas each; replay
-   through `zones::parse_dump`): the reader polled 30 times a second and the zones changed 7.5-7.9 times a second, so
-   the hardware histogram updates at about 8 Hz and the reader need not poll faster than 10 a second (its 5.2-5.6 % of a
-   core at 30 polls is over the plan's 1 %; `-r 10` is the first thing to measure).
-2. Build the helper side onto the reader's socket (lifecycle in "Helper-side design"); `tools/lumatv apply` installs the
-   reader as the package does (`capture.sh install`, now with the manifest).
+   through `zones::parse_dump`).
+2. Done offline (not verified on the set): the reader's default is 10 polls a second (`-r`, 1..120), it logs a `cost:`
+   line when a capture ends, `tv_probe_slot.py` runs one minute of Home at 10/s (`--hz`), and the helper's ambient
+   engine, fed by the reader's own host build over the capture socket, drives a fake WLED socket (test
+   `the_capture_reader_at_its_default_rate_drives_the_strip_end_to_end`). Hue streaming is not wired: see "Hue
+   streaming: Nitin's steps" under "Probe slots".
+3. Next TV slot: `python3 ambient/capture/tv_probe_slot.py --go --no-standby`, then read "Reader CPU at 10 polls a
+   second" under "Probe slots". `tools/lumatv apply` installs the reader as the package does (`capture.sh install`).
 
 ## ABI
 
@@ -279,12 +282,41 @@ rc=0`; LG's library logged the resource manager registered, acquired and release
 The areas' pixel counts are fixed per preset (7200, 2304, 1728, 1584, 1504, 1440, 1380, 864, 720, 704 for preset 0),
 so the histogram is a subsample, not a full count. 30 frames a second is the reader's poll rate; the zones changed
 7.5-7.9 times a second in every scenario, Home's slow wallpaper included, so about 8 Hz is the hardware's update rate
-and 10 polls a second would lose nothing. The Netflix window read non-zero colour from protected video (area 3: 41 35 28,
+and 10 polls a second would lose nothing (reader default since this note). The Netflix window read non-zero colour from protected video (area 3: 41 35 28,
 luma up to 88), the point of the kernel's secure-world histogram.
 
 Problem found in the room: the slot unmuted the receiver at 16:31:44 while Netflix was still playing (`--no-standby`
 leaves the set on, and Home was launched only after the unmute), so the title was heard; Nitin stopped the session at
 16:31. Fixed in the script: the scenario app is closed and Home launched before the receiver is restored.
+
+### Reader CPU at 10 polls a second (offline; not verified on the set)
+
+Measured at 30/s: 5.17-5.55 % of a core, i.e. 1.7-1.85 ms of CPU per poll, if the cost is all per poll. On the host
+(fake library) a poll's own work in the reader is 0.022 ms reducing 16 areas x 3 x 256 bins plus 0.008 ms sending, about
+0.03 ms (a few times that on the ARM core), so nearly all of the 1.8 ms is inside `getHistogram` (library and kernel).
+Model: CPU % = hz x per-poll ms / 10 + fixed. At 10/s that predicts **about 1.8 %, still over 1 %**; 1 % needs under
+1 ms a poll, or about 5 polls a second (0.9 %). The hardware changes the zones about 8 times a second, so 5/s samples
+every second change at best. The slot's service log now ends each capture with a `cost:` line (process CPU, % of a
+core, ms a poll, and CPU per step: `getHistogram`, reduce, send; wall time of `getHistogram`) so the next slot shows
+where the 1.8 ms goes. If it is over 1 % at 10/s: rerun with `--hz 5` (the two points give the model's slope and fixed
+part), and decide between 5/s and accepting a number between.
+
+### Hue streaming: Nitin's steps (a key action, so not done by an AI)
+
+The helper cannot start an entertainment stream by itself: the bridge needs an application key with a client key, an
+entertainment area, and an HTTPS call to start it. Steps for Nitin:
+
+1. Press the bridge's link button, then create an application key that also returns a client key: `POST
+   https://<bridge>/api` with `{"devicetype":"lumatv#tv","generateclientkey":true}`; keep `username` (the application
+   key) and `clientkey`.
+2. In the Hue app create an Entertainment area with the lights wanted, placed where they stand; note its id (`GET
+   https://<bridge>/clip/v2/resource/entertainment_configuration`, header `hue-application-key`).
+3. Give the helper the bridge address, application key, client key, application id (`GET /auth/v1`, response header
+   `hue-application-id`) and the area id in its config; the helper will start the stream with `PUT
+   .../entertainment_configuration/<id>` (`{"action":"start"}`) over HTTPS, then DTLS on UDP 2100.
+4. Bifrost instead of a bridge: the area must exist in Bifrost; the client key is its fixed `BifrostHueTlsKey`.
+
+None of the config keys in step 3 exist yet; adding them is the next code step once Nitin has the key action done.
 
 ## Open
 

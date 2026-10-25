@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One probe slot for the ambient light's picture capture, on the set: Home, HDMI 2 and Netflix, 60 s each, through the package's
+"""One probe slot for the ambient light's picture capture, on the set: one minute of Home at 10 polls a second (--scenarios home,hdmi2,netflix for the three, --hz for the rate), through the package's
 own colour reader (lumatv-capture) with the LS2 role it ships with.
 
     python3 ambient/capture/tv_probe_slot.py --plan                    # the steps and the script that runs on the set; touches nothing
@@ -68,6 +68,7 @@ FLAG = "/var/luna/preferences/vt_devmode"
 LIBRARY = "/usr/lib/libvtcapture.so.1.0.0"
 LIBRARY_MD5 = "35d3fec6"          # the prefix recorded at the read-only slot (ambient-result.md)
 NETFLIX_TARGET = "m=https://www.netflix.com/watch/80141336&source_type=4"
+DEFAULT_HZ = 10                  # the reader's default poll rate; the zones change about 8 times a second (ambient-result.md)
 DEADMAN_MARGIN = 45               # seconds past a capture's length at which the dead-man timer removes the flag
 
 # How each scenario gets its picture on the screen: LG's own services, nothing installed. `settle` is the wait after the
@@ -117,7 +118,7 @@ def plan(scenarios, secs, mute=True, standby=True):
     return steps
 
 
-def remote_script(remote, state, scenarios, secs, hz=30):
+def remote_script(remote, state, scenarios, secs, hz=DEFAULT_HZ):
     """The shell script that runs on the set: the captures one after the other; the flag lives only inside each capture."""
     head = """#!/bin/sh
 # written by tv_probe_slot.py; runs on the set, under @R@ only, with the staged service under @STATE@ and the flag file, which is
@@ -214,8 +215,10 @@ def verdict(report, service_log="", hub_log=""):
     if report.get("changed", 0) < 5:
         return "the zones did not change: a still picture, no signal, or protected video that comes back black"
     cpu = report.get("service_cpu_pct")
-    return "%.1f frames a second, the zones change %.1f times a second, service CPU %s%% of a core%s" % (
-        report.get("frames_per_s", 0), report.get("changes_per_s", 0), "?" if cpu is None else cpu, "" if cpu is None or cpu < 1 else " (over the plan's 1 %)")
+    cost = re.search(r"cost: .*", service_log)
+    return "%.1f frames a second, the zones change %.1f times a second, service CPU %s%% of a core (the plan's limit is 1 %%: %s)%s" % (
+        report.get("frames_per_s", 0), report.get("changes_per_s", 0), "?" if cpu is None else cpu,
+        "unmeasured" if cpu is None else "over" if cpu >= 1 else "under", "; " + cost.group(0) if cost else "")
 
 
 def parse_events(text):
@@ -367,7 +370,7 @@ def run(a):
         log.step("package-before", status=before)
         script = os.path.join(out, "slot.sh")
         with open(script, "w") as f:
-            f.write(remote_script(remote, state, scenarios, a.secs))
+            f.write(remote_script(remote, state, scenarios, a.secs, a.hz))
         tv.put(script, remote + "/slot.sh")
         installed = True          # from here the package state is this slot's to put back
         res = sh("sh %s/capture.sh install %s/lumatv-capture %s/role.json %s; echo rc=$?" % (remote, remote, remote, shlex.quote(state)))
@@ -526,14 +529,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--plan", action="store_true", help="print the steps and the script that runs on the set; touch nothing (the default)")
     ap.add_argument("--go", action="store_true", help="run the slot (only with Main's go)")
-    ap.add_argument("--scenarios", default="home,hdmi2,netflix")
+    ap.add_argument("--scenarios", default="home", help="the default is the minute of CPU at 10 polls a second; the three scenarios: home,hdmi2,netflix")
     ap.add_argument("--secs", type=int, default=60)
+    ap.add_argument("--hz", type=int, default=DEFAULT_HZ, help="the reader's polls a second (1 to 120)")
     ap.add_argument("--out", help="where the results go (default docs/research/ambient/probe-<date>-<time>)")
     ap.add_argument("--role-type", choices=("regular", "privileged"), default="regular", help="the `type` of the LS2 role the slot writes")
     ap.add_argument("--no-mute", action="store_true", help="leave the receiver alone")
     ap.add_argument("--no-standby", action="store_true", help="leave the set on instead of Active Standby")
     ap.add_argument("--adopt-flag", action="store_true", help="run although the flag exists already, and remove it at the end")
     a = ap.parse_args(argv)
+    if not 1 <= a.hz <= 120:
+        ap.error("--hz is 1 to 120")
     if not 5 <= a.secs <= 600:
         ap.error("--secs is 5 to 600")
     if a.go:
@@ -541,7 +547,7 @@ def main(argv=None):
     for n, (step, why, always) in enumerate(plan(a.scenarios.split(","), a.secs, not a.no_mute, not a.no_standby), 1):
         print("%2d. %-16s %s%s" % (n, step, why, "   [always, even after a failure]" if always else ""))
     print("\nruns on the set:\n")
-    print(remote_script("/tmp/ambient-slot-<time>", data_dir(), a.scenarios.split(","), a.secs))
+    print(remote_script("/tmp/ambient-slot-<time>", data_dir(), a.scenarios.split(","), a.secs, a.hz))
     return 0
 
 
