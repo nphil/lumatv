@@ -154,8 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gets an overlay mount whose upper layer holds just that script, the
   stylesheet and the font - no copy of a 23MB bundle, and unmounting restores
   the stock app exactly.
-- `tools/palette.py` derives the menu palette from `theme.json`, so the menus
-  are tinted by the wallpaper and theme in use. A contrast guard darkens or
+- `tools/tokens.py` derives the menu palette from `theme.json`, so the menus are
+  tinted by the wallpaper and theme in use. A contrast guard darkens or
   lightens the derived sheet until its body text clears 7:1 against it, which
   is what keeps a pale theme from producing an unreadable menu.
 - Quick Settings stays built between opens, the way the volume OSD does.

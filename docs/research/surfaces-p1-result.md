@@ -79,7 +79,7 @@ Checked on the set:
 
 ## 2. Wallpaper tint and saved-first cards
 
-Wallpaper tint (`payload/compositor/lumatv/Tint.js`, LumaHome.qml, Dock.qml, `tools/palette.py`):
+Wallpaper tint (`payload/compositor/lumatv/Tint.js`, LumaHome.qml, Dock.qml, `tools/tokens.py`):
 
 - LumaHome decodes the wallpaper a second time at 64x36, grabs that item at 32x18, saves the grab
   as XPM (the one text image format Qt writes) and reads it back through `TextFile`. Canvas could
@@ -96,12 +96,12 @@ Wallpaper tint (`payload/compositor/lumatv/Tint.js`, LumaHome.qml, Dock.qml, `to
   generation and a grab from an older one is dropped. [INFERENCE: not provoked on the set, the 2 s
   theme poll never changes the wallpaper twice inside one decode.]
 - The result is `theme/tint.json` (`wallpaper`, `tint`, `accent`, `light`, `luma`); a cold start
-  restores it for the same picture before the first sample lands, and `palette.py` reads the accent
+  restores it for the same picture before the first sample lands, and `tokens.py` reads the accent
   from it. The accent keeps the tint's hue at saturation 0.55 (0.35 on light glass) and lightness 0.74
   (0.42): `#9898e1` for the shipped wallpaper.
 - Feeding the tokens: `accent: "tile"` (shipped) keeps each tile's own colour and gives a tile with
   no plate colour (white or black plate) the wallpaper accent where it had a fixed lavender;
-  `accent: "wallpaper"` uses it for every tile and for the web menus' accent (`palette.py css`:
+  `accent: "wallpaper"` uses it for every tile and for the web menus' accent (`tokens.py css`:
   `#A79BF5` becomes `#9898e1`); `tint.mix` (0 shipped) moves the focused glass toward the tint
   (a focused card went from rgb 55,59,87 to 82,85,103 at 0.8).
 

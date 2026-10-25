@@ -318,7 +318,7 @@ def edit(path, changes, *, required=True):
 
 root = pathlib.Path(sys.argv[1])
 
-# The palette is derived from the live theme (tools/palette.py) and passed in as
+# The palette is derived from the live theme (tools/tokens.py) and passed in as
 # JSON, so the menus are tinted by whatever wallpaper and theme are in use. The
 # defaults below are the shipped dark theme, so a missing or unreadable file
 # still produces the same panel rather than no panel.
