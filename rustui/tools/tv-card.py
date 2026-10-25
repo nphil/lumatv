@@ -82,12 +82,13 @@ class Run:
         except ValueError:
             return {"returnValue": False, "raw": text}
 
+    # SAM answers `{}` with a flat object (appId, processId, windowId); the list with the window type comes with extraInfo.
     def foreground(self):
-        d = self.luna(SAM + "/getForegroundAppInfo")
+        d = self.luna(SAM + "/getForegroundAppInfo", '{"extraInfo":true}')
         return [a.get("appId", "") for a in d.get("foregroundAppInfo", [])]
 
     def foreground_info(self):
-        d = self.luna(SAM + "/getForegroundAppInfo", name="foreground")
+        d = self.luna(SAM + "/getForegroundAppInfo", '{"extraInfo":true}', name="foreground")
         items = d.get("foregroundAppInfo", [])
         return items[0] if items else {}
 
