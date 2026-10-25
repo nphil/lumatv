@@ -243,8 +243,9 @@ class Reading(unittest.TestCase):
         v = slot.verdict(self.GOOD, "capturing", "")
         self.assertIn("30.0 frames a second", v)
         self.assertIn("15.0 times a second", v)
-        self.assertNotIn("over the plan", v)
-        self.assertIn("over the plan's 1 %", slot.verdict(dict(self.GOOD, service_cpu_pct=1.5)))
+        self.assertIn("expected about 3.6 % at that rate: not above", v)
+        self.assertIn("service CPU 4.5% of a core (expected about 3.6 % at that rate: above)", slot.verdict(dict(self.GOOD, service_cpu_pct=4.5)))
+        self.assertIn("expected about 1.2 % at that rate: not above", slot.verdict(dict(self.GOOD, frames_per_s=10.0, service_cpu_pct=1.2)))
 
     def test_black_video_is_not_mistaken_for_a_working_capture(self):
         self.assertIn("did not change", slot.verdict(dict(self.GOOD, changed=0), "", ""))

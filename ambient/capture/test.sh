@@ -1,5 +1,5 @@
 #!/bin/sh
-# Logic tests for ambient-probe on the host, against the fake libvtcapture (build.sh builds both).
+# Logic tests for ambient-probe on the host, against the fake libvtcapture (build.sh builds both), and for the reader's reduce.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 b=$here/build/host
@@ -48,5 +48,16 @@ for n in "0: 16" "1: 16" "2: 16" "3: 14"; do grep -q "preset $n areas" "$tmp/o6"
 # 7. EAGAIN answers are counted, not treated as data
 FAKE_VT_EAGAIN_EVERY=2 "$p" -s 1 -r 30 >"$tmp/o7" || fail "eagain run"
 grep -q 'rc: 0 x[0-9]* 11 x[0-9]*' "$tmp/o7" || fail "rc histogram lacks 11: $(grep '^summary' "$tmp/o7")"
+
+
+# 8. the reader's reduce is bit-identical to the double-precision formulas it replaced: host (scalar integer path), and the set's
+# CPU under qemu-arm (scalar and NEON paths) when qemu and an armel sysroot are installed (debian: qemu-user, libc6-armel-cross)
+"$here/build/host/reduce_test" -n 100000 -t 100000 | tail -n 1 | grep -q 'identical to the reference' || fail "host reduce differs from the reference"
+if command -v qemu-arm >/dev/null && [ -d /usr/arm-linux-gnueabi ]; then
+    qemu-arm -L /usr/arm-linux-gnueabi -cpu max "$here/build/arm/reduce_test" -n 2000 -t 2000 | tee "$tmp/arm-reduce" | tail -n 1 | grep -q 'identical to the reference' || fail "ARM reduce differs from the reference"
+    grep -q 'implementation chosen by reduce_zones: neon' "$tmp/arm-reduce" || fail "qemu did not run the NEON path"
+else
+    echo "note: qemu-arm or /usr/arm-linux-gnueabi missing, the ARM reduce test was skipped"
+fi
 
 echo "ambient-probe host tests: all passed"

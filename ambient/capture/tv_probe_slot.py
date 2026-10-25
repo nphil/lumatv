@@ -68,7 +68,11 @@ FLAG = "/var/luna/preferences/vt_devmode"
 LIBRARY = "/usr/lib/libvtcapture.so.1.0.0"
 LIBRARY_MD5 = "35d3fec6"          # the prefix recorded at the read-only slot (ambient-result.md)
 NETFLIX_TARGET = "m=https://www.netflix.com/watch/80141336&source_type=4"
-DEFAULT_HZ = 10                  # the reader's default poll rate; the zones change about 8 times a second (ambient-result.md)
+DEFAULT_HZ = 10                  # the reader's poll rate, chosen for good (the zones change about 8 times a second: ambient-result.md)
+# What a poll costs in percent of a core per poll a second: getHistogram 1.1 ms plus the NEON reduce and the send, about 1.15 ms,
+# which is about 1.2 % at 10 a second (it was 1.9 % with the double-precision reduce, 1.8 ms a poll).
+EXPECTED_CPU_PER_HZ = 0.12
+CPU_SLACK = 0.2                   # percent of a core past the expectation before the verdict says "above"
 DEADMAN_MARGIN = 45               # seconds past a capture's length at which the dead-man timer removes the flag
 
 # How each scenario gets its picture on the screen: LG's own services, nothing installed. `settle` is the wait after the
@@ -216,9 +220,11 @@ def verdict(report, service_log="", hub_log=""):
         return "the zones did not change: a still picture, no signal, or protected video that comes back black"
     cpu = report.get("service_cpu_pct")
     cost = re.search(r"cost: .*", service_log)
-    return "%.1f frames a second, the zones change %.1f times a second, service CPU %s%% of a core (the plan's limit is 1 %%: %s)%s" % (
-        report.get("frames_per_s", 0), report.get("changes_per_s", 0), "?" if cpu is None else cpu,
-        "unmeasured" if cpu is None else "over" if cpu >= 1 else "under", "; " + cost.group(0) if cost else "")
+    fps = report.get("frames_per_s", 0)
+    expected = EXPECTED_CPU_PER_HZ * fps
+    return "%.1f frames a second, the zones change %.1f times a second, service CPU %s%% of a core (expected about %.1f %% at that rate: %s)%s" % (
+        fps, report.get("changes_per_s", 0), "?" if cpu is None else cpu, expected,
+        "unmeasured" if cpu is None else "above" if cpu > expected + CPU_SLACK else "not above", "; " + cost.group(0) if cost else "")
 
 
 def parse_events(text):

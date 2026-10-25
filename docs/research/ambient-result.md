@@ -51,11 +51,11 @@ Next, in order:
    `the_capture_reader_at_its_default_rate_drives_the_strip_end_to_end`). Hue Entertainment streaming is wired in the helper
    (offline, against a fake bridge): see "Hue Entertainment streaming" under "Probe slots" for the design, Nitin's steps to
    link the bridge and the TV checklist.
-3. Decide the rate (for Nitin or the plan's owner): 5/s is under the 1 % line and samples 4.9 of the hardware's ~8 zone
-   changes a second; 10/s takes all 7.6 of them at 1.9 %. 1 % at 10/s is not reachable by the reader alone: `getHistogram`
-   is 1.1 % of a core at that rate before any reduce. The reduce (16 areas x 3 x 256 bins, 0.6-0.7 ms on the ARM core
-   against 0.022 ms on the host) is the one part the reader owns; a bins-to-mean pass in NEON or a coarser bin walk would
-   bring 10/s to about 1.2 %. The service is not installed on the set (the slot removed it); `tools/lumatv apply`
+3. Rate decided (Nitin, 2026-10-25 18:05): 10 polls a second, all 7.6 of the hardware's ~8 zone changes a second, for good.
+   The reader's reduce is integer-only and NEON (`ambient/capture/reduce*.c`, "Reduce in NEON" under "Probe slots"): 15 200
+   instructions a poll against 1 920 000, bit-identical output on 4.3 M made-up and constructed zones; expected cost about
+   1.2 % of a core at 10/s (1.1 ms in `getHistogram`, about 0.01 ms in the reduce), to be measured on the set at the next
+   slot (checklist in that section). The service is not installed on the set (the slot removed it); `tools/lumatv apply`
    installs the reader as the package does (`capture.sh install`) when it ships.
 
 ## ABI
@@ -317,7 +317,56 @@ no vector code), send 0.015 ms. Against the offline estimate: the 1.8 ms held, b
 reduce, not the library. At 10/s the zones changed 7.6 times a second (all of the hardware's ~8); at 5/s 4.9 (every
 change is a new sample, every second one of the hardware's is missed). 1 % at 10/s is out of the reader's reach alone
 (`getHistogram` is 1.1 % at that rate); the reduce is what the reader can shrink (NEON, or sum fewer bins), to about
-1.2 % at 10/s. The decision between 5/s at 0.9 % and 10/s at 1.9 % is in "Resume here".
+1.2 % at 10/s. The rate is settled at 10/s (Resume here); the reduce follows.
+
+### Reduce in NEON (2026-10-25, offline; the cost is not yet measured on the set)
+
+The reader's reduce (16 areas x 3 channels x 256 bins to a mean per channel, a black share and a pixel count) was double
+precision on the soft-float ARM build: 1.92 M instructions a poll, 0.60-0.72 ms on the A76 (about 2 instructions a cycle at
+1.4 GHz). It is now integer-only (`ambient/capture/reduce_core.h`, `reduce.c`, `reduce_neon.c`).
+
+- **Sums.** All 256 bins of every channel are needed (the mean and the count depend on each), so nothing is skipped; the
+  saving is the sweep itself. Count, sum of code x bin and the dark count fit `uint32_t` for any `uint16_t` bins
+  (n <= 16.8 M, sum <= 4.28 G). NEON: per 8 bins one load, one pairwise add-accumulate (count) and two widening
+  multiply-accumulates against the code values (sum); the black count is two vectors and a masked third. The 24.6 KB the
+  library has just written is read once, in address order, three contiguous 512-byte channels an area.
+- **Rounding.** `q16(sum / n / 255)` is floor((514 sum + n) / (2 n)) in exact arithmetic (65535 / 255 = 257), done with
+  one 32-bit divide for the whole part and one for the remainder (hardware `udiv` in the NEON file, 64-bit only past 8 M
+  pixels); the black share is the same formula on 255 x dark, the smallest of the three ratios found by cross-multiplication.
+  The double-precision formula agrees with it everywhere except where the exact value is half way between two codes (its
+  three roundings stay within about 1e-11, any other value is at least 1 / (2 n) >= 3e-8 from a boundary). There it
+  disagrees in 4.4 % of cases (583 600 of 13.3 M half-way means with n up to 3 M), so those few values, detected by a zero
+  remainder, are computed with the old double formulas. The output is therefore bit-identical to the old reduce, not just
+  close.
+- **Build.** zig cannot select NEON code for the soft-float target, so `reduce_neon.c` alone is built hard-float for
+  `cortex_a15` (ARMv7-VE, NEON, divide) and linked into the soft-float program; nothing passed or returned is a float.
+  `reduce.c` calls it only when `getauxval(AT_HWCAP)` reports NEON and divide in both instruction sets; otherwise the
+  scalar integer path runs. The service logs which one: `capturing: ... reduce neon`.
+- **Identical output** (`ambient/capture/reduce_test.c`, run by `test.sh`): the old code verbatim as reference, on picture-like
+  and corner-case histograms (bumps, flat colours, spikes, letterbox bars, every bin random, every bin 65535, empty channels,
+  n from 0 to 16.8 M) and on zones built to land exactly half way in the mean and in the black share, every field compared
+  for equality. Host (scalar path): 2 000 000 zones and 2 000 000 half-way zones (5.0 M half-way values, 387 342 of them
+  where plain rounding differs from the old code), 0 mismatches. `qemu-arm -cpu max` (scalar and NEON paths on the ARM
+  build): 180 000 zones and 120 000 half-way zones, 0 mismatches. No dump recorded on the set exists (the three `.bin`
+  files of probe-2026-10-25-1234 are empty), so the zones are made up; `reduce_test -f DUMP` replays any `ambient-probe -d`
+  dump the same way.
+- **Cost.** Executed instructions a poll of 16 areas on the ARM build under `qemu-arm` (`-d exec -singlestep`, polls 3
+  minus polls 1): reference 1 923 631, scalar integer 84 690, NEON 15 201. qemu's emulation time is not a cycle count, so
+  the time on the A76 is an estimate [INFERENCE]: NEON 15.2 k instructions at 1 to 2.5 a cycle at 1.4 GHz is 4-11 us
+  (0.004-0.011 ms), the scalar fallback 0.025-0.06 ms, against the old 0.60-0.72 ms. On the x86-64 host (-O1, a busy
+  machine) a poll took 11.3 us with the reference and 4.3 us scalar. A poll then costs about 1.10 (`getHistogram`) + 0.01
+  (reduce) + 0.015 (send) + 0.03 (rest of the loop) = 1.16 ms, 1.16 % of a core at 10/s; the target was 1.2 %.
+
+TV check list for the next slot (`tv_probe_slot.py --go --no-standby`, 10/s is the default):
+
+1. The service log's `capturing:` line ends `reduce neon`. `reduce scalar` means the kernel did not report NEON and divide
+   (the reader still works, the reduce then costs 0.03-0.06 ms); no crash (SIGILL) and frames in every window.
+2. The `cost:` line: reduce 0.01 ms or less (was 0.716), per poll about 1.15-1.2 ms (was 1.866), `getHistogram` unchanged at
+   1.10 ms CPU, process CPU about 1.2 % of a core (was 1.87 %). The slot's verdict says `not above` at an expected 1.2 %.
+3. The zones behave as before: about 600 frames a minute, 7-8 zone changes a second on Home, colours of the same order as
+   the 17:46 run (`home.json`).
+4. Optional, exact: `ambient-probe -d dump.bin` on the set (same flag window rules as the slot), then
+   `reduce_test -f dump.bin` on the workstation: 0 mismatches on real histograms.
 
 ### Hue Entertainment streaming (wired offline; not verified on the TV)
 

@@ -44,13 +44,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "reduce.h"
 #include "vthist.h"
 
 /* ambient/src/wire.rs */
 #define WIRE_HEADER 12
 #define WIRE_ZONE 12
 #define WIRE_MAX (WIRE_HEADER + VTH_MAX_ZONES * WIRE_ZONE)
-#define BLACK_CODE 20 /* zones.rs FrameParams::default: code values at or under this count as black */
 
 static vth_init_fn p_init;
 static vth_preset_fn p_preset;
@@ -215,28 +215,10 @@ static void put32(uint8_t *p, uint32_t v) {
     put16(p + 2, v >> 16);
 }
 
-static unsigned q16(double v) { /* wire.rs q16 */
-    if (v < 0) v = 0;
-    if (v > 1) v = 1;
-    return (unsigned)(v * 65535.0 + 0.5);
-}
-
-/* Mean code value (0..1), pixel count and the share of pixels at or under BLACK_CODE, of one channel's histogram. */
-static void channel(const uint16_t *bins, double *mean, uint32_t *count, double *black) {
-    uint64_t n = 0, dark = 0;
-    double sum = 0;
-    for (int i = 0; i < VTH_BINS; i++) {
-        n += bins[i];
-        sum += (double)i * bins[i];
-        if (i <= BLACK_CODE) dark += bins[i];
-    }
-    *count = (uint32_t)n;
-    *mean = n ? sum / (double)n / 255.0 : 0.0;
-    *black = n ? (double)dark / (double)n : 0.0;
-}
-
 static size_t build_frame(uint8_t *out, const struct vth_zone *z, int preset, uint32_t t_ms) {
     int n = zones_for_preset[preset];
+    struct zone_out red[VTH_MAX_ZONES];
+    reduce_zones(z, n, red);
     memcpy(out, "AMB1", 4);
     out[4] = (uint8_t)preset;
     out[5] = (uint8_t)n;
@@ -246,18 +228,12 @@ static size_t build_frame(uint8_t *out, const struct vth_zone *z, int preset, ui
     for (int i = 0; i < n; i++) {
         /* the library numbers the areas; a number outside the preset is read as the position */
         unsigned id = z[i].area_id < (unsigned)n ? z[i].area_id : (unsigned)i;
-        double mr, mg, mb, br, bg, bb;
-        uint32_t nr, ng, nb;
-        channel(z[i].r, &mr, &nr, &br);
-        channel(z[i].g, &mg, &ng, &bg);
-        channel(z[i].b, &mb, &nb, &bb);
-        double black = (nr == 0 || ng == 0 || nb == 0) ? 0.0 : (br < bg ? (br < bb ? br : bb) : (bg < bb ? bg : bb));
         uint8_t *o = out + WIRE_HEADER + (size_t)id * WIRE_ZONE;
-        put16(o, q16(mr));
-        put16(o + 2, q16(mg));
-        put16(o + 4, q16(mb));
-        put16(o + 6, q16(black));
-        put32(o + 8, nr);
+        put16(o, red[i].mean[0]);
+        put16(o + 2, red[i].mean[1]);
+        put16(o + 4, red[i].mean[2]);
+        put16(o + 6, red[i].black);
+        put32(o + 8, red[i].count);
     }
     return (size_t)WIRE_HEADER + (size_t)n * WIRE_ZONE;
 }
@@ -313,8 +289,8 @@ static enum end session(int fd, int hz) {
         finalize_once();
         return END_FAILED;
     }
-    say("capturing: preset %d, %d areas, %d polls a second (init %llu ms)", preset, zones_for_preset[preset], hz,
-        (unsigned long long)((mono_us() - t0) / 1000u));
+    say("capturing: preset %d, %d areas, %d polls a second (init %llu ms, reduce %s)", preset, zones_for_preset[preset], hz,
+        (unsigned long long)((mono_us() - t0) / 1000u), reduce_impl());
 
     struct vth_zone *buf = calloc(VTH_MAX_ZONES, sizeof *buf);
     if (!buf) {
