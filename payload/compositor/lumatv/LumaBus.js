@@ -5,13 +5,23 @@
 // lumatv.js) dispatches into it through LumaKeyBridge.qml. Keys never travel through
 // QtQuick focus: the compositor's KeyFilter sends them straight to the focused Wayland
 // window, so a QML item can only see them from inside the filter chain.
+//
+// Two more surfaces register here. The gear key's hold (the filter times it) is answered by
+// LumaHome while Home is in front and by the overlay (LumaOverlay.qml, drawn over an app by the
+// fullscreen container) while an app is: each says whether it can show the notification drawer now
+// (`ready`) and opens it (`hold`). The overlay also takes keys while it has a surface that wants them
+// (`wants`), as Home does.
 var handler = null
 var escapeHandler = null
+var gearHome = null                     // { ready(): bool, hold(): bool }
+var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(): bool, hold(): bool }
 var lastFaultMs = 0
 var beatMs = 0
 
 function setHandler(h) { handler = h }
 function setEscapeHandler(h) { escapeHandler = h }
+function setGear(g) { gearHome = g }
+function setOverlay(o) { overlay = o }
 
 // LumaHome's once-a-second timer calls this. The filter takes a key only while it has been
 // called within the last 3 s: a layer whose timers have stopped is not answering, and the
@@ -32,6 +42,37 @@ function dispatch(key, pressed, autoRepeat, deviceId) {
     if (!handler) return false
     try { return handler(key, pressed, autoRepeat, deviceId) === true }
     catch (e) { fault("handler", e); return false }
+}
+
+// The overlay over an app has something that takes keys, and the layer is answering.
+function overlayWants() {
+    if (!overlay || !answering()) return false
+    try { return overlay.wants() === true }
+    catch (e) { fault("overlay.wants", e); return false }
+}
+
+function dispatchOverlay(key, pressed, autoRepeat, deviceId) {
+    if (!overlay) return false
+    try { return overlay.key(key, pressed, autoRepeat, deviceId) === true }
+    catch (e) { fault("overlay", e); return false }
+}
+
+// Something of ours could show the drawer now: the hold is ours, and LG's Settings long press is not wanted.
+function gearReady() {
+    if (!answering()) return false
+    try {
+        if (gearHome && gearHome.ready() === true) return true
+        return !!overlay && overlay.ready() === true
+    } catch (e) { fault("gear ready", e); return false }
+}
+
+// The gear was held: the drawer opens where it can (Home first, then the overlay). True when one opened.
+function gearHold() {
+    try {
+        if (gearHome && gearHome.ready() === true) return gearHome.hold() === true
+        if (overlay && overlay.ready() === true) return overlay.hold() === true
+    } catch (e) { fault("gear hold", e) }
+    return false
 }
 
 // Home held 650 ms (LumaKeyBridge.qml has written its request): LumaHome starts following

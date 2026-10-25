@@ -68,7 +68,7 @@ Item {
     function settingsPages() {
         var s = settingsRes.item
         if (!s) return []
-        return s.pages.map(function(p) { var sum = String(s.summaryFor(p.id)).split(" \u00b7 ")[0]; return { id: p.id, title: p.title, icon: p.icon, sub: "Settings" + (sum ? " \u00b7 " + sum : "") } })
+        return s.pages.filter(function(p) { return p.search !== false }).map(function(p) { var sum = String(s.summaryFor(p.id)).split(" \u00b7 ")[0]; return { id: p.id, title: p.title, icon: p.icon, sub: "Settings" + (sum ? " \u00b7 " + sum : "") } })
     }
     function pickerNext() { if (pickerRes.item) pickerRes.item.next() }
     // A volume key was pressed: the OSD asks the helper for a fresh reading and shows the pill.

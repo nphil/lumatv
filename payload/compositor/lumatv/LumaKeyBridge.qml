@@ -35,6 +35,12 @@ QtObject {
 
     function dispatch(key, pressed, autoRepeat, deviceId) { return Bus.dispatch(key, pressed, autoRepeat, deviceId) }
     function answering() { return Bus.answering() }
+    // The overlay over an app (LumaOverlay.qml) takes keys while it has a surface that wants them; the gear key's hold, which the
+    // filter times, asks Home or the overlay to open the notification drawer.
+    function dispatchOverlay(key, pressed, autoRepeat, deviceId) { return Bus.dispatchOverlay(key, pressed, autoRepeat, deviceId) }
+    function overlayWants() { return Bus.overlayWants() }
+    function gearReady() { return Bus.gearReady() }
+    function gearHold() { return Bus.gearHold() }
 
     // true: the event ends here. LG's chain replays a short press as a press and a release
     // straight away, which this takes for a hold that ends at once.

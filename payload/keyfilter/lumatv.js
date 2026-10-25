@@ -7,17 +7,34 @@
 // the LumaBus.js library instance with LumaHome. Accepted keys stop here; everything else
 // falls through to the stock chain and Home's own surface.
 //
-// The filter fails open. A key is taken only while Home is in front, LumaHome is answering
-// (its heartbeat is under 3 s old) and its handler takes it; anything else, and any error
-// anywhere in this file or in the handler, answers NextPolicy so LG's chain sees the key
+// The filter fails open. A key is taken only while a surface of ours has the screen (Home, or
+// the overlay over an app while it has something that takes keys), LumaHome is answering (its
+// heartbeat is under 3 s old) and that surface's handler takes it; anything else, and any
+// error anywhere in this file or in the handler, answers NextPolicy so LG's chain sees the key
 // untouched. Presses and releases are paired: a release goes where its press went (an error
 // is the one exception, it always goes to LG), so LG never receives half of a key it did not
 // see go down, and a held OK that LumaHome acts on at release (never on press) cannot leave
 // a stray release for the app it opens.
+//
+// The gear (Settings) key. LG's chain swallows its press (preProcess.js, `handleLongPressKeys`
+// is fourth, behind this filter) and decides on release: before 1 s it replays the key, which
+// opens Quick Settings and counts toward the three-tap AV reset; at 1 s it injects Key_Option,
+// which launches LG's Settings app. This filter only watches the press, so a tap is LG's as it
+// always was. Held 650 ms it asks LumaHome (or the overlay, over an app) to open the
+// notification drawer; once that has opened, LG's own long-press timer is cancelled the way
+// the Home hold cancels Screen Zoom's, and the rest of the hold, its repeats and its release,
+// ends here, so LG neither opens Settings nor replays a tap. When nothing of ours can show the
+// drawer, the hold is LG's. Key_Option, the 1 s conversion, is the safety net: while the gear is
+// down it is ours too, and LG's Settings never opens over a drawer.
 
 var bridge = null;
-var taken = {};          // key code -> true while LumaHome holds that key's press
+var taken = {};          // key code -> "home" or "overlay" while that surface holds the key's press
 var lastFaultMs = 0;
+
+var GEAR_HOLD_MS = 650;  // PLAN: a hold is one press held 650 ms; the AV reset is three taps
+var GEAR_KEY = null;     // WebOS.Key_webOS_Settings, read at init: a scope without WebOS leaves the gear to LG
+var GEAR_WATCH_MS = 4000; // a release that never arrives must not swallow the gear for good
+var gear = { down: false, fired: false, hold: -1, watch: -1, option: false };
 
 function fault(where, e) {
     // one line per 5 s: a handler that throws on every key repeat must not flood the log
@@ -38,6 +55,7 @@ function init() {
                 try { longPressTimer.setBlockCancel(false); longPressTimer.cancel(); }
                 catch (e) { console.warn("[LumaKeys] could not stop the stock Home hold: " + e); }
             };
+            try { GEAR_KEY = WebOS.Key_webOS_Settings; } catch (e) { GEAR_KEY = null; console.warn("[LumaKeys] no WebOS.Key_webOS_Settings: the gear stays LG's"); }
             console.info("[LumaKeys] bridge ready");
         } else {
             console.warn("[LumaKeys] bridge failed: " + c.errorString());
@@ -52,28 +70,142 @@ function homeInFront() {
     return global.activeSurfaceAppId === "com.webos.app.home" && fullscreenView.activeFocus === true;
 }
 
+// An app has the screen and the keys: no LG overlay, popup, keyboard or alert is on top of it (they
+// take the focus from the fullscreen view, and their keys are not ours to read).
+function appInFront() {
+    var id = global.activeSurfaceAppId;
+    return fullscreenView.activeFocus === true && id !== "" && id !== "com.webos.app.home";
+}
+
+// The surface of ours that takes a new press: Home when it is in front and answering, else the overlay
+// over an app while it has a surface that takes keys (a banner with buttons, the drawer). "" for neither.
+function frontTarget() {
+    if (homeInFront()) return bridge.answering() ? "home" : "";
+    if (appInFront() && bridge.overlayWants()) return "overlay";
+    return "";
+}
+
+function dispatchTo(target, key, pressed, autoRepeat, deviceId) {
+    return target === "overlay" ? bridge.dispatchOverlay(key, pressed, autoRepeat, deviceId)
+                                : bridge.dispatch(key, pressed, autoRepeat, deviceId);
+}
+
 // true: the event ends here. false: LG's chain gets it.
 function takeKey(key, pressed, autoRepeat, deviceId) {
     if (!pressed) {
         // The record goes first, so nothing below can leave it behind.
-        if (!taken[key]) return false;
+        var to = taken[key];
+        if (!to) return false;
         delete taken[key];
-        bridge.dispatch(key, false, false, deviceId);
+        dispatchTo(to, key, false, false, deviceId);
         return true;
     }
     if (autoRepeat) {
         // Repeats follow their press: held keys keep moving focus, and a key LG got stays LG's.
-        if (!taken[key]) return false;
-        bridge.dispatch(key, true, true, deviceId);
+        var on = taken[key];
+        if (!on) return false;
+        dispatchTo(on, key, true, true, deviceId);
         return true;
     }
     // A new press supersedes whatever an earlier one left, so a release that never came
     // cannot turn the next release of an app's key into ours.
     delete taken[key];
-    if (!homeInFront() || !bridge.answering()) return false;
-    if (!bridge.dispatch(key, true, false, deviceId)) return false;
-    taken[key] = true;
+    var target = frontTarget();
+    if (target === "") return false;
+    if (!dispatchTo(target, key, true, false, deviceId)) return false;
+    taken[key] = target;
     return true;
+}
+
+// ---- the gear key
+
+function gearStop(id) {
+    if (id >= 0) { try { genericTimer.cancel(id); } catch (e) { } }
+}
+
+function gearReset() {
+    gearStop(gear.hold);
+    gearStop(gear.watch);
+    gear.down = false; gear.fired = false; gear.hold = -1; gear.watch = -1; gear.option = false;
+}
+
+// Something of ours has the screen and can show the drawer now.
+function gearWanted() {
+    return (homeInFront() || appInFront()) && bridge.answering() && bridge.gearReady();
+}
+
+// LG's own timer for this press (1 s, with its ring on screen) would turn the hold into Key_Option.
+function gearCancelLg() {
+    try {
+        longPressTimer.setBlockCancel(false);
+        longPressTimer.cancel();
+        longPressTimer.setDeviceId(-1);
+    } catch (e) {
+        console.warn("[LumaKeys] could not stop the stock gear hold: " + e);
+    }
+}
+
+function gearWatch() {
+    // restarted by every event of the hold: it only fires when the events stop (a lost release)
+    gearStop(gear.watch);
+    gear.watch = genericTimer.set(GEAR_WATCH_MS, function() { gearReset(); });
+}
+
+function gearFire() {
+    gear.hold = -1;
+    try {
+        if (!gear.down || gear.fired || !gearWanted()) return;
+        if (!bridge.gearHold()) return;          // nothing opened: the hold stays LG's
+        gear.fired = true;
+        gearCancelLg();
+        gearWatch();
+        console.info("[LumaKeys] gear held, the notification drawer is open");
+    } catch (e) {
+        fault("the gear hold", e);
+    }
+}
+
+// true: the event ends here.
+function gearKey(pressed, autoRepeat) {
+    if (pressed) {
+        if (!autoRepeat) {
+            // A new press supersedes whatever an earlier one left. LG's chain still sees the press: a tap stays LG's.
+            gearReset();
+            if (gearWanted()) {
+                gear.down = true;
+                gear.hold = genericTimer.set(GEAR_HOLD_MS, gearFire);
+                gearWatch();
+            }
+            return false;
+        }
+        if (!gear.fired) return false;
+        gearWatch();
+        return true;
+    }
+    // When LG's own timer ran (Key_Option was injected) LG must see this release: it ends that hold in its own state
+    // (it answers with the Key_Option release, which optionKey takes). Otherwise the hold ended here and LG saw none of it.
+    var swallow = gear.fired && !gear.option;
+    var option = gear.option;
+    gearReset();
+    gear.option = option;
+    return swallow;
+}
+
+// Key_Option: LG's 1 s conversion of a held gear (and the key an Option key of a keyboard would send, which is none of
+// this). Ours only while the gear is down or its hold has been taken.
+function optionKey(pressed) {
+    if (pressed) {
+        if (gear.fired) { gear.option = true; return true; }
+        if (gear.down && gearWanted() && bridge.gearHold()) {
+            gear.fired = true; gear.option = true;
+            gearWatch();
+            console.info("[LumaKeys] gear held, the notification drawer is open (LG's own long press ran first)");
+            return true;
+        }
+        return false;
+    }
+    if (gear.option) { gear.option = false; return true; }
+    return false;
 }
 
 function handleLumaHome(key, pressed, autoRepeat, deviceId) {
@@ -81,7 +213,11 @@ function handleLumaHome(key, pressed, autoRepeat, deviceId) {
         if (!bridge) return KeyPolicy.NextPolicy;
         // Home is only watched, so a short press still reaches LG's handler as it always did.
         if (key === Qt.Key_Super_L) return bridge.homeKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
-        return takeKey(key, pressed, autoRepeat, deviceId) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+        // A surface of ours may take any key first: the saver wakes on the gear like on any other key
+        if (takeKey(key, pressed, autoRepeat, deviceId)) return KeyPolicy.Accepted;
+        if (GEAR_KEY !== null && key === GEAR_KEY) return gearKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+        if (key === Qt.Key_Option) return optionKey(pressed) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+        return KeyPolicy.NextPolicy;
     } catch (e) {
         fault("the filter", e);
         return KeyPolicy.NextPolicy;

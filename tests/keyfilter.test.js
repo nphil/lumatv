@@ -11,27 +11,54 @@ const SRC = readFileSync(new URL("../payload/keyfilter/lumatv.js", import.meta.u
 
 const KeyPolicy = { Accepted: 1, NextPolicy: 2, NotAccepted: 3 };
 const OK = 0x01000005, RIGHT = 0x01000014, HOME = 0x01000022;
+const GEAR = 0x01000070, OPTION = 0x01000100, WEBOS = { Key_webOS_Settings: GEAR };
 
 let calls, front, bridgeAnswers, warnings, now, answering;
+// The gear and the overlay: what the bridge says, the timers the filter asked LG's `genericTimer` for (advanced by hand) and what it did to LG's long press.
+let gearReady, gearOpens, overlayWanted, overlayTakes, timers, nextTimer, lgCalls, timerBroken;
 
-function makeFilter({ bridge = undefined } = {}) {
+function advance(ms) {
+  const end = now + ms;
+  for (;;) {
+    const due = timers.filter((t) => t.at <= end).sort((a, b) => a.at - b.at)[0];
+    if (!due) break;
+    now = Math.max(now, due.at);
+    timers = timers.filter((t) => t !== due);
+    due.fn();
+  }
+  now = end;
+}
+
+function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
   const Qt = {
     Key_Super_L: HOME,
+    Key_Option: OPTION,
     createComponent: () => ({ status: 1, errorString: () => "", createObject: () => theBridge }),
   };
   const theBridge = bridge === undefined ? {
     dispatch(key, pressed, autoRepeat) { calls.push(["dispatch", key, pressed, autoRepeat]); return bridgeAnswers(key, pressed, autoRepeat); },
     homeKey(pressed, autoRepeat) { calls.push(["home", pressed, autoRepeat]); return false; },
     answering() { return answering; },
+    overlayWants() { return overlayWanted; },
+    dispatchOverlay(key, pressed, autoRepeat) { calls.push(["overlay", key, pressed, autoRepeat]); return overlayTakes(key, pressed, autoRepeat); },
+    gearReady() { return gearReady; },
+    gearHold() { calls.push(["gearHold"]); return gearOpens; },
   } : bridge;
+  const genericTimer = {
+    set(ms, fn) { if (timerBroken) return -1; const id = ++nextTimer; timers.push({ id, at: now + ms, fn }); return id; },
+    cancel(id) { timers = timers.filter((t) => t.id !== id); },
+    isRunning(id) { return timers.some((t) => t.id === id); },
+  };
   const env = {
     Qt, KeyPolicy, Component: { Ready: 1 },
     global: { get activeSurfaceAppId() { return front.app; } },
     fullscreenView: { get activeFocus() { return front.focus; } },
-    longPressTimer: { setBlockCancel() {}, cancel() {} },
+    longPressTimer: { setBlockCancel(v) { lgCalls.push(["block", v]); }, cancel() { lgCalls.push(["cancel"]); }, setDeviceId(d) { lgCalls.push(["device", d]); } },
     console: { info() {}, warn: (m) => warnings.push(m) },
     Date: { now: () => now },
+    genericTimer,
   };
+  if (webos) env.WebOS = webos;
   const f = new Function(...Object.keys(env), SRC + "\nreturn { init, handleLumaHome };");
   const filter = f(...Object.values(env));
   filter.init();
@@ -45,6 +72,14 @@ beforeEach(() => {
   front = { app: "com.webos.app.home", focus: true };
   bridgeAnswers = () => true;
   answering = true;
+  gearReady = true;
+  gearOpens = true;
+  overlayWanted = false;
+  overlayTakes = () => true;
+  timers = [];
+  nextTimer = 0;
+  lgCalls = [];
+  timerBroken = false;
 });
 
 test("a press LumaHome takes ends there, and so does its release", () => {
@@ -163,4 +198,296 @@ test("an exception logs once per five seconds", () => {
   now += 5000;
   f.handleLumaHome(RIGHT, true, false, 1);
   expect(warnings.length).toBe(2);
+});
+
+// ---- the gear key: a tap is LG's, a hold of 650 ms is the notification drawer, LG's own long press (Settings at 1 s) never runs over it
+
+const N = KeyPolicy.NextPolicy, A = KeyPolicy.Accepted;
+const down = (f, key, repeat = false) => f.handleLumaHome(key, true, repeat, 1);
+const up = (f, key) => f.handleLumaHome(key, false, false, 1);
+const held = () => calls.filter((c) => c[0] === "gearHold").length;
+const stockHoldStopped = () => JSON.stringify(lgCalls) === JSON.stringify([["block", false], ["cancel"], ["device", -1]]);
+
+test("a tap of the gear is LG's from press to release: the filter only watches it", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  expect(down(f, GEAR)).toBe(N);
+  advance(400);
+  expect(up(f, GEAR)).toBe(N);
+  advance(10_000);
+  expect(held()).toBe(0);
+  expect(lgCalls).toEqual([]);
+});
+
+test("three taps stay three events for LG's AV reset, the hold's timer never survives a release", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  for (let i = 0; i < 3; i++) {
+    expect(down(f, GEAR)).toBe(N);
+    advance(200);
+    expect(up(f, GEAR)).toBe(N);
+    advance(300);
+  }
+  advance(10_000);
+  expect(held()).toBe(0);
+  expect(lgCalls).toEqual([]);
+  expect(timers).toEqual([]);
+});
+
+test("held 650 ms the gear opens the drawer, LG's long press is stopped and the rest of the hold ends at the filter", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  expect(down(f, GEAR)).toBe(N);                 // LG's chain sees the press, as for a tap
+  advance(649);
+  expect(held()).toBe(0);
+  advance(1);
+  expect(held()).toBe(1);
+  expect(stockHoldStopped()).toBe(true);
+  // the repeats of the hold and its release are the filter's: LG would otherwise replay the key and open Quick Settings
+  expect(down(f, GEAR, true)).toBe(A);
+  expect(down(f, GEAR, true)).toBe(A);
+  expect(up(f, GEAR)).toBe(A);
+  // nothing is left running, and the next tap is an ordinary one
+  expect(timers).toEqual([]);
+  expect(down(f, GEAR)).toBe(N);
+  expect(up(f, GEAR)).toBe(N);
+  expect(held()).toBe(1);
+});
+
+test("a hold is taken once however long it lasts", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(650);
+  for (let i = 0; i < 30; i++) { advance(100); expect(down(f, GEAR, true)).toBe(A); }
+  expect(held()).toBe(1);
+  expect(up(f, GEAR)).toBe(A);
+});
+
+test("when nothing of ours can show the drawer the hold is LG's: its timer is left to run", () => {
+  bridgeAnswers = () => false;
+  gearReady = false;                             // the setting is off, or the layer cannot show it
+  const f = makeFilter();
+  expect(down(f, GEAR)).toBe(N);
+  advance(2000);
+  expect(held()).toBe(0);
+  expect(lgCalls).toEqual([]);
+  expect(up(f, GEAR)).toBe(N);
+});
+
+test("a drawer that does not open at the hold leaves the hold to LG", () => {
+  bridgeAnswers = () => false;
+  gearOpens = false;
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(650);
+  expect(held()).toBe(1);                        // asked once
+  expect(lgCalls).toEqual([]);
+  expect(down(f, GEAR, true)).toBe(N);
+  expect(up(f, GEAR)).toBe(N);
+});
+
+test("a layer that is not answering is not asked: the hold is LG's", () => {
+  bridgeAnswers = () => false;
+  answering = false;
+  const f = makeFilter();
+  expect(down(f, GEAR)).toBe(N);
+  advance(2000);
+  expect(held()).toBe(0);
+  expect(lgCalls).toEqual([]);
+  expect(up(f, GEAR)).toBe(N);
+});
+
+test("an LG overlay, popup or alert on top of the app has the focus and its gear is LG's", () => {
+  bridgeAnswers = () => false;
+  front = { app: "netflix", focus: false };
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(2000);
+  expect(held()).toBe(0);
+  expect(lgCalls).toEqual([]);
+});
+
+test("over an app with the focus the hold is the overlay's drawer", () => {
+  bridgeAnswers = () => false;
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(650);
+  expect(held()).toBe(1);
+  expect(stockHoldStopped()).toBe(true);
+  expect(up(f, GEAR)).toBe(A);
+});
+
+test("the saver takes the gear like any key: the press and its release are Home's and no hold starts", () => {
+  bridgeAnswers = (key) => key === GEAR;         // LumaHome's saver eats it
+  const f = makeFilter();
+  expect(down(f, GEAR)).toBe(A);
+  advance(2000);
+  expect(up(f, GEAR)).toBe(A);
+  expect(held()).toBe(0);
+  expect(timers).toEqual([]);
+});
+
+test("a release that never comes does not swallow the gear for good", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(650);
+  expect(held()).toBe(1);
+  advance(4001);                                 // the events stopped: the watch clears the hold
+  lgCalls = [];
+  expect(down(f, GEAR)).toBe(N);
+  advance(100);
+  expect(up(f, GEAR)).toBe(N);
+  expect(lgCalls).toEqual([]);
+});
+
+test("a new press supersedes a hold whose release was lost", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(650);
+  expect(down(f, GEAR)).toBe(N);                 // a new press, not a repeat
+  advance(100);
+  expect(up(f, GEAR)).toBe(N);
+  expect(held()).toBe(1);
+});
+
+test("a timer service that fails leaves the gear to LG, and the 1 s Key_Option is then the hold", () => {
+  bridgeAnswers = () => false;
+  timerBroken = true;
+  const f = makeFilter();
+  expect(down(f, GEAR)).toBe(N);
+  advance(650);
+  expect(held()).toBe(0);
+  // LG's own long press runs: at 1 s it injects Key_Option
+  expect(down(f, OPTION)).toBe(A);
+  expect(held()).toBe(1);
+  // LG must see the gear's release to end its own hold, and its Key_Option release is the filter's
+  expect(up(f, GEAR)).toBe(N);
+  expect(up(f, OPTION)).toBe(A);
+  expect(up(f, OPTION)).toBe(N);
+});
+
+test("a hold that LG's timer outran (its cancel failed) still never opens LG's Settings over the drawer", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  down(f, GEAR);
+  advance(650);
+  expect(held()).toBe(1);
+  expect(down(f, OPTION)).toBe(A);               // LG's timer was not stopped: the conversion arrives anyway
+  expect(held()).toBe(1);                        // the drawer is not asked twice
+  expect(up(f, GEAR)).toBe(N);                   // LG finishes its own hold on it
+  expect(up(f, OPTION)).toBe(A);
+});
+
+test("an Option key that is not LG's conversion of a held gear is not ours", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter();
+  expect(down(f, OPTION)).toBe(N);
+  expect(up(f, OPTION)).toBe(N);
+  expect(held()).toBe(0);
+});
+
+test("without the gear key's code in scope the gear is LG's", () => {
+  bridgeAnswers = () => false;
+  const f = makeFilter({ webos: null });
+  expect(warnings.length).toBe(1);
+  expect(down(f, GEAR)).toBe(N);
+  advance(2000);
+  expect(held()).toBe(0);
+});
+
+test("an error while the hold is taken is logged once and the hold stays LG's", () => {
+  const broken = { answering() { return true; }, gearReady() { return true; }, gearHold() { throw new Error("no drawer"); }, dispatch() { return false; }, homeKey() { return false; }, overlayWants() { return false; } };
+  const f = makeFilter({ bridge: broken });
+  expect(down(f, GEAR)).toBe(N);
+  advance(650);
+  expect(warnings.length).toBe(1);
+  expect(lgCalls).toEqual([]);                   // LG's timer was not touched: its hold runs as it always did
+  expect(up(f, GEAR)).toBe(N);
+});
+
+// ---- the overlay over an app takes keys only while it has a surface that wants them
+
+test("over an app with a banner that has buttons the overlay takes the D-pad: press, repeat and release", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = true;
+  const f = makeFilter();
+  expect(down(f, RIGHT)).toBe(A);
+  expect(down(f, RIGHT, true)).toBe(A);
+  expect(up(f, RIGHT)).toBe(A);
+  expect(calls).toEqual([["overlay", RIGHT, true, false], ["overlay", RIGHT, true, true], ["overlay", RIGHT, false, false]]);
+});
+
+test("an overlay with nothing that takes keys leaves every key to the app", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = false;
+  const f = makeFilter();
+  expect(down(f, RIGHT)).toBe(N);
+  expect(up(f, RIGHT)).toBe(N);
+  expect(calls).toEqual([]);
+});
+
+test("a key the overlay declines goes to the app, and so do its repeats and release", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = true;
+  overlayTakes = () => false;
+  const f = makeFilter();
+  expect(down(f, OK)).toBe(N);
+  expect(down(f, OK, true)).toBe(N);
+  expect(up(f, OK)).toBe(N);
+  expect(calls).toEqual([["overlay", OK, true, false]]);
+});
+
+test("an LG overlay or alert over the app has the focus: the overlay is not given its keys", () => {
+  front = { app: "com.webos.app.hdmi2", focus: false };
+  overlayWanted = true;
+  const f = makeFilter();
+  expect(down(f, RIGHT)).toBe(N);
+  expect(calls).toEqual([]);
+});
+
+test("a release goes to the surface that took its press, whichever is in front by then", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = true;
+  const f = makeFilter();
+  expect(down(f, OK)).toBe(A);
+  front = { app: "com.webos.app.home", focus: true };    // an input picked from the banner: Home arrives before the key is up
+  expect(up(f, OK)).toBe(A);
+  expect(calls).toEqual([["overlay", OK, true, false], ["overlay", OK, false, false]]);
+  // and the other way round: a press Home took is Home's to the end
+  calls = [];
+  expect(down(f, RIGHT)).toBe(A);
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  expect(up(f, RIGHT)).toBe(A);
+  expect(calls).toEqual([["dispatch", RIGHT, true, false], ["dispatch", RIGHT, false, false]]);
+});
+
+test("Home in front is LumaHome's even if the overlay still says it wants keys", () => {
+  front = { app: "com.webos.app.home", focus: true };
+  overlayWanted = true;
+  const f = makeFilter();
+  expect(down(f, RIGHT)).toBe(A);
+  expect(calls).toEqual([["dispatch", RIGHT, true, false]]);
+});
+
+test("an overlay that stops answering is not given keys", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = false;                          // the bus says so when the layer is not answering
+  answering = false;
+  const f = makeFilter();
+  expect(down(f, RIGHT)).toBe(N);
+  expect(calls).toEqual([]);
+});
+
+test("an exception in the overlay passes the key to the app", () => {
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = true;
+  overlayTakes = () => { throw new Error("overlay broke"); };
+  const f = makeFilter();
+  expect(down(f, RIGHT)).toBe(N);
+  expect(up(f, RIGHT)).toBe(N);
+  expect(warnings.length).toBe(1);
 });
