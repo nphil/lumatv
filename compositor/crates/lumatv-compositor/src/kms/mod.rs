@@ -17,14 +17,14 @@ pub mod assign;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
 use drm::buffer::{Buffer, DrmFourcc, DrmModifier, PlanarBuffer};
 use drm::control::atomic::AtomicModeReq;
 use drm::control::dumbbuffer::DumbBuffer;
 use drm::control::{AtomicCommitFlags, Device as ControlDevice, Event, FbCmd2Flags, PlaneType, connector, crtc, framebuffer, plane, property};
-use drm::{ClientCapability, Device};
+use drm::{ClientCapability, Device, DriverCapability};
 use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
@@ -120,11 +120,18 @@ pub struct Kms {
     modeset_done: bool,
     pending_flip: bool,
     pub pacer: Pacer,
-    started: Instant,
+    /// Page-flip timestamps are CLOCK_MONOTONIC when the driver says so (DRM_CAP_TIMESTAMP_MONOTONIC), else
+    /// CLOCK_REALTIME and translated on arrival; everything else here is CLOCK_MONOTONIC in ns.
+    monotonic_flips: bool,
     frame_started_ns: u64,
     frame_ready_ns: u64,
     frame_slot_ns: u64,
     last_assignment: Option<Assignment>,
+    /// When the last flip landed, 0 before the first.
+    last_flip_ns: u64,
+    /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
+    /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
+    in_run: bool,
     pub flips: u64,
     pub direct_frames: u64,
     pub late_frames: u64,
@@ -136,6 +143,14 @@ const PAGES: usize = 3;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
+}
+
+/// CLOCK_MONOTONIC in ns.
+fn mono_ns() -> u64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a stack timespec for clock_gettime.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
 impl Kms {
@@ -237,6 +252,8 @@ impl Kms {
             pages.push(Page { dumb, fd, fb, target });
         }
         let period_ns = 1_000_000_000 / mode.vrefresh().max(1) as u64;
+        let monotonic_flips = card.get_driver_capability(DriverCapability::MonotonicTimestamp).map(|v| v != 0).unwrap_or(false);
+        log::info!("kms: page-flip timestamps are {}", if monotonic_flips { "CLOCK_MONOTONIC" } else { "CLOCK_REALTIME (translated)" });
         Ok(Kms {
             card,
             crtc,
@@ -261,11 +278,13 @@ impl Kms {
             modeset_done: false,
             pending_flip: false,
             pacer: Pacer::new(period_ns),
-            started: Instant::now(),
+            monotonic_flips,
             frame_started_ns: 0,
             frame_ready_ns: 0,
             frame_slot_ns: 0,
             last_assignment: None,
+            last_flip_ns: 0,
+            in_run: false,
             flips: 0,
             direct_frames: 0,
             late_frames: 0,
@@ -278,8 +297,16 @@ impl Kms {
         &self.gl
     }
 
+    /// CLOCK_MONOTONIC in ns: the clock the kernel stamps page flips with, so the pacer's phase (flip time minus
+    /// slot) is a small number and not the uptime. The first TV run used a process-relative clock here and armed
+    /// the next tick hours ahead after the first flip (3 frames drawn in 30 s).
     fn now_ns(&self) -> u64 {
-        self.started.elapsed().as_nanos() as u64
+        mono_ns()
+    }
+
+    /// Whether frames are following one another closely enough for the pacer's timeline to be worth keeping.
+    fn flowing(&self, now_ns: u64) -> bool {
+        self.in_run && self.pacer.phase_ns().is_some() && self.pacer.flowing(now_ns)
     }
 
     /// Whether `fourcc`/`modifier` is in the primary plane's `IN_FORMATS`.
@@ -339,37 +366,52 @@ impl Kms {
         }
     }
 
-    /// Retires the last flip's event, if it arrived; `true` when no flip is outstanding.
-    fn poll_flip(&mut self, block: bool) -> io::Result<bool> {
-        if !self.pending_flip {
-            return Ok(true);
+    /// Reads the DRM events that have arrived (without waiting); returns how many page flips landed.
+    fn drain_events(&mut self) -> io::Result<u32> {
+        let mut landed = 0;
+        for ev in self.card.receive_events()? {
+            if let Event::PageFlip(f) = ev {
+                self.flip_landed(f.duration.as_nanos() as u64);
+                landed += 1;
+            }
         }
-        loop {
+        Ok(landed)
+    }
+
+    fn flip_landed(&mut self, stamp_ns: u64) {
+        self.pending_flip = false;
+        self.flips += 1;
+        let presented_ns = if self.monotonic_flips {
+            stamp_ns
+        } else {
+            // CLOCK_REALTIME stamp: carry it over by the two clocks' current difference.
+            let mut rt = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+            // SAFETY: a stack timespec for clock_gettime.
+            unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut rt) };
+            let rt_ns = rt.tv_sec as u64 * 1_000_000_000 + rt.tv_nsec as u64;
+            mono_ns().saturating_sub(rt_ns.saturating_sub(stamp_ns))
+        };
+        self.last_flip_ns = presented_ns;
+        let shown = Shown { slot_ns: self.frame_slot_ns, started_ns: self.frame_started_ns, ready_ns: self.frame_ready_ns, presented_ns, content_ns: None };
+        let landing = self.pacer.presented(&shown);
+        if landing.late > 0 {
+            self.late_frames += 1;
+        }
+        self.lost_refreshes += landing.lost as u64;
+    }
+
+    /// Waits (up to 100 ms) for the outstanding flip to land; `true` when none is outstanding afterwards.
+    fn wait_flip(&mut self) -> io::Result<bool> {
+        while self.pending_flip {
             let mut pfd = libc::pollfd { fd: self.card.as_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 };
             // SAFETY: one pollfd on the DRM fd.
-            let n = unsafe { libc::poll(&mut pfd, 1, if block { 100 } else { 0 }) };
+            let n = unsafe { libc::poll(&mut pfd, 1, 100) };
             if n <= 0 {
                 return Ok(false);
             }
-            for ev in self.card.receive_events()? {
-                if let Event::PageFlip(f) = ev {
-                    self.pending_flip = false;
-                    self.flips += 1;
-                    let presented_ns = f.duration.as_nanos() as u64;
-                    let shown =
-                        Shown { slot_ns: self.frame_slot_ns, started_ns: self.frame_started_ns, ready_ns: self.frame_ready_ns, presented_ns, content_ns: None };
-                    let landing = self.pacer.presented(&shown);
-                    if landing.late > 0 {
-                        self.late_frames += 1;
-                    }
-                    self.lost_refreshes += landing.lost as u64;
-                    return Ok(true);
-                }
-            }
-            if !block {
-                return Ok(!self.pending_flip);
-            }
+            self.drain_events()?;
         }
+        Ok(true)
     }
 
     fn commit(&mut self, a: &Assignment, in_fence: Option<OwnedFd>) -> io::Result<()> {
@@ -515,10 +557,34 @@ impl Output for Kms {
         "kms"
     }
 
+    /// The pacer's latch while a run of frames is on (start late, aim early, one frame per refresh). Between
+    /// runs the fixed tick rules: the latch would be in the past then (the slot timeline stops with the last
+    /// drawn frame) and re-arming at it spun the loop at 2000 ticks/s in the first TV run.
     fn next_frame_at(&self, now: Instant) -> Option<Instant> {
-        let now_ns = now.saturating_duration_since(self.started).as_nanos() as u64;
+        let now_ns = self.now_ns();
+        if !self.flowing(now_ns) {
+            return None;
+        }
         let latch = self.pacer.latch_at(now_ns);
-        Some(self.started + Duration::from_nanos(latch.max(now_ns)))
+        Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
+    }
+
+    fn event_fd(&self) -> Option<RawFd> {
+        Some(self.card.as_fd().as_raw_fd())
+    }
+
+    fn dispatch_events(&mut self) -> io::Result<u32> {
+        self.drain_events()
+    }
+
+    /// A commit onto a still screen is drawn at once: nothing is in flight to wait for and no run to keep in
+    /// step with, so the tick would only delay it by up to a refresh.
+    fn draws_on_damage(&self, _now: Instant) -> bool {
+        !self.pending_flip && self.last_assignment.is_none() && !self.flowing(self.now_ns())
+    }
+
+    fn stats_line(&self) -> String {
+        format!("flips {} late {} lost {} direct {}", self.flips, self.late_frames, self.lost_refreshes, self.direct_frames)
     }
 
     fn size(&self) -> (u32, u32) {
@@ -575,7 +641,8 @@ impl Output for Kms {
 
     fn present(&mut self) -> io::Result<Presented> {
         let Some(a) = self.last_assignment.take() else {
-            // Nothing drawn: the planes keep what they show; no commit, no flip.
+            // Nothing drawn: the planes keep what they show; no commit, no flip; the run is over.
+            self.in_run = false;
             self.seq += 1;
             return Ok(Presented { seq: self.seq, at_ms: crate::output::monotonic_ms() });
         };
@@ -583,10 +650,11 @@ impl Output for Kms {
         // The previous flip must have landed before another commit (the kernel refuses a second non-blocking
         // commit, and the page it reads must not be reused); waiting here is what makes the render above run a
         // frame ahead of the panel.
-        if !self.poll_flip(true)? {
+        if !self.wait_flip()? {
             return Err(other("page flip event did not arrive within 100 ms"));
         }
         self.commit(&a, fence)?;
+        self.in_run = true;
         self.seq += 1;
         Ok(Presented { seq: self.seq, at_ms: crate::output::monotonic_ms() })
     }
@@ -605,7 +673,6 @@ impl Output for Kms {
                 rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
             }
         }
-        let _ = Duration::ZERO;
         Ok(Image { width: self.width, height: self.height, rgba })
     }
 }

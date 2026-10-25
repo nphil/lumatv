@@ -2,6 +2,7 @@
 //! The trait is the seam: the scene and the server never learn which they are talking to.
 
 use std::io;
+use std::os::fd::RawFd;
 use std::time::Instant;
 
 use wayland_server::protocol::wl_buffer::WlBuffer;
@@ -66,9 +67,33 @@ pub trait Output {
     fn capture(&mut self) -> io::Result<Image>;
 
     /// When the next frame should start, for outputs that pace themselves (KMS: the pacer's latch, from the
-    /// page-flip timestamps). `None` means the fixed tick.
+    /// page-flip timestamps) while frames are following one another. `None` means the fixed tick.
     fn next_frame_at(&self, _now: Instant) -> Option<Instant> {
         None
+    }
+
+    /// A file descriptor the main loop polls for the output's own events (KMS: the DRM device, readable when a
+    /// page flip has landed). `None` for outputs without events.
+    fn event_fd(&self) -> Option<RawFd> {
+        None
+    }
+
+    /// Handles the events pending on `event_fd`; returns the number of frames that landed.
+    fn dispatch_events(&mut self) -> io::Result<u32> {
+        Ok(0)
+    }
+
+    /// Whether a commit that arrived now should be drawn at once rather than at the next tick: the output shows a
+    /// still frame (no flip in flight, no run of frames to keep in step with), so waiting for the tick would only
+    /// add latency. The offscreen outputs say no: their frames are driven by the tick alone, which is what the
+    /// host tests and the X2 runs count on.
+    fn draws_on_damage(&self, _now: Instant) -> bool {
+        false
+    }
+
+    /// Output-specific counters for the summary line (KMS: flips, late and lost refreshes, direct scan-outs).
+    fn stats_line(&self) -> String {
+        String::new()
     }
 }
 

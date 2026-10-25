@@ -354,8 +354,9 @@ impl State {
     /// One line per field, for the control socket and the exit summary.
     pub fn summary(&self) -> String {
         let s = &self.stats;
+        let out = self.output.stats_line();
         format!(
-            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us check ok {} bad {} unread {}",
+            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us check ok {} bad {} unread {}{}{}",
             self.started.elapsed().as_secs_f64(),
             self.clients.len(),
             s.clients_total,
@@ -374,8 +375,15 @@ impl State {
             s.render_us_max,
             self.check.ok,
             self.check.bad,
-            self.check.unread
+            self.check.unread,
+            if out.is_empty() { "" } else { " " },
+            out
         )
+    }
+
+    /// Whether a commit is waiting to be drawn and the output would rather draw it now than at the tick.
+    pub fn wants_frame_now(&self) -> bool {
+        self.surfaces.any_undrawn() && self.output.draws_on_damage(Instant::now())
     }
 
     pub fn windows_report(&self) -> Vec<serde_json::Value> {

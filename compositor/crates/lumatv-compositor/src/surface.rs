@@ -376,6 +376,11 @@ impl Surfaces {
         self.map.get(&id).map(|s| s.is_mapped() && s.current.undrawn).unwrap_or(false)
     }
 
+    /// Whether any mapped surface holds content no frame has shown yet.
+    pub fn any_undrawn(&self) -> bool {
+        self.map.values().any(|s| s.is_mapped() && s.current.undrawn)
+    }
+
     /// Makes `child` a subsurface of `parent`, placed above it.
     pub fn add_subsurface(&mut self, child: SurfaceId, parent: SurfaceId) -> bool {
         if child == parent || !self.map.contains_key(&child) || !self.map.contains_key(&parent) {

@@ -8,6 +8,7 @@
 
 use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader, Write};
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 use serde::{Deserialize, Serialize};
@@ -105,6 +106,10 @@ pub trait Bridge {
     /// Messages that arrived since the last call.
     fn poll(&mut self) -> Vec<FromBridge>;
     fn is_connected(&self) -> bool;
+    /// The socket to wake on when the bridge has written something; `None` without a bridge.
+    fn fd(&self) -> Option<RawFd> {
+        None
+    }
     /// The outbound calls kept for inspection (the null bridge keeps the last 256).
     fn sent(&self) -> Vec<(String, Value)> {
         Vec::new()
@@ -201,6 +206,10 @@ impl Bridge for Pipe {
 
     fn is_connected(&self) -> bool {
         true
+    }
+
+    fn fd(&self) -> Option<RawFd> {
+        Some(self.writer.as_raw_fd())
     }
 }
 

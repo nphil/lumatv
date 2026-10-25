@@ -142,6 +142,8 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_LISTEN: u64 = 2;
     const TAG_TICK: u64 = 3;
     const TAG_CONTROL: u64 = 4;
+    const TAG_OUTPUT: u64 = 5;
+    const TAG_LUNA: u64 = 6;
     const TAG_CONTROL_CLIENT: u64 = 1 << 32;
     const TAG_INPUT: u64 = 1 << 33;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
@@ -150,6 +152,12 @@ fn run(config: Config) -> io::Result<()> {
     if let Some(l) = &control_listener {
         epoll.add(l.as_raw_fd(), TAG_CONTROL)?;
     }
+    if let Some(fd) = state.output.event_fd() {
+        epoll.add(fd, TAG_OUTPUT)?;
+    }
+    if let Some(fd) = state.luna.fd() {
+        epoll.add(fd, TAG_LUNA)?;
+    }
     let mut inputs = if config.input { lumatv_compositor::input::open_all() } else { Vec::new() };
     for (i, d) in inputs.iter().enumerate() {
         epoll.add(d.fd(), TAG_INPUT | i as u64)?;
@@ -157,11 +165,13 @@ fn run(config: Config) -> io::Result<()> {
     let client_events = Arc::new(Mutex::new(Vec::new()));
     let mut control_clients: Vec<(u64, BufReader<UnixStream>)> = Vec::new();
     let mut next_control = 0u64;
-    let deadline = config.seconds.map(|s| Instant::now() + Duration::from_secs(s));
+    let mut deadline = config.seconds.map(|s| Instant::now() + Duration::from_secs(s));
     let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; 16];
     // After --frames is reached the server stays up to 2 s more while a client is connected, so the client's own
     // teardown (eglTerminate, buffer destroys) is served rather than cut with a connection reset.
     let mut linger_until: Option<Instant> = None;
+    // Whether the tick is a one-shot at the output's latch (true) or the fixed interval (false).
+    let mut paced = false;
 
     loop {
         if state.should_exit {
@@ -173,8 +183,10 @@ fn run(config: Config) -> io::Result<()> {
                 _ => {}
             }
         }
-        let timeout = match deadline {
-            Some(d) => d.saturating_duration_since(Instant::now()).as_millis().min(1000) as i32,
+        let now = Instant::now();
+        let wake = [deadline, linger_until].into_iter().flatten().min();
+        let timeout = match wake {
+            Some(d) => d.saturating_duration_since(now).as_millis().clamp(1, 1000) as i32,
             None => 1000,
         };
         let n = epoll.wait(&mut events, timeout)?;
@@ -195,17 +207,17 @@ fn run(config: Config) -> io::Result<()> {
                     unsafe { libc::read(timer.as_raw_fd(), expirations.as_mut_ptr() as *mut libc::c_void, 8) };
                     state.tick();
                     state.poll_holds();
-                    if let Some(at) = state.output.next_frame_at(Instant::now()) {
-                        // The output paces itself: the next frame starts at its latch, not at the fixed tick.
-                        arm_once(&timer, at.saturating_duration_since(Instant::now()).max(Duration::from_micros(500)))?;
+                    rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                }
+                TAG_OUTPUT => {
+                    // A page flip landed: the pacer learned its timestamp; a commit that waited for the still
+                    // screen can go now.
+                    if let Err(e) = state.output.dispatch_events() {
+                        log::warn!("output events: {e}");
                     }
-                    for m in state.luna.poll() {
-                        match m {
-                            luna::FromBridge::Ping { seq } => state.luna.send(luna::ToBridge::Pong { seq }),
-                            luna::FromBridge::Inbound(i) => state.luna_inbound(i),
-                            luna::FromBridge::Event(e) => state.luna_event(e),
-                        }
-                    }
+                }
+                TAG_LUNA => {
+                    luna_poll(&mut state);
                 }
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {
@@ -257,12 +269,18 @@ fn run(config: Config) -> io::Result<()> {
             }
         }
         state.drain_client_events(&client_events);
+        // A commit onto a still screen (KMS) is drawn now rather than at the next tick.
+        if state.wants_frame_now() {
+            state.tick();
+            rearm(&timer, &state, &mut paced, config.tick_ns)?;
+        }
         display.flush_clients()?;
         if let Some(d) = deadline
             && Instant::now() >= d
         {
             log::info!("deadline after {} s", config.seconds.unwrap_or(0));
             state.should_exit = true;
+            deadline = None;
         }
     }
     display.flush_clients()?;
@@ -274,6 +292,33 @@ fn run(config: Config) -> io::Result<()> {
     }
     if state.check.bad > 0 {
         std::process::exit(3);
+    }
+    Ok(())
+}
+
+fn luna_poll(state: &mut State) {
+    for m in state.luna.poll() {
+        match m {
+            luna::FromBridge::Ping { seq } => state.luna.send(luna::ToBridge::Pong { seq }),
+            luna::FromBridge::Inbound(i) => state.luna_inbound(i),
+            luna::FromBridge::Event(e) => state.luna_event(e),
+        }
+    }
+}
+
+/// After a frame: the output's latch as a one-shot while it paces itself, else the fixed interval (re-armed
+/// only when the timer was last set as a one-shot, so the periodic timer keeps its phase).
+fn rearm(timer: &OwnedFd, state: &State, paced: &mut bool, tick_ns: u64) -> io::Result<()> {
+    match state.output.next_frame_at(Instant::now()) {
+        Some(at) => {
+            arm_once(timer, at.saturating_duration_since(Instant::now()).max(Duration::from_micros(500)))?;
+            *paced = true;
+        }
+        None if *paced => {
+            arm_periodic(timer, tick_ns)?;
+            *paced = false;
+        }
+        None => {}
     }
     Ok(())
 }
@@ -291,20 +336,29 @@ fn arm_once(timer: &OwnedFd, delay: Duration) -> io::Result<()> {
     Ok(())
 }
 
-fn timerfd(interval_ns: u64) -> io::Result<OwnedFd> {
-    // SAFETY: creating and arming a timerfd with a stack itimerspec.
+/// Arms the tick as a repeating interval starting one interval from now.
+fn arm_periodic(timer: &OwnedFd, interval_ns: u64) -> io::Result<()> {
+    // SAFETY: arming a timerfd with a stack itimerspec.
     unsafe {
-        let fd = libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC);
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
         let ts = libc::timespec { tv_sec: (interval_ns / 1_000_000_000) as libc::time_t, tv_nsec: (interval_ns % 1_000_000_000) as libc::c_long };
         let spec = libc::itimerspec { it_interval: ts, it_value: ts };
-        if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) < 0 {
+        if libc::timerfd_settime(timer.as_raw_fd(), 0, &spec, std::ptr::null_mut()) < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(OwnedFd::from_raw_fd(fd))
     }
+    Ok(())
+}
+
+fn timerfd(interval_ns: u64) -> io::Result<OwnedFd> {
+    // SAFETY: creating a timerfd; the fd is owned from here on.
+    let fd = unsafe { libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fd is a fresh, valid timerfd.
+    let timer = unsafe { OwnedFd::from_raw_fd(fd) };
+    arm_periodic(&timer, interval_ns)?;
+    Ok(timer)
 }
 
 struct Epoll {
