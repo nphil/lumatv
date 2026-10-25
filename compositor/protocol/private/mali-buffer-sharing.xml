@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="mali_buffer_sharing">
+  <!-- Arm's private buffer protocol, as every GL client of LG's libmali.so.0.46.0 speaks it. No public XML
+       exists; the tables were read out of the library's wl_interface data (docs/research/arch/
+       x2-libmali32-protocols.txt) and the argument meanings observed in X2 r1/r6: a client sends
+       create_buffer(1920, 1080, 7680, AB24, 0x08000000, 0x00000151, fd) for a 1080p window, where the two
+       words after the fourcc are the high and low halves of the DRM format modifier (ARM AFBC 16x16, YTR,
+       sparse, tiled) and the fd is a dma-buf from /dev/dma_buf_te. The 64-bit Rockchip g24p0 blob carries
+       the byte-identical table, version 5. -->
+  <interface name="mali_buffer_sharing" version="5">
+    <request name="create_buffer">
+      <arg name="id" type="new_id" interface="wl_buffer"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="stride" type="uint"/>
+      <arg name="format" type="uint"/>
+      <arg name="modifier_hi" type="uint"/>
+      <arg name="modifier_lo" type="uint"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="auth">
+      <arg name="magic" type="uint"/>
+    </request>
+    <event name="alloc_device">
+      <arg name="path" type="string"/>
+    </event>
+  </interface>
+</protocol>

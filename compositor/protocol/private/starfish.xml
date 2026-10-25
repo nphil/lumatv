@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="starfish">
+  <!-- LG's private extensions bound by WebAppMgr through libwayland-starfish-client.so.1.0.0. Message names
+       and the signatures "uu" (set_cursor_position) and "uuo" (set_stereoscope) are from the library's strings
+       (docs/research/arch/starfish-proto-strings.txt); the opcode order and the other signatures are NOT
+       verified against the library's wl_interface tables yet. Until docs/research/arch/wlproto_from_elf.py has
+       been run on that library on the set, these globals stay off (lumatv-compositor: -\-starfish). -->
+  <interface name="wl_starfish_pointer" version="1">
+    <request name="set_cursor_position">
+      <arg name="x" type="uint"/>
+      <arg name="y" type="uint"/>
+    </request>
+    <request name="set_mrcu_standby_timer">
+      <arg name="value" type="uint"/>
+    </request>
+    <request name="get_mrcu_standby_timer"/>
+    <event name="timer_value">
+      <arg name="value" type="uint"/>
+    </event>
+  </interface>
+  <interface name="wl_starfish_output" version="1">
+    <request name="set_stereoscope">
+      <arg name="mode" type="uint"/>
+      <arg name="hint" type="uint"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <event name="stereoscope_hint">
+      <arg name="hint" type="uint"/>
+    </event>
+  </interface>
+</protocol>

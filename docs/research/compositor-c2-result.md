@@ -9,19 +9,25 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 00:40 EDT): design written (below); workspace skeleton
-created; protocol XMLs fetched; code being written.
+State (2026-10-25 01:05 EDT): design written; the compositor builds on the
+host (`cargo build` in `compositor/`); host tests and the aarch64 build are
+next.
 
-- Done: design (this file), `compositor/Cargo.toml` workspace, the public
-  webOS protocol XMLs in `compositor/protocol/webos/` (webos-wayland-
-  extensions `4059350fd2be`, 2024-08-01; `webos-shell.xml` is byte-identical
-  to the copy already in `docs/research/m64/`), toolchain check: a Rust
-  `aarch64-unknown-linux-gnu` binary links with `cargo zigbuild --target
-  aarch64-unknown-linux-gnu.2.36` (needs only `libc.so.6`, max symbol
-  GLIBC_2.34; `rustup target add aarch64-unknown-linux-gnu` done).
-- Half-done: `compositor/crates/*` (protocol crate, compositor crate).
-- Next command: `cd /data/home/lumaglass/compositor && cargo test` (host),
-  then `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36`.
+- Done: design (below), workspace `compositor/` (crates `wl-protocols`
+  with the public webOS XMLs + `mali_buffer_sharing` + unverified
+  `starfish`, and `lumatv-compositor`: wl_compositor/subcompositor/shm/
+  shell/seat/output, webOS shell, surface groups, foreign punch-through
+  with the videooutputd call shapes, input manager, xinput/text/input
+  method/system UX stubs, linux-dmabuf v3, own mali_buffer_sharing, scene
+  with LG's window layers, software renderer, GL renderer on the blob
+  (EGL_WAYLAND_BUFFER_WL + dma-buf import, offscreen FBO, readback), 60 Hz
+  timerfd tick, frame callbacks and releases from the tick, PNG capture,
+  X2 self-check, control socket, luna bridge contract).
+- Half-done: host integration tests (none yet); `cargo zigbuild` for
+  aarch64 not yet run on this crate; `compositor/tools/tv-first-light.sh`
+  not written.
+- Next command: `cd /data/home/lumaglass/compositor && cargo test`, then
+  `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36`.
 - TV state: not touched by this slice.
 
 ## Design

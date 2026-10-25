@@ -1,1 +1,69 @@
+//! The Wayland protocols LG's webOS clients speak beyond the core, generated from XML.
+//!
+//! `protocol/webos/*.xml` are the public webOS OSE files (webos-wayland-extensions, commit 4059350fd2be); LG's
+//! set may carry newer versions of some, which the first TV session reads out of the client libraries with
+//! `docs/research/arch/wlproto_from_elf.py`. `protocol/private/*.xml` are the tables recovered from LG's own
+//! libraries: `mali_buffer_sharing` (verified on the set in X2) and the two `wl_starfish_*` interfaces (names
+//! known, opcode order not yet verified; the compositor does not advertise them by default).
+//!
+//! Each protocol module has a `server` submodule (the compositor) and, behind the `client` feature, a `client`
+//! submodule (the test client).
 
+#![allow(clippy::all)]
+
+macro_rules! protocol {
+    ($name:ident, $path:expr) => {
+        pub mod $name {
+            #[cfg(feature = "client")]
+            pub use self::generated::client;
+            #[cfg(feature = "server")]
+            pub use self::generated::server;
+
+            mod generated {
+                #![allow(dead_code, non_camel_case_types, unused_unsafe, unused_variables)]
+                #![allow(non_upper_case_globals, non_snake_case, unused_imports)]
+                #![allow(missing_docs, clippy::all)]
+
+                #[cfg(feature = "client")]
+                pub mod client {
+                    use wayland_client;
+                    use wayland_client::protocol::*;
+
+                    pub mod __interfaces {
+                        use wayland_client::protocol::__interfaces::*;
+                        wayland_scanner::generate_interfaces!($path);
+                    }
+                    use self::__interfaces::*;
+
+                    wayland_scanner::generate_client_code!($path);
+                }
+
+                #[cfg(feature = "server")]
+                pub mod server {
+                    use wayland_server;
+                    use wayland_server::protocol::*;
+
+                    pub mod __interfaces {
+                        use wayland_server::protocol::__interfaces::*;
+                        wayland_scanner::generate_interfaces!($path);
+                    }
+                    use self::__interfaces::*;
+
+                    wayland_scanner::generate_server_code!($path);
+                }
+            }
+        }
+    };
+}
+
+protocol!(webos_shell, "../../protocol/webos/webos-shell.xml");
+protocol!(webos_foreign, "../../protocol/webos/webos-foreign.xml");
+protocol!(webos_surface_group, "../../protocol/webos/webos-surface-group.xml");
+protocol!(webos_input_manager, "../../protocol/webos/webos-input-manager.xml");
+protocol!(webos_extension, "../../protocol/webos/webos-extension.xml");
+protocol!(webos_system_ux, "../../protocol/webos/webos-system-ux.xml");
+protocol!(webos_tablet, "../../protocol/webos/webos-tablet.xml");
+protocol!(input_method, "../../protocol/webos/input-method.xml");
+protocol!(text, "../../protocol/webos/text.xml");
+protocol!(mali_buffer_sharing, "../../protocol/private/mali-buffer-sharing.xml");
+protocol!(starfish, "../../protocol/private/starfish.xml");
