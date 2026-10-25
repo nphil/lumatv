@@ -9,7 +9,7 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 02:10 EDT): **first light passed on the set** for LG's
+State (2026-10-25 02:35 EDT, code at `bc2ce47`): **first light passed on the set** for LG's
 own client through the driver-served buffers (6/6 pixel-exact) and an
 unmodified LG Qt app mapped and rendered through this compositor (403
 frames at ~50 fps, render max 11.9 ms). Two bugs the run exposed are fixed
@@ -71,7 +71,12 @@ to `/tmp/lumatv-tv-out/out/` on the workstation (not committed).
   deploy && sh compositor/tools/tv-first-light.sh run all && sh
   compositor/tools/tv-first-light.sh fetch && sh compositor/tools/tv-first-light.sh
   clean`. Expected: `driver` PASS 6/6 (as before), `own` PASS 6/6, `shm`
-  PASS 6/6 with `gl errors 0`. The `app` case is optional (already proven).
+  PASS 6/6 with `gl errors 0`, no "Connection reset" in the client logs,
+  and `out/protocols.txt` now listing the `wl_webos_*`/`wl_starfish_*`
+  tables (fold any order difference into `compositor/protocol/` as done
+  for the IME ones). The `app` case is optional (already proven). Both
+  host paths of the same binaries pass end to end (software renderer and
+  the GL renderer on Mesa llvmpipe, 6/6 each, `gl errors 0`).
 - Without the TV: nothing left in this slice; C3/C4 items at the end.
 - TV state: not touched by this slice itself; the main agent's run left
   nothing running (`clean`).
