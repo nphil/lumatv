@@ -187,8 +187,57 @@ def wl_appfull(s):
     wl_apphome(s, app='com.webos.app.browser')
 
 
-WORKLOADS = {'idle': wl_idle, 'dpad': wl_dpad, 'qs': wl_qs, 'apphome': wl_apphome, 'appfull': wl_appfull, 'video': wl_video}
-GAP = {'idle': 34, 'dpad': 17.5, 'qs': 17.5, 'apphome': 17.5, 'appfull': 17.5, 'video': 34}
+def wl_coldhome(s):
+    # the eviction case made repeatable: drop clean page cache (what a big app
+    # launch does to the compositor's mapped files), then the browser and back
+    s.sh('sync; echo 1 > /proc/sys/vm/drop_caches')
+    time.sleep(2)
+    s.mark('P:cold')
+    wl_apphome(s, app='com.webos.app.browser')
+
+
+def wl_pressure(s):
+    # memory pressure that evicts the compositor's file pages: a heavy web app
+    # that is not resident (LG Content Store) and the browser, then Home
+    s.mark('P:store')
+    s.luna('luna://com.webos.applicationManager/launch', json.dumps({'id': 'com.webos.app.discovery'}))
+    time.sleep(9)
+    s.mark('P:browser')
+    s.luna('luna://com.webos.applicationManager/launch', json.dumps({'id': 'com.webos.app.browser'}))
+    time.sleep(7)
+    s.mark('P:home')
+    s.key('HOME')
+    time.sleep(4)
+    s.mark('P:closing')
+    for app in ('com.webos.app.browser', 'com.webos.app.discovery'):
+        s.luna('luna://com.webos.applicationManager/closeByAppId', json.dumps({'id': app}))
+    time.sleep(2)
+
+
+HOG = ("python3 -c \"import time,sys; n=int(sys.argv[1])<<20; b=bytearray(n); "
+       "[b.__setitem__(i,1) for i in range(0,n,4096)]; time.sleep(float(sys.argv[2]))\" %d %d")
+
+
+def wl_hog(s, mb=450, hold=8):
+    # exact memory pressure: browser in front, a hog touches `mb` MB of anonymous
+    # memory for `hold` s (the kernel reclaims file pages and swaps to make
+    # room, as a big app launch does), the hog exits, then Home
+    s.mark('P:browser')
+    s.luna('luna://com.webos.applicationManager/launch', json.dumps({'id': 'com.webos.app.browser'}))
+    time.sleep(5)
+    s.mark('P:hog')
+    s.sh('nohup ' + (HOG % (mb, hold)) + ' >/dev/null 2>&1 &')
+    time.sleep(hold + 3)
+    s.mark('P:home')
+    s.key('HOME')
+    time.sleep(4)
+    s.mark('P:closing')
+    s.luna('luna://com.webos.applicationManager/closeByAppId', json.dumps({'id': 'com.webos.app.browser'}))
+    time.sleep(2)
+
+
+WORKLOADS = {'hog': wl_hog, 'pressure': wl_pressure, 'coldhome': wl_coldhome, 'idle': wl_idle, 'dpad': wl_dpad, 'qs': wl_qs, 'apphome': wl_apphome, 'appfull': wl_appfull, 'video': wl_video}
+GAP = {'hog': 17.5, 'pressure': 17.5, 'coldhome': 17.5, 'idle': 34, 'dpad': 17.5, 'qs': 17.5, 'apphome': 17.5, 'appfull': 17.5, 'video': 34}
 
 
 def analyse(name, sm_pid, gap):

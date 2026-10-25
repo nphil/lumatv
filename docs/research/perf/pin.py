@@ -45,7 +45,9 @@ for path, segs in ranges.items():
         if length <= 0:
             continue
         try:
-            m = mmap.mmap(fd, length, mmap.MAP_SHARED, mmap.PROT_READ, offset=off)
+            # private + writable only so ctypes can take the address; nothing
+            # is written, so the pages stay the shared page-cache pages
+            m = mmap.mmap(fd, length, mmap.MAP_PRIVATE, mmap.PROT_READ | mmap.PROT_WRITE, offset=off)
         except (OSError, ValueError):
             continue
         base = ctypes.addressof(ctypes.c_char.from_buffer(m))

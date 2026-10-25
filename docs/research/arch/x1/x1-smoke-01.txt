@@ -1,0 +1,15 @@
+x1: start 20:23:25 uptime 30823.18 CmaFree 5324 kB heap=auto secs=3
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+x1heapshim: open /dev/dma_heap/system-uncached -> placeholder fd 8
+arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+[x1] EGL 1.5 ARM | 1.5 Bifrost-"g24p0-00eac0"
+[x1] GL Mali-G52 / OpenGL ES 3.2 v1.g24p0-00eac0.fe7fa84c52ed3b756cd64cb3246aafd9
+[x1] window 1920x1080 type _WEBOS_WINDOW_TYPE_OVERLAY, 3 s, starting at monotonic 30823.512
+x1heapshim: alloc 8986624 bytes -> fd 13 via drm dumb (CMA) (dumb so far 1, te 0)
+x1heapshim: alloc 8986624 bytes -> fd 13 via drm dumb (CMA) (dumb so far 2, te 0)
+x1heapshim: alloc 8986624 bytes -> fd 13 via drm dumb (CMA) (dumb so far 3, te 0)
+[x1] t=  1 s: 25 swaps this second, worst gap so far 62.3 ms
+[x1] t=  2 s: 50 swaps this second, worst gap so far 62.3 ms
+[x1] RESULT frames=124 in 3.01 s = 41.13 fps; gaps: <=17.5 ms 1, 17.5-20 91, 20-33.5 29, >33.5 2; worst 62.3 ms; ended at monotonic 30826.527
+x1: end 20:23:28 uptime 30826.64 CmaFree 35504 kB exit ?
+x1: log /tmp/x1/x1-202325.log

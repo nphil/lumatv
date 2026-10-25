@@ -5,109 +5,40 @@ Rule under test: every frame on its 60 Hz deadline, at rest and in motion.
 
 ## Resume here
 
-Status 2026-10-24 19:20: TV window open (Main, 19:13). Set rebooted today
-(uptime 7 h at 19:14; compositor pid 6183); found in Screen Saver with
-Netflix paused in front, taken to Home and Netflix closed with
-`closeByAppId`. Filmmaker confirmed. `capture.sh` and `tweak.py`
-redeployed to `/tmp/perf`. Running the baseline now. Tweaks applied on
-the set at this moment: none.
+Status 2026-10-24 20:25: measurements done (baseline, T1-T7, T9, T10,
+stability); results, root causes and the ranked list are below. Left to
+do in this window: the X1 compositor-floor client (ShellArchitecture is
+cross-building it; run it under `capture.sh start floor basic` for 60 s
+over idle Home with wallpaper motion off, then `analyse.py`), restore
+the stock tool, power off.
 
-Done offline: platform survey, probe verified (`drm_vblank_event_delivered`
-= one presented frame), one 5 s idle trace analysed: frame pipeline, a
-fixed 5 ms Qt update timer inside every animated frame (strongest
-candidate for missed deadlines, tweak T9), the cause of the uneven 36-38
-fps idle, background load. Orchestrator, analyser, scheduler helper and
-the env-file patch written; provisional recommendations and the
-replace-vs-tune list at the end. Not done: every before/after number.
+TV state now: Active, Home in front, Filmmaker. Compositor pid 6257,
+started 20:10 by the tool. Applied on the set at this moment, all to be
+undone before handing back:
 
-Decided by Main (21:55): option (a). The `env.extra` hook is in
-`tools/lumaglass`, committed as `cb57f53` (not deployed): allowlisted
-`KEY=VALUE` lines of `/var/lib/lumaglass/env.extra` go into the env file,
-an env change restarts the compositor at `apply`, `revert` deletes the
-file, and `QML_FORCE_DISK_CACHE=1` (decided) is always set, with the QML
-cache cleared when the staged compositor set changes. Deploy it to the set
-only in the TV window, backed up and restored (step 4, T9/T7). Priority
-when the TV is free: baseline, T9, T6, T7, then T1-T5 and T8, then the
-ShellArchitecture floor (step 4b).
+- The committed tool `cb57f53` is deployed at
+  `/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass`
+  (backup of the previous one at `/var/lib/lumaglass/lumaglass.bak`),
+  so the env file carries `QML_FORCE_DISK_CACHE=1`. `env.extra` is
+  absent. Restore: `cp /var/lib/lumaglass/lumaglass.bak $TOOL; $TOOL fps
+  on; $TOOL fps off` (the old tool rewrites the env to its single line
+  and restarts), `rm -rf /home/root/.cache/surface-manager/qmlcache`,
+  `rm /var/lib/lumaglass/lumaglass.bak`; or leave the new tool in place
+  if Main prefers (it is the committed version).
+- Nothing else: `mp_enable` 1, GPU `coarse_demand`, IRQ masks `f`,
+  compositor policy other / nice -19 / all CPUs, cgroup swappiness 60,
+  no pin process, wallpaper motion 30 fps (`theme.json` restored), T7
+  removed. `/tmp/perf` holds the scripts only.
+- Finish: `luna-send -n 1 luna://com.webos.service.tvpower/power/powerOff
+  '{"reason":"remoteKey"}'`, confirm Active Standby and Filmmaker.
 
-Remaining TV plan (about 85 min of screen time), run from the
-workstation (`pip install --break-system-packages paramiko` if missing;
-`/data/home/tmp/ha-token-fetch.sh` first so `/data/home/tmp/ha-token`
-exists):
-
-1. Pre-flight (2 min). `luna-send -n 1
-   luna://com.webos.service.tvpower/power/getPowerState {}` must not show
-   Active with a non-Home app in `getForegroundAppInfo`. From Active
-   Standby: `power/powerOn {"reason":"remoteKey"}` then `turnOnScreen`
-   (it answers -102 if the screen is already on; fine). Confirm
-   `settingsservice/getSystemSettings {"category":"picture","keys":["pictureMode"]}`
-   = filmMaker. Copy `docs/research/perf/capture.sh` to
-   `/tmp/perf/capture.sh` on the set (sftp) and `chmod +x` it.
-2. Baseline (25 min):
-   `python3 docs/research/perf/run.py --tag base --repeat 3 --workloads idle,dpad,qs,apphome`
-   then `python3 docs/research/perf/run.py --tag base --repeat 2 --workloads video`
-   (YouTube `youtube.leanback.v4` with a free video, Home over it). Each
-   run prints one summary line per phase and appends to
-   `/tmp/perf/summary.txt`; per-run detail in `/tmp/perf/<name>.txt`.
-   Copy the summary into the Baseline table below.
-3. Root causes (10 min): for every gap over 17 ms in the dpad, qs and
-   apphome traces read the gap block in `<name>.txt` (compositor run /
-   runnable / sleep split, GPU busy, what ran on each CPU, reclaim, cpuhp,
-   block I/O, wakeups) and classify. Write the classes into "Root causes".
-4. Tweaks (45 min), one at a time with `--apply` and `--revert`, for the
-   workloads the tweak can touch, 2 repeats each:
-   - T1 `--apply 'echo always_on > /sys/class/misc/mali0/device/power_policy' --revert 'echo coarse_demand > /sys/class/misc/mali0/device/power_policy'`
-   - T2 `--apply 'echo 0 > /proc/lg/pm/mp_enable; echo 1 > /sys/devices/system/cpu/cpu3/online' --revert 'echo 1 > /proc/lg/pm/mp_enable'`
-   - T3 `--apply 'for i in 176 178; do echo 2 > /proc/irq/$i/smp_affinity; done; echo 4 > /proc/irq/124/smp_affinity' --revert 'for i in 176 178 124; do echo f > /proc/irq/$i/smp_affinity; done'`
-   - T4 `--apply 'python3 /tmp/perf/tweak.py fifo 1' --revert 'python3 /tmp/perf/tweak.py other'`
-   - T5 `--apply 'python3 /tmp/perf/tweak.py affinity 2' --revert 'python3 /tmp/perf/tweak.py affinity f'` (copy `docs/research/perf/tweak.py` to `/tmp/perf/` in pre-flight; busybox here may lack taskset and chrt)
-   - T6 `--apply '/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass theme set "{\"wallpaperMotion\":{\"fps\":10}}"' --revert '... {\"fps\":30}'`, and a second run with `{"enabled":false}` / `{"enabled":true}`; wait 3 s after apply (2 s theme poll).
-   - T9 then T7, the env-file tweaks, with the repo's tool deployed for
-     the test (`TOOL=/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass`):
-     1. Backup first: `cp $TOOL /var/lib/lumaglass/lumaglass.bak`. If
-        `md5sum $TOOL` equals `git show 98071c7:tools/lumaglass | md5sum`
-        (the version before the hook), sftp `git show cb57f53:tools/lumaglass`
-        over it; otherwise apply `git show cb57f53 -- tools/lumaglass` to
-        the deployed copy. Check `sh -n $TOOL`.
-     2. `$TOOL apply` (env gains `QML_FORCE_DISK_CACHE=1`, restart). Check
-        Home recovers (capture at 320x180 > 79 kB). Run `--tag cache`
-        `dpad,qs,apphome` x2: the baseline for T9/T7 with the same tool.
-     3. `echo QT_QPA_UPDATE_IDLE_TIME=0 > /var/lib/lumaglass/env.extra;
-        $TOOL apply`; confirm with `tr '\0' '\n' < /proc/$(pidof
-        surface-manager)/environ | grep QT_QPA`; run `--tag t9` x2.
-     4. `echo QSG_RENDER_LOOP=threaded > /var/lib/lumaglass/env.extra;
-        $TOOL apply`; if the panel stays black, `rm` the file and `apply`
-        again. Run `--tag t7` x2.
-     5. Restore: `rm /var/lib/lumaglass/env.extra; cp
-        /var/lib/lumaglass/lumaglass.bak $TOOL`, then `$TOOL fps on` and
-        `$TOOL fps off` (the old tool rewrites the env to its single line
-        and restarts on the QML change), `rm -rf
-        /home/root/.cache/surface-manager/qmlcache`, `rm
-        /var/lib/lumaglass/lumaglass.bak`; env file must read only
-        `QML2_IMPORT_PATH=/var/lib/lumaglass/qml:/usr/lib/qt5/qml`.
-   - T8 `--apply 'echo 20 > /proc/sys/vm/swappiness' --revert 'echo 100 > /proc/sys/vm/swappiness'` with `apphome` only.
-4b. For ShellArchitecture (10 min, numbers go in "Compositor floor"):
-   - Floor: wallpaper motion off (`theme set {"wallpaperMotion":{"enabled":false}}`),
-     LumaHome idle, then the m64 on-screen probe (`docs/research/m64/wl.c`,
-     64-bit blob + heap shim on DRM dumb buffers; binaries from the 10-22
-     session, look in `/var/lib/lumaglass/exp` and `/tmp` on the set) as a
-     full-screen overlay for 60 s inside `capture.sh start floor full`.
-     Report presented frames over 20 ms from `drm_vblank_event_delivered`
-     and compositor CPU per presented frame (`sm_run_ms / frames`). Repeat
-     under T7 if T7 runs. Restore motion after.
-   - Video: in the `video` workload, compositor CPU per presented frame
-     and GPU busy for `video-idle` (app UI still) vs `video-dpad` (Home
-     animating over video); add a phase with YouTube's own UI animating
-     (d-pad inside YouTube before pressing HOME) if the run allows.
-5. Stability (5 min): compositor RSS from the sampler (`rss=` pages in
-   `<name>.sys`) across the 3 apphome runs and 3 qs runs; `dmesg | grep -i
-   -E "oom|killed process"`; `/proc/lg/pm/status` temperature.
-6. Finish: `luna-send -n 1 luna://com.webos.service.tvpower/power/powerOff '{"reason":"remoteKey"}'`,
-   confirm `getPowerState` = Active Standby, confirm Filmmaker, and check
-   every revert in step 4 took (`power_policy`, `mp_enable`, IRQ masks
-   `f`, compositor policy/nice, affinity `f`, env file = only
-   `QML2_IMPORT_PATH=...`, theme fps 30). Fill the Baseline, Tweaks and
-   Recommendations sections of this file.
+Harness: `docs/research/perf/run.py --tag T --repeat N --workloads
+idle,dpad,qs,apphome,appfull,video,coldhome,pressure,hog [--apply CMD
+--revert CMD] [--start K]`; traces and `summary.txt` in `/tmp/perf` on
+the workstation; `analyse.py TRACE --sm PID --gap MS` for the gap
+attribution; `capture.sh`, `tweak.py`, `pin.py` on the set under
+`/tmp/perf`. HA key presses fail with HTTP 500 now and then; `run.py`
+retries six times.
 
 ## Platform facts that bound the search
 
@@ -251,6 +182,211 @@ over YouTube; six of the first eleven frames dropped):
    hot-plug inside the gaps (CPU3 came and went 0-2 times per window,
    each unplug a 0.5-1 ms `migration/3` stop on the other cores).
 
+## Tweak results
+
+Each row: same workloads as the baseline, 2 runs; "dropped" as defined
+above. "cache" is the control pass with the new tool (disk cache on,
+compositor restarted) and matches the stock baseline.
+
+### T9: `QT_QPA_UPDATE_IDLE_TIME=0` (KEEP)
+
+Applied through `env.extra` + `lumaglass apply` (compositor restart).
+
+| workload | base / cache | T9 |
+|---|---|---|
+| D-pad: dropped of animation frames | 15/187, 17/183 (8-9 %) | 12/297, 10/294 (3.4-4.0 %) |
+| D-pad: fps, worst | 53.1-53.9, 33-50 ms | 54.4-54.8, 33.4 ms |
+| QS open: dropped | 11-15 of 18-28 (46-67 %) | 2-4 of 80-103 (2.5-4.0 %) |
+| QS open: fps | 45.9-47.1 | 49.9-50.7 |
+| QS close: dropped | 6-7 of 21-49 (12-29 %) | 2-4 of 48-65 (3.4-8.2 %) |
+| Idle: dropped (clock hand) | 12-13 of 94-96 (13 %) | 7-11 of 96-106 (7-10 %) |
+| Idle fps | 36.4-36.7 | 37.0-37.2 |
+| Home over YouTube, d-pad: dropped | 8/73-81 (10-11 %) | 4-5 of 46-56 (7-11 %) |
+
+With the timer gone the frame chain is flip -> GPU 8.1 -> commit 0.8 ->
+render, so a render can take about 7 ms instead of 2.4 before the next
+vblank is missed. The animation-driven frame counts rise because the
+renderer now keeps up with every request (Quick Settings runs a
+continuous 60 Hz animation while open, which the baseline served at 45
+fps). Remaining drops have renders of 4.7-6 ms or an extra GPU pass.
+Risk: none seen in 25 min of use (keys, panels, app launches, video);
+Qt documents the 5 ms only as idle time for event gathering. Ships in
+phase 1 with the disk cache, as a fixed line of the tool's `env_line`
+(Main, 2026-10-24); until then nothing stays on the set. T9 stayed
+applied for T6, T2, T10 and T1-T5 (all measured against T9 alone) and
+was removed with T7's revert at 20:10.
+
+### T6: wallpaper motion 30 -> 10 fps, and off (KEEP 10 fps, as decided)
+
+Live `theme set`, measured with T9 applied; reverted to 30 fps after.
+
+| | 30 fps (T9) | 10 fps | off |
+|---|---|---|---|
+| Idle: presented fps | 37.0-37.2 | 20.4 | 12.7-13.1 |
+| Idle: GPU busy per 10 s | 2991-2995 ms (30 %) | 1641-1651 ms (16.5 %) | 917-925 ms (9 %) |
+| Idle: compositor CPU per 10 s | 1028-1055 ms | 552-570 ms | 352-361 ms |
+| Idle: dropped clock-hand frames | 7-11 of 96-106 | 2 of 80 (2.5 %) | 1-3 of 69-79 |
+| D-pad: dropped | 10-12 of 294-297 (3.4-4.0 %) | 6-12 of 265-277 (2.2-4.5 %) | 9-10 of 269-277 (3.2-3.7 %) |
+| D-pad: GPU per presented frame | 8.07 ms | 8.06 ms | 7.18 ms |
+
+The wallpaper costs 13.5 % of the GPU and 4.6 % of a core at 30 fps and
+nothing in dropped frames: animation frames redraw the whole scene
+anyway, and the warp pass itself is 0.9 ms of the 8.1 ms GPU frame
+(motion off: 7.2 ms). 10 fps is the decided setting; the remaining idle
+frames are the second hand (80 a second-hand frames per 10 s). The
+"worst interval" column is meaningless at 10 fps and below: nothing is
+presented while nothing changes.
+
+### T2: LG core hot-plug off (`mp_enable=0`, CPU3 held online) (OPTIONAL)
+
+Measured with T9 on; reverted after (`mp_enable=1`).
+
+| | T9 alone | T9 + T2 |
+|---|---|---|
+| Idle: dropped | 7-11 of 96-106 (7-10 %) | 3-7 of 93-103 (3-7 %) |
+| D-pad: dropped | 10-12 of 294-297 (3.4-4.0 %) | 8-13 of 293-307 (2.7-4.2 %) |
+| QS open: dropped | 2-4 of 80-103 (2.5-4 %) | 0-4 of 83-102 (0-3.9 %) |
+| hot-plug events per 10 s | 1-2 | 0 |
+
+Within run-to-run noise except a small gain at idle. Each unplug is a
+`stop_machine` of about 1 ms on every core (the `migration/3` time in
+the traces is the time CPU3 spends offline: 57-72 % of idle windows),
+and a plug a secondary-core boot; neither landed inside a dropped
+frame in any trace. Worth keeping only for predictability, and it
+raises idle power by keeping a fourth core awake. Not reboot safe
+(procfs write; would go into the boot hook).
+
+### T10: pin the compositor's file pages, and its cgroup `memory.swappiness=0` (NOT ON THEIR OWN)
+
+The eviction case made repeatable: browser in front, a 450 MB hog
+(`run.py` workload `hog`) touches memory for 8 s and exits, then HOME.
+`drop_caches` does not reproduce it (it leaves mapped pages alone: 0
+faults). Numbers are the compositor's major faults over the run and the
+worst Home-return interval:
+
+| | run 1 | run 2 |
+|---|---|---|
+| hog, nothing protected | 4,588 faults, 367 ms | 2,035 faults, 250 ms |
+| hog + `pin.py` (63 MB of the compositor's resident file pages mlocked by a helper) | 1,160 faults, 567 ms | 270 faults, 417 ms |
+| hog + pin + compositor cgroup `memory.swappiness=0` | 1,264 faults, 918 ms | 1,359 faults, 134 ms |
+
+The pin removes 75-87 % of the compositor's own faults, and the return is
+no better, because the gap is no longer the compositor: at 450 MB of
+pressure LG's memory manager (`memchute`, log at 00:03:43 UTC) moved to
+level "medium" and closed Netflix, YouTube and **LG's Home app**; the
+HOME key then relaunched LG Home (Flutter, 36 MB read back through
+dm-verity, 0.9-2.8 s with nothing presented), and the preload manager
+relaunched YouTube, Netflix, Live TV and HDMI2 in the background within
+the next 30 s. The compositor's own share of a return under pressure is
+the 1,000-4,600 faults (0.5 ms each, on the GUI thread) and its heap
+coming back from the compressed swap (`VmSwap` 25 MB).
+
+What follows for the plan: memory headroom is the fix, not pinning.
+Dropping the YouTube, LG Channels and browser preloads (decided, about
+307 MB) and replacing the 67 MB Flutter Home with the 26 MB stub (phase
+1) together keep the set about 350 MB further from the point where an
+app launch evicts the compositor or memchute closes Home. The cgroup
+swappiness and the pin are cheap and could follow (the tool's boot hook
+could write the cgroup value; the pin would live in the native helper),
+but only after the headroom, since both move the pressure onto the apps.
+Reverted: pin process killed, `memory.swappiness` back to 60.
+
+Side finding from the cold runs: a web page in the browser switched the
+output to **50 Hz** (vblank 20.0 ms) for as long as it was in front; the
+UI plane follows the video pipeline's output rate, so over 50 Hz or 24 Hz
+content the UI's frame budget is 20 or 41.7 ms and "60 fps" is not on
+offer. To be measured with Netflix 24p content (not started here).
+
+### T1, T3, T4, T5: GPU `always_on`, IRQ affinity, SCHED_FIFO, CPU pinning (REJECT: no effect)
+
+One run each of d-pad and Quick Settings, with T9 on, each reverted
+after. T9 alone: d-pad 3.4-4.0 % dropped, QS open 2.5-4.0 %.
+
+| tweak | d-pad dropped | QS open dropped | compositor max sched latency |
+|---|---|---|---|
+| T1 `power_policy=always_on` | 11/301 (3.7 %) | 1-3 of 90-98 (1-3 %) | 0.6-5.5 ms |
+| T3 GPU IRQs 176/178 -> CPU1, eth0 -> CPU2 | 8/276 (2.9 %) | 2-3 of 87-103 (2-3 %) | 1.9-4.2 ms |
+| T4 GUI thread SCHED_FIFO 1 | 8/296 (2.7 %) | 1 of 90-98 (1 %) | 0.02-0.04 ms |
+| T5 GUI thread pinned to CPU1 | 10/298 (3.4 %) | 2-5 of 103-123 (2-4 %) | 0.1-0.8 ms |
+
+All within run-to-run noise. FIFO removes scheduling latency entirely,
+which confirms it was never on the critical path (0.2-5 ms worst, and
+never inside a dropped frame). The GPU's power gating costs 40 us before
+each job and `always_on` changes nothing in the frame. Moving the
+interrupts off CPU0 changes nothing because the GUI thread migrates
+freely and CPU0's interrupt load is about 1 ms per 33 ms.
+
+Observation on the way: the unit starts the compositor at `Nice=0`; LG
+renices it to -19 a few minutes after start (a restarted compositor read
+nice 0 at 1 min and -19 at 10 min). The runs above were all at -19.
+
+### T7: `QSG_RENDER_LOOP=threaded` (REJECT: black screen)
+
+Applied alone through `env.extra` + `apply`. The compositor started
+with two `QSGRenderThread`s, logged `QEGLPlatformContext: eglMakeCurrent
+failed: 3002` (EGL_BAD_ACCESS: LG's compositor keeps its GL context
+bound on the GUI thread for its own surface handling) once a second and
+presented nothing: 0 frames in 4 s, capture 6.9 kB. Reverted by removing
+`env.extra` and applying again; the tool's Home relaunch gave up after
+three attempts and 101 s ("home did not come back"), and one manual
+`applicationManager/launch` of `com.webos.app.home` brought it back.
+The basic loop is the only loop this compositor runs; T9 is the way to
+take the 5 ms out of it.
+
+### T8: global swappiness (NOT RUN)
+
+Superseded by the cgroup test under T10: the compositor's own cgroup
+has its own `memory.swappiness`, and the global value also governs the
+apps, whose swapping is what frees memory for a launch.
+
+## Stability
+
+From the 1 s sampler across the whole session (74 runs, 2 h):
+
+- Compositor RSS: the boot compositor went 114 -> 123 MB during the
+  first Quick Settings opens (the resident panel) and the first app
+  returns, then stayed at 122-123 MB across 6 Settings returns, 3
+  browser returns and 2 YouTube runs. The compositor restarted with the
+  disk cache ran at 144-155 MB (its predecessor had 27 MB in swap). After
+  the hog runs RSS sat at 101-106 MB with the rest swapped out and never
+  faulted back: swapped compositor pages stay swapped until touched, so a
+  pressure event leaves a slower compositor behind it.
+- No OOM kills by the kernel in `dmesg`; LG's `memchute` closes apps
+  itself at its "medium" level (above), Home included.
+- SoC temperature 55-62 C throughout, no thermal event, CPU fixed at
+  1.4 GHz.
+- CMA free fell to 0-3 MB during every YouTube run and most app runs
+  (video decode plus app surfaces), from 17-54 MB with Home alone. Any
+  LumaTV use of contiguous memory (the 64-bit path's dumb buffers) will
+  contend with playback; the plan's check before relying on CMA stands.
+- The crash reports each compositor restart produces were swept by the
+  tool (2-3 per restart).
+
+## Compositor floor (for the shell-architecture study)
+
+From the same traces, per presented frame (CPU = compositor GUI-thread
+time in the window divided by presented frames; GPU = Mali busy):
+
+| situation | presented fps | CPU per frame | GPU per frame |
+|---|---|---|---|
+| LumaHome idle (wallpaper 30 fps + clock) | 36.5 | 2.8 ms | 8.0 ms |
+| LumaHome, d-pad animations | 53-55 | 3.0 ms | 8.1 ms |
+| LumaHome over YouTube video, still | 35.7 | 2.8 ms | 8.0 ms |
+| LumaHome over YouTube video, d-pad | 51 | 3.0 ms | 8.0 ms |
+| Browser (full-screen client) in front, Home hidden | 7-12 | 5.1 ms | 6.3 ms |
+| Settings (overlay client) over Home | 38-40 | 3.3 ms | 8.6 ms |
+
+With a client in front and Home hidden the compositor still spends 6.3
+ms of GPU and 5 ms of CPU per presented client frame: that is the cost
+of compositing one full-screen surface through Qt Quick on this driver,
+and it is what direct scan-out of a client buffer (a plane per client,
+no composition pass) would remove. The idle-Home 8.0 ms is the full
+scene; the wallpaper warp is 0.9 ms of it (T6). An on-screen 60 Hz
+client floor test (X1) was not run: the 64-bit probe binary from 10-22
+did not survive the reboot and no aarch64 toolchain is on the
+workstation; `capture.sh` and `analyse.py` count its presented frames
+whenever one is run.
+
 ## How a frame is produced (from the first idle trace, 5 s, 189 frames)
 
 Read off `sched_switch`, `mali_job_slots_event`, `irq_handler_entry` and
@@ -328,17 +464,19 @@ so `fps`, `enabled` and the look parameters can be A/B-tested live with
 None survives a reboot by itself; a kept tweak goes into the tool's apply
 and boot hook (sysfs/procfs writes at boot-bind) or the env file.
 
-## Hypotheses for the 57-87 ms Home-return gaps (to be tested by trace)
+## The four hypotheses for the Home-return gaps, as measured
 
-- Direct reclaim inside the compositor's own allocations while an app that
-  just ran still holds memory (`mm_vmscan_direct_reclaim_begin` with
-  pid = compositor; 133 MB free, swappiness 100).
-- Compositor pages swapped out while the app was in front, faulted back on
-  show (`majflt` delta in the sampler, swap on the RAM-backed `f2io`).
-- LG's compositor capturing the departing app's frame for the recents card
-  (a readback on the GUI thread) or re-layout of its own views.
-- LumaHome's show path: theme poll with `triggeredOnStart`, feed refresh
-  and clock catch-up all on the first visible frame.
+- Direct reclaim inside the compositor: no `mm_vmscan_direct_reclaim`
+  with the compositor's pid in any gap. Not it.
+- Compositor pages swapped or evicted while the app was in front, faulted
+  back on show: yes, the main cause (1,000-4,600 major faults per
+  pressured return, D-state waits on dm-verity reads in the gap).
+- LG compositor work on the departing app (recents capture, relayout):
+  not seen on the GUI thread in the gaps; the extra work there is
+  LumaHome's own texture rebuild (four 4 ms GPU jobs, pixmap reader
+  busy), the 50 ms third vblank on every warm return.
+- LumaHome's show path (theme poll, feeds, clock catch-up): 1-3 ms of
+  render on the first frames, inside the budget once T9 is on.
 
 ## Finding: a fixed 5 ms idle in every animated frame (Qt's update timer)
 
@@ -425,44 +563,76 @@ app-to-Home runs. `lginput2`'s 2 kHz poll at RT 99 is a replaceable cost
 (LG input stack, about 1 % of a core and 2,000 timer interrupts a second
 on CPU2); it does not reach the compositor.
 
-## Recommendations so far (provisional: from one idle trace and the code; before/after numbers pending the TV window)
+## Ranked recommendations
 
-1. `QT_QPA_UPDATE_IDLE_TIME=0` for the compositor (T9). Expected: the
-   5 ms Qt update timer leaves every animated frame, so a frame's CPU
-   render can grow from about 2.6 ms to about 7.6 ms before lateness
-   accumulates; the main candidate for the missed deadlines during
-   focus moves and panel opens. Kept, it becomes a fixed line of the
-   tool's `env_line`, like the disk cache.
-2. One clock for idle Home: wallpaper phase and second hand advanced by
-   one 100 ms Timer (the decided 10 updates a second), wallpaper phase from
-   elapsed time. Expected: idle drops from 37.7 to about 10-16 presented
-   frames a second, the 50 ms wallpaper hitch every 1.5 s disappears, and
-   idle GPU busy falls from 30 % to about 8-13 %.
-3. Not worth doing, from the platform facts: CPU governor or minimum
-   frequency (one 1.4 GHz OPP, already `performance`); GPU `always_on`
-   (power-up is 40 us before each job and never on the critical path);
-   stopping LG daemons for frame rate at rest (all background work is
-   about 25 % of one core and the compositor waits at most 0.21 ms for a
-   CPU). To be confirmed under load in the T1/T2 runs.
-4. Small: the frame probe's `onFrameSwapped` handler runs JS on every
-   frame even with the probe off; guard the Connections with
-   `enabled: root.fpsEnabled`.
+1. **`QT_QPA_UPDATE_IDLE_TIME=0` (T9). Keep.** Dropped animation frames:
+   d-pad 8-9 % -> 3.4-4.0 %, Quick Settings open 46-67 % -> 2.5-4 %,
+   close 12-29 % -> 3-8 %, idle clock 13 % -> 7-10 %; QS animates at 50
+   fps instead of 45. One line in `env.extra` today; make it a fixed
+   line of the tool's `env_line` like the disk cache. No side effect
+   seen.
+2. **Wallpaper motion at 10 fps (T6, decided). Keep.** Idle GPU 30 % ->
+   16.5 %, compositor CPU 10.3 % -> 5.6 % of a core, idle clock-hand
+   drops 7-10 % -> 2.5 %. Then drive the second hand and the wallpaper
+   from one 100 ms clock (wallpaper phase from elapsed time) so idle Home
+   presents 10 frames a second instead of 20.
+3. **Memory headroom before anything else that touches memory.** The
+   Home-return gaps (50-117 ms normally, 250-920 ms under a 450 MB
+   launch) are the compositor paging itself back in (1,000-4,600 major
+   faults) and, past that, LG's memory manager closing Home and the
+   preloads relaunching. Dropping the YouTube, LG Channels and browser
+   preloads (decided, about 307 MB) and the 26 MB Home stub for the
+   67 MB Flutter Home (phase 1) are the fixes; measure the hog workload
+   again after them. Pinning the compositor's file pages (T10) and
+   `memory.swappiness=0` on its cgroup cut its faults by 75-87 % but did
+   not shorten the return on their own; they are a cheap second layer
+   once the headroom exists.
+4. **Render under 7 ms per animation frame, GPU under 8 ms.** With T9 the
+   chain is flip -> GPU 8.1 -> commit 0.8 -> render -> next flip; the
+   remaining drops all had renders of 4.7-6 ms or an extra GPU pass
+   (texture rebuild on show). The gate for new surfaces: p90 render
+   under 3 ms, no `ShaderEffectSource` re-render on show (keep the blur
+   and icons resident while Home is hidden: the 50 ms third vblank on
+   every return is their rebuild).
+5. **Hot-plug off (T2): optional.** Idle drops 7-10 % -> 3-7 %, nothing
+   elsewhere; costs idle power. If wanted, `echo 0 > /proc/lg/pm/mp_enable`
+   from the boot hook.
+6. **Reject:** GPU `always_on` (T1), IRQ affinity (T3), SCHED_FIFO (T4),
+   CPU pinning (T5): no change, scheduling latency was never in a dropped
+   frame. `QSG_RENDER_LOOP=threaded` (T7): black screen, EGL_BAD_ACCESS.
+   CPU governor: nothing to tune (one OPP). Stopping LG daemons for
+   frame rate: all background work is about 25 % of one core and never
+   in a gap; it is a memory and power question.
+7. Small: guard the frame probe's `onFrameSwapped` Connections with
+   `enabled: root.fpsEnabled` (JS per frame while off); fix the tool's
+   Home relaunch after a restart that gives up at 101 s (one luna launch
+   brought Home back).
 
 ## LG layers whose replacement (not tuning) would remove a measured cost
 
-- Serial frame pipeline in the compositor (Qt 5.12 basic loop on LG's
-  `eglfs_starfish`): the GUI thread blocks for the whole GPU pass
-  (8.1 ms of each idle frame) and does the atomic commit only after the
-  GPU finishes, so CPU and GPU work add instead of overlapping. A
-  compositor that commits with an in-fence (`IN_FENCE_FD`) and renders
-  ahead would give the CPU and the GPU 16.7 ms each. Tuning gets part of
-  it: T9 removes the 5 ms timer, T7 (threaded loop) moves the blocking
-  off the GUI thread.
+- Compositing of app frames: with a full-screen client in front and Home
+  hidden, the compositor spends 6.3 ms of GPU and about 5 ms of CPU per
+  presented client frame on this driver. A compositor that scans client
+  buffers out on their own plane (the lg1k has an unused overlay plane)
+  would spend none of it, and the UI's 8 ms frame would no longer sit in
+  series with the app's.
+- Serial frame pipeline (Qt 5.12 basic loop on `eglfs_starfish`): the
+  GUI thread blocks for the whole 8.1 ms GPU pass and commits only after
+  it, so CPU and GPU add up instead of overlapping, and the threaded loop
+  does not work in this compositor. A compositor committing with an
+  in-fence and rendering a frame ahead gives the CPU and the GPU 16.7 ms
+  each; T9 recovers the 5 ms Qt timer but not this.
 - Full-scene redraw per frame: Qt Quick 2 has no damage regions, so a
-  4 px wallpaper ripple re-renders all 1920x1080 (7.5 ms fragment, 30 %
-  of the GPU at 30 updates a second). A compositor with damage tracking,
-  or the wallpaper on its own hardware plane (the lg1k has an overlay
-  plane used once since boot), would cost a fraction of that.
-- `lginput2`: 2 kHz poll at RT 99, about 1 % of a core and 2,000 timer
-  interrupts a second; event-driven input would cost close to nothing.
-  CPU only, no frame cost measured.
+  4 px wallpaper ripple re-renders all 1920x1080 (7.5 ms of fragment
+  work; the warp itself is 0.9 ms). Damage tracking or the wallpaper on
+  its own plane cuts the idle GPU cost by about 8x.
+- Output rate follows the video pipeline: a browser page put the UI
+  plane at 50 Hz for as long as it was in front (vblank 20.0 ms). A UI
+  of its own would still have to live with 50 and 24 Hz output while
+  such content plays; "60 fps everywhere" needs a plane that is not
+  slaved to the content rate, if the SoC offers one.
+- `lginput2`: a 2 kHz poll at RT 99, about 1 % of a core and 2,000 timer
+  interrupts a second. CPU and power only; never in a dropped frame.
+- LG's memory manager and preloads: 307 MB of warm apps and a Home that
+  memchute closes under pressure are what turn a launch into a 250-920 ms
+  Home return; LumaTV owning Home and the preload list removes both.

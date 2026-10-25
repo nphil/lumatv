@@ -10,37 +10,32 @@ screen, power state or picture mode. Probe sources and raw logs:
 
 ## Resume here
 
-- 2026-10-24 19:40: **X2 done (passed), X4 captured** for launches, Quick
-  Settings, Settings, browser and YouTube (results in the evidence log
-  and in the Experiments table). PerfDeepDive owns the screen; it will
-  message "slot open" (about 20:30-20:45) for the last X4 part: scripted
-  launches with the monitor on, standby and wake last. Commands for that
-  slot: `sh /tmp/x4-monitor.sh start` (writes `/tmp/x4/all.jsonl`, which
-  then also holds the first capture; move it aside first:
-  `mv /tmp/x4/all.jsonl /tmp/x4/pass1.jsonl`), then with `luna-send -n 1`
-  (PTY) launch `netflix`, `com.beb.plxnative`, `com.webos.app.quickinputpicker`
-  through `luna://com.webos.applicationManager/launch {"id": ...}`, open and
-  close Settings, then `tvpower/power/powerOff {"reason":"remoteKey"}`,
-  wait 20 s, wake with Wake-on-LAN (MAC in `/data/home/lgtv/RESUME-NOTES.md`),
-  `sh /tmp/x4-monitor.sh stop`, download, run
-  `python3 arch/x4/x4-analyse.py all.jsonl`. Leave the set Active on Home,
-  Filmmaker, afterwards (`turnOnScreen` if the screen stayed off).
+- 2026-10-24 20:20: **X2 done (passed), X4 done** (two captures: pass 1
+  during PerfDeepDive's workloads, pass 2 a scripted session with
+  Netflix and PlxNative first screens, input picker, toast, Settings,
+  standby and wake; `arch/x4/x4-session.sh`, results below). Remaining:
+  an X1 client build for PerfDeepDive's harness (`arch/x1/`), run in a
+  slot PerfDeepDive gives, then nothing else on the set.
 - Done earlier: stack map, DRM/KMS inventory, per-process cost, Wayland
   interfaces per client stack, luna API inventory and permission census,
   OSE source sizing, options A-E, hardware utilisation, experiments,
   ranked recommendation.
-- Open: X1 and X1b (PerfDeepDive's run plan, step 4b; results due in its
-  "Compositor floor" section), X3 (LG's libwayland ignores
-  `WAYLAND_DEBUG`, so X3 needs a preload tap), X5/X6 (compositor restart,
-  maintenance window with Nitin's OK).
-- TV state left: Active, Filmmaker, LG Home in front (PerfDeepDive
-  restarted the compositor for its own env tweaks; pid 5206 at 19:40). No
-  tweak of ours applied, nothing to revert. Files this study put on the
-  set, all under volatile `/tmp`: `/tmp/drmplanes`,
+- Open: X1 (client built and smoke-tested, `arch/x1/`; the 60 s run and
+  its presented-frame count are PerfDeepDive's, results due in its
+  "Compositor floor" section) and X1b (same), X3 (LG's libwayland
+  ignores `WAYLAND_DEBUG`, so X3 needs a preload tap), X5/X6 (compositor
+  restart, maintenance window with Nitin's OK).
+- TV state left (20:25): Active, Filmmaker, LG Home in front (PerfDeepDive
+  restarted the compositor for its own env tweaks; pid 6257 at 20:10).
+  Standby and wake at 20:16 were part of X4 pass 2 and the set came back
+  Active on Home. No tweak of ours applied, nothing to revert. Files this
+  study put on the set, all under volatile `/tmp`: `/tmp/drmplanes`,
   `/tmp/wlproto_from_elf.py`, `/tmp/x2/*` (server, client, logs),
   `/tmp/m64/*` (60 MB: the 64-bit blob, Debian arm64 libs, `x2srv64`),
-  `/tmp/x4-monitor.sh`, `/tmp/x4/*` (capture). Nothing of ours runs
-  between experiments (`pgrep x2srv`, `pgrep ls-monitor` must be empty).
+  `/tmp/x4-monitor.sh`, `/tmp/x4-session.sh`, `/tmp/x4/*` (captures),
+  `/tmp/x1/*` (X1 client, shim, run script, logs). Nothing of ours runs
+  between experiments (`pgrep -l 'x2srv|x1client|ls-monitor'` must be
+  empty).
 - Tools: `python3 docs/research/arch/tv.py '<cmd>'` runs one command on
   the set (paramiko; `pip install --break-system-packages paramiko` if
   missing); `arch/drmplanes.c` builds with
@@ -49,7 +44,14 @@ screen, power state or picture mode. Probe sources and raw logs:
   `zig cc -target arm-linux-gnueabi.2.28 -O1 -o x2srv x2srv.c x2proto.c ../sysroot32/libwayland-server.so.0.20.0 -ldl -Wl,--allow-shlib-undefined`
   (client: `x2cli.c` against `libwayland-client.so.0.20.0`); `sysroot32/`
   holds the set's own libwayland copies (soft-float EABI, `e_flags`
-  0x5000200, interpreter `/lib/ld-linux.so.3`).
+  0x5000200, interpreter `/lib/ld-linux.so.3`). The 64-bit pieces
+  (`x2srv64`, `x1client`, `x1heapshim.so`) build with
+  `zig cc -target aarch64-linux-gnu.2.36` against Debian bookworm arm64
+  `libwayland-{client,server}.so.0.21.0` and run on the set through the
+  private loader `/tmp/m64/lib/ld-linux-aarch64.so.1 --library-path
+  /tmp/m64/lib`; the Debian packages and the Rockchip blob
+  (`libmali-bifrost-g52-g24p0-wayland-gbm.so`, JeffyCN/mirrors) are
+  under `/data/home/tmp/m64dl/` on the workstation.
 
 ## Verdict in brief
 
@@ -323,7 +325,7 @@ restart; X3, X5 and X6 restart the compositor.
 
 | Id | Question | Method | Kills | Proves |
 |---|---|---|---|---|
-| X1 | Is LG's compositor the floor that blocks the gate for a client? | A trivial full-screen 64-bit client (the m64 probe, dumb buffers, one small moving rect) presenting at 60 Hz for 60 s over Home with wallpaper motion off; count presented frames over 20 ms with PerfDeepDive's `drm_vblank_event_delivered` harness; repeat with the threaded loop (T7). Requested from PerfDeepDive. | B as the end state if late frames persist with a trivial client (then only C meets the rule) | B as the end state if zero late frames |
+| X1 | Is LG's compositor the floor that blocks the gate for a client? | A trivial full-screen 64-bit client (`arch/x1/x1client.c` on the Rockchip blob with `x1heapshim.so`: DRM dumb buffers first, `dma_buf_te` fallback; one clear and one moving rectangle per frame) presenting at 60 Hz for 60 s over idle Home with wallpaper motion off; PerfDeepDive's `drm_vblank_event_delivered` harness counts presented frames over 20 ms; repeat with the threaded loop (T7). Run: `sh /tmp/x1/x1-run.sh 60 auto` (binaries staged on the set). | B as the end state if late frames persist with a trivial client (then only C meets the rule) | B as the end state if zero late frames |
 | X1b | What does LG charge per app frame? | `surface-manager` CPU per presented frame and GPU busy during YouTube, still versus animating UI (PerfDeepDive's video workload). | C's direct scan-out gain if the charge is small | the gain if it is a large share of a core |
 | X2 | Can a non-LG compositor receive LG's 32-bit EGL buffers? | **Done 2026-10-24.** Private-socket server (`arch/x2/`), LG's libmali as the client. | - | **Passed**: the client needs only `mali_buffer_sharing` v5, hands over AFBC dma-bufs, and both LG's driver and the 64-bit blob imported them pixel-exact through `eglBindWaylandDisplayWL`. See the evidence log. |
 | X3 | What do the real apps use of the protocol? | LG's libwayland ignores `WAYLAND_DEBUG`, so: an `LD_PRELOAD` tap on `wl_closure` dispatch or a socket-level trace of `/tmp/xdg/wayland-0`, compositor restart through the tool, a scripted session (Netflix, YouTube, Prime, Disney+, PlxNative, LG Settings, keyboard, Live TV), tap removed, restart. Needs a maintenance window. | nothing on its own | the exact request and event subset C must implement |
@@ -592,6 +594,24 @@ work; a protocol census of the real apps needs an `LD_PRELOAD` tap on
 `wl_closure` dispatch or a socket-level trace instead. The X2 server
 logs every request itself, so X2 does not depend on it.
 
+### X1 client: built and smoke-tested (2026-10-24, 20:23)
+
+`arch/x1/x1client.c` (64-bit, the `wl_webos_shell` tables written from
+the public XML), `x1heapshim.c` (answers the blob's `/dev/dma_heap`
+opens with DRM dumb buffers on `card0` first, `dma_buf_te` when CMA is
+short, logging each allocation's source), `x1-run.sh`. A 3 s smoke run
+over Home with LumaHome live, CMA at 5.3 MB free at start: EGL 1.5
+Bifrost g24p0 on Mali-G52, three 8 986 624-byte buffers all from CMA
+(CMA free rose to 35 MB afterwards: the kernel migrated pages to make
+room, a stall source in itself), 124 frames in 3.01 s. Swap-to-swap
+gaps: 1 under 17.5 ms, 91 between 17.5 and 20 ms, 29 between 20 and
+33.5 ms, 2 over (worst 62 ms at start-up). Steady state about 55 fps
+with most frames a little over one refresh, below the 60.2-60.8 fps the
+same path measured on 2026-10-22 (PLAN.md), with Home busier this time.
+The 60 s run under controlled conditions (wallpaper motion off, idle
+Home, `te` variant for comparison) is PerfDeepDive's; its result decides
+between B and C as the end state.
+
 ### X2 result: a non-LG compositor process receives LG's app buffers (2026-10-24, 19:35)
 
 Harness: `arch/x2/` (`x2srv.c` test compositor, `x2cli.c` client,
@@ -702,6 +722,44 @@ compositor) or rare (PIN overlay, multi-view, capture, zoom). Not yet
 captured: standby and wake (the `power2` prepare handshake), Netflix and
 PlxNative (DRM playback), the input picker and a PIN prompt; the
 scripted-launch slot covers those.
+
+Pass 2 (20:15-20:17, 124 s, `arch/x4/pass2.jsonl`, census
+`arch/x4/x4-census-pass2.md`, script `arch/x4/x4-session.sh`): 60
+messages/s on the bus. Netflix and PlxNative brought to their first
+screen and sent behind Home made **no luna call to the compositor at
+all** (their window set-up is Wayland only) and no `videooutput` traffic
+(no playback was started). New callers: the input picker
+(`showInputPicker` opens it, `systemUIManager/closeByAppId` closes it; it
+subscribes to `getLastInputType`), LG's content-recognition client
+(`com.webos.service.acr.client.async` subscribes to
+`getForegroundVideoWindow`), and `surfacemanager.windowext` calling
+`applicationManager/closeByAppId {reason: windowPolicy}` when Home
+replaced Settings. Standby and wake, as pushed to the compositor's
+`power2/getPowerState` subscription: `request power off` (t = 56.9 s),
+`request power off logo` (57.0), `request active standby` (60.2),
+`prepare power off` (60.3), `active standby` (60.6); wake: `prepare power
+on` (90.7), `lastinput ready` and `screen on` (90.8), `active` (91.0).
+In the prepare-power-off round 28 services answered
+`power2/responsePreparePowerOff` within 160 ms (applicationManager,
+videooutput, audio, arccontroller, pqcontroller, panelcontroller,
+oledepl, netflix and others), and `tvpower` moved on 0.27 s after it
+asked. LG's QML (`StarfishPowerService.qml`) registers the compositor
+for all three rounds (`registerPreparePowerOff`, `registerPreparePowerOn`,
+`registerPowerOffLogoRequest`, client name `com.webos.surfacemanager`)
+and answers them from `StarfishViewStateController` (`acceptPowerOff(true)`
+on suspend, `acceptPowerOn` with a safety timer, the power-off logo
+acknowledgement). A replacement that does not register is simply not
+waited for [INFERENCE from the protocol shape: `tvpower` collects acks
+from registered clients only], so option C can start without the
+handshake and add it with the power-off logo.
+
+Limitation of pass 2: the compositor had been restarted at 20:10 (new
+process) and in this capture its main handle `com.webos.surfacemanager`
+appears only as a destination (109 inbound messages), never as a sender:
+its pushes and replies were not mirrored to the monitor (its `.home` and
+`.windowext` handles were). Pass 1, with the long-running process, had
+both directions. The cause was not found; the compositor's own calls in
+the power handshake are therefore taken from the QML, not observed.
 
 ## Ranked recommendation
 

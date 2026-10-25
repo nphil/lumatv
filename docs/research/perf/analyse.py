@@ -317,6 +317,14 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             lo = bisect.bisect_left(bstarts, f0)
             bs = [(x, y) for x, y, st in bursts[lo:lo + 40] if x >= f0 and y <= f1]
             after = [(x, y) for x, y in bs if gpu_end is None or x > gpu_end + 0.0005]
+            # With QT_QPA_UPDATE_IDLE_TIME=0 the render follows the commit in
+            # the same burst: a burst starting at the GPU completion that lasts
+            # longer than a commit (0.6-0.8 ms) is commit plus render.
+            fused = [(x, y) for x, y in bs if gpu_end is not None and gpu_end - 0.0002 <= x <= gpu_end + 0.0005 and y - x > 0.0013]
+            if fused and (not after or max(p[1] - p[0] for p in after) < 0.001):
+                x, y = max(fused, key=lambda p: p[1] - p[0])
+                anim.append(((f1 - f0) * 1000, (y - x) * 1000 - 0.7))
+                continue
             if not after:
                 timer.append(((f1 - f0) * 1000, 0.0))
                 continue

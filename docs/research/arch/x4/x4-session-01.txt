@@ -1,0 +1,39 @@
+started pid 5795: 5795 ls-monitor
+[30362.02] netflix launch (first screen only)
+    "returnValue": true
+[30372.08] home
+[30376.11] plxnative launch (first screen only)
+    "returnValue": true
+[30386.17] home
+[30390.22] input picker
+    "returnValue": true
+[30395.24] input picker close
+    "returnValue": true
+[30398.27] toast
+    "returnValue": true,
+[30403.31] settings launch
+    "returnValue": true
+[30411.45] home
+[30415.48] standby
+    "returnValue": true,
+[30449.29] state in standby: "state": "Active Standby"
+[30449.30] wake
+    "returnValue": true,
+[30474.50] screen on
+    "errorCode": "-102",
+    "returnValue": false,
+    "errorText": "The current sub state must be 'screen off'",
+[30482.56] state after wake: "state": "Active"
+[30482.59] foreground: "appId": "com.webos.app.home" 
+[30482.63] picture mode: "pictureMode": "filmMaker"
+stopped; remaining: none; lines 15126 bytes 11361772
+total 20204
+drwxr-xr-x    2 root     root           180 Oct 24 20:17 .
+drwxrwxrwt   53 root     root          3320 Oct 24 20:17 ..
+-rw-r--r--    1 root     root             0 Oct 24 20:15 monitor.err
+-rw-r--r--    1 root     root             5 Oct 24 20:15 monitor.pid
+-rw-r--r--    1 root     root       9309156 Oct 24 19:35 pass1.jsonl
+-rw-r--r--    1 root     root      11361772 Oct 24 20:17 pass2.jsonl
+-rw-r--r--    1 root     root            11 Oct 24 20:15 start.ts
+-rw-r--r--    1 root     root            18 Oct 24 20:15 start.uptime
+-rw-r--r--    1 root     root            11 Oct 24 20:17 stop.ts
