@@ -1,0 +1,15 @@
+# Pinned inputs of the 64-bit blob bundle, read by fetch-blob.sh. Nothing here is committed as a binary; every
+# download is verified against the sha256 below.
+#
+# mali <url> <sha256>
+#   Rockchip's Bifrost G52 userspace driver, wayland-gbm winsys, g24p0-10 (rk_so_ver 10), from JeffyCN/mirrors
+#   branch `libmali`. The URL is pinned to a commit, so it cannot change under the hash.
+# deb <package> <version> <pool directory under /debian/pool/main> <sha256>
+#   Debian 12 (bookworm) arm64 packages; the files used are listed in fetch-blob.sh.
+mali https://raw.githubusercontent.com/JeffyCN/mirrors/077bc8f582c5da0cb80136a711ce3be2fa1a04cd/lib/aarch64-linux-gnu/libmali-bifrost-g52-g24p0-wayland-gbm.so 15f94e34138ab315daab8d90b2bd17b792dc32d0b2206c6cc2efc670eff5f93d
+deb libc6 2.36-9+deb12u14 g/glibc 01f4330719fd4f65580e16ea5a0527f372fca750e8f588d26deaf09f2d3b1cf4
+deb libgcc-s1 12.2.0-14+deb12u1 g/gcc-12 576926b283613db80168ddf76380a3bd877602778cf0d226caa7bfbfa71eacf3
+deb libstdc++6 12.2.0-14+deb12u1 g/gcc-12 26e138c677a985775331373828a6c286c551ff397cb735d00e2383cb273d1cb2
+deb libffi8 3.4.4-1 libf/libffi 80b5c36177dc0e29d531c7eddbed3cc7355cb490e49f8cfa5959572d161f27b3
+deb libwayland-client0 1.21.0-1 w/wayland ae390cc04c2eb1de90b9a6373505b22c730ada5e72daa50c507b7f99c12faf06
+deb libwayland-server0 1.21.0-1 w/wayland 4d99e7e0503fdaa999e67d47d8612c0465e775eafa47819573da50bdb09064f2
