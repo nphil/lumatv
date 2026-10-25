@@ -80,7 +80,7 @@ html, body,
   letter-spacing: -0.01em !important;
 }
 
-/* LumaGlass for webOS's Enact/Sandstone settings surfaces.
+/* Luma for webOS's Enact/Sandstone settings surfaces.
  *
  * Settings and Notification Centre are transparent overlay web apps drawn over
  * whatever is on screen, which is why they can be glass at all: the panel fills
@@ -346,7 +346,7 @@ body::before {
   color: var(--luma-ink-2) !important;
 }
 
-/* Focus lifts, the way a LumaGlass tile does.
+/* Focus lifts, the way a Luma tile does.
  *
  * The fill goes on the focused element itself as well as on Sandstone's inner
  * background node: which of the two actually paints varies by component, and a

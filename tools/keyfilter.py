@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Adds or removes the LumaGlass entry in configd's com.webos.surfacemanager.keyFilters.
+"""Adds or removes the Luma entry in configd's com.webos.surfacemanager.keyFilters.
 
 usage: keyfilter.py add|remove <handler> <script path>
-Runs on the set (python 3.10). Called by tools/lumaglass; see keyfilter_set there.
+Runs on the set (python 3.10). Called by tools/lumatv; see keyfilter_set there.
 """
 import json
 import subprocess

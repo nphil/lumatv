@@ -3,7 +3,7 @@ import QtQuick 2.4
 // The mini-app window: one Glass quad that grows out of the card that opened it (x, y,
 // width, height ease from the card's rect to the frame rect), a title bar, a spinner while
 // the content is on its way, and an interior rect that either hosts a QML component or is
-// left clear for the overlay web app (org.nphil.lumaglass.frame) to paint into. Closing
+// left clear for the overlay web app ({{appId}}.frame) to paint into. Closing
 // runs the same path backwards. Everything animated is a transform, an opacity or the
 // quad's geometry; text is native and only shown once the frame has landed.
 Item {

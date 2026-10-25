@@ -4,13 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// Read appinfo.json
+// Version and description come from appinfo.json; every name from brand.json.
 const repoRoot = path.resolve(__dirname, '..');
-const appinfoPath = path.join(repoRoot, 'appinfo.json');
-const appinfo = JSON.parse(fs.readFileSync(appinfoPath, 'utf8'));
+const appinfo = JSON.parse(fs.readFileSync(path.join(repoRoot, 'appinfo.json'), 'utf8'));
+const brand = JSON.parse(fs.readFileSync(path.join(repoRoot, 'brand.json'), 'utf8'));
 
 const version = appinfo.version;
-const id = appinfo.id;
+const id = brand.appId;
 
 // Get IPK path from arguments
 if (process.argv.length < 3) {
@@ -35,15 +35,15 @@ const sha256 = hashSum.digest('hex');
 
 // Construct manifest
 const ipkFilename = path.basename(ipkPath);
-const ipkUrl = `https://github.com/nphil/lumaglass/releases/download/v${version}/${ipkFilename}`;
-const iconUri = 'https://raw.githubusercontent.com/nphil/lumaglass/main/assets/icon160.png';
-const sourceUrl = 'https://github.com/nphil/lumaglass';
+const ipkUrl = `https://github.com/${brand.repo}/releases/download/v${version}/${ipkFilename}`;
+const iconUri = `https://raw.githubusercontent.com/${brand.repo}/main/assets/icon160.png`;
+const sourceUrl = `https://github.com/${brand.repo}`;
 
 const manifest = {
     id,
     version,
     type: 'web',
-    title: appinfo.title,
+    title: brand.displayName,
     appDescription: appinfo.appDescription,
     iconUri,
     sourceUrl,

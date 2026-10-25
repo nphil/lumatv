@@ -1,10 +1,10 @@
 {
-  "id": "org.nphil.lumaglass.frame",
+  "id": "{{appId}}.frame",
   "version": "0.4.0",
   "vendor": "nphil",
   "type": "web",
   "main": "index.html",
-  "title": "LumaGlass Frame",
+  "title": "{{displayName}} Frame",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "defaultWindowType": "overlay",

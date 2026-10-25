@@ -1,5 +1,5 @@
-// LumaGlass key filter. Registered in com.webos.surfacemanager.keyFilters (configd) by
-// tools/lumaglass; the stock StarfishKeyFilter loads every entry of that list through its
+// Luma key filter. Registered in com.webos.surfacemanager.keyFilters (configd) by
+// tools/lumatv; the stock StarfishKeyFilter loads every entry of that list through its
 // StarfishKeyFilterLoader shell, which is the only supported way to see remote keys in the
 // compositor: shadowing controllers/StarfishKeyFilter.qml never loads on this firmware.
 //
@@ -10,7 +10,7 @@
 var bridge = null;
 
 function init() {
-    var c = Qt.createComponent("file:///var/lib/lumaglass/qml/WebOSCompositor/lumaglass/LumaKeyBridge.qml");
+    var c = Qt.createComponent("file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/LumaKeyBridge.qml");
     if (c.status === Component.Ready) {
         bridge = c.createObject(null);
         console.info("[LumaKeys] bridge ready");

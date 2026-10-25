@@ -193,11 +193,11 @@ FocusScope {
         clip: true
     }
 
-    // LumaGlass Home: a compositor-drawn layer that owns Home's chrome (wallpaper, glass,
+    // Luma Home: a compositor-drawn layer that owns Home's chrome (wallpaper, glass,
     // status bar, widgets, dock) while the stock Flutter app underneath stays resident as an
     // invisible placeholder. The file lives two levels up from this view
-    // (WebOSCompositor/lumaglass/LumaHome.qml). Remote keys reach it through the
-    // configd-registered key filter (payload/keyfilter/lumaglass.js), never through QtQuick
+    // (WebOSCompositor/{{qmlModule}}/LumaHome.qml). Remote keys reach it through the
+    // configd-registered key filter (payload/keyfilter/lumatv.js), never through QtQuick
     // focus: the compositor's KeyFilter sends keys straight to the focused Wayland window.
     //
     // Built the first time Home is this container's surface and kept from then on, shown only
@@ -213,7 +213,7 @@ FocusScope {
         z: 2
         active: root.lumaHomeCurrent || root.lumaHomeBuilt
         visible: root.lumaHomeCurrent && status === Loader.Ready
-        source: "../../lumaglass/LumaHome.qml"
+        source: "../../{{qmlModule}}/LumaHome.qml"
         onStatusChanged: {
             if (status === Loader.Error)
                 console.warn("[FULLSCREEN:Container][" + root.objectName + "] LumaHome failed to load from " + source)

@@ -13,6 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read brand
+        id: brand
+        run: |
+          {
+            echo "appId=$(jq -r .appId brand.json)"
+            echo "displayName=$(jq -r .displayName brand.json)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Validate tag matches version
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
@@ -31,13 +39,13 @@ jobs:
 
       - name: Generate manifest.json
         run: |
-          node tools/gen-manifest.js org.nphil.lumaglass_*.ipk manifest.json
+          node tools/gen-manifest.js ${{ steps.brand.outputs.appId }}_*.ipk manifest.json
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            org.nphil.lumaglass_*.ipk
+            ${{ steps.brand.outputs.appId }}_*.ipk
             manifest.json
           draft: false
           prerelease: false
@@ -49,53 +57,12 @@ jobs:
           git fetch origin main
           git checkout -B main origin/main
           
-          # Read version and generate new repo.json
-          VERSION=$(jq -r '.version' appinfo.json)
-          IPK_FILE=$(ls org.nphil.lumaglass_*.ipk)
-          IPK_SHA256=$(sha256sum "$IPK_FILE" | awk '{print $1}')
-          
-          # Regenerate repo.json with current release info
-          node - "$VERSION" "$IPK_SHA256" > repo.json << 'EOF'
-          const [version, sha256] = process.argv.slice(2);
-          const appinfo = require('./appinfo.json');
-          
-          const ipkFilename = `org.nphil.lumaglass_${version}_all.ipk`;
-          const ipkUrl = `https://github.com/nphil/lumaglass/releases/download/v${version}/${ipkFilename}`;
-          const iconUri = 'https://raw.githubusercontent.com/nphil/lumaglass/main/assets/icon160.png';
-          const sourceUrl = 'https://github.com/nphil/lumaglass';
-          
-          const manifest = {
-            id: appinfo.id,
-            version,
-            type: 'web',
-            title: appinfo.title,
-            appDescription: appinfo.appDescription,
-            iconUri,
-            sourceUrl,
-            rootRequired: true,
-            ipkUrl,
-            ipkHash: { sha256 }
-          };
-          
-          const repo = {
-            packages: [
-              {
-                id: appinfo.id,
-                title: appinfo.title,
-                iconUri,
-                shortDescription: appinfo.appDescription,
-                sourceUrl,
-                manifest
-              }
-            ]
-          };
-          
-          console.log(JSON.stringify(repo, null, 2));
-          EOF
-          
+          # Regenerate repo.json from the manifest built above
+          jq '{packages: [{id, title, iconUri, shortDescription: .appDescription, sourceUrl, manifest: .}]}' manifest.json > repo.json
+
           # Commit and push to main
-          git config user.name "LumaGlass CI"
-          git config user.email "ci@nphil.lumaglass"
+          git config user.name "${{ steps.brand.outputs.displayName }} CI"
+          git config user.email "ci@${{ steps.brand.outputs.appId }}"
           git add repo.json
           git commit -m "chore(ci): update repo.json for v$(jq -r '.version' appinfo.json) [skip ci]" || echo "No changes to commit"
           git push origin main

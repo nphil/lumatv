@@ -2,7 +2,7 @@
 
 // One engine-wide instance (pragma library, same absolute URL from both sides): LumaHome
 // registers its key handler here, the configd-registered key filter (payload/keyfilter/
-// lumaglass.js) dispatches into it through LumaKeyBridge.qml. Keys never travel through
+// lumatv.js) dispatches into it through LumaKeyBridge.qml. Keys never travel through
 // QtQuick focus: the compositor's KeyFilter sends them straight to the focused Wayland
 // window, so a QML item can only see them from inside the filter chain.
 var handler = null

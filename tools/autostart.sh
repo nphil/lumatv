@@ -1,7 +1,7 @@
 #!/bin/sh
-# LumaGlass boot hook.
+# Boot hook.
 #
-# Symlinked to /var/lib/webosbrew/init.d/50-lumaglass by `lumaglass persist on`
+# Symlinked to /var/lib/webosbrew/init.d/50-<shortId> by `<shortId> persist on`
 # and run by Homebrew Channel's startup.sh via run-parts during boot.
 #
 # Two hard rules, because this runs on the boot path:
@@ -17,11 +17,6 @@
 # The hook is also a no-op unless the user explicitly asked for persistence,
 # so removing the symlink is not the only off switch.
 
-STATE=/var/lib/lumaglass
-LOG="$STATE/log"
-# Per-boot, so it lives in tmpfs: the pid of whichever hook is applying.
-WORKER_MARK=/tmp/.lumaglass-worker
-
 # Resolve the real app dir even though we are invoked through a symlink
 # in /var/lib/webosbrew/init.d.
 self="$0"
@@ -33,7 +28,18 @@ if [ -L "$self" ]; then
   esac
 fi
 APPDIR=$(cd "$(dirname "$self")/.." 2>/dev/null && pwd)
-CLI="$APPDIR/tools/lumaglass"
+
+# Names come from brand.json. Without them there is nowhere to log to and
+# nothing to run, and a boot hook never fails the boot.
+[ -f "$APPDIR/tools/brand.sh" ] || exit 0
+. "$APPDIR/tools/brand.sh"
+brand_load "$APPDIR/brand.json" 2>/dev/null || exit 0
+
+STATE="$BRAND_DATA_DIR"
+LOG="$STATE/log"
+# Per-boot, so it lives in tmpfs: the pid of whichever hook is applying.
+WORKER_MARK="/tmp/.$BRAND_SHORT_ID-worker"
+CLI="$APPDIR/tools/$BRAND_SHORT_ID"
 
 log() {
   mkdir -p "$STATE" 2>/dev/null
@@ -70,7 +76,7 @@ if [ "$1" = "--worker" ]; then
   # failsafe path, because boot-ok had not been written yet either.
   echo $$ > "$WORKER_MARK" 2>/dev/null
   # Tells apply it is on the boot path: never force the panel on.
-  LUMAGLASS_BOOT=1; export LUMAGLASS_BOOT
+  LUMA_BOOT=1; export LUMA_BOOT
   bb=$("$CLI" boot-bind 2>&1)
   log "boot-bind: $(echo "$bb" | tr -d '\n' | cut -c1-200)"
   out=$("$CLI" apply 2>&1)

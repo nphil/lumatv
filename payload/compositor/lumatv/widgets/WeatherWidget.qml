@@ -15,7 +15,7 @@ Item {
     property bool inner: false
     property bool live: true
     property double fetchedAt: 0
-    readonly property string iconDir: "file:///var/lib/lumaglass/qml/WebOSCompositor/lumaglass/icons/"
+    readonly property string iconDir: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/icons/"
 
     function activate() {}
 

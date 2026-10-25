@@ -14,7 +14,8 @@ jobs:
         run: |
           sh -n tools/build-ipk.sh
           sh -n tools/autostart.sh
-          sh -n tools/lumaglass
+          sh -n tools/brand.sh
+          sh -n tools/lumatv
 
       - name: Validate Node.js scripts
         run: |
@@ -23,7 +24,7 @@ jobs:
       - name: Validate JSON files
         run: |
           set -e
-          for f in appinfo.json repo.json; do
+          for f in brand.json appinfo.json repo.json; do
             jq empty "$f" && echo "✓ $f" || { echo "✗ $f"; exit 1; }
           done
 
@@ -38,25 +39,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read brand
+        id: brand
+        run: |
+          {
+            echo "appId=$(jq -r .appId brand.json)"
+            echo "shortId=$(jq -r .shortId brand.json)"
+            echo "displayName=$(jq -r .displayName brand.json)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build IPK
         run: |
           sh tools/build-ipk.sh
 
       - name: Verify IPK
         run: |
-          ar t org.nphil.lumaglass_*.ipk
+          ar t ${{ steps.brand.outputs.appId }}_*.ipk
           echo "---"
-          tar -tzvf build/verify/data.tar.gz | grep -E 'tools/(lumaglass|autostart)'
+          tar -tzvf build/verify/data.tar.gz | grep -E 'tools/(${{ steps.brand.outputs.shortId }}|autostart)'
 
       - name: Upload IPK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lumaglass-ipk
-          path: org.nphil.lumaglass_*.ipk
+          name: ${{ steps.brand.outputs.shortId }}-ipk
+          path: ${{ steps.brand.outputs.appId }}_*.ipk
           if-no-files-found: error
 
       - name: Show build summary
         run: |
           echo "Build complete:"
-          ls -lh org.nphil.lumaglass_*.ipk
-          sha256sum org.nphil.lumaglass_*.ipk
+          ls -lh ${{ steps.brand.outputs.appId }}_*.ipk
+          sha256sum ${{ steps.brand.outputs.appId }}_*.ipk

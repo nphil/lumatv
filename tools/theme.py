@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reads or updates /var/lib/lumaglass/theme/theme.json for the companion app and the Home popovers.
+"""Reads or updates the data dir's theme/theme.json for the companion app and the Home popovers.
 
 usage: theme.py <theme.json path> get
        theme.py <theme.json path> set '<json object>'

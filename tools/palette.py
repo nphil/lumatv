@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Derives the settings-menu palette from the LumaGlass theme.
+"""Derives the settings-menu palette from the Luma theme.
 
 The menus have to be tinted by whatever wallpaper and theme are in use, not by
 constants baked into a patch, or they stop matching the moment the wallpaper
-changes. Everything here comes out of /var/lib/lumaglass/theme/theme.json:
+changes. Everything here comes out of the data dir's theme/theme.json:
 
   dark.glass      the Home cards' material -> the sheet tint
   dark.ink        body text
@@ -17,7 +17,7 @@ the same hue is used at a much higher alpha: the tint tracks the theme, the
 contrast does not depend on what is behind it.
 
 usage: palette.py <theme.json> qml|css
-Runs on the set (python 3.10). Called by tools/lumaglass.
+Runs on the set (python 3.10). Called by tools/lumatv.
 """
 import json
 import sys

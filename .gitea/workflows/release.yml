@@ -11,6 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read brand
+        id: brand
+        run: |
+          {
+            echo "appId=$(jq -r .appId brand.json)"
+            echo "displayName=$(jq -r .displayName brand.json)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Validate tag matches version
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
@@ -29,13 +37,13 @@ jobs:
 
       - name: Generate manifest.json
         run: |
-          node tools/gen-manifest.js org.nphil.lumaglass_*.ipk manifest.json
+          node tools/gen-manifest.js ${{ steps.brand.outputs.appId }}_*.ipk manifest.json
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            org.nphil.lumaglass_*.ipk
+            ${{ steps.brand.outputs.appId }}_*.ipk
             manifest.json
           draft: false
           prerelease: false

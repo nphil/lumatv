@@ -21,7 +21,7 @@ Item {
     property Item backdrop: null
     property real screenX: 0
     property real screenY: 0
-    readonly property string iconDir: "file:///var/lib/lumaglass/qml/WebOSCompositor/lumaglass/icons/"
+    readonly property string iconDir: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/icons/"
 
     signal activated()
     signal hoverFocus()

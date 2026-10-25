@@ -1,6 +1,6 @@
 /**
- * LumaGlass Settings App
- * Remote-control frontend for the LumaGlass CLI via Homebrew Channel's exec service
+ * {{displayName}} Settings App
+ * Remote-control frontend for the {{displayName}} CLI via Homebrew Channel's exec service
  */
 
 (function() {
@@ -62,10 +62,10 @@
 
   /**
    * cli(verb, arg?) -> Promise<{ok:boolean, ...payload}>
-   * Constructs and runs: /media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass <verb> [arg]
+   * Constructs and runs: /media/developer/apps/usr/palm/applications/{{appId}}/tools/{{shortId}} <verb> [arg]
    */
   async function cli(verb, arg) {
-    let cmd = '/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass ' + verb;
+    let cmd = '/media/developer/apps/usr/palm/applications/{{appId}}/tools/{{shortId}} ' + verb;
     if (arg) {
       cmd += ' ' + arg;
     }
@@ -100,7 +100,7 @@
   };
 
   const mockLog = [
-    '[00:00] LumaGlass settings app started',
+    '[00:00] {{displayName}} settings app started',
     '[00:01] Status retrieved successfully',
     '[mock mode] No real Homebrew Channel available',
     '[mock mode] Using simulated CLI responses'
@@ -468,7 +468,7 @@
       const result = await cli('apply');
       // If we get here, the app survived; refresh status
       await refreshStatus();
-      showError('Applied! The home screen is now LumaGlass.');
+      showError('Applied! The home screen is now {{displayName}}.');
     } catch (err) {
       showError('Apply failed: ' + err.message);
     } finally {

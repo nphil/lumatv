@@ -13,9 +13,9 @@ Item {
     property var mat: ({})
     property bool isLight: false
     property var layoutEntry: ({})
-    property string themeDirUrl: "file:///var/lib/lumaglass/theme/"
-    property string moduleDirUrl: "file:///var/lib/lumaglass/qml/WebOSCompositor/lumaglass/"
-    readonly property string packsDirUrl: "file:///var/lib/lumaglass/widgets/"
+    property string themeDirUrl: "file://{{dataDir}}/theme/"
+    property string moduleDirUrl: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/"
+    readonly property string packsDirUrl: "file://{{dataDir}}/widgets/"
     property bool focused: false
     property bool inner: false          // OK was pressed: keys go to the content
     property bool dimmed: false
@@ -132,7 +132,7 @@ Item {
         else finish()
     }
 
-    // ---- widget packs: /var/lib/lumaglass/widgets/<packId>/pack.json, or a theme-bundled
+    // ---- widget packs: {{dataDir}}/widgets/<packId>/pack.json, or a theme-bundled
     // <themeDir>/widgets/pack.json; loaded lazily on first reference and cached ----
     function loadPack(type, settingsOverride) {
         var packId = type.substring(0, type.indexOf("."))

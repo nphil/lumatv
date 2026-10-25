@@ -7,10 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The project is renamed LumaTV. Every name (display name, app id, data dir,
+  QML module directory, tool and boot-hook names) comes from `brand.json`;
+  the build fills the `{{displayName}}`, `{{shortId}}`, `{{appId}}`, `{{dataDir}}`
+  and `{{qmlModule}}` placeholders in the staged copy and names the ipk, the
+  frame app and the installed files from it. The app id is now
+  `org.nphil.lumatv`, the data dir `/var/lib/lumatv`, the tool `tools/lumatv`
+  and the boot hook `50-lumatv`.
+- The first verb run by the new tool on a set that has the LumaGlass layout
+  moves `/var/lib/lumaglass` to `/var/lib/lumatv`, points the compositor env
+  file, the early-boot hook, the init.d link, the configd key filter and the
+  Quick Settings entry at it, and removes the apps `org.nphil.lumaglass` and
+  `org.nphil.lumaglass.frame`. Revert and off work on a set that has only the
+  old layout.
+- `repo.json` lists no package until the first LumaTV release regenerates it.
+  Its `brand.json` `repo` entry (`nphil/lumatv`) names the GitHub repository
+  that release URLs point at.
+
+### Fixed
+
+- The ipk now ships `palette.py`, `systemui.py` and `systemui_patch.py`, which
+  `systemui on` and `webglass on` call.
+
 ### Added
 
-- `lumaglass systemui on|off|status` runs Quick Settings from a copy of LG's
-  QML tree under `/var/lib/lumaglass/systemui`, by pointing the panel's entry
+- `lumatv systemui on|off|status` runs Quick Settings from a copy of LG's
+  QML tree under `/var/lib/lumatv/systemui`, by pointing the panel's entry
   in the configd object `com.webos.surfacemanager.systemUIManager` at it.
   Nothing is written to `/usr`, and `off` restores the stock path in one
   configd write. The copy is rebuilt whenever the stock tree's fingerprint
@@ -22,12 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to 51 samples. The replacement evaluates the shadow analytically from the
   signed distance to a rounded box: one pass, no texture read, and no repaint
   when the item it sits behind animates.
-- The settings menus wear the LumaGlass material. Quick Settings is a floating
+- The settings menus wear the LumaTV material. Quick Settings is a floating
   sheet, inset from the screen edges and rounded on every corner, with glass
   tiles and header buttons; focus lifts a surface rather than inverting it to a
   light fill. `tools/systemui_patch.py` applies this to the staged copy, and
   fails loudly on a missing anchor so a firmware update cannot half-patch it.
-- `lumaglass webglass on|off|status` gives the same treatment to the two web
+- `lumatv webglass on|off|status` gives the same treatment to the two web
   settings surfaces, Settings and Notification Centre. WebAppMgr injects
   `webOSUserScripts/userScript.js` from an app's own directory, so each app
   gets an overlay mount whose upper layer holds just that script, the
@@ -48,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Home, power, another app) still exits as stock, because the manager
   refuses to relaunch an app whose last event was a close; the first press
   after one is a normal cold open. Compositor RSS is flat across 40 relaunches.
-- `/var/lib/lumaglass/env.extra` passes extra variables to the compositor,
+- `/var/lib/lumatv/env.extra` passes extra variables to the compositor,
   one `KEY=VALUE` per line, for tuning and measurement. Only
   `QT_QPA_UPDATE_IDLE_TIME`, `QML_FORCE_DISK_CACHE`, `QSG_*` and `QV4_*` keys
   with plain values are copied into its env file; anything else is ignored.

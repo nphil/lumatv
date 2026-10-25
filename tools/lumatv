@@ -1,5 +1,5 @@
 #!/bin/sh
-# LumaGlass on-device engine (POSIX sh / busybox ash only).
+# On-device engine (POSIX sh / busybox ash only). Names come from brand.json.
 #
 # Verb map (each verb prints exactly one JSON object on stdout, exit 0/nonzero):
 #   status                 -> current measured state
@@ -14,15 +14,31 @@
 #   webglass on|off|status -> glass stylesheet in the settings web apps
 #   version                -> version string from appinfo.json
 #
-# Nothing is ever written outside $APPDIR, $STATE (/var/lib/lumaglass),
-# /var/lib/webosbrew/init.d/50-lumaglass, the env files under
-# /var/systemd/system/env, and the compositor's QML cache, which is only ever
-# deleted.
+# Nothing is ever written outside $APPDIR, $STATE (the brand's dataDir), the
+# init.d boot-hook link, the env files under /var/systemd/system/env, configd,
+# bind mounts, /tmp, and the compositor's QML cache, which is only ever
+# deleted. The one-time move from the previous brand's layout (migrate_legacy)
+# touches the same places plus the old data dir and, through appInstallService,
+# the old apps.
 
 set -u
 
 APPDIR=$(cd "$(dirname "$0")/.." && pwd)
-STATE=/var/lib/lumaglass
+# A failed `.` aborts a non-interactive sh, so the file is checked first.
+if [ ! -f "$APPDIR/tools/brand.sh" ]; then
+  printf '{"ok":false,"error":"tools/brand.sh is missing"}\n'
+  exit 1
+fi
+. "$APPDIR/tools/brand.sh"
+brand_load "$APPDIR/brand.json" 2>/dev/null || {
+  printf '{"ok":false,"error":"brand.json is missing or invalid"}\n'
+  exit 1
+}
+DISPLAY_NAME="$BRAND_DISPLAY_NAME"
+SHORT_ID="$BRAND_SHORT_ID"
+APP_ID="$BRAND_APP_ID"
+QML_MODULE="$BRAND_QML_MODULE"
+STATE="$BRAND_DATA_DIR"
 CONFIG="$STATE/config.json"
 LOGFILE="$STATE/log"
 ASSETS="$STATE/assets"
@@ -55,14 +71,14 @@ BG_4K_SRC="$APPDIR/payload/wallpaper/bg_4k.png"
 # it the remote, and the theme it reads at runtime. Fonts and theme live
 # outside the module so the companion app can change them without a module
 # rebuild.
-LUMA_SRC="$APPDIR/payload/compositor/lumaglass"
+LUMA_SRC="$APPDIR/payload/compositor/$QML_MODULE"
 FONTS_SRC="$APPDIR/payload/fonts"
 THEME_SRC="$APPDIR/payload/theme"
-KEYFILTER_SRC="$APPDIR/payload/keyfilter/lumaglass.js"
+KEYFILTER_SRC="$APPDIR/payload/keyfilter/$SHORT_ID.js"
 KEYFILTER_TOOL="$APPDIR/tools/keyfilter.py"
 THEME_TOOL="$APPDIR/tools/theme.py"
-FRAME_IPK="$APPDIR/payload/frame/org.nphil.lumaglass.frame.ipk"
-FRAME_APP=org.nphil.lumaglass.frame
+FRAME_APP="$APP_ID.frame"
+FRAME_IPK="$APPDIR/payload/frame/$FRAME_APP.ipk"
 FRAME_DIR="/media/developer/apps/usr/palm/applications/$FRAME_APP"
 LUMA_STAGE="$STATE/luma"
 FONTS_DIR="$STATE/fonts"
@@ -176,11 +192,11 @@ MSGLOG=/var/log/messages
 # Measured on webOS 10.2.1 at 320x180: 835 bytes while the panel is still
 # blank, >79000 once Home is composited.
 CAPTURE_URI="luna://com.webos.service.capture/executeOneShot"
-CAP_TMP=/tmp/lumaglass-ready.png
+CAP_TMP=/tmp/$SHORT_ID-ready.png
 CAP_BLANK_BYTES=4096
 READY_WAIT=30
 SCREEN_ON_URI="luna://com.webos.service.tvpower/power/turnOnScreen"
-AUTOSTART_LINK=/var/lib/webosbrew/init.d/50-lumaglass
+AUTOSTART_LINK="/var/lib/webosbrew/init.d/50-$SHORT_ID"
 AUTOSTART_SRC="$APPDIR/tools/autostart.sh"
 
 # Early boot hook.
@@ -203,8 +219,8 @@ AUTOSTART_SRC="$APPDIR/tools/autostart.sh"
 EARLY_ENV_FILE=/var/systemd/system/env/kdump.env
 EARLY_BIN="$STATE/earlybin"
 EARLY_SHIM="$EARLY_BIN/grep"
-EARLY_ONCE=/tmp/.lumaglass-early-done
-LOCKFILE=/var/lib/lumaglass/mutate.lock
+EARLY_ONCE="/tmp/.$SHORT_ID-early-done"
+LOCKFILE="$STATE/mutate.lock"
 # Seconds a second mutation waits for the first to finish. An apply takes ~30s
 # at worst, so this is generous without hanging a caller forever.
 LOCK_WAIT=180
@@ -332,16 +348,16 @@ relaunch_home() {
   # path it is wrong: after a crash-recovery "reboot to suspend" the set is
   # booting in order to go back to standby, and forcing the panel on here
   # turned a TV the user had switched off back on. The hook sets
-  # LUMAGLASS_BOOT=1; the panel is then whatever the system decided.
+  # LUMA_BOOT=1; the panel is then whatever the system decided.
   i=0
   while [ "$i" -lt 3 ]; do
-    [ "${LUMAGLASS_BOOT:-0}" = "1" ] || luna-send -n 1 "$SCREEN_ON_URI" '{}' >/dev/null 2>&1
+    [ "${LUMA_BOOT:-0}" = "1" ] || luna-send -n 1 "$SCREEN_ON_URI" '{}' >/dev/null 2>&1
     luna-send -n 1 "$HOME_LAUNCH_URI" "$HOME_LAUNCH_PARAMS" >/dev/null 2>&1
     if wait_presenting; then
       log_line "home on panel after $i relaunch attempt(s)"
       return 0
     fi
-    if home_running && { [ "${LUMAGLASS_BOOT:-0}" = "1" ] || home_in_front; }; then
+    if home_running && { [ "${LUMA_BOOT:-0}" = "1" ] || home_in_front; }; then
       # Running but nothing on the panel: the set is booting into standby, or
       # the panel is off. Nothing more to wait for. Outside boot a Home that
       # is not in front is a preload, as seen on a restart straight after a
@@ -524,7 +540,7 @@ ntfy_notify() {
   cfg_read_all
   [ "$CFG_NTFY_ENABLED" = "true" ] || return 0
   [ -n "$CFG_NTFY_URL" ] || return 0
-  curl -fsS -m 10 -H 'Title: LumaGlass' -H 'Tags: tv' -d "$msg" "$CFG_NTFY_URL" >/dev/null 2>&1
+  curl -fsS -m 10 -H "Title: $DISPLAY_NAME" -H 'Tags: tv' -d "$msg" "$CFG_NTFY_URL" >/dev/null 2>&1
   return 0
 }
 
@@ -593,8 +609,8 @@ stage_luma() {
   [ -d "$LUMA_SRC" ] || return 1
   rm -rf "$out.tmp.$$" 2>/dev/null
   mkdir -p "$out.tmp.$$" 2>/dev/null || return 1
-  cp -R "$LUMA_SRC" "$out.tmp.$$/lumaglass" 2>/dev/null || { rm -rf "$out.tmp.$$"; return 1; }
-  printf '{"fps":%s}\n' "$fps" > "$out.tmp.$$/lumaglass/settings.json"
+  cp -R "$LUMA_SRC" "$out.tmp.$$/$QML_MODULE" 2>/dev/null || { rm -rf "$out.tmp.$$"; return 1; }
+  printf '{"fps":%s}\n' "$fps" > "$out.tmp.$$/$QML_MODULE/settings.json"
   rm -rf "$out" 2>/dev/null
   mv "$out.tmp.$$" "$out"
 }
@@ -637,9 +653,9 @@ keyfilter_set() {
   mode="$1"
   if [ "$mode" = add ]; then
     mkdir -p "$KEYFILTER_DIR" 2>/dev/null || return 1
-    cp -f "$KEYFILTER_SRC" "$KEYFILTER_DIR/lumaglass.js" 2>/dev/null || return 1
+    cp -f "$KEYFILTER_SRC" "$KEYFILTER_DIR/$SHORT_ID.js" 2>/dev/null || return 1
   fi
-  python3 "$KEYFILTER_TOOL" "$mode" "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/lumaglass.js" < /dev/null 2>>"$LOGFILE"
+  python3 "$KEYFILTER_TOOL" "$mode" "$KEYFILTER_HANDLER" "$KEYFILTER_DIR/$SHORT_ID.js" < /dev/null 2>>"$LOGFILE"
 }
 
 systemui_stage() {
@@ -704,14 +720,14 @@ webglass_set() {
     if [ "$mode" = on ]; then
       mkdir -p "$up" "$work" 2>/dev/null || { rc=1; continue; }
       cp -f "$WEBGLASS_SRC/userScript.js" "$up/userScript.js" 2>/dev/null || rc=1
-      cp -f "$WEBGLASS_SRC/lumaglass.css" "$up/lumaglass.css" 2>/dev/null || rc=1
+      cp -f "$WEBGLASS_SRC/$SHORT_ID.css" "$up/$SHORT_ID.css" 2>/dev/null || rc=1
       python3 "$PALETTE_TOOL" "$THEME_DIR/theme.json" css < /dev/null > "$up/theme.css" 2>>"$LOGFILE" || rc=1
       # The same font the Home screen uses, beside the stylesheet that asks for
       # it: a web app can only load a face from its own directory.
       for f in Inter-Regular.ttf Inter-Medium.ttf Inter-SemiBold.ttf InterDisplay-SemiBold.ttf; do
         cp -f "$FONTS_SRC/$f" "$up/$f" 2>/dev/null || rc=1
       done
-      mount -t overlay lumaglass -o \
+      mount -t overlay "$SHORT_ID" -o \
         "lowerdir=$target,upperdir=$WEBGLASS_STAGE/$app/upper,workdir=$work" \
         "$target" 2>>"$LOGFILE" || rc=1
     fi
@@ -825,12 +841,12 @@ build_shadow() {
   # never sees a half-copied module.
   [ -d "$STOCK_QML_MODULE" ] || return 1
   [ -f "$COMPOSITOR_STAGE" ] || return 1
-  [ -d "$LUMA_STAGE/lumaglass" ] || return 1
+  [ -d "$LUMA_STAGE/$QML_MODULE" ] || return 1
   rm -rf "$SHADOW_ROOT.next" 2>/dev/null
   mkdir -p "$SHADOW_ROOT.next" 2>/dev/null || return 1
   cp -a "$STOCK_QML_MODULE" "$SHADOW_ROOT.next/" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
   cp -f "$COMPOSITOR_STAGE" "$SHADOW_ROOT.next/WebOSCompositor/$MODULE_RELPATH" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
-  cp -R "$LUMA_STAGE/lumaglass" "$SHADOW_ROOT.next/WebOSCompositor/lumaglass" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
+  cp -R "$LUMA_STAGE/$QML_MODULE" "$SHADOW_ROOT.next/WebOSCompositor/$QML_MODULE" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
 
   # Get the contents on disk BEFORE the rename publishes them. /var is ext4
   # data=ordered, so without this a power cut can commit the directory entries
@@ -854,7 +870,7 @@ shadow_current() {
   # module installed right now.
   [ -f "$SHADOW_QML" ] || return 1
   [ "$(md5sum < "$SHADOW_QML" 2>/dev/null)" = "$(md5sum < "$COMPOSITOR_STAGE" 2>/dev/null)" ] || return 1
-  [ "$(tree_fp "$SHADOW_ROOT/WebOSCompositor/lumaglass")" = "$(tree_fp "$LUMA_STAGE/lumaglass")" ] || return 1
+  [ "$(tree_fp "$SHADOW_ROOT/WebOSCompositor/$QML_MODULE")" = "$(tree_fp "$LUMA_STAGE/$QML_MODULE")" ] || return 1
   [ "$(cat "$SHADOW_SELF_FP" 2>/dev/null)" = "$(shadow_self_fp)" ] || return 1
   [ "$(cat "$SHADOW_STOCK_FP" 2>/dev/null)" = "$(stock_module_fp)" ] || return 1
   return 0
@@ -1020,7 +1036,7 @@ verb_revert() {
   do_revert_internal
   mounts=$(count_mounts)
   log_line "revert: changed=$REVERT_CHANGED mounts=$mounts"
-  ntfy_notify "LumaGlass reverted to stock"
+  ntfy_notify "$DISPLAY_NAME reverted to stock"
   printf '{"ok":true,"applied":false,"mounts":%s}\n' "$mounts"
   return 0
 }
@@ -1059,7 +1075,7 @@ verb_apply() {
     cprc=$?
     if [ "$cprc" -ne 0 ]; then
       log_line "apply: failed to copy stock assets: $cperr"
-      ntfy_notify "LumaGlass apply failed: could not copy stock assets"
+      ntfy_notify "$DISPLAY_NAME apply failed: could not copy stock assets"
       emit_error "stock asset copy failed: $cperr"
       return 1
     fi
@@ -1118,7 +1134,7 @@ verb_apply() {
   stage_compositor "$fps_now" "$COMPOSITOR_STAGE.next"
   if ! stage_luma "$fps_now" "$LUMA_STAGE.next"; then
     log_line "apply: Home QML payload missing"
-    ntfy_notify "LumaGlass apply failed: Home QML payload missing"
+    ntfy_notify "$DISPLAY_NAME apply failed: Home QML payload missing"
     emit_error "Home QML payload missing"
     return 1
   fi
@@ -1127,7 +1143,7 @@ verb_apply() {
   # The key-filter script is read once when the compositor builds its handler
   # chain, so a changed script needs the restart below; compare before the copy.
   kf_changed=1
-  [ "$(md5sum < "$KEYFILTER_SRC" 2>/dev/null)" = "$(md5sum < "$KEYFILTER_DIR/lumaglass.js" 2>/dev/null)" ] && kf_changed=0
+  [ "$(md5sum < "$KEYFILTER_SRC" 2>/dev/null)" = "$(md5sum < "$KEYFILTER_DIR/$SHORT_ID.js" 2>/dev/null)" ] && kf_changed=0
   keyfilter_set add || log_line "apply: could not register the key filter with configd"
 
   # The settings menus are re-asserted here, not just when the verb is run: the
@@ -1171,14 +1187,14 @@ verb_apply() {
     if ! build_shadow; then
       log_line "apply: could not build shadow compositor module"
       do_revert_internal
-      ntfy_notify "LumaGlass apply failed: could not build compositor module"
+      ntfy_notify "$DISPLAY_NAME apply failed: could not build compositor module"
       emit_error "shadow module build failed"
       return 1
     fi
     if ! write_env; then
       log_line "apply: could not write compositor env file"
       do_revert_internal
-      ntfy_notify "LumaGlass apply failed: could not write compositor env"
+      ntfy_notify "$DISPLAY_NAME apply failed: could not write compositor env"
       emit_error "compositor env write failed"
       return 1
     fi
@@ -1189,14 +1205,14 @@ verb_apply() {
     if [ $? -ne 0 ]; then
       log_line "apply: bind failed on assets: $binderr"
       do_revert_internal
-      ntfy_notify "LumaGlass apply failed: assets bind failed"
+      ntfy_notify "$DISPLAY_NAME apply failed: assets bind failed"
       emit_error "assets bind failed: $binderr"
       return 1
     fi
     if ! is_mounted "$STOCK_ASSETS"; then
       log_line "apply: assets bind verification failed"
       do_revert_internal
-      ntfy_notify "LumaGlass apply failed: bind verification failed"
+      ntfy_notify "$DISPLAY_NAME apply failed: bind verification failed"
       emit_error "assets bind verification failed"
       return 1
     fi
@@ -1240,7 +1256,7 @@ verb_apply() {
     if ! restart_surface; then
       log_line "apply: surface-manager-daemon did not come back active"
       do_revert_internal
-      ntfy_notify "LumaGlass apply failed: compositor did not restart"
+      ntfy_notify "$DISPLAY_NAME apply failed: compositor did not restart"
       emit_error "compositor did not become active after restart"
       return 1
     fi
@@ -1250,7 +1266,7 @@ verb_apply() {
       log_line "apply: shader compilation failure detected post-restart, auto-reverting"
       rm -f "$VERIFIED"
       do_revert_internal
-      ntfy_notify "LumaGlass apply failed: shader compilation error, auto-reverted to stock"
+      ntfy_notify "$DISPLAY_NAME apply failed: shader compilation error, auto-reverted to stock"
       emit_error "shader compilation failed; auto-reverted to stock"
       return 1
     fi
@@ -1265,7 +1281,7 @@ verb_apply() {
   mounts=$(count_mounts)
   took=$(( $(date +%s) - t0 ))
   log_line "apply: success version=$version mounts=$mounts took=${took}s"
-  ntfy_notify "LumaGlass applied (v$version)"
+  ntfy_notify "$DISPLAY_NAME applied (v$version)"
   printf '{"ok":true,"applied":true,"mounts":%s,"took":%s}\n' "$mounts" "$took"
   return 0
 }
@@ -1300,7 +1316,7 @@ verb_boot_bind() {
     printf '{"ok":true,"bound":false,"reason":"failsafe"}\n'
     return 0
   fi
-  if [ ! -f "$COMPOSITOR_STAGE" ] || [ ! -f "$WALLPAPER_STAGE" ] || [ ! -d "$LUMA_STAGE/lumaglass" ] || [ ! -f "$ASSETS/home.xml" ] || [ ! -d "$ASSETS/i18n" ]; then
+  if [ ! -f "$COMPOSITOR_STAGE" ] || [ ! -f "$WALLPAPER_STAGE" ] || [ ! -d "$LUMA_STAGE/$QML_MODULE" ] || [ ! -f "$ASSETS/home.xml" ] || [ ! -d "$ASSETS/i18n" ]; then
     log_line "boot-bind: no staged set, leaving it to apply"
     printf '{"ok":true,"bound":false,"reason":"no-stage"}\n'
     return 0
@@ -1319,7 +1335,7 @@ verb_boot_bind() {
     remove_env
     rm -f "$ENV_EXTRA"
     systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
-    ntfy_notify "LumaGlass disabled itself: compositor did not start"
+    ntfy_notify "$DISPLAY_NAME disabled itself: compositor did not start"
     printf '{"ok":true,"bound":false,"reason":"compositor-absent"}\n'
     return 0
   fi
@@ -1347,7 +1363,7 @@ verb_boot_bind() {
         restart_surface >/dev/null 2>&1
         home_back_after_restart
       fi
-      ntfy_notify "LumaGlass disabled itself: compositor module unusable"
+      ntfy_notify "$DISPLAY_NAME disabled itself: compositor module unusable"
       printf '{"ok":true,"bound":false,"reason":"stale-module"}\n'
       return 0
     fi
@@ -1409,7 +1425,7 @@ install_early_hook() {
   mkdir -p "$EARLY_BIN" "$(dirname "$EARLY_ENV_FILE")" 2>/dev/null || return 1
   {
     printf '%s\n' '#!/bin/sh'
-    printf '%s\n' '# LumaGlass early boot trigger, installed as a PATH shim in front of grep'
+    printf '%s\n' '# Early boot trigger, installed as a PATH shim in front of grep'
     printf '%s\n' '# for kdump.service only. It starts the apply ~19s earlier than Homebrew'
     printf '%s\n' "# Channel's init.d run-parts can, then behaves exactly like grep."
     printf '%s\n' '#'
@@ -1453,21 +1469,26 @@ early_hook_live() {
 
 # ------------------------------------------------------------------ persist
 
+persist_enable() {
+  mkdir -p "$(dirname "$AUTOSTART_LINK")" 2>/dev/null
+  rm -f "$AUTOSTART_LINK" 2>/dev/null
+  ln -s "$AUTOSTART_SRC" "$AUTOSTART_LINK" 2>/dev/null || return 1
+  set_cfg_bool persist true
+  # The init.d symlink is the safety net; the early hook is what makes a
+  # boot fast. Its absence is not fatal - the late hook still applies.
+  if ! install_early_hook; then
+    log_line "persist: early hook could not be installed, late hook only"
+  fi
+  return 0
+}
+
 verb_persist() {
   action="${1:-}"
   case "$action" in
     on)
-      mkdir -p "$(dirname "$AUTOSTART_LINK")" 2>/dev/null
-      rm -f "$AUTOSTART_LINK" 2>/dev/null
-      if ! ln -s "$AUTOSTART_SRC" "$AUTOSTART_LINK" 2>/dev/null; then
+      if ! persist_enable; then
         emit_error "failed to create persist symlink"
         return 1
-      fi
-      set_cfg_bool persist true
-      # The init.d symlink is the safety net; the early hook is what makes a
-      # boot fast. Its absence is not fatal - the late hook still applies.
-      if ! install_early_hook; then
-        log_line "persist: early hook could not be installed, late hook only"
       fi
       ;;
     off)
@@ -1483,6 +1504,125 @@ verb_persist() {
   if [ -L "$AUTOSTART_LINK" ]; then real=true; else real=false; fi
   log_line "persist: set to $action (symlink=$real)"
   printf '{"ok":true,"persist":%s}\n' "$real"
+  return 0
+}
+
+# ------------------------------------------------------- previous-brand move
+#
+# The mod used to ship as LumaGlass: app org.nphil.lumaglass, data in
+# /var/lib/lumaglass, boot hook 50-lumaglass. These are the only places that
+# still name it. On the first verb of the new tool, migrate_legacy moves what
+# the old one left on the set and takes the old apps off, so a set that only
+# has the old layout can be applied, reverted or switched off by this tool.
+LEGACY_STATE=/var/lib/lumaglass
+LEGACY_APP=org.nphil.lumaglass
+LEGACY_FRAME_APP=org.nphil.lumaglass.frame
+LEGACY_AUTOSTART_LINK=/var/lib/webosbrew/init.d/50-lumaglass
+LEGACY_KEYFILTER=lumaglass.js
+LEGACY_CSS=lumaglass.css
+# Present in the new data dir from the move until every step below has run, so
+# a power cut or a failed step is picked up again by the next verb.
+MIGRATING="$STATE/.migrating"
+
+rewrite_legacy_paths() {
+  # $1 = file. Points every mention of the old data dir at the new one; the
+  # file is replaced in one rename so a reader never sees a half-written line.
+  [ -f "$1" ] || return 0
+  grep -qF "$LEGACY_STATE" "$1" 2>/dev/null || return 0
+  sed "s#$LEGACY_STATE#$STATE#g" "$1" > "$1.tmp.$$" && mv -f "$1.tmp.$$" "$1"
+}
+
+remove_legacy_app() {
+  # $1 = app id. Removed through appInstallService, the way it was installed,
+  # never by deleting its directory; done means the directory is gone.
+  dir="$(dirname "$APPDIR")/$1"
+  [ "$dir" != "$APPDIR" ] && [ -d "$dir" ] || return 0
+  luna-send -n 3 -f luna://com.webos.appInstallService/dev/remove "{\"id\":\"$1\",\"subscribe\":true}" >/dev/null 2>&1 &
+  lpid=$!
+  w=0
+  while [ -d "$dir" ] && [ "$w" -lt 30 ]; do sleep 1; w=$((w+1)); done
+  kill "$lpid" 2>/dev/null
+  if [ -d "$dir" ]; then
+    log_line "migrate: $1 is still installed after 30s"
+  else
+    log_line "migrate: removed app $1"
+  fi
+  return 0
+}
+
+migrate_legacy() {
+  # Returns 1 only when the data could not be moved; every later step is
+  # logged and skipped on failure, because the data is already in place and
+  # apply puts the rest right.
+  if [ -f "$MIGRATING" ]; then
+    from="$STATE"
+  elif [ "$LEGACY_STATE" != "$STATE" ] && [ -d "$LEGACY_STATE" ] && [ ! -L "$LEGACY_STATE" ] && [ ! -e "$STATE" ]; then
+    from="$LEGACY_STATE"
+  else
+    return 0
+  fi
+
+  # The overlay mounts over the settings apps name the old data dir as their
+  # upper layer. Unmounted before the move and mounted again after it.
+  [ -f "$from/.webglass-on" ] && webglass_set off
+
+  if [ "$from" = "$LEGACY_STATE" ]; then
+    # Wait out an apply or revert of the old tool, and keep new ones out, for
+    # as long as the move takes. Nothing is logged yet: log_line would create
+    # the new data dir and the move would then never happen.
+    exec 8>"$LEGACY_STATE/mutate.lock" 2>/dev/null
+    if ! flock -x -w "$LOCK_WAIT" 8 2>/dev/null; then
+      exec 8>&-
+      printf '%s migrate: old tool still running, not moved\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" >> "$LEGACY_STATE/log" 2>/dev/null
+      return 1
+    fi
+    : > "$LEGACY_STATE/.migrating"
+    if ! mv "$LEGACY_STATE" "$STATE" 2>/dev/null; then
+      rm -f "$LEGACY_STATE/.migrating"
+      exec 8>&-
+      printf '%s migrate: could not move to %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$STATE" >> "$LEGACY_STATE/log" 2>/dev/null
+      return 1
+    fi
+    exec 8>&-
+  fi
+  log_line "migrate: data now in $STATE"
+
+  # Everything derived from the old names is rebuilt by apply: the staged QML
+  # directory, the key-filter copy, the settings-app stylesheet copy and the
+  # patched Quick Settings tree (its marker comment changed with the name).
+  rm -rf "$LUMA_STAGE" "$LUMA_STAGE.next" "$SYSTEMUI_STAGE" 2>/dev/null
+  rm -f "$KEYFILTER_DIR/$LEGACY_KEYFILTER" "$VERIFIED" 2>/dev/null
+  for f in "$WEBGLASS_STAGE"/*/upper/webOSUserScripts/"$LEGACY_CSS"; do
+    [ -e "$f" ] && rm -f "$f"
+  done
+
+  # The compositor's env file and the early-boot env file hold the old data
+  # dir; the early-boot shim holds it and the old app dir in its body, so it
+  # is written again rather than patched.
+  rewrite_legacy_paths "$ENV_FILE"
+  rewrite_legacy_paths "$EARLY_ENV_FILE"
+  if [ -x "$EARLY_SHIM" ]; then
+    install_early_hook || log_line "migrate: early boot hook could not be rewritten"
+  fi
+
+  # The init.d link points into the old app, which goes below.
+  rm -f "$LEGACY_AUTOSTART_LINK" 2>/dev/null
+  if [ "$(cfg_get_bool persist)" = true ]; then
+    persist_enable || log_line "migrate: boot hook could not be re-created"
+  fi
+
+  # configd still holds the old data dir in the key filter's path and in the
+  # Quick Settings entry.
+  if [ -f "$ENV_FILE" ]; then
+    keyfilter_set add || log_line "migrate: could not register the key filter with configd"
+  fi
+  [ -f "$SYSTEMUI_ON" ] && { systemui_set on || log_line "migrate: could not point Quick Settings at the staged tree"; }
+  [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "migrate: could not mount the settings-app stylesheet"; }
+
+  remove_legacy_app "$LEGACY_FRAME_APP"
+  remove_legacy_app "$LEGACY_APP"
+  rm -f "$MIGRATING"
+  log_line "migrate: done"
   return 0
 }
 
@@ -1614,7 +1754,7 @@ verb_ntfy() {
         emit_error "ntfy is not configured"
         return 1
       fi
-      if ! curl -fsS -m 10 -H 'Title: LumaGlass' -H 'Tags: tv' -d 'LumaGlass test notification' "$CFG_NTFY_URL" >/dev/null 2>&1; then
+      if ! curl -fsS -m 10 -H "Title: $DISPLAY_NAME" -H 'Tags: tv' -d "$DISPLAY_NAME test notification" "$CFG_NTFY_URL" >/dev/null 2>&1; then
         log_line "ntfy: test delivery failed"
         emit_error "ntfy test failed to deliver"
         return 1
@@ -1660,7 +1800,17 @@ verb_version() {
 
 # ------------------------------------------------------------------- dispatch
 
-ensure_config
+case "$VERB" in
+  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass)
+    # Before ensure_config, which would create the new data dir and with it
+    # hide the old one.
+    if ! migrate_legacy; then
+      emit_error "could not move the previous data dir to $STATE; see $LEGACY_STATE/log"
+      exit 1
+    fi
+    ensure_config
+    ;;
+esac
 
 install_frame_app() {
   # The frame app ships as an ipk inside the payload and is installed through the
@@ -1671,8 +1821,8 @@ install_frame_app() {
   shipped=$(ar p "$FRAME_IPK" control.tar.gz 2>/dev/null | tar -xzO control 2>/dev/null | sed -n 's/^Version: //p')
   installed=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$FRAME_DIR/appinfo.json" 2>/dev/null)
   [ -n "$shipped" ] && [ "$shipped" = "$installed" ] && return 0
-  cp -f "$FRAME_IPK" /tmp/lumaglass-frame.ipk 2>/dev/null || return 0
-  out=$(luna-send -n 3 -f luna://com.webos.appInstallService/dev/install "{\"id\":\"$FRAME_APP\",\"ipkUrl\":\"/tmp/lumaglass-frame.ipk\",\"subscribe\":true}" 2>&1 | tr -d '\n')
+  cp -f "$FRAME_IPK" /tmp/$SHORT_ID-frame.ipk 2>/dev/null || return 0
+  out=$(luna-send -n 3 -f luna://com.webos.appInstallService/dev/install "{\"id\":\"$FRAME_APP\",\"ipkUrl\":\"/tmp/$SHORT_ID-frame.ipk\",\"subscribe\":true}" 2>&1 | tr -d '\n')
   i=0; while [ "$i" -lt 20 ]; do
     [ "$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$FRAME_DIR/appinfo.json" 2>/dev/null)" = "$shipped" ] && break
     sleep 1; i=$((i+1))
@@ -1682,7 +1832,7 @@ install_frame_app() {
   else
     log_line "frame app install did not complete: $(printf '%s' "$out" | cut -c1-200)"
   fi
-  rm -f /tmp/lumaglass-frame.ipk
+  rm -f /tmp/$SHORT_ID-frame.ipk
 }
 
 verb_theme() {

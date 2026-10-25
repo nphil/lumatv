@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the LumaGlass wallpaper set.
+"""Regenerate the Luma wallpaper set.
 
 Runs on a workstation, not on the TV (the TV has no Python imaging stack).
 
@@ -10,7 +10,7 @@ Outputs four files into --out:
   bg_2k.png       1920x880   pure black Home hero-banner tier
   bg_4k.png       3840x1760  pure black Home hero-banner tier
 
-The three bg_* tiers are deliberately black: LumaGlass blanks the Home app's
+The three bg_* tiers are deliberately black: Luma blanks the Home app's
 own hero banner so that the compositor-painted wallpaper shows through it.
 Only wall_1080.png carries image content.
 
@@ -109,7 +109,7 @@ def dither(arr, amp):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Regenerate the LumaGlass wallpaper set.")
+    ap = argparse.ArgumentParser(description="Regenerate the Luma wallpaper set.")
     ap.add_argument("--source", help="source image; omit to use the built-in procedural gradient")
     ap.add_argument("--out", default=".", help="output directory")
     ap.add_argument("--grain", type=float, default=1.5, help="dither amplitude in LSB (default 1.5)")

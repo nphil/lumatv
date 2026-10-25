@@ -1,12 +1,26 @@
 #!/bin/sh
 set -e
 
-# LumaGlass IPK builder
-# Builds org.nphil.lumaglass_<version>_all.ipk without webOS SDK dependency
+# IPK builder
+# Builds <appId>_<version>_all.ipk without webOS SDK dependency. Every name in
+# the package (app id, data dir, QML module dir, tool name, display strings)
+# comes from brand.json. Sources carry {{displayName}}, {{shortId}}, {{appId}},
+# {{dataDir}} and {{qmlModule}} placeholders that are filled in on the staged
+# copy, never in the checkout.
 
 # Determine repo root (this script is tools/build-ipk.sh)
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+. "$REPO_ROOT/tools/brand.sh"
+brand_load "$REPO_ROOT/brand.json" || exit 1
+APP_ID="$BRAND_APP_ID"
+SHORT_ID="$BRAND_SHORT_ID"
+QML_MODULE="$BRAND_QML_MODULE"
+
+# Names the sources are checked in under. Installed names follow brand.json;
+# these only say where to find the files, so a rename never touches them.
+SRC_NAME=lumatv
 
 # Parse options
 DRY_RUN=0
@@ -23,6 +37,7 @@ fi
 
 # Define required inputs
 REQUIRED_FILES="
+brand.json
 appinfo.json
 index.html
 app.js
@@ -30,7 +45,8 @@ style.css
 assets/icon.png
 assets/largeIcon.png
 assets/splash.png
-tools/lumaglass
+tools/$SRC_NAME
+tools/brand.sh
 tools/autostart.sh
 tools/keyfilter.py
 tools/theme.py
@@ -39,8 +55,9 @@ frame/index.html
 frame/frame.js
 frame/frame.css
 payload/compositor/StarfishFullscreenContainer.qml
-payload/compositor/lumaglass/LumaHome.qml
-payload/keyfilter/lumaglass.js
+payload/compositor/$SRC_NAME/LumaHome.qml
+payload/keyfilter/$SRC_NAME.js
+payload/webapps/$SRC_NAME.css
 payload/home/home.xml
 payload/home/en.json.sed
 payload/wallpaper/wall_1080.png
@@ -82,8 +99,30 @@ BUILD_DIR="./build"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# The frame app (org.nphil.lumaglass.frame, the web half of the Home mini apps) is its own
-# ipk, built first and shipped inside the main payload; tools/lumaglass installs it through
+# Fill the brand placeholders in every text file of a staged tree, then fail if
+# any placeholder is left, so a misspelt one cannot ship.
+render() {
+    find "$1" -type f \( -name '*.qml' -o -name '*.js' -o -name '*.css' -o -name '*.json' -o -name '*.html' -o -name '*.sed' -o -name '*.md' \) \
+        -exec sed -i \
+            -e "s#{{displayName}}#$BRAND_DISPLAY_NAME#g" \
+            -e "s#{{shortId}}#$SHORT_ID#g" \
+            -e "s#{{appId}}#$APP_ID#g" \
+            -e "s#{{dataDir}}#$BRAND_DATA_DIR#g" \
+            -e "s#{{qmlModule}}#$QML_MODULE#g" {} +
+    LEFT=$(grep -rIl '{{[A-Za-z]*}}' "$1" 2>/dev/null || true)
+    if [ -n "$LEFT" ]; then
+        echo "Error: unresolved placeholders in: $LEFT" >&2
+        exit 1
+    fi
+}
+
+# Rename a staged path to its brand name.
+place() {
+    [ "$1" = "$2" ] || mv "$1" "$2"
+}
+
+# The frame app ($APP_ID.frame, the web half of the Home mini apps) is its own
+# ipk, built first and shipped inside the main payload; the tool installs it through
 # appInstallService at apply, so there is still one thing for the user to install.
 build_ipk() {
     # $1 = package id, $2 = version, $3 = staged data dir, $4 = output path, $5 = description
@@ -97,17 +136,19 @@ build_ipk() {
     ar rc "$4" "$pkg_build/debian-binary" "$pkg_build/control.tar.gz" "$pkg_build/data.tar.gz"
 }
 FRAME_VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' frame/appinfo.json | grep -o '[0-9.]*')
-FRAME_DATA="$BUILD_DIR/frame-data/usr/palm/applications/org.nphil.lumaglass.frame"
+FRAME_DATA="$BUILD_DIR/frame-data/usr/palm/applications/$APP_ID.frame"
 mkdir -p "$FRAME_DATA"
 cp frame/appinfo.json frame/index.html frame/frame.js frame/frame.css frame/icon.png frame/largeIcon.png frame/Manrope-*.ttf "$FRAME_DATA/"
-mkdir -p payload/frame
-build_ipk org.nphil.lumaglass.frame "$FRAME_VERSION" "$BUILD_DIR/frame-data" "payload/frame/org.nphil.lumaglass.frame.ipk" "LumaGlass Frame: the web view behind the Home mini apps"
+render "$FRAME_DATA"
+mkdir -p "$BUILD_DIR/frame-ipk"
+build_ipk "$APP_ID.frame" "$FRAME_VERSION" "$BUILD_DIR/frame-data" "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$BRAND_DISPLAY_NAME Frame: the web view behind the Home mini apps"
 
-# Stage data root: usr/palm/applications/org.nphil.lumaglass/
-DATA_ROOT="$BUILD_DIR/data/usr/palm/applications/org.nphil.lumaglass"
+# Stage data root: usr/palm/applications/<appId>/
+DATA_ROOT="$BUILD_DIR/data/usr/palm/applications/$APP_ID"
 mkdir -p "$DATA_ROOT"
 
 # Copy application files (repo root)
+cp brand.json "$DATA_ROOT/"
 cp appinfo.json "$DATA_ROOT/"
 cp index.html "$DATA_ROOT/"
 cp app.js "$DATA_ROOT/"
@@ -118,8 +159,8 @@ cp assets/splash.png "$DATA_ROOT/"
 
 # Copy tools with execute bit
 mkdir -p "$DATA_ROOT/tools"
-cp tools/lumaglass "$DATA_ROOT/tools/"
-chmod 755 "$DATA_ROOT/tools/lumaglass"
+cp "tools/$SRC_NAME" "$DATA_ROOT/tools/$SHORT_ID"
+chmod 755 "$DATA_ROOT/tools/$SHORT_ID"
 cp tools/autostart.sh "$DATA_ROOT/tools/"
 chmod 755 "$DATA_ROOT/tools/autostart.sh"
 
@@ -127,9 +168,18 @@ chmod 755 "$DATA_ROOT/tools/autostart.sh"
 # theme, fonts) rather than single files.
 mkdir -p "$DATA_ROOT/payload"
 cp -R payload/. "$DATA_ROOT/payload/"
+cp tools/brand.sh "$DATA_ROOT/tools/"
 cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
+cp tools/palette.py tools/systemui.py tools/systemui_patch.py "$DATA_ROOT/tools/"
+mkdir -p "$DATA_ROOT/payload/frame"
+cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
+
+place "$DATA_ROOT/payload/compositor/$SRC_NAME" "$DATA_ROOT/payload/compositor/$QML_MODULE"
+place "$DATA_ROOT/payload/keyfilter/$SRC_NAME.js" "$DATA_ROOT/payload/keyfilter/$SHORT_ID.js"
+place "$DATA_ROOT/payload/webapps/$SRC_NAME.css" "$DATA_ROOT/payload/webapps/$SHORT_ID.css"
+render "$DATA_ROOT"
 
 # Create deterministic data.tar.gz
 # Use fixed mtime, owner/group 0, sorted filenames
@@ -145,7 +195,7 @@ cd - > /dev/null
 CONTROL_DIR="$BUILD_DIR/control"
 mkdir -p "$CONTROL_DIR"
 cat > "$CONTROL_DIR/control" << EOF
-Package: org.nphil.lumaglass
+Package: $APP_ID
 Version: $VERSION
 Architecture: all
 Maintainer: nphil
@@ -167,7 +217,7 @@ cd - > /dev/null
 echo "2.0" > "$BUILD_DIR/debian-binary"
 
 # Create ar archive in deterministic order: debian-binary, control.tar.gz, data.tar.gz
-IPK_NAME="org.nphil.lumaglass_${VERSION}_all.ipk"
+IPK_NAME="${APP_ID}_${VERSION}_all.ipk"
 IPK_PATH="$(cd "$REPO_ROOT" && pwd)/$IPK_NAME"
 rm -f "$IPK_NAME"
 ar rc "$IPK_NAME" \

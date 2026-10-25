@@ -7,8 +7,8 @@ import WebOS.Global 1.0
 import "LumaBus.js" as Bus
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
-// driven by /var/lib/lumaglass/theme/{theme.json,layout.json}. Keys arrive through
-// LumaBus.js from the configd-registered key filter (payload/keyfilter/lumaglass.js);
+// driven by {{dataDir}}/theme/{theme.json,layout.json}. Keys arrive through
+// LumaBus.js from the configd-registered key filter (payload/keyfilter/lumatv.js);
 // pointer input arrives as ordinary QtQuick mouse events because this item sits above the
 // Home surface.
 Item {
@@ -18,9 +18,9 @@ Item {
     // set by StarfishFullscreenContainer: Home is this container's app and visible
     property bool hostActive: false
 
-    readonly property string themeDirUrl: "file:///var/lib/lumaglass/theme/"
-    readonly property string fontsDirUrl: "file:///var/lib/lumaglass/fonts/"
-    readonly property string moduleDirUrl: "file:///var/lib/lumaglass/qml/WebOSCompositor/lumaglass/"
+    readonly property string themeDirUrl: "file://{{dataDir}}/theme/"
+    readonly property string fontsDirUrl: "file://{{dataDir}}/fonts/"
+    readonly property string moduleDirUrl: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/"
 
     property var theme: defaultTheme()
     property var layout: defaultLayout()
@@ -50,7 +50,7 @@ Item {
     // ============================================================= defaults
     function defaultTheme() {
         return {
-            version: 1, name: "LumaGlass default", wallpaper: "wall_1080.png",
+            version: 1, name: "{{displayName}} default", wallpaper: "wall_1080.png",
             material: "auto", materialThreshold: 0.55,
             dark: { ink: "#F2EFF6", ink2: "#A8F2EFF6", ink3: "#6BF2EFF6", glass: "#66120E1A", glassEdge: "#21FFFFFF",
                     glassFocus: "#8F2C263A", glassFocusEdge: "#33FFFFFF", scrim: [0.10, 0.18, 0.46] },
@@ -742,11 +742,11 @@ Item {
     // ============================================================= mini apps
     // A card's content asks for a mini app with a spec {kind, title, subtitle, url, ...}.
     // The frame grows out of the card; once it has landed, "web" specs launch the overlay
-    // app org.nphil.lumaglass.frame with the interior rect, "qml" specs instantiate a
+    // app {{appId}}.frame with the interior rect, "qml" specs instantiate a
     // component in the frame. Closing: Back in the overlay makes the compositor close the
     // app; the running-apps subscription sees it go and the frame shrinks back into the
     // card. Back while still loading closes directly (and the app, if it started).
-    readonly property string frameAppId: "org.nphil.lumaglass.frame"
+    readonly property string frameAppId: "{{appId}}.frame"
     property var miniSpec: null
     property bool frameAppRunning: false
     property bool frameAppWanted: false

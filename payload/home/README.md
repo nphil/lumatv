@@ -7,9 +7,9 @@ read-only asset directory:
 /usr/palm/applications/com.webos.app.home/data/flutter_assets/assets/home.xml
 ```
 
-The bind covers the whole `assets` directory, so LumaGlass ships a complete
+The bind covers the whole `assets` directory, so Luma ships a complete
 copy of the stock tree with this file (plus the banner images and `i18n/en.json`)
-overlaid on top. See `tools/lumaglass` for how that copy is built.
+overlaid on top. See `tools/lumatv` for how that copy is built.
 
 ## What the layout language can and cannot do
 
@@ -34,7 +34,7 @@ usable element ids is closed. Verified against the binary:
 
 Stock (`webOS 10.2.1`, `HE_DTV_W24G_AFABATAA`) in file order, then ours:
 
-| Row | Stock | LumaGlass | Why |
+| Row | Stock | Luma | Why |
 |---|---|---|---|
 | `margin` (top) | 3840x45 | 3840x120 | Pushes the rail and hero down clear of the screen edge |
 | `container` | 3840x900 | 3840x1520 | Grown so the hero region fills the space the shelves used to occupy |

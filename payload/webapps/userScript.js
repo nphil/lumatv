@@ -11,15 +11,15 @@
 
     // The base sheet, then the palette generated from theme.json - so a
     // wallpaper or theme change re-tints the menus without touching this file.
-    var HREFS = ["webOSUserScripts/lumaglass.css", "webOSUserScripts/theme.css"];
+    var HREFS = ["webOSUserScripts/{{shortId}}.css", "webOSUserScripts/theme.css"];
 
     function install() {
-        if (document.head.querySelector('link[data-lumaglass]')) return;
+        if (document.head.querySelector('link[data-{{shortId}}]')) return;
         HREFS.forEach(function (href) {
             var link = document.createElement("link");
             link.rel = "stylesheet";
             link.href = href;
-            link.setAttribute("data-lumaglass", "1");
+            link.setAttribute("data-{{shortId}}", "1");
             document.head.appendChild(link);
         });
     }

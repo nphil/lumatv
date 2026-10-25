@@ -8,7 +8,7 @@ plain file:// URL and the manager subscribes to it, so redirecting one is a
 supported, reversible, reboot-surviving change that writes nothing to /usr.
 
 usage: systemui.py on <appId> <qml path> | off <appId> | status
-Runs on the set (python 3.10). Called by tools/lumaglass; see systemui_set.
+Runs on the set (python 3.10). Called by tools/lumatv; see systemui_set.
 """
 import json
 import subprocess

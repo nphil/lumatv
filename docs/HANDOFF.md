@@ -12,12 +12,17 @@ Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
 
 - State: research done, compositor replacement decided (PLAN.md track C).
-  Nothing is built. The set runs the old tool; `tools/lumaglass` at cb57f53
-  (env.extra allowlist, disk cache) is not deployed.
+  Phase 1 step 1 is done in the tree: the rename to LumaTV, every name from
+  `brand.json` (result: `docs/research/rename-result.md`). Nothing is
+  deployed. The set still runs the LumaGlass layout (app
+  `org.nphil.lumaglass`, data `/var/lib/lumaglass`); the first verb of the new
+  tool, `tools/lumatv`, moves it over (see the result note). The tool carries
+  the env.extra allowlist and disk cache from cb57f53.
 - Waiting on the owner for two words. "TV is free": run the remote tests
-  below. "go": start phase 1 in this order: rename from `brand.json`, T9
-  plus disk-cache env lines, shared 100 ms clock, Home stub, heap shim,
-  Rust helper.
+  below. "go": continue phase 1 after the rename: T9 plus disk-cache env
+  lines, shared 100 ms clock, Home stub, heap shim, Rust helper. The new ipk
+  still has to be built, installed and run once on the set to prove the
+  migration.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
@@ -35,7 +40,7 @@ Phases, Decided); this file holds the proven mechanics.
   remotes, receiver volume drift.
 - Set rules: confirm it is idle first (`getPowerState`,
   `getForegroundAppInfo`); Picture Mode stays `filmMaker`; never restart
-  SAM; write only under `/var/lib/lumaglass`, `/tmp`, configd, bind mounts
+  SAM; write only under `/var/lib/lumatv`, `/tmp`, configd, bind mounts
   and `/var/systemd/system/env`; revert every experiment; leave it in
   Active Standby unless the owner is about to watch; no DRM bypass.
 - Working style: one step at a time, commit and push after each

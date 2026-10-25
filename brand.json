@@ -1,0 +1,8 @@
+{
+  "displayName": "LumaTV",
+  "shortId": "lumatv",
+  "appId": "org.nphil.lumatv",
+  "dataDir": "/var/lib/lumatv",
+  "qmlModule": "lumatv",
+  "repo": "nphil/lumatv"
+}

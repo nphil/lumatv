@@ -26,7 +26,7 @@ const zlib = require('zlib');
 const { execFileSync } = require('child_process');
 
 const BLACK_LIFT = 6;
-const PLACEHOLDER = '#26233a';   // set on homebrew apps by earlier LumaGlass releases
+const PLACEHOLDER = '#26233a';   // set on homebrew apps by earlier Luma releases
 
 // ---------------------------------------------------------------- png
 function readPng(file) {

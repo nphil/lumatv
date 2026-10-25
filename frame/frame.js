@@ -1,4 +1,4 @@
-/* LumaGlass Frame: the web half of a mini app. LumaHome draws the glass frame and launches
+/* Luma Frame: the web half of a mini app. LumaHome draws the glass frame and launches
    this overlay-type app with {url, title, source, rect:{x,y,w,h}, light}. The interior at
    rect shows the page in an iframe when the site allows framing, otherwise a reader view
    built from the fetched HTML. Up/Down scroll, Back closes (the compositor closes overlay

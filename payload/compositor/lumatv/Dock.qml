@@ -101,7 +101,7 @@ Item {
         }
         Component.onCompleted: call("luna://com.webos.service.homelaunchpoints", "/listLaunchPoints", JSON.stringify({ subscribe: true }))
     }
-    property string themeDirUrl: "file:///var/lib/lumaglass/theme/"
+    property string themeDirUrl: "file://{{dataDir}}/theme/"
     function themeIcon(p) {
         if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(p)) return p
         if (p.charAt(0) === "/") return "file://" + p

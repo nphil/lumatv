@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=1920, height=1080, user-scalable=no">
-<title>LumaGlass</title>
+<title>{{displayName}}</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
 
   <header id="header">
     <div id="header-title">
-      <span id="header-mark">LumaGlass</span>
+      <span id="header-mark">{{displayName}}</span>
       <span id="header-tagline">Liquid glass home screen</span>
     </div>
     <div id="status-card" class="glass">
@@ -42,7 +42,7 @@
 
     <section class="row glass focusable" id="row-apply" tabindex="0" data-role="apply">
       <div class="row-main">
-        <span class="row-title">Apply LumaGlass</span>
+        <span class="row-title">Apply {{displayName}}</span>
         <span class="row-sub">Mount the glass compositor and reskinned home screen</span>
       </div>
       <span class="row-chevron">&#8250;</span>
@@ -59,7 +59,7 @@
     <section class="row glass focusable" id="row-persist" tabindex="0" data-role="persist">
       <div class="row-main">
         <span class="row-title">Run at boot</span>
-        <span class="row-sub">Re-apply LumaGlass automatically after every restart</span>
+        <span class="row-sub">Re-apply {{displayName}} automatically after every restart</span>
       </div>
       <span class="row-toggle" id="toggle-persist" data-on="false">
         <span class="row-toggle-knob"></span>
@@ -69,7 +69,7 @@
     <section class="row glass focusable" id="row-standby" tabindex="0" data-role="standby">
       <div class="row-main">
         <span class="row-title">Instant on</span>
-        <span class="row-sub" id="standby-sub">Stay in RAM while off: power-on is instant with LumaGlass already up. Uses more standby power and disables Control4 (SDDP) discovery. Off: full power-down, every power-on is a ~35s boot.</span>
+        <span class="row-sub" id="standby-sub">Stay in RAM while off: power-on is instant with {{displayName}} already up. Uses more standby power and disables Control4 (SDDP) discovery. Off: full power-down, every power-on is a ~35s boot.</span>
       </div>
       <span class="row-toggle" id="toggle-standby" data-on="false">
         <span class="row-toggle-knob"></span>
@@ -113,7 +113,7 @@
     <section class="row glass focusable" id="row-log" tabindex="0" data-role="log">
       <div class="row-main">
         <span class="row-title">View log</span>
-        <span class="row-sub">Last 40 lines from the LumaGlass activity log</span>
+        <span class="row-sub">Last 40 lines from the {{displayName}} activity log</span>
       </div>
       <span class="row-chevron">&#8250;</span>
     </section>
@@ -129,7 +129,7 @@
   <div class="overlay" id="overlay-confirm-revert" hidden>
     <div class="overlay-panel glass danger-panel">
       <h2>Revert to stock?</h2>
-      <p>This unmounts LumaGlass and restores the original webOS home screen. Boot-time re-apply will also be turned off.</p>
+      <p>This unmounts {{displayName}} and restores the original webOS home screen. Boot-time re-apply will also be turned off.</p>
       <div class="overlay-actions">
         <button class="overlay-btn focusable" id="confirm-revert-yes" tabindex="0" data-role="confirm-revert-yes">Yes, revert</button>
         <button class="overlay-btn focusable" id="confirm-revert-no" tabindex="0" data-role="confirm-revert-no">Cancel</button>
@@ -141,7 +141,7 @@
   <div class="overlay overlay-busy" id="overlay-apply-busy" hidden>
     <div class="overlay-panel glass busy-panel">
       <div class="spinner"></div>
-      <h2>Applying LumaGlass</h2>
+      <h2>Applying {{displayName}}</h2>
       <p>The screen will flash and Home will restart. This normally takes 20&#8211;40 seconds &#8211; please wait.</p>
     </div>
   </div>
@@ -158,7 +158,7 @@
   <div class="overlay" id="overlay-ntfy" hidden>
     <div class="overlay-panel glass">
       <h2>ntfy topic URL</h2>
-      <p>Enter the full ntfy topic URL to receive LumaGlass alerts.</p>
+      <p>Enter the full ntfy topic URL to receive {{displayName}} alerts.</p>
       <input type="text" id="ntfy-input" class="text-input focusable" tabindex="0" data-role="ntfy-input"
              placeholder="https://ntfy.sh/your-topic" autocomplete="off" autocapitalize="off" spellcheck="false">
       <div class="overlay-actions">

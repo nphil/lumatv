@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patches a staged copy of LG's Quick Settings into the LumaGlass look and
+"""Patches a staged copy of LG's Quick Settings into the Luma look and
 opening behaviour.
 
 Two kinds of change:
@@ -13,7 +13,7 @@ Two kinds of change:
     fully open 170ms after the launch.
 
   * Look. LG's flat slab and grey cards become the same dark glass as the rest
-    of LumaGlass: one static gradient, a hairline along the lit edge, rounded
+    of Luma: one static gradient, a hairline along the lit edge, rounded
     where the panel faces the screen. Nothing here samples what is behind it,
     so the cost is the same handful of quads whatever is playing underneath.
 
@@ -23,13 +23,13 @@ update that rewrites these files must fail loudly here rather than silently
 ship a broken menu.
 
 usage: systemui_patch.py <staged QuickSettings dir>
-Runs on the set (python 3.10). Called by tools/lumaglass; see systemui_stage.
+Runs on the set (python 3.10). Called by tools/lumatv; see systemui_stage.
 """
 import json
 import sys
 import pathlib
 
-MARKER = "LumaGlass"
+MARKER = "Luma"
 
 # The panel's palette. Left side is LG's literal, right side ours; applied to
 # Utils/Style.qml only, where every one of these is a UI colour.
@@ -70,7 +70,7 @@ PALETTE = [
 ]
 
 # Corner radii. LG rounds cards at 24 and buttons at 5-6 on a 1080 grid; the
-# LumaGlass card radius is 26 and its tiles 22, which is what makes the two
+# Luma card radius is 26 and its tiles 22, which is what makes the two
 # read as one set.
 RADII = [
     ("RADIUS: getRelativeValue(24)", "RADIUS: getRelativeValue(26)"),
@@ -108,7 +108,7 @@ SLAB_TO = '''            width: parent.width
                 top: parent.top
             }
 
-            // LumaGlass: a sheet of dark glass rather than a flat grey fill.
+            // Luma: a sheet of dark glass rather than a flat grey fill.
             // The gradient and the hairline are static, so this is one quad
             // however busy the picture behind it is; a shader that sampled the
             // screen would cost a full-screen read every frame it animates.
@@ -133,7 +133,7 @@ SLAB_TO = '''            width: parent.width
 INSET_FROM = '''        source: getSource()
         anchors.leftMargin: xPosition'''
 INSET_TO = '''        source: getSource()
-        // LumaGlass: the sheet floats clear of the screen edges. xPosition is
+        // Luma: the sheet floats clear of the screen edges. xPosition is
         // the open transition's slide, so the inset is added to it.
         anchors.leftMargin: xPosition + styler.getRelativeValue(%(inset)d)
         anchors.topMargin: styler.getRelativeValue(%(inset)d)'''
@@ -152,7 +152,7 @@ INSET_TO = '''        source: getSource()
 # so the next press is accepted as a relaunch of the same instance.
 READY_FLAG_FROM = "    property alias uiController: uiController"
 READY_FLAG_TO = '''    property alias uiController: uiController
-    // LumaGlass: true once the one-time data pass has run. A preloaded
+    // Luma: true once the one-time data pass has run. A preloaded
     // instance reaches "ready" without it, and is not worth keeping.
     property bool lumaDataReady: false
     // True for an open that reuses the built panel, which has nothing left to
@@ -178,7 +178,7 @@ EXIT_FROM = '''    function exitApp() {
         root.exit();
     }'''
 EXIT_TO = '''    function exitApp() {
-        // LumaGlass: a close the panel made itself (back, the settings key
+        // Luma: a close the panel made itself (back, the settings key
         // again, a tile that hands off) stands down and stays built, with its
         // subscriptions live. The container is in foreground then, or in
         // launching when the close is the settings key's second press. A close
@@ -210,7 +210,7 @@ LAUNCH_FROM = '''                if(container.systemProperties.isPreload) {
 LAUNCH_TO = '''                if(container.systemProperties.isPreload) {
                     container.launchAppAfterPreload = true;
                 } else if(container.lumaDataReady && container.uiController.mainView) {
-                    // LumaGlass: resident. Built, populated and subscribed, so
+                    // Luma: resident. Built, populated and subscribed, so
                     // this is focus back on the first tile and the open
                     // transition, nothing more.
                     var view = container.uiController.mainView;
@@ -231,7 +231,7 @@ PAUSE_FROM = '''                PauseAnimation {
                     duration: 180
                 }'''
 PAUSE_TO = '''                PauseAnimation {
-                    // LumaGlass: only a cold open has a build to hide.
+                    // Luma: only a cold open has a build to hide.
                     duration: rootWindow.lumaWarmOpen ? 0 : 180
                 }'''
 
@@ -255,7 +255,7 @@ WIDGET_PALETTE = [
     ('"#4C5059"', '"#F2EFF6"'),     # label on a lifted glass surface stays light
 ]
 
-# The lift. LumaGlass raises a focused tile rather than ringing it, so the
+# The lift. Luma raises a focused tile rather than ringing it, so the
 # panel's tiles do the same: a small scale, eased like the Home tiles
 # (theme.json motion.focusMs 150, OutCubic). Scale does not affect layout, so
 # the grid does not reflow, and it is a transform - no repaint of the tile.
@@ -263,7 +263,7 @@ TILE_LIFT_FROM = '''    objectName: "childDelegate"
 '''
 TILE_LIFT_TO = '''    objectName: "childDelegate"
 
-    // LumaGlass: focus lifts the tile instead of ringing it.
+    // Luma: focus lifts the tile instead of ringing it.
     scale: root.hasFocus ? 1.04 : 1.0
     Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 '''
@@ -274,7 +274,7 @@ TILE_EDGE_FROM = '''        color: root.objDeactive ? (root.hasFocus ? "#ADAFB3"
         radius: styler.controlPanelButton.BACKGROUND_RADIUS'''
 TILE_EDGE_TO = '''        color: root.objDeactive ? (root.hasFocus ? "#ADAFB3" :"#575E66") : (root.hasFocus ? "#LUMAFOCUS" :"#575E66")
         radius: styler.controlPanelButton.BACKGROUND_RADIUS
-        // LumaGlass: focus lifts the tile - brighter glass and a lit edge -
+        // Luma: focus lifts the tile - brighter glass and a lit edge -
         // instead of inverting it to a light fill.
         border.width: 1
         border.color: root.hasFocus ? "#LUMAFOCUSEDGE" : "#1FFFFFFF"'''
@@ -287,7 +287,7 @@ TILE_EDGE_TO = '''        color: root.objDeactive ? (root.hasFocus ? "#ADAFB3" :
 ICON_BUTTON_FROM = '''        color: "#E6E6E6"
         radius: buttonType === c_type ? parent.width/2 : styler.getRelativeValue(5)
         visible: hasFocus ? true : false'''
-ICON_BUTTON_TO = '''        // LumaGlass: a glass pill at rest, lifted on focus.
+ICON_BUTTON_TO = '''        // Luma: a glass pill at rest, lifted on focus.
         color: root.hasFocus ? "#LUMAFOCUS" : "#4D241E33"
         radius: buttonType === c_type ? parent.width/2 : styler.getRelativeValue(16)
         visible: true
