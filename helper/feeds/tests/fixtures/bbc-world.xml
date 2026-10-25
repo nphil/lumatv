@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+    <channel>
+        <title><![CDATA[BBC News]]></title>
+        <description><![CDATA[BBC News - World]]></description>
+        <link>https://www.bbc.co.uk/news/world</link>
+        <image>
+            <url>https://news.bbcimg.co.uk/nol/shared/img/bbc_news_120x60.gif</url>
+            <title>BBC News</title>
+            <link>https://www.bbc.co.uk/news/world</link>
+        </image>
+        <generator>RSS for Node</generator>
+        <lastBuildDate>Sun, 25 Oct 2026 04:25:06 GMT</lastBuildDate>
+        <atom:link href="https://feeds.bbci.co.uk/news/world/rss.xml" rel="self" type="application/rss+xml"/>
+        <copyright><![CDATA[Copyright: (C) British Broadcasting Corporation, see https://www.bbc.co.uk/usingthebbc/terms-of-use/#15metadataandrssfeeds for terms and conditions of reuse.]]></copyright>
+        <language><![CDATA[en-gb]]></language>
+        <ttl>15</ttl>
+        <item>
+            <title><![CDATA[Almost 1,000 arrested as clashes follow another day of mass protests across France]]></title>
+            <description><![CDATA[Hundreds of thousands took part in demonstrations in France, with protests also taking place in other European countries.]]></description>
+            <link>https://www.bbc.co.uk/news/articles/c95ynd587ynzo?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/c95ynd587ynzo#0</guid>
+            <pubDate>Sun, 25 Oct 2026 04:16:52 GMT</pubDate>
+            <media:thumbnail width="240" height="134" url="https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/3d00/live/edf93830-cffb-11f1-b444-6fb1f13f8d87.jpg"/>
+        </item>
+    <item>
+            <title><![CDATA[Ukraine says Starlink connection 'now stable' after network limits]]></title>
+            <description><![CDATA[The slowed Starlink connections had affected the Ukraine's military and drone operations for a week.]]></description>
+            <link>https://www.bbc.co.uk/news/articles/cwkg5md14j8go?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/cwkg5md14j8go#0</guid>
+            <pubDate>Sat, 24 Oct 2026 12:12:40 GMT</pubDate>
+            <media:thumbnail width="240" height="134" url="https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/6049/live/9c0d0c10-cf9a-11f1-b441-2b33b063138f.jpg"/>
+        </item>
+    <item>
+            <title><![CDATA[Palestinian families displaced as Israeli forces demolish Hebron homes]]></title>
+            <description><![CDATA[The crackdown follows the killing of two Israeli soldiers by two Palestinian gunmen on Friday - and comes just days ahead of Israel's election.]]></description>
+            <link>https://www.bbc.co.uk/news/articles/cqd09k1k7532o?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/cqd09k1k7532o#0</guid>
+            <pubDate>Sat, 24 Oct 2026 23:02:06 GMT</pubDate>
+            <media:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/3b86/live/6920a5d0-cfba-11f1-9012-0172b9f73a72.jpg"/>
+        </item>
+    <item>
+            <title><![CDATA[Man arrested after fire at Hitler's mountaintop Eagle's Nest retreat]]></title>
+            <description><![CDATA[Some 200 emergency personnel were deployed to fight the blaze at the Nazi dictator's Alpine residence in Germany. ]]></description>
+            <link>https://www.bbc.co.uk/news/articles/cr93zwjw1k4qo?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/cr93zwjw1k4qo#0</guid>
+            <pubDate>Sat, 24 Oct 2026 15:21:44 GMT</pubDate>
+            <media:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/723c/live/ca5c07b0-cfc2-11f1-b441-2b33b063138f.jpg"/>
+        </item>
+    <item>
+            <title><![CDATA[Father who killed Oregon school gunman describes anguish over children he couldn't save]]></title>
+            <description><![CDATA[Kaylub Giamanco has been hailed as a hero for killing a teenager who fatally shot three children and a teacher. ]]></description>
+            <link>https://www.bbc.co.uk/news/articles/crgj9ndwvj9jo?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/crgj9ndwvj9jo#0</guid>
+            <pubDate>Fri, 23 Oct 2026 22:47:07 GMT</pubDate>
+            <media:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/2348/live/e4a29f10-cf42-11f1-93e1-3b657b665bcf.jpg"/>
+        </item>
+    <item>
+            <title><![CDATA[British woman dies after trying to rescue sons swept away at sea in the Bahamas]]></title>
+            <description><![CDATA[Nathan Gregory says the loss of childhood sweetheart Leanne "is unimaginable for our family".]]></description>
+            <link>https://www.bbc.co.uk/news/articles/cm86z5n0yvy6o?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/cm86z5n0yvy6o#0</guid>
+            <pubDate>Sat, 24 Oct 2026 17:11:56 GMT</pubDate>
+            <media:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/8b9f/live/09596b60-cfc8-11f1-b441-2b33b063138f.jpg"/>
+        </item>
+    </channel>
+</rss>

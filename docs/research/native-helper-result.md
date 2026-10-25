@@ -4,19 +4,18 @@
 
 ## Resume here
 
-State at 2026-10-25 00:35 EDT (updated at each milestone; newest facts first).
+State at 2026-10-25 01:10 EDT (updated at each milestone; newest facts first).
 
-- Done: workspace skeleton in `helper/` (crates `app` = `lumatv-helper`, `feeds`, `denon`), pinned toolchain,
-  aarch64 musl cross build proven with the skeleton (ELF64 AArch64, no INTERP, 331 KB).
-- Next: (1) `feeds` crate (weather, news, cache), (2) `denon` crate, (3) `app` crate: config, log, lock,
-  hub (state + events), HTTP server, API, settings store, screen source, runners, (4) `helper/build.sh`,
-  `helper/smoke-tv.sh`, (5) tests, size, result note.
-- Host build needs a C linker for crates' build scripts and this container has no `cc`; a shim that
-  runs `cargo-zigbuild zig cc -- "$@"` as `cc` on `PATH` is enough (build.sh creates it).
-  `PATH=/tmp/zigcc:$PATH cargo check --workspace` works with the shim in `/tmp/zigcc/cc`.
-- TV: not touched (busy with another agent). Fixtures came from the public feeds and one read-only GET to the
-  receiver (`/goform/formMainZone_MainZoneXmlStatusLite.xml`, port 8080).
-- Git: shared working tree with other agents. Stage only `helper/` and this file; `git push -q forge main`.
+- Done and tested on the host: `helper/denon` (status XML parser, plain-HTTP client, tests against a fake receiver, one
+  live read of the real receiver) and `helper/feeds` (weather, news, saved-first cache; 69 tests pass). Both are committed.
+- Written, not yet compiled together: `helper/app` modules `timeutil`, `log`, `config`, `control`, `hub`, `http`,
+  `settings` (+ `schemas/*.json`), `sys`, `ctx`, `screen`, `receiver`. Still to write: `homefeeds` (the runner that uses
+  `lumatv-feeds`), `api`, `service`, `lib.rs` wiring, `main.rs` CLI (`run|start|stop|status|version|check-config`).
+- Then: IPC tests (`helper/app/tests/`), `helper/build.sh`, `helper/smoke-tv.sh`, size, this note's API reference.
+- Host commands: `cd helper && PATH=/tmp/zigcc:$PATH cargo test --workspace` (the shim `/tmp/zigcc/cc` is
+  `exec /data/home/.local/bin/cargo-zigbuild zig cc -- "$@"`; this container has no `cc`; `build.sh` will create it).
+- TV: not touched. The receiver was read twice from the host (GET only).
+- Git: shared working tree. Stage only `helper/` and this file; `git push -q forge main`; never `git pull`.
 
 ## Facts that shaped the design
 

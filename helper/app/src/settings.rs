@@ -1,0 +1,751 @@
+//! The settings data layer, on LumaShow's `settings-schema`.
+//!
+//! An *owner* (a base component now, a plugin in phase 9) describes its settings page as data: sections of fields with
+//! kinds, defaults, bounds and predicates. This store keeps every owner's schema and stored values, checks every change against
+//! the schema (`SettingsSchema::validate_changes`: type, range, step, listed choices, no duplicates, nothing a predicate
+//! disables) plus the owner's own rule, writes the values atomically, and says that something changed (a hub event and the
+//! listeners components register, so the receiver client reconnects and the weather card refetches at once).
+//!
+//! The same JSON document that describes a page here is the one the TV's Settings will draw and the one LumaShow's plugins
+//! publish, so a plugin owner needs nothing but `register`.
+//!
+//! Nothing is clamped or repaired: a stored value that its field no longer accepts is reported (`invalid`), left in the file
+//! as the person wrote it, and replaced in `effective` by the schema default.
+//!
+//! Values live in `<dir>/<owner>.json`: `{"owner","schemaRevision","version","values":{key: {"type","value"}}}`. `version`
+//! counts accepted transactions, so a client can say "apply this only to the version I read".
+
+use crate::control::Stop;
+use crate::hub::Hub;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value as Json, json};
+use settings_schema::{
+    CapabilityKey, FieldError, FieldErrors, FieldKey, SettingChange, SettingsSchema, Value, Values,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+/// The owner's own check, run after the schema's, against the values the change would leave (stored over defaults).
+pub type Rule = fn(&Values) -> Result<(), FieldErrors>;
+
+/// Why a change was not applied.
+#[derive(Debug)]
+pub enum ApplyError {
+    UnknownOwner,
+    /// The client asked to apply to a version that is no longer current.
+    Conflict { current: u64 },
+    /// The schema or the owner's rule refused one or more fields.
+    Invalid(FieldErrors),
+    /// The values could not be written; nothing changed.
+    Io(String),
+}
+
+impl fmt::Display for ApplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownOwner => f.write_str("no such settings owner"),
+            Self::Conflict { current } => write!(f, "the settings are at version {current} now"),
+            Self::Invalid(errors) => write!(f, "{errors}"),
+            Self::Io(why) => write!(f, "the settings could not be saved ({why})"),
+        }
+    }
+}
+
+/// Why a schema could not be registered.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RegisterError(pub String);
+
+impl fmt::Display for RegisterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RegisterError {}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredFile {
+    owner: String,
+    schema_revision: u32,
+    version: u64,
+    values: Values,
+}
+
+struct Owner {
+    schema: SettingsSchema,
+    rule: Option<Rule>,
+    /// What is in the file: valid or not, known keys or not.
+    stored: Values,
+    version: u64,
+}
+
+impl Owner {
+    /// Stored values that their fields accept, over the schema's defaults.
+    fn effective(&self) -> Values {
+        effective_of(&self.schema, &self.stored)
+    }
+}
+
+fn effective_of(schema: &SettingsSchema, stored: &Values) -> Values {
+    let audit = schema.audit_stored(stored);
+    let mut values = schema.defaults();
+    for (key, value) in stored.iter() {
+        let usable = schema.field(key).is_some() && audit.invalid.get(key).is_none();
+        if usable {
+            values.insert(key.clone(), value.clone());
+        }
+    }
+    values
+}
+
+type Listener = Arc<dyn Fn() + Send + Sync>;
+
+/// What the settings store holds, by owner.
+pub struct SettingsStore {
+    dir: PathBuf,
+    hub: Arc<Hub>,
+    owners: Mutex<BTreeMap<String, Owner>>,
+    listeners: Mutex<Vec<(String, Listener)>>,
+}
+
+/// One owner in the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Summary {
+    pub owner: String,
+    pub title: String,
+    pub schema_revision: u32,
+    pub version: u64,
+}
+
+/// A successful transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Applied {
+    pub version: u64,
+    /// Whether anything was written: a transaction of no changes, or of values already held, is accepted and changes nothing.
+    pub changed: bool,
+}
+
+impl SettingsStore {
+    /// A store that keeps its files in `dir` and reports changes to `hub`. Nothing is read until an owner registers.
+    pub fn new(dir: impl Into<PathBuf>, hub: Arc<Hub>) -> Self {
+        Self {
+            dir: dir.into(),
+            hub,
+            owners: Mutex::new(BTreeMap::new()),
+            listeners: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn file_of(&self, owner: &str) -> PathBuf {
+        self.dir.join(format!("{owner}.json"))
+    }
+
+    /// Registers an owner's page and loads its stored values. A second registration of the same owner replaces the schema
+    /// when its revision is not lower (a changed page), keeping the stored values.
+    pub fn register(&self, schema: SettingsSchema, rule: Option<Rule>) -> Result<(), RegisterError> {
+        schema.validate().map_err(|e| RegisterError(format!("{}: {e}", schema.owner)))?;
+        let name = schema.owner.as_str().to_owned();
+        let mut owners = self.owners.lock();
+        if let Some(existing) = owners.get(&name)
+            && existing.schema.revision > schema.revision
+        {
+            return Err(RegisterError(format!(
+                "{name}: revision {} is older than the registered {}",
+                schema.revision, existing.schema.revision
+            )));
+        }
+        let (stored, version) = match owners.remove(&name) {
+            Some(existing) => (existing.stored, existing.version),
+            None => self.load(&name),
+        };
+        let audit = schema.audit_stored(&stored);
+        for (key, error) in audit.invalid.iter() {
+            crate::log_warn!("settings: {name}: stored {key} is not accepted ({error}); the default is used");
+        }
+        owners.insert(
+            name,
+            Owner {
+                schema,
+                rule,
+                stored,
+                version,
+            },
+        );
+        Ok(())
+    }
+
+    /// Registers the helper's own pages: `base.weather`, `base.news` and `base.receiver`.
+    pub fn register_builtin(&self) -> Result<(), RegisterError> {
+        for (json, rule) in [
+            (include_str!("schemas/base.weather.json"), Some(weather_rule as Rule)),
+            (include_str!("schemas/base.news.json"), None),
+            (include_str!("schemas/base.receiver.json"), Some(receiver_rule as Rule)),
+        ] {
+            let schema = SettingsSchema::parse(json.as_bytes()).map_err(|e| RegisterError(format!("built-in schema: {e}")))?;
+            self.register(schema, rule)?;
+        }
+        Ok(())
+    }
+
+    fn load(&self, owner: &str) -> (Values, u64) {
+        let path = self.file_of(owner);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return (Values::new(), 0);
+        };
+        match serde_json::from_str::<StoredFile>(&text) {
+            Ok(file) if file.owner == owner => (file.values, file.version),
+            Ok(_) => {
+                crate::log_warn!("settings: {} belongs to another owner; ignored", path.display());
+                (Values::new(), 0)
+            }
+            Err(e) => {
+                crate::log_warn!("settings: {} is not readable ({e}); the defaults are used", path.display());
+                (Values::new(), 0)
+            }
+        }
+    }
+
+    /// The registered owners.
+    pub fn owners(&self) -> Vec<Summary> {
+        self.owners
+            .lock()
+            .values()
+            .map(|o| Summary {
+                owner: o.schema.owner.as_str().to_owned(),
+                title: o.schema.title.clone(),
+                schema_revision: o.schema.revision,
+                version: o.version,
+            })
+            .collect()
+    }
+
+    /// One owner as the API shows it: the schema, the stored values, the effective values and anything stored that no longer fits.
+    pub fn describe(&self, owner: &str) -> Option<Json> {
+        let owners = self.owners.lock();
+        let o = owners.get(owner)?;
+        let audit = o.schema.audit_stored(&o.stored);
+        let invalid: BTreeMap<String, String> = audit
+            .invalid
+            .iter()
+            .map(|(k, e)| (k.as_str().to_owned(), e.to_string()))
+            .collect();
+        Some(json!({
+            "owner": owner,
+            "version": o.version,
+            "schemaRevision": o.schema.revision,
+            "schema": serde_json::to_value(&o.schema).unwrap_or(Json::Null),
+            "values": serde_json::to_value(&o.stored).unwrap_or(Json::Null),
+            "effective": serde_json::to_value(o.effective()).unwrap_or(Json::Null),
+            "invalid": invalid,
+            "unknown": audit.unknown.iter().map(|k| k.as_str().to_owned()).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// The values that are in force for `owner`.
+    pub fn effective(&self, owner: &str) -> Option<Values> {
+        self.owners.lock().get(owner).map(Owner::effective)
+    }
+
+    /// Applies one transaction: all of `changes` or none. With `expect_version`, only to that version of the owner's values.
+    pub fn apply(
+        &self,
+        owner: &str,
+        changes: Vec<SettingChange>,
+        expect_version: Option<u64>,
+    ) -> Result<Applied, ApplyError> {
+        let version = {
+            let mut owners = self.owners.lock();
+            let o = owners.get_mut(owner).ok_or(ApplyError::UnknownOwner)?;
+            if let Some(expected) = expect_version
+                && expected != o.version
+            {
+                return Err(ApplyError::Conflict { current: o.version });
+            }
+            let capabilities: BTreeSet<CapabilityKey> = BTreeSet::new();
+            o.schema
+                .validate_changes(&changes, &o.stored, &capabilities)
+                .map_err(ApplyError::Invalid)?;
+            let mut after = o.stored.clone();
+            for change in &changes {
+                after.insert(change.key.clone(), change.value.clone());
+            }
+            if let Some(rule) = o.rule {
+                rule(&effective_of(&o.schema, &after)).map_err(ApplyError::Invalid)?;
+            }
+            if after == o.stored {
+                return Ok(Applied {
+                    version: o.version,
+                    changed: false,
+                });
+            }
+            let file = StoredFile {
+                owner: owner.to_owned(),
+                schema_revision: o.schema.revision,
+                version: o.version + 1,
+                values: after.clone(),
+            };
+            let bytes = serde_json::to_vec_pretty(&file).map_err(|e| ApplyError::Io(e.to_string()))?;
+            lumatv_feeds::cache::atomic_write(&self.file_of(owner), &bytes).map_err(|e| ApplyError::Io(e.to_string()))?;
+            o.stored = after;
+            o.version += 1;
+            o.version
+        };
+        self.hub
+            .emit("settings", "changed", json!({"owner": owner, "version": version}));
+        let to_call: Vec<Listener> = self
+            .listeners
+            .lock()
+            .iter()
+            .filter(|(o, _)| o == owner)
+            .map(|(_, l)| l.clone())
+            .collect();
+        for listener in to_call {
+            listener();
+        }
+        Ok(Applied {
+            version,
+            changed: true,
+        })
+    }
+
+    /// Calls `listener` after every change to `owner`'s values.
+    pub fn on_change(&self, owner: &str, listener: impl Fn() + Send + Sync + 'static) {
+        self.listeners.lock().push((owner.to_owned(), Arc::new(listener)));
+    }
+
+    fn text(&self, owner: &str, key: &str) -> Option<String> {
+        match self.effective(owner)?.get(key)? {
+            Value::Text(t) => Some(t.clone()),
+            Value::Choice(c) => Some(c.to_string()),
+            _ => None,
+        }
+    }
+
+    fn integer(&self, owner: &str, key: &str) -> Option<i64> {
+        match self.effective(owner)?.get(key)? {
+            Value::Integer(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    fn flag(&self, owner: &str, key: &str) -> Option<bool> {
+        match self.effective(owner)?.get(key)? {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// The weather card's settings (the schema's defaults when nothing is stored).
+    pub fn weather(&self) -> WeatherSettings {
+        WeatherSettings {
+            zip: self.text("base.weather", "zip").unwrap_or_else(|| "30311".to_owned()),
+            units: self.text("base.weather", "units").unwrap_or_else(|| "fahrenheit".to_owned()),
+        }
+    }
+
+    /// The news card's settings.
+    pub fn news(&self) -> NewsSettings {
+        NewsSettings {
+            edition: self.text("base.news", "edition").unwrap_or_else(|| "bbc".to_owned()),
+            refresh_minutes: self
+                .integer("base.news", "refresh_minutes")
+                .and_then(|n| u64::try_from(n).ok())
+                .unwrap_or(15),
+        }
+    }
+
+    /// The receiver client's settings.
+    pub fn receiver(&self) -> ReceiverSettings {
+        ReceiverSettings {
+            enabled: self.flag("base.receiver", "enabled").unwrap_or(true),
+            host: self.text("base.receiver", "host").unwrap_or_else(|| "192.168.1.93".to_owned()),
+            port: self
+                .integer("base.receiver", "port")
+                .and_then(|n| u16::try_from(n).ok())
+                .unwrap_or(8080),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WeatherSettings {
+    pub zip: String,
+    /// `fahrenheit` or `celsius`.
+    pub units: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewsSettings {
+    /// `bbc` or `nyt`.
+    pub edition: String,
+    pub refresh_minutes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceiverSettings {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+}
+
+fn field(key: &str) -> FieldKey {
+    key.parse().expect("built-in keys are valid")
+}
+
+fn text_of<'a>(values: &'a Values, key: &str) -> Option<&'a str> {
+    match values.get(&field(key))? {
+        Value::Text(t) => Some(t),
+        _ => None,
+    }
+}
+
+/// A ZIP is five digits: the geocoding service takes nothing else and the text goes into a URL.
+fn weather_rule(values: &Values) -> Result<(), FieldErrors> {
+    let mut errors = FieldErrors::default();
+    if let Some(zip) = text_of(values, "zip")
+        && !(zip.len() == 5 && zip.bytes().all(|b| b.is_ascii_digit()))
+    {
+        errors.insert(field("zip"), FieldError::refused("a ZIP code is five digits"));
+    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// An address is a name or an IPv4 number: letters, digits, dots and dashes, as the text goes into a request line.
+fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
+    let mut errors = FieldErrors::default();
+    if let Some(host) = text_of(values, "host")
+        && (host.is_empty()
+            || host.starts_with(['-', '.'])
+            || !host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-'))
+    {
+        errors.insert(
+            field("host"),
+            FieldError::refused("use the receiver's IP address or name (letters, digits, dots and dashes)"),
+        );
+    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Wires the settings store to a component: `wake` runs after every change to `owner`, and never after the stop.
+pub fn wake_on_change(store: &SettingsStore, owner: &str, stop: &Stop, wake: impl Fn() + Send + Sync + 'static) {
+    let stop = stop.clone();
+    store.on_change(owner, move || {
+        if !stop.is_set() {
+            wake();
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn store(dir: &std::path::Path) -> (Arc<Hub>, SettingsStore) {
+        let hub = Arc::new(Hub::new(1));
+        let store = SettingsStore::new(dir, hub.clone());
+        store.register_builtin().unwrap();
+        (hub, store)
+    }
+
+    fn text(key: &str, value: &str) -> SettingChange {
+        SettingChange {
+            key: field(key),
+            value: Value::Text(value.to_owned()),
+        }
+    }
+
+    fn choice(key: &str, value: &str) -> SettingChange {
+        SettingChange {
+            key: field(key),
+            value: Value::Choice(value.parse().unwrap()),
+        }
+    }
+
+    fn int(key: &str, value: i64) -> SettingChange {
+        SettingChange {
+            key: field(key),
+            value: Value::Integer(value),
+        }
+    }
+
+    fn flag(key: &str, value: bool) -> SettingChange {
+        SettingChange {
+            key: field(key),
+            value: Value::Bool(value),
+        }
+    }
+
+    #[test]
+    fn every_built_in_schema_parses_and_registers() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, store) = store(dir.path());
+        let owners: Vec<_> = store.owners().into_iter().map(|s| s.owner).collect();
+        assert_eq!(owners, ["base.news", "base.receiver", "base.weather"]);
+    }
+
+    #[test]
+    fn defaults_are_in_force_until_something_is_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, store) = store(dir.path());
+        assert_eq!(
+            store.weather(),
+            WeatherSettings {
+                zip: "30311".into(),
+                units: "fahrenheit".into()
+            }
+        );
+        assert_eq!(
+            store.news(),
+            NewsSettings {
+                edition: "bbc".into(),
+                refresh_minutes: 15
+            }
+        );
+        assert_eq!(
+            store.receiver(),
+            ReceiverSettings {
+                enabled: true,
+                host: "192.168.1.93".into(),
+                port: 8080
+            }
+        );
+        assert!(!dir.path().join("base.weather.json").exists());
+    }
+
+    #[test]
+    fn a_valid_transaction_is_applied_saved_announced_and_survives_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let (hub, s) = store(dir.path());
+        let woken = Arc::new(AtomicUsize::new(0));
+        let w = woken.clone();
+        s.on_change("base.weather", move || {
+            w.fetch_add(1, Ordering::SeqCst);
+        });
+        let applied = s
+            .apply("base.weather", vec![text("zip", "10001"), choice("units", "celsius")], None)
+            .unwrap();
+        assert_eq!(applied, Applied { version: 1, changed: true });
+        assert_eq!(s.weather().zip, "10001");
+        assert_eq!(s.weather().units, "celsius");
+        assert_eq!(woken.load(Ordering::SeqCst), 1);
+        let events = hub.events_after(Some(0), None, None).events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].topic, "settings");
+        assert_eq!(events[0].data, json!({"owner": "base.weather", "version": 1}));
+
+        let (_, again) = store(dir.path());
+        assert_eq!(again.weather().zip, "10001");
+        assert_eq!(again.owners().iter().find(|o| o.owner == "base.weather").unwrap().version, 1);
+    }
+
+    #[test]
+    fn the_schema_refuses_what_its_field_cannot_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        for bad in [
+            choice("units", "kelvin"),
+            int("zip", 5),
+            text("nope", "x"),
+        ] {
+            let Err(ApplyError::Invalid(errors)) = s.apply("base.weather", vec![bad], None) else {
+                panic!("accepted");
+            };
+            assert_eq!(errors.len(), 1);
+        }
+        // Off the step, and out of range.
+        assert!(matches!(
+            s.apply("base.news", vec![int("refresh_minutes", 7)], None),
+            Err(ApplyError::Invalid(_))
+        ));
+        assert!(matches!(
+            s.apply("base.news", vec![int("refresh_minutes", 500)], None),
+            Err(ApplyError::Invalid(_))
+        ));
+        // Twice in one transaction.
+        assert!(matches!(
+            s.apply("base.weather", vec![text("zip", "10001"), text("zip", "10002")], None),
+            Err(ApplyError::Invalid(_))
+        ));
+        assert_eq!(s.weather().zip, "30311");
+    }
+
+    #[test]
+    fn a_transaction_is_all_or_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (hub, s) = store(dir.path());
+        let result = s.apply("base.weather", vec![text("zip", "10001"), choice("units", "kelvin")], None);
+        assert!(matches!(result, Err(ApplyError::Invalid(_))));
+        assert_eq!(s.weather().zip, "30311");
+        assert!(hub.events_after(Some(0), None, None).events.is_empty());
+        assert!(!dir.path().join("base.weather.json").exists());
+    }
+
+    #[test]
+    fn the_owners_own_rule_runs_after_the_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        let Err(ApplyError::Invalid(errors)) = s.apply("base.weather", vec![text("zip", "3031a")], None) else {
+            panic!("accepted");
+        };
+        let (key, error) = errors.iter().next().unwrap();
+        assert_eq!(key.as_str(), "zip");
+        assert!(error.to_string().contains("five digits"), "{error}");
+        assert!(matches!(
+            s.apply("base.weather", vec![text("zip", "1234")], None),
+            Err(ApplyError::Invalid(_))
+        ));
+        assert!(matches!(
+            s.apply("base.receiver", vec![text("host", "evil host/../x")], None),
+            Err(ApplyError::Invalid(_))
+        ));
+        assert!(s.apply("base.receiver", vec![text("host", "avr.local")], None).is_ok());
+        assert_eq!(s.receiver().host, "avr.local");
+    }
+
+    #[test]
+    fn a_field_that_another_setting_disables_cannot_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        s.apply("base.receiver", vec![flag("enabled", false)], None).unwrap();
+        let Err(ApplyError::Invalid(errors)) = s.apply("base.receiver", vec![int("port", 9000)], None) else {
+            panic!("accepted");
+        };
+        assert!(errors.get(&field("port")).is_some());
+        // Turning it on and changing the port in one transaction is judged against the values it leaves.
+        assert!(
+            s.apply("base.receiver", vec![flag("enabled", true), int("port", 9000)], None)
+                .is_ok()
+        );
+        assert_eq!(s.receiver().port, 9000);
+    }
+
+    #[test]
+    fn a_version_precondition_guards_against_a_stale_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        s.apply("base.news", vec![choice("edition", "nyt")], Some(0)).unwrap();
+        let Err(ApplyError::Conflict { current }) = s.apply("base.news", vec![choice("edition", "bbc")], Some(0)) else {
+            panic!("accepted");
+        };
+        assert_eq!(current, 1);
+        assert_eq!(s.news().edition, "nyt");
+        assert!(s.apply("base.news", vec![choice("edition", "bbc")], Some(1)).is_ok());
+    }
+
+    #[test]
+    fn values_already_held_change_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (hub, s) = store(dir.path());
+        s.apply("base.weather", vec![text("zip", "10001")], None).unwrap();
+        let applied = s.apply("base.weather", vec![text("zip", "10001")], None).unwrap();
+        assert_eq!(applied, Applied { version: 1, changed: false });
+        let none = s.apply("base.weather", vec![], None).unwrap();
+        assert!(!none.changed);
+        assert_eq!(hub.events_after(Some(0), None, None).events.len(), 1);
+    }
+
+    #[test]
+    fn an_unknown_owner_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        assert!(matches!(s.apply("base.nope", vec![], None), Err(ApplyError::UnknownOwner)));
+        assert!(s.describe("base.nope").is_none());
+    }
+
+    #[test]
+    fn a_stored_value_the_schema_no_longer_accepts_is_reported_not_repaired() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("base.weather.json"),
+            r#"{"owner":"base.weather","schemaRevision":1,"version":4,"values":{
+                "units":{"type":"choice","value":"kelvin"},
+                "zip":{"type":"text","value":"60601"},
+                "old_key":{"type":"bool","value":true}}}"#,
+        )
+        .unwrap();
+        let (_, s) = store(dir.path());
+        // The bad choice falls back to the default, the good value is used.
+        assert_eq!(s.weather().units, "fahrenheit");
+        assert_eq!(s.weather().zip, "60601");
+        let view = s.describe("base.weather").unwrap();
+        assert_eq!(view["version"], 4);
+        assert!(view["invalid"]["units"].is_string());
+        assert_eq!(view["unknown"], json!(["old_key"]));
+        assert_eq!(view["effective"]["units"]["value"], "fahrenheit");
+        // The file keeps what the person wrote until a transaction replaces it.
+        assert!(std::fs::read_to_string(dir.path().join("base.weather.json")).unwrap().contains("kelvin"));
+    }
+
+    #[test]
+    fn an_unreadable_file_means_the_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("base.news.json"), "{not json").unwrap();
+        let (_, s) = store(dir.path());
+        assert_eq!(s.news().edition, "bbc");
+        s.apply("base.news", vec![choice("edition", "nyt")], None).unwrap();
+        let (_, again) = store(dir.path());
+        assert_eq!(again.news().edition, "nyt");
+    }
+
+    #[test]
+    fn a_file_for_another_owner_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("base.news.json"),
+            r#"{"owner":"base.weather","schemaRevision":1,"version":9,"values":{}}"#,
+        )
+        .unwrap();
+        let (_, s) = store(dir.path());
+        assert_eq!(s.owners().iter().find(|o| o.owner == "base.news").unwrap().version, 0);
+    }
+
+    #[test]
+    fn describe_carries_the_documented_schema_and_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        s.apply("base.news", vec![choice("edition", "nyt")], None).unwrap();
+        let view = s.describe("base.news").unwrap();
+        assert_eq!(view["owner"], "base.news");
+        assert_eq!(view["schema"]["format"], 1);
+        assert_eq!(view["schema"]["sections"][0]["fields"][0]["key"], "edition");
+        assert_eq!(view["values"]["edition"], json!({"type": "choice", "value": "nyt"}));
+        assert_eq!(view["effective"]["refresh_minutes"], json!({"type": "integer", "value": 15}));
+    }
+
+    #[test]
+    fn a_plugin_owner_registers_with_nothing_but_a_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, s) = store(dir.path());
+        let schema = SettingsSchema::parse(
+            br#"{"format":1,"owner":"hello","revision":1,"title":"Hello","sections":[{"id":"main","title":"Main","fields":[
+                {"key":"name","label":"Name","kind":{"type":"text","max_chars":20,"secret":false},"default":{"type":"text","value":"Luma"},"apply":"on-commit"}]}]}"#,
+        )
+        .unwrap();
+        s.register(schema.clone(), None).unwrap();
+        s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
+        assert_eq!(s.owners().len(), 4);
+        // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
+        let mut older = schema.clone();
+        older.revision = 0;
+        assert!(s.register(older, None).is_err());
+        let mut newer = schema;
+        newer.revision = 2;
+        s.register(newer, None).unwrap();
+        assert_eq!(s.describe("hello").unwrap()["values"]["name"]["value"], "Nitin");
+    }
+
+    #[test]
+    fn a_schema_that_does_not_validate_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Arc::new(Hub::new(1));
+        let s = SettingsStore::new(dir.path(), hub);
+        let mut schema = SettingsSchema::parse(include_str!("schemas/base.news.json").as_bytes()).unwrap();
+        schema.title = "   ".into();
+        assert!(s.register(schema, None).is_err());
+    }
+}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Written by hand in the real reply's shape: relative volume display, muted, a renamed input with an escaped ampersand. -->
+<item>
+<Power><value>ON</value></Power>
+<InputFuncSelect><value>Apple TV &amp; Co</value></InputFuncSelect>
+<VolumeDisplay><value>Relative</value></VolumeDisplay>
+<MasterVolume><value>-12.0</value></MasterVolume>
+<Mute><value>on</value></Mute>
+</item>

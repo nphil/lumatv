@@ -21,6 +21,7 @@ settings-schema.workspace = true
 lumatv-denon.workspace = true
 lumatv-feeds.workspace = true
 libc.workspace = true
+parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

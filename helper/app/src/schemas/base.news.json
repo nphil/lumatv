@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "owner": "base.news",
+  "revision": 1,
+  "title": "News",
+  "sections": [
+    {
+      "id": "headlines",
+      "title": "News card",
+      "fields": [
+        {
+          "key": "edition",
+          "label": "Source",
+          "help": "Where the Home card takes its headlines from. The other source is the fallback when this one gives nothing.",
+          "kind": {"type": "choice", "options": {"inline": [
+            {"id": "bbc", "label": "BBC News"},
+            {"id": "nyt", "label": "The New York Times"}
+          ]}},
+          "default": {"type": "choice", "value": "bbc"},
+          "apply": "on-commit"
+        },
+        {
+          "key": "refresh_minutes",
+          "label": "Refresh every",
+          "kind": {"type": "integer", "min": 5, "max": 180, "step": 5, "unit": "min"},
+          "default": {"type": "integer", "value": 15},
+          "apply": "on-commit"
+        }
+      ]
+    }
+  ]
+}

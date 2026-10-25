@@ -1,0 +1,38 @@
+{
+  "format": 1,
+  "owner": "base.receiver",
+  "revision": 1,
+  "title": "Receiver",
+  "sections": [
+    {
+      "id": "connection",
+      "title": "Denon receiver",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Show the receiver's volume",
+          "help": "Reads the receiver's own level, mute and input while the screen is on.",
+          "kind": {"type": "bool"},
+          "default": {"type": "bool", "value": true},
+          "apply": "on-commit"
+        },
+        {
+          "key": "host",
+          "label": "Receiver address",
+          "kind": {"type": "text", "max_chars": 253, "secret": false},
+          "default": {"type": "text", "value": "192.168.1.93"},
+          "enabled_when": {"type": "equals", "key": "enabled", "value": {"type": "bool", "value": true}},
+          "apply": "on-commit"
+        },
+        {
+          "key": "port",
+          "label": "Web port",
+          "kind": {"type": "integer", "min": 1, "max": 65535, "step": 1},
+          "default": {"type": "integer", "value": 8080},
+          "enabled_when": {"type": "equals", "key": "enabled", "value": {"type": "bool", "value": true}},
+          "apply": "on-commit"
+        }
+      ]
+    }
+  ]
+}

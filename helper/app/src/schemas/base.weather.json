@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "owner": "base.weather",
+  "revision": 1,
+  "title": "Weather",
+  "sections": [
+    {
+      "id": "place",
+      "title": "Weather card",
+      "fields": [
+        {
+          "key": "zip",
+          "label": "ZIP code",
+          "help": "The U.S. ZIP code whose weather the Home card shows.",
+          "kind": {"type": "text", "max_chars": 5, "secret": false},
+          "default": {"type": "text", "value": "30311"},
+          "apply": "on-commit"
+        },
+        {
+          "key": "units",
+          "label": "Temperature",
+          "kind": {"type": "choice", "options": {"inline": [
+            {"id": "fahrenheit", "label": "Fahrenheit"},
+            {"id": "celsius", "label": "Celsius"}
+          ]}},
+          "default": {"type": "choice", "value": "fahrenheit"},
+          "apply": "on-commit"
+        }
+      ]
+    }
+  ]
+}

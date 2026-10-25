@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Written by hand in the real reply's shape: other receivers write "STANDBY" and "--" for the volume while off. -->
+<item>
+<Power><value>STANDBY</value></Power>
+<InputFuncSelect><value>SAT/CBL</value></InputFuncSelect>
+<VolumeDisplay><value>Absolute</value></VolumeDisplay>
+<MasterVolume><value>--</value></MasterVolume>
+<Mute><value>off</value></Mute>
+</item>

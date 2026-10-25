@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:nyt="http://www.nytimes.com/namespaces/rss/2.0" version="2.0">
+  <channel>
+    <title>NYT &gt; U.S. News</title>
+    <link>https://www.nytimes.com/section/us</link>
+    <atom:link href="https://rss.nytimes.com/services/xml/rss/nyt/US.xml" rel="self" type="application/rss+xml"></atom:link>
+    <description></description>
+    <language>en-us</language>
+    <copyright>Copyright 2026 The New York Times Company</copyright>
+    <lastBuildDate>Sun, 25 Oct 2026 04:23:52 +0000</lastBuildDate>
+    <pubDate>Sun, 25 Oct 2026 02:57:05 +0000</pubDate>
+    <image>
+      <title>NYT &gt; U.S. News</title>
+      <url>https://static01.nyt.com/images/misc/NYT_logo_rss_250x40.png</url>
+      <link>https://www.nytimes.com/section/us</link>
+    </image>
+    <item>
+      <title>A New Level of Threat and Fear Risks Pushing the U.S. and Iran Back to Full War</title>
+      <link>https://www.nytimes.com/2026/10/24/us/politics/trump-netanyahu-iran-new-phase-of-war.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/us/politics/trump-netanyahu-iran-new-phase-of-war.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/us/politics/trump-netanyahu-iran-new-phase-of-war.html" rel="standout"></atom:link>
+      <description>With new intelligence and the possibility of all sides seeking pretexts for action, the war in Iran is entering a dangerous phase ahead of elections in the United States and Israel.</description>
+      <dc:creator>David E. Sanger, Julian E. Barnes, Jonathan Swan, Maggie Haberman, Farnaz Fassihi and Eric Schmitt</dc:creator>
+      <pubDate>Sun, 25 Oct 2026 01:06:17 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">US and Israeli Attack on Iran (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States Politics and Government</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States International Relations</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">International Relations</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Iran-Israel Proxy Conflict</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Trump Assassination Attempt (July 2024)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Midterm Elections (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Iran-Israel War (2025- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Islamic Revolutionary Guards Corps</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">State Department</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Secret Service</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Biden, Joseph R Jr</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Ghalibaf, Mohammad Baqer</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Netanyahu, Benjamin</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Trump, Donald J</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Iran</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Israel</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Middle East</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24dc-prexy-iran-pkhc/24dc-prexy-iran-pkhc-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Arash Khamooshi/Polaris for The New York Times</media:credit>
+      <media:description>A senior official in Iran took to social media in recent days to say the country was preparing to take on its adversaries with surprise attacks.</media:description>
+    </item>
+    <item>
+      <title>In Alaska, Some Early Voting Sites in Rural Villages Have Not Yet Opened</title>
+      <link>https://www.nytimes.com/2026/10/24/us/alaska-early-voting-sites.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/us/alaska-early-voting-sites.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/us/alaska-early-voting-sites.html" rel="standout"></atom:link>
+      <description>“There is no legal excuse” for the failure of 18 polling sites to open for early voting, a state lawmaker said.</description>
+      <dc:creator>Anna Griffin and Emily Schwing</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 22:06:45 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Midterm Elections (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Federal-State Relations (US)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Polls and Public Opinion</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Rural Areas</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Primaries and Caucuses</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Politics and Government</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Elections, Senate</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">States (US)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Democratic Party</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Justice Department</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Republican Party</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Senate</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Peltola, Mary</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Sullivan, Daniel J (1957- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Sullivan, Daniel Scott (1964- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Kreiss-Tomkins, Jonathan</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Dahlstrom, Nancy</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Alaska</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Anchorage (Alaska)</category>
+      <media:content height="1801" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24nat-alaska-voting-sites/24hp-alaska-legal-promo-01-zqgl-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Kerry Tasker/Reuters</media:credit>
+      <media:description>Senator Dan Sullivan finished second in the primary to Representative Mary Peltola and has trailed her in polls since.</media:description>
+    </item>
+    <item>
+      <title>Trump, Who Once Called Early Voting ‘Ridiculous,’ Casts a Midterm Ballot</title>
+      <link>https://www.nytimes.com/2026/10/24/us/politics/trump-votes-early-midterm-elections.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/us/politics/trump-votes-early-midterm-elections.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/us/politics/trump-votes-early-midterm-elections.html" rel="standout"></atom:link>
+      <description>The president voted at a polling station in Palm Beach County, Fla.</description>
+      <dc:creator>Tim Balk</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 21:40:56 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Trump, Donald J</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Midterm Elections (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Palm Beach (Fla)</category>
+      <media:content height="1799" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24pol-trump-voting-01-wczb/24pol-trump-voting-01-wczb-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Haiyun Jiang/The New York Times</media:credit>
+      <media:description>President Trump and the first lady, Melania Trump, arriving at a polling station in Palm Beach, Fla., on Saturday.</media:description>
+    </item>
+    <item>
+      <title>Court Says Trump Violated Law in Los Angeles National Guard Deployment</title>
+      <link>https://www.nytimes.com/2026/10/24/us/ruling-trump-california-national-guard.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/us/ruling-trump-california-national-guard.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/us/ruling-trump-california-national-guard.html" rel="standout"></atom:link>
+      <description>The ruling, which comes as the midterm election nears, could make it more difficult for President Trump to seize control of the National Guard.</description>
+      <dc:creator>Laurel Rosenhall</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 20:38:24 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States Politics and Government</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Decisions and Verdicts</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Federal Actions in US Cities</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States Defense and Military Forces</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Federal-State Relations (US)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Law and Legislation</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Reserves (Military)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Midterm Elections (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Insurrection Act (1807)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Immigration and Emigration</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">National Guard</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Supreme Court (US)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">University of California, Berkeley</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">University of California</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Bennett, Mark J (1953- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Chemerinsky, Erwin</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Newsom, Gavin</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">California</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24nat-california-guard-topart-01-jqfv/24nat-california-guard-topart-01-jqfv-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Gabriela Bhaskar/The New York Times</media:credit>
+      <media:description>President Trump deployed the California National Guard across Los Angeles in June 2025. </media:description>
+    </item>
+    <item>
+      <title>Alaska Election Gambit Shows Justice Dept. Has Bowed to Trump’s Demands</title>
+      <link>https://www.nytimes.com/2026/10/24/us/politics/alaska-senate-election-trump-justice-department.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/us/politics/alaska-senate-election-trump-justice-department.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/us/politics/alaska-senate-election-trump-justice-department.html" rel="standout"></atom:link>
+      <description>With moves in Alaska and California, the department has stepped up interventions in the midterm elections as the president’s instrument of unmediated executive power.</description>
+      <dc:creator>Glenn Thrush, Katie Rogers and Zolan Kanno-Youngs</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 19:21:11 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States Politics and Government</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Midterm Elections (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Presidential Power (US)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Voter Fraud (Election Fraud)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Suits and Litigation (Civil)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Ethics and Official Misconduct</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Illegal Immigration</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Voting Machines</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Justice Department</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Senate</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Immigration and Customs Enforcement (US)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Barr, William P</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Blanche, Todd (Attorney)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Dhillon, Harmeet</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Sullivan, Daniel Scott (1964- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Alaska</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">California</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Trump, Donald J</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24dc-trump-justice-topart-02-kjvw/24dc-trump-justice-topart-02-kjvw-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Doug Mills/The New York Times</media:credit>
+      <media:description>President Trump during a campaign rally in support of Senator Dan S. Sullivan in Wasilla, Alaska, this month. Mr. Trump urged the Justice Dept. to intervene in the Senate race.</media:description>
+    </item>
+    <item>
+      <title>How Vivek Ramaswamy’s Ruthless Ad in Ohio Divided Republicans</title>
+      <link>https://www.nytimes.com/2026/10/24/us/politics/vivek-ramaswamy-ad-ohio-amy-acton.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/us/politics/vivek-ramaswamy-ad-ohio-amy-acton.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/us/politics/vivek-ramaswamy-ad-ohio-amy-acton.html" rel="standout"></atom:link>
+      <description>The fallout from Vivek Ramaswamy’s brutal spot targeting his Democratic rival in the Ohio governor’s race showed that even in the Trump era, a political attack can be seen as going too far.</description>
+      <dc:creator>Reid J. Epstein and Campbell Robertson</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 09:03:21 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Ohio</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Political Advertising</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Ramaswamy, Vivek (1985- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Acton, Amy</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Midterm Elections (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Republican Party</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">DeWine, Mike</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Husted, Jon A (1967- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Trump, Donald J</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Vance, J D</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24pol-ohio-fallout-01-phtq/24pol-ohio-fallout-01-phtq-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Shannon Stapleton/Reuters</media:credit>
+      <media:description>Vivek Ramaswamy, a Republican, is facing a tight race for governor of Ohio against Amy Acton, a Democrat. </media:description>
+    </item>
+  </channel>
+</rss>

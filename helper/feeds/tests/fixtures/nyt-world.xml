@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:nyt="http://www.nytimes.com/namespaces/rss/2.0" version="2.0">
+  <channel>
+    <title>NYT &gt; World News</title>
+    <link>https://www.nytimes.com/section/world</link>
+    <atom:link href="https://rss.nytimes.com/services/xml/rss/nyt/World.xml" rel="self" type="application/rss+xml"></atom:link>
+    <description></description>
+    <language>en-us</language>
+    <copyright>Copyright 2026 The New York Times Company</copyright>
+    <lastBuildDate>Sun, 25 Oct 2026 04:21:03 +0000</lastBuildDate>
+    <pubDate>Sun, 25 Oct 2026 04:16:46 +0000</pubDate>
+    <image>
+      <title>NYT &gt; World News</title>
+      <url>https://static01.nyt.com/images/misc/NYT_logo_rss_250x40.png</url>
+      <link>https://www.nytimes.com/section/world</link>
+    </image>
+    <item>
+      <title>Elon Musk Says Ukraine Violated Starlink’s Rules</title>
+      <link>https://www.nytimes.com/2026/10/24/world/europe/ukraine-starshield-drone-speed.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/world/europe/ukraine-starshield-drone-speed.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/world/europe/ukraine-starshield-drone-speed.html" rel="standout"></atom:link>
+      <description>The comments were his first since the disruption in the country’s satellite service. Earlier, Ukraine said drones using Starshield, the Pentagon-funded service, were back to normal speeds.</description>
+      <dc:creator>Sheera Frenkel, Siobhán O’Grady and Liubov Sholudko</dc:creator>
+      <pubDate>Sun, 25 Oct 2026 00:10:07 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Russian Invasion of Ukraine (2022)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Starlink Satellite Constellation (SpaceX)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Drones (Pilotless Planes)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">United States International Relations</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Ukraine</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Russia</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">Defense Department</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24int-ukraine-starshield-jmgk/24int-ukraine-starshield-jmgk-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Lynsey Addario for The New York Times</media:credit>
+      <media:description>Ukrainian soldiers operated a drone over Russian-occupied territory from the Zaporizhzhia region in 2023.</media:description>
+    </item>
+    <item>
+      <title>Iranians Face Anxious Wait as Threat of Attack Looms</title>
+      <link>https://www.nytimes.com/2026/10/24/world/middleeast/iranians-face-anxious-wait-as-threat-of-attack-looms.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/world/middleeast/iranians-face-anxious-wait-as-threat-of-attack-looms.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/world/middleeast/iranians-face-anxious-wait-as-threat-of-attack-looms.html" rel="standout"></atom:link>
+      <description>The United States and Israel have drawn up plans to renew strikes against Iran, creating a sense of dread among war-weary residents.</description>
+      <dc:creator>Farnaz Fassihi and Leily Nikounazar</dc:creator>
+      <pubDate>Sun, 25 Oct 2026 00:51:45 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">US and Israeli Attack on Iran (2026)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Iran</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">War and Armed Conflicts</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Iran-Israel War (2025- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Fear (Emotion)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Tehran (Iran)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Prices (Fares, Fees and Rates)</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24int-iran-mood-bwvj/24int-iran-mood-bwvj-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Arash Khamooshi/Polaris for The New York Times</media:credit>
+      <media:description>People passing photos of the three supreme leaders and a display featuring a Donald Trump impersonator behind bars in Tehran, on Thursday.</media:description>
+    </item>
+    <item>
+      <title>Italy’s Young Protesters Return to the Streets</title>
+      <link>https://www.nytimes.com/live/2026/10/24/world/france-protests-riots/milan-youth-protests</link>
+      <guid isPermaLink="true">https://www.nytimes.com/live/2026/10/24/world/france-protests-riots/milan-youth-protests</guid>
+      <atom:link href="https://www.nytimes.com/live/2026/10/24/world/france-protests-riots/milan-youth-protests" rel="standout"></atom:link>
+      <description>Fed up with the political establishment and rising cost of living, demonstrators hoped to make their message heard after violence overshadowed protests last weekend.</description>
+      <dc:creator>Josephine de La Bruyère</dc:creator>
+      <pubDate>Sun, 25 Oct 2026 01:26:08 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Demonstrations, Protests and Riots</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Milan (Italy)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Italy</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Youth</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Cost of Living and Affordability</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Inflation (Economics)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Salvini, Matteo</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24france-protests-italy-jgzt/24france-protests-italy-jgzt-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Yara Nardi/Reuters</media:credit>
+      <media:description>Young people protested the rising cost of living in Milan on Saturday, a week after similar demonstrations in cities across northern Italy ended in violent clashes and looting. </media:description>
+    </item>
+    <item>
+      <title>Unrest Erupts Again in France, but This Time, With Less Property Damage</title>
+      <link>https://www.nytimes.com/2026/10/24/world/europe/france-protests-unrest-clashes-police.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/world/europe/france-protests-unrest-clashes-police.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/world/europe/france-protests-unrest-clashes-police.html" rel="standout"></atom:link>
+      <description>After largely peaceful marches on Saturday, clashes broke out in the evening. But a large-scale police presence, 1,000 arrests and the rerouting of protest routes kept a lid on wholesale vandalism.</description>
+      <dc:creator>Mark Landler, Catherine Porter and Ségolène Le Stradic</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 21:23:15 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Demonstrations, Protests and Riots</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Income Inequality</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Police</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Vandalism</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">France Unbowed (Political Party)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_org">National Rally (France)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Bagayoko, Bally</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Le Pen, Marine</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Macron, Emmanuel (1977- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">France</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Marseille (France)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Orleans (France)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Paris (France)</category>
+      <media:content height="1800" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24int-france-protests-lftm/24int-france-protests-lftm-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>Philippe Lopez/Agence France-Presse — Getty Images</media:credit>
+      <media:description>Protesters amid tear gas near Place de la Bourse in Bordeaux, western France, on Saturday.</media:description>
+    </item>
+    <item>
+      <title>‘Eagle’s Nest,’ Nazi-Era Guesthouse in German Alps, Is Gutted by Fire</title>
+      <link>https://www.nytimes.com/2026/10/24/world/europe/eagles-nest-fire-nazi-germany.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/world/europe/eagles-nest-fire-nazi-germany.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/world/europe/eagles-nest-fire-nazi-germany.html" rel="standout"></atom:link>
+      <description>The police said on Saturday that the structure, a tourist attraction for decades, was probably not salvageable. A man was arrested in connection with the blaze.</description>
+      <dc:creator>Christopher F. Schuetze</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 19:53:56 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Fires and Firefighters</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Germany</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Hitler, Adolf</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Bavaria (Germany)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Berchtesgaden (Germany)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">World War II (1939-45)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Holocaust and the Nazi Era</category>
+      <media:content height="1489" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24int-germany-fire-tlcj/24int-germany-fire-tlcj-mediumSquareAt3X.jpg" width="1491"></media:content>
+      <media:credit>Kerstin Joensson/Agence France-Presse — Getty Images</media:credit>
+      <media:description>The Kehlsteinhaus, also known as the Eagle’s Nest, on Saturday morning after the fire.</media:description>
+    </item>
+    <item>
+      <title>Israel Cracks Down in West Bank City After Deadly Attack</title>
+      <link>https://www.nytimes.com/2026/10/24/world/middleeast/israel-military-hebron-west-bank.html</link>
+      <guid isPermaLink="true">https://www.nytimes.com/2026/10/24/world/middleeast/israel-military-hebron-west-bank.html</guid>
+      <atom:link href="https://www.nytimes.com/2026/10/24/world/middleeast/israel-military-hebron-west-bank.html" rel="standout"></atom:link>
+      <description>Hundreds of Palestinian families fled their homes as the Israeli military raided Hebron. The operation came a day after Palestinian gunmen killed two soldiers.</description>
+      <dc:creator>Aaron Boxerman and Fatima AbdulKarim</dc:creator>
+      <pubDate>Sat, 24 Oct 2026 14:52:06 +0000</pubDate>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Defense and Military Forces</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Israel-Gaza War (2023- )</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Murders, Attempted Murders and Homicides</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Palestinians</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Israeli Settlements</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_per">Netanyahu, Benjamin</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Hebron (West Bank)</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">Israel</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/nyt_geo">West Bank</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Demolition</category>
+      <category domain="http://www.nytimes.com/namespaces/keywords/des">Elections</category>
+      <media:content height="1801" medium="image" url="https://static01.nyt.com/images/2026/10/24/multimedia/24int-westbank-operation-01-hvzq/24int-westbank-operation-01-hvzq-mediumSquareAt3X.jpg" width="1800"></media:content>
+      <media:credit>John Wessels/Agence France-Presse — Getty Images</media:credit>
+      <media:description>An Israeli soldier at the northern checkpoint in Hebron, in the West Bank, on Saturday.</media:description>
+    </item>
+  </channel>
+</rss>
