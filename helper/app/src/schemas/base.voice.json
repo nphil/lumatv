@@ -19,9 +19,9 @@
         {
           "key": "pipeline",
           "label": "Assist pipeline",
-          "help": "The id of the Assist pipeline whose speech-to-text is used. Empty uses Home Assistant's preferred pipeline.",
+          "help": "The id of the Assist pipeline whose speech-to-text is used. The default is the Local (Kokoro + Whisper) pipeline, so the words stay in the house. Empty uses Home Assistant's preferred pipeline, which is its cloud.",
           "kind": {"type": "text", "max_chars": 64, "secret": false},
-          "default": {"type": "text", "value": ""},
+          "default": {"type": "text", "value": "01m3xamd8xzkdv52syapw0cmf2"},
           "enabled_when": {"type": "equals", "key": "enabled", "value": {"type": "bool", "value": true}},
           "apply": "on-commit"
         }

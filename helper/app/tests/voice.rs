@@ -472,9 +472,9 @@ fn the_words_come_back_as_text_and_the_audio_went_through_the_handler() {
         assert_eq!(run["start_stage"], "stt");
         assert_eq!(run["end_stage"], "stt");
         assert_eq!(run["input"]["sample_rate"], 16_000);
-        assert!(
-            run.get("pipeline").is_none(),
-            "the preferred pipeline when none is chosen"
+        assert_eq!(
+            run["pipeline"], "01m3xamd8xzkdv52syapw0cmf2",
+            "the Local (Kokoro + Whisper) pipeline until the owner picks another"
         );
         assert_eq!(s.audio, FakeMic::ramp(), "every byte, in order, once");
         assert!(
@@ -541,7 +541,7 @@ fn the_token_goes_to_the_saved_address_and_to_nothing_else() {
 }
 
 #[test]
-fn nothing_is_open_until_the_owner_has_switched_it_on_linked_and_chosen_a_microphone() {
+fn nothing_is_open_until_the_owner_has_switched_it_on_and_linked_and_a_microphone_is_named() {
     let ha = FakeHa::start(TOKEN, Answer::Words("x"));
 
     // Off (the default): no microphone program, no connection.
@@ -599,7 +599,7 @@ fn nothing_is_open_until_the_owner_has_switched_it_on_linked_and_chosen_a_microp
     );
     rig.stop();
 
-    // On and linked, but no microphone chosen.
+    // On and linked, but the owner emptied voice.capture: no microphone.
     let mut rig = Rig::new();
     receiver_off(&rig.paths);
     seed_settings(
@@ -608,7 +608,10 @@ fn nothing_is_open_until_the_owner_has_switched_it_on_linked_and_chosen_a_microp
         json!({"enabled": {"type": "bool", "value": true}}),
     );
     voice_store::save(&rig.paths.data_dir, &ha.url(), TOKEN).unwrap();
-    rig.start_voice(test_config(json!({})), Script::new());
+    rig.start_voice(
+        test_config(json!({"voice": {"capture": []}})),
+        Script::new(),
+    );
     let refused = post(rig.addr, "/v1/voice/listen", "{}");
     assert_eq!(
         (refused.status, refused.json()["error"]["code"].clone()),
@@ -816,6 +819,19 @@ fn a_chosen_pipeline_is_asked_for_and_an_unknown_one_is_reported() {
         ha.seen(|s| s.runs[0]["pipeline"].clone()),
         json!("01m3yddanfdmg4epdmbmaht8kb")
     );
+    post(voice.rig.addr, "/v1/voice/cancel", "{}");
+    assert!(wait_until(WAIT, || voice.mic.gone()));
+
+    // Emptied by the owner: Home Assistant's preferred pipeline (no `pipeline` in the request).
+    let empty = post(
+        voice.rig.addr,
+        "/v1/settings/base.voice",
+        r#"{"changes":[{"key":"pipeline","value":{"type":"text","value":""}}]}"#,
+    );
+    assert_eq!(empty.status, 200);
+    voice.listen();
+    assert!(wait_until(WAIT, || ha.seen(|s| s.runs.len() == 2)));
+    assert!(ha.seen(|s| s.runs[1].get("pipeline").is_none()));
     post(voice.rig.addr, "/v1/voice/cancel", "{}");
     assert!(wait_until(WAIT, || voice.mic.gone()));
 

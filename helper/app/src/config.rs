@@ -395,8 +395,9 @@ fn default_ddp_port() -> u16 {
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct VoiceConfig {
     /// The program that writes the microphone to its standard output as raw 16 kHz, 16-bit, mono, little-endian PCM, with its
-    /// arguments (`["arecord", "-q", "-D", "plughw:1,0", "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"]`). It runs only while
-    /// the mic key is held. Empty: no microphone is chosen, and voice search stays unavailable.
+    /// arguments. It runs only while the mic key is held. The default is the TV's own far-field microphone through ALSA (card 1
+    /// `LGSIC`, device 0 "WoV PDM Mic", which offers S24_LE only; `plughw` converts); LG's voice services stay stopped. Empty: no
+    /// microphone, and voice search stays unavailable.
     pub capture: Vec<String>,
     /// The longest one request listens, whatever the key does: a missed key release must not leave the microphone open.
     pub max_seconds: u64,
@@ -404,10 +405,26 @@ pub struct VoiceConfig {
     pub tail_ms: u64,
 }
 
+/// The TV's built-in microphone, read by `arecord` as 16 kHz mono S16_LE (Nitin, 2026-10-25).
+pub const DEFAULT_CAPTURE: [&str; 12] = [
+    "arecord",
+    "-q",
+    "-D",
+    "plughw:1,0",
+    "-t",
+    "raw",
+    "-f",
+    "S16_LE",
+    "-r",
+    "16000",
+    "-c",
+    "1",
+];
+
 impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
-            capture: Vec::new(),
+            capture: DEFAULT_CAPTURE.iter().map(|a| (*a).to_owned()).collect(),
             max_seconds: 20,
             tail_ms: 250,
         }
@@ -668,6 +685,30 @@ pub fn find_ca_bundle(config: &FetchConfig) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn voice_listens_to_the_tvs_own_microphone_unless_told_otherwise() {
+        let config = Config::parse("{}").unwrap();
+        assert_eq!(
+            config.voice.capture.join(" "),
+            "arecord -q -D plughw:1,0 -t raw -f S16_LE -r 16000 -c 1"
+        );
+        // Emptying it is how the owner takes the microphone away.
+        assert!(
+            Config::parse(r#"{"voice":{"capture":[]}}"#)
+                .unwrap()
+                .voice
+                .capture
+                .is_empty()
+        );
+        for bad in [
+            r#"{"voice":{"capture":[""]}}"#,
+            r#"{"voice":{"maxSeconds":0}}"#,
+            r#"{"voice":{"tailMs":9000}}"#,
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn the_plugin_broker_defaults_to_lumashows_socket_and_rejects_nonsense() {

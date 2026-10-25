@@ -467,11 +467,13 @@ impl SettingsStore {
         }
     }
 
-    /// Voice search's settings: off, and the preferred pipeline, until the owner says otherwise.
+    /// Voice search's settings: off, and the Local (Kokoro + Whisper) pipeline, until the owner says otherwise.
     pub fn voice(&self) -> VoiceSettings {
         VoiceSettings {
             enabled: self.flag("base.voice", "enabled").unwrap_or(false),
-            pipeline: self.text("base.voice", "pipeline").unwrap_or_default(),
+            pipeline: self
+                .text("base.voice", "pipeline")
+                .unwrap_or_else(|| DEFAULT_PIPELINE.to_owned()),
         }
     }
 
@@ -570,6 +572,9 @@ fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
         Err(errors)
     }
 }
+
+/// The pipeline voice search uses until the owner says otherwise: Local (Kokoro + Whisper) on Nitin's Home Assistant (2026-10-25).
+pub const DEFAULT_PIPELINE: &str = "01m3xamd8xzkdv52syapw0cmf2";
 
 /// An Assist pipeline id is Home Assistant's ULID-like word: letters, digits, dashes and underscores, so it can be neither a path nor
 /// a second message.
