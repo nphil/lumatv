@@ -1090,6 +1090,12 @@ what it already does.
   as a registered native service whose LS2 role allows reading screen colours
   (LG's histogram capture) and nothing else; it is removed with LumaTV. Its
   readings are never exposed to AI access (Nitin, 2026-10-25).
+- Voice search: speech becomes text through Nitin's Home Assistant Assist
+  pipeline, never LG's cloud; the result fills LumaTV's search (Nitin,
+  2026-10-25).
+- The 64-bit card app (`org.nphil.lumatv.card`) may be installed on the set
+  for its TV checks, and the capture-service probe slot may run (Nitin,
+  2026-10-25).
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
