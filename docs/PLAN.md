@@ -14,6 +14,13 @@ inventory snapshot of the firmware: `/data/home/lgtv/uiinv`.
 Kept current with every change to this plan. Building is under way (Nitin said go,
 2026-10-24).
 
+Recovery after the quota interruption (2026-10-25): `docs/HANDOFF.md`
+contains the current recovery checklist and next action. The interrupted
+surface and partial-redraw changes remain under offline verification;
+their presence does not complete the phases below. Newer dated worker
+notes take precedence over older status descriptions. No TV deployment
+has occurred during recovery.
+
 - Done in phase 1, surfaces (2026-10-25, `docs/research/surfaces-p1-result.md`):
   fail-open key filter with press and release paired, OK acting on release,
   the focus rule (the highlight at once, the lift after 150 ms of rest);
@@ -74,12 +81,11 @@ Kept current with every change to this plan. Building is under way (Nitin said g
   histogram probe (needs the `libvtcapture` histogram signatures first); the five
   census experiments, each its own slot; a TV smoke test of the plugin broker.
   Need Nitin present: PIN prompt; keys from his universal remote once set up.
-- Next, in order: slot 2 (install the build, the helper's cards on Home, the
-  startup A/B on early keys, the frame gate on Quick Settings and the kit gallery,
-  the preload A/B, the logo windows, then the toast and alert gate with LG's own
-  views and the patched ones), the rebuilt notification visuals (phase 2), the
-  quick panel, Settings and AI access (phase 3). The Rust helper's receiver, MCP
-  and preload modules are wired into the surfaces as each needs them.
+- Next: finish offline recovery from `docs/HANDOFF.md`, starting with the
+  AI-approval behavioral failure and the interrupted surface changes. Then
+  continue phases 2-9 and Track C; the next TV trial is described in
+  `docs/research/compositor-c2-result.md`. Existing TV results remain in the
+  dated worker notes; do not repeat completed slots from an older summary.
 
 ## Rules every surface meets
 

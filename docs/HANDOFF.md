@@ -6,23 +6,48 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 08:40 EDT)
+## Resume here (LumaTV, 2026-10-25, offline recovery)
 
+- Source of truth: `docs/PLAN.md` holds the project phases, acceptance gates and
+  decisions; `docs/SURFACES.md` holds the surface inventory. Each
+  `docs/research/*-result.md` has its worker's recovery point and evidence.
+  The latest dated recovery entry takes precedence over an older summary;
+  an implemented file is not proof that its feature passed on the TV.
 - Recovery checkpoint: `/data/home/lumatv-backups/recovery-20261025-083743`
-  contains `base-revision`, tracked changes in `tracked.patch` and all
-  untracked source files in `untracked.tar.gz`. Unfinished, not deployable;
-  the working tree remains intact.
-- At most one task agent, including nested helpers. Its restart could not
-  start because the assigned account was exhausted. No agents are running;
-  recovery continues in the main session, offline only.
-- SurfacesP2d left Settings, resident layers, panels, icons and gate changes
-  uncommitted. Four actual host scenes passed: Sound, Remote & pointer,
-  quick panel and context menu. Behavioral checks and further recovery remain.
-- UiDamage stopped without a final report. Its note claims a partial-redraw
-  section and TV script absent on inspection. Verify code, not those claims.
-- LG's compositor remains live. Protocol, foreground and frame-pacing fixes
-  need a new TV trial. No TV timing or Netflix fix is yet proven for them.
-  TV access waits for a free slot; human-only actions stay human-controlled.
+  contains `base-revision`, `tracked.patch` and `untracked.tar.gz`. The working
+  tree also retains the interrupted Settings, panels and renderer changes.
+  These are not a deployable release.
+- At most one task agent, including nested helpers; none currently running.
+  Continue offline. LG's compositor remains live according to the last TV
+  handback; no TV access or deployment occurred during this recovery.
+
+Recovery checklist, before returning to the project phases:
+
+- [x] Read the saved plan, handoff and compositor, surfaces, ambient, native-helper
+  and Rust UI recovery notes. The phase descriptions contain older status;
+  reconcile them with the newer worker evidence rather than repeating work.
+- [x] Fix initial Settings focus: selecting before asynchronous service values
+  arrived trapped Picture navigation on the LG link. Defer placement until
+  page entry; the existing brightness-write regression now passes. Picture and
+  Remote scenes run in dark and light; the escape note now says 650 ms.
+- [ ] Finish interrupted surface recovery. The full Settings run before that
+  focus fix had 16 passes and two failures. Brightness is now fixed; the other
+  failure remains: simulated remote approval leaves AI access disabled.
+- [x] Run renderer recovery checks: 10 tile tests, two pixel-comparison damage
+  tests and the actual whole-versus-partial drawing benchmark pass locally.
+  Partial drawing covers 36.4% of the panel at idle in the short benchmark;
+  this is software GL, not evidence of TV speed or the 60 fps gate.
+- [ ] Finish renderer integration. The current-context UI bridge is exercised
+  by its host test, but is not attached to the compositor's live drawing path.
+  The Rust UI note references a missing damage section and
+  `rustui/tools/tv-damage.py`; neither is a completed deliverable.
+- [ ] Return to `docs/PLAN.md` phases 2-9 and Track C after recovery. Preserve
+  every outstanding surface and integration; TV gates need a free slot and
+  human-only actions remain human-controlled.
+
+Next action: investigate the offline AI-approval failure, then verify and save
+the remaining surface changes. Compositor protocol, foreground and pacing
+fixes still need a new TV trial; no Netflix or frame-timing fix is proven live.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
