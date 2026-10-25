@@ -26,7 +26,7 @@ Kept current with every change to this plan. Building starts on Nitin's go.
   track C). Waiting on Nitin's go to build.
 - TV tests still open: X4 during PlxNative playback (Netflix done); the
   histogram probe (needs the `libvtcapture` histogram signatures first).
-  Need Nitin present: PIN, pointer cost, CEC keys, receiver volume drift.
+  Need Nitin present: PIN prompt; keys from his universal remote once set up.
 - Next build step: phase 1.
 
 ## Rules every surface meets
@@ -165,9 +165,14 @@ Not owned: third-party app UIs (Netflix, YouTube, PlxNative), video, and the
 Magic Remote pointer image (native; swap unverified). The pointer stays
 supported: every surface has a hover state, and Settings › Remote & pointer
 turns it off through `settingsservice` `general.remotePointer` for a
-button-only remote. Turning it off removes accidental hover moves; any frame
-cost of the pointer itself is measured with the frame probe before claiming
-one.
+button-only remote. Turning it off removes accidental hover moves. Measured
+on idle Home (2026-10-24, set booted 4 minutes earlier, so CPU figures are
+rough): a moving pointer lifts presented frames from 37 to 51-53 fps and
+compositor-side CPU from about 55 % to 66 % of one core, because LG's
+compositor repaints the whole scene on every pointer move although the
+pointer sits on the cursor plane. LumaTV's compositor moves the cursor
+plane without a repaint. On this set the pointer appears only after the
+scroll wheel is pressed, not on motion.
 
 ## Receiver: volume and controls
 
@@ -187,8 +192,11 @@ also show input and sound mode (e.g. DTS Surround) on change.
 
 Before building:
 
-1. Confirm drift on the set: with the TV and AVR on, change volume on the
-   Denon remote and compare `getVolume` with the receiver's level.
+1. Drift on the set (2026-10-24): three volume steps up and three down on
+   the LG remote returned the Denon exactly to -44.5 dB, while the TV's own
+   counter read 0 throughout. The Denon remote changes the receiver
+   directly and sends nothing to the TV (no input event on any device), so
+   the receiver's own level is the only true volume.
 2. The receiver is a Denon AVR-S760H at 192.168.1.93 (D&M MAC prefix
    00:06:78). Its HTTP interface on port 8080 answers without a held
    connection (`/goform/formMainZone_MainZoneXmlStatusLite.xml`: power,
