@@ -10,8 +10,8 @@ use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, 
 use wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_buffer_params_v1::{self, Error as ParamsError, Flags, ZwpLinuxBufferParamsV1};
 use wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_v1::{self, ZwpLinuxDmabufV1};
 
-use crate::buffer::{BufferData, BufferKind, DmabufBuffer, DmabufPlane, fourcc, modifier};
 use crate::State;
+use crate::buffer::{BufferData, BufferKind, DmabufBuffer, DmabufPlane, fourcc, modifier};
 
 pub const FORMATS: [u32; 4] = [fourcc::ARGB8888, fourcc::XRGB8888, fourcc::ABGR8888, fourcc::XBGR8888];
 pub const MODIFIERS: [u64; 2] = [modifier::LINEAR, modifier::AFBC_16X16_YTR_SPARSE_TILED];
@@ -23,7 +23,14 @@ pub struct ParamsData {
 }
 
 impl GlobalDispatch<ZwpLinuxDmabufV1, ()> for State {
-    fn bind(_state: &mut Self, _handle: &DisplayHandle, _client: &Client, resource: New<ZwpLinuxDmabufV1>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+    fn bind(
+        _state: &mut Self,
+        _handle: &DisplayHandle,
+        _client: &Client,
+        resource: New<ZwpLinuxDmabufV1>,
+        _global_data: &(),
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         let d = data_init.init(resource, ());
         for f in FORMATS {
             if d.version() >= 3 {
@@ -38,7 +45,15 @@ impl GlobalDispatch<ZwpLinuxDmabufV1, ()> for State {
 }
 
 impl Dispatch<ZwpLinuxDmabufV1, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &ZwpLinuxDmabufV1, request: zwp_linux_dmabuf_v1::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &ZwpLinuxDmabufV1,
+        request: zwp_linux_dmabuf_v1::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             zwp_linux_dmabuf_v1::Request::CreateParams { params_id } => {
@@ -51,7 +66,15 @@ impl Dispatch<ZwpLinuxDmabufV1, ()> for State {
 }
 
 impl Dispatch<ZwpLinuxBufferParamsV1, ParamsData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &ZwpLinuxBufferParamsV1, request: zwp_linux_buffer_params_v1::Request, data: &ParamsData, _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &ZwpLinuxBufferParamsV1,
+        request: zwp_linux_buffer_params_v1::Request,
+        data: &ParamsData,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         match request {
             zwp_linux_buffer_params_v1::Request::Add { fd, plane_idx, offset, stride, modifier_hi, modifier_lo } => {
                 if *data.used.lock() {
@@ -87,7 +110,11 @@ impl Dispatch<ZwpLinuxBufferParamsV1, ParamsData> for State {
                     Some(kind) => {
                         let b = data_init.init(buffer_id, BufferData { kind });
                         state.stats.buffers_created += 1;
-                        state.note_request("zwp_linux_buffer_params_v1", 0, &format!("create_immed -> wl_buffer@{} {width}x{height} {}", b.id().protocol_id(), fourcc::name(format)));
+                        state.note_request(
+                            "zwp_linux_buffer_params_v1",
+                            0,
+                            &format!("create_immed -> wl_buffer@{} {width}x{height} {}", b.id().protocol_id(), fourcc::name(format)),
+                        );
                     }
                     None => resource.post_error(ParamsError::InvalidFormat, "unsupported buffer"),
                 }
@@ -122,7 +149,11 @@ fn finish(state: &mut State, resource: &ZwpLinuxBufferParamsV1, data: &ParamsDat
     let modifier = planes[0].2;
     let y_invert = flags & Flags::YInvert.bits() != 0;
     let planes: Vec<DmabufPlane> = planes.into_iter().map(|(_, p, _)| p).collect();
-    state.note_request("zwp_linux_buffer_params_v1", 0, &format!("{width}x{height} {} modifier 0x{modifier:x} {} plane(s)", fourcc::name(format), planes.len()));
+    state.note_request(
+        "zwp_linux_buffer_params_v1",
+        0,
+        &format!("{width}x{height} {} modifier 0x{modifier:x} {} plane(s)", fourcc::name(format), planes.len()),
+    );
     Some(BufferKind::Dmabuf(Arc::new(DmabufBuffer { width, height, format, modifier, planes, y_invert })))
 }
 

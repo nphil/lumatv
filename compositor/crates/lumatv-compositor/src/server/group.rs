@@ -29,7 +29,15 @@ pub struct LayerData {
 plain_global!(WlWebosSurfaceGroupCompositor);
 
 impl Dispatch<WlWebosSurfaceGroupCompositor, ()> for State {
-    fn request(state: &mut Self, client: &Client, resource: &WlWebosSurfaceGroupCompositor, request: wl_webos_surface_group_compositor::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        resource: &WlWebosSurfaceGroupCompositor,
+        request: wl_webos_surface_group_compositor::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_webos_surface_group_compositor::Request::CreateSurfaceGroup { id, parent, name } => {
@@ -48,7 +56,11 @@ impl Dispatch<WlWebosSurfaceGroupCompositor, ()> for State {
             wl_webos_surface_group_compositor::Request::GetSurfaceGroup { id, name } => {
                 let exists = state.scene.groups.iter().any(|g| g.name == name);
                 let g = data_init.init(id, GroupData { name: name.clone(), is_owner: false });
-                state.note_request("wl_webos_surface_group_compositor", 0, &format!("get_surface_group({name:?}) {}", if exists { "found" } else { "unknown" }));
+                state.note_request(
+                    "wl_webos_surface_group_compositor",
+                    0,
+                    &format!("get_surface_group({name:?}) {}", if exists { "found" } else { "unknown" }),
+                );
                 if !exists {
                     // LG's compositor answers an unknown group with owner_destroyed, which clients treat as "gone".
                     g.owner_destroyed();
@@ -60,7 +72,15 @@ impl Dispatch<WlWebosSurfaceGroupCompositor, ()> for State {
 }
 
 impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlWebosSurfaceGroup, request: wl_webos_surface_group::Request, data: &GroupData, _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlWebosSurfaceGroup,
+        request: wl_webos_surface_group::Request,
+        data: &GroupData,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         let pid = resource.id().protocol_id();
         let gname = data.name.clone();
         let gi = state.scene.groups.iter().position(|g| g.name == gname);
@@ -143,7 +163,9 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
             }
             wl_webos_surface_group::Request::FocusOwner => state.note_request("wl_webos_surface_group", pid, "focus_owner"),
             wl_webos_surface_group::Request::FocusLayer { layer } => state.note_request("wl_webos_surface_group", pid, &format!("focus_layer({layer:?})")),
-            wl_webos_surface_group::Request::CommitKeyIndex { commit } => state.note_request("wl_webos_surface_group", pid, &format!("commit_key_index({commit})")),
+            wl_webos_surface_group::Request::CommitKeyIndex { commit } => {
+                state.note_request("wl_webos_surface_group", pid, &format!("commit_key_index({commit})"))
+            }
             wl_webos_surface_group::Request::Destroy => {}
             _ => {}
         }
@@ -158,7 +180,15 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
 }
 
 impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlWebosSurfaceGroupLayer, request: wl_webos_surface_group_layer::Request, data: &LayerData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlWebosSurfaceGroupLayer,
+        request: wl_webos_surface_group_layer::Request,
+        data: &LayerData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let pid = resource.id().protocol_id();
         fn layer<'a>(state: &'a mut State, data: &LayerData) -> Option<&'a mut GroupLayer> {
             state.scene.groups.iter_mut().find(|g| g.name == data.group).and_then(|g| g.layers.get_mut(&data.name))
@@ -188,4 +218,3 @@ impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
         }
     }
 }
-

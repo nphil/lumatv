@@ -84,7 +84,15 @@ pub struct ExportedData {
 plain_global!(WlWebosForeign);
 
 impl Dispatch<WlWebosForeign, ()> for State {
-    fn request(state: &mut Self, client: &Client, resource: &WlWebosForeign, request: wl_webos_foreign::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        resource: &WlWebosForeign,
+        request: wl_webos_foreign::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_webos_foreign::Request::ExportElement { id, surface, exported_type } => {
@@ -97,15 +105,31 @@ impl Dispatch<WlWebosForeign, ()> for State {
                 res.window_id_assigned(window_id.clone(), exported_type);
                 state.foreign.exported.insert(
                     window_id.clone(),
-                    Exported { window_id: window_id.clone(), surface: sid, exported_type, source: None, original: None, destination: Rect::default(), props: Vec::new(), contexts: Vec::new(), resource: res },
+                    Exported {
+                        window_id: window_id.clone(),
+                        surface: sid,
+                        exported_type,
+                        source: None,
+                        original: None,
+                        destination: Rect::default(),
+                        props: Vec::new(),
+                        contexts: Vec::new(),
+                        resource: res,
+                    },
                 );
                 state.journal(format!("foreign: surface {} exported as {window_id} (type {exported_type})", sid.0));
             }
             wl_webos_foreign::Request::ImportElement { id, window_id, exported_type } => {
                 let res = data_init.init(id, ());
                 let t = exported_type;
-                state.foreign.imported.insert(res.id(), Imported { window_id: window_id.clone(), context: None, attached_surface: None, z_index: 0, alignment: 0 });
-                state.journal(format!("foreign: {window_id} imported (type {t}){}", if state.foreign.exported.contains_key(&window_id) { "" } else { " (no such export)" }));
+                state
+                    .foreign
+                    .imported
+                    .insert(res.id(), Imported { window_id: window_id.clone(), context: None, attached_surface: None, z_index: 0, alignment: 0 });
+                state.journal(format!(
+                    "foreign: {window_id} imported (type {t}){}",
+                    if state.foreign.exported.contains_key(&window_id) { "" } else { " (no such export)" }
+                ));
             }
             wl_webos_foreign::Request::Destroy => {}
             _ => {}
@@ -114,7 +138,15 @@ impl Dispatch<WlWebosForeign, ()> for State {
 }
 
 impl Dispatch<WlWebosExported, ExportedData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlWebosExported, request: wl_webos_exported::Request, data: &ExportedData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlWebosExported,
+        request: wl_webos_exported::Request,
+        data: &ExportedData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let pid = resource.id().protocol_id();
         match request {
             wl_webos_exported::Request::SetExportedWindow { source_region, destination_region } => {
@@ -169,7 +201,15 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
 }
 
 impl Dispatch<WlWebosImported, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlWebosImported, request: wl_webos_imported::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlWebosImported,
+        request: wl_webos_imported::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let id = resource.id();
         let pid = id.protocol_id();
         let window_id = state.foreign.imported.get(&id).map(|i| i.window_id.clone()).unwrap_or_default();
@@ -247,7 +287,8 @@ impl State {
 
     /// Output-space rectangle of an exported element: the exporting surface's window origin plus its destination.
     fn exported_output_rect(&self, e: &Exported) -> Rect {
-        let origin = self.scene.window_of(e.surface).and_then(|w| self.scene.window(w)).map(|w| if w.kind.is_card() { (0, 0) } else { w.position }).unwrap_or((0, 0));
+        let origin =
+            self.scene.window_of(e.surface).and_then(|w| self.scene.window(w)).map(|w| if w.kind.is_card() { (0, 0) } else { w.position }).unwrap_or((0, 0));
         e.destination.translated(origin.0, origin.1)
     }
 

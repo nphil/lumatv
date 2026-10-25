@@ -21,9 +21,13 @@ pub enum Role {
     None,
     /// `wl_shell_surface` and/or `wl_webos_shell_surface`: a window of its own (`window::WindowId`).
     Toplevel,
-    Subsurface { parent: SurfaceId },
+    Subsurface {
+        parent: SurfaceId,
+    },
     /// Attached to a surface group layer (`wl_webos_surface_group.attach`).
-    GroupMember { owner: SurfaceId },
+    GroupMember {
+        owner: SurfaceId,
+    },
     /// An exported element's video region (`wl_webos_foreign`), drawn as a hole.
     Exported,
     InputPanel,
@@ -244,7 +248,12 @@ impl Surfaces {
         }
     }
 
-    fn apply_pending(&mut self, id: SurfaceId, known_size: &mut impl FnMut(&WlBuffer) -> Option<((i32, i32), bool)>, effects: &mut Vec<(SurfaceId, CommitEffects)>) {
+    fn apply_pending(
+        &mut self,
+        id: SurfaceId,
+        known_size: &mut impl FnMut(&WlBuffer) -> Option<((i32, i32), bool)>,
+        effects: &mut Vec<(SurfaceId, CommitEffects)>,
+    ) {
         let Some(s) = self.map.get_mut(&id) else { return };
         let mut p = s.pending.take();
         if let Some(cached) = s.cached.take() {

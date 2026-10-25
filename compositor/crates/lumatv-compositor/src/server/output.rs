@@ -19,5 +19,14 @@ impl GlobalDispatch<WlOutput, ()> for State {
 }
 
 impl Dispatch<WlOutput, ()> for State {
-    fn request(_state: &mut Self, _client: &Client, _resource: &WlOutput, _request: wl_output::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {}
+    fn request(
+        _state: &mut Self,
+        _client: &Client,
+        _resource: &WlOutput,
+        _request: wl_output::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
+    }
 }

@@ -60,7 +60,9 @@ pub enum FromBridge {
     Inbound(Inbound),
     Event(Event),
     /// The bridge's heartbeat; the compositor answers every one (C4's watchdog).
-    Ping { seq: u64 },
+    Ping {
+        seq: u64,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -129,7 +131,13 @@ impl Bridge for Null {
     }
 
     fn sent(&self) -> Vec<(String, Value)> {
-        self.sent.iter().filter_map(|m| match m { ToBridge::Outbound(o) => Some((o.uri.clone(), o.payload.clone())), _ => None }).collect()
+        self.sent
+            .iter()
+            .filter_map(|m| match m {
+                ToBridge::Outbound(o) => Some((o.uri.clone(), o.payload.clone())),
+                _ => None,
+            })
+            .collect()
     }
 
     fn history(&self) -> Vec<ToBridge> {
@@ -208,7 +216,8 @@ pub mod video {
     }
 
     pub fn set_crop_region(context: &str, original: &Rect, source: &Rect, destination: &Rect, app_output: Option<&Rect>) -> (String, Value) {
-        let mut p = json!({"originalInput": rect(original), "sourceInput": rect(source), "displayOutput": rect(destination), "context": context, "fullScreen": false});
+        let mut p =
+            json!({"originalInput": rect(original), "sourceInput": rect(source), "displayOutput": rect(destination), "context": context, "fullScreen": false});
         if let Some(a) = app_output.filter(|a| a.w != 0 && a.h != 0) {
             p["appOutput"] = rect(a);
         }
@@ -217,16 +226,19 @@ pub mod video {
 
     pub fn set_property(context: &str, name: &str, value: &str) -> (String, Value) {
         match name {
-            "mute" => ("luna://com.webos.service.avmutemanager/setAvMute".into(), json!({"contextId": context, "muteType": "videoMute", "muteOn": value == "on"})),
-            "registerMute" => (
-                format!("luna://com.webos.service.avmutemanager/{}", if value == "on" { "register" } else { "unregister" }),
-                json!({"contextId": context}),
-            ),
+            "mute" => {
+                ("luna://com.webos.service.avmutemanager/setAvMute".into(), json!({"contextId": context, "muteType": "videoMute", "muteOn": value == "on"}))
+            }
+            "registerMute" => {
+                (format!("luna://com.webos.service.avmutemanager/{}", if value == "on" { "register" } else { "unregister" }), json!({"contextId": context}))
+            }
             "zoomHPosition" | "zoomVPosition" | "zoomHRatio" | "zoomVRatio" => {
                 let v: i64 = value.parse().unwrap_or(0);
                 ("luna://com.webos.service.videooutput/display/setDisplayWindowProperty".into(), json!({"context": context, "zoomData": {name: v}}))
             }
-            "autoMenuControl" => ("luna://com.webos.service.videooutput/display/setDisplayWindowProperty".into(), json!({"context": context, name: value == "on"})),
+            "autoMenuControl" => {
+                ("luna://com.webos.service.videooutput/display/setDisplayWindowProperty".into(), json!({"context": context, name: value == "on"}))
+            }
             _ => ("luna://com.webos.service.videooutput/display/setDisplayWindowProperty".into(), json!({"context": context, name: value})),
         }
     }

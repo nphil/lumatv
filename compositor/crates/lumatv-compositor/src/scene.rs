@@ -198,7 +198,14 @@ impl Scene {
             }
             for (s, hint) in &g.anonymous {
                 // z_hint: below = 0, above = 1, top = 2.
-                v.push((match hint { 0 => i32::MIN / 2, 2 => i32::MAX / 2, _ => i32::MAX / 4 }, *s));
+                v.push((
+                    match hint {
+                        0 => i32::MIN / 2,
+                        2 => i32::MAX / 2,
+                        _ => i32::MAX / 4,
+                    },
+                    *s,
+                ));
             }
         }
         v.sort_by_key(|(z, _)| *z);
@@ -245,14 +252,7 @@ impl Scene {
     }
 }
 
-fn push_tree(
-    surfaces: &Surfaces,
-    window: WindowId,
-    root: SurfaceId,
-    origin: (i32, i32),
-    items: &mut Vec<Item>,
-    damage: &mut Rect,
-) {
+fn push_tree(surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32), items: &mut Vec<Item>, damage: &mut Rect) {
     for (sid, dx, dy) in surfaces.tree_in_draw_order(root) {
         let Some(s) = surfaces.get(sid) else { continue };
         let Some(buffer) = s.current.buffer.clone() else { continue };
@@ -263,7 +263,8 @@ fn push_tree(
         if rect.is_empty() {
             continue;
         }
-        let item_damage = s.current.damage.as_ref().map(|d| d.iter().map(|r| r.translated(rect.x, rect.y).intersect(&rect)).filter(|r| !r.is_empty()).collect::<Vec<_>>());
+        let item_damage =
+            s.current.damage.as_ref().map(|d| d.iter().map(|r| r.translated(rect.x, rect.y).intersect(&rect)).filter(|r| !r.is_empty()).collect::<Vec<_>>());
         match &item_damage {
             None => *damage = damage.union(&rect),
             Some(d) => {

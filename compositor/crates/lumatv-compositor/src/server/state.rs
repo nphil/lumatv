@@ -297,12 +297,25 @@ impl State {
         if self.config.check == Check::X2 {
             let k = self.check.next_frame;
             let expected = capture::x2_colour(k);
-            let probe = plan.items.first().map(|i| (i.rect.x.max(0) as u32, i.rect.y.max(0) as u32, i.rect.w as u32, i.rect.h as u32)).unwrap_or((0, 0, image.width, image.height));
+            let probe = plan.items.first().map(|i| (i.rect.x.max(0) as u32, i.rect.y.max(0) as u32, i.rect.w as u32, i.rect.h as u32)).unwrap_or((
+                0,
+                0,
+                image.width,
+                image.height,
+            ));
             let ok = capture::matches(&image, probe, expected);
             let px = image.pixel(probe.0 + probe.2 / 2, probe.1 + probe.3 / 2);
             self.journal(format!(
                 "check x2 frame {k}: centre {:02x}{:02x}{:02x}{:02x} expected {:02x}{:02x}{:02x}{:02x} {}",
-                px[0], px[1], px[2], px[3], expected[0], expected[1], expected[2], expected[3], if ok { "ok" } else { "BAD" }
+                px[0],
+                px[1],
+                px[2],
+                px[3],
+                expected[0],
+                expected[1],
+                expected[2],
+                expected[3],
+                if ok { "ok" } else { "BAD" }
             ));
             if ok {
                 self.check.ok += 1;

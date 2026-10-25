@@ -12,7 +12,15 @@ use crate::{State, noop_dispatch, plain_global};
 plain_global!(WlWebosInputManager);
 
 impl Dispatch<WlWebosInputManager, ()> for State {
-    fn request(state: &mut Self, client: &Client, resource: &WlWebosInputManager, request: wl_webos_input_manager::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        resource: &WlWebosInputManager,
+        request: wl_webos_input_manager::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_webos_input_manager::Request::GetWebosSeat { id, seat } => {
@@ -32,7 +40,15 @@ impl Dispatch<WlWebosInputManager, ()> for State {
 }
 
 impl Dispatch<WlWebosSeat, ()> for State {
-    fn request(state: &mut Self, _client: &Client, _resource: &WlWebosSeat, request: wl_webos_seat::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        _resource: &WlWebosSeat,
+        request: wl_webos_seat::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         match request {
             wl_webos_seat::Request::GetGyroscope { id } => {
                 data_init.init(id, ());

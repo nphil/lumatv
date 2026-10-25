@@ -20,7 +20,15 @@ pub struct WebosShellSurfaceData {
 plain_global!(WlWebosShell);
 
 impl Dispatch<WlWebosShell, ()> for State {
-    fn request(state: &mut Self, client: &Client, resource: &WlWebosShell, request: wl_webos_shell::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        resource: &WlWebosShell,
+        request: wl_webos_shell::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_webos_shell::Request::GetShellSurface { id, surface } => {
@@ -38,7 +46,11 @@ impl Dispatch<WlWebosShell, ()> for State {
                 if let Some(w) = state.scene.window_mut(wid) {
                     w.has_webos_shell = true;
                 }
-                state.note_request("wl_webos_shell", 0, &format!("get_shell_surface -> wl_webos_shell_surface@{} (window {}, surface {})", ss.id().protocol_id(), wid.0, sid.0));
+                state.note_request(
+                    "wl_webos_shell",
+                    0,
+                    &format!("get_shell_surface -> wl_webos_shell_surface@{} (window {}, surface {})", ss.id().protocol_id(), wid.0, sid.0),
+                );
                 state.journal(format!("webOS shell surface on window {} (surface {}) by {}", wid.0, sid.0, state.client_info(client)));
             }
             wl_webos_shell::Request::GetSystemPip => state.note_request("wl_webos_shell", 0, "get_system_pip (ignored)"),
@@ -48,7 +60,15 @@ impl Dispatch<WlWebosShell, ()> for State {
 }
 
 impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlWebosShellSurface, request: wl_webos_shell_surface::Request, data: &WebosShellSurfaceData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlWebosShellSurface,
+        request: wl_webos_shell_surface::Request,
+        data: &WebosShellSurfaceData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let pid = resource.id().protocol_id();
         match request {
             wl_webos_shell_surface::Request::SetLocationHint { hint } => {

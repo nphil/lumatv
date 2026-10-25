@@ -192,7 +192,6 @@ fn damage_without_a_new_buffer_redraws_only_that_rectangle() {
     assert!(plan_damage.1 <= 4 * 4 || plan_damage.0, "damage after a 4 px commit is 4 px (or already consumed): {plan_damage:?}");
 }
 
-
 #[test]
 fn surface_group_member_draws_above_its_owner() {
     let mut server = Server::start();
@@ -329,9 +328,33 @@ fn luna_tier_one_methods_answer_from_the_scene() {
     let mut client = Client::connect(&mut server);
     // A subscription opened before any window exists, like SAM's at boot.
     server.eval(|s| {
-        s.luna_inbound(Inbound { token: 11, service: "com.webos.surfacemanager".into(), method: "getForegroundAppInfo".into(), payload: json!({"subscribe": true}), subscribe: true, sender: "com.webos.applicationManager".into(), cancelled: false });
-        s.luna_inbound(Inbound { token: 12, service: "com.webos.coverUI".into(), method: "getStatus".into(), payload: json!({}), subscribe: false, sender: "com.webos.applicationManager".into(), cancelled: false });
-        s.luna_inbound(Inbound { token: 13, service: "com.webos.surfacemanager".into(), method: "noSuchMethod".into(), payload: json!({}), subscribe: false, sender: "x".into(), cancelled: false });
+        s.luna_inbound(Inbound {
+            token: 11,
+            service: "com.webos.surfacemanager".into(),
+            method: "getForegroundAppInfo".into(),
+            payload: json!({"subscribe": true}),
+            subscribe: true,
+            sender: "com.webos.applicationManager".into(),
+            cancelled: false,
+        });
+        s.luna_inbound(Inbound {
+            token: 12,
+            service: "com.webos.coverUI".into(),
+            method: "getStatus".into(),
+            payload: json!({}),
+            subscribe: false,
+            sender: "com.webos.applicationManager".into(),
+            cancelled: false,
+        });
+        s.luna_inbound(Inbound {
+            token: 13,
+            service: "com.webos.surfacemanager".into(),
+            method: "noSuchMethod".into(),
+            payload: json!({}),
+            subscribe: false,
+            sender: "x".into(),
+            cancelled: false,
+        });
     });
     let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
     let buf = client.shm_buffer(1920, 1080, 0xff00_0000);
@@ -339,7 +362,13 @@ fn luna_tier_one_methods_answer_from_the_scene() {
     assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
     std::thread::sleep(Duration::from_millis(20));
     let history = server.eval(|s| s.luna.history());
-    let replies: Vec<(u64, serde_json::Value)> = history.iter().filter_map(|m| match m { ToBridge::Reply(r) => Some((r.token, r.payload.clone())), _ => None }).collect();
+    let replies: Vec<(u64, serde_json::Value)> = history
+        .iter()
+        .filter_map(|m| match m {
+            ToBridge::Reply(r) => Some((r.token, r.payload.clone())),
+            _ => None,
+        })
+        .collect();
     let first = &replies.iter().find(|(t, _)| *t == 11).unwrap().1;
     assert_eq!(first["returnValue"], true);
     assert_eq!(first["subscribed"], true);
@@ -348,7 +377,7 @@ fn luna_tier_one_methods_answer_from_the_scene() {
     assert_eq!(cover["status"], "closed");
     let unknown = &replies.iter().find(|(t, _)| *t == 13).unwrap().1;
     assert_eq!(unknown["returnValue"], false);
-    let pushed = replies.iter().filter(|(t, _)| *t == 11).last().unwrap();
+    let pushed = replies.iter().rev().find(|(t, _)| *t == 11).unwrap();
     let info = &pushed.1["foregroundAppInfo"][0];
     assert_eq!(info["appId"], "org.test.player", "the mapped card was pushed to the subscriber");
     assert_eq!(info["windowType"], "_WEBOS_WINDOW_TYPE_CARD");

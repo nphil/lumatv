@@ -19,7 +19,12 @@ pub fn write_png(path: &Path, image: &Image) -> io::Result<()> {
         if a == 0 || a == 255 {
             straight.extend_from_slice(px);
         } else {
-            straight.extend_from_slice(&[((px[0] as u32 * 255 + a / 2) / a).min(255) as u8, ((px[1] as u32 * 255 + a / 2) / a).min(255) as u8, ((px[2] as u32 * 255 + a / 2) / a).min(255) as u8, px[3]]);
+            straight.extend_from_slice(&[
+                ((px[0] as u32 * 255 + a / 2) / a).min(255) as u8,
+                ((px[1] as u32 * 255 + a / 2) / a).min(255) as u8,
+                ((px[2] as u32 * 255 + a / 2) / a).min(255) as u8,
+                px[3],
+            ]);
         }
     }
     writer.write_image_data(&straight).map_err(io::Error::other)

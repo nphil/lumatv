@@ -5,11 +5,11 @@ use std::io;
 
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
+use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
 use crate::scene::Plan;
 use crate::surface::Surfaces;
-use crate::Rect;
 
 pub struct Software {
     width: u32,

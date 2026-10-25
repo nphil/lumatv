@@ -29,7 +29,11 @@ macro_rules! noop_dispatch {
                 _dhandle: &wayland_server::DisplayHandle,
                 _data_init: &mut wayland_server::DataInit<'_, Self>,
             ) {
-                state.note_request(<$iface as wayland_server::Resource>::interface().name, wayland_server::Resource::id(resource).protocol_id(), &format!("{request:?}"));
+                state.note_request(
+                    <$iface as wayland_server::Resource>::interface().name,
+                    wayland_server::Resource::id(resource).protocol_id(),
+                    &format!("{request:?}"),
+                );
             }
         }
     };

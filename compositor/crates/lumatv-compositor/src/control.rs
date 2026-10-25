@@ -36,7 +36,9 @@ pub fn handle(state: &mut State, line: &str) -> String {
             "focus": state.seat.focus.map(|s| s.0),
             "lastCapture": state.last_capture,
         }),
-        "windows" => json!({"ok": true, "windows": state.windows_report(), "groups": state.scene.groups.iter().map(|g| json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>()})).collect::<Vec<_>>(), "video": state.foreign.video_windows()}),
+        "windows" => {
+            json!({"ok": true, "windows": state.windows_report(), "groups": state.scene.groups.iter().map(|g| json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>()})).collect::<Vec<_>>(), "video": state.foreign.video_windows()})
+        }
         "journal" => json!({"ok": true, "lines": state.journal}),
         "capture" => match words.next() {
             Some(path) => match state.capture_to(Path::new(path)) {

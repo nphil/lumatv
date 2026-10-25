@@ -12,7 +12,15 @@ plain_global!(WlStarfishPointer);
 plain_global!(WlStarfishOutput);
 
 impl Dispatch<WlStarfishPointer, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlStarfishPointer, request: wl_starfish_pointer::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlStarfishPointer,
+        request: wl_starfish_pointer::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         match request {
             wl_starfish_pointer::Request::SetCursorPosition { x, y } => {
                 state.note_request("wl_starfish_pointer", 0, &format!("set_cursor_position({x}, {y})"));

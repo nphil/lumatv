@@ -28,7 +28,15 @@ plain_global!(WlWebosSystemUx);
 plain_global!(WlDataDeviceManager);
 
 impl Dispatch<WlWebosXinputExtension, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &WlWebosXinputExtension, request: wl_webos_xinput_extension::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &WlWebosXinputExtension,
+        request: wl_webos_xinput_extension::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         if let wl_webos_xinput_extension::Request::RegisterInput { id } = request {
             data_init.init(id, ());
@@ -40,7 +48,15 @@ impl Dispatch<WlWebosXinputExtension, ()> for State {
 noop_dispatch!(WlWebosXinput, ());
 
 impl Dispatch<TextModelFactory, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &TextModelFactory, request: text_model_factory::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &TextModelFactory,
+        request: text_model_factory::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         if let text_model_factory::Request::CreateTextModel { id } = request {
             data_init.init(id, ());
@@ -50,7 +66,15 @@ impl Dispatch<TextModelFactory, ()> for State {
 }
 
 impl Dispatch<TextModel, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &TextModel, request: text_model::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &TextModel,
+        request: text_model::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let pid = resource.id().protocol_id();
         match &request {
             text_model::Request::Activate { surface, .. } => {
@@ -71,7 +95,15 @@ noop_dispatch!(InputMethod, ());
 noop_dispatch!(InputMethodContext, ());
 
 impl Dispatch<InputPanel, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &InputPanel, request: input_panel::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &InputPanel,
+        request: input_panel::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         if let input_panel::Request::GetInputPanelSurface { id, surface } = request {
             data_init.init(id, ());
@@ -90,7 +122,15 @@ noop_dispatch!(InputPanelSurface, ());
 noop_dispatch!(WlWebosSystemUx, ());
 
 impl Dispatch<WlDataDeviceManager, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &WlDataDeviceManager, request: wl_data_device_manager::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &WlDataDeviceManager,
+        request: wl_data_device_manager::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_data_device_manager::Request::CreateDataSource { id } => {

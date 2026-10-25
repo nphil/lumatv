@@ -62,11 +62,7 @@ impl Rect {
         let y = self.y.max(o.y);
         let r = self.right().min(o.right());
         let b = self.bottom().min(o.bottom());
-        if r <= x || b <= y {
-            Rect::default()
-        } else {
-            Rect::new(x, y, r - x, b - y)
-        }
+        if r <= x || b <= y { Rect::default() } else { Rect::new(x, y, r - x, b - y) }
     }
 
     pub fn union(&self, o: &Rect) -> Rect {

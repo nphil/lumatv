@@ -19,7 +19,15 @@ pub struct ShellSurfaceData {
 plain_global!(WlShell);
 
 impl Dispatch<WlShell, ()> for State {
-    fn request(state: &mut Self, client: &Client, resource: &WlShell, request: wl_shell::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        resource: &WlShell,
+        request: wl_shell::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         if let wl_shell::Request::GetShellSurface { id, surface } = request {
             let Some(sid) = surface_id(&surface) else {
@@ -35,7 +43,11 @@ impl Dispatch<WlShell, ()> for State {
             if let Some(w) = state.scene.window_mut(wid) {
                 w.has_wl_shell = true;
             }
-            state.note_request("wl_shell", 0, &format!("get_shell_surface -> wl_shell_surface@{} (window {}, surface {})", ss.id().protocol_id(), wid.0, sid.0));
+            state.note_request(
+                "wl_shell",
+                0,
+                &format!("get_shell_surface -> wl_shell_surface@{} (window {}, surface {})", ss.id().protocol_id(), wid.0, sid.0),
+            );
             state.journal(format!("window {} created on surface {} by {}", wid.0, sid.0, state.client_info(client)));
         }
     }
@@ -55,7 +67,15 @@ pub fn take_toplevel_role(state: &mut State, sid: SurfaceId) -> bool {
 }
 
 impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlShellSurface, request: wl_shell_surface::Request, data: &ShellSurfaceData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlShellSurface,
+        request: wl_shell_surface::Request,
+        data: &ShellSurfaceData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let pid = resource.id().protocol_id();
         match request {
             wl_shell_surface::Request::Pong { serial } => state.note_request("wl_shell_surface", pid, &format!("pong({serial})")),

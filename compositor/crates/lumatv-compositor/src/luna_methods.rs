@@ -5,9 +5,9 @@
 use serde_json::{Value, json};
 use wayland_server::Resource;
 
+use crate::State;
 use crate::luna::{Event, Inbound, Outbound, Reply, ToBridge, power};
 use crate::window::WindowType;
-use crate::State;
 
 pub struct Subscription {
     pub token: u64,
@@ -31,7 +31,15 @@ pub struct LunaState {
 
 impl Default for LunaState {
     fn default() -> Self {
-        LunaState { subscriptions: Vec::new(), screen_visible: true, key_block: false, pin_overlay: None, power: Power::default(), next_token: 0, power_tokens: Vec::new() }
+        LunaState {
+            subscriptions: Vec::new(),
+            screen_visible: true,
+            key_block: false,
+            pin_overlay: None,
+            power: Power::default(),
+            next_token: 0,
+            power_tokens: Vec::new(),
+        }
     }
 }
 
@@ -135,7 +143,13 @@ impl State {
                     && let Some(obj) = p.as_object_mut()
                 {
                     obj.insert("subscribed".into(), json!(true));
-                    self.luna_state.subscriptions.push(Subscription { token: m.token, service: m.service.clone(), method: m.method.clone(), sender: m.sender.clone(), last: p.clone() });
+                    self.luna_state.subscriptions.push(Subscription {
+                        token: m.token,
+                        service: m.service.clone(),
+                        method: m.method.clone(),
+                        sender: m.sender.clone(),
+                        last: p.clone(),
+                    });
                 }
                 p
             }
@@ -150,7 +164,8 @@ impl State {
             return;
         }
         let mut pushes = Vec::new();
-        let subs: Vec<(usize, String, String, String)> = self.luna_state.subscriptions.iter().enumerate().map(|(i, s)| (i, s.service.clone(), s.method.clone(), s.sender.clone())).collect();
+        let subs: Vec<(usize, String, String, String)> =
+            self.luna_state.subscriptions.iter().enumerate().map(|(i, s)| (i, s.service.clone(), s.method.clone(), s.sender.clone())).collect();
         for (i, service, method, sender) in subs {
             if let Some(mut p) = self.luna_method(&service, &method, &json!({}), &sender) {
                 if let Some(obj) = p.as_object_mut() {
@@ -172,11 +187,15 @@ impl State {
     pub fn luna_method(&mut self, service: &str, method: &str, payload: &Value, _sender: &str) -> Option<Value> {
         let ok = || json!({"returnValue": true});
         Some(match (service, method) {
-            ("com.webos.surfacemanager", "getForegroundAppInfo") | ("com.webos.service.systemUIManager", "getForegroundAppInfo") => self.foreground_app_info(service == "com.webos.service.systemUIManager"),
+            ("com.webos.surfacemanager", "getForegroundAppInfo") | ("com.webos.service.systemUIManager", "getForegroundAppInfo") => {
+                self.foreground_app_info(service == "com.webos.service.systemUIManager")
+            }
             ("com.webos.surfacemanager", "getFocusedWindowInfo") => self.focused_window_info(),
             ("com.webos.surfacemanager", "getCurrentState") | ("com.webos.surfacemanager", "getForegroundWindowInfo") => self.window_list(),
             ("com.webos.surfacemanager", "getForegroundVideoWindow") => json!({"returnValue": true, "foregroundVideoWindow": self.video_windows()}),
-            ("com.webos.surfacemanager", "getLastInputType") => json!({"returnValue": true, "lastInputType": if self.seat.last_input.is_empty() { "key" } else { self.seat.last_input }}),
+            ("com.webos.surfacemanager", "getLastInputType") => {
+                json!({"returnValue": true, "lastInputType": if self.seat.last_input.is_empty() { "key" } else { self.seat.last_input }})
+            }
             ("com.webos.surfacemanager", "closeByAppId") | ("com.webos.service.systemUIManager", "closeByAppId") => {
                 let Some(app) = payload.get("appId").and_then(Value::as_str) else {
                     return Some(json!({"returnValue": false, "errorText": "appId required"}));
@@ -194,10 +213,14 @@ impl State {
                 self.journal(format!("luna: setPinOverlayView {payload}"));
                 ok()
             }
-            ("com.webos.surfacemanager", "getRecentsAppList") | ("com.webos.service.recent", "listRecents") => json!({"returnValue": true, "recentsAppList": self.recents(), "recents": self.recents()}),
+            ("com.webos.surfacemanager", "getRecentsAppList") | ("com.webos.service.recent", "listRecents") => {
+                json!({"returnValue": true, "recentsAppList": self.recents(), "recents": self.recents()})
+            }
             ("com.webos.surfacemanager", "clearRecentsList") | ("com.webos.service.recent", "removeAllRecents") => ok(),
             ("com.webos.service.recent", "removeRecent") => json!({"returnValue": true, "appId": payload.get("appId").cloned().unwrap_or(Value::Null)}),
-            ("com.webos.surfacemanager", "showInputPicker") | ("com.webos.surfacemanager", "showQuickSettings") | ("com.webos.service.systemUIManager", "launch") => {
+            ("com.webos.surfacemanager", "showInputPicker")
+            | ("com.webos.surfacemanager", "showQuickSettings")
+            | ("com.webos.service.systemUIManager", "launch") => {
                 self.journal(format!("luna: {method} {payload} (system UI not built yet)"));
                 ok()
             }
@@ -247,7 +270,8 @@ impl State {
 
     fn focused_window_info(&self) -> Value {
         let focus = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
-        let list: Vec<Value> = focus.map(|w| json!({"appId": w.app_id(), "type": if w.kind.is_card() { "fullscreen" } else { "overlay" }})).into_iter().collect();
+        let list: Vec<Value> =
+            focus.map(|w| json!({"appId": w.app_id(), "type": if w.kind.is_card() { "fullscreen" } else { "overlay" }})).into_iter().collect();
         json!({"returnValue": true, "focusedWindowInfo": list})
     }
 
@@ -293,11 +317,7 @@ impl State {
     }
 
     fn recents(&self) -> Vec<Value> {
-        self.scene
-            .windows()
-            .filter(|w| w.kind.is_card() && w.map_serial > 0)
-            .map(|w| json!({"appId": w.app_id(), "title": w.title}))
-            .collect()
+        self.scene.windows().filter(|w| w.kind.is_card() && w.map_serial > 0).map(|w| json!({"appId": w.app_id(), "title": w.title})).collect()
     }
 
     /// `closeByAppId`: every window of that app gets `wl_webos_shell_surface.close`; returns how many.

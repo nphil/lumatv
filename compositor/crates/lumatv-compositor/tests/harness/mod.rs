@@ -67,9 +67,11 @@ impl Server {
     /// Runs `f` on the server thread with its state and returns the result.
     pub fn eval<R: Send + 'static>(&self, f: impl FnOnce(&mut State) -> R + Send + 'static) -> R {
         let (tx, rx) = channel();
-        self.jobs.send(Box::new(move |s| {
-            let _ = tx.send(f(s));
-        })).unwrap();
+        self.jobs
+            .send(Box::new(move |s| {
+                let _ = tx.send(f(s));
+            }))
+            .unwrap();
         rx.recv_timeout(Duration::from_secs(5)).expect("server thread answered")
     }
 

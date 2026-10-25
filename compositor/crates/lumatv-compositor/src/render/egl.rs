@@ -238,7 +238,8 @@ impl Egl {
         macro_rules! opt {
             ($name:literal) => {{
                 let p = lookup($name);
-                // SAFETY: the pointer, when present, is the named EGL entry point.
+                // SAFETY: the pointer, when present, is the named EGL entry point, whose C signature the field declares.
+                #[allow(clippy::missing_transmute_annotations)]
                 if p.is_null() { None } else { Some(unsafe { std::mem::transmute(p) }) }
             }};
         }
@@ -273,8 +274,19 @@ impl Egl {
             (api.eglBindAPI)(EGL_OPENGL_ES_API);
             let ctx_attribs = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
             let cfg_attribs = [
-                EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-                EGL_ALPHA_SIZE, 8, EGL_NONE,
+                EGL_SURFACE_TYPE,
+                EGL_PBUFFER_BIT,
+                EGL_RENDERABLE_TYPE,
+                EGL_OPENGL_ES2_BIT,
+                EGL_RED_SIZE,
+                8,
+                EGL_GREEN_SIZE,
+                8,
+                EGL_BLUE_SIZE,
+                8,
+                EGL_ALPHA_SIZE,
+                8,
+                EGL_NONE,
             ];
             let mut config: EGLConfig = std::ptr::null_mut();
             let mut n = 0;
@@ -319,7 +331,10 @@ impl Egl {
     }
 
     /// `eglBindWaylandDisplayWL`: the driver registers `mali_buffer_sharing` (and `wl_drm`) on `wl_display`.
-    pub fn bind_wayland_display(&self, wl_display: *mut c_void) -> io::Result<()> {
+    ///
+    /// # Safety
+    /// `wl_display` is the live `wl_display` of the C libwayland backend this process dispatches.
+    pub unsafe fn bind_wayland_display(&self, wl_display: *mut c_void) -> io::Result<()> {
         let Some(bind) = self.opt.eglBindWaylandDisplayWL else {
             return Err(other("driver has no eglBindWaylandDisplayWL"));
         };
@@ -341,7 +356,10 @@ impl Egl {
     }
 
     /// Size and row order of a buffer the driver created (`EGL_WAYLAND_BUFFER_WL`).
-    pub fn query_wayland_buffer(&self, resource: *mut c_void) -> Option<((i32, i32), bool)> {
+    ///
+    /// # Safety
+    /// `resource` is a live `wl_resource` of a `wl_buffer` the bound driver created.
+    pub unsafe fn query_wayland_buffer(&self, resource: *mut c_void) -> Option<((i32, i32), bool)> {
         let q = self.opt.eglQueryWaylandBufferWL?;
         let (mut w, mut h, mut inv) = (0, 0, 0);
         // SAFETY: resource is a live wl_resource of a wl_buffer; outputs are stack ints.
@@ -354,7 +372,9 @@ impl Egl {
         Some(((w, h), inv != 0))
     }
 
-    pub fn image_from_wayland_buffer(&self, resource: *mut c_void) -> io::Result<EGLImage> {
+    /// # Safety
+    /// `resource` is a live `wl_resource` of a `wl_buffer` the bound driver created.
+    pub unsafe fn image_from_wayland_buffer(&self, resource: *mut c_void) -> io::Result<EGLImage> {
         // SAFETY: as above; a null image is an error.
         let img = unsafe { (self.api.eglCreateImageKHR)(self.display, std::ptr::null_mut(), EGL_WAYLAND_BUFFER_WL, resource, std::ptr::null()) };
         if img.is_null() {
@@ -363,26 +383,46 @@ impl Egl {
         Ok(img)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn image_from_dmabuf(&self, fd: i32, width: i32, height: i32, fourcc: u32, offset: u32, pitch: u32, modifier: u64) -> io::Result<EGLImage> {
         let mut attribs = vec![
-            EGL_WIDTH, width, EGL_HEIGHT, height, EGL_LINUX_DRM_FOURCC_EXT, fourcc as EGLint, EGL_DMA_BUF_PLANE0_FD_EXT, fd,
-            EGL_DMA_BUF_PLANE0_OFFSET_EXT, offset as EGLint, EGL_DMA_BUF_PLANE0_PITCH_EXT, pitch as EGLint,
+            EGL_WIDTH,
+            width,
+            EGL_HEIGHT,
+            height,
+            EGL_LINUX_DRM_FOURCC_EXT,
+            fourcc as EGLint,
+            EGL_DMA_BUF_PLANE0_FD_EXT,
+            fd,
+            EGL_DMA_BUF_PLANE0_OFFSET_EXT,
+            offset as EGLint,
+            EGL_DMA_BUF_PLANE0_PITCH_EXT,
+            pitch as EGLint,
         ];
         if modifier != 0 || self.has_extension("EGL_EXT_image_dma_buf_import_modifiers") {
             attribs.extend_from_slice(&[
-                EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, modifier as u32 as EGLint, EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, (modifier >> 32) as u32 as EGLint,
+                EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
+                modifier as u32 as EGLint,
+                EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
+                (modifier >> 32) as u32 as EGLint,
             ]);
         }
         attribs.push(EGL_NONE);
         // SAFETY: attribute list is NONE-terminated; the fd is a live dma-buf.
         let img = unsafe { (self.api.eglCreateImageKHR)(self.display, std::ptr::null_mut(), EGL_LINUX_DMA_BUF_EXT, std::ptr::null_mut(), attribs.as_ptr()) };
         if img.is_null() {
-            return Err(other(format!("eglCreateImageKHR(dma-buf {width}x{height} {} mod 0x{modifier:x}): 0x{:x}", crate::buffer::fourcc::name(fourcc), self.error())));
+            return Err(other(format!(
+                "eglCreateImageKHR(dma-buf {width}x{height} {} mod 0x{modifier:x}): 0x{:x}",
+                crate::buffer::fourcc::name(fourcc),
+                self.error()
+            )));
         }
         Ok(img)
     }
 
-    pub fn destroy_image(&self, image: EGLImage) {
+    /// # Safety
+    /// `image` came from this display and is destroyed once.
+    pub unsafe fn destroy_image(&self, image: EGLImage) {
         if !image.is_null() {
             // SAFETY: an image this object created.
             unsafe { (self.api.eglDestroyImageKHR)(self.display, image) };
@@ -397,7 +437,9 @@ impl Egl {
         if sync.is_null() { None } else { Some(sync) }
     }
 
-    pub fn wait_fence(&self, sync: EGLSync, timeout_ns: u64) -> bool {
+    /// # Safety
+    /// `sync` came from `kick_fence` on this display and is not used afterwards.
+    pub unsafe fn wait_fence(&self, sync: EGLSync, timeout_ns: u64) -> bool {
         let (Some(wait), Some(destroy)) = (self.opt.eglClientWaitSyncKHR, self.opt.eglDestroySyncKHR) else { return false };
         // SAFETY: a sync this object created, destroyed once.
         unsafe {

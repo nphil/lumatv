@@ -64,6 +64,10 @@ impl ShmPool {
         self.map.lock().len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Runs `f` over the pool's bytes. A buffer whose extent lies beyond the mapping (a client lied about its
     /// size) is given an empty slice rather than a fault.
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
@@ -84,9 +88,7 @@ impl Mapping {
         }
         let len = size as usize;
         // SAFETY: plain mmap of a client fd; failure is reported, the pointer is checked.
-        let ptr = unsafe {
-            libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_SHARED, fd, 0)
-        };
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_SHARED, fd, 0) };
         if ptr == libc::MAP_FAILED {
             return Err(std::io::Error::last_os_error());
         }

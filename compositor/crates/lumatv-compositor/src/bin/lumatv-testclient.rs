@@ -172,9 +172,19 @@ fn main() {
         while !app.frame_done && Instant::now() < deadline {
             queue.blocking_dispatch(&mut app).unwrap();
         }
-        println!("[cli] frame {k}: colour {r:02x}80{b:02x}ff, callback after {:.1} ms{}", ts.elapsed().as_secs_f64() * 1000.0, if app.frame_done { "" } else { " (TIMEOUT)" });
+        println!(
+            "[cli] frame {k}: colour {r:02x}80{b:02x}ff, callback after {:.1} ms{}",
+            ts.elapsed().as_secs_f64() * 1000.0,
+            if app.frame_done { "" } else { " (TIMEOUT)" }
+        );
     }
-    println!("[cli] {frames} frames in {:.1} ms; releases {:?}; states {:?}; configures {:?}", t0.elapsed().as_secs_f64() * 1000.0, app.released, app.states, app.configures);
+    println!(
+        "[cli] {frames} frames in {:.1} ms; releases {:?}; states {:?}; configures {:?}",
+        t0.elapsed().as_secs_f64() * 1000.0,
+        app.released,
+        app.states,
+        app.configures
+    );
     // The server may already have exited after its last frame (--frames); that is not a failure here.
     let _ = queue.roundtrip(&mut app);
     println!("[cli] done");

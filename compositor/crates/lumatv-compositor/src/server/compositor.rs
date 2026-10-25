@@ -41,7 +41,15 @@ plain_global!(WlCompositor);
 plain_global!(WlSubcompositor);
 
 impl Dispatch<WlCompositor, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &WlCompositor, request: wl_compositor::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &WlCompositor,
+        request: wl_compositor::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_compositor::Request::CreateSurface { id } => {
@@ -59,7 +67,15 @@ impl Dispatch<WlCompositor, ()> for State {
 }
 
 impl Dispatch<WlRegion, RegionData> for State {
-    fn request(_state: &mut Self, _client: &Client, _resource: &WlRegion, request: wl_region::Request, data: &RegionData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        _state: &mut Self,
+        _client: &Client,
+        _resource: &WlRegion,
+        request: wl_region::Request,
+        data: &RegionData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         match request {
             wl_region::Request::Add { x, y, width, height } => data.rects.lock().push(Rect::new(x, y, width, height)),
             wl_region::Request::Subtract { x, y, width, height } => {
@@ -73,16 +89,43 @@ impl Dispatch<WlRegion, RegionData> for State {
 }
 
 impl Dispatch<WlCallback, ()> for State {
-    fn request(_state: &mut Self, _client: &Client, _resource: &WlCallback, _request: wayland_server::protocol::wl_callback::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {}
+    fn request(
+        _state: &mut Self,
+        _client: &Client,
+        _resource: &WlCallback,
+        _request: wayland_server::protocol::wl_callback::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
+    }
 }
 
 impl Dispatch<WlSurface, SurfaceData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlSurface, request: wl_surface::Request, data: &SurfaceData, _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlSurface,
+        request: wl_surface::Request,
+        data: &SurfaceData,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         let id = data.id;
         let pid = resource.id().protocol_id();
         match request {
             wl_surface::Request::Attach { buffer, x, y } => {
-                state.note_request("wl_surface", pid, &format!("attach({}, {x}, {y})", buffer.as_ref().map(|b| format!("wl_buffer@{} {}", b.id().protocol_id(), crate::buffer::kind_of(b).name())).unwrap_or_else(|| "null".into())));
+                state.note_request(
+                    "wl_surface",
+                    pid,
+                    &format!(
+                        "attach({}, {x}, {y})",
+                        buffer
+                            .as_ref()
+                            .map(|b| format!("wl_buffer@{} {}", b.id().protocol_id(), crate::buffer::kind_of(b).name()))
+                            .unwrap_or_else(|| "null".into())
+                    ),
+                );
                 if let Some(s) = state.surfaces.get_mut(id) {
                     s.pending.buffer = Some(buffer);
                     s.pending.attach_offset = (x, y);
@@ -155,7 +198,15 @@ impl Dispatch<WlSurface, SurfaceData> for State {
 }
 
 impl Dispatch<WlSubcompositor, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlSubcompositor, request: wl_subcompositor::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlSubcompositor,
+        request: wl_subcompositor::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         match request {
             wl_subcompositor::Request::GetSubsurface { id, surface, parent } => {
                 let (Some(child), Some(par)) = (surface_id(&surface), surface_id(&parent)) else {
@@ -177,7 +228,15 @@ impl Dispatch<WlSubcompositor, ()> for State {
 }
 
 impl Dispatch<WlSubsurface, SubsurfaceData> for State {
-    fn request(state: &mut Self, _client: &Client, _resource: &WlSubsurface, request: wl_subsurface::Request, data: &SubsurfaceData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        _resource: &WlSubsurface,
+        request: wl_subsurface::Request,
+        data: &SubsurfaceData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         let id = data.surface;
         match request {
             wl_subsurface::Request::SetPosition { x, y } => {

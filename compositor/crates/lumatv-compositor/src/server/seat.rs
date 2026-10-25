@@ -62,7 +62,15 @@ impl GlobalDispatch<WlSeat, ()> for State {
 }
 
 impl Dispatch<WlSeat, ()> for State {
-    fn request(state: &mut Self, client: &Client, _resource: &WlSeat, request: wl_seat::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        _resource: &WlSeat,
+        request: wl_seat::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_seat::Request::GetKeyboard { id } => {
@@ -119,7 +127,15 @@ fn memfd_with(bytes: &[u8]) -> std::io::Result<std::os::fd::OwnedFd> {
 }
 
 impl Dispatch<WlKeyboard, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlKeyboard, request: wl_keyboard::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlKeyboard,
+        request: wl_keyboard::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         if let wl_keyboard::Request::Release = request {
             state.seat.keyboards.retain(|k| k.id() != resource.id());
         }
@@ -127,7 +143,15 @@ impl Dispatch<WlKeyboard, ()> for State {
 }
 
 impl Dispatch<WlPointer, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlPointer, request: wl_pointer::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlPointer,
+        request: wl_pointer::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         match request {
             wl_pointer::Request::SetCursor { surface, .. } => {
                 if let Some(s) = surface
@@ -145,7 +169,15 @@ impl Dispatch<WlPointer, ()> for State {
 }
 
 impl Dispatch<WlTouch, ()> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlTouch, request: wl_touch::Request, _data: &(), _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlTouch,
+        request: wl_touch::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         if let wl_touch::Request::Release = request {
             state.seat.touches.retain(|t| t.id() != resource.id());
         }

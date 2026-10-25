@@ -8,8 +8,8 @@ use wayland_server::protocol::wl_shm::{self, WlShm};
 use wayland_server::protocol::wl_shm_pool::{self, WlShmPool};
 use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum};
 
-use crate::buffer::{BufferData, BufferKind, ShmBuffer, ShmPool};
 use crate::State;
+use crate::buffer::{BufferData, BufferKind, ShmBuffer, ShmPool};
 
 impl GlobalDispatch<WlShm, ()> for State {
     fn bind(_state: &mut Self, _handle: &DisplayHandle, _client: &Client, resource: New<WlShm>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
@@ -20,7 +20,15 @@ impl GlobalDispatch<WlShm, ()> for State {
 }
 
 impl Dispatch<WlShm, ()> for State {
-    fn request(state: &mut Self, client: &Client, resource: &WlShm, request: wl_shm::Request, _data: &(), _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        client: &Client,
+        resource: &WlShm,
+        request: wl_shm::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         state.touch_client(client);
         match request {
             wl_shm::Request::CreatePool { id, fd, size } => match ShmPool::new(fd, size) {
@@ -37,7 +45,15 @@ impl Dispatch<WlShm, ()> for State {
 }
 
 impl Dispatch<WlShmPool, Arc<ShmPool>> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlShmPool, request: wl_shm_pool::Request, pool: &Arc<ShmPool>, _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlShmPool,
+        request: wl_shm_pool::Request,
+        pool: &Arc<ShmPool>,
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
         match request {
             wl_shm_pool::Request::CreateBuffer { id, offset, width, height, stride, format } => {
                 let format = match format {
@@ -49,12 +65,23 @@ impl Dispatch<WlShmPool, Arc<ShmPool>> for State {
                     }
                 };
                 if width <= 0 || height <= 0 || stride < width * 4 || offset < 0 || (offset as i64 + stride as i64 * height as i64) > pool.len() as i64 {
-                    resource.post_error(wl_shm::Error::InvalidStride, format!("buffer {width}x{height} stride {stride} offset {offset} does not fit the pool of {} bytes", pool.len()));
+                    resource.post_error(
+                        wl_shm::Error::InvalidStride,
+                        format!("buffer {width}x{height} stride {stride} offset {offset} does not fit the pool of {} bytes", pool.len()),
+                    );
                     return;
                 }
                 let b = data_init.init(id, BufferData { kind: BufferKind::Shm(ShmBuffer { pool: pool.clone(), offset, width, height, stride, format }) });
                 state.stats.buffers_created += 1;
-                state.note_request("wl_shm_pool", 0, &format!("create_buffer -> wl_buffer@{} {width}x{height} stride {stride} {}", b.id().protocol_id(), if format == 0 { "ARGB8888" } else { "XRGB8888" }));
+                state.note_request(
+                    "wl_shm_pool",
+                    0,
+                    &format!(
+                        "create_buffer -> wl_buffer@{} {width}x{height} stride {stride} {}",
+                        b.id().protocol_id(),
+                        if format == 0 { "ARGB8888" } else { "XRGB8888" }
+                    ),
+                );
             }
             wl_shm_pool::Request::Resize { size } => {
                 if let Err(e) = pool.resize(size) {
@@ -68,7 +95,15 @@ impl Dispatch<WlShmPool, Arc<ShmPool>> for State {
 }
 
 impl Dispatch<WlBuffer, BufferData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlBuffer, request: wl_buffer::Request, _data: &BufferData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlBuffer,
+        request: wl_buffer::Request,
+        _data: &BufferData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         if let wl_buffer::Request::Destroy = request {
             state.note_request("wl_buffer", resource.id().protocol_id(), "destroy");
         }

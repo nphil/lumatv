@@ -10,12 +10,12 @@ use wayland_backend::server::ObjectId;
 use wayland_server::Resource;
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
-use super::egl::{self, Egl, EGLImage, GLuint};
+use super::egl::{self, EGLImage, Egl, GLuint};
+use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
 use crate::scene::Plan;
 use crate::surface::Surfaces;
-use crate::Rect;
 
 /// Which global serves the clients' GPU buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,7 +66,8 @@ impl Gl {
             let Some(dpy) = wl_display else {
                 return Err(egl::other("the driver buffer path needs the C libwayland display (aarch64 build)"));
             };
-            egl.bind_wayland_display(dpy)?;
+            // SAFETY: the pointer is the backend's live wl_display (main.rs).
+            unsafe { egl.bind_wayland_display(dpy)? };
             log::info!("egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket");
         }
         let a = &egl.api;
@@ -99,7 +100,21 @@ impl Gl {
             (fbo, target, program, a_pos as GLuint, a_uv as GLuint)
         };
         let bgra_upload = egl.has_gl_extension("GL_EXT_texture_format_BGRA8888");
-        Ok(Gl { egl, width, height, fbo, target, program, a_pos, a_uv, textures: HashMap::new(), bgra_upload, clock: FrameClock::new(), path, import_failures: 0 })
+        Ok(Gl {
+            egl,
+            width,
+            height,
+            fbo,
+            target,
+            program,
+            a_pos,
+            a_uv,
+            textures: HashMap::new(),
+            bgra_upload,
+            clock: FrameClock::new(),
+            path,
+            import_failures: 0,
+        })
     }
 
     pub fn egl(&self) -> &Egl {
@@ -136,12 +151,22 @@ impl Gl {
                         (a.glGenTextures)(1, &mut t);
                         (a.glBindTexture)(egl::GL_TEXTURE_2D, t);
                         set_params(a);
-                        (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, egl::GL_RGBA as i32, shm.width, shm.height, 0, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, std::ptr::null());
+                        (a.glTexImage2D)(
+                            egl::GL_TEXTURE_2D,
+                            0,
+                            egl::GL_RGBA as i32,
+                            shm.width,
+                            shm.height,
+                            0,
+                            egl::GL_RGBA,
+                            egl::GL_UNSIGNED_BYTE,
+                            std::ptr::null(),
+                        );
                     }
                     Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false }
                 }
                 BufferKindRef::Dmabuf(d) => {
-                    let Some(plane) = d.planes.first() else { return None };
+                    let plane = d.planes.first()?;
                     let image = match self.egl.image_from_dmabuf(plane.fd.as_raw_fd(), d.width, d.height, d.format, plane.offset, plane.stride, d.modifier) {
                         Ok(i) => i,
                         Err(e) => {
@@ -157,12 +182,14 @@ impl Gl {
                         self.import_failures += 1;
                         return None;
                     };
-                    let Some((size, y_invert)) = self.egl.query_wayland_buffer(ptr) else {
+                    // SAFETY: a live wl_resource of the attached wl_buffer, created by the bound driver.
+                    let Some((size, y_invert)) = (unsafe { self.egl.query_wayland_buffer(ptr) }) else {
                         self.import_failures += 1;
                         log::warn!("import: eglQueryWaylandBufferWL failed: 0x{:x}", self.egl.error());
                         return None;
                     };
-                    let image = match self.egl.image_from_wayland_buffer(ptr) {
+                    // SAFETY: as above.
+                    let image = match unsafe { self.egl.image_from_wayland_buffer(ptr) } {
                         Ok(i) => i,
                         Err(e) => {
                             self.import_failures += 1;
@@ -208,7 +235,17 @@ impl Gl {
                                 px[3] = 255;
                             }
                         }
-                        (a.glTexSubImage2D)(egl::GL_TEXTURE_2D, 0, r.x, r.y, r.w, r.h, if bgra { egl::GL_BGRA_EXT } else { egl::GL_RGBA }, egl::GL_UNSIGNED_BYTE, rows.as_ptr() as *const c_void);
+                        (a.glTexSubImage2D)(
+                            egl::GL_TEXTURE_2D,
+                            0,
+                            r.x,
+                            r.y,
+                            r.w,
+                            r.h,
+                            if bgra { egl::GL_BGRA_EXT } else { egl::GL_RGBA },
+                            egl::GL_UNSIGNED_BYTE,
+                            rows.as_ptr() as *const c_void,
+                        );
                     }
                 }
             });
@@ -256,9 +293,11 @@ impl Gl {
         let dead: Vec<ObjectId> = self.textures.iter().filter(|(_, t)| !t.buffer.is_alive()).map(|(id, _)| id.clone()).collect();
         for id in dead {
             if let Some(t) = self.textures.remove(&id) {
-                // SAFETY: objects this renderer created.
-                unsafe { (self.egl.api.glDeleteTextures)(1, &t.tex) };
-                self.egl.destroy_image(t.image);
+                // SAFETY: objects this renderer created, dropped once.
+                unsafe {
+                    (self.egl.api.glDeleteTextures)(1, &t.tex);
+                    self.egl.destroy_image(t.image);
+                }
             }
         }
     }
@@ -342,7 +381,8 @@ impl Output for Gl {
         match kind_of(buffer) {
             BufferKindRef::External => {
                 let ptr = Self::resource_ptr(buffer)?;
-                self.egl.query_wayland_buffer(ptr)
+                // SAFETY: a live wl_resource of a wl_buffer the bound driver created.
+                unsafe { self.egl.query_wayland_buffer(ptr) }
             }
             BufferKindRef::Dmabuf(d) => Some(((d.width, d.height), d.y_invert)),
             BufferKindRef::Shm(s) => Some(((s.width, s.height), true)),
@@ -351,9 +391,11 @@ impl Output for Gl {
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
         if let Some(t) = self.textures.remove(&buffer.id()) {
-            // SAFETY: objects this renderer created.
-            unsafe { (self.egl.api.glDeleteTextures)(1, &t.tex) };
-            self.egl.destroy_image(t.image);
+            // SAFETY: objects this renderer created, dropped once.
+            unsafe {
+                (self.egl.api.glDeleteTextures)(1, &t.tex);
+                self.egl.destroy_image(t.image);
+            }
         }
     }
 
@@ -404,7 +446,8 @@ impl Output for Gl {
         }
         // Start the GPU work now; C3 hands this fence to the atomic commit as the in-fence.
         if let Some(sync) = self.egl.kick_fence() {
-            self.egl.wait_fence(sync, 0);
+            // SAFETY: a fence this renderer just created, consumed here.
+            unsafe { self.egl.wait_fence(sync, 0) };
         } else {
             // SAFETY: plain call.
             unsafe { (self.egl.api.glFlush)() };
