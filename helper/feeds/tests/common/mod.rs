@@ -19,9 +19,11 @@ pub const BBC_US_URL: &str = "https://feeds.bbci.co.uk/news/world/us_and_canada/
 pub const NYT_WORLD_URL: &str = "https://rss.nytimes.com/services/xml/rss/nyt/World.xml";
 pub const NYT_US_URL: &str = "https://rss.nytimes.com/services/xml/rss/nyt/US.xml";
 
+type Reply = (String, Result<Vec<u8>, FetchError>);
+
 /// A `Fetch` that answers by exact URL from a script and records every URL asked for, in order.
 pub struct Script {
-    replies: Mutex<Vec<(String, Result<Vec<u8>, FetchError>)>>,
+    replies: Mutex<Vec<Reply>>,
     log: Mutex<Vec<String>>,
 }
 
