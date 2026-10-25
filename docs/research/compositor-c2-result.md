@@ -9,12 +9,45 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 03:20 EDT, code at `2b0738a`): C2 passed; the first C3
+State (2026-10-25 05:50 EDT, code at `1712de0`): C2 passed; the first C3
 window and the C4 dry run ran on the set (02:37-02:42) and their findings
 are fixed offline; the re-run, the probe, the trial and the gate wait for
-TV slots. Everything builds (`sh compositor/tools/build-tv.sh`) and tests
-on the host (`cd compositor && cargo test`: 71 unit, 18 protocol, 1
-bridge; `sm/build.sh` runs the supervisor's scanner tests; clippy clean).
+a TV slot (asked of the main agent: 07:00-07:45 if the set's Netflix
+playback is repaired by then, else the next day). Everything builds (`sh
+compositor/tools/build-tv.sh`, bundle of 05:43) and tests on the host
+(`cd compositor && cargo test`: 73 unit, 20 protocol, 1 bridge;
+`sm/build.sh` runs the supervisor's scanner tests; clippy clean).
+
+- The Magic Remote's pointer (05:40, offline, host-tested): every
+  `LGE M-RCU` is an evdev device with `ABS_X`/`ABS_Y` and only the wheel
+  as a relative axis (`docs/research/arch/input-devices-01.txt`), so
+  `input.rs` reads the axis ranges with `EVIOCGABS`, maps them onto
+  1920x1080 and reports one motion per `SYN_REPORT`; `seat.rs` enters the
+  topmost drawn surface under the point (`Scene::surface_at`, the last
+  plan), sends `wl_pointer.motion` in surface coordinates, OK/ENTER is
+  `BTN_LEFT` while the cursor shows (never a key), an arrow or Back hides
+  the cursor and goes on as a key, 10 s still hides it from the tick, and
+  a client's `set_cursor_visibility(0)` hides it with a `leave`. The sprite
+  (`render/cursor.rs`, 28 px white disc with a dark rim, hotspot centred)
+  is composed above the scene by both renderers with its old and new
+  rectangles damaged; no direct scan-out while it shows. `ctl pointer X
+  Y` and `ctl click [press|release|tap]` drive it; `ctl status` has
+  `pointer`. Unverified on the set: the axis ranges lginput2 sets, whether
+  LG's clients expect the click as `BTN_LEFT`, and the cost of the
+  composed sprite against the cursor plane (plane 36, unused so far).
+- The gate script judges Home by its mapped window while the Home stub is
+  the Home app (`tools/lumatv homestub`, a transparent page: LumaHome is
+  LG's compositor's QML and has no counterpart under LumaTV's yet), so a
+  black panel is not a failure there; `tv_gate.py` wakes the set first and
+  mutes the receiver again right before Netflix (it was off when the first
+  mute went out).
+- Decision for the slot: `gate` runs without `--enable-after`. Even a full
+  pass leaves LG's compositor live, because under LumaTV's compositor
+  the family would get a black Home (the stub) or, with the stub off, LG's
+  Flutter Home without volume OSD, Quick Settings, input picker or IME
+  (all of them LG compositor QML). Going live waits for LumaTV's own Home
+  as a client of its compositor (PLAN: the 64-bit UI); the gate's evidence
+  is what the slot is for.
 
 - First KMS window (log `/tmp/lumatv-tv-out/out/kms/`, summary in "C3 on
   the set" below): DRM master, mode, planes and the panel all worked, but
@@ -60,15 +93,23 @@ bridge; `sm/build.sh` runs the supervisor's scanner tests; clippy clean).
   Netflix Dolby Vision muted, HDMI 2, standby and WoL wake with the
   tvpower rounds, hold-Home escape; `--enable-after` makes LumaTV live when
   every check passed).
-- Next TV steps, in order (slots from the main agent): 1. `deploy` +
-  `inspect` (read-only); 2. `kms` (expect `drawn ≈ 600`, `flips` close,
-  per-frame callback gaps in `a-client.log` ≤ 20 ms, Home back by itself);
-  3. `cutover install` + `cutover probe` (exit 0) + `cutover trial 120`;
-  4. `gate --enable-after`.
-- Open: GBM on `card0` for the fast render path, the `wl_webos_*` opcode
-  tables, the `wl_keyboard` key-code convention (the gate's Netflix ENTER
-  is the first test), whether `/proc/<pid>/exe` of the bind-mounted
-  supervisor reads `/usr/bin/surface-manager` (the probe tells), X6.
+- Next TV steps, in one slot, each with a go/no-go (the slot ends at
+  07:45, the set must be LG's, Home up, Active Standby by 07:50): 1.
+  `deploy` + `inspect` (read-only); 2. `cutover install` + `cutover probe`
+  (exit 0, else the role check is the thing to fix and only `kms` can run);
+  3. `cutover trial 120` (no `fallback:` line, compositor pid stays, WAM
+  active, LG's windows in `ctl windows`); 4. `gate` (no `--enable-after`,
+  see the decision above); 5. `kms` re-run if six minutes remain (expect
+  `drawn ≈ 600`, `flips` close, callback gaps in `a-client.log` ≤ 20 ms).
+  End state: `cutover.sh disable` (flag removed), `lumatv compositor
+  status` showing `enabled:false, live:false`, Home on the panel, standby.
+- Open: the cursor plane for the sprite (no repaint per move), GBM on
+  `card0` for the fast render path, the `wl_webos_*` opcode tables, the
+  `wl_keyboard` key-code convention (the gate's Netflix ENTER is the first
+  test), `BTN_LEFT` as LG's click, whether `/proc/<pid>/exe` of the
+  bind-mounted supervisor reads `/usr/bin/surface-manager` (the probe
+  tells), X6, and the Home question: LumaTV's compositor cannot go live
+  for the family until a Home draws under it.
 - TV state: not touched by this slice since 02:42; one read of the set's
   MAC (`74:c1:7e:bd:ae:30`, for the gate's wake) at 03:12 outside a slot.
 
@@ -192,7 +233,7 @@ makes obvious.
 | `wl_subcompositor` | 1 | Qt apps, LG Home | full: subsurface tree, sync/desync, place above/below |
 | `wl_shm` | 1 | all | full: ARGB8888/XRGB8888 pools, mmap, composite |
 | `wl_shell` | 1 | all | full: toplevel, `ping`/`pong`, `configure` at output size, title, class |
-| `wl_seat` | 4 | all | keyboard and pointer objects, focus on map; no evdev yet (C4) |
+| `wl_seat` | 4 | all | keyboard and pointer objects, focus on map; keys and the Magic Remote's absolute pointer from evdev (`input.rs`), OK as `BTN_LEFT` while the cursor shows, the sprite composed above the scene |
 | `wl_output` | 2 | LG Home, Qt, WAM | geometry 1920x1080, 1439x809 mm, 60 Hz, scale 1 |
 | `wl_data_device_manager` | 1 | Qt, LG Home | objects only, no offers |
 | `wl_webos_shell` | 2 | all | `get_shell_surface`, `set_property`, `set_state`, `set_location_hint`, `set_key_mask`, `set_addon` (answers `addon_status_changed(denied)`), events `state_changed`, `position_changed`, `close`, `exposed`, `state_about_to_change`; `get_system_pip` ignored |
@@ -798,8 +839,9 @@ C4 (cutover, LG's compositor kept installed):
   path with the watchdog and the fallback (§8); the tier-1 methods; the
   tvpower handshake (`luna::power`).
 - Input: evdev readers for the `lginput2` devices, key masks and access
-  policies, the Home key → `launchDefaultApp`, the hold-Home escape;
-  pointer through the cursor plane; `getLastInputType`.
+  policies, the Home key → `launchDefaultApp`, the hold-Home escape; the
+  pointer (done, composed sprite; the cursor plane is the open optimisation);
+  `getLastInputType`.
 - Boot: the early hook's bind mount, the firmware fingerprint, the boot
   cover (`coverUI`), the hand-over from LG's boot logo.
 - Verify on the set: `wl_keyboard` keymap and key code convention (X3
