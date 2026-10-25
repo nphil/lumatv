@@ -248,9 +248,7 @@ impl Api {
                 "no_strip",
                 "no strip is set up: helper.json needs ambient.wled.host",
             ),
-            Err(crate::ambient::TestError::NoLights(why)) => {
-                error_response(409, "no_lights", &why)
-            }
+            Err(crate::ambient::TestError::NoLights(why)) => error_response(409, "no_lights", &why),
         }
     }
 

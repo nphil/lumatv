@@ -5,7 +5,11 @@
 
 mod support;
 
+use lumatv_feeds::cache::DocCache;
+use lumatv_feeds::news::{self, NewsConfig, NewsDoc};
+use lumatv_feeds::weather::{self, Units, WeatherConfig, WeatherDoc};
 use lumatv_helper::hub::Event;
+use lumatv_helper::timeutil::now_ms;
 use serde_json::{Value, json};
 use std::net::UdpSocket;
 use std::time::Duration;
@@ -332,5 +336,76 @@ fn the_test_pattern_runs_on_the_strip_when_the_settings_page_asks_and_stops_when
             .is_some(),
         "{:?}",
         rig.topic("ambient")
+    );
+}
+
+fn weather_doc(fetched_at: u64) -> WeatherDoc {
+    let geo = weather::parse_geo(ZIPPOPOTAM.as_bytes()).unwrap();
+    let cfg = WeatherConfig {
+        zip: "30311".into(),
+        units: Units::Fahrenheit,
+    };
+    weather::parse_forecast(OPEN_METEO.as_bytes(), &geo, &cfg, fetched_at).unwrap()
+}
+
+fn news_doc(fetched_at: u64) -> NewsDoc {
+    news::refresh(
+        Script::internet().as_ref(),
+        &NewsConfig::standard(),
+        fetched_at,
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_cards_are_there_from_what_was_saved_before_any_fetch_and_the_clock_waits_for_the_screen() {
+    const MINUTE: u64 = 60_000;
+    let now = now_ms();
+    let mut rig = Rig::new();
+    receiver_off(&rig.paths);
+    let luna = FakeLuna::new(rig.dir.path(), LunaMode::Subscribes, "Active Standby");
+    let cache = DocCache::new(rig.paths.cache_dir());
+    cache
+        .store_weather(&weather_doc(now - 20 * MINUTE))
+        .unwrap();
+    cache.store_news(&news_doc(now - 20 * MINUTE)).unwrap();
+    // The screen is off and nothing can be fetched: what was saved is what the cards say.
+    let script = Script::new();
+    rig.start(
+        test_config(json!({
+            "screen": {"source": "luna", "pollMs": 40},
+            "luna": {"send": luna.program.display().to_string()},
+        })),
+        script.clone(),
+    );
+    let weather = rig
+        .wait_topic("plugin.weather.cards", WAIT, |v| items(v) == 1)
+        .expect("the saved weather as a card");
+    assert_eq!(
+        weather["items"][0]["card"]["content"]["facts"][0]["value"],
+        "54\u{b0}"
+    );
+    assert_eq!(
+        weather["items"][0]["card"]["content"]["title"],
+        "Weather \u{b7} Atlanta"
+    );
+    assert!(
+        rig.wait_topic("plugin.news.cards", WAIT, |v| items(v) == 1)
+            .is_some(),
+        "the saved news as a card"
+    );
+    assert!(
+        script.requests().is_empty(),
+        "nothing was fetched: the screen is off"
+    );
+    // No clock while the panel is dark, and none appears by itself.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(items(&rig.topic("plugin.clock.cards").unwrap()), 0);
+    // The panel comes on: the clock card follows.
+    luna.set_state("Active");
+    assert!(
+        rig.wait_topic("plugin.clock.cards", WAIT, |v| items(v) == 1)
+            .is_some(),
+        "the clock never appeared with the screen on"
     );
 }

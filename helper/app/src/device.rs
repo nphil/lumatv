@@ -111,7 +111,8 @@ pub fn key_bit(bitmap: &str, index: usize) -> bool {
     let Some(from_right) = words.len().checked_sub(1 + index / word_bits) else {
         return false;
     };
-    u64::from_str_radix(words[from_right], 16).is_ok_and(|word| word >> (index % word_bits) & 1 == 1)
+    u64::from_str_radix(words[from_right], 16)
+        .is_ok_and(|word| word >> (index % word_bits) & 1 == 1)
 }
 
 #[cfg(test)]
@@ -162,7 +163,10 @@ mod tests {
         // Pulled out: the next question says so.
         std::fs::remove_dir_all(dir.path().join("input1")).unwrap();
         assert!(!has_gamepad(dir.path()));
-        assert_eq!(facts(&tv(), dir.path()).input, [Input::Remote, Input::Pointer]);
+        assert_eq!(
+            facts(&tv(), dir.path()).input,
+            [Input::Remote, Input::Pointer]
+        );
         // A missing list is no controller, not a failure.
         assert!(!has_gamepad(Path::new("/nonexistent/sys/class/input")));
     }
@@ -175,8 +179,14 @@ mod tests {
         assert!(key_bit("1 0", 64));
         assert!(!key_bit("1 0", 0));
         assert!(key_bit(PAD, BTN_GAMEPAD));
-        assert!(!key_bit(REMOTE, BTN_GAMEPAD), "a remote's keys stop below the gamepad's");
-        assert!(!key_bit("3 0 0 0", BTN_GAMEPAD), "the same bits one word short are other keys");
+        assert!(
+            !key_bit(REMOTE, BTN_GAMEPAD),
+            "a remote's keys stop below the gamepad's"
+        );
+        assert!(
+            !key_bit("3 0 0 0", BTN_GAMEPAD),
+            "the same bits one word short are other keys"
+        );
         // Nothing to read, or not a number, is not a gamepad.
         assert!(!key_bit("", 0));
         assert!(!key_bit("zz", 0));
