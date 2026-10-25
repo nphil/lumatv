@@ -41,7 +41,7 @@ pub struct Rig {
 
 /// Mesa picks the GPU if the machine has one; the tests and the benchmark are about the software rasteriser, which is the same on
 /// every machine.
-fn software_gl() {
+pub fn software_gl() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         // SAFETY: runs once, before the first context is made; nothing else in the process reads the environment concurrently.
@@ -79,6 +79,8 @@ impl Rig {
                 pages: config.pages,
                 reference: config.reference,
                 blit: false,
+                external: false,
+                system_z: i32::MAX,
             },
         )?;
         let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm.clone()), ..SceneOptions::default() })?;
@@ -227,6 +229,8 @@ impl Stage {
                 pages: config.pages,
                 reference: config.reference,
                 blit: false,
+                external: false,
+                system_z: i32::MAX,
             },
         )?;
         let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm.clone()), ..SceneOptions::default() })?;

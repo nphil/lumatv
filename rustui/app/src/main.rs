@@ -139,6 +139,8 @@ fn run(o: Options) -> io::Result<()> {
             pages: o.pages,
             reference: o.verify,
             blit: true,
+            external: false,
+            system_z: i32::MAX,
         },
     )?;
     let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;

@@ -73,6 +73,20 @@ impl Region {
         region
     }
 
+    /// Exactly these rectangles, none merged with another or grown: for a caller that draws other things into the same target
+    /// and has to get no more than it asked for. `None` when there are more than [`MAX_RECTS`] (the caller groups them).
+    pub fn exact(areas: &[Area]) -> Option<Self> {
+        if areas.len() > MAX_RECTS {
+            return None;
+        }
+        let mut region = Self::NONE;
+        for &area in areas.iter().filter(|area| pixels(area) > 0) {
+            region.rects[region.len()] = area;
+            region.len += 1;
+        }
+        Some(region)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }

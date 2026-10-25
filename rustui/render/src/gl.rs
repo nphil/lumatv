@@ -136,8 +136,8 @@ api!(EglCore {
     swap_buffers = "eglSwapBuffers" fn(EglDisplay, EglSurface) -> u32;
     swap_interval = "eglSwapInterval" fn(EglDisplay, i32) -> u32;
     bind_api = "eglBindAPI" fn(u32) -> u32;
-    #[cfg(test)]
     get_current_context = "eglGetCurrentContext" fn() -> EglContext;
+    get_current_display = "eglGetCurrentDisplay" fn() -> EglDisplay;
 });
 
 api!(EglExtensions {
@@ -204,6 +204,11 @@ api!(GlApi {
     flush = "glFlush" fn();
     finish = "glFinish" fn();
     image_target_texture_2d = "glEGLImageTargetTexture2DOES" fn(u32, EglImage);
+    is_enabled = "glIsEnabled" fn(u32) -> u8;
+    get_vertex_attribiv = "glGetVertexAttribiv" fn(u32, u32, *mut i32);
+    disable_vertex_attrib_array = "glDisableVertexAttribArray" fn(u32);
+    blend_func_separate = "glBlendFuncSeparate" fn(u32, u32, u32, u32);
+    bind_vertex_array = "glBindVertexArray" fn(u32);
 });
 
 fn egl_error(egl: &EglCore, what: &str) -> io::Error {
@@ -341,7 +346,8 @@ impl Known {
         let Ok(location) = usize::try_from(location) else {
             return false;
         };
-        if !self.on {
+        // After `Gles::enter` the program in use is not known: the value goes to the driver, and nothing is remembered.
+        if !self.on || self.program.get() == u32::MAX {
             return false;
         }
         let program = self.program.get() as usize;
@@ -379,6 +385,21 @@ impl Known {
                 bound.set(0);
             }
         }
+    }
+
+    /// The state of a context that someone else has had since the toolkit last drew in it is not known: nothing of what was
+    /// set is assumed ([`Gles::enter`]). The values of a program's uniforms are the program's own, and are kept.
+    fn forget_context(&self) {
+        self.program.set(u32::MAX);
+        self.unit.set(0);
+        for bound in &self.textures {
+            bound.set(u32::MAX);
+        }
+        self.blend.set(None);
+        self.scissor_test.set(None);
+        self.blend_func.set(None);
+        self.scissor.set(None);
+        self.viewport.set(None);
     }
 
     /// The remembered state of a capability that the cache follows (blending and the scissor test, which every frame sets again and again).
@@ -1561,5 +1582,216 @@ impl Gles {
         let length = usize::try_from(length).unwrap_or(0).min(buffer.len());
         let bytes: Vec<u8> = buffer[..length].iter().map(|&c| c as u8).collect();
         String::from_utf8_lossy(&bytes).trim().to_owned()
+    }
+}
+
+/// What the toolkit changes of a context that is not its own, and the host of the context relies on ([`Gles::enter`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Saved {
+    program: u32,
+    array_buffer: u32,
+    element_buffer: u32,
+    vertex_array: u32,
+    framebuffer: u32,
+    viewport: [i32; 4],
+    scissor: [i32; 4],
+    scissor_test: bool,
+    blend: bool,
+    depth_stencil_cull: [bool; 3],
+    blend_func: [u32; 4],
+    active_texture: u32,
+    texture: [u32; UNITS],
+    attribs: [bool; ATTRIBS],
+}
+
+/// The vertex attribute arrays whose state is saved: the toolkit's programs use the first few.
+const ATTRIBS: usize = 8;
+
+impl Gles {
+    /// A `Gles` over the context that is current on this thread: the one a compositor draws its own frame in, which the toolkit
+    /// then draws in as well (`Gles::enter` and `Gles::leave` around each of its calls). Nothing is made and nothing is
+    /// destroyed: the display and the context are the host's, and so is every texture it made. `driver` is the EGL/GLES library the
+    /// context is the driver's (the entry points are looked up in it).
+    ///
+    /// The toolkit's shaders are GLSL ES 3.00, so the context has to be OpenGL ES 3.0 or later: an ES 2 one is refused here and not
+    /// by the first shader.
+    ///
+    /// # Safety
+    /// A context of `driver` must be current on this thread, and stay so for as long as the returned value is used.
+    pub unsafe fn current(driver: &CStr) -> io::Result<Self> {
+        let driver = open_driver(driver)?;
+        let symbol = |name: &str| -> Option<*const c_void> {
+            let name = CString::new(name).ok()?;
+            // SAFETY: a symbol lookup in the driver opened above.
+            let address = unsafe { libc::dlsym(driver, name.as_ptr()) };
+            (!address.is_null()).then_some(address as *const c_void)
+        };
+        let egl = EglCore::load(&symbol)?;
+        let get_proc_address = symbol("eglGetProcAddress")
+            .ok_or_else(|| io::Error::other("eglGetProcAddress is missing from the GL driver"))?;
+        // SAFETY: `eglGetProcAddress` has this signature.
+        let get_proc_address = unsafe {
+            std::mem::transmute::<*const c_void, unsafe extern "C" fn(*const c_char) -> *const c_void>(
+                get_proc_address,
+            )
+        };
+        let resolve = |name: &str| -> Option<*const c_void> {
+            symbol(name).or_else(|| {
+                let name = CString::new(name).ok()?;
+                // SAFETY: an entry-point lookup by name.
+                let address = unsafe { get_proc_address(name.as_ptr()) };
+                (!address.is_null()).then_some(address)
+            })
+        };
+        // SAFETY: plain queries of the calling thread's EGL state.
+        let (display, context) = unsafe { ((egl.get_current_display)(), (egl.get_current_context)()) };
+        if display.is_null() || context.is_null() {
+            return Err(io::Error::other("no EGL context is current on this thread"));
+        }
+        let gl_api = GlApi::load(&resolve)?;
+        let gles = Self {
+            egl,
+            ext: EglExtensions::load(&resolve)?,
+            mesh_api: mesh::MeshGl::load(&resolve, &gl_api)?,
+            gl: gl_api,
+            display,
+            window: None,
+            calls: Cell::new(Calls::default()),
+            known: Known::new(),
+            on_creating_thread: PhantomData,
+        };
+        match gles.version() {
+            Some((major, _)) if major >= 3 => Ok(gles),
+            other => Err(io::Error::other(format!(
+                "the context is {:?} ({other:?}): the toolkit needs OpenGL ES 3.0 (EGL_CONTEXT_CLIENT_VERSION 3)",
+                gles.string(GL_VERSION)
+            ))),
+        }
+    }
+
+    /// The version of the context's OpenGL ES, from `GL_VERSION` ("OpenGL ES 3.2 ...").
+    pub fn version(&self) -> Option<(u32, u32)> {
+        let text = self.string(GL_VERSION);
+        let mut numbers = text.split("ES ").nth(1)?.split(|c: char| !c.is_ascii_digit());
+        Some((numbers.next()?.parse().ok()?, numbers.next()?.parse().ok()?))
+    }
+
+    /// The toolkit is about to draw in a context that someone else draws in too: what that someone has set since the toolkit was
+    /// last here is not assumed to be what the toolkit left (so every call it makes goes through), and what the toolkit changes of
+    /// the context is saved for [`Gles::leave`]. The toolkit takes it that every state this does not name is the default (depth,
+    /// stencil and culling off, all colours written, the blend equation add): a host that changes any of them changes them back.
+    pub fn enter(&self) -> Saved {
+        const CURRENT_PROGRAM: u32 = 0x8B8D;
+        const ARRAY_BUFFER_BINDING: u32 = 0x8894;
+        const ELEMENT_ARRAY_BUFFER_BINDING: u32 = 0x8895;
+        const VERTEX_ARRAY_BINDING: u32 = 0x85B5;
+        const FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+        const VIEWPORT: u32 = 0x0BA2;
+        const SCISSOR_BOX: u32 = 0x0C10;
+        const BLEND_FUNC: [u32; 4] = [0x80C9, 0x80C8, 0x80CB, 0x80CA];
+        const ACTIVE_TEXTURE: u32 = 0x84E0;
+        const TEXTURE_BINDING_2D: u32 = 0x8069;
+        const ATTRIB_ARRAY_ENABLED: u32 = 0x8622;
+        // SAFETY: state queries on the current context; each writes the integers it names, and the texture unit is put back.
+        let saved = unsafe {
+            let get = |name: u32| -> u32 {
+                let mut value = 0;
+                (self.gl.get_integerv)(name, &mut value);
+                value as u32
+            };
+            let get4 = |name: u32| -> [i32; 4] {
+                let mut value = [0; 4];
+                (self.gl.get_integerv)(name, value.as_mut_ptr());
+                value
+            };
+            let active_texture = get(ACTIVE_TEXTURE);
+            let mut texture = [0; UNITS];
+            for (unit, bound) in texture.iter_mut().enumerate() {
+                (self.gl.active_texture)(GL_TEXTURE0 + unit as u32);
+                *bound = get(TEXTURE_BINDING_2D);
+            }
+            let mut attribs = [false; ATTRIBS];
+            for (index, on) in attribs.iter_mut().enumerate() {
+                let mut value = 0;
+                (self.gl.get_vertex_attribiv)(index as u32, ATTRIB_ARRAY_ENABLED, &mut value);
+                *on = value != 0;
+            }
+            // the toolkit starts on unit 0
+            (self.gl.active_texture)(GL_TEXTURE0);
+            Saved {
+                program: get(CURRENT_PROGRAM),
+                array_buffer: get(ARRAY_BUFFER_BINDING),
+                element_buffer: get(ELEMENT_ARRAY_BUFFER_BINDING),
+                vertex_array: get(VERTEX_ARRAY_BINDING),
+                framebuffer: get(FRAMEBUFFER_BINDING),
+                viewport: get4(VIEWPORT),
+                scissor: get4(SCISSOR_BOX),
+                scissor_test: (self.gl.is_enabled)(GL_SCISSOR_TEST) != 0,
+                blend: (self.gl.is_enabled)(GL_BLEND) != 0,
+                depth_stencil_cull: [0x0B71u32, 0x0B90, 0x0B44].map(|capability| (self.gl.is_enabled)(capability) != 0),
+                blend_func: BLEND_FUNC.map(get),
+                active_texture,
+                texture,
+                attribs,
+            }
+        };
+        self.known.forget_context();
+        // The toolkit draws from its own vertex buffers into the default vertex array.
+        // SAFETY: binding the default vertex array.
+        unsafe { (self.gl.bind_vertex_array)(0) };
+        // What the toolkit sets once and relies on: its blend function (a compositor's own may be another) and no depth test,
+        // stencil test or face culling.
+        // SAFETY: state calls on the current context.
+        unsafe {
+            (self.gl.blend_func_separate)(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            for capability in [0x0B71u32, 0x0B90, 0x0B44] {
+                (self.gl.disable)(capability);
+            }
+        }
+        self.known.blend_func.set(Some((GL_ONE, GL_ONE_MINUS_SRC_ALPHA)));
+        saved
+    }
+
+    /// The toolkit is done in the context for now: what [`Gles::enter`] saved is put back.
+    pub fn leave(&self, saved: &Saved) {
+        // SAFETY: state calls on the current context with the values `enter` read from it.
+        unsafe {
+            (self.gl.bind_vertex_array)(saved.vertex_array);
+            (self.gl.bind_buffer)(GL_ARRAY_BUFFER, saved.array_buffer);
+            (self.gl.bind_buffer)(GL_ELEMENT_ARRAY_BUFFER, saved.element_buffer);
+            (self.gl.use_program)(saved.program);
+            (self.gl.bind_framebuffer)(GL_FRAMEBUFFER, saved.framebuffer);
+            (self.gl.viewport)(saved.viewport[0], saved.viewport[1], saved.viewport[2], saved.viewport[3]);
+            (self.gl.scissor)(saved.scissor[0], saved.scissor[1], saved.scissor[2], saved.scissor[3]);
+            for (capability, on) in [(GL_SCISSOR_TEST, saved.scissor_test), (GL_BLEND, saved.blend)] {
+                if on {
+                    (self.gl.enable)(capability);
+                } else {
+                    (self.gl.disable)(capability);
+                }
+            }
+            for (capability, on) in [0x0B71u32, 0x0B90, 0x0B44].into_iter().zip(saved.depth_stencil_cull) {
+                if on {
+                    (self.gl.enable)(capability);
+                } else {
+                    (self.gl.disable)(capability);
+                }
+            }
+            let [src_rgb, dst_rgb, src_alpha, dst_alpha] = saved.blend_func;
+            (self.gl.blend_func_separate)(src_rgb, dst_rgb, src_alpha, dst_alpha);
+            for (unit, &bound) in saved.texture.iter().enumerate() {
+                (self.gl.active_texture)(GL_TEXTURE0 + unit as u32);
+                (self.gl.bind_texture)(GL_TEXTURE_2D, bound);
+            }
+            (self.gl.active_texture)(saved.active_texture);
+            for (index, &on) in saved.attribs.iter().enumerate() {
+                if on {
+                    (self.gl.enable_vertex_attrib_array)(index as u32);
+                } else {
+                    (self.gl.disable_vertex_attrib_array)(index as u32);
+                }
+            }
+        }
+        self.known.forget_context();
     }
 }

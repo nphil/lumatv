@@ -12,18 +12,35 @@
 //! the scene is drawn into a render target of the panel's size and one more pass copies it into the window's framebuffer
 //! turned over. [`HostConfig::direct`] skips the copy and draws the scene straight into the window's framebuffer, which then
 //! shows upside down: for measuring what the copy costs.
+//!
+//! Only what changed. With [`HostConfig::pages`] of three or more, frames go into a ring of render targets and each is drawn only
+//! where it differs from what it holds: what the frames since it was last drawn into changed, and what this frame changes (16 px
+//! tiles, `tiles`). [`HostConfig::reference`] draws every frame whole as well and compares, which is how that is tested.
+//!
+//! Inside a compositor. With [`HostConfig::external`] the engine draws into the pages of a compositor that is not this crate's
+//! (a scan-out ring, with windows drawn in the same page), in the compositor's own GL context ([`Gles::current`]), and the
+//! compositor keeps the account of what each page owes, since the page holds more than the engine's layers:
+//! [`Engine::plan`] says what a frame changes ([`Engine::changed`]), the compositor adds that to its ring and draws what the page
+//! owes, [`Engine::draw_stack`] draws the layers under the windows (stack 0) and, after the compositor has drawn the windows, the
+//! layers over them (stack 1, the system layer: the layers whose z is at least [`HostConfig::system_z`]), and [`Engine::finish`]
+//! ends the frame. Every call that touches GL saves the compositor's GL state, makes the context the toolkit's, and puts the
+//! state back ([`Gles::enter`], [`Gles::leave`]).
 
+use crate::backdrop::Area;
 use crate::clock::now_ns;
+use crate::damage::Region;
 use crate::geometry::Panel;
 use crate::gl::{Gles, RenderTarget};
 use crate::idle::{Idle, Process};
 use crate::ops::{Op, Transaction};
-use crate::renderer::{Draw, DrawReport, Renderer, Surface};
+use crate::renderer::{Draw, DrawReport, Planned, Renderer, Surface};
 use crate::scene::{Demand, Drawn, Scene};
 use crate::session::{Config, Limits, Session};
 use crate::stats::SharedStats;
-use compositor_protocol::{Event, PROTOCOL_VERSION, Request, read_frame, write_frame};
+use crate::tiles::TileSet;
+use compositor_protocol::{Event, LayerId, PROTOCOL_VERSION, Request, read_frame, write_frame};
 use device_profile::Rotation;
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
@@ -55,6 +72,12 @@ pub struct HostConfig {
     /// Copy the page into the window's framebuffer, turned over (the window is the other way up from a scan-out page). A
     /// compositor draws into its own page and needs none; a measurement of the renderer leaves it out.
     pub blit: bool,
+    /// The engine is inside a compositor's frame ([`Engine::plan`], [`Engine::draw_stack`], [`Engine::finish`]) and makes no pages,
+    /// copy or reference of its own: `pages`, `direct`, `reference` and `blit` do nothing.
+    pub external: bool,
+    /// With `external`: the layers whose z is at least this are the system layer, drawn over the compositor's windows (stack 1).
+    /// `i32::MAX`: there is no such layer.
+    pub system_z: i32,
 }
 
 /// What one frame cost the host.
@@ -112,7 +135,7 @@ pub struct Engine {
     next_page: usize,
     reference: Option<RenderTarget>,
     mismatch: Option<Mismatch>,
-    blit: Blit,
+    blit: Option<Blit>,
     copy: bool,
     window: (u32, u32),
     direct: bool,
@@ -124,6 +147,33 @@ pub struct Engine {
     idle: Option<Idle>,
     tidy_more: bool,
     uploaded_bytes: u32,
+    /// The state of a frame drawn into a compositor's pages, when the engine is inside one ([`HostConfig::external`]).
+    external: Option<External>,
+}
+
+/// A frame inside a compositor, between [`Engine::plan`] and [`Engine::finish`].
+struct External {
+    system_z: i32,
+    /// The z of each layer, from the commits: the scene lists layers in z order, and where the system layer begins is the first
+    /// whose z is `system_z` or more.
+    z: HashMap<LayerId, i32>,
+    planned: Option<Planned>,
+    /// Where stack 1 begins in `Engine::drawn`.
+    split: usize,
+    /// What the draws of the frame added up to.
+    report: DrawReport,
+    /// How long the engine's own calls took in the frame: what the compositor's time between them is not.
+    busy: Duration,
+}
+
+impl External {
+    fn surface(&self, stack: usize, layers: usize) -> Surface {
+        if stack == 0 {
+            Surface { stack: 0, from: 0, to: self.split, transparent: false }
+        } else {
+            Surface { stack: 1, from: self.split, to: layers, transparent: true }
+        }
+    }
 }
 
 /// One pass that copies the scene's render target into the window's framebuffer, row order reversed.
@@ -199,14 +249,25 @@ impl Engine {
             width: config.width,
             height: config.height,
         };
-        let pages = (0..config.pages.max(1))
-            .map(|_| gles.new_render_target(config.width, config.height))
-            .collect::<io::Result<Vec<_>>>()?;
-        let reference = config.reference.then(|| gles.new_render_target(config.width, config.height)).transpose()?;
-        let blit = Blit::new(&gles, config.width, config.height)?;
+        // Inside a compositor the context is its own: what is set in it is saved and put back round everything made here.
+        let entered = config.external.then(|| gles.enter());
+        let (pages, reference, blit) = if config.external {
+            (Vec::new(), None, None)
+        } else {
+            (
+                (0..config.pages.max(1)).map(|_| gles.new_render_target(config.width, config.height)).collect::<io::Result<Vec<_>>>()?,
+                config.reference.then(|| gles.new_render_target(config.width, config.height)).transpose()?,
+                Some(Blit::new(&gles, config.width, config.height)?),
+            )
+        };
         let mut renderer = Renderer::new(gles, panel)?;
         renderer.set_importer(None);
-        if config.pages > 1 {
+        if config.external {
+            // One account for each stack. They have no ring of their own (the compositor keeps it) but are asked to note what
+            // the app damaged of its pictures, which only an account with targets does.
+            renderer.set_targets(0, 1);
+            renderer.set_targets(1, 1);
+        } else if config.pages > 1 {
             renderer.set_targets(0, config.pages);
         }
         if std::env::var("LUMASHOW_WARMUP").as_deref() != Ok("off") {
@@ -218,6 +279,9 @@ impl Engine {
                 began.elapsed().as_millis(),
                 error.map_or(String::new(), |e| format!(" (GL error {e:#x})"))
             ));
+        }
+        if let Some(saved) = &entered {
+            renderer.gles().leave(saved);
         }
         let stats = Arc::new(SharedStats::default());
         let session_config = Arc::new(Config {
@@ -274,6 +338,14 @@ impl Engine {
                 idle: config.idle_trim.then(|| Idle::from_env(now)),
                 tidy_more: false,
                 uploaded_bytes: 0,
+                external: config.external.then(|| External {
+                    system_z: config.system_z,
+                    z: HashMap::new(),
+                    planned: None,
+                    split: 0,
+                    report: DrawReport::default(),
+                    busy: Duration::ZERO,
+                }),
             },
             app,
         ))
@@ -289,6 +361,22 @@ impl Engine {
 
     pub fn gles(&self) -> &Gles {
         self.renderer.gles()
+    }
+
+    /// Runs `f`, which draws or makes GL objects, in the compositor's context as the toolkit's: the context's state is saved and
+    /// put back round it (an engine that is not inside a compositor owns its context, and `f` just runs).
+    fn scoped<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        if self.external.is_none() {
+            return f(self);
+        }
+        let began = Instant::now();
+        let saved = self.renderer.gles().enter();
+        let out = f(self);
+        self.renderer.gles().leave(&saved);
+        if let Some(external) = self.external.as_mut() {
+            external.busy += began.elapsed();
+        }
+        out
     }
 
     /// Reads what the app has sent, without waiting, runs it through the session and keeps the commits for the next frame.
@@ -395,27 +483,31 @@ impl Engine {
     /// Housekeeping for at most a couple of milliseconds: the work a frame leaves undone (textures to free and to upload, a chunk
     /// of an atlas, a prepared backdrop). Call it while the GPU has the frame, or when nothing is due.
     pub fn tidy(&mut self) {
-        let mut done = self.renderer.tidy(TIDY_BUDGET);
-        if !done.more {
-            let made = self.renderer.prepare(&self.scene, TIDY_BUDGET);
-            done.captured += made.captured;
-            done.more = made.more;
-        }
-        self.uploaded_bytes = self.uploaded_bytes.saturating_add(u32::try_from(done.uploaded_bytes).unwrap_or(u32::MAX));
-        self.tidy_more = done.more;
-        self.forward_events();
+        self.scoped(|engine| {
+            let mut done = engine.renderer.tidy(TIDY_BUDGET);
+            if !done.more {
+                let made = engine.renderer.prepare(&engine.scene, TIDY_BUDGET);
+                done.captured += made.captured;
+                done.more = made.more;
+            }
+            engine.uploaded_bytes = engine.uploaded_bytes.saturating_add(u32::try_from(done.uploaded_bytes).unwrap_or(u32::MAX));
+            engine.tidy_more = done.more;
+            engine.forward_events();
+        });
     }
 
     /// The quiet moments (`idle.rs`): after a few seconds of nothing, frees what a still screen does not need.
     pub fn idle_moment(&mut self, busy: bool) {
-        let now = now_ns();
-        if let Some(idle) = self.idle.as_mut() {
-            if busy {
-                idle.active(now);
-            } else {
-                idle.moment(&mut self.renderer, &mut Process, now, true);
+        self.scoped(|engine| {
+            let now = now_ns();
+            if let Some(idle) = engine.idle.as_mut() {
+                if busy {
+                    idle.active(now);
+                } else {
+                    idle.moment(&mut engine.renderer, &mut Process, now, true);
+                }
             }
-        }
+        });
     }
 
     /// When the idle housekeeping next wants the loop to wake.
@@ -445,11 +537,27 @@ impl Engine {
     /// Applies the commits that wait to the scene and the renderer, in order, with no frame for them: what the app staged that
     /// shows nothing by itself (an atlas chunk, a layer made ahead). `draw` does the same for the commits a frame is due for.
     pub fn apply_waiting(&mut self, now_ns: u64) {
+        self.scoped(|engine| engine.apply_commits(now_ns));
+    }
+
+    fn apply_commits(&mut self, now_ns: u64) {
         for batch in std::mem::take(&mut self.waiting) {
             if let Some(tag) = batch.tag {
                 self.taken_tag = self.taken_tag.max(tag);
             }
             for op in &batch.ops {
+                if let Some(external) = self.external.as_mut() {
+                    match op {
+                        Op::Create { id, z, .. } => {
+                            external.z.insert(*id, *z);
+                        }
+                        Op::Delete { id } => {
+                            external.z.remove(id);
+                        }
+                        Op::Clear => external.z.clear(),
+                        _ => {}
+                    }
+                }
                 self.scene.apply(op, now_ns);
                 self.renderer.apply(op);
             }
@@ -473,16 +581,16 @@ impl Engine {
         let target = if self.direct { 0 } else { self.pages[page].framebuffer };
         let slot = ring.then_some(page);
         let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
-        let own = Draw { surface, slot, target };
-        let whole = self.reference.map(|r| Draw { surface, slot: None, target: r.framebuffer });
+        let own = Draw { surface, slot, target, areas: None, clear: true };
+        let whole = self.reference.map(|r| Draw { surface, slot: None, target: r.framebuffer, areas: None, clear: true });
         let draws = [own, whole.unwrap_or(own)];
         let draws = &draws[..1 + usize::from(whole.is_some())];
         let report: DrawReport = self.renderer.draw_frame(&self.drawn, draws, &self.scene).remove(0);
         if let Some(reference) = self.reference {
             self.mismatch = self.compare(&self.pages[page], &reference);
         }
-        if !self.direct && self.copy {
-            self.blit.run(self.renderer.gles(), self.pages[page].texture, self.window.0, self.window.1);
+        if let (Some(blit), false, true) = (&self.blit, self.direct, self.copy) {
+            blit.run(self.renderer.gles(), self.pages[page].texture, self.window.0, self.window.1);
         }
         self.shown.clone_from(&self.drawn);
         self.renderer.set_shown(&self.shown);
@@ -495,8 +603,11 @@ impl Engine {
         } else {
             0
         };
+        self.cost(&report, cpu_us, gpu_us)
+    }
+
+    fn cost(&mut self, report: &DrawReport, cpu_us: u32, gpu_us: u32) -> FrameCost {
         let (_captures, uploaded) = self.renderer.take_frame_counts();
-        let calls = report.gl;
         FrameCost {
             cpu_us,
             gpu_us,
@@ -509,13 +620,110 @@ impl Engine {
             culled: report.culled,
             backdrops: report.backdrops,
             uploaded_bytes: uploaded.saturating_add(self.uploaded_bytes),
-            draw_calls: calls.draws,
+            draw_calls: report.gl.draws,
             gl_error: report.gl_error,
             region_px: report.region_px,
             rects: report.rects,
             damage_px: report.damage_px,
             mismatch_px: self.mismatch.map_or(0, |m| m.pixels),
         }
+    }
+
+    /// The first half of a frame inside a compositor ([`HostConfig::external`]): takes in the waiting commits, steps the scene to
+    /// `now_ns`, places the layers and works out what each stack changes from the frame before ([`Engine::changed`]). Nothing is
+    /// drawn: the compositor adds the change to its own account of what each page owes, and draws.
+    pub fn plan(&mut self, now_ns: u64) -> io::Result<()> {
+        if self.external.as_ref().is_none_or(|external| external.planned.is_some()) {
+            return Err(io::Error::other("plan: not an engine inside a compositor, or a frame is already planned"));
+        }
+        self.scoped(|engine| {
+            engine.apply_commits(now_ns);
+            engine.scene.advance(now_ns);
+            engine.scene.resolve(now_ns, &mut engine.drawn);
+            engine.renderer.set_time(now_ns);
+            let Some(external) = engine.external.as_mut() else { return };
+            external.split = engine.drawn.partition_point(|layer| external.z.get(&layer.id).is_some_and(|&z| z < external.system_z));
+            let mut planned = engine.renderer.plan_frame(&engine.drawn, &engine.scene);
+            for stack in 0..2 {
+                let surface = external.surface(stack, engine.drawn.len());
+                engine.renderer.damage(&mut planned, surface);
+            }
+            external.planned = Some(planned);
+            external.report = DrawReport::default();
+        });
+        Ok(())
+    }
+
+    /// What the frame planned changes of stack 0 (under the windows) or 1 (over them) from the frame before, in tiles of the panel:
+    /// what the compositor adds to every page's account, whether it draws the stack in this page or not.
+    pub fn changed(&self, stack: usize) -> Option<&TileSet> {
+        self.external.as_ref()?.planned.as_ref()?.changed(stack)
+    }
+
+    /// Whether the planned frame has any layer on `stack`.
+    pub fn has_layers(&self, stack: usize) -> bool {
+        let Some(external) = self.external.as_ref() else { return false };
+        if stack == 0 {
+            external.split > 0
+        } else {
+            external.split < self.drawn.len()
+        }
+    }
+
+    /// Draws stack 0 or 1 of the planned frame into the framebuffer `target` (a page of the compositor's), inside `areas` and
+    /// nowhere else: stack 0 clears them first, and stack 1 is drawn over what the compositor has drawn there. The areas are
+    /// what the page owes, so that no pixel of the windows around them is touched.
+    pub fn draw_stack(&mut self, stack: usize, target: u32, areas: &[Area]) -> io::Result<()> {
+        let Some(region) = Region::exact(areas) else {
+            return Err(io::Error::other("draw_stack: more areas than a region keeps apart"));
+        };
+        if self.external.as_ref().is_none_or(|external| external.planned.is_none()) {
+            return Err(io::Error::other("draw_stack: no frame is planned"));
+        }
+        self.scoped(|engine| {
+            let Some(external) = engine.external.as_mut() else { return };
+            let surface = external.surface(stack, engine.drawn.len());
+            let Some(planned) = external.planned.as_mut() else { return };
+            let draw = Draw { surface, slot: None, target, areas: Some(region), clear: stack == 0 };
+            let report = engine.renderer.draw_planned(planned, &draw);
+            external.report.add(&report);
+        });
+        Ok(())
+    }
+
+    /// The second half of a frame inside a compositor: what it showed is kept to say what the next one changes, and the scene is
+    /// told what nothing showed of. Call it after the last `draw_stack`, whether anything was drawn or not.
+    pub fn finish(&mut self) -> io::Result<FrameCost> {
+        let Some(planned) = self.external.as_mut().and_then(|external| external.planned.take()) else {
+            return Err(io::Error::other("finish: no frame is planned"));
+        };
+        let mut report = DrawReport::default();
+        self.scoped(|engine| {
+            let left = engine.renderer.finish_frame(planned);
+            if let Some(external) = engine.external.as_mut() {
+                external.report.add(&left);
+                report = external.report;
+            }
+            engine.shown.clone_from(&engine.drawn);
+            engine.renderer.set_shown(&engine.shown);
+            engine.scene.observe(engine.renderer.unseen());
+            engine.scene.fade(report.fading, true);
+        });
+        let busy = self.external.as_mut().map_or(Duration::ZERO, |external| std::mem::take(&mut external.busy));
+        let gpu_us = if self.gpu_sync {
+            let waiting = Instant::now();
+            self.renderer.gles().finish();
+            (busy + waiting.elapsed()).as_micros() as u32
+        } else {
+            0
+        };
+        Ok(self.cost(&report, busy.as_micros() as u32, gpu_us))
+    }
+
+    /// Nothing is known any more of what the pages hold or what the layers showed: the next frame changes everything. For a
+    /// stack that was not drawn for a while (covered by a window), or a page that may not have been drawn whole.
+    pub fn forget(&mut self) {
+        self.renderer.forget_targets();
     }
 
     /// The frame drawn last reached the screen at `presented_ns`: tells the app (which retires what the commit replaced).

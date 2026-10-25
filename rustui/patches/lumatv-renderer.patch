@@ -57,7 +57,24 @@
          }
      }
  }
-@@ -527,7 +537,7 @@
+@@ -515,8 +525,16 @@
+ #[derive(Clone, Copy, Debug)]
+ pub struct Draw {
+     pub surface: Surface,
++    /// Its place in its stack's ring: the renderer keeps the account of what each target of the ring owes and draws that. With
++    /// none, the target is drawn whole, or in `areas`.
+     pub slot: Option<usize>,
+     pub target: u32,
++    /// With no `slot`: the part of the target to draw, when the caller keeps the account (a compositor's ring of pages holds more
++    /// than this renderer's layers). What the frame changes is still worked out and kept for the frame after
++    /// ([`Renderer::damage`]), so that the caller can add it to its own account. `None` draws all of the target.
++    pub areas: Option<Region>,
++    /// Clear what is drawn before drawing it. `false` draws over what the target holds there: a plane that is drawn over windows.
++    pub clear: bool,
+ }
+ 
+ /// What a frame knows of the layers of one render target, by layer: the layers, the part of each that is drawn in the
+@@ -527,7 +545,7 @@
      /// The layers the target shows, among `layers`.
      members: std::ops::Range<usize>,
      layers: &'a [Drawn],
@@ -66,7 +83,45 @@
      extents: &'a [Option<Area>],
      asks: &'a [Option<Ask>],
      revisions: &'a [u64],
-@@ -746,13 +756,23 @@
+@@ -545,8 +563,8 @@
+ }
+ 
+ /// What planning a frame settles for every render target it is drawn into.
+-struct Frame<'a> {
+-    layers: &'a [Drawn],
++struct Frame {
++    layers: Vec<Drawn>,
+     panel_area: Area,
+     /// The job of each layer, and everything each draws on the panel (seen or not).
+     job_of: Vec<Option<usize>>,
+@@ -566,6 +584,26 @@
+     looked: Vec<bool>,
+ }
+ 
++/// A frame whose layers are placed and whose backdrops are planned, waiting to be drawn into render targets one at a time
++/// ([`Renderer::plan_frame`], [`Renderer::draw_planned`], [`Renderer::finish_frame`]).
++pub struct Planned {
++    frame: Frame,
++    /// What planning cost and did: the report of the first target drawn has it.
++    first: DrawReport,
++    done: Done,
++    /// What the frame changes from the one before, by stack, once it has been worked out ([`Renderer::damage`]).
++    changed: Vec<Option<TileSet>>,
++    backdrops: u16,
++    uploaded: u64,
++}
++
++impl Planned {
++    /// What the frame changes of stack `stack` from the frame before, in tiles, once [`Renderer::damage`] has worked it out.
++    pub fn changed(&self, stack: usize) -> Option<&TileSet> {
++        self.changed.get(stack)?.as_ref()
++    }
++}
++
+ /// How long refraction takes to come back once a glass surface has stopped moving (`ideas::ADAPTIVE`): at once. Nitin
+ /// compared 200 ms, 100 ms and none on the Show (10-01) and could not tell them apart; with no fade a surface that stops
+ /// is the same in every frame after, so still glass can hold it three frames later instead of after the fade. The
+@@ -746,13 +784,23 @@
  /// Where a layer is drawn in a frame, and what the picture of the prepared backdrop on it is a picture of: what the frame is
  /// compared with the one before by (`Frozen`).
  #[derive(Clone, Copy)]
@@ -93,7 +148,7 @@
  /// The bytes of `pixels` RGBA pixels, for the count of bytes uploaded.
  fn picture_bytes(pixels: u64) -> u32 {
      u32::try_from(pixels * 4).unwrap_or(u32::MAX)
-@@ -772,8 +792,8 @@
+@@ -772,8 +820,8 @@
      /// its glass blurs. A layer that moves from one plane to another is drawn where it was not, and no longer where it was,
      /// though it is what it was in every other way.
      member: bool,
@@ -104,7 +159,34 @@
      /// Everything it draws, seen or not: what the pictures behind the glass above it are made of.
      extent: Option<Area>,
  }
-@@ -2234,22 +2254,22 @@
+@@ -1256,6 +1304,8 @@
+             },
+             slot: None,
+             target: target.framebuffer,
++            areas: None,
++            clear: true,
+         };
+         let planes = [
+             plane(&target, 0, walls, false),
+@@ -2113,6 +2163,8 @@
+             surface: Surface::whole(layers.len()),
+             slot: None,
+             target,
++            areas: None,
++            clear: true,
+         };
+         self.draw_frame(layers, &[draw], source).remove(0)
+     }
+@@ -2133,6 +2185,8 @@
+             surface: Surface::whole(layers.len()),
+             slot: Some(slot),
+             target,
++            areas: None,
++            clear: true,
+         };
+         self.draw_frame(layers, &[draw], source).remove(0)
+     }
+@@ -2234,22 +2288,22 @@
          damage::intersect(&grown, &panel_area_of(&self.panel))
      }
  
@@ -136,7 +218,7 @@
          let Facts {
              members,
              layers,
-@@ -2258,8 +2278,9 @@
+@@ -2258,8 +2312,9 @@
              asks,
              revisions,
          } = facts;
@@ -147,7 +229,7 @@
          };
          let before: HashMap<LayerId, &Frozen> = prev.iter().map(|f| (f.layer.id, f)).collect();
          // Layers that were there and are still are stacked as they were (a layer that is made again is a new one, and
-@@ -2273,44 +2294,46 @@
+@@ -2273,44 +2328,46 @@
                  .filter(|l| before.contains_key(&l.id))
                  .map(|l| l.id));
          if !same_order {
@@ -214,7 +296,7 @@
          let panel = panel_area_of(&self.panel);
          let mut forced = vec![false; count];
          loop {
-@@ -2330,13 +2353,13 @@
+@@ -2330,13 +2387,13 @@
                          grew = true;
                      }
                  }
@@ -231,7 +313,7 @@
                  {
                      for &u in *users {
                          grew |= !std::mem::replace(&mut forced[u], true);
-@@ -2347,13 +2370,18 @@
+@@ -2347,13 +2404,18 @@
                  break;
              }
          }
@@ -256,7 +338,7 @@
              }
          }
          total
-@@ -2361,31 +2389,30 @@
+@@ -2361,31 +2423,30 @@
  
      /// What a layer changes from the frame before: in the frame (where it was seen and where it is seen now) and in the
      /// pictures behind the glass above it (everywhere it was drawn and is). `now` is where it is drawn now, and what the
@@ -302,7 +384,7 @@
          }
          // A picture the app changed in places, on a layer that is what it was in every other way: only those places.
          let unversioned = Drawn {
-@@ -2404,34 +2431,46 @@
+@@ -2404,34 +2465,46 @@
                  places = damage::union(places, self.image_area(layer, *rect));
              }
              if any {
@@ -359,7 +441,7 @@
                      layer: *layer,
                      revision: revisions[i],
                      member: members.contains(&i),
-@@ -2440,6 +2479,7 @@
+@@ -2440,22 +2513,36 @@
                  })
                  .collect(),
          );
@@ -367,7 +449,226 @@
          account.damaged.clear();
      }
  
-@@ -2771,17 +2811,32 @@
+-    /// Draws a frame's `layers` (back to front) into the render targets `draws` name, each a picture of some of them.
+-    /// What belongs to the frame (adapting the glass to its motion, placing the layers, planning the glass surfaces'
+-    /// backdrops) is done once, and each target then gets what it shows and owes. One report for each target; what is the
+-    /// frame's as a whole (pictures uploaded, meshes drawn, glass still getting its refraction back) is in the first.
+-    ///
+-    /// `source` is the scene as the groups of the prepared backdrops see it: the glass that shows one is drawn over a picture
+-    /// composed of its plates, each placed where its group is now, which is asked of the source for every frame.
++    /// Draws a frame's `layers` (back to front) into the render targets `draws` name, each a picture of some of them. One
++    /// report for each target; what is the frame's as a whole (pictures uploaded, meshes drawn, glass still getting its
++    /// refraction back) is in the first. It is [`Renderer::plan_frame`], a [`Renderer::draw_planned`] for each target, and
++    /// [`Renderer::finish_frame`].
+     pub fn draw_frame(
+         &mut self,
+         layers: &[Drawn],
+         draws: &[Draw],
+         source: &dyn Source,
+     ) -> Vec<DrawReport> {
++        let mut planned = self.plan_frame(layers, source);
++        let reports = draws
++            .iter()
++            .map(|draw| self.draw_planned(&mut planned, draw))
++            .collect();
++        self.finish_frame(planned);
++        reports
++    }
++
++    /// Plans a frame: what belongs to the frame (adapting the glass to its motion, placing the layers, planning the glass
++    /// surfaces' backdrops) is done once, and each target is then drawn with [`Renderer::draw_planned`], which knows what it
++    /// shows and owes. [`Renderer::damage`] says what the frame changes, before anything is drawn.
++    ///
++    /// `source` is the scene as the groups of the prepared backdrops see it: the glass that shows one is drawn over a picture
++    /// composed of its plates, each placed where its group is now, which is asked of the source for every frame.
++    pub fn plan_frame(&mut self, layers: &[Drawn], source: &dyn Source) -> Planned {
+         let mut first = DrawReport::default();
+         // The count of what the GL is asked is the frame's: what the housekeeping between frames asked is not in it.
+         self.gl.take_calls();
+@@ -2632,8 +2719,10 @@
+         first.shadow_ns += mesh_ns;
+         first.plan_ns += nanos(planning);
+ 
++        let owned = layers.to_vec();
++        self.revised = revised;
+         let frame = Frame {
+-            layers,
++            layers: owned,
+             panel_area,
+             job_of,
+             extents,
+@@ -2646,30 +2735,62 @@
+             sights,
+             looked,
+         };
+-        let mut done = Done::default();
+-        let mut reports = Vec::with_capacity(draws.len());
+-        for (n, draw) in draws.iter().enumerate() {
+-            let mut report = if n == 0 { first } else { DrawReport::default() };
+-            self.draw_surface(&frame, draw, &mut done, &mut report);
+-            reports.push(report);
+-        }
+-        if let Some(first) = reports.first_mut() {
+-            first.gl = self.gl.take_calls();
+-        }
+-        // The frame is over: its buffers are kept for the next.
+-        let Frame { revisions, .. } = frame;
+-        self.revisions = revisions;
+-        self.revised = revised;
+-        let opened = done.opened;
++        Planned {
++            frame,
++            first,
++            done: Done::default(),
++            changed: Vec::new(),
++            backdrops: 0,
++            uploaded: 0,
++        }
++    }
++
++    /// Draws the frame `planned` into one render target: what of its layers can be seen, what of the target is owed, the
++    /// pictures behind its glass, and the layers themselves.
++    pub fn draw_planned(&mut self, planned: &mut Planned, draw: &Draw) -> DrawReport {
++        let mut report = std::mem::take(&mut planned.first);
++        self.draw_surface(
++            &planned.frame,
++            draw,
++            &mut planned.done,
++            &mut planned.changed,
++            &mut report,
++        );
++        report.gl = self.gl.take_calls();
++        planned.backdrops += report.backdrops;
++        planned.uploaded += report.uploaded_pixels;
++        report
++    }
++
++    /// What the frame `planned` changes of the plane `surface` is on, from the frame before it, in tiles. It is worked out the
++    /// first time it is asked (or when the plane is first drawn), and what the plane showed is kept for the frame after: ask
++    /// for every plane that is shown, once a frame, whether it is drawn or not.
++    pub fn damage<'p>(&mut self, planned: &'p mut Planned, surface: Surface) -> &'p TileSet {
++        self.account(&planned.frame, surface, &mut planned.changed);
++        planned.changed[surface.stack]
++            .as_ref()
++            .expect("the plane was accounted")
++    }
++
++    /// The frame is over: its buffers are kept for the next. What planning cost and did, if no target was drawn to take it into
++    /// its report, is returned.
++    pub fn finish_frame(&mut self, planned: Planned) -> DrawReport {
++        let Planned {
++            frame,
++            first,
++            done,
++            backdrops,
++            uploaded,
++            ..
++        } = planned;
++        self.revisions = frame.revisions;
+         // The backdrops are only counted as used, and the ones nobody used dropped, by a frame that drew any.
+-        if opened {
++        if done.opened {
+             self.backdrops.end_frame();
+         }
+-        self.profile
+-            .frame_ends(reports.iter().map(|r| r.backdrops).sum());
+-        let uploaded: u64 = reports.iter().map(|r| r.uploaded_pixels).sum();
++        self.profile.frame_ends(backdrops);
+         self.uploaded_since = self.uploaded_since.saturating_add(picture_bytes(uploaded));
+-        reports
++        first
+     }
+ 
+     /// What of the layers of the jobs `members` can be seen: a layer that an opaque one of them covers is not drawn, and one
+@@ -2736,6 +2857,70 @@
+         region.merged(cost, |a, b, one| groups(one) == groups(a) | groups(b))
+     }
+ 
++    /// Works out what the frame changes of the plane `surface` is on, once for the frame (what the plane showed is then what
++    /// the next frame is compared with), and keeps it in `memo` by stack.
++    fn account(&mut self, frame: &Frame, surface: Surface, memo: &mut Vec<Option<TileSet>>) {
++        let Surface {
++            stack, from, to, ..
++        } = surface;
++        if memo.get(stack).is_some_and(Option::is_some) {
++            return;
++        }
++        let (width, height) = (self.panel.width, self.panel.height);
++        let layers = &frame.layers[..];
++        // What of each layer can be seen, in tiles.
++        let mut seen = std::mem::take(&mut self.accounts[stack].spare);
++        let culling = self.culling;
++        let pieces: Vec<(Area, &[Area])> = (0..to)
++            .map(|layer| match frame.job_of[layer] {
++                Some(k) if layer >= from => {
++                    let job = &self.jobs[k];
++                    (job.extent, if culling { job.cover.rects() } else { &[] })
++                }
++                _ => ([0; 4], &[][..]),
++            })
++            .collect();
++        tiles::visible(width, height, &pieces, &mut seen);
++        drop(pieces);
++        let asks: Vec<Option<Ask>> = frame.plan_layers[..to].iter().map(|l| l.ask).collect();
++        let stale_layers: Vec<usize> = frame
++            .plan
++            .iter()
++            .zip(&frame.stale)
++            .filter(|(_, stale)| **stale)
++            .flat_map(|(b, _)| b.users.iter().copied())
++            .filter(|&user| user < to)
++            .collect();
++        let sharing: Vec<&[usize]> = frame
++            .plan
++            .iter()
++            .filter(|b| b.refresh == Refresh::Live && b.users.len() > 1)
++            .filter(|b| b.users.iter().all(|&user| user < to))
++            .map(|b| b.users.as_slice())
++            .collect();
++        let facts = Facts {
++            members: from..to,
++            layers: &layers[..to],
++            seen: &seen,
++            extents: &frame.extents[..to],
++            asks: &asks,
++            revisions: &frame.revisions[..to],
++        };
++        let changed = self.frame_damage(stack, facts, &stale_layers, &sharing);
++        self.remember(
++            stack,
++            from..to,
++            &layers[..to],
++            &mut seen,
++            &frame.extents[..to],
++            &frame.revisions[..to],
++        );
++        if memo.len() <= stack {
++            memo.resize(stack + 1, None);
++        }
++        memo[stack] = Some(changed);
++    }
++
+     /// One render target of a frame: what of its layers can be seen, what of it is owed, the pictures behind its glass, and
+     /// the layers themselves.
+     fn draw_surface(
+@@ -2743,6 +2928,7 @@
+         frame: &Frame,
+         draw: &Draw,
+         done: &mut Done,
++        changed: &mut Vec<Option<TileSet>>,
+         report: &mut DrawReport,
+     ) {
+         let Surface {
+@@ -2751,7 +2937,7 @@
+             to,
+             transparent,
+         } = draw.surface;
+-        let (layers, panel_area) = (frame.layers, frame.panel_area);
++        let (layers, panel_area) = (&frame.layers[..], frame.panel_area);
+ 
+         // What of the frame can be seen: a layer that an opaque layer above it covers is not drawn, and one that it covers
+         // in part is drawn where it is not. (The pictures the glass surfaces are made of below still draw everything below
+@@ -2771,58 +2957,34 @@
              .iter()
              .filter(|&&k| sights[k] == Sight::Hidden)
              .count() as u32;
@@ -378,45 +679,59 @@
 -            .collect();
 +        let (width, height) = (self.panel.width, self.panel.height);
  
-         // What the frame has to draw: all of it, or the part of it that this render target owes. The target's account
-         // covers the layers it shows and the ones below them, which show through the glass above.
+-        // What the frame has to draw: all of it, or the part of it that this render target owes. The target's account
+-        // covers the layers it shows and the ones below them, which show through the glass above.
 -        let changed = match draw.slot {
 -            None => Region::of(panel_area),
 -            Some(_) => {
-+        let region = match draw.slot {
-+            None => {
+-                let asks: Vec<Option<Ask>> =
+-                    frame.plan_layers[..to].iter().map(|l| l.ask).collect();
+-                let stale_layers: Vec<usize> = frame
+-                    .plan
+-                    .iter()
+-                    .zip(&frame.stale)
+-                    .filter(|(_, stale)| **stale)
+-                    .flat_map(|(b, _)| b.users.iter().copied())
+-                    .filter(|&user| user < to)
+-                    .collect();
+-                let sharing: Vec<&[usize]> = frame
+-                    .plan
+-                    .iter()
+-                    .filter(|b| b.refresh == Refresh::Live && b.users.len() > 1)
+-                    .filter(|b| b.users.iter().all(|&user| user < to))
+-                    .map(|b| b.users.as_slice())
+-                    .collect();
+-                let facts = Facts {
+-                    members: from..to,
+-                    layers: &layers[..to],
+-                    seen: &seen[..to],
+-                    extents: &frame.extents[..to],
+-                    asks: &asks,
+-                    revisions: &frame.revisions[..to],
++        // What the frame has to draw: all of it, or the part of it that this render target owes (the renderer's account of
++        // the ring) or that the caller asks for. The plane's account covers the layers it shows and the ones below them,
++        // which show through the glass above.
++        let region = match (draw.slot, draw.areas) {
++            (None, None) => {
 +                report.damage = Region::of(panel_area);
 +                report.damage_px = damage::pixels(&panel_area);
 +                Region::of(panel_area)
 +            }
-+            Some(slot) => {
-+                // What of each layer can be seen, in tiles.
++            (slot, areas) => {
 +                let accounting = Instant::now();
-+                let mut seen = std::mem::take(&mut self.accounts[stack].spare);
-+                let culling = self.culling;
-+                let pieces: Vec<(Area, &[Area])> = (0..to)
-+                    .map(|layer| match frame.job_of[layer] {
-+                        Some(k) if layer >= from => {
-+                            let job = &self.jobs[k];
-+                            (job.extent, if culling { job.cover.rects() } else { &[] })
-+                        }
-+                        _ => ([0; 4], &[][..]),
-+                    })
-+                    .collect();
-+                tiles::visible(width, height, &pieces, &mut seen);
-+                drop(pieces);
-                 let asks: Vec<Option<Ask>> =
-                     frame.plan_layers[..to].iter().map(|l| l.ask).collect();
-                 let stale_layers: Vec<usize> = frame
-@@ -2802,28 +2857,27 @@
-                 let facts = Facts {
-                     members: from..to,
-                     layers: &layers[..to],
--                    seen: &seen[..to],
-+                    seen: &seen,
-                     extents: &frame.extents[..to],
-                     asks: &asks,
-                     revisions: &frame.revisions[..to],
++                self.account(frame, draw.surface, changed);
++                let changed = changed[stack]
++                    .as_ref()
++                    .expect("the plane was accounted");
++                report.damage = changed.region();
++                report.damage_px = changed.pixels();
++                let region = match (slot, areas) {
++                    (Some(slot), _) => {
++                        let mut owed = TileSet::new(width, height);
++                        self.accounts[stack].ring.frame(slot, changed, &mut owed);
++                        owed.region()
++                    }
++                    (None, areas) => areas.unwrap_or(Region::of(panel_area)),
                  };
 -                self.frame_damage(stack, facts, &stale_layers, &sharing)
 -            }
@@ -426,24 +741,57 @@
 -            None => Region::of(panel_area),
 -            Some(slot) => {
 -                let region = self.accounts[stack].ring.frame(slot, &changed);
-+                let changed = self.frame_damage(stack, facts, &stale_layers, &sharing);
-+                report.damage = changed.region();
-+                report.damage_px = changed.pixels();
-+                let mut owed = TileSet::new(width, height);
-+                self.accounts[stack].ring.frame(slot, &changed, &mut owed);
-                 self.remember(
-                     stack,
-                     from..to,
-                     &layers[..to],
+-                self.remember(
+-                    stack,
+-                    from..to,
+-                    &layers[..to],
 -                    &seen[..to],
-+                    &mut seen,
-                     &frame.extents[..to],
-                     &frame.revisions[..to],
-                 );
--                region
-+                let owed = owed.region();
+-                    &frame.extents[..to],
+-                    &frame.revisions[..to],
+-                );
 +                report.damage_ns += nanos(accounting);
-+                owed
+                 region
              }
          };
-         if region.is_empty() {
+@@ -2834,10 +2996,16 @@
+         // A region that is nearly all of the panel is drawn as all of it: a scissor would save nothing. Otherwise each of
+         // its rectangles is drawn in whole tiles (drawing more of what the frame shows is never wrong), on its own, as far
+         // as the account keeps them apart (`LUMASHOW_DRAW_OFF=rects` draws their one cover, to measure what that costs) and
+-        // as far as a pass of its own pays: the layers it draws are drawn again in every other pass they meet.
+-        let region = region.tiled(GPU_TILE, panel_area).limited(self.rects);
+-        let region = Self::merge_passes(region, frame, sights);
+-        let partial = (region.pixels() * 20 < damage::pixels(&panel_area) * 19).then_some(region);
++        // as far as a pass of its own pays: the layers it draws are drawn again in every other pass they meet. The areas a
++        // caller asks for are drawn as they are: what is in the target around them is not this frame's to draw over.
++        let region = if draw.slot.is_none() && draw.areas.is_some() {
++            region
++        } else {
++            let region = region.tiled(GPU_TILE, panel_area).limited(self.rects);
++            Self::merge_passes(region, frame, sights)
++        };
++        let exact = draw.slot.is_none() && draw.areas.is_some();
++        let partial = (exact || region.pixels() * 20 < damage::pixels(&panel_area) * 19).then_some(region);
+         let drawn_region = partial.unwrap_or(Region::of(panel_area));
+         report.region_px = drawn_region.pixels();
+         report.rects = drawn_region.rects().len() as u16;
+@@ -3139,14 +3307,18 @@
+         match partial {
+             None => {
+                 gl.disable(GL_SCISSOR_TEST);
+-                gl.clear(0.0, 0.0, 0.0, clear_to);
++                if draw.clear {
++                    gl.clear(0.0, 0.0, 0.0, clear_to);
++                }
+                 report.drawn += drawing.draw(layers, &self.jobs, &pass(None));
+             }
+             Some(region) => {
+                 gl.enable(GL_SCISSOR_TEST);
+                 for rect in region.rects().iter().copied().filter_map(pix_rect_of) {
+                     gl.scissor(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+-                    gl.clear(0.0, 0.0, 0.0, clear_to);
++                    if draw.clear {
++                        gl.clear(0.0, 0.0, 0.0, clear_to);
++                    }
+                     // The pass before may have ended with blending off, and a pass begins with it on.
+                     gl.enable(GL_BLEND);
+                     report.drawn += drawing.draw(layers, &self.jobs, &pass(Some(rect)));
