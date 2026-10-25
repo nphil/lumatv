@@ -1,0 +1,7 @@
+ambient-probe label="netflix" pid=6967 secs=60 hz=30 single preset
+library: init=0xf7adaa3d preset=0xf7ada7ed get=0xf7ada89d finalize=0xf7ada949
+dev flag /var/luna/preferences/vt_devmode: present
+holder: nobody has /dev/video60 open
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  LSRegisterPubPriv FAILED
+exit=134

@@ -1,0 +1,12 @@
+probe slot 2026-10-25 12:35
+
+
+home: no capture (exit 134)
+  {"exit": 134, "init_refused": false, "flag_seen": true}
+  foreground when the capture started: com.webos.app.home
+hdmi2: no capture (exit 134)
+  {"exit": 134, "init_refused": false, "flag_seen": true}
+  foreground when the capture started: com.webos.app.hdmi2
+netflix: no capture (exit 134)
+  {"exit": 134, "init_refused": false, "flag_seen": true}
+  foreground when the capture started: netflix

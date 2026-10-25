@@ -1,0 +1,92 @@
+{
+  "started": 1792946079.0780373,
+  "steps": [
+    {
+      "step": "power-state",
+      "at": 1792946079.2480924,
+      "state": "active standby"
+    },
+    {
+      "step": "preflight",
+      "at": 1792946107.917543,
+      "flag_existed_before": false,
+      "woke": true
+    },
+    {
+      "step": "library",
+      "at": 1792946107.9604309,
+      "md5": "35d3fec665b861e80af7fa61df8302ab"
+    },
+    {
+      "step": "holders",
+      "at": 1792946108.9486787,
+      "pids": []
+    },
+    {
+      "step": "baseline",
+      "at": 1792946109.0618858,
+      "failed_units": [
+        "broadcast-configd.service",
+        "f2io-on.service",
+        "faultmanager.service",
+        "gibbs.service",
+        "nudge.service",
+        "service-logger.service",
+        "voiceinput.service"
+      ],
+      "picture": "{\"subscribed\":false,\"category\":\"picture\",\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"sdr\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"filmMaker\"},\"returnValue\":true}"
+    },
+    {
+      "step": "dry-run",
+      "at": 1792946109.3165805,
+      "output": "ambient-probe label=\"\" pid=4741 secs=10 hz=20 single preset\nlibrary: init=0xf74aaa3d preset=0xf74aa7ed get=0xf74aa89d finalize=0xf74aa949\ndev flag /var/luna/preferences/vt_devmode: absent\nholder: nobody has /dev/video60 open"
+    },
+    {
+      "step": "receiver-before",
+      "at": 1792946109.323483,
+      "muted": false,
+      "state": "on",
+      "volume": 0.355
+    },
+    {
+      "step": "receiver-muted",
+      "at": 1792946109.356884
+    },
+    {
+      "step": "started",
+      "at": 1792946109.403817,
+      "remote": "/tmp/ambient-slot-202610251234"
+    },
+    {
+      "step": "key",
+      "at": 1792946137.865179,
+      "scenario": "netflix",
+      "button": "ENTER"
+    },
+    {
+      "step": "captures-over",
+      "at": 1792946154.2287362
+    },
+    {
+      "step": "receiver-unmuted",
+      "at": 1792946159.4232907
+    },
+    {
+      "step": "picture-after",
+      "at": 1792946160.9913886,
+      "reply": "{\"subscribed\":false,\"category\":\"picture\",\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"dolbyHdr\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"dolbyHdrCinema\"},\"returnValue\":true}"
+    },
+    {
+      "step": "standby",
+      "at": 1792946165.013646
+    }
+  ],
+  "flag": {
+    "path": "/var/luna/preferences/vt_devmode",
+    "windows": [],
+    "existedBefore": false
+  },
+  "problems": [
+    "COULD NOT CONFIRM THE FLAG IS GONE (could not convert string to float: '1792946114.%N'): on the set, rm -f /var/luna/preferences/vt_devmode"
+  ]
+}

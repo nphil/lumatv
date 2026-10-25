@@ -1,0 +1,7 @@
+ambient-probe label="home" pid=4782 secs=60 hz=30 single preset
+library: init=0xf74caa3d preset=0xf74ca7ed get=0xf74ca89d finalize=0xf74ca949
+dev flag /var/luna/preferences/vt_devmode: present
+holder: nobody has /dev/video60 open
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  LSRegisterPubPriv FAILED
+exit=134

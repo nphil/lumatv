@@ -33,12 +33,18 @@ Decision for Nitin (the only thing blocking the picture side):
   to run the capture helper as a process whose command line contains Hue Sync's service path, which is impersonation
   and is not proposed.
 - With "short tests": the probe plan is 3 runs of 60 s (Home, HDMI 2 if it has signal, muted Netflix), flag removed
-  straight after each batch.
+  straight after each batch. Nitin allowed the flag for probe slots (PLAN.md, Decided).
+- Probe slot run 12:35 ("Probe slot" below): the flag passes the gate, then LG's library aborts the process because
+  it registers on the luna bus and the probe has no LS2 role file. No zone data yet; the next step is a role (the
+  capture helper as a native service of the ipk), then the probe slot again.
 
 Next, in order:
 
-1. Nitin's answer on the flag. If yes: probe slot as above (the Netflix title must play first: see "Audio results"),
-   fill "Probe results", then tune `engine::Config` defaults from the dumps (replay through `zones::parse_dump`).
+1. Give the capture helper an LS2 identity: a native service in LumaTV's ipk (`services/<id>/services.json` with
+   the 32-bit binary as its executable), which `appInstallService/dev/install` registers with ls-hubd, or Nitin's OK
+   for a dev role file under `/var/palm/ls2-dev/roles/` for one probe slot. Then the probe slot again (the Netflix
+   title played this time), fill "Probe results", then tune `engine::Config` defaults from the dumps (replay through
+   `zones::parse_dump`).
 2. Build the 32-bit capture helper from `probe.c` (lifecycle in "Helper-side design").
 
 ## ABI
@@ -201,9 +207,44 @@ was closed afterwards. Open: whether this is the receiver's ARC audio format lis
 refused), or something that changed since the 24 Oct Dolby Vision pass; an audio-output/ARC check is the first thing
 to do before the next playback test. No Netflix picture was therefore captured.
 
+## Probe slot (2026-10-25 12:35 EDT): the flag passes, the bus registration does not
+
+`python3 ambient/capture/tv_probe_slot.py --go` from a clean worktree at `c91148d`, probe built there by
+`ambient/capture/build.sh` (byte-identical to the committed build's output). Files in
+`docs/research/ambient/probe-2026-10-25-1234/` (`slot-log.json`, `slot.sh`, the three `.txt` reports, launch and
+foreground replies, interrupt snapshots; the `.csv` and `.bin` are empty). Preflight: library md5 `35d3fec6...` as
+before, nobody held `/dev/video60`, the flag absent, failed units as found (`broadcast-configd`, `f2io-on`,
+`faultmanager`, `gibbs`, `nudge`, `service-logger`, `voiceinput`; none new during the slot), Picture Mode `filmMaker`.
+Receiver muted at 12:35:09 (was on, unmuted, 0.355) and unmuted at 12:35:59.
+
+Every capture ended the same way within a second of the flag's creation: the probe prints `dev flag ... present`,
+LG's library logs `webos_vt_histogram.cpp.vtCapture_initHistogram():36 dev mode on!!` (the gate passed, 12:35:14.284
+for Home), 1.6 ms later ls-hubd logs `LSHUB_NO_ROLE_FILE {"EXE":"/tmp/ambient-slot-202610251234/ambient-probe"} No
+role file for executable`, and the library throws `std::runtime_error: LSRegisterPubPriv FAILED`, which ends the
+process (`terminate called`, exit 134). The foreground was `com.webos.app.home`, `com.webos.app.hdmi2` and `netflix`
+at the three starts; Netflix played the 4K title this time (Picture Mode `dolbyHdrCinema` at 12:36:00, back to
+`filmMaker` on Home). So the histogram API needs two things of its caller: the Hue Sync command line or the flag
+(known), and a luna-service2 role for the executable, because after the gate the library registers a bus client
+(its strings: `com.webos.service.capture.client`, `com.webos.service.capture`, `com.webos.service.capturepermission`,
+`com.palm.bus/signal`, "rmc regist pipeline fail": the resource manager and the capture service's permission check
+are reached over the bus). A role is what `appInstallService/dev/install` writes for a service declared in an ipk, so
+the capture helper should be a native service of LumaTV's package; the probe, built as a bare binary under `/tmp`,
+can never pass this step. `/usr/sbin/captureservice` reacted to nothing (its PERMISSION lines at 12:35:15 are its
+own pipeline poll).
+
+The flag: created by the on-set script straight before each probe run and removed by its `finish` straight after the
+abort (three windows of about a second each at 12:35:14, 12:35:23 and 12:35:52, from the launch times and settles in
+`slot-log.json`; the per-window times in `flag-events.txt` were lost because busybox `date +%s.%N` prints a literal
+`%N` on the set, so the script's own final check raised before it could record them and printed "COULD NOT
+CONFIRM"). The file was confirmed absent by hand at 12:36:13 EDT (`ls: No such file or directory`) and again at
+12:50. Nothing was sent to any Hue or WLED device; nothing else on the set was changed; the set was left in Active
+Standby by the script.
+
 ## Open
 
-- Zone values, update rate, latency, CPU of the histogram: need the flag decision above, then one probe slot.
-- Netflix playback error above.
+- Zone values, update rate, latency, CPU of the histogram: an LS2 role for the probe's executable (above), then one
+  probe slot.
+- Netflix playback error of 05:19: the title played at 12:35 (`dolbyHdrCinema`) and failed at 12:23 under LumaTV's
+  compositor with a video `INT_ERROR 18` (compositor-c2-result.md, third gate); not reproducible at will.
 - Home Assistant showed the receiver `off` while the TV was in Active Standby, and `on`, unmuted, 0.355 once the screen
   was on.
