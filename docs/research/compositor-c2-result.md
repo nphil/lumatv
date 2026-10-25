@@ -9,9 +9,10 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 01:20 EDT): first light works offline on the host; the
-aarch64 bundle builds; the TV run is a ready script waiting for "TV is
-yours". Nothing of this slice has run on the set yet.
+State (2026-10-25 01:35 EDT, slice yielded): first light works offline on
+the host; the aarch64 bundle builds; the TV run is a ready script waiting
+for "TV is yours". Nothing of this slice has run on the set yet. Last
+commit of this slice: `709b15c`.
 
 - Done: design (below); workspace `compositor/` builds and tests on the
   host (`cargo test`: 6 unit + 14 protocol tests, a real `wayland-client`
