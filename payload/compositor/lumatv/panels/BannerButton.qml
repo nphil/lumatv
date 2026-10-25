@@ -3,14 +3,21 @@ import "../kit"
 
 // The small pill button of the banners (docs/mocks/25-input-banner, 18-no-signal): an icon and a label on the quiet glass
 // wash; focus is the raised glass and the lit edge at once and the lift after the focus has rested (the kit's rule).
+// `dark` draws it in the dark material whatever the TV's material is: the no-signal screen is black in both.
 Item {
     id: btn
     property string icon: ""
     property string text: ""
     property bool focused: false
     property bool rested: true
+    property bool dark: false
     signal activated()
     signal hoverFocus()
+
+    readonly property var mat: dark && Lu.theme && Lu.theme.dark ? Lu.theme.dark : Lu.material
+    function tone(name, fallback) { var v = mat[name]; return typeof v === "string" ? Lu.asColor(v) : fallback }
+    readonly property color ink: tone("ink", Lu.ink)
+    readonly property color wash: Qt.rgba(ink.r, ink.g, ink.b, (Lu.states.selectedWash || 0))
 
     implicitWidth: row.width + 2 * Lu.space(6)
     implicitHeight: 52
@@ -22,15 +29,15 @@ Item {
     transformOrigin: Item.Center
     Rectangle {
         anchors.fill: parent; radius: Lu.radius("pill"); antialiasing: true
-        color: btn.focused ? Lu.glassRaised : Lu.wash("selected")
-        border.width: btn.focused ? 1 : 0; border.color: Lu.edgeRaised
+        color: btn.focused ? btn.tone("glassFocus", Lu.glassRaised) : btn.wash
+        border.width: btn.focused ? 1 : 0; border.color: btn.tone("glassFocusEdge", Lu.edgeRaised)
     }
     Row {
         id: row
         anchors.centerIn: parent
         spacing: Lu.space(3)
-        LuIcon { visible: btn.icon !== ""; anchors.verticalCenter: parent.verticalCenter; name: btn.icon; size: 28; color: Lu.ink }
-        LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; font.weight: Font.DemiBold; text: btn.text }
+        LuIcon { visible: btn.icon !== ""; anchors.verticalCenter: parent.verticalCenter; name: btn.icon; size: 28; color: btn.ink }
+        LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; font.weight: Font.DemiBold; color: btn.ink; text: btn.text }
     }
     MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: btn.hoverFocus(); onClicked: btn.activated() }
 }

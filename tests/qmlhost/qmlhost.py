@@ -186,6 +186,10 @@ def main(argv=None):
                     help='delete this path (relative to the staged module dir) after staging, to test a surface without it')
     ap.add_argument('--fire', action='append', default=[], metavar='MS:launch|close[:JSON]',
                     help='call the window life cycle of a system-UI surface at MS after start, e.g. 100:launch:{"reason":"x"}')
+    ap.add_argument('--overlay', action='store_true',
+                    help='load LumaOverlay.qml beside the surface, as the fullscreen container does: the surface is hidden while its `hostActive` is false, '
+                         'and `overlay` is the overlay\'s name in --eval (set `overlay.appFront = true` for an app in front)')
+    ap.add_argument('--bgimage', metavar='PNG', help='a picture stretched behind everything: what an app (video) would show')
     a = ap.parse_args(argv)
 
     data = os.path.abspath(a.data) if a.data else tempfile.mkdtemp(prefix='qmlhost-')
@@ -260,9 +264,15 @@ def main(argv=None):
         mod_import = rel                      # staged under the data dir, beside qml/
     else:
         mod_import = 'qml/WebOSCompositor/%s' % brand()['qmlModule'] + ('/' + rel if rel else '')
+    mods = ''
+    if a.bgimage:
+        mods += '  Image { anchors.fill: parent; source: "file://%s"; fillMode: Image.Stretch }\n' % os.path.abspath(a.bgimage)
+    vis = '; visible: hostActive' if a.overlay else ''
+    mods += '  M.%s { id: surface; objectName: "surface"%s }\n' % (os.path.splitext(qml_name)[0], vis)
+    if a.overlay:
+        mods += '  M.LumaOverlay { id: overlay; objectName: "overlay"; z: 3 }\n'
     with open(host, 'w') as f:
-        f.write('import QtQuick 2.4\nimport "%s" as M\nItem { width: %d; height: %d\n  M.%s { id: surface; objectName: "surface" }\n}\n'
-                % (mod_import, w, h, os.path.splitext(qml_name)[0]))
+        f.write('import QtQuick 2.4\nimport "%s" as M\nItem { width: %d; height: %d\n%s}\n' % (mod_import, w, h, mods))
     view.setSource(QtCore.QUrl.fromLocalFile(host))
     if view.status() != QtQuick.QQuickView.Ready:
         for e in view.errors():
@@ -309,6 +319,8 @@ def main(argv=None):
         ms, topic, data = spec.split(':', 2)
         QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda t=topic, d=json.loads(data): helper_state.publish(t, d))
     view.rootContext().setContextProperty('root', surface)
+    if a.overlay:
+        view.rootContext().setContextProperty('overlay', root.findChild(QtCore.QObject, 'overlay'))
 
     def evaluate(expr):
         e = QtQml.QQmlExpression(view.rootContext(), surface, expr)

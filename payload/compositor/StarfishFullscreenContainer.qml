@@ -256,6 +256,29 @@ FocusScope {
         when: root.lumaHomeCurrent && !!root.__surfaceItem
     }
 
+    // Banners and the notification drawer over an app (payload/compositor/{{qmlModule}}/LumaOverlay.qml). It sits beside LumaHome in the base
+    // container, above the app's surface and below LG's own views (toasts, alerts, the volume, Quick Settings), takes no focus and draws nothing
+    // until something is shown; the key filter hands it keys only while it has a surface that wants them and the app has the keys. It is
+    // never over Home (Home draws its own). A file that does not load leaves no overlay and costs nothing else.
+    Loader {
+        id: lumaOverlay
+        anchors.fill: parent
+        z: 3
+        active: root.objectName === "baseContainer"
+        visible: !root.lumaHomeCurrent
+        source: "../../{{qmlModule}}/LumaOverlay.qml"
+        onStatusChanged: {
+            if (status === Loader.Error)
+                console.warn("[FULLSCREEN:Container][" + root.objectName + "] LumaOverlay failed to load from " + source)
+        }
+    }
+    Binding {
+        target: lumaOverlay.item
+        property: "appFront"
+        value: !!root.__surfaceItem && !root.lumaHomeCurrent && root.visibleState
+        when: lumaOverlay.status === Loader.Ready
+    }
+
     StarfishFullscreenStandby {
         id : fullscreenCover
         anchors.fill: parent

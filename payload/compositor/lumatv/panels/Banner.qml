@@ -15,7 +15,7 @@ import "../kit"
 // pick on a banner without buttons, is `hide()`, and `closeRequested()` follows it so the host drops the layer.
 //
 //   spec = { kind: "channel", number, call, title, sub, progress, next, chips: [..] }
-//        | { kind: "input", icon, name, facts, buttons: bool }
+//        | { kind: "input", icon, name, facts, buttons: bool, actions: [ids] }
 //        | { kind: "nosignal", icon, port, title, body }
 Item {
     id: banner
@@ -28,8 +28,14 @@ Item {
     readonly property bool built: true
     readonly property string kind: spec.kind || ""
     readonly property bool interactive: buttons.length > 0
-    readonly property var buttons: kind === "nosignal" ? [{ id: "inputs", icon: "cable", label: "Inputs" }, { id: "home", icon: "house", label: "Home" }]
-                                  : kind === "input" && spec.buttons ? [{ id: "details", icon: "info", label: "Details" }, { id: "inputs", icon: "cable", label: "Inputs" }, { id: "picture", icon: "image", label: "Picture" }] : []
+    // `actions` (an input banner's spec) names the buttons the surface that shows it can answer; a banner without it has all three. Over an
+    // app (LumaOverlay.qml) there is no Settings page to open, so it asks for Inputs and Picture only.
+    readonly property var actionKinds: ({ details: { icon: "info", label: "Details" }, inputs: { icon: "cable", label: "Inputs" },
+                                          picture: { icon: "image", label: "Picture" }, home: { icon: "house", label: "Home" } })
+    readonly property var buttons: {
+        var ids = kind === "nosignal" ? ["inputs", "home"] : kind === "input" && spec.buttons ? (spec.actions || ["details", "inputs", "picture"]) : []
+        return ids.filter(function(id) { return !!actionKinds[id] }).map(function(id) { return { id: id, icon: actionKinds[id].icon, label: actionKinds[id].label } })
+    }
     visible: kind !== ""
     function show(s) {
         spec = s
@@ -56,7 +62,11 @@ Item {
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: banner.rested = true }
 
     // ---- no signal: black, the icon dim, the words, the two buttons. The block moves to another spot every minute (the mock's
-    // first is 180, -120 from the centre): a screen nobody switches away from must not hold one pattern.
+    // first is 180, -120 from the centre): a screen nobody switches away from must not hold one pattern. It is black in both
+    // materials (a still frame on an OLED is what the screen must never hold), so it is drawn in the dark material's inks.
+    readonly property var darkMat: (Lu.theme && Lu.theme.dark) || ({})
+    readonly property color nsInk: typeof darkMat.ink === "string" ? Lu.asColor(darkMat.ink) : Lu.ink
+    readonly property color nsInk2: typeof darkMat.ink2 === "string" ? Lu.asColor(darkMat.ink2) : Lu.ink2
     Rectangle { anchors.fill: parent; visible: banner.kind === "nosignal"; color: "#000000" }
     readonly property var spots: [[0, 0], [180, -120], [-200, 100], [140, 150], [-170, -110]]
     property int spot: 0
@@ -72,10 +82,10 @@ Item {
         width: 760
         spacing: Lu.space(4)
         opacity: 0.62
-        LuIcon { anchors.horizontalCenter: parent.horizontalCenter; name: banner.spec.icon || "unplug"; size: 64; color: Lu.ink2 }
-        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.weight: Font.DemiBold; color: Lu.ink2; text: banner.spec.port || "" }
-        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; text: banner.spec.title || "" }
-        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; lineHeight: 0.99; color: Lu.ink2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
+        LuIcon { anchors.horizontalCenter: parent.horizontalCenter; name: banner.spec.icon || "unplug"; size: 64; color: banner.nsInk2 }
+        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.weight: Font.DemiBold; color: banner.nsInk2; text: banner.spec.port || "" }
+        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; color: banner.nsInk; text: banner.spec.title || "" }
+        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; lineHeight: 0.99; color: banner.nsInk2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
         Item { width: 1; height: Lu.space(1) }
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -83,7 +93,7 @@ Item {
             Repeater {
                 model: banner.kind === "nosignal" ? banner.buttons.length : 0
                 delegate: BannerButton {
-                    icon: banner.buttons[index].icon; text: banner.buttons[index].label
+                    icon: banner.buttons[index].icon; text: banner.buttons[index].label; dark: true
                     focused: banner.index === index; rested: banner.rested
                     onHoverFocus: banner.index = index
                     onActivated: { banner.index = index; banner.key("ok") }

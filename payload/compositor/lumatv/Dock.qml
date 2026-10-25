@@ -423,6 +423,15 @@ Item {
         launching(p.title || p.id, p.iconUrl || "")
         LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: p.id, params: p.params || {} }))
     }
+    // A number key on the remote (LumaHome, theme `remote.numberKeys`): the tile takes the focus and opens as if OK were pressed on it. False when
+    // there is no such tile, or one is being moved.
+    function openTile(i) {
+        if (moving || i < 0 || i >= points.length) return false
+        row = Math.floor(i / cols); col = i % cols
+        ensureRowVisible()
+        activate()
+        return true
+    }
     function focusedCenterX() { return originX + focusCenter().x }
     // A tile and where it is in Home's own coordinates, for the menu that opens beside it.
     function tileAt(i) {

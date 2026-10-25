@@ -63,7 +63,9 @@ Item {
     Binding { target: Lu; property: "theme"; value: root.theme }
     Binding { target: Lu; property: "isLight"; value: root.isLight }
     Binding { target: Lu; property: "wallAccent"; value: root.wallTint ? root.wallAccent : "transparent" }
-    Binding { target: Lu; property: "backdrop"; value: blurTex }
+    // The glass samples the wallpaper's blur while Home is on screen: Home takes the backdrop at load and whenever it is shown again, since
+    // over an app the overlay (LumaOverlay.qml) points it at a flat colour. An assignment and not a Binding: a Binding that switches off is
+    // the one construct whose behaviour differs between Qt 5.12 (the set) and 5.15 (the offline host).
     Binding { target: Lu; property: "baseUrl"; value: root.moduleDirUrl }
     // What the all-apps library lists and in which order: the owner's choices (theme.apps) and the dock's tiles (kit/Apps.qml).
     Binding { target: Apps; property: "prefs"; value: root.theme.apps || ({}) }
@@ -247,11 +249,21 @@ Item {
     TextFile { id: beatFile; name: root.beatUrl }
     TextFile { id: modeFile; name: root.modeUrl }
     TextFile { id: confirmFile; name: root.confirmUrl }
+    // One beat: the in-engine one the key filter reads, then the file the guard reads. It is also written once at load, before any
+    // timer has ticked, so a layer that is built while the panel is off leaves a beat and a log line behind even if the engine
+    // does not run timers then, and a timer that went quiet shows as a gap in the log when it starts again.
+    property double lastBeatMs: 0
+    function beatOnce() {
+        var now = Date.now()
+        if (lastBeatMs > 0 && now - lastBeatMs > 3000) console.info("[LumaHome] the beat was silent for " + Math.round((now - lastBeatMs) / 1000) + " s")
+        lastBeatMs = now
+        Bus.beat()
+        beatFile.write(String(++beatSeq))
+    }
     Timer {
         interval: 1000; running: true; repeat: true
         onTriggered: {
-            Bus.beat()
-            beatFile.write(String(++root.beatSeq))
+            root.beatOnce()
             root.trialLeft = root.trialEndMs > 0 ? Math.max(0, Math.ceil((root.trialEndMs - Date.now()) / 1000)) : 0
         }
     }
@@ -629,7 +641,7 @@ Item {
 
     onHostActiveChanged: {
         resetOk()
-        if (hostActive) { focusLayer = "dock"; statusBarItem.requestClosePopover() }
+        if (hostActive) { Lu.backdrop = blurTex; focusLayer = "dock"; statusBarItem.requestClosePopover() }
         else {
             if (voiceBusy) voiceAbort()
             if (settingsOpen) closeSettings()
@@ -726,6 +738,42 @@ Item {
             if (layers.open === "apps") layers.hold(); else root.openTileMenu()
         }
     }
+    // ---- the number keys open the dock's tiles (Settings, Remote & pointer, "Number keys open dock tiles": theme `remote.numberKeys`,
+    // on unless the owner turned it off). 1 is the first tile, 2 the second and so on to 9; 0 is the tenth. Only on Home with nothing
+    // open: anywhere else a digit means what LG's own handling makes of it, and so does a digit with no tile behind it. The tile takes
+    // Home's focus, so it is as if the owner had walked to it and pressed OK. The press acts (a digit has no hold), and its repeats and
+    // release are taken with it, wherever Home is by then.
+    readonly property bool numberKeysOn: !theme.remote || theme.remote.numberKeys !== false
+    property int numberEaten: 0
+    function tileForKey(k) { return k >= Qt.Key_1 && k <= Qt.Key_9 ? k - Qt.Key_1 : k === Qt.Key_0 ? 9 : -1 }
+    function numberKey(k, tile, pressed, autoRepeat) {
+        if (numberEaten === k) {
+            if (!pressed) numberEaten = 0
+            return true
+        }
+        if (!pressed || autoRepeat) return false
+        if (!hostActive || !numberKeysOn || aiPrompt.up || trialOn || layers.open !== "" || focusLayer === "popover") return false
+        var d = dockLoader.item
+        if (!d || !d.openTile(tile)) return false
+        numberEaten = k
+        focusLayer = "dock"
+        return true
+    }
+    // ---- the gear key held (payload/keyfilter/lumatv.js times the hold): the notification drawer, from wherever Home is. While Home can
+    // do this the filter stops LG's Settings long press (theme `remote.gearHold`, on unless the owner turned it off, hands the hold back to
+    // LG). Held again while the drawer is up it closes it, as LG's own hold toggles Settings. The AI prompt and the saver own the remote:
+    // the hold is taken and does nothing, so LG's Settings does not open behind them.
+    readonly property bool gearHoldOn: !theme.remote || theme.remote.gearHold !== false
+    function gearReady() { return hostActive && gearHoldOn }
+    function gearHold() {
+        if (!gearReady()) return false
+        if (aiPrompt.up || layers.saverUp) return true
+        if (layers.open === "drawer") { closeLayer(); return true }
+        closeAllLayers()
+        if (settingsOpen) closeSettings()
+        openLayer("drawer")
+        return true
+    }
     property int saverEaten: 0              // the key whose press the screensaver took: its release is taken too
     function key(k, pressed, autoRepeat, deviceId) {
         // The volume keys are only watched: the receiver's OSD asks the helper for a fresh reading, and LG's chain
@@ -757,6 +805,8 @@ Item {
         // The on-screen remote key (123) opens LumaTV's remote; the Search key opens search (a surface that has the keys keeps them)
         if (hostActive && pressed && !autoRepeat && !aiPrompt.up && k === WebOS.Key_webOS_ScreenRemote) { remoteKeyPressed(); return true }
         if (hostActive && pressed && !autoRepeat && !aiPrompt.up && k === Qt.Key_Search && layers.open === "") { openSearch(); return true }
+        var tile = tileForKey(k)
+        if (tile >= 0) return numberKey(k, tile, pressed, autoRepeat)
         var dir = directionFor(k)
         if (!dir) return false
         // An AI prompt is up: the helper reads the answer from the physical remote itself, and nothing
@@ -874,8 +924,14 @@ Item {
         }
         return best
     }
-    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.beat(); loadAll(); readMode(); Helper.start(); NoteLog.seenAt = Date.now() }       // the log's own toast subscription starts when it is first read
-    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null) }
+    Component.onCompleted: {
+        Lu.backdrop = blurTex
+        Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.setGear({ ready: root.gearReady, hold: root.gearHold })
+        root.beatOnce()
+        console.info("[LumaHome] loaded, first beat written")
+        loadAll(); readMode(); Helper.start(); NoteLog.seenAt = Date.now()       // the log's own toast subscription starts when it is first read
+    }
+    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
     // sees the Magic Remote.
