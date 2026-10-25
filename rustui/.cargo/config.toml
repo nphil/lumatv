@@ -1,0 +1,11 @@
+# Host (tests, proc macros, build scripts): the workstation has no system cc; zig's clang links instead.
+[target.x86_64-unknown-linux-gnu]
+linker = "tools/cc-host"
+
+# The set: a glibc 2.36 aarch64 binary, run through the private Debian loader beside the 64-bit Mali blob. Build with
+# `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36` (cargo-zigbuild sets the linker and the glibc version).
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=cortex-a76"]
+
+[env]
+RUST_MIN_STACK = "8388608"

@@ -1,0 +1,292 @@
+--- a/gl.rs	2026-10-25 03:21:04.197900145 -0400
++++ b/gl.rs	2026-10-25 03:21:04.197900145 -0400
+@@ -42,8 +42,11 @@
+ const EGL_GL_TEXTURE_2D_KHR: u32 = 0x30B1;
+ #[cfg(test)]
+ const EGL_GL_TEXTURE_LEVEL_KHR: i32 = 0x30BC;
+-#[cfg(test)]
+ const EGL_PLATFORM_SURFACELESS_MESA: u32 = 0x31DD;
++const EGL_PLATFORM_WAYLAND_KHR: u32 = 0x31D8;
++const EGL_WINDOW_BIT: i32 = 0x0004;
++const EGL_OPENGL_ES_API: u32 = 0x30A0;
++const EGL_OPENGL_ES2_BIT: i32 = 0x0004;
+ const EGL_TIMEOUT_EXPIRED_KHR: i32 = 0x30F5;
+ 
+ const GL_TEXTURE_2D: u32 = 0x0DE1;
+@@ -63,7 +66,6 @@
+ const GL_STREAM_DRAW: u32 = 0x88E0;
+ const GL_STATIC_DRAW: u32 = 0x88E4;
+ const GL_TEXTURE0: u32 = 0x84C0;
+-#[cfg(test)]
+ const GL_PACK_ALIGNMENT: u32 = 0x0D05;
+ pub const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
+ const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+@@ -130,6 +132,10 @@
+     create_context = "eglCreateContext" fn(EglDisplay, EglConfig, EglContext, *const i32) -> EglContext;
+     make_current = "eglMakeCurrent" fn(EglDisplay, EglSurface, EglSurface, EglContext) -> u32;
+     get_error = "eglGetError" fn() -> i32;
++    create_window_surface = "eglCreateWindowSurface" fn(EglDisplay, EglConfig, *mut c_void, *const i32) -> EglSurface;
++    swap_buffers = "eglSwapBuffers" fn(EglDisplay, EglSurface) -> u32;
++    swap_interval = "eglSwapInterval" fn(EglDisplay, i32) -> u32;
++    bind_api = "eglBindAPI" fn(u32) -> u32;
+     #[cfg(test)]
+     get_current_context = "eglGetCurrentContext" fn() -> EglContext;
+ });
+@@ -181,8 +187,7 @@
+     tex_sub_image_2d = "glTexSubImage2D" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void);
+     pixel_storei = "glPixelStorei" fn(u32, i32);
+     active_texture = "glActiveTexture" fn(u32);
+-    // Only the tests read a frame back.
+-    #[cfg(test)]
++    // The tests and the host's screenshots read a frame back.
+     read_pixels = "glReadPixels" fn(i32, i32, i32, i32, u32, u32, *mut c_void);
+     delete_fbo = "glDeleteFramebuffers" fn(i32, *const u32);
+     gen_framebuffers = "glGenFramebuffers" fn(i32, *mut u32);
+@@ -392,6 +397,8 @@
+     gl: GlApi,
+     mesh_api: mesh::MeshGl,
+     display: EglDisplay,
++    /// The window surface frames are presented on, when the context was made for one ([`Gles::window`]).
++    window: Option<EglSurface>,
+     calls: Cell<Calls>,
+     known: Known,
+     on_creating_thread: PhantomData<*const ()>,
+@@ -514,9 +521,13 @@
+ enum Platform {
+     /// The driver's own default: the Mali's only display.
+     Default,
+-    /// Mesa's platform without a window system, for the tests' software rendering into textures.
+-    #[cfg(test)]
+-    Surfaceless,
++    /// Mesa's platform without a window system, for software rendering into textures and a pbuffer of `size`.
++    Surfaceless { size: (i32, i32) },
++    /// A Wayland client: the driver's display on `wl_display` and a window surface over `wl_egl_window`.
++    Window {
++        wl_display: *mut c_void,
++        wl_egl_window: *mut c_void,
++    },
+ }
+ 
+ impl Gles {
+@@ -527,9 +538,56 @@
+     }
+ 
+     /// The tests' software GL: the EGL library at `library` (Mesa's), on a display of its own without a window system.
+-    #[cfg(test)]
+     pub fn software(library: &CStr) -> io::Result<Self> {
+-        Self::open(library, Platform::Surfaceless)
++        Self::open(library, Platform::Surfaceless { size: (1, 1) })
++    }
++
++    /// The same with a pbuffer of `width` x `height` as the default framebuffer, which a host draws a window's frames into.
++    pub fn software_pbuffer(library: &CStr, width: u32, height: u32) -> io::Result<Self> {
++        Self::open(
++            library,
++            Platform::Surfaceless {
++                size: (width as i32, height as i32),
++            },
++        )
++    }
++
++    /// A context on the window surface `wl_egl_window` over the Wayland connection `wl_display`, from the EGL/GLES library at `driver`
++    /// (the 64-bit Mali blob, which exports both). Frames are presented with [`Gles::swap_buffers`].
++    ///
++    /// # Safety
++    /// Both pointers must stay valid for as long as the returned value lives.
++    pub unsafe fn window(
++        driver: &CStr,
++        wl_display: *mut c_void,
++        wl_egl_window: *mut c_void,
++    ) -> io::Result<Self> {
++        Self::open(
++            driver,
++            Platform::Window {
++                wl_display,
++                wl_egl_window,
++            },
++        )
++    }
++
++    /// Shows the frame drawn into the window surface's framebuffer (0). With a swap interval of 1 this waits for the compositor's
++    /// frame callback.
++    pub fn swap_buffers(&self) -> io::Result<()> {
++        let Some(surface) = self.window else {
++            return Err(io::Error::other("this context has no window surface"));
++        };
++        // SAFETY: the display and surface are the ones this context was made with.
++        if unsafe { (self.egl.swap_buffers)(self.display, surface) } == 0 {
++            return Err(egl_error(&self.egl, "eglSwapBuffers"));
++        }
++        Ok(())
++    }
++
++    /// `eglSwapInterval` of the window surface's display: 0 does not wait for the compositor's frame callback, 1 does.
++    pub fn set_swap_interval(&self, interval: i32) {
++        // SAFETY: the display is the one this context was made with.
++        unsafe { (self.egl.swap_interval)(self.display, interval) };
+     }
+ 
+     /// The same over the EGL/GLES library at `driver`.
+@@ -563,8 +621,19 @@
+         let display = unsafe {
+             let display = match platform {
+                 Platform::Default => (egl.get_display)(std::ptr::null_mut()),
+-                #[cfg(test)]
+-                Platform::Surfaceless => {
++                Platform::Window { wl_display, .. } => {
++                    let get = resolve("eglGetPlatformDisplay")
++                        .or_else(|| resolve("eglGetPlatformDisplayEXT"))
++                        .ok_or_else(|| {
++                            io::Error::other("eglGetPlatformDisplay is missing from the EGL library")
++                        })?;
++                    let get = std::mem::transmute::<
++                        *const c_void,
++                        unsafe extern "C" fn(u32, *mut c_void, *const isize) -> EglDisplay,
++                    >(get);
++                    get(EGL_PLATFORM_WAYLAND_KHR, wl_display, std::ptr::null())
++                }
++                Platform::Surfaceless { .. } => {
+                     let get = resolve("eglGetPlatformDisplayEXT").ok_or_else(|| {
+                         io::Error::other("eglGetPlatformDisplayEXT is missing from the EGL library")
+                     })?;
+@@ -584,40 +653,82 @@
+             {
+                 return Err(egl_error(&egl, "eglInitialize"));
+             }
+-            let config_attributes = [
+-                EGL_SURFACE_TYPE,
+-                EGL_PBUFFER_BIT,
+-                EGL_RENDERABLE_TYPE,
+-                EGL_OPENGL_ES3_BIT,
+-                EGL_RED_SIZE,
+-                8,
+-                EGL_GREEN_SIZE,
+-                8,
+-                EGL_BLUE_SIZE,
+-                8,
+-                EGL_ALPHA_SIZE,
+-                8,
+-                EGL_NONE,
+-            ];
++            let surface_type = match platform {
++                Platform::Window { .. } => EGL_WINDOW_BIT,
++                _ => EGL_PBUFFER_BIT,
++            };
++            // A driver may list its ES 3 configs under the ES 2 bit alone: a version 3 context is still made on them.
+             let mut config: EglConfig = std::ptr::null_mut();
+-            let mut count = 0;
+-            if (egl.choose_config)(
+-                display,
+-                config_attributes.as_ptr(),
+-                &mut config,
+-                1,
+-                &mut count,
+-            ) == 0
+-                || count != 1
+-            {
++            let mut chosen = false;
++            for renderable in [EGL_OPENGL_ES3_BIT, EGL_OPENGL_ES2_BIT] {
++                let config_attributes = [
++                    EGL_SURFACE_TYPE,
++                    surface_type,
++                    EGL_RENDERABLE_TYPE,
++                    renderable,
++                    EGL_RED_SIZE,
++                    8,
++                    EGL_GREEN_SIZE,
++                    8,
++                    EGL_BLUE_SIZE,
++                    8,
++                    EGL_ALPHA_SIZE,
++                    8,
++                    EGL_NONE,
++                ];
++                let mut count = 0;
++                if (egl.choose_config)(
++                    display,
++                    config_attributes.as_ptr(),
++                    &mut config,
++                    1,
++                    &mut count,
++                ) != 0
++                    && count == 1
++                {
++                    chosen = true;
++                    break;
++                }
++            }
++            if !chosen {
+                 return Err(egl_error(&egl, "eglChooseConfig"));
+             }
+-            let surface_attributes = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
+-            let surface =
+-                (egl.create_pbuffer_surface)(display, config, surface_attributes.as_ptr());
+-            if surface.is_null() {
+-                return Err(egl_error(&egl, "eglCreatePbufferSurface"));
+-            }
++            (egl.bind_api)(EGL_OPENGL_ES_API);
++            let (surface, window) = match platform {
++                Platform::Window { wl_egl_window, .. } => {
++                    let attributes = [EGL_NONE];
++                    let surface = (egl.create_window_surface)(
++                        display,
++                        config,
++                        wl_egl_window,
++                        attributes.as_ptr(),
++                    );
++                    if surface.is_null() {
++                        return Err(egl_error(&egl, "eglCreateWindowSurface"));
++                    }
++                    (surface, Some(surface))
++                }
++                Platform::Default => (std::ptr::null_mut(), None),
++                Platform::Surfaceless { size } => {
++                    let attributes = [EGL_WIDTH, size.0, EGL_HEIGHT, size.1, EGL_NONE];
++                    let surface =
++                        (egl.create_pbuffer_surface)(display, config, attributes.as_ptr());
++                    if surface.is_null() {
++                        return Err(egl_error(&egl, "eglCreatePbufferSurface"));
++                    }
++                    (surface, None)
++                }
++            };
++            let surface = if surface.is_null() {
++                let attributes = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
++                let surface = (egl.create_pbuffer_surface)(display, config, attributes.as_ptr());
++                if surface.is_null() {
++                    return Err(egl_error(&egl, "eglCreatePbufferSurface"));
++                }
++                surface
++            } else {
++                surface
++            };
+             let context_attributes = [EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE];
+             let context = (egl.create_context)(
+                 display,
+@@ -628,8 +739,9 @@
+             if context.is_null() || (egl.make_current)(display, surface, surface, context) == 0 {
+                 return Err(egl_error(&egl, "eglCreateContext/eglMakeCurrent"));
+             }
+-            display
++            (display, window)
+         };
++        let (display, window) = display;
+         let gl_api = GlApi::load(&resolve)?;
+         Ok(Self {
+             egl,
+@@ -637,6 +749,7 @@
+             mesh_api: mesh::MeshGl::load(&resolve, &gl_api)?,
+             gl: gl_api,
+             display,
++            window,
+             calls: Cell::new(Calls::default()),
+             known: Known::new(),
+             on_creating_thread: PhantomData,
+@@ -1279,7 +1392,6 @@
+         unsafe { (self.gl.active_texture)(GL_TEXTURE0 + unit) }
+     }
+ 
+-    #[cfg(test)]
+     /// The RGBA8 pixels of a `width` × `height` block of the bound framebuffer, from its lower-left corner (`x`, `y`),
+     /// row after row from the bottom. It waits for the GPU to finish everything drawn: for the tests and screenshots,
+     /// never for a frame.

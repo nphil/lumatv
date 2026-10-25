@@ -1,0 +1,145 @@
+--- a/live.rs	2026-10-25 03:19:50.775160585 -0400
++++ b/live.rs	2026-10-25 03:19:50.788160716 -0400
+@@ -23,7 +23,6 @@
+ use crate::log::log;
+ use compositor_protocol::SourceId;
+ use compositor_protocol::frames::{Event, Format, Spec};
+-use device_echo_show_5::gralloc;
+ use parking_lot::Mutex;
+ use std::collections::{HashMap, VecDeque};
+ use std::io;
+@@ -348,132 +347,9 @@
+     }
+ }
+ 
+-/// The most gralloc buffers the importer keeps to stand for producers' buffers: they are made once for a size and reused, never
+-/// freed (gralloc has no way here to free one that the GPU may still know), so the cost is bounded by this and the sizes used.
+-const MAX_CARRIERS: usize = 8;
+-
+-/// A gralloc buffer whose descriptor is swapped for a producer's dma-buf while an image over it exists.
+-struct Carrier {
+-    width: u32,
+-    height: u32,
+-    buffer: gralloc::Buffer,
+-    /// The dma-buf gralloc made for the buffer: put back when the producer's goes.
+-    own_fd: i32,
+-    busy: bool,
+-}
+-
+-/// The Echo Show's importer: a gralloc buffer of the producer's size is the `ANativeWindowBuffer` the EGL blob imports, with
+-/// the producer's dma-buf in the slot of the handle the blob reads (`gralloc::Buffer::swap_share_fd`).
+-pub struct GrallocImporter {
+-    gralloc: gralloc::Gralloc,
+-    carriers: Vec<Arc<Mutex<Carrier>>>,
+-}
+-
+-impl GrallocImporter {
+-    /// `Err` where there is no vendor gralloc (anywhere but the Show's Android runtime).
+-    pub fn new() -> io::Result<Self> {
+-        Ok(Self {
+-            gralloc: gralloc::Gralloc::load()?,
+-            carriers: Vec::new(),
+-        })
+-    }
+-
+-    /// A free carrier of `spec`'s size, made when there is none.
+-    fn carrier(&mut self, spec: &Spec) -> io::Result<Arc<Mutex<Carrier>>> {
+-        for carrier in &self.carriers {
+-            let mut c = carrier.lock();
+-            if !c.busy && (c.width, c.height) == (spec.width, spec.height) {
+-                c.busy = true;
+-                return Ok(Arc::clone(carrier));
+-            }
+-        }
+-        if self.carriers.len() >= MAX_CARRIERS {
+-            return Err(io::Error::other(format!(
+-                "the GPU already has {MAX_CARRIERS} producers' buffers"
+-            )));
+-        }
+-        let buffer = self.gralloc.allocate(
+-            spec.width,
+-            spec.height,
+-            gralloc::HAL_PIXEL_FORMAT_RGBA_8888,
+-            gralloc::PRODUCER_USAGE_CPU_WRITE_OFTEN,
+-            gralloc::CONSUMER_USAGE_GPU_TEXTURE,
+-        )?;
+-        let own_fd = buffer.share_fd();
+-        let carrier = Arc::new(Mutex::new(Carrier {
+-            width: spec.width,
+-            height: spec.height,
+-            buffer,
+-            own_fd,
+-            busy: true,
+-        }));
+-        self.carriers.push(Arc::clone(&carrier));
+-        Ok(carrier)
+-    }
+-}
+-
+-impl Importer for GrallocImporter {
+-    fn import(&mut self, gl: &Gles, spec: &Spec, fd: OwnedFd) -> io::Result<Imported> {
+-        // The one layout there is; another one is a compile error here, to be dealt with when it is added.
+-        let Format::Rgba8888 = spec.format;
+-        let carrier = self.carrier(spec)?;
+-        let free_again = |carrier: &Arc<Mutex<Carrier>>| carrier.lock().busy = false;
+-        let native = {
+-            let c = carrier.lock();
+-            // The GPU reads rows at the stride gralloc chose for this size, not the producer's: a mismatch is garbled
+-            // pictures, so it is refused.
+-            let gpu_stride = c.buffer.stride_px() as u32 * spec.format.bytes();
+-            if gpu_stride != spec.stride {
+-                drop(c);
+-                free_again(&carrier);
+-                return Err(io::Error::other(format!(
+-                    "the GPU's buffers of {}x{} have rows of {gpu_stride} bytes and the producer's have {}",
+-                    spec.width, spec.height, spec.stride
+-                )));
+-            }
+-            // SAFETY: the carrier is ours alone (it was free) and nothing reads its descriptor until the image below exists;
+-            // `fd` stays open until the release closure drops it, after the image is destroyed.
+-            unsafe { c.buffer.swap_share_fd(fd.as_raw_fd()) };
+-            c.buffer.native()
+-        };
+-        // SAFETY: `native` is the live wrapper of a carrier that is kept (never freed) and, with the producer's descriptor
+-        // in its handle, stays as it is until the release closure has destroyed the image.
+-        match unsafe { gl.import_native(native) } {
+-            Ok(image) => {
+-                let texture = image.texture;
+-                Ok(Imported::new(texture, move |gl| {
+-                    gl.delete_import(image);
+-                    let mut c = carrier.lock();
+-                    let own = c.own_fd;
+-                    // SAFETY: the image is gone, so nothing reads the handle's descriptor any more.
+-                    unsafe { c.buffer.swap_share_fd(own) };
+-                    c.busy = false;
+-                    drop(c);
+-                    drop(fd);
+-                }))
+-            }
+-            Err(e) => {
+-                {
+-                    let c = carrier.lock();
+-                    // SAFETY: as above: the import failed, so nothing keeps the handle.
+-                    unsafe { c.buffer.swap_share_fd(c.own_fd) };
+-                }
+-                free_again(&carrier);
+-                Err(e)
+-            }
+-        }
+-    }
+-}
+-
+-/// The importer of the device this runs on: the Echo Show's, or none (said once, in the log) where there is no vendor gralloc.
++/// LumaTV has no producer of frames yet, so no importer: a source that is attached is refused, as on a device without one.
+ pub fn native_importer() -> Option<Box<dyn Importer>> {
+-    match GrallocImporter::new() {
+-        Ok(importer) => Some(Box::new(importer)),
+-        Err(e) => {
+-            log(format!("a producer's frames cannot be shown: {e}"));
+-            None
+-        }
+-    }
++    None
+ }
+ 
+ #[cfg(test)]

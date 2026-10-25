@@ -1,0 +1,40 @@
+[package]
+name = "lumatv-rustui"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "LumaHome drawn with LumaShow's Rust UI toolkit as a 64-bit Wayland client of LG's compositor (phase 3 spike)"
+
+[dependencies]
+lumatv-render = { path = "../render" }
+ui = { path = "../../../LumaShow/lumashow/crates/ui" }
+compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-protocol" }
+device-profile = { path = "../../../LumaShow/lumashow/crates/device-profile" }
+libc = "0.2"
+png = "0.17"
+
+[features]
+default = []
+# the Wayland window (needs the Wayland client libraries at run time: the bundle's, on the set)
+window = ["dep:wayland-client", "dep:wayland-backend", "dep:lumatv-wl-protocols", "dep:wayland-protocols"]
+
+[dependencies.wayland-client]
+version = "0.31"
+optional = true
+
+[dependencies.wayland-backend]
+version = "0.3"
+optional = true
+features = ["client_system", "dlopen"]
+
+[dependencies.lumatv-wl-protocols]
+path = "../../compositor/crates/wl-protocols"
+optional = true
+default-features = false
+features = ["client"]
+
+[dependencies.wayland-protocols]
+version = "0.32"
+optional = true
+features = ["client"]
