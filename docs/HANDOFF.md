@@ -6,28 +6,30 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 11:10 EDT)
+## Resume here (LumaTV, 2026-10-25 14:20 EDT, paused for quota until 15:30)
 
 - Source of truth: `docs/PLAN.md` (phases, gates, decisions), `docs/SURFACES.md`
   (inventory), each `docs/research/*-result.md` (its worker's recovery point). An
   implemented file is not proof that its feature passed on the TV.
 - Helpers: at most 10 at once including nested ones; briefs forbid spawning.
-  Running: ShellSlice, SettingsSlice, PanelsSlice, NotifySlice, PluginsSlice
-  (offline, disjoint files, notes `docs/research/*-slice-result.md`),
-  RendererIntegration (compositor/rustui), MemorySlot (holds the TV).
-- TV slots, one at a time: memory (`docs/research/memory-result.md`), then the
-  compositor trial (`compositor/tools/tv_next_slot.py`), the light-sync probe
-  (`vt_devmode` allowed for the slot only), the compressed-RAM swap A/B.
-- Review of the fallback model's commits (94cb377..76e470b), fixes assigned:
-  the scene tool lost its snap step, so "23 scenes in dark and light" meant
-  loading without warnings, not renders; the AI-approval "failure" was a port
-  collision on 18731, not a behaviour bug; the receiver was made to publish on
-  every poll, reversing the no-wake design (being restored); the 36.4 % idle
-  figure and the sampler's 50-60 ms cost have no evidence file; context menu,
-  confirmation and screen remote have no opener on the set.
-- Renderer: the engine draws inside the compositor's pages on the host
-  (41c6e83; root cause of the blank UI was the toolkit's vertex-attribute
-  invariant lost across the context switch). Not run on the TV.
+  Only GateFour may still be running (4th C4 gate on the set, 14:10-14:35); its
+  result lands in `compositor-c2-result.md` "Fourth gate on the set". If that
+  section is missing, check the set's end state first (Active Standby, LG's
+  compositor live, no `enabled` flag, receiver unmuted).
+- Done offline today, all slices finished and pushed (notes
+  `docs/research/{shell,settings,panels,notify,plugins}-slice-result.md`,
+  `cardapp-result.md`): every Phase 2-9 surface except the voice source, gear
+  hold and LG-process restyles; the full Python suite passed (242 tests,
+  13:55) and the helper build gate.
+- On the set today: preload list Netflix + Home + HDMI inputs (memory-result.md);
+  zram A/B not kept (no Home-return gain); 3rd gate x1 16 -> 6 gaps, UI idle
+  0.49 ms GPU (pass); light-sync probe blocked by a missing LS2 role, now built
+  as `lumatv-capture` (approved by Nitin, not yet installed).
+- Next, in order: (1) read the fourth gate result and hand fixes to the
+  compositor owner; (2) ask Nitin before installing the card app
+  (`rustui/tools/tv-card.py`, needs `--approved`) and before the capture service
+  probe slot (`ambient/capture/tv_probe_slot.py`); (3) open decisions: voice
+  search source (PLAN: search only, no LG cloud), cold-boot logo check.
 - Backups of uncommitted work: `/data/home/lumatv-backups/recovery-*`.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
