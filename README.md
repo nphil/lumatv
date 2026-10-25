@@ -101,6 +101,17 @@ paints nothing that could show through.
 
 The mod state and configuration live in `/var/lib/lumatv/`, which persists across reboots if persistence is enabled.
 
+### 4. Home stub (optional, over SSH)
+
+`lumatv homestub on` replaces LG's Flutter Home with a blank web app of the
+same id, bound over its directory, so the compositor-drawn Home is the only
+Home (one 32 MB renderer instead of a 72-80 MB process). It starts a 120 s
+trial: press OK on the toast, or run `lumatv homestub confirm`, to keep it,
+otherwise it reverts itself. `off` and `revert` remove it. A guard process
+gives LG's Home back within about 6 s if the Home layer stops drawing, and
+holding Home for 650 ms anywhere does the same by hand until the next apply
+or reboot. `lumatv homestub status` reports its state.
+
 ### Boot timing
 
 The set resumes a hibernation image rather than cold-booting, and the

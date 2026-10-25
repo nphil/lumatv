@@ -15,6 +15,7 @@ import WebOSCompositorBase 1.0
 import WebOSCoreCompositor 1.0
 import WebOSCompositor 1.0
 import WebOS.Global 1.0
+import TextFile 1.0
 
 import "../../services/base"
 
@@ -214,6 +215,7 @@ FocusScope {
     // LG's own Home is meant to be on screen (Home held for 650 ms, or the stub gave way):
     // the layer steps aside and the Home surface draws, with LG's keys.
     readonly property bool lumaHomeAside: !!lumaHome.item && lumaHome.item.lgHome === true
+    TextFile { id: lumaBeatFile; name: "file:///tmp/{{shortId}}-beat" }
     Loader {
         id: lumaHome
         anchors.fill: parent
@@ -226,8 +228,7 @@ FocusScope {
                 console.warn("[FULLSCREEN:Container][" + root.objectName + "] LumaHome failed to load from " + source)
                 // With the Home stub nothing else would draw. The guard reads this in place
                 // of a heartbeat (tools/lumatv homestub).
-                var x = new XMLHttpRequest()
-                try { x.open("PUT", "file:///tmp/{{shortId}}-beat"); x.send("error") } catch (e) {}
+                lumaBeatFile.write("error")
             }
         }
     }

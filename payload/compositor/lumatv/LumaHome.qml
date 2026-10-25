@@ -4,6 +4,7 @@ import QtQuick.Window 2.2
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import WebOS.Global 1.0
+import TextFile 1.0
 import "LumaBus.js" as Bus
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
@@ -219,6 +220,9 @@ Item {
     // rewritten once a second for as long as this item lives, read by the tool's
     // guard. That one write is all that runs per tick, and it runs while Home is
     // hidden too, since a layer that has died is found out before the next Home key.
+    // The files are written and read through LG's TextFile type, synchronously: the
+    // same writes as XMLHttpRequest PUTs went through the network access manager's
+    // queue and were twice seen to land 5 s late with the timer ticking on time.
     // The mode comes back the other way: "lg" means LG's own Home is meant to be on
     // screen (Home held, or the stub gave way) and the layer steps aside; "stub" and
     // "legacy" (no file) leave it covering Home. The second field of the file changes
@@ -240,36 +244,34 @@ Item {
     property int trialLeft: 0
     property bool trialConfirming: false
     readonly property bool trialOn: homeMode === "stub" && trialLeft > 0
+    TextFile { id: beatFile; name: root.beatUrl }
+    TextFile { id: modeFile; name: root.modeUrl }
+    TextFile { id: confirmFile; name: root.confirmUrl }
     Timer {
         interval: 1000; running: true; repeat: true
         onTriggered: {
-            var x = new XMLHttpRequest()
-            try { x.open("PUT", root.beatUrl); x.send(String(++root.beatSeq)) } catch (e) {}
+            beatFile.write(String(++root.beatSeq))
             root.trialLeft = root.trialEndMs > 0 ? Math.max(0, Math.ceil((root.trialEndMs - Date.now()) / 1000)) : 0
         }
     }
     function readMode() {
-        var x = new XMLHttpRequest()
-        x.onreadystatechange = function() {
-            if (x.readyState !== 4) return
-            var t = ((x.status === 200 || x.status === 0) ? (x.responseText || "") : "").replace(/\s+$/, "").split(" ")
-            var token = t[1] || ""
-            if (token !== root.modeToken) {
-                root.modeToken = token
-                root.escapedLocal = false
-                root.trialConfirming = false
-                var m = /^trial=([0-9]+)$/.exec(t[2] || "")
-                root.trialEndMs = m ? Date.now() + parseInt(m[1], 10) * 1000 : 0
-                root.trialLeft = m ? parseInt(m[1], 10) : 0
-            }
-            root.homeMode = (t[0] === "stub" || t[0] === "lg") ? t[0] : "legacy"
+        var t = ((modeFile.exists ? modeFile.read() : "") || "").replace(/\s+$/, "").split(" ")
+        var token = t[1] || ""
+        if (token !== root.modeToken) {
+            root.modeToken = token
+            root.escapedLocal = false
+            root.trialConfirming = false
+            var m = /^trial=([0-9]+)$/.exec(t[2] || "")
+            root.trialEndMs = m ? Date.now() + parseInt(m[1], 10) * 1000 : 0
+            root.trialLeft = m ? parseInt(m[1], 10) : 0
         }
-        try { x.open("GET", modeUrl); x.send() } catch (e) {}
+        root.homeMode = (t[0] === "stub" || t[0] === "lg") ? t[0] : "legacy"
     }
+    // Home becoming the foreground surface: the mode is read before the first frame.
+    onHomeCurrentChanged: if (homeCurrent) readMode()
     function confirmTrial() {
         trialConfirming = true
-        var x = new XMLHttpRequest()
-        try { x.open("PUT", confirmUrl); x.send(String(Date.now())) } catch (e) { console.warn("[LumaHome] confirm request failed: " + e) }
+        confirmFile.write(String(Date.now()))
         modeFast.ticks = 0
         modeFast.restart()
     }

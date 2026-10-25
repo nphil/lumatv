@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import TextFile 1.0
 import "LumaBus.js" as Bus
 
 // Instantiated by the key filter JS (Qt.createComponent on this file's absolute URL) so the
@@ -11,6 +12,7 @@ QtObject {
     // ends here. The compositor may not run commands, so the request is a file the tool's
     // guard reads (tools/lumatv homestub).
     readonly property string requestUrl: "file:///tmp/{{shortId}}-escape"
+    property var requestFile: TextFile { name: bridge.requestUrl }
     // Set by the filter: stops the stock handling of the same hold, which would open Screen
     // Zoom at 2.5 s.
     property var escapeHook: null
@@ -50,8 +52,7 @@ QtObject {
 
     function request() {
         console.info("[LumaKeys] Home held, asking for LG's Home")
-        var x = new XMLHttpRequest()
-        try { x.open("PUT", requestUrl); x.send(String(Date.now())) }
+        try { requestFile.write(String(Date.now())) }
         catch (e) { console.warn("[LumaKeys] escape request failed: " + e) }
         Bus.escape()
         if (escapeHook) {

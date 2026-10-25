@@ -1493,9 +1493,9 @@ verb_homestub_watch() {
       if [ "$hs_good" -eq 60 ]; then rm -f "$HS_STRIKES"; fi
     fi
     if [ "$hs_now" -ge "$hs_grace" ] && [ $((hs_now - hs_ok_at)) -ge "$HS_STALE" ]; then
-      # Seen unchanged for HS_STALE s. Once more, with the file's own age, before LG's
-      # Home is given back: one fault was logged on this guard's reading alone, with
-      # LumaHome's counter showing no stall (reason not found).
+      # Unchanged for HS_STALE s. The file's own age is checked before LG's Home is
+      # given back: a fault was once logged on the guard's reading alone while
+      # LumaHome's counter showed no stall.
       hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
       if [ "$hs_age" -le 2 ]; then
         log_line "homestub: beat read as unchanged at '$hs_last' for $((hs_now - hs_ok_at)) s but the file is $hs_age s old, kept"
