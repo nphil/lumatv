@@ -15,7 +15,7 @@ State at 2026-10-25 03:20 EDT. The helper is built, committed and pushed in thre
 3. Plugin broker (LumaShow plugin API level 1): built and tested on the host only (12 end-to-end tests through LumaShow's own
    SDK, 5 unit tests, no TV run yet). See "Plugin broker" below.
 
-- Host gate: `cd helper && ./build.sh check` passes (rustfmt, clippy `-D warnings`, 462 host tests, the aarch64 release build, 2,449,968 bytes).
+- Host gate: `cd helper && ./build.sh check` passes (rustfmt, clippy `-D warnings`, 468 host tests, the aarch64 release build, 2,461,360 bytes, sha256 `9d774c7915ae3ce1099a80996c9701075be505a4144a93982ab681842465d17f`).
 - Next, not mine: (a) QML for the AI prompt (`ai`, `ai.prompt` topics, `/v1/ai`) and for plugin cards, tiles, pages and toasts
   (topics below); (b) the settings flow that writes `plugins/enabled.json` behind the physical remote; (c) a TV smoke test of the
   broker (ask Main for a slot; plan under "Plugin broker"); (d) start/stop wiring in `tools/lumatv` (snippet below, unchanged).
@@ -314,6 +314,18 @@ under `/tmp`, a plugin that is the root user's own is not possible, so use `firs
 example `su -s` `nobody`, if the set has it) and check: no socket with no `enabled.json`; connect, register, topics; `/run` writable.
 Not done yet.
 
+## Preload policy: `helper/app/src/preload.rs`
+
+Requested by SurfacesP2b. webOS 10 forgets the preload policy at every switch-on, so at start with the screen on and at each
+screen off-to-on change the helper reads `<data>/preload.json`, `{"off":["<app id>", ...]}` (written by `lumatv preload on`, deleted by
+`off`; missing means do nothing), and runs `luna-send -n 1 luna://com.webos.service.preloadmanager/setPreloadPolicy
+'{"application":{"id":"<id>","isEnabled":false}}'` for each id, 5 s each, a failure only logged, no topic. The file is read strictly (at most
+32 ids of letters, digits and `. _ -`, at most 16 KiB, no other keys); a bad file does nothing and logs why. The payload is built with
+`serde_json`, never by pasting the id into text. One idle thread (`preload`) that waits on the `screen` events. Tests: 5 unit tests
+(list parsing, calls, a failure in the middle, a hung `luna-send` killed at the deadline, the off-to-on rule on a fake hub) and
+`app/tests/preload.rs` (the whole service, a fake `luna-send`: told at start, again after off and on, nothing after the file is removed).
+Not run on the set.
+
 ## Seams for later phases
 
 - `service::Service::start` is the list of components; each takes a `ctx::Ctx` (config, hub, settings, stop). The MCP server and
@@ -324,7 +336,7 @@ Not done yet.
 
 ## Measured on the host (the TV is not touched)
 
-- 462 tests pass now (243 at phase 1, before the AI module and the plugin broker; one live feeds test is `#[ignore]`d and was run by hand against the real services).
+- 468 tests pass now (243 at phase 1, before the AI module and the plugin broker; one live feeds test is `#[ignore]`d and was run by hand against the real services).
   Fixtures: real receiver replies (on and off), real Open-Meteo and zippopotam replies, real BBC and NYT feeds trimmed to 6 items.
 - Release binary at phase 1: 1382 KiB (opt-level `s`, fat LTO, unwinding kept so a handler panic is a 500, not a dead helper). `file` is not
   installed on this host; `readelf` shows ELF64, type EXEC, machine AArch64, no `INTERP` header, no dynamic section (`build.sh` checks all four).

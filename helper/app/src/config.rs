@@ -52,6 +52,11 @@ impl Paths {
         self.data_dir.join("settings")
     }
 
+    /// `preload.json`: the apps the owner keeps from preloading (written by `lumatv preload`, read by the helper).
+    pub fn preload_file(&self) -> PathBuf {
+        self.data_dir.join("preload.json")
+    }
+
     /// `plugins/`: `enabled.json` (which plugins are on) and one directory per installed plugin, with its `plugin.json`.
     pub fn plugins_dir(&self) -> PathBuf {
         self.data_dir.join("plugins")

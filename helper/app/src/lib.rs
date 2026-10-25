@@ -12,6 +12,7 @@
 //! | [`api`], [`http`] | the v1 API and the loopback server it runs on |
 //! | [`ai`] | the MCP server: AI assistants on the LAN, every permission held on the TV and changed only with the physical remote |
 //! | [`plugins`] | the plugin broker: LumaShow's plugin API level 1 for settings pages, cards, tiles and notifications |
+//! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
 pub mod ai;
@@ -26,6 +27,7 @@ pub mod http;
 pub mod hub;
 pub mod log;
 pub mod plugins;
+pub mod preload;
 pub mod receiver;
 pub mod screen;
 pub mod service;

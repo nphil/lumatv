@@ -16,6 +16,7 @@ use crate::fetcher;
 use crate::homefeeds;
 use crate::http::{self, Server};
 use crate::hub::Hub;
+use crate::preload;
 use crate::receiver;
 use crate::screen;
 use crate::settings::{SettingsStore, wake_on_change};
@@ -148,6 +149,7 @@ impl Service {
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::new(&ctx);
         threads.push(("plugins", plugins.spawn(&ctx)?));
+        threads.push(("preload", preload::spawn(&ctx)?));
 
         let ip: IpAddr = config
             .listen
