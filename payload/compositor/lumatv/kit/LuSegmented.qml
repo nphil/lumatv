@@ -12,7 +12,7 @@ Item {
     signal picked(int index)
     signal hoverFocus(int index)
 
-    readonly property int segmentWidth: Lu.target * 3
+    property int segmentWidth: Lu.target * 3
 
     implicitWidth: options.length * segmentWidth
     implicitHeight: Lu.target

@@ -46,7 +46,7 @@ QtObject {
         x.onreadystatechange = function() {
             if (x.readyState !== 4) return
             var doc = null
-            if (x.status === 200) { try { doc = JSON.parse(x.responseText) } catch (e) { doc = null } }
+            if (x.status === 200 || x.status === 202 || x.status === 409) { try { doc = JSON.parse(x.responseText) } catch (e) { doc = null } }
             if (x.status === 403 && !helper.refused) {
                 helper.refused = true
                 console.warn("[Helper] refused: " + x.responseText.substring(0, 160))
@@ -54,7 +54,7 @@ QtObject {
             if (done) done(x.status, doc)
         }
         x.open(method, base + path)
-        if (method === "POST") {
+        if (method !== "GET") {
             x.setRequestHeader("X-Luma-Client", "compositor")
             x.setRequestHeader("Content-Type", "application/json")
         }
@@ -62,6 +62,7 @@ QtObject {
         return x
     }
     function post(path, body, done) { return request("POST", path, body === undefined ? {} : body, done) }
+    function del(path, done) { return request("DELETE", path, undefined, done) }
 
     function sync() {
         var gen = ++generation

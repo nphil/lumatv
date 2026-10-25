@@ -709,6 +709,9 @@ Item {
     function key(k, pressed, autoRepeat, deviceId) {
         var dir = directionFor(k)
         if (!dir) return false
+        // An AI prompt is up: the helper reads the answer from the physical remote itself, and nothing
+        // else may act on these keys (not Home, not Settings behind it).
+        if (hostActive && aiPrompt.up) return true
         if (!hostActive) {
             // the release of a press taken on Home can arrive after an app has opened: it
             // does nothing but clear the OK state
@@ -1091,6 +1094,11 @@ Item {
         onLaunchApp: LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: appId }))
         onCloseRequested: root.closeSettings()
     }
+
+    // ============================================================= AI prompt
+    // The question AI access asks on the TV (AiPrompt.qml draws the helper's `ai.prompt` topic and has
+    // no way to answer it; see there). Above Settings and the gallery, below nothing of ours.
+    AiPrompt { id: aiPrompt; z: 90 }
 
     // ============================================================= startup warm-up
     // Draws the text styles, images and shader components the surfaces use once, hidden, after Home

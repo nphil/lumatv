@@ -37,6 +37,23 @@ def news(headline):
     return {"doc": doc, "status": {"failures": 0, "error": None, "lastAttemptAt": t}, "state": "fresh", "ageMs": 0}
 
 
+LEVELS = ["never", "ask", "always"]
+GROUPS = [("state", "See what is playing, power and input state", "always"), ("playback", "Play, pause, volume, mute", "always"),
+          ("launch", "Open apps, switch inputs", "ask"), ("power", "Turn the TV off", "ask")]
+
+
+def ai_doc(enabled=False, assistants=None, pairing=None):
+    return {"listener": {"enabled": enabled, "bound": enabled, "addr": "192.168.1.242:18732" if enabled else None, "port": 18732, "since": NOW() if enabled else None, "error": None},
+            "pairing": pairing, "assistants": assistants or [], "limits": {"maxVolume": 60},
+            "groups": [{"id": g, "title": t, "default": d} for g, t, d in GROUPS],
+            "tools": []}
+
+
+def assistant(i, name, levels=None, paused=False, calls=0):
+    return {"id": i, "name": name, "createdAt": NOW() - 86400000, "lastSeenAt": NOW() - 120000, "paused": paused, "calls": calls,
+            "levels": levels or {g: d for g, _, d in GROUPS}}
+
+
 class State:
     def __init__(self, a):
         self.boot = NOW()
@@ -48,6 +65,11 @@ class State:
         if not a.no_news:
             self.topics["news"] = news("HEADLINE FROM THE HELPER")
         self.events = []        # (seq, topic, data)
+        self.topics["ai"] = ai_doc()
+        self.topics["ai.prompt"] = None
+        self.requests = []      # (method, path, body) of every /v1/ai call, for the tests to read back
+        self.audit = []
+        self.pending = None     # (prompt doc, what to do when a physical remote approves it)
 
     def publish(self, topic, data):
         with self.cv:
@@ -70,9 +92,103 @@ def handler(st):
             self.end_headers()
             self.wfile.write(body)
 
+        def ai_reply(self, code, **extra):
+            self.send(code, dict({"ok": True, "api": 1, "now": NOW(), "ai": st.topics["ai"]}, **extra))
+
+        def ask(self, title, detail, kind, apply_fn, assistant=None):
+            """A change that gives more: a prompt opens and waits for the test's `/__approve` (the physical remote)."""
+            if st.pending:
+                self.send(409, {"ok": False, "api": 1, "error": {"code": "busy", "message": "another prompt is open on the TV"}})
+                return
+            doc = {"id": "p%d" % NOW(), "kind": kind, "assistant": assistant, "title": title, "detail": detail, "reason": None,
+                   "shownAt": NOW(), "expiresAt": NOW() + 30000, "allow": "OK", "deny": "Back"}
+            st.pending = (doc, apply_fn)
+            st.publish("ai.prompt", doc)
+            self.send(202, {"ok": True, "api": 1, "now": NOW(), "pending": True, "promptId": doc["id"]})
+
+        def ai_route(self, method, path, body):
+            st.requests.append((method, path, body))
+            doc = json.loads(json.dumps(st.topics["ai"]))
+            parts = [p for p in path.split("/") if p][2:]
+            by_id = lambda i: next((a for a in doc["assistants"] if a["id"] == i), None)
+
+            def commit(d):
+                st.publish("ai", d)
+
+            if method == "GET" and parts == []:
+                return self.ai_reply(200)
+            if method == "GET" and parts == ["audit"]:
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "entries": st.audit})
+            if method == "POST" and parts == ["listener"]:
+                if not body.get("enabled"):
+                    doc["listener"].update({"enabled": False, "bound": False, "addr": None, "since": None})
+                    commit(doc)
+                    return self.ai_reply(200, changed=True, pending=False)
+
+                def on(d):
+                    d["listener"].update({"enabled": True, "bound": True, "addr": "192.168.1.242:18732", "since": NOW()})
+                    return d
+                return self.ask("Turn on AI access?", "AI assistants on your home network will be able to connect to this TV and use the tools you allow them. Press OK to turn it on, Back to cancel.",
+                                "enable_listener", on)
+            if method == "POST" and parts == ["pairing"]:
+                def open_window(d):
+                    d["pairing"] = {"code": "ABCD-EFGH", "expiresAt": NOW() + 120000, "attemptsLeft": 5}
+                    return d
+                return self.ask("Pair a new assistant?", "A one-time code will show on this screen. Press OK to show it, Back to cancel.", "pair", open_window)
+            if method == "DELETE" and parts == ["pairing"]:
+                doc["pairing"] = None
+                commit(doc)
+                return self.ai_reply(200, changed=True, pending=False)
+            if parts[:1] == ["assistants"] and len(parts) >= 2:
+                a = by_id(parts[1])
+                if not a:
+                    return self.send(404, {"ok": False, "api": 1, "error": {"code": "no_such_assistant", "message": "no such assistant"}})
+                if method == "DELETE" and len(parts) == 2:
+                    doc["assistants"] = [x for x in doc["assistants"] if x["id"] != parts[1]]
+                    commit(doc)
+                    return self.ai_reply(200, changed=True, pending=False)
+                if method == "POST" and parts[2:] == ["pause"]:
+                    a["paused"] = True
+                    commit(doc)
+                    return self.ai_reply(200, changed=True, pending=False)
+                if method == "POST" and parts[2:] == ["resume"]:
+                    def resume(d, i=parts[1]):
+                        next(x for x in d["assistants"] if x["id"] == i)["paused"] = False
+                        return d
+                    return self.ask("Resume %s?" % a["name"], "It will be able to use the tools you allow it again.", "resume", resume, {"id": a["id"], "name": a["name"]})
+                if method == "POST" and parts[2:] == ["levels"]:
+                    want = body.get("levels", {})
+                    wider = any(LEVELS.index(want[g]) > LEVELS.index(a["levels"][g]) for g in want)
+                    if not wider:
+                        a["levels"].update(want)
+                        commit(doc)
+                        return self.ai_reply(200, changed=True, pending=False)
+
+                    def widen(d, i=parts[1], w=want):
+                        next(x for x in d["assistants"] if x["id"] == i)["levels"].update(w)
+                        return d
+                    return self.ask("Give %s more?" % a["name"], "It will be able to do more without asking. Press OK to allow it, Back to cancel.", "widen", widen, {"id": a["id"], "name": a["name"]})
+            if method == "POST" and parts == ["lockout"]:
+                doc["assistants"] = []
+                doc["pairing"] = None
+                doc["listener"].update({"enabled": False, "bound": False, "addr": None, "since": None})
+                commit(doc)
+                return self.ai_reply(200, changed=True, pending=False)
+            return self.send(404, {"ok": False, "api": 1, "error": {"code": "not_found", "message": "no such route"}})
+
+        def do_DELETE(self):
+            u = urlparse(self.path)
+            if u.path.startswith("/v1/ai"):
+                return self.ai_route("DELETE", u.path, {})
+            self.send(404, {"ok": False})
+
         def do_GET(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
+            if u.path.startswith("/v1/ai"):
+                return self.ai_route("GET", u.path, {})
+            if u.path == "/__requests":
+                return self.send(200, {"requests": st.requests})
             if u.path == "/v1/state":
                 self.send(200, {"ok": True, "api": 1, "now": NOW(), "boot": st.boot, "seq": st.seq, "helper": {}, "topics": st.topics})
             elif u.path == "/v1/events":
@@ -95,6 +211,17 @@ def handler(st):
             if u.path.startswith("/__publish/"):
                 st.publish(u.path.rsplit("/", 1)[1], body)
                 self.send(200, {"ok": True})
+            elif u.path in ("/__approve", "/__deny"):
+                # the physical remote: only this test door answers a prompt, as only the real remote does
+                if st.pending:
+                    doc, apply_fn = st.pending
+                    st.pending = None
+                    st.publish("ai.prompt", None)
+                    if u.path == "/__approve":
+                        st.publish("ai", apply_fn(json.loads(json.dumps(st.topics["ai"]))))
+                self.send(200, {"ok": True})
+            elif u.path.startswith("/v1/ai"):
+                self.ai_route("POST", u.path, body)
             else:
                 self.send(200, {"ok": True, "api": 1})
     return H

@@ -30,7 +30,8 @@ Item {
     property Item backdropItem: Lu.backdrop
 
     readonly property var sections: [
-        { id: "look", title: "Home & look", page: "settings/PageLook.qml" }
+        { id: "look", title: "Home & look", page: "settings/PageLook.qml" },
+        { id: "ai", title: "AI access", page: "settings/PageAi.qml" }
     ]
     readonly property int railCount: sections.length + 1        // the last row is LG's Settings
     readonly property bool lgRow: railIndex >= sections.length
@@ -40,6 +41,12 @@ Item {
         if (id === "look") {
             var t = Lu.theme || ({})
             return (t.accent === "wallpaper" ? "Dynamic tint" : "Fixed accent") + " \u00b7 " + (t.material === "auto" || !t.material ? "auto light" : t.material)
+        }
+        if (id === "ai") {
+            var a = Helper.ai
+            if (!a) return Helper.up ? "Off" : "The helper is not running"
+            var n = (a.assistants || []).length
+            return (a.listener && a.listener.enabled ? "LAN only" : "Off") + " \u00b7 " + n + (n === 1 ? " assistant" : " assistants")
         }
         return ""
     }
