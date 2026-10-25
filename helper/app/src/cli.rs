@@ -194,6 +194,14 @@ fn outcome_json(outcome: &Outcome) -> Value {
 /// The helper itself: takes the lock, starts the service, reports, waits for a termination signal, stops. Runs in the foreground
 /// process for `run` and in the detached child for `start`.
 fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool) -> i32 {
+    // The brand's data dir is directly under /var/lib (checked at load); the tool creates it, and a fresh one is made here.
+    if let Err(e) = std::fs::create_dir_all(&paths.data_dir) {
+        report(
+            &mut ready,
+            &Outcome::Failed(format!("cannot create {}: {e}", paths.data_dir.display())),
+        );
+        return 1;
+    }
     // Before any thread exists, so every thread inherits the mask and `wait_termination` alone receives the signals.
     sys::block_termination_signals();
     let level = Level::parse(&config.log.level).unwrap_or(Level::Info);
@@ -268,6 +276,12 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
 }
 
 fn start(paths: Paths, config: Config) -> i32 {
+    if let Err(e) = std::fs::create_dir_all(&paths.data_dir) {
+        return fail(
+            1,
+            &format!("cannot create {}: {e}", paths.data_dir.display()),
+        );
+    }
     // Said before the fork, so the common case needs no child.
     match sys::try_lock(&paths.lock_file()) {
         Ok(Some(free)) => drop(free),

@@ -7,10 +7,11 @@ smoke test is written and waits for "TV is yours".
 
 ## Resume here
 
-State at 2026-10-25 01:20 EDT. Everything in the assignment is committed and pushed (last commit "review fixes").
+State at 2026-10-25 01:40 EDT. Everything in the assignment is committed and pushed (last commit "review fixes").
 
-- Done: `helper/` builds (`./build.sh check` passes: rustfmt, clippy `-D warnings`, 238 host tests, release build); static
-  AArch64 binary `helper/dist/lumatv-helper`, 1,412,008 bytes (1378 KiB), sha256 `e72771e6dec561b3d25b50fb06f42f8c0d6a14da6fea1174d847b80e243472fc`.
+- Done: `helper/` builds (`./build.sh check` passes: rustfmt, clippy `-D warnings`, 241 host tests, release build); static
+  AArch64 binary `helper/dist/lumatv-helper`, 1,415,744 bytes (1382 KiB), sha256 `e60762abcd8e8e0714c2c971bdf9cc6142250e2866431cefdc138f53d56b7375`.
+  The suite ran ten times in a row with no failure (the first runs found four races between tests, all fixed).
   The daemon was run on this host end to end (detached start, status, stop, the real receiver, the real weather and news
   through `openssl` and through `curl`); `helper/smoke.sh` passed 34 checks on the host against a fake `luna-send`.
 - NOT done, needs the TV: `python3 helper/smoke-tv.py` (about a minute, uploads to `/tmp`, removes it again). It settles what
@@ -158,7 +159,7 @@ before the helper is up. Fields: `fetchedAt`, `staleAt`, `expiresAt` (ms), then 
   (zippopotam) and the place kept in the document; later refreshes ask Open-Meteo only.
 - Transport: LumaShow's `fetch` when `openssl version` is 3 or later (it passes `-no-CAstore`, unknown to 1.1.1); otherwise
   the set's `curl` (HTTPS only, TLS 1.2+, no redirects, hard deadline and size cap). `helper.json` `fetch.backend`
-  (`auto`, `openssl`, `curl`) forces one. The TLS child runs as `nobody` when the helper is root (`fetch.user`).
+  (`auto`, `openssl`, `curl`) forces one. The TLS child runs as `nobody` when the helper is root (`fetch.user`); if the system refuses that (`Denied`: the user cannot run the program, read the bundle or open a socket) it runs as the helper's user from then on, with one warning in the log.
 - QML change for the main agent: drop `fetchWeather`/`fetchNews` and their timers; draw `topics.weather.doc.display` and
   `topics.news.doc.items` from `/v1/state` at once, update on events. The card no longer needs `live` for fetching.
 
@@ -211,9 +212,10 @@ customised ZIP or units, post it once.
 
 ## Measured on the host (the TV is not touched)
 
-- 238 tests pass (denon 27, feeds 69, app 142; one live test is `#[ignore]`d and was run by hand against the real services).
+- 241 tests pass (denon 27, feeds 69, app 145; one live test is `#[ignore]`d and was run by hand against the real services).
   Fixtures: real receiver replies (on and off), real Open-Meteo and zippopotam replies, real BBC and NYT feeds trimmed to 6 items.
-- Release binary 1378 KiB (opt-level `s`, fat LTO, unwinding kept so a handler panic is a 500, not a dead helper).
+- Release binary 1382 KiB (opt-level `s`, fat LTO, unwinding kept so a handler panic is a 500, not a dead helper). `file` is not
+  installed on this host; `readelf` shows ELF64, type EXEC, machine AArch64, no `INTERP` header, no dynamic section (`build.sh` checks all four).
 - Idle on the host with the screen on and the real receiver: RSS 4.7 to 5.6 MB, 8 threads, 10 descriptors, 0.2 % of a core
   (2 ticks in 10 s). With the screen off the receiver and feeds threads block on their channels; the screen watcher alone
   wakes (once a minute for its cross-check, plus `pollMs` if it has fallen back to polling).

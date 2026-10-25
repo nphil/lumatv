@@ -75,15 +75,21 @@ fact "MemAvailable: $(awk '/MemAvailable/ {print $2 " kB"}' /proc/meminfo)"
 fact "/tmp: $(df /tmp | tail -n 1 | awk '{print $1 " " $4 " kB free"}'); mount: $(grep ' /tmp ' /proc/mounts | head -n 1 | cut -c1-120)"
 
 # luna-send subscriptions through a pipe: does the output arrive, or does stdio hold it back? The helper subscribes with
-# `-n 1000000` (the form tools/lumatv uses for subscribing calls) and polls instead when nothing arrives; `-i` is probed for the record.
+# `-n 1000000` (the form tools/lumatv uses for subscribing calls) and polls instead when nothing arrives; `-i` is probed for the
+# record. Only the probe's own luna-send is ever killed (its pid is recorded), never another program's.
 for form in "-n 1000000" "-i"; do
-  rm -f "$D/lsub.out"
-  luna-send $form luna://com.webos.service.tvpower/power/getPowerState '{"subscribe":true}' </dev/null 2>/dev/null | head -n 1 > "$D/lsub.out" &
+  rm -f "$D/lsub.out" "$D/lsub.pid"
+  ( luna-send $form luna://com.webos.service.tvpower/power/getPowerState '{"subscribe":true}' </dev/null 2>/dev/null & echo $! > "$D/lsub.pid"; wait ) | head -n 1 > "$D/lsub.out" &
   sleep 3
-  for p in $(ps w 2>/dev/null | grep '[l]una-send' | grep 'tvpower/power/getPowerState' | awk '{print $1}'); do kill "$p" 2>/dev/null; done
+  [ -s "$D/lsub.pid" ] && kill "$(cat "$D/lsub.pid")" 2>/dev/null
+  sleep 1
   if [ -s "$D/lsub.out" ]; then fact "luna-send $form through a pipe delivers: $(clip "$(cat "$D/lsub.out")" 160)"; else fact "luna-send $form through a pipe delivered nothing in 3 s"; fi
 done
-rm -f "$D/lsub.out"
+rm -f "$D/lsub.out" "$D/lsub.pid"
+
+# Processes of the kinds the helper starts, by pid: what exists before the run is not the helper's to account for.
+children() { ps w 2>/dev/null | grep '[o]penssl s_client\|[l]una-send -n 1000000\|[c]url .*--max-filesize' | awk '{print $1}' | sort; }
+CHILDREN_BEFORE=" $(children | tr '\n' ' ')"
 
 echo "=== the binary"
 chmod +x "$BIN" 2>/dev/null
@@ -218,7 +224,11 @@ run_phase() {
   has "stop ends it" "$stopped" '"stopped":true'
   if curl -s -m 2 "http://127.0.0.1:$PORT/v1/health" >/dev/null 2>&1; then bad "the port is closed after stop" "still answering"; else ok "the port is closed after stop"; fi
   if [ -d "/proc/$pid" ]; then bad "the process is gone after stop" "pid $pid is alive"; else ok "the process is gone after stop"; fi
-  if ps w 2>/dev/null | grep -q '[o]penssl s_client\|[l]una-send -n 1000000'; then bad "no child process is left behind" "$(ps w | grep '[o]penssl s_client\|[l]una-send -n 1000000' | head -n 2)"; else ok "no child process is left behind"; fi
+  left=""
+  for p in $(children); do
+    case "$CHILDREN_BEFORE" in *" $p "*) ;; *) left="$left $p" ;; esac
+  done
+  if [ -z "$left" ]; then ok "no child process is left behind"; else bad "no child process is left behind" "new pids:$left"; fi
   rm -rf "$data"
 }
 

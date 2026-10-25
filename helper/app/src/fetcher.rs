@@ -14,8 +14,8 @@ use fetch::{Fetch, FetchError, FetchLimits, TlsFetch};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -25,6 +25,35 @@ pub struct Chosen {
     /// `openssl`, `curl` or `none`.
     pub backend: &'static str,
     pub detail: String,
+}
+
+/// Runs the TLS child as an unprivileged user and, if the system refuses that (the user cannot run the program, read the CA
+/// bundle or open a socket: `FetchError::Denied`), as the helper's own user from then on, saying so once in the log. A set that
+/// restricts the network or the bundle to some users must not leave Home without weather and news over a defence in depth.
+struct Adaptive {
+    unprivileged: Arc<dyn Fetch>,
+    as_helper: Arc<dyn Fetch>,
+    user: String,
+    refused: AtomicBool,
+}
+
+impl Fetch for Adaptive {
+    fn get(&self, url: &str, limits: FetchLimits) -> Result<Vec<u8>, FetchError> {
+        if self.refused.load(Ordering::Relaxed) {
+            return self.as_helper.get(url, limits);
+        }
+        match self.unprivileged.get(url, limits) {
+            Err(FetchError::Denied(why)) => {
+                self.refused.store(true, Ordering::Relaxed);
+                crate::log_warn!(
+                    "fetch: the system refused the TLS child as {} ({why}); it runs as the helper's user from now on",
+                    self.user
+                );
+                self.as_helper.get(url, limits)
+            }
+            other => other,
+        }
+    }
 }
 
 /// A transport that is not available: every request says why.
@@ -98,26 +127,45 @@ fn drop_target(config: &FetchConfig) -> Option<(u32, u32)> {
     }
 }
 
+/// Wraps a transport built with and without the privilege drop (`build(None)` runs the child as the helper's user).
+fn with_drop<T: Fetch + 'static>(
+    config: &FetchConfig,
+    build: impl Fn(Option<(u32, u32)>) -> T,
+) -> Arc<dyn Fetch> {
+    match drop_target(config) {
+        Some(ids) => Arc::new(Adaptive {
+            unprivileged: Arc::new(build(Some(ids))),
+            as_helper: Arc::new(build(None)),
+            user: config.user.clone().unwrap_or_default(),
+            refused: AtomicBool::new(false),
+        }),
+        None => Arc::new(build(None)),
+    }
+}
+
 fn via_openssl(config: &FetchConfig, bundle: PathBuf, why: String) -> Chosen {
     let program = sys::which(&config.openssl).unwrap_or_else(|| PathBuf::from(&config.openssl));
-    let mut fetcher = TlsFetch::new(program, bundle);
-    if let Some((uid, gid)) = drop_target(config) {
-        fetcher = fetcher.unprivileged(uid, gid);
-    }
     Chosen {
-        fetcher: Arc::new(fetcher),
+        fetcher: with_drop(config, |ids| {
+            let fetcher = TlsFetch::new(program.clone(), bundle.clone());
+            match ids {
+                Some((uid, gid)) => fetcher.unprivileged(uid, gid),
+                None => fetcher,
+            }
+        }),
         backend: "openssl",
         detail: why,
     }
 }
 
 fn via_curl(config: &FetchConfig, bundle: Option<PathBuf>, why: String) -> Chosen {
+    let program =
+        sys::which(&config.curl).map_or_else(|| config.curl.clone(), |p| p.display().to_string());
     Chosen {
-        fetcher: Arc::new(CurlFetch {
-            program: sys::which(&config.curl)
-                .map_or_else(|| config.curl.clone(), |p| p.display().to_string()),
-            bundle,
-            drop_to: drop_target(config),
+        fetcher: with_drop(config, |ids| CurlFetch {
+            program: program.clone(),
+            bundle: bundle.clone(),
+            drop_to: ids,
         }),
         backend: "curl",
         detail: why,
@@ -229,8 +277,10 @@ fn classify(code: Option<i32>, stderr: &str) -> FetchError {
         Some(6 | 7) => FetchError::Offline,
         Some(28) => FetchError::Timeout,
         Some(63) => FetchError::TooLarge,
+        // The CA file cannot be used (missing, or not readable by this user): no certificate was judged.
+        Some(77) => FetchError::Denied(line),
         // Failed SSL handshake, bad certificate, unknown CA, bad CRL, pinned key: a certificate that is refused.
-        Some(35 | 51 | 58 | 59 | 60 | 77 | 82 | 83 | 90 | 91) => FetchError::Untrusted(line),
+        Some(35 | 51 | 58 | 59 | 60 | 82 | 83 | 90 | 91) => FetchError::Untrusted(line),
         Some(126 | 127) => FetchError::Failed(format!("could not run curl: {line}")),
         Some(n) => FetchError::Failed(if line.is_empty() {
             format!("curl stopped with status {n}")
@@ -421,6 +471,10 @@ mod tests {
             FetchError::Offline
         );
         assert_eq!(classify(Some(7), ""), FetchError::Offline);
+        assert!(matches!(
+            classify(Some(77), "curl: (77) error setting certificate file: /etc/ssl/ca.pem"),
+            FetchError::Denied(why) if why.contains("certificate file")
+        ));
         assert_eq!(
             classify(Some(28), "curl: (28) Operation timed out"),
             FetchError::Timeout
@@ -662,6 +716,105 @@ esac
         // A configured bundle that is missing is still a bundle (curl or openssl will say so); with neither program the
         // openssl route is the one that reports it.
         assert_eq!(choose(&cfg).backend, "openssl");
+    }
+
+    /// Answers by a fixed result and counts its calls.
+    struct Counted {
+        answer: Result<Vec<u8>, FetchError>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Counted {
+        fn new(answer: Result<Vec<u8>, FetchError>) -> Arc<Self> {
+            Arc::new(Self {
+                answer,
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            })
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Fetch for Counted {
+        fn get(&self, _url: &str, _limits: FetchLimits) -> Result<Vec<u8>, FetchError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.answer.clone()
+        }
+    }
+
+    #[test]
+    fn a_refused_unprivileged_child_falls_back_once_and_stays_there() {
+        let unprivileged = Counted::new(Err(FetchError::Denied("permission denied".into())));
+        let as_helper = Counted::new(Ok(b"fine".to_vec()));
+        let adaptive = Adaptive {
+            unprivileged: unprivileged.clone(),
+            as_helper: as_helper.clone(),
+            user: "nobody".into(),
+            refused: AtomicBool::new(false),
+        };
+        assert_eq!(
+            adaptive.get("https://x.test/", limits(1, 10)).unwrap(),
+            b"fine"
+        );
+        assert_eq!(
+            adaptive.get("https://x.test/", limits(1, 10)).unwrap(),
+            b"fine"
+        );
+        assert_eq!(
+            (unprivileged.calls(), as_helper.calls()),
+            (1, 2),
+            "the refused user is not tried again"
+        );
+    }
+
+    #[test]
+    fn other_failures_do_not_drop_the_privilege_drop() {
+        for error in [
+            FetchError::Offline,
+            FetchError::Timeout,
+            FetchError::Http(500),
+            FetchError::Untrusted("x".into()),
+        ] {
+            let unprivileged = Counted::new(Err(error.clone()));
+            let as_helper = Counted::new(Ok(b"fine".to_vec()));
+            let adaptive = Adaptive {
+                unprivileged: unprivileged.clone(),
+                as_helper: as_helper.clone(),
+                user: "nobody".into(),
+                refused: AtomicBool::new(false),
+            };
+            assert_eq!(adaptive.get("https://x.test/", limits(1, 10)), Err(error));
+            assert_eq!(as_helper.calls(), 0);
+        }
+    }
+
+    #[test]
+    fn as_root_a_user_that_cannot_reach_the_program_falls_back_to_running_as_the_helper() {
+        if !sys::is_root() || sys::lookup_user("nobody").is_none() {
+            return;
+        }
+        // The temporary directory is private to the helper's user, so `nobody` cannot even reach the fake curl in it.
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = config(dir.path(), Some("OpenSSL 1.1.1w"), true, "curl");
+        config.user = Some("nobody".to_owned());
+        let chosen = choose(&config);
+        assert_eq!(chosen.backend, "curl");
+        assert_eq!(
+            chosen
+                .fetcher
+                .get("https://example.test/ok", limits(5, 1024))
+                .unwrap(),
+            b"hello body"
+        );
+        assert_eq!(
+            chosen
+                .fetcher
+                .get("https://example.test/json", limits(5, 1024))
+                .unwrap(),
+            br#"{"a":1}"#
+        );
     }
 
     #[test]

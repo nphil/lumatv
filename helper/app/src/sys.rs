@@ -327,7 +327,16 @@ mod tests {
             })
         );
         drop(first);
-        assert!(try_lock(&path).unwrap().is_some());
+        // A program another test is starting at this very moment holds the open file (and so the lock) between its fork and
+        // its exec; the lock is free as soon as that exec has closed it.
+        let freed = (0..200).any(|_| {
+            let free = try_lock(&path).unwrap().is_some();
+            if !free {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            free
+        });
+        assert!(freed, "the lock was never released");
     }
 
     #[test]
@@ -393,7 +402,9 @@ mod tests {
     #[test]
     fn a_line_is_read_from_a_pipe_with_a_timeout() {
         let mut fds: [RawFd; 2] = [0; 2];
-        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        // Close-on-exec: a program another test starts at the same moment must not inherit the write end and keep the
+        // pipe from reaching end of file.
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
         let mut read = unsafe { File::from_raw_fd(fds[0]) };
         let mut write = unsafe { File::from_raw_fd(fds[1]) };
         assert_eq!(
