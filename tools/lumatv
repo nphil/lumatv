@@ -10,6 +10,7 @@
 #   restart                -> restart the compositor and bring Home back (what apply does when it must)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
 #   compositor on|off|status -> LumaTV's own compositor in place of LG's (tools/compositor.sh)
+#   notifications on|off|status -> LG's toast, alert and PIN views in the Luma look, without their shadow layers
 #   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
 #   preload on|off|status  -> keep only Netflix and Prime Video warm in the background (payload/preload.json)
 #   standby warm|cold      -> Quick Start+ on with webos-sddp off, or fully off
@@ -136,6 +137,21 @@ SYSTEMUI_ON="$STATE/.systemui-on"
 # ($SHADOW_ROOT/WebOSCompositor/$QML_MODULE/logo), and answer tvpowerd by themselves if those
 # are missing, so a redirect never holds a power-off.
 LOGO_ON="$STATE/.logo-on"
+
+# The notification view (toasts, alerts, input popups, the PIN prompt) is one item the compositor
+# loads from the file named for the view `notificationView`. A copy of LG's tree is patched
+# (tools/notification_patch.py: Manrope, the toast's colours, no DropShadow layers) and the view
+# is pointed at it through `sysuicompmgr/changeSystemUIView`, which LG persists in
+# /var/preferences and answers with an error code when the file is not there. The data layer and
+# the item contract are LG's, so a notification of any kind arrives as LG's code expects. Revert
+# and a failed stage point the view back at LG's file, since a persisted path to a file that is
+# gone would leave the next boot with no notifications at all.
+NOTI_STOCK=/usr/lib/qt5/qml/SystemUI/Notification
+NOTI_STAGE="$SYSTEMUI_STAGE/SystemUI/Notification"
+NOTI_ON="$STATE/.notifications-on"
+NOTI_PATCH_TOOL="$APPDIR/tools/notification_patch.py"
+NOTI_VIEW_URI="luna://com.webos.service.sysuicompmgr/changeSystemUIView"
+NOTI_PERSIST=/var/preferences/starfish-luna-surface-manager/systemUiViews.json
 LOGO_BOOT_APP=com.webos.app.bootlogo
 LOGO_OFF_APP=com.webos.app.masterbrand
 
@@ -897,6 +913,65 @@ logo_set() {
   for app in "$LOGO_BOOT_APP" "$LOGO_OFF_APP"; do
     luna-send -n 1 luna://com.webos.service.systemUIManager/closeByAppId "{\"appId\":\"$app\"}" >/dev/null 2>&1
   done
+  return 0
+}
+
+noti_view() {
+  # $1 = the view's QML file. 0 when the compositor accepted it: no error code in the answer and,
+  # since a success may print nothing, the path in the file LG writes when it takes a change.
+  out=$(timeout 15 luna-send -n 1 "$NOTI_VIEW_URI" "{\"viewName\":\"notificationView\",\"viewSource\":\"file://$1\"}" 2>&1 < /dev/null)
+  case "$out" in
+    *'"errorCode"'*) log_line "notifications: the compositor refused $1: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)"; return 1 ;;
+  esac
+  if ! grep -qF "file://$1" "$NOTI_PERSIST" 2>/dev/null; then
+    log_line "notifications: $1 was not taken ($(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120))"
+    return 1
+  fi
+  return 0
+}
+
+noti_stage() {
+  # A fresh copy of LG's tree every time, patched; the old stage stays until the new one is whole.
+  pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE") || return 1
+  [ -d "$NOTI_STOCK" ] || return 1
+  rm -rf "$NOTI_STAGE.new" 2>/dev/null
+  mkdir -p "$SYSTEMUI_STAGE/SystemUI" 2>/dev/null || return 1
+  cp -a "$NOTI_STOCK" "$NOTI_STAGE.new" 2>/dev/null || { rm -rf "$NOTI_STAGE.new"; return 1; }
+  python3 "$NOTI_PATCH_TOOL" "$NOTI_STAGE.new" "$pal" < /dev/null 2>>"$LOGFILE" || { rm -rf "$NOTI_STAGE.new"; return 1; }
+  rm -rf "$NOTI_STAGE.old" 2>/dev/null
+  [ -d "$NOTI_STAGE" ] && mv "$NOTI_STAGE" "$NOTI_STAGE.old" 2>/dev/null
+  mv "$NOTI_STAGE.new" "$NOTI_STAGE" 2>/dev/null || return 1
+  rm -rf "$NOTI_STAGE.old" 2>/dev/null
+  return 0
+}
+
+noti_set() {
+  # $1 = on|off. `on` falls back to LG's view when the stage or the compositor says no.
+  if [ "$1" = on ]; then
+    if noti_stage && noti_view "$NOTI_STAGE/NotificationView.qml"; then return 0; fi
+    noti_view "$NOTI_STOCK/NotificationView.qml"
+    return 1
+  fi
+  noti_view "$NOTI_STOCK/NotificationView.qml"
+}
+
+verb_notifications() {
+  case "${1:-status}" in
+    on|off)
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      if noti_set "$1"; then
+        [ "$1" = on ] && : > "$NOTI_ON" || rm -f "$NOTI_ON"
+        log_line "notifications $1"
+        printf '{"ok":true,"notifications":"%s"}\n' "$1"
+      else
+        rm -f "$NOTI_ON"
+        emit_error "could not switch the notification view to $1; LG's view is in place"
+        return 1
+      fi ;;
+    status)
+      printf '{"ok":true,"on":%s,"staged":%s}\n' "$( [ -f "$NOTI_ON" ] && echo true || echo false )" "$( [ -f "$NOTI_STAGE/NotificationView.qml" ] && echo true || echo false )" ;;
+    *) emit_error "usage: notifications on|off|status"; return 1 ;;
+  esac
   return 0
 }
 
@@ -1807,6 +1882,7 @@ do_revert_internal() {
   clear_qml_cache
   keyfilter_set remove
   [ -f "$LOGO_ON" ] && logo_set off
+  [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
   remove_early_hook
@@ -1957,6 +2033,7 @@ verb_apply() {
   [ -f "$SYSTEMUI_ON" ] && { systemui_set on || log_line "apply: could not point Quick Settings at the staged tree"; }
   [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "apply: could not mount the settings-app stylesheet"; }
   [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
+  [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
 
   # What the compositor reads (QML, wallpaper) is tracked apart from the rest
   # of the set: a running compositor that already has the shadow only needs a
@@ -2651,7 +2728,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|compositor|compositor-boot)
+  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -2711,6 +2788,7 @@ case "$VERB" in
   helper) verb_helper "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
+  notifications) verb_notifications "${2:-status}"; exit $? ;;
   compositor) verb_compositor "${2:-status}"; exit $? ;;
   compositor-boot) verb_compositor_boot; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
