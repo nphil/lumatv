@@ -1,0 +1,40 @@
+2026-10-25T23:42:09.334794Z [6690.129950460] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-25T23:42:09.334867Z [6690.130022760] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-25T23:42:09.334939Z [6690.130094540] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-25T23:42:09.336435Z [6690.131594500] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-25T23:42:09.336562Z [6690.131717540] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-25T23:42:09.336642Z [6690.131797800] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-25T23:42:09.336716Z [6690.131872180] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-25T23:42:09.336828Z [6690.131983440] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-25T23:42:09.336959Z [6690.132115040] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-25T23:42:09.337056Z [6690.132211760] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-25T23:42:09.341030Z [6690.136195660] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+2026-10-25T23:42:12.335524Z [6693.130685940] user.info captureservice [] capture PROPERTY {} captureClient.h.print():139 clinet ID : -7740332
+2026-10-25T23:42:12.335622Z [6693.130776520] user.info captureservice [] capture PROPERTY {} captureClient.h.print():140 clinet name : com.webos.service.oledepl
+2026-10-25T23:42:12.335647Z [6693.130800860] user.info captureservice [] capture PROPERTY {} captureClient.h.print():141 method : 2
+2026-10-25T23:42:12.335668Z [6693.130821960] user.info captureservice [] capture PROPERTY {} captureClient.h.print():52 ===< capture data >===
+2026-10-25T23:42:12.335689Z [6693.130842980] user.info captureservice [] capture PROPERTY {} captureClient.h.print():53 width : 640
+2026-10-25T23:42:12.335710Z [6693.130863880] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-25T23:42:12.335732Z [6693.130885180] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-25T23:42:12.335751Z [6693.130905060] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-25T23:42:12.335772Z [6693.130925140] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-25T23:42:12.335791Z [6693.130945120] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-25T23:42:12.335811Z [6693.130964880] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-25T23:42:12.335831Z [6693.130984100] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-25T23:42:12.335850Z [6693.131003320] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-25T23:42:12.335870Z [6693.131023520] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-25T23:42:12.335890Z [6693.131043120] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-25T23:42:12.339931Z [6693.135094980] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+2026-10-25T23:42:13.414693Z [6694.209848500] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -3, service_name: "com.webos.service.faultmanager", unique_name: "(null)", static, fd -1 
+2026-10-25T23:42:13.737540Z [6694.532700880] user.err ls-hubd [] ls-hubd LSHUB_NOT_LSTED {"SERVICE_NAME":"com.webos.service.tv.display","EXE":"/usr/bin/luna-send","APP_ID":"(null)","PID":20056} Service not listed in service files (cmdline: /usr/bin/luna-send -n 1 -w 2000 -f luna://com.webos.service.tv.display/getDimmingStatus {})
+2026-10-25T23:42:13.737634Z [6694.532788980] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -4, service_name: "com.webos.service.tv.display", unique_name: "(null)", static, fd -1 
+2026-10-25T23:42:13.809615Z [6694.604774100] user.err ls-hubd [] ls-hubd LSHUB_NOT_LSTED {"SERVICE_NAME":"com.webos.service.acb","EXE":"/usr/bin/luna-send","APP_ID":"(null)","PID":20059} Service not listed in service files (cmdline: /usr/bin/luna-send -n 1 -w 2000 -f luna://com.webos.service.acb/getForegroundAppInfo {})
+2026-10-25T23:42:13.809691Z [6694.604845580] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -4, service_name: "com.webos.service.acb", unique_name: "(null)", static, fd -1 
+2026-10-25T23:42:14.364763Z [6695.159924040] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.release():215 try to release the resources : [{"qty":1,"index":0,"resource":"VT_CAPTURE"}]
+2026-10-25T23:42:14.365929Z [6695.161085060] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.release():219 complete to release the resources
+2026-10-25T23:42:14.366203Z [6695.161359840] user.info lumatv-capture [] capture LIB {} vtHistogram.cpp.resourceManagerClientEventCallback():255 ev: onResourcesReleased
+2026-10-25T23:42:14.366322Z [6695.161477700] user.warning lumatv-capture [] capture WARN {} resourceManagerClient.cpp.release():211 return error ('m_resources.size()')
+2026-10-25T23:42:14.366398Z [6695.161553580] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():153 try to finalize RMC.
+2026-10-25T23:42:14.368186Z [6695.163345420] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():183 complete to finalize RMC.
+2026-10-25T23:42:14.368371Z [6695.163528000] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():80 try to unregister RMC Instance.
+2026-10-25T23:42:14.368713Z [6695.163869280] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():89 complete to unregister RMC Instance.

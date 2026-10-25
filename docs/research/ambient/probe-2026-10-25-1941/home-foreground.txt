@@ -1,0 +1,1 @@
+{"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""}

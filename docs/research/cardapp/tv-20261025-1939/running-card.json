@@ -1,0 +1,19 @@
+{
+    "running": [
+        {
+            "webprocessid": "9847",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.home",
+            "processid": "9847",
+            "appType": "web"
+        },
+        {
+            "webprocessid": "",
+            "defaultWindowType": "card",
+            "id": "org.nphil.lumatv.card",
+            "processid": "10854",
+            "appType": "native"
+        }
+    ],
+    "returnValue": true
+}

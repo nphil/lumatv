@@ -8,10 +8,11 @@ State (2026-10-25 evening, offline): the second TV run (17:41-17:45, "TV results
 
 The cause, read from LG's compositor's source (`luna-surfacemanager`, "What the set does"): LG's compositor has one `wl_seat` per input device and sends a key on the seat of the device that pressed it; `window.rs` bound the first `wl_seat` global only, the default seat, which no remote's key goes out on. Fixed: every seat is bound, the ones that appear while the app runs too, with a keyboard each (host-tested with a seat added after the app started and a key on it alone). The TV script now also waits for SAM's rescan after the install and for the capture's file before fetching it, and reports the seats from the log. Built for the set at 18:18 from `fa2f91f`: `rustui/build/card/` (the app 2.09 MB) and `build/card-ipk/org.nphil.lumatv.card.ipk` (29.4 MB, the new app inside), so `tv-card.py install` can go without a rebuild while the gfx64 bundle stays.
 
+Third TV run (2026-10-25 19:39-19:41, `4ee268a`, "TV results" below): every check passed with the seat fix (`seats: 3 bound, 3 with a keyboard`, OK and Back delivered as codes 28 and 412); the app is installed on the set and stays.
+
 Next:
 
-1. Rerun `python3 rustui/tools/tv-card.py all --approved` (Nitin's go) and then `remove --approved`: the TV step list below, "keys" rows. The seat lines of `card.log` (`seats: N bound, N with a keyboard`, `wl_seat NAME bound at version V (K seats)`, `keyboard focus on seat NAME`) are the evidence either way.
-2. If keys still do not arrive with every seat bound: `WAYLAND_DEBUG=1` for one run (the bundle's libwayland-client honours it; `gfx64/launch.sh` would export it), which shows whether `wl_keyboard.enter` and `key` come at all, and on which seat.
+1. Under LumaTV's compositor on the set: the same `tv-card.py scenario` ("Later").
 
 For Main:
 
@@ -179,6 +180,14 @@ TV results (2026-10-25 17:41-17:45, `docs/research/cardapp/tv-20261025-{1741,174
 - `remove` (`tv-20261025-1745/`): PASS (rc 0, the directory gone, SAM's `listApps` without it, no card process).
 
 Settled by the run: `/dev/mali0` and `/dev/dma_buf_unified` open for uid 5227 in the jail and the 64-bit blob draws from `dma_buf_unified` buffers; SAM does not compare the window's `processId` with the launcher's; LG's compositor shows a card that sent `set_state(fullscreen)` at creation, sends `state_changed(minimized)` when Home covers it and no frame callback (0 ticks in 5 s), and delivers `relaunch` and `close` through the launcher's registration. Not settled: keys (above, "Resume here" 1).
+
+TV results (2026-10-25 19:39-19:41, `docs/research/cardapp/tv-20261025-1939/`, code `4ee268a` from a clean worktree, the card ipk of that build; the set on Home, LG's compositor, receiver muted through Home Assistant): `all --approved`, **34 checks PASS, 0 FAIL**, the app left installed.
+
+- `install`: PASS (rc 0, `{"installed":true,"version":"0.1.0","shipped":"0.1.0","running":false}`); SAM listed the app after 1 s this time (`native`, lifecycle 2, a launch point).
+- `scenario`: the card in front 2.4 s after the launch (launcher 10854, shell 10867, app 10877; `_WEBOS_WINDOW_TYPE_CARD`, SAM's foreground `processId` the app's), the 64-bit path, no GL error, buffers from `dma_buf_unified`, RSS 135 MB, running after 20 s. **Keys arrive**: `seats: 3 bound, 3 with a keyboard` (LG's compositor advertised `wl_seat` 11, 20 and 23 at version 4, keyboard focus came on all three; seat 24 appeared while the card ran and was bound too), OK opened the keys page and Back went up a page (codes 28 and 412 delivered). Home covered it: minimized, running, idle (0 ticks in 5 s), in the switcher; relaunch: the same process, fullscreen again; Back at the first page ended it (`done: status 0`, Home back, SAM without it, the picture files gone); SAM's `close` reached a fresh instance and ended it; Back held closed another.
+- Not run: `remove` (the scenario passed, so the app stays, per the round's rule).
+
+Settled by the run: the seat fix of `fa2f91f` is what the keys needed; nothing else of the step list is open under LG's compositor.
 
 ## Inferred, not observed
 

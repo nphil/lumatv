@@ -1,0 +1,64 @@
+INFO evidence: /tmp/lumatv-slot/docs/research/cardapp/tv-20261025-1939
+INFO facts: id: uid=0(root) gid=0(root) groups=0(root),10(wheel),506(pulse-access),509(se),777(crashd),995(lpadmin)
+INFO facts: machine: aarch64
+INFO facts: crw-rw-rw-    1 root     root       10,  60 Dec 31  1969 /dev/dma_buf_te
+INFO facts: crw-rw-rw-    1 root     root       10,  59 Dec 31  1969 /dev/dma_buf_unified
+INFO facts: crw-------    1 root     root      226,   0 Dec 31  1969 /dev/dri/card0
+INFO facts: crw-rw-rw-    1 root     root       10,  58 Dec 31  1969 /dev/mali0
+INFO facts: tmpfs /tmp tmpfs rw,relatime 0 0
+INFO facts: overlay /var overlay ro,relatime,lowerdir=/overlay/bsppart/bsp/var:/var 0 0
+INFO facts: /dev/mmcblk0p58 /var ext4 rw,nosuid,relatime,data=ordered 0 0
+INFO facts: /dev/mmcblk0p59        6296308   2182884   4097040  35% /mnt/lg/appstore
+INFO facts: tmpfs                  1015196    126568    888628  12% /tmp
+INFO facts: MemAvailable:     921028 kB
+INFO facts: CmaFree:          157872 kB
+INFO facts: compositor: LG
+INFO SAM lists the card app: no
+INFO foreground: com.webos.app.home
+INFO running apps: com.webos.app.home
+INFO dev-installed native apps: amazon, com.apple.appletv, com.beb.plxnative, com.limelight.webos, io.unom.punktfunk.client-webos, netflix, org.webosbrew.bridge-64to32, youtube.leanback.v4
+PASS install: {"installed":true,"version":"0.1.0","shipped":"0.1.0","running":false}
+PASS the launcher is executable: -rwxr-xr-x    1 root     root         17148 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card
+INFO SAM listed the app after: 1 s
+PASS SAM lists the app as native with lifecycle 2: {"closeOnBackground": false, "title": "LumaTV Card", "checkUpdateOnLaunch": true, "icon": "icon.png", "tileSize": "normal", "inAppSetting": false, "closeOnRotation": false, "nativeLifeCycleInterfaceVersion": 2, "folderPath": "/media/develop
+PASS a launch point exists (the switcher needs one): 
+PASS launch: the card is in front: after 2.4 s
+PASS launch: the launcher and the 64-bit app run: {"stub": [10854], "shell": [10867], "app": [10877]}
+PASS launch: the window is a card: {"order": 0, "displayId": 0, "processId": "10877", "windowType": "_WEBOS_WINDOW_TYPE_CARD", "viewType": "normal", "params": {}, "windowGroup": false, "appId": "org.nphil.lumatv.card", "appCategory": [
+INFO launch: users: {"stub": ["5227"], "shell": ["5227"], "app": ["5227"]}
+INFO launch: processId in SAM's foreground info: 10877 (the app is 10877, the launcher 10854)
+PASS launch: the launcher registered with SAM: 
+PASS launch: the 64-bit path was used: gfx64: 64-bit path: /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib/libmali-bifrost-g52-g24p0-wayland-gbm.so
+PASS launch: no GL error: 
+INFO launch: buffer source: dma_buf_unified
+PASS launch: no buffer allocation failed: 
+PASS launch: SAM lists it as running: 
+INFO launch: app RSS kB: 135524
+PASS launch: SAM leaves it running for 20 s: 
+PASS keys: the app bound the compositor's seats, with a keyboard each: seats: 3 bound, 3 with a keyboard
+INFO keys: seats the compositor advertised (name, version): 11 v4, 20 v4, 23 v4
+INFO keys: keyboard focus came on seats: 11, 20, 23
+PASS keys: OK reaches the app and opens the keys page: 
+PASS keys: Back goes up a page and the app stays: 
+INFO keys: codes the compositor sent (presses): 28, 412
+INFO keys: seats that appeared while the card ran: 24
+PASS home: Home is in front: com.webos.app.home
+PASS home: the card was told it is minimized: 
+PASS home: the covered card keeps running: 
+PASS home: the covered card is idle: 0 clock ticks in 5 s
+PASS home: the app switcher lists the card: {"returnValue": true, "ready": true, "recentsAppList": [{"customImageFilePath": "", "appId": "org.nphil.lumatv.card", "splashBackground": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.
+PASS relaunch: the card comes back to the front: org.nphil.lumatv.card
+PASS relaunch: SAM's relaunch reached the app: 
+PASS relaunch: the same process (no second start): 
+PASS relaunch: the window is fullscreen again: 
+PASS back: Back at the first page ends the app: {}
+PASS back: Home is in front again: com.webos.app.home
+PASS back: the launcher ended with the app's status: [lumatv-card 6595.434] done: status 0
+PASS back: SAM no longer lists it as running: 
+PASS back: its picture files are gone: 
+PASS close: SAM's close reaches the app: [lumatv-card 6606.933] SAM: close (undefined)
+PASS close: the app and its launcher end: {}
+PASS exit: Back held closes the app: {}
+INFO exit: how it ended: card[6613.986]: exit: Back at the first page
+PASS end: Home is in front, nothing of the card runs: 
+INFO done: 0 checks failed

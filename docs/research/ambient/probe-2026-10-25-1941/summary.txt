@@ -1,0 +1,13 @@
+probe slot 2026-10-25 19:42
+
+flag home: created 1792971674.0, removed 1792971734.0 by end
+
+home: 10.0 frames a second, the zones change 7.5 times a second, service CPU 1.17% of a core (expected about 1.2 % at that rate: not above); cost: 600 polls (600 frames) in 60.0 s, process CPU 688.0 ms = 1.15 % of a core, 1.147 ms a poll; per poll: getHistogram 1.095 ms CPU (1.132 ms wall), reduce 0.008 ms, send 0.013 ms
+  {"label": "home", "connected": true, "frames": 600, "changed": 451, "seconds": 60.0, "closed_by": "deadline", "frames_per_s": 10.0, "changes_per_s": 7.5, "interval_ms": {"p50": 100.2, "p90": 100.4, "p99": 100.8, "max": 101.9}, "service_cpu_pct": 1.17, "preset": 0}
+  foreground when the capture started: com.webos.app.home
+  ls-hubd / capture: 2026-10-25T23:42:14.366203Z [6695.161359840] user.info lumatv-capture [] capture LIB {} vtHistogram.cpp.resourceManagerClientEventCallback():255 ev: onResourcesReleased
+  ls-hubd / capture: 2026-10-25T23:42:14.366322Z [6695.161477700] user.warning lumatv-capture [] capture WARN {} resourceManagerClient.cpp.release():211 return error ('m_resources.size()')
+  ls-hubd / capture: 2026-10-25T23:42:14.366398Z [6695.161553580] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():153 try to finalize RMC.
+  ls-hubd / capture: 2026-10-25T23:42:14.368186Z [6695.163345420] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():183 complete to finalize RMC.
+  ls-hubd / capture: 2026-10-25T23:42:14.368371Z [6695.163528000] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():80 try to unregister RMC Instance.
+  ls-hubd / capture: 2026-10-25T23:42:14.368713Z [6695.163869280] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():89 complete to unregister RMC Instance.

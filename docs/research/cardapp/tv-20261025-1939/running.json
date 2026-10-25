@@ -1,0 +1,12 @@
+{
+    "running": [
+        {
+            "webprocessid": "9847",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.home",
+            "processid": "9847",
+            "appType": "web"
+        }
+    ],
+    "returnValue": true
+}

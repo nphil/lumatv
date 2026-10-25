@@ -9,22 +9,30 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 18:20 EDT, code after `f3ed5a6`): C2 passed; the sixth
-gate ran on the set 17:30-17:38 with the build of "Built for the sixth
-gate" and the split/refresh code of `f3ed5a6` ("Sixth gate on the set";
-files in `docs/research/compositor/slot-2026-10-25-1730/`): live, volume,
-**netflix** (a fresh instance, `dolbyHdrCinema`), hdmi, standby/wake and
-escape PASS; x1 FAIL by the rule with a new shape: the first second is
-clean (worst 19.7 ms, no `loop:`/`tick:`/`render:` at the mapping, pacer
-`late` 0 → 0), the 2 gaps over 20 ms (20.6, 21.0 ms) came at 31-50 s with
-nothing on the compositor's side. Built since, offline ("Built after the
-sixth gate"): the luna pushes on a writer thread with one journal line a
-batch; the frame held while a driver buffer's warm fence is pending (`held
-ticks`); `bury` on a 2 ms budget a flip; `kms: flip reached N ms after it
-landed` for x1's steady-state gaps; the tick line split into callbacks,
-releases and luna. The stale-Netflix path, the split (no UI feature in the
-bundle) and the refresh re-keying (the panel stayed at 60 Hz) were not
-exercised. LG's compositor is live (set in Active Standby, `enabled`
+State (2026-10-25 19:50 EDT, code `4ee268a`): the seventh gate ran on the
+set 19:29-19:38 with the build of "Built after the sixth gate" ("Seventh
+gate on the set"; files in `docs/research/compositor/slot-2026-10-25-1929/`).
+The 120 s trial lived (no fallback, `held ticks 8`, `reached late 0`, one
+`luna: foreground` line per card change, `bury:` under 4 ms) and failed the
+trial rule by the one odd page-flip stamp at Home's mapping; the gate's own
+session **crashed 3 s after its start**: `thread 'main' panicked at
+wayland-backend-0.3.17/src/sys/server_impl/mod.rs:1142: called
+Result::unwrap() on an Err value: InvalidId` (`gate/compositor.log`), the
+supervisor fell back (`fallback: compositor closed the bridge socket`) and
+every check from `live` on ran against LG's compositor, so x1, netflix,
+hdmi, standby, homekey, wd-hang, wd-crash and escape say nothing this time.
+The line is `send_event`'s client check for an event with an object
+argument: the sender or the argument belongs to a client whose data is
+already gone, which is `refocus`'s `wl_keyboard.leave`/`enter` (or the
+pointer's, `server/seat.rs`) sent while WebAppMgr's first connection (the
+1.2 s one, in every gate) is being torn down. The trial survived the same
+disconnect by the order the client's objects died in. Fix before the next
+gate: skip a keyboard or pointer whose `client()` is `None` (and a focus
+surface whose client is gone) in `refocus`, `enter_if_focused` and the
+pointer paths; `wayland-server`'s `Resource::client()` is that test. The
+rest of the sixth gate's list (first-draw cost after `warm done`, `flip
+reached` against x1's gaps, the seats under LG's clients) waits on a gate
+that stays live. LG's compositor is live (set in Active Standby, `enabled`
 absent, Home stub on, receiver unmuted).
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
@@ -74,13 +82,13 @@ compositor/tools/build-tv.sh` builds the bundle.
   and HDMI 2), the texture frees out of the frame, x1's first second clean
   (19.7 ms worst), Netflix playing from a fresh instance, every slow pass
   attributed by `tick:`/`present:`/`render:`.
-- Built and host-tested after it, unverified on the set ("Built after the
-  sixth gate"): the luna writer thread and the one-line push journal; the
-  held frame while a driver buffer warms; the budgeted `bury`; `flip
-  reached`; `wl_keyboard.enter` at a late `get_keyboard` and one `wl_seat`
-  per input device. What the seventh gate must show is listed at the end
-  of that section.
-- Next: the seventh gate with that list; x1's rule read against `flip
+- Run on the set in the seventh gate ("Seventh gate on the set"): the
+  trial's 122 s showed the held frame (`held ticks 8`, `warm done` 11 ms
+  after the hold), the one-line luna push journal, `bury:` under 4 ms and
+  `reached late 0`; the gate's session crashed 3 s in (the InvalidId panic
+  above), so the rest of "Built after the sixth gate"'s list is unseen.
+- Next: the dying-client guard in `refocus` and the pointer paths, then the
+  eighth gate with the same list; x1's rule read against `flip
   reached` lines (nothing of the compositor's is logged at its 31-50 s
   gaps; a 4 ms callback delay under the thresholds is not excluded); a
   slot with the `ui` feature over a direct window for the split and the
@@ -1527,6 +1535,41 @@ Remote). Host test
 On the set the seventh gate's `probe` output lists the seats, and a key
 from the remote must still reach the focused app (`keys delivered` in
 `ctl status` after a D-pad press) with LG's clients binding every seat.
+
+## Seventh gate on the set (2026-10-25 19:29-19:38)
+
+One slot from `compositor/tools/tv_next_slot.py --no-standby` at `4ee268a`
+(the build of "Built after the sixth gate"), from a clean worktree with
+`LumaShow` beside it; receiver muted by the scripts, Home stub on with the
+`comp_live` guard, the set on Home after the ipk of `4ee268a` had been
+installed and applied (`docs/research/round7-2026-10-25/slot1/`). Files in
+`docs/research/compositor/slot-2026-10-25-1929/` (`summary.txt`, `trial/`,
+`gate/`); gate lines in `gate-2026-10-25.txt`. The slot took 7.9 minutes.
+
+| Step | Result |
+|---|---|
+| `install` + `probe` | 12 allowed, 0 free, 0 refused; `firmware: unverified: verified.list has no entry` |
+| `trial 120` | live 122.9 s, no fallback of this run, 1 disconnect (WebAppMgr's first connection, 1222 ms), protocol errors 0, frame gaps 0, `prepared 6 frame imports 0 held ticks 8 ... reached late 0 ... odd stamps 1`; 12 seats listed (`seat1: LGE RCU` … `seat12: Smart Remote RCU Input`) and WebAppMgr bound every one; at Home's mapping `tick: frame held while a driver buffer warms` / `warm done, drawing again` (11 ms apart), then `present: fence export 0.1 ms, atomic commit 13.3 ms` (the session's first commit, `tick: 14.2 ms: plan and draw 0.4, present 13.5, callbacks 0.0, releases 0.0, luna 0.3`); one `luna: foreground [...] pushed to 15 subscriber(s)` line per card change; `bury: 2 freed in 3.6 ms, 1 left for the next pass` and `bury: 1 freed in 2.2 ms, 0 left` at WebAppMgr's reconnect. Trial verdict FAIL by the rule on the one odd page-flip stamp (33.36 ms, 19 ms after Home's mapping, the same place as in every gate) |
+| firmware | PASS: 10 files hashed in 0 s (the cache), none unreadable, the flipped digit, the other release and the empty list each refused, the set's own list unverified, the supervisor `no off: not enabled (exit 3)` |
+| homeheld | PASS: `/dev/uinput` and python3 exist; `--home-held` 0 while the virtual remote held Home, 1 after |
+| live | FAIL: the session's compositor (pid 3381) panicked at 19:32:51, 3 s after its start, right after Home mapped and `focus -> surface 22`: `wayland-backend-0.3.17/src/sys/server_impl/mod.rs:1142:56: called Result::unwrap() on an Err value: InvalidId`; `fallback: compositor closed the bridge socket`, LG's back by exec, Home on the panel 4 s later, SAM unchanged |
+| volume, x1, netflix, hdmi, standby, homekey, wd-hang, wd-crash, escape | FAIL, all against LG's compositor (`mounted no`); x1's 27 gaps and 59.83 fps are LG's compositor's numbers and say nothing about this build |
+| end | LG's compositor live, flag absent, stub on, `filmMaker`, receiver unmuted at 0.355 |
+
+The panic, read against the backend's source: `send_event` (an event with
+an object argument) checks that the sender and the argument belong to the
+same client with `get_client(...).unwrap()`, and `get_client` is `Err` for
+a resource whose client has no data any more, which is a client in the
+middle of being destroyed. The compositor sends such events from
+`refocus` (`wl_keyboard.leave(serial, surface)` to the old focus's
+keyboards, `enter` to the new one's) and from the pointer paths
+(`server/seat.rs:230, 263, 313, 320, 365`); the `same_client_as` filter
+does not exclude a dying client. WebAppMgr's first connection closes 1.2 s
+in, in every gate; whether the surface or the keyboards die first is the
+backend's order, so the trial lived and the session did not. The gate's
+session is the one that mattered: nothing of the "Built after the sixth
+gate" list past the trial's 122 s was seen.
+
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 

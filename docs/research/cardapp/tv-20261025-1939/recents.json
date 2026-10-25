@@ -1,0 +1,54 @@
+{
+    "returnValue": true,
+    "ready": true,
+    "recentsAppList": [
+        {
+            "customImageFilePath": "",
+            "appId": "org.nphil.lumatv.card",
+            "splashBackground": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "/tmp/snapshots/US2403294801981/org.nphil.lumatv.card_Sun_Oct_25_19_40_17_2026.JPEG",
+            "title": "LumaTV Card"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.webos.app.hdmi2",
+            "splashBackground": "/usr/palm/applications/com.webos.app.hdmi2/assets/HDMI-2_splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "HDMI2"
+        },
+        {
+            "customImageFilePath": "/media/cryptofs/apps/usr/palm/applications/netflix/RECENTS.png",
+            "appId": "netflix",
+            "splashBackground": "/media/cryptofs/apps/usr/palm/applications/netflix/Netflix_Splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Netflix"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.webos.app.discovery",
+            "splashBackground": "/mnt/otncabi/usr/palm/applications/com.webos.app.discovery/asset/hd1080/lgstore_splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Apps"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.webos.app.browser",
+            "splashBackground": "/mnt/otncabi/usr/palm/applications/com.webos.app.browser/assets/hd1080/webbrowser_splash.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Web Browser"
+        },
+        {
+            "customImageFilePath": "",
+            "appId": "com.apple.appletv",
+            "splashBackground": "/media/cryptofs/apps/usr/palm/applications/com.apple.appletv/AppleTV_Splash_1920x1080.png",
+            "subtitle": "",
+            "cardSnapShotFilePath": "",
+            "title": "Apple TV"
+        }
+    ]
+}

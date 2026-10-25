@@ -1,0 +1,28 @@
+start 19:28:14
+receiver before: off volume_level None muted None
+power: active
+before: {"ok":true,"version":"0.4.0"}
+831be2005431d63bec8cfe71e4284049  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper
+77ec3df6ad397cdb8cdc35d613ff6619  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+ipk put: -rw-r--r--    1 root     root      35895690 Oct 25 19:28 /tmp/lumatv.ipk
+96a913a2f025db7b09d08764557cb677567b24720bec6878d8779ba80a2cfda5  /tmp/lumatv.ipk
+install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+app dir helper sha matches ipk: True after 35 s
+apply (51 s): {"ok":true,"applied":true,"mounts":1,"took":15}
+status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":28255,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"17:37:47 recover: librdx reports swept; remaining 0"}}
+homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":28255,"port":18731,"running":true}}
+preload status: {"ok": true, "on": true, "backup": true, "off": [{"id": "youtube.leanback.v4", "listed": true, "enabled": false}, {"id": "com.webos.app.lgchannels", "listed": true, "enabled": false}, {"id": "com.webos.app.browser", "listed": true, "enabled": false}, {"id": "amazon", "listed": true, "enabled": false}, {"id": "com.webos.app.livetv", "listed": true, "enabled": false}, {"id": "com.webos.app.livemenu", "listed": true, "enabled": false}, {"id": "com.webos.app.voice", "listed": true, "enabled": false}, {"id": "amazon.alexapr", "listed": true, "enabled": false}, {"id": "com.webos.app.miracast", "listed": true, "enabled": false}, {"id": "com.webos.app.miracast-overlay", "listed": true, "enabled": false}, {"id": "vudu", "listed": true, "enabled": false}, {"id": "pooq", "listed": true, "enabled": false}, {"id": "globoplaywebos", "listed": true, "enabled": false}, {"id": "yandex.alice", "listed": t
+compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"17:37:47 recover: librdx reports swept; remaining 0"}}
+inputcommon status: {"ok":false,"error":"tools/inputcommon.sh did not answer"}
+surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},{"id":"helper","on":true,"fallback":"Home draws the last saved weather and news; `helper stop`"},{"id":"preload","on":true,"fallback":"`preload off` restores LG's list from preload.orig"},{"id":"compositor","on":f
+lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"p
+helper log tail: 2026-10-25T23:28:57Z INFO  feeds: fetching through openssl (openssl OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024))
+2026-10-25T23:28:57Z INFO  screen: Active (on)
+2026-10-25T23:28:57Z INFO  listening on 127.0.0.1:18731 (api 1)
+2026-10-25T23:28:57Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-25T23:28:57Z INFO  preload: 14 apps kept from preloading
+ai assets backup bin cache capture.log capture.pid compositor compositor.qml compositor.qml.next.tmp.7162 config.json dc-dev declutter earlybin exp fonts helper.lock homestub keyfilter log log-helper luma mutate.lock preload.json preload.orig qml systemui theme tile-backup wall_1080.png webapps
+foreground: {"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""}
+picture: "pictureMode": "filmMaker"
+end 19:29:15 (60 s)

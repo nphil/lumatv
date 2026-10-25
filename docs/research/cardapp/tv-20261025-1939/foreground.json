@@ -1,0 +1,18 @@
+{
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "order": 0,
+            "displayId": 0,
+            "processId": "10877",
+            "windowType": "_WEBOS_WINDOW_TYPE_CARD",
+            "viewType": "normal",
+            "params": {
+            },
+            "windowGroup": false,
+            "appId": "org.nphil.lumatv.card",
+            "appCategory": [
+            ]
+        }
+    ]
+}

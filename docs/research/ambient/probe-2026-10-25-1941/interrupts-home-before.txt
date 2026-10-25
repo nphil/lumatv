@@ -1,0 +1,76 @@
+           CPU0       CPU1       CPU2       CPU3       
+ 10:    8908738    8504186    5748242    1737114     GICv2  30 Level     arch_timer
+ 29:          0          0          0          0  fd4c0000.gpio   2 Edge      gpiolib
+ 30:          0          0          0          0  fd420000.gpio   5 Edge      gpiolib
+ 31:          0          0          0          0  fd450000.gpio   3 Edge      gpiolib
+ 32:          7          0          0          0     GICv2  32 Level     uart-pl011
+ 35:          0          0          0          0     GICv2  35 Level     fe800000.spi
+ 36:          0          0          0          0     GICv2  36 Level     pl022
+ 37:          0          0          0          0     GICv2  37 Edge      SCI
+ 38:          0          0          0          0     GICv2  38 Level     timer
+ 58:       4020          0          0          0     GICv2  58 Level     fe300000.i2c
+ 59:       6914          0          0          0     GICv2  59 Level     fe400000.i2c
+ 60:       2538          0          0          0     GICv2  60 Level     fe500000.i2c
+ 61:          0          0          0          0     GICv2  61 Level     fe600000.i2c
+ 62:          0          0          0          0     GICv2  62 Level     f9000000.i2c
+ 63:        912          0          0          0     GICv2  63 Level     f9100000.i2c
+ 64:          0          0          0          0     GICv2  64 Level     f9200000.i2c
+ 65:        517          0          0          0     GICv2  65 Level     f9300000.i2c
+ 66:          0          0          0          0     GICv2  66 Level     f9400000.i2c
+ 67:          0          0          0          0     GICv2  67 Level     f9500000.i2c
+ 68:          0          0          0          0     GICv2  68 Level     pl08xdmac
+ 82:          0          0          0          0     GICv2  82 Edge      CPU_LZMA_MPRO
+ 83:          0          0          0          0     GICv2  83 Edge      CPU_MPRO
+ 84:          0          0          0          0     GICv2  84 Edge      CPU_AXI_PERI_MPRO
+ 85:          0          0          0          0     GICv2  85 Edge      CPU_AHB_PERI_MPRO
+ 86:          0          0          0          0     GICv2  86 Edge      CPU_FAST
+ 93:          0          0          0          0     GICv2  93 Edge      HDMI20_AUDIO
+ 99:         12          0          0          0     GICv2  99 Level   
+104:     794809          0          0          0     GICv2 104 Edge      osd_irq
+111:          0          0          0          0     GICv2 111 Edge      JpgDec
+112:       1000          0          0          0     GICv2 112 Edge      TE_MCU[0]
+113:        996          0          0          0     GICv2 113 Edge      TE_MCU[1]
+114:          0          0          0          0     GICv2 114 Edge      TE_HW
+120:        461          0          0          0     GICv2 120 Edge      gfx_irq
+122:          3          0          0          0     GICv2 122 Level     demod_ipc
+124:     341503          0          0          0     GICv2 124 Level     eth0
+125:          1          0          0          0     GICv2 125 Level     stmmac-0:1c
+127:      60815          0          0          0     GICv2 127 Level     mmc0
+128:      13998          0          0          0     GICv2 128 Level     ohci_hcd:usb8
+129:         12          0          0          0     GICv2 129 Level     ehci_hcd:usb7
+130:        948          0          0          0     GICv2 130 Level     xhci-hcd:usb1
+131:        173          0          0          0     GICv2 131 Level     xhci-hcd:usb3
+132:          0          0          0          0     GICv2 132 Level     xhci-hcd:usb5
+133:          0          0          0          0     GICv2 133 Edge      HDMI21_TOP
+134:          6          0          0          0     GICv2 134 Edge      HDMI21_LINK
+135:       1866          0          0          0     GICv2 135 Edge      hdmicec
+137:          7          0          0          0     GICv2 137 Edge      HDMI21_LINK
+138:          0          0          0          0     GICv2 138 Edge      HDMI21_TOP
+140:        827          0          0          0     GICv2 140 Edge      HDMI21_LINK
+141:          4          0          0          0     GICv2 141 Edge      HDMI21_TOP
+143:          7          0          0          0     GICv2 143 Edge      HDMI21_LINK
+144:          0          0          0          0     GICv2 144 Edge      HDMI21_TOP
+147:         15          0          0          0     GICv2 147 Edge      eARC
+151:          0          0          0          0     GICv2 151 Edge      LBUS_MPRO
+174:          0          0          0          0     GICv2 174 Edge      DE2IPC
+175:     798215          0          0          0     GICv2 175 Edge      DE2VSYNC
+176:     112002          0          0          0     GICv2 176 Level     c4250000.gpu
+177:        154          0          0          0     GICv2 177 Level     c4250000.gpu
+178:      54427          0          0          0     GICv2 178 Level     c4250000.gpu
+182:        128          0          0          0     GICv2 182 Level     aud0
+183:       2778          0          0          0     GICv2 183 Level     aud1
+184:      16817          0          0          0     GICv2 184 Level     aud2
+185:         58          0          0          0     GICv2 185 Level     aud3
+201:       2647          0          0          0     GICv2 201 Edge      ipc_vdec
+216:          0          0          0          0     GICv2 216 Level     arm-pmu
+217:          0          0          0          0     GICv2 217 Level     arm-pmu
+218:          0          0          0          0     GICv2 218 Level     arm-pmu
+219:          0          0          0          0     GICv2 219 Level     arm-pmu
+IPI0:    349903     529429     353584     160018       Rescheduling interrupts
+IPI1:      7687      15378      11480      11560       Function call interrupts
+IPI2:         0          0          0          0       CPU stop interrupts
+IPI3:         0          0          0          0       CPU stop (for crash dump) interrupts
+IPI4:         0          0          0          0       Timer broadcast interrupts
+IPI5:      4246       4964       3333       3469       IRQ work interrupts
+IPI6:         0          0          0          0       CPU wake-up interrupts
+Err:          0

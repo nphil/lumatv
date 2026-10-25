@@ -1,0 +1,1 @@
+hdmi2 windows 0 mapped 0 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 295965 bytes

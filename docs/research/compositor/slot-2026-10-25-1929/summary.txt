@@ -1,0 +1,46 @@
+# C4 slot 2026-10-25-1929
+
+preflight: guard True, home stub on, picture "pictureMode": "filmMaker"
+deploy: exit 0
+install: firmware: unverified: verified.list has no entry
+probe: probe: 12 allowed (held by LG's compositor), 0 free, 0 refused
+trial: trial evidence: "summary":"uptime 122.9s clients 1 (total 2) surfaces 14 windows 1 requests 544 commits 24 buffers 0 ticks 7383 drawn 23 callbacks 22 releases 20 skipped 0 gl errors 0 render last 346 us max 372 us prepared 6 frame imports 0 held ticks 8 check ok 0 bad 0 unread 0 flips 23 late 0 lost 326 reached late 0 direct 0 split 0 odd stamps 1 refresh 16.67 ms (changed 0)" windows "appId":"com.webos.app.home" 
+trial: SAM subscribed to getForegroundAppInfo: yes
+trial: calls queued before the compositor connected: bridge: 9 call(s) that arrived before the compositor sent on
+trial: 1 client disconnects; the first five: info client disconnected: pid 31040 uid 505 after 1222 ms (ConnectionClosed); bound ["wl_compositor", "wl_subcompositor", "wl_shm", "wl_shell", "wl_seat", "wl_output", "wl_data_device_manager", "wl_webos_shell", "wl_webos_surface_group_compositor", "wl_webos_foreign", "wl_webos_input_manager", "wl_webos_xinput_extension", "text_model_factory", "zwp_linux_dmabuf_v1", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat", "wl_seat"]; cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+trial: protocol errors 0, loop stalls 1, frame gaps 0, fallbacks 0
+trial verdict: FAIL: 1 frame(s) over 20 ms: info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+trial: SAM's foreground: {     "returnValue": true,     "appId": "com.webos.app.home",     "appCategory": [         "home"     ],     "processId": "",     "windowId": "" } 
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 0 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: unverified: verified.list has no entry; the supervisor: no off: not enabled (exit 3)
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 437139 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE volume: FAIL receiver volume_level before 0.355 after Volume+ 0.355 after Volume- 0.355
+GATE x1: FAIL 27 gap(s) over 20 ms in the client's swaps (worst 50.4 ms); the pacer's late counter was not read | [x1] RESULT frames=3591 in 60.02 s = 59.83 fps; gaps: <=17.5 ms 3084, 17.5-20 479, 20-33.5 26, >33.5 1; worst 50.4 ms; ended at monotonic 6213.624 | pacer before:  after:  | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0
+GATE netflix: FAIL netflix windows 0 video  placements 0 protocol errors 0 pictureMode playing filmMaker after filmMaker fg playing netflix now com.webos.app.home panel 238692 bytes stale-instance-closed 0
+GATE hdmi: FAIL hdmi2 windows 0 mapped 0 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 295965 bytes
+GATE standby: requested ({
+GATE standby: FAIL rounds: PreparePowerOff 0 PreparePowerOn 0; fallbacks 1; state active; uptime before 6277.40 now 6348.41; mounted no; panel 451872 bytes
+GATE homekey: FAIL not live, or no /dev/uinput, or /tmp/lumatv/uinput-key.py is missing
+GATE live-after-homekey: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 436907 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: FAIL not live (compositor pid none, mounted no)
+GATE live-after-wd-hang: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 436823 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: FAIL not live (compositor pid none, mounted no)
+GATE live-after-wd-crash: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 436678 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: FAIL unmounted after 0s; [19:37:15] fallback: compositor closed the bridge socket; escaped no; exe /usr/bin/surface-manager; recovery 0s; panel 436739 bytes; wam active; sam unchanged
+GATE firmware: PASS Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 0 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: unverified: verified.list has no entry; the supervisor: no off: not enabled (exit 3)
+GATE homeheld: PASS while held: exit 0 (0 = held); after the release: exit 1 (1 = not held); injector exit 0
+GATE live: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 437139 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE volume: FAIL receiver volume_level before 0.355 after Volume+ 0.355 after Volume- 0.355
+GATE x1: FAIL 27 gap(s) over 20 ms in the client's swaps (worst 50.4 ms); the pacer's late counter was not read | [x1] RESULT frames=3591 in 60.02 s = 59.83 fps; gaps: <=17.5 ms 3084, 17.5-20 479, 20-33.5 26, >33.5 1; worst 50.4 ms; ended at monotonic 6213.624 | pacer before:  after:  | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 0
+GATE netflix: FAIL netflix windows 0 video  placements 0 protocol errors 0 pictureMode playing filmMaker after filmMaker fg playing netflix now com.webos.app.home panel 238692 bytes stale-instance-closed 0
+GATE hdmi: FAIL hdmi2 windows 0 mapped 0 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 295965 bytes
+GATE standby: requested ({
+GATE standby: FAIL rounds: PreparePowerOff 0 PreparePowerOn 0; fallbacks 1; state active; uptime before 6277.40 now 6348.41; mounted no; panel 451872 bytes
+GATE homekey: FAIL not live, or no /dev/uinput, or /tmp/lumatv/uinput-key.py is missing
+GATE live-after-homekey: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 436907 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-hang: FAIL not live (compositor pid none, mounted no)
+GATE live-after-wd-hang: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 436823 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE wd-crash: FAIL not live (compositor pid none, mounted no)
+GATE live-after-wd-crash: FAIL mounted no registered 12 fallbacks 1 wam active home-window 0 home-stub 1 panel 436678 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE escape: FAIL unmounted after 0s; [19:37:15] fallback: compositor closed the bridge socket; escaped no; exe /usr/bin/surface-manager; recovery 0s; panel 436739 bytes; wam active; sam unchanged
+GATE: FAIL

@@ -21,8 +21,15 @@ the library, the cutover script, the gate rule, the gate driver and the slot rul
 Not run to the end: `unittest discover` of the whole suite (`tests/test_settings.py` alone runs over four minutes, and
 `tests.test_voice_search` imports `test_settings` as a top-level module, so it only loads under `discover -s tests`).
 
-Next: the TV steps below, in order, each its own slot. Step 3 is the existing slot (`tv_next_slot.py`), which now also
-runs the new checks.
+Seventh gate (2026-10-25 19:29-19:38, `4ee268a`, `docs/research/compositor/slot-2026-10-25-1929/`): steps 1 and 2 passed on the set
+(`install`: `firmware: unverified: verified.list has no entry`, `supervisor-api` 2; `firmware` PASS with 10 files hashed in 0 s from the
+cache, none unreadable, every bad list refused; `homeheld` PASS: `/dev/uinput` and python3 are there, `--home-held` 0 while the virtual
+remote held Home and 1 after). Step 3's session died 3 s in (the compositor's InvalidId panic, `compositor-c2-result.md` "Seventh gate
+on the set"), the supervisor fell back by exec as designed (`fallback: compositor closed the bridge socket`, LG's Home on the panel 4 s
+later, SAM unchanged), and `live`, `homekey`, `wd-hang`, `wd-crash` and `escape` therefore ran against LG's compositor: unproven. The
+trial before it lived 122.9 s with `watchdog 1 power-seen 1` (the `getPowerState` reply has the `state` key: the empty-panel rule is on).
+
+Next: the compositor's dying-client guard, then step 3 again.
 
 ## What decides whether LumaTV's compositor runs
 
@@ -191,3 +198,9 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
 
 CHANGELOG line: "LumaTV's compositor starts at boot only on a firmware build the gate passed on; a supervisor that falls
 back on a frozen output, an empty panel, a run that never settled and a held Home key."
+
+On the set (2026-10-25 19:43): the ipk does not carry `tools/inputcommon.sh` or `tools/inputcommon_patch.py` (`tools/build-ipk.sh`
+lists neither), so `lumatv inputcommon on|off|status` answers `{"ok":false,"error":"tools/inputcommon.sh did not answer"}` on a set
+installed from it. With the two committed files put in the app's `tools/` by hand the verbs work (`on`: mounted, `snapshotsDropped 1`;
+`off`: unmounted; `status` right); results in `lg-restyles-result.md`. The builder needs both files (and `tools/keyboard_patch.py`,
+which `build_shadow` runs and the ipk does not ship either) in its list.

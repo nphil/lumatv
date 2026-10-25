@@ -17,12 +17,17 @@ and the 85 QML files PLAN.md names for it are in no copy in `lgtv/uiinv`, `lgtv/
 compositor side only, `StarfishKeyboardView.qml`). The upstream maliit and webOS-ports keyboards on GitHub are different code. So the
 look of the keys needs a capture first ("Needs the TV" 5 below); the patch for it then follows `inputcommon_patch.py`'s shape.
 
-Next, in order, on the TV (all "not verified on the TV"):
+On the TV (2026-10-25 19:43, "On the TV" below): the QML directory is the guessed one and matches the census; the ipk does not ship
+`tools/inputcommon.sh` or `tools/inputcommon_patch.py` (`lumatv inputcommon` answers "did not answer" until `tools/build-ipk.sh` lists
+them); with the files put on the set by hand, stage, mount and unmount work and nothing crashes; the restyled look was not seen because
+inputcommon kept running from its boot-time checkpoint and LG restored that checkpoint again after a SAM close, marker or no marker.
 
-1. Find LG's QML directory and compare it with the census copy ("Needs the TV" 1). Without that, `inputcommon.sh` finds nothing and says so.
-2. `sh tools/inputcommon.sh stage` on the set: expect `{"ok":true,"staged":true,...}`. A refusal names the anchor in `$STATE/log`.
-3. `sh tools/inputcommon.sh on`, then switch to HDMI 2 from LumaHome and look at the pill, OK, the options key and INFO.
-4. Capture maliit's tree (5), so the keys can be done.
+Next, in order:
+
+1. `tools/build-ipk.sh`: ship the two tools (and `tools/keyboard_patch.py`, which `build_shadow` runs).
+2. A start of inputcommon without its checkpoint (the images under `/mnt/lg/cmn_data/checkpoint/com.webos.app.inputcommon/`, or a
+   reboot with the mount made at boot), then the pill, OK, the options key and INFO with the physical remote.
+3. Capture maliit's tree ("Needs the TV" 5), so the keys can be done.
 
 CHANGELOG line for the main agent: *Restyles of LG's own processes: the input banners (`com.webos.app.inputcommon`) in the Lucent look through an
 anchored patch and an overlay mount (`tools/inputcommon_patch.py`, `tools/inputcommon.sh`), and the on-screen keyboard's open and close in the
@@ -105,6 +110,40 @@ Run from the repo root:
 5. **maliit.** `find / -iname '*maliit*' 2>/dev/null`, `cat /var/lib/maliit/server.conf`, `ls -R /usr/share/maliit* /usr/lib/maliit* 2>/dev/null`, `strings $(find / -name 'libplugin-global.so' 2>/dev/null | head -1) | grep -i 'qrc:\|\.qml' | head`. Copy
    whatever QML there is to `/data/home/lgtv/uiinv/maliit/`. If the keys are compiled into the plugin (a `qrc`), the patch has to be a rebuilt resource, which is a bigger decision for Nitin; report what is there.
 6. **Frame cost.** The pill and banners are over video drawn by inputcommon: no live shadow is added and two were removed, so none is expected; the frame gate does not cover a banner over HDMI, so this stays unmeasured.
+
+## On the TV (2026-10-25 19:43-19:48)
+
+Set on Home, LG's compositor, receiver muted through Home Assistant, `filmMaker`; code `4ee268a`, the ipk of that commit installed
+at 19:28. Files in `docs/research/round7-2026-10-25/slot6/` and `slot6b/` (`log.txt`, captures at 960x540).
+
+1. The QML is where the script guesses: `/usr/palm/applications/com.webos.app.inputcommon/qml`, 273 `.qml` files, and
+   `UserInterfaceLayer/GlobalStyle.qml` has the census copy's md5 (`d34b51f5cc71621b2cae13a635469a8b`). The checkpoint directory is
+   `/mnt/lg/cmn_data/checkpoint/com.webos.app.inputcommon/` (CRIU images `core-2513.img` and so on, dated Sep 14).
+2. **The ipk does not ship the tool.** `tools/build-ipk.sh` lists neither `tools/inputcommon.sh` nor `tools/inputcommon_patch.py`, so
+   `lumatv inputcommon status` on a set installed from it answers `{"ok":false,"error":"tools/inputcommon.sh did not answer"}`
+   (`sh: can't open '.../tools/inputcommon.sh'` in the tool's log). For the slot the two committed files were put into the installed
+   app's `tools/` and removed again at the end. With them: `status` `{"ok":true,"qml":...,"staged":false,"mounted":false}`; `lumatv
+   inputcommon on` `{"ok":true,"inputcommon":"on","snapshotsDropped":1}` in 0.6 s, the overlay in `/proc/mounts` over the QML directory
+   (and a second one under the `lg.thinqai.adapter` jail's view of the same path); `off` unmounted both; no crash report in
+   `/tmp/var/log/reports/librdx/`, inputcommon alive throughout, `faultmanager` with nothing new.
+3. **The look did not change, because the process did not restart.** `com.webos.app.inputcommon` was pid 2513, restored from the
+   checkpoint at boot, long before the mount; a QML engine does not re-read files it has loaded, so the pill on the switch to HDMI 2
+   (`slot6/pill.png`: "HDMI 2" over the device name, no pill box) is LG's own, the same as with the mount off (`slot7/own-pill.png`).
+   Closing the app through SAM (`closeByAppId com.webos.app.hdmi2`) and launching HDMI 2 again brought **the same pid 2513 back in
+   2.2 s**: LG restored the checkpoint again, with the marker the tool had left in the directory (`invalid_img`, directory mtime 19:43).
+   So `snapshotsDropped 1` is not a cold start; the marker is not what LG reads, or not when the images are restored by SAM's launch.
+   What would show the rewritten files is a start with no checkpoint: the images removed (LG's own `criu` tooling, or `rm` of the
+   directory's `.img` files, which is a change to `/mnt/lg/cmn_data`, not the rootfs) or a reboot after the mount is made persistent
+   through `apply`. Neither was done in this slot.
+4. OK and INFO on HDMI 2 reach the source over CEC: with the receiver and the Apple TV behind it, OK brought the Apple TV's profile
+   screen and the Denon's "SOURCE Apple TV / INPUT HDMI / SOUND Multi Ch Stereo" bar (`slot6b/ok-banner-fresh.png`), INFO showed the
+   resolution chips over LG's name line (`slot6/info.png`: "16:9 2160p PCM" drawn over "HDMI 2"). LG's OK banner with the options key
+   was not captured; whether SIMPLINK forwards the key before the banner or the capture missed it is open, and the captures are LG's
+   look either way (3).
+5. maliit: not looked at (no time in the round).
+
+Next: ship the two tools in the ipk (`tools/build-ipk.sh`), then a slot that restarts inputcommon without its checkpoint and reads the
+pill, OK and INFO with the physical remote.
 
 ## Wiring left to others (files I do not own)
 

@@ -1,0 +1,1 @@
+unmounted after 0s; [19:37:15] fallback: compositor closed the bridge socket; escaped no; exe /usr/bin/surface-manager; recovery 0s; panel 436739 bytes; wam active; sam unchanged

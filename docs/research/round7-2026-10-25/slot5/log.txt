@@ -1,0 +1,64 @@
+[   0.0] slot 5 start; receiver on 0.355 muted True
+[   0.0] helper log receiver lines:
+125:2026-10-25T20:47:29Z INFO  receiver: reading 192.168.1.93:8080
+129:2026-10-25T21:30:21Z INFO  receiver: reading 192.168.1.93:8080
+133:2026-10-25T21:36:30Z INFO  receiver: reading 192.168.1.93:8080
+137:2026-10-25T21:40:58Z INFO  receiver: reading 192.168.1.93:8080
+147:2026-10-25T21:51:15Z INFO  receiver: reading 192.168.1.93:8080
+155:2026-10-25T23:28:18Z INFO  receiver: reading 192.168.1.93:8080
+163:2026-10-25T23:28:57Z INFO  receiver: telnet 192.168.1.93:23
+167:2026-10-25T23:35:46Z INFO  receiver: telnet 192.168.1.93:23
+
+[   0.0] connections to the receiver (local remote state):
+F201A8C0:AD62 5D01A8C0:0017 01
+
+[   0.1] helper pid/uptime: 28255
+18731
+20147 28255       00:01
+[   0.1] /v1/receiver before: {"api":1,"boot":1792970937184,"now":1792971753234,"ok":true,"seq":63,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":true,"polling":true,"power":"on","reachable":true,"updatedAt":1792971751757,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
+[   3.5] after Volume+ (key 115), the topic every 0.4 s:
++000ms {"api":1,"boot":1792970937184,"now":1792971753358,"ok":true,"seq":63,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":true,"polling":true,"power":"on","reachable":true,"updatedAt":1792971751757,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++400ms {"api":1,"boot":1792970937184,"now":1792971753770,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971753759,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++800ms {"api":1,"boot":1792970937184,"now":1792971754177,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971753759,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++1200ms {"api":1,"boot":1792970937184,"now":1792971754582,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971753759,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++1600ms {"api":1,"boot":1792970937184,"now":1792971754988,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971753759,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++2000ms {"api":1,"boot":1792970937184,"now":1792971755394,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971753759,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++2400ms {"api":1,"boot":1792970937184,"now":1792971755800,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971755784,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++2800ms {"api":1,"boot":1792970937184,"now":1792971756205,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971755784,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
+
+[   5.0] HA after Volume+: on 0.36 muted False (was 0.355)
+[   8.4] after Volume- (key 114):
++000ms {"api":1,"boot":1792970937184,"now":1792971758235,"ok":true,"seq":65,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971757800,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++400ms {"api":1,"boot":1792970937184,"now":1792971758641,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971758287,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++800ms {"api":1,"boot":1792970937184,"now":1792971759047,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971758287,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++1200ms {"api":1,"boot":1792970937184,"now":1792971759453,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971758287,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++1600ms {"api":1,"boot":1792970937184,"now":1792971759858,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971759815,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++2000ms {"api":1,"boot":1792970937184,"now":1792971760265,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971759815,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++2400ms {"api":1,"boot":1792970937184,"now":1792971760670,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971759815,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++2800ms {"api":1,"boot":1792970937184,"now":1792971761076,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971759815,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
+
+[   9.9] HA after Volume-: on 0.355 muted False
+[  13.1] after HA volume_up at 1792971763.100 (set clock below), the topic:
++000ms {"api":1,"boot":1792970937184,"now":1792971763000,"ok":true,"seq":66,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971761829,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDisplay":"absolute","volumeText":"35.5"}}
++400ms {"api":1,"boot":1792970937184,"now":1792971763408,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971763027,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++800ms {"api":1,"boot":1792970937184,"now":1792971763815,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971763783,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++1200ms {"api":1,"boot":1792970937184,"now":1792971764225,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971763841,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++1600ms {"api":1,"boot":1792970937184,"now":1792971764631,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971763841,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++2000ms {"api":1,"boot":1792970937184,"now":1792971765036,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971763841,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++2400ms {"api":1,"boot":1792970937184,"now":1792971765442,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971763841,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
++2800ms {"api":1,"boot":1792970937184,"now":1792971765848,"ok":true,"seq":67,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971765808,"volumeAbs":36.0,"volumeDb":-44.0,"volumeDisplay":"absolute","volumeText":"36"}}
+
+[  15.2] after HA volume_down: HA on 0.355 muted False; topic {"api":1,"boot":1792970937184,"now":1792971768269,"ok":true,"seq":68,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"updatedAt":1792971767884,"volumeAbs":35.5,"volumeDb":-44.5,"volumeDi
+[  15.2] connections after: 
+F201A8C0:AD62 5D01A8C0:0017 01
+
+[  15.2] helper log tail:
+2026-10-25T23:28:57Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-25T23:28:57Z INFO  preload: 14 apps kept from preloading
+2026-10-25T23:35:17Z INFO  screen: Active Standby (off)
+2026-10-25T23:35:46Z INFO  screen: Active (on)
+2026-10-25T23:35:46Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-25T23:35:46Z INFO  preload: 14 apps kept from preloading
+
+[  15.2] HA media_player state at the end: on 0.355 muted False
+[  15.3] slot 5 end; foreground com.webos.app.home

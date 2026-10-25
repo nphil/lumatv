@@ -1,0 +1,25 @@
+[19:32:48] bridge: compositor connected
+[19:32:48] subscription t1: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar
+[19:32:48] subscription t2: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager
+[19:32:48] subscription t3: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim
+[19:32:48] subscription t4: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller
+[19:32:48] subscription t5: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller
+[19:32:48] subscription t6: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller
+[19:32:48] subscription t7: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller
+[19:32:48] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t9: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t10: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t11: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t12: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t13: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t14: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t15: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t16: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t17: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t18: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t19: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t20: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t21: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[19:32:48] subscription t22: com.webos.coverUI/getStatus from com.webos.service.activitymanager
+[19:32:48] subscription t23: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager
+[19:32:48] subscription t24: com.webos.coverUI/getStatus from com.webos.applicationManager

@@ -4,6 +4,8 @@
 
 Done (2026-10-25, the probe slot of 16:27 captured; "Probe results" below):
 
+- On the set (19:41, "Reduce in NEON on the set"): the NEON reduce runs there, 0.008 ms a poll (was 0.716); 1.15-1.17 % of a core
+  at 10/s, which is the 1.2 % the rate was settled on.
 - Offline recovery of the four `vtCapture_*Histogram` signatures, data layout, preset geometry, return codes and the
   process allow-list (see "ABI", "Permission gate"). Header `ambient/capture/vthist.h`.
 - 32-bit probe `ambient/capture/probe.c` (`./build.sh`, `./test.sh`), host tests pass against a fake library.
@@ -319,7 +321,7 @@ change is a new sample, every second one of the hardware's is missed). 1 % at 10
 (`getHistogram` is 1.1 % at that rate); the reduce is what the reader can shrink (NEON, or sum fewer bins), to about
 1.2 % at 10/s. The rate is settled at 10/s (Resume here); the reduce follows.
 
-### Reduce in NEON (2026-10-25, offline; the cost is not yet measured on the set)
+### Reduce in NEON (2026-10-25, offline; measured on the set at 19:41, below)
 
 The reader's reduce (16 areas x 3 channels x 256 bins to a mean per channel, a black share and a pixel count) was double
 precision on the soft-float ARM build: 1.92 M instructions a poll, 0.60-0.72 ms on the A76 (about 2 instructions a cycle at
@@ -367,6 +369,21 @@ TV check list for the next slot (`tv_probe_slot.py --go --no-standby`, 10/s is t
    the 17:46 run (`home.json`).
 4. Optional, exact: `ambient-probe -d dump.bin` on the set (same flag window rules as the slot), then
    `reduce_test -f dump.bin` on the workstation: 0 mismatches on real histograms.
+
+### Reduce in NEON on the set (2026-10-25 19:41 EDT)
+
+One slot from a clean worktree at `4ee268a`, `tv_probe_slot.py --go --no-standby` (10/s, Home), the reader built there by
+`ambient/capture/build.sh`; the package's own service (installed by `lumatv apply` of that build's ipk, pid 28320) was
+running and was put back after. Flag window 19:41:14-19:42:14 (set clock), removed by the script's `end`; receiver found
+muted and left so; Picture Mode `filmMaker` before and after. Files in `docs/research/ambient/probe-2026-10-25-1941/`.
+
+Against the check list: (1) `capturing: preset 0, 16 areas, 10 polls a second (init 35 ms, reduce neon)`: the NEON path
+ran, no crash. (2) `cost: 600 polls (600 frames) in 60.0 s, process CPU 688.0 ms = 1.15 % of a core, 1.147 ms a poll; per
+poll: getHistogram 1.095 ms CPU (1.132 ms wall), reduce 0.008 ms, send 0.013 ms`; the collector saw 1.17 % (verdict `not
+above` at the expected 1.2 %). The reduce went from 0.716 ms to 0.008 ms a poll, the poll from 1.866 ms to 1.147, the
+process from 1.87 % to 1.15-1.17 % of a core; `getHistogram` unchanged at 1.10 ms. (3) 600 frames in 60.0 s, 7.5 zone
+changes a second, intervals p50/p90/p99/max 100.2/100.4/100.8/101.9 ms. (4) not run.
+
 
 ### Hue backlights through Bifrost (wired offline; not verified on the TV)
 

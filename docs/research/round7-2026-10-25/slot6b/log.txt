@@ -1,0 +1,25 @@
+[   0.0] slot 6b: a fresh inputcommon instance under the mount; foreground com.webos.app.home
+[   0.5] inputcommon on: {"ok":true,"inputcommon":"on","snapshotsDropped":1}
+[   0.5] pid before: 2513
+[   0.6] close hdmi2 by SAM: {     "appId": "com.webos.app.hdmi2",     "returnValue": true }
+[   3.2] pid after close: []; checkpoint: drwxr-xr-x    2 root     root          4096 Oct 25 19:43 com.webos.app.inputcommon
+MD5SUM
+core-2513.img
+core-2515.img
+core-2516.img
+core-2524.img
+[   3.6] launch hdmi2: {
+    "returnValue": true
+}
+[   5.8] shot pill-fresh: 9566 bytes
+[   6.4] pid fresh: 2513; foreground com.webos.app.hdmi2
+[  11.9] shot ok-banner-fresh: 286004 bytes
+[  13.2] shot ok-right-fresh: 289938 bytes
+[  16.5] shot info-fresh: 824757 bytes
+[  17.7] launch home: {
+    "returnValue": true
+}
+[  20.3] inputcommon off: {"ok":true,"inputcommon":"off","snapshotsDropped":1}
+[  20.4] mounts after: []; reports: []; inputcommon pid: 2513
+[  20.4] removed the scripts: 0
+[  20.4] end; foreground com.webos.app.home

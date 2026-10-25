@@ -1,0 +1,71 @@
+[   0.0] slot 6 start; foreground com.webos.app.home
+[   0.1] QML dir: /usr/palm/applications/com.webos.app.inputcommon/qml
+273
+d34b51f5cc71621b2cae13a635469a8b  /usr/palm/applications/com.webos.app.inputcommon/qml/UserInterfaceLayer/GlobalStyle.qml
+com.webos.app.inputcommon
+[   0.1] census GlobalStyle md5: d34b51f5cc71621b2cae13a635469a8b  /data/home/lgtv/uiinv/inputcommon/qml/UserInterfaceLayer/GlobalStyle.qml
+[   0.1] key device caps: /sys/class/input/event0 LGE RCU: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff fffffffe
+/sys/class/input/event10 LGE Network Input: 3fffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff f
+[   0.2] inputcommon.sh status direct: sh: can't open '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/inputcommon.sh': No such file or directory
+exit=2
+[   0.2] reports before: 
+[   0.2] inputcommon on: {"ok":false,"error":"tools/inputcommon.sh did not answer"}
+exit=1
+[   0.3] mounts: 
+[   0.3] tool log tail: 2026-10-25 19:30:13 homestub: compositor restarted
+2026-10-25 19:32:18 homestub: compositor restarted
+2026-10-25 19:32:48 homestub: compositor restarted
+2026-10-25 19:36:30 homestub: compositor restarted
+2026-10-25 19:36:51 homestub: compositor restarted
+2026-10-25 19:37:11 homestub: compositor restarted
+sh: can't open '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/inputcommon.sh': No such file or directory
+2026-10-25 19:43:04 inputcommon on:
+[   0.3] inputcommon on refused; no HDMI switch
+[   0.3] slot 6 end; foreground com.webos.app.home
+[   0.0] slot 6 start; foreground com.webos.app.home
+[   0.1] QML dir: /usr/palm/applications/com.webos.app.inputcommon/qml
+273
+d34b51f5cc71621b2cae13a635469a8b  /usr/palm/applications/com.webos.app.inputcommon/qml/UserInterfaceLayer/GlobalStyle.qml
+com.webos.app.inputcommon
+[   0.1] census GlobalStyle md5: d34b51f5cc71621b2cae13a635469a8b  /data/home/lgtv/uiinv/inputcommon/qml/UserInterfaceLayer/GlobalStyle.qml
+[   0.1] key device caps: /sys/class/input/event0 LGE RCU: ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff fffffffe
+/sys/class/input/event10 LGE Network Input: 3fffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff f
+[   0.1] put HEAD's inputcommon.sh and inputcommon_patch.py into the app dir: 00388ccb44d7bdac7b26b98003c28df9  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/inputcommon.sh
+014d9e8a118cb6b0936d4b8f9082c0ff  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/inputcommon_patch.py
+[   0.2] inputcommon.sh status direct: {"ok":true,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":false,"mounted":false}
+exit=0
+[   0.2] reports before: 
+[   0.9] inputcommon on: {"ok":true,"inputcommon":"on","snapshotsDropped":1}
+exit=0
+[   0.9] mounts: inputcommon /usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inputcommon/qml,upperdir=/var/lib/lumatv/inputcommon/upper,workdir=/var/lib/lumatv/inputcommon/work 0 0
+inputcommon /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications
+[   0.9] tool log tail: 2026-10-25 19:32:48 homestub: compositor restarted
+2026-10-25 19:36:30 homestub: compositor restarted
+2026-10-25 19:36:51 homestub: compositor restarted
+2026-10-25 19:37:11 homestub: compositor restarted
+sh: can't open '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/inputcommon.sh': No such file or directory
+2026-10-25 19:43:04 inputcommon on: 
+2026-10-25 19:43:36 inputcommon: on: mounted over /usr/palm/applications/com.webos.app.inputcommon/qml, snapshots dropped 1
+2026-10-25 19:43:36 inputcommon on: {"ok":true,"inputcommon":"on","snapshotsDropped":1}
+[   1.4] launch hdmi2: {
+    "returnValue": true
+}
+[   3.2] shot pill: 10749 bytes
+[   3.9] foreground com.webos.app.hdmi2; inputcommon pid 2513
+[   9.6] shot ok-banner: 6863 bytes
+[  10.8] shot ok-right: 6863 bytes
+[  14.0] shot info: 821506 bytes
+[  15.2] launch home: {
+    "returnValue": true
+}
+[  17.7] foreground com.webos.app.home
+[  18.0] inputcommon off: {"ok":true,"inputcommon":"off","snapshotsDropped":1}
+exit=0
+[  18.0] mounts after: []
+[  18.0] reports after: 
+[  18.0] inputcommon alive: 2513
+305
+2026-10-25T23:43:51.234169Z [6792.029327820] user.info com.webos.app.inputcommon [] com.webos.app.hdmi2 hdmi2 {} ###### 1 sortSettingsPropertiesByCategory {"settings":{"input":"default"}}
+[  18.1] inputcommon status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false}
+[  18.2] removed the two scripts again: __pycache__ autostart.sh bootcap.sh brand.sh cardapp.sh compositor.sh keyfilter.py lumatv notification_patch.py preload.py systemui.py systemui_patch.py theme.py tileicons.js tokens.py
+[  18.2] slot 6 end; foreground com.webos.app.home

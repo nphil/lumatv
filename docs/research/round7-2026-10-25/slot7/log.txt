@@ -1,0 +1,28 @@
+[   0.0] slot 7 start; foreground com.webos.app.home
+[   0.1] QML log lines: 
+[   0.2] theme before: {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 11, "depth": 0.4, "scale": 1.2, "detail": 0.45, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": true, "minutes": 5, "opacity": 0.6}, "kitGallery": false}}
+[   2.1] shot gear-tap-home: 418822 bytes
+[   2.1] after gear tap: foreground com.webos.app.home; log: 
+[   5.8] shot gear-hold-home: 379571 bytes
+[   5.8] after gear hold: 2026-10-25T23:45:01.623926Z [6862.419087480] user.info surface-manager [] surface-manager LSM {} gearFire, [LumaKeys] gear held, the notification drawer is open
+[   7.1] banners.own on: {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 11, "depth": 0.4, "scale": 1.2, "detail": 0.45, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": tr
+[   9.6] launch hdmi2: {
+    "returnValue": true
+}
+[  11.5] shot own-pill: 15708 bytes
+[  17.0] shot door-banner: 797689 bytes
+[  18.4] shot door-banner-right: 811841 bytes
+[  20.8] shot door-ok-quicksettings: 822043 bytes
+[  20.9] after OK on the banner: foreground com.webos.app.hdmi2
+[  25.6] shot door-drawer: 674305 bytes
+[  26.7] shot door-drawer-down: 671448 bytes
+[  30.8] shot gear-hold-hdmi: 674089 bytes
+[  30.9] after gear hold over hdmi2: 2026-10-25T23:45:26.389302Z [6887.184467740] user.info surface-manager [] surface-manager LSM {} gearFire, [LumaKeys] gear held, the notification drawer is open; foreground com.webos.app.hdmi2
+[  32.7] shot gear-hold-hdmi-closed: 828295 bytes
+[  32.7] launch home: {
+    "returnValue": true
+}
+[  35.4] banners.own off: {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 11, "depth": 0.4, "scale": 1.2, "detail": 0.45, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": tr
+[  35.5] theme after: {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 11, "depth": 0.4, "scale": 1.2, "detail": 0.45, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": true, "minutes": 5, "opacity": 0.6}, "kitGallery": false, "banners": {"own": false}}}
+[  35.6] fps/jank lines: 0
+[  35.6] slot 7 end; foreground com.webos.app.home

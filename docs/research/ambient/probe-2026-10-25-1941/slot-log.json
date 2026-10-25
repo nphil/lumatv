@@ -1,0 +1,123 @@
+{
+  "started": 1792971665.8817742,
+  "steps": [
+    {
+      "step": "power-state",
+      "at": 1792971665.936696,
+      "state": "active"
+    },
+    {
+      "step": "preflight",
+      "at": 1792971666.1227462,
+      "flag_existed_before": false,
+      "woke": false
+    },
+    {
+      "step": "library",
+      "at": 1792971666.165438,
+      "md5": "35d3fec665b861e80af7fa61df8302ab"
+    },
+    {
+      "step": "holders",
+      "at": 1792971667.1734574,
+      "pids": []
+    },
+    {
+      "step": "baseline",
+      "at": 1792971667.2846203,
+      "failed_units": [
+        "broadcast-configd.service",
+        "f2io-on.service",
+        "faultmanager.service",
+        "gibbs.service",
+        "service-logger.service",
+        "voiceinput.service"
+      ],
+      "picture": "{\"subscribed\":false,\"category\":\"picture\",\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"sdr\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"filmMaker\"},\"returnValue\":true}"
+    },
+    {
+      "step": "dry-run",
+      "at": 1792971667.5949197,
+      "output": "library: init=0xf7a2aa3d preset=0xf7a2a7ed get=0xf7a2a89d finalize=0xf7a2a949"
+    },
+    {
+      "step": "package-before",
+      "at": 1792971667.644069,
+      "status": {
+        "installed": true,
+        "role": true,
+        "running": true,
+        "pid": 28320
+      }
+    },
+    {
+      "step": "installed",
+      "at": 1792971667.7422407,
+      "role_type": "regular",
+      "output": "rc=0"
+    },
+    {
+      "step": "receiver-before",
+      "at": 1792971667.748081,
+      "muted": true,
+      "state": "on",
+      "volume": 0.355
+    },
+    {
+      "step": "receiver-muted",
+      "at": 1792971669.1628265
+    },
+    {
+      "step": "started",
+      "at": 1792971669.2001803,
+      "remote": "/tmp/ambient-slot-202610251941"
+    },
+    {
+      "step": "captures-over",
+      "at": 1792971738.2530923
+    },
+    {
+      "step": "flag-check",
+      "at": 1792971738.4165614,
+      "gone": true,
+      "windows": [
+        {
+          "scenario": "home",
+          "created": 1792971674.0,
+          "removed": 1792971734.0,
+          "removedBy": "end"
+        }
+      ]
+    },
+    {
+      "step": "service-restarted",
+      "at": 1792971738.472298
+    },
+    {
+      "step": "home-back",
+      "at": 1792971740.6422026,
+      "foreground": "{\"returnValue\":true,\"appId\":\"com.webos.app.home\",\"appCategory\":[\"home\"],\"processId\":\"\",\"windowId\":\"\"}"
+    },
+    {
+      "step": "picture-after",
+      "at": 1792971741.0711145,
+      "reply": "{\"subscribed\":false,\"category\":\"picture\",\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"sdr\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"filmMaker\"},\"returnValue\":true}"
+    }
+  ],
+  "flag": {
+    "path": "/var/luna/preferences/vt_devmode",
+    "windows": [
+      {
+        "scenario": "home",
+        "created": 1792971674.0,
+        "removed": 1792971734.0,
+        "removedBy": "end"
+      }
+    ],
+    "existedBefore": false,
+    "gone": true,
+    "createdAt": 1792971674.0,
+    "removedAt": 1792971734.0
+  },
+  "problems": []
+}

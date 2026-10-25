@@ -1,0 +1,1 @@
+Rockhopper release 10.2.1-5202 (ponytail-paparoa); fingerprint e34f8de94ef657a4; 10 files hashed in 0 s, unreadable: none; this set's entry: verified 10.2.1-5202; a flipped digit: 5; another release: 5; an empty list: 5; the set's own list: unverified: verified.list has no entry; the supervisor: no off: not enabled (exit 3)

@@ -1,0 +1,1 @@
+[srv   6130.391] info client connected: pid 3576 uid 505 cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"

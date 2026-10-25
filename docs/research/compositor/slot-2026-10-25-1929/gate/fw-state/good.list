@@ -1,0 +1,14 @@
+build 10.2.1-5202 2026-10-25
+release Rockhopper release 10.2.1-5202 (ponytail-paparoa)
+fingerprint e34f8de94ef657a4
+file cc0e15bf1b50e14b29034d88e7f974814c53801c14a49fc4b014b1d3f6d7bb83 50 /etc/starfish-release
+file d8f07ee658b85c5b0e03772ac0566a8389a437538d8a852de64b246181fd9de1 17904 /usr/bin/surface-manager
+file 85791a2dcd1b3f6b9925d3b224ee40af6c2f82057fb3324d4562eeacde5772d5 52903836 /usr/lib/libmali.so.0.46.0
+file 429d2bc8016ac879d2e85d55ad5916a0731aa2d5fde77a7ca8405891abe169b4 648824 /usr/lib/libWebOSCoreCompositor.so.0.0.1
+file 70c96da9f0b30cf063492b4a9aad0ef377bede5faed0af88bde0d7880fa0627b 13808 /usr/lib/libwayland-webos-server.so.1.0.0
+file ccf2efc79b952912d678eac99bcced288027cec341035c504e015b90638df8ff 27 /usr/lib/libwayland-server.so.0
+file ae6aa7b46f45e38aec41f6cda1e8b7713da6bbf749a4facb29c1c06b267621bb 26 /usr/lib/libluna-service2.so.3
+file eb4ac4d503abb9a4350d32cad225a303989464531474c1a5c3155118aec5f768 13808 /usr/lib/libwayland-webos-client.so.1.0.0
+file 14cf7a211d70ae4f638acaccd7cce318407868c00178aad652e92ce4aefcc2fc 46480 /usr/lib/libgm-wayland.so.1.0.0
+file 4bccb1d70199e9cea5bdfe8b644f597b8a7c74194dcb770245317c545c3392bb 21908 /usr/lib/liblsm-connector.so.1.0.0
+end

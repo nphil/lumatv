@@ -2,7 +2,10 @@
 
 ## Resume here
 
-Built and tested offline, **not verified on the TV**. Everything is fail-open: with the files missing, a handler absent or an error anywhere, LG's chain gets the key as before.
+Built and tested offline; on the TV on 2026-10-25 19:44 ("On the TV" below): the gear hold opens the drawer on Home and over HDMI 2
+with a tap still LG's, the layer draws banners and the drawer over an input's video, `banners.own` works as a live switch; the
+drawer's footer text overflows its card. Number keys, app keys, the frame cost and the standby heartbeat are not yet run on the set.
+Everything is fail-open: with the files missing, a handler absent or an error anywhere, LG's chain gets the key as before.
 
 | What | Where | Switch (owner's, `theme.json`, defaults in code) |
 |---|---|---|
@@ -124,6 +127,36 @@ One slot, Home up, the receiver muted, Picture Mode `filmMaker` as found. Deploy
 5. Banners (`banners.own` true): switch to HDMI 2 from Home: the pill at the bottom left for 4 s. LG's own banner draws as well (expected: the switch is for when LG's are hidden). `echo '{"kind":"input","icon":"cable","name":"HDMI 2","facts":"","buttons":true,"actions":["inputs","picture"],"holdMs":60000}' > /tmp/<shortId>-overlay` over an input shows a banner with buttons: Right, OK opens LG's Quick Settings, Back leaves; `{"open":"drawer"}` opens the drawer.
 6. The frame cost of the overlay over video: `python3 docs/research/perf/gate.py` has no banner surface; `lumatv fps on`, then the compositor's `[FPSLOG]` and `[FPSJANK]` lines in `/var/log/messages` while the pill and the drawer are up over Live TV or HDMI.
 7. The heartbeat: with the set in Active Standby, `lumatv apply` or a restart; then `ls -l /tmp/<shortId>-beat` (is there a file and how old), `grep -E 'LumaHome\]|LumaOverlay\]|LumaKeys\]' /var/log/messages*` (is there a `loaded` line with the panel off), and after the wake `the beat was silent for` (timers stopped) or not. The result says which candidate of section 3 holds.
+
+## On the TV (2026-10-25 19:44-19:46)
+
+Set on Home, LG's compositor, receiver muted through Home Assistant, `filmMaker`; the ipk of `4ee268a` installed and applied at 19:28
+(the container, the key filter and `LumaOverlay.qml` in the shadow module). Keys were injected on the SSAP key device (`Smart Remote
+RCU Input`, `/tmp/kb.py`); the gear is evdev `KEY_MENU` (139): a tap opened LG's Quick Settings on Home (`slot7/gear-tap-home.png`).
+Files in `docs/research/round7-2026-10-25/slot7/` (`log.txt`, captures at 960x540). Steps 2 (number and app keys), 6 (frame cost)
+and 7 (the heartbeat in standby) were not run in this round.
+
+- Gear hold on Home (held 1 s): the drawer opened at the top right ("Notifications / Nothing new", `gear-hold-home.png`) and
+  `/var/log/messages` has `gearFire, [LumaKeys] gear held, the notification drawer is open`; LG's Settings app did not open and
+  Quick Settings did not open on the release; Back closed the drawer. The drawer's footer text ("What your assistants, plugins and
+  this TV tell you shows here.") is drawn below the card's bottom edge, on Home and over HDMI 2 alike: a layout defect of the drawer,
+  not of the overlay.
+- `banners.own` on (`lumatv theme set '{"banners":{"own":true}}'`, read live within 2 s): the switch to HDMI 2 from Home showed
+  LumaTV's pill at the bottom left ("HDMI 2 · AVR-S760H / eARC", `own-pill.png`) beside LG's own name line, as expected while LG's
+  banners are not hidden.
+- The door over HDMI 2: the input spec with `buttons` drew the banner with "HDMI 2 | Inputs | Picture" over the picture (the Apple TV
+  behind the receiver; `door-banner.png`), Right moved the focus to Inputs (`door-banner-right.png`), OK closed the banner and the
+  foreground stayed `com.webos.app.hdmi2`; LG's Quick Settings was not in the capture 1.8 s later (`door-ok-quicksettings.png`),
+  so what OK on a button opens over an input is still to be read with the physical remote. `{"open":"drawer"}` opened the drawer
+  over the picture (`door-drawer.png`), Down moved in it, Back closed it.
+- Gear held over HDMI 2: the drawer over the video with the picture dimmed under it (`gear-hold-hdmi.png`), the same
+  `[LumaKeys] gear held` line, foreground still `com.webos.app.hdmi2`; Back closed it (`gear-hold-hdmi-closed.png`). The DISPLAY
+  capture includes this input's picture (the Apple TV; Netflix's stayed black in the gates).
+- End: Home, `banners.own` false again (`theme get` shows `"banners": {"own": false}`), no `LumaOverlay failed` or `[LumaKeys] ...
+  failed` line, 0 `[FPSJANK]` lines (`fps` off).
+
+The one defect found is the drawer's overflowing footer. The question for Nitin stands: `banners.own` stays off until LG's own
+banners are hidden.
 
 ## Under LumaTV's own compositor
 

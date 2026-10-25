@@ -19,9 +19,10 @@ Offline recovery (2026-10-25): receiver heartbeats now reach displays even at un
 receiver's timestamp, not message arrival. `./build.sh check` passes; the static AArch64 binary is 2,455,376 bytes, SHA-256
 `b1e6f885e8fec7dec8e1ad98d134658315f766ba36ef7ca0b715ef8edb74c184`. This change has not been deployed to the TV.
 
-Telnet push (2026-10-25, host tests only, not deployed or run on the TV): the receiver thread holds one telnet connection to the
+Telnet push (2026-10-25; on the set since 19:28 with the ipk of `4ee268a`): the receiver thread holds one telnet connection to the
 S760H while the screen is on, so volume, mute, input and power reach the topic as the receiver pushes them; HTTP 8080 is the
-fallback while telnet is down. Details and the TV step list are under "Receiver" ("Telnet push").
+fallback while telnet is down. Seen on the set at 19:42: one :23 connection, none to :8080, a volume step on the topic within
+0.4 s from the remote and from HA, HA's integration untouched ("Receiver", the paragraph after the TV step list).
 
 - Host gate: `cd helper && ./build.sh check` passes (rustfmt, clippy `-D warnings`, 468 host tests, the aarch64 release build, 2,461,360 bytes, sha256 `9d774c7915ae3ce1099a80996c9701075be505a4144a93982ab681842465d17f`).
 - Next, not mine: (a) QML for the AI prompt (`ai`, `ai.prompt` topics, `/v1/ai`) and for plugin cards, tiles, pages and toasts
@@ -217,6 +218,18 @@ after the first second; press a volume key and read `/v1/receiver` at once (the 
 would have found it); change the volume from the receiver's own knob and from HA and see the same; power the receiver off with
 its remote (`power` `standby`) and on again; then check HA's `media_player` stayed `on` throughout. Pull the receiver's network
 cable for 10 s: the topic hides the reading after 6 s and HTTP/telnet recover within the backoff.
+
+On the set (2026-10-25 19:42, helper of `4ee268a` installed by the ipk at 19:28 and started by `apply`, Home Assistant's
+Denon integration running; `docs/research/round7-2026-10-25/slot5/log.txt`): the helper log says `receiver: telnet
+192.168.1.93:23` at the start and again when the screen came back on (`screen: Active (on)` at 23:35:46Z), with no
+`reading 192.168.1.93:8080` line since; `/proc/net/tcp` holds one ESTABLISHED connection to :23 (local port 44386) and
+none to :8080, before and after. Volume+ from the remote's key device (evdev 115): the topic read every 0.4 s showed
+`volumeAbs` 35.5 → 36.0 (`seq` 63 → 65) on the first read after the key, 0.4 s later, and HA's `volume_level` 0.36 1.5 s
+later; Volume- the same way back (`seq` 66, 35.5). A `volume_up` from HA: on the topic within 0.4 s (`seq` 67, 36.0),
+`volume_down` back to 35.5 (`seq` 68). HA's `media_player.living_room_avr` was `on` throughout. The receiver had been muted
+through HA for the slot and the first Volume+ unmuted it (`mute` true → false on the topic and in HA): on the eARC link a
+volume step clears the receiver's mute, as the gate's volume check already assumed. Not run: the receiver's own knob, the
+power-off from its remote and the cable pull (a person at the rack).
 
 ## Settings
 
