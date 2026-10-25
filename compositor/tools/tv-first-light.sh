@@ -12,7 +12,7 @@
 #                                 initctl, the state of webapp-mgr; written to docs/research/compositor/set-inspect-<date>.txt
 #   tv-first-light.sh cutover ARGS  /tmp/lumatv/cutover.sh ARGS on the set under a PTY (install | probe | trial SECS |
 #                                 enable | disable | status | revert)
-#   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): enable, live, x1, netflix, hdmi, standby/wake, escape;
+#   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): enable, live, volume, x1, netflix, hdmi, standby/wake, escape;
 #                                 --enable-after makes LumaTV's compositor live when every check passed
 #   tv-first-light.sh clean       kill everything of ours on the set
 #   tv-first-light.sh probe       read-only (tools/tv-readonly-probe.sh): LG's wl_webos_* tables in every copy on the set

@@ -1,11 +1,11 @@
 #!/bin/sh
 # Read-only probe, executed ON THE SET as /tmp/lumatv/probe.sh (tv-first-light.sh probe). Nothing is written outside
 # /tmp/lumatv/out, no device is opened, nothing is restarted; safe beside another agent's session.
-#   1. Every library or app binary that carries wl_webos_* protocol tables (strings), with the tables dumped by
-#      wlproto_from_elf.py: the copies the clients really use, Netflix's media path included.
-#   2. Every process that has libwayland-client mapped while LG's compositor runs: pid, uid, unit, command line.
-#      Under LumaTV's compositor one of them came and went every 7 s; this is the list to match it against.
-#   3. Units that restart: NRestarts and RestartUSec of the units those processes belong to.
+#   1. The libraries Netflix's process maps that carry wl_webos_imported, with their tables (wlproto_from_elf.py):
+#      the copy its media connection uses.
+#   2. LG's remote keymap files: the evdev codes of the gear, Input and app keys.
+#   3. Every process that has libwayland-client mapped while LG's compositor runs: pid, uid, unit, command line,
+#      and the restart settings of their units (one of them came and went every 7 s under LumaTV's compositor).
 OUT=/tmp/lumatv/out/probe; mkdir -p $OUT
 sec() { echo; echo "=== $*"; }
 {
@@ -25,12 +25,12 @@ if command -v python3 >/dev/null 2>&1; then
             wl_webos_xinput_interface wl_webos_xinput_extension_interface 2>&1 | grep -v 'not exported and no struct found'
     done
 fi
-sec "LG's volume, mute and system UI calls (strings of the compositor's QML service plugins)"
-# What LG's key filters call for Volume, Mute, the gear and Input keys; LumaTV's compositor makes the same calls.
-for f in $(timeout 20 find /usr/lib/qt5/qml/WebOSServices /usr/lib/qt5/qml/WebOSCoreCompositor /usr/lib/qt5/qml/Starfish* -name '*.so' 2>/dev/null) /usr/lib/libWebOSCoreCompositor.so.0.0.1; do
-    [ -f "$f" ] || continue
-    hits=$(timeout 20 grep -o -E 'luna://[a-zA-Z0-9_.]+/[a-zA-Z0-9_/]*(olume|ute|udio)[a-zA-Z0-9_/]*|com\.webos\.service\.audio[a-zA-Z0-9_./]*|/master/[a-zA-Z]+' "$f" 2>/dev/null | sort -u | tr '\n' ' ')
-    [ -n "$hits" ] && echo "$f: $hits"
+sec "LG's remote keymap (evdev code to Qt/webOS key): files and lginput2's tables"
+# The gear, Input and app keys (Netflix, Prime, Disney+, LG Channels) reach the compositor as evdev codes; LG's key
+# filters see them as WebOS.Key_webOS_* after this mapping. LumaTV's routing needs the codes.
+timeout 30 find /etc /usr/share /usr/lib/qt5 /var/lib/lginput* -maxdepth 4 -type f \( -iname '*keymap*' -o -iname '*.qmap' -o -iname '*keycode*' -o -iname '*keylayout*' \) 2>/dev/null | head -40
+for f in $(timeout 30 find /etc /usr/share -maxdepth 4 -type f \( -iname '*keymap*.json' -o -iname '*keycode*.json' -o -iname '*keymap*.conf' \) -size -200k 2>/dev/null | head -5); do
+    echo "--- $f"; grep -i -E 'netflix|amazon|disney|channels|setting|input|menu' "$f" | head -40
 done
 sec "processes with libwayland-client mapped (pid uid unit cmdline)"
 for d in /proc/[0-9]*; do

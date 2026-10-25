@@ -527,15 +527,12 @@ one that works):
   last. `input-method.xml` reordered. Requests match.
 - `input_method` v2, `input_panel` v1, `input_panel_surface` v1,
   `text_model_factory` v1: match.
-- Not dumped yet: the `wl_webos_*` and `wl_starfish_*` tables. The tool
-  skips `wl_*` symbols unless named, so the run showed none of them; the
-  `protocols` case now names every LG interface explicitly (name scan for
-  the libraries that link them statically) and also reads the server
-  library and the starfish compositor plugin. The next run fills this in;
-  until then the webOS shell, foreign, group, input-manager and xinput
-  tables are the OSE ones, which the Qt app run exercised without a
-  protocol error (shell, webOS shell, surface group compositor, foreign,
-  input manager, xinput all bound and used).
+- The `wl_webos_*` and `wl_starfish_*` tables came out of the second run
+  (line 413 on) and are folded in ("After the first gate");
+  `protocol/lg-tables.txt` is the reference the tests check. Netflix maps
+  `libwayland-webos-client.so.1.0.0` itself (with `libgm-wayland` and
+  `liblsm-connector`, which link it), so its media connection uses these
+  tables (probe 2026-10-25).
 - Qt apps also want `qt_extended_surface`, `qt_surface_extension`,
   `qt_server_buffer`, `zqt_key_v1`, `zwp_text_input_v2`,
   `zxdg_output_v1` (tables in the log); none is offered and the example
@@ -745,18 +742,215 @@ Not run: the separate KMS window re-run; the gate's X1 measured the live
 KMS pacing instead, and stopping LG's compositor again would have tripped
 the stub guard a third time.
 
-Next slot, from the repository root (`F=compositor/tools/tv-first-light.sh`;
-the set must carry the current `tools/lumatv` or have the stub off):
+Next slot: see "Next slot" under "After the first gate" below.
 
-1. `sh $F deploy && sh $F inspect`.
-2. `tv.py 'sh /tmp/lumatv/run.sh protocols'`, fetch `out/protocols.txt`:
-   LG's `wl_webos_imported` (and the other `wl_webos_*`) tables; fold the
-   differences into `protocol/webos/` offline before the trial.
-3. `sh $F cutover install && sh $F cutover probe`.
-4. `sh $F cutover trial 120`; the trial's `panel.png` must show the picture
-   upright.
-5. `python3 compositor/tools/tv_gate.py` (no `--enable-after` until every
-   check passes and the surfaces exist under LumaTV's compositor).
+## After the first gate (offline, 2026-10-25 06:40-07:30)
+
+Host: `cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
+`sm/build.sh` (scanner and queue tests), clippy clean; `sh
+compositor/tools/build-tv.sh` builds the bundle.
+
+- Protocol tables. LG's `wl_webos_*` tables had been dumped in the second
+  first-light run but never folded in. Six interfaces differed from OSE
+  and are LG's now: `wl_webos_shell`/`_surface` version 1 with request 4
+  `set_size(ii)` (no addon requests or event); `wl_webos_exported` and
+  `imported` version 1, `imported` with eight requests,
+  `attach_punchthrough(s context)` at 2 and `set_z_index(i)` at 7 (OSE's
+  `attach_punchthrough_with_context` at 7 is what turned Netflix's
+  `set_z_index` into a too-short string); `wl_webos_surface_group.destroy`
+  is request 8, not 5 (OSE's order read `focus_owner` as a destroy);
+  `wl_webos_input_manager` has `set_cursor_visibility` at 0;
+  `wl_webos_xinput` has `invoke_action_with_window(uuuu)` at 1;
+  `wl_starfish_pointer` starts with the two timer requests.
+  `crates/wl-protocols/tests/lg_tables.rs` checks every generated table
+  against `protocol/lg-tables.txt` (order, signatures, versions, no
+  `since` marks on child objects); `build.rs` regenerates on XML changes.
+- SAM's foreground. The supervisor registers the bus names before the
+  compositor connects to the bridge and dropped every call that came in
+  between, so a subscription made then was never answered; SAM's
+  `getForegroundAppInfo`, made when `com.webos.surfacemanager` appears, is
+  the likely casualty (SAM kept Home in front with Netflix and HDMI 2 up).
+  Those calls are queued and sent on connect (`sm.log`: `bridge: N
+  call(s) that arrived before the compositor sent on`, and a
+  `subscription tN: service/method from sender` line for each). The pushes
+  follow LG's `StarfishForegroundAppInfoMgr.qml` (read from the copy in
+  `/data/home/lgtv/uiinv/qml`): the foreground card, then mapped overlay,
+  floating and popup windows; no item without an appId; `multiview`,
+  `pip`, `primary`, `viewType` and `order` on CARD and RESTRICTED only;
+  surface-group owners and members flagged (`windowGroupOwner`,
+  `windowGroupOwnerId`); `processId` a string; no `subscribed` flag on
+  pushes. Every push is journalled (`luna: foreground [...] pushed to
+  ...`); `ctl luna` lists the subscriptions.
+- HDMI 2 stayed fullscreen but unmapped: `set_state` was confirmed only
+  for mapped windows. Every `set_state` is answered at once now
+  (`state_about_to_change`, `state_changed`), and a window that commits
+  without a buffer is journalled once. Its `getCurrentHomeUIState`
+  subscription had also been broken by the pretty-printed payload (fixed
+  before the gate).
+- X1 gaps. The per-second counts stayed at 60 while 11 gaps of 20-33.5 ms
+  were counted, and the pacer added only 2 late and 3 lost refreshes:
+  frames were not lost, callbacks came late and the next one early. They
+  were sent at the tick, which runs at the pacer's latch, and the latch
+  moves with the slowest of the last 8 frames (plus 6 ms of lead and
+  slack), so a slow frame entering or leaving that window shifted every
+  client's callback by the difference. Now frame callbacks go out when
+  their frame's page flip lands; the loop never blocks on a flip (a frame
+  drawn while one is pending waits and is committed from the flip event;
+  it used to wait up to 100 ms in `poll`, holding every client); no extra
+  frame is drawn for a vanishing surface while frames are paced (each 7 s
+  crash of LG's Flutter Home did that in the own-buffers gate); the
+  planes' recorded state follows only commits the kernel took. Log lines
+  for the next run, on `CLOCK_MONOTONIC` like the X1 log: `loop: N ms in
+  one pass (what)` above 8 ms and `frame gap N ms on surface S (app)` for a
+  client that was keeping up; the gate's x1 step cuts them out for the
+  run (`x1-compositor.txt`). The 58.3 ms gap was in the X1 client's first
+  second (its buffer allocations); whether the rule skips a warm-up second
+  is Nitin's call.
+- The 7 s client. In the own-buffers gate it was LG's Flutter Home
+  (`com.webos.app.home`, uid 0) crashing on the compositor's own
+  `mali_buffer_sharing` and restarted every 7 s. In the driver-buffers gate
+  a client came and went every 7 s without one request reaching the
+  compositor's handlers; only touched clients got a pid, because the C
+  backend never queues the connect event (no `client connected` line in
+  either log). Clients are identified at accept now: `client connected:
+  pid uid cmd` and `client disconnected: pid uid after N ms (reason);
+  bound [...]; cmd`. Candidates from the read-only probe (processes with
+  `libwayland-client` mapped under LG's compositor): the jailed preloaded
+  apps (YouTube's `cobalt` uid 5272, Amazon's `ignition` uid 6367, Netflix
+  uid 6579) and `inputcommon`; the trial names it.
+- Volume and Mute. LG's key filters (`KeyFilters/systemUi.js`) turn them
+  into audio service calls and no app sees them; nothing did that under
+  LumaTV's compositor. The compositor's routing does it now with LG's own
+  calls, read from its audio plugin's strings
+  (`AudioService/libaudioserviceplugin.so`): `master/volumeUp` and
+  `master/volumeDown` with `{}` on every press and repeat,
+  `volumeKeeping` `{}` on release, `master/muteVolume {"mute": …}` on
+  Mute's release, toggled from `volumeStatus.muteStatus` of a `getVolume`
+  subscription. With the receiver on ARC the service passes the steps on
+  over CEC. The gate checks it end to end (receiver level from Home
+  Assistant after one Volume+ and one Volume-).
+- Gate evidence: `gate.sh evidence` (SAM's subscriptions, clients with
+  command lines, both logs, `ctl luna`), Netflix placements and protocol
+  errors, HDMI 2 mapped or not; the trial keeps `luna.json` and SAM's own
+  foreground; `tv_gate.py` copies the session's full logs after the
+  disable.
+
+Next slot (about 25 min, exclusive, screen on): `python3
+compositor/tools/tv_next_slot.py` from the repository root. It wakes the
+set, checks nothing of ours runs, turns the Home stub off for the session
+if the installed `tools/lumatv` lacks the `comp_live` guard (and back on at
+the end), deploys, installs, probes, runs `cutover trial 120` with the
+receiver muted and checks its evidence (SAM's subscription, the 7 s client,
+protocol errors, stalls), runs `tv_gate.py` (volume, x1, netflix, hdmi,
+evidence, standby, escape; no `--enable-after`), and leaves LG's compositor
+live and the set in Active Standby. Results:
+`docs/research/compositor/slot-<date>-<HHMM>/summary.txt` with `trial/`
+and `gate/`. Expected now: SAM subscribed; netflix placements and no
+protocol errors (Dolby Vision follows if videooutputd takes the window);
+hdmi mapped with `fg com.webos.app.hdmi2`; volume PASS; x1 either clean or
+explained by its stall lines. `live` passes on the stub's window; the
+family-visible Home under LumaTV's compositor is the stub's black page
+until LumaHome is drawn there (below), so no `--enable-after`.
+
+## Surfaces under LumaTV's compositor (plan, 2026-10-25)
+
+What goes away at the cutover is everything LG's compositor draws or runs
+in its own QML: LumaHome (shadow module), the volume and mute OSD, toasts,
+alerts and the PIN prompt (`SystemUI/Notification`), Quick Settings and
+the input picker (system UI QML the compositor loads), splash and
+spinners, the power-off logo (`MasterBrand`), the boot cover (`CoverUI`),
+context menu and on-screen remote, and LG's key filters (`KeyFilters/*.js`:
+Volume, Mute, gear, Input, app keys, Quick Access digits, the hidden
+combinations). What keeps working is every app process: WAM's web apps
+(Settings, the Home stub), Netflix, YouTube, Prime, `inputcommon` (HDMI
+and Live TV banners), maliit's keyboard, the voice app; restyles made
+through overlay mounts keep applying because they live in those processes.
+
+Drawing. LumaShow's engine (session, scene, renderer: `rustui/render`)
+runs inside `lumatv-compositor`; the UI logic stays in one 64-bit process
+(`lumatv-ui`, today rustui's app) that speaks LumaShow's
+`compositor-protocol` over a socket in `/tmp/xdg`. Under LG's compositor
+the same app runs with the engine in its own process (rustui as built),
+the PLAN's "runs unchanged inside LumaTV's own". In the compositor rather
+than as a client window because QML cannot run in a Rust compositor and
+LG's Qt is 32-bit, and because the RustUi spike measured what a client
+window costs (`rustui-result.md`, as a client of LG's compositor): idle
+GPU 23 % against QML's 10 % (6.2 ms of GPU a frame, 1.1 ms of it the copy
+that turns the window over), 4.8-5.4 % of D-pad frames over 20 ms with
+that copy and 0.4 % without it (QML: 0.4 %). In the compositor the scene is
+drawn straight into the KMS page, which is laid out top row first like
+LumaShow's targets since the C4 fix, so there is no copy, no window buffer
+(three of 8 MB per full-screen window), no second composition pass and no
+frame-callback round trip; an OSD over video appears without a window
+being made and mapped; and the scene animates on the compositor's slots.
+
+The spike's other finding is the prerequisite: a full redraw costs 5-6 ms
+of GPU whatever changed, so before Home moves to Rust an idle 10 fps frame
+must cost under 1 ms of GPU, which means the toolkit's renderer redraws
+only what changed (not in it today), and Home must pass `gate.py` (animated
+p90 under 3 ms, none over 20 ms) under LumaTV's compositor. In the
+compositor that redraw is driven by the page ring: each page is owed the
+union of the damage since it was last drawn (`damage.rs`, 16 px tiles), and
+the engine draws only those rectangles, as the compositor already does for
+windows. Until that gate passes, the interim for go-live is LumaTV's
+existing QML in a standalone 32-bit Qt client on LG's own Qt 5.12 (the
+shadow module's views, with the compositor-only imports replaced by the UI
+channel below): a client window, so it pays one composition pass, and it
+needs no rewrite; the same QML drops 0.4 % of D-pad frames inside LG's
+compositor today, and how it does as a client is measured, not assumed.
+Which of the two carries Home at go-live is decided by which passes the
+frame gate under LumaTV's compositor first; the toolkit stays the
+compositor's own renderer either way.
+
+- One engine, two stacks, drawn into the page with the windows. Stack 0
+  is Home, the bottom layer while the Home stub's transparent card is the
+  foreground card (the stub keeps SAM's Home contract: `com.webos.app.home`
+  is a real app SAM launches and sees in front). Stack 1 is the system
+  layer above every window (OSD, toasts, alerts, PIN, quick panel, picker,
+  splash). A page is drawn as stack 0, then the windows, then stack 1, each
+  only in the rectangles the page owes.
+- GL: the engine draws on the compositor's own context and thread (no
+  texture hand-over, no fence); each pass sets the GL state it uses. Needs
+  a `Gles` that wraps the current display and context, and draws limited
+  to given rectangles, in `rustui/render` (its owner's change).
+- Keys and state. The compositor stays the only reader of the remotes. A
+  LumaTV UI channel (JSON lines, `/tmp/xdg/lumatv-ui-input`): to the UI,
+  keys while a LumaTV layer holds focus (Home while the stub card is in
+  front, the system layer while a panel is open), the foreground app and
+  the cursor; from the UI, panels opening and closing (focus) and luna
+  calls through the bridge from an allowlist (app launch and close, audio,
+  settings reads).
+- Key filters move into the compositor's routing, without drawing: Volume
+  and Mute (done), gear (quick panel; three taps keep LG's AV-reset menu
+  through `tvhotkey`), Input (picker), the app keys per Settings › Remote,
+  Quick Access digits, Mute held 2 s (accessibility), Exit.
+
+Minimum set before Nitin's go-live can apply (PLAN: every surface gate
+met), in build order:
+
+1. Compositor only: the key filters above (Volume and Mute done) and IME
+   routing (`text_model` to `input_method`; maliit draws its own keyboard
+   window). Without them the remote's volume stops working and no text
+   field gets a keyboard.
+2. The engine host, the UI channel and LumaHome on stack 0 with its
+   Settings layer, once its damage-only redraw passes the frame gate (or
+   the QML client in the interim).
+3. Stack 1: the volume and mute OSD (receiver-fed through the helper),
+   toasts and alerts including the never-filtered messages (EAS, thermal,
+   remote battery, pairing prompts), the PIN prompt (its test needs Nitin).
+4. Quick panel and input picker.
+
+Not needed for go-live (absent means nothing is shown): launch splash and
+spinners (apps draw their own first frame), the power-off logo (black; the
+tvpower handshake is already answered), context menu, on-screen remote,
+recents (Home draws them), multi-view frames (unused). They follow 4 in the
+same engine. The gate runs again after 4.
+
+Started: Volume and Mute (step 1). The engine host waits on the toolkit's
+damage-only redraw and a `Gles` over the current context in
+`rustui/render`; the other key filters wait on the remote's codes for the
+gear, Input and app keys (an evdev tap on the set while Nitin presses
+them, or LG's keymap, which the read-only probe now looks for).
 
 ## Enable path and the hook request for tools/lumatv
 
