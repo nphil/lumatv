@@ -9,49 +9,68 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 03:55 EDT, code at `89bec60`): C2 passed on the set;
-C3 and C4 are built offline and wait for three TV slots. Everything
-builds (`sh compositor/tools/build-tv.sh`) and tests on the host
-(`cd compositor && cargo test`: 71 unit incl. LumaShow's vendored pacer
-tests, 18 protocol, 1 bridge; `sm/build.sh` runs the supervisor's scanner
-tests; clippy and fmt clean).
+State (2026-10-25 03:20 EDT, code at `2b0738a`): C2 passed; the first C3
+window and the C4 dry run ran on the set (02:37-02:42) and their findings
+are fixed offline; the re-run, the probe, the trial and the gate wait for
+TV slots. Everything builds (`sh compositor/tools/build-tv.sh`) and tests
+on the host (`cd compositor && cargo test`: 71 unit, 18 protocol, 1
+bridge; `sm/build.sh` runs the supervisor's scanner tests; clippy clean).
 
-- C2 on the set (two runs, log `docs/research/compositor/first-light-2026-10-25.txt`):
-  `driver` 6/6 pixel-exact through LG's own libmali with the blob serving
-  `mali_buffer_sharing`; `own` 5/6 (the 6th commit arrived 1 ms before
-  the client left; fixed, bug 3 below) with the blob importing LG's AFBC
-  dma-bufs (`0x0800000000000151`); `shm` 6/6 after bug 1; an unmodified
-  LG Qt app (`com.webos.exampleapp.systemui`) mapped and rendered 403
-  frames. Bugs fixed since: (1) BGRA upload into an RGBA texture
-  (`gl error 0x502`), (2) a destroyed buffer unmapped its surface, (3) a
-  surface destroyed with an undrawn commit was never drawn; LG's IME
-  opcode order folded into the XML; `protocols` case now dumps the
-  `wl_webos_*`/`wl_starfish_*` tables.
-- C3 built offline ("C3 status" below): tile damage rings, LumaShow's
-  pacer (vendored verbatim), allocation-free planning (tested), frame
-  skip, the KMS output (DRM master, dumb-buffer ring imported into GL,
-  in-fence from `EGL_ANDROID_native_fence_sync`, non-blocking commits one
-  frame ahead, flip timestamps into the pacer, direct scan-out attempt
-  with refused modifiers remembered).
-- C4 built offline ("C4 status" below): `lumatv-sm` (32-bit supervisor +
-  luna bridge, decision/fingerprint/fallback/heartbeat/escape, 12 bus
-  names and 56 methods), evdev key routing with masks, policies and the
-  hold-Home escape, the trial cutover script.
-- Next TV steps, in order (each its own slot; scripts and expected
-  results in "C4 status" and "C3 status"):
-  1. `sh compositor/tools/tv-first-light.sh deploy && sh compositor/tools/tv-first-light.sh sm`
-     (bridge dry run beside LG's compositor; no risk; ~1 min).
-  2. `sh compositor/tools/tv-first-light.sh kms` (C3 window; LG's
-     compositor stopped ~60 s and restarted; eARC/CEC check after).
-  3. `python3 docs/research/arch/tv.py 'sh /tmp/lumatv/cutover.sh install && sh /tmp/lumatv/cutover.sh trial 120'`
-     (trial cutover, 2 min, LG's restored by the script).
-  4. The gate (`tv-gate.sh`, written after 3 passes).
-- Open questions only the set answers: GBM on `card0` for the fast render
-  path (the dumb-buffer import path is the slow one PLAN measured), the
-  `wl_webos_*` opcode tables, `wl_keyboard` key-code convention, whether
-  ls-hubd grants the bus names through the bind mount, X6 (osd1 scaling).
-- TV state: not touched by this slice; the main agent's runs left nothing
-  running.
+- First KMS window (log `/tmp/lumatv-tv-out/out/kms/`, summary in "C3 on
+  the set" below): DRM master, mode, planes and the panel all worked, but
+  only 3 frames were drawn in 30 s. Cause: page-flip timestamps are
+  CLOCK_MONOTONIC and the pacer's clock was process-relative, so the first
+  flip armed the next tick hours ahead; before it, the latch was "now" and
+  the loop spun at 2000 ticks/s. Fixed: one clock, the latch only while
+  frames follow one another, the DRM fd and the bridge socket on epoll, a
+  commit onto a still screen drawn at once, the deadline logged once (the
+  2.1 MB `b-server.log` was that line 52 648 times).
+- First C4 dry run: bridge and compositor connect, fallback dry-run exits
+  75; every `.lumatv`-suffixed name is refused ("Invalid permissions": no
+  role file for `/tmp/lumatv/bin/lumatv-sm`), so registration under the
+  real names is unproven. Now: `cutover.sh probe` bind-mounts the
+  supervisor over `/usr/bin/surface-manager` for two seconds with LG's
+  compositor running and asks the hub for the real names; ls-hubd checks
+  the role before the duplicate, so "already exists" means the role allows
+  the name to that path and "Invalid permissions" means it does not
+  (luna-service2 `hub.cpp`, `_LSHubHandleRequestName`). Live, any refused
+  name is an immediate fallback.
+- Found in LG's unit files (census copy): `surface-manager-daemon.service`
+  is `Type=notify`, `ExecStart=/usr/bin/surface-manager.sh`,
+  `StartLimitBurst=10` in 1 s, `TimeoutStopSec=5`; the supervisor now
+  sends `READY=1` and makes `/tmp/lsm-ready` once the compositor is
+  connected (without the notify the start would time out and the unit
+  restart). `webapp-mgr.service` is `PartOf=surface-manager.service`,
+  `Restart=on-failure`, `ConditionPathExists=/tmp/lsm-ready`: while the
+  compositor is away it restarts into no socket until systemd's start
+  limit leaves it "failed", and the web Home cannot launch (the black panel
+  after the first window). `tools/tv-recover-home.sh` resets and starts it,
+  waits for `listRunningApps`, launches Home once and waits for pixels;
+  `kms-window.sh restore`, `cutover.sh revert|disable` and the supervisor's
+  own fallback (detached before the exec) all run it.
+- Live details added: the compositor keeps `/tmp/xdg`'s mode (0770
+  root:compositor) and makes its socket 0777 so WAM (user wam) and jailed
+  apps can connect; registers with tvpower at start; reads the remotes
+  (`--input`) so the hold-Home escape works; `ctl remote CODE
+  press|release|tap` sends a key through the real routing.
+- Scripts: `tv-first-light.sh inspect` (read-only: unit, wrapper, role
+  files, `/tmp/xdg` modes, initctl, webapp-mgr), `… kms` (re-run), `…
+  cutover install|probe|trial 120|enable|disable|status|revert`, `… gate
+  [--enable-after]` (`tools/tv_gate.py` + `tv-gate.sh`: live, X1 60 s,
+  Netflix Dolby Vision muted, HDMI 2, standby and WoL wake with the
+  tvpower rounds, hold-Home escape; `--enable-after` makes LumaTV live when
+  every check passed).
+- Next TV steps, in order (slots from the main agent): 1. `deploy` +
+  `inspect` (read-only); 2. `kms` (expect `drawn ≈ 600`, `flips` close,
+  per-frame callback gaps in `a-client.log` ≤ 20 ms, Home back by itself);
+  3. `cutover install` + `cutover probe` (exit 0) + `cutover trial 120`;
+  4. `gate --enable-after`.
+- Open: GBM on `card0` for the fast render path, the `wl_webos_*` opcode
+  tables, the `wl_keyboard` key-code convention (the gate's Netflix ENTER
+  is the first test), whether `/proc/<pid>/exe` of the bind-mounted
+  supervisor reads `/usr/bin/surface-manager` (the probe tells), X6.
+- TV state: not touched by this slice since 02:42; one read of the set's
+  MAC (`74:c1:7e:bd:ae:30`, for the gate's wake) at 03:12 outside a slot.
 
 ## Design
 
@@ -590,6 +609,31 @@ If the server fails at start with `DRM master on /dev/dri/card0: … (is
 LG's compositor still running?)`, something else holds the master; the
 script's `restore` runs on any exit. `kms-restore` restarts LG's compositor
 by itself if the window was interrupted.
+
+## C3 on the set (first window, 2026-10-25 02:37)
+
+Two cases, logs in `/tmp/lumatv-tv-out/out/kms/` (workstation), run by the
+main agent:
+
+- `kms: crtc 38 connector 31 mode 1920x1080@60 primary plane 32 (6
+  formats) overlay 34`; no `atomic commit:` error; `gl errors 0`; LG's
+  capture service read the compositor's frame off the panel in both cases
+  (centre `(25,128,230)` = the X2 pattern's frame 1, `1980e6`).
+- A (shm client): 3 commits, 3 drawn, ticks 1074 in 30.6 s; the client saw
+  callbacks after 41.0 and 22.6 ms and then none. B (x2cli, AFBC
+  `0x0800000000000151` through `mali_buffer_sharing` own): 4 commits, 3
+  drawn, render 414 µs (1.6 ms max) for a 1080p dma-buf quad; the shm
+  upload in A cost 12-21 ms. `direct:` never appeared: no sole-fullscreen
+  direct scan-out attempt was logged for the x2cli buffer (to read again
+  in the re-run; the plane lists AFBC `…62`, not `…151`).
+- Cause of the 3 frames: the pacer's clock (fixed above). Status at 7.5 s
+  already showed 1073 ticks and no further tick until the client left.
+- After `restore`, `webapp-mgr.service` was `failed` and the panel black
+  until the main agent ran `systemctl reset-failed webapp-mgr; systemctl
+  start webapp-mgr` and launched Home (fixed above).
+- `/etc/ld.so.preload` names a 32-bit `/lib/libSegFault.so`; the 64-bit
+  loader prints an `ELFCLASS32 … ignored` line in every 64-bit process.
+  Harmless; the scripts' `error` greps skip it.
 
 ## C4 status (offline, 2026-10-25)
 
