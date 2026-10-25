@@ -1,0 +1,32 @@
+[17:33:21] subscription t1: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[17:33:21] subscription t2: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[17:33:21] subscription t3: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[17:33:21] subscription t4: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[17:33:21] subscription t5: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar (compositor not connected yet: queued)
+[17:33:21] subscription t6: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager (compositor not connected yet: queued)
+[17:33:21] subscription t7: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim (compositor not connected yet: queued)
+[17:33:21] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager (compositor not connected yet: queued)
+[17:33:21] subscription t9: com.webos.coverUI/getStatus from com.webos.applicationManager (compositor not connected yet: queued)
+[17:33:22] bridge: compositor connected
+[17:33:22] bridge: 9 call(s) that arrived before the compositor sent on
+[17:33:22] subscription t11: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t12: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t13: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t14: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t15: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t16: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t17: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t18: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t19: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t20: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t21: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t22: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t23: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t24: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.activitymanager
+[17:33:22] subscription t25: com.webos.coverUI/getStatus from com.webos.service.activitymanager
+[17:35:46] subscription t26: com.webos.surfacemanager/getWindowGroupInfo from com.webos.app.hdmi2
+[17:35:46] subscription t27: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.app.hdmi2
+[17:35:46] subscription t28: com.webos.surfacemanager.home/getCurrentHomeUIState from com.webos.app.hdmi2
+[17:35:46] subscription t29: com.webos.surfacemanager/getLastInputType from com.webos.app.hdmi2
+[17:35:46] subscription t30: com.webos.service.systemUIManager/getForegroundAppInfo from com.webos.app.hdmi2
+[17:35:46] subscription t31: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.hybridtvmanager.async

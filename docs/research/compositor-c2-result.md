@@ -9,23 +9,22 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 17:30 EDT, code after `7d10b91`): C2 passed; the fifth gate
-ran on the set 16:06-16:14 with the `exposed` event of `7d10b91` ("Fifth
-gate on the set"; files in `docs/research/compositor/slot-2026-10-25-1606/`):
-live, volume, **hdmi**, standby/wake and escape PASS; x1 FAIL by the rule
-with the fourth gate's shape (2 gaps over 20 ms, worst 22.5 ms in the first
-second); netflix FAIL on the app's side (the preloaded instance showed
-tvq-pb-101, its player attached and left twice; the window, the fullscreen
-raise and the placements were right). HDMI 2 draws now: the preloaded
-instance mapped 83 ms after `exposed`. LG's compositor is live (set in
-Active Standby, `enabled` absent, Home stub on, receiver unmuted).
-Built since, NOT RUN ON THE SET: "Built for the sixth gate" (a buffer's
-first-use costs paid at its commit, texture frees deferred to the flip
-after, a `tick:`/`present:` breakdown of any slow pass, the gate's Netflix
-check from a fresh instance, `recover-home.sh` ending the Netflix of the
-compositor that went) and the C3 items "Split scan-out" and "The refresh
-period follows the flips" (§9 status list): the UI on the overlay plane
-over a direct window, the pacer keyed to the refresh the flips measure.
+State (2026-10-25 17:55 EDT, code `f3ed5a6`): C2 passed; the sixth gate
+ran on the set 17:30-17:38 with the build of "Built for the sixth gate" and
+the split/refresh code of `f3ed5a6` ("Sixth gate on the set"; files in
+`docs/research/compositor/slot-2026-10-25-1730/`): live, volume,
+**netflix** (a fresh instance, `dolbyHdrCinema`), hdmi, standby/wake and
+escape PASS; x1 FAIL by the rule with a new shape: the first second is
+clean (worst 19.7 ms, no `loop:`/`tick:`/`render:` at the mapping, pacer
+`late` 0 → 0), the 2 gaps over 20 ms (20.6, 21.0 ms) came at 31-50 s with
+nothing on the compositor's side. `frame imports 0` throughout, no
+`render:` at x1's disconnect; the slow passes left are attributed (the
+luna foreground pushes, 8-10 ms at a card's exit; the first GPU job on a
+new client's buffer, 10-16 ms in the fence export or the draw; the deferred
+frees in a `flip` pass). The stale-Netflix path, the split (no UI feature
+in the bundle) and the refresh re-keying (the panel stayed at 60 Hz) were
+not exercised. LG's compositor is live (set in Active Standby, `enabled`
+absent, Home stub on, receiver unmuted).
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
 libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 26
@@ -69,11 +68,22 @@ compositor/tools/build-tv.sh` builds the bundle.
   only (`7d10b91`); the preloaded HDMI 2 instance drew its first buffer 83
   ms after the event. Journal lines `window N: exposed WxH` / `exposed
   nothing (covered)`.
-- Next: the sixth gate with the build above (what it must show is in
-  "Built for the sixth gate"); `getWindowGroupInfo` (HDMI 2 subscribes; no
-  capture shows LG's answer). `tv_ui_measure.py` need not run again unless
-  the engine changes (idle 0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a
-  frame; results in `docs/research/compositor/ui-measure-2026-10-25-1430/`).
+- Run on the set in the sixth gate ("Sixth gate on the set"): a buffer's
+  first use paid at its commit (`frame imports 0` for Home, x1, Netflix
+  and HDMI 2), the texture frees out of the frame, x1's first second clean
+  (19.7 ms worst), Netflix playing from a fresh instance, every slow pass
+  attributed by `tick:`/`present:`/`render:`.
+- Next: x1's rule with its steady-state gaps (20.6 and 21.0 ms with the
+  compositor idle and on time: measure the client's side, or decide the
+  rule); the luna foreground pushes off the loop thread (8-10 ms for 15
+  subscribers at a card's exit); the first GPU job on a new client's buffer
+  (10-16 ms: a warm draw that reads the whole buffer, or accept it); a slot
+  with the `ui` feature over a direct window for the split and the
+  overlay's alpha; a stale-Netflix case for `recover-home.sh`;
+  `getWindowGroupInfo` (HDMI 2 subscribes; no capture shows LG's answer).
+  `tv_ui_measure.py` need not run again unless the engine changes (idle
+  0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a frame; results in
+  `docs/research/compositor/ui-measure-2026-10-25-1430/`).
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
@@ -1326,6 +1336,64 @@ pre-import alone is the fix), `tick:`/`present:` lines for anything left,
 `render:` line at x1's disconnect, netflix with `stale-instance-closed 1`
 and `dolbyHdrCinema`, and `recover: ended the Netflix instance` in
 `sm.log` after the enable.
+
+## Sixth gate on the set (2026-10-25 17:30-17:38)
+
+One slot from `compositor/tools/tv_next_slot.py` at `f3ed5a6` (the build of
+"Built for the sixth gate" plus the split scan-out and the refresh keying),
+from a clean worktree with `LumaShow` beside it; receiver muted by the
+scripts, Home stub on with the `comp_live` guard, the set woken from Active
+Standby (it had been restarted at 16:34). Files in
+`docs/research/compositor/slot-2026-10-25-1730/` (`summary.txt`, `trial/`,
+`gate/`); gate lines in `gate-2026-10-25.txt`. The slot took 7.7 minutes.
+Netflix played from a fresh instance; x1 still fails the rule, by 0.6 and
+1.0 ms, and no longer at its start.
+
+| Step | Result |
+|---|---|
+| `install` + `probe` | 12 allowed, 0 free, 0 refused |
+| `trial 120` | live 122.8 s, no fallback of this run (the 6 `fallback:` lines of `trial/sm.log` are the earlier sessions' escapes, 06:17 to 16:13), 1 disconnect (WebAppMgr's first connection, 2.1 s), protocol errors 0, frame gaps 0, `prepared 6 frame imports 0`, `split scan-out ... off: no UI attached`, `gl warm-up 9.0 ms`, `refresh 16.67 ms (changed 0)`, odd stamps 0; two loop passes, both at Home's mapping and both attributed now: `tick: 18.7 ms: plan and draw 0.4, present 16.3` with `present: fence export 0.1 ms, atomic commit 16.1 ms` (the first atomic commit of the session, 20.5 ms `clients draw-now`), then 8.5 ms `clients draw-now` |
+| live | PASS: mounted, 12 names, WAM active, Home (stub) mapped |
+| volume | PASS: receiver 0.355 → 0.36 → 0.355 |
+| x1 | FAIL by the rule, a new shape: 3598 frames in 60.00 s = 59.97 fps; gaps ≤17.5 ms 3545, 17.5-20 ms 50, 20-33.5 ms 2, over 33.5 ms 0; worst 21.0 ms. The first second is clean for the first time: x1's worst gap at 1 s is 19.7 ms (22.5, 28.1 before), the compositor wrote no `loop:`, `tick:` or `render:` line at the mapping (3591.084), only the odd page-flip stamp 19 ms after it (33.37 ms, the same place as in every gate). The two gaps over 20 ms came at 31-40 s (20.6 ms) and 41-50 s (21.0 ms) with nothing from the compositor in that span: no slow pass, no frame gap, no odd stamp, and pacer `late` 0 → 0 (1 → 2 and 3 → 11 before): the compositor's frames were on time and the gaps are on the client's side of the swap [INFERENCE: x1's own scheduling on the CPU; its swap waits on the frame callback]. At the disconnect (3651.09) no `render:` line (the texture frees moved out of the frame as built) but `tick: 8.8 ms: plan and draw 0.5, present 0.2, callbacks, releases and luna 8.1`: the 15 `luna: foreground` pushes of the card change (1 to SAM, 14 to activitymanager's subscriptions) on the loop thread |
+| netflix | PASS from a fresh instance: `reason: undefined`, pid 30950 (no Netflix was running at the enable or at the check: `stale-instance-closed 0`, no `recover: ended the Netflix instance` line, so the stale-instance path was not exercised; the set's 16:34 restart had left no preloaded one). Card mapped, `set_state(fullscreen)` before the first buffer, Home minimized and unexposed, foreground pushed; the player connected 7.1 s after the main window (3659.651), `_Window_Id_3` exported and imported once, one placement 3840x2160 `fullScreen` (the output's 1920x1080 in `windows`), `mute on`; Picture Mode `dolbyHdrCinema` while playing, `filmMaker` back on Home; panel capture 6863 bytes, as in every gate that played Dolby Vision (the error page of the third and fifth gates captured as 163 KB). Slow passes: `present: fence export 5.5 / 4.3 ms` at 3653.08 and 3657.69, `fence export 16.1 ms` 18 ms after the player's connection (`tick: 17.1 ms`, `plan and draw 0.4`: the first job on the player's buffer waits in the fence export, not in the draw), and at the exit (3689.73) `tick: 16.6 ms: present 6.0, callbacks, releases and luna 10.1` followed by a 10.1 ms `flip` pass (the deferred texture frees landing at the page flip) |
+| hdmi | PASS: the preloaded instance (pid 2513 of this boot) created window 5 at 3697.386 and mapped it with its first buffer at 3697.582, `exposed 1920x1080` in the same millisecond, Home minimized and unexposed, foreground pushed; `render: 10.3 ms for 1 items in 1 rects, 0 new imports` at that first frame (`tick: 12.8 ms`): the import was paid at the commit, the first GPU read of that buffer still costs inside the draw |
+| standby | PASS: PreparePowerOff and PreparePowerOn acked, state active, still mounted, panel the stub's (6863 bytes) |
+| escape | PASS: Home held 650 ms, `escaped` written, LG's compositor back, recovery 14 s |
+| end | LG's compositor live, flag absent, stub on, `filmMaker`, receiver unmuted at 0.355, Active Standby |
+
+Against the list the build had to meet: x1's `loop:` at its mapping gone
+(not moved: no pass of any kind); `tick:`/`present:` lines for everything
+left, each attributed; `frame imports 0` throughout (`prepared` 6 in the
+trial, 15 by the end of the gate: Home, x1's three, Netflix's and HDMI 2's
+buffers all imported at their commit); no `render:` at x1's disconnect;
+netflix `dolbyHdrCinema` from a fresh instance, the `stale-instance-closed
+1` and `recover:` halves untested for want of a stale instance.
+
+What the attribution says about what is left: every slow pass of this gate
+is one of three things. The luna phase at a card change (8-10 ms for 15
+pushes, at x1's and Netflix's exit; sub-millisecond for the same 15 pushes
+at x1's mapping), which belongs off the loop thread. The native fence
+export on the first GPU job of a new client's buffer (16 ms at Netflix's
+player, 16 ms at the session's first atomic commit) and the first draw of
+HDMI 2's buffer (10.3 ms, 0 imports): the warm quad imports the buffer but
+the GPU's first real read of it still waits [INFERENCE: the blob maps the
+dma-buf for the job that first samples a full frame from it, and the 16x16
+warm target does not count]. The deferred frees in a `flip` pass (10.1 ms
+after Netflix) and at the session start (13.2 ms `flip` after WebAppMgr's
+first disconnect): out of the frame, still on the loop. None of the three
+touched x1's steady state, whose two gaps the compositor did not see.
+
+C3 items not exercised by this slot: the bundle has no `ui` feature, so no
+UI layer was attached and the split (`split 0`, `kms: split scan-out ...
+off: no UI attached`) and the overlay's alpha were never tried; the panel
+stayed at 60 Hz through the Dolby Vision title and HDMI 2 (`refresh 16.67
+ms (changed 0)`, all 19 odd stamps a skipped refresh of 33.36-33.37 ms, 17
+of them at Netflix's and HDMI 2's window changes), so the re-keying never
+had a rate to key to. Both need a slot of their own: `tv_ui_measure.py`'s
+build over a direct window for the split, and a source the compositor's own
+mode follows (the mode is set by the compositor at 1920x1080@60; whether a
+24p stream changes the CRTC's rate under it is unknown).
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 

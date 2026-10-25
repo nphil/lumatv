@@ -63,3 +63,14 @@ GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; stat
 GATE escape: PASS unmounted after 0s; [16:13:30] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 437713 bytes; wam active
 GATE: FAIL
 
+# C4 gate 2026-10-25 17:37
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 6863 bytes fg com.webos.app.home
+GATE volume: PASS receiver volume_level before 0.355 after Volume+ 0.36 after Volume- 0.355
+GATE x1: FAIL [x1] RESULT frames=3598 in 60.00 s = 59.97 fps; gaps: <=17.5 ms 3545, 17.5-20 50, 20-33.5 2, >33.5 0; worst 21.0 ms; ended at monotonic 3651.064 | pacer before: flips 28 late 0 lost 342 after: flips 3627 late 0 lost 2120 | compositor: loop stalls 1, frame gaps 0, clients connected 0
+GATE netflix: PASS netflix windows 1 video "video":[{"context":"_LFYAz01m9w1smg","displayOutput":{"height":1080,"width":1920,"x":0,"y":0},"fullScreen":true,"windowId":"_Window_Id_3"}] placements 1 protocol errors 0 pictureMode playing dolbyHdrCinema after filmMaker fg playing netflix now com.webos.app.home panel 6863 bytes stale-instance-closed 0
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 3713.77 now 3783.77; mounted yes; panel 6863 bytes
+GATE escape: PASS unmounted after 0s; [17:37:12] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 14s; panel 437811 bytes; wam active
+GATE: FAIL
+
