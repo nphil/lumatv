@@ -5,10 +5,12 @@ faster or smoother than today's QML LumaHome inside LG's Qt 5.12 compositor? The
 
 ## Resume here
 
-State (2026-10-25 03:45 EDT): the client is built and passes on the host (Mesa, offscreen and as a window on a headless Weston); the
-TV slot has not run yet. Next steps, in order:
+State (2026-10-25 05:20 EDT): the client is built and passes on the host (Mesa, offscreen and as a window on a headless Weston); the
+aarch64 build is current. The slot is requested ("TV slot for RustUi2: 20 min, measure") and queued behind two other agents; Main expects
+about 06:40 and sends "go RustUi2". The set was in Active Standby at 05:17: the screen must be on first (`tv-run.sh` refuses otherwise).
+Next steps, in order:
 
-1. Ask Main for the slot ("TV slot for RustUi: 20 min, measure"), then
+1. After "go RustUi2":
    `python3 rustui/tools/tv-run.py --upload-only`, a short look (`SHOT=4 python3 rustui/tools/tv-run.py look idle:8`, which also saves
    a panel screenshot to `rustui/build/runs/look.png`: check the picture is upright, else the flip pass is wrong), then the measured runs
    listed under "TV runs" below.
