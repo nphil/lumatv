@@ -7,6 +7,7 @@
 #                                 docs/research/compositor/first-light-<date>.txt
 #   tv-first-light.sh kms         the C3 maintenance window (tools/tv_kms.py): LG's compositor stopped, LumaTV as DRM
 #                                 master for ~40 s, LG's compositor restarted; results in /tmp/lumatv-tv-out/out/kms
+#   tv-first-light.sh sm          the C4 supervisor/bridge dry run beside LG's compositor (bus names suffixed .lumatv)
 #   tv-first-light.sh clean       kill everything of ours on the set
 # Transport: docs/research/arch/tv.py (paramiko). Before `run`: confirm the set is idle (getPowerState Active,
 # getForegroundAppInfo) and that nothing else is being measured on it.
@@ -56,6 +57,16 @@ case "${1:-help}" in
         ;;
     kms)
         python3 "$here/tools/tv_kms.py" run
+        ;;
+    sm)
+        # The luna-send probes need a PTY (HANDOFF), so the whole on-set script runs under one.
+        python3 - <<EOF2
+import sys; sys.path.insert(0, "$repo/docs/research/arch"); import tv, paramiko
+c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c.connect(tv.TV, username="root", password="alpine", timeout=10, look_for_keys=False, allow_agent=False)
+_, out, _ = c.exec_command("sh /tmp/lumatv/sm-dryrun.sh run", timeout=180, get_pty=True)
+print(out.read().decode("utf-8", "replace")); c.close()
+EOF2
         ;;
     kms-restore)
         python3 "$here/tools/tv_kms.py" restore

@@ -70,7 +70,17 @@ pub enum FromBridge {
 pub enum ToBridge {
     Reply(Reply),
     Outbound(Outbound),
-    Pong { seq: u64 },
+    Pong {
+        seq: u64,
+    },
+    /// Stop a subscription the compositor opened.
+    Cancel {
+        token: u64,
+    },
+    /// Hand the screen back to LG's compositor now (the hold-Home escape); the bridge records the escape.
+    Fallback {
+        reason: String,
+    },
 }
 
 /// The bus names the compositor owns through the bridge.

@@ -67,8 +67,15 @@ pub fn handle(state: &mut State, line: &str) -> String {
             state.should_exit = true;
             json!({"ok": true})
         }
+        "fallback" => {
+            // What the hold-Home escape will send once keys arrive from evdev (C4): the supervisor execs LG's
+            // compositor and records the escape.
+            let reason = words.collect::<Vec<_>>().join(" ");
+            state.luna.send(crate::luna::ToBridge::Fallback { reason: if reason.is_empty() { "control socket".into() } else { reason } });
+            json!({"ok": true, "bridge": state.luna.is_connected()})
+        }
         "" => json!({"ok": false, "error": "empty command"}),
-        other => json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, quit")}),
+        other => json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, fallback [reason], quit")}),
     };
     reply.to_string()
 }
