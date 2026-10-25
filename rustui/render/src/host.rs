@@ -147,17 +147,8 @@ impl Blit {
         let buffer = gl.new_vertex_buffer();
         let (w, h) = (width as f32, height as f32);
         // Window position (x, h - row) shows the target's pixel (x, row): the top of the screen is the target's row 0.
-        gl.static_vertices(
-            buffer,
-            &[[0.0, h, 0.0, 0.0], [w, h, w, 0.0], [0.0, 0.0, 0.0, h], [w, 0.0, w, h]],
-        );
-        Ok(Self {
-            program,
-            buffer,
-            ndc,
-            texel,
-            image,
-        })
+        gl.static_vertices(buffer, &[[0.0, h, 0.0, 0.0], [w, h, w, 0.0], [0.0, 0.0, 0.0, h], [w, 0.0, w, h]]);
+        Ok(Self { program, buffer, ndc, texel, image })
     }
 
     fn run(&self, gl: &Gles, source: u32, width: u32, height: u32) {
@@ -212,9 +203,7 @@ impl Engine {
         });
         let mut session = Session::new(session_config, Arc::clone(&stats), 1);
         // The app's Hello is answered by the thread below; the session is told of it here so that it is greeted.
-        let _ = session.handle(Request::Hello {
-            version: PROTOCOL_VERSION,
-        });
+        let _ = session.handle(Request::Hello { version: PROTOCOL_VERSION });
         let (app, ours) = UnixStream::pair()?;
         let (width, height, hz) = (config.width, config.height, config.refresh_hz);
         let handshake = thread::Builder::new().name("handshake".into()).spawn(move || {
@@ -226,13 +215,7 @@ impl Engine {
             }
             write_frame(
                 &mut ours,
-                &Event::Welcome {
-                    version: PROTOCOL_VERSION,
-                    panel_width: width,
-                    panel_height: height,
-                    refresh_hz: hz,
-                    smooth_first_full: false,
-                },
+                &Event::Welcome { version: PROTOCOL_VERSION, panel_width: width, panel_height: height, refresh_hz: hz, smooth_first_full: false },
             )?;
             Ok(ours)
         })?;
@@ -240,11 +223,7 @@ impl Engine {
         Ok((
             Self {
                 renderer,
-                scene: Scene::new(
-                    panel.logical_width,
-                    panel.logical_height,
-                    (1e9 / f64::from(config.refresh_hz)) as u64,
-                ),
+                scene: Scene::new(panel.logical_width, panel.logical_height, (1e9 / f64::from(config.refresh_hz)) as u64),
                 session,
                 stats,
                 stream: None,
@@ -270,13 +249,8 @@ impl Engine {
     }
 
     pub fn finish_handshake(&mut self) -> io::Result<()> {
-        let handle = self
-            .handshake
-            .take()
-            .ok_or_else(|| io::Error::other("handshake already finished"))?;
-        let stream = handle
-            .join()
-            .map_err(|_| io::Error::other("the handshake thread panicked"))??;
+        let handle = self.handshake.take().ok_or_else(|| io::Error::other("handshake already finished"))?;
+        let stream = handle.join().map_err(|_| io::Error::other("the handshake thread panicked"))??;
         stream.set_nonblocking(true)?;
         self.stream = Some(stream);
         Ok(())
@@ -317,8 +291,7 @@ impl Engine {
                 break;
             }
             let mut frame = &rest[..4 + len];
-            let request = read_frame::<Request>(&mut frame, &mut buf)?
-                .ok_or_else(|| io::Error::other("an empty frame"))?;
+            let request = read_frame::<Request>(&mut frame, &mut buf)?.ok_or_else(|| io::Error::other("an empty frame"))?;
             at += 4 + len;
             let is_commit = matches!(request, Request::Commit { .. });
             let outcome = self.session.handle(request);
@@ -397,9 +370,7 @@ impl Engine {
             done.captured += made.captured;
             done.more = made.more;
         }
-        self.uploaded_bytes = self
-            .uploaded_bytes
-            .saturating_add(u32::try_from(done.uploaded_bytes).unwrap_or(u32::MAX));
+        self.uploaded_bytes = self.uploaded_bytes.saturating_add(u32::try_from(done.uploaded_bytes).unwrap_or(u32::MAX));
         self.tidy_more = done.more;
         self.forward_events();
     }
@@ -463,32 +434,11 @@ impl Engine {
         self.scene.advance(now_ns);
         self.scene.resolve(now_ns, &mut self.drawn);
         self.renderer.set_time(now_ns);
-        let target = if self.direct {
-            0
-        } else {
-            self.target.framebuffer
-        };
-        let draws = [Draw {
-            surface: Surface {
-                stack: 0,
-                from: 0,
-                to: self.drawn.len(),
-                transparent: false,
-            },
-            slot: None,
-            target,
-        }];
-        let report: DrawReport = self
-            .renderer
-            .draw_frame(&self.drawn, &draws, &self.scene)
-            .remove(0);
+        let target = if self.direct { 0 } else { self.target.framebuffer };
+        let draws = [Draw { surface: Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false }, slot: None, target }];
+        let report: DrawReport = self.renderer.draw_frame(&self.drawn, &draws, &self.scene).remove(0);
         if !self.direct {
-            self.blit.run(
-                self.renderer.gles(),
-                self.target.texture,
-                self.window.0,
-                self.window.1,
-            );
+            self.blit.run(self.renderer.gles(), self.target.texture, self.window.0, self.window.1);
         }
         self.shown.clone_from(&self.drawn);
         self.renderer.set_shown(&self.shown);
@@ -521,8 +471,7 @@ impl Engine {
 
     /// The frame drawn last reached the screen at `presented_ns`: tells the app (which retires what the commit replaced).
     pub fn frame_done(&mut self, presented_ns: u64, cost: &FrameCost) {
-        self.stats
-            .frame(cost.cpu_us.max(cost.gpu_us), 0);
+        self.stats.frame(cost.cpu_us.max(cost.gpu_us), 0);
         self.uploaded_bytes = 0;
         self.send(&Event::Frame {
             tag: self.taken_tag,

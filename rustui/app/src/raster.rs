@@ -19,11 +19,7 @@ fn segment_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
     let ab = (b.0 - a.0, b.1 - a.1);
     let ap = (p.0 - a.0, p.1 - a.1);
     let len2 = ab.0 * ab.0 + ab.1 * ab.1;
-    let t = if len2 == 0.0 {
-        0.0
-    } else {
-        ((ap.0 * ab.0 + ap.1 * ab.1) / len2).clamp(0.0, 1.0)
-    };
+    let t = if len2 == 0.0 { 0.0 } else { ((ap.0 * ab.0 + ap.1 * ab.1) / len2).clamp(0.0, 1.0) };
     let d = (p.0 - (a.0 + ab.0 * t), p.1 - (a.1 + ab.1 * t));
     (d.0 * d.0 + d.1 * d.1).sqrt()
 }
@@ -60,16 +56,6 @@ pub fn ring(pixels: &mut [u8], size: u32, c: (f32, f32), radius: f32, width: f32
             let inner = (radius - width - d + 0.5).clamp(0.0, 1.0);
             let at = ((y * size + x) * 4) as usize;
             over(&mut pixels[at..at + 4], colour, outer - inner);
-        }
-    }
-}
-
-/// Premultiplies straight-alpha RGBA in place.
-pub fn premultiply(pixels: &mut [u8]) {
-    for px in pixels.chunks_exact_mut(4) {
-        let a = u32::from(px[3]);
-        for c in &mut px[..3] {
-            *c = ((u32::from(*c) * a + 127) / 255) as u8;
         }
     }
 }

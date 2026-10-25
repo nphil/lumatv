@@ -1,9 +1,10 @@
 //! What the run measures: the interval between frames the client presented, how long each took to issue (and to finish on the GPU,
 //! when asked), and what the process costs: CPU, resident memory, the GPU's busy share.
 //!
-//! The vocabulary is the PLAN's frame gate (`docs/research/perf/gate.py`): a frame is *animated* when the one before it was at most 50 ms
-//! ago (it is part of a run that something started: a key's lift, a held key's repeats), and an animated frame that follows its
-//! predecessor by more than 20 ms is dropped. Frames at the wallpaper's own pace (100 ms apart) are timer frames and are not judged.
+//! The vocabulary is the PLAN's frame gate (`docs/research/perf/gate.py`, `analyse.py`): a frame is *animated* when the scene asked for it
+//! at every refresh (a lift or a fade is running), and a frame is *dropped in motion* when it is animated, follows an animated frame and
+//! came more than 20 ms after it. Frames at the wallpaper's own pace (100 ms apart), for the clock's hands, or for a key's highlight are
+//! not animation frames and are not judged.
 
 use std::fs;
 use std::io::Write;
@@ -11,16 +12,15 @@ use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Frame {
-    /// When the frame's swap returned: `CLOCK_MONOTONIC` ns.
-    pub at_ns: u64,
     /// Milliseconds since the previous frame's swap returned (0 for the first).
     pub gap_ms: f32,
     pub cpu_us: u32,
     pub gpu_us: u32,
     /// Time inside `eglSwapBuffers` (waiting for the compositor's frame callback), us.
     pub swap_us: u32,
-    /// Seconds into the phase the frame was started.
-    pub layers: u32,
+    /// The scene was animating when the frame was drawn (a lift, a fade): the frame was asked for at every refresh. A frame at the
+    /// wallpaper's own pace, or for the clock's hands, is not.
+    pub animated: bool,
 }
 
 #[derive(Default)]
@@ -52,12 +52,22 @@ impl Phase {
         (self.ended_ns.saturating_sub(self.started_ns)) as f64 / 1e9
     }
 
+    /// One line a frame: phase, index, gap since the frame before (ms), render CPU, gpu-done, time in the swap (us), animated.
+    pub fn csv(&self) -> String {
+        let mut out = String::new();
+        for (i, f) in self.frames.iter().enumerate() {
+            out.push_str(&format!("{},{},{:.2},{},{},{},{}\n", self.name, i, f.gap_ms, f.cpu_us, f.gpu_us, f.swap_us, u8::from(f.animated)));
+        }
+        out
+    }
+
     pub fn summary(&self) -> String {
         let dur = self.duration_s().max(1e-9);
         let n = self.frames.len();
         let mut animated = Vec::new();
         let mut over20_all = 0;
         let mut worst = 0.0f32;
+        let mut dropped = 0;
         for (i, f) in self.frames.iter().enumerate() {
             if i == 0 {
                 continue;
@@ -66,22 +76,28 @@ impl Phase {
                 over20_all += 1;
             }
             worst = worst.max(f.gap_ms);
-            if f.gap_ms <= 50.0 {
+            if f.animated {
                 animated.push(f);
+                // `analyse.py`'s `dropped_in_motion`: over 20 ms after a frame that was animated too (the first frame of a run is late
+                // by construction: the update that starts it fires when the key does)
+                if f.gap_ms > 20.0 && self.frames[i - 1].animated {
+                    dropped += 1;
+                }
             }
         }
-        let dropped = animated.iter().filter(|f| f.gap_ms > 20.0).count();
         let mut cpu: Vec<f32> = self.frames.iter().map(|f| f.cpu_us as f32 / 1000.0).collect();
         cpu.sort_by(f32::total_cmp);
         let mut cpu_anim: Vec<f32> = animated.iter().map(|f| f.cpu_us as f32 / 1000.0).collect();
         cpu_anim.sort_by(f32::total_cmp);
         let mut gpu: Vec<f32> = self.frames.iter().filter(|f| f.gpu_us > 0).map(|f| f.gpu_us as f32 / 1000.0).collect();
         gpu.sort_by(f32::total_cmp);
+        let mut swap: Vec<f32> = self.frames.iter().map(|f| f.swap_us as f32 / 1000.0).collect();
+        swap.sort_by(f32::total_cmp);
         let mut gaps: Vec<f32> = self.frames.iter().skip(1).map(|f| f.gap_ms).collect();
         gaps.sort_by(f32::total_cmp);
         let cpu_pct = if self.clk_tck > 0 { self.cpu_ticks as f64 / self.clk_tck as f64 / dur * 100.0 } else { 0.0 };
         let mut s = format!(
-            "{:<8} {:5.1}s  frames {:5}  {:5.1} fps  gap p50 {:5.1} p90 {:5.1} worst {:5.1} ms  >20ms {:3} (animated {:3}, dropped {:3} = {:4.1}%)  render cpu p50 {:4.2} p90 {:4.2} max {:4.2} ms (animated p50 {:4.2} p90 {:4.2})",
+            "{:<8} {:5.1}s  frames {:5}  {:5.1} fps  gap p50 {:5.1} p90 {:5.1} worst {:5.1} ms  >20ms {:3} (animated {:3}, dropped in motion {:3} = {:4.1}%)  render cpu p50 {:4.2} p90 {:4.2} max {:4.2} ms (animated p50 {:4.2} p90 {:4.2})",
             self.name,
             dur,
             n,
@@ -102,6 +118,7 @@ impl Phase {
         if !gpu.is_empty() {
             s.push_str(&format!("  gpu-done p50 {:4.2} p90 {:4.2} ms", percentile(&gpu, 0.5), percentile(&gpu, 0.9)));
         }
+        s.push_str(&format!("  swap p50 {:4.2} p90 {:4.2} ms", percentile(&swap, 0.5), percentile(&swap, 0.9)));
         s.push_str(&format!("  client cpu {:4.1}% of a core", cpu_pct));
         if let Some(t) = self.compositor_ticks {
             let c = t as f64 / self.clk_tck.max(1) as f64 / dur * 100.0;
@@ -128,10 +145,7 @@ pub fn proc_cpu(pid: &str) -> Option<u64> {
 pub fn rss_kb() -> u64 {
     fs::read_to_string("/proc/self/status")
         .ok()
-        .and_then(|s| {
-            s.lines()
-                .find_map(|l| l.strip_prefix("VmRSS:").and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok()))
-        })
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("VmRSS:").and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())))
         .unwrap_or(0)
 }
 
@@ -185,10 +199,7 @@ pub struct Log {
 
 impl Log {
     pub fn open(path: Option<&str>) -> Self {
-        Self {
-            out: path.and_then(|p| fs::File::create(p).ok()),
-            began: Instant::now(),
-        }
+        Self { out: path.and_then(|p| fs::File::create(p).ok()), began: Instant::now() }
     }
 
     pub fn line(&mut self, text: &str) {

@@ -76,8 +76,5 @@ pub fn write_png(path: &str, width: u32, height: u32, rows: &[u8]) -> io::Result
     let mut encoder = png::Encoder::new(io::BufWriter::new(file), width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    encoder
-        .write_header()
-        .and_then(|mut w| w.write_image_data(&rgba))
-        .map_err(io::Error::other)
+    encoder.write_header().and_then(|mut w| w.write_image_data(&rgba)).map_err(io::Error::other)
 }

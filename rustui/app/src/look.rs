@@ -39,7 +39,6 @@ pub struct Palette {
     pub glass_focus: Rgba,
     pub glass_focus_edge: Rgba,
     pub accent: Rgba,
-    pub positive: Rgba,
     pub second: Rgba,
     pub ink_on_accent: Rgba,
 }
@@ -54,7 +53,6 @@ pub fn palette() -> Palette {
         glass_focus: hex("#8F2C263A"),
         glass_focus_edge: hex("#33FFFFFF"),
         accent: hex("#A79BF5"),
-        positive: hex("#9CCFD8"),
         second: hex("#ff3b5c"),
         ink_on_accent: hex("#17131F"),
     }
@@ -84,11 +82,7 @@ pub const SATURATION: f32 = 1.25;
 pub const AMBIENT: f32 = 0.3;
 
 fn shadow(offset_y: f32, blur: f32, alpha: f32) -> Option<Shadow> {
-    Some(Shadow {
-        offset_y,
-        blur,
-        colour: black(alpha),
-    })
+    Some(Shadow { offset_y, blur, colour: black(alpha) })
 }
 
 /// The material of a card, the dock and a status button (`Glass.qml`): the glass over the cached blur of the wallpaper.
@@ -103,18 +97,9 @@ pub fn card(p: &Palette, radius: f32, focus: bool, lifted: bool) -> Glass {
         // The rim of Glass.qml: a white line along the top, 0.42 of the ink at focus.
         highlight: if focus { white(0.42) } else { Rgba(0, 0, 0, 0) },
         // Glass.qml: 0.16 falling to 0.05 over the first 38 % of the diagonal, gone by 60 %.
-        sheen: focus.then_some(Sheen {
-            peak: 0.16,
-            floor: 0.0,
-            start: 0.0,
-            end: 0.6,
-        }),
+        sheen: focus.then_some(Sheen { peak: 0.16, floor: 0.0, start: 0.0, end: 0.6 }),
         // CSS: normal 0 24px 60px .28; focus 0 34px 80px .55 + 0 10px 24px .30.
-        shadows: if lifted {
-            [shadow(34.0, 80.0, 0.55), shadow(10.0, 24.0, 0.30)]
-        } else {
-            [shadow(24.0, 60.0, 0.28), None]
-        },
+        shadows: if lifted { [shadow(34.0, 80.0, 0.55), shadow(10.0, 24.0, 0.30)] } else { [shadow(24.0, 60.0, 0.28), None] },
         depth: None,
         backdrop: Backdrop::Cached { radius: BLUR },
         saturation: SATURATION,
@@ -131,18 +116,9 @@ pub fn tile(plate: Rgba, focus: bool, lifted: bool) -> Glass {
         edge: white(if focus { 0.22 } else { 0.06 }),
         edge_width: 1.0,
         highlight: if focus { white(0.42) } else { Rgba(0, 0, 0, 0) },
-        sheen: focus.then_some(Sheen {
-            peak: 0.18,
-            floor: 0.0,
-            start: 0.0,
-            end: 0.55,
-        }),
+        sheen: focus.then_some(Sheen { peak: 0.18, floor: 0.0, start: 0.0, end: 0.55 }),
         // sA, sY, sB of the shader run from (0.28, 6, 9) to (0.6, 26, 34); a blur here is the width of the smoothstep.
-        shadows: if lifted {
-            [shadow(26.0, 68.0, 0.6), None]
-        } else {
-            [shadow(6.0, 18.0, 0.28), None]
-        },
+        shadows: if lifted { [shadow(26.0, 68.0, 0.6), None] } else { [shadow(6.0, 18.0, 0.28), None] },
         depth: None,
         backdrop: Backdrop::None,
         saturation: 1.0,
@@ -162,14 +138,7 @@ pub fn halo(accent: Rgba) -> Glass {
         edge_width: 0.0,
         highlight: Rgba(0, 0, 0, 0),
         sheen: None,
-        shadows: [
-            Some(Shadow {
-                offset_y: 0.0,
-                blur: 72.0,
-                colour: glow,
-            }),
-            None,
-        ],
+        shadows: [Some(Shadow { offset_y: 0.0, blur: 72.0, colour: glow }), None],
         depth: None,
         backdrop: Backdrop::None,
         saturation: 1.0,
@@ -187,23 +156,6 @@ pub fn pill() -> Glass {
         highlight: Rgba(0, 0, 0, 0),
         sheen: None,
         shadows: [shadow(6.0, 12.0, 0.35), None],
-        depth: None,
-        backdrop: Backdrop::None,
-        saturation: 1.0,
-        refraction: 0.0,
-    }
-}
-
-/// A chip on a card (`HomeAssistantWidget.qml`): a veil of white with a hairline.
-pub fn chip() -> Glass {
-    Glass {
-        corner_radius: 18.0,
-        tint: hex("#12ffffff"),
-        edge: hex("#14ffffff"),
-        edge_width: 1.0,
-        highlight: Rgba(0, 0, 0, 0),
-        sheen: None,
-        shadows: [None, None],
         depth: None,
         backdrop: Backdrop::None,
         saturation: 1.0,

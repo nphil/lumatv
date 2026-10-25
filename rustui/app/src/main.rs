@@ -19,7 +19,7 @@ mod window;
 
 use compositor_protocol::Event;
 use home::{Home, Key};
-use lumatv_render::host::{Engine, FrameCost, HostConfig};
+use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, now_ns};
 use metrics::{Frame, Log, Marker, Phase};
 use output::Output;
@@ -35,6 +35,7 @@ struct Options {
     shm: PathBuf,
     log: Option<String>,
     shot: Option<String>,
+    frames: Option<String>,
     direct: bool,
     gpu_sync: bool,
     trim: bool,
@@ -51,6 +52,7 @@ fn parse() -> Result<Options, String> {
         shm: std::env::temp_dir().join("lumatv-rustui-shm"),
         log: None,
         shot: None,
+        frames: None,
         direct: false,
         gpu_sync: false,
         trim: true,
@@ -76,6 +78,7 @@ fn parse() -> Result<Options, String> {
             "--shm" => o.shm = PathBuf::from(value("--shm")?),
             "--log" => o.log = Some(value("--log")?),
             "--shot" => o.shot = Some(value("--shot")?),
+            "--frames" => o.frames = Some(value("--frames")?),
             "--direct" => o.direct = true,
             "--gpu-sync" => o.gpu_sync = true,
             "--no-trim" => o.trim = false,
@@ -132,13 +135,7 @@ fn run(o: Options) -> io::Result<()> {
             idle_trim: o.trim,
         },
     )?;
-    let (scene, _welcome, events) = ui::Scene::over_with(
-        app_end,
-        SceneOptions {
-            shm_dir: Some(o.shm.clone()),
-            ..SceneOptions::default()
-        },
-    )?;
+    let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
     engine.finish_handshake()?;
     let mut ui = Ui::new(scene);
     ui.enable_glyph_text().map_err(|e| io::Error::other(format!("{e}")))?;
@@ -187,20 +184,13 @@ fn run(o: Options) -> io::Result<()> {
 
     // First frame: whatever the build and the atlas staged, then the run.
     let mut last_present_ns = 0u64;
-    let mut cost = FrameCost::default();
     let mut pending_frame = true;
     let mut drawn_frames: u64 = 0;
 
     for (name, seconds) in o.run.clone() {
         let presses = script::build(&name, seconds);
         let mut next_press = 0usize;
-        let mut phase = Phase {
-            name: name.clone(),
-            started_ns: now_ns(),
-            clk_tck: tck,
-            rss_kb_start: metrics::rss_kb(),
-            ..Phase::default()
-        };
+        let mut phase = Phase { name: name.clone(), started_ns: now_ns(), clk_tck: tck, rss_kb_start: metrics::rss_kb(), ..Phase::default() };
         marker.write(&format!("P:{name}"));
         let cpu0 = metrics::proc_cpu("self").unwrap_or(0);
         let comp0 = compositor_pid.as_deref().and_then(metrics::proc_cpu);
@@ -253,7 +243,7 @@ fn run(o: Options) -> io::Result<()> {
             if pending_frame || engine.has_commits() || engine.redraw_wanted() || due {
                 pending_frame = false;
                 let started = now_ns();
-                cost = engine.draw(started);
+                let cost = engine.draw(started);
                 if let Some(code) = cost.gl_error {
                     log.line(&format!("GL error {code:#x}"));
                 }
@@ -265,12 +255,11 @@ fn run(o: Options) -> io::Result<()> {
                 let gap_ms = if last_present_ns == 0 { 0.0 } else { (presented - last_present_ns) as f32 / 1e6 };
                 last_present_ns = presented;
                 phase.frames.push(Frame {
-                    at_ns: presented,
                     gap_ms,
                     cpu_us: cost.cpu_us,
                     gpu_us: cost.gpu_us,
                     swap_us: ((presented - swap_began) / 1000) as u32,
-                    layers: cost.layers,
+                    animated: demand == Demand::EveryRefresh,
                 });
                 second_frames += 1;
                 second_worst = second_worst.max(gap_ms);
@@ -325,6 +314,12 @@ fn run(o: Options) -> io::Result<()> {
         phase.rss_kb_end = metrics::rss_kb();
         phase.rss_kb_max = phase.rss_kb_end.max(phase.rss_kb_start);
         log.line(&format!("RESULT {}", phase.summary()));
+        if let Some(path) = &o.frames {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                let _ = f.write_all(phase.csv().as_bytes());
+            }
+        }
         phases.push(phase);
     }
     marker.write("P:end");
@@ -339,7 +334,6 @@ fn run(o: Options) -> io::Result<()> {
         out.screenshot(&mut engine, shot)?;
         log.line(&format!("screenshot {shot}"));
     }
-    drop(cost);
     Ok(())
 }
 

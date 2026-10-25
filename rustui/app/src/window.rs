@@ -22,10 +22,10 @@ use wayland_client::protocol::wl_seat::{self, WlSeat};
 use wayland_client::protocol::wl_shell::WlShell;
 use wayland_client::protocol::wl_shell_surface::{self, WlShellSurface};
 use wayland_client::protocol::wl_surface::WlSurface;
+use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop};
 use wayland_protocols::xdg::shell::client::xdg_surface::{self, XdgSurface};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop};
 
 #[derive(Default)]
 struct State {
@@ -78,7 +78,7 @@ impl Dispatch<WlKeyboard, ()> for State {
                 108 => Some(Key::Down),
                 105 => Some(Key::Left),
                 106 => Some(Key::Right),
-                28 | 0x160 | 352 => Some(Key::Ok),
+                28 | 0x160 => Some(Key::Ok),
                 158 | 1 => Some(Key::Back),
                 _ => None,
             };
@@ -137,11 +137,7 @@ fn blob_symbol(name: &str) -> io::Result<*mut c_void> {
     let cname = CString::new(name).map_err(io::Error::other)?;
     // SAFETY: dlsym over the default scope, where the blob was loaded RTLD_GLOBAL by `open`.
     let p = unsafe { libc::dlsym(libc::RTLD_DEFAULT, cname.as_ptr()) };
-    if p.is_null() {
-        Err(io::Error::other(format!("{name} is not exported by the GL driver")))
-    } else {
-        Ok(p)
-    }
+    if p.is_null() { Err(io::Error::other(format!("{name} is not exported by the GL driver"))) } else { Ok(p) }
 }
 
 /// Connects, makes the window and the GL context on it.
@@ -170,7 +166,8 @@ pub fn open(width: u32, height: u32, libmali: &str, window_type: &str, want_keys
         shell_surface = Some(ss);
         webos = Some(w);
     } else {
-        let base: XdgWmBase = globals.bind(&qh, 1..=6, ()).map_err(|e| io::Error::other(format!("neither wl_shell with wl_webos_shell nor xdg_wm_base: {e}")))?;
+        let base: XdgWmBase =
+            globals.bind(&qh, 1..=6, ()).map_err(|e| io::Error::other(format!("neither wl_shell with wl_webos_shell nor xdg_wm_base: {e}")))?;
         let xs = base.get_xdg_surface(&surface, &qh, ());
         let top = xs.get_toplevel(&qh, ());
         top.set_title("LumaTV Rust UI".into());
@@ -212,27 +209,13 @@ pub fn open(width: u32, height: u32, libmali: &str, window_type: &str, want_keys
     gles.set_swap_interval(1);
     let _ = queue.dispatch_pending(&mut state);
     let _ = conn.flush();
-    Ok((
-        gles,
-        Box::new(Window {
-            conn,
-            queue,
-            state,
-            _surface: surface,
-            _shell_surface: shell_surface,
-            _webos: webos,
-            _xdg: xdg,
-            _seat: seat,
-        }),
-    ))
+    Ok((gles, Box::new(Window { conn, queue, state, _surface: surface, _shell_surface: shell_surface, _webos: webos, _xdg: xdg, _seat: seat })))
 }
 
 impl Window {
     /// Reads what the socket has (waiting at most `timeout_ms`; -1 for ever, 0 for none) and dispatches it.
     fn pump(&mut self, timeout_ms: i32) -> io::Result<()> {
-        self.queue
-            .dispatch_pending(&mut self.state)
-            .map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
+        self.queue.dispatch_pending(&mut self.state).map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
         let _ = self.conn.flush();
         if let Some(guard) = self.conn.prepare_read() {
             let fd = guard.connection_fd().as_raw_fd();
@@ -247,9 +230,7 @@ impl Window {
         } else if timeout_ms != 0 {
             // events were queued by another reader meanwhile: dispatch them below
         }
-        self.queue
-            .dispatch_pending(&mut self.state)
-            .map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
+        self.queue.dispatch_pending(&mut self.state).map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
         if self.state.closed {
             return Err(io::Error::other("the compositor closed the window"));
         }

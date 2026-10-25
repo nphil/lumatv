@@ -5,14 +5,12 @@
 //! Everything is made once and kept: a key press restyles two layers and moves one halo; the lift is one `Animate` per layer on
 //! the compositor's clock. Nothing is drawn per frame by the app except the clock's hands, once a second.
 
-use crate::look::{self, MED, SEMI, Palette};
+use crate::look::{self, MED, Palette, SEMI};
 use crate::raster;
 use compositor_protocol::{Ease, Fill, Props, Rect, Rgba, Shape, Wallpaper, WallpaperKind};
 use std::io;
 use std::path::Path;
-use ui::components::{
-    Align, Form, Group, Icon, Item, Label, Mark, Part, Pose, Run, TextLayer, line_height, plate, style,
-};
+use ui::components::{Align, Form, Group, Icon, Item, Label, Mark, Part, Pose, Run, TextLayer, line_height, plate, style};
 use ui::geometry::Frame;
 use ui::text::Type;
 use ui::{GlassLayer, ImageLayer, Ui, WallpaperLayer};
@@ -30,19 +28,6 @@ pub enum Key {
     Back,
 }
 
-impl Key {
-    pub fn name(self) -> &'static str {
-        match self {
-            Key::Left => "LEFT",
-            Key::Right => "RIGHT",
-            Key::Up => "UP",
-            Key::Down => "DOWN",
-            Key::Ok => "OK",
-            Key::Back => "BACK",
-        }
-    }
-}
-
 // ---- grid geometry (layout.json: safe 64/54, 12 columns, gutter 20, rows 222/238/392, status bar 60 + 20) ----
 const SAFE_X: f32 = 64.0;
 const SAFE_Y: f32 = 54.0;
@@ -58,19 +43,14 @@ fn cell(col: usize, row: usize, span: usize, rows: usize) -> Frame {
     let area_w = W - 2.0 * SAFE_X;
     let cell_w = (area_w - (COLS as f32 - 1.0) * GUTTER) / COLS as f32;
     let mut y = area_y;
-    for r in 0..row {
-        y += ROWS[r] + GUTTER;
+    for r in ROWS.iter().take(row) {
+        y += r + GUTTER;
     }
     let mut h = 0.0;
-    for k in row..row + rows {
-        h += ROWS[k] + if k > row { GUTTER } else { 0.0 };
+    for (k, r) in ROWS.iter().enumerate().skip(row).take(rows) {
+        h += r + if k > row { GUTTER } else { 0.0 };
     }
-    Frame::new(
-        (area_x + col as f32 * (cell_w + GUTTER)).round(),
-        y.round(),
-        (span as f32 * cell_w + (span as f32 - 1.0) * GUTTER).round(),
-        h.round(),
-    )
+    Frame::new((area_x + col as f32 * (cell_w + GUTTER)).round(), y.round(), (span as f32 * cell_w + (span as f32 - 1.0) * GUTTER).round(), h.round())
 }
 
 // ---- z order ----
@@ -137,7 +117,7 @@ const TILES: [(&str, Icon, &str); 24] = [
 pub struct Home {
     pub ui: Ui,
     p: Palette,
-    wall: WallpaperLayer,
+    _wall: WallpaperLayer,
     status: Vec<Widget>,
     widgets: Vec<Widget>,
     dock: Widget,
@@ -145,7 +125,7 @@ pub struct Home {
     halo: GlassLayer,
     halo_frame: Frame,
     /// Pictures and layers that only have to stay alive.
-    keep: Vec<Part>,
+    _keep: Vec<Part>,
     hands: ImageLayer,
     face: u32,
     focus: Target,
@@ -169,9 +149,7 @@ fn local_time() -> (i32, i32, i32, i32, i32, i32, i32) {
 }
 
 const WEEKDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MONTHS: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December",
-];
+const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 fn decode_png(path: &Path) -> io::Result<(u32, u32, Vec<u8>)> {
     let file = std::fs::File::open(path).map_err(|e| io::Error::other(format!("{}: {e}", path.display())))?;
@@ -183,10 +161,7 @@ fn decode_png(path: &Path) -> io::Result<(u32, u32, Vec<u8>)> {
     let (w, h) = (info.width, info.height);
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
-        png::ColorType::Rgb => buf[..info.buffer_size()]
-            .chunks_exact(3)
-            .flat_map(|p| [p[0], p[1], p[2], 255])
-            .collect(),
+        png::ColorType::Rgb => buf[..info.buffer_size()].chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
         other => return Err(io::Error::other(format!("png color type {other:?} not handled"))),
     };
     Ok((w, h, rgba))
@@ -272,10 +247,7 @@ impl Home {
                 Props::at(0.0, 0.0),
             )?;
             let pixels = wallpaper_pixels(&assets.join("wallpaper/wall_1080.png"), W as u32, H as u32)?;
-            layer
-                .pixels_mut()
-                .ok_or_else(|| io::Error::other("the silk wallpaper has no picture"))?
-                .copy_from_slice(&pixels);
+            layer.pixels_mut().ok_or_else(|| io::Error::other("the silk wallpaper has no picture"))?.copy_from_slice(&pixels);
             layer.damage(None);
             layer
         };
@@ -328,10 +300,8 @@ impl Home {
         let home_frame = cell(0, 1, 4, 1);
         let news_frame = cell(4, 0, 5, 2);
         let weather_frame = cell(9, 0, 3, 2);
-        let widgets: Vec<Widget> = [clock_frame, home_frame, news_frame, weather_frame]
-            .iter()
-            .map(|f| Self::card_group(&ui, &p, *f, look::R_CARD, Z_GLASS))
-            .collect();
+        let widgets: Vec<Widget> =
+            [clock_frame, home_frame, news_frame, weather_frame].iter().map(|f| Self::card_group(&ui, &p, *f, look::R_CARD, Z_GLASS)).collect();
 
         // clock: the face once, the hands once a second, the day and the week strip as one text layer
         let dia = (clock_frame.h - 2.0 * PAD_Y).min(166.0);
@@ -357,14 +327,7 @@ impl Home {
         for i in 0..7usize {
             let today = i as i32 == wday;
             let cx = cal_x + i as f32 * cell_w;
-            items.push(Item::Text(Run::centre(
-                initials[i],
-                look::ty(14, SEMI),
-                if today { p.ink } else { p.ink3 },
-                cx,
-                week_y,
-                cell_w,
-            )));
+            items.push(Item::Text(Run::centre(initials[i], look::ty(14, SEMI), if today { p.ink } else { p.ink3 }, cx, week_y, cell_w)));
             if today {
                 items.push(Item::Mark(Mark::disc((cx + ((cell_w - 36.0) / 2.0).round()) as i32, (week_y + 26.0) as i32, 36, p.ink)));
             }
@@ -405,12 +368,7 @@ impl Home {
                         chip_w as u32,
                         chip_h as u32,
                         Z_CONTENT,
-                        Shape {
-                            corner_radius: 18.0,
-                            fill: Fill::Solid(look::hex("#12ffffff")),
-                            border_width: 1.0,
-                            border: look::hex("#14ffffff"),
-                        },
+                        Shape { corner_radius: 18.0, fill: Fill::Solid(look::hex("#12ffffff")), border_width: 1.0, border: look::hex("#14ffffff") },
                         Props::at(f.x + x, f.y + y),
                     ),
                     Frame::new(f.x + x, f.y + y, chip_w, chip_h),
@@ -444,13 +402,8 @@ impl Home {
             keep.push(Part::new(hero, Frame::new(f.x + PAD_X, f.y + PAD_Y, hero_w as f32, hero_h as f32)));
             let headline_ty = look::ty(34, SEMI);
             let inner_w = f.w - 2.0 * PAD_X;
-            let lines = ui::components::wrap_to(
-                &mut ui.fonts,
-                "Talks resume as regional leaders meet to set out a path for the winter ahead",
-                headline_ty,
-                inner_w,
-                2,
-            );
+            let lines =
+                ui::components::wrap_to(&mut ui.fonts, "Talks resume as regional leaders meet to set out a path for the winter ahead", headline_ty, inner_w, 2);
             let mut items: Vec<Item> = Vec::new();
             let mut y = PAD_Y + hero_h as f32 + 18.0;
             for line in &lines {
@@ -510,13 +463,7 @@ impl Home {
         let rows = TILES.len().div_ceil(cols);
         let grid_top = ((dock_frame.h - (rows as f32 * tile_size + (rows as f32 - 1.0) * gap)) / 2.0).round();
         let halo_frame = Frame::new(0.0, 0.0, tile_size, tile_size);
-        let halo = ui.scene.glass(
-            tile_size as u32,
-            tile_size as u32,
-            Z_HALO,
-            look::halo(p.accent),
-            Props { opacity: 0.0, ..Props::at(0.0, 0.0) },
-        );
+        let halo = ui.scene.glass(tile_size as u32, tile_size as u32, Z_HALO, look::halo(p.accent), Props { opacity: 0.0, ..Props::at(0.0, 0.0) });
         let mut tiles = Vec::new();
         let name_ty = look::ty(25, SEMI);
         for (i, (title, icon, plate_hex)) in TILES.iter().enumerate() {
@@ -540,7 +487,13 @@ impl Home {
             let pill_frame = Frame::new(frame.x + ((tile_size - pill_w) / 2.0).round(), frame.y + tile_size + 14.0, pill_w, pill_h);
             let mut pill = Group::new(pill_frame.centre());
             pill.push(Part::new(
-                ui.scene.glass(pill_w as u32, pill_h as u32, Z_PILL, look::pill(), Props { opacity: 0.0, visible: false, ..Props::at(pill_frame.x, pill_frame.y) }),
+                ui.scene.glass(
+                    pill_w as u32,
+                    pill_h as u32,
+                    Z_PILL,
+                    look::pill(),
+                    Props { opacity: 0.0, visible: false, ..Props::at(pill_frame.x, pill_frame.y) },
+                ),
                 pill_frame,
             ));
             let label = Label::new(
@@ -550,7 +503,10 @@ impl Home {
                 style(name_ty, p.ink, Align::Left),
                 title,
             )?;
-            let mut label_part = Part::new(label, Frame::new(pill_frame.x + 13.0, pill_frame.y + ((pill_h - line_height(name_ty)) / 2.0).round(), text_w + 2.0, line_height(name_ty)));
+            let mut label_part = Part::new(
+                label,
+                Frame::new(pill_frame.x + 13.0, pill_frame.y + ((pill_h - line_height(name_ty)) / 2.0).round(), text_w + 2.0, line_height(name_ty)),
+            );
             label_part.rest_opacity = 1.0;
             pill.push(label_part);
             pill.set(Pose { opacity: 0.0, visible: false, ..Pose::REST });
@@ -560,14 +516,14 @@ impl Home {
         let mut home = Self {
             ui,
             p,
-            wall,
+            _wall: wall,
             status,
             widgets,
             dock,
             tiles,
             halo,
             halo_frame,
-            keep,
+            _keep: keep,
             hands,
             face: dia as u32,
             focus: Target::Tile(0),
@@ -587,13 +543,7 @@ impl Home {
     /// A glass card with the group the lift moves.
     fn card_group(ui: &Ui, p: &Palette, frame: Frame, radius: f32, z: i32) -> Widget {
         let mut group = Group::new(frame.centre());
-        let glass = ui.scene.glass(
-            frame.w.round() as u32,
-            frame.h.round() as u32,
-            z,
-            look::card(p, radius, false, false),
-            Props::at(frame.x, frame.y),
-        );
+        let glass = ui.scene.glass(frame.w.round() as u32, frame.h.round() as u32, z, look::card(p, radius, false, false), Props::at(frame.x, frame.y));
         group.push(Part::new(glass, frame));
         Widget { frame, group }
     }
@@ -672,11 +622,7 @@ impl Home {
             Target::Tile(i) => {
                 let tile = &mut self.tiles[i];
                 Self::glass_of(&tile.group, 0).restyle(look::tile(tile.plate, true, true));
-                tile.group.animate(
-                    Pose { dy: -6.0 * 1.0, scale: look::TILE_SCALE, ..Pose::REST },
-                    look::FOCUS_MS,
-                    Ease::Out,
-                );
+                tile.group.animate(Pose { dy: -6.0 * 1.0, scale: look::TILE_SCALE, ..Pose::REST }, look::FOCUS_MS, Ease::Out);
                 tile.pill.set(Pose { opacity: 0.0, ..Pose::REST });
                 tile.pill.animate(Pose::REST, look::FOCUS_MS, Ease::Out);
             }
@@ -745,10 +691,7 @@ impl Home {
     }
 
     fn nearest_by_x(&self, x: f32, among: impl Iterator<Item = Target>) -> Option<Target> {
-        among
-            .map(|t| ((self.center_of(t).0 - x).abs(), t))
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, t)| t)
+        among.map(|t| ((self.center_of(t).0 - x).abs(), t)).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, t)| t)
     }
 
     /// A key of the remote. `LumaHome.qml`'s focus layers: the status bar over the cards over the dock.
@@ -899,11 +842,7 @@ fn draw_hero(pixels: &mut [u8], w: u32, h: u32) {
                 (1.0 - d / (r * r)).clamp(0.0, 1.0)
             };
             let b = blob(0.3, 0.45, 0.45) * 0.5 + blob(0.78, 0.3, 0.3) * 0.4;
-            let (r, g, bl) = (
-                40.0 + 120.0 * t + 90.0 * b,
-                60.0 + 70.0 * (1.0 - t) + 60.0 * b,
-                110.0 + 90.0 * (1.0 - t) + 40.0 * b,
-            );
+            let (r, g, bl) = (40.0 + 120.0 * t + 90.0 * b, 60.0 + 70.0 * (1.0 - t) + 60.0 * b, 110.0 + 90.0 * (1.0 - t) + 40.0 * b);
             let at = ((y * w + x) * 4) as usize;
             pixels[at] = r.min(255.0) as u8;
             pixels[at + 1] = g.min(255.0) as u8;
