@@ -43,8 +43,8 @@ pub fn openssl_major(version_output: &str) -> Option<u32> {
 }
 
 /// What the program at `path` prints for `version`, within two seconds.
-fn program_version(path: &str) -> Option<String> {
-    let mut child = Command::new(path)
+fn program_version(program: &str) -> Option<String> {
+    let mut child = Command::new(sys::which(program)?)
         .arg("version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -75,14 +75,6 @@ fn program_version(path: &str) -> Option<String> {
     }
 }
 
-fn program_exists(program: &str) -> bool {
-    if program.contains('/') {
-        return std::path::Path::new(program).is_file();
-    }
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
-}
-
 /// The user and group the TLS child runs as: only when the helper is root and the configured user exists.
 fn drop_target(config: &FetchConfig) -> Option<(u32, u32)> {
     if !sys::is_root() {
@@ -99,7 +91,8 @@ fn drop_target(config: &FetchConfig) -> Option<(u32, u32)> {
 }
 
 fn via_openssl(config: &FetchConfig, bundle: PathBuf, why: String) -> Chosen {
-    let mut fetcher = TlsFetch::new(&config.openssl, bundle);
+    let program = sys::which(&config.openssl).unwrap_or_else(|| PathBuf::from(&config.openssl));
+    let mut fetcher = TlsFetch::new(program, bundle);
     if let Some((uid, gid)) = drop_target(config) {
         fetcher = fetcher.unprivileged(uid, gid);
     }
@@ -113,7 +106,8 @@ fn via_openssl(config: &FetchConfig, bundle: PathBuf, why: String) -> Chosen {
 fn via_curl(config: &FetchConfig, bundle: Option<PathBuf>, why: String) -> Chosen {
     Chosen {
         fetcher: Arc::new(CurlFetch {
-            program: config.curl.clone(),
+            program: sys::which(&config.curl)
+                .map_or_else(|| config.curl.clone(), |p| p.display().to_string()),
             bundle,
             drop_to: drop_target(config),
         }),
@@ -136,7 +130,7 @@ pub fn choose(config: &FetchConfig) -> Chosen {
             None => none("no CA certificate bundle on this system"),
         },
         "curl" => {
-            if program_exists(&config.curl) {
+            if sys::which(&config.curl).is_some() {
                 via_curl(config, bundle, "forced by fetch.backend".to_owned())
             } else {
                 none("fetch.backend is curl but curl was not found")
@@ -154,7 +148,7 @@ pub fn choose(config: &FetchConfig) -> Chosen {
                         format!("openssl {}", version.unwrap_or_default().trim()),
                     )
                 }
-                _ if program_exists(&config.curl) => {
+                _ if sys::which(&config.curl).is_some() => {
                     let why = match &version {
                         Some(v) => format!("{} is not OpenSSL 3 or later", v.trim()),
                         None => format!("{} could not be run", config.openssl),

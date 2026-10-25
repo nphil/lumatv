@@ -231,7 +231,8 @@ pub fn spawn(
 }
 
 fn watch(ctx: &Ctx, notify: &(dyn Fn() + Send + Sync)) {
-    let program = ctx.config.luna.send.clone();
+    let program = crate::sys::which(&ctx.config.luna.send)
+        .map_or_else(|| ctx.config.luna.send.clone(), |p| p.display().to_string());
     let poll = Duration::from_millis(ctx.config.screen.poll_ms);
     let mut publisher = Publisher {
         hub: &ctx.hub,

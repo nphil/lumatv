@@ -7,7 +7,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
@@ -74,6 +74,23 @@ pub fn read_info(path: &Path) -> Option<LockInfo> {
         .filter(|p| *p > 1)?;
     let port = lines.next().and_then(|l| l.trim().parse::<u16>().ok());
     Some(LockInfo { pid, port })
+}
+
+/// Where a program is: a path that names a file, or the first match for a bare name in `PATH` and then in the usual system
+/// directories (a boot hook starts the helper with a bare `PATH`, and `luna-send` and `curl` live in `/usr/bin`).
+pub fn which(program: &str) -> Option<PathBuf> {
+    if program.contains('/') {
+        return Path::new(program).is_file().then(|| PathBuf::from(program));
+    }
+    let from_path = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let usual = ["/usr/bin", "/usr/sbin", "/bin", "/sbin", "/usr/local/bin"].map(PathBuf::from);
+    from_path
+        .into_iter()
+        .chain(usual)
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
 }
 
 pub fn pid() -> u32 {
@@ -348,6 +365,16 @@ mod tests {
     fn this_process_is_alive_and_a_huge_pid_is_not() {
         assert!(pid_alive(pid()));
         assert!(!pid_alive(4_000_000_000));
+    }
+
+    #[test]
+    fn programs_are_found_by_path_or_by_name_in_the_usual_places() {
+        assert!(which("/bin/sh").is_some());
+        assert!(which("sh").is_some());
+        assert_eq!(which("/nonexistent/program"), None);
+        assert_eq!(which("no-such-program-anywhere"), None);
+        // A relative path with a slash is taken as written, not searched.
+        assert_eq!(which("bin/sh"), None);
     }
 
     #[test]

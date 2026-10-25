@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// How long `start` waits for the helper to report that it listens.
@@ -130,13 +130,9 @@ fn with_config(args: &Args, run: impl FnOnce(Paths, Config) -> i32) -> i32 {
     }
 }
 
-/// Whether a program exists: a path that is a file, or a name found in `PATH`.
+/// Whether a program exists (see [`sys::which`]).
 fn program_found(program: &str) -> bool {
-    if program.contains('/') {
-        return Path::new(program).is_file();
-    }
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    sys::which(program).is_some()
 }
 
 fn check_config(paths: Paths, config: Config) -> i32 {
