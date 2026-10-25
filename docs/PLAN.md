@@ -1080,7 +1080,8 @@ what it already does.
   Channels (100 MB) and the web browser (72 MB) are dropped from
   `preloadmanager.supportAppList`, about 307 MB, re-sent at every wake as
   webOS 10 requires (Nitin, 2026-10-23); Prime Video (70 MB) too, and Live TV
-  need not be kept ready: it is used rarely (Nitin, 2026-10-25). Phase 8.
+  need not be kept ready: it is used rarely (Nitin, 2026-10-25). The HDMI input
+  apps stay ready so switching to the PC is instant (Nitin, 2026-10-25). Phase 8.
 - Light sync capture: the `vt_devmode` flag file, LG's developer switch that
   also relaxes the capture service's caller check, may be created for short
   probe slots and is removed at the end of each (Nitin, 2026-10-25). Keeping it

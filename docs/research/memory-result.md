@@ -100,7 +100,7 @@ list off except `netflix` and `com.webos.app.home` (the Home stub, criu mode):
 | `com.webos.app.livetv`, `com.webos.app.livemenu` | Live TV is used rarely; it opens on demand to a tuned channel in about 12 s (checked twice); the live menu only runs inside it |
 | `com.webos.app.voice`, `amazon.alexapr` | the `voice` group of `lean` stops every voice service, so the apps are dead weight |
 | `com.webos.app.miracast`, `com.webos.app.miracast-overlay` | the `share` group stops Miracast |
-| `com.webos.app.hdmi1` to `hdmi4` | LG preloads the input app of every port with a device on it ("Not allowed" for the empty ports): the receiver on HDMI 2 is an audio sink, never a watched source; the HDMI 2 app opens on demand in about 8 s (checked); the empty ports are listed so a device plugged in later is not preloaded either |
+| (`com.webos.app.hdmi1` to `hdmi4`) | off from 11:22, back on the list since 11:40: Nitin keeps them ready so switching to the PC is instant (about 32 MB per connected port) |
 | `vudu`, `pooq`, `globoplaywebos`, `yandex.alice` | not installed; LG's list is generic |
 
 `com.webos.app.inputcommon` is not LG's input picker (that is

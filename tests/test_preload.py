@@ -154,9 +154,10 @@ class Preload(unittest.TestCase):
                          [True if i in listed else None for i in json.load(open(PAYLOAD))["off"]])
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "data")))
 
-    def test_the_shipped_list_keeps_only_netflix_and_home_warm(self):
-        # LG's list on the set (2026-10-25, docs/research/memory-result.md): every entry but these two is off,
-        # because the preload manager loads any enabled entry whenever memory allows.
+    def test_the_shipped_list_keeps_netflix_home_and_the_hdmi_inputs_warm(self):
+        # LG's list on the set (2026-10-25, docs/research/memory-result.md): the preload manager loads any enabled
+        # entry whenever memory allows, so everything is off but Netflix, Home and the HDMI inputs (Nitin: switching
+        # to the PC stays instant).
         off = json.load(open(PAYLOAD))["off"]
         self.assertEqual(sorted(off), sorted([
             "youtube.leanback.v4", "com.webos.app.lgchannels", "com.webos.app.browser", "amazon",
