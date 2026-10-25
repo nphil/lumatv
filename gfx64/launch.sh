@@ -5,7 +5,8 @@
 #   launch.sh [--bundle DIR] [--shim FILE] [--grace SECONDS] [--fallback CMD] -- CLIENT64 [ARGS...]
 #
 # The 64-bit path is used when the bundle (fetch-blob.sh), the shim and the client exist, the kernel is 64-bit,
-# /dev/mali0 exists and a buffer allocator exists (/dev/dri/card0 or /dev/dma_buf_te). It has failed to start when
+# /dev/mali0 exists and a buffer allocator exists (/dev/dri/card0, /dev/dma_buf_te or /dev/dma_buf_unified, the only
+# one in SAM's jail for native apps). It has failed to start when
 # the client exits non-zero (or dies on a signal) within the grace period; that covers a loader error (127),
 # a blob that cannot open the GPU, and a Wayland/EGL setup failure. The fallback is then run as `CMD ARGS...`
 # with the same arguments. A non-zero exit after the grace period is the client's own and is returned as is: the
@@ -55,7 +56,8 @@ preflight() {
   [ -f "$SHIM" ] || { echo "no heap shim at $SHIM (run build.sh)"; return; }
   [ -x "$CLIENT" ] || { echo "client $CLIENT is not executable"; return; }
   [ -c "$DEV/mali0" ] || { echo "no $DEV/mali0"; return; }
-  [ -c "$DEV/dri/card0" ] || [ -c "$DEV/dma_buf_te" ] || { echo "no buffer allocator ($DEV/dri/card0, $DEV/dma_buf_te)"; return; }
+  [ -c "$DEV/dri/card0" ] || [ -c "$DEV/dma_buf_te" ] || [ -c "$DEV/dma_buf_unified" ] ||
+    { echo "no buffer allocator ($DEV/dri/card0, $DEV/dma_buf_te, $DEV/dma_buf_unified)"; return; }
 }
 
 uptime_s() { read -r u _ < /proc/uptime; echo "$u"; }

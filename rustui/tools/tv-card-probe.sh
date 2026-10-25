@@ -30,7 +30,7 @@ case "$1" in
   facts)
     echo "id: $(id)"
     echo "machine: $(uname -m)"
-    ls -l /dev/mali0 /dev/dri/card0 /dev/dma_buf_te 2>&1
+    ls -l /dev/mali0 /dev/dri/card0 /dev/dma_buf_te /dev/dma_buf_unified 2>&1
     grep -E " /media/developer | /tmp | /var " /proc/mounts
     df -k /media/developer /tmp 2>&1 | tail -n +2
     grep -E "MemAvailable|CmaFree" /proc/meminfo

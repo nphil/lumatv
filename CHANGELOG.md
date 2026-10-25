@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The card app (`org.nphil.lumatv.card`): a 64-bit app in its own card window,
   drawn with the Rust toolkit. SAM starts a 32-bit launcher that registers the
   app and passes SAM's relaunch and close on. It ships as an ipk inside the
-  main one with its own 64-bit runtime (31 MB larger package).
+  main one with its own 64-bit runtime (31 MB larger package). Under SAM's
+  jail, whose `/dev` has only `dma_buf_unified` to allocate from, the heap shim
+  takes the window buffers from that device.
 
 ### Changed
 

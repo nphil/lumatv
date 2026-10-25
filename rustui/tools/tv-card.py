@@ -218,6 +218,9 @@ def scenario(run):
     run.check("launch: the launcher registered with SAM", "SAM: registered" in log, "see LSRegister / SAM refused in card.log" if "SAM: registered" not in log else "")
     run.check("launch: the 64-bit path was used", "64-bit path:" in log and "falling back" not in log and "unavailable" not in log, next((l for l in log.splitlines() if "gfx64:" in l), "no gfx64 line"))
     run.check("launch: no GL error", "GL error" not in log)
+    heap = [l for l in log.splitlines() if l.startswith("heapshim:")]
+    run.info("launch: buffer source", "; ".join(sorted({l.split(" via ")[1].split(" in ")[0] if " via " in l else l for l in heap})) or "no exporter line (a DRM dumb buffer, or none made)")
+    run.check("launch: no buffer allocation failed", not any("FAILED" in l for l in heap), next((l for l in heap if "FAILED" in l), ""))
     running = run.luna(SAM + "/running", name="running-card")
     run.check("launch: SAM lists it as running", any(a.get("id") == APP for a in running.get("running", [])))
     if app_pid:

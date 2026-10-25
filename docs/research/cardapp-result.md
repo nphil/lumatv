@@ -4,13 +4,13 @@ Todo: "64-bit app as a registered card window (launch, Back, Home, switcher)". A
 
 ## Resume here
 
-State (2026-10-25 16:25 EDT): ran on the TV once (16:15-16:21, "TV results"). The package installs, SAM lists and launches it, the launcher registers with SAM and starts the 64-bit app, and the app exits at once: SAM runs a dev-installed native app inside LG's jailer (`jail_native_devmode.conf`, uid 5227 gid 5000, root `/var/palm/jail/<appId>`), whose `/dev` has `mali0` and `dma_buf_unified` but no `dri/card0`, no `dma_buf_te` and no `dma_heap`, so `gfx64/launch.sh` finds no buffer allocator. The app was removed again; nothing of it is on the set.
+State (2026-10-25 17:00 EDT): the first TV run (16:15-16:21, "TV results") found the app ending at once under SAM's jail (uid 5227, root `/var/palm/jail/<appId>`), whose `/dev` has `mali0` and `dma_buf_unified` but no `dri/card0`, `dma_buf_te` or `dma_heap`, so `gfx64/launch.sh` found no buffer allocator. Fixed offline, NOT VERIFIED ON THE TV: the heap shim has a third source, `/dev/dma_buf_unified`, and `launch.sh` accepts it as an allocator. On the set's chip (O22A3, kernel GPU release b46) LG registers that device as a second misc node of the Arm test exporter, so the request is the `dma_buf_te` one (`_IOR('E', 0x01, {u64 pages})`, returns the dma-buf fd); the older LG exporter's `{u32 pages; u32 map_cached}` has the same number and bytes. Source, ABI and the host checks: `gfx64-result.md`, "Under SAM's jail". The Mali device's own allocation was not used: the blob's strings name only the dma-heap paths for window buffers (`/dev/dma_heap/system-uncached`, `%s`, `protected`), so the shim's heap answer is the one hook.
 
 Next:
 
-1. A buffer allocator the jail allows. The candidates, in order: `/dev/dma_buf_unified` (LG's MediaTek allocator, 10:59, `crw-rw-rw-` in the jail; its ioctl ABI is not recovered: `research/` has no reader of it yet), or the blob's own `/dev/mali0` allocations if the 64-bit driver can be told to allocate window buffers from the GPU device rather than a heap (`gfx64-result.md` says why it asks for `dma_heap/system-uncached`). `heapcore.h` takes a third source behind the same ops table.
-2. Then the same TV step list again (`tv-card.py all --approved`); every check after `launch: the 64-bit path was used` is unexercised.
-3. Fill the rest of "TV results" and move what held from "Inferred".
+1. Rebuild (`sh gfx64/fetch-blob.sh && sh gfx64/build.sh && sh rustui/tools/build-card.sh && sh tools/build-ipk.sh`) and run the same TV step list again (`tv-card.py all --approved`, Nitin's go for install and remove). New in the list: `launch: no buffer allocation failed` and the info line `launch: buffer source` (expect `dma_buf_unified`); `facts` now lists `/dev/dma_buf_unified`.
+2. If the app still ends at once, `card.log` says where. Not yet seen from inside the jail, so each is open: `/dev/mali0` or `/dev/dma_buf_unified` not opening for uid 5227 (`heapshim: alloc ... FAILED`, or a blob error naming the device), the Wayland socket (`/tmp/xdg/wayland-0`; does the jail's `/tmp` hold LG's?), the blob reading something else outside the jail's `/dev` or `/sys`.
+3. Every check after `launch: the 64-bit path was used` is unexercised. Fill the rest of "TV results" and move what held from "Inferred".
 
 For Main:
 
@@ -120,18 +120,19 @@ NOT VERIFIED ON THE TV. `python3 rustui/tools/tv-card.py all --approved` does st
 
 Needs: power state `Active`, Home in front, nothing else of ours running, Nitin's go for the install. Build first: `sh gfx64/fetch-blob.sh && sh gfx64/build.sh && sh rustui/tools/build-card.sh && sh tools/build-ipk.sh`.
 
-1. `facts` (read-only). Look at: who `id` says (the app runs as someone else, see step 3's users line), `/dev/mali0`, `/dev/dri/card0` and `/dev/dma_buf_te` modes, `/media/developer` mount flags (a `noexec` would stop everything), free space, which compositor is live.
+1. `facts` (read-only). Look at: who `id` says (the app runs as someone else, see step 3's users line), `/dev/mali0`, `/dev/dri/card0`, `/dev/dma_buf_te` and `/dev/dma_buf_unified` modes, `/media/developer` mount flags (a `noexec` would stop everything), free space, which compositor is live.
 2. `install`. Checks: `install`, `the launcher is executable`, `SAM lists the app as native with lifecycle 2`, `a launch point exists`.
 3. `scenario`. Each check, what it means, what to do if it fails:
 
 | Check | If it fails |
 |---|---|
 | `launch: the card is in front` | Read `card.log`. No `launch:` line: SAM never started the launcher (the exec bit, `noexec`, `main`, a jail): `journalctl -u sam` / `/var/log/messages`. A `launch:` line and no app: the `gfx64:` lines (`unavailable`, `no /dev/mali0`, a loader error) or `card[...]: failed:`. App up but not in front: LG's compositor ignored `set_state(fullscreen)` for a card: see the foreground JSON and the `input State(...)` lines |
-| `launch: the launcher and the 64-bit app run` / users line | The users line says who the app is: if not root, `/dev/dri/card0` may be closed to it (the shim falls back to `dma_buf_te`, 56 fps path) and `/dev/mali0` may be too |
+| `launch: the launcher and the 64-bit app run` / users line | The users line says who the app is (SAM's jail: uid 5227). The jail's `/dev` has no `dri/card0` or `dma_buf_te`, so the buffers come from `/dev/dma_buf_unified` (ordinary pages, the `dma_buf_te` 56 fps class) |
 | `launch: the window is a card` | The foreground JSON names the window type |
 | `launch: the launcher registered with SAM` | `LSRegister org.nphil.lumatv.card: …` in `card.log`: the hub gave the launcher no bus name, the open question of the role. The card still shows and Back works; SAM's `relaunch` and `close` do not reach it, so the checks `relaunch`, `close` and `exit` fail with it. Do not write a role file on the set without Nitin's OK (a hub role is a permission grant); say what the hub logged (`LSHUB_NO_ROLE_FILE`) and ask. `SAM refused registerApp` is the call being denied: the app role has no outbound to SAM |
 | `launch: SAM lists it as running` / `leaves it running for 20 s` | SAM does not count the app as launched or killed it: this is the registration or the pid question. Compare `processId in SAM's foreground info` with the pids on the line above |
-| `launch: the 64-bit path was used` | A `gfx64:` line says why not; there is no 32-bit fallback, so the app does not run on the other path |
+| `launch: the 64-bit path was used` | A `gfx64:` line says why not; there is no 32-bit fallback, so the app does not run on the other path. `no buffer allocator` again: the jail's `/dev` lost `dma_buf_unified` or the new package did not install |
+| `launch: no buffer allocation failed` / info `launch: buffer source` | `heapshim: alloc … FAILED (errno N)` in `card.log`: 12 is ENOMEM from the exporter (memory is short: `CmaFree` and `MemAvailable` in `facts`), 13 or 2 is the open (the jail's permission or path). The source line should read `dma_buf_unified in …` for every buffer |
 | `keys: OK reaches the app…` / `Back goes up…` | The info line `codes the compositor sent` shows what LG sends for OK and Back; add them to `card::key_of` if they are not 28/352/353 and 412/158/1/14 |
 | `home: Home is in front` | Home's launch path; not the card's |
 | `home: the card was told it is minimized` | LG's compositor does not send `state_changed(minimized)` to a covered card [INFERENCE that it does]. The card would then keep swapping: look for a stall (`home: the covered card is idle` fails with busy ticks, or the app stops answering) and report; the fallback is to treat `launchDefaultApp` or `getForegroundAppInfo` as the signal in the launcher |
@@ -159,7 +160,8 @@ Settled by the run: the `/media/developer` mount is executable; SAM runs a dev-i
 - Observed on the TV (2026-10-25): `appInstallService/dev/install` gives the launcher a hub role for its own app id (it registered; `LSHUB_NO_ROLE_FILE` did not appear). The role files other workers write by hand (`payload/capture/role.json`) are a separate question.
 - That SAM does not require `registerApp` of a version 2 app to keep it running, what it does to one that never registers, and that `handlesRelaunch: true` is right for an app that handles SAM's `relaunch` itself (Netflix and the browser, which do, have it; YouTube, PlxNative and Moonlight have `false`).
 - That SAM does not compare the window's `processId` (the app) with the pid it started or the registration's (the launcher).
-- Observed: SAM starts the app as uid 5227 gid 5000 in LG's jail (`jail_native_devmode.conf`), with `/dev/mali0` (660 root:video) and `/dev/dma_buf_unified` but no `/dev/dri` or `/dev/dma_buf_te`; `/bin/sh`, `awk`, `ls`, `head` and `uname` were found (the launcher ran to the app's exit). Whether `/dev/mali0` opens for that uid is still unseen (the app ended before the GPU).
+- Observed: SAM starts the app as uid 5227 gid 5000 in LG's jail (`jail_native_devmode.conf`), with `/dev/mali0` (660 root:video) and `/dev/dma_buf_unified` but no `/dev/dri` or `/dev/dma_buf_te`; `/bin/sh`, `awk`, `ls`, `head` and `uname` were found (the launcher ran to the app's exit). Whether `/dev/mali0` and `/dev/dma_buf_unified` open for that uid is still unseen (the app ended before the GPU).
+- That the set's kernel registers `dma_buf_unified` as LG's `b46` source does (the chip's `GPU_RELEASE-o22 = b46/`, `Kbuild`), taking the Arm test exporter's allocation request; if it is the older LG exporter, the same request applies (`gfx64-result.md`). That the jail's buffers behave as `dma_buf_te`'s do (56 fps class, importable by the 64-bit blob) is not measured.
 - That LG's compositor sends `state_changed(minimized)` to a covered card and sends no frame callbacks to it.
 - What LG's compositor sends for OK and the arrows (the card reads the usual Linux codes and shows what arrived).
 - That a card with `set_state(fullscreen)` at creation is shown by LG's compositor as it is by LumaTV's (Qt apps send it on every `showFullScreen`).

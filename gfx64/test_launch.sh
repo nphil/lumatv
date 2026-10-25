@@ -90,6 +90,16 @@ ok "no allocator device" "$RC $(has client) $(has fallback)" "0 no yes"
 ln -s /dev/null "$T/dev/dma_buf_te"
 run t13 ok64 --fallback "$T/fb32"
 ok "dma_buf_te alone is enough" "$RC $(has client) $(has fallback)" "0 yes no"
+# SAM's jail for native apps: mali0 and dma_buf_unified, no dri/, no dma_buf_te.
+rm "$T/dev/dma_buf_te"
+ln -s /dev/null "$T/dev/dma_buf_unified"
+run t13b ok64 --fallback "$T/fb32"
+ok "dma_buf_unified alone is enough" "$RC $(has client) $(has fallback)" "0 yes no"
+ok "dma_buf_unified: client env" "$(cat "$LOG.client")" "path=64 lib=$T/b/lib/libmali-fake-wayland-gbm.so args=a b c"
+rm "$T/dev/dma_buf_unified"
+run t13c ok64
+ok "no allocator, no fallback: 69, all three devices named" "$RC $(grep -c 'dri/card0, .*dma_buf_te, .*dma_buf_unified' "$LOG.err")" "69 1"
+ln -s /dev/null "$T/dev/dma_buf_te"
 
 # SIGTERM to the launcher stops the client and does not fall back.
 cat > "$T/hang64" <<'EOF'

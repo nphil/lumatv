@@ -1,14 +1,15 @@
 // LD_PRELOAD shim for the 64-bit Rockchip Mali blob (-wayland-gbm) on the C4. Kernel 5.4 has no /dev/dma_heap, and the
 // blob allocates its window buffers from /dev/dma_heap/system-uncached. The shim answers opens of /dev/dma_heap/system*
-// with a placeholder fd and each DMA_HEAP_IOCTL_ALLOC on it through heapcore.h (DRM dumb buffer, then dma_buf_te).
+// with a placeholder fd and each DMA_HEAP_IOCTL_ALLOC on it through heapcore.h (DRM dumb buffer, then dma_buf_te, then
+// dma_buf_unified, the only allocator inside SAM's jail).
 // /dev/dma_heap/protected and every other heap are reported missing. Everything else passes straight through.
 //
 // Hot paths: the process's GPU ioctls and closes all go through here. An ioctl costs one compare against the heap
 // request number; a close costs one bit test. No locks, no allocation; the only state is atomics. Allocation (cold:
 // once per buffer, 30-48 ms when CMA pages have to migrate) is never done per frame.
 //
-// Environment: LUMATV_HEAP=auto|dumb|te (default auto), LUMATV_HEAP_LOG=1 logs every allocation to stderr; a
-// fallback to dma_buf_te and a failed allocation are always logged.
+// Environment: LUMATV_HEAP=auto|dumb|te|unified (default auto), LUMATV_HEAP_LOG=1 logs every allocation to stderr; an
+// allocation from an exporter (dma_buf_te, dma_buf_unified) and a failed allocation are always logged.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <pthread.h>
@@ -53,6 +54,7 @@ static void init(void) {
   const char *m = getenv("LUMATV_HEAP");
   if (m && !strcmp(m, "dumb")) mode = HEAP_DUMB_ONLY;
   else if (m && !strcmp(m, "te")) mode = HEAP_TE_ONLY;
+  else if (m && !strcmp(m, "unified")) mode = HEAP_UNIFIED_ONLY;
   log_all = getenv("LUMATV_HEAP_LOG") != NULL;
   heap_state_init(&state, mode);
 }
@@ -110,6 +112,8 @@ static int heap_ioctl_alloc(struct dma_heap_allocation_data *a) {
     logf_err("heapshim: alloc %llu bytes FAILED (errno %d) after %.1f ms\n", (unsigned long long)len, err, ms);
   else if (src == HEAP_TE)
     logf_err("heapshim: alloc %llu bytes -> fd %u via dma_buf_te (CMA short) in %.1f ms\n", (unsigned long long)len, a->fd, ms);
+  else if (src == HEAP_UNIFIED)
+    logf_err("heapshim: alloc %llu bytes -> fd %u via dma_buf_unified in %.1f ms\n", (unsigned long long)len, a->fd, ms);
   else if (log_all)
     logf_err("heapshim: alloc %llu bytes -> fd %u via drm dumb in %.1f ms (dumb %u, te %u)\n", (unsigned long long)len, a->fd, ms,
              atomic_load(&state.n_dumb), atomic_load(&state.n_te));

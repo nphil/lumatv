@@ -6,12 +6,12 @@ The kernel on the set (5.4) has no `/dev/dma_heap`; the driver allocates its win
 
 | File | Role |
 |---|---|
-| `heapcore.h` | Allocation policy: DRM dumb buffer on `/dev/dri/card0` (contiguous CMA), then `/dev/dma_buf_te` when CMA is short. Libc-free, driven by an ops table. |
+| `heapcore.h` | Allocation policy: DRM dumb buffer on `/dev/dri/card0` (contiguous CMA), then `/dev/dma_buf_te` when CMA is short, then `/dev/dma_buf_unified` (the only allocator in SAM's jail for native apps; the same exporter and request as `dma_buf_te` on the set's chip, source cited in the file). Libc-free, driven by an ops table. |
 | `heapshim.c` | `LD_PRELOAD` interposer around `heapcore.h`: answers opens of `/dev/dma_heap/system*` and `DMA_HEAP_IOCTL_ALLOC`; `protected` and other heaps are absent; every other call passes straight through. |
 | `launch.sh` | Runs a 64-bit client with the shim and the bundle; falls back to LG's 32-bit driver when the client fails to start. |
 | `blob.lock`, `fetch-blob.sh` | Pinned inputs and the script that assembles the bundle into `build/bundle/` (ignored by git). |
 | `build.sh` | Cross-builds `heapshim.so` and the probe into `build/out/` with zig. |
-| `check.sh` | Host tests: policy against mock devices, interposer bookkeeping, launcher fallback logic. |
+| `check.sh` | Host tests: policy against mock devices, interposer bookkeeping, the whole interposer against a fake `dma_buf_unified` as the only device (`fake_exporter.c`, `test_shim_jail.c`), launcher fallback logic. |
 | `smoke.sh`, `smoke-tv.py` | On-set smoke test with the on-screen probe. |
 
 ## Bundle
@@ -38,6 +38,6 @@ gfx64/fetch-blob.sh && gfx64/build.sh && gfx64/check.sh
 gfx64/launch.sh --fallback /path/to/client32 -- /path/to/client64 ARGS...
 ```
 
-The client reads `LUMATV_GFX_PATH` (`64` or `32`) and `LUMATV_GFX_LIB` (the libmali to `dlopen`) to know which path it is on. Shim environment: `LUMATV_HEAP=auto|dumb|te`, `LUMATV_HEAP_LOG=1` (every allocation; fallbacks and failures are always logged). `launch.sh` documents its options, the failure rule (non-zero exit within the grace period) and its overrides in its header.
+The client reads `LUMATV_GFX_PATH` (`64` or `32`) and `LUMATV_GFX_LIB` (the libmali to `dlopen`) to know which path it is on. Shim environment: `LUMATV_HEAP=auto|dumb|te|unified`, `LUMATV_HEAP_LOG=1` (every allocation; exporter allocations and failures are always logged). `launch.sh` documents its options, the failure rule (non-zero exit within the grace period) and its overrides in its header.
 
 On the set: `python3 gfx64/smoke-tv.py [seconds] [auto|dumb|te]` (or `sh /tmp/gfx64/smoke.sh` after upload).

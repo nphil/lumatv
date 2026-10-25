@@ -54,6 +54,19 @@ Measured on the set (main agent, 2026-10-25), probe x1client through `launch.sh`
   `/data/home/tmp/m64dl/deploy/lib` for libc, ld.so, libstdc++; closure check of NEEDED libs.
 - `build.sh` (zig aarch64-linux-gnu.2.36: heapshim.so, x1client), `check.sh`, `smoke.sh`, `smoke-tv.py`.
 
+## Under SAM's jail: `/dev/dma_buf_unified` (2026-10-25, host-proven, not on the TV)
+
+The card app's first TV run (`cardapp-result.md`, "TV results") showed that SAM runs a dev-installed native app in LG's jail (uid 5227), whose `/dev` has `mali0` and `dma_buf_unified` and neither `dri/card0` nor `dma_buf_te`, so neither source of the first two had a device. The shim has a third source, tried last in auto mode (`LUMATV_HEAP=unified` forces it), and `launch.sh` accepts `dma_buf_unified` as an allocator.
+
+ABI, from LG's kernel source (`/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/kdriver/core/gpu/kernel/`, makefile `Kbuild`: `GPU_RELEASE-o22 = b46/`, and the set is chip O22A3):
+
+- On the set's GPU release (`b46/drivers/base/arm/dma_buf_test_exporter/dma-buf-test-exporter.c`, `dma_buf_te_init`, lines 887-911) `dma_buf_unified` is a second misc device registered from a copy of the `dma_buf_te` device ("LGE ext"), with the same fops and mode 0666. The request is `DMA_BUF_TE_ALLOC = _IOR('E', 0x01, struct {u64 pages})`, which returns the dma-buf fd (`include/uapi/base/arm/dma_buf_test_exporter/dma-buf-test-exporter.h`). Pages are zeroed (`alloc_page(GFP_KERNEL | __GFP_ZERO)`, line 621).
+- LG's older exporter (`{m12,r9,r17,r28}/drivers/base/dma_buf_unified/dma_buf_unified.c`, `include/linux/dma-buf-unified.h`) is a separate driver with `DMA_BUF_UNIFIED_ALLOC = _IOR('E', 0x01, struct {u32 size in pages; u32 map_cached})`: same number and size, the page count in the low word, `map_cached` 0 (write-combined) in the high word of a little-endian u64. One request serves both, so the shim sends the u64 page count. `DMA_BUF_UNIFIED_ALLOC_CONT` (0x04, contiguous, from `dma_alloc_attrs`) exists in both; it is not used: nothing here has measured it, and nothing says the exporter's device has CMA behind it.
+
+Both exporters hand out ordinary pages (the dumb-buffer path's contiguous CMA is not available in the jail), so the expected frame rate is the `dma_buf_te` one (55.9-56.6 fps on Home, PLAN.md) [INFERENCE: the jail's buffers are the same kind of pages; not measured].
+
+Host checks (`gfx64/check.sh`): `test_heapcore` (mock devices: unified alone, unified after te, the three modes, the request word layout), `test_shim_jail` (the whole interposer under `LD_PRELOAD="heapshim.so fake_exporter.so"`: `fake_exporter.c` hides `dri/card0` and `dma_buf_te`, answers `dma_buf_unified` with memfds sized as asked and decodes the request as LG's older struct, `FAKE_EXPORTER_FULL=1` answers ENOMEM), `test_launch.sh` (`dma_buf_unified` alone passes the preflight). Not shown: that the jail lets uid 5227 open `/dev/dma_buf_unified` and `/dev/mali0`, that the set's kernel is the b46 one, what the blob does with such buffers.
+
 ## Notes for the main agent to fold into PLAN/HANDOFF
 
 - Heap shim phase item: done offline (`gfx64/`), TV smoke pending. Production env names are `LUMATV_HEAP*`, not the
