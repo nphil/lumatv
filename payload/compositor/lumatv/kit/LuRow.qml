@@ -8,8 +8,13 @@ import "."
 Item {
     id: row
     property string label: ""
+    property bool danger: false             // the row that destroys something (Uninstall): label and icon in the danger colour
     property string detail: ""
     property string value: ""
+    property string icon: ""                // a Lucide icon name: draws a tile at the left
+    property bool tileAccent: false         // the tile in the accent (a switch that is on, the current section)
+    readonly property int tileSize: Math.round(Lu.target * 0.75)
+    readonly property int textX: Lu.space(6) + (icon !== "" ? tileSize + Lu.space(5) : 0)
     property bool focused: false
     property bool selected: false
     property bool rested: true              // the host's focus-rest flag (LumaHome.focusRested)
@@ -18,7 +23,7 @@ Item {
     signal hoverFocus()
 
     // two lines (label and detail) need more than the row height to breathe
-    implicitHeight: detail !== "" ? Lu.row + Lu.space(4) : Lu.row
+    implicitHeight: detail !== "" ? Lu.row + Lu.space(2) : Lu.row
     height: implicitHeight
     opacity: enabled ? 1 : Lu.disabledOpacity
     z: focused ? 1 : 0
@@ -49,12 +54,20 @@ Item {
         border.color: Lu.edgeRaised
         antialiasing: true
     }
-    Column {
+    LuTile {
+        visible: row.icon !== ""
         x: Lu.space(6)
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - 2 * Lu.space(6) - trailingSlot.width - valueText.width - (valueText.visible ? Lu.space(4) : 0)
-        LuText { width: parent.width; role: "label"; text: row.label; elide: Text.ElideRight }
-        LuText { width: parent.width; role: "caption"; text: row.detail; color: Lu.ink2; visible: row.detail !== ""; elide: Text.ElideRight }
+        size: row.tileSize
+        icon: row.icon
+        accent: row.tileAccent
+    }
+    Column {
+        x: row.textX
+        anchors.verticalCenter: parent.verticalCenter
+        width: parent.width - row.textX - Lu.space(6) - trailingSlot.width - valueText.width - (valueText.visible ? Lu.space(4) : 0)
+        LuText { width: parent.width; role: "label"; lineHeight: 1.0; text: row.label; color: row.danger ? Lu.danger : Lu.ink; elide: Text.ElideRight }
+        LuText { width: parent.width; role: "caption"; lineHeight: 1.0; text: row.detail; color: Lu.ink2; visible: row.detail !== ""; elide: Text.ElideRight }
     }
     LuText {
         id: valueText

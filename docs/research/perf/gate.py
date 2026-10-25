@@ -17,7 +17,14 @@ window per marker with analyse.py and checks every window against the thresholds
   compositor RSS over N cycles   flat, see rss_growth()
   /var/log/messages              no line matching LOG_FAIL_PATTERNS
 
-A surface whose key is not consumed (no frame in its window) fails. The run starts with 3
+A surface whose key is not consumed (no frame in its window) fails. The marker sits at the edge
+the surface acts on: the press by default, the release for `act: 'release'` (LG's Quick Settings
+opens on the release of the settings key, so a marker at the press would count the 50 ms the
+injected tap is held). `still` switches the wallpaper's 10 Hz tick off for the surface (a tick
+frame could otherwise be taken for the response; the user's setting is put back). `delivery` is for
+a surface a luna call opens (toast, alert): its first frame is judged from the moment luna-send
+returned (kb.py's `Q:NAME-sent`), because the spawn, the hub and the service before that are not
+the compositor's. The run starts with 3
 open/close cycles per surface in `full` captures (scheduler and GPU events, for root-causing a
 miss); then --cycles (default 10) cycles in `basic` captures (frame events only), whose 1 s
 sampler gives the compositor RSS. --soak is the release run: 500 cycles, split into traces of at
@@ -46,7 +53,9 @@ TOOL = '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumat
 # name          unique; also the marker prefix: windows are "<name>-open" and "<name>-close"
 # open, close   kb.py token strings. open starts with the token "@<name>-open" and close with
 #               "@<name>-close", each placed immediately before the key it times. A close with
-#               no key only ends the open window.
+#               no key only ends the open window. With `act: 'release'` open is the marker and
+#               one key token, and the gate presses the key 50 ms before the marker and releases
+#               it at the marker.
 # settle_s      seconds waited after open and after close before the next step
 # transition    True: the close key is a measured response too (checked like the open); False
 #               for workloads on a surface that stays up (Home idle, D-pad, sweep)
@@ -55,10 +64,13 @@ TOOL = '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumat
 # reopen        shell commands run before every cycle, outside the measured windows, for a
 #               surface the close key tears down for good (reopen_wait_s waits for it to build)
 # soak          False when cycling it says nothing about memory (Home idle)
+# act           'press' (default) or 'release': the edge of the key the surface acts on
+# still         True (default): the wallpaper's tick is off while the surface is measured
+# delivery      True: a luna call opens it; the first frame is timed from luna-send's return
 # default       False: part of the gate only when named with --surfaces
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
 SURFACES = [
-    {'name': 'home-idle',
+    {'name': 'home-idle', 'still': False,
      'open': '@home-idle-open s3', 'close': '@home-idle-close', 'settle_s': 3,
      'transition': False, 'soak': False,
      'thresholds': {'first_frame_ms': None, 'burst_end_ms': None, 'burst_over20': None}},
@@ -71,7 +83,7 @@ SURFACES = [
      'open': '@home-sweep-open RIGHT:1500 s0.4 LEFT:1500 s0.4 UP s0.6 DOWN', 'close': '@home-sweep-close', 'settle_s': 1,
      'transition': False,
      'thresholds': {'burst_end_ms': None}},
-    {'name': 'quick-settings',
+    {'name': 'quick-settings', 'act': 'release',
      'open': '@quick-settings-open MENU', 'close': '@quick-settings-close BACK', 'settle_s': 2.5},
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
@@ -80,9 +92,9 @@ SURFACES = [
     # opens them (`!toast`, `!alert` in kb.py) and nothing closes the toast but its own timer (about 5 s);
     # the alert is closed by OK. Run on request (`--surfaces toast,alert`): the stock ones are not
     # expected to pass.
-    {'name': 'toast', 'default': False,
+    {'name': 'toast', 'default': False, 'delivery': True,
      'open': '@toast-open !toast', 'close': '@toast-close', 'settle_s': 8, 'transition': False},
-    {'name': 'alert', 'default': False,
+    {'name': 'alert', 'default': False, 'delivery': True,
      'open': '@alert-open !alert', 'close': '@alert-close OK', 'settle_s': 2.5},
     {'name': 'kit-gallery',
      'setup': [TOOL + " theme set '{\"kitGallery\":true}'", 'sleep 3'],
@@ -92,7 +104,8 @@ SURFACES = [
 ]
 
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0,
-                    'transition': True, 'soak': True, 'default': True, 'thresholds': {}}
+                    'transition': True, 'soak': True, 'default': True, 'thresholds': {},
+                    'act': 'press', 'still': True, 'delivery': False}
 
 # The PLAN gate. An override in a surface may set any of these to None to turn the check off.
 THRESHOLDS = {
@@ -146,6 +159,7 @@ LOG_REPORT_MAX = 20
 
 KB = '/tmp/kb.py'
 CAPTURE = '/tmp/perf/capture.sh'
+SAMPLER = '/tmp/perf/sample.py'
 
 
 # ------------------------------------------------------- the surfaces table
@@ -174,6 +188,14 @@ def validate(entries):
         unknown = set(s['thresholds']) - set(THRESHOLDS)
         if unknown:
             raise ValueError(f'{n}: unknown thresholds {sorted(unknown)}')
+        if s['act'] not in ('press', 'release'):
+            raise ValueError(f"{n}: act is 'press' or 'release'")
+        if s['act'] == 'release':
+            opens = s['open'].split()
+            if len(opens) != 2 or opens[1][0] in '@!s' or opens[1][-1] in '+-:' or 'x' in opens[1]:
+                raise ValueError(f'{n}: act release needs open to be the marker and one plain key token')
+        if s['delivery'] and '!' not in s['open']:
+            raise ValueError(f'{n}: delivery needs a luna call (!NAME) in open')
     return True
 
 
@@ -210,9 +232,19 @@ def settle_token(seconds):
     return f's{seconds:g}' if seconds else None
 
 
+def open_tokens(s):
+    """kb.py tokens that open a surface. A surface that acts on the release gets its marker at the
+    release: the key goes down 50 ms earlier, the marker is written, the key goes up."""
+    toks = s['open'].split()
+    if s['act'] == 'release':
+        marker, key = toks
+        return [key + '+', 's0.05', marker, key + '-']
+    return toks
+
+
 def cycle_tokens(s):
     """kb.py tokens for one open/close cycle."""
-    toks = s['open'].split()
+    toks = open_tokens(s)
     toks.append(settle_token(s['settle_s']))
     toks += s['close'].split()
     toks.append(settle_token(s['settle_s']))
@@ -488,7 +520,7 @@ def jsonable(v):
 
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
-               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms')
+               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms')
 
 
 # ------------------------------------------------------------------- the set
@@ -510,7 +542,8 @@ class Rig:
 
     def push_tools(self):
         self.sh('mkdir -p /tmp/perf')
-        for local, remote, mode in ((os.path.join(HERE, 'kb.py'), KB, '755'), (os.path.join(HERE, 'capture.sh'), CAPTURE, '755')):
+        for local, remote, mode in ((os.path.join(HERE, 'kb.py'), KB, '755'), (os.path.join(HERE, 'capture.sh'), CAPTURE, '755'),
+                                    (os.path.join(HERE, 'sample.py'), SAMPLER, '644')):
             with open(local, 'rb') as f:
                 data = f.read()
             stdin, out, _ = self.set.cli.exec_command(f'cat > {remote} && chmod {mode} {remote}')
@@ -518,6 +551,19 @@ class Rig:
             stdin.channel.shutdown_write()
             if out.channel.recv_exit_status() != 0:
                 raise RuntimeError(f'could not copy {local} to the set')
+
+    def motion_enabled(self):
+        """The wallpaper motion switch as the owner's theme.json has it: True, False, or None when the file does not say."""
+        rc, out, _ = self.sh(f'{TOOL} theme get')
+        try:
+            return json.loads(out).get('wallpaperMotion', {}).get('enabled')
+        except (ValueError, AttributeError):
+            return None
+
+    def set_motion(self, enabled):
+        """Switch the wallpaper's 10 Hz tick; Home reads the file every 2 s, so wait 3."""
+        self.sh(TOOL + ' theme set ' + shlex.quote(json.dumps({'wallpaperMotion': {'enabled': bool(enabled)}})))
+        time.sleep(3)
 
     def remember_compositor(self, pid):
         self.set.sm_pid = pid
@@ -589,6 +635,39 @@ def merge_reports(reports):
     return out
 
 
+FRAME_EVENT = re.compile(r'^\s*.*?-\d+\s+\[\d{3}\]\s+\S+\s+([\d.]+):\s+drm_vblank_event_delivered:')
+
+
+def frame_times(text):
+    """Presentation time of every frame in a trace dump, sorted."""
+    return sorted(float(m.group(1)) for m in map(FRAME_EVENT.match, text.splitlines()) if m)
+
+
+def apply_delivery(report, text, name, window_s=2.0):
+    """For a surface a luna call opens: its `<name>-open` windows' first_frame_ms, burst_end_ms and
+    burst_over20 are measured from `Q:<name>-sent` (luna-send returned) instead of from the marker
+    at its spawn, and sent_ms (spawn to return) is recorded. A window with no `Q:` marker after it
+    (the call did not return) gets no first frame. Mutates the report's windows."""
+    import analyse
+    marks = parse_markers(text)
+    opens = [t for t, txt in marks if txt == f'P:{name}-open']
+    sents = [t for t, txt in marks if txt == f'Q:{name}-sent']
+    frames = frame_times(text)
+    windows = [w for w in report['windows'] if w['name'] == f'{name}-open']
+    for w, t0 in zip(windows, opens):
+        nxt = next((t for t in opens if t > t0), None)
+        sent = next((t for t in sents if t >= t0 and (nxt is None or t < nxt)), None)
+        if sent is None:
+            w['sent_ms'] = None
+            w['first_frame_ms'] = w['burst_end_ms'] = None
+            continue
+        w['sent_ms'] = round((sent - t0) * 1000.0, 2)
+        later = [f for f in frames if sent <= f < sent + window_s and (nxt is None or f < nxt)]
+        b = analyse.burst(later, sent)
+        w['first_frame_ms'], w['burst_end_ms'], w['burst_over20'] = b['first_frame_ms'], b['burst_end_ms'], b['over20']
+    return report
+
+
 def run_surface(rig, s, tag, soak_cycles, log):
     base = f'gate-{tag}-{s["name"]}'
     res = {'name': s['name'], 'checks': [], 'traces': [], 'windows': [], 'log_lines': [], 'log_ignored': 0,
@@ -615,13 +694,17 @@ def run_surface(rig, s, tag, soak_cycles, log):
             name = f'{base}-m{i}'
             res['traces'].append(name)
             rig.capture(name, 'full')
+            trace = None
             try:
                 rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
             finally:
-                rig.stop(name)
+                trace, _sysfile = rig.stop(name)
             if rc != 0:
                 checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
-            reports.append(rig.analyse(name))
+            one = rig.analyse(name)
+            if s['delivery']:
+                apply_delivery(one, read(trace), s['name'])
+            reports.append(one)
         report = merge_reports(reports)
         checks += evaluate_windows(s, report, MEASURE_CYCLES, rig.lg_compositor())
         res['windows'] = [{k: w.get(k) for k in WINDOW_KEYS} for w in report['windows']
@@ -671,10 +754,20 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None):
     rig.push_tools()
     log = log or LogWatch(rig)
     results = []
-    for s in surfaces:
-        r = run_surface(rig, s, tag, soak_cycles, log)
-        print(format_lines([r]), flush=True)
-        results.append(r)
+    original = rig.motion_enabled()       # None: the file says nothing, the shipped default (on) applies
+    now = original is not False
+    try:
+        for s in surfaces:
+            want = (original is not False) if not s['still'] else False
+            if want != now:
+                rig.set_motion(want)
+                now = want
+            r = run_surface(rig, s, tag, soak_cycles, log)
+            print(format_lines([r]), flush=True)
+            results.append(r)
+    finally:
+        if now != (original is not False):
+            rig.set_motion(original is not False)
     return results
 
 

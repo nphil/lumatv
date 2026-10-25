@@ -1,19 +1,23 @@
 import QtQuick 2.4
 import "kit"
 
-// LumaTV's Settings: a rail of sections on the left, the section's page on the right, both glass
-// panes over the dimmed wallpaper (docs/mocks/30-settings-home, 04-settings-ai-access). A modal layer of
-// Home like the kit gallery: LumaHome builds it when it is asked for, hands it the D-pad as
-// `key(dir)` (up, down, left, right, ok, back) and closes it on `closeRequested`. Nothing here
-// writes a file or calls a service itself: a page asks the host through the signals below, so the
-// same surface runs in the offline host, in Home, and later in a window of its own.
+// LumaTV's Settings (docs/mocks/30-settings-home and its sisters): a bar with the way back, the clock
+// and the link state, a rail of nine sections each with an icon tile and a live one-line summary, and
+// the section's page in a glass pane beside it. A modal layer of Home: Layers builds it in the
+// background after Home has presented, every page with it (each page is a settings/Page*.qml drawn
+// from row descriptors by PageList), so opening it flips `visible` and moving down the rail switches
+// pages without building anything. LumaHome hands it the D-pad as `key(dir)` (up, down, left, right, ok,
+// back) and closes it on `closeRequested`. Nothing here writes a file or calls a service itself: a page
+// asks the host through the signals below, so the same surface runs in the offline host, in Home and
+// later in a window of its own.
 //
-// Sections are the pages that exist. What LG's Settings has beyond them stays LG's, behind the
-// last row of the rail ("More in LG settings"), which launches LG's app.
+// What LG's Settings has beyond these pages stays LG's, behind "More in LG settings" rows and the last
+// row of the rail, which launch LG's app.
 //
 // Focus has two zones, the rail and the page. The rail moves with Up and Down and enters the page
 // with Right or OK; the page keeps its own stop and handles its keys in `key(dir)`, which returns
-// false for the ones it does not use, and Left or Back then returns to the rail.
+// false for the ones it does not use, and Left or Back then returns to the rail (a child page, like
+// the receiver's, goes back to its parent first).
 Item {
     id: settings
     anchors.fill: parent
@@ -26,35 +30,70 @@ Item {
 
     property string zone: "rail"
     property int railIndex: 0
+    property string current: "picture"   // the page shown: a rail section, or a child page (the receiver)
     property bool rested: true
     property Item backdropItem: Lu.backdrop
+    property int loaded: 0
+    property var summaries: ({})         // page id -> the rail's second line, kept by each page's own summary
+    readonly property bool built: loaded >= pages.length
+    property var clock: new Date()
 
-    readonly property var sections: [
-        { id: "look", title: "Home & look", page: "settings/PageLook.qml" },
-        { id: "ai", title: "AI access", page: "settings/PageAi.qml" }
+    // The rail's sections in the mock's order, then the pages that are children of one.
+    readonly property var pages: [
+        { id: "picture", title: "Picture", icon: "image", page: "settings/PagePicture.qml", rail: true },
+        { id: "sound", title: "Sound", icon: "volume-2", page: "settings/PageSound.qml", rail: true },
+        { id: "inputs", title: "Inputs & devices", icon: "cable", page: "settings/PageInputs.qml", rail: true },
+        { id: "network", title: "Network", icon: "wifi", page: "settings/PageNetwork.qml", rail: true },
+        { id: "look", title: "Home & look", icon: "house", page: "settings/PageLook.qml", rail: true },
+        { id: "remote", title: "Remote & pointer", icon: "mouse-pointer-2", page: "settings/PageRemote.qml", rail: true },
+        { id: "ai", title: "AI access", icon: "bot", page: "settings/PageAi.qml", rail: true },
+        { id: "system", title: "System", icon: "settings", page: "settings/PageSystem.qml", rail: true },
+        { id: "receiver", title: "Receiver", icon: "boom-box", page: "settings/PageReceiver.qml", rail: false }
     ]
+    readonly property var sections: pages.filter(function(p) { return p.rail })
     readonly property int railCount: sections.length + 1        // the last row is LG's Settings
     readonly property bool lgRow: railIndex >= sections.length
 
-    // The words under each section's name; the page shown fills in its own when it is up.
-    function summaryFor(id) {
-        if (id === "look") {
-            var t = Lu.theme || ({})
-            return (t.accent === "wallpaper" ? "Dynamic tint" : "Fixed accent") + " \u00b7 " + (t.material === "auto" || !t.material ? "auto light" : t.material)
+    function pageItem(id) {
+        for (var i = 0; i < pageRepeater.count; i++) {
+            var l = pageRepeater.itemAt(i)
+            if (l && settings.pages[i].id === id) return l.item
         }
-        if (id === "ai") {
-            var a = Helper.ai
-            if (!a) return Helper.up ? "Off" : "The helper is not running"
-            var n = (a.assistants || []).length
-            return (a.listener && a.listener.enabled ? "LAN only" : "Off") + " \u00b7 " + n + (n === 1 ? " assistant" : " assistants")
-        }
-        return ""
+        return null
+    }
+    function summaryFor(id) { return summaries[id] || "" }
+    function setSummary(id, text) {
+        if (summaries[id] === text) return
+        var s = {}
+        for (var k in summaries) s[k] = summaries[k]
+        s[id] = text
+        summaries = s
+    }
+    function openPage(id) {
+        current = id
+        var p = pageItem(id)
+        if (p && p.reset) p.reset()
+    }
+    // Come to a page from outside (a tile of the quick panel): its section is the one on the rail and the page has the focus.
+    function goTo(id) {
+        var parentId = id === "receiver" ? "sound" : id
+        for (var i = 0; i < sections.length; i++) if (sections[i].id === parentId) { railIndex = i; break }
+        current = id
+        zone = "page"
+        var p = pageItem(id)
+        if (p && p.reset) p.reset()
     }
     function patch(p) { themePatch(p); themePersist(p) }
 
-    onRailIndexChanged: { rested = false; restTimer.restart() }
+    onRailIndexChanged: { rested = false; restTimer.restart(); if (railIndex < sections.length) current = sections[railIndex].id }
     onZoneChanged: { rested = false; restTimer.restart() }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: settings.rested = true }
+    onVisibleChanged: {
+        if (!visible) return
+        zone = "rail"
+        clock = new Date()
+        if (railIndex < sections.length) current = sections[railIndex].id
+    }
 
     function key(dir) {
         if (zone === "rail") {
@@ -62,11 +101,19 @@ Item {
             if (dir === "down") { railIndex = Math.min(railCount - 1, railIndex + 1); return true }
             if (dir === "back") { closeRequested(); return true }
             if (dir === "ok" && lgRow) { launchApp("com.palm.app.settings"); closeRequested(); return true }
-            if (dir === "right" || dir === "ok") { if (!lgRow) zone = "page"; return true }
+            if (dir === "right" || dir === "ok") {
+                if (!lgRow) {
+                    zone = "page"
+                    var p = pageItem(current)
+                    if (p && p.reset) p.reset()
+                }
+                return true
+            }
             return true
         }
-        var p = pageLoader.item
-        if (p && p.key(dir)) return true
+        var page = pageItem(current)
+        if (page && page.key(dir)) return true
+        if (dir === "back" && current !== sections[railIndex].id) { openPage(sections[railIndex].id); return true }   // a child page returns to its parent
         if (dir === "left" || dir === "back") zone = "rail"
         return true
     }
@@ -74,56 +121,54 @@ Item {
     // The wallpaper dims a step behind the panes.
     Rectangle { anchors.fill: parent; color: Lu.scrim }
 
-    // ---- header
-    Item {
-        id: head
+    // ---- bar
+    LuPane {
+        id: bar
         x: 64; y: 56; width: 1792; height: 60
-        Glass {
-            mat: Lu.material; isLight: Lu.isLight; cardRadius: Lu.radius("sheet") / 2; focusMix: 0
-            screenX: head.x; screenY: head.y; screenW: head.width; screenH: head.height
-            backdrop: settings.backdropItem
-        }
-        LuText { x: Lu.space(6); anchors.verticalCenter: parent.verticalCenter; role: "label"; text: "\u2039"; color: Lu.ink2 }
-        LuText { x: Lu.space(6) + 30; anchors.verticalCenter: parent.verticalCenter; role: "title"; text: "Settings" }
-        LuText {
+        cardRadius: Lu.radius("sheet") / 2
+        LuIcon { x: Lu.space(5); anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: 28; color: Lu.ink2 }
+        LuText { x: Lu.space(5) + 40; anchors.verticalCenter: parent.verticalCenter; role: "title"; text: "Settings" }
+        Row {
             anchors.verticalCenter: parent.verticalCenter
-            x: parent.width - Lu.space(6) - width
-            role: "label"; color: Lu.ink2
-            text: Qt.formatTime(clock.now, "h:mm AP")
+            x: parent.width - width - Lu.space(6)
+            spacing: Lu.space(5)
+            LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "wifi"; size: 28; color: Lu.ink2 }
+            LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "mouse-pointer-2"; size: 28; color: Lu.ink2 }
+            LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; color: Lu.ink2; text: Qt.formatTime(settings.clock, "h:mm AP") }
         }
-        QtObject { id: clock; property var now: new Date() }
-        Timer { interval: 15000; running: settings.visible; repeat: true; onTriggered: clock.now = new Date() }
+        Timer { interval: 15000; running: settings.visible; repeat: true; onTriggered: settings.clock = new Date() }
     }
 
     // ---- rail
-    Item {
+    LuPane {
         id: rail
         x: 64; y: 137; width: 446; height: 883
-        Glass {
-            mat: Lu.material; isLight: Lu.isLight; cardRadius: Lu.radius("sheet"); focusMix: 0
-            screenX: rail.x; screenY: rail.y; screenW: rail.width; screenH: rail.height
-            backdrop: settings.backdropItem
-        }
         Column {
             x: Lu.space(3); y: Lu.space(3)
             width: parent.width - 2 * Lu.space(3)
+            spacing: 0
             Repeater {
                 model: settings.sections
                 delegate: LuRow {
                     width: parent.width
+                    height: Math.round(Lu.row * 0.95)
+                    icon: modelData.icon
                     label: modelData.title
-                    detail: index === settings.railIndex && pageLoader.item && pageLoader.item.summary ? pageLoader.item.summary : settings.summaryFor(modelData.id)
+                    detail: settings.summaryFor(modelData.id)
+                    tileAccent: index === settings.railIndex
                     focused: settings.zone === "rail" && settings.railIndex === index
                     selected: settings.railIndex === index
                     rested: settings.rested
-                    onActivated: { settings.railIndex = index; settings.zone = "page" }
+                    onActivated: { settings.railIndex = index; settings.zone = "page"; var p = settings.pageItem(settings.current); if (p && p.reset) p.reset() }
                     onHoverFocus: { settings.railIndex = index; settings.zone = "rail" }
                 }
             }
             LuRow {
                 width: parent.width
+                height: Math.round(Lu.row * 0.95)
+                icon: "square-arrow-out-up-right"
                 label: "More in LG settings"
-                detail: "Picture, sound, network and the rest"
+                detail: "Everything else, themed"
                 focused: settings.zone === "rail" && settings.lgRow
                 rested: settings.rested
                 onActivated: { settings.launchApp("com.palm.app.settings"); settings.closeRequested() }
@@ -133,22 +178,34 @@ Item {
     }
 
     // ---- page
-    Item {
+    LuPane {
         id: pane
         x: 536; y: 137; width: 1320; height: 883
-        Glass {
-            mat: Lu.material; isLight: Lu.isLight; cardRadius: Lu.radius("sheet"); focusMix: 0
-            screenX: pane.x; screenY: pane.y; screenW: pane.width; screenH: pane.height
-            backdrop: settings.backdropItem
-        }
-        Loader {
-            id: pageLoader
+        Item {
+            id: content
             x: Lu.space(6); y: Lu.space(5)
             width: parent.width - 2 * Lu.space(6)
             height: parent.height - 2 * Lu.space(5)
             clip: true
-            source: settings.lgRow ? "" : settings.sections[settings.railIndex].page
-            onLoaded: item.host = settings
+            Repeater {
+                id: pageRepeater
+                model: settings.pages
+                delegate: Loader {
+                    id: slot
+                    width: content.width
+                    height: content.height
+                    asynchronous: !(Lu.theme && Lu.theme.perf && Lu.theme.perf.syncResidents)
+                    source: modelData.page
+                    visible: status === Loader.Ready && settings.current === modelData.id && !settings.lgRow
+                    onLoaded: { item.host = settings; settings.setSummary(modelData.id, item.summary || ""); settings.loaded++ }
+                    Connections {
+                        target: slot.item
+                        ignoreUnknownSignals: true
+                        onSummaryChanged: settings.setSummary(modelData.id, slot.item.summary || "")
+                    }
+                    onStatusChanged: if (status === Loader.Error) { console.warn("[Settings] page " + modelData.id + " did not load"); settings.loaded++ }
+                }
+            }
         }
     }
 }

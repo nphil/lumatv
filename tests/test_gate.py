@@ -283,5 +283,115 @@ class Windows(unittest.TestCase):
                         self.assertTrue(cmd.startswith(gate.TOOL), cmd)
 
 
+class Edges(unittest.TestCase):
+    """What a key that acts on its release, a luna call and the wallpaper's tick change in a run."""
+
+    def test_quick_settings_is_timed_from_the_release_and_the_key_goes_down_first(self):
+        s = gate.find(['quick-settings'])[0]
+        self.assertEqual(s['act'], 'release')
+        toks = gate.cycle_tokens(s)
+        self.assertEqual(toks[:4], ['MENU+', 's0.05', '@quick-settings-open', 'MENU-'])
+        # the marker is between the press and the release, so the press is not in the measured window
+        self.assertLess(toks.index('MENU+'), toks.index('@quick-settings-open'))
+        self.assertLess(toks.index('@quick-settings-open'), toks.index('MENU-'))
+
+    def test_a_press_surface_keeps_its_tokens(self):
+        s = gate.find(['home-dpad'])[0]
+        self.assertEqual(gate.open_tokens(s), s['open'].split())
+
+    def test_act_release_needs_one_plain_key(self):
+        bad = {'name': 'x', 'act': 'release', 'open': '@x-open RIGHTx3', 'close': '@x-close'}
+        with self.assertRaises(ValueError):
+            gate.validate([bad])
+        bad = {'name': 'x', 'act': 'sideways', 'open': '@x-open OK', 'close': '@x-close'}
+        with self.assertRaises(ValueError):
+            gate.validate([bad])
+
+    def test_delivery_needs_a_luna_call(self):
+        with self.assertRaises(ValueError):
+            gate.validate([{'name': 'x', 'delivery': True, 'open': '@x-open OK', 'close': '@x-close'}])
+        self.assertTrue(gate.surface([e for e in gate.SURFACES if e['name'] == 'alert'][0])['delivery'])
+
+    TRACE = '\n'.join([
+        '  <...>-1 [001] .... 100.000: tracing_mark_write: P:alert-open',
+        '  <...>-1 [001] .... 100.060: tracing_mark_write: Q:alert-sent',
+        '  <idle>-0 [000] dNH2 100.030: drm_vblank_event_delivered: file=0, crtc=0, seq=1',     # before the call returned
+        '  <idle>-0 [000] dNH2 100.100: drm_vblank_event_delivered: file=0, crtc=0, seq=2',
+        '  <idle>-0 [000] dNH2 100.117: drm_vblank_event_delivered: file=0, crtc=0, seq=6',
+        '  <idle>-0 [000] dNH2 100.134: drm_vblank_event_delivered: file=0, crtc=0, seq=3',
+        '  <idle>-0 [000] dNH2 100.151: drm_vblank_event_delivered: file=0, crtc=0, seq=4',
+        '  <...>-1 [001] .... 105.000: tracing_mark_write: P:alert-open',                        # a call that never returned
+        '  <idle>-0 [000] dNH2 105.050: drm_vblank_event_delivered: file=0, crtc=0, seq=5',
+        ''])
+
+    def test_delivery_times_the_first_frame_from_the_return_of_luna_send(self):
+        rep = {'windows': [{'name': 'alert-open', 'first_frame_ms': 30.0, 'burst_end_ms': None, 'burst_over20': 0},
+                           {'name': 'alert-open', 'first_frame_ms': 50.0, 'burst_end_ms': 50.0, 'burst_over20': 0}]}
+        gate.apply_delivery(rep, self.TRACE, 'alert')
+        first, second = rep['windows']
+        self.assertEqual(first['sent_ms'], 60.0)
+        self.assertAlmostEqual(first['first_frame_ms'], 40.0, places=1)       # 100.100 - 100.060
+        self.assertAlmostEqual(first['burst_end_ms'], 91.0, places=1)         # the burst runs to 100.151
+        self.assertIsNone(second['sent_ms'])
+        self.assertIsNone(second['first_frame_ms'])                           # no return: dead, and the gate says so
+
+    def test_a_delivery_window_without_a_return_fails_the_surface(self):
+        s = gate.find(['alert'])[0]
+        r = report('alert', 3)
+        r['windows'][0]['first_frame_ms'] = None
+        self.assertIn('windows', failed(gate.evaluate_windows(s, r, 3)))
+
+    class FakeRig:
+        def __init__(self, motion):
+            self.motion, self.calls = motion, []
+
+        def push_tools(self):
+            pass
+
+        def motion_enabled(self):
+            return self.motion
+
+        def set_motion(self, enabled):
+            self.calls.append(enabled)
+
+    def run_gate(self, motion, names):
+        rig = self.FakeRig(motion)
+        orig = gate.run_surface
+        gate.run_surface = lambda rig_, s, tag, soak, log: {'name': s['name'], 'checks': [], 'log_lines': []}
+        try:
+            gate.run_gate(rig, gate.find(names), 3, 't', log=object())
+        finally:
+            gate.run_surface = orig
+        return rig
+
+    def test_the_tick_is_off_while_a_still_surface_runs_and_back_as_the_owner_had_it(self):
+        # idle Home first (the tick as it is), then two still surfaces: off once, back on at the end
+        rig = self.run_gate(True, ['home-idle', 'quick-settings', 'kit-gallery'])
+        self.assertEqual(rig.calls, [False, True])
+        rig = self.run_gate(True, ['quick-settings'])
+        self.assertEqual(rig.calls, [False, True])
+
+    def test_idle_home_is_measured_with_the_tick_the_owner_has(self):
+        rig = self.run_gate(True, ['home-idle'])
+        self.assertEqual(rig.calls, [])
+        rig = self.run_gate(False, ['quick-settings', 'home-idle'])      # the owner has motion off: nothing to change for them
+        self.assertEqual(rig.calls, [])
+        rig = self.run_gate(None, ['quick-settings'])                    # the file says nothing: on, the shipped default
+        self.assertEqual(rig.calls, [False, True])
+
+    def test_a_failed_surface_still_gives_the_tick_back(self):
+        rig = self.FakeRig(True)
+        orig = gate.run_surface
+        def boom(*a):
+            raise RuntimeError('x')
+        gate.run_surface = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                gate.run_gate(rig, gate.find(['quick-settings']), 3, 't', log=object())
+        finally:
+            gate.run_surface = orig
+        self.assertEqual(rig.calls, [False, True])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -9,4 +9,14 @@ LuSlider 1.0 LuSlider.qml
 LuButton 1.0 LuButton.qml
 LuSegmented 1.0 LuSegmented.qml
 LuChip 1.0 LuChip.qml
+LuIcon 1.0 LuIcon.qml
+LuTile 1.0 LuTile.qml
+LuPane 1.0 LuPane.qml
+LuCard 1.0 LuCard.qml
+LuRing 1.0 LuRing.qml
+singleton Inputs 1.0 Inputs.qml
+singleton Net 1.0 Net.qml
 singleton Helper 1.0 Helper.qml
+singleton Sio 1.0 Sio.qml
+singleton PluginHub 1.0 PluginHub.qml
+PluginCard 1.0 PluginCard.qml

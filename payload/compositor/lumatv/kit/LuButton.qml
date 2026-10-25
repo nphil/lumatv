@@ -9,6 +9,7 @@ Item {
     id: button
     property string text: ""
     property bool primary: false
+    property bool danger: false             // the answer that destroys something: the label in the danger colour
     property bool focused: false
     property bool rested: true
     signal activated()
@@ -54,7 +55,7 @@ Item {
         anchors.centerIn: parent
         role: "label"
         text: button.text
-        color: button.primary ? Lu.accentInk : Lu.ink
+        color: button.primary ? Lu.accentInk : button.danger ? Lu.danger : Lu.ink
     }
     MouseArea {
         id: mouse

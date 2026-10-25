@@ -63,6 +63,7 @@ Item {
     Binding { target: Lu; property: "isLight"; value: root.isLight }
     Binding { target: Lu; property: "wallAccent"; value: root.wallTint ? root.wallAccent : "transparent" }
     Binding { target: Lu; property: "backdrop"; value: blurTex }
+    Binding { target: Lu; property: "baseUrl"; value: root.moduleDirUrl }
 
     function resolvePath(p) {
         if (!p) return ""
@@ -195,8 +196,15 @@ Item {
                 root.applyTheme(json, text)
             })
             loadJson(root.themeDirUrl + "layout.json", function(json, text) { if ((text || "") !== root.lastLayoutText) root.applyLayout(json, text) })
+            // The development door: a layer named in this file is shown (the gate and the host use it for surfaces that no
+            // Home key opens yet). The file is in /tmp, so a reboot clears it.
+            var door = (layerFile.exists ? layerFile.read() : "").replace(/\s+/g, "")
+            if (door !== root.doorLayer) root.doorLayer = door
         }
     }
+    TextFile { id: layerFile; name: "file:///tmp/{{shortId}}-layer" }
+    property string doorLayer: ""             // a layer the development door asked for
+    property string layerOpen: ""             // a layer Home opened itself (the quick panel from the Menu key)
 
     // ============================================================= Home stub contract
     // With the Home stub (tools/lumatv homestub) this layer is the only Home, so
@@ -707,6 +715,15 @@ Item {
         }
     }
     function key(k, pressed, autoRepeat, deviceId) {
+        // The volume keys are only watched: the receiver's OSD asks the helper for a fresh reading, and LG's chain
+        // still gets the key. Nothing else here depends on them.
+        if (pressed && !autoRepeat && (k === Qt.Key_VolumeUp || k === Qt.Key_VolumeDown || k === Qt.Key_VolumeMute)) { layers.volumeKey(); return false }
+        // The Menu key opens LumaTV's own quick panel when the owner has turned it on (theme `quickPanel.own`); otherwise
+        // it goes to LG's Quick Settings as it always did.
+        if (hostActive && pressed && !autoRepeat && k === Qt.Key_Menu && theme.quickPanel && theme.quickPanel.own && !aiPrompt.up) {
+            if (layers.open === "quick") closeLayer(); else if (layers.open === "") openLayer("quick")
+            return true
+        }
         var dir = directionFor(k)
         if (!dir) return false
         // An AI prompt is up: the helper reads the answer from the physical remote itself, and nothing
@@ -740,11 +757,10 @@ Item {
         return keyAction(dir)
     }
     function keyAction(dir) {
-        if (settingsOpen && settingsLoader.item) { settingsLoader.item.key(dir); return true }
-        if (galleryLoader.item) {
-            // the kit gallery is modal while it is up; Back closes it
-            if (dir === "back") { patchTheme({ kitGallery: false }); persistTheme({ kitGallery: false }) }
-            else galleryLoader.item.key(dir)
+        if (layers.open !== "") {
+            // a modal surface owns the keys while it is up; Back closes the kit gallery, any other asks to close itself
+            if (layers.open === "gallery" && dir === "back") closeLayer()
+            else layers.key(dir)
             return true
         }
         var d = dockLoader.item
@@ -943,6 +959,7 @@ Item {
             rested: root.focusRested
             onRowChanged: root.dockRow = row
             onColChanged: root.dockCol = col
+            onLaunching: layers.launchSplash(title, iconUrl)
         }
         MouseArea {
             // hovering the dock card itself hands the layer to the dock
@@ -1055,44 +1072,41 @@ Item {
         }
     }
 
-    // ============================================================= kit gallery (development)
-    // Every kit component on one sheet, built only while theme.json says "kitGallery": true and
-    // Home is on screen (KitGallery.qml). Nothing is created otherwise.
-    Loader {
-        id: galleryLoader
-        anchors.fill: parent
-        z: 60
-        active: !!root.theme.kitGallery && root.hostActive
-        source: "KitGallery.qml"
-    }
-
-    // ============================================================= settings
-    // LumaTV's Settings (Settings.qml): built on the first open and kept, so a later open shows the
-    // item and moves focus. It asks for what it needs through its signals and owns no file.
+    // ============================================================= resident surfaces
+    // Settings, the kit gallery and the other panels that open over Home are built in the background
+    // once Home has presented and kept (Layers.qml, Resident.qml), so opening one is a visibility flip
+    // on a tree that is already laid out, never a build inside the frame the key waits for. Home decides
+    // which one is open and gives it the keys; the layer decides nothing else.
     property bool settingsOpen: false
-    property bool settingsBuilt: false
+    readonly property var lunaCalls: LS.calls || []        // what the offline host's luna stand-in recorded; the set's bridge has none
+    readonly property bool galleryOn: !!root.theme.kitGallery && root.hostActive
     function openSettings() {
         if (!hostActive) return
         statusBarItem.requestClosePopover()
-        settingsBuilt = true
         settingsOpen = true
     }
     function closeSettings() { settingsOpen = false; if (hostActive) focusLayer = "statusbar" }
-    Loader {
-        id: settingsLoader
-        anchors.fill: parent
-        z: 61
-        active: root.settingsBuilt
-        visible: root.settingsOpen
-        source: "Settings.qml"
+    function openLayer(id) { if (!hostActive) return; statusBarItem.requestClosePopover(); layerOpen = id }
+    function closeLayer() {
+        layerOpen = ""
+        if (doorLayer !== "") { layerFile.write(""); doorLayer = "" }
+        if (theme.kitGallery) { patchTheme({ kitGallery: false }); persistTheme({ kitGallery: false }) }
     }
-    Connections {
-        target: settingsLoader.item
-        ignoreUnknownSignals: true
-        onThemePatch: root.patchTheme(patch)
-        onThemePersist: root.persistTheme(patch)
-        onLaunchApp: LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: appId }))
-        onCloseRequested: root.closeSettings()
+    // What the rest of Home asks of the small panels: a menu next to something, a question, the on-screen remote, the
+    // launch splash, a spinner, the ring around a tile that is being held. Each is a call on a built item.
+    function showMenu(spec) { layers.openMenu(spec); openLayer("menu") }
+    function showConfirm(spec) { layers.askConfirm(spec); openLayer("confirm") }
+    function showRemote() { openLayer("remote") }
+    function showSplash(name, icon) { layers.launchSplash(name, icon) }
+    function showSpinner(text) { layers.spinner(text) }
+    function showHold(rect, name, fraction) { layers.holdRing(rect, name, fraction) }
+    Layers {
+        id: layers
+        z: 60
+        home: root
+        open: !root.hostActive ? "" : root.settingsOpen ? "settings" : root.layerOpen !== "" ? root.layerOpen : root.doorLayer !== "" ? root.doorLayer : root.galleryOn ? "gallery" : ""
+        onCloseRequested: { if (id === "settings") root.closeSettings(); else root.closeLayer() }
+        onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
     }
 
     // ============================================================= AI prompt
@@ -1108,10 +1122,13 @@ Item {
         id: warmup
         tree: root
         enabled: !root.theme.warmup || root.theme.warmup.enabled !== false
-        active: root.hostActive
+        active: root.hostActive && layers.built
         startMs: (root.theme.warmup && root.theme.warmup.startMs) || 1500
         stepMs: (root.theme.warmup && root.theme.warmup.stepMs) || 50
     }
+    // The icon shader is one program for every Lucide icon on any surface; drawn once here, none compiles it on show.
+    Component { id: iconProbe; LuIcon { name: "check"; size: 8 } }
+    QtObject { Component.onCompleted: Warm.request({ components: [iconProbe] }) }
 
     // ====================================================== frame pacing probe / overlay
     // onFrameSwapped fires once per presented frame of the compositor's own

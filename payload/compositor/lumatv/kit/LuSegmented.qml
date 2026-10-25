@@ -12,7 +12,14 @@ Item {
     signal picked(int index)
     signal hoverFocus(int index)
 
-    property int segmentWidth: Lu.target * 3
+    property string textRole: "label"        // "caption" for a dense row
+    readonly property int longestChars: {
+        var n = 0
+        for (var i = 0; i < options.length; i++) n = Math.max(n, String(options[i]).length)
+        return n
+    }
+    // Wide enough for the longest option at the role's size (Manrope averages 0.56 em a character), never narrower than a target.
+    property int segmentWidth: Math.max(Math.round(Lu.target * 1.4), Math.round(longestChars * Lu.type(textRole).size * 0.56) + Lu.space(7))
 
     implicitWidth: options.length * segmentWidth
     implicitHeight: Lu.target
@@ -52,7 +59,7 @@ Item {
             }
             LuText {
                 anchors.centerIn: parent
-                role: "label"
+                role: seg.textRole
                 text: modelData
                 color: index === seg.current || index === seg.focusedIndex ? Lu.ink : Lu.ink2
             }

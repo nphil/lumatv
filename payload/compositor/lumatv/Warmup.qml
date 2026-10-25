@@ -71,6 +71,11 @@ Item {
         }
         if (withTree) harvest(tree, 0)
         for (var j = 0; j < Warm.texts.length; j++) addStyle(Warm.texts[j])
+        // Text styles of surfaces that live outside this item tree and cannot ask for themselves: the
+        // notification view's toast (Manrope 26, 21, 24 and 34 px) and Quick Settings' tiles. Both draw
+        // through the same process's glyph caches, so a style drawn here is hot there.
+        var listed = Lu.theme && Lu.theme.warmup && Lu.theme.warmup.texts ? Lu.theme.warmup.texts : []
+        for (var q = 0; q < listed.length; q++) addStyle({ weight: Lu.weightOf(listed[q].weight), size: listed[q].size, spacing: listed[q].spacing || 0 })
         var more = others.slice()
         for (var k = 0; k < Warm.images.length; k++) {
             var ik = "i|" + Warm.images[k]

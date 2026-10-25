@@ -11,6 +11,10 @@
 # received, not what QML thinks it drew. The Qt GPU profiler stays off.
 # "full" adds sched/irq/mali/vmscan/cpuhp events for root-causing gaps;
 # "basic" is the frame events only. Buffer: 8 MB per CPU, ring.
+#
+# The 1 s sampler is sample.py (one process, no forks) when it sits beside this script. The shell
+# `sample` below forks about 40 processes a second; on the set that was 50-60 ms of CPU, and the
+# scheduler's exec-time migrations, inside the first window of every full capture.
 T=/sys/kernel/debug/tracing
 D=/tmp/perf
 mkdir -p $D
@@ -61,7 +65,12 @@ case "$1" in
     if [ "$mode" = full ]; then ev="$events_full"; else ev="$events_basic"; fi
     for e in $ev; do echo 1 > $T/events/$e/enable 2>/dev/null || echo "no event $e" >&2; done
     touch $D/.running
-    sample > $D/$name.sys 2>/dev/null &
+    if [ -f $D/sample.py ]; then
+      set -- $(pidof surface-manager)
+      python3 $D/sample.py $D/$name.sys ${1:-0} $D > /dev/null 2>&1 &
+    else
+      sample > $D/$name.sys 2>/dev/null &
+    fi
     echo $! > $D/.sampler
     echo 1 > $T/tracing_on
     echo "start $name $(cut -d' ' -f1 /proc/uptime)" > $T/trace_marker

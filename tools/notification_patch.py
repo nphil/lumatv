@@ -188,6 +188,12 @@ def overlay(root, src, pal):
                 raise ValueError("%s: palette has no %s" % (f.name, m.group(1)))
             return str(pal[m.group(1)])
         (root / f.name).write_text(re.sub(r"@@(\w+)@@", fill, f.read_text()))
+    # Pictures our files draw (the toast's own info glyph) are added beside LG's, none replaced.
+    pictures = pathlib.Path(src) / "images"
+    if pictures.is_dir():
+        (root / "images").mkdir(exist_ok=True)
+        for f in sorted(pictures.glob("*.png")):
+            (root / "images" / f.name).write_bytes(f.read_bytes())
 
 
 def patch_tree(root, pal, overlay_dir=None):

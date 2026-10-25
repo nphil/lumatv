@@ -15,6 +15,10 @@ State at 2026-10-25 03:20 EDT. The helper is built, committed and pushed in thre
 3. Plugin broker (LumaShow plugin API level 1): built and tested on the host only (12 end-to-end tests through LumaShow's own
    SDK, 5 unit tests, no TV run yet). See "Plugin broker" below.
 
+Offline recovery (2026-10-25): receiver heartbeats now reach displays even at unchanged volume. The QML OSD expires from the
+receiver's timestamp, not message arrival. `./build.sh check` passes; the static AArch64 binary is 2,455,376 bytes, SHA-256
+`b1e6f885e8fec7dec8e1ad98d134658315f766ba36ef7ca0b715ef8edb74c184`. This change has not been deployed to the TV.
+
 - Host gate: `cd helper && ./build.sh check` passes (rustfmt, clippy `-D warnings`, 468 host tests, the aarch64 release build, 2,461,360 bytes, sha256 `9d774c7915ae3ce1099a80996c9701075be505a4144a93982ab681842465d17f`).
 - Next, not mine: (a) QML for the AI prompt (`ai`, `ai.prompt` topics, `/v1/ai`) and for plugin cards, tiles, pages and toasts
   (topics below); (b) the settings flow that writes `plugins/enabled.json` behind the physical remote; (c) a TV smoke test of the
@@ -135,8 +139,8 @@ Topic documents (compact JSON, keys sorted):
 - `receiver`: `{"enabled","host","polling","reachable","fresh","updatedAt","error","power","input","volumeDb","volumeAbs","volumeDisplay","volumeText","mute"}`.
   The six values are present only while `fresh` (read within 6 s while polling); otherwise `null`. `power` is `on`, `standby`
   or `unknown`; `input` is the receiver's code (`TV`); `volumeDb` is `MasterVolume`; `volumeAbs` is dB + 80 (the number the
-  panel shows in Absolute mode); `volumeText` is what the panel shows for the receiver's display mode. `updatedAt` moves on
-  every read without raising an event.
+  panel shows in Absolute mode); `volumeText` is what the panel shows for the receiver's display mode. Each successful read
+  publishes its new `updatedAt`, even if the volume is unchanged, so displays can expire readings when the helper disappears.
 - `weather`, `news`: `{"doc": <document|null>, "status": {"failures","error","lastAttemptAt"}}`, decorated by the API with
   `state` (`fresh`, `stale`, `expired`, `none`) and `ageMs`; an expired document is `null`. Events carry the stored value.
 

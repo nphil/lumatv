@@ -105,13 +105,13 @@ fn a_change_at_the_receiver_is_an_event() {
         .expect("input and power");
     assert_eq!(changed["mute"], true);
 
-    // Each change was one event on the topic; unchanged polls raised none.
+    // Keep the receiver transitions in order while allowing fresh-reading heartbeats between them.
     let events = get(
         rig.addr,
         &format!("/v1/events?after={seq}&topics=receiver&timeout=0.2"),
     )
     .json();
-    let volumes: Vec<_> = events["events"]
+    let mut volumes: Vec<_> = events["events"]
         .as_array()
         .unwrap()
         .iter()
@@ -123,6 +123,7 @@ fn a_change_at_the_receiver_is_an_event() {
             )
         })
         .collect();
+    volumes.dedup();
     assert_eq!(
         volumes,
         [
@@ -132,6 +133,27 @@ fn a_change_at_the_receiver_is_an_event() {
         ],
         "{events}"
     );
+}
+
+#[test]
+fn unchanged_volume_still_delivers_fresh_readings_to_the_display() {
+    let avr = FakeAvr::start();
+    let (rig, _luna) = rig_with(&avr, "Active", json!({}));
+    rig.wait_topic("receiver", WAIT, fresh)
+        .expect("first reading");
+    let snapshot = get(rig.addr, "/v1/state").json();
+    let seq = snapshot["seq"].as_u64().unwrap();
+    let previous = &snapshot["topics"]["receiver"];
+    let events = get(
+        rig.addr,
+        &format!("/v1/events?after={seq}&topics=receiver&timeout=5"),
+    )
+    .json();
+    let readings = events["events"].as_array().unwrap();
+    let reading = &readings.last().expect("fresh-reading heartbeat")["data"];
+    assert!(reading["updatedAt"].as_u64().unwrap() > previous["updatedAt"].as_u64().unwrap());
+    assert_eq!(reading["volumeDb"], previous["volumeDb"]);
+    assert_eq!(reading["fresh"], true);
 }
 
 #[test]

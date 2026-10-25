@@ -155,7 +155,12 @@
   "warmup": {
     "enabled": true,
     "startMs": 1500,
-    "stepMs": 50
+    "stepMs": 50,
+    "texts": [
+      { "weight": "medium", "size": 26 }, { "weight": "semibold", "size": 26 }, { "weight": "regular", "size": 21 },
+      { "weight": "semibold", "size": 24 }, { "weight": "semibold", "size": 34 },
+      { "weight": "medium", "size": 19 }, { "weight": "medium", "size": 24 }, { "weight": "regular", "size": 24 }
+    ]
   },
   "logo": {
     "on": 1,

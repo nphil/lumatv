@@ -166,6 +166,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('qml', help='file in payload/compositor/lumatv (or a path below it, e.g. logo/LogoOn.qml) to load')
     ap.add_argument('--shot', help='write a PNG of the window here')
+    ap.add_argument('--snap', action='append', default=[], metavar='MS:PATH', help='also write a PNG of the window MS after start (repeatable)')
     ap.add_argument('--wait', type=int, default=3000, help='ms to run before the screenshot')
     ap.add_argument('--prop', action='append', default=[], help='root property to set, name=value')
     ap.add_argument('--press', help='comma-separated keys sent after --wait/2 (LEFT RIGHT UP DOWN OK BACK MENU)')
@@ -278,13 +279,19 @@ def main(argv=None):
     def fire(name, payload):
         QtCore.QMetaObject.invokeMethod(surface, 'fire', QtCore.Q_ARG('QVariant', name), QtCore.Q_ARG('QVariant', payload))
 
+    def snap(path):
+        view.grabWindow().save(path)
+        print(f'shot {path}', flush=True)
+    for spec in a.snap:
+        ms, path = spec.split(':', 1)
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda p=path: snap(p))
     for spec in a.fire:
         ms, name, *rest = spec.split(':', 2)
         payload = json.loads(rest[0]) if rest else {}
-        QtCore.QTimer.singleShot(int(ms), lambda n=name, p=payload: fire(n, p))
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda n=name, p=payload: fire(n, p))
     for spec in a.publish:
         ms, topic, data = spec.split(':', 2)
-        QtCore.QTimer.singleShot(int(ms), lambda t=topic, d=json.loads(data): helper_state.publish(t, d))
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda t=topic, d=json.loads(data): helper_state.publish(t, d))
     view.rootContext().setContextProperty('root', surface)
 
     def evaluate(expr):
@@ -293,10 +300,10 @@ def main(argv=None):
         print(f'[eval] {v}', flush=True)
     for spec in a.eval:
         ms, expr = spec.split(':', 1)
-        QtCore.QTimer.singleShot(int(ms), lambda x=expr: evaluate(x))
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda x=expr: evaluate(x))
     if a.press:
-        QtCore.QTimer.singleShot(a.wait // 2, press)
-    QtCore.QTimer.singleShot(a.wait, shot)
+        QtCore.QTimer.singleShot(a.wait // 2, QtCore.Qt.PreciseTimer, press)
+    QtCore.QTimer.singleShot(a.wait, QtCore.Qt.PreciseTimer, shot)
     app.exec_()
 
     own = [m for m in messages if m[0] in (1, 2, 3) and not IGNORE.search(m[3])]

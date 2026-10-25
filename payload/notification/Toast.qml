@@ -27,7 +27,7 @@ FocusScope {
     property bool generalToast: root.type === "standard"
     property bool advancedToast: root.type === "advanced"
     property bool lightToast: root.type === "light"
-    property bool isLinkActive: advancedToast && (model.action && Object.keys(model.action).length > 0)
+    property bool isLinkActive: advancedToast && !!(model.action && Object.keys(model.action).length > 0)
     property var style
     property var userdataId
 
@@ -39,8 +39,11 @@ FocusScope {
     readonly property int pad: style.getRValue(20)
     readonly property int tile: style.getRValue(52)
     readonly property int gap: style.getRValue(18)
-    // LG draws an icon only for an advanced toast (a standard one carries a default that is never shown).
-    readonly property bool hasIcon: root.iconPath !== "" && advancedToast
+    // LG shows an icon for an advanced toast only (a standard one carries a default that is never shown). Its
+    // own generic info picture is a white tile that outshines the pill, so an advanced toast with no icon, or
+    // with LG's info glyph, gets LumaTV's own info mark on an accent tile; an app's own icon is kept as it is.
+    readonly property bool genericIcon: root.iconPath === "" || /info|notice|default/i.test(String(root.iconPath))
+    readonly property bool hasIcon: advancedToast
     // A line break is a newline or, as in LG's own messages, a <br> tag.
     readonly property var lines: String(root.message).split(/\n|<br\s*\/?>/i)
     readonly property string title: lines[0]
@@ -81,14 +84,14 @@ FocusScope {
             width: root.tile
             height: root.tile
             radius: root.style.getRValue(14)
-            color: "@@row@@"
+            color: root.genericIcon ? "@@accent@@" : "@@row@@"
             anchors.left: parent.left
             anchors.leftMargin: root.pad
             anchors.verticalCenter: parent.verticalCenter
             Image {
                 anchors.fill: parent
                 anchors.margins: root.style.getRValue(8)
-                source: root.iconPath ? Utils.applyImagePath(encodeURIComponent(root.iconPath)) : ""
+                source: root.genericIcon ? "images/luma-info.png" : Utils.applyImagePath(encodeURIComponent(root.iconPath))
                 fillMode: Image.PreserveAspectFit
                 smooth: true
                 asynchronous: true
@@ -112,6 +115,7 @@ FocusScope {
                 font.family: "Manrope"
                 font.pixelSize: root.style.getRValue(26)
                 font.weight: root.subtitle !== "" ? Font.DemiBold : Font.Medium
+                renderType: Text.NativeRendering
                 wrapMode: Text.Wrap
                 elide: Text.ElideRight
                 maximumLineCount: root.subtitle !== "" ? 1 : 3
@@ -125,6 +129,7 @@ FocusScope {
                 font.family: "Manrope"
                 font.pixelSize: root.style.getRValue(21)
                 font.weight: Font.Normal
+                renderType: Text.NativeRendering
                 wrapMode: Text.Wrap
                 elide: Text.ElideRight
                 maximumLineCount: 2
@@ -146,6 +151,7 @@ FocusScope {
                 font.family: "Manrope"
                 font.pixelSize: root.style.getRValue(24)
                 font.weight: Font.DemiBold
+                renderType: Text.NativeRendering
                 anchors.verticalCenter: parent.verticalCenter
             }
             Text {
@@ -155,6 +161,7 @@ FocusScope {
                 font.family: "Manrope"
                 font.pixelSize: root.style.getRValue(34)
                 font.weight: Font.DemiBold
+                renderType: Text.NativeRendering
                 anchors.verticalCenter: parent.verticalCenter
             }
         }

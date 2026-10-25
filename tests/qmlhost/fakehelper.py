@@ -72,6 +72,9 @@ class State:
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
 
     def publish(self, topic, data):
+        if topic == "__audit":              # not a topic: the recent-activity list of /v1/ai/audit
+            self.audit = data
+            return
         with self.cv:
             self.seq += 1
             self.topics[topic] = data

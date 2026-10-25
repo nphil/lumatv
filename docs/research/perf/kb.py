@@ -16,12 +16,16 @@ Tokens:
   sS        sleep S seconds
   @NAME     trace marker "P:NAME" (a phase boundary for analyse.py) written at this instant
   !NAME     a luna call from LUNA below, started at this instant without waiting for its answer
-            (a surface that no key opens: a toast, an alert)
+            (a surface that no key opens: a toast, an alert). When the call returns, the marker
+            "Q:NAME-sent" is written (kb.py waits up to 10 s for it at the end): the time from the
+            "P:" marker to it is luna-send's start, the hub and the service; what the compositor
+            then does is what the surface costs. analyse.py ignores "Q:" markers.
 KEY is UP DOWN LEFT RIGHT OK BACK HOME MENU or an evdev code.
 """
 import os
 import struct
 import sys
+import threading
 import time
 
 CODES = {'UP': 103, 'DOWN': 108, 'LEFT': 105, 'RIGHT': 106, 'OK': 28, 'BACK': 412, 'HOME': 773, 'MENU': 139}
@@ -50,9 +54,13 @@ def key(name, value):
     event(0, 0, 0)
 
 
-def mark(name):
+def mark_text(text):
     with open(MARKER, 'w') as f:
-        f.write('P:' + name + '\n')
+        f.write(text + '\n')
+
+
+def mark(name):
+    mark_text('P:' + name)
 
 
 LUNA = {
@@ -69,8 +77,15 @@ LUNA = {
 def luna(name):
     import subprocess
     uri, payload = LUNA[name]
-    subprocess.Popen(['luna-send', '-n', '1', uri, payload], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, close_fds=True)
+    child = subprocess.Popen(['luna-send', '-n', '1', uri, payload], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, close_fds=True)
+
+    def sent():
+        child.wait()
+        mark_text('Q:%s-sent' % name)
+    waiter = threading.Thread(target=sent)
+    waiter.start()
+    WAITERS.append(waiter)
 
 
 def run(token):
@@ -109,5 +124,8 @@ def run(token):
         key(token, 0)
 
 
+WAITERS = []
 for token in sys.argv[1:]:
     run(token)
+for waiter in WAITERS:
+    waiter.join(10)

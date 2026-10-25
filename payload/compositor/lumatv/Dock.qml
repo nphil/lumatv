@@ -411,9 +411,11 @@ Item {
         if (row * cols + col >= points.length) col = (points.length - 1) - row * cols
         ensureRowVisible()
     }
+    signal launching(string title, string iconUrl)
     function activate() {
         var p = points[row * cols + col]
         if (!p) return
+        launching(p.title || p.id, p.iconUrl || "")
         LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: p.id, params: p.params || {} }))
     }
     function focusedCenterX() { return originX + focusCenter().x }

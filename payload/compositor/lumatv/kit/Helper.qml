@@ -14,7 +14,20 @@ QtObject {
     id: helper
 
     readonly property string base: "http://127.0.0.1:18731"
-    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt"
+    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins"
+    // Plugin topics are named per plugin and a long poll takes at most 16 names: the fixed ones, then the cards, tiles and
+    // notifications of each plugin that is connected; with more than fit there is no filter (every topic) rather than a
+    // wrong one. A plugin that connects changes the `plugins` topic, which ends the poll in flight, so the next one has it.
+    function filter() {
+        var list = subscribed.split(","), p = (topics.plugins && topics.plugins.plugins) || []
+        for (var i = 0; i < p.length; i++) {
+            if (p[i].state !== "connected") continue
+            list.push("plugin." + p[i].id + ".cards", "plugin." + p[i].id + ".tiles", "plugin." + p[i].id + ".notifications")
+        }
+        return list.length > 16 ? "" : list.join(",")
+    }
+    function pluginTopic(id, kind) { return topics["plugin." + id + "." + kind] || null }
+    function pluginAction(id, action, target) { return post("/v1/plugins/" + id + "/actions/" + action, target ? { target: target } : {}) }
 
     property bool up: false
     property var topics: ({})           // topic -> latest value (weather and news: {doc, status, ...})
@@ -25,6 +38,11 @@ QtObject {
     readonly property var ai: topics.ai || null                  // AI access: listener, pairing, assistants, limits
     readonly property var aiPrompt: topics["ai.prompt"] || null  // the open prompt, or null
     signal updated(string topic)
+    // The receiver's own controls (sound mode, Audyssey, levels, zones) exist only when the helper says so:
+    // its `receiver` topic carries `controls: true` once it can send the Denon's commands. Until then the
+    // Settings page shows what the topic has and dims the rest.
+    readonly property bool receiverControls: !!(receiver && receiver.controls)
+    function receiverSet(what, value) { return post("/v1/receiver/set", { what: what, value: value }) }
 
     property bool started: false
     property int failures: 0
@@ -86,7 +104,8 @@ QtObject {
     function poll(gen) {
         polledAt = Date.now()
         watchdog.restart()
-        pending = request("GET", "/v1/events?after=" + seq + "&boot=" + boot + "&timeout=25&topics=" + subscribed, undefined, function(status, doc) {
+        var names = filter()
+        pending = request("GET", "/v1/events?after=" + seq + "&boot=" + boot + "&timeout=25" + (names ? "&topics=" + names : ""), undefined, function(status, doc) {
             if (gen !== generation) return
             watchdog.stop()
             if (!doc || !doc.ok) { fail(); return }

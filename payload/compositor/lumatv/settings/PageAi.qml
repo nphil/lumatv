@@ -1,15 +1,20 @@
 import QtQuick 2.4
 import "../kit"
+import "."
 
-// AI access (docs/mocks/04-settings-ai-access): what the helper's AI module says (the `ai` topic) and
-// the changes the owner makes with the remote (`/v1/ai`). Principle 0 shapes it: the page can ask
-// for anything and give less at once (off, pause, remove, a lower level, lock-out), but whatever
-// gives more (turning it on, a pairing code, a higher level, resuming) only opens a prompt on the
-// TV that the physical remote answers (AiPrompt.qml); the page has no way to answer it, because
-// the helper has no route that does.
+// AI access (docs/mocks/04-settings-ai-access): what the helper's AI module says (the `ai` topic) and the
+// changes the owner makes with the remote (`/v1/ai`). Principle 0 shapes it: the page can ask for anything
+// and give less at once (off, pause, remove, a lower level, a lower volume limit, lock-out), but whatever gives
+// more (turning it on, a pairing code, a higher level, resuming, a higher limit) only opens a prompt on the TV
+// that the physical remote answers (AiPrompt.qml). The page has no way to answer the prompt, because the
+// helper has no route that does; the helper itself reads OK and Back from the remote's own input devices
+// (LGE RCU, LGE M-RCU) and ignores Smart Remote RCU Input and LGE Network Input, where Home Assistant's and
+// every other network key arrives. While a prompt is up this page takes no key at all.
 //
-// The page is one list of stops. Up and Down move between them, Left and Right move inside the
-// segmented ones, OK acts. Removing an assistant and the lock-out take two presses.
+// Layout follows the mock: the switch across the top, the paired assistants and the recent activity on the
+// left, what the chosen assistant may do on the right, the lock-out at the foot. Focus moves to the nearest
+// control in the direction pressed; Left and Right first move inside a segmented control. Removing an
+// assistant and the lock-out take two presses.
 Item {
     id: page
     property var host
@@ -21,143 +26,151 @@ Item {
     readonly property bool asking: Helper.aiPrompt !== null
     readonly property bool rested: host ? host.rested : true
     readonly property bool active: host ? host.zone === "page" : false
-    readonly property string summary: !up ? "The helper is not running" : (listenerOn ? "LAN only" : "Off") + " \u00b7 " + assistants.length + (assistants.length === 1 ? " assistant" : " assistants")
-
-    // ---- stops: 0 listener, 1 pairing, then the assistants, the permissions chooser and four groups
-    // when there is an assistant, and the lock-out last.
     readonly property int nAssist: assistants.length
-    readonly property int iPairing: 1
-    readonly property int iAssist: 2
-    readonly property int iPerm: iAssist + nAssist
-    readonly property int iLevels: nAssist > 0 ? iPerm + 1 : iPerm
-    readonly property int nLevels: nAssist > 0 ? levelGroups.length : 0
-    readonly property int iLock: iLevels + nLevels
-    readonly property int stops: iLock + 1
-    property int stop: 0
-    property int seg: 0                  // segment focus inside the stop's control
-    property int permIndex: 0            // whose permissions the group rows show
-    property string armed: ""            // "remove:<id>" or "lockout": the next OK confirms
     readonly property var levelGroups: ai && ai.groups ? ai.groups : []
     readonly property var levelIds: ["always", "ask", "never"]
     readonly property var levelNames: ["Always", "Ask on TV", "Never"]
+    readonly property int maxVolume: ai && ai.limits && ai.limits.maxVolume !== undefined ? ai.limits.maxVolume : 98
+    property int permIndex: 0
     readonly property var chosen: nAssist > 0 ? assistants[Math.min(permIndex, nAssist - 1)] : null
     property var audit: []
+    property string armed: ""
+    readonly property string summary: !up ? "The helper is not running" : (listenerOn ? "LAN only" : "Off") + " \u00b7 " + nAssist + (nAssist === 1 ? " assistant" : " assistants")
+    readonly property string subtitle: !up ? "" : nAssist + (nAssist === 1 ? " assistant" : " assistants") + " paired" + (audit.length ? " \u00b7 last request " + ago(audit[0].at) : "")
 
-    function kindOf(n) {
-        if (n === 0) return "listener"
-        if (n === iPairing) return "pairing"
-        if (n >= iAssist && n < iAssist + nAssist) return "assistant"
-        if (nAssist > 0 && n === iPerm) return "perm"
-        if (n >= iLevels && n < iLevels + nLevels) return "level"
-        return "lock"
+    // ---- focus: a list of the controls on screen, and the one the cursor is on
+    property string fk: "listener"        // kind of the focused control
+    property int fi: 0                    // its index among that kind
+    property int seg: 0                   // segment inside it
+    function items() {
+        var out = [{ k: "listener", i: 0, it: rowListener, segs: 2 }, { k: "limit", i: 0, it: rowLimit, segs: 1 }]
+        for (var a = 0; a < nAssist; a++) out.push({ k: "assistant", i: a, it: assistRepeater.itemAt(a), segs: 2 })
+        out.push({ k: "pair", i: 0, it: rowPair, segs: 1 })
+        if (nAssist > 1) out.push({ k: "chooser", i: 0, it: chooser, segs: nAssist })
+        if (nAssist > 0) for (var g = 0; g < levelGroups.length; g++) out.push({ k: "level", i: g, it: levelRepeater.itemAt(g), segs: 3 })
+        out.push({ k: "lock", i: 0, it: rowLock, segs: 1 })
+        return out.filter(function(e) { return !!e.it })
     }
-    function segCount(n) {
-        var k = kindOf(n)
-        return k === "listener" ? 2 : k === "assistant" ? 2 : k === "level" ? 3 : 1
+    function find(k, i) { var l = items(); for (var n = 0; n < l.length; n++) if (l[n].k === k && l[n].i === i) return l[n]; return null }
+    function focus(k, i) {
+        fk = k; fi = i; armed = ""
+        seg = k === "listener" ? (listenerOn ? 1 : 0) : k === "chooser" ? permIndex
+            : k === "level" ? Math.max(0, levelIds.indexOf(levelOf(levelGroups[i].id))) : 0
     }
+    function pointAt(k, i) { if (host) host.zone = "page"; focus(k, i) }
+    function reset() { if (!find(fk, fi)) focus("listener", 0); else if (fk === "listener") seg = listenerOn ? 1 : 0; refreshAudit() }
     function levelOf(group) { return chosen && chosen.levels ? chosen.levels[group] : "ask" }
-    function enterStop(n) {
-        stop = Math.max(0, Math.min(stops - 1, n))
-        armed = ""
-        var k = kindOf(stop)
-        seg = k === "listener" ? (listenerOn ? 1 : 0) : k === "level" ? Math.max(0, levelIds.indexOf(levelOf(levelGroups[stop - iLevels].id))) : 0
-    }
-    function pointAt(n) { if (host) host.zone = "page"; enterStop(n) }
-    onStopsChanged: if (stop >= stops) enterStop(stops - 1)
-    onNAssistChanged: if (permIndex >= nAssist) permIndex = Math.max(0, nAssist - 1)
+    onNAssistChanged: { if (permIndex >= nAssist) permIndex = Math.max(0, nAssist - 1); if (!find(fk, fi)) focus("listener", 0) }
     onAskingChanged: armed = ""
+
+    // The control nearest in the direction pressed: its middle must lie past the focused one's, and the sideways
+    // gap counts three times (docs/mocks/mock.js, the same rule).
+    function spatial(dir) {
+        var cur = find(fk, fi)
+        if (!cur) return false
+        var a = cur.it.mapToItem(page, 0, 0)
+        var ax = a.x + cur.it.width / 2, ay = a.y + cur.it.height / 2
+        var best = null, bestScore = 1e9, bestAligned = null, alignedScore = 1e9
+        var l = items()
+        for (var n = 0; n < l.length; n++) {
+            if (l[n] === cur || (l[n].k === cur.k && l[n].i === cur.i)) continue
+            var b = l[n].it.mapToItem(page, 0, 0)
+            var bx = b.x + l[n].it.width / 2, by = b.y + l[n].it.height / 2
+            var dx = bx - ax, dy = by - ay
+            var gap = dir === "up" || dir === "down" ? Math.max(0, Math.abs(dx) - (cur.it.width + l[n].it.width) / 2) : Math.max(0, Math.abs(dy) - (cur.it.height + l[n].it.height) / 2)
+            if (dir === "up" && dy >= -4) continue
+            if (dir === "down" && dy <= 4) continue
+            if (dir === "left" && dx >= -4) continue
+            if (dir === "right" && dx <= 4) continue
+            var primary = dir === "up" || dir === "down" ? Math.abs(dy) : Math.abs(dx)
+            var score = primary + 3 * gap
+            if (score < bestScore) { best = l[n]; bestScore = score }
+            // A control that overlaps the focused one across the direction pressed (the same column for Up and Down)
+            // is preferred over a nearer one in the other column.
+            if (gap === 0 && primary < alignedScore) { bestAligned = l[n]; alignedScore = primary }
+        }
+        if (bestAligned) best = bestAligned
+        if (!best) return false
+        focus(best.k, best.i)
+        return true
+    }
 
     function key(dir) {
         if (asking) return true                    // the prompt owns the keys; the remote's own OK and Back reach the helper, not this page
-        if (dir === "up") { if (stop === 0) return false; enterStop(stop - 1); return true }
-        if (dir === "down") { enterStop(stop + 1); return true }
-        var k = kindOf(stop)
-        if (dir === "left") {
-            if (k === "perm") { if (permIndex > 0) { permIndex--; enterStop(stop) } return true }
-            if (seg === 0) return false
-            seg--
-            return true
+        var cur = find(fk, fi)
+        if (!cur) { focus("listener", 0); return true }
+        if (dir === "left" || dir === "right") {
+            var d = dir === "left" ? -1 : 1
+            if (cur.segs > 1 && seg + d >= 0 && seg + d < cur.segs) { seg += d; if (fk === "chooser") { permIndex = seg; relevel() } return true }
+            if (fk === "limit") { adjustLimit(d); return true }
+            if (spatial(dir)) return true
+            return d < 0 ? false : true
         }
-        if (dir === "right") {
-            if (k === "perm") { if (permIndex < nAssist - 1) { permIndex++; enterStop(stop) } return true }
-            seg = Math.min(segCount(stop) - 1, seg + 1)
-            return true
-        }
-        if (dir === "ok") { act(k); return true }
+        if (dir === "up" || dir === "down") { if (spatial(dir)) return true; return dir === "up" ? false : true }
+        if (dir === "ok") { act(); return true }
         return false
     }
+    function relevel() { if (fk === "level") focus("level", fi) }
 
-    function act(k) {
+    function act() {
         if (!up) return
-        if (k === "listener") {
-            Helper.post("/v1/ai/listener", { enabled: seg === 1 })
-        } else if (k === "pairing") {
-            if (!listenerOn) return
-            if (pairing) Helper.del("/v1/ai/pairing")
-            else Helper.post("/v1/ai/pairing", {})
-        } else if (k === "assistant") {
-            var a = assistants[stop - iAssist]
+        if (fk === "listener") Helper.post("/v1/ai/listener", { enabled: seg === 1 })
+        else if (fk === "pair") { if (!listenerOn) return; if (pairing) Helper.del("/v1/ai/pairing"); else Helper.post("/v1/ai/pairing", {}) }
+        else if (fk === "assistant") {
+            var a = assistants[fi]
             if (seg === 0) Helper.post("/v1/ai/assistants/" + a.id + (a.paused ? "/resume" : "/pause"), {})
             else if (armed === "remove:" + a.id) { armed = ""; Helper.del("/v1/ai/assistants/" + a.id) }
             else { armed = "remove:" + a.id; armTimer.restart() }
-        } else if (k === "level") {
+        } else if (fk === "level") {
             if (!chosen) return
             var levels = {}
             for (var g in chosen.levels) levels[g] = chosen.levels[g]
-            levels[levelGroups[stop - iLevels].id] = levelIds[seg]
+            levels[levelGroups[fi].id] = levelIds[seg]
             Helper.post("/v1/ai/assistants/" + chosen.id + "/levels", { levels: levels })
-        } else if (k === "lock") {
+        } else if (fk === "lock") {
             if (armed === "lockout") { armed = ""; Helper.post("/v1/ai/lockout", {}) }
             else { armed = "lockout"; armTimer.restart() }
         }
     }
+    function adjustLimit(d) { if (up) Helper.post("/v1/ai/limits", { maxVolume: Math.max(0, Math.min(98, maxVolume + d * 2)) }) }
     Timer { id: armTimer; interval: 5000; onTriggered: page.armed = "" }
 
     // ---- recent activity
     function refreshAudit() {
-        Helper.request("GET", "/v1/ai/audit?limit=6", undefined, function(status, doc) {
-            // the answer can arrive after the page has gone (another section was picked)
+        Helper.request("GET", "/v1/ai/audit?limit=5", undefined, function(status, doc) {
             try { if (doc && doc.entries) page.audit = doc.entries.slice().reverse() } catch (e) {}
         })
     }
-    Component.onCompleted: { enterStop(0); refreshAudit() }
-    onListenerOnChanged: if (stop === 0) seg = listenerOn ? 1 : 0
+    Component.onCompleted: refreshAudit()
     Connections { target: Helper; onUpdated: if (topic === "ai") page.refreshAudit() }
     function ago(ms) {
         if (!ms) return ""
         var s = Math.max(0, Math.round((Date.now() - ms) / 1000))
         return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : "yesterday"
     }
+    function clock(ms) { return ms ? Qt.formatTime(new Date(ms), "h:mm") : "" }
     function outcomeName(o) { return o === "ok" ? "Allowed" : o === "denied" ? "Denied" : o === "expired" ? "Expired" : o === "never" ? "Blocked" : o === "paused" ? "Paused" : o }
-
-    // ---- scrolling: the focused row stays inside the viewport
-    property real offset: 0
-    function focusedItem() {
-        var k = kindOf(stop)
-        return k === "listener" ? rowListener : k === "pairing" ? rowPairing : k === "assistant" ? assistRepeater.itemAt(stop - iAssist)
-             : k === "perm" ? rowPerm : k === "level" ? levelRepeater.itemAt(stop - iLevels) : rowLock
+    function outcomeColor(o) { return o === "ok" ? Lu.positive : o === "denied" || o === "never" ? Lu.danger : o === "expired" || o === "paused" ? Lu.warning : Lu.ink2 }
+    function lastFor(a) {
+        for (var i = 0; i < audit.length; i++) if (audit[i].assistant && audit[i].assistant.id === a.id) return (audit[i].message || audit[i].tool) + " \u00b7 " + ago(audit[i].at)
+        return (a.paused ? "Paused" : "Active") + (a.lastSeenAt ? " \u00b7 last seen " + ago(a.lastSeenAt) : "")
     }
-    onStopChanged: scrollTimer.restart()
-    Timer {
-        id: scrollTimer
-        interval: 1
-        onTriggered: {
-            var it = page.focusedItem()
-            if (!it) return
-            var top = it.mapToItem(list, 0, 0).y
-            if (top - page.offset < 0) page.offset = top
-            else if (top + it.height - page.offset > viewport.height) page.offset = top + it.height - viewport.height
-        }
-    }
+    readonly property var groupNotes: ({ state: "Title, app, input, volume, on or off", playback: "Including mute", launch: "Only apps already installed",
+                                         power: "Never turn it on. The receiver stays as it is." })
 
+    // ---- head
     LuText { id: heading; role: "title"; text: "AI access" }
-    LuText { anchors.baseline: heading.baseline; x: heading.width + Lu.space(4); role: "label"; color: Lu.ink2; text: page.summary }
-    LuText {
+    LuText { anchors.baseline: heading.baseline; x: heading.width + Lu.space(4); role: "label"; color: Lu.ink2; text: page.subtitle }
+    Row {
         id: lockNote
-        y: heading.height + Lu.space(2)
-        width: parent.width
-        role: "caption"; color: Lu.ink2; wrapMode: Text.WordWrap
-        text: "AI can never change these settings, pair new assistants or answer its own requests. Only this remote can."
+        y: heading.height + Lu.space(1)
+        spacing: Lu.space(3)
+        LuIcon { name: "lock"; size: 26; color: Lu.ink2; y: 2 }
+        LuText {
+            width: page.width - 26 - Lu.space(3)
+            role: "caption"; color: Lu.ink2; wrapMode: Text.WordWrap
+            text: "AI can never change these settings, pair new assistants or answer its own requests. Only this remote can."
+        }
     }
     LuText {
         visible: !page.up
@@ -168,117 +181,148 @@ Item {
     }
 
     Item {
-        id: viewport
+        id: body
         visible: page.up
-        y: lockNote.y + lockNote.height + Lu.space(4)
+        y: lockNote.y + lockNote.height + Lu.space(3)
         width: parent.width
         height: parent.height - y
-        clip: true
-        Column {
-            id: list
-            width: parent.width
-            y: -page.offset
-            Behavior on y { enabled: !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
 
-            LuRow {
-                id: rowListener
-                width: list.width
-                label: "Allow AI assistants"
-                detail: page.asking && Helper.aiPrompt.kind === "enable_listener" ? "Press OK on the remote to allow it, Back to cancel."
-                      : page.listenerOn ? "Reachable from the home network only." : "Off is the default. Turning it on needs OK on the remote."
-                focused: page.active && page.stop === 0; rested: page.rested
-                onHoverFocus: page.pointAt(0)
-                trailing: LuSegmented {
-                    options: ["Off", "LAN only"]; current: page.listenerOn ? 1 : 0
-                    focusedIndex: page.active && page.stop === 0 ? page.seg : -1
-                    onPicked: { page.pointAt(0); page.seg = index; page.act("listener") }
-                }
+        LuRow {
+            id: rowListener
+            width: parent.width
+            icon: "bot"
+            label: "Allow AI assistants"
+            detail: page.asking && Helper.aiPrompt.kind === "enable_listener" ? "Press OK on the remote to allow it, Back to cancel."
+                  : page.listenerOn ? "Reachable from the home network only." : "Off is the default. Turning it on needs OK on the remote."
+            focused: page.active && page.fk === "listener"; rested: page.rested
+            onHoverFocus: page.pointAt("listener", 0)
+            trailing: LuSegmented {
+                options: ["Off", "LAN only"]; current: page.listenerOn ? 1 : 0
+                focusedIndex: page.active && page.fk === "listener" ? page.seg : -1
+                onPicked: { page.pointAt("listener", 0); page.seg = index; page.act() }
             }
-            LuRow {
-                id: rowPairing
-                width: list.width
-                label: page.pairing ? "Pairing code " + page.pairing.code : "Pair a new assistant"
-                detail: page.pairing ? "Give it to the assistant once. " + page.pairing.attemptsLeft + " tries left. OK closes the window."
-                      : page.asking && Helper.aiPrompt.kind === "pair" ? "Press OK on the remote to show the code, Back to cancel."
-                      : page.listenerOn ? "A one-time code shows here after OK on the remote." : "Turn AI access on first."
-                enabled: page.listenerOn
-                focused: page.active && page.stop === page.iPairing; rested: page.rested
-                onActivated: { page.pointAt(page.iPairing); page.act("pairing") }
-                onHoverFocus: page.pointAt(page.iPairing)
-                value: page.pairing ? "Close" : ""
-            }
+        }
+        LuRow {
+            id: rowLimit
+            y: rowListener.height
+            width: parent.width
+            height: Math.round(Lu.row * 0.85)
+            icon: "volume-2"
+            label: "Volume limit"
+            detail: "The loudest an assistant may set the receiver. Lower is done at once; higher asks on the TV."
+            focused: page.active && page.fk === "limit"; rested: page.rested
+            onHoverFocus: page.pointAt("limit", 0)
+            value: String(page.maxVolume)
+        }
+
+        // left: assistants, pairing, recent activity
+        Column {
+            id: colL
+            y: rowListener.height + rowLimit.height + Lu.space(3)
+            width: Math.round(parent.width * 0.42)
+            LuText { role: "caption"; color: Lu.ink3; text: "Paired assistants" }
             Repeater {
                 id: assistRepeater
                 model: page.assistants
                 delegate: LuRow {
-                    width: list.width
+                    width: colL.width
+                    height: Math.round(Lu.row * 0.95)
+                    icon: "bot"
                     label: modelData.name
-                    detail: (modelData.paused ? "Paused" : "Active") + " \u00b7 " + (modelData.calls || 0) + " calls" + (modelData.lastSeenAt ? " \u00b7 last seen " + page.ago(modelData.lastSeenAt) : "")
-                          + (page.armed === "remove:" + modelData.id ? " \u00b7 press OK again to remove it" : "")
-                    focused: page.active && page.stop === page.iAssist + index; rested: page.rested
-                    onHoverFocus: page.pointAt(page.iAssist + index)
+                    detail: page.armed === "remove:" + modelData.id ? "Press OK again to remove it" : page.lastFor(modelData)
+                    focused: page.active && page.fk === "assistant" && page.fi === index; rested: page.rested
+                    onHoverFocus: page.pointAt("assistant", index)
                     trailing: LuSegmented {
-                        segmentWidth: Lu.target * 2
+                        textRole: "caption"
                         options: [modelData.paused ? "Resume" : "Pause", page.armed === "remove:" + modelData.id ? "Sure?" : "Remove"]
                         current: -1
-                        focusedIndex: page.active && page.stop === page.iAssist + index ? page.seg : -1
-                        onPicked: { page.pointAt(page.iAssist + index); page.seg = index; page.act("assistant") }
+                        focusedIndex: page.active && page.fk === "assistant" && page.fi === index ? page.seg : -1
+                        onPicked: { page.pointAt("assistant", index); page.seg = index; page.act() }
                     }
                 }
             }
             LuRow {
-                id: rowPerm
-                visible: page.nAssist > 0
-                height: visible ? implicitHeight : 0
-                width: list.width
-                label: "What " + (page.chosen ? page.chosen.name : "") + " may do"
-                detail: page.nAssist > 1 ? "Left and Right choose the assistant." : "Each group is Always, Ask on TV or Never."
-                value: page.nAssist > 1 ? "\u2039 " + (page.permIndex + 1) + " of " + page.nAssist + " \u203a" : ""
-                focused: page.active && page.nAssist > 0 && page.stop === page.iPerm; rested: page.rested
-                onHoverFocus: if (page.nAssist > 0) page.pointAt(page.iPerm)
+                id: rowPair
+                width: colL.width
+                height: Math.round(Lu.row * 0.85)
+                icon: "plus"
+                label: page.pairing ? "Pairing code " + page.pairing.code : "Pair a new assistant"
+                detail: page.pairing ? "Give it once. " + page.pairing.attemptsLeft + " tries left. OK closes the window."
+                      : page.asking && Helper.aiPrompt.kind === "pair" ? "Press OK on the remote to show the code."
+                      : page.listenerOn ? "A code shows here after OK on the remote." : "Turn AI access on first."
+                enabled: page.listenerOn
+                focused: page.active && page.fk === "pair"; rested: page.rested
+                onActivated: { page.pointAt("pair", 0); page.act() }
+                onHoverFocus: page.pointAt("pair", 0)
+            }
+            Item { width: 1; height: Lu.space(2) }
+            LuText { visible: page.audit.length > 0; role: "caption"; color: Lu.ink3; text: "Recent activity" }
+            Repeater {
+                model: page.audit
+                delegate: Item {
+                    width: colL.width
+                    height: Math.round(Lu.row * 0.5)
+                    LuText { x: Lu.space(2); anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink3; text: page.clock(modelData.at) }
+                    LuText {
+                        x: Lu.space(2) + 76; width: parent.width - x - 120; anchors.verticalCenter: parent.verticalCenter
+                        role: "caption"; elide: Text.ElideRight
+                        text: (modelData.assistant ? modelData.assistant.name + " \u00b7 " : "") + (modelData.message || modelData.tool)
+                    }
+                    LuText { x: parent.width - width - Lu.space(2); anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: page.outcomeColor(modelData.outcome); text: page.outcomeName(modelData.outcome) }
+                }
+            }
+        }
+
+        // right: what the chosen assistant may do
+        Column {
+            id: colR
+            x: colL.width + Lu.space(5)
+            y: colL.y
+            width: parent.width - x
+            visible: page.nAssist > 0
+            LuText { role: "caption"; color: Lu.ink3; text: "What assistants may do" }
+            LuSegmented {
+                id: chooser
+                visible: page.nAssist > 1
+                height: visible ? Math.round(Lu.target * 0.85) : 0
+                textRole: "caption"
+                options: page.assistants.map(function(a) { return a.name })
+                current: page.permIndex
+                focusedIndex: page.active && page.fk === "chooser" ? page.seg : -1
+                onPicked: { page.pointAt("chooser", 0); page.seg = index; page.permIndex = index }
             }
             Repeater {
                 id: levelRepeater
                 model: page.nAssist > 0 ? page.levelGroups : []
                 delegate: LuRow {
-                    width: list.width
+                    width: colR.width
+                    height: Math.round(Lu.row * 0.95)
                     label: modelData.title
-                    focused: page.active && page.stop === page.iLevels + index; rested: page.rested
-                    onHoverFocus: page.pointAt(page.iLevels + index)
+                    detail: page.groupNotes[modelData.id] || ""
+                    focused: page.active && page.fk === "level" && page.fi === index; rested: page.rested
+                    onHoverFocus: page.pointAt("level", index)
                     trailing: LuSegmented {
+                        textRole: "caption"
                         options: page.levelNames
                         current: Math.max(0, page.levelIds.indexOf(page.levelOf(modelData.id)))
-                        focusedIndex: page.active && page.stop === page.iLevels + index ? page.seg : -1
-                        onPicked: { page.pointAt(page.iLevels + index); page.seg = index; page.act("level") }
+                        focusedIndex: page.active && page.fk === "level" && page.fi === index ? page.seg : -1
+                        onPicked: { page.pointAt("level", index); page.seg = index; page.act() }
                     }
                 }
             }
-            LuRow {
-                id: rowLock
-                width: list.width
-                label: "Lock out all AI"
-                detail: page.armed === "lockout" ? "Press OK again: every assistant is removed and access goes off."
-                      : "Removes every assistant and turns access off. Takes effect at once."
-                value: page.armed === "lockout" ? "Sure?" : ""
-                focused: page.active && page.stop === page.iLock; rested: page.rested
-                onActivated: { page.pointAt(page.iLock); page.act("lock") }
-                onHoverFocus: page.pointAt(page.iLock)
-            }
-            Item {
-                visible: page.audit.length > 0
-                width: list.width
-                height: visible ? Lu.space(5) + recentLabel.implicitHeight : 0
-                LuText { id: recentLabel; y: Lu.space(5); role: "label"; color: Lu.ink2; text: "Recent activity" }
-            }
-            Repeater {
-                model: page.audit
-                delegate: LuRow {
-                    width: list.width
-                    height: Math.round(Lu.row * 0.7)
-                    label: (modelData.assistant ? modelData.assistant.name + " \u00b7 " : "") + (modelData.message || modelData.tool)
-                    value: page.outcomeName(modelData.outcome) + " \u00b7 " + page.ago(modelData.at)
-                }
-            }
+        }
+
+        LuRow {
+            id: rowLock
+            y: parent.height - height
+            width: colL.width
+            height: Math.round(Lu.row * 0.95)
+            icon: "ban"
+            label: page.armed === "lockout" ? "Press OK again" : "Lock out all AI"
+            detail: page.armed === "lockout" ? "Every assistant is removed and access goes off." : "Removes every assistant and turns access off. Takes effect at once."
+            focused: page.active && page.fk === "lock"; rested: page.rested
+            onActivated: { page.pointAt("lock", 0); page.act() }
+            onHoverFocus: page.pointAt("lock", 0)
         }
     }
 }

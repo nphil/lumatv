@@ -112,8 +112,8 @@ impl Poller<'_> {
     }
 
     fn publish(&self, hub: &Hub, enabled: bool, host: &str, polling: bool) {
-        // `updatedAt` moves on every read; only the other fields are news.
-        hub.set_ignoring(TOPIC, self.document(enabled, host, polling), &["updatedAt"]);
+        // Displays expire readings locally if the helper disappears, even when the volume stays unchanged.
+        hub.set(TOPIC, self.document(enabled, host, polling));
     }
 
     /// One read. Logs only a change between working and not.

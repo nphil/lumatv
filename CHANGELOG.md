@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings places initial focus when a page is entered, after service values
   have arrived, rather than selecting an unavailable page's last link during
   construction. The remote page describes the 650 ms Home escape.
+- Receiver volume readings expire from their original timestamp after six
+  seconds. Successful unchanged readings still reach the display, so a steady
+  volume stays valid while replayed or disconnected readings cannot linger.
 - The compositor starts with `QT_QPA_UPDATE_IDLE_TIME=0`, removing Qt's fixed
   5 ms wait before each update; dropped animation frames fell from 8-9 % to
   3.4-4 % on a D-pad sweep and from 46-67 % to 2.5-4 % opening Quick Settings.
