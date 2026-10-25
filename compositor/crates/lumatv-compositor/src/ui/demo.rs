@@ -47,12 +47,43 @@ pub struct Demo {
     _ground: ShapeLayer,
     /// The volume bar is up with this level (0 to 1).
     level: Option<f32>,
+    options: Options,
+    /// Where the ticker and the seconds bar were last put, so that a tick that moves nothing commits nothing.
+    ticker_x: f32,
+    steps: f32,
+}
+
+/// How the demo paces itself.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// How many times a second the ticker moves (a commit each time): 60 is an animation, 10 the idle Home's wallpaper step.
+    pub ticker_hz: u32,
+    /// Every this many seconds the volume bar comes up for 2 s (the system layer over the windows); `None` keeps it down.
+    pub volume_period_s: Option<u32>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options { ticker_hz: 60, volume_period_s: None }
+    }
+}
+
+impl Options {
+    /// `LUMATV_UI_DEMO_HZ` and `LUMATV_UI_DEMO_VOLUME_S` from the environment, the defaults where unset or unreadable.
+    pub fn from_env() -> Self {
+        let read = |name: &str| std::env::var(name).ok().and_then(|v| v.trim().parse::<u32>().ok());
+        Options { ticker_hz: read("LUMATV_UI_DEMO_HZ").unwrap_or(60), volume_period_s: read("LUMATV_UI_DEMO_VOLUME_S") }
+    }
 }
 
 impl Demo {
     /// The layers, committed over `app_end` (the end of the socket [`super::Ui::new`] returned); the engine must answer the
     /// handshake meanwhile ([`super::Ui::finish_handshake`] after this returns).
     pub fn new(app_end: UnixStream, shm_dir: &Path) -> io::Result<Self> {
+        Self::with(app_end, shm_dir, Options::default())
+    }
+
+    pub fn with(app_end: UnixStream, shm_dir: &Path, options: Options) -> io::Result<Self> {
         let (scene, _welcome, events) = lumashow_ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(shm_dir.to_owned()), ..SceneOptions::default() })?;
         let ui = Toolkit::new(scene);
         let s = &ui.scene;
@@ -78,18 +109,39 @@ impl Demo {
         let pill = s.glass(520, 84, SYSTEM_Z, card(Backdrop::None, Rgba(14, 12, 24, 235)), hidden(700.0, 900.0));
         let track = s.shape(TRACK.2 as u32, TRACK.3 as u32, SYSTEM_Z + 1, solid(6.0, Rgba(60, 60, 78, 255)), hidden(TRACK.0, TRACK.1));
         let fill = s.shape(TRACK.2 as u32, TRACK.3 as u32, SYSTEM_Z + 2, solid(6.0, Rgba(245, 245, 255, 255)), hidden(TRACK.0, TRACK.1));
-        Ok(Self { ui, events, ticker, seconds, pill, track, fill, _cards: cards, _ground: ground, level: None })
+        Ok(Self { ui, events, ticker, seconds, pill, track, fill, _cards: cards, _ground: ground, level: None, options, ticker_x: f32::NAN, steps: f32::NAN })
     }
 
-    /// What the app does on its clock: the ticker moves, the seconds bar grows a step on a new second. Commits what it staged.
+    /// What the app does on its clock: the ticker moves (`Options::ticker_hz` times a second), the seconds bar grows a step on a
+    /// new second, and the volume bar comes and goes on its cycle. Commits what it staged, if anything.
     pub fn tick(&mut self, now_ns: u64) -> io::Result<()> {
         while let Ok(event) = self.events.try_recv() {
             self.ui.scene.observe(&event);
         }
         let ms = now_ns / 1_000_000;
-        self.ticker.set(Props::at(130.0 + (ms % 1500) as f32, 830.0));
+        let step_ms = (1000 / u64::from(self.options.ticker_hz.max(1))).max(1);
+        let x = 130.0 + ((ms / step_ms * step_ms) % 1500) as f32;
+        if x != self.ticker_x {
+            self.ticker_x = x;
+            self.ticker.set(Props::at(x, 830.0));
+        }
         let steps = ((ms / 1000) % 20) as f32;
-        self.seconds.set(Props { clip: Some(Rect { x: 130.0, y: 360.0, w: steps * 20.0, h: 10.0 }), ..Props::at(130.0, 360.0) });
+        if steps != self.steps {
+            self.steps = steps;
+            self.seconds.set(Props { clip: Some(Rect { x: 130.0, y: 360.0, w: steps * 20.0, h: 10.0 }), ..Props::at(130.0, 360.0) });
+        }
+        if let Some(period_s) = self.options.volume_period_s {
+            // up for the first 2 s of every period, at a level that changes each time
+            let period_ms = u64::from(period_s.max(3)) * 1000;
+            let up = ms % period_ms < 2000;
+            if up != self.level.is_some() {
+                if up {
+                    self.show_volume([0.4, 0.55, 0.8][(ms / period_ms % 3) as usize]);
+                } else {
+                    self.hide_volume();
+                }
+            }
+        }
         if self.ui.scene.has_pending() {
             let _ = self.ui.try_commit()?;
         }

@@ -628,7 +628,16 @@ impl Output for Kms {
     }
 
     fn stats_line(&self) -> String {
-        format!("flips {} late {} lost {} direct {}", self.flips, self.late_frames, self.lost_refreshes, self.direct_frames)
+        let ui = self.gl.ui_stats_line();
+        format!(
+            "flips {} late {} lost {} direct {}{}{}",
+            self.flips,
+            self.late_frames,
+            self.lost_refreshes,
+            self.direct_frames,
+            if ui.is_empty() { "" } else { " " },
+            ui
+        )
     }
 
     fn size(&self) -> (u32, u32) {

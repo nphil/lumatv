@@ -98,7 +98,8 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --tick-hz HZ           frame tick (default 60)
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
-  --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms)
+  --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
+                         default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
 ";
 

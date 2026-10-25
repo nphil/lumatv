@@ -9,8 +9,10 @@ State (2026-10-25, offline, host-tested only): the TV spike is closed; its resul
 cutover. The prerequisite it named is built: the renderer redraws only the tiles a page owes (`patches/lumatv-renderer.patch`,
 `render/src/tiles.rs`), `Gles::current`/`enter`/`leave` run the toolkit in the compositor's own context (`patches/lumatv-gl.patch`),
 and the compositor's `ui` feature draws the engine's two stacks into its pages on the live tick path, with the frame receipts
-carried through the KMS flips ("Engine in the compositor", at the end). Nothing of it has run on the set: no partial-redraw GPU cost
-is measured there and no measurement script exists yet. The last TV handback was Active Standby.
+carried through the KMS flips, direct scan-out kept under it and the app's socket waking the loop ("Engine in the compositor", at
+the end). Nothing of it has run on the set: the measurement for the next slot is ready (`compositor/tools/tv_ui_measure.py`,
+about 5 min in the KMS maintenance window, its idle gate under 1 ms of GPU a 10 fps frame) and has not run. The last TV handback
+was Active Standby.
 
 ## What was built
 
@@ -151,6 +153,18 @@ The prerequisite above, built and host-tested; nothing of it has run on the set.
 - The app's socket is in the loop's poll set (`Output::ui_fd`, `State::ui_wake`, `main.rs` and the test harness alike): a commit
   wakes the loop and is taken in at once, and on a still screen (KMS: no flip in flight, no run of frames) it is drawn at once, as
   a window's commit is; while frames flow, the tick draws it. Before this a commit waited for the next tick (up to a refresh).
+- The measurement for the next slot, ready and not run: `python3 compositor/tools/tv_ui_measure.py` (about 5 min with the build;
+  `--no-deploy`, `--no-standby`, `--report DIR` for the figures of a fetched run). It builds the bundle with the engine host
+  (`LUMATV_FEATURES=ui sh compositor/tools/build-tv.sh`, which cross-builds in 28 s here), deploys it, and runs
+  `tools/tv-ui-measure.sh` on the set in the KMS maintenance window (LG's compositor stopped and restored as `kms-window.sh`
+  does): four runs of the compositor with the demo surface (`--ui-demo`; `LUMATV_UI_DEMO_HZ` paces its ticker,
+  `LUMATV_UI_DEMO_VOLUME_S` its volume bar): `idle10` (ticker at 10 Hz, 30 s), `anim60` (60 Hz, 20 s), `volume` (10 Hz, the bar
+  up 2 s in 6, 24 s), `direct` (x2cli full screen over the 10 Hz ticker, the bar up 2 s in 10, 30 s). Each is sampled every
+  second (`mali0/dvfs_utilization` busy and idle, the compositor's CPU ticks) and ends with `ctl status` (the summary now
+  carries `ui frames N (empty N) px/frame changed draws/frame layers/frame cpu us/frame max us gl errors`, and the KMS line
+  `direct N`) and `ctl capture`. The idle gate: `idle10`'s GPU busy share x 100 ms, under 1 ms a frame; `direct` must show
+  direct frames and no GL error; the rest are figures. Host smoke of the same binary path on Mesa (`--renderer gl --ui-demo`,
+  6 s, ticker at 10 Hz, the bar every 3 s): 40 UI frames, 142 k px a frame, no GL error, the capture upright.
 
 Host checks (Mesa software GL, `LIBGL_ALWAYS_SOFTWARE=1`): `cd compositor && cargo test --features ui` (73 unit, 22 protocol,
 1 bridge, 2 LG-table, `ui`: 240 frames pixel-equal with 237 drawn in part and the demo's ground and volume bar on the page,
@@ -161,5 +175,6 @@ zero GL errors; with the tick off, 30 commits each drawn by the socket's wake al
 worst); `cargo test` without the feature unchanged; `cd rustui && cargo test` (10 tile tests, the two damage tests of
 `app/tests/damage.rs`, the embedded engine test); clippy clean both ways.
 
-Not done: no run on the set (the GPU cost of an idle frame under the compositor, the frame gate under it), no measurement script
-for it, the UI channel for keys and focus, and LumaHome itself on stack 0.
+Not done: no run on the set (the GPU cost of an idle frame under the compositor; the script above is ready and has not run), the
+surface gate under LumaTV's compositor (`perf/gate.py` drives the QML surfaces, which have no client under it yet), the UI
+channel for keys and focus, and LumaHome itself on stack 0.

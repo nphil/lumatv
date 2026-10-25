@@ -73,6 +73,59 @@ pub struct Gl {
     ui: Option<crate::ui::Ui>,
     #[cfg(feature = "ui")]
     ui_frame: Option<lumatv_render::host::FrameCost>,
+    #[cfg(feature = "ui")]
+    ui_stats: UiStats,
+}
+
+/// What the UI's frames added up to since the start: the summary's account of the engine (a TV measurement reads it).
+#[cfg(feature = "ui")]
+#[derive(Default)]
+struct UiStats {
+    frames: u64,
+    /// Frames that drew nothing of the UI (nothing changed in the owed rectangles, or a direct frame).
+    empty: u64,
+    region_px: u64,
+    damage_px: u64,
+    draw_calls: u64,
+    layers: u64,
+    cpu_us: u64,
+    cpu_us_max: u32,
+    gl_errors: u64,
+}
+
+#[cfg(feature = "ui")]
+impl UiStats {
+    fn add(&mut self, cost: &lumatv_render::host::FrameCost) {
+        self.frames += 1;
+        self.empty += u64::from(cost.region_px == 0);
+        self.region_px += cost.region_px;
+        self.damage_px += cost.damage_px;
+        self.draw_calls += u64::from(cost.draw_calls);
+        self.layers += u64::from(cost.layers);
+        self.cpu_us += u64::from(cost.cpu_us);
+        self.cpu_us_max = self.cpu_us_max.max(cost.cpu_us);
+        self.gl_errors += u64::from(cost.gl_error.is_some());
+    }
+
+    /// Per-frame means over the frames that drew something, and the CPU's worst frame.
+    fn line(&self) -> String {
+        if self.frames == 0 {
+            return String::new();
+        }
+        let drew = (self.frames - self.empty).max(1);
+        format!(
+            "ui frames {} (empty {}) px/frame {} changed {} draws/frame {} layers/frame {} cpu {} us/frame max {} us gl errors {}",
+            self.frames,
+            self.empty,
+            self.region_px / drew,
+            self.damage_px / drew,
+            self.draw_calls / drew,
+            self.layers / drew,
+            self.cpu_us / self.frames,
+            self.cpu_us_max,
+            self.gl_errors
+        )
+    }
 }
 
 const VS: &str = "attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;\nvoid main() { gl_Position = vec4(a_pos, 0.0, 1.0); v_uv = a_uv; }\n";
@@ -126,6 +179,8 @@ impl Gl {
             ui: None,
             #[cfg(feature = "ui")]
             ui_frame: None,
+            #[cfg(feature = "ui")]
+            ui_stats: UiStats::default(),
         })
     }
 
@@ -175,8 +230,22 @@ impl Gl {
 
     #[cfg(feature = "ui")]
     pub fn ui_presented(&mut self, at: u64, cost: &lumatv_render::host::FrameCost) {
+        self.ui_stats.add(cost);
         if let Some(ui) = &mut self.ui {
             ui.presented(at, cost);
+        }
+    }
+
+    /// The UI's frames so far, for the summary line: how much of the output each drew and what each cost the CPU. Empty
+    /// without a UI frame.
+    pub fn ui_stats_line(&self) -> String {
+        #[cfg(feature = "ui")]
+        {
+            self.ui_stats.line()
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            String::new()
         }
     }
 
@@ -800,6 +869,10 @@ impl Output for Gl {
         let result = self.render_rects(plan, surfaces, &rects);
         self.rects = rects;
         result
+    }
+
+    fn stats_line(&self) -> String {
+        self.ui_stats_line()
     }
 
     fn present(&mut self) -> io::Result<Presented> {

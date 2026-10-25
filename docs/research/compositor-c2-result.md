@@ -39,14 +39,21 @@ compositor/tools/build-tv.sh` builds the bundle.
   compositor/tools/tv_next_slot.py` (trial and gate in one, results in
   `docs/research/compositor/slot-<date>-<HHMM>/`). The set needs the
   current `tools/lumatv` (`comp_live` guard) or the script turns the Home
-  stub off for the session and back on.
+  stub off for the session and back on. In the same slot, after it (LG's
+  compositor live again), about 5 more minutes: `python3
+  compositor/tools/tv_ui_measure.py`, the engine host's frame cost in the
+  KMS maintenance window (its own bundle, `LUMATV_FEATURES=ui`; results
+  in `docs/research/compositor/ui-measure-<date>-<HHMM>/`), with the idle
+  gate of the RustUi spike: under 1 ms of GPU a 10 fps frame.
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
   engine host (feature `ui`) is built and host-tested, not run on the set
-  (`cargo test --features ui` adds `ui` and `ui_output`); the RustUi
-  spike's prerequisite, an idle frame under 1 ms of GPU, is unmeasured
-  there.
+  (`cargo test --features ui` adds `ui`, `ui_output` and `ui_scanout`);
+  the RustUi spike's prerequisite, an idle frame under 1 ms of GPU, is
+  unmeasured there until `tv_ui_measure.py` runs. The surface gate
+  (`perf/gate.py`) under this compositor waits on a client for the QML
+  surfaces, which does not exist.
 - Built and host-tested, unverified on the set: the Magic Remote's pointer
   (`ctl pointer X Y`, `ctl click`).
 

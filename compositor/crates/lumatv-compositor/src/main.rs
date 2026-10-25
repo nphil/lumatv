@@ -114,7 +114,7 @@ fn run(config: Config) -> io::Result<()> {
             let shm = config.runtime_dir.join("ui-shm");
             std::fs::create_dir_all(&shm)?;
             let app = gl.attach_ui(config.driver.as_deref().unwrap(), lumatv_compositor::ui::demo::SYSTEM_Z, shm.clone())?;
-            ui_demo = Some(lumatv_compositor::ui::demo::Demo::new(app, &shm)?);
+            ui_demo = Some(lumatv_compositor::ui::demo::Demo::with(app, &shm, lumatv_compositor::ui::demo::Options::from_env())?);
             gl.ui().unwrap().finish_handshake()?;
         }
         Ok(gl)
