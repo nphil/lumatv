@@ -61,7 +61,7 @@ pub enum Event {
     Key { code: u32, pressed: bool },
 }
 
-/// The newest `wl_seat` version asked for: LG's compositor serves 4 (Qt 5.12), the rest is not needed.
+/// The newest `wl_seat` version asked for: 5 adds `release`, for a seat that goes away; LG's compositor serves 4 (Qt 5.12).
 const SEAT_VERSION: u32 = 5;
 
 /// One of the compositor's seats, bound for its keyboard.
