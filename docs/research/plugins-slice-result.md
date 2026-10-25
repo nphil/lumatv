@@ -99,10 +99,12 @@ init is logged with the lines the library and ls-hubd left in `/var/log/messages
   `ambient/tests/capture_service.rs` (the crate's own `wire::decode` reads the C service's frames for presets 0 and 3),
   `tests/test_capture_install.py` (role written for the staged path with exactly the allowed names, no rescan when unchanged, a binary
   swap, remove, start/stop, and the started service really sending frames to a socket).
-- **Not verified on the TV**: the role directory and that ls-hubd reads it after `ls-control scan-volatile-dirs`; the role's `type`
-  (`regular`; the slot takes `--role-type privileged`); that `allowedNames`/`outbound` cover everything the library registers and calls
-  (`LSHUB_` lines in the slot's `<scenario>.log.txt` say what was refused); `/tmp` is not needed, the staged path is under `/var/lib`;
-  the `ls-control` verbs; the reader's CPU against the plan's 1 %.
+- **Verified on the TV (2026-10-25 16:27, `ambient-result.md` "Probe slots")**: ls-hubd reads the role under `/var/luna-service2-dev/roles.d`
+  only through a manifest in `manifests.d` (`capture.sh` writes `org.nphil.lumatv.capture.json`), after `ls-control scan-volatile-dirs`;
+  `type` `regular` suffices; the library registers `com.webos.rm.client.<session>` (uMediaServer's resource-manager client) and the
+  capture client, which the template names with outbound `com.webos.media`, `com.webos.service.capture` and `...capturepermission`;
+  LG's own client-permission files already cover those names. The reader took 5.2-5.6 % of a core at 30 polls a second, over the
+  plan's 1 %; the zones change about 8 times a second, so 10 polls is the next setting to measure.
 
 ## The probe slot (Nitin's `vt_devmode` approval, 2026-10-25)
 

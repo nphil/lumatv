@@ -1,0 +1,180 @@
+{
+ "label": "hdmi2",
+ "connected": true,
+ "frames": 1799,
+ "changed": 473,
+ "seconds": 60.0,
+ "closed_by": "deadline",
+ "frames_per_s": 30.0,
+ "changes_per_s": 7.9,
+ "interval_ms": {
+  "p50": 33.1,
+  "p90": 34.0,
+  "p99": 34.8,
+  "max": 37.2
+ },
+ "service_cpu_pct": 5.17,
+ "preset": 0,
+ "zones": [
+  {
+   "area": 0,
+   "r": 40.3,
+   "g": 75.6,
+   "b": 106.4,
+   "black": 0.011,
+   "count": 7200,
+   "luma_min": 62.3,
+   "luma_max": 82.9
+  },
+  {
+   "area": 1,
+   "r": 8.2,
+   "g": 25.8,
+   "b": 49.8,
+   "black": 0.0,
+   "count": 1728,
+   "luma_min": 15.1,
+   "luma_max": 50.8
+  },
+  {
+   "area": 2,
+   "r": 32.9,
+   "g": 81.7,
+   "b": 115.8,
+   "black": 0.0,
+   "count": 2304,
+   "luma_min": 44.9,
+   "luma_max": 83.9
+  },
+  {
+   "area": 3,
+   "r": 62.4,
+   "g": 92.5,
+   "b": 127.0,
+   "black": 0.056,
+   "count": 864,
+   "luma_min": 57.2,
+   "luma_max": 126.5
+  },
+  {
+   "area": 4,
+   "r": 30.6,
+   "g": 63.4,
+   "b": 94.8,
+   "black": 0.013,
+   "count": 7200,
+   "luma_min": 38.6,
+   "luma_max": 74.0
+  },
+  {
+   "area": 5,
+   "r": 10.8,
+   "g": 33.6,
+   "b": 59.4,
+   "black": 0.012,
+   "count": 1380,
+   "luma_min": 2.3,
+   "luma_max": 74.6
+  },
+  {
+   "area": 6,
+   "r": 19.2,
+   "g": 52.2,
+   "b": 84.2,
+   "black": 0.0,
+   "count": 1504,
+   "luma_min": 5.8,
+   "luma_max": 68.2
+  },
+  {
+   "area": 7,
+   "r": 38.8,
+   "g": 70.7,
+   "b": 106.1,
+   "black": 0.031,
+   "count": 1584,
+   "luma_min": 40.1,
+   "luma_max": 96.6
+  },
+  {
+   "area": 8,
+   "r": 32.3,
+   "g": 64.2,
+   "b": 93.0,
+   "black": 0.011,
+   "count": 7200,
+   "luma_min": 51.6,
+   "luma_max": 70.8
+  },
+  {
+   "area": 9,
+   "r": 9.7,
+   "g": 29.1,
+   "b": 52.5,
+   "black": 0.0,
+   "count": 1440,
+   "luma_min": 16.5,
+   "luma_max": 69.5
+  },
+  {
+   "area": 10,
+   "r": 19.1,
+   "g": 51.6,
+   "b": 80.0,
+   "black": 0.0,
+   "count": 1504,
+   "luma_min": 33.1,
+   "luma_max": 55.5
+  },
+  {
+   "area": 11,
+   "r": 101.4,
+   "g": 127.9,
+   "b": 157.0,
+   "black": 0.056,
+   "count": 864,
+   "luma_min": 62.1,
+   "luma_max": 168.1
+  },
+  {
+   "area": 12,
+   "r": 70.4,
+   "g": 100.8,
+   "b": 131.7,
+   "black": 0.056,
+   "count": 864,
+   "luma_min": 61.7,
+   "luma_max": 107.1
+  },
+  {
+   "area": 13,
+   "r": 43.2,
+   "g": 76.6,
+   "b": 107.8,
+   "black": 0.03,
+   "count": 1584,
+   "luma_min": 31.5,
+   "luma_max": 89.2
+  },
+  {
+   "area": 14,
+   "r": 101.9,
+   "g": 124.7,
+   "b": 151.5,
+   "black": 0.091,
+   "count": 704,
+   "luma_min": 48.9,
+   "luma_max": 162.5
+  },
+  {
+   "area": 15,
+   "r": 17.6,
+   "g": 48.3,
+   "b": 79.0,
+   "black": 0.0,
+   "count": 720,
+   "luma_min": 2.1,
+   "luma_max": 59.0
+  }
+ ]
+}

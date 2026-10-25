@@ -1,0 +1,180 @@
+{
+ "label": "netflix",
+ "connected": true,
+ "frames": 1799,
+ "changed": 449,
+ "seconds": 60.0,
+ "closed_by": "deadline",
+ "frames_per_s": 30.0,
+ "changes_per_s": 7.5,
+ "interval_ms": {
+  "p50": 33.2,
+  "p90": 34.0,
+  "p99": 35.3,
+  "max": 38.7
+ },
+ "service_cpu_pct": 5.23,
+ "preset": 0,
+ "zones": [
+  {
+   "area": 0,
+   "r": 11.4,
+   "g": 12.0,
+   "b": 11.1,
+   "black": 0.84,
+   "count": 7200,
+   "luma_min": 11.8,
+   "luma_max": 70.6
+  },
+  {
+   "area": 1,
+   "r": 0.0,
+   "g": 0.0,
+   "b": 0.0,
+   "black": 1.0,
+   "count": 1728,
+   "luma_min": 0.0,
+   "luma_max": 24.0
+  },
+  {
+   "area": 2,
+   "r": 9.4,
+   "g": 10.1,
+   "b": 9.7,
+   "black": 0.812,
+   "count": 2304,
+   "luma_min": 9.9,
+   "luma_max": 74.1
+  },
+  {
+   "area": 3,
+   "r": 41.4,
+   "g": 34.8,
+   "b": 27.9,
+   "black": 0.721,
+   "count": 864,
+   "luma_min": 35.7,
+   "luma_max": 88.5
+  },
+  {
+   "area": 4,
+   "r": 8.0,
+   "g": 7.1,
+   "b": 6.0,
+   "black": 0.936,
+   "count": 7200,
+   "luma_min": 7.2,
+   "luma_max": 58.8
+  },
+  {
+   "area": 5,
+   "r": 0.0,
+   "g": 0.0,
+   "b": 0.0,
+   "black": 1.0,
+   "count": 1380,
+   "luma_min": 0.0,
+   "luma_max": 30.8
+  },
+  {
+   "area": 6,
+   "r": 0.2,
+   "g": 0.2,
+   "b": 0.2,
+   "black": 0.997,
+   "count": 1504,
+   "luma_min": 0.2,
+   "luma_max": 47.7
+  },
+  {
+   "area": 7,
+   "r": 25.4,
+   "g": 21.8,
+   "b": 17.9,
+   "black": 0.807,
+   "count": 1584,
+   "luma_min": 22.3,
+   "luma_max": 66.5
+  },
+  {
+   "area": 8,
+   "r": 17.3,
+   "g": 19.3,
+   "b": 18.4,
+   "black": 0.702,
+   "count": 7200,
+   "luma_min": 18.8,
+   "luma_max": 59.5
+  },
+  {
+   "area": 9,
+   "r": 0.0,
+   "g": 0.0,
+   "b": 0.0,
+   "black": 1.0,
+   "count": 1440,
+   "luma_min": 0.0,
+   "luma_max": 26.5
+  },
+  {
+   "area": 10,
+   "r": 22.2,
+   "g": 26.2,
+   "b": 25.0,
+   "black": 0.615,
+   "count": 1504,
+   "luma_min": 25.2,
+   "luma_max": 46.5
+  },
+  {
+   "area": 11,
+   "r": 14.5,
+   "g": 15.5,
+   "b": 14.4,
+   "black": 0.87,
+   "count": 864,
+   "luma_min": 15.2,
+   "luma_max": 125.4
+  },
+  {
+   "area": 12,
+   "r": 24.4,
+   "g": 26.6,
+   "b": 25.1,
+   "black": 0.534,
+   "count": 864,
+   "luma_min": 26.0,
+   "luma_max": 96.0
+  },
+  {
+   "area": 13,
+   "r": 37.7,
+   "g": 41.9,
+   "b": 39.7,
+   "black": 0.347,
+   "count": 1584,
+   "luma_min": 40.8,
+   "luma_max": 71.1
+  },
+  {
+   "area": 14,
+   "r": 12.5,
+   "g": 13.8,
+   "b": 12.8,
+   "black": 0.832,
+   "count": 704,
+   "luma_min": 13.4,
+   "luma_max": 122.3
+  },
+  {
+   "area": 15,
+   "r": 0.0,
+   "g": 0.0,
+   "b": 0.0,
+   "black": 1.0,
+   "count": 720,
+   "luma_min": 0.0,
+   "luma_max": 44.2
+  }
+ ]
+}

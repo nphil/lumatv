@@ -2,7 +2,7 @@
 
 ## Resume here
 
-Done (2026-10-25):
+Done (2026-10-25, the probe slot of 16:27 captured; "Probe results" below):
 
 - Offline recovery of the four `vtCapture_*Histogram` signatures, data layout, preset geometry, return codes and the
   process allow-list (see "ABI", "Permission gate"). Header `ambient/capture/vthist.h`.
@@ -35,17 +35,19 @@ Decision for Nitin (the only thing blocking the picture side):
 - With "short tests": the probe plan is 3 runs of 60 s (Home, HDMI 2 if it has signal, muted Netflix), flag removed
   straight after each batch. Nitin allowed the flag for probe slots (PLAN.md, Decided).
 - Probe slot run 12:35 ("Probe slot" below): the flag passes the gate, then LG's library aborts the process because
-  it registers on the luna bus and the probe has no LS2 role file. No zone data yet; the next step is a role (the
-  capture helper as a native service of the ipk), then the probe slot again.
+  it registers on the luna bus and the probe has no LS2 role file. Probe slot run 16:21 with the package's reader and
+  its role: the hub still said no role file, because on this firmware a volatile role is read only through a manifest
+  (`capture.sh` writes one since `4888500`) and the first name the library registers is a resource-manager client,
+  `com.webos.rm.client.<session>`. Probe slot run 16:27 with both: 60 s of zone data in all three scenarios.
 
 Next, in order:
 
-1. Give the capture helper an LS2 identity: a native service in LumaTV's ipk (`services/<id>/services.json` with
-   the 32-bit binary as its executable), which `appInstallService/dev/install` registers with ls-hubd, or Nitin's OK
-   for a dev role file under `/var/palm/ls2-dev/roles/` for one probe slot. Then the probe slot again (the Netflix
-   title played this time), fill "Probe results", then tune `engine::Config` defaults from the dumps (replay through
-   `zones::parse_dump`).
-2. Build the 32-bit capture helper from `probe.c` (lifecycle in "Helper-side design").
+1. Tune `engine::Config` defaults from the dumps (`probe-2026-10-25-1627/<scenario>.json`, 16 areas each; replay
+   through `zones::parse_dump`): the reader polled 30 times a second and the zones changed 7.5-7.9 times a second, so
+   the hardware histogram updates at about 8 Hz and the reader need not poll faster than 10 a second (its 5.2-5.6 % of a
+   core at 30 polls is over the plan's 1 %; `-r 10` is the first thing to measure).
+2. Build the helper side onto the reader's socket (lifecycle in "Helper-side design"); `tools/lumatv apply` installs the
+   reader as the package does (`capture.sh install`, now with the manifest).
 
 ## ABI
 
@@ -240,12 +242,56 @@ CONFIRM"). The file was confirmed absent by hand at 12:36:13 EDT (`ls: No such f
 12:50. Nothing was sent to any Hue or WLED device; nothing else on the set was changed; the set was left in Active
 Standby by the script.
 
+## Probe slots (2026-10-25 16:21 and 16:27 EDT): the role through a manifest, then 60 s of zones in each scenario
+
+Both from a clean worktree, `python3 ambient/capture/tv_probe_slot.py --go --no-standby`, the reader built there by
+`ambient/capture/build.sh` (md5 `cd324c4e`, the committed build's), the package not installed on the set before either
+run (`capture.sh install` staged `/var/lib/lumatv/bin/lumatv-capture` and `capture.sh remove` took it away after).
+Files in `docs/research/ambient/probe-2026-10-25-1621/` and `probe-2026-10-25-1627/`.
+
+16:21 (`8108c43`, role template of `plugins-slice-result.md`): the flag passed the gate (`dev mode on!!`), then ls-hubd
+`LSHUB_NO_ROLE_FILE {"EXE":"/var/lib/lumatv/bin/lumatv-capture"}` and `LSRegisterPubPriv FAILED` for the name
+`com.webos.rm.client._fd2ItCC7IvCIO1`, exit 134, in each of the three windows (flag windows of 4-5 s). Two things were
+wrong, read on the set: ls-hubd's configuration (`/etc/luna-service2/ls-hubd.conf`) lists `ManifestsVolatileDirectories`
+(`/var/luna-service2/manifests.d`, `/var/luna-service2-dev/manifests.d`) and no volatile roles directory, so a file in
+`roles.d` is read only when a manifest names it (every dev-installed app has one: `{"id", "version", "roleFiles",
+"clientPermissionFiles", ...}`, in the flat `exeName`/`type`/`allowedNames`/`permissions` form); and the first name
+LG's library registers is uMediaServer's resource-manager client, `com.webos.rm.client.<session>`, not the capture
+client. LG's own role for `/usr/bin/vtCaptureTestSuite` (`/usr/share/luna-service2/roles.d/`) names
+`com.webos.service.capture.client*` and `com.webos.rm.client.*` with outbound `com.webos.media`; LG's
+`compat.perm.json` already gives `com.webos.rm.client.*` the `private` group and `com.webos.service.capture.perm.json`
+gives the capture client `all`, so no client-permissions file is needed. `4888500`: the template names those two,
+`capture.sh` writes `manifests.d/org.nphil.lumatv.capture.json` beside the role and removes both.
+
+16:27 (`4888500`): every window captured for its 60 s. Flag windows (set clock): home 16:27:55-16:28:55, hdmi2
+16:29:04-16:30:04, netflix 16:30:35-16:31:35, each removed by the script's own `end`; receiver muted 16:27:50 (was on,
+unmuted, 0.355) and unmuted 16:31:44; Picture Mode `filmMaker` before, `dolbyHdrCinema` after (Netflix was still in
+front: see the problem below). The reader: `capturing: preset 0, 16 areas, 30 polls a second (init 32 ms)`, `finalize
+rc=0`; LG's library logged the resource manager registered, acquired and released each time
+(`resourceManagerClient.cpp`, one `release(): return error ('m_resources.size()')` warning at every finalize, harmless).
+
+| Scenario | Frames in 60 s | Zone changes a second | Interval p50 / p90 / p99 / max (ms) | Reader CPU (of a core) | Mean R G B of the 16 areas | Black fraction |
+|---|---:|---:|---|---:|---|---:|
+| Home (LumaHome's wallpaper) | 1799 | 7.9 | 33.1 / 34.1 / 35.3 / 39.5 | 5.55 % | 58 61 81 | 0.062 |
+| HDMI 2 (the receiver's menu, blue) | 1799 | 7.9 | 33.1 / 34.0 / 34.8 / 37.2 | 5.17 % | 40 70 100 | 0.023 |
+| Netflix (Meridian at its 15 % loading screen) | 1799 | 7.5 | 33.2 / 34.0 / 35.3 / 38.7 | 5.23 % | 14 14 13 | 0.813 |
+
+The areas' pixel counts are fixed per preset (7200, 2304, 1728, 1584, 1504, 1440, 1380, 864, 720, 704 for preset 0),
+so the histogram is a subsample, not a full count. 30 frames a second is the reader's poll rate; the zones changed
+7.5-7.9 times a second in every scenario, Home's slow wallpaper included, so about 8 Hz is the hardware's update rate
+and 10 polls a second would lose nothing. The Netflix window read non-zero colour from protected video (area 3: 41 35 28,
+luma up to 88), the point of the kernel's secure-world histogram.
+
+Problem found in the room: the slot unmuted the receiver at 16:31:44 while Netflix was still playing (`--no-standby`
+leaves the set on, and Home was launched only after the unmute), so the title was heard; Nitin stopped the session at
+16:31. Fixed in the script: the scenario app is closed and Home launched before the receiver is restored.
+
 ## Open
 
-- Zone values, update rate, latency, CPU of the histogram: the role is now shipped with the package (`lumatv-capture`,
-  `payload/capture/`, `plugins-slice-result.md` "The colour reader") and the next probe slot installs it as the package does and captures
-  through it (`tv_probe_slot.py`); what is open is whether ls-hubd accepts that role (`--role-type privileged` is the other try).
+- Latency of the histogram against the picture (a flash on the screen to the zone change) and the reader at 10 polls a
+  second: the next slot, with the helper side on the socket.
 - Netflix playback error of 05:19: the title played at 12:35 (`dolbyHdrCinema`) and failed at 12:23 under LumaTV's
-  compositor with a video `INT_ERROR 18` (compositor-c2-result.md, third gate); not reproducible at will.
+  compositor with a video `INT_ERROR 18` (compositor-c2-result.md, third gate); not reproducible at will. At 16:30 the
+  title stayed at 15 % of its loading for the whole window.
 - Home Assistant showed the receiver `off` while the TV was in Active Standby, and `on`, unmuted, 0.355 once the screen
   was on.

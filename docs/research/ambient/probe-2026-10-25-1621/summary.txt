@@ -1,0 +1,33 @@
+probe slot 2026-10-25 16:22
+
+flag home: created 1792959693.0, removed 1792959698.0 by end
+flag hdmi2: created 1792959706.0, removed 1792959710.0 by end
+flag netflix: created 1792959739.0, removed 1792959744.0 by end
+
+home: the service connected and sent no frames (the polls failed: see the service log)
+  {"label": "home", "connected": true, "frames": 0, "changed": 0, "seconds": 0.01, "closed_by": "eof", "frames_per_s": 0.0, "changes_per_s": 0.0, "interval_ms": {"p50": 0, "p90": 0, "p99": 0, "max": 0}}
+  foreground when the capture started: com.webos.app.home
+  ls-hubd / capture: 2026-10-25T20:21:36.849032Z [43976.235290100] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+  ls-hubd / capture: 2026-10-25T20:21:36.849053Z [43976.235311240] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+  ls-hubd / capture: 2026-10-25T20:21:36.849074Z [43976.235331500] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+  ls-hubd / capture: 2026-10-25T20:21:36.849094Z [43976.235351740] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+  ls-hubd / capture: 2026-10-25T20:21:36.849114Z [43976.235371780] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+  ls-hubd / capture: 2026-10-25T20:21:36.852318Z [43976.238594160] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+hdmi2: the service connected and sent no frames (the polls failed: see the service log)
+  {"label": "hdmi2", "connected": true, "frames": 0, "changed": 0, "seconds": 0.01, "closed_by": "eof", "frames_per_s": 0.0, "changes_per_s": 0.0, "interval_ms": {"p50": 0, "p90": 0, "p99": 0, "max": 0}}
+  foreground when the capture started: com.webos.app.hdmi2
+  ls-hubd / capture: 2026-10-25T20:21:50.510285Z [43989.896543060] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+  ls-hubd / capture: 2026-10-25T20:21:50.511690Z [43989.897952240] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}
+  ls-hubd / capture: 2026-10-25T20:21:50.689162Z [43990.075428220] user.err ls-hubd [] ls-hubd LSHUB_NOT_LSTED {"SERVICE_NAME":"com.webos.service.tv.display","EXE":"/usr/bin/luna-send","APP_ID":"(null)","PID":18326} Service not listed in service files (cmdline: /usr/bin/luna-send -n 1 -w 2000 -f luna://com.webos.service.tv.display/getDimmingStatus {})
+  ls-hubd / capture: 2026-10-25T20:21:50.689262Z [43990.075522240] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -4, service_name: "com.webos.service.tv.display", unique_name: "(null)", static, fd -1 
+  ls-hubd / capture: 2026-10-25T20:21:50.750995Z [43990.137259220] user.err ls-hubd [] ls-hubd LSHUB_NOT_LSTED {"SERVICE_NAME":"com.webos.service.acb","EXE":"/usr/bin/luna-send","APP_ID":"(null)","PID":18329} Service not listed in service files (cmdline: /usr/bin/luna-send -n 1 -w 2000 -f luna://com.webos.service.acb/getForegroundAppInfo {})
+  ls-hubd / capture: 2026-10-25T20:21:50.751093Z [43990.137351640] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -4, service_name: "com.webos.service.acb", unique_name: "(null)", static, fd -1
+netflix: the service connected and sent no frames (the polls failed: see the service log)
+  {"label": "netflix", "connected": true, "frames": 0, "changed": 0, "seconds": 0.01, "closed_by": "eof", "frames_per_s": 0.0, "changes_per_s": 0.0, "interval_ms": {"p50": 0, "p90": 0, "p99": 0, "max": 0}}
+  foreground when the capture started: netflix
+  ls-hubd / capture: 2026-10-25T20:22:21.549339Z [44020.935597120] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+  ls-hubd / capture: 2026-10-25T20:22:21.549362Z [44020.935619700] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+  ls-hubd / capture: 2026-10-25T20:22:21.549382Z [44020.935639680] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+  ls-hubd / capture: 2026-10-25T20:22:21.549402Z [44020.935660400] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+  ls-hubd / capture: 2026-10-25T20:22:21.549423Z [44020.935680900] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+  ls-hubd / capture: 2026-10-25T20:22:21.554061Z [44020.940328620] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}

@@ -1,0 +1,20 @@
+{
+  "exeName": "@EXE@",
+  "type": "regular",
+  "allowedNames": [
+    "com.webos.service.capture.client*",
+    "com.webos.rm.client.*"
+  ],
+  "permissions": [
+    {
+      "service": "com.webos.service.capture.client*",
+      "inbound": [],
+      "outbound": ["com.webos.service.capture", "com.webos.service.capturepermission"]
+    },
+    {
+      "service": "com.webos.rm.client.*",
+      "inbound": ["com.webos.media"],
+      "outbound": ["com.webos.media"]
+    }
+  ]
+}

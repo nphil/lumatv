@@ -1,0 +1,2 @@
+frames=1799 changed=449 (7.5/s) cpu=5.23% closed_by=deadline
+exit=0

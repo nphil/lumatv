@@ -1,0 +1,33 @@
+probe slot 2026-10-25 16:31
+
+flag home: created 1792960075.0, removed 1792960135.0 by end
+flag hdmi2: created 1792960144.0, removed 1792960204.0 by end
+flag netflix: created 1792960235.0, removed 1792960295.0 by end
+
+home: 30.0 frames a second, the zones change 7.9 times a second, service CPU 5.55% of a core (over the plan's 1 %)
+  {"label": "home", "connected": true, "frames": 1799, "changed": 475, "seconds": 60.0, "closed_by": "deadline", "frames_per_s": 30.0, "changes_per_s": 7.9, "interval_ms": {"p50": 33.1, "p90": 34.1, "p99": 35.3, "max": 39.5}, "service_cpu_pct": 5.55, "preset": 0}
+  foreground when the capture started: com.webos.app.home
+  ls-hubd / capture: 2026-10-25T20:28:55.915280Z [44415.301537800] user.info lumatv-capture [] capture LIB {} vtHistogram.cpp.resourceManagerClientEventCallback():255 ev: onResourcesReleased
+  ls-hubd / capture: 2026-10-25T20:28:55.915303Z [44415.301560540] user.warning lumatv-capture [] capture WARN {} resourceManagerClient.cpp.release():211 return error ('m_resources.size()')
+  ls-hubd / capture: 2026-10-25T20:28:55.915324Z [44415.301581420] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():153 try to finalize RMC.
+  ls-hubd / capture: 2026-10-25T20:28:55.918016Z [44415.304283860] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():183 complete to finalize RMC.
+  ls-hubd / capture: 2026-10-25T20:28:55.918200Z [44415.304463180] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():80 try to unregister RMC Instance.
+  ls-hubd / capture: 2026-10-25T20:28:55.918368Z [44415.304629420] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():89 complete to unregister RMC Instance.
+hdmi2: 30.0 frames a second, the zones change 7.9 times a second, service CPU 5.17% of a core (over the plan's 1 %)
+  {"label": "hdmi2", "connected": true, "frames": 1799, "changed": 473, "seconds": 60.0, "closed_by": "deadline", "frames_per_s": 30.0, "changes_per_s": 7.9, "interval_ms": {"p50": 33.1, "p90": 34.0, "p99": 34.8, "max": 37.2}, "service_cpu_pct": 5.17, "preset": 0}
+  foreground when the capture started: com.webos.app.hdmi2
+  ls-hubd / capture: 2026-10-25T20:30:04.224177Z [44483.610439460] user.info lumatv-capture [] capture LIB {} vtHistogram.cpp.resourceManagerClientEventCallback():255 ev: onResourcesReleased
+  ls-hubd / capture: 2026-10-25T20:30:04.224358Z [44483.610619180] user.warning lumatv-capture [] capture WARN {} resourceManagerClient.cpp.release():211 return error ('m_resources.size()')
+  ls-hubd / capture: 2026-10-25T20:30:04.224446Z [44483.610706660] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():153 try to finalize RMC.
+  ls-hubd / capture: 2026-10-25T20:30:04.225391Z [44483.611651780] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():183 complete to finalize RMC.
+  ls-hubd / capture: 2026-10-25T20:30:04.225489Z [44483.611749300] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():80 try to unregister RMC Instance.
+  ls-hubd / capture: 2026-10-25T20:30:04.225575Z [44483.611835620] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():89 complete to unregister RMC Instance.
+netflix: 30.0 frames a second, the zones change 7.5 times a second, service CPU 5.23% of a core (over the plan's 1 %)
+  {"label": "netflix", "connected": true, "frames": 1799, "changed": 449, "seconds": 60.0, "closed_by": "deadline", "frames_per_s": 30.0, "changes_per_s": 7.5, "interval_ms": {"p50": 33.2, "p90": 34.0, "p99": 35.3, "max": 38.7}, "service_cpu_pct": 5.23, "preset": 0}
+  foreground when the capture started: netflix
+  ls-hubd / capture: 2026-10-25T20:31:35.571497Z [44574.957755320] user.info lumatv-capture [] capture LIB {} vtHistogram.cpp.resourceManagerClientEventCallback():255 ev: onResourcesReleased
+  ls-hubd / capture: 2026-10-25T20:31:35.571518Z [44574.957776460] user.warning lumatv-capture [] capture WARN {} resourceManagerClient.cpp.release():211 return error ('m_resources.size()')
+  ls-hubd / capture: 2026-10-25T20:31:35.571561Z [44574.957819280] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():153 try to finalize RMC.
+  ls-hubd / capture: 2026-10-25T20:31:35.572449Z [44574.958711020] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.finalize():183 complete to finalize RMC.
+  ls-hubd / capture: 2026-10-25T20:31:35.572516Z [44574.958774180] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():80 try to unregister RMC Instance.
+  ls-hubd / capture: 2026-10-25T20:31:35.572541Z [44574.958798680] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.unregisterRmcInstance():89 complete to unregister RMC Instance.

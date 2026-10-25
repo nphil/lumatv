@@ -1,0 +1,25 @@
+2026-10-25T20:21:34.019122Z [43973.405389260] user.warning lumatv-capture [] capture WARN {} webos_vt_histogram.cpp.vtCapture_initHistogram():36 dev mode on!! [/var/lib/lumatv/bin/lumatv-capture]
+2026-10-25T20:21:34.019205Z [43973.405464640] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.registerRmcInstance():60 try to register RMC Instance.
+2026-10-25T20:21:34.019241Z [43973.405499620] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.registerRmcInstance():69 complete to register RMC Instance.
+2026-10-25T20:21:34.019269Z [43973.405526980] user.info lumatv-capture [] capture RMC {} resourceManagerClient.cpp.init():117 try to init RMC.
+2026-10-25T20:21:34.020778Z [43973.407043060] user.err ls-hubd [] ls-hubd LSHUB_NO_ROLE_FILE {"EXE":"/var/lib/lumatv/bin/lumatv-capture"} No role file for executable: "/var/lib/lumatv/bin/lumatv-capture" (cmdline: /var/lib/lumatv/bin/lumatv-capture -s /tmp/ambient-slot-202610251621/cap.sock -r 30 -i 100 -b 1000)
+2026-10-25T20:21:34.021236Z [43973.407498300] user.err lumatv-capture [] <default-lib> LS_REQ_NAME {"FILE":"transport.c","LINE":2174} Invalid permissions for com.webos.rm.client._fd2ItCC7IvCIO1
+2026-10-25T20:21:34.021428Z [43973.407689980] user.err lumatv-capture [] ums.connector SERVICE_REGISTER_ERR {"SESSION_ID":"_fd2ItCC7IvCIO1","TIMESTAMP":43973.407619360,"CODE_POINT":"<UMSConnector_impl.cpp:UMSConnector_impl(142)>","SERVICE":"com.webos.rm.client._fd2ItCC7IvCIO1","ERROR":"Invalid permissions for com.webos.rm.client._fd2ItCC7IvCIO1"} LSRegisterPubPriv FAILED for name=com.webos.rm.client._fd2ItCC7IvCIO1 !!
+2026-10-25T20:21:34.021626Z [43973.407886980] user.err lumatv-capture [] ums.resource_mgr_client UMC_CREATE_ERR {"SESSION_ID":"_fd2ItCC7IvCIO1","TIMESTAMP":43973.407835580,"CODE_POINT":"<ResourceManagerClient.cpp:ResourceManagerClientInit(141)>","ERROR":"LSRegisterPubPriv FAILED"} Failed to instantiate a UMSConnector object
+2026-10-25T20:21:34.021839Z [43973.408099880] user.warning ls-hubd [] ls-hubd LSHUB_UNK_DISC_MSG {"APP_ID":"(null)"} We received a disconnect message for client: 0xa45710, but couldn't find it in the client map
+2026-10-25T20:21:36.848705Z [43976.234972040] user.info captureservice [] capture PROPERTY {} captureClient.h.print():139 clinet ID : -8349820
+2026-10-25T20:21:36.848830Z [43976.235090180] user.info captureservice [] capture PROPERTY {} captureClient.h.print():140 clinet name : com.webos.service.oledepl
+2026-10-25T20:21:36.848861Z [43976.235119640] user.info captureservice [] capture PROPERTY {} captureClient.h.print():141 method : 2
+2026-10-25T20:21:36.848884Z [43976.235142420] user.info captureservice [] capture PROPERTY {} captureClient.h.print():52 ===< capture data >===
+2026-10-25T20:21:36.848906Z [43976.235163680] user.info captureservice [] capture PROPERTY {} captureClient.h.print():53 width : 640
+2026-10-25T20:21:36.848926Z [43976.235184380] user.info captureservice [] capture PROPERTY {} captureClient.h.print():54 height : 360
+2026-10-25T20:21:36.848947Z [43976.235205340] user.info captureservice [] capture PROPERTY {} captureClient.h.print():55 format : 3
+2026-10-25T20:21:36.848968Z [43976.235225660] user.info captureservice [] capture PROPERTY {} captureClient.h.print():56 isProgressive : 1
+2026-10-25T20:21:36.848990Z [43976.235248340] user.info captureservice [] capture PROPERTY {} captureClient.h.print():57 ======================
+2026-10-25T20:21:36.849011Z [43976.235268860] user.info captureservice [] capture PROPERTY {} captureClient.h.print():87 ===< capture dest info >===
+2026-10-25T20:21:36.849032Z [43976.235290100] user.info captureservice [] capture PROPERTY {} captureClient.h.print():88 file path : /tmp/capture.rgb
+2026-10-25T20:21:36.849053Z [43976.235311240] user.info captureservice [] capture PROPERTY {} captureClient.h.print():89 memory name : 
+2026-10-25T20:21:36.849074Z [43976.235331500] user.info captureservice [] capture PROPERTY {} captureClient.h.print():90 memory size : 0
+2026-10-25T20:21:36.849094Z [43976.235351740] user.info captureservice [] capture PROPERTY {} captureClient.h.print():91 ===========================
+2026-10-25T20:21:36.849114Z [43976.235371780] user.info captureservice [] capture PROPERTY {} captureClient.h.print():146 timestamp : 0
+2026-10-25T20:21:36.852318Z [43976.238594160] user.info eplmanager [] eplmanager LS2_RECEIVED {} executeOneShot:{"capturedHeight":360,"writtenBytes":691200,"returnValue":true,"capturedWidth":640}

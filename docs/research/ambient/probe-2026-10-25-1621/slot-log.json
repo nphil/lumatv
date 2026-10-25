@@ -1,0 +1,154 @@
+{
+  "started": 1792959686.120404,
+  "steps": [
+    {
+      "step": "power-state",
+      "at": 1792959686.1838958,
+      "state": "active"
+    },
+    {
+      "step": "preflight",
+      "at": 1792959686.3997962,
+      "flag_existed_before": false,
+      "woke": false
+    },
+    {
+      "step": "library",
+      "at": 1792959686.4424136,
+      "md5": "35d3fec665b861e80af7fa61df8302ab"
+    },
+    {
+      "step": "holders",
+      "at": 1792959687.4073737,
+      "pids": []
+    },
+    {
+      "step": "baseline",
+      "at": 1792959687.5354521,
+      "failed_units": [
+        "broadcast-configd.service",
+        "f2io-on.service",
+        "faultmanager.service",
+        "gibbs.service",
+        "nudge.service",
+        "service-logger.service",
+        "voiceinput.service"
+      ],
+      "picture": "{\"subscribed\":false,\"category\":\"picture\",\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"sdr\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"filmMaker\"},\"returnValue\":true}"
+    },
+    {
+      "step": "dry-run",
+      "at": 1792959687.8497977,
+      "output": "library: init=0xf793aa3d preset=0xf793a7ed get=0xf793a89d finalize=0xf793a949"
+    },
+    {
+      "step": "package-before",
+      "at": 1792959687.9000502,
+      "status": {
+        "installed": false,
+        "role": false,
+        "running": false,
+        "pid": 0
+      }
+    },
+    {
+      "step": "installed",
+      "at": 1792959688.8178425,
+      "role_type": "regular",
+      "output": "rc=0"
+    },
+    {
+      "step": "receiver-before",
+      "at": 1792959688.8214562,
+      "muted": false,
+      "state": "on",
+      "volume": 0.355
+    },
+    {
+      "step": "receiver-muted",
+      "at": 1792959688.853238
+    },
+    {
+      "step": "started",
+      "at": 1792959688.8950646,
+      "remote": "/tmp/ambient-slot-202610251621"
+    },
+    {
+      "step": "key",
+      "at": 1792959725.515023,
+      "scenario": "netflix",
+      "button": "ENTER"
+    },
+    {
+      "step": "captures-over",
+      "at": 1792959746.1012652
+    },
+    {
+      "step": "flag-check",
+      "at": 1792959746.322458,
+      "gone": true,
+      "windows": [
+        {
+          "scenario": "home",
+          "created": 1792959693.0,
+          "removed": 1792959698.0,
+          "removedBy": "end"
+        },
+        {
+          "scenario": "hdmi2",
+          "created": 1792959706.0,
+          "removed": 1792959710.0,
+          "removedBy": "end"
+        },
+        {
+          "scenario": "netflix",
+          "created": 1792959739.0,
+          "removed": 1792959744.0,
+          "removedBy": "end"
+        }
+      ]
+    },
+    {
+      "step": "package-removed",
+      "at": 1792959747.1219099,
+      "status": "{\"installed\":false,\"role\":false,\"running\":false,\"pid\":0}"
+    },
+    {
+      "step": "receiver-unmuted",
+      "at": 1792959752.1318097
+    },
+    {
+      "step": "picture-after",
+      "at": 1792959753.3188,
+      "reply": "{\"subscribed\":false,\"category\":\"picture\",\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"dolbyHdr\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"dolbyHdrCinema\"},\"returnValue\":true}"
+    }
+  ],
+  "flag": {
+    "path": "/var/luna/preferences/vt_devmode",
+    "windows": [
+      {
+        "scenario": "home",
+        "created": 1792959693.0,
+        "removed": 1792959698.0,
+        "removedBy": "end"
+      },
+      {
+        "scenario": "hdmi2",
+        "created": 1792959706.0,
+        "removed": 1792959710.0,
+        "removedBy": "end"
+      },
+      {
+        "scenario": "netflix",
+        "created": 1792959739.0,
+        "removed": 1792959744.0,
+        "removedBy": "end"
+      }
+    ],
+    "existedBefore": false,
+    "gone": true,
+    "createdAt": 1792959693.0,
+    "removedAt": 1792959744.0
+  },
+  "problems": []
+}

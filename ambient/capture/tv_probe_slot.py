@@ -266,6 +266,7 @@ class Log:
 
 FAILED = r"""systemctl --failed --no-legend 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i ~ /\.(service|socket|mount|timer|path|target|slice)$/) { print $i; break }}'"""
 PICTURE = """luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' | tr -d '\\n'"""
+FOREGROUND = """luna-send -n 1 luna://com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d '\\n '"""
 
 
 def run(a):
@@ -457,7 +458,16 @@ def run(a):
                         problems.append("the service or its role is still on the set: sh %s/capture.sh remove %s" % (remote, state))
             except Exception as e:
                 problems.append("could not put the package back as it was (%s): capture.sh remove %s" % (e, state))
-        # ---- the receiver, while the set is still on
+        # ---- Home back first, so nothing plays when the receiver is unmuted (2026-10-25 16:31: the slot unmuted with Netflix
+        # still playing, and the title was heard in the room), then the receiver, while the set is still on
+        try:
+            if started or woke:
+                sh("luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{\"id\":\"netflix\"}'")
+                sh("luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"com.webos.app.home\"}'")
+                time.sleep(2)
+                log.step("home-back", foreground=sh(FOREGROUND).strip()[:120])
+        except Exception as e:
+            problems.append("Home was not brought back (%s)" % e)
         try:
             if muted_before is False:
                 ha("/api/services/media_player/volume_mute", {"entity_id": RECEIVER, "is_volume_muted": False})
@@ -474,12 +484,9 @@ def run(a):
         except Exception as e:
             problems.append("results not fetched (they stay on the set under %s): %s" % (remote, e))
         try:
-            if started or woke:
-                sh("luna-send -n 1 luna://com.webos.applicationManager/launch '{\"id\":\"com.webos.app.home\"}'")
-                if not a.no_standby:
-                    time.sleep(3)
-                    tv_gate.pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/powerOff '{\"reason\":\"remoteKey\"}'", 20)
-                    log.step("standby")
+            if (started or woke) and not a.no_standby:
+                tv_gate.pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/powerOff '{\"reason\":\"remoteKey\"}'", 20)
+                log.step("standby")
         except Exception as e:
             problems.append("the set was not put back (%s)" % e)
         log.doc["problems"] = problems

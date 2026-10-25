@@ -1,0 +1,16 @@
+{
+ "label": "home",
+ "connected": true,
+ "frames": 0,
+ "changed": 0,
+ "seconds": 0.01,
+ "closed_by": "eof",
+ "frames_per_s": 0.0,
+ "changes_per_s": 0.0,
+ "interval_ms": {
+  "p50": 0,
+  "p90": 0,
+  "p99": 0,
+  "max": 0
+ }
+}
