@@ -79,6 +79,66 @@ reports whether it already exists.
 Other facts from the same code: `initHistogram` also fails with code 11 when the resource manager's `acquire` is
 refused, which is the "second `vtCapture_init` fails with 11" seen before (one VT consumer at a time).
 
+## Helper-side design (`ambient/`, crate `lumatv-ambient`)
+
+Gate: `ambient/build.sh check` (rustfmt, clippy `-D warnings`, 86 unit tests, 5 interop tests, aarch64-musl release
+build of the library). Pure std plus RustCrypto (`aes-gcm`, `hmac`, `sha2`) and `getrandom`; `#![forbid(unsafe_code)]`
+like the other helper crates. No traffic to any real device was sent; the Hue and WLED sides are tested against
+loopback fakes, and the DTLS client against OpenSSL's `s_server`.
+
+Process split (unchanged from PLAN): the 32-bit capture helper polls LG's library and sends reduced frames
+(`wire`: 204 bytes per poll, 6 KB/s at 30 Hz) over a local socket; the 64-bit helper owns everything below.
+
+```text
+ capture thread                              output thread (30..60 Hz)
+ wire frame -> ZoneFrame -> push_frame ->  bars ------------------------------+
+                                           delay line --tick--> mapping (per preset matrix)
+                                              -> dark gate -> shape (sat, gain, white balance, gamma) -> smoother
+                                              -> hue_channels() -> huestream::Session::send  (DTLS, UDP 2100)
+                                              -> wled_leds()    -> ddp::Sender::send         (UDP 4048)
+```
+
+HyperHDR features and where they are:
+
+- Zone to light mapping (`layout`): lights are points around the picture; area weight = `exp(-(d/spread)^2) *
+  area^-locality`, `d` the distance to the area's rectangle; one normalised matrix per hardware preset, built at
+  start (`spread` 0.18, `locality` 0.6). A strip is `layout::strip(start, end, n, first_led)`.
+- Time smoothing (`smooth`): HyperHDR's linear smoothing (a run to each new target over `settle_ms`, 180 ms; a new
+  target continues from where the output is) driven by timestamps, so the result does not depend on frame or tick rate;
+  plus its anti-flicker (`threshold` 0.012, `step` 0.004, `timeout_ms` 1500).
+- Brightness and saturation gain, per-light white balance, gamma (`tuning`): saturation in code space keeping luma,
+  gain, global then per-light white balance, output gamma last (1.0 for Hue, about 2.2 for a bare strip unless
+  WLED's own gamma is on).
+- Dark threshold (`tuning::DarkGate`): when every area's largest channel stays under `threshold * 0.8` (threshold
+  0.06) for 600 ms the lights hold `floor` (0.02) of the tint of the last bright scene and ignore the noise of a black
+  picture; they reopen at once above `threshold * 1.4`. A hold, not off: a Hue lamp at about 2 % is steady, at 0 it
+  flickers or drops out.
+- Black bars (`bars` + hardware presets): letterbox and pillarbox are seen through three fixed areas (14 top strip,
+  15 left strip, 1 bottom fifth) and answered by switching the hardware preset (1 or 2), not by cropping. Entered
+  after 1.5 s of evidence, left after 0.8 s, black frames decide nothing. Games mode (preset 3) is a setting.
+- Output delay (`delay`): captured frames wait `delay_ms` (0..2000) before they reach the mapping; the
+  `engine::tick` clock is the caller's.
+- Off on Home and menus: capture stops there, no frames arrive, and after `stale_ms` (1.5 s) the engine fades out;
+  `set_enabled(false)` does the same at once.
+
+Outputs:
+
+- `huestream`: HueStream v2 packets (16-byte header, config UUID, 7 bytes per channel, up to 20 channels), RGB or xy
+  colour space; `Session` = `dtls::PskClient` + sequence counter. REST start/stop requests are builders only
+  (`start_request`, `stop_request`); the helper sends them over HTTPS with the application key.
+- `dtls`: DTLS 1.2, `TLS_PSK_WITH_AES_128_GCM_SHA256` only, with the cookie round, fragment reassembly, flight
+  retransmission (500 ms, doubling, 6 s total), early encrypted records held for the ChangeCipherSpec, close_notify
+  both ways. Interop with OpenSSL `s_server` passes plain and with `-listen` (cookie), wrong key and identity are
+  covered; known-answer tests for the PRF, master secret, key block, Finished and the GCM record come from Python's
+  hashlib and `cryptography`.
+- `ddp`: WLED DDP packets (flags 0x40 or 0x41 with push on the last, sequence 1..15, type 0x0B RGB or 0x1B RGBW,
+  1440-byte chunks on whole LEDs); send every output tick, WLED leaves realtime mode about 2.5 s after the last packet.
+
+Not exercised, because it needs the real things: a Hue bridge or Bifrost (Bifrost's entertainment support is the part
+of the plan still to confirm; the handshake is what OpenSSL accepts, which is what Bifrost uses), a real WLED strip,
+audio-driven effects. Constants for these (`spread`, `settle_ms`, dark `floor`) are first guesses to tune with
+`examples/replay.rs` on probe dumps and then on the lights.
+
 ## Open
 
 Zone values, update rate, latency, CPU, audio: need the TV slots above.
