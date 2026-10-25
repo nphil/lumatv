@@ -7,7 +7,7 @@ smoke test is written and waits for "TV is yours".
 
 ## Resume here
 
-State at 2026-10-25 01:50 EDT. Everything in the assignment is committed and pushed (last commit "review fixes").
+State at 2026-10-25 01:50 EDT. Everything in the assignment is committed and pushed.
 
 - Done: `helper/` builds (`./build.sh check` passes: rustfmt, clippy `-D warnings`, 243 host tests, release build); static
   AArch64 binary `helper/dist/lumatv-helper`, 1,415,744 bytes (1382 KiB), sha256 `e60762abcd8e8e0714c2c971bdf9cc6142250e2866431cefdc138f53d56b7375`.
