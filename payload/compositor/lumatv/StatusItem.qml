@@ -29,22 +29,34 @@ Item {
     width: 48 + (labelText.visible ? labelText.implicitWidth + 12 : 0)
     height: 48
 
-    property real f: focused ? 1 : 0
-    Behavior on f { NumberAnimation { duration: item.focusMs; easing.type: item.focusEasing } }
+    // hl: the glass disc and the glyph's change of ink follow focus at once. The lift and
+    // growth start only after focus has rested (LumaHome's focus-rest flag) and drop at once.
+    property bool rested: true
+    property bool motionReduced: false
+    readonly property real hl: focused ? 1 : 0
+    FocusLift {
+        id: lift
+        focused: item.focused
+        rested: item.rested
+        reduced: item.motionReduced
+        duration: item.focusMs
+        easing: item.focusEasing
+    }
 
     Item {
-        // the whole button lifts and scales; the glass disc fades in under the glyph
+        // the whole button lifts and scales; the glass disc shows under the glyph
         id: button
         width: 48; height: 48
-        y: -3 * item.f
-        scale: 1 + 0.1 * item.f
+        y: -3 * lift.value
+        scale: 1 + 0.1 * lift.value
         transformOrigin: Item.Center
         Glass {
             mat: item.mat
             isLight: item.isLight
             cardRadius: 24
-            focusMix: item.f
-            opacity: item.f
+            focusMix: item.hl
+            liftMix: lift.value
+            opacity: item.hl
             visible: opacity > 0.01
             screenX: item.screenX; screenY: item.screenY; screenW: 48; screenH: 48
             backdrop: item.backdrop
@@ -82,13 +94,13 @@ Item {
             visible: item.kind !== "profile" && item.iconSource == ""
             x: 11; y: 11; width: 26; height: 26
             source: item.iconDir + item.glyphName() + (item.isLight ? "_l" : "_d") + ".png"
-            opacity: 1 - item.f
+            opacity: 1 - item.hl
         }
         Image {
-            visible: item.kind !== "profile" && item.iconSource == "" && item.f > 0.01
+            visible: item.kind !== "profile" && item.iconSource == "" && item.hl > 0.01
             x: 11; y: 11; width: 26; height: 26
             source: item.iconDir + item.glyphName() + (item.isLight ? "_l" : "_d") + "_on.png"
-            opacity: item.f
+            opacity: item.hl
         }
 
         Rectangle {

@@ -139,6 +139,16 @@ def wl_dpad(s):
     time.sleep(1)
 
 
+def wl_sweep(s):
+    # held D-pad keys with the remote's own repeat cadence (first repeat after 300 ms, then
+    # every 100 ms), injected on the set so the timing is exact: HA's webostv adds 100-300 ms
+    # of jitter per key. Needs /tmp/kb.py on the set (the injector in this directory).
+    s.mark('P:sweep')
+    s.sh('python3 /tmp/kb.py RIGHT:1500 s0.4 LEFT:1500 s0.4 UP s0.6 DOWN s0.6')
+    s.mark('P:settle')
+    time.sleep(1)
+
+
 def wl_qs(s):
     for i in range(3):
         s.mark(f'P:qs-open-{i}')
@@ -236,8 +246,8 @@ def wl_hog(s, mb=450, hold=8):
     time.sleep(2)
 
 
-WORKLOADS = {'hog': wl_hog, 'pressure': wl_pressure, 'coldhome': wl_coldhome, 'idle': wl_idle, 'dpad': wl_dpad, 'qs': wl_qs, 'apphome': wl_apphome, 'appfull': wl_appfull, 'video': wl_video}
-GAP = {'hog': 17.5, 'pressure': 17.5, 'coldhome': 17.5, 'idle': 34, 'dpad': 17.5, 'qs': 17.5, 'apphome': 17.5, 'appfull': 17.5, 'video': 34}
+WORKLOADS = {'hog': wl_hog, 'pressure': wl_pressure, 'coldhome': wl_coldhome, 'idle': wl_idle, 'dpad': wl_dpad, 'sweep': wl_sweep, 'qs': wl_qs, 'apphome': wl_apphome, 'appfull': wl_appfull, 'video': wl_video}
+GAP = {'hog': 17.5, 'pressure': 17.5, 'coldhome': 17.5, 'idle': 34, 'dpad': 17.5, 'sweep': 17.5, 'qs': 17.5, 'apphome': 17.5, 'appfull': 17.5, 'video': 34}
 
 
 def analyse(name, sm_pid, gap):

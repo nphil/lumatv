@@ -23,6 +23,8 @@ Item {
     property int cardMs: 180
     property int cardEasing: Easing.OutCubic
     property bool motionReduced: false
+    // LumaHome's focus-rest flag: the lift and scale below start only once focus has rested.
+    property bool rested: true
     property real gridX: 0
     property real gridY: 0
     // False while another app is in front: content stops its timers and fetches.
@@ -39,21 +41,29 @@ Item {
     signal openMini(var spec)
 
     x: gridX
-    y: gridY - cardLift * f
+    y: gridY - cardLift * lift.value
     z: focused ? 2 : 1
+    // The dim of the cards that are not focused follows the highlight at once, like it: an
+    // animated one would draw a frame per key press.
     opacity: dimmed ? 0.86 : 1.0
-    Behavior on opacity { NumberAnimation { duration: card.cardMs; easing.type: card.cardEasing } }
 
-    property real f: focused ? 1 : 0
-    Behavior on f { enabled: !motionReduced; NumberAnimation { duration: card.cardMs; easing.type: card.cardEasing } }
+    FocusLift {
+        id: lift
+        focused: card.focused
+        rested: card.rested
+        reduced: card.motionReduced
+        duration: card.cardMs
+        easing: card.cardEasing
+    }
 
     Glass {
         mat: card.mat
         isLight: card.isLight
         cardRadius: card.theme.radius || 26
-        focusMix: card.f
+        focusMix: card.focused ? 1 : 0
+        liftMix: lift.value
         edgeFocus: card.inner ? 1 : 0
-        scale: 1 + (card.cardScale - 1) * card.f
+        scale: 1 + (card.cardScale - 1) * lift.value
         transformOrigin: Item.Center
         screenX: card.gridX; screenY: card.gridY; screenW: card.width; screenH: card.height
         backdrop: card.backdrop

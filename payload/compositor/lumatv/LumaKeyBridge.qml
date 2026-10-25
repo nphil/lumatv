@@ -34,6 +34,7 @@ QtObject {
     }
 
     function dispatch(key, pressed, autoRepeat, deviceId) { return Bus.dispatch(key, pressed, autoRepeat, deviceId) }
+    function answering() { return Bus.answering() }
 
     // true: the event ends here. LG's chain replays a short press as a press and a release
     // straight away, which this takes for a hold that ends at once.

@@ -61,7 +61,7 @@ Item {
             type: { clock: 92, temp: 84 },
             focus: { tileScale: 1.12, cardScale: 1.03, cardLift: 4, tileGlow: 0, ambient: 0.3 },
             motion: { focusMs: 150, focusEasing: "OutCubic", cardMs: 180, cardEasing: "OutCubic",
-                      scrollMs: 300, scrollEasing: "OutCubic", labelMs: 120, layerMs: 220, reduced: false },
+                      scrollMs: 300, scrollEasing: "OutCubic", labelMs: 120, layerMs: 220, restMs: 150, holdMs: 700, reduced: false },
             tiles: { inset: 19, fullCanvasEdgeAlpha: 0.9, icons: {} },
             wallpaperMotion: { enabled: true, amplitude: 4, speed: 1, depth: 0.25, scale: 1, detail: 0.35, fps: 30,
                                vignette: 0, specular: 0, bloom: 0, saturation: 1, contrast: 1 },
@@ -250,6 +250,7 @@ Item {
     Timer {
         interval: 1000; running: true; repeat: true
         onTriggered: {
+            Bus.beat()
             beatFile.write(String(++root.beatSeq))
             root.trialLeft = root.trialEndMs > 0 ? Math.max(0, Math.ceil((root.trialEndMs - Date.now()) / 1000)) : 0
         }
@@ -543,9 +544,39 @@ Item {
     property var statusItems: (layout.statusBar.left || []).concat(layout.statusBar.right || [])
     property bool popoverOpen: focusLayer === "popover"
 
+    // Focus rest. The highlight moves with every key press; lift and scale start only once
+    // the focused item has rested motion.restMs, and any further move cancels them. Lifting
+    // glass per key press measured 16.8 ms against 127 ms mean frame time in a launcher
+    // that did it, so a sweep over the dock is one redraw per press and nothing animates
+    // until the user stops. Items take `rested` and animate their lift only on gaining it.
+    // The identity is the item, not the layer: entering a card's inner layer keeps the card
+    // lifted. With reduced motion everything lifts at once.
+    property int restMs: motion.restMs || 150
+    property bool focusRested: true
+    readonly property string focusKey: focusLayer === "dock" ? "d" + dockRow + ":" + dockCol
+                                     : (focusLayer === "widgets" || focusLayer === "widget") ? "w" + widgetFocusId
+                                     : (focusLayer === "statusbar" || focusLayer === "popover") ? "s" + statusFocusIndex
+                                     : focusLayer
+    onFocusKeyChanged: {
+        if (motionReduced) return
+        focusRested = false
+        restTimer.restart()
+    }
+    Timer { id: restTimer; interval: root.restMs; onTriggered: root.focusRested = true }
+
     onHostActiveChanged: {
+        resetOk()
         if (hostActive) { focusLayer = "dock"; statusBarItem.requestClosePopover() }
         else if (miniFrame.open) { miniFrame.open = false; miniFrame.loading = false; miniSpec = null; frameAppWanted = false }
+    }
+    // A held OK or a tile picked up for rearranging never outlives the screen it belongs to:
+    // the release of a press taken on Home can arrive after an app has opened, and Home must
+    // not come back mid-pick-up.
+    function resetOk() {
+        holdTimer.stop()
+        okDown = false; okHeld = false
+        var d = dockLoader.item
+        if (d && d.moving) d.cancelMove()
     }
 
     function widgetRectById(id) {
@@ -604,24 +635,36 @@ Item {
 
     // Returns true when the key is consumed; false lets the stock chain deliver it to Home's
     // own surface (Back from the widget layer closes Home exactly as stock does).
-    // OK is decided on release: a press held past holdMs (no release yet) picks a dock tile
-    // up for rearranging; a shorter press activates. Auto-repeat presses are ignored.
-    property int holdMs: 600
+    // OK is decided on release, never on press: a press only starts the hold timer. Held
+    // motion.holdMs it picks a dock tile up for rearranging (the one layer with a held
+    // action); anywhere else a long press is an ordinary one. Auto-repeat presses are
+    // ignored. The key filter hands over the release of every press it took, wherever Home
+    // is by then (payload/keyfilter/lumatv.js).
+    property int holdMs: motion.holdMs || 700
     property bool okDown: false
     property bool okHeld: false
+    function holdAvailable() {
+        var d = dockLoader.item
+        return focusLayer === "dock" && !!d && !d.moving
+    }
     Timer {
         id: holdTimer
         interval: root.holdMs
         onTriggered: {
-            if (!root.okDown) return
+            if (!root.okDown || !root.holdAvailable()) return
             root.okHeld = true
-            var d = dockLoader.item
-            if (root.focusLayer === "dock" && d && !d.moving) d.beginMove()
+            dockLoader.item.beginMove()
         }
     }
     function key(k, pressed, autoRepeat, deviceId) {
         var dir = directionFor(k)
-        if (!dir || !hostActive) return false
+        if (!dir) return false
+        if (!hostActive) {
+            // the release of a press taken on Home can arrive after an app has opened: it
+            // does nothing but clear the OK state
+            if (dir === "ok" && !pressed) resetOk()
+            return false
+        }
         if (trialOn && dir === "ok") {
             // the trial's toast owns OK until the trial ends
             if (pressed && !autoRepeat && !trialConfirming) confirmTrial()
@@ -721,7 +764,7 @@ Item {
         }
         return best
     }
-    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); loadAll(); readMode() }
+    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.beat(); loadAll(); readMode() }
     Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
@@ -744,6 +787,8 @@ Item {
         leftCount: (layout.statusBar.left || []).length
         focusedLayer: root.focusLayer === "statusbar" || root.focusLayer === "popover"
         focusedIndex: root.statusFocusIndex
+        rested: root.focusRested
+        motionReduced: root.motionReduced
         backdrop: blurTex
         cardMs: root.cardMs
         cardEasing: root.cardEasing
@@ -797,6 +842,7 @@ Item {
                 cardMs: root.cardMs
                 cardEasing: root.cardEasing
                 motionReduced: root.motionReduced
+                rested: root.focusRested
                 live: root.hostActive
                 frameTick: root.frameTick
                 onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData.id) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData.id; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData.id) root.focusLayer = "widgets" }
@@ -831,6 +877,7 @@ Item {
             focusEasing: root.focusEasing
             labelMs: root.labelMs
             motionReduced: root.motionReduced
+            rested: root.focusRested
             onRowChanged: root.dockRow = row
             onColChanged: root.dockCol = col
         }

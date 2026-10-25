@@ -25,6 +25,8 @@ Item {
     property int focusEasing: Easing.OutCubic
     property int labelMs: 120
     property bool motionReduced: false
+    // LumaHome's focus-rest flag; tiles lift and show their name only once it is true.
+    property bool rested: true
 
     property int tileSize: dockEntry.tile || 120
     property int gap: dockEntry.gap || 16
@@ -257,13 +259,12 @@ Item {
             width: 440; height: 230
             x: Math.round(dock.focusCenter().x - width / 2)
             y: Math.round(dock.focusCenter().y - height / 2)
-            Behavior on x { enabled: !dock.motionReduced; NumberAnimation { duration: dock.focusMs; easing.type: dock.focusEasing } }
-            Behavior on y { enabled: !dock.motionReduced; NumberAnimation { duration: dock.scrollMs; easing.type: dock.scrollEasing } }
+            // The glow follows the highlight at once, like it: a glow that glides draws a frame
+            // per key press. Only its fade, when the dock gains or loses focus, animates.
             opacity: dock.focusedLayer ? ((dock.theme.focus && dock.theme.focus.ambient !== undefined) ? dock.theme.focus.ambient : 0.3) : 0
             visible: opacity > 0.01
             Behavior on opacity { NumberAnimation { duration: 180 } }
             property vector4d tintC: Qt.vector4d(dock.currentAccent.r, dock.currentAccent.g, dock.currentAccent.b, 0.5)
-            Behavior on tintC { PropertyAnimation { duration: dock.focusMs } }
             fragmentShader: "
                 uniform highp vec4 tintC;
                 uniform lowp float qt_Opacity;
@@ -307,6 +308,7 @@ Item {
                     focusEasing: dock.focusEasing
                     labelMs: dock.labelMs
                     motionReduced: dock.motionReduced
+                    rested: dock.rested
                     labelAbove: Math.floor(index / dock.cols) === dock.scrollRow
                     glowStrength: (dock.theme.focus && dock.theme.focus.tileGlow) || 0
                     onHoverFocus: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; dock.ensureRowVisible() }

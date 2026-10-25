@@ -13,7 +13,8 @@ ShaderEffect {
 
     property var mat: ({})
     property real cardRadius: 26
-    property real focusMix: 0              // 0..1, animated by the owner
+    property real focusMix: 0              // 0..1: tint, edge, rim and sheen, set at once by the owner
+    property real liftMix: focusMix        // 0..1: shadow depth, animated by the owner after focus rests
     property bool isLight: false
     // Card rect in screen space, unscaled: what the backdrop is sampled from.
     property real screenX: 0
@@ -41,8 +42,8 @@ ShaderEffect {
     property real rim: (isLight ? 1.0 : 0.42) * focusMix
     property real sheen: focusMix
     // CSS: normal 0 24px 60px .28 | focus 0 34px 80px .55 + 0 10px 24px .30 (light: .18/.28/.14)
-    property vector4d shadow: Qt.vector4d(isLight ? 0.18 + 0.10 * focusMix : 0.28 + 0.27 * focusMix, 24 + 10 * focusMix, 30 + 10 * focusMix, 0)
-    property vector4d shadow2: Qt.vector4d((isLight ? 0.14 : 0.30) * focusMix, 10, 12, 0)
+    property vector4d shadow: Qt.vector4d(isLight ? 0.18 + 0.10 * liftMix : 0.28 + 0.27 * liftMix, 24 + 10 * liftMix, 30 + 10 * liftMix, 0)
+    property vector4d shadow2: Qt.vector4d((isLight ? 0.14 : 0.30) * liftMix, 10, 12, 0)
     property vector4d region: Qt.vector4d(screenX / 1920, screenY / 1080, screenW / 1920, screenH / 1080)
     property vector2d dims: Qt.vector2d(width, height)
     property real radius: cardRadius

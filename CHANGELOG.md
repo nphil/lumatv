@@ -44,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Active set at boot is no longer taken for a boot into standby, so the launch
   is repeated. The guard gives LG's Home back for a missing module only after
   3 s, since a process read between fork and exec shows no module.
+- Home's key filter fails open and pairs presses with releases. A key is taken
+  only while Home is in front, LumaHome's heartbeat is under 3 s old and its
+  handler takes it; an error anywhere in the filter or the handler passes the
+  key to LG untouched and logs one line per 5 s. A release goes where its press
+  went, so a held OK that opens an app leaves no stray release for it. Unit
+  tests: `bun test tests/`.
+- OK acts on release. Held 700 ms (`motion.holdMs`) it picks a dock tile up;
+  anywhere else a long press now acts like a short one. A held OK and a
+  picked-up tile are cleared when Home is hidden or shown.
+- Focus rest: the highlight follows each key press at once, while lift, scale,
+  shadow depth and the name pill start only after the focus has rested 150 ms
+  (`motion.restMs`) and drop at once when it leaves; the dim of unfocused cards
+  and the dock's accent glow follow the highlight. A D-pad sweep draws one
+  frame per key press: 150-157 frames and 1195-1271 ms of GPU in a 5.2 s
+  sweep, against 220-224 frames and about 1770 ms.
 
 ### Fixed
 

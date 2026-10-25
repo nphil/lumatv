@@ -18,6 +18,8 @@ Item {
     property int leftCount: 1
     property bool focusedLayer: false
     property int focusedIndex: 0
+    property bool rested: true      // LumaHome's focus-rest flag
+    property bool motionReduced: false
     property Item backdrop: null
     property int cardMs: 180
     property int cardEasing: Easing.OutCubic
@@ -72,6 +74,8 @@ Item {
                 isLight: bar.isLight
                 iconSource: modelData.icon ? modelData.icon : ""
                 focused: bar.focusedLayer && bar.focusedIndex === index
+                rested: bar.rested
+                motionReduced: bar.motionReduced
                 backdrop: bar.backdrop
                 screenX: bar.x + leftRow.x + x; screenY: bar.y + leftRow.y
                 onActivated: bar.activate(index)
@@ -97,6 +101,8 @@ Item {
                 isLight: bar.isLight
                 iconSource: modelData.icon ? modelData.icon : ""
                 focused: bar.focusedLayer && bar.focusedIndex === (index + bar.leftCount)
+                rested: bar.rested
+                motionReduced: bar.motionReduced
                 backdrop: bar.backdrop
                 screenX: bar.x + rightRow.x + x; screenY: bar.y + rightRow.y
                 onActivated: bar.activate(index + bar.leftCount)

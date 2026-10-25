@@ -56,6 +56,8 @@
     "scrollEasing": "OutCubic",
     "labelMs": 120,
     "layerMs": 220,
+    "restMs": 150,
+    "holdMs": 700,
     "reduced": false
   },
   "tiles": {
