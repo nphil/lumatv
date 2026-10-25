@@ -79,6 +79,15 @@ helper/dist/lumatv-helper
 ambient/capture/build/arm/lumatv-capture
 payload/capture/capture.sh
 payload/capture/role.json
+tools/cardapp.sh
+card/appinfo.json
+card/splash.png
+rustui/build/card/bin/lumatv-card
+rustui/build/card/bin64/lumatv-card-app
+gfx64/launch.sh
+gfx64/build/out/heapshim.so
+gfx64/build/bundle/lib/ld-linux-aarch64.so.1
+gfx64/build/bundle/lib/libwayland-client.so.0
 "
 
 # Check required files
@@ -117,6 +126,17 @@ if [ -n "$MISSING" ]; then
         *ambient/capture/build/arm/lumatv-capture*)
             # Git-ignored like the helper; without it the ambient light would have no picture and say nothing.
             echo "The 32-bit colour reader is built by ambient/capture/build.sh; this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *rustui/build/card/*)
+            # Git-ignored like the helper; the card app is a package of its own and shipping without it would say nothing.
+            echo "The card app's programs are built by rustui/tools/build-card.sh; this package is not built without them." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *gfx64/build/*)
+            echo "The 64-bit runtime is fetched by gfx64/fetch-blob.sh and built by gfx64/build.sh; the card app is not packed without it." >&2
             ;;
     esac
     exit 1
@@ -175,6 +195,27 @@ render "$FRAME_DATA"
 mkdir -p "$BUILD_DIR/frame-ipk"
 build_ipk "$APP_ID.frame" "$FRAME_VERSION" "$BUILD_DIR/frame-data" "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$BRAND_DISPLAY_NAME Frame: the web view behind the Home mini apps"
 
+# The card app ($APP_ID.card, the first 64-bit app: docs/research/cardapp-result.md) is an ipk of its own too, shipped inside the main
+# payload and installed by tools/cardapp.sh. SAM starts bin/lumatv-card (32-bit: it registers with SAM), which starts bin64/lumatv-card-app
+# through gfx64/launch.sh on the app's own copy of the 64-bit runtime (the Debian loader and libraries and the Mali blob, 37 MB).
+CARD_VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' card/appinfo.json | grep -o '[0-9.]*')
+CARD_DATA="$BUILD_DIR/card-data/usr/palm/applications/$APP_ID.card"
+mkdir -p "$CARD_DATA/bin" "$CARD_DATA/bin64" "$CARD_DATA/gfx64/bundle" "$CARD_DATA/assets/wallpaper"
+cp card/appinfo.json card/splash.png assets/icon.png assets/largeIcon.png "$CARD_DATA/"
+cp rustui/build/card/bin/lumatv-card "$CARD_DATA/bin/"
+cp rustui/build/card/bin64/lumatv-card-app "$CARD_DATA/bin64/"
+cp gfx64/launch.sh gfx64/build/out/heapshim.so "$CARD_DATA/gfx64/"
+cp -R gfx64/build/bundle/lib "$CARD_DATA/gfx64/bundle/"
+cp payload/wallpaper/wall_1080.png "$CARD_DATA/assets/wallpaper/"
+chmod 755 "$CARD_DATA/bin/lumatv-card" "$CARD_DATA/bin64/lumatv-card-app" "$CARD_DATA/gfx64/launch.sh" "$CARD_DATA/gfx64/bundle/lib/ld-linux-aarch64.so.1"
+if ! ls "$CARD_DATA"/gfx64/bundle/lib/libmali*.so > /dev/null 2>&1; then
+    echo "Error: the 64-bit runtime has no Mali driver; run gfx64/fetch-blob.sh" >&2
+    exit 1
+fi
+render "$CARD_DATA"
+mkdir -p "$BUILD_DIR/card-ipk"
+build_ipk "$APP_ID.card" "$CARD_VERSION" "$BUILD_DIR/card-data" "$BUILD_DIR/card-ipk/$APP_ID.card.ipk" "$BRAND_DISPLAY_NAME Card: a 64-bit app in its own card window"
+
 # Stage data root: usr/palm/applications/<appId>/
 DATA_ROOT="$BUILD_DIR/data/usr/palm/applications/$APP_ID"
 mkdir -p "$DATA_ROOT"
@@ -204,7 +245,7 @@ cp tools/brand.sh "$DATA_ROOT/tools/"
 cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
-cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py tools/cardapp.sh "$DATA_ROOT/tools/"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"
@@ -214,6 +255,8 @@ cp ambient/capture/build/arm/lumatv-capture payload/capture/capture.sh payload/c
 chmod 755 "$DATA_ROOT/payload/capture/lumatv-capture" "$DATA_ROOT/payload/capture/capture.sh"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
+mkdir -p "$DATA_ROOT/payload/card"
+cp "$BUILD_DIR/card-ipk/$APP_ID.card.ipk" "$DATA_ROOT/payload/card/"
 
 place "$DATA_ROOT/payload/compositor/$SRC_NAME" "$DATA_ROOT/payload/compositor/$QML_MODULE"
 place "$DATA_ROOT/payload/keyfilter/$SRC_NAME.js" "$DATA_ROOT/payload/keyfilter/$SHORT_ID.js"

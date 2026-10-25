@@ -171,7 +171,7 @@ fn decode_png(path: &Path) -> io::Result<(u32, u32, Vec<u8>)> {
 
 /// The wallpaper picture with LumaHome's scrim folded in (theme `wallScrim` 0.10 / 0.18 / 0.46 of the dark scrim colour down the
 /// screen, which the QML blends in the wallpaper's own shader at no cost).
-fn wallpaper_pixels(path: &Path, w: u32, h: u32) -> io::Result<Vec<u8>> {
+pub fn wallpaper_pixels(path: &Path, w: u32, h: u32) -> io::Result<Vec<u8>> {
     let (iw, ih, mut rgba) = decode_png(path)?;
     if (iw, ih) != (w, h) {
         // nearest-neighbour fit; the shipped picture is 1920x1080

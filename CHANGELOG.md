@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The helper's `GET /v1/device` and device facts in every plugin welcome.
 - The light-sync probe slot (`ambient/capture/tv_probe_slot.py`): LG's
   `vt_devmode` flag exists only while a capture runs.
+- The card app (`org.nphil.lumatv.card`): a 64-bit app in its own card window,
+  drawn with the Rust toolkit. SAM starts a 32-bit launcher that registers the
+  app and passes SAM's relaunch and close on. It ships as an ipk inside the
+  main one with its own 64-bit runtime (31 MB larger package).
 
 ### Changed
 

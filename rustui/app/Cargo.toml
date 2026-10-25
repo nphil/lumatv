@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "LumaHome drawn with LumaShow's Rust UI toolkit as a 64-bit Wayland client of LG's compositor (phase 3 spike)"
+description = "LumaHome and the card app drawn with LumaShow's Rust UI toolkit as 64-bit Wayland clients of LG's compositor (phase 3 spike, then the first app)"
 
 [dependencies]
 lumatv-render = { path = "../render" }
@@ -13,10 +13,17 @@ compositor-protocol = { path = "../../../LumaShow/lumashow/crates/compositor-pro
 device-profile = { path = "../../../LumaShow/lumashow/crates/device-profile" }
 libc = "0.2"
 png = "0.17"
+serde_json = "1"
 
 [[bin]]
 name = "lumatv-damage-bench"
 path = "src/bin/damage_bench.rs"
+
+# The card app: SAM's 32-bit launcher (stub/) starts it through gfx64/launch.sh; see docs/research/cardapp-result.md.
+[[bin]]
+name = "lumatv-card-app"
+path = "src/bin/card.rs"
+required-features = ["window"]
 
 [features]
 default = []
@@ -42,3 +49,9 @@ features = ["client"]
 version = "0.32"
 optional = true
 features = ["client"]
+
+# The host test of the card app runs its binary against LumaTV's compositor, in process, with the compositor's own test harness.
+[dev-dependencies]
+lumatv-compositor = { path = "../../compositor/crates/lumatv-compositor" }
+wayland-server = "0.31"
+parking_lot = "0.12"

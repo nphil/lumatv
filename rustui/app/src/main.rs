@@ -10,8 +10,6 @@
 mod input;
 mod metrics;
 mod output;
-#[cfg(feature = "window")]
-mod window;
 
 use compositor_protocol::Event;
 use lumatv_render::host::{Engine, HostConfig};
@@ -116,7 +114,7 @@ fn run(o: Options) -> io::Result<()> {
     let (gles, mut out): (_, Box<dyn Output>) = match o.mode.as_str() {
         "offscreen" => output::offscreen(home::W as u32, home::H as u32)?,
         #[cfg(feature = "window")]
-        "window" => window::open(
+        "window" => output::window(
             home::W as u32,
             home::H as u32,
             o.libmali.as_deref().ok_or_else(|| io::Error::other("--libmali (or LUMATV_GFX_LIB) names the Mali driver"))?,

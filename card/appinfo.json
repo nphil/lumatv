@@ -1,0 +1,18 @@
+{
+  "id": "{{appId}}.card",
+  "version": "0.1.0",
+  "vendor": "nphil",
+  "type": "native",
+  "main": "bin/lumatv-card",
+  "title": "{{displayName}} Card",
+  "appDescription": "A 64-bit app in its own card window, drawn with LumaTV's Rust toolkit",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#26233a",
+  "splashBackground": "splash.png",
+  "nativeLifeCycleInterfaceVersion": 2,
+  "handlesRelaunch": true,
+  "requiredMemory": 160,
+  "transparent": false,
+  "visible": true
+}

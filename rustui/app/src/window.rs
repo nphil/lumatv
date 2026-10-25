@@ -1,19 +1,20 @@
-//! The window: a full-screen client of LG's compositor, the way `docs/research/m64/wl.c` makes one: a `wl_shell` toplevel with a
-//! `wl_webos_shell_surface` (appId, window type `_WEBOS_WINDOW_TYPE_OVERLAY`, state fullscreen) over a `wl_egl_window` that the
+//! The window: a client of LG's compositor (or of LumaTV's, which speaks the same protocol), the way `docs/research/m64/wl.c` makes
+//! one: a `wl_shell` toplevel with a `wl_webos_shell_surface` (appId, window type, access policy, state) over a `wl_egl_window` that the
 //! 64-bit Mali blob draws into and presents through its own window path (`zwp_linux_dmabuf_v1`, buffers from the heap shim).
 //!
 //! The Wayland connection is `libwayland-client`'s, loaded at run time: it is the bundle's copy (`gfx64/`), which the blob links as
-//! well, so the display pointer given to EGL is the one the blob's calls go to.
+//! well, so the display pointer given to EGL is the one the blob's calls go to. A host's Weston has neither `wl_shell` nor
+//! `wl_webos_shell`: the window is then an `xdg_shell` toplevel, for the plumbing.
+//!
+//! What the compositor says comes back as [`Event`]s: the state of the window (`state_changed`), a request to close, the keys.
 
-use crate::output::{Output, write_png};
 use lumatv_render::Gles;
-use lumatv_render::host::Engine;
-use lumatv_rustui::home::Key;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell::WlWebosShell;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::{self, WlWebosShellSurface};
+use std::collections::VecDeque;
 use std::ffi::{CString, c_void};
 use std::io;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_keyboard::{self, WlKeyboard};
@@ -27,12 +28,36 @@ use wayland_protocols::xdg::shell::client::xdg_surface::{self, XdgSurface};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
 
+/// What the app is as a window.
+#[derive(Clone, Debug)]
+pub struct Spec {
+    pub app_id: String,
+    pub title: String,
+    /// `_WEBOS_WINDOW_TYPE_CARD` for an app, `_WEBOS_WINDOW_TYPE_OVERLAY` for a layer over one.
+    pub window_type: String,
+    /// `_WEBOS_ACCESS_POLICY_KEYS_BACK`: the window takes the Back key itself. Without it the compositor closes the window on Back.
+    pub keys_back: bool,
+    /// The state to ask for at once (`wl_webos_shell_surface.set_state`): 3 (fullscreen) for a window that shows. `None` for an app
+    /// that was preloaded: it asks when SAM relaunches it, which is how SAM learns it is in front.
+    pub state: Option<u32>,
+    /// Bind the seat's keyboard.
+    pub keys: bool,
+}
+
+/// What the compositor said.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    /// `wl_webos_shell_surface.state_changed`: 0 default, 1 minimized, 2 maximized, 3 fullscreen.
+    State(u32),
+    /// `wl_webos_shell_surface.close` or `xdg_toplevel.close`: the compositor asks the window to go.
+    Close,
+    /// `wl_keyboard.key`: the Linux input code.
+    Key { code: u32, pressed: bool },
+}
+
 #[derive(Default)]
 struct State {
-    keys: Vec<Key>,
-    raw_keys: Vec<u32>,
-    closed: bool,
-    states: Vec<u32>,
+    events: VecDeque<Event>,
     seat_keyboard: Option<WlKeyboard>,
 }
 
@@ -51,8 +76,8 @@ impl Dispatch<WlShellSurface, ()> for State {
 impl Dispatch<WlWebosShellSurface, ()> for State {
     fn event(state: &mut Self, _: &WlWebosShellSurface, event: wl_webos_shell_surface::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
-            wl_webos_shell_surface::Event::StateChanged { state: s } => state.states.push(s),
-            wl_webos_shell_surface::Event::Close => state.closed = true,
+            wl_webos_shell_surface::Event::StateChanged { state: s } => state.events.push_back(Event::State(s)),
+            wl_webos_shell_surface::Event::Close => state.events.push_back(Event::Close),
             _ => {}
         }
     }
@@ -70,21 +95,9 @@ impl Dispatch<WlSeat, ()> for State {
 
 impl Dispatch<WlKeyboard, ()> for State {
     fn event(state: &mut Self, _: &WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } = event {
-            state.raw_keys.push(key);
-            // evdev codes: LG's compositor is expected to send them as the kernel numbers them
-            let mapped = match key {
-                103 => Some(Key::Up),
-                108 => Some(Key::Down),
-                105 => Some(Key::Left),
-                106 => Some(Key::Right),
-                28 | 0x160 => Some(Key::Ok),
-                158 | 1 => Some(Key::Back),
-                _ => None,
-            };
-            if let Some(k) = mapped {
-                state.keys.push(k);
-            }
+        if let wl_keyboard::Event::Key { key, state: WEnum::Value(s), .. } = event {
+            // The compositor sends Linux input codes as the kernel numbers them (the xkb keycode is this plus 8).
+            state.events.push_back(Event::Key { code: key, pressed: !matches!(s, wl_keyboard::KeyState::Released) });
         }
     }
 }
@@ -108,7 +121,7 @@ impl Dispatch<XdgSurface, ()> for State {
 impl Dispatch<XdgToplevel, ()> for State {
     fn event(state: &mut Self, _: &XdgToplevel, event: xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let xdg_toplevel::Event::Close = event {
-            state.closed = true;
+            state.events.push_back(Event::Close);
         }
     }
 }
@@ -124,13 +137,9 @@ pub struct Window {
     state: State,
     _surface: WlSurface,
     _shell_surface: Option<WlShellSurface>,
-    _webos: Option<WlWebosShellSurface>,
+    webos: Option<WlWebosShellSurface>,
     _xdg: Option<(XdgSurface, XdgToplevel)>,
     _seat: Option<WlSeat>,
-}
-
-unsafe extern "C" {
-    // resolved from the Mali blob at run time; declared only so the type is named
 }
 
 fn blob_symbol(name: &str) -> io::Result<*mut c_void> {
@@ -141,7 +150,7 @@ fn blob_symbol(name: &str) -> io::Result<*mut c_void> {
 }
 
 /// Connects, makes the window and the GL context on it.
-pub fn open(width: u32, height: u32, libmali: &str, window_type: &str, want_keys: bool) -> io::Result<(Gles, Box<dyn Output>)> {
+pub fn open(width: u32, height: u32, libmali: &str, spec: &Spec) -> io::Result<(Gles, Window)> {
     let conn = Connection::connect_to_env().map_err(|e| io::Error::other(format!("wayland connect: {e}")))?;
     let (globals, mut queue) = registry_queue_init::<State>(&conn).map_err(|e| io::Error::other(format!("{e}")))?;
     let qh = queue.handle();
@@ -149,20 +158,26 @@ pub fn open(width: u32, height: u32, libmali: &str, window_type: &str, want_keys
     let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).map_err(|e| io::Error::other(format!("wl_compositor: {e}")))?;
     // LG's compositor speaks wl_shell with wl_webos_shell; anything else (a host's Weston, for the plumbing) gets xdg_shell.
     let shell: Option<WlShell> = globals.bind(&qh, 1..=1, ()).ok();
-    let webos_shell: Option<WlWebosShell> = globals.bind(&qh, 1..=2, ()).ok();
-    let seat: Option<WlSeat> = if want_keys { globals.bind(&qh, 1..=5, ()).ok() } else { None };
+    // LG's tables, which the generated client follows, have the interface at version 1 (`compositor/protocol/webos/webos-shell.xml`).
+    let webos_shell: Option<WlWebosShell> = globals.bind(&qh, 1..=1, ()).ok();
+    let seat: Option<WlSeat> = if spec.keys { globals.bind(&qh, 1..=5, ()).ok() } else { None };
 
     let surface = compositor.create_surface(&qh, ());
     let (mut shell_surface, mut webos, mut xdg) = (None, None, None);
     if let (Some(shell), Some(webos_shell)) = (&shell, &webos_shell) {
         let ss = shell.get_shell_surface(&surface, &qh, ());
-        ss.set_title("LumaTV Rust UI".into());
+        ss.set_title(spec.title.clone());
         let w = webos_shell.get_shell_surface(&surface, &qh, ());
-        w.set_property("appId".into(), "org.nphil.lumatv.rustui".into());
-        w.set_property("_WEBOS_WINDOW_TYPE".into(), window_type.into());
-        w.set_property("title".into(), "LumaTV Rust UI".into());
+        w.set_property("appId".into(), spec.app_id.clone());
+        w.set_property("_WEBOS_WINDOW_TYPE".into(), spec.window_type.clone());
+        w.set_property("title".into(), spec.title.clone());
+        if spec.keys_back {
+            w.set_property("_WEBOS_ACCESS_POLICY_KEYS_BACK".into(), "true".into());
+        }
         ss.set_toplevel();
-        w.set_state(3 /* fullscreen */);
+        if let Some(s) = spec.state {
+            w.set_state(s);
+        }
         shell_surface = Some(ss);
         webos = Some(w);
     } else {
@@ -170,8 +185,8 @@ pub fn open(width: u32, height: u32, libmali: &str, window_type: &str, want_keys
             globals.bind(&qh, 1..=6, ()).map_err(|e| io::Error::other(format!("neither wl_shell with wl_webos_shell nor xdg_wm_base: {e}")))?;
         let xs = base.get_xdg_surface(&surface, &qh, ());
         let top = xs.get_toplevel(&qh, ());
-        top.set_title("LumaTV Rust UI".into());
-        top.set_app_id("org.nphil.lumatv.rustui".into());
+        top.set_title(spec.title.clone());
+        top.set_app_id(spec.app_id.clone());
         top.set_fullscreen(None);
         surface.commit();
         xdg = Some((xs, top));
@@ -209,62 +224,45 @@ pub fn open(width: u32, height: u32, libmali: &str, window_type: &str, want_keys
     gles.set_swap_interval(1);
     let _ = queue.dispatch_pending(&mut state);
     let _ = conn.flush();
-    Ok((gles, Box::new(Window { conn, queue, state, _surface: surface, _shell_surface: shell_surface, _webos: webos, _xdg: xdg, _seat: seat })))
+    Ok((gles, Window { conn, queue, state, _surface: surface, _shell_surface: shell_surface, webos, _xdg: xdg, _seat: seat }))
 }
 
 impl Window {
-    /// Reads what the socket has (waiting at most `timeout_ms`; -1 for ever, 0 for none) and dispatches it.
-    fn pump(&mut self, timeout_ms: i32) -> io::Result<()> {
+    /// Reads what the connection has (waiting at most `timeout_ms`; -1 for ever, 0 for none) and dispatches it. `extra` is another
+    /// descriptor to wake for; the answer says whether it is readable.
+    pub fn wait(&mut self, timeout_ms: i32, extra: Option<RawFd>) -> io::Result<bool> {
         self.queue.dispatch_pending(&mut self.state).map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
         let _ = self.conn.flush();
+        let mut extra_ready = false;
         if let Some(guard) = self.conn.prepare_read() {
-            let fd = guard.connection_fd().as_raw_fd();
-            let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-            // SAFETY: a poll of one descriptor.
-            let n = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
-            if n > 0 {
+            let mut fds = [
+                libc::pollfd { fd: guard.connection_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 },
+                libc::pollfd { fd: extra.unwrap_or(-1), events: libc::POLLIN, revents: 0 },
+            ];
+            // SAFETY: a poll of two descriptors (a negative one is skipped).
+            let n = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout_ms) };
+            if n > 0 && fds[0].revents != 0 {
                 let _ = guard.read();
             } else {
                 drop(guard);
             }
-        } else if timeout_ms != 0 {
-            // events were queued by another reader meanwhile: dispatch them below
+            extra_ready = n > 0 && fds[1].revents != 0;
         }
+        // Without a read guard another reader (EGL's own dispatch) has events for this queue already: dispatch them below.
         self.queue.dispatch_pending(&mut self.state).map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
-        if self.state.closed {
-            return Err(io::Error::other("the compositor closed the window"));
+        Ok(extra_ready)
+    }
+
+    /// What the compositor has said since the last call.
+    pub fn events(&mut self) -> Vec<Event> {
+        self.state.events.drain(..).collect()
+    }
+
+    /// Asks the compositor for a window state (`wl_webos_shell_surface.set_state`). It answers with `state_changed`.
+    pub fn request_state(&mut self, state: u32) {
+        if let Some(w) = &self.webos {
+            w.set_state(state);
         }
-        Ok(())
-    }
-}
-
-impl Output for Window {
-    fn present(&mut self, engine: &mut Engine) -> io::Result<()> {
-        engine.gles().swap_buffers()
-    }
-
-    fn wait(&mut self, deadline_ns: Option<u64>) -> io::Result<()> {
-        let now = lumatv_render::now_ns();
-        let ms = match deadline_ns {
-            Some(d) if d > now => ((d - now) / 1_000_000).min(1000) as i32,
-            Some(_) => 0,
-            None => 50,
-        };
-        self.pump(ms)
-    }
-
-    fn dispatch(&mut self) -> io::Result<Vec<Key>> {
-        self.pump(0)?;
-        if !self.state.raw_keys.is_empty() {
-            eprintln!("keys from the compositor: {:?}", std::mem::take(&mut self.state.raw_keys));
-        }
-        Ok(std::mem::take(&mut self.state.keys))
-    }
-
-    fn screenshot(&mut self, engine: &mut Engine, path: &str) -> io::Result<()> {
-        // what the window's framebuffer holds after a swap is the driver's: this reads the last frame drawn, which on the Mali is
-        // only the picture if nothing was swapped since
-        let rows = engine.read_window();
-        write_png(path, 1920, 1080, &rows)
+        let _ = self.conn.flush();
     }
 }

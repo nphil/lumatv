@@ -78,3 +78,81 @@ pub fn write_png(path: &str, width: u32, height: u32, rows: &[u8]) -> io::Result
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header().and_then(|mut w| w.write_image_data(&rgba)).map_err(io::Error::other)
 }
+
+/// A window of LG's compositor for the Home spike: the type asked for (an overlay), fullscreen, the keys on request.
+#[cfg(feature = "window")]
+pub fn window(width: u32, height: u32, libmali: &str, window_type: &str, want_keys: bool) -> io::Result<(Gles, Box<dyn Output>)> {
+    use lumatv_rustui::window::{self, Spec};
+    let spec = Spec {
+        app_id: "org.nphil.lumatv.rustui".into(),
+        title: "LumaTV Rust UI".into(),
+        window_type: window_type.into(),
+        keys_back: false,
+        state: Some(3),
+        keys: want_keys,
+    };
+    let (gles, win) = window::open(width, height, libmali, &spec)?;
+    Ok((gles, Box::new(WindowOutput { win, keys: Vec::new(), raw: Vec::new() })))
+}
+
+#[cfg(feature = "window")]
+struct WindowOutput {
+    win: lumatv_rustui::window::Window,
+    keys: Vec<Key>,
+    raw: Vec<u32>,
+}
+
+#[cfg(feature = "window")]
+impl WindowOutput {
+    /// Reads what the compositor has (waiting at most `timeout_ms`) and sorts it: keys for the scene, an error for a close.
+    fn pump(&mut self, timeout_ms: i32) -> io::Result<()> {
+        use lumatv_rustui::window::Event;
+        self.win.wait(timeout_ms, None)?;
+        let mut closed = false;
+        for event in self.win.events() {
+            match event {
+                Event::Close => closed = true,
+                Event::Key { code, pressed: true } => {
+                    self.raw.push(code);
+                    if let Some(key) = lumatv_rustui::card::key_of(code) {
+                        self.keys.push(key);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if closed { Err(io::Error::other("the compositor closed the window")) } else { Ok(()) }
+    }
+}
+
+#[cfg(feature = "window")]
+impl Output for WindowOutput {
+    fn present(&mut self, engine: &mut Engine) -> io::Result<()> {
+        engine.gles().swap_buffers()
+    }
+
+    fn wait(&mut self, deadline_ns: Option<u64>) -> io::Result<()> {
+        let now = lumatv_render::now_ns();
+        let ms = match deadline_ns {
+            Some(d) if d > now => ((d - now) / 1_000_000).min(1000) as i32,
+            Some(_) => 0,
+            None => 50,
+        };
+        self.pump(ms)
+    }
+
+    fn dispatch(&mut self) -> io::Result<Vec<Key>> {
+        self.pump(0)?;
+        if !self.raw.is_empty() {
+            eprintln!("keys from the compositor: {:?}", std::mem::take(&mut self.raw));
+        }
+        Ok(std::mem::take(&mut self.keys))
+    }
+
+    fn screenshot(&mut self, engine: &mut Engine, path: &str) -> io::Result<()> {
+        // what the window's framebuffer holds after a swap is the driver's: this reads the last frame drawn, which on the Mali is
+        // only the picture if nothing was swapped since
+        let rows = engine.read_window();
+        write_png(path, 1920, 1080, &rows)
+    }
+}
