@@ -159,41 +159,6 @@ def _():
     return [("publish", 300, "ai", AI), ("publish", 300, "ai.prompt", PROMPT), ("snap", READY, "05-ai-request-prompt")]
 
 
-@scene("24-settings-receiver")
-def _():
-    # from Sound, OK on "Sound out" opens the receiver's page
-    return [("publish", 300, "receiver", receiver(controls=True))] + settings_to("sound", "right", "ok") + [("snap", READY + 3000, "24-settings-receiver"),
-            ("keys", READY + 3200, "up right"), ("snap", READY + 4800, "24-settings-receiver-audyssey")]
-
-
-@scene("11-volume-osd")
-def _():
-    return [("publish", 300, "receiver", receiver()), ("publish", READY - 800, "receiver", receiver(volume_db=-34.0)), ("snap", READY, "11-volume-osd")]
-
-
-@scene("11-volume-osd-muted")
-def _():
-    return [("publish", 300, "receiver", receiver()), ("publish", READY - 1500, "receiver", receiver(volume_db=-34.5, mute=False, volumeText="-34.5 dB")),
-            ("publish", READY - 800, "receiver", receiver(volume_db=-34.5, mute=True)), ("snap", READY, "11-volume-osd-muted")]
-
-
-@scene("11-volume-osd-offline")
-def _():
-    return [("publish", 300, "receiver", {"enabled": True, "reachable": False, "fresh": False}),
-            ("eval", READY - 800, "root.key(Qt.Key_VolumeUp, true, false, 0)"), ("snap", READY, "11-volume-osd-offline")]
-
-
-@scene("08-input-picker")
-def _():
-    return [("eval", READY - 500, "root.openLayer('picker')"), ("keys", READY + 300, "right"), ("snap", READY + 1500, "08-input-picker")]
-
-
-@scene("10-quick-panel")
-def _():
-    return [("publish", 300, "receiver", receiver(controls=True)), ("publish", 300, "ai", AI), ("eval", READY - 500, "root.openLayer('quick')"),
-            ("keys", READY + 300, "down"), ("snap", READY + 1500, "10-quick-panel")]
-
-
 APPS = "file://" + os.path.join(ROOT, "docs", "mocks", "img", "apps") + "/"
 
 
