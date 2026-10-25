@@ -226,14 +226,14 @@ pub fn refocus(state: &mut State) {
     if let Some(old) = state.seat.focus.take()
         && let Some(res) = state.seat.surfaces.get(&old).cloned()
     {
-        for kb in state.seat.keyboards.iter().filter(|k| k.id().same_client_as(&res.id())) {
+        for kb in of_client(&state.seat.keyboards, &res) {
             kb.leave(serial, &res);
         }
     }
     if let Some(n) = new
         && let Some(res) = state.seat.surfaces.get(&n).cloned()
     {
-        for kb in state.seat.keyboards.iter().filter(|k| k.id().same_client_as(&res.id())) {
+        for kb in of_client(&state.seat.keyboards, &res) {
             enter(&state.seat, kb, serial, &res);
         }
     }
@@ -249,7 +249,7 @@ pub fn refocus(state: &mut State) {
 fn enter_if_focused(state: &mut State, kb: &WlKeyboard) {
     let Some(focus) = state.seat.focus else { return };
     let Some(res) = state.seat.surfaces.get(&focus).cloned() else { return };
-    if !kb.id().same_client_as(&res.id()) {
+    if !(live(&res) && live(kb) && kb.id().same_client_as(&res.id())) {
         return;
     }
     let serial = state.next_serial();
@@ -262,6 +262,20 @@ fn enter(seat: &SeatState, kb: &WlKeyboard, serial: u32, surface: &WlSurface) {
     let keys: Vec<u8> = seat.pressed.iter().filter(|(s, _)| *s == sid).flat_map(|(_, code)| code.to_le_bytes()).collect();
     kb.enter(serial, surface, keys);
     kb.modifiers(serial, 0, 0, 0, 0);
+}
+
+/// Whether an event may still be sent on `r` or carry it: the object is alive and its client still has its
+/// data. A client in the middle of disconnecting has objects that are alive but whose client is gone, and the
+/// backend's same-client check on an event with an object argument unwraps that lookup: the seventh gate's
+/// session panicked (`InvalidId`) in `refocus` while WebAppMgr's first connection closed 1.2 s in.
+fn live<R: Resource>(r: &R) -> bool {
+    r.is_alive() && r.client().is_some()
+}
+
+/// The objects of `list` that belong to `surface`'s client and can still take an event that carries `surface`.
+fn of_client<'a, R: Resource>(list: &'a [R], surface: &'a WlSurface) -> impl Iterator<Item = &'a R> + 'a {
+    let ok = live(surface);
+    list.iter().filter(move |r| ok && r.id().same_client_as(&surface.id()) && live(*r))
 }
 
 fn seat_of(kb: &WlKeyboard) -> SeatId {
@@ -283,7 +297,7 @@ pub fn send_key(state: &mut State, seat: SeatId, code: u32, pressed: bool) -> bo
     let serial = state.next_serial();
     let time = crate::output::monotonic_ms();
     let mut sent = false;
-    for kb in state.seat.keyboards.iter().filter(|k| k.id().same_client_as(&res.id()) && seat_of(k) == seat) {
+    for kb in of_client(&state.seat.keyboards, &res).filter(|k| seat_of(k) == seat) {
         kb.key(serial, time, code, if pressed { KeyState::Pressed } else { KeyState::Released });
         sent = true;
     }
@@ -307,16 +321,15 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
         let serial = state.next_serial();
         if let Some(old) = state.seat.pointer_focus.take()
             && let Some(res) = state.seat.surfaces.get(&old).cloned()
-            && res.is_alive()
         {
-            for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+            for p in of_client(&state.seat.pointers, &res) {
                 p.leave(serial, &res);
             }
         }
         if let Some((n, r)) = hit
             && let Some(res) = state.seat.surfaces.get(&n).cloned()
         {
-            for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+            for p in of_client(&state.seat.pointers, &res) {
                 p.enter(serial, &res, (x - r.x) as f64, (y - r.y) as f64);
             }
             state.seat.pointer_focus = Some(n);
@@ -329,7 +342,7 @@ pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
     let Some(res) = state.seat.surfaces.get(&n).cloned() else { return false };
     let r = state.seat.pointer_focus_rect;
     let mut sent = false;
-    for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+    for p in of_client(&state.seat.pointers, &res) {
         p.motion(time, (x - r.x) as f64, (y - r.y) as f64);
         sent = true;
     }
@@ -343,7 +356,7 @@ pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
     let serial = state.next_serial();
     let time = crate::output::monotonic_ms();
     let mut sent = false;
-    for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+    for p in of_client(&state.seat.pointers, &res) {
         p.button(serial, time, BTN_LEFT, if pressed { wl_pointer::ButtonState::Pressed } else { wl_pointer::ButtonState::Released });
         sent = true;
     }
@@ -358,10 +371,9 @@ pub fn hide_cursor(state: &mut State) {
     set_cursor_visible(state, false);
     if let Some(old) = state.seat.pointer_focus.take()
         && let Some(res) = state.seat.surfaces.get(&old).cloned()
-        && res.is_alive()
     {
         let serial = state.next_serial();
-        for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+        for p in of_client(&state.seat.pointers, &res) {
             p.leave(serial, &res);
         }
     }

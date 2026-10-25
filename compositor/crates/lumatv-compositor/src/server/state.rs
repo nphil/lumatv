@@ -650,6 +650,11 @@ impl State {
                         None => format!("client disconnected: unknown ({reason})"),
                     };
                     self.journal(line);
+                    // Its keyboards and pointers are dead objects now; nothing is sent on them again.
+                    self.seat.keyboards.retain(|k| k.is_alive());
+                    self.seat.pointers.retain(|p| p.is_alive());
+                    self.seat.touches.retain(|t| t.is_alive());
+                    self.seat.input_managers.retain(|m| m.is_alive());
                     if self.clients.is_empty() && self.config.exit_on_disconnect {
                         self.should_exit = true;
                     }

@@ -26,17 +26,18 @@ argument: the sender or the argument belongs to a client whose data is
 already gone, which is `refocus`'s `wl_keyboard.leave`/`enter` (or the
 pointer's, `server/seat.rs`) sent while WebAppMgr's first connection (the
 1.2 s one, in every gate) is being torn down. The trial survived the same
-disconnect by the order the client's objects died in. Fix before the next
-gate: skip a keyboard or pointer whose `client()` is `None` (and a focus
-surface whose client is gone) in `refocus`, `enter_if_focused` and the
-pointer paths; `wayland-server`'s `Resource::client()` is that test. The
-rest of the sixth gate's list (first-draw cost after `warm done`, `flip
-reached` against x1's gaps, the seats under LG's clients) waits on a gate
-that stays live. LG's compositor is live (set in Active Standby, `enabled`
-absent, Home stub on, receiver unmuted).
+disconnect by the order the client's objects died in. **Fixed offline**
+(end of "Seventh gate on the set"): every event that carries an object
+goes only to objects whose client still has its data (`live`,
+`of_client` in `server/seat.rs`), the seat lists drop a gone client's
+objects, host test with a second client that disconnects holding the
+focus. The rest of the sixth gate's list (first-draw cost after `warm
+done`, `flip reached` against x1's gaps, the seats under LG's clients)
+waits on a gate that stays live. LG's compositor is live (set in Active
+Standby, `enabled` absent, Home stub on, receiver unmuted).
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
-libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 29
+libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 30
 protocol, 1 bridge, 1 control, 2 warm, 2 LG-table), the same with
 `--features ui` plus `ui`, `ui_output` and `ui_scanout` under
 `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
@@ -87,8 +88,8 @@ compositor/tools/build-tv.sh` builds the bundle.
   after the hold), the one-line luna push journal, `bury:` under 4 ms and
   `reached late 0`; the gate's session crashed 3 s in (the InvalidId panic
   above), so the rest of "Built after the sixth gate"'s list is unseen.
-- Next: the dying-client guard in `refocus` and the pointer paths, then the
-  eighth gate with the same list; x1's rule read against `flip
+- Next: the eighth gate with the sixth gate's list (the dying-client guard
+  is in); x1's rule read against `flip
   reached` lines (nothing of the compositor's is logged at its 31-50 s
   gaps; a 4 ms callback delay under the thresholds is not excluded); a
   slot with the `ui` feature over a direct window for the split and the
@@ -1569,6 +1570,26 @@ in, in every gate; whether the surface or the keyboards die first is the
 backend's order, so the trial lived and the session did not. The gate's
 session is the one that mattered: nothing of the "Built after the sixth
 gate" list past the trial's 122 s was seen.
+
+Fixed offline after it (`server/seat.rs`, `server/state.rs`): every event
+that carries another object (`wl_keyboard.enter`/`leave`,
+`wl_pointer.enter`/`leave`, the enter at a late `get_keyboard`) goes only
+to objects that are alive *and* whose client still has its data
+(`Resource::client()` is `Some`), and only when the surface it carries
+passes the same test (`live`, `of_client`); a client in the middle of
+disconnecting fails the second half, which is what the backend's unwrap
+tripped on. Keys, motion and buttons use the same filter. When a client's
+disconnect is handled its keyboards, pointers, touches and input managers
+are dropped from the seat lists. The audit found no other event with an
+object argument outside `seat.rs` (`text_model.enter(surface)` in
+`misc.rs` is answered inside the request that carries the surface). Host
+test `a_client_that_disconnects_with_the_focus_does_not_take_the_server_down`
+(the harness gained `Client::connect_extra`, a second client on the same
+server): a second client's card takes the focus with a keyboard and the
+pointer on it, its connection drops, Home is entered again, the seat lists
+shrink, the next pointer move leaves the dead surface silently; it panics
+the server thread without the fix (the `wait_until` for Home's second
+`enter` times out) and passes with it.
 
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)

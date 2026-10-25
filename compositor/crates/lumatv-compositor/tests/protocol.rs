@@ -586,6 +586,47 @@ fn a_keyboard_made_after_focus_enters_at_once_and_keys_follow_their_devices_seat
 }
 
 #[test]
+fn a_client_that_disconnects_with_the_focus_does_not_take_the_server_down() {
+    // The seventh gate's session panicked in refocus (the backend's same-client check unwraps a lookup that fails
+    // for a client being destroyed) when WebAppMgr's first connection closed with its window in front.
+    let mut server = Server::start();
+    let mut home = Client::connect(&mut server);
+    let _home_kb = home.seat.get_keyboard(&home.qh, ());
+    let home_win = home.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    let home_buf = home.shm_buffer(1920, 1080, 0xff20_2020);
+    home.present(&home_win.surface, &home_buf);
+    assert!(home.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+
+    // A second client's card comes in front with a keyboard and the pointer on it, then the connection drops.
+    let mut app = Client::connect_extra(&mut server);
+    let _app_kb = app.seat.get_keyboard(&app.qh, ());
+    let _app_ptr = app.seat.get_pointer(&app.qh, ());
+    let app_win = app.card("_WEBOS_WINDOW_TYPE_CARD", "App");
+    let app_buf = app.shm_buffer(1920, 1080, 0xff00_40ff);
+    app.present(&app_win.surface, &app_buf);
+    assert!(app.wait_until(WAIT, |s| s.keyboard_enters >= 1), "the new card took the focus");
+    // The pointer's hit test reads the last plan: the card is under the pointer once a frame has placed it.
+    assert!(app.wait_until(WAIT, |s| s.frames_done >= 1));
+    server.eval(|s| lumatv_compositor::server::seat::pointer_motion(s, 100, 100));
+    assert!(app.wait_until(WAIT, |s| !s.pointer_enters.is_empty()));
+    let (clients, keyboards) = server.eval(|s| (s.clients.len(), s.seat.keyboards.len()));
+    assert_eq!((clients, keyboards), (2, 2));
+    drop(app);
+
+    // Focus returns to Home: leave went to the dead client's keyboard without a panic, enter to Home's.
+    assert!(home.wait_until(WAIT, |s| s.keyboard_enters >= 2), "Home is entered again after the app went");
+    let (clients, keyboards, pointers, focus_title) = server.eval(|s| {
+        (s.clients.len(), s.seat.keyboards.len(), s.seat.pointers.len(), s.scene.focus(&s.surfaces).and_then(|w| s.scene.window(w)).map(|w| w.title.clone()))
+    });
+    assert_eq!((clients, keyboards, pointers), (1, 1, 0), "the dead client's objects are dropped from the seat");
+    assert_eq!(focus_title.as_deref(), Some("Home"));
+    // The pointer's last focus was the dead surface: moving again leaves it without an event to anyone and enters Home.
+    let delivered = server.eval(|s| lumatv_compositor::server::seat::pointer_motion(s, 200, 200));
+    assert!(!delivered, "Home has no pointer");
+    assert!(server.eval(|s| s.seat.pointer_focus.is_some()), "the pointer is on Home's surface now");
+}
+
+#[test]
 fn home_held_through_the_remote_command_asks_for_the_fallback() {
     use lumatv_compositor::luna::ToBridge;
     let mut server = Server::start();

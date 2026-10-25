@@ -35,7 +35,7 @@ use lumatv_compositor::config::Config;
 use lumatv_compositor::luna;
 use lumatv_compositor::output::Output;
 use lumatv_compositor::render::software::Software;
-use lumatv_compositor::server::state::{ClientHandler, State};
+use lumatv_compositor::server::state::{ClientEvent, ClientHandler, State};
 
 use lumatv_wl_protocols::mali_buffer_sharing::client::mali_buffer_sharing::{self, MaliBufferSharing};
 use lumatv_wl_protocols::webos_foreign::client::wl_webos_exported::{self, WlWebosExported};
@@ -56,6 +56,8 @@ pub struct Server {
     /// While false the server dispatches but does not tick (frames are drawn only when something forces one).
     pub ticking: Arc<std::sync::atomic::AtomicBool>,
     pub client_stream: Option<UnixStream>,
+    /// The connect/disconnect queue every client of this server reports into.
+    events: Arc<Mutex<Vec<ClientEvent>>>,
 }
 
 pub type OutputFactory = Box<dyn FnOnce() -> Box<dyn Output> + Send>;
@@ -71,9 +73,10 @@ impl Server {
         let (jobs, rx) = channel::<Job>();
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ticking = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let (stop2, ticking2) = (stop.clone(), ticking.clone());
-        let thread = std::thread::spawn(move || run_server(server_end, rx, stop2, ticking2, output));
-        Server { jobs, thread: Some(thread), stop, ticking, client_stream: Some(client_end) }
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (stop2, ticking2, events2) = (stop.clone(), ticking.clone(), events.clone());
+        let thread = std::thread::spawn(move || run_server(server_end, rx, stop2, ticking2, output, events2));
+        Server { jobs, thread: Some(thread), stop, ticking, client_stream: Some(client_end), events }
     }
 
     /// Runs `f` on the server thread with its state and returns the result.
@@ -107,6 +110,7 @@ fn run_server(
     stop: Arc<std::sync::atomic::AtomicBool>,
     ticking: Arc<std::sync::atomic::AtomicBool>,
     output: OutputFactory,
+    events: Arc<Mutex<Vec<ClientEvent>>>,
 ) {
     let mut display: Display<State> = Display::new().unwrap();
     let dh = display.handle();
@@ -114,7 +118,6 @@ fn run_server(
     State::create_globals(&dh, &config, true);
     let output = output();
     let mut state = State::new(dh, config, output, Box::new(luna::Null::default()));
-    let events = Arc::new(Mutex::new(Vec::new()));
     display.handle().insert_client(stream, Arc::new(ClientHandler { events: events.clone() })).unwrap();
     let mut last_tick = Instant::now();
     while !stop.load(std::sync::atomic::Ordering::SeqCst) {
@@ -194,6 +197,21 @@ pub struct Client {
 impl Client {
     pub fn connect(server: &mut Server) -> Client {
         let stream = server.client_stream.take().expect("one client per harness");
+        Self::connect_stream(stream)
+    }
+
+    /// Another client of the same server, inserted on the server thread (its events go through the same queue as
+    /// the first's, so its disconnect is handled like a real one).
+    pub fn connect_extra(server: &mut Server) -> Client {
+        let (server_end, client_end) = UnixStream::pair().unwrap();
+        let events = server.events.clone();
+        server.eval(move |s| {
+            s.dh.insert_client(server_end, Arc::new(ClientHandler { events })).unwrap();
+        });
+        Self::connect_stream(client_end)
+    }
+
+    fn connect_stream(stream: UnixStream) -> Client {
         let conn = Connection::from_socket(stream).unwrap();
         let (globals, mut queue) = registry_queue_init::<ClientState>(&conn).unwrap();
         let qh = queue.handle();
