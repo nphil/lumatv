@@ -203,8 +203,11 @@ fn run(config: Config) -> io::Result<()> {
             None => 1000,
         };
         let n = epoll.wait(&mut events, timeout)?;
+        let woke = Instant::now();
+        let mut handled = 0u32;
         for ev in &events[..n] {
             let tag = ev.u64;
+            handled |= 1 << (if tag & TAG_INPUT != 0 { 7 } else if tag & TAG_CONTROL_CLIENT != 0 { 8 } else { tag.min(9) as u32 });
             match tag {
                 TAG_WL => {
                     display.dispatch_clients(&mut state)?;
@@ -224,10 +227,11 @@ fn run(config: Config) -> io::Result<()> {
                     rearm(&timer, &state, &mut paced, config.tick_ns)?;
                 }
                 TAG_OUTPUT => {
-                    // A page flip landed: the pacer learned its timestamp; a commit that waited for the still
-                    // screen can go now.
-                    if let Err(e) = state.output.dispatch_events() {
-                        log::warn!("output events: {e}");
+                    // Page flips landed: the pacer learned their timestamps, a frame waiting behind the flip went
+                    // out, and the landed frames' callbacks are due.
+                    match state.output.dispatch_events() {
+                        Ok(n) => state.frames_landed(n),
+                        Err(e) => log::warn!("output events: {e}"),
                     }
                 }
                 TAG_LUNA => {
@@ -290,10 +294,19 @@ fn run(config: Config) -> io::Result<()> {
         state.drain_client_events(&client_events);
         // A commit onto a still screen (KMS) is drawn now rather than at the next tick.
         if state.wants_frame_now() {
+            handled |= 1 << 9;
             state.tick();
             rearm(&timer, &state, &mut paced, config.tick_ns)?;
         }
         display.flush_clients()?;
+        // Anything that holds the loop for half a refresh delays every client's callbacks and commits with it; the
+        // line says what ran, on the clock the clients' own logs use.
+        let spent = woke.elapsed();
+        if spent > Duration::from_millis(8) {
+            const NAMES: [&str; 10] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now"];
+            let what: Vec<&str> = (0..10).filter(|b| handled & (1 << b) != 0).map(|b| NAMES[b]).collect();
+            log::warn!("loop: {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, what.join(" "));
+        }
         if let Some(d) = deadline
             && Instant::now() >= d
         {

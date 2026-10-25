@@ -3,11 +3,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use wayland_backend::server::{ClientData, ClientId, DisconnectReason};
 use wayland_server::protocol::wl_buffer::WlBuffer;
+use wayland_server::protocol::wl_callback::WlCallback;
 use wayland_server::protocol::wl_compositor::WlCompositor;
 use wayland_server::protocol::wl_data_device_manager::WlDataDeviceManager;
 use wayland_server::protocol::wl_output::WlOutput;
@@ -120,6 +121,13 @@ pub struct State {
     serial: u32,
     /// Buffers released at the end of the tick that presented the frame which stopped reading them.
     release_after_present: Vec<WlBuffer>,
+    /// Frame callbacks of frames on their way to the screen, oldest first, fired when each lands
+    /// ([`State::frames_landed`]). Firing at the tick paced clients to the latch, which the pacer moves by a few
+    /// milliseconds whenever a slow frame enters or leaves its window; at the flip they follow the refresh.
+    frames_in_flight: std::collections::VecDeque<(Instant, Vec<WlCallback>)>,
+    /// Per surface: when its last new buffer came and how many came in a row within 20 ms of each other, to log
+    /// the gaps of a client that was keeping up (what the X1 gate counts, seen from this side).
+    cadence: HashMap<SurfaceId, (Instant, u32)>,
 }
 
 impl State {
@@ -145,6 +153,8 @@ impl State {
             started: Instant::now(),
             serial: 0,
             release_after_present: Vec::new(),
+            cadence: HashMap::new(),
+            frames_in_flight: std::collections::VecDeque::new(),
         }
     }
 
@@ -241,6 +251,9 @@ impl State {
             } else if eff.new_buffer {
                 self.scene.layout_changed |= self.surfaces.get(sid).map(|s| s.current.damage.is_none()).unwrap_or(false);
             }
+            if eff.new_buffer {
+                self.note_cadence(sid);
+            }
         }
         // A window that commits but never attaches a buffer never maps (HDMI 2 on the 2026-10-25 gate: created,
         // fullscreen, exported, never mapped); the first such commit is journalled once per window.
@@ -255,11 +268,30 @@ impl State {
         }
     }
 
+    fn note_cadence(&mut self, sid: SurfaceId) {
+        let now = Instant::now();
+        let (last, steady) = self.cadence.entry(sid).or_insert((now, 0));
+        let gap = now.duration_since(*last);
+        if gap <= Duration::from_millis(20) {
+            *steady += 1;
+        } else {
+            // After at least half a second at the refresh rate, a gap under 100 ms is a stall, not a pause.
+            if *steady >= 30 && gap < Duration::from_millis(100) {
+                let app = self.scene.window_of(sid).and_then(|w| self.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
+                log::warn!("frame gap {:.1} ms on surface {} ({app}) after {} steady frames", gap.as_secs_f64() * 1000.0, sid.0, *steady);
+            }
+            *steady = 0;
+        }
+        *last = now;
+    }
+
     pub fn surface_destroyed(&mut self, id: SurfaceId) {
         // A surface that goes away with content no frame has shown is drawn once first: LG's libmali client
         // disconnects about a millisecond after its last swap, well inside the 16.7 ms tick, and its last frame
-        // would otherwise never reach the output (first light re-run 2026-10-25: 6 commits, 5 drawn).
-        if self.surfaces.has_undrawn(id) && self.scene.window_of(id).is_some() {
+        // would otherwise never reach the output (first light re-run 2026-10-25: 6 commits, 5 drawn). Not while the
+        // output paces a run of frames: there the extra frame would take the refresh the paced one is aimed at, and
+        // the regular tick is at most a refresh away.
+        if self.surfaces.has_undrawn(id) && self.scene.window_of(id).is_some() && self.output.next_frame_at(Instant::now()).is_none() {
             self.tick();
         }
         if let Some(s) = self.surfaces.remove(id) {
@@ -272,6 +304,7 @@ impl State {
             }
         }
         self.scene.remove_surface(id);
+        self.cadence.remove(&id);
         self.foreign.surface_destroyed(id);
         super::seat::refocus(self);
     }
@@ -307,10 +340,8 @@ impl State {
             self.stats.frames_drawn += 1;
             self.after_drawn_frame();
         }
-        for cb in self.surfaces.take_frame_callbacks() {
-            cb.done(presented.at_ms);
-            self.stats.callbacks_sent += 1;
-        }
+        let callbacks = self.surfaces.take_frame_callbacks();
+        self.route_callbacks(callbacks, presented);
         let retired = self.surfaces.take_retired();
         for b in self.release_after_present.drain(..).chain(retired) {
             if b.is_alive() {
@@ -328,6 +359,41 @@ impl State {
             self.should_exit = true;
         }
         presented
+    }
+
+    /// Frame callbacks of a tick go out when its frame lands; a tick that put nothing new on the way joins the last
+    /// frame in flight (a client's callbacks never overtake its earlier ones), or fires at once when none is.
+    fn route_callbacks(&mut self, callbacks: Vec<WlCallback>, presented: Presented) {
+        // A flip that never reports (the output off, a lost event) must not hold clients forever.
+        while self.frames_in_flight.front().is_some_and(|(t, _)| t.elapsed() > Duration::from_millis(250)) {
+            let (_, old) = self.frames_in_flight.pop_front().unwrap();
+            log::warn!("frame callbacks held 250 ms without a flip; sent anyway");
+            self.fire_callbacks(old, presented.at_ms);
+        }
+        if presented.pending && !presented.replaced {
+            self.frames_in_flight.push_back((Instant::now(), callbacks));
+        } else if let Some((_, last)) = self.frames_in_flight.back_mut() {
+            last.extend(callbacks);
+        } else {
+            self.fire_callbacks(callbacks, presented.at_ms);
+        }
+    }
+
+    /// `n` frames reached the screen (the output's page-flip events): their callbacks are due.
+    pub fn frames_landed(&mut self, n: u32) {
+        for _ in 0..n {
+            let Some((_, callbacks)) = self.frames_in_flight.pop_front() else { break };
+            self.fire_callbacks(callbacks, crate::output::monotonic_ms());
+        }
+    }
+
+    fn fire_callbacks(&mut self, callbacks: Vec<WlCallback>, at_ms: u32) {
+        for cb in callbacks {
+            if cb.is_alive() {
+                cb.done(at_ms);
+                self.stats.callbacks_sent += 1;
+            }
+        }
     }
 
     fn after_drawn_frame(&mut self) {

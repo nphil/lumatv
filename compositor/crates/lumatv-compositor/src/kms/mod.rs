@@ -119,6 +119,13 @@ pub struct Kms {
     state: [PlaneState; 2],
     modeset_done: bool,
     pending_flip: bool,
+    /// When the commit whose flip is pending went out (CLOCK_MONOTONIC ns).
+    committed_ns: u64,
+    /// A drawn frame waiting for the flip in flight to land; `dispatch_events` commits it. The loop never blocks on
+    /// a flip (it used to, up to 100 ms, stalling every client's frame callbacks with it).
+    queued: Option<Assignment>,
+    /// Set when `render` took over the queued frame's page, so the next `present` reports a replacement.
+    replacing: bool,
     pub pacer: Pacer,
     /// Page-flip timestamps are CLOCK_MONOTONIC when the driver says so (DRM_CAP_TIMESTAMP_MONOTONIC), else
     /// CLOCK_REALTIME and translated on arrival; everything else here is CLOCK_MONOTONIC in ns.
@@ -277,6 +284,9 @@ impl Kms {
             state: [PlaneState::default(); 2],
             modeset_done: false,
             pending_flip: false,
+            committed_ns: 0,
+            queued: None,
+            replacing: false,
             pacer: Pacer::new(period_ns),
             monotonic_flips,
             frame_started_ns: 0,
@@ -400,18 +410,23 @@ impl Kms {
         self.lost_refreshes += landing.lost as u64;
     }
 
-    /// Waits (up to 100 ms) for the outstanding flip to land; `true` when none is outstanding afterwards.
-    fn wait_flip(&mut self) -> io::Result<bool> {
-        while self.pending_flip {
-            let mut pfd = libc::pollfd { fd: self.card.as_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 };
-            // SAFETY: one pollfd on the DRM fd.
-            let n = unsafe { libc::poll(&mut pfd, 1, 100) };
-            if n <= 0 {
-                return Ok(false);
-            }
-            self.drain_events()?;
+    /// Commits a drawn frame now: the GL fence of a composed page goes along as the in-fence.
+    fn commit_frame(&mut self, a: Assignment) -> io::Result<()> {
+        let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
+        self.commit(&a, fence)?;
+        self.committed_ns = self.now_ns();
+        Ok(())
+    }
+
+    /// A flip that has not reported 250 ms after its commit is taken as lost (the panel off, an event the driver
+    /// dropped), so commits do not stop for good; the kernel refuses the next one if it really is still pending.
+    fn flip_overdue(&mut self) -> bool {
+        if self.pending_flip && self.now_ns().saturating_sub(self.committed_ns) > 250_000_000 {
+            log::warn!("kms: no page-flip event 250 ms after the commit; going on without it");
+            self.pending_flip = false;
+            return true;
         }
-        Ok(true)
+        false
     }
 
     fn commit(&mut self, a: &Assignment, in_fence: Option<OwnedFd>) -> io::Result<()> {
@@ -431,9 +446,10 @@ impl Kms {
             Source::Off => None,
         };
         let primary_state = PlaneState { fb: primary_fb, dst: full };
+        let mut new_state = self.state;
         if primary_state != self.state[0] || !self.modeset_done {
             set_plane(&mut req, &self.primary, self.crtc, primary_fb, full, (self.width, self.height), in_fence.as_ref().map(|f| f.as_raw_fd()));
-            self.state[0] = primary_state;
+            new_state[0] = primary_state;
         }
         if let Some(ov) = &self.overlay {
             let (fb, dst) = match a.overlay {
@@ -444,12 +460,15 @@ impl Kms {
             let st = PlaneState { fb, dst };
             if st != self.state[1] || !self.modeset_done {
                 set_plane(&mut req, ov, self.crtc, fb, dst, (dst.w.max(0) as u32, dst.h.max(0) as u32), None);
-                self.state[1] = st;
+                new_state[1] = st;
             }
         }
         let _ = self.crtc_out_fence;
         match self.card.atomic_commit(flags, req) {
             Ok(()) => {
+                // The planes' recorded state follows only a commit the kernel took; after a refused one the next
+                // request must carry everything again.
+                self.state = new_state;
                 self.modeset_done = true;
                 self.pending_flip = true;
                 Ok(())
@@ -574,13 +593,22 @@ impl Output for Kms {
     }
 
     fn dispatch_events(&mut self) -> io::Result<u32> {
-        self.drain_events()
+        let mut landed = self.drain_events()?;
+        if !self.pending_flip
+            && let Some(a) = self.queued.take()
+            && let Err(e) = self.commit_frame(a)
+        {
+            // The state's callbacks for it go out as if it had landed; the next frame carries its damage anyway.
+            log::warn!("kms: queued frame: {e}");
+            landed += 1;
+        }
+        Ok(landed)
     }
 
     /// A commit onto a still screen is drawn at once: nothing is in flight to wait for and no run to keep in
     /// step with, so the tick would only delay it by up to a refresh.
     fn draws_on_damage(&self, _now: Instant) -> bool {
-        !self.pending_flip && self.last_assignment.is_none() && !self.flowing(self.now_ns())
+        !self.pending_flip && self.queued.is_none() && self.last_assignment.is_none() && !self.flowing(self.now_ns())
     }
 
     fn stats_line(&self) -> String {
@@ -610,8 +638,15 @@ impl Output for Kms {
         self.frame_started_ns = now;
         self.frame_slot_ns = self.pacer.plan(now).slot_ns;
         self.prune_direct();
-        // One frame ahead: this page is neither the one scanning out nor the one whose flip is pending (three
-        // pages, at most one flip in flight, see `present`).
+        // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
+        // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
+        // flip is pending, one drawn into (a waiting frame's, or the next).
+        if let Some(q) = self.queued.take() {
+            if let Source::Page(i) = q.primary {
+                self.next_page = i;
+            }
+            self.replacing = true;
+        }
         let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
         let direct = plan.sole_fullscreen().and_then(|item| {
             let fb = self.direct_fb(&item.buffer)?;
@@ -640,26 +675,23 @@ impl Output for Kms {
     }
 
     fn present(&mut self) -> io::Result<Presented> {
-        let Some(a) = self.last_assignment else {
+        let at_ms = crate::output::monotonic_ms();
+        let replaced = std::mem::take(&mut self.replacing);
+        self.seq += 1;
+        let Some(a) = self.last_assignment.take() else {
             // Nothing drawn: the planes keep what they show; no commit, no flip; the run is over.
             self.in_run = false;
-            self.seq += 1;
-            return Ok(Presented { seq: self.seq, at_ms: crate::output::monotonic_ms() });
+            return Ok(Presented { seq: self.seq, at_ms, ..Default::default() });
         };
-        // The previous flip must have landed before another commit (the kernel refuses a second non-blocking
-        // commit, and the page it reads must not be reused); waiting here is what makes the render above run a
-        // frame ahead of the panel. A flip that is still missing after 100 ms keeps the drawn frame for the
-        // next present rather than dropping it: the damage it carries has been cleared by then.
-        if !self.wait_flip()? {
-            self.in_run = false;
-            return Err(other("page flip event did not arrive within 100 ms; frame kept"));
-        }
-        let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
-        self.last_assignment = None;
-        self.commit(&a, fence)?;
         self.in_run = true;
-        self.seq += 1;
-        Ok(Presented { seq: self.seq, at_ms: crate::output::monotonic_ms() })
+        // One flip in flight at a time (the kernel refuses a second non-blocking commit, and the page it reads must
+        // not be reused): a frame drawn while one is pending waits for it and goes out from `dispatch_events`.
+        if self.pending_flip && !self.flip_overdue() {
+            self.queued = Some(a);
+        } else {
+            self.commit_frame(a)?;
+        }
+        Ok(Presented { seq: self.seq, at_ms, pending: true, replaced })
     }
 
     fn capture(&mut self) -> io::Result<Image> {

@@ -650,3 +650,67 @@ fn planning_a_live_scene_allocates_nothing_once_warm() {
     });
     assert_eq!(allocations, 0, "allocations while planning 200 frames");
 }
+
+/// Software output whose drawn frames are on their way to the screen until the test lets them land, like KMS.
+struct FlipOutput {
+    inner: lumatv_compositor::render::software::Software,
+    landings: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    drew: bool,
+}
+
+impl lumatv_compositor::output::Output for FlipOutput {
+    fn name(&self) -> &'static str {
+        "flip"
+    }
+    fn size(&self) -> (u32, u32) {
+        self.inner.size()
+    }
+    fn query_buffer(&mut self, b: &wayland_server::protocol::wl_buffer::WlBuffer) -> Option<((i32, i32), bool)> {
+        self.inner.query_buffer(b)
+    }
+    fn forget_buffer(&mut self, b: &wayland_server::protocol::wl_buffer::WlBuffer) {
+        self.inner.forget_buffer(b)
+    }
+    fn render(&mut self, plan: &lumatv_compositor::scene::Plan, s: &lumatv_compositor::surface::Surfaces) -> std::io::Result<lumatv_compositor::output::RenderStats> {
+        self.drew = true;
+        self.inner.render(plan, s)
+    }
+    fn present(&mut self) -> std::io::Result<lumatv_compositor::output::Presented> {
+        let mut p = self.inner.present()?;
+        p.pending = std::mem::take(&mut self.drew);
+        Ok(p)
+    }
+    fn capture(&mut self) -> std::io::Result<lumatv_compositor::output::Image> {
+        self.inner.capture()
+    }
+    fn dispatch_events(&mut self) -> std::io::Result<u32> {
+        Ok(self.landings.swap(0, std::sync::atomic::Ordering::SeqCst))
+    }
+}
+
+#[test]
+fn frame_callbacks_wait_for_the_frame_to_land() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let landings = Arc::new(AtomicU32::new(0));
+    let l2 = landings.clone();
+    let mut server = Server::start_with(Box::new(move || {
+        Box::new(FlipOutput { inner: lumatv_compositor::render::software::Software::new(1920, 1080), landings: l2, drew: false })
+    }));
+    let mut client = Client::connect(&mut server);
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Paced");
+    let buf = client.shm_buffer(64, 64, 0xff00_ff00);
+    client.present(&win.surface, &buf);
+    std::thread::sleep(Duration::from_millis(60));
+    client.roundtrip();
+    assert_eq!(client.state.frames_done, 0, "drawn and on its way, not landed: the callback waits");
+    landings.store(1, Ordering::SeqCst);
+    server.eval(|s| {
+        let n = s.output.dispatch_events().unwrap();
+        s.frames_landed(n);
+    });
+    assert!(client.wait_until(WAIT, |s| s.frames_done == 1), "the landing fires it");
+    // A flip that never reports does not hold clients for good.
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(Duration::from_secs(2), |s| s.frames_done == 2), "sent after 250 ms without a flip");
+}

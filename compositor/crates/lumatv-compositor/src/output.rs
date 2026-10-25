@@ -16,6 +16,12 @@ use crate::surface::Surfaces;
 pub struct Presented {
     pub seq: u64,
     pub at_ms: u32,
+    /// The frame is on its way to the screen and lands later ([`Output::dispatch_events`] counts it): its frame
+    /// callbacks wait for that, so clients pace to the refresh and not to the compositor's moving latch.
+    pub pending: bool,
+    /// The frame took the place of one that was waiting behind the flip in flight and never went out; the two
+    /// land as one.
+    pub replaced: bool,
 }
 
 /// An RGBA8 picture, rows top to bottom, premultiplied alpha as the compositor holds it.
@@ -116,7 +122,7 @@ impl FrameClock {
 
     pub fn stamp(&mut self) -> Presented {
         self.seq += 1;
-        Presented { seq: self.seq, at_ms: monotonic_ms() }
+        Presented { seq: self.seq, at_ms: monotonic_ms(), ..Default::default() }
     }
 
     pub fn elapsed_ms(&self) -> u64 {
