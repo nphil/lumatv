@@ -1726,15 +1726,16 @@ int main(int argc, char **argv) {
         return probe_buses();
     }
 
-    // 1. Decide. A run that never settled or ended cleanly is counted first, so the decision sees it.
-    if (!dry_run) consume_unclean();
+    // 1. Decide. The start line says what the decision starts from (failures counting a run that never settled), and a
+    // run that never settled or ended cleanly is counted after it, so that the line stays in this start's own part of the log.
     char fp[17];
     fingerprint(fp);
     char want[64] = "";
     FILE *f = fopen(path_in_state("fingerprint"), "r");
     if (f) { if (fscanf(f, "%63s", want) != 1) want[0] = 0; fclose(f); }
-    long failures = read_number(path_in_state("failures"), 0);
+    long failures = dry_run ? read_number(path_in_state("failures"), 0) : failures_effective();
     logline("start: enabled %d fingerprint %s (verified %s) failures %ld escaped %d dry-run %d flag %d on-verified-list %d", file_exists(path_in_state("enabled")), fp, want[0] ? want : "none", failures, file_exists(path_in_state("escaped")), dry_run, (int)read_flag(), verified_has(fp));
+    if (!dry_run) consume_unclean();
     if (!dry_run) {
         struct verdict v;
         decide(&v);
