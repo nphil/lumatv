@@ -149,8 +149,12 @@ pub struct Window {
     pub props: BTreeMap<String, String>,
     /// Top-left in output pixels. Cards are always at the origin; others take `windowPosition`/`set_location_hint`.
     pub position: (i32, i32),
-    /// Order of mapping; the newest mapped card is the foreground app.
+    /// Order of mapping (0 while unmapped): the draw order of what has a buffer.
     pub map_serial: u64,
+    /// When the card last came to the front: at its mapping, or at its `set_state(fullscreen)`, which LG's fullscreen
+    /// container honours before the card has a buffer (a preloaded app relaunched draws only once SAM has it
+    /// foreground, and SAM learns that from the compositor). 0 for a card that never did, or unmapped since.
+    pub front: u64,
     pub has_wl_shell: bool,
     pub has_webos_shell: bool,
     /// Whether a commit without a buffer was seen while unmapped (journalled once).
@@ -171,6 +175,7 @@ impl Window {
             props: BTreeMap::new(),
             position: (0, 0),
             map_serial: 0,
+            front: 0,
             has_wl_shell: false,
             has_webos_shell: false,
             bare_commit_seen: false,

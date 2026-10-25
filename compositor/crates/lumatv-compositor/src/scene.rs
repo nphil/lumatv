@@ -177,7 +177,8 @@ impl Scene {
         self.layout_changed = true;
     }
 
-    /// Records that a window's surface got its first buffer (or lost its last).
+    /// Records that a window's surface got its first buffer (or lost its last). A card that maps comes to the front
+    /// (LG's fullscreen container takes every mapping as a fullscreen request); one that unmaps leaves it.
     pub fn set_mapped(&mut self, surface: SurfaceId, mapped: bool) {
         if let Some(id) = self.by_surface.get(&surface).copied()
             && let Some(w) = self.windows.get_mut(&id)
@@ -185,44 +186,47 @@ impl Scene {
             if mapped {
                 self.map_counter += 1;
                 w.map_serial = self.map_counter;
+                w.front = self.map_counter;
             } else {
                 w.map_serial = 0;
+                w.front = 0;
             }
             self.layout_changed = true;
         }
     }
 
-    /// The foreground card: the newest mapped, non-minimized card window.
-    pub fn foreground(&self, surfaces: &Surfaces) -> Option<&Window> {
-        self.windows
-            .values()
-            .filter(|w| w.kind.is_card() && w.state != ShellState::Minimized && w.map_serial > 0)
-            .filter(|w| surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
-            .max_by_key(|w| w.map_serial)
+    /// Whether `w` is at the front of the cards: mapped, or raised by a fullscreen request while it waits for its
+    /// first buffer; a window whose surface lost its buffer behind the bookkeeping's back is not.
+    fn in_front(w: &Window, surfaces: &Surfaces) -> bool {
+        w.kind.is_card() && w.front > 0 && (w.map_serial == 0 || surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
     }
 
-    /// Makes the mapped card `id` the newest: what LG's fullscreen container does for a covered card that asks for
-    /// fullscreen again (a relaunch). Nothing for an unmapped window or one that is not a card.
+    /// The foreground card: the card that came to the front last and is not minimized, whether or not it has a
+    /// buffer yet (SAM is told, and tells a preloaded app it is foreground, which is when it draws).
+    pub fn foreground(&self, surfaces: &Surfaces) -> Option<&Window> {
+        self.windows.values().filter(|w| Self::in_front(w, surfaces) && w.state != ShellState::Minimized).max_by_key(|w| w.front)
+    }
+
+    /// Brings the card `id` to the front: what LG's fullscreen container does for a card that asks for fullscreen,
+    /// mapped (a relaunch over another card) or not yet (a preloaded app relaunched). Nothing for a window that is
+    /// not a card.
     pub fn raise(&mut self, id: WindowId) {
         if let Some(w) = self.windows.get_mut(&id)
             && w.kind.is_card()
-            && w.map_serial > 0
         {
             self.map_counter += 1;
-            w.map_serial = self.map_counter;
+            w.front = self.map_counter;
+            if w.map_serial > 0 {
+                w.map_serial = self.map_counter;
+            }
             self.layout_changed = true;
         }
     }
 
-    /// The newest mapped card whatever its state, other than `except`: the one that comes back when the foreground
+    /// The card at the front whatever its state, other than `except`: the one that comes back when the foreground
     /// card goes or minimizes itself.
-    pub fn newest_mapped_card(&self, surfaces: &Surfaces, except: Option<WindowId>) -> Option<WindowId> {
-        self.windows
-            .values()
-            .filter(|w| w.kind.is_card() && w.map_serial > 0 && Some(w.id) != except)
-            .filter(|w| surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
-            .max_by_key(|w| w.map_serial)
-            .map(|w| w.id)
+    pub fn front_card(&self, surfaces: &Surfaces, except: Option<WindowId>) -> Option<WindowId> {
+        self.windows.values().filter(|w| Self::in_front(w, surfaces) && Some(w.id) != except).max_by_key(|w| w.front).map(|w| w.id)
     }
 
     /// The window that should hold keyboard focus: the topmost mapped window that wants focus.
