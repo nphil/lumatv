@@ -6,52 +6,76 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 02:10 EDT)
+## Resume here (LumaTV, 2026-10-25 04:40 EDT)
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
 
-- State: research done, compositor replacement decided (PLAN.md track C).
-  The owner said go (2026-10-24); the build is under way. Phase 1 step 1,
-  the rename to LumaTV with every name from `brand.json`
-  (`docs/research/rename-result.md`), is deployed and proven on the set:
-  migration moved `/var/lib/lumaglass` to `/var/lib/lumatv`, rewrote the env
-  line, replaced the init.d link with `50-lumatv`, removed both old apps;
-  `apply` restored LumaHome, and a reboot came up live through the new boot
-  hooks with no failsafe. A copy of the old data dir is kept off the set in
-  `/data/home/lumatv-backups/lumaglass-data-2026-10-24.tgz`.
-- Repositories renamed 2026-10-24: forge `nphilip89/lumatv` (remote `forge`)
-  and GitHub `nphil/lumatv`; `brand.json` `repo` matches.
-- Phase 1 step 2 done and measured (06f29fd,
-  `docs/research/perf/summary-2026-10-24-phase1.txt`): T9 and disk cache in
-  the env file, Home motion on one shared 10/s tick.
-- Phase 1 step 3 done 2026-10-25 (`docs/research/homestub-result.md`): LG's
-  Flutter Home is retired behind a web stub, `lumatv homestub on|off|confirm|
-  status`; the stub is on and confirmed on the set, 72-80 MB resident down to
-  32 MB. The Home return is not faster and the page-in gaps are unchanged.
-  A boot race (a launch into a closing WebAppMgr) was found and fixed; see
-  the result file for what was proven after the fix. Next: heap shim, then
-  the Rust helper.
-- Surfaces, phase 1 (2026-10-25, `docs/research/surfaces-p1-result.md`, which
-  has its own Resume here with the exact next steps): the fail-open key
-  filter, OK on release, the focus rule, the wallpaper tint, saved-first
-  weather and news, the one token source, Manrope everywhere, the component
-  kit and its gallery are built, deployed and proven on the set. Not done:
-  the startup warm-up, the frame gate in the harness (`docs/research/perf`),
-  the preload trim and the Home-return re-measure. Deploy loop and test
-  tools are in that note.
+- State: the build is under way (PLAN.md track C and the surfaces). Proven on
+  the set and in the repository:
+  - The rename to LumaTV (`docs/research/rename-result.md`), the Home stub
+    (`docs/research/homestub-result.md`), the performance work of phase 1
+    (`docs/research/perf/summary-2026-10-24-phase1.txt`).
+  - Surfaces phase 1 (`docs/research/surfaces-p1-result.md`): fail-open key
+    filter, OK on release, the focus rule, wallpaper tint, one token source,
+    Manrope, the component kit.
+  - Surfaces phase 2 (`docs/research/surfaces-p2-result.md`, which has its own
+    Resume here): the startup warm-up, the per-surface frame gate and the
+    startup A/B in `docs/research/perf`, the offline QML host
+    (`tests/qmlhost`), Home's weather and news from the native helper, the
+    helper's start and stop in the tool, the preload trim, the boot and
+    power-off logo windows. Which of those the set has run is in that note's
+    Log; slot 2 (queued) is the first to run the helper wiring, the preload
+    trim and the logos.
+  - The native helper (`helper/`, `docs/research/native-helper-result.md`):
+    proven on the set (smoke test 35 of 35); its API is on
+    `127.0.0.1:18731`; files under `/var/lib/lumatv`: `log-helper`,
+    `helper.lock`, `helper.json` (optional), `cache/weather.json` and
+    `news.json`, `settings/<owner>.json`, `bin/lumatv-helper` (the staged copy
+    the tool runs). Stop it with `lumatv helper stop` or `lumatv-helper stop
+    --brand <app dir>/brand.json`; if TLS misbehaves set `"fetch":
+    {"backend":"curl"}` in `helper.json`.
+  - 64-bit drawing (`gfx64/`, `docs/research/gfx64-result.md`): heap shim,
+    launcher, pinned blob fetch; smoke run on the set 60.63 fps over idle Home.
+    The Rockchip blob bundle is fetched by `gfx64/fetch-blob.sh` (about 37 MB)
+    and never committed; an ipk that ships it must run that at build time.
+  - LumaTV's own compositor (`compositor/`, `docs/research/compositor-c2-result.md`):
+    C2 passed on the set; C3 and C4 built offline, first window and bridge dry
+    run on the set. The tool owns the enable path now (`tools/compositor.sh`,
+    `lumatv compositor on|off|status`, `lumatv compositor-boot` in the boot
+    worker): the bundle itself is put in `/var/lib/lumatv/compositor` by
+    `compositor/tools/tv-cutover.sh install` until it ships in the ipk. LG's
+    compositor is the fallback on any failure; `lumatv revert` unmounts and
+    forgets the flag. Fragility: after LG's compositor was away, `webapp-mgr`
+    can be left `failed` and the web Home stub cannot launch (black panel):
+    `systemctl reset-failed webapp-mgr; systemctl start webapp-mgr`, then
+    launch `com.webos.app.home` (`tools/tv-recover-home.sh` does it, and
+    holds `/tmp/lumatv-recover.lock` while it runs; the tool never restarts the
+    compositor's unit while that exists).
+  - Hardware census and LumaShow lessons (`docs/research/hardware-census.md`,
+    `docs/research/lumashow-lessons.md`; nice -19 on surface-manager is LG's
+    own, nothing to adopt).
+- Nitin's decisions of 2026-10-25 (also in PLAN.md Decided): the approved
+  mockups in `docs/mocks` are the design, Settings layout included; LumaTV's
+  compositor goes live as soon as it passes the C4 gate, LG's staying as the
+  automatic fallback; LG's telemetry, ads, promotion and app-push services are
+  removed entirely and webOS is trimmed to essentials through two reversible
+  profiles, `ads` and `lean` (`docs/research/declutter-result.md`); LG's power-on and
+  power-off logos are replaced by LumaTV's, three options each in
+  `docs/mocks/logo`, option 1 the default; Prime Video stays unless an LG
+  surface clearly pushes it. `lumatv preload on` keeps Netflix and Prime Video
+  warm and drops YouTube, LG Channels and the browser.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
   (`docs/research/arch/x4/x4-monitor.sh`, `x4-analyse.py`); the histogram
-  probe, which first needs the `libvtcapture` histogram call signatures
-  (LG's Hue Sync service is the reference caller). Mute the receiver first
-  (`media_player.living_room_avr`) and restore it after. Netflix deep link
-  for the 4K Dolby Vision test film: launch `netflix` with `contentTarget`
-  `m=https://www.netflix.com/watch/80141336&source_type=4`, then ENTER.
-  Protected video captures black; the tests record compositor behaviour.
-  During Dolby Vision playback Picture Mode reads `dolbyHdrCinema` (the
-  set's own Dolby Vision mode); it returns to `filmMaker` on Home.
+  probe (`docs/research/ambient`-side work has recovered the ABI offline). Mute
+  the receiver first (`media_player.living_room_avr`) and restore it after.
+  Netflix deep link for the 4K Dolby Vision test film: launch `netflix` with
+  `contentTarget` `m=https://www.netflix.com/watch/80141336&source_type=4`,
+  then ENTER. Protected video captures black; the tests record compositor
+  behaviour. During Dolby Vision playback Picture Mode reads `dolbyHdrCinema`;
+  it returns to `filmMaker` on Home.
 - Tests that need the owner: PIN prompt (a lock is a security setting he
   sets), pointer cost (Magic Remote moved by hand), CEC keys from other
   remotes, receiver volume drift.
@@ -59,7 +83,14 @@ Phases, Decided); this file holds the proven mechanics.
   `getForegroundAppInfo`); Picture Mode stays `filmMaker`; never restart
   SAM; write only under `/var/lib/lumatv`, `/tmp`, configd, bind mounts
   and `/var/systemd/system/env`; revert every experiment; leave it in
-  Active Standby unless the owner is about to watch; no DRM bypass.
+  Active Standby unless the owner is about to watch; no DRM bypass. Slots on
+  the set are asked of the main agent and answered "go <name>".
+- Tests: `python3 -m unittest discover -s tests -p 'test_*.py'` (68, of which
+  13 start the offline QML host and need PyQt5 and an X display;
+  `tests/xdisplay.py` starts Xvfb itself) and `TZ=America/New_York bun test
+  tests/` (36). The frame gate on the set: `python3 docs/research/perf/gate.py`
+  (every number and rule is in its docstring); startup and preload A/B:
+  `startup.py`, `preload_ab.py` beside it.
 - Working style: one step at a time, commit and push after each
   (`git push -q forge main`), results written to files with their own
   "Resume here" note, so a model switch mid-task loses nothing.
