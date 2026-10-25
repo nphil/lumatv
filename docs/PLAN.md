@@ -51,7 +51,10 @@ has occurred during recovery.
   against a fake helper. On the set so far: the warm-up and the Home gate
   (slot 1); in slot 2 the helper's feeds on Home, the power-off logo, the patched
   alert and toast, and gate numbers for Quick Settings, the gallery, toast and
-  alert. The preload trim showed no gain and is off. BootLogo, Settings, the AI
+  alert. The preload trim showed no warm-start gain and was left off, which
+  departs from the decision below: in standby on 2026-10-25 YouTube (58 MB),
+  Prime Video (70 MB) and the browser (39 MB) were resident, with 341 MB of
+  the system in swap. BootLogo, Settings, the AI
   page and the AI prompt have not run on the set.
 - Done outside the surfaces: the native helper (`helper/`): the API, settings,
   feeds and receiver proven on the set (35 of 35 checks) and the AI-access (MCP)
@@ -1078,6 +1081,10 @@ what it already does.
   Channels (100 MB) and the web browser (72 MB) are dropped from
   `preloadmanager.supportAppList`, about 307 MB, re-sent at every wake as
   webOS 10 requires (Nitin, 2026-10-23). Phase 8.
+- Light sync capture: the `vt_devmode` flag file, LG's developer switch that
+  also relaxes the capture service's caller check, may be created for short
+  probe slots and is removed at the end of each (Nitin, 2026-10-25). Keeping it
+  for everyday light sync is a separate decision.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
