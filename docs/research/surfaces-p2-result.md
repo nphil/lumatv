@@ -6,11 +6,25 @@ Plan: `docs/PLAN.md` (Rules every surface meets, Phases). Previous owner's notes
 
 ## Resume here
 
-State at 2026-10-25 04:35 EDT. Milestones 1-4 are built, tested offline and pushed (HEAD `458fc0b` and later); what the set
-has run so far is the warm-up A/B and the Home part of the gate (slot 1). The second slot (install, gate on Quick Settings and
-the gallery, preload A/B, logos on the set) is queued with Main; its numbers go under "Log" and the Status line of PLAN.md.
+State at 2026-10-25 05:55 EDT (SurfacesP2c, the restart after the credit cut-off). Milestones 1-5 are built, tested offline and
+pushed; what the set has run so far is the warm-up A/B and the Home part of the gate (slot 1). Slot 2 is with Main: first the
+Netflix debug agent has the set until 07:00, then this note's agent gets 55 minutes ("likely tomorrow morning or later today with
+Nitin's OK"). Until then the work is offline.
 
-Order (changed 2026-10-25 02:27 by the owner: the boot and power-off logos move up to follow milestone 3):
+Slot 2, in this order (a HEAD ipk is built: `sh tools/build-ipk.sh`; Main agreed to the reboot at the end; after every compositor
+restart check `webapp-mgr` is active and LumaHome is in front, recovery in the HANDOFF; the end state is Active Standby, receiver
+unmuted, preload trim and logo option 1 ON if they pass):
+
+1. Install the ipk, `lumatv apply`, `lumatv helper status`, `lumatv surfaces`; Home's weather and news must come from the helper.
+2. `startup.py --runs 2 --sweep-at 2,4` (warm-up off/on against a key pressed while the warm-up still runs; slot 1 measured 10 s).
+3. `gate.py --surfaces quick-settings,kit-gallery`, then `--surfaces toast,alert` with LG's own views, `lumatv notifications on`,
+   the same again (the baseline the patched ones must beat; `lumatv notifications on|off` is the switch), then look at both with a
+   capture (`luna://com.webos.notification/createToast` and `createAlert`, see `kb.py`'s `LUNA`).
+4. `preload_ab.py --rounds 4` (keep `lumatv preload on` if the Home-return gaps are no worse and memory is better).
+5. Logos: `lumatv logo on`; one screen power-off for `MasterBrand` (capture loop on the set, then `powerOn` + `turnOnScreen`);
+   a plain `reboot` last for `BootLogo` and the whole boot path of this build (persisted hook, helper start).
+
+Order of the milestones (changed 2026-10-25 02:27 by the owner: the boot and power-off logos move up to follow milestone 3):
 
 1. Startup warm-up and the per-surface frame gate. Built, on the set once; see Log.
 2. Preload trim and the Home-return re-measure. Tool and A/B driver built (`lumatv preload on|off|status`,
@@ -19,7 +33,10 @@ Order (changed 2026-10-25 02:27 by the owner: the boot and power-off logos move 
    `kit/Helper.qml`); the set has not run it yet.
 4. Boot and power-off logos. Three options of each rendered to `docs/mocks/logo`; the windows for LG's `BootLogo` and
    `MasterBrand` are built (`lumatv logo on|off|status`); the set has not run them yet.
-5. Toasts, alerts, PIN prompt, input popups: NOT STARTED. Design below.
+5. Toasts, alerts, input popups, PIN prompt. Built offline for the toast and the alert (Log, 05:55); the set has not run them.
+   Not done: the input popup in the mock's look (`18-device-connected`: its LG cards are angled and cost a live clip each),
+   a title and an app icon on the alert, and the PIN prompt (kept LG's black full-screen layout: it is a security screen and
+   its test needs Nitin).
 6. Quick panel, Settings, Remote and pointer page, AI access. Not started.
 7. Input picker, receiver-fed volume and mute OSD, receiver page and tile. Not started.
 8. Launch splash, spinners, context menu, on-screen remote. Not started.
@@ -43,30 +60,38 @@ Design for milestone 5, worked out against LG's source (`/data/home/lgtv/uiinv/q
   `updateCursorFocus`, and the functions `closeAlert`, `closeModalAlert`, `closeAdvancedAlert`, `closePincodePrompt`,
   `closeToast`, `closeNotifications(obj)`. Its data layer is `Services.qml` (826 lines: the luna subscriptions and the
   four models) and `NotificationModel.qml`.
-- Plan: keep LG's data layer and contract, restyle and re-cost the visuals. Stage a copy of `SystemUI/Notification` like
-  Quick Settings (`systemui_stage`), patch `NotificationStyle.qml` (815 lines: every colour, size, radius and font of toast,
-  alert, input popup and PIN prompt) with the tokens, drop the per-toast `layer.enabled` DropShadow (`Toast.qml`: a live blur
-  per toast, the cost the gate forbids) for the kit's static shadow, set Manrope, and gate every card with `gate.py`
-  (toast, alert, modal alert, input popup, PIN prompt each need a key or luna sequence that shows them: `luna://
-  com.webos.notification/createToast`, `createAlert`). The PIN prompt (734 + 171 lines) answers only to the remote and is
-  tested with Nitin present.
+- Plan, as built: keep LG's data layer and contract; stage a fresh copy of `SystemUI/Notification` on the set at every
+  `notifications on` (nothing of LG's is shipped), patch it with `tools/notification_patch.py` and lay LumaTV's own files over it
+  (`payload/notification`). The patch is anchored text: Manrope everywhere, LG's red focus colour is the accent, the alert's
+  and its buttons' colours and radius are the palette's, the scrim is the palette's, the alert is centred, the live DropShadow of
+  `SimpleButton` and the PIN pad's keys is switched off (the alert card's own shadow is nine static images and stays), and
+  ToastView's three placement lines put the toast at the top right. The toast is replaced outright by `payload/notification/Toast.qml`
+  (the same interface ToastView reads: properties, three signals, the open/close `state`, `rotateToastView()`), with the palette
+  filled into its `@@name@@` markers at stage time. Every anchor must match exactly once or the whole stage fails and LG's view stays.
+  Gate every card with `gate.py` (`--surfaces toast,alert`); the PIN prompt (734 + 171 lines) answers only to the remote and is
+  tested with Nitin present, so it keeps LG's layout.
 - Messages that are never filtered or delayed (PLAN, Surfaces): EAS, thermal shutdown, Magic Remote battery, LG Remote
   Service sessions, permission and pairing prompts. They are restyled only where the restyle cannot fail.
 
 Working rules for this run:
 
-- The set is shared: ask Main for a slot ("TV slot for SurfacesP2b: N min, read-only|deploy|measure"), wait for "go SurfacesP2b",
+- The set is shared: ask Main for a slot ("TV slot for SurfacesP2c: N min, read-only|deploy|measure"), wait for "go SurfacesP2c",
   send "TV back" when done.
-- Offline QML checks run on the workstation: `tests/qmlhost/qmlhost.py` (PyQt5 5.15 from the wheel on Xvfb with software GL;
-  `pip install PyQt5` and an X display; `tests/xdisplay.py` starts one) loads a surface with stand-ins for LG's modules
-  (`tests/qmlhost/stubs`) and a fake helper (`fakehelper.py`): load errors, screenshots, scripted life cycle (`--fire`),
-  probes (`--eval`), no timing. Timing only counts from the set. `python3 -m unittest discover -s tests -p 'test_*.py'` (68
-  tests, about 55 s with the host tests) and `TZ=America/New_York bun test tests/` (36).
+- Offline QML checks run on the workstation (PyQt5 5.15 from the wheel on Xvfb with software GL; `pip install PyQt5` and an X
+  display; `tests/xdisplay.py` starts one): `tests/qmlhost/qmlhost.py` loads a compositor surface with stand-ins for LG's modules
+  (`tests/qmlhost/stubs`) and a fake helper (`fakehelper.py`): load errors, screenshots, scripted life cycle (`--fire`), probes
+  (`--eval`); `tests/qmlhost/notify.py` runs LG's real notification view (the census copy of its tree, `/data/home/lgtv/uiinv`) with
+  LG's own data layer behind stand-ins for what is native (`notify_stubs`): `--patched` applies the patch tool first, `--toast`,
+  `--alert`, `--input`, `--pin MS[:JSON]` publish a notification through `Services.qml`'s own subscription handler, `--shot
+  MS:PATH` takes a picture (`--backdrop` a screenshot of Home from `qmlhost.py LumaHome.qml --shot`). No timing: Qt 5.15 on
+  software GL says nothing about 60 fps; the gate on the set is the only timing. `python3 -m unittest discover -s tests -p
+  'test_*.py'` (about 110 tests, about 70 s with the host ones) and `TZ=America/New_York bun test tests/` (36).
 - Deploy loop: `sh tools/build-ipk.sh` (needs `helper/dist/lumatv-helper`), push to `/tmp/lumatv.ipk`, `luna-send -n 4 -f
   luna://com.webos.appInstallService/dev/install '{"id":"org.nphil.lumatv","ipkUrl":"/tmp/lumatv.ipk","subscribe":true}'`, wait
   for the app directory to match (the install is asynchronous and returns before the files are in place), `lumatv apply` (17 s).
   The paramiko wrapper is `/tmp/lt/tv.py`; `docs/research/perf/startup.py`, `gate.py` and `preload_ab.py` use `run.py`'s `Set`.
 - Commit and push (`git push -q forge main`) after each milestone; stage only owned paths.
+- Python bytecode is ignored everywhere (`.gitignore`); nothing generated is committed.
 
 ## Log
 
@@ -121,3 +146,31 @@ What the first gate run got wrong, all fixed in `gate.py` and `analyse.py` with 
 
 Left on the set by this slot: nothing running (capture and `kb.py` stopped, `/tmp/perf` emptied), theme `warmup.enabled` true,
 set in Active Standby.
+
+### Offline, 2026-10-25 05:10-05:55: the notification view
+
+Docs folded first (PLAN Status, Phases, Native helper, AI access, Hardware census; HANDOFF; CHANGELOG): lean declutter applied and
+checked on the set, the helper's AI smoke 42 of 42 and its plugin broker, the census's top five, the owner's decisions. Python
+bytecode that had been committed was untracked.
+
+`tests/qmlhost/notify.py` runs LG's actual `SystemUI/Notification` tree offline, so a notification can be looked at before the set
+is asked. It found that this firmware's `Services.qml` takes its data from the `com.webos.notification` subscription (the
+`getToastNotification`, `getAlertNotification`, `getInputAlertNotification`, `getPincodePromptNotification` replies), not from
+the `WebOSServices` models, so the stand-in for luna answers those replies and everything above them is LG's. What it showed:
+
+- LG's toast is a grey bar (#787F86) centred at the bottom, 900 px wide, one line of 30 px text; its alert is a light grey card
+  (#CACBCC at 95 %) 180 px above the bottom with the buttons stacked on the right and no title unless it is a full alert; both hard-
+  code the colours of `SimpleButton` in code, outside the style object; the style's `variations.defaultView` repeats the base
+  values and is bound over them, so the patch has to change both. The PIN prompt is a black full-screen sheet.
+- After the patch: the toast is a glass pill at the top right under the status bar (right edge level with it, as in
+  `docs/mocks/07-toast` and `35-toast-advanced`), with an icon tile, a title over a dimmer subtitle when the message has two lines,
+  an accent chevron and a label (`actionLabel`, optional) for an advanced toast's link; the alert is a centred dark-glass card with
+  a hairline edge, ink text, button fills from the palette, a focused button with a light 2 px edge, over the palette's scrim.
+  Verified here: 25 tests (`tests/test_notification_patch.py`) including a toast, an alert, an input popup and a PIN prompt through
+  the patched view with no warning from the tree (LG's own PIN pad writes through a null `KeyNavigation.left` and is filtered).
+- A modal alert refuses an input popup and a PIN prompt (`acceptAdvancedAlerts`, `acceptPincodePrompts` in LG's view), which is LG's
+  rule and kept; the test says so.
+- Not done and why: the input popup's LG layout (angled cards, each drawn through a live `ShaderEffectSource` clip) needs its own
+  rebuild for the mock's card with two buttons and a countdown line (`docs/mocks/18-device-connected`), the preview cannot show LG's
+  native angled shapes (they are stubs here), and the alert has no title or app icon (LG shows the title only for full alerts).
+  None of it has run on the set: `lumatv notifications on` and the toast/alert gate wait for slot 2.
