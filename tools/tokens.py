@@ -153,6 +153,8 @@ def resolve(shipped_path, user_path):
         "inkDim": argb(ir, ig, ib, 0.66),
         "focusInk": argb(ir, ig, ib, 1.0),
         "accent": argb(ar, ag, ab, 1.0),
+        "accentInk": argb(*accent_ink[:3], 1.0),
+        "danger": argb(*parse(dark["danger"])),
         "radius": radii["sheet"],
         "rowRadius": radii["row"],
         "scrim": argb(gr, gg, gb, 0.42),
