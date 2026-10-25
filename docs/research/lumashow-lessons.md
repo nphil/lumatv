@@ -134,3 +134,8 @@ I. Not for LumaTV without Nitin's decision
 - Quality ladder with visible steps (item 6): product choice.
 - Any kernel OPP / clock change on LG: device change, Nitin OK.
 - Anything that publishes or deploys: out of scope (Principle 0).
+
+## Checked on the C4
+
+- Item 26 (nice -10 on the display service): LG already runs surface-manager at nice -19 (read on the set 2026-10-25), stronger than LumaShow's -10, so there is nothing to adopt. LumaTV's own compositor (track C) starts at the same -19.
+- Heap shim through `gfx64/launch.sh`, screen on, over idle Home (2026-10-25): 8 s 60.63 fps, 4 frames over 20 ms, worst 24.5 ms; 20 s 59.81 fps, 6 over 20 ms, worst 29.8 ms (one contiguous buffer, two `dma_buf_te` when CMA ran short). A run with the panel in standby reports unpaced frames (152.7 fps) and is refused by the smoke script.
