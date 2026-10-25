@@ -476,6 +476,8 @@ fn luna_tier_one_methods_answer_from_the_scene() {
     assert_eq!(info["windowType"], "_WEBOS_WINDOW_TYPE_CARD");
     assert_eq!(info["primary"], true);
     assert_eq!(pushed.1["mode"], "normal");
+    assert!(pushed.1.get("subscribed").is_none(), "pushes carry no subscribed flag (LG's do not)");
+    assert_eq!(info["processId"], std::process::id().to_string(), "the client's pid, as a string");
 
     let (focused, windows, keymask) = server.eval(|s| {
         (
@@ -487,6 +489,25 @@ fn luna_tier_one_methods_answer_from_the_scene() {
     assert_eq!(focused["focusedWindowInfo"][0]["type"], "fullscreen");
     assert_eq!(windows["windows"][0]["appId"], "org.test.player");
     assert_eq!(keymask["appId"], "org.test.player");
+
+    // An overlay app above the card comes second, in the short form (X4: Settings over Home).
+    let overlay = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Settings");
+    let obuf = client.shm_buffer(640, 360, 0xff20_2020);
+    client.present(&overlay.surface, &obuf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 2));
+    std::thread::sleep(Duration::from_millis(20));
+    let last = server.eval(|s| {
+        s.luna.history().iter().rev().find_map(|m| match m {
+            ToBridge::Reply(r) if r.token == 11 => Some(r.payload.clone()),
+            _ => None,
+        })
+    });
+    let apps = last.unwrap()["foregroundAppInfo"].as_array().unwrap().clone();
+    assert_eq!(apps.len(), 2, "{apps:?}");
+    assert_eq!(apps[0]["appId"], "org.test.player");
+    assert_eq!(apps[1]["appId"], "org.test.settings");
+    assert_eq!(apps[1]["windowType"], "_WEBOS_WINDOW_TYPE_OVERLAY");
+    assert!(apps[1].get("primary").is_none(), "the short form");
 
     // closeByAppId reaches the window as wl_webos_shell_surface.close.
     let closed = server.eval(|s| s.luna_method("com.webos.surfacemanager", "closeByAppId", &json!({"appId": "org.test.player"}), "home").unwrap());

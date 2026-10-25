@@ -376,13 +376,31 @@ static void flatten(char *s) {
     for (; *s; s++) if (*s == '\n' || *s == '\r') *s = ' ';
 }
 
-static void send_line(const char *line) {
-    if (bridge_fd < 0) return;
+// Calls that reach the bus names before the compositor has connected are kept in order and sent on connect. They
+// used to be dropped and never answered; SAM's getForegroundAppInfo subscription, made when the name appears, is
+// the likely casualty behind the 2026-10-25 gate's "Home stays in front".
+#define MAX_PENDING 256
+static char *pending[MAX_PENDING];
+static int npending;
+
+static void write_line(const char *line) {
     size_t n = strlen(line);
     struct iovec iov[2] = { { (void *)line, n }, { (void *)"\n", 1 } };
     struct msghdr mh = { 0 };
     mh.msg_iov = iov; mh.msg_iovlen = 2;
     if (sendmsg(bridge_fd, &mh, MSG_NOSIGNAL) < 0) logline("bridge send: %s", strerror(errno));
+}
+
+static void send_line(const char *line) {
+    if (bridge_fd >= 0) { write_line(line); return; }
+    if (npending == MAX_PENDING) { logline("bridge: %d lines waiting for the compositor; dropped one", npending); return; }
+    pending[npending++] = strdup(line);
+}
+
+static void flush_pending(void) {
+    if (npending) logline("bridge: %d call(s) that arrived before the compositor sent on", npending);
+    for (int i = 0; i < npending; i++) { write_line(pending[i]); free(pending[i]); }
+    npending = 0;
 }
 
 // ---- inbound luna calls, kept by token until the compositor answers ----
@@ -452,6 +470,8 @@ static bool on_method(LSHandle *sh, LSMessage *msg, void *ctx) {
     char esender[256], emethod[128];
     json_escape(sender ? sender : "", esender, sizeof esender);
     json_escape(method ? method : "", emethod, sizeof emethod);
+    // Who subscribes to what is the evidence a gate run needs (SAM's foreground subscription above all).
+    if (slot->subscription) logline("subscription t%lu: %s/%s from %s%s", slot->token, b->name, method ? method : "?", sender ? sender : "?", bridge_fd < 0 ? " (compositor not connected yet: queued)" : "");
     size_t need = strlen(payload ? payload : "{}") + 512;
     char *line = malloc(need);
     snprintf(line, need, "{\"kind\":\"inbound\",\"token\":%lu,\"service\":\"%s\",\"method\":\"%s\",\"payload\":%s,\"subscribe\":%s,\"sender\":\"%s\"}",
@@ -599,6 +619,7 @@ static gboolean on_bridge_accept(GIOChannel *ch, int cond, gpointer data) {
     if (bridge_fd >= 0) { logline("bridge: second connection refused"); close(fd); return 1; }
     bridge_fd = fd;
     logline("bridge: compositor connected");
+    flush_pending();
     g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_HUP | G_IO_ERR, on_bridge_readable, NULL);
     // The compositor is listening on LG's socket and the bus names are ours: the unit is up.
     if (!dry_run) { sd_notify_ready(); emit_lsm_ready(); }
@@ -784,6 +805,19 @@ int main(void) {
     flatten(pretty);
     CHECK(!strchr(pretty, '\n') && !strchr(pretty, '\r'));
     CHECK(json_value(pretty, "payload", &v, &n) && v[0] == '{' && v[n - 1] == '}');
+    // Lines sent before the compositor connects arrive, in order, once it does.
+    send_line("{\"kind\":\"inbound\",\"token\":1}");
+    send_line("{\"kind\":\"inbound\",\"token\":2}");
+    CHECK(npending == 2);
+    int sv[2];
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    bridge_fd = sv[0];
+    flush_pending();
+    char got[128] = "";
+    ssize_t r = read(sv[1], got, sizeof got - 1);
+    CHECK(r > 0 && !strcmp(got, "{\"kind\":\"inbound\",\"token\":1}\n{\"kind\":\"inbound\",\"token\":2}\n"));
+    CHECK(npending == 0);
+    close(sv[0]); close(sv[1]); bridge_fd = -1;
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
     return failures_seen ? 1 : 0;
 }

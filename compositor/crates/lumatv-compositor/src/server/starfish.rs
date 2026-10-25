@@ -1,5 +1,5 @@
-//! `wl_starfish_pointer` and `wl_starfish_output` (WebAppMgr). The opcode tables in `protocol/private/
-//! starfish.xml` are unverified, so these globals exist only behind `--starfish`.
+//! `wl_starfish_pointer` and `wl_starfish_output` (WebAppMgr). The tables in `protocol/private/starfish.xml` are
+//! LG's (read on the set); the globals are still offered only behind `--starfish`.
 
 use wayland_server::{Client, DataInit, Dispatch, DisplayHandle};
 

@@ -25,7 +25,7 @@ pub fn handle(state: &mut State, line: &str) -> String {
             "summary": state.summary(),
             "output": state.output.name(),
             "buffers": format!("{:?}", state.buffer_path()),
-            "clients": state.clients.values().map(|c| json!({"pid": c.pid, "uid": c.uid, "seconds": c.since.elapsed().as_secs()})).collect::<Vec<_>>(),
+            "clients": state.clients.values().map(|c| json!({"pid": c.pid, "uid": c.uid, "seconds": c.since.elapsed().as_secs(), "cmd": c.cmd, "bound": c.bound})).collect::<Vec<_>>(),
             "stats": {
                 "requests": state.stats.requests, "commits": state.stats.commits, "buffers": state.stats.buffers_created,
                 "ticks": state.stats.ticks, "drawn": state.stats.frames_drawn, "callbacks": state.stats.callbacks_sent,
@@ -41,6 +41,11 @@ pub fn handle(state: &mut State, line: &str) -> String {
             json!({"ok": true, "windows": state.windows_report(), "groups": state.scene.groups.iter().map(|g| json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>()})).collect::<Vec<_>>(), "video": state.foreign.video_windows()})
         }
         "journal" => json!({"ok": true, "lines": state.journal}),
+        "luna" => json!({
+            "ok": true,
+            "bridge": state.luna.is_connected(),
+            "subscriptions": state.luna_state.subscriptions.iter().map(|s| json!({"token": s.token, "service": s.service, "method": s.method, "sender": s.sender, "last": s.last})).collect::<Vec<_>>(),
+        }),
         "capture" => match words.next() {
             Some(path) => match state.capture_to(Path::new(path)) {
                 Ok(()) => json!({"ok": true, "path": path}),
@@ -122,7 +127,7 @@ pub fn handle(state: &mut State, line: &str) -> String {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
         }
     };
     reply.to_string()

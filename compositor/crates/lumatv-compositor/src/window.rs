@@ -153,6 +153,8 @@ pub struct Window {
     pub map_serial: u64,
     pub has_wl_shell: bool,
     pub has_webos_shell: bool,
+    /// Whether a commit without a buffer was seen while unmapped (journalled once).
+    pub bare_commit_seen: bool,
 }
 
 impl Window {
@@ -171,6 +173,7 @@ impl Window {
             map_serial: 0,
             has_wl_shell: false,
             has_webos_shell: false,
+            bare_commit_seen: false,
         }
     }
 

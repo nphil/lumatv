@@ -13,11 +13,12 @@ impl wayland_server::GlobalDispatch<WlWebosInputManager, ()> for State {
     fn bind(
         state: &mut Self,
         _handle: &DisplayHandle,
-        _client: &Client,
+        client: &Client,
         resource: wayland_server::New<WlWebosInputManager>,
         _global_data: &(),
         data_init: &mut DataInit<'_, Self>,
     ) {
+        state.note_bind(client, "wl_webos_input_manager");
         let r = data_init.init(resource, ());
         // A client bound late learns the current state at once (LG's apps pick pointer or 5-way focus from it).
         r.cursor_visibility(state.seat.cursor_visible as u32, None);

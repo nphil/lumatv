@@ -12,7 +12,8 @@ use crate::State;
 use crate::buffer::{BufferData, BufferKind, ShmBuffer, ShmPool};
 
 impl GlobalDispatch<WlShm, ()> for State {
-    fn bind(_state: &mut Self, _handle: &DisplayHandle, _client: &Client, resource: New<WlShm>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+    fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlShm>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+        state.note_bind(client, "wl_shm");
         let shm = data_init.init(resource, ());
         shm.format(wl_shm::Format::Argb8888);
         shm.format(wl_shm::Format::Xrgb8888);

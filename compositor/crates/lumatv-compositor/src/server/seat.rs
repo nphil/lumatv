@@ -66,7 +66,8 @@ xkb_symbols \"basic\" {
 ";
 
 impl GlobalDispatch<WlSeat, ()> for State {
-    fn bind(_state: &mut Self, _handle: &DisplayHandle, _client: &Client, resource: New<WlSeat>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+    fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlSeat>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+        state.note_bind(client, "wl_seat");
         let seat = data_init.init(resource, ());
         seat.capabilities(Capability::Keyboard | Capability::Pointer);
         if seat.version() >= 2 {

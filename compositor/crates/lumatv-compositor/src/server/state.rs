@@ -60,6 +60,31 @@ pub struct ClientInfo {
     pub pid: i32,
     pub uid: u32,
     pub since: Instant,
+    /// The process's command line, read at connect while the process is alive (a client that only binds globals
+    /// and leaves is otherwise anonymous: the 7 s client of the 2026-10-25 gate).
+    pub cmd: String,
+    /// Globals bound, in order: what a client that leaves without a surface was looking for.
+    pub bound: Vec<&'static str>,
+}
+
+impl ClientInfo {
+    fn new(pid: i32, uid: u32) -> Self {
+        ClientInfo { pid, uid, since: Instant::now(), cmd: if pid > 0 { cmdline(pid) } else { String::new() }, bound: Vec::new() }
+    }
+}
+
+/// `/proc/PID/cmdline`, arguments joined by spaces, cut at 160 bytes.
+fn cmdline(pid: i32) -> String {
+    let raw = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+    let mut s: String = String::from_utf8_lossy(&raw).replace('\0', " ").trim_end().to_string();
+    if s.len() > 160 {
+        let mut cut = 160;
+        while !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        s.truncate(cut);
+    }
+    s
 }
 
 /// The X2 self-check: counts drawn frames whose probe pixels match the pattern.
@@ -216,6 +241,17 @@ impl State {
             } else if eff.new_buffer {
                 self.scene.layout_changed |= self.surfaces.get(sid).map(|s| s.current.damage.is_none()).unwrap_or(false);
             }
+        }
+        // A window that commits but never attaches a buffer never maps (HDMI 2 on the 2026-10-25 gate: created,
+        // fullscreen, exported, never mapped); the first such commit is journalled once per window.
+        if let Some(wid) = self.scene.window_of(id)
+            && !self.surfaces.get(id).map(|s| s.is_mapped()).unwrap_or(false)
+            && self.scene.window(wid).map(|w| !w.bare_commit_seen).unwrap_or(false)
+        {
+            let w = self.scene.window_mut(wid).unwrap();
+            w.bare_commit_seen = true;
+            let line = format!("window {} committed without a buffer ({:?} app {:?} state {:?})", wid.0, w.kind, w.app_id(), w.state);
+            self.journal(line);
         }
     }
 
@@ -447,16 +483,20 @@ impl State {
         let evs: Vec<ClientEvent> = std::mem::take(&mut *events.lock());
         for ev in evs {
             match ev {
-                ClientEvent::Connected(id) => {
-                    if !self.clients.contains_key(&id) {
-                        self.stats.clients_total += 1;
-                        self.clients.insert(id, ClientInfo { pid: 0, uid: 0, since: Instant::now() });
-                    }
-                    self.journal("client connected".to_string());
-                }
+                ClientEvent::Connected(id) => self.client_connected(id),
                 ClientEvent::Disconnected(id, reason) => {
-                    let pid = self.clients.remove(&id).map(|c| c.pid).unwrap_or(0);
-                    self.journal(format!("client disconnected: pid {pid} ({reason})"));
+                    let line = match self.clients.remove(&id) {
+                        Some(c) => format!(
+                            "client disconnected: pid {} uid {} after {} ms ({reason}); bound {:?}; cmd {:?}",
+                            c.pid,
+                            c.uid,
+                            c.since.elapsed().as_millis(),
+                            c.bound,
+                            c.cmd
+                        ),
+                        None => format!("client disconnected: unknown ({reason})"),
+                    };
+                    self.journal(line);
                     if self.clients.is_empty() && self.config.exit_on_disconnect {
                         self.should_exit = true;
                     }
@@ -464,27 +504,41 @@ impl State {
             }
         }
     }
+
+    /// A client was accepted: its credentials and command line are read now, while the process is certainly alive.
+    /// The C backend never queues the connect event, so the listener calls this directly.
+    pub fn client_connected(&mut self, id: ClientId) {
+        if self.clients.contains_key(&id) {
+            return;
+        }
+        self.stats.clients_total += 1;
+        let info = match self.dh.backend_handle().get_client_credentials(id.clone()) {
+            Ok(c) => ClientInfo::new(c.pid, c.uid),
+            Err(_) => ClientInfo::new(0, 0),
+        };
+        let line = format!("client connected: pid {} uid {} cmd {:?}", info.pid, info.uid, info.cmd);
+        self.clients.insert(id, info);
+        self.journal(line);
+    }
+
+    /// A global was bound; kept per client for the disconnect line.
+    pub fn note_bind(&mut self, client: &Client, interface: &'static str) {
+        let id = client.id();
+        if !self.clients.contains_key(&id) {
+            self.client_connected(id.clone());
+        }
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.bound.push(interface);
+        }
+    }
 }
 
 impl State {
-    /// Called from every dispatcher with the client: fills in credentials the connect event could not.
+    /// Called from every dispatcher with the client: makes sure the client is known (tests insert clients without
+    /// the listener).
     pub fn touch_client(&mut self, client: &Client) {
-        let id = client.id();
-        let known = self.clients.get(&id).map(|c| c.pid != 0).unwrap_or(false);
-        if known {
-            return;
-        }
-        if let Ok(c) = client.get_credentials(&self.dh) {
-            if !self.clients.contains_key(&id) {
-                self.stats.clients_total += 1;
-            }
-            let entry = self.clients.entry(id).or_insert(ClientInfo { pid: 0, uid: 0, since: Instant::now() });
-            if entry.pid == 0 {
-                entry.pid = c.pid;
-                entry.uid = c.uid;
-                let line = format!("client pid {} uid {}", c.pid, c.uid);
-                self.journal(line);
-            }
+        if !self.clients.contains_key(&client.id()) {
+            self.client_connected(client.id());
         }
     }
 }

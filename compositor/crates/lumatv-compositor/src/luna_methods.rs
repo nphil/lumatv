@@ -134,6 +134,10 @@ impl State {
     /// A call to one of the compositor's bus names.
     pub fn luna_inbound(&mut self, m: Inbound) {
         if m.cancelled {
+            if let Some(s) = self.luna_state.subscriptions.iter().find(|s| s.token == m.token) {
+                let line = format!("luna: {} cancelled {}/{}", s.sender, s.service, s.method);
+                self.journal(line);
+            }
             self.luna_state.subscriptions.retain(|s| s.token != m.token);
             return;
         }
@@ -142,14 +146,18 @@ impl State {
                 if m.subscribe
                     && let Some(obj) = p.as_object_mut()
                 {
+                    // `last` is kept without the flag: pushes carry none (LG's do not), so the comparison in
+                    // `luna_notify` sees only a real change.
+                    let last = Value::Object(obj.clone());
                     obj.insert("subscribed".into(), json!(true));
                     self.luna_state.subscriptions.push(Subscription {
                         token: m.token,
                         service: m.service.clone(),
                         method: m.method.clone(),
                         sender: m.sender.clone(),
-                        last: p.clone(),
+                        last,
                     });
+                    self.journal(format!("luna: {} subscribed to {}/{}", m.sender, m.service, m.method));
                 }
                 p
             }
@@ -167,19 +175,24 @@ impl State {
         let subs: Vec<(usize, String, String, String)> =
             self.luna_state.subscriptions.iter().enumerate().map(|(i, s)| (i, s.service.clone(), s.method.clone(), s.sender.clone())).collect();
         for (i, service, method, sender) in subs {
-            if let Some(mut p) = self.luna_method(&service, &method, &json!({}), &sender) {
-                if let Some(obj) = p.as_object_mut() {
-                    obj.insert("subscribed".into(), json!(true));
-                }
+            if let Some(p) = self.luna_method(&service, &method, &json!({}), &sender) {
                 let sub = &mut self.luna_state.subscriptions[i];
                 if sub.last != p {
                     sub.last = p.clone();
-                    pushes.push(Reply { token: sub.token, payload: p });
+                    if method == "getForegroundAppInfo" {
+                        let apps: Vec<&str> = p["foregroundAppInfo"].as_array().into_iter().flatten().filter_map(|a| a["appId"].as_str()).collect();
+                        pushes.push((Reply { token: sub.token, payload: p.clone() }, Some(format!("luna: foreground {apps:?} pushed to {sender}"))));
+                    } else {
+                        pushes.push((Reply { token: sub.token, payload: p }, None));
+                    }
                 }
             }
         }
-        for r in pushes {
+        for (r, line) in pushes {
             self.luna.send(ToBridge::Reply(r));
+            if let Some(l) = line {
+                self.journal(l);
+            }
         }
     }
 
@@ -246,26 +259,53 @@ impl State {
         })
     }
 
+    /// LG's shape (X4, `arch/x4/all.jsonl`): the foreground card first, with `order`, `pip`, `multiview`, `primary`
+    /// and `viewType`; then every mapped app window above it (Settings came as an overlay) in the short form. SAM
+    /// turns these pushes into its own `foreground`/`background` events. The system UI manager's variant lists the
+    /// system UI windows.
     fn foreground_app_info(&self, system_ui: bool) -> Value {
-        let infos: Vec<Value> = self
-            .scene
-            .windows()
-            .filter(|w| {
-                let mapped = self.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false);
-                mapped && if system_ui { w.kind == WindowType::SystemUi } else { self.scene.foreground(&self.surfaces).map(|f| f.id == w.id).unwrap_or(false) }
+        let mapped = |w: &&crate::window::Window| w.map_serial > 0 && self.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false);
+        let short = |w: &crate::window::Window| {
+            json!({
+                "appId": w.app_id(), "displayId": 0, "windowType": self.window_type_name(w), "processId": self.window_pid(w),
+                "params": self.window_params(w), "windowGroup": false,
             })
-            .enumerate()
-            .map(|(i, w)| {
-                let pid = self.seat.surfaces.get(&w.surface).and_then(|r| r.client()).and_then(|c| self.clients.get(&c.id())).map(|c| c.pid).unwrap_or(0);
-                json!({
-                    "order": i, "displayId": 0, "pip": false, "processId": pid.to_string(), "multiview": false,
-                    "windowType": w.props.get("_WEBOS_WINDOW_TYPE").cloned().unwrap_or_else(|| "_WEBOS_WINDOW_TYPE_CARD".into()),
-                    "primary": true, "viewType": "normal", "params": serde_json::from_str::<Value>(w.props.get("params").map(String::as_str).unwrap_or("{}")).unwrap_or(json!({})),
-                    "appId": w.app_id(), "windowGroup": false,
-                })
-            })
-            .collect();
+        };
+        let mut infos = Vec::new();
+        if system_ui {
+            infos.extend(self.scene.windows().filter(mapped).filter(|w| w.kind == WindowType::SystemUi).map(short));
+        } else {
+            if let Some(card) = self.scene.foreground(&self.surfaces) {
+                infos.push(json!({
+                    "order": 0, "displayId": 0, "pip": false, "processId": self.window_pid(card), "multiview": false,
+                    "windowType": self.window_type_name(card), "primary": true, "viewType": "normal",
+                    "params": self.window_params(card), "appId": card.app_id(), "windowGroup": false,
+                }));
+            }
+            let mut above: Vec<&crate::window::Window> = self
+                .scene
+                .windows()
+                .filter(mapped)
+                .filter(|w| matches!(w.kind, WindowType::Overlay | WindowType::Floating | WindowType::Popup) && w.state != crate::window::ShellState::Minimized)
+                .collect();
+            above.sort_by_key(|w| w.map_serial);
+            infos.extend(above.into_iter().map(short));
+        }
         json!({"returnValue": true, "mode": "normal", "foregroundAppInfo": infos})
+    }
+
+    /// The window's client process id as LG sends it (a string); "" while the client's credentials are unknown.
+    fn window_pid(&self, w: &crate::window::Window) -> String {
+        let pid = self.seat.surfaces.get(&w.surface).and_then(|r| r.client()).and_then(|c| self.clients.get(&c.id())).map(|c| c.pid).unwrap_or(0);
+        if pid == 0 { String::new() } else { pid.to_string() }
+    }
+
+    fn window_type_name(&self, w: &crate::window::Window) -> String {
+        w.props.get("_WEBOS_WINDOW_TYPE").cloned().unwrap_or_else(|| "_WEBOS_WINDOW_TYPE_CARD".into())
+    }
+
+    fn window_params(&self, w: &crate::window::Window) -> Value {
+        serde_json::from_str::<Value>(w.props.get("params").map(String::as_str).unwrap_or("{}")).unwrap_or(json!({}))
     }
 
     fn focused_window_info(&self) -> Value {

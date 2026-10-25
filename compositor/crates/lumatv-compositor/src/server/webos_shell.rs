@@ -78,18 +78,15 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                 }
             }
             wl_webos_shell_surface::Request::SetState { state: st } => {
-                let v = st;
-                state.note_request("wl_webos_shell_surface", pid, &format!("set_state({v})"));
-                let new = ShellState::from_u32(v);
-                let mapped = state.surfaces.get(data.surface).map(|s| s.is_mapped()).unwrap_or(false);
-                if let Some(w) = state.scene.window_mut(data.window)
-                    && w.state != new
-                {
+                state.note_request("wl_webos_shell_surface", pid, &format!("set_state({st})"));
+                let new = ShellState::from_u32(st);
+                if let Some(w) = state.scene.window_mut(data.window) {
                     w.state = new;
-                    if mapped {
-                        send_state(resource, new);
-                    }
                 }
+                // Answered at once, mapped or not: a client may hold its first frame until the state it asked for is
+                // confirmed, and HDMI 2's card stayed fullscreen but unmapped on the 2026-10-25 gate while only
+                // mapped windows were answered.
+                send_state(resource, new);
                 super::seat::refocus(state);
             }
             wl_webos_shell_surface::Request::SetProperty { name, value } => {

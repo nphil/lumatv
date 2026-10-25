@@ -24,13 +24,14 @@ pub struct ParamsData {
 
 impl GlobalDispatch<ZwpLinuxDmabufV1, ()> for State {
     fn bind(
-        _state: &mut Self,
+        state: &mut Self,
         _handle: &DisplayHandle,
-        _client: &Client,
+        client: &Client,
         resource: New<ZwpLinuxDmabufV1>,
         _global_data: &(),
         data_init: &mut DataInit<'_, Self>,
     ) {
+        state.note_bind(client, "zwp_linux_dmabuf_v1");
         let d = data_init.init(resource, ());
         for f in FORMATS {
             if d.version() >= 3 {

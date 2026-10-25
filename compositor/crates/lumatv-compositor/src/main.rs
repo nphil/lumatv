@@ -53,13 +53,13 @@ fn main() {
 
 fn init_logging() {
     let level = std::env::var("LUMATV_LOG").ok().and_then(|v| v.parse().ok()).unwrap_or(log::LevelFilter::Info);
-    log::set_boxed_logger(Box::new(StderrLogger { start: Instant::now() })).ok();
+    log::set_boxed_logger(Box::new(StderrLogger)).ok();
     log::set_max_level(level);
 }
 
-struct StderrLogger {
-    start: Instant,
-}
+/// Lines carry CLOCK_MONOTONIC seconds, the clock the X1 client, the page-flip events and the kernel stamp with,
+/// so a client's frame gap lines up with what the compositor was doing at that moment.
+struct StderrLogger;
 
 impl log::Log for StderrLogger {
     fn enabled(&self, _: &log::Metadata) -> bool {
@@ -67,8 +67,11 @@ impl log::Log for StderrLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        let t = self.start.elapsed().as_secs_f64();
-        let _ = writeln!(io::stderr().lock(), "[srv {t:8.3}] {} {}", record.level().as_str().to_ascii_lowercase(), record.args());
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: a stack timespec for clock_gettime.
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+        let t = ts.tv_sec as f64 + ts.tv_nsec as f64 / 1e9;
+        let _ = writeln!(io::stderr().lock(), "[srv {t:10.3}] {} {}", record.level().as_str().to_ascii_lowercase(), record.args());
     }
 
     fn flush(&self) {}
@@ -208,7 +211,8 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_LISTEN => {
                     while let Some(stream) = listener.accept()? {
-                        display.handle().insert_client(stream, Arc::new(ClientHandler { events: client_events.clone() })).map_err(io::Error::other)?;
+                        let client = display.handle().insert_client(stream, Arc::new(ClientHandler { events: client_events.clone() })).map_err(io::Error::other)?;
+                        state.client_connected(client.id());
                     }
                 }
                 TAG_TICK => {

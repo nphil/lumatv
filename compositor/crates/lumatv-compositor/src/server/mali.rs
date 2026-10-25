@@ -19,11 +19,12 @@ impl GlobalDispatch<MaliBufferSharing, ()> for State {
     fn bind(
         state: &mut Self,
         _handle: &DisplayHandle,
-        _client: &Client,
+        client: &Client,
         resource: New<MaliBufferSharing>,
         _global_data: &(),
         data_init: &mut DataInit<'_, Self>,
     ) {
+        state.note_bind(client, "mali_buffer_sharing");
         let m = data_init.init(resource, ());
         m.alloc_device(ALLOC_DEVICE.into());
         state.journal(format!("client bound mali_buffer_sharing v{} (own); alloc_device {ALLOC_DEVICE}", m.version()));

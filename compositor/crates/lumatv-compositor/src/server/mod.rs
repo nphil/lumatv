@@ -45,13 +45,14 @@ macro_rules! plain_global {
     ($iface:ty) => {
         impl wayland_server::GlobalDispatch<$iface, ()> for $crate::State {
             fn bind(
-                _state: &mut Self,
+                state: &mut Self,
                 _handle: &wayland_server::DisplayHandle,
-                _client: &wayland_server::Client,
+                client: &wayland_server::Client,
                 resource: wayland_server::New<$iface>,
                 _global_data: &(),
                 data_init: &mut wayland_server::DataInit<'_, Self>,
             ) {
+                state.note_bind(client, <$iface as wayland_server::Resource>::interface().name);
                 data_init.init(resource, ());
             }
         }

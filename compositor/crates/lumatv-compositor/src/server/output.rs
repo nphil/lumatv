@@ -6,7 +6,8 @@ use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, 
 use crate::{OUTPUT_MM, REFRESH_MHZ, State};
 
 impl GlobalDispatch<WlOutput, ()> for State {
-    fn bind(state: &mut Self, _handle: &DisplayHandle, _client: &Client, resource: New<WlOutput>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+    fn bind(state: &mut Self, _handle: &DisplayHandle, client: &Client, resource: New<WlOutput>, _global_data: &(), data_init: &mut DataInit<'_, Self>) {
+        state.note_bind(client, "wl_output");
         let out = data_init.init(resource, ());
         let (w, h) = state.output.size();
         out.geometry(0, 0, OUTPUT_MM.0, OUTPUT_MM.1, Subpixel::Unknown, "LG".into(), "OLED65C4PUA".into(), Transform::Normal);
