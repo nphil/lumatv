@@ -724,8 +724,11 @@ static void spawn_compositor(void) {
         const char *sock = dry_run ? "wayland-lumatv" : socket_name;
         const char *rt = dry_run ? "/tmp/lumatv" : runtime_dir;
         // Live, the compositor reads the remotes itself (--input): key routing and the hold-Home escape.
-        if (dry_run) execl(loader, loader, "--library-path", libdir, bin, "--runtime-dir", rt, "--socket", sock, "--renderer", renderer, "--driver", blob, "--buffers", "own", "--card", "/dev/dri/card0", (char *)NULL);
-        else execl(loader, loader, "--library-path", libdir, bin, "--runtime-dir", rt, "--socket", sock, "--renderer", renderer, "--driver", blob, "--buffers", "own", "--card", "/dev/dri/card0", "--input", (char *)NULL);
+        // Buffers come from the driver's own mali_buffer_sharing: with the compositor's own global LG's 32-bit
+        // libmali clients (Qt apps, Flutter Home, the input apps, Netflix) segfault right after binding it (set,
+        // 2026-10-25 06:20: tvhotkey exit 139 with own, runs with driver); only WAM and LumaTV's clients survived.
+        if (dry_run) execl(loader, loader, "--library-path", libdir, bin, "--runtime-dir", rt, "--socket", sock, "--renderer", renderer, "--driver", blob, "--buffers", "driver", "--card", "/dev/dri/card0", (char *)NULL);
+        else execl(loader, loader, "--library-path", libdir, bin, "--runtime-dir", rt, "--socket", sock, "--renderer", renderer, "--driver", blob, "--buffers", "driver", "--card", "/dev/dri/card0", "--input", (char *)NULL);
         _exit(127);
     }
     child_pid = pid;
