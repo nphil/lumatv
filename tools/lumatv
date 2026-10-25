@@ -831,9 +831,9 @@ systemui_stage() {
 }
 
 webglass_apps() {
-  # The web apps whose UI is Enact/Sandstone and which draw as transparent
-  # overlays: the full Settings app and the Notification Centre.
-  printf '%s\n' com.palm.app.settings com.webos.app.notificationcenter
+  # The web apps the shared web theme is laid over: the Settings app, its sub-apps and the other Enact/Sandstone apps that
+  # draw as transparent windows, one id a line in payload/webapps/apps.txt (comments and blank lines skipped).
+  grep -v '^[[:space:]]*\(#\|$\)' "$WEBGLASS_SRC/apps.txt" 2>/dev/null
 }
 
 webglass_set() {

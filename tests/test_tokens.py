@@ -102,6 +102,50 @@ class Tokens(unittest.TestCase):
         self.assertEqual(sorted(used - defined), [])
         self.assertNotRegex(sheet, r"#[0-9A-Fa-f]{6}\b")
 
+    def test_web_tokens_have_both_materials_and_the_four_faces(self):
+        css = run(TOKENS, SHIPPED, SHIPPED, "web")
+        cut = css.index('[data-theme="light"]')
+        dark, light = css[:cut], css[cut:]
+        self.assertIn(':root, [data-theme="dark"] {', dark)
+        self.assertIn("color-scheme: dark;", dark)
+        self.assertIn("--lu-ink: rgba(242, 239, 246, 1.000);", dark)
+        self.assertIn("--lu-accent: #A79BF5;", dark)
+        self.assertIn("color-scheme: light;", light)
+        self.assertIn("--lu-ink: rgba(23, 19, 31, 1.000);", light)
+        self.assertIn("--lu-accent: #907AA9;", light)          # the palette's own: the wallpaper tints Home, not a web page
+        self.assertIn("--lu-accent-ink: #17131F;", light)          # whichever of the palette's inks reads best on it, as Lu.qml picks
+        for want in ("--lu-font: Manrope, system-ui, sans-serif;", "--lu-radius-sheet: 34px;", "--lu-type-body: 28px;", "--lu-card-ms: 180ms;",
+                     "--lu-ease-card: cubic-bezier(0.215, 0.61, 0.355, 1);", "--lu-focus-wash: rgba(23, 19, 31, 0.060);"):
+            self.assertIn(want, css)
+        for face in ("Regular", "Medium", "SemiBold", "Bold"):
+            self.assertIn('url("Manrope-%s.ttf")' % face, css)
+        self.assertNotIn("Inter", css)
+
+    def test_a_fixed_accent_is_both_materials_and_the_wallpapers_is_the_dark_ones(self):
+        with tempfile.TemporaryDirectory() as d:
+            fixed = self.write(d, "fixed.json", {"accent": "#334455"})
+            css = run(TOKENS, SHIPPED, fixed, "web")
+            self.assertEqual(css.count("--lu-accent: #334455;"), 2)
+            wall = self.write(d, "theme.json", {"accent": "wallpaper"})
+            with open(os.path.join(d, "tint.json"), "w") as f:
+                json.dump({"accent": "#9898E1"}, f)
+            css = run(TOKENS, SHIPPED, wall, "web")
+            self.assertIn("--lu-accent: #9898E1;", css[:css.index('[data-theme="light"]')])
+            self.assertIn("--lu-accent: #907AA9;", css[css.index('[data-theme="light"]'):])
+
+    def test_the_frame_stylesheet_uses_only_tokens_the_web_output_writes(self):
+        import re
+        css = run(TOKENS, SHIPPED, SHIPPED, "web")
+        defined = {line.split(":")[0].strip() for line in css.splitlines() if line.strip().startswith("--")}
+        with open(os.path.join(ROOT, "frame", "frame.css")) as f:
+            sheet = f.read()
+        self.assertEqual(sorted(set(re.findall(r"var\((--[a-z0-9-]+)", sheet)) - defined), [])
+        self.assertNotRegex(sheet, r"#[0-9A-Fa-f]{6}\b")
+        self.assertNotRegex(sheet, r"rgba?\(")
+        with open(os.path.join(ROOT, "frame", "index.html")) as f:
+            page = f.read()
+        self.assertLess(page.index("theme.css"), page.index("frame.css"))       # the tokens are loaded before the sheet that reads them
+
     def test_tokens_js_is_a_pragma_library_with_both_materials(self):
         js = run(TOKENS, SHIPPED, SHIPPED, "js")
         self.assertTrue(js.startswith(".pragma library"))

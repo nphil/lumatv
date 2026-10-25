@@ -1,0 +1,24 @@
+# The web apps the shared web theme (lumatv.css and the generated theme.css) is laid over: `lumatv webglass on` mounts it on
+# each that is installed, `off` takes it away. One id a line. They are Enact/Sandstone apps that draw as transparent windows
+# (their appinfo says transparent: true), so the glass is all they need, and they are the Settings app, its sub-apps and the
+# rest of what docs/SURFACES.md lists as "Restyle: Enact web app, Overlay mount (theme)". Not run on the set yet.
+#
+# Settings and the Notification Centre (the drawer replaces the latter; its app stays reachable)
+com.palm.app.settings
+com.webos.app.notificationcenter
+# What LG's Settings opens: wizards, tuning, support, usage care
+com.webos.app.connectionwizard
+com.webos.app.picturewizard
+com.webos.app.soundwizard
+com.webos.app.onetouchsoundtuning
+com.webos.app.self-diagnosis
+com.webos.app.customersupport
+com.webos.app.remoteservice
+com.webos.app.familycare
+# Overlays and tools
+com.webos.app.multiviewsettings
+com.webos.app.gameoptimizer
+com.webos.app.tvuserguide
+com.webos.app.scheduler
+com.webos.app.channelsetting
+com.webos.app.channeledit

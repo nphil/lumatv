@@ -158,6 +158,10 @@ FRAME_VERSION=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' frame/appinf
 FRAME_DATA="$BUILD_DIR/frame-data/usr/palm/applications/$APP_ID.frame"
 mkdir -p "$FRAME_DATA"
 cp frame/appinfo.json frame/index.html frame/frame.js frame/frame.css frame/icon.png frame/largeIcon.png frame/Manrope-*.ttf "$FRAME_DATA/"
+# The shared web theme (tools/tokens.py web): Lucent's tokens for both materials from the shipped theme.json, and the one face
+# the frame's own folder lacks, since the generated stylesheet names all four.
+python3 tools/tokens.py payload/theme/theme.json /dev/null web > "$FRAME_DATA/theme.css"
+cp payload/fonts/Manrope-Regular.ttf "$FRAME_DATA/"
 render "$FRAME_DATA"
 mkdir -p "$BUILD_DIR/frame-ipk"
 build_ipk "$APP_ID.frame" "$FRAME_VERSION" "$BUILD_DIR/frame-data" "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$BRAND_DISPLAY_NAME Frame: the web view behind the Home mini apps"

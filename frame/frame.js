@@ -38,7 +38,7 @@
   function layout(p) {
     var r = p.rect || { x: 200, y: 150, w: 1520, h: 860 };
     pane.style.left = r.x + 'px'; pane.style.top = r.y + 'px'; pane.style.width = r.w + 'px'; pane.style.height = r.h + 'px';
-    document.body.classList.toggle('light', !!p.light);
+    document.documentElement.dataset.theme = p.light ? 'light' : 'dark';      // the material: theme.css has both (tools/tokens.py web)
   }
   function show(el) {
     [spinner, reader, web, errorBox].forEach(function (e) { e.hidden = (e !== el); });
