@@ -18,6 +18,7 @@ import argparse
 import http.client
 import json
 import os
+import shlex
 import sys
 import tempfile
 import time
@@ -136,13 +137,14 @@ def main():
             command.append(flag)
     if args.probe_keys:
         command += ["--probe-keys", str(args.probe_keys)]
-    quoted = " ".join("'%s'" % part.replace("'", "'\\"'\\"'") for part in command)
+    quoted = " ".join(shlex.quote(part) for part in command)
     try:
         remote("rm -rf {r} && mkdir -p {r} && chmod 700 {r}".format(r=REMOTE))
         for local, name in ((binary, "lumatv-helper"), (script, "smoke-ai.py")):
             print("put", name, flush=True)
             tv.put(local, REMOTE + "/" + name)
-        remote("chmod 700 {r}/lumatv-helper {r}/smoke-ai.py && cd {r} && ( {cmd} >run.out 2>&1; echo $? >exit ) & echo $! >pid".format(r=REMOTE, cmd=quoted))
+        # The subshell must not hold the ssh channel's descriptors, or this call would not return until the test ends.
+        remote("chmod 700 {r}/lumatv-helper {r}/smoke-ai.py && cd {r} && {{ ( {cmd} >run.out 2>&1; echo $? >exit ) >/dev/null 2>&1 </dev/null & echo $! >pid; }}".format(r=REMOTE, cmd=quoted))
         deadline = time.time() + (180 if args.probe_keys else 300)
         while time.time() < deadline:
             current = remote("test -f {r}/run.out && cat {r}/run.out || :".format(r=REMOTE), timeout=30)
@@ -161,7 +163,8 @@ def main():
             time.sleep(1)
         if exit_code is None:
             print("FAIL timeout waiting for the TV smoke test", flush=True)
-            remote("test -f {r}/pid && kill $(cat {r}/pid) 2>/dev/null || :".format(r=REMOTE))
+            # [l] keeps pkill from matching the shell that runs it; this takes the test script and its helper down together.
+            remote("pkill -f '[l]umatv-ai-smoke' 2>/dev/null || :")
             exit_code = 1
         output = remote("test -f {r}/run.out && cat {r}/run.out || :".format(r=REMOTE), timeout=30)
         if len(output) > seen:
