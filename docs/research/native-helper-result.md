@@ -19,6 +19,10 @@ Offline recovery (2026-10-25): receiver heartbeats now reach displays even at un
 receiver's timestamp, not message arrival. `./build.sh check` passes; the static AArch64 binary is 2,455,376 bytes, SHA-256
 `b1e6f885e8fec7dec8e1ad98d134658315f766ba36ef7ca0b715ef8edb74c184`. This change has not been deployed to the TV.
 
+Telnet push (2026-10-25, host tests only, not deployed or run on the TV): the receiver thread holds one telnet connection to the
+S760H while the screen is on, so volume, mute, input and power reach the topic as the receiver pushes them; HTTP 8080 is the
+fallback while telnet is down. Details and the TV step list are under "Receiver" ("Telnet push").
+
 - Host gate: `cd helper && ./build.sh check` passes (rustfmt, clippy `-D warnings`, 468 host tests, the aarch64 release build, 2,461,360 bytes, sha256 `9d774c7915ae3ce1099a80996c9701075be505a4144a93982ab681842465d17f`).
 - Next, not mine: (a) QML for the AI prompt (`ai`, `ai.prompt` topics, `/v1/ai`) and for plugin cards, tiles, pages and toasts
   (topics below); (b) the settings flow that writes `plugins/enabled.json` behind the physical remote; (c) a TV smoke test of the
@@ -90,7 +94,7 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `listen.host`, `listen.port` | `127.0.0.1`, 18731 | loopback only; 0 asks for a free port (tests) |
 | `log.level`, `log.maxBytes` | `info`, 262144 | `error`, `warn`, `info`, `debug`; size at which `log-helper` becomes `log-helper.1` |
 | `screen.source`, `screen.pollMs` | `luna`, 5000 | `on` treats the screen as always on (development); the poll period if subscribing fails |
-| `receiver.pollMs`, `fastPollMs`, `burstMs`, `maxBackoffMs`, `hideAfterMs` | 2000, 250, 3000, 30000, 6000 | polling rhythm; `connectTimeoutMs` 1500 and `requestTimeoutMs` 3000 also exist |
+| `receiver.pollMs`, `fastPollMs`, `burstMs`, `maxBackoffMs`, `hideAfterMs`, `telnetPort` | 2000, 250, 3000, 30000, 6000, 23 | `pollMs`: telnet re-query period, HTTP fallback period and reconnect backoff base; `fastPollMs`/`burstMs`: fallback burst after a nudge; `telnetPort` 0 turns the telnet link off; `connectTimeoutMs` 1500 and `requestTimeoutMs` 3000 also exist |
 | `fetch.backend`, `fetch.openssl`, `fetch.curl`, `fetch.caBundle`, `fetch.user` | `auto`, `/usr/bin/openssl`, `curl`, first existing of the usual paths, `nobody` | HTTPS transport; `user: null` runs the TLS child as the helper |
 | `luna.send` | `luna-send` | found in `PATH` and then `/usr/bin`, `/usr/sbin`, `/bin`, `/sbin` |
 | `nice` | 10 | scheduling priority given up |
@@ -173,8 +177,8 @@ before the helper is up. Fields: `fetchedAt`, `staleAt`, `expiresAt` (ms), then 
 `GET /goform/formMainZone_MainZoneXmlStatusLite.xml` on 192.168.1.93:8080 (read on 2026-10-25): HTTP/1.0 from `mongoose2.5`,
 no `Content-Length`; `Power` `ON` or `OFF` (the S760H writes OFF in standby and keeps reporting its last input and volume),
 `InputFuncSelect`, `VolumeDisplay` `Absolute`, `MasterVolume` -44.5 (dB), `Mute`. The full status page answers 403 on this
-port. Polled every 2 s while the screen is on and the receiver is enabled; a nudge reads at once and every 250 ms for 3 s;
-failures back off 4, 8, 16 s to a cap of 30 s; a reading is hidden 6 s after it was last confirmed. No telnet yet (phase 4).
+port. The HTTP read is now the fallback (see "Telnet push" below): every 2 s while the screen is on, the receiver is enabled and
+telnet is down; a nudge reads at once and every 250 ms for 3 s; failures back off 4, 8, 16 s to a cap of 30 s; a reading is hidden 6 s after it was last confirmed.
 `volumeText` for Relative mode ("-44.5 dB") and the fractional rule for Absolute are inferred from the panel, not measured.
 
 Second control connection (2026-10-25 16:48, `docs/research/native-helper/denon2-2026-10-25-1648/`): the S760H
@@ -186,6 +190,33 @@ both clients (HA's `volume_up` at t=20 s arrived on the TV's connection as `MV36
 link never dropped, so no recovery was needed. Closed cleanly after 6 queries. So the helper can take push events over
 its own telnet connection (PLAN "Receiver: volume and controls", item 2) without touching HA's; commands can go the
 same way, though HTTP stays enough for them.
+
+Telnet push (built 2026-10-25, host tests only, not verified on the TV). While the screen is on the receiver thread holds one
+telnet connection to port `receiver.telnetPort` (23; 0 turns it off) on the settings' receiver address, in its own thread
+(`app/src/receiver_telnet.rs`; the line parser and socket are `denon/src/telnet.rs`). It asks `PW?`, `MV?`, `MU?`, `SI?` on
+connecting and again every `receiver.pollMs`, and reads every push. `PW`, `MV` (`MV355` is 35.5 on the panel's scale, so -44.5 dB),
+`MU` and `SI` lines make a whole status once all four have been heard; each one publishes it, so a change is on the topic when it
+arrives, and an unchanged answer still moves `updatedAt` and the reading's freshness stamp (published with `set_ignoring`, so no
+event). Other lines (`MVMAX`, `SVOFF`, `SYSDA`) are ignored. The link only ever sends those four queries; commands stay on HTTP and
+come back as pushes. Telnet does not say which scale the panel shows, so one HTTP read learns `volumeDisplay` each time the link
+comes up (and again every `maxBackoffMs` while it is unknown).
+
+Failure handling: refused, closed, silent for `pollMs + requestTimeoutMs`, or no complete state within `requestTimeoutMs` plus
+0.2 s is one failure; the link then waits `pollMs`, 2×, 4× … up to `maxBackoffMs` before reconnecting (restarts at `pollMs` after
+a connection that produced a reading), and the HTTP Lite read runs as the fallback exactly as before (every `pollMs`, backing off,
+fast burst after a nudge) until a telnet reading arrives, then stops. Never two connections: the old socket is closed before a
+new one opens, on a changed address, when the screen goes off, and on stop. With the screen off nothing is connected.
+Host tests: `helper/app/tests/receiver_telnet.rs` (fake S760H telnet on the loopback beside the fake HTTP one: pushes of
+volume/mute/input/power land within 300 ms of a 400 ms heartbeat with no HTTP reads, heartbeat answers keep the stamp fresh and
+raise no event, dropped connection reopened, refused port and silent receiver fall back to HTTP and return, screen off closes
+the connection, only queries are sent, one connection at a time); `denon/src/telnet.rs` unit tests.
+
+TV step list (not verified on the TV): with Home Assistant's Denon integration running, turn the screen on and check that the
+helper log shows `receiver: telnet 192.168.1.93:23`; `ss -tn | grep 192.168.1.93` shows one connection to :23 and none to :8080
+after the first second; press a volume key and read `/v1/receiver` at once (the level should be there before a poll period
+would have found it); change the volume from the receiver's own knob and from HA and see the same; power the receiver off with
+its remote (`power` `standby`) and on again; then check HA's `media_player` stayed `on` throughout. Pull the receiver's network
+cable for 10 s: the topic hides the reading after 6 s and HTTP/telnet recover within the backoff.
 
 ## Settings
 

@@ -543,13 +543,14 @@ pub struct Rig {
     pub addr: SocketAddr,
 }
 
-/// A config with the rhythm of a test: polls in tens of milliseconds, the screen always on.
+/// A config with the rhythm of a test: polls in tens of milliseconds, the screen always on, and no telnet link to the receiver
+/// (a test that is about it sets `receiver.telnetPort`).
 pub fn test_config(overrides: Value) -> Config {
     let mut base = json!({
         "listen": {"port": 0},
         "screen": {"source": "on", "pollMs": 40},
         "receiver": {"pollMs": 30, "fastPollMs": 10, "burstMs": 300, "maxBackoffMs": 60, "hideAfterMs": 300,
-                     "connectTimeoutMs": 300, "requestTimeoutMs": 500},
+                     "connectTimeoutMs": 300, "requestTimeoutMs": 500, "telnetPort": 0},
         "nice": 0
     });
     merge(&mut base, &overrides);

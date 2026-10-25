@@ -96,15 +96,15 @@ impl Client {
         }
     }
 
-    /// The address to connect to: numbers as given, a name as resolved before, else resolved now (IPv4 first).
-    fn address(&self) -> Result<SocketAddr, ClientError> {
+    /// The address to connect to on `port`: numbers as given, a name as resolved before, else resolved now (IPv4 first).
+    fn address(&self, port: u16) -> Result<SocketAddr, ClientError> {
         if let Ok(ip) = self.host.parse::<IpAddr>() {
-            return Ok(SocketAddr::new(ip, self.port));
+            return Ok(SocketAddr::new(ip, port));
         }
         if let Some(addr) = self.resolved.lock().ok().and_then(|slot| *slot) {
-            return Ok(addr);
+            return Ok(SocketAddr::new(addr.ip(), port));
         }
-        let addr = (self.host.as_str(), self.port)
+        let addr = (self.host.as_str(), port)
             .to_socket_addrs()
             .map_err(|e| ClientError::Unreachable(short(&e)))?
             .min_by_key(|a| !a.is_ipv4())
@@ -113,6 +113,25 @@ impl Client {
             *slot = Some(addr);
         }
         Ok(addr)
+    }
+
+    /// Opens a TCP connection to the receiver on `port` (its web port for [`Client::status`], the telnet port for the push
+    /// link) within `timeout`, with Nagle off. The error is the same short, loggable kind a read would give.
+    pub fn connect(&self, port: u16, timeout: Duration) -> Result<TcpStream, ClientError> {
+        let addr = self.address(port)?;
+        let stream = TcpStream::connect_timeout(&addr, timeout.max(Duration::from_millis(1)))
+            .map_err(|e| {
+                // The name may now mean another address: look it up again next time.
+                if let Ok(mut slot) = self.resolved.lock() {
+                    *slot = None;
+                }
+                match e.kind() {
+                    ErrorKind::TimedOut | ErrorKind::WouldBlock => ClientError::Timeout,
+                    _ => ClientError::Unreachable(short(&e)),
+                }
+            })?;
+        let _ = stream.set_nodelay(true);
+        Ok(stream)
     }
 
     /// Sets the connect timeout and the deadline of the whole request (connect included).
@@ -156,22 +175,11 @@ impl Client {
     /// The body of `GET path`, at most [`MAX_REPLY`] bytes, within the total deadline.
     fn get(&self, path: &str) -> Result<Vec<u8>, ClientError> {
         let deadline = Instant::now() + self.total_timeout;
-        let addr = self.address()?;
-        let connect = self
-            .connect_timeout
-            .min(deadline.saturating_duration_since(Instant::now()))
-            .max(Duration::from_millis(1));
-        let mut stream = TcpStream::connect_timeout(&addr, connect).map_err(|e| {
-            // The name may now mean another address: look it up again next time.
-            if let Ok(mut slot) = self.resolved.lock() {
-                *slot = None;
-            }
-            match e.kind() {
-                ErrorKind::TimedOut | ErrorKind::WouldBlock => ClientError::Timeout,
-                _ => ClientError::Unreachable(short(&e)),
-            }
-        })?;
-        let _ = stream.set_nodelay(true);
+        let mut stream = self.connect(
+            self.port,
+            self.connect_timeout
+                .min(deadline.saturating_duration_since(Instant::now())),
+        )?;
         // HTTP/1.0 with a close: the receiver's server is HTTP/1.0 and ends the body by closing, so a 1.0 request can never be
         // answered with chunked framing.
         let request = format!(
@@ -238,7 +246,7 @@ pub fn mute_command(muted: bool) -> &'static str {
     if muted { "MUON" } else { "MUOFF" }
 }
 
-fn io_error(e: &std::io::Error) -> ClientError {
+pub(crate) fn io_error(e: &std::io::Error) -> ClientError {
     match e.kind() {
         ErrorKind::TimedOut | ErrorKind::WouldBlock => ClientError::Timeout,
         _ => ClientError::Io(short(e)),
@@ -246,7 +254,7 @@ fn io_error(e: &std::io::Error) -> ClientError {
 }
 
 /// An I/O error as a short lowercase phrase (its kind), never the platform's long text.
-fn short(e: &std::io::Error) -> String {
+pub(crate) fn short(e: &std::io::Error) -> String {
     match e.kind() {
         ErrorKind::ConnectionRefused => "connection refused".to_owned(),
         ErrorKind::ConnectionReset => "connection reset".to_owned(),

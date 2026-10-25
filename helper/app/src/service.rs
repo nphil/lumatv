@@ -130,7 +130,10 @@ impl Service {
         if let Some(handle) = screen::spawn(&ctx, notify)? {
             threads.push(("screen", handle));
         }
-        threads.push(("receiver", receiver::spawn(&ctx, receiver_rx)?));
+        threads.push((
+            "receiver",
+            receiver::spawn(&ctx, receiver_tx.clone(), receiver_rx)?,
+        ));
         threads.push(("ambient", ambient.spawn()?));
         let (fetcher, fetch_backend) = match fetcher {
             Some(injected) => (injected, json!({"backend": "injected"})),

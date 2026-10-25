@@ -182,11 +182,12 @@ impl Default for ScreenConfig {
     }
 }
 
-/// How the receiver is polled. The address and the on/off switch are settings (`base.receiver`).
+/// How the receiver is read. The address and the on/off switch are settings (`base.receiver`).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ReceiverTuning {
-    /// The period between reads while the screen is on and nothing is happening.
+    /// The period between the queries that re-confirm the receiver's state on the telnet link, between HTTP reads while that
+    /// link is down, and the base of the wait before a reconnect (doubling up to `maxBackoffMs`).
     pub poll_ms: u64,
     /// The period during a burst, which follows a nudge (a volume key was pressed) so the change is seen within a fraction of a second.
     pub fast_poll_ms: u64,
@@ -198,6 +199,9 @@ pub struct ReceiverTuning {
     pub hide_after_ms: u64,
     pub connect_timeout_ms: u64,
     pub request_timeout_ms: u64,
+    /// The receiver's telnet port, held open for pushed changes while the screen is on. The HTTP reads are then only the
+    /// fallback while it is down. 0 turns the telnet link off.
+    pub telnet_port: u16,
 }
 
 impl Default for ReceiverTuning {
@@ -210,6 +214,7 @@ impl Default for ReceiverTuning {
             hide_after_ms: 6_000,
             connect_timeout_ms: 1_500,
             request_timeout_ms: 3_000,
+            telnet_port: lumatv_denon::telnet::DEFAULT_TELNET_PORT,
         }
     }
 }

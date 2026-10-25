@@ -34,6 +34,7 @@ pub mod log;
 pub mod plugins;
 pub mod preload;
 pub mod receiver;
+pub mod receiver_telnet;
 pub mod screen;
 pub mod service;
 pub mod settings;
