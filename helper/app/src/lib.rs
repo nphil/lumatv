@@ -7,7 +7,7 @@
 //! |---|---|
 //! | [`screen`] | whether the panel is lit (`tvpower` through `luna-send`); gates all network work |
 //! | [`receiver`] | the Denon AVR's volume, mute, input and power, polled only while the screen is on |
-//! | [`homefeeds`] | Home's weather and news: saved first, fetched while the screen is on |
+//! | [`homefeeds`], [`fetcher`] | Home's weather and news: saved first, fetched while the screen is on; the HTTPS transport |
 //! | [`settings`] | the data layer on LumaShow's `settings-schema` |
 //! | [`api`], [`http`] | the v1 API and the loopback server it runs on |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
@@ -19,6 +19,7 @@ pub mod cli;
 pub mod config;
 pub mod control;
 pub mod ctx;
+pub mod fetcher;
 pub mod homefeeds;
 pub mod http;
 pub mod hub;

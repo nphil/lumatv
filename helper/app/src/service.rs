@@ -12,6 +12,7 @@ use crate::api::Api;
 use crate::config::{Config, Paths};
 use crate::control::Stop;
 use crate::ctx::Ctx;
+use crate::fetcher;
 use crate::homefeeds;
 use crate::http::{self, Server};
 use crate::hub::Hub;
@@ -20,6 +21,7 @@ use crate::screen;
 use crate::settings::{SettingsStore, wake_on_change};
 use crate::timeutil::now_ms;
 use fetch::Fetch;
+use serde_json::json;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -110,7 +112,21 @@ impl Service {
             threads.push(("screen", handle));
         }
         threads.push(("receiver", receiver::spawn(&ctx, receiver_rx)?));
-        let fetcher = fetcher.unwrap_or_else(|| homefeeds::make_fetcher(&config.fetch));
+        let (fetcher, fetch_backend) = match fetcher {
+            Some(injected) => (injected, json!({"backend": "injected"})),
+            None => {
+                let chosen = fetcher::choose(&config.fetch);
+                crate::log_info!(
+                    "feeds: fetching through {} ({})",
+                    chosen.backend,
+                    chosen.detail
+                );
+                (
+                    chosen.fetcher,
+                    json!({"backend": chosen.backend, "why": chosen.detail}),
+                )
+            }
+        };
         threads.push(("feeds", homefeeds::spawn(&ctx, feeds_rx, fetcher)?));
 
         let ip: IpAddr = config
@@ -123,6 +139,7 @@ impl Service {
             settings,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
+            fetch_backend,
             receiver_tx,
             feeds_tx,
         };

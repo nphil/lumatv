@@ -187,8 +187,13 @@ impl Default for ReceiverTuning {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct FetchConfig {
+    /// `auto` uses LumaShow's `fetch` (`openssl s_client`) when the set's `openssl` is version 3 or later and `curl` otherwise;
+    /// `openssl` and `curl` force one.
+    pub backend: String,
     /// The `openssl` program LumaShow's `fetch` runs as `s_client`.
     pub openssl: String,
+    /// The `curl` program, for the fallback.
+    pub curl: String,
     /// The CA bundle; unset means the first of the usual places that exists.
     pub ca_bundle: Option<String>,
     /// The user the TLS child runs as when the helper is root, so the program that parses certificates holds no privilege.
@@ -204,7 +209,9 @@ fn default_fetch_user() -> Option<String> {
 impl Default for FetchConfig {
     fn default() -> Self {
         Self {
+            backend: "auto".to_owned(),
             openssl: fetch::IMAGE_OPENSSL.to_owned(),
+            curl: "curl".to_owned(),
             ca_bundle: None,
             user: default_fetch_user(),
         }
@@ -291,8 +298,12 @@ impl Config {
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");
         }
-        if self.fetch.openssl.is_empty() || self.luna.send.is_empty() {
-            return err("fetch.openssl and luna.send must not be empty");
+        if !matches!(self.fetch.backend.as_str(), "auto" | "openssl" | "curl") {
+            return err("fetch.backend must be auto, openssl or curl");
+        }
+        if self.fetch.openssl.is_empty() || self.fetch.curl.is_empty() || self.luna.send.is_empty()
+        {
+            return err("fetch.openssl, fetch.curl and luna.send must not be empty");
         }
         Ok(())
     }

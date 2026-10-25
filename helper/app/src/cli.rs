@@ -141,6 +141,7 @@ fn program_found(program: &str) -> bool {
 
 fn check_config(paths: Paths, config: Config) -> i32 {
     let bundle = find_ca_bundle(&config.fetch);
+    let chosen = crate::fetcher::choose(&config.fetch);
     emit(&json!({
         "ok": true,
         "dataDir": paths.data_dir.display().to_string(),
@@ -151,6 +152,9 @@ fn check_config(paths: Paths, config: Config) -> i32 {
         "lunaSend": {"program": config.luna.send, "found": program_found(&config.luna.send)},
         "openssl": {"program": config.fetch.openssl, "found": program_found(&config.fetch.openssl)},
         "caBundle": bundle.as_ref().map(|p| p.display().to_string()),
+        "curl": {"program": config.fetch.curl, "found": program_found(&config.fetch.curl)},
+        "fetchBackend": chosen.backend,
+        "fetchBackendWhy": chosen.detail,
         "fetchUser": config.fetch.user,
         "fetchUserFound": config.fetch.user.as_deref().map(|u| sys::lookup_user(u).is_some()),
         "root": sys::is_root(),

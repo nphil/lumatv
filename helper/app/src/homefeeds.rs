@@ -11,12 +11,10 @@
 //! documents are the files in the cache directory, byte for byte the same JSON, so QML can read `cache/weather.json` directly
 //! before the helper is up and get the same thing the API serves.
 
-use crate::config::FetchConfig;
 use crate::ctx::Ctx;
 use crate::screen;
-use crate::sys;
 use crate::timeutil::now_ms;
-use fetch::{Fetch, FetchError, FetchLimits, TlsFetch};
+use fetch::Fetch;
 use lumatv_feeds::cache::{self, DocCache};
 use lumatv_feeds::news::{self, NewsConfig, NewsDoc};
 use lumatv_feeds::weather::{self, Units, WeatherConfig, WeatherDoc};
@@ -268,38 +266,6 @@ impl<F: Feed> Lane<F> {
             json!({"doc": doc, "status": {"failures": self.failures, "error": error, "lastAttemptAt": last_attempt}}),
         );
     }
-}
-
-/// A fetcher that is not available: every request says why.
-struct Unavailable(String);
-
-impl Fetch for Unavailable {
-    fn get(&self, _url: &str, _limits: FetchLimits) -> Result<Vec<u8>, FetchError> {
-        Err(FetchError::Failed(self.0.clone()))
-    }
-}
-
-/// The HTTPS transport for the feeds: LumaShow's `fetch` through `openssl s_client`, the child run as an unprivileged user when
-/// the helper is root (the program that parses certificates and speaks TLS to the internet should hold no privilege).
-pub fn make_fetcher(config: &FetchConfig) -> Arc<dyn Fetch> {
-    let Some(bundle) = crate::config::find_ca_bundle(config) else {
-        crate::log_warn!("feeds: no CA bundle found; weather and news cannot be fetched");
-        return Arc::new(Unavailable(
-            "no CA certificate bundle on this system".to_owned(),
-        ));
-    };
-    let mut fetcher = TlsFetch::new(&config.openssl, bundle);
-    if sys::is_root()
-        && let Some(user) = &config.user
-    {
-        match sys::lookup_user(user) {
-            Some((uid, gid)) => fetcher = fetcher.unprivileged(uid, gid),
-            None => {
-                crate::log_warn!("feeds: user {user} does not exist; the TLS child runs as root")
-            }
-        }
-    }
-    Arc::new(fetcher)
 }
 
 /// Starts the feeds thread.

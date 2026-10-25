@@ -92,6 +92,8 @@ pub struct Api {
     pub settings: Arc<SettingsStore>,
     pub started_at: u64,
     pub data_dir: String,
+    /// Which HTTPS transport feeds the weather and news and why: `{"backend": "openssl" | "curl" | "none", "why": "..."}`.
+    pub fetch_backend: Value,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -202,6 +204,7 @@ impl Api {
             "rssKb": sys::rss_kb(),
             "threads": sys::threads(),
             "dataDir": self.data_dir,
+            "fetch": self.fetch_backend,
         })
     }
 
@@ -456,6 +459,7 @@ mod tests {
                 settings,
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
+                fetch_backend: json!({"backend": "test"}),
                 receiver_tx,
                 feeds_tx,
             },

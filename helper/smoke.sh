@@ -64,8 +64,8 @@ cpu_ticks() { awk '{print $14 + $15}' "/proc/$1/stat" 2>/dev/null; }
 echo "=== environment"
 fact "machine $(uname -m), kernel $(uname -r), uid $(id -u)"
 fact "power state: $(power_state)"
-fact "curl: $(command -v curl || echo MISSING)"
-fact "openssl: $(command -v openssl || ls /usr/bin/openssl 2>/dev/null || echo MISSING)"
+fact "curl: $(command -v curl || echo MISSING): $(curl --version 2>&1 | head -n 1)"
+fact "openssl: $(command -v openssl || ls /usr/bin/openssl 2>/dev/null || echo MISSING): $(openssl version 2>&1 | head -n 1)"
 fact "luna-send: $(command -v luna-send || echo MISSING)"
 for b in /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-bundle.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem; do
   [ -f "$b" ] && fact "CA bundle: $b ($(wc -c < "$b") bytes)"
@@ -104,7 +104,7 @@ run_phase() {
   printf '{"listen":{"port":%s},"log":{"level":"debug"},"screen":{"source":"%s"}}\n' "$PORT" "$src" > "$data/helper.json"
   cfg=$("$BIN" check-config --data-dir "$data" 2>&1)
   has "check-config reads the config" "$cfg" '"ok":true'
-  fact "check-config: $(clip "$cfg" 600)"
+  fact "check-config: $(clip "$cfg" 1400)"
 
   started=$("$BIN" start --data-dir "$data" 2>&1)
   has "start detaches and reports the port" "$started" '"started":true'
