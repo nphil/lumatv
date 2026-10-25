@@ -34,12 +34,14 @@ fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' 
 # the mapped window alone and the detail line carries home-stub 1.
 stub_mounted() { grep -c ' /usr/palm/applications/com.webos.app.home ' /proc/self/mountinfo; }
 home_panel_ok() { [ "$(stub_mounted)" -ge 1 ] || [ "${1:-0}" -gt 4096 ]; }
+# sm.log is appended by every supervisor start (trials, earlier gates): the checks read the current run only.
+run_log() { awk '/\] start: /{n=0} {l[n++]=$0} END{for(i=0;i<n;i++) print l[i]}' $STATE/sm.log 2>/dev/null; }
 
 case "${1:-help}" in
 live)
     m=$(is_mounted && echo yes || echo no)
-    regs=$(grep -c '^\[.*\] registered com\.' $STATE/sm.log 2>/dev/null)
-    fb=$(grep -c 'fallback:' $STATE/sm.log 2>/dev/null)
+    regs=$(run_log | grep -c '^\[.*\] registered com\.')
+    fb=$(run_log | grep -c 'fallback:')
     wam=$(systemctl is-active webapp-mgr)
     ctl windows > $OUT/live-windows.json
     homewin=$(grep -c '"com.webos.app.home"' $OUT/live-windows.json)
@@ -104,7 +106,7 @@ woke)
     ctl journal > $OUT/woke-journal.json
     ctl status > $OUT/woke-status.json
     off=$(grep -c 'PreparePowerOff' $OUT/woke-journal.json); on=$(grep -c 'PreparePowerOn' $OUT/woke-journal.json)
-    fb=$(grep -c 'fallback:' $STATE/sm.log 2>/dev/null)
+    fb=$(run_log | grep -c 'fallback:')
     st=$(ls1 com.webos.service.tvpower/power/getPowerState '{}' | tr -d ' \n' | sed -n 's/.*"state":"\([^"]*\)".*/\1/p' | tr 'A-Z' 'a-z')
     home; sleep 8
     b=$(cap $OUT/woke.png)
