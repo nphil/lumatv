@@ -16,10 +16,13 @@ QtObject {
     readonly property string base: "http://127.0.0.1:18731"
     readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins"
     // Plugin topics are named per plugin and a long poll takes at most 16 names: the fixed ones, then the cards, tiles and
-    // notifications of each plugin that is connected; with more than fit there is no filter (every topic) rather than a
-    // wrong one. A plugin that connects changes the `plugins` topic, which ends the poll in flight, so the next one has it.
+    // notifications of each plugin that is connected, the helper's own (`firstParty`, listed apart in `plugins`) included;
+    // with more than fit, which is the usual case since the helper's own are four, there is no filter (every topic) rather
+    // than a wrong one. A plugin that connects changes the `plugins` topic, which ends the poll in flight, so the next one
+    // has it.
     function filter() {
-        var list = subscribed.split(","), p = (topics.plugins && topics.plugins.plugins) || []
+        var list = subscribed.split(","), roster = topics.plugins || {}
+        var p = (roster.plugins || []).concat(roster.firstParty || [])
         for (var i = 0; i < p.length; i++) {
             if (p[i].state !== "connected") continue
             list.push("plugin." + p[i].id + ".cards", "plugin." + p[i].id + ".tiles", "plugin." + p[i].id + ".notifications")

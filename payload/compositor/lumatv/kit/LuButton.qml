@@ -8,6 +8,7 @@ import "."
 Item {
     id: button
     property string text: ""
+    property string icon: ""                // a glyph (icons/lucide) before the label
     property bool primary: false
     property bool danger: false             // the answer that destroys something: the label in the danger colour
     property bool focused: false
@@ -15,7 +16,8 @@ Item {
     signal activated()
     signal hoverFocus()
 
-    implicitWidth: label.implicitWidth + 2 * Lu.space(7)
+    readonly property int glyph: icon !== "" ? 22 + Lu.space(2) : 0
+    implicitWidth: label.implicitWidth + glyph + 2 * Lu.space(7)
     implicitHeight: Lu.target
     width: implicitWidth
     height: implicitHeight
@@ -50,9 +52,14 @@ Item {
         border.color: button.focused ? Lu.edgeRaised : Lu.edge
         antialiasing: true
     }
+    LuIcon {
+        visible: button.icon !== ""
+        x: Math.round((button.width - label.width - button.glyph) / 2); y: Math.round((button.height - height) / 2)
+        size: 22; name: button.icon; color: label.color
+    }
     LuText {
         id: label
-        anchors.centerIn: parent
+        x: Math.round((button.width - width + button.glyph) / 2); y: Math.round((button.height - height) / 2)
         role: "label"
         text: button.text
         color: button.primary ? Lu.accentInk : button.danger ? Lu.danger : Lu.ink

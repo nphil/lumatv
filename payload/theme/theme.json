@@ -171,7 +171,18 @@
     "afterMin": 10,
     "dim": true,
     "glance": true,
-    "art": { "everyMin": 15, "order": "shuffle", "caption": true }
+    "art": { "everyMin": 15, "order": "shuffle", "caption": true },
+    "clockLevel": 0.6,
+    "artLevel": 0.78,
+    "dimTo": 0.6,
+    "dimOverMin": 60,
+    "moveEverySec": 60,
+    "fadeMs": 2000,
+    "crossfadeMs": 1400,
+    "preloadMs": 6000,
+    "graceMs": 300,
+    "shiftEverySec": 4,
+    "standbyHours": 4
   },
   "remote": {
     "numberKeys": true
