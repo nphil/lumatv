@@ -95,7 +95,9 @@ pub fn handle(state: &mut State, line: &str) -> String {
             json!({"ok": true, "bridge": state.luna.is_connected()})
         }
         "" => json!({"ok": false, "error": "empty command"}),
-        other => json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, remote CODE, fallback [reason], quit")}),
+        other => {
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, remote CODE, fallback [reason], quit")})
+        }
     };
     reply.to_string()
 }
