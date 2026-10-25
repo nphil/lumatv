@@ -82,6 +82,14 @@ HA token (`/data/home/tmp/ha-token-fetch.sh`). It reuses `compositor/tools/{tv,t
   24 Oct failed with `tvq-pb-101` on the ARC audio format, so the capture may show a title page or an error: the probe reports
   what the zones did either way and `netflix-foreground.txt` says what was on screen). Receiver muted first and put back as it
   was; Picture Mode read before and after, never set; set left in Active Standby.
+- **It ran once** (TvSlots-2, 2026-10-25 12:35, `docs/research/ambient/probe-2026-10-25-1234/`): the slot did what it is built to do (flag
+  created and removed per window and seen by the probe, receiver muted and put back, Netflix's Play pressed, set back in standby), but
+  the probe aborted in all three windows. With the flag present `libvtcapture` logs "dev mode on", then dies in `LSRegisterPubPriv`
+  (`std::runtime_error`, exit 134): ls-hubd has no role file for `/tmp/.../ambient-probe` (`LSHUB_NO_ROLE_FILE`), and the library
+  registers on the bus (`com.webos.service.capture.client`). So the flag is not enough: the capture helper has to run as a native
+  service with an LS2 role, installed with the ipk (a role file is a permission grant on the TV: Nitin's decision). The set's busybox
+  `date` has no `%N`, so the first run reported "COULD NOT CONFIRM THE FLAG IS GONE" although the trap had removed it (checked by hand);
+  times are whole seconds now and a literal `%N` reads back as seconds (`tests/test_ambient_slot.py`).
 - Results: `docs/research/ambient/probe-<date>-<time>/`: `<scenario>.txt|csv|bin`, `interrupts-*`, `slot-log.json`, `summary.txt`
   (rate of change, latency, CPU, return codes, a verdict per scenario). Then fill "Probe results" in `ambient-result.md`.
 - `tests/test_ambient_slot.py` runs the generated on-set script for real (stand-in `luna-send`, the host probe on its fake
@@ -134,7 +142,7 @@ HA token (`/data/home/tmp/ha-token-fetch.sh`). It reuses `compositor/tools/{tv,t
 - The gear hold (LG's 1 s Settings hold arrives as `Key_Option`), the bell, the toast subscription (`getToastNotification` is
   subscribe-only on this firmware) and the dedupe against LG's own copy of a plugin toast.
 - WLED/DDP against the real strip; the capture socket against a real 32-bit capture helper (not built: `probe.c` is its core,
-  `ambient-result.md` "Next, 2"); the permission flag; the pointer toggle.
+  `ambient-result.md` "Next, 2"; it needs an LS2 role, see the probe slot); the pointer toggle. The probe slot itself has run (above).
 
 ## Open
 

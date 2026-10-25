@@ -55,6 +55,13 @@ def write(path, text, mode=0o755):
     os.chmod(path, mode)
 
 
+class Events(unittest.TestCase):
+    def test_a_time_with_a_literal_fraction_mark_is_read_as_whole_seconds(self):
+        windows = slot.parse_events("created home 1792946114.%N\nremoved end 1792946175.%N\ncreated hdmi2 1792946180\nremoved trap 1792946190.5\n")
+        self.assertEqual([(w["scenario"], w["created"], w["removed"], w["removedBy"]) for w in windows],
+                         [("home", 1792946114.0, 1792946175.0, "end"), ("hdmi2", 1792946180.0, 1792946190.5, "trap")])
+
+
 class Plan(unittest.TestCase):
     def test_everything_that_puts_things_back_comes_after_the_captures(self):
         steps = slot.plan(["home", "hdmi2", "netflix"], 60)
@@ -141,10 +148,22 @@ class OnTheSet(unittest.TestCase):
         self.assertEqual([w["scenario"] for w in windows], ["home", "hdmi2", "netflix"])
         self.assertEqual({w["removedBy"] for w in windows}, {"end"})
         for a, b in zip(windows, windows[1:]):
-            self.assertLess(a["removed"], b["created"], "one window is over before the next opens")
+            self.assertLessEqual(a["removed"], b["created"], "one window is over before the next opens")
         self.assertTrue(os.path.exists(os.path.join(self.r, "done.txt")))
         # the launch and the foreground query went through luna-send, once each per scenario
         self.assertEqual(load(os.path.join(self.r, "luna.log")).count("getForegroundAppInfo"), 3)
+
+    def test_the_times_survive_a_date_that_cannot_print_fractions(self):
+        # the set's busybox `date` prints a literal %N: the events must still read back as times
+        real = shutil.which("date")
+        write(os.path.join(self.bin, "date"), '#!/bin/sh\ncase "$*" in *%N*) echo "$(@DATE@ +%s).%N";; *) exec @DATE@ "$@";; esac\n'.replace("@DATE@", real))
+        self.probe("exec sleep 0.2")
+        p = self.start(["home"], 1)
+        self.assertEqual(p.wait(timeout=30), 0)
+        (window,) = self.events()
+        self.assertIsNotNone(window["created"])
+        self.assertIsNotNone(window["removed"])
+        self.assertLessEqual(window["created"], window["removed"])
 
     def test_the_key_is_asked_for_before_the_window_opens(self):
         self.probe("exec sleep 0.2")

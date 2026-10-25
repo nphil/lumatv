@@ -99,7 +99,7 @@ cd "$R" || exit 9
 mkdir "$R/run.lock" || exit 8
 echo $$ > "$R/slot.pid"
 DM=
-now() { date +%s.%N; }
+now() { date +%s; }
 removed() { if [ -e "$FLAG" ]; then rm -f "$FLAG"; echo "removed $1 $(now)" >> "$R/flag-events.txt"; fi; }
 finish() { removed "$1"; if [ -n "$DM" ]; then kill "$DM" 2>/dev/null; DM=; fi; }
 waitfor() { n=0; while [ ! -e "$1" ] && [ "$n" -lt "$2" ]; do sleep 1; n=$((n + 1)); done; }
@@ -182,6 +182,12 @@ def verdict(report):
         report.get("changes_per_s", 0), cpu, "" if cpu < 1 else " (over the plan's 1 %)", note)
 
 
+def seconds(text):
+    """An epoch time as the set wrote it. The set's busybox `date` has no %N and prints it literally, so only the whole seconds count."""
+    m = re.match(r"\d+(\.\d+)?", text)
+    return float(m.group()) if m else None
+
+
 def parse_events(text):
     """The flag's windows from the on-set events file: `created <scenario> <t>` then `removed <by> <t>`."""
     windows, open_ = [], None
@@ -190,14 +196,14 @@ def parse_events(text):
         if len(p) == 3 and p[0] == "created":
             if open_:
                 windows.append(open_)
-            open_ = {"scenario": p[1], "created": float(p[2]), "removed": None, "removedBy": None}
+            open_ = {"scenario": p[1], "created": seconds(p[2]), "removed": None, "removedBy": None}
         elif len(p) == 3 and p[0] == "removed":
             if open_:
-                open_.update(removed=float(p[2]), removedBy=p[1])
+                open_.update(removed=seconds(p[2]), removedBy=p[1])
                 windows.append(open_)
                 open_ = None
             else:
-                windows.append({"scenario": None, "created": None, "removed": float(p[2]), "removedBy": p[1]})
+                windows.append({"scenario": None, "created": None, "removed": seconds(p[2]), "removedBy": p[1]})
     if open_:
         windows.append(open_)
     return windows
@@ -375,7 +381,7 @@ def run(a):
         if owns_flag:
             try:
                 if has(FLAG):
-                    sh("rm -f %s; echo \"removed finally $(date +%%s.%%N)\" >> %s/flag-events.txt" % (FLAG, remote))
+                    sh("rm -f %s; echo \"removed finally $(date +%%s)\" >> %s/flag-events.txt" % (FLAG, remote))
                     problems.append("the flag was still there when the captures were over; this script's own check removed it")
                 gone = not has(FLAG)
                 windows = parse_events(sh("cat %s/flag-events.txt 2>/dev/null" % remote))
