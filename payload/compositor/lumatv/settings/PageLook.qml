@@ -84,7 +84,9 @@ PageList {
         { kind: "toggle", tab: 2, icon: "type", label: "Artist and title", detail: "A small caption with the artist, the title and the year.",
           visible: function() { return page.saverStyle === "art" }, on: function() { return page.art.caption !== false },
           act: function(v) { page.artPatch("caption", v) } },
-        R.note("The screensaver is mostly black, everything on it drifts to a new spot every minute, and the panel goes to standby after a few hours (docs/PLAN.md, Phase 8).", 2),
+        { kind: "seg", tab: 2, icon: "power", label: "Then go to standby", detail: "The panel turns off after this long in the screensaver.",
+          options: ["Never", "2 h", "4 h", "8 h"], index: function() { var h = page.saver.standbyHours; return h === undefined ? 2 : h === 0 ? 0 : h <= 2 ? 1 : h <= 4 ? 2 : 3 },
+          enabled: function() { return page.saverStyle !== "off" }, act: function(i) { page.patch({ screensaver: { standbyHours: [0, 2, 4, 8][i] } }) } },
 
         { kind: "seg", tab: 3, icon: "power", label: "Power-on logo", detail: "Shown for a second when the TV starts.",
           options: ["Panes", "Arc", "Name only"], index: function() { return Math.max(0, Math.min(2, (page.logo.on || 1) - 1)) },

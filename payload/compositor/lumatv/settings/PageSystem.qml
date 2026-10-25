@@ -39,12 +39,12 @@ PageList {
         { kind: "value", tab: 0, icon: "clock", label: "Time zone", detail: "Set from the network by default. LG's Date and time screen changes it.", chevron: true,
           enabled: function() { return Sio.has("time.timeZone") },
           value: function() { return page.zoneName }, act: function() { page.launch("DateTime") } },
+        R.seg(Sio, { ds: "time.noOperationAutoOff", tab: 0, icon: "power", label: "Turn off when idle", detail: "No key for this long turns the TV off.",
+                     options: ["Off", "3 h", "6 h", "12 h", "24 h"], values: ["off", "3", "6", "12", "24"] }),
+        R.toggle(Sio, { ds: "option.quickStartMode", tab: 0, icon: "zap", label: "Quick Start+", detail: "Wakes in about 2 s from standby. Uses a little power while off." }),
         R.lg(page, { tab: 0, label: "Open LG settings", detail: "LG's full Settings app, themed. Channels, privacy, account, reset." }),
 
-        R.seg(Sio, { ds: "time.noOperationAutoOff", tab: 1, icon: "power", label: "Turn off when idle", detail: "No key for this long turns the TV off.",
-                     options: ["Off", "3 h", "6 h", "12 h", "24 h"], values: ["off", "3", "6", "12", "24"] }),
         R.toggle(Sio, { ds: "time.autoOff15Min", tab: 1, icon: "power", label: "Turn off with no signal", detail: "Switches off after 15 minutes without a picture." }),
-        R.toggle(Sio, { ds: "option.quickStartMode", tab: 1, icon: "zap", label: "Quick Start+", detail: "Wakes in about 2 s from standby. Uses a little power while off." }),
         R.note("In standby the panel goes fully dark; the TV still wakes at once.", 1),
         R.lg(page, { tab: 1, target: "Timer", label: "Timers", detail: "Sleep timer and the power-on and power-off timers." }),
 

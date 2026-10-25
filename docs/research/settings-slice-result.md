@@ -28,6 +28,7 @@ Not built (and why):
 - Home & look: "Glass depth" (mock 30-settings-home) needs a Lucent token for panel depth; "Wallpaper" has no chooser (slideshow not built).
 - System: panel hours (`panelcontroller/getPanelUsageTime`): the reply shape is not in any capture; "LumaTV update: Up to date" has no
   update source, so the About tab shows the helper's state and a link to LG's Software update instead.
+- Light theme: toggles show a dark thumb when on and the chosen card is washed out (kit/LuToggle.qml, LuCard.qml tokens, not this slice's files).
 - Sound: the mock's "HDMI input audio format" is per HDMI port in LG (`inputAudioFormatHDMI1..4`, values not recovered); the page has
   "Digital sound output" (`sound.soundOutputDigital`: auto, pcm, passThrough) instead, which is the one that governs eARC.
 - Remote: the mock's "Hold Home for LG's Home" switch is a read-only row ("Always on"): it is the escape if LumaTV misbehaves.
@@ -60,12 +61,13 @@ theme.json (user file, written through the host's `patch`, one level deep: a nes
 - PluginsSlice (screensaver): `screensaver` = `{style: clock|art|off, afterMin: 5|10|30, dim: bool, glance: bool, art: {everyMin: 5|15|60, order: shuffle|sequence, caption: bool}}`.
   Defaults are in `payload/theme/theme.json`. The art rows show only with style Art, the glance row only with style Clock.
 - Remote: `remote.numberKeys` bool (default true).
+- PluginsSlice also reads `screensaver.standbyHours` (0|2|4|8), row "Then go to standby" on the Screensaver tab; the burn-in tokens in the same block are not edited here.
 
 Helper settings layer, owner `base.ambient` (`helper/app/src/schemas/base.ambient.json`, registered in `SettingsStore::register_builtin`;
 the page reads `GET /v1/settings/base.ambient` and writes `POST` one change at a time): `enabled`, `mode` (picture, colour,
 picture-off-home), `brightness` 0..100 step 5, `still_colour` (warm, cool, rose, iris, foam), `saturation` 50..150 step 5, `dark_hold`,
 `skip_bars`, `game_edges`, `delay_ms` 0..2000 step 10, `top`, `right`, `bottom`, `left` (0..120). The page also reads `GET /v1/ambient`
-(state, strip) and posts `POST /v1/ambient/test {run}` from the Layout-independent "Test pattern" row (PluginsSlice serves both).
+(state, strip) and posts `POST /v1/ambient/test {run}` from the "Test pattern" row on the Light tab; a 409 from the helper shows its words as a note (PluginsSlice serves both).
 
 ## Wiring asked of others
 
