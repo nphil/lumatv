@@ -9,51 +9,51 @@ is in `docs/HANDOFF.md` ("The Home stub") and the plan in `docs/PLAN.md`
 
 ## Resume here
 
-State at 2026-10-25 00:35 EDT. Code is pushed (last code commit `c5c1130`, the
-ipk on the set is built from it); docs are committed with this note.
+Step 3 is finished: the stub is on and confirmed, proven on the set, pushed.
+State at 2026-10-25 00:50 EDT; the code on the set is the last commit of
+`tools/lumatv` and `payload/`, and the docs are in the same commit.
 
-**The set:** awake (Active), Home in front. Stub ON and confirmed
-(`config.json` `"homestub":true`), guard running, `persist` on with the early
-boot hook installed (`kdump.env` and `earlybin/grep`; an earlier `revert` test
-had removed them, `persist on` put them back), AVR volume untouched (-44.5 dB),
-Picture Mode untouched, no crash reports. Last `homestub status`:
+**The set:** left in Active Standby (`tvpower powerOff {"reason":"remoteKey"}`;
+no crash reports in `/tmp/var/log/reports/librdx`, which would turn that into
+a reboot). Stub ON and confirmed (`config.json` `"homestub":true`), `persist`
+on with the early boot hook installed (`kdump.env`, `earlybin/grep`; an
+earlier `revert` test had removed them and `persist on` restored them), guard
+running, `blockedSystemAppList/USA.json` md5 `26e1a4ce33512106d327aa77414ffd7c`
+unchanged, AVR volume untouched (-44.5 dB), Picture Mode untouched. Last
+`homestub status`:
 `{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}`.
-Leave it in Active Standby when done:
-`luna-send -n 1 luna://com.webos.service.tvpower/power/powerOff '{"reason":"remoteKey"}'`
-(first make sure `/tmp/var/log/reports/librdx` is empty; a report there turns
-the power-off into a reboot).
+To wake it: `tvpower powerOn {"reason":"remoteKey"}` then `turnOnScreen`.
 
-**Done and passed:** everything under "What passed" below, on the code at
-`c5c1130`, including three reboots in which Home was on screen at 40 s.
+**What passed:** everything under "What passed" below, on the final code, and
+the last two reboots (stub at 15 s, Home in front at 40.4 s and 40.2 s, no
+`flutterHome` log lines, no crash reports, no faults).
 
-**Half-done: a boot race found at reboot 5 (stub, early hook, TextFile build).**
-After the compositor restart of the boot apply, `relaunch_home` launched Home at
-37.4 s. WebAppMgr (WAM) dies with the compositor: the old WAM closed at 38.0 s
-(taking the stub with it) and the new one was ready at 39.1 s. Nothing in front,
-black screen. `relaunch_home` waited its 30 s for pixels, then took "Home
-running, `LUMA_BOOT=1`" (the preload manager had loaded Home in the background
-at 68 s) as a boot into standby and returned. `launch com.webos.app.home` by
-hand fixed it. Reboots 2-4 only had the launch land after the new WAM. With
-LG's Flutter Home this could not happen (not a WAM app). Fix under way in
-`tools/lumatv`:
+**What failed on the way, now fixed:** reboot 5 left a black panel. After the
+boot apply's compositor restart, the tool's launch (37.4 s) went into a
+WebAppMgr (WAM) that closed with the compositor (old WAM closed at 38.0 s, the
+new one served at 39.1 s), taking the stub with it. `relaunch_home` then waited
+30 s for pixels and took "Home running on the boot path" (the preload manager
+had loaded Home at 68 s) for a boot into standby. A hand `launch
+com.webos.app.home` fixed it. Fix in `tools/lumatv`: after a compositor restart
+with the stub mounted the launch waits until `webapp-mgr.service` has a new
+start time and `com.palm.webappmanager/listRunningApps` answers; a black panel
+on an Active set is no longer taken for a standby boot. A manual `systemctl
+restart surface-manager-daemon` also made the guard give LG's Home back
+("without LumaTV's module") although the new compositor had the module; the
+check now has to fail for 3 s. Both checked after the fix: two reboots (above)
+and one manual restart with no fault. SAM's own `last_input_handler` still
+launches Home at about 38.4 s into the closing WAM and loses it; the tool's
+launch at 40.6-40.9 s is the one that lands.
 
-1. `restart_surface`: note WebAppMgr's pid before the restart, and after
-   `wait_surface_active` wait (bounded, about 20 s) until a different WebAppMgr
-   pid answers `luna://com.palm.webappmanager/` before `relaunch_home` runs.
-2. `relaunch_home`: on the boot path, "Home running, panel black" counts as a
-   standby boot only when `getPowerState` is not `Active`; when it is `Active`
-   the launch is repeated (the existing 3 attempts).
+**Not proven (open):** a power-on that opens Home starts Flutter Home about 1 s
+before the stub is mounted at 15 s (bootd launches Home at 13.9 s; `reboot`
+opens the last input, so it was not testable); the hold-Home escape was tested
+with injected key events, not the physical remote; the page-in gaps of the
+Home return are unchanged (not a goal of the stub). Next in the plan: heap
+shim, then the Rust helper.
 
-After the fix: rebuild, install, `apply`, then reboot twice and check
-`homestub status`, `getForegroundAppInfo` = `com.webos.app.home`, a non-blank
-`/tmp/lt/shot.py` capture at 60 s uptime and no `flutterHome` lines in
-`/var/log/messages*`. If the fix cannot be proven, run `lumatv homestub off`
-and say so in the final report: the stub then stays available but off.
-
-**Undo:** see "Undo" below. The hold-Home escape and the guard exist so a
-failure lands on LG's Home, never on black; this boot race is the one case
-where they did not help, because the stub never drew and nothing was in front
-for the guard to rescue.
+**Undo:** see "Undo" below. A black screen: `luna-send -n 1
+luna://com.webos.applicationManager/launch '{"id":"com.webos.app.home"}'`.
 
 ## What passed
 

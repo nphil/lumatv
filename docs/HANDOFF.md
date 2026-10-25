@@ -6,7 +6,7 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-24 22:20 EDT)
+## Resume here (LumaTV, 2026-10-25 00:45 EDT)
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
@@ -24,8 +24,14 @@ Phases, Decided); this file holds the proven mechanics.
   and GitHub `nphil/lumatv`; `brand.json` `repo` matches.
 - Phase 1 step 2 done and measured (06f29fd,
   `docs/research/perf/summary-2026-10-24-phase1.txt`): T9 and disk cache in
-  the env file, Home motion on one shared 10/s tick. Next: Home stub in LG
-  Home's place, then heap shim, then the Rust helper.
+  the env file, Home motion on one shared 10/s tick.
+- Phase 1 step 3 done 2026-10-25 (`docs/research/homestub-result.md`): LG's
+  Flutter Home is retired behind a web stub, `lumatv homestub on|off|confirm|
+  status`; the stub is on and confirmed on the set, 72-80 MB resident down to
+  32 MB. The Home return is not faster and the page-in gaps are unchanged.
+  A boot race (a launch into a closing WebAppMgr) was found and fixed; see
+  the result file for what was proven after the fix. Next: heap shim, then
+  the Rust helper.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
@@ -372,6 +378,18 @@ back in `docs/research/homestub-result.md`.
   is up. LumaHome is therefore built when the compositor starts (the container
   loads it for the base container at once), which also gives the guard its beat
   and a load error immediately.
+- **WebAppMgr dies with the compositor.** After `systemctl restart
+  surface-manager-daemon` (boot: restart at 35-36 s) the old WAM closes about
+  2.5-3 s later and systemd starts a new one 0.1-0.3 s after that
+  (`webapp-mgr.service`, `Restart=on-failure`; serving at 39 s). A web Home
+  launched in between goes with the old one. SAM's own `last_input_handler`
+  launches Home at about +3.4 s, into that gap, and loses it too; the tool's
+  launch (`relaunch_home`) therefore waits until `webapp-mgr.service`'s
+  `ExecMainStartTimestampMonotonic` differs from the value taken before the
+  restart and `com.palm.webappmanager/listRunningApps` answers. Before that
+  gate a boot left the panel black (the boot-5 failure in the result file),
+  because the old rule took "Home running, boot path" for a boot into
+  standby; it now needs a power state other than Active.
 - **Qt 5.12's `Binding` does not restore a property** when its `when` ends over
   a surface that stays. The container sets the Home surface's opacity to 0 or 1
   explicitly; before that, LG's Home returning under a LumaHome that stepped

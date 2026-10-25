@@ -822,9 +822,12 @@ what it already does.
   one WebAppMgr renderer at 32 MB (PSS 15 MB); Home key to Home 0.32 s against
   0.33 s; idle compositor CPU unchanged; the guard 0.05 % of a core. Passed:
   Home key from YouTube and the browser, closing the last app, standby and
-  wake, three reboots (stub mounted at uptime 15 s and Flutter Home never ran;
-  Home on screen at 39.7 s as before, but 65 s on the first boot after an
-  install, when WebAppMgr, which restarts with the compositor, was slow), the
+  wake, six reboots (stub mounted at uptime 15 s and Flutter Home never ran;
+  Home on screen at 39.7-40.5 s as before, but 65 s on the first boot after an
+  install, when WebAppMgr, which restarts with the compositor, was slow, and
+  once a black panel when the launch went into a WebAppMgr that was closing:
+  the launch now waits for the new one, and two reboots after that had Home
+  up at 40.4 s and 40.2 s), the
   120 s trial rollback, OK on the toast, the hold-Home escape in 2.1 s, the
   heartbeat fallback in about 6 s, a compositor restarted without the module
   and a LumaHome that fails to load (LG's Home in 4 s and 1.5 s), revert, the

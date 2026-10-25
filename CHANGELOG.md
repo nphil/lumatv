@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Home at 0 when LumaHome stepped aside.
 - Revert, the boot fallbacks and a failed apply remove the Home stub before
   the compositor restarts. `apply` leaves Home's assets bound under it.
+- After a compositor restart with the Home stub mounted, the Home launch waits
+  for the new WebAppMgr: at boot the old one closed 0.5 s after the launch,
+  taking the stub with it, and the panel stayed black. A black panel on an
+  Active set at boot is no longer taken for a boot into standby, so the launch
+  is repeated. The guard gives LG's Home back for a missing module only after
+  3 s, since a process read between fork and exec shows no module.
 
 ### Fixed
 

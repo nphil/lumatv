@@ -227,6 +227,8 @@ CAPTURE_URI="luna://com.webos.service.capture/executeOneShot"
 CAP_TMP=/tmp/$SHORT_ID-ready.png
 CAP_BLANK_BYTES=4096
 READY_WAIT=30
+WAM_SVC=webapp-mgr.service
+WAM_WAIT=20
 SCREEN_ON_URI="luna://com.webos.service.tvpower/power/turnOnScreen"
 AUTOSTART_LINK="/var/lib/webosbrew/init.d/50-$SHORT_ID"
 AUTOSTART_SRC="$APPDIR/tools/autostart.sh"
@@ -378,16 +380,20 @@ relaunch_home() {
   i=0
   while [ "$i" -lt 3 ]; do
     [ "${LUMA_BOOT:-0}" = "1" ] || luna-send -n 1 "$SCREEN_ON_URI" '{}' >/dev/null 2>&1
+    # A web Home (the stub) launched into a WebAppMgr that is about to close goes
+    # with it, so the launch waits for the new one.
+    if hs_mounted_ours && wait_wam_restart; then sleep 1; fi
     luna-send -n 1 "$HOME_LAUNCH_URI" "$HOME_LAUNCH_PARAMS" >/dev/null 2>&1
     if wait_presenting; then
       log_line "home on panel after $i relaunch attempt(s)"
       return 0
     fi
-    if home_running && { [ "${LUMA_BOOT:-0}" = "1" ] || home_in_front; }; then
+    if home_running && { { [ "${LUMA_BOOT:-0}" = "1" ] && ! panel_is_active; } || home_in_front; }; then
       # Running but nothing on the panel: the set is booting into standby, or
-      # the panel is off. Nothing more to wait for. Outside boot a Home that
-      # is not in front is a preload, as seen on a restart straight after a
-      # wake: the panel stays black until Home is launched again.
+      # the panel is off. Nothing more to wait for. A Home that is not in front
+      # while the set is Active is a preload (seen on a restart straight after a
+      # wake, and at boot when the launch went to a WebAppMgr that was closing):
+      # the panel stays black until Home is launched again.
       log_line "home up after $i relaunch attempt(s), panel not presenting"
       return 0
     fi
@@ -409,6 +415,30 @@ wait_surface_active() {
   return 1
 }
 
+wam_stamp() {
+  # WebAppMgr's start time; it moves when systemd starts it again.
+  systemctl show "$WAM_SVC" -p ExecMainStartTimestampMonotonic 2>/dev/null | cut -d= -f2
+}
+
+wait_wam_restart() {
+  # WebAppMgr exits with the compositor and systemd starts it again. Measured at
+  # boot: compositor restart at 34.9 s, old WebAppMgr closed at 38.0 s, new one
+  # started at 38.2 s and answering at 39.1 s. Bounded, so that a restart which
+  # left WebAppMgr alone does not hold Home back; with no earlier stamp it is
+  # satisfied by a WebAppMgr that answers.
+  wm_i=0
+  while [ "$wm_i" -lt "$WAM_WAIT" ]; do
+    wm_s=$(wam_stamp)
+    if [ -n "$wm_s" ] && [ "$wm_s" != "${WAM_STAMP0:-}" ] \
+       && luna-send -n 1 luna://com.palm.webappmanager/listRunningApps '{}' 2>/dev/null \
+            | grep -q '"returnValue"[[:space:]]*:[[:space:]]*true'; then
+      return 0
+    fi
+    sleep 1; wm_i=$((wm_i+1))
+  done
+  return 1
+}
+
 restart_surface() {
   # A restart is how the modded QML reaches the screen: the compositor's first
   # start at 2.6s cannot see our EnvironmentFile, because /var does not yet
@@ -421,6 +451,7 @@ restart_surface() {
   # away and then waits on the panel, which is the only honest gate. Measured:
   # asking for Home at +4s still put content up at +12s, so sleeping first
   # bought nothing and cost 14s.
+  WAM_STAMP0=$(wam_stamp)
   reports_before=$(snapshot_reports)
   systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
   wait_surface_active || return 1
@@ -1471,6 +1502,11 @@ verb_homestub_watch() {
       elif [ "$hs_np" != "$hs_cpid" ]; then
         if [ -n "$hs_cpid" ] || [ "$hs_gap" = 1 ]; then
           log_line "homestub: compositor restarted"
+          # A process read between its fork and exec shows systemd's environment,
+          # not ours, so the module has to be missing for 3 s before LG's Home is
+          # given back.
+          hs_ci=0
+          while [ "$hs_ci" -lt 3 ] && ! compositor_has_shadow; do sleep 1; hs_ci=$((hs_ci+1)); done
           if ! compositor_has_shadow; then
             homestub_fault "the compositor restarted without LumaTV's module"
             hs_guard_exit
