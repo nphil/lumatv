@@ -85,7 +85,9 @@ Phases, Decided); this file holds the proven mechanics.
   power-off logos are replaced by LumaTV's, three options each in
   `docs/mocks/logo`, option 1 the default; Prime Video stays unless an LG
   surface clearly pushes it. `lumatv preload on` keeps Netflix and Prime Video
-  warm and drops YouTube, LG Channels and the browser.
+  warm and drops YouTube, LG Channels and the browser from the list; the A/B on
+  the set (slot 2) showed no gain, since it closes nothing that runs, so it is
+  off until a cold boot shows one.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback

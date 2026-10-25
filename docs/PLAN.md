@@ -40,8 +40,10 @@ Kept current with every change to this plan. Building is under way (Nitin said g
   gear: the shell, the Home & look page and the AI access page (`Settings.qml`,
   `settings/`), with the AI prompt (`AiPrompt.qml`) over Home, all run offline
   against a fake helper. On the set so far: the warm-up and the Home gate
-  (slot 1). The helper wiring, the preload trim, the logos, the notification view
-  and Settings wait for slot 2 or later.
+  (slot 1); in slot 2 the helper's feeds on Home, the power-off logo, the patched
+  alert and toast, and gate numbers for Quick Settings, the gallery, toast and
+  alert. The preload trim showed no gain and is off. BootLogo, Settings, the AI
+  page and the AI prompt have not run on the set.
 - Done outside the surfaces: the native helper (`helper/`): the API, settings,
   feeds and receiver proven on the set (35 of 35 checks) and the AI-access (MCP)
   server too (42 of 42, two checks that touch the TV and the receiver skipped by
@@ -887,9 +889,10 @@ above replaces it).
    through configd, as Quick Settings is).
 4. Input picker, the receiver-fed volume and mute OSD, and ambient light.
 5. Launch splash, spinners, context menu, on-screen remote. The boot and
-   power-off logos are done (windows for LG's `BootLogo` and `MasterBrand`, three
-   options each in `payload/compositor/lumatv/logo`, `lumatv logo on|off`) and
-   wait only for the owner's choice among the options (`logo.on`, `logo.off` in
+   power-off logos are built (windows for LG's `BootLogo` and `MasterBrand`, three
+   options each in `payload/compositor/lumatv/logo`, `lumatv logo on|off`); the
+   power-off one is verified on the set (option 1 on), BootLogo needs a cold boot
+   to see; the choice among the options is the owner's (`logo.on`, `logo.off` in
    `theme.json`; option 1 is the default).
 6. Restyles in other processes: Live TV banners, keyboard, search and voice,
    the shared web-app theme.
@@ -900,9 +903,12 @@ above replaces it).
    `lean` is applied and persisted on the set (Status); Prime Video stays unless an
    LG surface clearly pushes it. Still to do: the Apps tile to the own grid and the
    Notification Centre to the own drawer.
-8. Background preloads trimmed (done: `lumatv preload on`, YouTube, LG Channels and the
-   browser dropped, Netflix and Prime Video kept) and the screensaver replaced.
-   Research first, under the app-manager constraint below.
+8. Background preloads: `lumatv preload on` (YouTube, LG Channels and the browser
+   dropped from the list, Netflix and Prime Video kept) is built; the A/B on the set
+   (slot 2) showed no gain, because the list only matters at a cold start and
+   closes nothing that runs, so it is off until a cold boot shows one. The
+   screensaver is to be replaced. Research first, under the app-manager
+   constraint below.
 9. Plugins: the broker on LumaShow's plugin API, TV drawing of cards, tiles,
    settings pages and notifications, and Home's widgets moved to plugins.
 

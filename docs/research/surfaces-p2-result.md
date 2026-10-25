@@ -6,24 +6,31 @@ Plan: `docs/PLAN.md` (Rules every surface meets, Phases). Previous owner's notes
 
 ## Resume here
 
-State at 2026-10-25 06:30 EDT (SurfacesP2c, the restart after the credit cut-off). Milestones 1-6 are built in part, tested offline
-and pushed; what the set has run so far is the warm-up A/B and the Home part of the gate (slot 1). Slot 2 is booked 06:55-07:45 after
-CompositorC2c (Main: "go SurfacesP2c"); skip the startup A/B and the reboot if time is short.
+State at 2026-10-25 07:00 EDT (SurfacesP2c, the restart after the credit cut-off). Slot 2 ran 06:27-06:59 and the set is back in
+Active Standby, LG's compositor, Home stub on, receiver untouched; the numbers are under "Slot 2" in the Log. Milestones 1-6 are built
+in part and pushed; what is proven on the set is now: the HEAD ipk installs and applies (12 s), the helper's feeds draw Home's cards, the
+power-off logo (LumaTV's mark on black, tvpowerd answered), the patched alert and toast on the real panel, and the gate numbers
+below. Settings, the AI page and the AI prompt have NOT run on the set.
 
-Slot 2 (the ipk is `/tmp/sp2c-slot2.ipk`, built from a clean `git archive` of `3f8cd14` so none of the unfinished work goes with it:
-`sh tools/build-ipk.sh` in an extracted archive with `helper/dist/lumatv-helper` copied in; it carries the SAM fix). Before the old
-tool runs on the set, `ls /var/lib/lumatv/tile-backup | wc -l` must be 0 (the installed tool restarts SAM when it restores a
-tile icon): install the new ipk first, so the old tool never runs. After every compositor restart check `webapp-mgr` is active and
-LumaHome is in front (recovery in the HANDOFF). End state: Active Standby, receiver unmuted, preload trim and logo option 1 ON if
-they pass. Helpers for it are in `/tmp/sp2c/slot.py` (outside the repo: preflight, install, health, the logo capture).
+Left on the set as shipped: `notifications` off (LG's view; the patched one works, see Log), `logo` on (option 1), `preload` off (LG's
+list: no benefit measured), helper running, Home stub on, the installed ipk is the clean archive of `3f8cd14` (no Settings in it).
+The next ipk (`sh tools/build-ipk.sh`) carries Settings, the AI page and prompt, the toast fixes.
 
-1. Preflight, install the ipk, `lumatv apply`, `lumatv helper status`, `lumatv surfaces`; Home's weather and news from the helper.
-2. `gate.py --surfaces quick-settings,kit-gallery`, then `--surfaces toast,alert` with LG's own views, `lumatv notifications on`,
-   the same again, then `notifications off` unless Main wants it kept.
-3. `preload_ab.py --rounds 4` (keep `lumatv preload on` if the Home-return gaps are no worse and memory is better).
-4. Logos: `lumatv logo on`; one power-off through `tvpower/power/powerOff {"reason":"remoteKey"}` with a capture loop running (the
-   MasterBrand window, about 3 s), which leaves the set in Active Standby. BootLogo needs a cold boot: only with time to spare.
-5. If time is left: `startup.py --runs 2 --sweep-at 2,4`.
+Next slot, in this order:
+
+1. Install the new ipk (the tile-backup check is moot now: the installed tool no longer restarts SAM), `apply`, open Settings from the
+   gear's popover ("All settings"): the AI page against the real helper (turn on, pairing code, a level, the prompt over Home; the
+   physical remote answers), the Home & look rows; `gate.py --surfaces settings` needs an entry (open: gear popover, OK on "All settings").
+2. A plain `reboot` for BootLogo and the whole boot path of the new tool (persisted hook, helper start, compositor-boot), the capture
+   routine is `reboot_capture` in `/tmp/sp2c/slot.py` (outside the repo; frames from the first moment SSH answers, BootLogo is about
+   14-30 s into a boot). Not run: the budget of this run ended.
+3. `startup.py --runs 2 --sweep-at 2,4` (warm-up off/on against an early key). Not run.
+4. Preload: the trim lists apps for the next cold start and drops none that run, so only a cold boot can show a gain; measure
+   MemAvailable and the running list 60 s after a reboot with `preload on`, then with it off, before turning it on for good.
+5. Toast: p90 3.34 ms and 2 intervals over 20 ms in the patched toast against 2.89 and 0 for LG's (first draw of Manrope 26/21 px and
+   the default icon): warm those text styles in `Warmup`; the "first frame" of a toast is the luna delivery (2-4 s), not a render, so
+   the gate's 50 ms rule cannot apply to it. A default advanced toast shows LG's white info tile; tone it down or hide it.
+6. Quick Settings and the gallery miss the first-frame rule (95 and 71 ms) and `burst_over20`: look at what the first frame waits for.
 
 Order of the milestones (changed 2026-10-25 02:27 by the owner: the boot and power-off logos move up to follow milestone 3):
 
@@ -206,3 +213,51 @@ sent at once; remove and lock-out need a second press; a lower level is sent who
 and the page follows. The full offline suite is 126 tests plus the 36 of the JavaScript side, all passing. The host also now parks
 the pointer in the corner (Xvfb's mid-screen pointer hovered a row and moved the test's focus) and lets XHR write local files as
 Qt 5.12 on the set does.
+
+### Slot 2 (2026-10-25 06:27-06:59, deploy and measure; Main: "go SurfacesP2c")
+
+Preflight read-only: tile-backup empty (the installed tool restarts SAM only when it holds files), Active Standby, LG's compositor,
+Home stub on, the installed tool older than the verbs `compositor` and `surfaces`. Installed `/tmp/sp2c-slot2.ipk` (clean archive of
+`3f8cd14`, md5 of `tools/lumatv` checked after the asynchronous install), woke the set (`power/powerOn`), `lumatv apply` 12.3 s: ok,
+`webapp-mgr` active, Home in front, stub mounted and its guard alive (it was not removed by the install), helper running (pid 7958,
+port 18731, `ai` topic present), Home drew the Atlanta weather and the BBC news from it. `lumatv surfaces` lists nine switches.
+
+Gates (`gate.py`, 3 full-trace and 10 basic cycles per surface, LG's compositor, rules in its docstring):
+
+| surface | windows | first frame | pooled p90 render | animated frames over 20 ms after another | intervals over 20 ms in the burst | RSS over 8 cycles |
+|---|---|---|---|---|---|---|
+| quick-settings (LG's, patched) | 6 of 6 | 95.4 ms (limit 50) | 3.31 ms (limit 3), worst window 3.61 | 1 of 294 | 4 | -0.08 MB |
+| kit-gallery | 6 of 6 | 71.2 ms | 2.92 ms | 0 of 106 | 2 | +2.54 MB (limit 1.08; the gate rebuilds it every cycle) |
+| toast, LG's own | 2 of 3 | 2277 ms | 2.89 ms | 3.6 % | 0 | +1.47 MB |
+| toast, patched (LumaTV's) | 3 of 3 | 4004 ms | 3.34 ms | 0 | 2 | +0.32 MB |
+| alert, LG's own | 6 of 6 | 89.6 ms | 2.70 ms | 7.8 % | 0 | +0.43 MB |
+| alert, patched | 6 of 6 | 79.9 ms | 2.61 ms | 12 % | 0 | -0.56 MB |
+
+Every row misses the 50 ms first-frame rule (70-95 ms for the panels; a toast waits 2-4 s for the luna delivery, which no render
+change touches) and shows no burst end at the key; whether 50 ms can be met under LG's compositor is open (X1: 17 % of frames take two
+vblanks for a trivial client). Log errors: Quick Settings
+3 (`Unable to assign [undefined]` in the staged `ControlPanelDotPickerButton.qml:31` and `BaseControlPanelButton.qml:382`); the first
+toast and alert runs 14 and 8 from the gate's own payloads (no `userData` for `Services.qml:513`, no `readable`), which `kb.py` now
+carries; what is left in the patched alert run is LG's `AlertView.qml:93` `readable`. The gallery's one line is Home reading the user's
+`theme.json` while the gate had emptied it. The gate's first gallery run died on `lumatv: not found` (the tool is not on the set's PATH):
+fixed with the tool's full path and a test.
+
+What the real panel showed (frames from an on-set capture loop): the patched alert is the dark glass card from the preview, centred,
+with LG's stacked buttons; the patched toast sits at the top right under the bar, right edges level, for the 5 s LG gives it. A toast whose
+`message` contains a newline never opens the toast view at all (no `toastView` open event in the log), a `<br>` breaks the line and
+shows a title over a subtitle, so `Toast.qml` splits on both. A default advanced toast carries LG's own info icon, a white tile with a
+glyph, in the icon slot.
+
+Preload A/B (`preload_ab.py`, the `apphome` workload, four rounds on, off, off, on, 40 s settle, `--rounds 4`): MemAvailable 604 and
+639 MB trimmed against 639 and 639 MB with LG's list; 7 running apps in all four rounds (YouTube and LG Channels stay resident);
+Home-return frames over 20 ms 51 and 50 against 52 and 52 (all the idle wallpaper's 10 Hz tick), `dropped_in_motion` 0 and 1 against 2
+and 1, animated render p90 2.67 and 2.55 against 1.94 and 1.93 ms. After a power cycle with the trim on the same seven apps were
+running (MemAvailable 697 MB against 701 before). No gain shown, so it was switched back off. The trim changes the list a cold start
+preloads from; it cannot close what is running.
+
+Power-off logo: `lumatv logo on`, capture loop, `power/powerOff {"reason":"remoteKey"}`: tvpowerd logged `requestPowerOffLogo`, the
+frames show LumaTV's mark with the wordmark on black for about 0.5 s, then the fade, and the set was in Active Standby 1.0 s after the
+call. Option 1 stays on. BootLogo was not run (it needs a cold boot).
+
+Not run, for the end of this run's budget: the startup A/B and the reboot. The set was left in Active Standby, `webapp-mgr` active, helper
+running, Home stub mounted with its guard, receiver never touched.

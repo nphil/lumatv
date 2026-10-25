@@ -111,7 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `lumatv preload on|off|status` keeps only Netflix and Prime Video warm: YouTube, LG
   Channels and the browser are dropped from the preload list in configd and in the running
   preload manager, LG's list is saved once and restored by `off` and `revert`, and the
-  helper sends the policy again at every switch-on, which webOS 10 needs.
+  helper sends the policy again at every switch-on, which webOS 10 needs. Measured on the
+  set: no change in free memory or Home-return gaps, as it closes nothing that is running
+  (it changes what a cold start preloads), so it ships off.
 - `lumatv logo on|off|status` replaces LG's power-on and power-off logos with LumaTV's:
   windows for `BootLogo` and `MasterBrand` that load one of three animations each
   (`theme.json` `logo.on`, `logo.off`, default 1; stills in `docs/mocks/logo`). The
