@@ -7,20 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- LumaTV's own alert, input pop-up and PIN prompt over LG's notification view;
+  toasts keep an app's own icon unless it is LG's generic file.
+- Quick panel plugin tiles and an All settings button; the input picker draws
+  its tiles and device icons from the TV's input list.
+- Ambient light settings page, art-mode and logo options, and the screensaver:
+  a drifting, dimming clock or a crossfade of six public-domain paintings, with
+  no timers running while hidden.
+- The notification drawer (bell on Home), plugin cards on Home, and weather,
+  news and clock as first-party plugins on the plugin broker.
+- The app library from the Apps tile (search, hide, rename, move, uninstall),
+  search, the Live TV banner, and openers for the context menu, confirmation and
+  on-screen remote.
+- `tools/tokens.py web`: Lucent tokens as CSS for LumaTV's web apps.
+- The UI engine draws into the compositor's scan-out pages (`--features ui`).
+- The helper's `GET /v1/device` and device facts in every plugin welcome.
+- The light-sync probe slot (`ambient/capture/tv_probe_slot.py`): LG's
+  `vt_devmode` flag exists only while a capture runs.
+
 ### Changed
 
-- `lumatv preload on` keeps only Netflix and the Home stub on LG's preload list:
-  LG loads every enabled entry whenever memory allows, so Live TV, the voice
-  app and the HDMI input app of a connected port (30-42 MB each) are switched
-  off beside YouTube, LG Channels, the browser and Prime Video. The live policy
-  is accepted only while the screen is on; in standby the helper's next
-  screen-on applies it.
+- `lumatv preload on` keeps only Netflix, the Home stub and the HDMI input apps
+  on LG's preload list: LG loads every enabled entry whenever memory allows, so
+  Live TV, LG Channels, the voice app, Miracast, YouTube, the browser and Prime
+  Video (30-70 MB each) are switched off. The HDMI inputs stay ready so a switch
+  to the PC is instant. The live policy is accepted only while the screen is on;
+  in standby the helper's next screen-on applies it.
 - Settings places initial focus when a page is entered, after service values
   have arrived, rather than selecting an unavailable page's last link during
   construction. The remote page describes the 650 ms Home escape.
-- Receiver volume readings expire from their original timestamp after six
-  seconds. Successful unchanged readings still reach the display, so a steady
-  volume stays valid while replayed or disconnected readings cannot linger.
+- Receiver readings show only while the helper is up, the topic is fresh and
+  its stamp is under six seconds old, through one gate for the volume display,
+  the quick-panel tile and the receiver page. Polls that change nothing move
+  the stamp without raising an event, so they do not wake Home's long poll.
+- Settings rows write LG's own keys and values, rows LG marks inactive are
+  dimmed, and deep links open the LG screen they name.
+- The compositor takes direct scan-out while LumaTV's UI shows nothing over a
+  full-screen window, the UI app's socket wakes the event loop, the frame latch
+  learns the GPU's finish from the in-fence, and a covered card is minimized and
+  returns on fullscreen.
 - The compositor starts with `QT_QPA_UPDATE_IDLE_TIME=0`, removing Qt's fixed
   5 ms wait before each update; dropped animation frames fell from 8-9 % to
   3.4-4 % on a D-pad sweep and from 46-67 % to 2.5-4 % opening Quick Settings.
