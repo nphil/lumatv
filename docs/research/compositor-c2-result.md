@@ -9,52 +9,49 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 03:40 EDT): **first light passed on the set** on all
-three buffer paths across two runs; one last harness-level gap is fixed
-offline and C3 work has started. Log of both runs:
-`docs/research/compositor/first-light-2026-10-25.txt` (the re-run
-overwrote the first; the first run's numbers are kept below).
+State (2026-10-25 03:55 EDT, code at `89bec60`): C2 passed on the set;
+C3 and C4 are built offline and wait for three TV slots. Everything
+builds (`sh compositor/tools/build-tv.sh`) and tests on the host
+(`cd compositor && cargo test`: 71 unit incl. LumaShow's vendored pacer
+tests, 18 protocol, 1 bridge; `sm/build.sh` runs the supervisor's scanner
+tests; clippy and fmt clean).
 
-- Run 1 (01:40): `driver` 6/6 pixel-exact; `own` frames 0-4 exact, frame 5
-  black (bug 2 below); `shm` 0/6 with `gl error 0x502` (bug 1); `app`:
-  `com.webos.exampleapp.systemui` (LG Qt) mapped `_WEBOS_WINDOW_TYPE_SYSTEM_UI`
-  1920x1080, took the keymap, 403 frames in 8 s on three driver buffers,
-  captures a uniform red whose intensity animates (0x18, 0xab, 0xb2).
-- Run 2 (02:50, with bug 1 and bug 2 fixed): `shm` **6/6, gl errors 0**;
-  `driver` and `own` **5/6 exact, 0 bad**: 6 commits, 5 drawn, because
-  `x2cli` disconnects about 1 ms after its last swap and the 6th commit
-  had not reached a tick; the previous run drew it only because the
-  server exited first and cut the client off. Fixed (bug 3).
-- Bugs and fixes (all with host tests; bundle rebuilt):
-  1. `shm` 0x502: BGRA `glTexSubImage2D` into an RGBA texture (ES 2.0
-     §3.7.2: the formats must match; Mali enforces it, Mesa does not).
-     Texture now allocated as `GL_BGRA_EXT`. Test
-     `gl_renderer_uploads_shm_pixel_exact` (real GL renderer on Mesa
-     llvmpipe; checks pixels, blending, `gl errors 0`).
-  2. `own` frame 5 black: the client's `eglTerminate` destroyed the
-     committed buffer and the destroy handler unmapped the surface. A
-     destroyed buffer now stays current (data and import kept while shown)
-     until the next commit. Test `destroying_the_shown_buffer_keeps_the_last_frame`.
-  3. Last frame never drawn: a surface destroyed with an undrawn commit is
-     drawn once before it goes (`State::surface_destroyed` runs a tick).
-     Test `a_surface_that_vanishes_with_an_undrawn_frame_is_drawn_once`.
-  Also: LG's IME opcode order folded into `text.xml`/`input-method.xml`
-  (from the set's tables); the `protocols` case now names the
-  `wl_webos_*`/`wl_starfish_*` symbols (the tool skips `wl_*` by default).
-- What the set has proved for the design: the 64-bit Rust compositor on
-  the C libwayland backend accepts LG's 32-bit libmali clients on both
-  buffer paths; the blob imports LG's AFBC dma-bufs with modifier
-  `0x0800000000000151` (C3 can keep the fd for scan-out); an unmodified
-  LG Qt app runs against it with the OSE protocol tables.
-- Next TV step (optional, ~3 min, same script): `sh compositor/tools/tv-first-light.sh
-  deploy && … run all && … fetch && … clean`; expected `driver`, `own`,
-  `shm` all `check ok 6 bad 0`, and `out/protocols.txt` with the
-  `wl_webos_*`/`wl_starfish_*` tables to compare with `compositor/protocol/`.
-- C3 and C4 (offline, built, not yet on the set): see "C3 status" and
-  "C4 status" at the end of this file; the TV steps are listed there in
-  order (bridge dry run, KMS window, trial cutover, gate).
-- TV state: not touched by this slice; the main agent's runs left
-  nothing running.
+- C2 on the set (two runs, log `docs/research/compositor/first-light-2026-10-25.txt`):
+  `driver` 6/6 pixel-exact through LG's own libmali with the blob serving
+  `mali_buffer_sharing`; `own` 5/6 (the 6th commit arrived 1 ms before
+  the client left; fixed, bug 3 below) with the blob importing LG's AFBC
+  dma-bufs (`0x0800000000000151`); `shm` 6/6 after bug 1; an unmodified
+  LG Qt app (`com.webos.exampleapp.systemui`) mapped and rendered 403
+  frames. Bugs fixed since: (1) BGRA upload into an RGBA texture
+  (`gl error 0x502`), (2) a destroyed buffer unmapped its surface, (3) a
+  surface destroyed with an undrawn commit was never drawn; LG's IME
+  opcode order folded into the XML; `protocols` case now dumps the
+  `wl_webos_*`/`wl_starfish_*` tables.
+- C3 built offline ("C3 status" below): tile damage rings, LumaShow's
+  pacer (vendored verbatim), allocation-free planning (tested), frame
+  skip, the KMS output (DRM master, dumb-buffer ring imported into GL,
+  in-fence from `EGL_ANDROID_native_fence_sync`, non-blocking commits one
+  frame ahead, flip timestamps into the pacer, direct scan-out attempt
+  with refused modifiers remembered).
+- C4 built offline ("C4 status" below): `lumatv-sm` (32-bit supervisor +
+  luna bridge, decision/fingerprint/fallback/heartbeat/escape, 12 bus
+  names and 56 methods), evdev key routing with masks, policies and the
+  hold-Home escape, the trial cutover script.
+- Next TV steps, in order (each its own slot; scripts and expected
+  results in "C4 status" and "C3 status"):
+  1. `sh compositor/tools/tv-first-light.sh deploy && sh compositor/tools/tv-first-light.sh sm`
+     (bridge dry run beside LG's compositor; no risk; ~1 min).
+  2. `sh compositor/tools/tv-first-light.sh kms` (C3 window; LG's
+     compositor stopped ~60 s and restarted; eARC/CEC check after).
+  3. `python3 docs/research/arch/tv.py 'sh /tmp/lumatv/cutover.sh install && sh /tmp/lumatv/cutover.sh trial 120'`
+     (trial cutover, 2 min, LG's restored by the script).
+  4. The gate (`tv-gate.sh`, written after 3 passes).
+- Open questions only the set answers: GBM on `card0` for the fast render
+  path (the dumb-buffer import path is the slow one PLAN measured), the
+  `wl_webos_*` opcode tables, `wl_keyboard` key-code convention, whether
+  ls-hubd grants the bus names through the bind mount, X6 (osd1 scaling).
+- TV state: not touched by this slice; the main agent's runs left nothing
+  running.
 
 ## Design
 
@@ -457,8 +454,8 @@ registry binds, the window properties and the first frame.
   (PNG, the X2 colour check), `luna_methods.rs` (tier-1 methods, pushes,
   tvpower rounds), `main.rs` (epoll: Wayland, listener, 60 Hz timerfd,
   control), `bin/lumatv-testclient.rs` (shm X2 pattern).
-- Host checks: `cargo test` in `compositor/` (6 unit, 14 protocol). Tests
-  cover the advertised globals, a card reaching the output pixel-exact, a small card over black,
+- Host checks: `cargo test` in `compositor/` (71 unit incl. the vendored
+  pacer tests, 18 protocol, 1 bridge). Tests cover the advertised globals, a card reaching the output pixel-exact, a small card over black,
   properties/type/key mask/state, foreground switching on close, overlay
   stacking at `windowPosX/Y`, release after replacement, damage after a
   4 px commit, group members above the owner, export → hole + placement
