@@ -517,3 +517,68 @@ fn a_pages_subresource_request_is_refused_by_its_fetch_metadata() {
     );
     assert_eq!(get(rig.addr, "/v1/health").status, 200);
 }
+
+/// The headers Qt 5.12's QML `XMLHttpRequest` (QNetworkAccessManager) sends: a Mozilla user agent with Qt in it, keep-alive,
+/// gzip, a language, and no `Origin` and no `Sec-Fetch-*` (QML implements no CORS). The helper must serve exactly this.
+const QT_HEADERS: &str = "User-Agent: Mozilla/5.0 (Linux; Qt/5.12.4) AppleWebKit/602.1 (KHTML, like Gecko)\r\nAccept: */*\r\nAccept-Language: en-US,*\r\nAccept-Encoding: gzip, deflate\r\nConnection: Keep-Alive\r\n";
+
+#[test]
+fn a_request_as_qt_5_12s_xmlhttprequest_sends_it_is_served() {
+    let rig = quiet_rig();
+    let host = rig.addr;
+    let read = format!("GET /v1/state HTTP/1.1\r\nHost: {host}\r\n{QT_HEADERS}\r\n");
+    let reply = raw(rig.addr, read.as_bytes());
+    assert_eq!(reply.status, 200);
+    assert!(
+        reply.header("content-length").is_some(),
+        "QML needs a length or a close to know the body is whole"
+    );
+    assert_eq!(reply.header("connection"), Some("close"));
+    assert_eq!(
+        reply.header("content-encoding"),
+        None,
+        "nothing is compressed, whatever Accept-Encoding says"
+    );
+    assert_eq!(reply.json()["api"], 1);
+
+    let long_poll =
+        format!("GET /v1/events?after=0&timeout=0.2 HTTP/1.1\r\nHost: {host}\r\n{QT_HEADERS}\r\n");
+    assert_eq!(raw(rig.addr, long_poll.as_bytes()).status, 200);
+
+    let body = r#"{"changes":[{"key":"units","value":{"type":"choice","value":"celsius"}}]}"#;
+    let write = format!(
+        "POST /v1/settings/base.weather HTTP/1.1\r\nHost: {host}\r\n{QT_HEADERS}X-Luma-Client: home\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let reply = raw(rig.addr, write.as_bytes());
+    assert_eq!(
+        reply.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    assert_eq!(
+        reply.json()["settings"]["effective"]["units"]["value"],
+        "celsius"
+    );
+}
+
+#[test]
+fn the_body_is_utf8_with_the_charset_declared_so_a_degree_sign_survives_qml() {
+    let rig = quiet_rig();
+    rig.service().hub().set(
+        "probe",
+        json!({"temp": "54\u{b0}", "stats": "Feels like 50\u{b0} \u{b7} 72%"}),
+    );
+    let reply = get(rig.addr, "/v1/state/probe");
+    assert_eq!(
+        reply.header("content-type"),
+        Some("application/json; charset=utf-8")
+    );
+    let text = String::from_utf8(reply.body.clone()).expect("the body is UTF-8");
+    assert!(
+        text.contains("54\u{b0}") && text.contains("\u{b7}"),
+        "{text}"
+    );
+    assert_eq!(reply.json()["value"]["temp"], "54\u{b0}");
+}

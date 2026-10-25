@@ -7,9 +7,9 @@ smoke test is written and waits for "TV is yours".
 
 ## Resume here
 
-State at 2026-10-25 01:40 EDT. Everything in the assignment is committed and pushed (last commit "review fixes").
+State at 2026-10-25 01:50 EDT. Everything in the assignment is committed and pushed (last commit "review fixes").
 
-- Done: `helper/` builds (`./build.sh check` passes: rustfmt, clippy `-D warnings`, 241 host tests, release build); static
+- Done: `helper/` builds (`./build.sh check` passes: rustfmt, clippy `-D warnings`, 243 host tests, release build); static
   AArch64 binary `helper/dist/lumatv-helper`, 1,415,744 bytes (1382 KiB), sha256 `e60762abcd8e8e0714c2c971bdf9cc6142250e2866431cefdc138f53d56b7375`.
   The suite ran ten times in a row with no failure (the first runs found four races between tests, all fixed).
   The daemon was run on this host end to end (detached start, status, stop, the real receiver, the real weather and news
@@ -20,6 +20,8 @@ State at 2026-10-25 01:40 EDT. Everything in the assignment is committed and pus
 - Not mine, to do in `tools/lumatv` and the ipk build: start/stop wiring (snippet below) and QML consuming the API.
 - If the helper misbehaves on the set: `lumatv-helper stop --brand <app dir>/brand.json`, read `/var/lib/lumatv/log-helper`,
   set `"fetch": {"backend": "curl"}` or `"fetch": {"user": null}` in `/var/lib/lumatv/helper.json` for TLS trouble.
+- To have the TV test run for you: message `NativeHelper` "TV is yours" (this agent wakes and runs `python3 helper/smoke-tv.py`),
+  or run it yourself; it needs the set idle for about a minute and refuses nothing else.
 - Git: shared working tree; stage only `helper/` and this file; `git push -q forge main`; never `git pull`.
 
 ## What is in `helper/`
@@ -212,7 +214,7 @@ customised ZIP or units, post it once.
 
 ## Measured on the host (the TV is not touched)
 
-- 241 tests pass (denon 27, feeds 69, app 145; one live test is `#[ignore]`d and was run by hand against the real services).
+- 243 tests pass (denon 27, feeds 69, app 147; one live test is `#[ignore]`d and was run by hand against the real services).
   Fixtures: real receiver replies (on and off), real Open-Meteo and zippopotam replies, real BBC and NYT feeds trimmed to 6 items.
 - Release binary 1382 KiB (opt-level `s`, fat LTO, unwinding kept so a handler panic is a 500, not a dead helper). `file` is not
   installed on this host; `readelf` shows ELF64, type EXEC, machine AArch64, no `INTERP` header, no dynamic section (`build.sh` checks all four).
