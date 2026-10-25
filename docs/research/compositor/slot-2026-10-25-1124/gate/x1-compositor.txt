@@ -1,0 +1,13 @@
+[srv  26350.821] warn frame gap 35.0 ms on surface 5 (org.nphil.lumatv.x1) after 377 steady frames
+[srv  26370.236] warn frame gap 33.6 ms on surface 5 (org.nphil.lumatv.x1) after 1162 steady frames
+[srv  26370.854] warn frame gap 33.3 ms on surface 5 (org.nphil.lumatv.x1) after 35 steady frames
+[srv  26374.190] warn frame gap 33.4 ms on surface 5 (org.nphil.lumatv.x1) after 198 steady frames
+[srv  26380.830] warn frame gap 34.1 ms on surface 5 (org.nphil.lumatv.x1) after 396 steady frames
+[srv  26382.725] warn frame gap 26.8 ms on surface 5 (org.nphil.lumatv.x1) after 112 steady frames
+[srv  26385.734] warn frame gap 33.4 ms on surface 5 (org.nphil.lumatv.x1) after 179 steady frames
+[srv  26390.822] warn frame gap 33.4 ms on surface 5 (org.nphil.lumatv.x1) after 303 steady frames
+[srv  26398.412] warn frame gap 33.4 ms on surface 5 (org.nphil.lumatv.x1) after 453 steady frames
+[srv  26400.785] warn frame gap 20.8 ms on surface 5 (org.nphil.lumatv.x1) after 141 steady frames
+[srv  26403.725] warn loop: 8.6 ms in one pass (flip)
+[srv  26403.725] warn frame gap 25.2 ms on surface 5 (org.nphil.lumatv.x1) after 175 steady frames
+[srv  26404.502] info client disconnected: pid 16359 uid 0 after 60063 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"

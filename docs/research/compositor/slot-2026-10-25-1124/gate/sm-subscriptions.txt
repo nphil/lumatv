@@ -1,0 +1,17 @@
+[11:27:07] subscription t1: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager (compositor not connected yet: queued)
+[11:27:07] subscription t2: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim (compositor not connected yet: queued)
+[11:27:07] subscription t3: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[11:27:07] subscription t4: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[11:27:07] subscription t5: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[11:27:07] subscription t6: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller (compositor not connected yet: queued)
+[11:27:07] subscription t7: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar (compositor not connected yet: queued)
+[11:27:07] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager (compositor not connected yet: queued)
+[11:27:07] subscription t9: com.webos.coverUI/getStatus from com.webos.applicationManager (compositor not connected yet: queued)
+[11:27:07] bridge: compositor connected
+[11:27:07] bridge: 9 call(s) that arrived before the compositor sent on
+[11:29:31] subscription t11: com.webos.surfacemanager/getWindowGroupInfo from com.webos.app.hdmi2
+[11:29:31] subscription t12: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.app.hdmi2
+[11:29:31] subscription t13: com.webos.surfacemanager.home/getCurrentHomeUIState from com.webos.app.hdmi2
+[11:29:32] subscription t14: com.webos.surfacemanager/getLastInputType from com.webos.app.hdmi2
+[11:29:32] subscription t15: com.webos.service.systemUIManager/getForegroundAppInfo from com.webos.app.hdmi2
+[11:29:32] subscription t16: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.hybridtvmanager.async

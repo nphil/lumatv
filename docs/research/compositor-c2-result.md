@@ -9,33 +9,38 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 07:30 EDT, code at `748aba9` and after): C2 passed; C3
-and C4 ran on the set 06:02-06:26 ("C4 on the set"; files in
-`docs/research/compositor/c4-2026-10-25/`) and the gate failed, so LG's
-compositor is live, as the decision requires (set left in Active Standby,
-`enabled` absent, Home stub on). Every failure has a fix built and
-host-tested since, none run on the set yet ("After the first gate"). Host:
-`cd compositor && cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
+State (2026-10-25 12:00 EDT, code at `bdfbb1e` and after): C2 passed; the
+second gate ran on the set 11:24-11:31 at `bdfbb1e` ("Second gate on the
+set"; files in `docs/research/compositor/slot-2026-10-25-1124/`): live,
+volume, netflix (Dolby Vision), hdmi, standby/wake and escape PASS, x1 FAIL
+(16 gaps of 20-33.5 ms in 60 s, 59.82 fps), so LG's compositor is live, as
+the decision requires (set left in Active Standby, `enabled` absent, Home
+stub on, receiver unmuted). Two fixes are owed before the next slot (the
+frame latch and the Home relaunch, "Second gate on the set"). Host: `cd
+compositor && cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
 the same with `--features ui` plus `ui`, `ui_output` and `ui_scanout`
 under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
 compositor/tools/build-tv.sh` builds the bundle.
 
 - Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
-  trial and two gate runs live with no watchdog fallback, `READY=1`
-  accepted, WebAppMgr reconnecting; KMS pacing 59.89-59.94 fps over 60 s;
+  trial and three gate runs live with no watchdog fallback, `READY=1`
+  accepted, WebAppMgr reconnecting; KMS pacing 59.82-59.94 fps over 60 s;
   standby and wake through the tvpower rounds; the hold-Home escape (LG's
   back in 14-15 s); direct scan-out of LG's AFBC buffer on the primary
-  plane.
-- Fixed offline, waiting for the next slot: the webOS protocol tables are
-  LG's (Netflix's opcode 7); calls reaching the bus names before the
-  compositor connects are queued (SAM's foreground subscription) and the
-  foreground pushes follow LG's QML; `set_state` is confirmed for unmapped
-  windows (HDMI 2); frame callbacks go out at the page flip and the loop
-  never blocks on one (X1's gaps); clients are named at accept (the 7 s
-  client); Volume and Mute become LG's audio calls. Earlier fixes still
-  unverified live: driver buffers instead of own (`tvhotkey` segfault),
-  composed frames top row first, flattened luna payloads.
-- Next slot (about 25 min, exclusive, tonight at the earliest): `python3
+  plane (own buffers only; driver buffers compose). Second gate: LG's
+  protocol tables (Netflix plays Dolby Vision, 3 placements, no protocol
+  errors), SAM's queued subscription (Home, Netflix and HDMI 2 reported in
+  turn), HDMI 2 mapped and in front, Volume keys as LG's audio calls (the
+  receiver stepped 0.355 → 0.36 → 0.355), clients named at accept (the 7 s
+  client is gone), frame callbacks at the page flip.
+- Owed for the next slot ("Second gate on the set"): the frame latch
+  learns the GPU's completion (X1's 11 late flips a minute); a card that a
+  newer card covers is minimized and a `set_state(fullscreen)` from it
+  raises it (Home's relaunch over HDMI 2 did nothing, so HDMI 2 stayed in
+  front through standby and wake); the gate's x1 rule compares `late` only.
+  Still unverified live: composed frames top row first, flattened luna
+  payloads.
+- Next slot (about 10 min, exclusive; the whole script ran in 8): `python3
   compositor/tools/tv_next_slot.py` (trial and gate in one, results in
   `docs/research/compositor/slot-<date>-<HHMM>/`). The set needs the
   current `tools/lumatv` (`comp_live` guard) or the script turns the Home
@@ -822,7 +827,7 @@ compositor/tools/build-tv.sh` builds the bundle.
   foreground; `tv_gate.py` copies the session's full logs after the
   disable.
 
-Next slot (about 25 min, exclusive, screen on): `python3
+The slot that ran next (11:24, "Second gate on the set"): `python3
 compositor/tools/tv_next_slot.py` from the repository root. It wakes the
 set, checks nothing of ours runs, turns the Home stub off for the session
 if the installed `tools/lumatv` lacks the `comp_live` guard (and back on at
@@ -838,6 +843,80 @@ hdmi mapped with `fg com.webos.app.hdmi2`; volume PASS; x1 either clean or
 explained by its stall lines. `live` passes on the stub's window; the
 family-visible Home under LumaTV's compositor is the stub's black page
 until LumaHome is drawn there (below), so no `--enable-after`.
+
+## Second gate on the set (2026-10-25 11:24-11:31)
+
+One slot from `compositor/tools/tv_next_slot.py` at `bdfbb1e`, run from a
+clean worktree so only committed code reached the set (the worktree needs
+`LumaShow` beside it: the compositor's optional path dependencies are
+resolved even when their features are off). Receiver muted by the script,
+Home stub on with the `comp_live` guard (nothing turned off), preload list
+as found. Files in `docs/research/compositor/slot-2026-10-25-1124/`
+(`summary.txt`, `trial/`, `gate/`); gate lines in `gate-2026-10-25.txt`.
+The script took 8 minutes end to end.
+
+| Step | Result |
+|---|---|
+| `install` + `probe` | 12 allowed, 0 free, 0 refused |
+| `trial 120` (driver buffers) | live 120 s, no fallback, WAM active, Home mapped; SAM's `getForegroundAppInfo` subscription reached the compositor (9 calls queued before it connected, sent on); 1 client disconnect in 120 s (WebAppMgr's first connection, 2.1 s, before the recovery restarted it); the 7 s client is gone; protocol errors 0; two loop passes over 8 ms at start (21.1 ms draw-now, 12.9 ms); SAM reports Home |
+| live | PASS: mounted, 12 names, WAM active, Home (stub) mapped |
+| volume | PASS: receiver 0.355 → 0.36 after Volume+ → 0.355 after Volume- |
+| x1 | FAIL: 3590 frames in 60.01 s = 59.82 fps; gaps ≤17.5 ms 3527, 17.5-20 ms 46, 20-33.5 ms 16, over 33.5 ms 0; worst 28.1 ms. Compositor side: 11 gaps of a whole refresh in the X1 surface's commits (33.3-35.0 ms eight times, 26.8, 25.2, 20.8), one loop pass over 8 ms in the minute (8.6 ms, `flip`, at the last gap), no clients coming or going, no refused commits; pacer late 3 → 11, lost 342 → 2141 |
+| netflix | PASS: card mapped, `_Window_Id_3` exported, punch-through attached, 3 placements (`setDisplayWindow` 1920x1080 from a 3840x2160 source), protocol errors 0, Picture Mode `dolbyHdrCinema` while playing and `filmMaker` after; one 33.4 ms gap in Netflix's own commits at start. The DISPLAY capture is black during playback (`netflix.png`, 6863 bytes): the video plane is not in that capture [INFERENCE] |
+| hdmi | PASS: `com.webos.app.hdmi2` (inputcommon) mapped, its surface group, export and punch-through 1920x1080, SAM reports hdmi2 while open. After `launch com.webos.app.home` SAM still reported hdmi2 (below) |
+| standby | PASS: PreparePowerOff and PreparePowerOn acked, state active, still mounted; the panel after the wake shows HDMI 2's "No Signal" page (`woke.png`), hdmi2 still in front |
+| escape | PASS: Home held 650 ms, `escaped` written, LG's compositor back, recovery 15 s |
+| end | LG's compositor live, flag absent, stub on (guard on, faults 0), `filmMaker`, `external_arc`, receiver unmuted at 0.355 (off with the set), tmpfs freed, Active Standby |
+
+Two findings, both with their change:
+
+- X1, the one failure. The third run in a row with 8-16 gaps a minute (own
+  buffers 8, driver 11, now 16 on the client's clock and 11 whole-refresh
+  gaps on the compositor's), so it is not the loop: one pass over 8 ms in
+  the minute, no churn, no refused commits. LG's own compositor measured
+  555 such gaps in 60 s on the same probe (`perf-tweaks.md`, "Compositor
+  floor"); the rule says none. The pacer counted 8 flips landing one
+  refresh after the one they were planned for: the commit went out too
+  late for its vblank. The latch starts a frame `slowest pipeline of 8 +
+  6 ms` before the refresh, and the pipeline it learns is CPU time only:
+  `frame_ready_ns` is stamped when the draw is submitted (0.2-9 ms), the
+  GPU finishes later, and the kernel waits on the in-fence before the
+  flip. A composition the GPU finishes after the driver's cutoff slips a
+  refresh, and nothing measures that. Five of the eleven gaps fall 10 s
+  apart at the same phase (26350.82, 26370.85, 26380.83, 26390.82,
+  26400.79): a periodic job on the set delaying the frame (the stub guard
+  forks a grep every 10 s; LG's services) [INFERENCE]. Change, in
+  `kms/mod.rs` (not `vendor/pacer.rs`, LumaShow's verbatim): `commit_frame`
+  keeps a duplicate of the in-fence fd it exports; `flip_landed` reads
+  the fence's signal time (`SYNC_IOC_FILE_INFO` on the sync file,
+  `sync_fence_info.timestamp_ns`, CLOCK_MONOTONIC) into `frame_ready_ns`
+  before building `Shown`, then closes it; the latch then includes the
+  GPU and starts the frame early enough. Two more for the same step: the
+  `lost` counter cannot be a gate criterion (it sums idle refreshes:
+  +3957 over 62 s of a still screen between `evidence` and `woke`), so
+  `tv-gate.sh x1` compares `late` only (`late_before=$(... $4)`); and it
+  moved by 1799 over 3592 consecutive flips, 1.5 refreshes a flip, which
+  vblank-stamped consecutive flips cannot give. Page-flip stamps arriving
+  in equal pairs would [INFERENCE]; one `kms:` line per flip whose stamp
+  delta is not one refresh, during the x1 step, settles it.
+- Home's relaunch over a card does nothing. After the hdmi step's `launch
+  com.webos.app.home`, Home's surface sent no request (journal: nothing
+  between hdmi2's title and `PowerOffLogoRequest`), no foreground push
+  went out, SAM kept reporting hdmi2, and the panel after the wake showed
+  HDMI 2. The netflix step passed only because the card was closed first.
+  LG's fullscreen container minimizes the card it covers and raises a card
+  that asks for fullscreen again; this compositor's `on_mapped` makes the
+  new card fullscreen and leaves the covered one in state fullscreen, so a
+  client that restores fullscreen on relaunch (WAM, from a minimized
+  window) has no state change to send [INFERENCE]. Change, in
+  `server/webos_shell.rs`: `on_mapped` of a card sends
+  `state_about_to_change`/`state_changed(minimized)` to every other mapped
+  card and records it; `SetState(fullscreen)` on a card that is not the
+  top card raises it (`scene`: make it the newest card), minimizes the one
+  it covers, pushes the foreground and refocuses; a card unmapping gives
+  the one below `state_changed(fullscreen)` back.
+
+Not run: `tv_ui_measure.py` (the slot was closed on the gate's result).
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 
