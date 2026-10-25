@@ -30,9 +30,12 @@ Recovery checklist, before returning to the project phases:
   arrived trapped Picture navigation on the LG link. Defer placement until
   page entry; the existing brightness-write regression now passes. Picture and
   Remote scenes run in dark and light; the escape note now says 650 ms.
-- [ ] Finish interrupted surface recovery. The full Settings run before that
-  focus fix had 16 passes and two failures. Brightness is now fixed; the other
-  failure remains: simulated remote approval leaves AI access disabled.
+- [x] Recover interrupted surfaces offline: all 18 Settings checks pass. The
+  approval fixture waits for its asynchronous response; production approval
+  permissions are unchanged. All 23 recovered scenes run in dark and light
+  without reported errors. Receiver expiry and fresh-reading recovery pass
+  through the running QML host; 10 receiver integration checks and the helper
+  build gate pass. No recovered surface has been deployed during recovery.
 - [x] Run renderer recovery checks: 10 tile tests, two pixel-comparison damage
   tests and the actual whole-versus-partial drawing benchmark pass locally.
   Partial drawing covers 36.4% of the panel at idle in the short benchmark;
@@ -45,8 +48,8 @@ Recovery checklist, before returning to the project phases:
   every outstanding surface and integration; TV gates need a free slot and
   human-only actions remain human-controlled.
 
-Next action: investigate the offline AI-approval failure, then verify and save
-the remaining surface changes. Compositor protocol, foreground and pacing
+Next action: attach the optional UI engine to the compositor output path and
+verify actual window composition offline. Compositor protocol, foreground and pacing
 fixes still need a new TV trial; no Netflix or frame-timing fix is proven live.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,

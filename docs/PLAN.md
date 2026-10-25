@@ -16,8 +16,10 @@ Kept current with every change to this plan. Building is under way (Nitin said g
 
 Recovery after the quota interruption (2026-10-25): `docs/HANDOFF.md`
 contains the current recovery checklist and next action. The interrupted
-surface and partial-redraw changes remain under offline verification;
-their presence does not complete the phases below. Newer dated worker
+surfaces pass 23 dark/light scene pairs and 18 Settings behavior checks.
+Receiver expiry and unchanged-volume heartbeats pass offline. The partial-redraw
+bridge still needs attachment to the live output path; the phases below remain
+subject to their TV gates. Newer dated worker
 notes take precedence over older status descriptions. No TV deployment
 has occurred during recovery.
 
