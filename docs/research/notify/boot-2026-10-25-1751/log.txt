@@ -1,0 +1,33 @@
+before: power {"returnValue":true,"state":"ScreenSaver"}, uptime 4575.9 s, logo {"ok":true,"on":true,"main":{"com.webos.app.quicksettings": "file:///var/lib/lumatv/systemui/QuickSettings/QuickSettings.qml", "com.webos.app.quickinputpicker": "file:///usr/lib/qt5/qml/InputPicker/In
+the set is not on; a reboot from standby comes back in standby with no logo. Not rebooting.
+before: power {"returnValue":true,"state":"Active"}, uptime 4589.7 s, logo {"ok":true,"on":true,"main":{"com.webos.app.quicksettings": "file:///var/lib/lumatv/systemui/QuickSettings/QuickSettings.qml", "com.webos.app.quickinputpicker": "file:///usr/lib/qt5/qml/InputPicker/In
+reboot at 17:50:38
+ssh answers at 17:51:08, uptime 29.0 s
+frames: 84 (uptime 14.62 .. 73.37); bytes 1777 1777 2777 2777 2777 2777 2777 2777 1777 1777 1777 212515 212515 212515 212515 212516 212516 212516 212516 212516 212516 205944 205944 205944 205944 205944 111657 100623 105647 105647 105647 105647 105647 105647 105647 105647 105647 105647 105647 176204 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 243765 230285 230285 230285 1777 1777 1777 1777 1777 1777 1777 1777 1777 137496 137697 137546 137867 137817 137923 138209 137606 137646 137690 137608 137752 137785 137958 139354 137778 137664 137826
+collect only at 17:52:05
+ssh answers at 17:52:05, uptime 86.5 s
+frames: 84 (uptime 14.62 .. 73.37); bytes 1777 1777 2777 2777 2777 2777 2777 2777 1777 1777 1777 212515 212515 212515 212515 212516 212516 212516 212516 212516 212516 205944 205944 205944 205944 205944 111657 100623 105647 105647 105647 105647 105647 105647 105647 105647 105647 105647 105647 176204 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 173560 243765 230285 230285 230285 1777 1777 1777 1777 1777 1777 1777 1777 1777 137496 137697 137546 137867 137817 137923 138209 137606 137646 137690 137608 137752 137785 137958 139354 137778 137664 137826
+hook: 2026-10-25 17:50:53 boot: boot capture of 60s started
+logo lines: 
+state after boot:
+89.04 151.52
+resume
+{"returnValue":true,"state":"Active"}
+{"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""}
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+{"ok": true, "on": true, "backup": true, "off": [{"id": "youtube.leanback.v4", "listed": true, "enabled": false}, {"id": "com.webos.app.lgchannels", "listed": true, "enabled": false}, {"id": "com.webos.app.browser", "listed": true, "enabled": false}, {"id": "amazon", "listed": true, "enabled": false
+2026-10-25 17:30:59 homestub: compositor restarted
+2026-10-25 17:33:03 homestub: compositor restarted
+2026-10-25 17:33:21 homestub: compositor restarted
+2026-10-25 17:50:54 homestub: stub in place at uptime 15 s
+2026-10-25 17:50:54 boot: homestub-boot: {"ok":true,"stub":true}
+2026-10-25 17:50:54 homestub: guard started
+2026-10-25 17:51:14 apply: staged set unchanged, shadow current, assets bound, not remounting
+2026-10-25 17:51:15 homestub: stub in place at uptime 36 s
+2026-10-25 17:51:15 homestub: guard started
+2026-10-25 17:51:33 homestub: compositor restarted
+2026-10-25 17:51:35 apply: compositor restarted to read shadow module
+2026-10-25 17:51:41 apply: success version=0.4.0 mounts=1 took=38s
+
+done

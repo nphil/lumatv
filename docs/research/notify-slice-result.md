@@ -3,17 +3,22 @@
 ## Resume here
 
 Built and tested offline: the toast, the alert, the input popup and the PIN prompt in the Luma look on top of LG's
-notification view, their scenes (dark and light), and the boot and power-off logo choice. On the set: one restart for
-the power-on logo (2026-10-25 16:34, "Restart on the set"), which answered nothing about the logo: the set was
-restarted from Active Standby, booted back into Active Standby with the panel off, and no `[Logo]` line was written.
-The two faults that restart found are fixed offline (below, "Boot from standby (BootPathFix)"), **not verified on the set**.
+notification view, their scenes (dark and light), and the boot and power-off logo choice. On the set: two restarts for
+the power-on logo. The first (2026-10-25 16:34, "Restart on the set") was from Active Standby and answered nothing. The
+second (17:50, "Restart from a set that is on", BootPathFix's tools deployed first) verified the boot path: the stub in
+place at 15 s, the guard waiting, `apply` 38 s (188 s before), Home in front with `faults 0`, nothing given back to LG;
+the logo itself is still unseen: the boot's panel capture starts at 14.6 s and the first lit frame (16.8 s) is already
+the HDMI 2 input banner, and the log keeps nothing before 12.7 s, so whatever logo there was came and went before
+either could see it, and no `[Logo]` line survives.
 Next, in order:
 
 1. `lumatv notifications on` on the set (stages LG's tree, patches it, overlays `payload/notification`), then
    `python3 docs/research/perf/gate.py --surfaces toast,alert` with Home on screen (see "Set steps").
 2. A PIN prompt on the set with Nitin present (a locked input), see "Set steps".
-3. The power-on logo from a set that is ON: "Set steps for the boot path and the logo", which also re-checks the
-   stub guard and the boot apply's time on the way.
+3. The logo: a capture that starts before 12 s (the boot hook cannot: it runs at ~14 s), or a log that keeps the
+   compositor's first seconds (`[Logo]` goes to the QML console; where that lands before PmLog starts at 12.7 s is
+   unread), or a person in the room at a power-on. The power-off logo (`logo.off`) is untested the same way.
+   Also to settle: the set restarted into the last input (HDMI 2, selected by the compositor gate before), not Home.
 
 ## What changed
 
@@ -156,3 +161,40 @@ have seen it even from a set that was on. New: `tools/bootcap.sh`, started by th
    `state stub, beat true, faults 0` within 40 s, `preload status` still on, Picture Mode unchanged. If the beat never comes
    after the wake, the fault and LG's Home arrive 35 s later as before; note the `homestub` and `compositor` lines and the
    `/tmp/<shortId>-beat` age during standby (does the stub beat at all with the panel off?).
+
+## Restart from a set that is on (2026-10-25 17:50-17:54, `docs/research/notify/boot-2026-10-25-1751/`)
+
+Steps 1 to 3 of "Set steps for the boot path and the logo" at `f3ed5a6` (the tools of `35a880e`, unchanged since):
+`tools/{lumatv,preload.py,autostart.sh,bootcap.sh}` copied to the app directory by rename (the running `homestub-watch`
+shell keeps its old inode), `homestub status` `state stub, beat true, faults 0`, `logo status` on with
+`com.webos.app.bootlogo` and `com.webos.app.masterbrand` mapped to LumaTV's QML, `theme set '{"logo":{"on":2,"off":3}}'`;
+receiver muted through Home Assistant before the reboot and unmuted once Home was in front after it (0.355 both ways).
+The set had gone to `ScreenSaver` on Home (the script refuses anything but `Active`); `turnOnScreen` brought it back.
+`reboot_logo.py` issued the reboot at 17:50:38 from power `Active`, uptime 4589.7 s; sshd on the new system answered at
+uptime 29.0 s (46 s at 16:34). The script's own SSH session died at its first command after the frames (channel closed;
+the collection was finished with `NO_REBOOT=1`). `theme.json` was put back without the `logo` key afterwards.
+
+The boot path, from `/var/lib/lumatv/log`: `homestub: stub in place at uptime 15 s`, `boot: homestub-boot {"ok":true,
+"stub":true}`, `guard started`, `compositor-boot: off`, `boot-bind: 0 bind(s) made, assets live, compositor already on
+shadow=no`, `boot: boot capture of 60s started` (17:50:53), `apply: staged set unchanged, shadow current, assets bound,
+not remounting`, `homestub: compositor restarted` (17:51:33, uptime 55 s), `apply: compositor restarted to read shadow
+module`, `apply: success version=0.4.0 mounts=1 took=38s`. After the boot: power `Active`, `/sys/power/mode` `resume`,
+Home in front, `homestub` `state stub, mounted, sam web, guard, beat true, faults 0`, `preload status` on with the backup,
+no `giving LG's Home back`, no `fault`. Against the 16:34 boot: the apply 188 s → 38 s (the preload hole is gone), and
+the guard kept the stub through the compositor restart.
+
+The panel, from the boot capture (85 frames, 480x270, 14.6 s to 73.4 s of uptime; the 12 kept are the frames where the
+picture changed, `frames-index.txt` lists all 85 with their sizes): black at 14.6-16 s; 16.8-19.5 s a black screen with
+LG's "HDMI 2" input banner; black to 23.2 s; 23.8-54 s LG's "No Signal" page of the HDMI 2 input through its four art
+slides (the receiver was off), with LG's "HID device is disconnected" toast at 31.5 s; black 54.9-60.5 s (the
+compositor restart of the apply); LumaHome from 61.2 s (clock, news, weather, the app row). So the set came back on
+the last selected input, HDMI 2 (the compositor gate's `hdmi` step at 17:35 had selected it; Home was in front when the
+reboot was issued), and Home took the panel only after the apply's restart.
+
+The logo: no frame shows one and no `[Logo]` line exists. The capture's first frame is at 14.6 s and the panel already
+shows the input at 16.8 s, so the logo phase (LG's or LumaTV's) was over by then; `/var/log/messages*` of this boot
+starts at uptime 12.7 s (PmLog's first line), the compositor's system UI launches are logged from 13.2 s
+(`FRESH_LAUNCH_SYSTEMUI` for quicksettings and quickinputpicker only), and nothing names bootlogo, masterbrand or
+`[Logo]` after that. Either LG's compositor put the boot logo up before 12.7 s (lost before PmLog) or it did not launch
+`com.webos.app.bootlogo` on a `reboot` at all; the frames cannot tell the two apart. What would: a capture or a log
+that reaches back to the compositor's start ("Resume here" 3).
