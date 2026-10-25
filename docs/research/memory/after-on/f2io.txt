@@ -1,0 +1,10 @@
+# /sys/block/f2io-0 read 2026-10-25 11:17 EDT (read-only; for the zram A/B slot). zram0 exists with disksize 0 (unused).
+bdev_path: /dev/mmcblk0p53          (the swap is compressed and written to an eMMC partition, not held in RAM)
+comp_alg: zacc   hash_alg: xxhash64   capacity: 629145600 bytes (600 MB)   /proc/swaps priority -2, used 302356 kB at 11:19
+bdev_stat:        0        0        0        0        0        0        0        0        0  1212416     1184       16       74
+io_stat:     389796   389796        0        0    24705   365091        0        0        0   176854   176854        0        0
+meta_stat:   153600    78155     6377    69068        0        0    17261 67736966       63 476180166        0        0        0
+vendor_stat: 153600    78155     6377    69068        0        0    17261 67736966        0        0        0        0     1184
+shrink_enable: 0   shrinker_seeks: 128   inflight: 0 0
+# The column meanings are not documented on the set; meta_stat's first fields look like page counts (153600 pages = 600 MB
+# capacity, 78155 = 305 MB in use at the time, matching /proc/swaps). Per-process VmSwap is the vmswap_kb column of procs.tsv.

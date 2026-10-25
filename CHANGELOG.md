@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `lumatv preload on` keeps only Netflix and the Home stub on LG's preload list:
+  LG loads every enabled entry whenever memory allows, so Live TV, the voice
+  app and the HDMI input app of a connected port (30-42 MB each) are switched
+  off beside YouTube, LG Channels, the browser and Prime Video. The live policy
+  is accepted only while the screen is on; in standby the helper's next
+  screen-on applies it.
 - Settings places initial focus when a page is entered, after service values
   have arrived, rather than selecting an unavailable page's last link during
   construction. The remote page describes the 650 ms Home escape.

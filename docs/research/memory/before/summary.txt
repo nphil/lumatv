@@ -1,0 +1,114 @@
+time 2026-10-25 10:59:40 EDT uptime 24659.89
+MemTotal        2030392 kB
+MemFree           44500 kB
+MemAvailable     675352 kB
+Buffers          206272 kB
+Cached           406588 kB
+SwapCached         9372 kB
+AnonPages        499452 kB
+Mapped           148320 kB
+Shmem              5792 kB
+SwapTotal        614396 kB
+SwapFree         264824 kB
+Slab             172576 kB
+SReclaimable      84376 kB
+SUnreclaim        88200 kB
+KernelStack       19472 kB
+PageTables        18964 kB
+Unevictable       12172 kB
+CmaTotal         692224 kB
+CmaFree            3468 kB
+VmallocUsed       49276 kB
+SwapUsed         349572 kB
+processes 158  pss_sum 647884 kB  swap_sum 335080 kB
+
+top 40 by PSS (kB): pid pss swap comm cmdline
+  8184   72500   11980 surface-manager        /usr/bin/surface-manager -platform eglfs_webos
+  3014   70135    7712 ignition               /media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition {"@system_native_app":true,
+  2558   58453   32112 cobalt                 /media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {"@system_native_app
+  9281   58404   25648 netflix                /media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {"@system_native_app":t
+ 22159   39299    4860 chrome                 /mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {"@system_native_app":true
+  3663   35186   34340 eim                    /usr/sbin/eim
+  2513   34084    1228 com.webos.app.i        /usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.web
+  8495   24633   11564 WebAppMgr              /usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service 
+  4885   22775    6328 ss.apiadapter          ss.apiadapter
+ 10725   17778    2496 node                   /usr/bin/node /var/lib/tvweb/tvweb.js
+     1   12419     864 systemd                /sbin/init portProtection criu_enabled AR_PWR_DET dynamic_partition cmdEnd
+  9098   12374   21468 WebAppMgr              /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapsh
+  8840   10436    5264 WebAppMgr              /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapsh
+ 24855    7805     768 sdx                    /usr/sbin/sdx
+  3436    7175    8340 SettingsService        /usr/sbin/SettingsService
+  2255    6190   10296 legacy-broadcas        /usr/sbin/legacy-broadcast-atsc
+  1865    6113    1736 ls-hubd                /usr/sbin/ls-hubd --conf /etc/luna-service2/ls-hubd.conf
+  2439    6010    1696 utp-atsc               /usr/sbin/utp-atsc
+  5912    5725    7168 org.webosbrew.h        org.webosbrew.hbchannel.service
+  4424    4849     600 eplmanager             /usr/sbin/eplmanager
+  3349    4676    9660 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/maindb.conf
+ 10102    4627    2032 iot-client             /usr/palm/services/com.webos.service.iotclient/iot-client
+  2218    4446    2384 audiod                 /usr/sbin/audiod -d
+  2500    4380     500 sam                    /usr/sbin/sam
+  8819    4263    7852 WebAppMgr              /usr/bin/WebAppMgr --type=utility --utility-sub-type=network.mojom.NetworkService --lang=e
+  8893    3631    1540 extinput-integr        /usr/sbin/extinput-integration
+  7039    3575     648 com.webos.chrom        /media/system/apps/usr/palm/services/com.webos.chromecast.cell/com.webos.chromecast.cell
+   369    3559       0 python3                python3 /tmp/memsnap.py /tmp/memsnap/before
+  2690    3386    2476 pqcontroller           /usr/sbin/pqcontroller
+  3584    3105    2352 iepg                   /usr/sbin/iepg
+  8594    2981    5044 WebAppMgr              /usr/bin/WebAppMgr --type=zygote --disable-in-process-stack-traces --no-sandbox --disable-
+  1912    2636     516 configd                /usr/sbin/configd
+  3907    2372    1096 accountmanager         /usr/sbin/accountmanager
+  3224    2370    2712 nn-proxy               /usr/bin/nn-proxy
+  4411    2352    1204 webos-bluetooth        /usr/sbin/webos-bluetooth-service
+  3294    2351    1056 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/accountdb.conf
+  2215    2183    3076 audiooutputd           /usr/sbin/audiooutputd
+  3796    2152    2872 physical-device        /usr/sbin/physical-device-manager
+  8785    2086    1972 activitymanager        /usr/sbin/activitymanager -c {"log":{"appender":{"type":"syslog"},"levels":{"default":"not
+  1982    2001     960 pulseaudio             /usr/bin/pulseaudio --log-target=syslog --log-level=debug --system=1 --resample-method=pal
+
+top 25 by swap (kB): pid swap pss comm
+  3663   34340   35186 eim                    /usr/sbin/eim
+  2558   32112   58453 cobalt                 /media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt 
+  9281   25648   58404 netflix                /media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {"@
+  9098   21468   12374 WebAppMgr              /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-t
+  8184   11980   72500 surface-manager        /usr/bin/surface-manager -platform eglfs_webos
+  8495   11564   24633 WebAppMgr              /usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drm
+  2255   10296    6190 legacy-broadcas        /usr/sbin/legacy-broadcast-atsc
+  3349    9660    4676 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/maindb.conf
+  3436    8340    7175 SettingsService        /usr/sbin/SettingsService
+  8819    7852    4263 WebAppMgr              /usr/bin/WebAppMgr --type=utility --utility-sub-type=network.mojom.Net
+  3014    7712   70135 ignition               /media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition {"@syst
+  5912    7168    5725 org.webosbrew.h        org.webosbrew.hbchannel.service
+  4885    6328   22775 ss.apiadapter          ss.apiadapter
+  9142    5784    1835 ssg-ssdp-manage        ssg-ssdp-manager
+  8840    5264   10436 WebAppMgr              /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-t
+  8594    5044    2981 WebAppMgr              /usr/bin/WebAppMgr --type=zygote --disable-in-process-stack-traces --n
+  3406    5008     334 keymanager3            /usr/sbin/keymanager3
+ 22159    4860   39299 chrome                 /mnt/otncabi/usr/palm/applications/com.webos.app.browser/chrome {"@sys
+ 26320    4128    1022 starfish-media-        /usr/sbin/starfish-media-pipeline pipeline_process -scom.webos.pipelin
+  1994    3860    1419 gal_renderd            /usr/bin/gal_renderd
+  2215    3076    2183 audiooutputd           /usr/sbin/audiooutputd
+  4501    2924     667 btaudiosnk             /usr/sbin/btaudiosnk
+  3796    2872    2152 physical-device        /usr/sbin/physical-device-manager
+  3186    2792    1508 LunaSysService         /usr/sbin/LunaSysService
+  3224    2712    2370 nn-proxy               /usr/bin/nn-proxy
+
+top 20 slab caches (kB): size cache objs objsize
+  27460 kmalloc-4k                      6865  4096
+  15989 ext4_inode_cache               15623  1048
+  15809 dentry                         84315   192
+  12064 squashfs_inode_cache           17549   704
+   9102 radix_tree_node                15960   584
+   7760 kmalloc-128                    62080   128
+   7430 inode_cache                    12852   592
+   7233 ovl_inode                      11022   672
+   5585 vm_area_struct                 31086   184
+   5533 buffer_head                    54483   104
+   5088 proc_inode_cache                7848   664
+   4708 task_struct                     1395  3456
+   4590 kernfs_node_cache              34560   136
+   3664 signal_cache                    3664  1024
+   3398 mnt_cache                      10875   320
+   3360 filp                           13440   256
+   2794 sock_inode_cache                3439   832
+   2304 kmalloc-2k                      1152  2048
+   1508 biovec-max                       377  4096
+   1456 kmalloc-1k                      1456  1024

@@ -98,11 +98,14 @@ KEYFILTER_HANDLER=handleLumaHome
 # the receiver and the settings store for the compositor's QML. An ipk update cannot overwrite a
 # running executable (text busy), so the shipped copy is staged under $STATE/bin and swapped when
 # it differs; the daemon is stopped for the swap and started again.
-# LG's background preloads (YouTube, LG Channels, the browser, Prime Video: about 377 MB resident). The tool
-# switches the apps in payload/preload.json off in configd and in the live preload manager;
-# $PRELOAD_STATE names them for the helper, which sends the live policy again at every screen-on
-# (webOS 10 forgets it at each switch-on). $PRELOAD_ORIG is LG's list as found, so `off` and
-# `revert` put it back.
+# LG's background preloads. Only Netflix and the Home stub stay on the list: the tool switches every
+# other app in payload/preload.json off in configd and in the live preload manager (YouTube, LG Channels,
+# the browser and Prime Video are 170-230 MB together; LG's Live TV, voice and HDMI input apps 30-40 MB
+# each, loaded at any switch-on with room to spare). $PRELOAD_STATE names them for the helper, which
+# sends the live policy again at every screen-on (webOS 10 forgets it at each switch-on, and the
+# preload manager only answers setPreloadPolicy while the screen is on: in Active Standby the call
+# stays pending, so `preload on` reports those ids failed and the helper's next screen-on applies them).
+# $PRELOAD_ORIG is LG's list as found, so `off` and `revert` put it back.
 PRELOAD_TOOL="$APPDIR/tools/preload.py"
 PRELOAD_SRC="$APPDIR/payload/preload.json"
 PRELOAD_STATE="$STATE/preload.json"

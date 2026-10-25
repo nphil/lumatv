@@ -84,8 +84,7 @@ class Preload(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.enabled(), {"netflix": True, "youtube.leanback.v4": False, "com.webos.app.lgchannels": False,
                                           "com.webos.app.browser": False, "amazon": False, "airplay": False})
-        self.assertEqual(self.read("live.json"), {"youtube.leanback.v4": False, "com.webos.app.lgchannels": False,
-                                                  "com.webos.app.browser": False, "amazon": False})
+        self.assertEqual(self.read("live.json"), {i: False for i in json.load(open(PAYLOAD))["off"]})
         self.assertEqual(self.read("data/preload.json"), {"off": json.load(open(PAYLOAD))["off"]})
         self.assertEqual(json.load(open(self.orig)), LG)
 
@@ -150,13 +149,23 @@ class Preload(unittest.TestCase):
         rc, out = self.run_tool("status")
         self.assertEqual(rc, 0)
         self.assertFalse(out["on"])
-        self.assertEqual([o["enabled"] for o in out["off"]], [True] * len(json.load(open(PAYLOAD))["off"]))
+        listed = {e["id"] for e in LG}
+        self.assertEqual([o["enabled"] for o in out["off"]],
+                         [True if i in listed else None for i in json.load(open(PAYLOAD))["off"]])
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "data")))
 
-    def test_the_shipped_list_keeps_only_netflix_warm(self):
+    def test_the_shipped_list_keeps_only_netflix_and_home_warm(self):
+        # LG's list on the set (2026-10-25, docs/research/memory-result.md): every entry but these two is off,
+        # because the preload manager loads any enabled entry whenever memory allows.
         off = json.load(open(PAYLOAD))["off"]
-        self.assertEqual(sorted(off), ["amazon", "com.webos.app.browser", "com.webos.app.lgchannels", "youtube.leanback.v4"])
+        self.assertEqual(sorted(off), sorted([
+            "youtube.leanback.v4", "com.webos.app.lgchannels", "com.webos.app.browser", "amazon",
+            "com.webos.app.livetv", "com.webos.app.livemenu", "com.webos.app.voice", "amazon.alexapr",
+            "com.webos.app.miracast", "com.webos.app.miracast-overlay",
+            "com.webos.app.hdmi1", "com.webos.app.hdmi2", "com.webos.app.hdmi3", "com.webos.app.hdmi4",
+            "vudu", "pooq", "globoplaywebos", "yandex.alice"]))
         self.assertNotIn("netflix", off)
+        self.assertNotIn("com.webos.app.home", off)
 
 
 if __name__ == "__main__":

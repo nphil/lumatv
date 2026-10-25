@@ -1,0 +1,162 @@
+pid	ppid	state	comm	pss_kb	pss_anon_kb	pss_file_kb	rss_kb	swap_kb	vmswap_kb	cgroup	exe	cmdline
+9281	2500	S	netflix	129123	102064	27053	143644	14488	14748	/system.slice/sam.service	/var/palm/jail/netflix/media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin	/media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {"@system_native_app":true,"reason":"preload","interfaceVersion":2,"event":"launch","interfac
+8184	1	S	surface-manager	70208	48612	21535	82208	17328	17308	/system.slice/surface-manager-daemon.service	/usr/bin/surface-manager	/usr/bin/surface-manager -platform eglfs_webos
+8495	1	S	WebAppMgr	40740	16100	24596	62704	9460	8808	/system.slice/webapp-mgr.service	/usr/bin/WebAppMgr	/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/
+3663	1	S	eim	24017	23228	787	27280	50080	50276	/system.slice/eim.service	/usr/sbin/eim	/usr/sbin/eim
+4885	4843	S	ss.apiadapter	22312	19836	2475	30796	6860	6964	/system.slice/ls-hubd.service	/usr/bin/node	ss.apiadapter
+10725	1	S	node	17097	15244	1853	23764	2924	2940	/system.slice/ls-hubd.service	/usr/bin/node	/usr/bin/node /var/lib/tvweb/tvweb.js
+2255	1865	S	legacy-broadcas	13756	9708	4033	16904	6180	7300	/system.slice/ls-hubd.service	/usr/sbin/legacy-broadcast-atsc	/usr/sbin/legacy-broadcast-atsc
+8840	8594	S	WebAppMgr	13073	3544	9524	18796	7120	6828	/system.slice/webapp-mgr.service	/usr/bin/WebAppMgr	/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growi
+1	0	S	systemd	12242	10616	1626	12720	1028	1028	/init.scope	/lib/systemd/systemd	/sbin/init portProtection criu_enabled AR_PWR_DET dynamic_partition cmdEnd
+3436	1	S	SettingsService	11620	10992	627	14128	3908	3872	/system.slice/settings-service.service	/usr/sbin/SettingsService	/usr/sbin/SettingsService
+8819	8495	S	WebAppMgr	8542	2672	5870	21056	7400	7136	/system.slice/webapp-mgr.service	/usr/bin/WebAppMgr	/usr/bin/WebAppMgr --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --webos-wam --disable-qu
+2885	1	S	utp-atsc	8179	5772	2407	10412	36	0	/system.slice/utp.service	/usr/sbin/utp-atsc	/usr/sbin/utp-atsc
+24855	1865	S	sdx	7862	6648	1212	12668	920	416	/system.slice/ls-hubd.service	/usr/sbin/sdx	/usr/sbin/sdx
+3224	3191	S	nn-proxy	6822	3880	2942	15744	3192	3180	/system.slice/nn-proxy.service	/usr/bin/nn-proxy	/usr/bin/nn-proxy
+1865	1	S	ls-hubd	6349	6036	313	7300	1500	1464	/system.slice/ls-hubd.service	/usr/sbin/ls-hubd	/usr/sbin/ls-hubd --conf /etc/luna-service2/ls-hubd.conf
+3349	1	S	mojodb-luna	5847	5680	167	8608	8504	8840	/system.slice/db8-maindb.service	/usr/sbin/mojodb-luna	/usr/sbin/mojodb-luna -c /etc/palm/db8/maindb.conf
+2218	1	S	audiod	5491	3196	2295	6824	2000	2036	/system.slice/audiod.service	/usr/sbin/audiod	/usr/sbin/audiod -d
+5912	1865	S	org.webosbrew.h	5124	3520	1604	12432	7316	7464	/system.slice/ls-hubd.service	/usr/bin/node	org.webosbrew.hbchannel.service
+8893	1	S	extinput-integr	4994	3272	1721	8552	1072	1404	/system.slice/extinput-integration.service	/usr/sbin/extinput-integration	/usr/sbin/extinput-integration
+10102	1865	S	iot-client	4882	4048	834	10244	2060	2060	/system.slice/ls-hubd.service	/usr/palm/services/com.webos.service.iotclient/iot-client	/usr/palm/services/com.webos.service.iotclient/iot-client
+2690	1	S	pqcontroller	4839	2856	1978	8560	2620	3272	/system.slice/pqcontroller.service	/usr/sbin/pqcontroller	/usr/sbin/pqcontroller
+4424	1	S	eplmanager	4836	4428	393	7536	616	568	/system.slice/eplmanager.service	/usr/sbin/eplmanager	/usr/sbin/eplmanager
+3406	1865	S	keymanager3	4656	4392	264	7808	804	876	/system.slice/ls-hubd.service	/usr/sbin/keymanager3	/usr/sbin/keymanager3
+2500	1	S	sam	4443	3412	1031	5904	488	452	/system.slice/sam.service	/usr/sbin/sam	/usr/sbin/sam
+3584	1	S	iepg	4059	2960	1075	6760	1600	1552	/system.slice/iepg.service	/usr/sbin/iepg	/usr/sbin/iepg
+7039	1865	S	com.webos.chrom	3635	1516	2116	7220	648	612	/system.slice/ls-hubd.service	/var/palm/jail/com.webos.chromecast/media/system/apps/usr/palm/services/com.webos.chromecast.cell/com.webos.chromecast.cell	/media/system/apps/usr/palm/services/com.webos.chromecast.cell/com.webos.chromecast.cell
+9325	9012	R	python3	3598	1972	1626	4260	0	0	/system.slice/ls-hubd.service	/usr/bin/python3.10	python3 /tmp/memsnap.py /tmp/memsnap/after
+3326	3207	S	mojodb-luna	3258	3100	158	5932	464	560	/system.slice/db8-epgdb.service	/usr/sbin/mojodb-luna	/usr/sbin/mojodb-luna -c /etc/palm/db8/epgdb.conf
+8594	8495	S	WebAppMgr	3043	868	2174	13860	6640	6604	/system.slice/webapp-mgr.service	/usr/bin/WebAppMgr	/usr/bin/WebAppMgr --type=zygote --disable-in-process-stack-traces --no-sandbox --disable-quic --use-viz-fmp-with-timeout=0 --js-flags=     --configure_heap_det
+3294	1	S	mojodb-luna	2803	2648	155	5476	924	1124	/system.slice/db8-accountdb.service	/usr/sbin/mojodb-luna	/usr/sbin/mojodb-luna -c /etc/palm/db8/accountdb.conf
+2215	1	S	audiooutputd	2662	1832	830	4016	2668	2656	/system.slice/audiooutputd.service	/usr/sbin/audiooutputd	/usr/sbin/audiooutputd
+3907	1865	S	accountmanager	2526	1812	710	6960	1048	608	/system.slice/ls-hubd.service	/usr/sbin/accountmanager	/usr/sbin/accountmanager
+1912	1	S	configd	2472	2344	128	3464	576	540	/system.slice/configd.service	/usr/sbin/configd	/usr/sbin/configd
+4411	4401	S	webos-bluetooth	2341	1048	1292	4996	1200	1348	/system.slice/webos-bluetooth-service.service	/usr/sbin/webos-bluetooth-service	/usr/sbin/webos-bluetooth-service
+3796	1	S	physical-device	2212	1576	636	5956	2912	3124	/system.slice/physical-device-manager.service	/usr/sbin/physical-device-manager	/usr/sbin/physical-device-manager
+8785	1	S	activitymanager	2063	1632	431	4316	1988	1952	/system.slice/activitymanager.service	/usr/sbin/activitymanager	/usr/sbin/activitymanager -c {"log":{"appender":{"type":"syslog"},"levels":{"default":"notice"}}}
+4645	1865	S	update	1930	1256	671	7220	2632	2132	/system.slice/ls-hubd.service	/usr/sbin/update	/usr/sbin/update
+1982	1	S	pulseaudio	1866	1104	762	2912	932	948	/system.slice/pulseaudio.service	/usr/bin/pulseaudio	/usr/bin/pulseaudio --log-target=syslog --log-level=debug --system=1 --resample-method=palm
+1929	1	S	tvpowerd	1863	1400	462	3072	428	460	/system.slice/tvpowerd.service	/usr/sbin/tvpowerd	/usr/sbin/tvpowerd
+9142	1865	S	ssg-ssdp-manage	1834	332	1502	8936	5784	5912	/system.slice/ls-hubd.service	/usr/bin/node	ssg-ssdp-manager
+2945	1	S	panelcontroller	1785	1224	556	4968	1016	1460	/system.slice/panelcontroller.service	/usr/sbin/panelcontroller	/usr/sbin/panelcontroller
+7958	1	S	lumatv-helper	1700	596	1104	1708	16	16	/system.slice/ls-hubd.service	/var/lib/lumatv/bin/lumatv-helper	/var/lib/lumatv/bin/lumatv-helper start --brand /media/developer/apps/usr/palm/applications/org.nphil.lumatv/brand.json
+1954	1	S	kadpd	1683	1424	258	2144	828	836	/system.slice/kadpd.service	/usr/bin/kadpd	/usr/bin/kadpd
+4680	1	S	securitymanager	1641	1120	508	5428	2328	1856	/system.slice/securitymanager.service	/usr/sbin/securitymanager	/usr/sbin/securitymanager
+4184	1865	S	asm	1616	1048	568	4316	840	836	/system.slice/ls-hubd.service	/usr/sbin/asm	/usr/sbin/asm
+3186	1	S	LunaSysService	1592	952	638	6580	2776	2740	/system.slice/luna-sys-service.service	/usr/sbin/LunaSysService	/usr/sbin/LunaSysService
+3723	1	S	webos-connman-a	1568	956	612	5056	968	960	/system.slice/webos-connman-adapter.service	/usr/sbin/webos-connman-adapter	/usr/sbin/webos-connman-adapter
+2716	1	S	videooutputd	1557	964	593	3848	656	624	/system.slice/videooutputd.service	/usr/sbin/videooutputd	/usr/sbin/videooutputd
+4647	1	S	wowplay	1518	1228	290	3692	1108	1248	/system.slice/wowplay.service	/usr/sbin/wowplay	/usr/sbin/wowplay
+4426	1	S	homelaunchpoint	1474	1268	206	3872	648	640	/system.slice/homelaunchpoints.service	/usr/sbin/homelaunchpoints	/usr/sbin/homelaunchpoints
+6757	6756	S	nginx	1472	284	1184	1484	336	336	/system.slice/ls-hubd.service	/media/developer/apps/usr/palm/applications/com.amazoff.patcher/tools/nginx/nginx	nginx: worker process
+28830	28773	S	iotjs	1464	836	627	3472	180	164	/system.slice/ls-hubd.service	/usr/bin/iotjs	/usr/bin/iotjs /usr/palm/services/com.webos.service.familycare/index.js --disable-timeouts
+2713	1	S	umediaserver	1449	916	533	4024	564	540	/system.slice/umediaserver.service	/usr/sbin/umediaserver	/usr/sbin/umediaserver --conf /etc/umediaserver/umediaserver_resource_config.txt
+1935	1	S	bootd	1434	1304	129	2632	512	476	/system.slice/bootd.service	/usr/sbin/bootd	/usr/sbin/bootd
+5451	1865	S	captureservice	1373	964	407	4192	292	256	/system.slice/ls-hubd.service	/usr/sbin/captureservice	/usr/sbin/captureservice
+1994	1954	S	gal_renderd	1344	964	377	4928	3964	3940	/system.slice/kadpd.service	/usr/bin/gal_renderd	/usr/bin/gal_renderd
+3696	1	S	tv-reservation-	1293	884	408	3716	652	684	/system.slice/tv-reservation-agent.service	/usr/sbin/tv-reservation-agent	/usr/sbin/tv-reservation-agent
+1923	1	S	memchute	1251	764	487	2564	616	580	/system.slice/memchute.service	/usr/sbin/memchute	/usr/sbin/memchute
+2939	1	S	servicemanager	1206	920	286	3180	156	120	/system.slice/servicemanager.service	/usr/sbin/servicemanager	/usr/sbin/servicemanager
+4289	1	S	lginput2	1200	732	468	5252	2076	2160	/system.slice/lginput2.service	/usr/sbin/lginput2	/usr/sbin/lginput2
+4674	1	S	multiviewcontro	1189	932	257	3380	600	620	/system.slice/multiviewcontroller.service	/usr/sbin/multiviewcontroller	/usr/sbin/multiviewcontroller --conf /etc/multiviewcontroller/multiviewcontroller_config.json
+26320	2713	S	starfish-media-	1177	328	849	8224	4116	4100	/system.slice/umediaserver.service	/usr/sbin/starfish-media-pipeline	/usr/sbin/starfish-media-pipeline pipeline_process -scom.webos.pipeline._LLCx3q1vSDE6im -ccom.webos.pipelinectrl._LLCx3q1vSDE6im -a -r1
+1931	1	S	tvrm	1175	860	315	2264	308	312	/system.slice/tvrm.service	/usr/sbin/tvrm	/usr/sbin/tvrm
+3685	1	S	screenmanager	1036	884	152	3240	464	576	/system.slice/screenmanager.service	/usr/sbin/screenmanager	/usr/sbin/screenmanager
+3234	1	S	mojodb-luna	993	840	153	3696	948	1168	/system.slice/db8-tempdb.service	/usr/sbin/mojodb-luna	/usr/sbin/mojodb-luna -c /etc/palm/db8/tempdb.conf
+3665	1	S	emmcd	947	764	179	3648	620	632	/system.slice/emmcd.service	/usr/sbin/emmcd	/usr/sbin/emmcd
+4333	1865	S	eula-service	936	720	216	3652	568	548	/system.slice/ls-hubd.service	/usr/sbin/eula-service	/usr/sbin/eula-service
+11101	1	S	ocpservice	928	688	240	3888	1300	1316	/system.slice/ocp.service	/usr/sbin/ocpservice	/usr/sbin/ocpservice
+2941	1	S	factorymanager	923	704	218	3948	1824	1788	/system.slice/factorymanager.service	/usr/sbin/factorymanager	/usr/sbin/factorymanager
+8809	1	S	alwaysready	907	740	166	3308	564	552	/system.slice/alwaysready.service	/usr/sbin/alwaysready	/usr/sbin/alwaysready
+4669	1	S	dmost	903	720	183	3100	300	264	/system.slice/dmost.service	/usr/sbin/dmost	/usr/sbin/dmost
+4964	1865	S	com.webos.servi	884	524	360	3020	420	496	/system.slice/ls-hubd.service	/usr/sbin/com.webos.service.camera2	/usr/sbin/com.webos.service.camera2
+3710	1	S	btaudiosrc	861	580	281	4560	2032	2008	/system.slice/btaudiosrc.service	/usr/sbin/btaudiosrc	/usr/sbin/btaudiosrc
+3317	1	S	mojodb-luna	854	692	161	3560	1240	1652	/system.slice/db8-mediadb.service	/usr/sbin/mojodb-luna	/usr/sbin/mojodb-luna -c /etc/palm/db8/mediadb.conf
+1862	1	S	lowlevelstorage	825	612	212	1704	1796	1760	/system.slice/lowlevelstorage.service	/usr/sbin/lowlevelstorage	/usr/sbin/lowlevelstorage
+6519	1865	S	browser-service	795	552	243	3948	660	632	/system.slice/ls-hubd.service	/usr/sbin/browser-service	/usr/sbin/browser-service
+3664	1	S	arccontroller	736	492	243	2844	192	156	/system.slice/arccontroller.service	/usr/sbin/arccontroller	/usr/sbin/arccontroller
+4264	1	S	bthidmanager	719	504	215	3888	1620	1784	/system.slice/bthidmanager.service	/usr/sbin/bthidmanager	/usr/sbin/bthidmanager
+4501	1	S	btaudiosnk	698	384	313	5336	2920	2916	/system.slice/btaudiosnk.service	/usr/sbin/btaudiosnk	/usr/sbin/btaudiosnk
+1945	1	S	PmLogDaemon	692	604	88	1472	816	796	/system.slice/pm-log-daemon.service	/usr/sbin/PmLogDaemon	/usr/sbin/PmLogDaemon -z -f 6 -m
+3276	3167	S	bam	692	616	76	2660	264	300	/system.slice/bam.service	/usr/sbin/bam	/usr/sbin/bam ATSC
+3722	1	S	connmand	681	308	373	2380	788	772	/system.slice/connman.service	/usr/sbin/connmand	/usr/sbin/connmand -n --nobacktrace --noplugin=bluetooth,bluetooth_legacy
+2944	1	S	micomservice	663	440	221	4076	1712	1676	/system.slice/micomservice.service	/usr/sbin/micomservice	/usr/sbin/micomservice
+11102	1	S	webos-preload-m	657	540	116	2764	260	224	/system.slice/preload-manager.service	/usr/bin/webos-preload-manager	/usr/bin/webos-preload-manager
+4303	1	S	asc	655	464	190	2752	248	212	/system.slice/asc.service	/usr/sbin/asc	/usr/sbin/asc
+2948	1	S	sleepd	625	424	201	3008	372	336	/system.slice/sleepd.service	/usr/sbin/sleepd	/usr/sbin/sleepd
+4650	1	S	avahi-daemon	621	438	183	1488	152	152	/system.slice/avahi-daemon.service	/usr/sbin/avahi-daemon	avahi-daemon: running [LGwebOSTV-lD06-1.local]
+1926	1	S	systemprofile	596	516	80	1524	448	456	/system.slice/systemprofile.service	/usr/sbin/systemprofile	/usr/sbin/systemprofile
+9725	1865	S	blegatt	591	428	162	2696	304	268	/system.slice/ls-hubd.service	/usr/sbin/blegatt	/usr/sbin/blegatt
+3693	1	S	systemd-udevd	575	320	255	1388	1072	1076	/system.slice/systemd-udevd.service	/bin/udevadm	/lib/systemd/systemd-udevd
+4809	1	S	ppm	570	472	97	2780	1956	1920	/system.slice/ppm.service	/usr/sbin/ppm	/usr/sbin/ppm
+3828	1865	S	irdbmanager	560	416	143	2684	456	540	/system.slice/ls-hubd.service	/usr/sbin/irdbmanager	/usr/sbin/irdbmanager
+5865	1865	S	color-info-mine	550	484	65	2616	240	244	/system.slice/ls-hubd.service	/usr/sbin/color-info-miner	/usr/sbin/color-info-miner
+4099	1865	S	ssc	544	400	143	3204	636	600	/system.slice/ls-hubd.service	/usr/sbin/ssc	/usr/sbin/ssc
+3676	1	S	nopd	528	388	140	2672	404	400	/system.slice/nopd.service	/usr/sbin/nopd	/usr/sbin/nopd
+9011	6658	S	dropbear	525	228	297	1228	0	0	/system.slice/ls-hubd.service	/media/developer/apps/usr/palm/services/org.webosbrew.hbchannel.service/bin/dropbear	/media/developer/apps/usr/palm/services/org.webosbrew.hbchannel.service/bin/dropbear -R -2 9
+1951	1	S	avmutemanager	518	404	114	1612	276	272	/system.slice/avmutemanager.service	/usr/sbin/avmutemanager	/usr/sbin/avmutemanager
+4657	1	S	chromecast-prov	515	340	175	2536	776	764	/system.slice/chromecast-provisioning.service	/usr/sbin/chromecast-provisioning	/usr/sbin/chromecast-provisioning
+4710	1	S	mdnsd	506	280	226	856	148	164	/system.slice/mdnsd.service	/usr/sbin/mdnsd	/usr/sbin/mdnsd
+1888	1	S	dbus-daemon	490	272	218	948	132	152	/system.slice/dbus.service	/usr/bin/dbus-daemon	/usr/bin/dbus-daemon --system
+11052	1	S	ai-inference-ma	489	340	148	2596	268	244	/system.slice/ai-inference-manager.service	/usr/sbin/ai-inference-manager	/usr/sbin/ai-inference-manager
+1911	1	S	broadcast-syste	468	360	108	1180	336	332	/system.slice/broadcast-systemui-manager.service	/usr/sbin/broadcast-systemui-manager	/usr/sbin/broadcast-systemui-manager
+3670	1	S	luna-packageman	468	304	163	2400	292	256	/system.slice/luna-packagemanager.service	/usr/sbin/luna-packagemanager	/usr/sbin/luna-packagemanager
+3666	1	S	fancontroller	467	364	103	2792	488	560	/system.slice/fancontroller.service	/usr/sbin/fancontroller	/usr/sbin/fancontroller
+11595	1865	S	cbox	460	268	192	2668	912	996	/system.slice/ls-hubd.service	/usr/sbin/cbox	/usr/sbin/cbox
+2653	1	S	devicereset	436	336	99	2824	572	540	/system.slice/devicereset.service	/usr/sbin/devicereset	/usr/sbin/devicereset
+9633	1865	S	blegattsoundbar	430	344	85	1856	332	388	/system.slice/ls-hubd.service	/usr/sbin/blegattsoundbar	/usr/sbin/blegattsoundbar
+3671	1	S	msc	405	308	97	2636	464	472	/system.slice/msc.service	/usr/sbin/msc	/usr/sbin/msc
+3166	1	S	activity-policy	377	288	89	2300	312	276	/system.slice/activity-policy-mgr.service	/usr/sbin/activity-policy-mgr	/usr/sbin/activity-policy-mgr
+3197	1	S	tvservicemock	347	288	59	2288	216	180	/system.slice/tvservicemock.service	/usr/sbin/tvservicemock	/usr/sbin/tvservicemock
+7943	1	S	lumatv	345	288	57	1084	144	144	/system.slice/ls-hubd.service	/bin/busybox.nosuid	/bin/sh /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv homestub-watch
+2646	1750	S	terminalmanager	340	274	66	1296	556	540	/system.slice/terminalmanager.service	/usr/sbin/terminalmanager	/usr/sbin/terminalmanager
+7247	1865	S	com.webos.chrom	323	236	87	2252	304	284	/system.slice/ls-hubd.service	/var/palm/jail/com.webos.chromecast/media/system/apps/usr/palm/services/com.webos.chromecast.log/com.webos.chromecast.log	/media/system/apps/usr/palm/services/com.webos.chromecast.log/com.webos.chromecast.log
+3039	1865	S	com.webos.servi	314	260	54	2204	240	204	/system.slice/ls-hubd.service	/usr/sbin/com.webos.service.iwc	/usr/sbin/com.webos.service.iwc
+7670	1865	S	loader_service	306	276	30	1696	248	216	/system.slice/ls-hubd.service	/media/developer/apps/usr/palm/services/org.webosbrew.hyperhdr.loader.service/loader_service	/media/developer/apps/usr/palm/services/org.webosbrew.hyperhdr.loader.service/loader_service
+7469	1865	S	network-input-s	277	160	116	3208	1636	1636	/system.slice/ls-hubd.service	/usr/sbin/network-input-service	/usr/sbin/network-input-service
+4658	1	S	com.webos.servi	272	228	44	2164	328	296	/system.slice/com.webos.service.microphone.service	/usr/sbin/com.webos.service.microphone	/usr/sbin/com.webos.service.microphone
+6220	1865	S	pkgverifier	230	128	101	2676	576	540	/system.slice/ls-hubd.service	/usr/sbin/pkgverifier	/usr/sbin/pkgverifier
+11085	1	S	nais	193	40	153	3968	2340	2304	/system.slice/nais.service	/usr/sbin/nais	/usr/sbin/nais
+4445	1	S	PmKLogDaemon	186	172	14	900	72	72	/system.slice/pm-klog-daemon.service	/usr/sbin/PmKLogDaemon	/usr/sbin/PmKLogDaemon -n -d 1
+4651	1	S	avahi-adaptor	185	40	145	1864	556	548	/system.slice/avahi-adaptor.service	/usr/sbin/avahi-adaptor	/usr/sbin/avahi-adaptor
+1871	1	S	xinetd	183	120	63	400	84	84	/system.slice/xinetd.service	/usr/sbin/xinetd	/usr/sbin/xinetd -dontfork -limit 30 -pidfile /var/run/xinetd.pid -stayalive -inetd_compat -inetd_ipv6
+9012	9011	S	sh	173	144	29	780	0	0	/system.slice/ls-hubd.service	/bin/busybox.nosuid	sh -c luna-send -n 1 luna://com.webos.service.tvpower/power/powerOff "{\"reason\":\"remoteKey\"}" </dev/null; sleep 75; luna-send -n 1 luna://com.webos.service.
+7964	7958	S	luna-send	172	136	36	1840	300	280	/system.slice/ls-hubd.service	/usr/bin/luna-send	/usr/bin/luna-send -n 1000000 luna://com.webos.service.tvpower/power/getPowerState {"subscribe":true}
+9326	9012	S	head	161	136	25	720	0	0	/system.slice/ls-hubd.service	/bin/busybox.nosuid	head -24
+28773	1865	S	run-iot-js-serv	159	120	39	1120	104	104	/system.slice/ls-hubd.service	/bin/busybox.nosuid	/bin/sh /usr/bin/run-iot-js-service /usr/palm/services/com.webos.service.familycare
+9271	10730	S	sleep	153	132	21	704	0	0	/system.slice/ls-hubd.service	/bin/busybox.nosuid	sleep 30
+9321	7434	S	sleep	153	132	21	704	0	0	/system.slice/ls-hubd.service	/bin/busybox.nosuid	sleep 3
+3718	1	S	wpa_supplicant	134	68	66	1308	408	408	/system.slice/wpa-supplicant.service	/usr/sbin/wpa_supplicant	/usr/sbin/wpa_supplicant -u -s
+3610	1	S	event-monitor	125	56	69	2252	552	516	/system.slice/event-monitor.service	/usr/sbin/event-monitor	/usr/sbin/event-monitor
+3266	1	S	ninfod	124	120	4	624	0	0	/system.slice/ninfod.service	/sbin/ninfod	/sbin/ninfod -d
+3268	1	S	rdisc	123	112	11	548	0	0	/system.slice/rdisc.service	/sbin/rdisc	/sbin/rdisc -f -t
+1814	1	S	audpera	120	120	0	124	868	868	/system.slice/firmware_audio.service	/usr/bin/audpera	audpera -d
+4431	1	S	pacrunner	112	76	36	1152	252	252	/system.slice/pacrunner.service	/usr/sbin/pacrunner	/usr/sbin/pacrunner -n
+1758	1	S	rmt-uta	111	76	33	324	192	204	/system.slice/rmt-uta.service	/usr/bin/rmt-uta	/usr/bin/rmt-uta
+10730	1	S	tvwebctl	108	80	28	736	72	72	/system.slice/ls-hubd.service	/bin/busybox.nosuid	/bin/sh /var/lib/tvweb/tvwebctl watch
+6658	1	S	dropbear	106	72	34	376	100	100	/system.slice/ls-hubd.service	/media/developer/apps/usr/palm/services/org.webosbrew.hbchannel.service/bin/dropbear	/media/developer/apps/usr/palm/services/org.webosbrew.hbchannel.service/bin/dropbear -R
+7434	1	S	50-padblock	98	80	18	292	76	76	/system.slice/ls-hubd.service	/bin/busybox.nosuid	/bin/sh /var/lib/webosbrew/init.d/50-padblock
+4843	1865	S	run-unified-ser	96	88	8	916	136	140	/system.slice/ls-hubd.service	/bin/busybox.nosuid	/bin/sh /usr/bin/run-unified-service-server
+7023	7014	S	sh	85	72	13	248	84	152	/system.slice/ls-hubd.service	/bin/busybox.nosuid	sh -c 
+    . "/media/developer/apps/usr/palm/applications/com.amazoff.patcher/tools/lib/common.sh"
+    . "/media/developer/apps/usr/palm/applications/com.amazof
+11154	11054	S	broadcast-conf-	42	8	33	2496	896	860	/system.slice/broadcast-conf-downloader.service	/usr/sbin/broadcast-conf-downloader	/usr/sbin/broadcast-conf-downloader paparoa
+7024	7022	S	tail	38	32	6	532	104	104	/system.slice/ls-hubd.service	/bin/busybox.nosuid	tail -n 0 -F /tmp/patcher/logs/access.log
+4733	4650	S	avahi-daemon	28	18	10	160	200	200	/system.slice/avahi-daemon.service	/usr/sbin/avahi-daemon	avahi-daemon: chroot helper
+3207	1	S	db8-epgdb.sh	14	4	10	544	192	192	/system.slice/db8-epgdb.service	/bin/busybox.nosuid	/bin/sh /etc/systemd/system/scripts/db8-epgdb.sh
+1750	1	S	terminalmanager	11	6	4	332	416	380	/system.slice/terminalmanager.service	/usr/sbin/terminalmanager	/usr/sbin/terminalmanager
+7014	1	S	sh	10	4	6	548	152	152	/system.slice/ls-hubd.service	/bin/busybox.nosuid	sh -c 
+    . "/media/developer/apps/usr/palm/applications/com.amazoff.patcher/tools/lib/common.sh"
+    . "/media/developer/apps/usr/palm/applications/com.amazof
+3167	1	S	bam.sh	9	4	5	512	140	140	/system.slice/bam.service	/bin/busybox.nosuid	/bin/sh /etc/systemd/system/scripts/bam.sh
+3191	1	S	nn-proxy.sh	9	4	5	504	140	140	/system.slice/nn-proxy.service	/bin/busybox.nosuid	/bin/sh /usr/bin/nn-proxy.sh
+4401	1	S	webos-bluetooth	9	4	5	508	140	140	/system.slice/webos-bluetooth-service.service	/bin/busybox.nosuid	/bin/sh /etc/systemd/system/scripts/webos-bluetooth-service.sh
+11054	1	S	broadcast-conf-	9	4	5	504	140	140	/system.slice/broadcast-conf-downloader.service	/bin/busybox.nosuid	/bin/sh /etc/systemd/system/scripts/broadcast-conf-downloader.sh
+1894	1	S	dbus-daemon	6	4	2	44	228	228	/system.slice/dbus.service	/usr/bin/dbus-daemon	/usr/bin/dbus-daemon --syslog --fork --print-pid 4 --print-address 6 --session
+7022	7014	S	sh	5	4	1	88	152	152	/system.slice/ls-hubd.service	/bin/busybox.nosuid	sh -c 
+    . "/media/developer/apps/usr/palm/applications/com.amazoff.patcher/tools/lib/common.sh"
+    . "/media/developer/apps/usr/palm/applications/com.amazof
+2501	1	S	criu.sh	4	4	0	16	140	140	/system.slice/criu.service	/bin/busybox.nosuid	/bin/sh /etc/systemd/system/scripts/criu.sh
+2509	2501	S	criu	4	4	0	16	212	212	/system.slice/criu.service	/usr/sbin/criu	/usr/sbin/criu service
+6756	1	S	nginx	4	4	0	8	316	316	/system.slice/ls-hubd.service	/media/developer/apps/usr/palm/applications/com.amazoff.patcher/tools/nginx/nginx	nginx: master process /media/developer/apps/usr/palm/applications/com.amazoff.patcher/tools/nginx/nginx -c /media/developer/apps/usr/palm/applications/com.amazo

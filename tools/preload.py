@@ -10,17 +10,21 @@ Runs on the set (python 3.10). Called by `lumatv preload`; the on-the-set facts 
 docs/research/surfaces-p2-result.md.
 
 The preload manager reads configd's com.webos.service.preloadmanager.supportAppList (one
-entry per app with isEnabled) when it starts and keeps those apps resident, YouTube at 135 MB,
-LG Channels at 100 MB and the browser at 72 MB. `payload` (payload/preload.json) names the
-apps to switch off. `on` saves the list as LG has it in `orig` (once; never overwritten, so a
-second run cannot save the changed list), writes the list back with those entries off, tells
-the running preload manager with setPreloadPolicy, and records the ids in `state`
-(`<dataDir>/preload.json`, which the helper reads at every screen-on: webOS 10 forgets the list
-at each switch-on and the preload manager loads the apps again). `off` puts the entries back
-as `orig` has them. `wake` sends setPreloadPolicy again. Nothing here closes an app: one that
-is loaded stays loaded, and it is not loaded again.
-
-Exit status: 0 done, 1 failed, 2 usage.
+entry per app with isEnabled) when it starts and at every switch-on, and loads as many enabled
+apps as memory allows: YouTube at 58 MB, Prime Video 70 MB, the browser 39 MB, LG Channels 12 MB
+(plus 21 MB swapped), and with room to spare LG's Live TV at 42 MB, the voice app at 39 MB and
+the HDMI input app of a connected port at 32 MB (set, 2026-10-25). `payload` (payload/preload.json)
+names the apps to switch off: everything but Netflix and the Home stub. `on` saves the list as LG
+has it in `orig` (once; never overwritten, so a second run cannot save the changed list), writes
+the list back with those entries off, tells the running preload manager with setPreloadPolicy,
+and records the ids in `state` (`<dataDir>/preload.json`, which the helper reads at every
+screen-on: webOS 10 forgets the list at each switch-on and the preload manager loads the apps
+again). setPreloadPolicy is answered only while the screen is on; in Active Standby the preload
+manager holds the call ("Pending-setPreloadPolicy") until the timeout, so `on` run then reports
+the ids as failed and the helper's next screen-on sends them. `off` puts the entries back as
+`orig` has them. `wake` sends setPreloadPolicy again. Nothing here closes an app: one that is
+loaded stays loaded, and it is not loaded again. The voice app ignores closeByAppId; it ends
+on SIGTERM and is not loaded again once the policy says so.
 """
 import json
 import os

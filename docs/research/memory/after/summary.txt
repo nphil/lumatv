@@ -1,0 +1,114 @@
+time 2026-10-25 11:19:19 EDT uptime 25838.90
+MemTotal        2030392 kB
+MemFree          164372 kB
+MemAvailable     732868 kB
+Buffers          140172 kB
+Cached           410964 kB
+SwapCached        30964 kB
+AnonPages        395064 kB
+Mapped           153496 kB
+Shmem              1856 kB
+SwapTotal        614396 kB
+SwapFree         312648 kB
+Slab             168224 kB
+SReclaimable      79988 kB
+SUnreclaim        88236 kB
+KernelStack       18168 kB
+PageTables        16696 kB
+Unevictable       10136 kB
+CmaTotal         692224 kB
+CmaFree          118616 kB
+VmallocUsed       48104 kB
+SwapUsed         301748 kB
+processes 155  pss_sum 548695 kB  swap_sum 260820 kB
+
+top 40 by PSS (kB): pid pss swap comm cmdline
+  9281  129123   14488 netflix                /media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {"@system_native_app":t
+  8184   70208   17328 surface-manager        /usr/bin/surface-manager -platform eglfs_webos
+  8495   40740    9460 WebAppMgr              /usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service 
+  3663   24017   50080 eim                    /usr/sbin/eim
+  4885   22312    6860 ss.apiadapter          ss.apiadapter
+ 10725   17097    2924 node                   /usr/bin/node /var/lib/tvweb/tvweb.js
+  2255   13756    6180 legacy-broadcas        /usr/sbin/legacy-broadcast-atsc
+  8840   13073    7120 WebAppMgr              /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapsh
+     1   12242    1028 systemd                /sbin/init portProtection criu_enabled AR_PWR_DET dynamic_partition cmdEnd
+  3436   11620    3908 SettingsService        /usr/sbin/SettingsService
+  8819    8542    7400 WebAppMgr              /usr/bin/WebAppMgr --type=utility --utility-sub-type=network.mojom.NetworkService --lang=e
+  2885    8179      36 utp-atsc               /usr/sbin/utp-atsc
+ 24855    7862     920 sdx                    /usr/sbin/sdx
+  3224    6822    3192 nn-proxy               /usr/bin/nn-proxy
+  1865    6349    1500 ls-hubd                /usr/sbin/ls-hubd --conf /etc/luna-service2/ls-hubd.conf
+  3349    5847    8504 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/maindb.conf
+  2218    5491    2000 audiod                 /usr/sbin/audiod -d
+  5912    5124    7316 org.webosbrew.h        org.webosbrew.hbchannel.service
+  8893    4994    1072 extinput-integr        /usr/sbin/extinput-integration
+ 10102    4882    2060 iot-client             /usr/palm/services/com.webos.service.iotclient/iot-client
+  2690    4839    2620 pqcontroller           /usr/sbin/pqcontroller
+  4424    4836     616 eplmanager             /usr/sbin/eplmanager
+  3406    4656     804 keymanager3            /usr/sbin/keymanager3
+  2500    4443     488 sam                    /usr/sbin/sam
+  3584    4059    1600 iepg                   /usr/sbin/iepg
+  7039    3635     648 com.webos.chrom        /media/system/apps/usr/palm/services/com.webos.chromecast.cell/com.webos.chromecast.cell
+  9325    3598       0 python3                python3 /tmp/memsnap.py /tmp/memsnap/after
+  3326    3258     464 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/epgdb.conf
+  8594    3043    6640 WebAppMgr              /usr/bin/WebAppMgr --type=zygote --disable-in-process-stack-traces --no-sandbox --disable-
+  3294    2803     924 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/accountdb.conf
+  2215    2662    2668 audiooutputd           /usr/sbin/audiooutputd
+  3907    2526    1048 accountmanager         /usr/sbin/accountmanager
+  1912    2472     576 configd                /usr/sbin/configd
+  4411    2341    1200 webos-bluetooth        /usr/sbin/webos-bluetooth-service
+  3796    2212    2912 physical-device        /usr/sbin/physical-device-manager
+  8785    2063    1988 activitymanager        /usr/sbin/activitymanager -c {"log":{"appender":{"type":"syslog"},"levels":{"default":"not
+  4645    1930    2632 update                 /usr/sbin/update
+  1982    1866     932 pulseaudio             /usr/bin/pulseaudio --log-target=syslog --log-level=debug --system=1 --resample-method=pal
+  1929    1863     428 tvpowerd               /usr/sbin/tvpowerd
+  9142    1834    5784 ssg-ssdp-manage        ssg-ssdp-manager
+
+top 25 by swap (kB): pid swap pss comm
+  3663   50080   24017 eim                    /usr/sbin/eim
+  8184   17328   70208 surface-manager        /usr/bin/surface-manager -platform eglfs_webos
+  9281   14488  129123 netflix                /media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {"@
+  8495    9460   40740 WebAppMgr              /usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drm
+  3349    8504    5847 mojodb-luna            /usr/sbin/mojodb-luna -c /etc/palm/db8/maindb.conf
+  8819    7400    8542 WebAppMgr              /usr/bin/WebAppMgr --type=utility --utility-sub-type=network.mojom.Net
+  5912    7316    5124 org.webosbrew.h        org.webosbrew.hbchannel.service
+  8840    7120   13073 WebAppMgr              /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-t
+  4885    6860   22312 ss.apiadapter          ss.apiadapter
+  8594    6640    3043 WebAppMgr              /usr/bin/WebAppMgr --type=zygote --disable-in-process-stack-traces --n
+  2255    6180   13756 legacy-broadcas        /usr/sbin/legacy-broadcast-atsc
+  9142    5784    1834 ssg-ssdp-manage        ssg-ssdp-manager
+ 26320    4116    1177 starfish-media-        /usr/sbin/starfish-media-pipeline pipeline_process -scom.webos.pipelin
+  1994    3964    1344 gal_renderd            /usr/bin/gal_renderd
+  3436    3908   11620 SettingsService        /usr/sbin/SettingsService
+  3224    3192    6822 nn-proxy               /usr/bin/nn-proxy
+ 10725    2924   17097 node                   /usr/bin/node /var/lib/tvweb/tvweb.js
+  4501    2920     698 btaudiosnk             /usr/sbin/btaudiosnk
+  3796    2912    2212 physical-device        /usr/sbin/physical-device-manager
+  3186    2776    1592 LunaSysService         /usr/sbin/LunaSysService
+  2215    2668    2662 audiooutputd           /usr/sbin/audiooutputd
+  4645    2632    1930 update                 /usr/sbin/update
+  2690    2620    4839 pqcontroller           /usr/sbin/pqcontroller
+ 11085    2340     193 nais                   /usr/sbin/nais
+  4680    2328    1641 securitymanager        /usr/sbin/securitymanager
+
+top 20 slab caches (kB): size cache objs objsize
+  27524 kmalloc-4k                      6881  4096
+  15989 ext4_inode_cache               15623  1048
+  15060 dentry                         80325   192
+  10942 squashfs_inode_cache           15916   704
+   9070 radix_tree_node                15904   584
+   7700 kmalloc-128                    61600   128
+   7430 inode_cache                    12852   592
+   6563 ovl_inode                      10002   672
+   5558 vm_area_struct                 30932   184
+   4780 buffer_head                    47073   104
+   4708 task_struct                     1395  3456
+   4590 kernfs_node_cache              34560   136
+   4575 proc_inode_cache                7056   664
+   3664 signal_cache                    3664  1024
+   3398 mnt_cache                      10875   320
+   3348 filp                           13392   256
+   2794 sock_inode_cache                3439   832
+   2304 kmalloc-2k                      1152  2048
+   1572 biovec-max                       393  4096
+   1456 kmalloc-1k                      1456  1024
