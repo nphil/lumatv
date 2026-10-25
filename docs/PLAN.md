@@ -32,11 +32,16 @@ Kept current with every change to this plan. Building is under way (Nitin said g
   started, staged and stopped by `tools/lumatv` (`lumatv helper`); the preload
   trim (`lumatv preload on|off`); the power-on and power-off logo windows
   (`lumatv logo on|off`) with three options each (`docs/mocks/logo`); the registry
-  of every switch and its way back (`lumatv surfaces`); the first step of the
-  notification view, LG's own tree patched on the set (`lumatv notifications
-  on|off`, `tools/notification_patch.py`). On the set so far: the warm-up and the
-  Home gate (slot 1). The helper wiring, the preload trim, the logos and the
-  notification view wait for slot 2.
+  of every switch and its way back (`lumatv surfaces`); the notification view,
+  LG's own tree staged and patched on the set with LumaTV's own toast laid over
+  it (`lumatv notifications on|off`, `tools/notification_patch.py`,
+  `payload/notification`), seen offline through LG's real view
+  (`tests/qmlhost/notify.py`); LumaTV's Settings as a layer of Home, from the
+  gear: the shell, the Home & look page and the AI access page (`Settings.qml`,
+  `settings/`), with the AI prompt (`AiPrompt.qml`) over Home, all run offline
+  against a fake helper. On the set so far: the warm-up and the Home gate
+  (slot 1). The helper wiring, the preload trim, the logos, the notification view
+  and Settings wait for slot 2 or later.
 - Done outside the surfaces: the native helper (`helper/`): the API, settings,
   feeds and receiver proven on the set (35 of 35 checks) and the AI-access (MCP)
   server too (42 of 42, two checks that touch the TV and the receiver skipped by
@@ -610,10 +615,14 @@ widen or approve its own access.
 Status: the server side is built in the helper and proven on the set (42 of 42
 checks, `docs/research/native-helper-result.md`): off by default, no listener
 before the physical OK, the pairing code shown only after it, an OK from the
-network key device refused, 13 typed tools, a denial pausing the assistant. Not
-built: the TV's prompt and the Settings › AI access page, which read the helper's
-`ai` and `ai.prompt` topics (phase 3), and the settings flow behind the physical
-remote that switches a plugin on (`plugins/enabled.json`).
+network key device refused, 13 typed tools, a denial pausing the assistant. The
+TV's side is built offline against a fake helper that models the `/v1/ai` routes:
+the AI access page in Settings (switch, pairing, assistants, what each may do,
+recent activity, lock-out) and the prompt (`AiPrompt.qml`, over Home only for now:
+over an app it needs the notification view or a window of its own), which draws
+`ai.prompt`, swallows the direction, OK and Back keys and answers nothing. Not run
+on the set yet. Not built: the settings flow behind the physical remote that
+switches a plugin on (`plugins/enabled.json`).
 
 ## Compositor startup
 
@@ -861,11 +870,21 @@ above replaces it).
    the registry of every switch and its way back (`lumatv surfaces`: one entry per
    switch, `on` read from the flag or state the switch's own verb uses, and the
    call that returns LG's version).
-2. Notifications: toasts, alerts, PIN prompt, input popups. First step built:
-   LG's view patched (Manrope, the toast's colours, DropShadow layers off) and
-   pointed at through `changeSystemUIView`; gated against LG's own toast and
-   alert (`gate.py --surfaces toast,alert`) before the visuals are rebuilt.
+2. Notifications: toasts, alerts, PIN prompt, input popups. Built offline: LG's
+   view staged and patched on the set (Manrope, the palette, the accent for LG's
+   red, the alert centred, DropShadow layers off) with LumaTV's own toast at the
+   top right, pointed at through `changeSystemUIView`; the toast and alert are
+   gated against LG's own (`gate.py --surfaces toast,alert`) on the set. Open:
+   the input popup in the mock's look (`docs/mocks/18-device-connected`), a title
+   and an app icon on the alert, the PIN prompt (a security screen: tested with
+   Nitin present).
 3. Quick panel, Settings, and AI access (MCP server, permissions, prompt).
+   Settings is a layer of Home from the gear with two pages so far (Home & look,
+   AI access) and a last row that opens LG's Settings; Picture, Sound, Inputs,
+   Network, Ambient light, Remote & pointer and System (mocks 01-03, 24, 30) are
+   next, each a page of the same shell. Hosting it as its own window, so that it
+   opens over apps and under LumaTV's compositor, is open (a system-UI entry
+   through configd, as Quick Settings is).
 4. Input picker, the receiver-fed volume and mute OSD, and ambient light.
 5. Launch splash, spinners, context menu, on-screen remote. The boot and
    power-off logos are done (windows for LG's `BootLogo` and `MasterBrand`, three

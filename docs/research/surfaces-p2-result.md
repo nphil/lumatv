@@ -6,23 +6,24 @@ Plan: `docs/PLAN.md` (Rules every surface meets, Phases). Previous owner's notes
 
 ## Resume here
 
-State at 2026-10-25 05:55 EDT (SurfacesP2c, the restart after the credit cut-off). Milestones 1-5 are built, tested offline and
-pushed; what the set has run so far is the warm-up A/B and the Home part of the gate (slot 1). Slot 2 is with Main: first the
-Netflix debug agent has the set until 07:00, then this note's agent gets 55 minutes ("likely tomorrow morning or later today with
-Nitin's OK"). Until then the work is offline.
+State at 2026-10-25 06:30 EDT (SurfacesP2c, the restart after the credit cut-off). Milestones 1-6 are built in part, tested offline
+and pushed; what the set has run so far is the warm-up A/B and the Home part of the gate (slot 1). Slot 2 is booked 06:55-07:45 after
+CompositorC2c (Main: "go SurfacesP2c"); skip the startup A/B and the reboot if time is short.
 
-Slot 2, in this order (a HEAD ipk is built: `sh tools/build-ipk.sh`; Main agreed to the reboot at the end; after every compositor
-restart check `webapp-mgr` is active and LumaHome is in front, recovery in the HANDOFF; the end state is Active Standby, receiver
-unmuted, preload trim and logo option 1 ON if they pass):
+Slot 2 (the ipk is `/tmp/sp2c-slot2.ipk`, built from a clean `git archive` of `3f8cd14` so none of the unfinished work goes with it:
+`sh tools/build-ipk.sh` in an extracted archive with `helper/dist/lumatv-helper` copied in; it carries the SAM fix). Before the old
+tool runs on the set, `ls /var/lib/lumatv/tile-backup | wc -l` must be 0 (the installed tool restarts SAM when it restores a
+tile icon): install the new ipk first, so the old tool never runs. After every compositor restart check `webapp-mgr` is active and
+LumaHome is in front (recovery in the HANDOFF). End state: Active Standby, receiver unmuted, preload trim and logo option 1 ON if
+they pass. Helpers for it are in `/tmp/sp2c/slot.py` (outside the repo: preflight, install, health, the logo capture).
 
-1. Install the ipk, `lumatv apply`, `lumatv helper status`, `lumatv surfaces`; Home's weather and news must come from the helper.
-2. `startup.py --runs 2 --sweep-at 2,4` (warm-up off/on against a key pressed while the warm-up still runs; slot 1 measured 10 s).
-3. `gate.py --surfaces quick-settings,kit-gallery`, then `--surfaces toast,alert` with LG's own views, `lumatv notifications on`,
-   the same again (the baseline the patched ones must beat; `lumatv notifications on|off` is the switch), then look at both with a
-   capture (`luna://com.webos.notification/createToast` and `createAlert`, see `kb.py`'s `LUNA`).
-4. `preload_ab.py --rounds 4` (keep `lumatv preload on` if the Home-return gaps are no worse and memory is better).
-5. Logos: `lumatv logo on`; one screen power-off for `MasterBrand` (capture loop on the set, then `powerOn` + `turnOnScreen`);
-   a plain `reboot` last for `BootLogo` and the whole boot path of this build (persisted hook, helper start).
+1. Preflight, install the ipk, `lumatv apply`, `lumatv helper status`, `lumatv surfaces`; Home's weather and news from the helper.
+2. `gate.py --surfaces quick-settings,kit-gallery`, then `--surfaces toast,alert` with LG's own views, `lumatv notifications on`,
+   the same again, then `notifications off` unless Main wants it kept.
+3. `preload_ab.py --rounds 4` (keep `lumatv preload on` if the Home-return gaps are no worse and memory is better).
+4. Logos: `lumatv logo on`; one power-off through `tvpower/power/powerOff {"reason":"remoteKey"}` with a capture loop running (the
+   MasterBrand window, about 3 s), which leaves the set in Active Standby. BootLogo needs a cold boot: only with time to spare.
+5. If time is left: `startup.py --runs 2 --sweep-at 2,4`.
 
 Order of the milestones (changed 2026-10-25 02:27 by the owner: the boot and power-off logos move up to follow milestone 3):
 
@@ -33,11 +34,14 @@ Order of the milestones (changed 2026-10-25 02:27 by the owner: the boot and pow
    `kit/Helper.qml`); the set has not run it yet.
 4. Boot and power-off logos. Three options of each rendered to `docs/mocks/logo`; the windows for LG's `BootLogo` and
    `MasterBrand` are built (`lumatv logo on|off|status`); the set has not run them yet.
-5. Toasts, alerts, input popups, PIN prompt. Built offline for the toast and the alert (Log, 05:55); the set has not run them.
+5. Toasts, alerts, input popups, PIN prompt. Built offline for the toast and the alert (Log); the set has not run them.
    Not done: the input popup in the mock's look (`18-device-connected`: its LG cards are angled and cost a live clip each),
    a title and an app icon on the alert, and the PIN prompt (kept LG's black full-screen layout: it is a security screen and
    its test needs Nitin).
-6. Quick panel, Settings, Remote and pointer page, AI access. Not started.
+6. Quick panel, Settings, Remote and pointer page, AI access. Built offline: Settings as a layer of Home (rail, page, the gear's
+   popover has "All settings"), the Home & look and AI access pages, the AI prompt over Home, all against a fake helper. Not
+   started: the Picture, Sound, Inputs, Network, Ambient light, Remote & pointer and System pages, the Quick panel redesign, and a
+   window of its own so that Settings and the prompt open over apps.
 7. Input picker, receiver-fed volume and mute OSD, receiver page and tile. Not started.
 8. Launch splash, spinners, context menu, on-screen remote. Not started.
 9. Live TV banner, keyboard, search and voice bar, shared web-app theme. Not started.
@@ -174,3 +178,31 @@ the `WebOSServices` models, so the stand-in for luna answers those replies and e
   rebuild for the mock's card with two buttons and a countdown line (`docs/mocks/18-device-connected`), the preview cannot show LG's
   native angled shapes (they are stubs here), and the alert has no title or app icon (LG shows the title only for full alerts).
   None of it has run on the set: `lumatv notifications on` and the toast/alert gate wait for slot 2.
+
+### Offline, 2026-10-25 05:55-06:30: the SAM fix, Settings, the AI page and the prompt
+
+Main's safety fix first: `revert_tile_icons` restarted `sam.service` and `homelaunchpoints.service` whenever it put back an icon edit
+of an older version (and `apply` calls it every time). It now logs and restarts nothing, and `tests/test_tool_rules.py` fails if any
+shell tool restarts, stops or kills SAM. The tool installed on the set still has the old code: it restarts SAM only if
+`/var/lib/lumatv/tile-backup` holds files (`tileicons.js revert` deletes each backup it restores).
+
+Settings (`Settings.qml`, `settings/`) is a modal layer of Home, built on the first open and kept; Home passes the D-pad as
+`key(dir)` and `closeRequested` closes it; a page asks the host through `themePatch`, `themePersist` and `launchApp`, so it owns no
+file. Home's widgets, dock and bar fade out behind it (the wallpaper settings popover's `previewMode`). Pages: Home & look (dynamic
+tint = `accent: "wallpaper"`, appearance = `material`, clock style, wallpaper motion; the rows `LuRow` with `LuToggle` or
+`LuSegmented`) and AI access. The rail lists only pages that exist and ends with the way to LG's Settings.
+
+AI access (`settings/PageAi.qml`) follows the helper's `ai` topic: the listener switch, pairing, each assistant (pause or resume,
+remove with a second press), what the chosen assistant may do (four groups, Always, Ask on TV, Never, the whole levels object sent),
+recent activity from `/v1/ai/audit`, lock-out (second press). It can ask for anything and give less at once; whatever gives more
+returns 202 and a prompt opens. `AiPrompt.qml` draws `ai.prompt` and Home returns before any handling of the direction, OK and
+Back keys while it is up; the Home key still works. It shows over Home only: over an app it needs the notification view or a
+window of its own.
+
+Checked here: 12 tests in `tests/test_settings.py` through the offline host with a fake helper that models `/v1/ai` (a request for
+more opens a prompt that only the test's own `/__approve` answers, as only the physical remote does): the switch writes the theme and
+the user's file; the keys never reach Home behind Settings; turning it on only asks and an open prompt swallows every key; off is
+sent at once; remove and lock-out need a second press; a lower level is sent whole and a higher one only asks; approving turns it on
+and the page follows. The full offline suite is 126 tests plus the 36 of the JavaScript side, all passing. The host also now parks
+the pointer in the corner (Xvfb's mid-screen pointer hovered a row and moved the test's focus) and lets XHR write local files as
+Qt 5.12 on the set does.

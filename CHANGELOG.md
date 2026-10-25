@@ -145,6 +145,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the flag or state its own verb uses, and the way back to LG's version.
 - The gate has entries for LG's own toast and alert (`gate.py --surfaces
   toast,alert`), opened by a luna call, as the baseline the rebuilt ones must beat.
+- The notification view's toast is LumaTV's own (`payload/notification/Toast.qml`, laid over LG's
+  tree when `notifications on` stages it): a glass pill at the top right under the status bar with
+  an icon tile, a title over a dimmer subtitle, and an accent link, where LG draws a grey bar at the
+  bottom. The alert is LG's, centred over the palette's scrim and in the palette's colours, its buttons
+  a lighter glass with a light edge when focused; LG's red focus colour is the accent.
+- LumaTV's Settings (`Settings.qml`, `settings/`) is a layer of Home, opened from the gear's popover
+  ("All settings"), with Home's widgets and bar stepping aside while it is up. A rail of sections, each
+  with a line on its current value, and a page: Home & look (dynamic tint, appearance, clock, wallpaper
+  motion: the theme's own knobs, written to the user's `theme.json`) and AI access (listener, pairing,
+  assistants, what each may do, recent activity, lock-out). The last rail row opens LG's Settings app.
+- The AI prompt (`AiPrompt.qml`) draws the helper's `ai.prompt` over Home and keeps the remote's
+  direction, OK and Back keys from everything behind it. It has no button and calls nothing: the helper
+  reads the answer from the physical remote's input device itself. The AI page only ever asks; whatever
+  gives an assistant more waits for that answer, and giving less (off, pause, remove, a lower level,
+  lock-out) is done at once.
+- `kit/Helper.qml` follows the `ai` and `ai.prompt` topics, sends DELETE with the same headers as POST
+  and returns the document of 202 and 409 answers.
+- The offline host's fake helper models the `/v1/ai` routes (a prompt opens for what gives more and is
+  answered only through the test's own door), and the host parks the pointer in the corner, so a
+  hover cannot move a test's focus.
+- `lumatv revert` and `apply` no longer restart SAM or `homelaunchpoints` when they put back the icon
+  edits of an older version: the files are restored and the launcher reads them at its next start.
+  SAM is never restarted; a test fails if any shell tool in `tools/` restarts, stops or kills it.
 - Wallpaper tint: LumaHome samples the wallpaper at 32x18, cuts each channel
   into 8 levels, skips near-black pixels and takes the most common bin; a
   newer wallpaper cancels a sample still running. The result is kept in
