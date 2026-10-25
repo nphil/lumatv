@@ -368,3 +368,49 @@ delegate_noop!(ClientState: ignore WlWebosForeign);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroupCompositor);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroup);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroupLayer);
+
+// --- Allocation counting on the server thread (the pattern of LumaShow's alloc_tests) ---
+
+thread_local! {
+    static ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+static ALLOCATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct Counting;
+
+fn count() {
+    if ARMED.with(std::cell::Cell::get) {
+        ALLOCATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+// SAFETY: every call is forwarded to the system allocator unchanged.
+unsafe impl std::alloc::GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        count();
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        count();
+        unsafe { std::alloc::System.alloc_zeroed(layout) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+        count();
+        unsafe { std::alloc::System.realloc(ptr, layout, new_size) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Counting = Counting;
+
+/// Runs `f` with the calling thread's allocations counted.
+pub fn counted(f: impl FnOnce()) -> usize {
+    ALLOCATIONS.store(0, std::sync::atomic::Ordering::Relaxed);
+    ARMED.with(|a| a.set(true));
+    f();
+    ARMED.with(|a| a.set(false));
+    ALLOCATIONS.load(std::sync::atomic::Ordering::Relaxed)
+}

@@ -241,16 +241,17 @@ impl State {
     /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases.
     pub fn tick(&mut self) -> Presented {
         self.stats.ticks += 1;
-        let plan = self.scene.plan(&self.surfaces);
+        let State { scene, surfaces, output, stats, .. } = self;
+        let plan = scene.plan(surfaces);
         let mut drew = false;
         if !plan.damage.is_empty() {
-            match self.output.render(&plan, &self.surfaces) {
+            match output.render(plan, surfaces) {
                 Ok(st) => {
-                    drew = st.drawn > 0 || !plan.items.is_empty() || plan.damage.w > 0;
-                    self.stats.render_us_last = st.render_us;
-                    self.stats.render_us_max = self.stats.render_us_max.max(st.render_us);
-                    self.stats.skipped_items += st.skipped as u64;
-                    self.stats.gl_errors = st.gl_errors;
+                    drew = true;
+                    stats.render_us_last = st.render_us;
+                    stats.render_us_max = stats.render_us_max.max(st.render_us);
+                    stats.skipped_items += st.skipped as u64;
+                    stats.gl_errors = st.gl_errors;
                 }
                 Err(e) => log::error!("render: {e}"),
             }
@@ -264,7 +265,7 @@ impl State {
         };
         if drew {
             self.stats.frames_drawn += 1;
-            self.after_drawn_frame(&plan);
+            self.after_drawn_frame();
         }
         for cb in self.surfaces.take_frame_callbacks() {
             cb.done(presented.at_ms);
@@ -289,7 +290,7 @@ impl State {
         presented
     }
 
-    fn after_drawn_frame(&mut self, plan: &crate::scene::Plan) {
+    fn after_drawn_frame(&mut self) {
         let want_capture = self.config.capture_dir.is_some() && self.stats.frames_drawn % self.config.capture_every == 0;
         if !want_capture && self.config.check == Check::None {
             return;
@@ -305,12 +306,13 @@ impl State {
         if self.config.check == Check::X2 {
             let k = self.check.next_frame;
             let expected = capture::x2_colour(k);
-            let probe = plan.items.first().map(|i| (i.rect.x.max(0) as u32, i.rect.y.max(0) as u32, i.rect.w as u32, i.rect.h as u32)).unwrap_or((
-                0,
-                0,
-                image.width,
-                image.height,
-            ));
+            let probe = self
+                .scene
+                .last_plan()
+                .items
+                .first()
+                .map(|i| (i.rect.x.max(0) as u32, i.rect.y.max(0) as u32, i.rect.w as u32, i.rect.h as u32))
+                .unwrap_or((0, 0, image.width, image.height));
             let ok = capture::matches(&image, probe, expected);
             let px = image.pixel(probe.0 + probe.2 / 2, probe.1 + probe.3 / 2);
             self.journal(format!(

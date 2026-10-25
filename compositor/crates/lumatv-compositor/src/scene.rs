@@ -4,11 +4,15 @@
 //! mapped one is the foreground app), then overlays, system UI, popups, the keyboard and the cover. Surface
 //! groups stack their members around the owner. Punch-through regions become holes cleared to transparent so the
 //! display engine's video window shows through.
+//!
+//! [`Scene::plan`] writes into storage the scene keeps, so a frame allocates nothing once the scene has been
+//! planned at its size (`alloc_tests`); the plan borrows the scene for the frame.
 
 use std::collections::BTreeMap;
 
 use wayland_server::protocol::wl_buffer::WlBuffer;
 
+use crate::damage::Tiles;
 use crate::surface::{Role, SurfaceId, Surfaces};
 use crate::window::{Layer, ShellState, Window, WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
@@ -42,18 +46,23 @@ pub struct Item {
     pub surface: SurfaceId,
     pub buffer: WlBuffer,
     pub rect: Rect,
-    /// Damage in output pixels, `None` for the whole rect.
-    pub damage: Option<Vec<Rect>>,
+    /// This item's damage rectangles are `plan.damage_rects[damage.0..damage.1]`, in output pixels; `None` for
+    /// the whole rect.
+    pub damage: Option<(usize, usize)>,
     pub opaque: bool,
     pub y_invert: bool,
 }
 
-/// Everything the renderer needs for one frame, bottom to top.
+/// Everything the renderer needs for one frame, bottom to top. Lives in the [`Scene`]; `plan` refreshes it.
+#[derive(Default)]
 pub struct Plan {
     pub items: Vec<Item>,
     pub holes: Vec<Rect>,
-    /// Union of the damage of every item plus anything that moved or vanished, in output pixels.
+    pub damage_rects: Vec<Rect>,
+    /// Bounds of everything that changed, in output pixels; empty when nothing did.
     pub damage: Rect,
+    /// The changed tiles (`damage::TILE` grid), for the scan-out rings.
+    pub tiles: Option<Tiles>,
 }
 
 impl Plan {
@@ -64,6 +73,20 @@ impl Plan {
         match self.items.as_slice() {
             [one] if one.opaque && one.rect == full && self.holes.is_empty() => Some(one),
             _ => None,
+        }
+    }
+
+    pub fn item_damage(&self, item: &Item) -> Option<&[Rect]> {
+        item.damage.map(|(a, b)| &self.damage_rects[a..b])
+    }
+
+    fn clear(&mut self) {
+        self.items.clear();
+        self.holes.clear();
+        self.damage_rects.clear();
+        self.damage = Rect::default();
+        if let Some(t) = &mut self.tiles {
+            t.clear();
         }
     }
 }
@@ -80,6 +103,12 @@ pub struct Scene {
     pub layout_changed: bool,
     /// What the last plan covered, to damage what a vanished window exposed.
     last_rects: Vec<Rect>,
+    plan: Plan,
+    // Scratch space for planning, reused across frames.
+    stack: Vec<(Layer, u64, WindowId)>,
+    members: Vec<(i32, SurfaceId)>,
+    tree: Vec<(SurfaceId, i32, i32)>,
+    rects: Vec<Rect>,
 }
 
 impl Scene {
@@ -161,44 +190,50 @@ impl Scene {
     }
 
     /// The window that should hold keyboard focus: the topmost mapped window that wants focus.
-    pub fn focus(&self, surfaces: &Surfaces) -> Option<WindowId> {
-        self.stack(surfaces).last().map(|w| w.id)
+    pub fn focus(&mut self, surfaces: &Surfaces) -> Option<WindowId> {
+        self.build_stack(surfaces);
+        self.stack.last().map(|(_, _, id)| *id)
     }
 
-    /// Mapped windows in draw order, bottom to top.
-    fn stack<'a>(&'a self, surfaces: &Surfaces) -> Vec<&'a Window> {
-        let mut out = Vec::new();
-        for layer in Layer::ALL {
-            let mut ws: Vec<&Window> = self
-                .windows
-                .values()
-                .filter(|w| w.kind.layer() == layer && w.map_serial > 0 && w.state != ShellState::Minimized)
-                .filter(|w| surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
-                .collect();
-            ws.sort_by_key(|w| w.map_serial);
-            if layer == Layer::Cards {
-                if let Some(fg) = ws.pop() {
-                    out.push(fg);
-                }
-            } else {
-                out.extend(ws);
+    /// Mapped windows in draw order, bottom to top, into `self.stack`.
+    fn build_stack(&mut self, surfaces: &Surfaces) {
+        self.stack.clear();
+        for w in self.windows.values() {
+            if w.map_serial == 0 || w.state == ShellState::Minimized || !surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false) {
+                continue;
+            }
+            self.stack.push((w.kind.layer(), w.map_serial, w.id));
+        }
+        self.stack.sort_unstable();
+        // Only the newest card shows: drop every card but the last of the Cards run.
+        let mut last_card = None;
+        for (i, (layer, _, _)) in self.stack.iter().enumerate() {
+            if *layer == Layer::Cards {
+                last_card = Some(i);
             }
         }
-        out
+        if let Some(keep) = last_card {
+            let mut i = 0;
+            self.stack.retain(|(layer, _, _)| {
+                let keep_it = *layer != Layer::Cards || i == keep;
+                i += 1;
+                keep_it
+            });
+        }
     }
 
-    /// Members of the groups `owner` owns, (surface, below_owner), sorted by z.
-    fn group_members(&self, owner: SurfaceId) -> Vec<(SurfaceId, bool)> {
-        let mut v: Vec<(i32, SurfaceId)> = Vec::new();
+    /// Members of the groups `owner` owns, sorted by z, into `self.members` (negative z below the owner).
+    fn build_members(&mut self, owner: SurfaceId) {
+        self.members.clear();
         for g in self.groups.iter().filter(|g| g.owner == owner) {
             for l in g.layers.values() {
                 if let Some(m) = l.member {
-                    v.push((l.z, m));
+                    self.members.push((l.z, m));
                 }
             }
             for (s, hint) in &g.anonymous {
                 // z_hint: below = 0, above = 1, top = 2.
-                v.push((
+                self.members.push((
                     match hint {
                         0 => i32::MIN / 2,
                         2 => i32::MAX / 2,
@@ -208,75 +243,114 @@ impl Scene {
                 ));
             }
         }
-        v.sort_by_key(|(z, _)| *z);
-        v.into_iter().map(|(z, s)| (s, z < 0)).collect()
+        self.members.sort_unstable();
     }
 
     /// Builds this frame's plan.
-    pub fn plan(&mut self, surfaces: &Surfaces) -> Plan {
+    pub fn plan(&mut self, surfaces: &Surfaces) -> &Plan {
         let output = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
-        let mut items = Vec::new();
-        let mut damage = Rect::default();
-        for w in self.stack(surfaces) {
+        self.plan.clear();
+        if self.plan.tiles.is_none() {
+            self.plan.tiles = Some(Tiles::new(OUTPUT_WIDTH, OUTPUT_HEIGHT));
+        }
+        self.build_stack(surfaces);
+        let n = self.stack.len();
+        for i in 0..n {
+            let wid = self.stack[i].2;
+            let Some(w) = self.windows.get(&wid) else { continue };
             let origin = if w.kind.is_card() { (0, 0) } else { w.position };
-            let members = self.group_members(w.surface);
-            for (s, _) in members.iter().filter(|(_, below)| *below) {
-                push_tree(surfaces, w.id, *s, origin, &mut items, &mut damage);
+            let owner = w.surface;
+            self.build_members(owner);
+            let m = self.members.len();
+            for k in 0..m {
+                let (z, s) = self.members[k];
+                if z < 0 {
+                    self.push_tree(surfaces, wid, s, origin);
+                }
             }
-            push_tree(surfaces, w.id, w.surface, origin, &mut items, &mut damage);
-            for (s, _) in members.iter().filter(|(_, below)| !*below) {
-                push_tree(surfaces, w.id, *s, origin, &mut items, &mut damage);
+            self.push_tree(surfaces, wid, owner, origin);
+            for k in 0..m {
+                let (z, s) = self.members[k];
+                if z >= 0 {
+                    self.push_tree(surfaces, wid, s, origin);
+                }
             }
         }
-        let holes: Vec<Rect> = self
-            .holes
-            .iter()
-            .filter_map(|h| {
-                let item = items.iter().find(|i| i.surface == h.surface)?;
-                Some(h.rect.translated(item.rect.x, item.rect.y).intersect(&output))
-            })
-            .filter(|r| !r.is_empty())
-            .collect();
-        let rects: Vec<Rect> = items.iter().map(|i| i.rect).collect();
-        if self.layout_changed || rects != self.last_rects {
-            for r in self.last_rects.iter().chain(rects.iter()) {
-                damage = damage.union(r);
+        for h in &self.holes {
+            if let Some(item) = self.plan.items.iter().find(|i| i.surface == h.surface) {
+                let r = h.rect.translated(item.rect.x, item.rect.y).intersect(&output);
+                if !r.is_empty() {
+                    self.plan.holes.push(r);
+                }
             }
-            for i in &mut items {
+        }
+        self.rects.clear();
+        self.rects.extend(self.plan.items.iter().map(|i| i.rect));
+        if self.layout_changed || self.rects != self.last_rects {
+            let tiles = self.plan.tiles.as_mut().unwrap();
+            for r in self.last_rects.iter().chain(self.rects.iter()) {
+                self.plan.damage = self.plan.damage.union(r);
+                tiles.add(r);
+            }
+            for h in &self.plan.holes {
+                self.plan.damage = self.plan.damage.union(h);
+                tiles.add(h);
+            }
+            for i in &mut self.plan.items {
                 i.damage = None;
             }
             self.layout_changed = false;
         }
-        self.last_rects = rects;
-        Plan { items, holes, damage: damage.intersect(&output) }
+        std::mem::swap(&mut self.last_rects, &mut self.rects);
+        self.plan.damage = self.plan.damage.intersect(&output);
+        &self.plan
     }
-}
 
-fn push_tree(surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32), items: &mut Vec<Item>, damage: &mut Rect) {
-    for (sid, dx, dy) in surfaces.tree_in_draw_order(root) {
-        let Some(s) = surfaces.get(sid) else { continue };
-        let Some(buffer) = s.current.buffer.clone() else { continue };
-        if matches!(s.role, Role::Exported | Role::Cursor) {
-            continue;
-        }
-        let rect = s.rect_at(origin.0 + dx, origin.1 + dy);
-        if rect.is_empty() {
-            continue;
-        }
-        let item_damage =
-            s.current.damage.as_ref().map(|d| d.iter().map(|r| r.translated(rect.x, rect.y).intersect(&rect)).filter(|r| !r.is_empty()).collect::<Vec<_>>());
-        match &item_damage {
-            None => *damage = damage.union(&rect),
-            Some(d) => {
-                for r in d {
-                    *damage = damage.union(r);
-                }
+    /// The last plan, as built by [`Scene::plan`].
+    pub fn last_plan(&self) -> &Plan {
+        &self.plan
+    }
+
+    fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32)) {
+        surfaces.tree_in_draw_order_into(root, &mut self.tree);
+        let n = self.tree.len();
+        for k in 0..n {
+            let (sid, dx, dy) = self.tree[k];
+            let Some(s) = surfaces.get(sid) else { continue };
+            let Some(buffer) = s.current.buffer.clone() else { continue };
+            if matches!(s.role, Role::Exported | Role::Cursor) {
+                continue;
             }
+            let rect = s.rect_at(origin.0 + dx, origin.1 + dy);
+            if rect.is_empty() {
+                continue;
+            }
+            let tiles = self.plan.tiles.as_mut().unwrap();
+            let damage = match &s.current.damage {
+                None => {
+                    self.plan.damage = self.plan.damage.union(&rect);
+                    tiles.add(&rect);
+                    None
+                }
+                Some(d) => {
+                    let start = self.plan.damage_rects.len();
+                    for r in d {
+                        let r = r.translated(rect.x, rect.y).intersect(&rect);
+                        if !r.is_empty() {
+                            self.plan.damage = self.plan.damage.union(&r);
+                            tiles.add(&r);
+                            self.plan.damage_rects.push(r);
+                        }
+                    }
+                    Some((start, self.plan.damage_rects.len()))
+                }
+            };
+            let opaque =
+                s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
+                    || crate::buffer::kind_of(&buffer).is_opaque_format();
+            let y_invert = s.current.y_invert;
+            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert });
         }
-        let opaque = s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
-            || crate::buffer::kind_of(&buffer).is_opaque_format();
-        let y_invert = s.current.y_invert;
-        items.push(Item { window, surface: sid, buffer, rect, damage: item_damage, opaque, y_invert });
     }
 }
 

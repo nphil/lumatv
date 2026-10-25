@@ -207,8 +207,8 @@ fn surface_group_member_draws_above_its_owner() {
     client.present(&member_surface, &yellow);
     assert!(client.wait_until(WAIT, |s| s.frames_done >= 2));
     let (image, items) = server.eval(|s| {
-        let plan = s.scene.plan(&s.surfaces);
-        (s.output.capture().unwrap(), plan.items.len())
+        let items = s.scene.plan(&s.surfaces).items.len();
+        (s.output.capture().unwrap(), items)
     });
     assert_eq!(items, 2, "owner and member");
     assert_eq!(image.pixel(100, 100), [0xff, 0xff, 0, 0xff]);
@@ -488,4 +488,51 @@ fn a_surface_that_vanishes_with_an_undrawn_frame_is_drawn_once() {
     assert_eq!(drawn, 2, "the undrawn frame was drawn before the surface went");
     assert_eq!(image.pixel(960, 540), [0x7d, 0x80, 0x82, 0xff]);
     assert_eq!(surfaces, 0);
+}
+
+#[test]
+fn planning_a_live_scene_allocates_nothing_once_warm() {
+    // LumaShow lesson 20: the frame path must not touch the heap once warm. A card with a group member and an
+    // overlay, re-planned 200 times with fresh damage each time, on the server thread.
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "Card");
+    let base = client.shm_buffer(1920, 1080, 0xff00_0000);
+    client.present(&card.surface, &base);
+    let group = client.groups.create_surface_group(&card.surface, "alloc.group".into(), &client.qh, ());
+    let _layer = group.create_layer("top".into(), 10, &client.qh, ());
+    let member = client.compositor.create_surface(&client.qh, ());
+    group.attach(&member, "top".into());
+    let yellow = client.shm_buffer(200, 200, 0xffff_ff00);
+    client.present(&member, &yellow);
+    let overlay = client.card("_WEBOS_WINDOW_TYPE_OVERLAY", "Toast");
+    let white = client.shm_buffer(300, 100, 0xffff_ffff);
+    client.present(&overlay.surface, &white);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 3));
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(10));
+    let allocations = server.eval(|s| {
+        // Warm: one plan at this size with damage rectangles present, so the plan's storage has its capacity.
+        for surf in s.surfaces.iter_mut() {
+            surf.current.damage = Some(vec![lumatv_compositor::Rect::new(0, 40, 32, 32)]);
+        }
+        let _ = s.scene.plan(&s.surfaces);
+        let mut total_items = 0;
+        let n = harness::counted(|| {
+            for k in 0..200 {
+                // Fresh damage on every surface each frame, as clients drawing would leave (written in place).
+                for surf in s.surfaces.iter_mut() {
+                    if let Some(d) = surf.current.damage.as_mut() {
+                        d[0] = lumatv_compositor::Rect::new((k * 3) % 1500, 40, 32, 32);
+                    }
+                }
+                let plan = s.scene.plan(&s.surfaces);
+                total_items += plan.items.len();
+                assert!(!plan.damage.is_empty());
+            }
+        });
+        assert_eq!(total_items, 200 * 3);
+        n
+    });
+    assert_eq!(allocations, 0, "allocations while planning 200 frames");
 }

@@ -426,6 +426,12 @@ impl Surfaces {
         out
     }
 
+    /// As [`Surfaces::tree_in_draw_order`], into `out` (cleared first): the frame path reuses one buffer.
+    pub fn tree_in_draw_order_into(&self, root: SurfaceId, out: &mut Vec<(SurfaceId, i32, i32)>) {
+        out.clear();
+        self.collect(root, 0, 0, out);
+    }
+
     fn collect(&self, id: SurfaceId, x: i32, y: i32, out: &mut Vec<(SurfaceId, i32, i32)>) {
         let Some(s) = self.map.get(&id) else { return };
         for c in &s.children {

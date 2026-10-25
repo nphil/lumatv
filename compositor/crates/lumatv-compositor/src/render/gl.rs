@@ -429,7 +429,7 @@ impl Output for Gl {
             if clip.is_empty() {
                 continue;
             }
-            let Some((tex, _size, y_invert)) = self.texture_for(&item.buffer, item.damage.as_deref(), &item.rect) else {
+            let Some((tex, _size, y_invert)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
                 stats.skipped += 1;
                 continue;
             };

@@ -9,13 +9,19 @@
 //! builds, `render/` draws the scene into an [`output::Output`], `luna` is the contract with the 32-bit luna
 //! bridge, and `main.rs` the process (sockets, tick, control).
 
+#[cfg(test)]
+mod alloc_tests;
 pub mod buffer;
 pub mod capture;
 pub mod config;
 pub mod control;
+pub mod damage;
 pub mod luna;
 pub mod luna_methods;
 pub mod output;
+/// LumaShow's frame pacer, copied verbatim by `tools/sync-lumashow.sh` (`vendor/LUMASHOW_REV` names the commit).
+#[path = "vendor/pacer.rs"]
+pub mod pacer;
 pub mod render;
 pub mod scene;
 pub mod server;

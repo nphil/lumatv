@@ -16,6 +16,7 @@ wayland-client = "0.31"
 libc = "0.2"
 log = { version = "0.4", features = ["std"] }
 png = "0.18"
+drm = "0.14"
 
 [profile.release]
 opt-level = 3
