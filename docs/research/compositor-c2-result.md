@@ -9,66 +9,44 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 06:35 EDT, code at `6bca70a`): C2 passed; C3 and C4 ran
-on the set 06:02-06:26 ("C4 on the set" below; logs and captures in
-`docs/research/compositor/c4-2026-10-25/`). The gate failed, so LG's
-compositor is live, as the decision requires. The set was left in Active
-Standby on LG's compositor, `enabled` flag absent, Home stub on, LumaHome in
-front, receiver unmuted. Host: `cd compositor && cargo test` (73 unit, 20
-protocol, 1 bridge), `sm/build.sh` (scanner tests), clippy clean; the
-bundle of 06:31 (`sh compositor/tools/build-tv.sh`) carries every fix below.
+State (2026-10-25 07:30 EDT, code at `748aba9` and after): C2 passed; C3
+and C4 ran on the set 06:02-06:26 ("C4 on the set"; files in
+`docs/research/compositor/c4-2026-10-25/`) and the gate failed, so LG's
+compositor is live, as the decision requires (set left in Active Standby,
+`enabled` absent, Home stub on). Every failure has a fix built and
+host-tested since, none run on the set yet ("After the first gate"). Host:
+`cd compositor && cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
+`sm/build.sh`, clippy clean; `sh compositor/tools/build-tv.sh` builds the
+bundle.
 
-- Proven on the set: all 12 bus names are LumaTV's at LG's path (probe: 12
-  allowed, 0 refused; `/proc/self/exe` reads `/usr/bin/surface-manager`
-  through the bind mount); a 120 s trial and two gate runs live with no
-  watchdog fallback, `READY=1` accepted, WebAppMgr reconnecting; KMS pacing
-  59.89-59.94 fps over 60 s (3594-3597 flips); standby and wake through the
-  tvpower rounds (PreparePowerOff and PreparePowerOn acked, Active again,
-  still mounted); the hold-Home escape through LumaTV's own key routing
-  (LG's compositor and Home back in 14-15 s); direct scan-out of LG's AFBC
-  buffer (`0x0800000000000151`) on the primary plane (the trial's Home, own
-  buffer path).
-- Failed, fixed offline, not yet run on the set: (1) with the compositor's
-  own `mali_buffer_sharing` LG's 32-bit libmali clients segfault right after
-  binding it (`tvhotkey`: exit 139 with own, runs with the driver's; Flutter
-  Home, `hdmi2` and Netflix died the same way live): the supervisor now runs
-  the compositor on the driver's buffer path, which gives up direct
-  scan-out until the own path matches what LG's libmali expects. (2)
-  Composed KMS frames were upside down (KMS shows a page's row 0 at the top,
-  the renderer drew row 0 at the bottom); scan-out pages are drawn top row
-  first now. (3) A pretty-printed luna payload (`hdmi2`'s
-  `getCurrentHomeUIState`) broke the bridge's one-line protocol; payloads
-  are flattened both ways.
-- Failed, open: (a) Netflix: `wl_webos_imported` opcode 7 arrives without
-  its string (`message too short … attach_punchthrough_with_context(s)`),
-  libwayland drops the media connection, no video window, Netflix shows
-  tvq-pb-101. LG's table differs from OSE's: dump it read-only with
-  `wlproto_from_elf.py` (`run.sh protocols`) and fold it into
-  `protocol/webos/webos-foreign.xml`. (b) The app manager kept reporting
-  `com.webos.app.home` in front while Netflix or HDMI 2 was mapped and
-  focused in the scene: SAM does not take the compositor's foreground
-  pushes; compare the subscription and payload with X4 pass 3. (c) X1: 12
-  gaps over 20 ms (worst 58.3 ms) over LG's Flutter Home, 8 (worst 28.3 ms)
-  in the first run; the gate wants none. (d) A jailed client (pid 0 to the
-  compositor) connects and leaves every 7 s in both runs; unidentified.
-- Side effect, handled: the set runs an older `tools/lumatv` whose Home stub
-  guard does not know LumaTV's compositor; 30 s after each switch it saw
-  LumaHome's heartbeat stop and gave LG's Home back (06:10:26 and during the
-  second gate). `lumatv homestub on` restored the stub both times (stub,
-  guard on, faults 0). Before the next slot the set needs the current
-  `tools/lumatv` (`comp_live` guard), or the stub off for the session.
-- Decision: LG's compositor stays live. Besides the failed checks, PLAN's
-  gate needs every surface gate met, and LumaHome, the volume OSD, Quick
-  Settings, the input picker and the IME are LG compositor QML with no
-  counterpart under LumaTV's compositor yet: under it the family would get
-  LG's Flutter Home or the transparent stub.
-- Next slot (one, about 25 min, commands in "C4 on the set"): deploy,
-  inspect, dump LG's `wl_webos_*` tables, `cutover install`, `cutover trial
-  120` with a panel capture to confirm the picture is upright, the gate.
+- Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
+  trial and two gate runs live with no watchdog fallback, `READY=1`
+  accepted, WebAppMgr reconnecting; KMS pacing 59.89-59.94 fps over 60 s;
+  standby and wake through the tvpower rounds; the hold-Home escape (LG's
+  back in 14-15 s); direct scan-out of LG's AFBC buffer on the primary
+  plane.
+- Fixed offline, waiting for the next slot: the webOS protocol tables are
+  LG's (Netflix's opcode 7); calls reaching the bus names before the
+  compositor connects are queued (SAM's foreground subscription) and the
+  foreground pushes follow LG's QML; `set_state` is confirmed for unmapped
+  windows (HDMI 2); frame callbacks go out at the page flip and the loop
+  never blocks on one (X1's gaps); clients are named at accept (the 7 s
+  client); Volume and Mute become LG's audio calls. Earlier fixes still
+  unverified live: driver buffers instead of own (`tvhotkey` segfault),
+  composed frames top row first, flattened luna payloads.
+- Next slot (about 25 min, exclusive, tonight at the earliest): `python3
+  compositor/tools/tv_next_slot.py` (trial and gate in one, results in
+  `docs/research/compositor/slot-<date>-<HHMM>/`). The set needs the
+  current `tools/lumatv` (`comp_live` guard) or the script turns the Home
+  stub off for the session and back on.
+- Go-live: not before the surfaces exist under LumaTV's compositor
+  ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
+  the volume OSD, toasts, alerts and PIN, quick panel and picker). The
+  engine host waits on the toolkit's damage-only redraw and a `Gles` over
+  the current context in `rustui/render` (the RustUi spike's prerequisite:
+  an idle frame under 1 ms of GPU).
 - Built and host-tested, unverified on the set: the Magic Remote's pointer
-  (`input.rs` absolute axes, `seat.rs` enter/leave/motion, OK as `BTN_LEFT`
-  while the cursor shows, `cursor_visibility` to every client, the composed
-  sprite in `render/cursor.rs`; `ctl pointer X Y`, `ctl click`).
+  (`ctl pointer X Y`, `ctl click`).
 
 ## Design
 
