@@ -20,12 +20,16 @@ x2=$here/../docs/research/arch/x2
 zig cc -target arm-linux-gnueabi.2.28 -O1 -s -o "$out/bin/x2cli" "$x2/x2cli.c" "$x2/../sysroot32/libwayland-client.so.0.20.0" -ldl -Wl,--allow-shlib-undefined
 cp "$m64"/* "$out/lib/"
 sh "$here/sm/build.sh" > /dev/null
+x1=$here/../docs/research/arch/x1
+zig cc -target aarch64-linux-gnu.2.36 -O1 -o "$out/bin/x1client" "$x1/x1client.c" "$m64/libwayland-client.so.0" -ldl -lm -Wl,--allow-shlib-undefined
+zig cc -target aarch64-linux-gnu.2.36 -O1 -shared -fPIC -o "$out/lib/x1heapshim.so" "$x1/x1heapshim.c" -ldl
 cp "$out/sm/lumatv-sm" "$out/bin/lumatv-sm"
 cp "$here/tools/tv-run.sh" "$out/run.sh"
 cp "$here/tools/tv-kms-window.sh" "$out/kms-window.sh"
 cp "$here/tools/tv-sm-dryrun.sh" "$out/sm-dryrun.sh"
 cp "$here/tools/tv-cutover.sh" "$out/cutover.sh"
 cp "$here/tools/tv-recover-home.sh" "$out/recover-home.sh"
+cp "$here/tools/tv-gate.sh" "$out/gate.sh"
 cp "$here/../docs/research/arch/wlproto_from_elf.py" "$out/wlproto_from_elf.py"
 chmod +x "$out/bin/"* "$out/run.sh"
 du -sh "$out"

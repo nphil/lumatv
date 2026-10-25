@@ -12,6 +12,8 @@
 #                                 initctl, the state of webapp-mgr; written to docs/research/compositor/set-inspect-<date>.txt
 #   tv-first-light.sh cutover ARGS  /tmp/lumatv/cutover.sh ARGS on the set under a PTY (install | probe | trial SECS |
 #                                 enable | disable | status | revert)
+#   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): enable, live, x1, netflix, hdmi, standby/wake, escape;
+#                                 --enable-after makes LumaTV's compositor live when every check passed
 #   tv-first-light.sh clean       kill everything of ours on the set
 # Transport: docs/research/arch/tv.py (paramiko). Before `run`: confirm the set is idle (getPowerState Active,
 # getForegroundAppInfo) and that nothing else is being measured on it.
@@ -61,6 +63,10 @@ case "${1:-help}" in
         ;;
     kms)
         python3 "$here/tools/tv_kms.py" run
+        ;;
+    gate)
+        shift
+        python3 "$here/tools/tv_gate.py" "$@"
         ;;
     sm|cutover|inspect)
         # luna-send needs a PTY (HANDOFF), so the whole on-set script runs under one.

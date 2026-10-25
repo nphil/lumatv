@@ -63,6 +63,26 @@ pub fn handle(state: &mut State, line: &str) -> String {
                 None => json!({"ok": false, "error": "key CODE [press|release|tap]"}),
             }
         }
+        "remote" => {
+            // remote CODE press|release|tap: as if the remote sent it: routing by mask and policy, Home and Back
+            // handling, the hold-Home escape (press, wait, release). `key` above bypasses all that.
+            let code: Option<u32> = words.next().and_then(|c| c.parse().ok());
+            let how = words.next().unwrap_or("tap");
+            match code {
+                Some(code) => {
+                    match how {
+                        "press" => state.key_event(code, true, false),
+                        "release" => state.key_event(code, false, false),
+                        _ => {
+                            state.key_event(code, true, false);
+                            state.key_event(code, false, false);
+                        }
+                    }
+                    json!({"ok": true, "delivered": state.keys.delivered, "dropped": state.keys.dropped})
+                }
+                None => json!({"ok": false, "error": "remote CODE [press|release|tap]"}),
+            }
+        }
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -75,7 +95,7 @@ pub fn handle(state: &mut State, line: &str) -> String {
             json!({"ok": true, "bridge": state.luna.is_connected()})
         }
         "" => json!({"ok": false, "error": "empty command"}),
-        other => json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, fallback [reason], quit")}),
+        other => json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, remote CODE, fallback [reason], quit")}),
     };
     reply.to_string()
 }
