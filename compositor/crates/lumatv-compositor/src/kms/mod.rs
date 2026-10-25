@@ -14,6 +14,7 @@
 
 pub mod assign;
 pub mod frames;
+pub mod timing;
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -33,11 +34,11 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{Image, Output, Presented, RenderStats};
-use crate::pacer::{Pacer, Shown};
 use crate::render::gl::{Gl, TargetId};
 use crate::scene::Plan;
 use crate::surface::Surfaces;
 use assign::{Assignment, Source};
+use timing::{FlipTiming, Timing};
 
 /// The DRM device file.
 pub struct Card(File);
@@ -95,16 +96,6 @@ struct PlaneState {
     dst: Rect,
 }
 
-/// When a frame was planned for, started and ready: kept with the frame from its draw to its flip, since the next frame
-/// is drawn while this one's flip is pending.
-#[derive(Clone, Copy)]
-struct Timing {
-    slot_ns: u64,
-    started_ns: u64,
-    /// When the draw was submitted; the flip replaces it with the GPU's finish (the in-fence's signal time).
-    ready_ns: u64,
-}
-
 #[derive(Clone, Copy)]
 struct Frame {
     assignment: Assignment,
@@ -137,6 +128,8 @@ pub struct Kms {
     width: u32,
     height: u32,
     pages: Vec<Page>,
+    /// The UI ring for the overlay plane (ARGB8888), made when a UI is attached and the overlay takes the format.
+    ui_pages: Vec<Page>,
     frames: frames::Frames,
     direct: HashMap<ObjectId, DirectFb>,
     /// Modifiers the driver refused in ADDFB2, so they are not tried again.
@@ -151,26 +144,19 @@ pub struct Kms {
     queued: Option<Frame>,
     /// Set when `render` took over the queued frame's page, so the next `present` reports a replacement.
     replacing: bool,
-    pub pacer: Pacer,
+    /// The pacer, the refresh period followed from the flips, and the counters they keep.
+    pub timing: FlipTiming,
     /// Page-flip timestamps are CLOCK_MONOTONIC when the driver says so (DRM_CAP_TIMESTAMP_MONOTONIC), else
     /// CLOCK_REALTIME and translated on arrival; everything else here is CLOCK_MONOTONIC in ns.
     monotonic_flips: bool,
-    period_ns: u64,
     last_assignment: Option<Frame>,
     /// What the flip in flight is of: its frame's timing and in-fence, for the pacer when it lands.
     in_flight: Option<InFlight>,
-    /// When the last flip landed, 0 before the first.
-    last_flip_ns: u64,
-    /// Flips whose stamp was not one refresh after the one before (a pair, or a skipped refresh) while frames
-    /// followed one another; the first few are logged.
-    pub odd_stamps: u64,
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
     /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
     in_run: bool,
-    pub flips: u64,
     pub direct_frames: u64,
-    pub late_frames: u64,
-    pub lost_refreshes: u64,
+    pub split_frames: u64,
     seq: u64,
 }
 
@@ -186,6 +172,17 @@ fn mono_ns() -> u64 {
     // SAFETY: a stack timespec for clock_gettime.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+}
+
+/// One scan-out page: a dumb buffer with a framebuffer and a GL target over its dma-buf. `alpha` makes it ARGB8888 for
+/// the overlay plane, else XRGB8888 for the primary.
+fn make_page(card: &Card, gl: &mut Gl, width: u32, height: u32, alpha: bool) -> io::Result<Page> {
+    let (fourcc, drm, depth) = if alpha { (crate::buffer::fourcc::ARGB8888, DrmFourcc::Argb8888, 32) } else { (crate::buffer::fourcc::XRGB8888, DrmFourcc::Xrgb8888, 24) };
+    let dumb = card.create_dumb_buffer((width, height), drm, 32)?;
+    let fb = card.add_framebuffer(&dumb, depth, 32)?;
+    let fd = card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32)?;
+    let target = gl.add_dmabuf_target(fd.as_raw_fd(), width as i32, height as i32, fourcc, dumb.pitch(), 0)?;
+    Ok(Page { dumb, fd, fb, target })
 }
 
 impl Kms {
@@ -278,14 +275,37 @@ impl Kms {
 
         let mut pages = Vec::with_capacity(PAGES);
         for i in 0..PAGES {
-            let dumb = card.create_dumb_buffer((width, height), DrmFourcc::Xrgb8888, 32)?;
-            let fb = card.add_framebuffer(&dumb, 24, 32)?;
-            let fd = card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32)?;
-            let target = gl
-                .add_dmabuf_target(fd.as_raw_fd(), width as i32, height as i32, crate::buffer::fourcc::XRGB8888, dumb.pitch(), 0)
-                .map_err(|e| other(format!("page {i}: {e}")))?;
-            pages.push(Page { dumb, fd, fb, target });
+            pages.push(make_page(&card, &mut gl, width, height, false).map_err(|e| other(format!("page {i}: {e}")))?);
         }
+        // The UI ring for the split (the UI on the overlay over a direct window): only with a UI to draw, and only
+        // when the overlay plane lists the format with alpha. Three pages as the primary ring: one scanning out, one
+        // whose flip is pending, one drawn into.
+        let mut ui_pages = Vec::new();
+        let overlay_takes_alpha = overlay.as_ref().is_some_and(|o| o.formats.contains(&(crate::buffer::fourcc::ARGB8888, 0)));
+        if gl.has_ui() && overlay_takes_alpha {
+            for i in 0..PAGES {
+                match make_page(&card, &mut gl, width, height, true) {
+                    Ok(p) => ui_pages.push(p),
+                    Err(e) => {
+                        log::warn!("kms: UI page {i}: {e}; the UI over a direct window composes instead");
+                        ui_pages.clear();
+                        break;
+                    }
+                }
+            }
+        }
+        log::info!(
+            "kms: split scan-out (UI on the overlay over a direct window) {}",
+            if !ui_pages.is_empty() {
+                "on"
+            } else if !gl.has_ui() {
+                "off: no UI attached"
+            } else if !overlay_takes_alpha {
+                "off: the overlay plane lists no AR24"
+            } else {
+                "off: no UI pages"
+            }
+        );
         // The first draw from an imported image and the program's first use are paid here, into page 0 from page 1,
         // not by the first client's first frame.
         gl.set_target(pages[0].target);
@@ -308,8 +328,12 @@ impl Kms {
             gl,
             width,
             height,
-            frames: frames::Frames::new(pages.iter().map(|p| p.target).collect(), width, height),
+            frames: {
+                let f = frames::Frames::new(pages.iter().map(|p| p.target).collect(), width, height);
+                if ui_pages.is_empty() { f } else { f.with_ui_pages(ui_pages.iter().map(|p| p.target).collect()) }
+            },
             pages,
+            ui_pages,
             direct: HashMap::new(),
             refused_modifiers: Vec::new(),
             state: [PlaneState::default(); 2],
@@ -318,18 +342,13 @@ impl Kms {
             committed_ns: 0,
             queued: None,
             replacing: false,
-            pacer: Pacer::new(period_ns),
+            timing: FlipTiming::new(period_ns),
             monotonic_flips,
-            period_ns,
             last_assignment: None,
             in_flight: None,
-            last_flip_ns: 0,
-            odd_stamps: 0,
             in_run: false,
-            flips: 0,
             direct_frames: 0,
-            late_frames: 0,
-            lost_refreshes: 0,
+            split_frames: 0,
             seq: 0,
         })
     }
@@ -347,7 +366,7 @@ impl Kms {
 
     /// Whether frames are following one another closely enough for the pacer's timeline to be worth keeping.
     fn flowing(&self, now_ns: u64) -> bool {
-        self.in_run && self.pacer.phase_ns().is_some() && self.pacer.flowing(now_ns)
+        self.in_run && self.timing.pacer.phase_ns().is_some() && self.timing.pacer.flowing(now_ns)
     }
 
     /// Whether `fourcc`/`modifier` is in the primary plane's `IN_FORMATS`.
@@ -421,7 +440,6 @@ impl Kms {
 
     fn flip_landed(&mut self, stamp_ns: u64) {
         self.pending_flip = false;
-        self.flips += 1;
         let presented_ns = if self.monotonic_flips {
             stamp_ns
         } else {
@@ -432,53 +450,36 @@ impl Kms {
             let rt_ns = rt.tv_sec as u64 * 1_000_000_000 + rt.tv_nsec as u64;
             mono_ns().saturating_sub(rt_ns.saturating_sub(stamp_ns))
         };
+        // A flip nothing was waiting for (one taken as overdue) teaches the interval and nothing else.
+        let frame = self.in_flight.take().map(|flight| {
+            #[cfg(feature = "ui")]
+            if let Some(cost) = flight.ui {
+                self.gl.ui_presented(presented_ns, &cost);
+            }
+            (flight.timing, flight.fence.as_ref().and_then(fence_signal_ns))
+        });
+        let landed = self.timing.landed(presented_ns, frame);
         // Consecutive flips are one refresh apart; a stamp that is not (two flips stamped alike, a refresh skipped)
         // is what the second gate's `lost` count hinted at, so each is logged while frames follow one another.
-        if self.last_flip_ns != 0 {
-            let since = presented_ns.saturating_sub(self.last_flip_ns);
-            let period = self.period_ns;
-            if since < period * 3 / 4 || (since > period * 5 / 4 && since < period * 11 / 4) {
-                self.odd_stamps += 1;
-                if self.odd_stamps <= 200 {
-                    log::info!("kms: page-flip stamp {:.2} ms after the last (one refresh is {:.2})", since as f64 / 1e6, period as f64 / 1e6);
-                }
-            }
-        }
-        self.last_flip_ns = presented_ns;
-        let Some(flight) = self.in_flight.take() else {
-            // A flip nothing was waiting for (one taken as overdue): nothing to learn from it.
-            return;
-        };
-        #[cfg(feature = "ui")]
-        if let Some(cost) = flight.ui {
-            self.gl.ui_presented(presented_ns, &cost);
-        }
-        let mut timing = flight.timing;
-        // The pipeline the pacer learns ends when the GPU finished the page, not when the draw was submitted: the
-        // kernel waits on the in-fence before the flip, so a page the GPU finishes after the driver's cutoff slips a
-        // refresh that a CPU-only pipeline never shows (16 gaps of 20-33 ms in the second gate's x1).
-        if let Some(signalled_ns) = flight.fence.as_ref().and_then(fence_signal_ns)
-            && signalled_ns > timing.ready_ns
-            && signalled_ns <= presented_ns
+        if let Some(since) = landed.odd
+            && self.timing.odd_stamps <= 200
         {
-            timing.ready_ns = signalled_ns;
+            log::info!("kms: page-flip stamp {:.2} ms after the last (one refresh is {:.2})", since as f64 / 1e6, self.timing.period_ns() as f64 / 1e6);
         }
-        let shown = Shown { slot_ns: timing.slot_ns, started_ns: timing.started_ns, ready_ns: timing.ready_ns, presented_ns, content_ns: None };
-        let landing = self.pacer.presented(&shown);
-        if landing.late > 0 {
-            self.late_frames += 1;
+        if let Some((old, new)) = landed.rate_change {
+            log::info!("kms: the panel refreshes every {:.2} ms now ({:.2} before): the pacer is keyed to it", new as f64 / 1e6, old as f64 / 1e6);
         }
-        self.lost_refreshes += landing.lost as u64;
     }
 
-    /// Commits a drawn frame now: the GL fence of a composed page goes along as the in-fence, and a duplicate of it
-    /// stays with the flip for its signal time. The two steps are timed apart: the fence's export waits for the
-    /// driver to submit the draw (what a frame costs between `render:` and the loop's own line), the commit is the
-    /// kernel's atomic check.
+    /// Commits a drawn frame now: the GL fence of a drawn page (the primary's, or the UI ring's in the split) goes
+    /// along as that plane's in-fence, and a duplicate of it stays with the flip for its signal time. The two steps
+    /// are timed apart: the fence's export waits for the driver to submit the draw (what a frame costs between
+    /// `render:` and the loop's own line), the commit is the kernel's atomic check.
     fn commit_frame(&mut self, frame: Frame) -> io::Result<()> {
         let a = frame.assignment;
         let t0 = Instant::now();
-        let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
+        let drawn = matches!(a.primary, Source::Page(_)) || matches!(a.overlay, Some((Source::UiPage(_), _)));
+        let fence = if drawn { self.gl.export_fence() } else { None };
         let kept = fence.as_ref().and_then(|f| f.try_clone().ok());
         let t1 = Instant::now();
         let committed = self.commit(&a, fence);
@@ -521,24 +522,28 @@ impl Kms {
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
         let primary_fb = match a.primary {
             Source::Page(i) => Some(u32::from(self.pages[i].fb)),
+            Source::UiPage(i) => Some(u32::from(self.ui_pages[i].fb)),
             Source::Direct(fb) => Some(fb),
             Source::Off => None,
         };
+        let primary_fence = if matches!(a.primary, Source::Page(_)) { in_fence.as_ref().map(|f| f.as_raw_fd()) } else { None };
         let primary_state = PlaneState { fb: primary_fb, dst: full };
         let mut new_state = self.state;
         if primary_state != self.state[0] || !self.modeset_done {
-            set_plane(&mut req, &self.primary, self.crtc, primary_fb, full, (self.width, self.height), in_fence.as_ref().map(|f| f.as_raw_fd()));
+            set_plane(&mut req, &self.primary, self.crtc, primary_fb, full, full, primary_fence);
             new_state[0] = primary_state;
         }
         if let Some(ov) = &self.overlay {
-            let (fb, dst) = match a.overlay {
-                Some((Source::Page(i), r)) => (Some(u32::from(self.pages[i].fb)), r),
-                Some((Source::Direct(fb), r)) => (Some(fb), r),
-                _ => (None, Rect::default()),
+            // The overlay shows the same rectangle of its page as it covers of the output: no scaling (X6 unanswered).
+            let (fb, dst, fence) = match a.overlay {
+                Some((Source::UiPage(i), r)) => (Some(u32::from(self.ui_pages[i].fb)), r, in_fence.as_ref().map(|f| f.as_raw_fd())),
+                Some((Source::Page(i), r)) => (Some(u32::from(self.pages[i].fb)), r, None),
+                Some((Source::Direct(fb), r)) => (Some(fb), r, None),
+                _ => (None, Rect::default(), None),
             };
             let st = PlaneState { fb, dst };
             if st != self.state[1] || !self.modeset_done {
-                set_plane(&mut req, ov, self.crtc, fb, dst, (dst.w.max(0) as u32, dst.h.max(0) as u32), None);
+                set_plane(&mut req, ov, self.crtc, fb, dst, dst, fence);
                 new_state[1] = st;
             }
         }
@@ -605,8 +610,9 @@ fn fence_signal_ns(fence: &OwnedFd) -> Option<u64> {
     fences[..count].iter().filter(|f| f.status == 1 && f.timestamp_ns != 0).map(|f| f.timestamp_ns).max()
 }
 
-/// Adds every property of one plane to the request.
-fn set_plane(req: &mut AtomicModeReq, p: &PlaneInfo, crtc: crtc::Handle, fb: Option<u32>, dst: Rect, src: (u32, u32), in_fence: Option<i32>) {
+/// Adds every property of one plane to the request: `dst` in output pixels, `src` in the framebuffer's (16.16 fixed
+/// point on the wire).
+fn set_plane(req: &mut AtomicModeReq, p: &PlaneInfo, crtc: crtc::Handle, fb: Option<u32>, dst: Rect, src: Rect, in_fence: Option<i32>) {
     let h = p.handle;
     match fb {
         Some(fb) => {
@@ -614,12 +620,12 @@ fn set_plane(req: &mut AtomicModeReq, p: &PlaneInfo, crtc: crtc::Handle, fb: Opt
             req.add_property(h, p.props.crtc_id, property::Value::CRTC(Some(crtc)));
             req.add_property(h, p.props.crtc_x, property::Value::SignedRange(dst.x as i64));
             req.add_property(h, p.props.crtc_y, property::Value::SignedRange(dst.y as i64));
-            req.add_property(h, p.props.crtc_w, property::Value::UnsignedRange(dst.w as u64));
-            req.add_property(h, p.props.crtc_h, property::Value::UnsignedRange(dst.h as u64));
-            req.add_property(h, p.props.src_x, property::Value::UnsignedRange(0));
-            req.add_property(h, p.props.src_y, property::Value::UnsignedRange(0));
-            req.add_property(h, p.props.src_w, property::Value::UnsignedRange((src.0 as u64) << 16));
-            req.add_property(h, p.props.src_h, property::Value::UnsignedRange((src.1 as u64) << 16));
+            req.add_property(h, p.props.crtc_w, property::Value::UnsignedRange(dst.w.max(0) as u64));
+            req.add_property(h, p.props.crtc_h, property::Value::UnsignedRange(dst.h.max(0) as u64));
+            req.add_property(h, p.props.src_x, property::Value::UnsignedRange((src.x.max(0) as u64) << 16));
+            req.add_property(h, p.props.src_y, property::Value::UnsignedRange((src.y.max(0) as u64) << 16));
+            req.add_property(h, p.props.src_w, property::Value::UnsignedRange((src.w.max(0) as u64) << 16));
+            req.add_property(h, p.props.src_h, property::Value::UnsignedRange((src.h.max(0) as u64) << 16));
             if let (Some(prop), Some(fd)) = (p.props.in_fence_fd, in_fence) {
                 req.add_property(h, prop, property::Value::SignedRange(fd as i64));
             }
@@ -711,7 +717,7 @@ impl Output for Kms {
         if !self.flowing(now_ns) {
             return None;
         }
-        let latch = self.pacer.latch_at(now_ns);
+        let latch = self.timing.pacer.latch_at(now_ns);
         Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
     }
 
@@ -746,13 +752,17 @@ impl Output for Kms {
 
     fn stats_line(&self) -> String {
         let ui = self.gl.ui_stats_line();
+        let t = &self.timing;
         format!(
-            "flips {} late {} lost {} direct {} odd stamps {}{}{}",
-            self.flips,
-            self.late_frames,
-            self.lost_refreshes,
+            "flips {} late {} lost {} direct {} split {} odd stamps {} refresh {:.2} ms (changed {}){}{}",
+            t.flips,
+            t.late_frames,
+            t.lost_refreshes,
             self.direct_frames,
-            self.odd_stamps,
+            self.split_frames,
+            t.odd_stamps,
+            t.period_ns() as f64 / 1e6,
+            t.rate_changes,
             if ui.is_empty() { "" } else { " " },
             ui
         )
@@ -790,13 +800,14 @@ impl Output for Kms {
     /// decides), kicks the GPU. The commit is in `present`.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let now = self.now_ns();
-        let slot_ns = self.pacer.plan(now).slot_ns;
+        let slot_ns = self.timing.pacer.plan(now).slot_ns;
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
         // flip is pending, one drawn into (a waiting frame's, or the next).
         if let Some(q) = self.queued.take() {
-            if let Source::Page(i) = q.assignment.primary {
-                self.frames.redraw(i);
+            self.frames.redraw(q.assignment.primary);
+            if let Some((s, _)) = q.assignment.overlay {
+                self.frames.redraw(s);
             }
             self.replacing = true;
         }
@@ -804,12 +815,18 @@ impl Output for Kms {
             let fb = self.direct_fb(&item.buffer)?;
             Some(u32::from(fb))
         });
-        let (primary, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
-        if matches!(primary, Source::Direct(_)) {
+        let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
+        if matches!(assignment.primary, Source::Direct(_)) {
             self.direct_frames += 1;
         }
+        if assignment.overlay.is_some() {
+            if self.split_frames == 0 {
+                log::info!("kms: first split frame: the window stays on the primary plane, the UI goes to the overlay");
+            }
+            self.split_frames += 1;
+        }
         self.last_assignment = Some(Frame {
-            assignment: Assignment { primary, overlay: None },
+            assignment,
             timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns() },
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
@@ -861,7 +878,7 @@ impl Drop for Kms {
             let _ = self.card.destroy_framebuffer(d.fb);
             let _ = self.card.close_buffer(d.gem);
         }
-        for p in self.pages.drain(..) {
+        for p in self.pages.drain(..).chain(self.ui_pages.drain(..)) {
             let _ = self.card.destroy_framebuffer(p.fb);
             drop(p.fd);
             let _ = self.card.destroy_dumb_buffer(p.dumb);

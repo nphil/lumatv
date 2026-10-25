@@ -791,6 +791,50 @@ impl Gl {
         Ok(stats)
     }
 
+    /// Draws the system layer alone into the current target (a page with alpha for the overlay plane), inside `rects`:
+    /// they are cleared to transparent and stack 1 is drawn over that, so the window under the plane shows through
+    /// everywhere the UI is not. No window, no stack 0, no cursor.
+    pub fn render_ui_layer(&mut self, rects: &[Rect]) -> io::Result<RenderStats> {
+        let t0 = std::time::Instant::now();
+        let mut stats = RenderStats::default();
+        let fbo = self.targets[self.current.0].fbo;
+        // SAFETY: GL state calls on the current context and this renderer's objects.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
+            (a.glViewport)(0, 0, self.width as i32, self.height as i32);
+            (a.glEnable)(egl::GL_SCISSOR_TEST);
+            (a.glClearColor)(0.0, 0.0, 0.0, 0.0);
+            for r in rects {
+                self.scissor(r);
+                (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+            }
+        }
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            ui.draw_over(fbo, rects)?;
+        }
+        self.finish_ui()?;
+        if let Some(sync) = self.egl.kick_fence() {
+            // SAFETY: a fence this renderer just created, consumed here.
+            unsafe { self.egl.wait_fence(sync, 0) };
+        } else {
+            // SAFETY: plain call.
+            unsafe { (self.egl.api.glFlush)() };
+        }
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
+            log::warn!("gl error 0x{err:x} during the UI layer's draw");
+        }
+        stats.gl_errors = self.gl_errors;
+        stats.render_us = t0.elapsed().as_micros() as u64;
+        if stats.render_us > 4000 {
+            log::info!("render: {:.1} ms for the UI layer in {} rects", stats.render_us as f64 / 1000.0, rects.len());
+        }
+        Ok(stats)
+    }
+
     /// Retires textures of buffers the clients destroyed and no surface shows any more; `bury` frees them. A destroyed
     /// buffer that is still a surface's current one keeps its import: the surface goes on showing it until the client
     /// commits another (the driver's own buffers have no destroy callback here, so liveness is the only signal).

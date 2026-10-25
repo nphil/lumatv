@@ -19,14 +19,16 @@ tvq-pb-101, its player attached and left twice; the window, the fullscreen
 raise and the placements were right). HDMI 2 draws now: the preloaded
 instance mapped 83 ms after `exposed`. LG's compositor is live (set in
 Active Standby, `enabled` absent, Home stub on, receiver unmuted).
-Built since, NOT RUN ON THE SET ("Built for the sixth gate"): a buffer's
+Built since, NOT RUN ON THE SET: "Built for the sixth gate" (a buffer's
 first-use costs paid at its commit, texture frees deferred to the flip
 after, a `tick:`/`present:` breakdown of any slow pass, the gate's Netflix
-check from a fresh instance, and `recover-home.sh` ending the Netflix of
-the compositor that went.
+check from a fresh instance, `recover-home.sh` ending the Netflix of the
+compositor that went) and the C3 items "Split scan-out" and "The refresh
+period follows the flips" (§9 status list): the UI on the overlay plane
+over a direct window, the pacer keyed to the refresh the flips measure.
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
-libmali client, as known. Host: `cd compositor && cargo test` (73 unit, 26
+libmali client, as known. Host: `cd compositor && cargo test` (81 unit, 26
 protocol, 1 bridge, 1 control, 1 warm, 2 LG-table), the same with
 `--features ui` plus `ui`, `ui_output` and `ui_scanout` under
 `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
@@ -592,9 +594,42 @@ Built, host-tested where pure, compiled for the set, not yet run on it:
   the blob's own window allocation (GBM on `card0` with the heap shim's
   dumb buffers, as the X1 client did on the Wayland platform) and is the
   first thing to add once the window run says GBM accepts `card0`.
-- Not built: the overlay plane for a UI layer above a direct-scanned app
-  (needs X6: whether osd1 scales like osd0), explicit sync for clients,
-  `wp_presentation`, a render thread.
+- Split scan-out (built 2026-10-25, host-tested, not run on the set): the
+  UI over a direct window goes to the overlay plane. The planes stack in
+  hardware order (primary under overlay, no zpos, no plane alpha), so the
+  split is the window direct on the primary and the system layer alone in
+  a page with alpha on the overlay, not the other way round. `assign.rs`
+  decides (`Facts::ui_over`, `ui_page`; tested); `frames.rs` keeps a
+  second ring of AR24 pages (`Frames::with_ui_pages`), clears what the
+  page owes to transparent and draws stack 1 over it
+  (`Gl::render_ui_layer`), and forgets the UI ring when the overlay was
+  off between; `kms/mod.rs` makes the three AR24 pages when a UI is
+  attached and the overlay lists AR24 (else "split off" in the log and
+  the UI over a direct window composes as before), shows the overlay the
+  same rectangle of its page as it covers of the output (no scaling, so
+  X6 is not needed), and hands the GL fence to whichever plane shows a
+  drawn page. `tests/ui_scanout.rs` (Mesa) covers direct, split, the move
+  of the layer on the next UI page, the overlay off and on again with the
+  ring forgotten, and the card's departure. Open on the set: whether the
+  overlay blends its per-pixel alpha over the primary [INFERENCE from the
+  plane listing AR24]; `kms: first split frame` in the log marks the
+  frame to look at, `split N` in the status line counts them.
+- The refresh period follows the flips (`kms/timing.rs`, built
+  2026-10-25, host-tested): the panel's rate follows the content (a
+  browser page put the output at 50 Hz, `perf-tweaks.md`; 24 Hz film is
+  the other case), the mode says 60 regardless, and a pacer keyed to 60
+  under a 41.7 ms refresh plans slots that do not exist. Four consecutive
+  flips at one known rate (24, 25, 30, 48, 50, 60, 120 Hz and the
+  fractional ones) that is not the current period or a whole number of it
+  re-key the pacer (`kms: the panel refreshes every X ms now`); a skipped
+  refresh (33.3 ms at 60) stays an odd stamp. The UI's animations are
+  evaluated at wall time, so its clock is its own and only its frame rate
+  is the panel's: at 24 Hz a 300 ms slide takes 300 ms in 7 frames. 60 fps
+  under 24 or 50 Hz content is not on offer on this CRTC (one, shared by
+  both planes). Status line: `refresh X ms (changed N)`.
+- Not built: explicit sync for clients, `wp_presentation`, a render
+  thread, `EGL_KHR_partial_update` (window surfaces only; the pages are
+  FBOs over dma-bufs, and the tiles already bound the draw).
 
 TV step (maintenance window, ~60 s of black screen, LG's compositor
 stopped and restarted; SAM untouched): `sh compositor/tools/tv-first-light.sh
@@ -1358,8 +1393,10 @@ compositor's own renderer either way.
   2026-10-25): a full-screen opaque window goes to the plane whenever the
   plan allows it and nothing of stack 1 shows (stack 0 is under that
   window, so Home alone costs no composed frame); the frame a system
-  layer appears is composed and drawn whole, since the pages missed the
-  window's frames, and the frame it goes is direct again. Host test
+  layer appears the window stays direct and the layer goes to the overlay
+  plane in a page with alpha (the split, "Split scan-out" in the C2/C3
+  status), or is composed and drawn whole where the overlay takes no
+  alpha; the frame it goes is direct again. Host test
   `tests/ui_scanout.rs`.
 - Keys and state. The compositor stays the only reader of the remotes. A
   LumaTV UI channel (JSON lines, `/tmp/xdg/lumatv-ui-input`): to the UI,
@@ -1465,21 +1502,16 @@ set, which needs `cutover.sh install` first):
 
 ## What C3 and C4 need next
 
-C3 (60 fps work, on the screen):
+C3 (60 fps work, on the screen). Built and host-tested, waiting on the set:
+the KMS `Output` (master, atomic commits, the GL fence as the in-fence,
+one frame rendered ahead behind the flip in flight, page-flip stamps into
+the pacer), direct scan-out on the primary, the split (the UI on the
+overlay over a direct window), tile damage with the rings' accounts, the
+refresh period followed from the flips. Still to do:
 
-- The KMS `Output`: become DRM master of `card0` (only possible once
-  LG's compositor is stopped, so this is the first C4-style maintenance
-  window), atomic commits of the composed buffer on the primary plane with
-  the GL fence as the in-fence, presented timestamps from the page-flip
-  event into the pacer (LumaShow `pacer.rs` by path dependency).
 - Render into scan-out buffers instead of the FBO: the heap shim (phase 1)
   gives the blob's window path contiguous dumb buffers; or `gbm` on the
   blob if it accepts `card0` as a GBM device (it refused the render node).
-- Direct scan-out (X5): `Plan::sole_fullscreen()` + the dma-buf fd kept by
-  `--buffers own` → `ADDFB2` with modifier `0x0800000000000151` (the plane
-  lists `…62`; a test-only commit says whether the 16x16 layout scans out).
-- Damage: tile the output damage (16 px, merge pricing), partial-update
-  with `EGL_KHR_partial_update` on the blob.
 - Explicit sync: offer `zwp_linux_explicit_synchronization_v1` (LG's
   libmali binds it); acquire fences replace the implicit wait.
 - `wp_presentation` for flutter and LumaTV's own client.

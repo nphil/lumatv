@@ -1,17 +1,21 @@
 //! Which plane shows what this frame. Pure, so the decisions are tested without a device.
 //!
-//! One rule for now: a single opaque full-screen client buffer whose layout the primary plane takes is scanned
-//! out directly (no GPU pass); anything else is composed into a page of the ring on the primary plane. The
-//! overlay plane is left for C3's split mode (UI above a direct-scanned app), which needs X6's answer on whether
-//! osd1 scales like osd0.
+//! The planes stack in hardware order, primary under overlay, with no zpos and no plane alpha (`kms/mod.rs`). So a
+//! single opaque full-screen client buffer whose layout the primary plane takes is scanned out there directly (no GPU
+//! pass), and when the system UI shows something over it, the UI alone is drawn into a page with alpha on the overlay
+//! plane (the split: a volume bar over Netflix costs no composition of the video). Anything else is composed into a page
+//! of the ring on the primary plane. Whether the overlay's per-pixel alpha blends over the primary is for the set to
+//! answer [INFERENCE: the OSD planes take AR24, which is only worth listing for that].
 
 use crate::Rect;
 
 /// What a plane shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// Page `i` of the compositor's own ring.
+    /// Page `i` of the compositor's own ring (opaque, the primary plane).
     Page(usize),
+    /// Page `i` of the UI ring (with alpha, the overlay plane).
+    UiPage(usize),
     /// A client buffer's framebuffer id.
     Direct(u32),
     Off,
@@ -35,11 +39,20 @@ pub struct Facts {
     pub direct_fb: Option<u32>,
     /// The ring page that would be composed into.
     pub next_page: usize,
+    /// The system UI shows something over the windows this frame.
+    pub ui_over: bool,
+    /// The device has an overlay plane that takes the UI ring's format, and the ring exists; with the page it would be
+    /// drawn into.
+    pub ui_page: Option<usize>,
+    /// The output's size, the overlay's rectangle in the split.
+    pub output: Rect,
 }
 
 pub fn decide(f: &Facts) -> Assignment {
-    match (f.sole_fullscreen && f.layout_accepted, f.direct_fb) {
-        (true, Some(fb)) => Assignment { primary: Source::Direct(fb), overlay: None },
+    let direct = if f.sole_fullscreen && f.layout_accepted { f.direct_fb } else { None };
+    match (direct, f.ui_over, f.ui_page) {
+        (Some(fb), false, _) => Assignment { primary: Source::Direct(fb), overlay: None },
+        (Some(fb), true, Some(page)) => Assignment { primary: Source::Direct(fb), overlay: Some((Source::UiPage(page), f.output)) },
         _ => Assignment { primary: Source::Page(f.next_page), overlay: None },
     }
 }
@@ -54,19 +67,35 @@ pub fn needs_commit(a: &Assignment, drawn: bool) -> bool {
 mod tests {
     use super::*;
 
+    fn facts() -> Facts {
+        Facts { sole_fullscreen: true, layout_accepted: true, direct_fb: Some(77), next_page: 1, ui_over: false, ui_page: Some(2), output: Rect::new(0, 0, 1920, 1080) }
+    }
+
     #[test]
     fn a_full_screen_client_buffer_the_plane_takes_is_scanned_out_directly() {
-        let f = Facts { sole_fullscreen: true, layout_accepted: true, direct_fb: Some(77), next_page: 1 };
+        let f = facts();
         assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: None });
         assert!(needs_commit(&decide(&f), false));
     }
 
     #[test]
+    fn the_ui_over_a_direct_window_goes_to_the_overlay_plane() {
+        let f = Facts { ui_over: true, ..facts() };
+        assert_eq!(decide(&f), Assignment { primary: Source::Direct(77), overlay: Some((Source::UiPage(2), Rect::new(0, 0, 1920, 1080))) });
+    }
+
+    #[test]
+    fn without_an_overlay_the_ui_over_a_window_means_composition() {
+        let f = Facts { ui_over: true, ui_page: None, ..facts() };
+        assert_eq!(decide(&f), Assignment { primary: Source::Page(1), overlay: None });
+    }
+
+    #[test]
     fn anything_else_is_composed_into_the_next_page() {
-        let f = Facts { sole_fullscreen: true, layout_accepted: false, direct_fb: None, next_page: 2 };
+        let f = Facts { layout_accepted: false, direct_fb: None, next_page: 2, ..facts() };
         assert_eq!(decide(&f).primary, Source::Page(2));
-        let f = Facts { sole_fullscreen: false, layout_accepted: true, direct_fb: Some(5), next_page: 0 };
-        assert_eq!(decide(&f).primary, Source::Page(0));
+        let f = Facts { sole_fullscreen: false, direct_fb: Some(5), next_page: 0, ui_over: true, ..facts() };
+        assert_eq!(decide(&f), Assignment { primary: Source::Page(0), overlay: None }, "a windowed scene composes the UI with it");
         assert!(!needs_commit(&decide(&f), false));
         assert!(needs_commit(&decide(&f), true));
     }

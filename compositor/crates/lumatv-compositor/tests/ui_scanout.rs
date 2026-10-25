@@ -1,6 +1,7 @@
 //! The KMS output's frame logic (`kms::frames`) with the UI engine attached, over pages in the context's own memory and under
 //! the real `State::tick` (feature `ui`, Mesa's software GL): direct scan-out of a full-screen opaque card while the UI shows
-//! nothing over it, composition the frame a system layer appears, and the UI app's socket waking the loop.
+//! nothing over it, composition the frame a system layer appears when there is no UI ring, the split (the card direct on the
+//! primary, the UI alone on an overlay page with alpha) when there is one, and the UI app's socket waking the loop.
 #![cfg(feature = "ui")]
 
 mod harness;
@@ -8,7 +9,7 @@ mod harness;
 use compositor_protocol::{Event, Fill, Props, Rgba, Shape};
 use harness::{Client, Server};
 use lumashow_ui::{Scene, SceneOptions, ShapeLayer, Ui};
-use lumatv_compositor::kms::assign::Source;
+use lumatv_compositor::kms::assign::{Assignment, Source};
 use lumatv_compositor::kms::frames::Frames;
 use lumatv_compositor::output::{Image, Output, Presented, RenderStats};
 use lumatv_compositor::render::egl::Platform;
@@ -26,13 +27,15 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
 const FB: u32 = 7;
 
-/// The KMS output without the device: the GL renderer, three pages of its own and the ring's frame logic. Every frame's source
-/// is kept for the test to read. Between frames the screen is still, as KMS answers when no flip is in flight.
+/// The KMS output without the device: the GL renderer, three pages of its own (and three with alpha for the overlay when the
+/// rig asks) and the rings' frame logic. Every frame's assignment is kept for the test to read. Between frames the screen is
+/// still, as KMS answers when no flip is in flight.
 struct ScanOut {
     gl: Gl,
     frames: Frames,
     pages: Vec<TargetId>,
-    sources: Arc<Mutex<Vec<Source>>>,
+    ui_pages: Vec<TargetId>,
+    sources: Arc<Mutex<Vec<Assignment>>>,
 }
 
 impl Output for ScanOut {
@@ -63,8 +66,8 @@ impl Output for ScanOut {
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         // the device would take the window's buffer whenever the plan allows it
         let direct = plan.sole_fullscreen().map(|_| FB);
-        let (source, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
-        self.sources.lock().push(source);
+        let (assignment, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
+        self.sources.lock().push(assignment);
         Ok(stats)
     }
 
@@ -72,9 +75,14 @@ impl Output for ScanOut {
         self.gl.present()
     }
 
-    /// The page last composed (what the panel would show after a composed frame).
+    /// The page last composed (what the panel would show after a composed frame), or the UI page of the last split frame when
+    /// the frame before was one (what the overlay plane would show).
     fn capture(&mut self) -> io::Result<Image> {
-        self.gl.set_target(self.pages[self.frames.last_page()]);
+        let last = self.sources.lock().last().copied();
+        match last {
+            Some(Assignment { overlay: Some((Source::UiPage(i), _)), .. }) => self.gl.set_target(self.ui_pages[i]),
+            _ => self.gl.set_target(self.pages[self.frames.last_page()]),
+        }
         self.gl.capture()
     }
 
@@ -89,7 +97,7 @@ struct Rig {
     server: Server,
     ui: Ui,
     events: Receiver<Event>,
-    sources: Arc<Mutex<Vec<Source>>>,
+    sources: Arc<Mutex<Vec<Assignment>>>,
     shm: PathBuf,
     under: ShapeLayer,
     osd: ShapeLayer,
@@ -101,8 +109,8 @@ fn hidden() -> Props {
 }
 
 impl Rig {
-    /// `None` without Mesa.
-    fn start(name: &str) -> Option<Rig> {
+    /// `None` without Mesa. `split` gives the output a UI ring (an overlay plane that takes alpha).
+    fn start(name: &str, split: bool) -> Option<Rig> {
         if !Path::new(MESA).exists() {
             eprintln!("skipped: no Mesa at {MESA}");
             return None;
@@ -120,8 +128,12 @@ impl Rig {
             tx.send(gl.attach_ui(MESA, 1000, dir).unwrap()).unwrap();
             gl.ui().unwrap().finish_handshake().unwrap();
             let pages: Vec<TargetId> = (0..3).map(|_| gl.add_target().unwrap()).collect();
-            let frames = Frames::new(pages.clone(), 1920, 1080);
-            Box::new(ScanOut { gl, frames, pages, sources: log })
+            let ui_pages: Vec<TargetId> = if split { (0..3).map(|_| gl.add_target().unwrap()).collect() } else { Vec::new() };
+            let mut frames = Frames::new(pages.clone(), 1920, 1080);
+            if split {
+                frames = frames.with_ui_pages(ui_pages.clone());
+            }
+            Box::new(ScanOut { gl, frames, pages, ui_pages, sources: log })
         }));
         let (scene, _, events) = Scene::over_with(rx.recv().unwrap(), SceneOptions { shm_dir: Some(shm.clone()), ..Default::default() }).unwrap();
         let ui = Ui::new(scene);
@@ -145,7 +157,7 @@ impl Rig {
         }
     }
 
-    fn taken(&self) -> Vec<Source> {
+    fn taken(&self) -> Vec<Assignment> {
         self.sources.lock().clone()
     }
 
@@ -164,16 +176,20 @@ impl Drop for Rig {
     }
 }
 
-#[test]
-fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_over_it() {
-    let Some(mut rig) = Rig::start("direct") else { return };
+fn composed(page: usize) -> Assignment {
+    Assignment { primary: Source::Page(page), overlay: None }
+}
 
-    // Home alone: composed.
-    rig.commit();
-    assert_eq!(rig.taken(), [Source::Page(0)]);
-    assert_eq!(rig.capture().pixel(600, 400), [18, 20, 32, 255]);
+fn direct() -> Assignment {
+    Assignment { primary: Source::Direct(FB), overlay: None }
+}
 
-    // A full-screen opaque card over it: the plane takes the card's buffer, the pages are left as they were.
+fn split(ui_page: usize) -> Assignment {
+    Assignment { primary: Source::Direct(FB), overlay: Some((Source::UiPage(ui_page), lumatv_compositor::Rect::new(0, 0, 1920, 1080))) }
+}
+
+/// A full-screen opaque card over Home, presented and on the screen.
+fn card_over_home(rig: &mut Rig) -> Client {
     let mut client = Client::connect(&mut rig.server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
     let opaque = client.region(0, 0, 1920, 1080);
@@ -181,22 +197,36 @@ fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_ov
     let buffer = client.shm_buffer(1920, 1080, 0xff19_80e6);
     client.present(&card.surface, &buffer);
     assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
+    client
+}
+
+#[test]
+fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_over_it() {
+    let Some(mut rig) = Rig::start("direct", false) else { return };
+
+    // Home alone: composed.
+    rig.commit();
+    assert_eq!(rig.taken(), [composed(0)]);
+    assert_eq!(rig.capture().pixel(600, 400), [18, 20, 32, 255]);
+
+    // A full-screen opaque card over it: the plane takes the card's buffer, the pages are left as they were.
+    let _client = card_over_home(&mut rig);
     let before = rig.taken();
-    assert_eq!(before.last(), Some(&Source::Direct(FB)), "{before:?}");
+    assert_eq!(before.last(), Some(&direct()), "{before:?}");
     assert_eq!(rig.capture().pixel(600, 400), [18, 20, 32, 255], "no page was composed for the card");
 
     // Home changes under the card: the app's commit is taken in and answered, and the frame is still direct.
     rig.under.set(Props::at(700.0, 500.0));
     rig.commit();
     let now = rig.taken();
-    assert!(now.len() > before.len() && now[before.len()..].iter().all(|s| *s == Source::Direct(FB)), "{now:?}");
+    assert!(now.len() > before.len() && now[before.len()..].iter().all(|s| *s == direct()), "{now:?}");
 
     // A system layer appears: that frame is composed, and drawn whole (the card's frames never reached the pages).
     let before = rig.taken();
     rig.osd.set(Props::at(760.0, 900.0));
     rig.commit();
     let now = rig.taken();
-    assert!(matches!(now[before.len()..], [Source::Page(_)]), "{now:?}");
+    assert!(matches!(now[before.len()..], [Assignment { primary: Source::Page(_), overlay: None }]), "{now:?}");
     let image = rig.capture();
     assert_eq!(image.pixel(780, 920), [245, 245, 255, 255], "the system layer is on the page");
     assert_eq!(image.pixel(600, 400), [25, 128, 230, 255], "the card is on the page, not the stale Home");
@@ -209,13 +239,79 @@ fn a_full_screen_window_is_scanned_out_directly_unless_the_ui_shows_something_ov
     rig.osd.set(hidden());
     rig.commit();
     let now = rig.taken();
-    assert_eq!(&now[before.len()..], [Source::Direct(FB)], "{now:?}");
+    assert_eq!(&now[before.len()..], [direct()], "{now:?}");
+    assert_eq!(rig.gl_errors(), 0);
+}
+
+#[test]
+fn with_a_ui_ring_the_system_layer_goes_to_the_overlay_over_the_direct_window() {
+    let Some(mut rig) = Rig::start("split", true) else { return };
+    rig.commit();
+    assert_eq!(rig.taken(), [composed(0)]);
+    let _client = card_over_home(&mut rig);
+    assert_eq!(rig.taken().last(), Some(&direct()));
+
+    // The system layer appears: the card stays on the primary plane, the UI alone is drawn into a page with alpha for the
+    // overlay, cleared to transparent everywhere else.
+    let before = rig.taken();
+    rig.osd.set(Props::at(760.0, 900.0));
+    rig.commit();
+    let now = rig.taken();
+    assert_eq!(&now[before.len()..], [split(0)], "{now:?}");
+    let image = rig.capture();
+    assert_eq!(image.pixel(780, 920), [245, 245, 255, 255], "the system layer is on the UI page");
+    assert_eq!(image.pixel(600, 400), [0, 0, 0, 0], "nothing of the card or Home is on it: the window shows through");
+    assert_eq!(image.pixel(30, 30), [0, 0, 0, 0]);
+    assert_eq!(rig.gl_errors(), 0);
+
+    // It moves: the next UI page is drawn, only the tiles it owes (the old place cleared, the new one drawn).
+    let before = rig.taken();
+    rig.osd.set(Props::at(200.0, 100.0));
+    rig.commit();
+    let now = rig.taken();
+    assert_eq!(&now[before.len()..], [split(1)], "{now:?}");
+    let image = rig.capture();
+    assert_eq!(image.pixel(220, 120), [245, 245, 255, 255], "the layer at its new place");
+    assert_eq!(image.pixel(780, 920), [0, 0, 0, 0], "its old place is transparent on this page too");
+
+    // It goes: direct alone again, the overlay off.
+    let before = rig.taken();
+    rig.osd.set(hidden());
+    rig.commit();
+    let now = rig.taken();
+    assert_eq!(&now[before.len()..], [direct()], "{now:?}");
+
+    // Back: the UI ring forgot its pages while the overlay was off, so the page is drawn whole (the stale layer at
+    // 200,100 from two frames ago must not reappear).
+    let before = rig.taken();
+    rig.osd.set(Props::at(760.0, 900.0));
+    rig.commit();
+    let now = rig.taken();
+    assert_eq!(&now[before.len()..], [split(2)], "{now:?}");
+    let image = rig.capture();
+    assert_eq!(image.pixel(780, 920), [245, 245, 255, 255]);
+    assert_eq!(image.pixel(220, 120), [0, 0, 0, 0], "a page the ring forgot holds nothing stale");
+
+    // The card goes: Home composed again into the primary ring, drawn whole, with the system layer on it.
+    drop(_client);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !matches!(rig.taken().last(), Some(Assignment { primary: Source::Page(_), overlay: None })) {
+        assert!(Instant::now() < deadline, "the frame after the card went: {:?}", rig.taken());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    rig.under.set(Props::at(600.0, 500.0));
+    rig.commit();
+    let now = rig.taken();
+    assert!(matches!(now.last(), Some(Assignment { primary: Source::Page(_), overlay: None })), "{now:?}");
+    let image = rig.capture();
+    assert_eq!(image.pixel(780, 920), [245, 245, 255, 255], "the system layer is composed with Home");
+    assert_eq!(image.pixel(100, 100), [18, 20, 32, 255], "Home is drawn whole");
     assert_eq!(rig.gl_errors(), 0);
 }
 
 #[test]
 fn a_ui_commit_wakes_the_loop_and_is_drawn_without_a_tick() {
-    let Some(rig) = Rig::start("wake") else { return };
+    let Some(rig) = Rig::start("wake", false) else { return };
     // No tick at all: a commit is drawn only if its socket wakes the loop and the still screen is drawn at once.
     rig.server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
     let mut latencies: Vec<Duration> = (0..30)
