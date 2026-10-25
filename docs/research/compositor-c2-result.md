@@ -9,77 +9,50 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 02:35 EDT, code at `bc2ce47`): **first light passed on the set** for LG's
-own client through the driver-served buffers (6/6 pixel-exact) and an
-unmodified LG Qt app mapped and rendered through this compositor (403
-frames at ~50 fps, render max 11.9 ms). Two bugs the run exposed are fixed
-offline and need one re-run. Log of the run:
-`docs/research/compositor/first-light-2026-10-25.txt`; PNGs were fetched
-to `/tmp/lumatv-tv-out/out/` on the workstation (not committed).
+State (2026-10-25 03:05 EDT): **first light passed on the set** on all
+three buffer paths across two runs; one last harness-level gap is fixed
+offline and C3 work has started. Log of both runs:
+`docs/research/compositor/first-light-2026-10-25.txt` (the re-run
+overwrote the first; the first run's numbers are kept below).
 
-- TV results (main agent ran `tv-first-light.sh deploy / run all / app /
-  fetch / clean`, LG's compositor untouched):
-  - `driver` (X2 client on LG's 32-bit libmali, blob serves
-    `mali_buffer_sharing` via `eglBindWaylandDisplayWL`, import by
-    `EGL_WAYLAND_BUFFER_WL`): PASS, `check ok 6 bad 0`, centres
-    `0080ffff 1980e6ff 3280cdff 4b80b4ff 64809bff 7d8082ff`, six PNGs.
-    `render max 13.8 ms` for the first frame (shader/texture setup), then
-    0.4 ms.
-  - `own` (our `mali_buffer_sharing` global, dma-buf fd kept, import by
-    `EGL_EXT_image_dma_buf_import` with modifier `0x0800000000000151`):
-    frames 0-4 pixel-exact, so **the blob imports LG's AFBC buffers through
-    dma-buf import**, which is what C3's direct scan-out needs (the X2
-    open question). Frame 5 read black: a compositor bug, fixed (below).
-  - `shm` (64-bit test client, upload path): 0/6, `gl error 0x502` per
-    frame: a compositor bug, fixed (below). This path matters only for
-    shm clients (LumaTV's own test client; LG's apps use the driver path).
-  - `app`: `/usr/bin/com.webos.exampleapp.systemui` (an LG Qt app)
-    connected, bound the globals, took the keymap (1140 bytes, "Using
-    shared XKB keymap"), created `wl_shell` + `wl_webos_shell_surface`
-    with `_WEBOS_WINDOW_TYPE_SYSTEM_UI`, `appId`, title "System UI
-    Example", mapped 1920x1080, got `position_changed`, committed 403
-    frames in 8 s on three driver buffers; captures are a uniform red
-    whose intensity changes between frames (0x18 → 0xab → 0xb2: an
-    animated fill, not black). `com.webos.app.tvhotkey` connected but
-    created no window in 8 s (a popup app that waits for luna).
-  - `protocols`: `out/protocols.txt` written (479-line log has the
-    tables; `input_method` v2, `text_model` v1 match the OSE XML; the
-    rest is to compare, see "Protocol versions on the set" below).
-- Fixes since the run (host tests cover both; both are in the rebuilt
-  bundle):
-  1. `shm` 0x502: a BGRA `glTexSubImage2D` into a texture allocated as
-     RGBA; ES 2.0 §3.7.2 requires the sub-image format to equal the
-     texture's, and Mali enforces it (Mesa does not, so the host test
-     `gl_renderer_uploads_shm_pixel_exact`, which runs the real GL
-     renderer on Mesa llvmpipe, checks pixels and a zero GL-error count
-     but could not have caught this one). The texture is now allocated
-     with `GL_BGRA_EXT` when the upload is BGRA.
-  2. `own` frame 5 black: the X2 client's `eglTerminate` destroys its
-     three `wl_buffer`s while the last one is still committed; the
-     compositor's destroy handler unmapped the surface. Now a destroyed
-     buffer stays the surface's current one (its mapping or dma-buf lives
-     in the buffer data; the renderer's import is kept while any surface
-     shows it) until the client commits another; nothing is released to a
-     dead resource. Test `destroying_the_shown_buffer_keeps_the_last_frame`.
-     The driver path was immune because the driver's buffers are not the
-     compositor's resources (no destroy callback), which is also why
-     `driver` passed 6/6.
-  Also: after `--frames N` the server lingers up to 2 s while a client is
-  connected, so the client's teardown is served instead of "Connection
-  reset by peer"; `clients_total` counted; `gl errors` in the summary.
-- Next command (needs the TV, ~3 min): `sh compositor/tools/tv-first-light.sh
-  deploy && sh compositor/tools/tv-first-light.sh run all && sh
-  compositor/tools/tv-first-light.sh fetch && sh compositor/tools/tv-first-light.sh
-  clean`. Expected: `driver` PASS 6/6 (as before), `own` PASS 6/6, `shm`
-  PASS 6/6 with `gl errors 0`, no "Connection reset" in the client logs,
-  and `out/protocols.txt` now listing the `wl_webos_*`/`wl_starfish_*`
-  tables (fold any order difference into `compositor/protocol/` as done
-  for the IME ones). The `app` case is optional (already proven). Both
-  host paths of the same binaries pass end to end (software renderer and
-  the GL renderer on Mesa llvmpipe, 6/6 each, `gl errors 0`).
-- Without the TV: nothing left in this slice; C3/C4 items at the end.
-- TV state: not touched by this slice itself; the main agent's run left
-  nothing running (`clean`).
+- Run 1 (01:40): `driver` 6/6 pixel-exact; `own` frames 0-4 exact, frame 5
+  black (bug 2 below); `shm` 0/6 with `gl error 0x502` (bug 1); `app`:
+  `com.webos.exampleapp.systemui` (LG Qt) mapped `_WEBOS_WINDOW_TYPE_SYSTEM_UI`
+  1920x1080, took the keymap, 403 frames in 8 s on three driver buffers,
+  captures a uniform red whose intensity animates (0x18, 0xab, 0xb2).
+- Run 2 (02:50, with bug 1 and bug 2 fixed): `shm` **6/6, gl errors 0**;
+  `driver` and `own` **5/6 exact, 0 bad**: 6 commits, 5 drawn, because
+  `x2cli` disconnects about 1 ms after its last swap and the 6th commit
+  had not reached a tick; the previous run drew it only because the
+  server exited first and cut the client off. Fixed (bug 3).
+- Bugs and fixes (all with host tests; bundle rebuilt):
+  1. `shm` 0x502: BGRA `glTexSubImage2D` into an RGBA texture (ES 2.0
+     §3.7.2: the formats must match; Mali enforces it, Mesa does not).
+     Texture now allocated as `GL_BGRA_EXT`. Test
+     `gl_renderer_uploads_shm_pixel_exact` (real GL renderer on Mesa
+     llvmpipe; checks pixels, blending, `gl errors 0`).
+  2. `own` frame 5 black: the client's `eglTerminate` destroyed the
+     committed buffer and the destroy handler unmapped the surface. A
+     destroyed buffer now stays current (data and import kept while shown)
+     until the next commit. Test `destroying_the_shown_buffer_keeps_the_last_frame`.
+  3. Last frame never drawn: a surface destroyed with an undrawn commit is
+     drawn once before it goes (`State::surface_destroyed` runs a tick).
+     Test `a_surface_that_vanishes_with_an_undrawn_frame_is_drawn_once`.
+  Also: LG's IME opcode order folded into `text.xml`/`input-method.xml`
+  (from the set's tables); the `protocols` case now names the
+  `wl_webos_*`/`wl_starfish_*` symbols (the tool skips `wl_*` by default).
+- What the set has proved for the design: the 64-bit Rust compositor on
+  the C libwayland backend accepts LG's 32-bit libmali clients on both
+  buffer paths; the blob imports LG's AFBC dma-bufs with modifier
+  `0x0800000000000151` (C3 can keep the fd for scan-out); an unmodified
+  LG Qt app runs against it with the OSE protocol tables.
+- Next TV step (optional, ~3 min, same script): `sh compositor/tools/tv-first-light.sh
+  deploy && … run all && … fetch && … clean`; expected `driver`, `own`,
+  `shm` all `check ok 6 bad 0`, and `out/protocols.txt` with the
+  `wl_webos_*`/`wl_starfish_*` tables to compare with `compositor/protocol/`.
+- C3 (in progress, offline): see "C3 status" at the end of this file.
+- TV state: not touched by this slice; the main agent's runs left
+  nothing running.
 
 ## Design
 

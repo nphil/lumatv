@@ -3,21 +3,21 @@
 ## driver
 
     ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
-    [srv    0.022] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
-    [srv    0.022] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
-    [srv    0.038] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
-    [srv    0.123] info client pid 3605 uid 0
-    [srv    0.123] info window 1 created on surface 1 by pid 3605
-    [srv    0.131] info window 1 mapped (Card app "" title "x2 probe" size Some((1920, 1080)))
-    [srv    0.131] info focus -> surface 1
-    [srv    0.185] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
-    [srv    0.297] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
-    [srv    0.396] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
-    [srv    0.495] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
-    [srv    0.596] info check x2 frame 4: centre 64809bff expected 64809bff ok
-    [srv    0.677] info check x2 frame 5: centre 7d8082ff expected 7d8082ff ok
-    [srv    0.734] info summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 28 commits 6 buffers 0 ticks 16 drawn 6 callbacks 6 releases 5 skipped 0 render last 381 us max 13806 us check ok 6 bad 0 unread 0
-    summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 28 commits 6 buffers 0 ticks 16 drawn 6 callbacks 6 releases 5 skipped 0 render last 381 us max 13806 us check ok 6 bad 0 unread 0
+    [srv    0.034] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.034] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
+    [srv    0.055] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.128] info client pid 19709 uid 0
+    [srv    0.128] info window 1 created on surface 1 by pid 19709
+    [srv    0.143] info window 1 mapped (Card app "" title "x2 probe" size Some((1920, 1080)))
+    [srv    0.143] info focus -> surface 1
+    [srv    0.227] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
+    [srv    0.314] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
+    [srv    0.403] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
+    [srv    0.501] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
+    [srv    0.601] info check x2 frame 4: centre 64809bff expected 64809bff ok
+    [srv    0.658] info client disconnected: pid 19709 (ConnectionClosed)
+    [srv    0.659] info summary: uptime 0.6s clients 0 (total 1) surfaces 0 windows 0 requests 28 commits 6 buffers 0 ticks 15 drawn 5 callbacks 5 releases 4 skipped 0 gl errors 0 render last 218 us max 18205 us check ok 5 bad 0 unread 0
+    summary: uptime 0.6s clients 0 (total 1) surfaces 0 windows 0 requests 28 commits 6 buffers 0 ticks 15 drawn 5 callbacks 5 releases 4 skipped 0 gl errors 0 render last 218 us max 18205 us check ok 5 bad 0 unread 0
     arm_release_ver: g24p0-00eac0, rk_so_ver: 10
 
     --- client.log
@@ -39,20 +39,20 @@
     [cli] global 16 input_panel                          v1
     [cli] global 17 wl_webos_system_ux                   v1
     [cli] global 18 zwp_linux_dmabuf_v1                  v3
-    [cli] 18 globals; compositor 0x104a030 shell 0x104a0e8 shm 0x104a090
+    [cli] 18 globals; compositor 0x7db030 shell 0x7db0e8 shm 0x7db090
     [cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
-    [cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf50cbf21
+    [cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf4e7bf21
     [cli] EGL 1.5 vendor "ARM" version "1.5 Bifrost-"r46p0-01eac1""
     [cli] GL "Mali-G52" / "OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416"
     [cli] frame 0: eglSwapBuffers ok (0x0) took 0.2 ms
     [cli] configure 1920x1080
-    [cli] frame 1: eglSwapBuffers ok (0x0) took 0.1 ms
-    [cli] frame 2: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] frame 1: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] frame 2: eglSwapBuffers ok (0x0) took 0.1 ms
     [cli] frame 3: eglSwapBuffers ok (0x0) took 0.1 ms
     [cli] frame 4: eglSwapBuffers ok (0x0) took 0.1 ms
     [cli] frame 5: eglSwapBuffers ok (0x0) took 0.1 ms
-    Exit client due to a fatal connection failure: Connection reset by peer
-    [cli] 6 frames in 430.6 ms
+    [cli] 6 frames in 426.2 ms
+    [cli] done
     PNG /tmp/lumatv-tv-out/out/driver/frame-0001.png
     PNG /tmp/lumatv-tv-out/out/driver/frame-0002.png
     PNG /tmp/lumatv-tv-out/out/driver/frame-0003.png
@@ -63,24 +63,24 @@
 ## own
 
     ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
-    [srv    0.026] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
-    [srv    0.039] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Own, own mali_buffer_sharing, no starfish globals incl. webos shell/foreign/group/input)
-    [srv    0.123] info client pid 3663 uid 0
-    [srv    0.123] info window 1 created on surface 1 by pid 3663
-    [srv    0.124] info client bound mali_buffer_sharing v5 (own); alloc_device /dev/dma_buf_te
-    [srv    0.131] info mali_buffer_sharing.create_buffer -> wl_buffer@11 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
-    [srv    0.133] info window 1 mapped (Card app "" title "x2 probe" size Some((1920, 1080)))
-    [srv    0.133] info focus -> surface 1
-    [srv    0.138] info mali_buffer_sharing.create_buffer -> wl_buffer@13 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
-    [srv    0.186] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
-    [srv    0.253] info mali_buffer_sharing.create_buffer -> wl_buffer@14 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
-    [srv    0.279] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
-    [srv    0.363] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
-    [srv    0.446] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
-    [srv    0.529] info check x2 frame 4: centre 64809bff expected 64809bff ok
-    [srv    0.618] info check x2 frame 5: centre 000000ff expected 7d8082ff BAD
-    [srv    0.676] info summary: uptime 0.6s clients 1 (total 0) surfaces 1 windows 1 requests 31 commits 6 buffers 3 ticks 16 drawn 6 callbacks 6 releases 4 skipped 0 render last 153 us max 15745 us check ok 5 bad 1 unread 0
-    summary: uptime 0.6s clients 1 (total 0) surfaces 1 windows 1 requests 31 commits 6 buffers 3 ticks 16 drawn 6 callbacks 6 releases 4 skipped 0 render last 153 us max 15745 us check ok 5 bad 1 unread 0
+    [srv    0.023] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.034] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Own, own mali_buffer_sharing, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.122] info client pid 19757 uid 0
+    [srv    0.122] info window 1 created on surface 1 by pid 19757
+    [srv    0.122] info client bound mali_buffer_sharing v5 (own); alloc_device /dev/dma_buf_te
+    [srv    0.129] info mali_buffer_sharing.create_buffer -> wl_buffer@11 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
+    [srv    0.130] info window 1 mapped (Card app "" title "x2 probe" size Some((1920, 1080)))
+    [srv    0.130] info focus -> surface 1
+    [srv    0.174] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
+    [srv    0.241] info mali_buffer_sharing.create_buffer -> wl_buffer@13 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
+    [srv    0.247] info mali_buffer_sharing.create_buffer -> wl_buffer@14 1920x1080 stride 7680 AB24 modifier 0x0800000000000151
+    [srv    0.276] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
+    [srv    0.382] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
+    [srv    0.482] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
+    [srv    0.582] info check x2 frame 4: centre 64809bff expected 64809bff ok
+    [srv    0.644] info client disconnected: pid 19757 (ConnectionClosed)
+    [srv    0.644] info summary: uptime 0.6s clients 0 (total 1) surfaces 0 windows 0 requests 31 commits 6 buffers 3 ticks 15 drawn 5 callbacks 5 releases 4 skipped 0 gl errors 0 render last 349 us max 10841 us check ok 5 bad 0 unread 0
+    summary: uptime 0.6s clients 0 (total 1) surfaces 0 windows 0 requests 31 commits 6 buffers 3 ticks 15 drawn 5 callbacks 5 releases 4 skipped 0 gl errors 0 render last 349 us max 10841 us check ok 5 bad 0 unread 0
     arm_release_ver: g24p0-00eac0, rk_so_ver: 10
 
     --- client.log
@@ -102,19 +102,19 @@
     [cli] global 16 wl_webos_system_ux                   v1
     [cli] global 17 zwp_linux_dmabuf_v1                  v3
     [cli] global 18 mali_buffer_sharing                  v5
-    [cli] 18 globals; compositor 0x19c0030 shell 0x19c00e8 shm 0x19c0090
+    [cli] 18 globals; compositor 0xfc2030 shell 0xfc20e8 shm 0xfc2090
     [cli] EGL client extensions: EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland
-    [cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf53ebf21
+    [cli] eglBindWaylandDisplayWL via eglGetProcAddress: 0xf51fbf21
     [cli] EGL 1.5 vendor "ARM" version "1.5 Bifrost-"r46p0-01eac1""
     [cli] GL "Mali-G52" / "OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416"
     [cli] frame 0: eglSwapBuffers ok (0x0) took 0.2 ms
     [cli] configure 1920x1080
-    [cli] frame 1: eglSwapBuffers ok (0x0) took 0.1 ms
-    [cli] frame 2: eglSwapBuffers ok (0x0) took 0.5 ms
-    [cli] frame 3: eglSwapBuffers ok (0x0) took 0.3 ms
-    [cli] frame 4: eglSwapBuffers ok (0x0) took 0.2 ms
-    [cli] frame 5: eglSwapBuffers ok (0x0) took 0.2 ms
-    [cli] 6 frames in 374.9 ms
+    [cli] frame 1: eglSwapBuffers ok (0x0) took 0.2 ms
+    [cli] frame 2: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 3: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 4: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] frame 5: eglSwapBuffers ok (0x0) took 0.1 ms
+    [cli] 6 frames in 415.8 ms
     [cli] done
     PNG /tmp/lumatv-tv-out/out/own/frame-0001.png
     PNG /tmp/lumatv-tv-out/out/own/frame-0002.png
@@ -126,30 +126,25 @@
 ## shm
 
     ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
-    [srv    0.020] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
-    [srv    0.020] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
-    [srv    0.030] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
-    [srv    0.105] info client pid 3727 uid 0
-    [srv    0.105] info window 1 created on surface 1 by pid 3727
-    [srv    0.105] info webOS shell surface on window 1 (surface 1) by pid 3727
+    [srv    0.022] info egl: ARM 1.5 Bifrost-"g24p0-00eac0" on Mali-G52
+    [srv    0.022] info egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket
+    [srv    0.032] info listening on /tmp/lumatv/wayland-lumatv (gl renderer, buffers Driver, mali_buffer_sharing from the driver, no starfish globals incl. webos shell/foreign/group/input)
+    [srv    0.105] info client pid 19803 uid 0
+    [srv    0.105] info window 1 created on surface 1 by pid 19803
+    [srv    0.105] info webOS shell surface on window 1 (surface 1) by pid 19803
     [srv    0.105] info window 1: appId = org.nphil.lumatv.testclient (Card)
     [srv    0.105] info window 1: title = lumatv test client (Card)
     [srv    0.123] info window 1 mapped (Card app "org.nphil.lumatv.testclient" title "lumatv test client" size Some((1920, 1080)))
     [srv    0.123] info focus -> surface 1
-    [srv    0.151] warn gl error 0x502 during render
-    [srv    0.179] info check x2 frame 0: centre 000000ff expected 0080ffff BAD
-    [srv    0.274] warn gl error 0x502 during render
-    [srv    0.293] info check x2 frame 1: centre 000000ff expected 1980e6ff BAD
-    [srv    0.396] warn gl error 0x502 during render
-    [srv    0.413] info check x2 frame 2: centre 000000ff expected 3280cdff BAD
-    [srv    0.504] warn gl error 0x502 during render
-    [srv    0.520] info check x2 frame 3: centre 000000ff expected 4b80b4ff BAD
-    [srv    0.604] warn gl error 0x502 during render
-    [srv    0.620] info check x2 frame 4: centre 000000ff expected 64809bff BAD
-    [srv    0.704] warn gl error 0x502 during render
-    [srv    0.722] info check x2 frame 5: centre 000000ff expected 7d8082ff BAD
-    [srv    0.780] info summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 38 commits 6 buffers 3 ticks 21 drawn 6 callbacks 6 releases 5 skipped 0 render last 7086 us max 21216 us check ok 0 bad 6 unread 0
-    summary: uptime 0.7s clients 1 (total 0) surfaces 1 windows 1 requests 38 commits 6 buffers 3 ticks 21 drawn 6 callbacks 6 releases 5 skipped 0 render last 7086 us max 21216 us check ok 0 bad 6 unread 0
+    [srv    0.204] info check x2 frame 0: centre 0080ffff expected 0080ffff ok
+    [srv    0.312] info check x2 frame 1: centre 1980e6ff expected 1980e6ff ok
+    [srv    0.412] info check x2 frame 2: centre 3280cdff expected 3280cdff ok
+    [srv    0.512] info check x2 frame 3: centre 4b80b4ff expected 4b80b4ff ok
+    [srv    0.612] info check x2 frame 4: centre 64809bff expected 64809bff ok
+    [srv    0.712] info check x2 frame 5: centre 7d8082ff expected 7d8082ff ok
+    [srv    0.776] info client disconnected: pid 19803 (ConnectionClosed)
+    [srv    0.776] info summary: uptime 0.7s clients 0 (total 1) surfaces 0 windows 0 requests 38 commits 6 buffers 3 ticks 18 drawn 6 callbacks 6 releases 5 skipped 0 gl errors 0 render last 7219 us max 27710 us check ok 6 bad 0 unread 0
+    summary: uptime 0.7s clients 0 (total 1) surfaces 0 windows 0 requests 38 commits 6 buffers 3 ticks 18 drawn 6 callbacks 6 releases 5 skipped 0 gl errors 0 render last 7219 us max 27710 us check ok 6 bad 0 unread 0
     arm_release_ver: g24p0-00eac0, rk_so_ver: 10
 
     --- client.log
@@ -175,14 +170,13 @@
     [cli] configure 1920x1080
     [cli] state_changed 3
     [cli] position_changed 0,0
-    [cli] frame 0: colour 0080ffff, callback after 111.0 ms
-    [cli] frame 1: colour 1980e6ff, callback after 102.4 ms
-    [cli] frame 2: colour 3280cdff, callback after 111.5 ms
-    [cli] frame 3: colour 4b80b4ff, callback after 93.7 ms
-    [cli] frame 4: colour 64809bff, callback after 88.8 ms
-    [cli] frame 5: colour 7d8082ff, callback after 96.6 ms
-    [cli] 6 frames in 674.7 ms; releases [0, 1, 2, 0, 1]; states [3]; configures [(1920, 1080)]
-    Io error: Connection reset by peer (os error 104)
+    [cli] frame 0: colour 0080ffff, callback after 133.9 ms
+    [cli] frame 1: colour 1980e6ff, callback after 91.5 ms
+    [cli] frame 2: colour 3280cdff, callback after 86.5 ms
+    [cli] frame 3: colour 4b80b4ff, callback after 91.5 ms
+    [cli] frame 4: colour 64809bff, callback after 94.0 ms
+    [cli] frame 5: colour 7d8082ff, callback after 89.2 ms
+    [cli] 6 frames in 661.6 ms; releases [0, 1, 2, 0, 1]; states [3]; configures [(1920, 1080)]
     [cli] done
     PNG /tmp/lumatv-tv-out/out/shm/frame-0001.png
     PNG /tmp/lumatv-tv-out/out/shm/frame-0002.png
@@ -252,44 +246,103 @@
 
     == /usr/lib/libwayland-webos-client.so.1.0.0
     symbol tables: 20 *_interface symbols (.dynsym)
-    # input_method_context_interface at vaddr 0x12b54 (symbol)
-    interface input_method_context version 1
+    # wl_webos_shell_interface at vaddr 0x127f4 (symbol)
+    interface wl_webos_shell version 1
+      request[0] get_system_pip()  sig=
+      request[1] get_shell_surface(n:-, o:-)  sig=no
+    # wl_webos_shell_surface_interface at vaddr 0x12764 (symbol)
+    interface wl_webos_shell_surface version 1
+      request[0] set_location_hint(u:-)  sig=u
+      request[1] set_state(u:-)  sig=u
+      request[2] set_property(s:-, s:-)  sig=ss
+      request[3] set_key_mask(u:-)  sig=u
+      request[4] set_size(i:-, i:-)  sig=ii
+      event[0] state_changed(u:-)  sig=u
+      event[1] position_changed(i:-, i:-)  sig=ii
+      event[2] close()  sig=
+      event[3] exposed(a:-)  sig=a
+      event[4] state_about_to_change(u:-)  sig=u
+    # wl_webos_foreign_interface at vaddr 0x12ec0 (symbol)
+    interface wl_webos_foreign version 1
       request[0] destroy()  sig=
-      request[1] commit_string(u:-, s:-)  sig=us
-      request[2] preedit_string(u:-, s:-, s:-)  sig=uss
-      request[3] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
-      request[4] preedit_cursor(u:-, i:-)  sig=ui
-      request[5] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
-      request[6] cursor_position(u:-, i:-, i:-)  sig=uii
-      request[7] modifiers_map(a:-)  sig=a
-      request[8] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
-      request[9] grab_keyboard(n:-)  sig=n
-      request[10] key(u:-, u:-, u:-, u:-)  sig=uuuu
-      request[11] modifiers(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
-      event[0] surrounding_text(s:-, u:-, u:-)  sig=suu
-      event[1] reset(u:-)  sig=u
-      event[2] content_type(u:-, u:-)  sig=uu
-      event[3] enter_key_type(u:-)  sig=u
-      event[4] invoke_action(u:-, u:-)  sig=uu
-      event[5] commit()  sig=
-      event[6] max_text_length(u:-)  sig=u
-      event[7] platform_data(s:-)  sig=s
-    # input_method_interface at vaddr 0x12b00 (symbol)
-    interface input_method version 2
-      request[0] set_display_id(u:-)  sig=u
-      event[0] activate(n:-, u:-)  sig=nu
-      event[1] deactivate(o:-)  sig=o
-      event[2] show_input_panel(o:-)  sig=o
-      event[3] hide_input_panel(o:-)  sig=o
-    # input_panel_interface at vaddr 0x12adc (symbol)
-    interface input_panel version 1
-      request[0] get_input_panel_surface(n:-, o:-)  sig=no
-    # input_panel_surface_interface at vaddr 0x12ab8 (symbol)
-    interface input_panel_surface version 1
-      request[0] set_toplevel(u:-)  sig=u
-    # text_model_factory_interface at vaddr 0x12938 (symbol)
-    interface text_model_factory version 1
-      request[0] create_text_model(n:-)  sig=n
+      request[1] export_element(n:-, o:-, u:-)  sig=nou
+      request[2] import_element(n:-, s:-, u:-)  sig=nsu
+    # wl_webos_exported_interface at vaddr 0x12e6c (symbol)
+    interface wl_webos_exported version 1
+      request[0] destroy()  sig=
+      request[1] set_exported_window(o:-, o:-)  sig=oo
+      request[2] set_crop_region(o:-, o:-, o:-)  sig=ooo
+      request[3] set_property(s:-, s:-)  sig=ss
+      event[0] window_id_assigned(s:-, u:-)  sig=su
+    # wl_webos_imported_interface at vaddr 0x12db8 (symbol)
+    interface wl_webos_imported version 1
+      request[0] set_surface_alignment(u:-)  sig=u
+      request[1] destroy()  sig=
+      request[2] attach_punchthrough(s:-)  sig=s
+      request[3] set_punchthrough(s:-)  sig=s
+      request[4] detach_punchthrough()  sig=
+      request[5] attach_surface(o:-)  sig=o
+      request[6] detach_surface(o:-)  sig=o
+      request[7] set_z_index(i:-)  sig=i
+      event[0] destination_region_changed(u:-, u:-)  sig=uu
+      event[1] punchthrough_attached(s:-)  sig=s
+      event[2] punchthrough_detached(s:-)  sig=s
+      event[3] surface_attached(o:-)  sig=o
+      event[4] surface_detached(o:-)  sig=o
+    # wl_webos_surface_group_compositor_interface at vaddr 0x12908 (symbol)
+    interface wl_webos_surface_group_compositor version 1
+      request[0] create_surface_group(n:-, o:-, s:-)  sig=nos
+      request[1] get_surface_group(n:-, s:-)  sig=ns
+    # wl_webos_surface_group_interface at vaddr 0x12878 (symbol)
+    interface wl_webos_surface_group version 1
+      request[0] create_layer(n:-, s:-, i:-)  sig=nsi
+      request[1] attach(o:-, s:-)  sig=os
+      request[2] attach_anonymous(o:-, u:-)  sig=ou
+      request[3] allow_anonymous_layers(u:-)  sig=u
+      request[4] detach(o:-)  sig=o
+      request[5] focus_owner()  sig=
+      request[6] focus_layer(s:-)  sig=s
+      request[7] commit_key_index(u:-)  sig=u
+      request[8] destroy()  sig=
+      event[0] owner_destroyed()  sig=
+    # wl_webos_surface_group_layer_interface at vaddr 0x12824 (symbol)
+    interface wl_webos_surface_group_layer version 1
+      request[0] set_z_index(i:-)  sig=i
+      request[1] set_key_index(i:-)  sig=i
+      request[2] destroy()  sig=
+      event[0] surface_attached()  sig=
+      event[1] surface_detached()  sig=
+    # wl_webos_input_manager_interface at vaddr 0x12cf8 (symbol)
+    interface wl_webos_input_manager version 1
+      request[0] set_cursor_visibility(u:-)  sig=u
+      request[1] get_webos_seat(n:-, o:-)  sig=no
+      event[0] cursor_visibility(u:-, o:-)  sig=u?o
+    # wl_webos_seat_interface at vaddr 0x12cbc (symbol)
+    interface wl_webos_seat version 1
+      request[0] get_gyroscope(n:-)  sig=n
+      request[1] get_accelerometer(n:-)  sig=n
+      event[0] info(u:-, s:-, u:-, u:-)  sig=usuu
+    # wl_webos_gyroscope_interface at vaddr 0x12c8c (symbol)
+    interface wl_webos_gyroscope version 1
+      request[0] request_data(u:-)  sig=u
+      event[0] sensor_data(f:-, f:-, f:-)  sig=fff
+    # wl_webos_accelerometer_interface at vaddr 0x12c5c (symbol)
+    interface wl_webos_accelerometer version 1
+      request[0] request_data(u:-)  sig=u
+      event[0] sensor_data(f:-, f:-, f:-)  sig=fff
+    # wl_webos_xinput_interface at vaddr 0x12d58 (symbol)
+    interface wl_webos_xinput version 2
+      request[0] invoke_action(u:-, u:-, u:-)  sig=uuu
+      request[1] invoke_action_with_window(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[2] activated(s:-)  sig=s
+      request[3] deactivated()  sig=
+      event[0] activation_request(s:-)  sig=s
+      event[1] deactivated()  sig=
+    # wl_webos_xinput_extension_interface at vaddr 0x12d34 (symbol)
+    interface wl_webos_xinput_extension version 1
+      request[0] register_input(n:-)  sig=n
+    wl_webos_system_ux_interface: not exported and no struct found by name scan
+    wl_webos_tablet_interface: not exported and no struct found by name scan
     # text_model_interface at vaddr 0x1295c (symbol)
     interface text_model version 1
       request[0] set_surrounding_text(s:-, u:-, u:-)  sig=suu
@@ -319,21 +372,334 @@
       event[9] leave()  sig=
       event[10] input_panel_state(u:-)  sig=u
       event[11] input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
-    == /usr/lib/libgm-wayland.so.1.0.0
-    symbol tables: 0 *_interface symbols (.dynsym)
-    == /usr/lib/libwayland-starfish-client.so.1.0.0
-    symbol tables: 2 *_interface symbols (.dynsym)
-    == /usr/lib/libwayland-input-helper.so.1.0.0
-    symbol tables: 0 *_interface symbols (.dynsym)
+    # text_model_factory_interface at vaddr 0x12938 (symbol)
+    interface text_model_factory version 1
+      request[0] create_text_model(n:-)  sig=n
+    # input_method_interface at vaddr 0x12b00 (symbol)
+    interface input_method version 2
+      request[0] set_display_id(u:-)  sig=u
+      event[0] activate(n:-, u:-)  sig=nu
+      event[1] deactivate(o:-)  sig=o
+      event[2] show_input_panel(o:-)  sig=o
+      event[3] hide_input_panel(o:-)  sig=o
+    # input_method_context_interface at vaddr 0x12b54 (symbol)
+    interface input_method_context version 1
+      request[0] destroy()  sig=
+      request[1] commit_string(u:-, s:-)  sig=us
+      request[2] preedit_string(u:-, s:-, s:-)  sig=uss
+      request[3] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[4] preedit_cursor(u:-, i:-)  sig=ui
+      request[5] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      request[6] cursor_position(u:-, i:-, i:-)  sig=uii
+      request[7] modifiers_map(a:-)  sig=a
+      request[8] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      request[9] grab_keyboard(n:-)  sig=n
+      request[10] key(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[11] modifiers(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[0] surrounding_text(s:-, u:-, u:-)  sig=suu
+      event[1] reset(u:-)  sig=u
+      event[2] content_type(u:-, u:-)  sig=uu
+      event[3] enter_key_type(u:-)  sig=u
+      event[4] invoke_action(u:-, u:-)  sig=uu
+      event[5] commit()  sig=
+      event[6] max_text_length(u:-)  sig=u
+      event[7] platform_data(s:-)  sig=s
+    # input_panel_interface at vaddr 0x12adc (symbol)
+    interface input_panel version 1
+      request[0] get_input_panel_surface(n:-, o:-)  sig=no
+    # input_panel_surface_interface at vaddr 0x12ab8 (symbol)
+    interface input_panel_surface version 1
+      request[0] set_toplevel(u:-)  sig=u
+    == /usr/lib/libwayland-webos-server.so.1.0.0
+    symbol tables: 20 *_interface symbols (.dynsym)
+    # wl_webos_shell_interface at vaddr 0x127f4 (symbol)
+    interface wl_webos_shell version 1
+      request[0] get_system_pip()  sig=
+      request[1] get_shell_surface(n:-, o:-)  sig=no
+    # wl_webos_shell_surface_interface at vaddr 0x12764 (symbol)
+    interface wl_webos_shell_surface version 1
+      request[0] set_location_hint(u:-)  sig=u
+      request[1] set_state(u:-)  sig=u
+      request[2] set_property(s:-, s:-)  sig=ss
+      request[3] set_key_mask(u:-)  sig=u
+      request[4] set_size(i:-, i:-)  sig=ii
+      event[0] state_changed(u:-)  sig=u
+      event[1] position_changed(i:-, i:-)  sig=ii
+      event[2] close()  sig=
+      event[3] exposed(a:-)  sig=a
+      event[4] state_about_to_change(u:-)  sig=u
+    # wl_webos_foreign_interface at vaddr 0x12ec0 (symbol)
+    interface wl_webos_foreign version 1
+      request[0] destroy()  sig=
+      request[1] export_element(n:-, o:-, u:-)  sig=nou
+      request[2] import_element(n:-, s:-, u:-)  sig=nsu
+    # wl_webos_exported_interface at vaddr 0x12e6c (symbol)
+    interface wl_webos_exported version 1
+      request[0] destroy()  sig=
+      request[1] set_exported_window(o:-, o:-)  sig=oo
+      request[2] set_crop_region(o:-, o:-, o:-)  sig=ooo
+      request[3] set_property(s:-, s:-)  sig=ss
+      event[0] window_id_assigned(s:-, u:-)  sig=su
+    # wl_webos_imported_interface at vaddr 0x12db8 (symbol)
+    interface wl_webos_imported version 1
+      request[0] set_surface_alignment(u:-)  sig=u
+      request[1] destroy()  sig=
+      request[2] attach_punchthrough(s:-)  sig=s
+      request[3] set_punchthrough(s:-)  sig=s
+      request[4] detach_punchthrough()  sig=
+      request[5] attach_surface(o:-)  sig=o
+      request[6] detach_surface(o:-)  sig=o
+      request[7] set_z_index(i:-)  sig=i
+      event[0] destination_region_changed(u:-, u:-)  sig=uu
+      event[1] punchthrough_attached(s:-)  sig=s
+      event[2] punchthrough_detached(s:-)  sig=s
+      event[3] surface_attached(o:-)  sig=o
+      event[4] surface_detached(o:-)  sig=o
+    # wl_webos_surface_group_compositor_interface at vaddr 0x12908 (symbol)
+    interface wl_webos_surface_group_compositor version 1
+      request[0] create_surface_group(n:-, o:-, s:-)  sig=nos
+      request[1] get_surface_group(n:-, s:-)  sig=ns
+    # wl_webos_surface_group_interface at vaddr 0x12878 (symbol)
+    interface wl_webos_surface_group version 1
+      request[0] create_layer(n:-, s:-, i:-)  sig=nsi
+      request[1] attach(o:-, s:-)  sig=os
+      request[2] attach_anonymous(o:-, u:-)  sig=ou
+      request[3] allow_anonymous_layers(u:-)  sig=u
+      request[4] detach(o:-)  sig=o
+      request[5] focus_owner()  sig=
+      request[6] focus_layer(s:-)  sig=s
+      request[7] commit_key_index(u:-)  sig=u
+      request[8] destroy()  sig=
+      event[0] owner_destroyed()  sig=
+    # wl_webos_surface_group_layer_interface at vaddr 0x12824 (symbol)
+    interface wl_webos_surface_group_layer version 1
+      request[0] set_z_index(i:-)  sig=i
+      request[1] set_key_index(i:-)  sig=i
+      request[2] destroy()  sig=
+      event[0] surface_attached()  sig=
+      event[1] surface_detached()  sig=
+    # wl_webos_input_manager_interface at vaddr 0x12cf8 (symbol)
+    interface wl_webos_input_manager version 1
+      request[0] set_cursor_visibility(u:-)  sig=u
+      request[1] get_webos_seat(n:-, o:-)  sig=no
+      event[0] cursor_visibility(u:-, o:-)  sig=u?o
+    # wl_webos_seat_interface at vaddr 0x12cbc (symbol)
+    interface wl_webos_seat version 1
+      request[0] get_gyroscope(n:-)  sig=n
+      request[1] get_accelerometer(n:-)  sig=n
+      event[0] info(u:-, s:-, u:-, u:-)  sig=usuu
+    # wl_webos_gyroscope_interface at vaddr 0x12c8c (symbol)
+    interface wl_webos_gyroscope version 1
+      request[0] request_data(u:-)  sig=u
+      event[0] sensor_data(f:-, f:-, f:-)  sig=fff
+    # wl_webos_accelerometer_interface at vaddr 0x12c5c (symbol)
+    interface wl_webos_accelerometer version 1
+      request[0] request_data(u:-)  sig=u
+      event[0] sensor_data(f:-, f:-, f:-)  sig=fff
+    # wl_webos_xinput_interface at vaddr 0x12d58 (symbol)
+    interface wl_webos_xinput version 2
+      request[0] invoke_action(u:-, u:-, u:-)  sig=uuu
+      request[1] invoke_action_with_window(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[2] activated(s:-)  sig=s
+      request[3] deactivated()  sig=
+      event[0] activation_request(s:-)  sig=s
+      event[1] deactivated()  sig=
+    # wl_webos_xinput_extension_interface at vaddr 0x12d34 (symbol)
+    interface wl_webos_xinput_extension version 1
+      request[0] register_input(n:-)  sig=n
+    wl_webos_system_ux_interface: not exported and no struct found by name scan
+    wl_webos_tablet_interface: not exported and no struct found by name scan
+    # text_model_interface at vaddr 0x1295c (symbol)
+    interface text_model version 1
+      request[0] set_surrounding_text(s:-, u:-, u:-)  sig=suu
+      request[1] activate(u:-, o:-, o:-)  sig=uoo
+      request[2] deactivate(o:-)  sig=o
+      request[3] reset(u:-)  sig=u
+      request[4] set_cursor_rectangle(i:-, i:-, i:-, i:-)  sig=iiii
+      request[5] set_content_type(u:-, u:-)  sig=uu
+      request[6] set_enter_key_type(u:-)  sig=u
+      request[7] invoke_action(u:-, u:-)  sig=uu
+      request[8] commit()  sig=
+      request[9] set_max_text_length(u:-)  sig=u
+      request[10] set_platform_data(s:-)  sig=s
+      request[11] show_input_panel()  sig=
+      request[12] hide_input_panel()  sig=
+      request[13] set_input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
+      request[14] reset_input_panel_rect()  sig=
+      event[0] commit_string(u:-, s:-)  sig=us
+      event[1] preedit_string(u:-, s:-, s:-)  sig=uss
+      event[2] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      event[3] cursor_position(u:-, i:-, i:-)  sig=uii
+      event[4] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      event[5] preedit_cursor(u:-, i:-)  sig=ui
+      event[6] modifiers_map(a:-)  sig=a
+      event[7] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[8] enter(o:-)  sig=o
+      event[9] leave()  sig=
+      event[10] input_panel_state(u:-)  sig=u
+      event[11] input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
+    # text_model_factory_interface at vaddr 0x12938 (symbol)
+    interface text_model_factory version 1
+      request[0] create_text_model(n:-)  sig=n
+    # input_method_interface at vaddr 0x12b00 (symbol)
+    interface input_method version 2
+      request[0] set_display_id(u:-)  sig=u
+      event[0] activate(n:-, u:-)  sig=nu
+      event[1] deactivate(o:-)  sig=o
+      event[2] show_input_panel(o:-)  sig=o
+      event[3] hide_input_panel(o:-)  sig=o
+    # input_method_context_interface at vaddr 0x12b54 (symbol)
+    interface input_method_context version 1
+      request[0] destroy()  sig=
+      request[1] commit_string(u:-, s:-)  sig=us
+      request[2] preedit_string(u:-, s:-, s:-)  sig=uss
+      request[3] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[4] preedit_cursor(u:-, i:-)  sig=ui
+      request[5] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
+      request[6] cursor_position(u:-, i:-, i:-)  sig=uii
+      request[7] modifiers_map(a:-)  sig=a
+      request[8] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      request[9] grab_keyboard(n:-)  sig=n
+      request[10] key(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[11] modifiers(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
+      event[0] surrounding_text(s:-, u:-, u:-)  sig=suu
+      event[1] reset(u:-)  sig=u
+      event[2] content_type(u:-, u:-)  sig=uu
+      event[3] enter_key_type(u:-)  sig=u
+      event[4] invoke_action(u:-, u:-)  sig=uu
+      event[5] commit()  sig=
+      event[6] max_text_length(u:-)  sig=u
+      event[7] platform_data(s:-)  sig=s
+    # input_panel_interface at vaddr 0x12adc (symbol)
+    interface input_panel version 1
+      request[0] get_input_panel_surface(n:-, o:-)  sig=no
+    # input_panel_surface_interface at vaddr 0x12ab8 (symbol)
+    interface input_panel_surface version 1
+      request[0] set_toplevel(u:-)  sig=u
     == /usr/lib/libwebos-platform-interface.so.1.0.0
     symbol tables: 12 *_interface symbols (.dynsym)
+    wl_webos_shell_interface: not exported and no struct found by name scan
+    wl_webos_shell_surface_interface: not exported and no struct found by name scan
+    # wl_webos_foreign_interface at vaddr 0x33b6c (symbol)
+    interface wl_webos_foreign version 1
+      request[0] destroy()  sig=
+      request[1] export_element(n:-, o:-, u:-)  sig=nou
+      request[2] import_element(n:-, s:-, u:-)  sig=nsu
+    # wl_webos_exported_interface at vaddr 0x33b18 (symbol)
+    interface wl_webos_exported version 1
+      request[0] destroy()  sig=
+      request[1] set_exported_window(o:-, o:-)  sig=oo
+      request[2] set_crop_region(o:-, o:-, o:-)  sig=ooo
+      request[3] set_property(s:-, s:-)  sig=ss
+      event[0] window_id_assigned(s:-, u:-)  sig=su
+    # wl_webos_imported_interface at vaddr 0x33a64 (symbol)
+    interface wl_webos_imported version 1
+      request[0] set_surface_alignment(u:-)  sig=u
+      request[1] destroy()  sig=
+      request[2] attach_punchthrough(s:-)  sig=s
+      request[3] set_punchthrough(s:-)  sig=s
+      request[4] detach_punchthrough()  sig=
+      request[5] attach_surface(o:-)  sig=o
+      request[6] detach_surface(o:-)  sig=o
+      request[7] set_z_index(i:-)  sig=i
+      event[0] destination_region_changed(u:-, u:-)  sig=uu
+      event[1] punchthrough_attached(s:-)  sig=s
+      event[2] punchthrough_detached(s:-)  sig=s
+      event[3] surface_attached(o:-)  sig=o
+      event[4] surface_detached(o:-)  sig=o
+    # wl_webos_surface_group_compositor_interface at vaddr 0x338d8 (symbol)
+    interface wl_webos_surface_group_compositor version 1
+      request[0] create_surface_group(n:-, o:-, s:-)  sig=nos
+      request[1] get_surface_group(n:-, s:-)  sig=ns
+    # wl_webos_surface_group_interface at vaddr 0x33848 (symbol)
+    interface wl_webos_surface_group version 1
+      request[0] create_layer(n:-, s:-, i:-)  sig=nsi
+      request[1] attach(o:-, s:-)  sig=os
+      request[2] attach_anonymous(o:-, u:-)  sig=ou
+      request[3] allow_anonymous_layers(u:-)  sig=u
+      request[4] detach(o:-)  sig=o
+      request[5] focus_owner()  sig=
+      request[6] focus_layer(s:-)  sig=s
+      request[7] commit_key_index(u:-)  sig=u
+      request[8] destroy()  sig=
+      event[0] owner_destroyed()  sig=
+    # wl_webos_surface_group_layer_interface at vaddr 0x337f4 (symbol)
+    interface wl_webos_surface_group_layer version 1
+      request[0] set_z_index(i:-)  sig=i
+      request[1] set_key_index(i:-)  sig=i
+      request[2] destroy()  sig=
+      event[0] surface_attached()  sig=
+      event[1] surface_detached()  sig=
+    # wl_webos_input_manager_interface at vaddr 0x339a4 (symbol)
+    interface wl_webos_input_manager version 1
+      request[0] set_cursor_visibility(u:-)  sig=u
+      request[1] get_webos_seat(n:-, o:-)  sig=no
+      event[0] cursor_visibility(u:-, o:-)  sig=u?o
+    # wl_webos_seat_interface at vaddr 0x33968 (symbol)
+    interface wl_webos_seat version 1
+      request[0] get_gyroscope(n:-)  sig=n
+      request[1] get_accelerometer(n:-)  sig=n
+      event[0] info(u:-, s:-, u:-, u:-)  sig=usuu
+    # wl_webos_gyroscope_interface at vaddr 0x33938 (symbol)
+    interface wl_webos_gyroscope version 1
+      request[0] request_data(u:-)  sig=u
+      event[0] sensor_data(f:-, f:-, f:-)  sig=fff
+    # wl_webos_accelerometer_interface at vaddr 0x33908 (symbol)
+    interface wl_webos_accelerometer version 1
+      request[0] request_data(u:-)  sig=u
+      event[0] sensor_data(f:-, f:-, f:-)  sig=fff
+    # wl_webos_xinput_interface at vaddr 0x33a04 (symbol)
+    interface wl_webos_xinput version 2
+      request[0] invoke_action(u:-, u:-, u:-)  sig=uuu
+      request[1] invoke_action_with_window(u:-, u:-, u:-, u:-)  sig=uuuu
+      request[2] activated(s:-)  sig=s
+      request[3] deactivated()  sig=
+      event[0] activation_request(s:-)  sig=s
+      event[1] deactivated()  sig=
+    # wl_webos_xinput_extension_interface at vaddr 0x339e0 (symbol)
+    interface wl_webos_xinput_extension version 1
+      request[0] register_input(n:-)  sig=n
+    wl_webos_system_ux_interface: not exported and no struct found by name scan
+    wl_webos_tablet_interface: not exported and no struct found by name scan
+    text_model_interface: not exported and no struct found by name scan
+    text_model_factory_interface: not exported and no struct found by name scan
+    input_method_interface: not exported and no struct found by name scan
+    input_method_context_interface: not exported and no struct found by name scan
+    input_panel_interface: not exported and no struct found by name scan
+    input_panel_surface_interface: not exported and no struct found by name scan
+    == /usr/lib/libgm-wayland.so.1.0.0
+    symbol tables: 0 *_interface symbols (.dynsym)
+    wl_webos_shell_interface: not exported and no struct found by name scan
+    wl_webos_shell_surface_interface: not exported and no struct found by name scan
+    wl_webos_foreign_interface: not exported and no struct found by name scan
+    wl_webos_exported_interface: not exported and no struct found by name scan
+    wl_webos_imported_interface: not exported and no struct found by name scan
+    wl_webos_surface_group_compositor_interface: not exported and no struct found by name scan
+    wl_webos_surface_group_interface: not exported and no struct found by name scan
+    == /usr/lib/libwayland-starfish-client.so.1.0.0
+    symbol tables: 2 *_interface symbols (.dynsym)
+    # wl_starfish_pointer_interface at vaddr 0x11ddc (symbol)
+    interface wl_starfish_pointer version 1
+      request[0] set_mrcu_standby_timer(u:-)  sig=u
+      request[1] get_mrcu_standby_timer()  sig=
+      request[2] set_cursor_position(u:-, u:-)  sig=uu
+      event[0] timer_value(u:-)  sig=u
+    # wl_starfish_output_interface at vaddr 0x11e24 (symbol)
+    interface wl_starfish_output version 1
+      request[0] set_stereoscope(u:-, u:-, o:-)  sig=uuo
+      event[0] stereoscope_hint(u:-)  sig=u
+    == /usr/lib/libwayland-input-helper.so.1.0.0
+    symbol tables: 0 *_interface symbols (.dynsym)
+    wl_webos_shell_interface: not exported and no struct found by name scan
+    wl_webos_shell_surface_interface: not exported and no struct found by name scan
     == /usr/lib/flutter/3.22.2/release/libflutter_elinux_wayland.so
     symbol tables: 2 *_interface symbols (.dynsym)
-    # wp_presentation_feedback_interface at vaddr 0x133224 (symbol)
-    interface wp_presentation_feedback version 1
-      event[0] sync_output(o:-)  sig=o
-      event[1] presented(u:-, u:-, u:-, u:-, u:-, u:-, u:-)  sig=uuuuuuu
-      event[2] discarded()  sig=
+    wl_webos_shell_interface: not exported and no struct found by name scan
+    wl_webos_shell_surface_interface: not exported and no struct found by name scan
+    wl_webos_surface_group_interface: not exported and no struct found by name scan
+    wl_webos_surface_group_layer_interface: not exported and no struct found by name scan
+    wl_webos_foreign_interface: not exported and no struct found by name scan
+    wl_webos_xinput_interface: not exported and no struct found by name scan
     # wp_presentation_interface at vaddr 0x1331e8 (symbol)
     interface wp_presentation version 1
       request[0] destroy()  sig=
@@ -408,72 +774,7 @@
       event[4] description(s:-)  sig=2s
     == /usr/lib/libWebOSCoreCompositor.so.0.0.1
     symbol tables: 10 *_interface symbols (.dynsym)
-    == /usr/lib/libwayland-webos-server.so.1.0.0
-    symbol tables: 20 *_interface symbols (.dynsym)
-    # input_method_context_interface at vaddr 0x12b54 (symbol)
-    interface input_method_context version 1
-      request[0] destroy()  sig=
-      request[1] commit_string(u:-, s:-)  sig=us
-      request[2] preedit_string(u:-, s:-, s:-)  sig=uss
-      request[3] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
-      request[4] preedit_cursor(u:-, i:-)  sig=ui
-      request[5] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
-      request[6] cursor_position(u:-, i:-, i:-)  sig=uii
-      request[7] modifiers_map(a:-)  sig=a
-      request[8] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
-      request[9] grab_keyboard(n:-)  sig=n
-      request[10] key(u:-, u:-, u:-, u:-)  sig=uuuu
-      request[11] modifiers(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
-      event[0] surrounding_text(s:-, u:-, u:-)  sig=suu
-      event[1] reset(u:-)  sig=u
-      event[2] content_type(u:-, u:-)  sig=uu
-      event[3] enter_key_type(u:-)  sig=u
-      event[4] invoke_action(u:-, u:-)  sig=uu
-      event[5] commit()  sig=
-      event[6] max_text_length(u:-)  sig=u
-      event[7] platform_data(s:-)  sig=s
-    # input_method_interface at vaddr 0x12b00 (symbol)
-    interface input_method version 2
-      request[0] set_display_id(u:-)  sig=u
-      event[0] activate(n:-, u:-)  sig=nu
-      event[1] deactivate(o:-)  sig=o
-      event[2] show_input_panel(o:-)  sig=o
-      event[3] hide_input_panel(o:-)  sig=o
-    # input_panel_interface at vaddr 0x12adc (symbol)
-    interface input_panel version 1
-      request[0] get_input_panel_surface(n:-, o:-)  sig=no
-    # input_panel_surface_interface at vaddr 0x12ab8 (symbol)
-    interface input_panel_surface version 1
-      request[0] set_toplevel(u:-)  sig=u
-    # text_model_factory_interface at vaddr 0x12938 (symbol)
-    interface text_model_factory version 1
-      request[0] create_text_model(n:-)  sig=n
-    # text_model_interface at vaddr 0x1295c (symbol)
-    interface text_model version 1
-      request[0] set_surrounding_text(s:-, u:-, u:-)  sig=suu
-      request[1] activate(u:-, o:-, o:-)  sig=uoo
-      request[2] deactivate(o:-)  sig=o
-      request[3] reset(u:-)  sig=u
-      request[4] set_cursor_rectangle(i:-, i:-, i:-, i:-)  sig=iiii
-      request[5] set_content_type(u:-, u:-)  sig=uu
-      request[6] set_enter_key_type(u:-)  sig=u
-      request[7] invoke_action(u:-, u:-)  sig=uu
-      request[8] commit()  sig=
-      request[9] set_max_text_length(u:-)  sig=u
-      request[10] set_platform_data(s:-)  sig=s
-      request[11] show_input_panel()  sig=
-      request[12] hide_input_panel()  sig=
-      request[13] set_input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
-      request[14] reset_input_panel_rect()  sig=
-      event[0] commit_string(u:-, s:-)  sig=us
-      event[1] preedit_string(u:-, s:-, s:-)  sig=uss
-      event[2] delete_surrounding_text(u:-, i:-, u:-)  sig=uiu
-      event[3] cursor_position(u:-, i:-, i:-)  sig=uii
-      event[4] preedit_styling(u:-, u:-, u:-, u:-)  sig=uuuu
-      event[5] preedit_cursor(u:-, i:-)  sig=ui
-      event[6] modifiers_map(a:-)  sig=a
-      event[7] keysym(u:-, u:-, u:-, u:-, u:-)  sig=uuuuu
-      event[8] enter(o:-)  sig=o
-      event[9] leave()  sig=
-      event[10] input_panel_state(u:-)  sig=u
-      event[11] input_panel_rect(i:-, i:-, u:-, u:-)  sig=iiuu
+    == /usr/lib/plugins/compositor/libstarfishcompositorplugin.so
+    symbol tables: 0 *_interface symbols (.dynsym)
+    wl_starfish_pointer_interface: not exported and no struct found by name scan
+    wl_starfish_output_interface: not exported and no struct found by name scan

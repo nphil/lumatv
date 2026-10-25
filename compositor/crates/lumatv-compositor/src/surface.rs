@@ -101,6 +101,8 @@ pub struct Current {
     pub retired: Vec<WlBuffer>,
     /// How many commits carried a buffer: a surface is mapped once this is > 0 with a buffer attached.
     pub buffer_commits: u64,
+    /// A commit with new content has not been drawn yet.
+    pub undrawn: bool,
 }
 
 pub struct Surface {
@@ -324,6 +326,9 @@ impl Surfaces {
                 s.current.damage = Some(list);
             }
         }
+        if eff.new_buffer || s.current.damage.as_ref().map(|d| !d.is_empty()).unwrap_or(true) {
+            s.current.undrawn = true;
+        }
         s.current.frame_callbacks.extend(p.frame_callbacks);
         let now_mapped = s.current.buffer.is_some();
         if was_mapped != now_mapped {
@@ -362,7 +367,13 @@ impl Surfaces {
     pub fn clear_damage(&mut self) {
         for s in self.map.values_mut() {
             s.current.damage = Some(Vec::new());
+            s.current.undrawn = false;
         }
+    }
+
+    /// Whether `id` is mapped with content no frame has shown yet.
+    pub fn has_undrawn(&self, id: SurfaceId) -> bool {
+        self.map.get(&id).map(|s| s.is_mapped() && s.current.undrawn).unwrap_or(false)
     }
 
     /// Makes `child` a subsurface of `parent`, placed above it.

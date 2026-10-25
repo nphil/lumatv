@@ -463,3 +463,29 @@ fn gl_renderer_uploads_shm_pixel_exact() {
         assert!(got.abs_diff(*want) <= 2, "channel {i}: got {got:#x} want {want:#x} (pixel {p:?})");
     }
 }
+
+#[test]
+fn a_surface_that_vanishes_with_an_undrawn_frame_is_drawn_once() {
+    // The X2 client disconnects about a millisecond after its last swap, inside the tick (first light re-run
+    // 2026-10-25: 6 commits, 5 drawn). The frame must still reach the output and its callback.
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Last");
+    let a = client.shm_buffer(1920, 1080, 0xff10_2030);
+    client.present(&win.surface, &a);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    // No more ticks: the next commit stays undrawn until something forces a frame.
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let b = client.shm_buffer(1920, 1080, 0xff7d_8082);
+    client.present(&win.surface, &b);
+    client.roundtrip();
+    let drawn_before = server.eval(|s| s.stats.frames_drawn);
+    assert_eq!(drawn_before, 1, "the second commit is not drawn while the tick is paused");
+    win.surface.destroy();
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(20));
+    let (drawn, image, surfaces) = server.eval(|s| (s.stats.frames_drawn, s.output.capture().unwrap(), s.surfaces.len()));
+    assert_eq!(drawn, 2, "the undrawn frame was drawn before the surface went");
+    assert_eq!(image.pixel(960, 540), [0x7d, 0x80, 0x82, 0xff]);
+    assert_eq!(surfaces, 0);
+}

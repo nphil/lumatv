@@ -218,6 +218,12 @@ impl State {
     }
 
     pub fn surface_destroyed(&mut self, id: SurfaceId) {
+        // A surface that goes away with content no frame has shown is drawn once first: LG's libmali client
+        // disconnects about a millisecond after its last swap, well inside the 16.7 ms tick, and its last frame
+        // would otherwise never reach the output (first light re-run 2026-10-25: 6 commits, 5 drawn).
+        if self.surfaces.has_undrawn(id) && self.scene.window_of(id).is_some() {
+            self.tick();
+        }
         if let Some(s) = self.surfaces.remove(id) {
             for b in s.current.buffer.into_iter().chain(s.current.retired) {
                 self.release_after_present.push(b);

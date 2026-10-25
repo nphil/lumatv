@@ -52,6 +52,8 @@ pub struct Server {
     jobs: Sender<Job>,
     thread: Option<JoinHandle<()>>,
     stop: Arc<std::sync::atomic::AtomicBool>,
+    /// While false the server dispatches but does not tick (frames are drawn only when something forces one).
+    pub ticking: Arc<std::sync::atomic::AtomicBool>,
     pub client_stream: Option<UnixStream>,
 }
 
@@ -67,9 +69,10 @@ impl Server {
         let (server_end, client_end) = UnixStream::pair().unwrap();
         let (jobs, rx) = channel::<Job>();
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let stop2 = stop.clone();
-        let thread = std::thread::spawn(move || run_server(server_end, rx, stop2, output));
-        Server { jobs, thread: Some(thread), stop, client_stream: Some(client_end) }
+        let ticking = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (stop2, ticking2) = (stop.clone(), ticking.clone());
+        let thread = std::thread::spawn(move || run_server(server_end, rx, stop2, ticking2, output));
+        Server { jobs, thread: Some(thread), stop, ticking, client_stream: Some(client_end) }
     }
 
     /// Runs `f` on the server thread with its state and returns the result.
@@ -97,7 +100,13 @@ impl Drop for Server {
     }
 }
 
-fn run_server(stream: UnixStream, jobs: Receiver<Job>, stop: Arc<std::sync::atomic::AtomicBool>, output: OutputFactory) {
+fn run_server(
+    stream: UnixStream,
+    jobs: Receiver<Job>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    ticking: Arc<std::sync::atomic::AtomicBool>,
+    output: OutputFactory,
+) {
     let mut display: Display<State> = Display::new().unwrap();
     let dh = display.handle();
     let config = Config { frames: None, ..Config::default() };
@@ -118,7 +127,7 @@ fn run_server(stream: UnixStream, jobs: Receiver<Job>, stop: Arc<std::sync::atom
         while let Ok(job) = jobs.try_recv() {
             job(&mut state);
         }
-        if last_tick.elapsed() >= Duration::from_millis(4) {
+        if last_tick.elapsed() >= Duration::from_millis(4) && ticking.load(std::sync::atomic::Ordering::SeqCst) {
             state.tick();
             last_tick = Instant::now();
         }
