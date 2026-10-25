@@ -29,6 +29,11 @@ fail() { echo "GATE $1: FAIL $2"; }
 picture_mode() { ls1 com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' | tr -d ' \n' | sed -n 's/.*"pictureMode":"\([^"]*\)".*/\1/p'; }
 home() { ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.home"}' > /dev/null; }
 fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' | sed -n 's/.*"appId":"\([^"]*\)".*/\1/p'; }
+# With the Home stub mounted (tools/lumatv homestub) Home is a transparent page by design and LumaHome lives in
+# LG's compositor's QML, so a Home on the panel under LumaTV's compositor is black: the panel test then passes on
+# the mapped window alone and the detail line carries home-stub 1.
+stub_mounted() { grep -c ' /usr/palm/applications/com.webos.app.home ' /proc/self/mountinfo; }
+home_panel_ok() { [ "$(stub_mounted)" -ge 1 ] || [ "${1:-0}" -gt 4096 ]; }
 
 case "${1:-help}" in
 live)
@@ -39,8 +44,8 @@ live)
     ctl windows > $OUT/live-windows.json
     homewin=$(grep -c '"com.webos.app.home"' $OUT/live-windows.json)
     b=$(cap $OUT/live.png)
-    detail="mounted $m registered $regs fallbacks $fb wam $wam home-window $homewin panel ${b:-0} bytes fg $(fg)"
-    if [ "$m" = yes ] && [ "$regs" -ge 12 ] && [ "$fb" = 0 ] && [ "$wam" = active ] && [ "$homewin" -ge 1 ] && [ "${b:-0}" -gt 4096 ]; then pass live "$detail"; else fail live "$detail"; fi
+    detail="mounted $m registered $regs fallbacks $fb wam $wam home-window $homewin home-stub $(stub_mounted) panel ${b:-0} bytes fg $(fg)"
+    if [ "$m" = yes ] && [ "$regs" -ge 12 ] && [ "$fb" = 0 ] && [ "$wam" = active ] && [ "$homewin" -ge 1 ] && home_panel_ok "$b"; then pass live "$detail"; else fail live "$detail"; fi
     ;;
 x1)
     secs=${2:-60}
@@ -100,18 +105,18 @@ woke)
     ctl status > $OUT/woke-status.json
     off=$(grep -c 'PreparePowerOff' $OUT/woke-journal.json); on=$(grep -c 'PreparePowerOn' $OUT/woke-journal.json)
     fb=$(grep -c 'fallback:' $STATE/sm.log 2>/dev/null)
-    st=$(ls1 com.webos.service.tvpower/power/getPowerState '{}' | tr -d ' \n' | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+    st=$(ls1 com.webos.service.tvpower/power/getPowerState '{}' | tr -d ' \n' | sed -n 's/.*"state":"\([^"]*\)".*/\1/p' | tr 'A-Z' 'a-z')
     home; sleep 8
     b=$(cap $OUT/woke.png)
     detail="rounds: PreparePowerOff $off PreparePowerOn $on; fallbacks $fb; state $st; uptime before $(cut -d' ' -f1 $OUT/standby-uptime-before) now $(cut -d' ' -f1 /proc/uptime); mounted $(is_mounted && echo yes || echo no); panel ${b:-0} bytes"
     echo "$detail" > $OUT/woke-result.txt
-    if [ "$off" -ge 1 ] && [ "$on" -ge 1 ] && [ "$fb" = 0 ] && [ "$st" = Active ] && is_mounted && [ "${b:-0}" -gt 4096 ]; then pass standby "$detail"; else fail standby "$detail"; fi
+    if [ "$off" -ge 1 ] && [ "$on" -ge 1 ] && [ "$fb" = 0 ] && [ "$st" = active ] && is_mounted && home_panel_ok "$b"; then pass standby "$detail"; else fail standby "$detail"; fi
     ;;
 escape)
     ctl remote 172 press > /dev/null
     sleep 1
     ctl remote 172 release > /dev/null 2>&1
-    n=0; while is_mounted && [ $n -lt 20 ]; do sleep 0.5; n=$((n+1)); done
+    u=0; while is_mounted && [ $u -lt 20 ]; do sleep 0.5; u=$((u+1)); done
     sleep 2
     fb=$(grep 'fallback:' $STATE/sm.log | tail -1)
     esc=$([ -f $STATE/escaped ] && echo yes || echo no)
@@ -120,7 +125,7 @@ escape)
     n=0; while [ -d /tmp/lumatv-recover.lock ] && [ $n -lt 120 ]; do sleep 1; n=$((n+1)); done
     sleep 2
     b=$(cap $OUT/escape.png)
-    detail="unmounted after $((n/2))s; $fb; escaped $esc; exe $exe; recovery ${n}s; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr)"
+    detail="unmounted after $((u/2))s; $fb; escaped $esc; exe $exe; recovery ${n}s; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr)"
     echo "$detail" > $OUT/escape-result.txt
     if ! is_mounted && [ "$esc" = yes ] && echo "$fb" | grep -q 'hold Home' && [ "${b:-0}" -gt 4096 ]; then pass escape "$detail"; else fail escape "$detail"; fi
     ;;

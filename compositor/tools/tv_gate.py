@@ -58,6 +58,24 @@ def wait_ssh(seconds):
         time.sleep(3)
     return False
 
+def power_state():
+    out = pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}'", 20)
+    for l in out.splitlines():
+        if '"state"' in l:
+            return l.split(":", 1)[1].strip().strip('",').lower()
+    return out.strip()[:80]
+
+def wake():
+    st = power_state()
+    print("power state:", st)
+    if st == "active":
+        return
+    pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/powerOn '{\"reason\":\"remoteKey\"}'", 20)
+    time.sleep(20)
+    pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/turnOnScreen '{}'", 20)
+    time.sleep(8)
+    print("power state after wake:", power_state())
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip", default="")
@@ -78,6 +96,7 @@ def main():
             if l.startswith("GATE "):
                 lines.append(l)
         return out
+    wake()
     avr_mute(True)
     try:
         print(pty("sh /tmp/lumatv/cutover.sh enable", 300))
@@ -85,6 +104,7 @@ def main():
         if "x1" not in skip:
             step("x1", "sh /tmp/lumatv/gate.sh x1 %d" % a.x1_seconds, a.x1_seconds + 120)
         if "netflix" not in skip:
+            avr_mute(True)   # the receiver may have been off (no mute to take) when the first one was sent
             step("netflix", "sh /tmp/lumatv/gate.sh netflix")
         if "hdmi" not in skip:
             step("hdmi", "sh /tmp/lumatv/gate.sh hdmi")
