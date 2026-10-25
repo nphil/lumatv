@@ -170,19 +170,17 @@ class Shell(HostCase):
         self.assertEqual(got["down"], "false")
         self.assertEqual(got["back"], "/dock/0/1/", "the keys did not come back to Home")
 
-    def test_voice_listens_offers_what_is_on_the_set_and_a_command_that_names_an_app_acts(self):
-        voice = probe("micOpen", "{ state: s.state, options: s.options.map(function(o) { return o.id }), mic: s.micOpen }")
-        got = self.run_host([(0, "eval", "(function(){ root.voiceStart(); return root.layerOpen })()", "listening"), (800, "keys", "back"), (1400, "eval", STATE, "left"),
-                             (1500, "eval", "(function(){ root.voiceHeard('netflix series about chess'); return root.layerOpen })()", "heard"),
-                             (2200, "eval", voice, "voice"), (2300, "keys", "down ok"), (3300, "eval", STATE, "picked"), (3300, "eval", CALLS, "calls"),
-                             (3400, "eval", "(function(){ root.voiceHeard('open PlxNative'); return 'said' })()", "said"), (4600, "eval", CALLS, "acted")], 5000)
+    def test_the_voice_bar_listens_and_back_leaves_it_and_what_was_said_has_no_way_to_open_anything(self):
+        voice = probe("micOpen", "{ state: s.state, mic: s.micOpen, pick: typeof s.picked, options: typeof s.options }")
+        got = self.run_host([(0, "eval", "(function(){ root.voiceStart(); return root.layerOpen })()", "listening"), (500, "eval", voice, "bar"),
+                             (800, "keys", "back"), (1400, "eval", STATE, "left"), (1400, "eval", voice, "after"),
+                             (1500, "eval", "typeof root.voiceHeard + typeof root.voicePicked", "gone"), (1500, "eval", CALLS, "calls")], 2000)
         self.assertEqual(got["listening"], "voice")
+        self.assertEqual(json.loads(got["bar"]), {"state": "listening", "mic": True, "pick": "undefined", "options": "undefined"}, "the bar has nothing to pick")
         self.assertEqual(got["left"], "/dock/0/0/", "Back leaves the voice bar")
-        self.assertEqual(got["heard"], "voice")
-        self.assertEqual(json.loads(got["voice"]), {"state": "heard", "options": ["app:netflix", "web"], "mic": False})
-        self.assertEqual(got["picked"], "/dock/0/0/")
-        self.assertEqual(calls("/launch")(got["calls"])[-1]["params"]["target"], "https://duckduckgo.com/?q=netflix%20series%20about%20chess")
-        self.assertEqual(calls("/launch")(got["acted"])[-1]["id"], "com.beb.plxnative", "one command naming one app opens it")
+        self.assertEqual(json.loads(got["after"])["mic"], False)
+        self.assertEqual(got["gone"], "undefinedundefined", "Home has no call that acts on what was said")
+        self.assertEqual(calls("/launch")(got["calls"]), [])
 
     def test_a_banner_with_buttons_takes_the_keys_and_one_without_leaves_them_to_home(self):
         nosignal = "{kind:'nosignal', icon:'unplug', port:'HDMI 4', title:'Nothing is connected here', body:'x'}"

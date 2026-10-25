@@ -1177,7 +1177,6 @@ Item {
         onMenuPicked: root.menuPicked(id, index)
         onConfirmAnswered: root.confirmAnswered(id)
         onRemoteKey: root.sendRemoteKey(name)
-        onVoicePicked: root.voicePicked(id)
         onBannerPicked: root.bannerPicked(id)
     }
 
@@ -1308,26 +1307,11 @@ Item {
         LS.adhoc.call("luna://com.webos.service.micomservice", "/sendKeycode", JSON.stringify({ keycode: code }))
     }
 
-    // ---- voice: the voice bar draws, whoever has the recogniser calls these (PLAN: search only, nothing leaves the TV)
-    property string voiceWords: ""
-    function voiceStart() { voiceAct.stop(); layers.voiceListen(); openLayer("voice") }
-    function voiceHeard(words) {
-        voiceWords = words
-        var r = Match.voice(words, Apps.shown, layers.settingsPages())
-        if (r.act) { layers.voiceHeard(words, [], "Opening\u2026"); voiceAct.app = r.act; voiceAct.restart() }
-        else { voiceAct.stop(); layers.voiceHeard(words, r.options) }
-        openLayer("voice")
-    }
-    function voiceStop() { voiceAct.stop(); layers.voiceIdle(); closeLayerById("voice") }
+    // ---- the voice bar is Home's to draw while the helper listens (see "voice search" below). Voice only ever fills Search: the
+    // bar has no options to pick and nothing here launches an app or opens a page from what was said.
+    function voiceStart() { layers.voiceListen(); openLayer("voice") }
     // The microphone is open for something else (an app): the indicator says so and takes no key.
     function showMic(on) { layers.voiceMic(on) }
-    // a command that named one app opens it a moment after the words are shown
-    Timer {
-        id: voiceAct
-        property var app: null
-        interval: 700
-        onTriggered: { var a = app; app = null; layers.voiceIdle(); if (layers.open === "voice") launchApp(a) }
-    }
     // ---- voice search: hold the mic key and speak; the words are typed into Search and nothing acts on them. The helper listens
     // (`POST /v1/voice/listen` and `/stop`) and has Home Assistant's Assist pipeline turn the speech into text; what it knows is
     // its `voice` topic: ready, listening, thinking, then heard (the words) or error (why not).
@@ -1398,15 +1382,6 @@ Item {
     function voiceEnd() { voiceBusy = false; layers.voiceIdle(); closeLayerById("voice") }
     // A reason stays on the bar long enough to read, then the bar goes (unless a new request has taken it).
     Timer { id: voiceClear; interval: 2600; onTriggered: { if (!root.voiceBusy && layers.up("voice")) root.voiceEnd() } }
-    function voicePicked(id) {
-        voiceAct.stop()
-        layers.voiceIdle()
-        closeAllLayers()
-        if (id.indexOf("app:") === 0) launchApp(Apps.byId(id.substring(4)))
-        else if (id.indexOf("page:") === 0) { openSettings(); layers.settingsGoTo(id.substring(5)) }
-        else if (id === "web") webSearch(voiceWords)
-    }
-
     // ---- banners: what the TV says about what is on it. Only one with buttons takes the keys; the others show and hide.
     function showBanner(spec) {
         layers.bannerShow(spec)

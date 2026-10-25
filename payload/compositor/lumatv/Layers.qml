@@ -81,7 +81,6 @@ Item {
     function appsReset() { if (appsRes.item) appsRes.item.open() }
     function searchOpen(spec) { if (searchRes.item) searchRes.item.open(spec) }
     function voiceListen() { if (voiceRes.item) voiceRes.item.listen() }
-    function voiceHeard(words, options, doing) { if (voiceRes.item) voiceRes.item.heard(words, options, doing) }
     function voiceIdle() { if (voiceRes.item) voiceRes.item.idle() }
     function voiceWorking() { if (voiceRes.item) voiceRes.item.working() }
     function voiceFailed(words) { if (voiceRes.item) voiceRes.item.failed(words) }
@@ -297,11 +296,9 @@ Item {
         shown: layers.up("voice") || (!!item && item.micOpen)
         onDone: layers.advance(step)
     }
-    signal voicePicked(string id)
     Connections {
         target: voiceRes.item
         ignoreUnknownSignals: true
-        onPicked: layers.voicePicked(id)
         onCloseRequested: layers.closeRequested("voice")
     }
 

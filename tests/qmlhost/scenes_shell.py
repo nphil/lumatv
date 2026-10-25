@@ -75,17 +75,6 @@ def _():
     return [("eval", READY, "root.voiceStart()"), ("snap", READY + 1200, "28-voice-listening")]
 
 
-@scene("28-voice-heard")
-def _():
-    # one command naming one app acts: the words, "Opening..." (the app opens 700 ms later)
-    return [("eval", READY, "root.voiceHeard('open PlxNative')"), ("snap", READY + 300, "28-voice-heard")]
-
-
-@scene("28-voice-results")
-def _():
-    return [("eval", READY, "root.voiceHeard('netflix series about chess')"), ("snap", READY + 1200, "28-voice-results")]
-
-
 @scene("28-voice-working")
 def _():
     # the key is up and the words are on their way
