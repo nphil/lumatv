@@ -9,7 +9,7 @@
 //! | `plugins` | `{"plugins": [{id, name, version, class, state: "connected" \| "waiting" \| "inert", registered, reason?}], "problem"}` |
 //! | `plugin.<id>.cards` | `{"items": [{id, revision, createdAt, expiresAt, card}]}`, `card` is the plugin's `card.put` |
 //! | `plugin.<id>.tiles` | `{"items": [<tile.put>]}` |
-//! | `plugin.<id>.notifications` | `{"items": [{id, channel, revision, receivedAt, expiresAt, post}]}`; events `posted` and `ended` |
+//! | `plugin.<id>.notifications` | `{"items": [{id, channel, channelTitle, channelIcon, revision, receivedAt, expiresAt, post}]}`; events `posted` and `ended` |
 //! | `plugin.<id>.facts` | `{"facts": {key: line}}` |
 //! | `plugin.<id>` | events only: `settings_rejected`, `action_result` |
 //!
@@ -398,6 +398,8 @@ pub struct Session {
     notes: BTreeMap<String, NoteEntry>,
     facts: BTreeMap<String, String>,
     declared_actions: Vec<String>,
+    /// The channels the plugin declared (id, title, icon): a notification is drawn with its channel's icon.
+    channels: Vec<(String, String, String)>,
 }
 
 fn secs(ms: u64) -> i64 {
@@ -453,6 +455,7 @@ impl Session {
             notes: BTreeMap::new(),
             facts: BTreeMap::new(),
             declared_actions: Vec::new(),
+            channels: Vec::new(),
         }
     }
 
@@ -649,6 +652,11 @@ impl Session {
             return Reply::refused("register", "not_served", why);
         }
         let key = self.member.manifest.owner_key();
+        let channels: Vec<(String, String, String)> = register
+            .channels
+            .iter()
+            .map(|c| (c.id.clone(), c.title.clone(), c.icon.clone()))
+            .collect();
         let tiles = register.tiles.clone();
         let has_page = register.settings.is_some();
         let schema = register.settings.clone();
@@ -717,6 +725,7 @@ impl Session {
         self.context = Some(context);
         self.page = has_page;
         self.declared_actions = declared_actions;
+        self.channels = channels;
         self.phase = Phase::Registered;
         for tile in tiles {
             self.tiles.insert(tile.id.clone(), tile);
@@ -930,7 +939,7 @@ impl Session {
             expires: post.expires_in_secs.map(|s| now + i64::from(s)),
             post,
         };
-        let event = note_json(&entry);
+        let event = note_json(&entry, &self.channels);
         self.notes.insert(entry.post.id.clone(), entry);
         self.publish_notes();
         self.shared
@@ -1012,7 +1021,11 @@ impl Session {
     }
 
     fn publish_notes(&self) {
-        let items: Vec<Json> = self.notes.values().map(note_json).collect();
+        let items: Vec<Json> = self
+            .notes
+            .values()
+            .map(|n| note_json(n, &self.channels))
+            .collect();
         self.shared
             .hub
             .set(&topic(self.id(), "notifications"), json!({"items": items}));
@@ -1082,8 +1095,10 @@ impl Session {
     }
 }
 
-fn note_json(n: &NoteEntry) -> Json {
-    json!({"id": n.post.id, "channel": n.post.channel, "revision": n.revision,
+fn note_json(n: &NoteEntry, channels: &[(String, String, String)]) -> Json {
+    let channel = channels.iter().find(|(id, _, _)| *id == n.post.channel);
+    json!({"id": n.post.id, "channel": n.post.channel, "channelTitle": channel.map(|c| c.1.as_str()),
+           "channelIcon": channel.map(|c| c.2.as_str()), "revision": n.revision,
            "receivedAt": n.received, "expiresAt": n.expires, "post": n.post})
 }
 
@@ -1191,6 +1206,10 @@ mod tests {
             ),
             (1, 1)
         );
+        // the notification is drawn with its channel's icon and name
+        let note = &hub.get("plugin.hello.notifications").unwrap()["items"][0];
+        assert_eq!(note["channelIcon"], "base.icons/message");
+        assert_eq!(note["channelTitle"], "Hi");
 
         now.store(1_800_000_031_000, Ordering::SeqCst);
         session.tick();
