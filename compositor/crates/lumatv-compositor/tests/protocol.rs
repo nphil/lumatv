@@ -321,6 +321,33 @@ fn keyboard_focus_enters_the_mapped_card_and_keys_reach_it() {
 }
 
 #[test]
+fn home_held_through_the_remote_command_asks_for_the_fallback() {
+    use lumatv_compositor::luna::ToBridge;
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let _kb = client.seat.get_keyboard(&client.qh, ());
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Held");
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+    // A tap goes to launchDefaultApp (Home is the compositor's), never to the client.
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 tap"));
+    assert!(reply.contains("\"ok\":true"), "{reply}");
+    let launched = server.eval(|s| s.luna.sent().iter().any(|(uri, _)| uri.ends_with("/launchDefaultApp")));
+    assert!(launched, "a tapped Home launches the home app");
+    // Held past 650 ms, the tick's hold poll sends the fallback to the supervisor.
+    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 press"));
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    server.eval(|s| s.poll_holds());
+    let fallback = server.eval(|s| s.luna.history().iter().any(|m| matches!(m, ToBridge::Fallback { .. })));
+    assert!(fallback, "a held Home is the escape to LG's compositor");
+    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 release"));
+    let launches = server.eval(|s| s.luna.sent().iter().filter(|(uri, _)| uri.ends_with("/launchDefaultApp")).count());
+    assert_eq!(launches, 1, "the release after an escape does not launch Home again");
+    assert!(client.state.keys.is_empty(), "Home never reached the client");
+}
+
+#[test]
 fn luna_tier_one_methods_answer_from_the_scene() {
     use lumatv_compositor::luna::{Inbound, ToBridge};
     use serde_json::json;
