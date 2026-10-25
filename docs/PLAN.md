@@ -1092,7 +1092,9 @@ what it already does.
   readings are never exposed to AI access (Nitin, 2026-10-25).
 - Voice search: speech becomes text through Nitin's Home Assistant Assist
   pipeline, never LG's cloud; the result fills LumaTV's search (Nitin,
-  2026-10-25).
+  2026-10-25). It listens with the TV's built-in microphone (ALSA hw:1,0), so
+  LG's voice services stay stopped, and uses the local "Local (Kokoro +
+  Whisper)" pipeline so speech stays in the house (Nitin, 2026-10-25).
 - The 64-bit card app (`org.nphil.lumatv.card`) may be installed on the set
   for its TV checks, and the capture-service probe slot may run (Nitin,
   2026-10-25). Also approved for 2026-10-25: one full restart of the set to check
