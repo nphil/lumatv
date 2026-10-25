@@ -229,6 +229,11 @@ def main(argv=None):
     if a.fake_helper:
         sys.path.insert(0, HERE)
         import fakehelper
+        # The helper's port is fixed (kit/Helper.qml): two hosts at once (parallel workers, a test beside a scene
+        # render) cannot both bind it, so the second waits for the first to exit.
+        import fcntl
+        _lock = open(os.path.join(tempfile.gettempdir(), 'lumatv-qmlhost.lock'), 'w')
+        fcntl.flock(_lock, fcntl.LOCK_EX)
         _srv, helper_state = fakehelper.serve(18731)
 
     w, h = (int(x) for x in a.size.split('x'))
