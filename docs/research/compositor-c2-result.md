@@ -702,12 +702,68 @@ TV steps, in order, each a separate slot:
    line within the trial names the reason (the supervisor already execd
    LG's binary at that point) and the trial is over; `status` shows the
    state files.
-4. The gate (`tools/tv-gate.sh`, to be written once 3 passes): the X1
-   client against the live LumaTV compositor for 60 s with the frame
-   probe (`docs/research/perf/`), expected zero frames over 20 ms and
-   `late 0 lost 0` from the pacer; then the scripted checks from PLAN
-   (Netflix 4K Dolby Vision deep link, HDR, PIN, input switching, standby
-   and wake with the tvpower rounds visible in `sm.log`/the journal).
+4. The gate (`tools/tv_gate.py` + `tv-gate.sh`, `tv-first-light.sh gate
+   [--enable-after]`): `cutover.sh enable`, then `live` (mounted, 12
+   names, no fallback, WAM active, Home window mapped, panel not blank),
+   `x1 60` (the X1 client as an overlay over Home: no gap over 20 ms,
+   pacer `late`/`lost` unchanged), `netflix` (deep link, ENTER through
+   `ctl remote 28`, card mapped, Picture Mode `dolbyHdrCinema` while
+   playing and `filmMaker` after Home), `hdmi` (`com.webos.app.hdmi2` in
+   front, then Home), `standby` (`power2/powerOff remoteKey`, the driver
+   wakes the set by magic packet 25 s later, `woke` wants PreparePowerOff
+   and PreparePowerOn acks in the journal, state Active, Home on the
+   panel, still mounted), `escape` (Home held 1 s through the compositor's
+   routing: the supervisor falls back, `escaped` written, LG's Home back
+   through the recovery). The PIN prompt stays with Nitin (a lock is his
+   setting). Result lines go to `docs/research/compositor/gate-<date>.txt`.
+
+## Enable path and the hook request for tools/lumatv
+
+Nitin's decision: LumaTV's compositor goes live as soon as it passes the
+gate, LG's staying as the automatic fallback. What exists in
+`compositor/tools` and what `tools/lumatv` (SurfacesP2b's) has to add.
+
+In `compositor/tools` (`tv-cutover.sh`, on the set as `cutover.sh`):
+`install` puts the bundle under `/var/lib/lumatv/compositor` (`bin/
+lumatv-sm`, `bin/lumatv-compositor`, `bin/recover-home.sh`, `lib/`),
+records the firmware fingerprint (`fingerprint`), LG's binary's size and
+mtime (`lg-binary`), `failures 0`, and touches `enabled`; `enable` mounts
+`bin/lumatv-sm` over `/usr/bin/surface-manager` and restarts the unit;
+`disable` removes `enabled`, unmounts, restarts LG's and runs the
+recovery. The supervisor decides at every start (enabled, fingerprint,
+no `escaped`, `failures < 2`) and falls back by itself; the watchdog
+(heartbeat 500 ms, two misses or a child exit) and the hold-Home escape
+fall back at run time; every fallback brings WebAppMgr and Home back.
+
+Requested in `tools/lumatv`:
+
+1. Boot: in the early hook, before the restart of `surface-manager-daemon`
+   that picks up the env file, place the mount when the state says so:
+   `S=/var/lib/lumatv/compositor; [ -f $S/enabled ] && [ -x $S/bin/lumatv-sm ]
+   && [ "$(stat -c '%s %Y' /usr/bin/surface-manager)" = "$(cat $S/lg-binary)" ]
+   && ! grep -q ' /usr/bin/surface-manager ' /proc/self/mountinfo
+   && mount --bind $S/bin/lumatv-sm /usr/bin/surface-manager`. The
+   `lg-binary` check is the firmware guard the supervisor cannot do itself
+   (it cannot see through the mount); a changed LG binary means no mount
+   and LG's compositor, with a log line. Everything else (fingerprint of
+   the libraries, escape, failure count) the supervisor decides.
+2. Commands: `lumatv compositor on` = `cutover.sh enable` (needs a prior
+   `install`, which stays a `compositor/tools` step until the bundle ships
+   in the ipk), `lumatv compositor off` = `cutover.sh disable`, `lumatv
+   compositor status` = the state files and `sm.log` tail. `revert`/
+   `persist off` also unmount and remove `enabled`.
+3. Guards: with the mount in place the compositor process is still
+   `/usr/bin/surface-manager` by exe path, so "is the new compositor
+   stock?" must not read `QML2_IMPORT_PATH` of that process: LumaTV's
+   compositor is `pgrep -f bin/lumatv-compositor` alive and the mount
+   present. The homestub guard must not hand LG's Home back in that
+   state, and nothing restarts `surface-manager-daemon` while
+   `/tmp/lumatv-recover.lock` exists (a recovery is in progress).
+4. Home after a compositor restart under LumaTV: the same
+   `relaunch_home` rule applies (WebAppMgr's new start stamp +
+   `listRunningApps`, one launch, wait for pixels); `recover-home.sh` is
+   that rule as a standalone script and may be replaced by a call into the
+   tool once the tool owns it.
 
 ## What C3 and C4 need next
 
