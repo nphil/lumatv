@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/wl-protocols", "crates/lumatv-compositor"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+wayland-server = "0.31"
+wayland-backend = "0.3"
+wayland-scanner = "0.31"
+wayland-protocols = { version = "0.32", features = ["server", "unstable"] }
+wayland-client = "0.31"
+libc = "0.2"
+log = "0.4"
+png = "0.18"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+debug = "line-tables-only"
+[profile.test]
+debug = "line-tables-only"

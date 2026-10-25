@@ -1,0 +1,19 @@
+[package]
+name = "lumatv-wl-protocols"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Server (and, for tests, client) code for the webOS and private Wayland protocols LG's clients speak, generated from the XML in ../../protocol"
+
+[features]
+default = ["server"]
+server = ["wayland-server"]
+client = ["wayland-client"]
+
+[dependencies]
+wayland-backend = { workspace = true }
+wayland-scanner = { workspace = true }
+wayland-server = { workspace = true, optional = true }
+wayland-client = { workspace = true, optional = true }
+bitflags = "2"

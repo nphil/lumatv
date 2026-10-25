@@ -1,0 +1,29 @@
+[package]
+name = "lumatv-compositor"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "LumaTV's compositor: a 64-bit Wayland server for LG's webOS clients, on a private socket beside LG's surface-manager until the cutover"
+
+[[bin]]
+name = "lumatv-compositor"
+path = "src/main.rs"
+
+[dependencies]
+lumatv-wl-protocols = { path = "../wl-protocols" }
+wayland-server = { workspace = true }
+wayland-backend = { workspace = true }
+wayland-protocols = { workspace = true }
+libc = { workspace = true }
+log = { workspace = true }
+png = { workspace = true }
+
+# On the set the server runs on the C libwayland-server (loaded at run time), so the Mali blob's eglBindWaylandDisplayWL can
+# serve mali_buffer_sharing on the same wl_display. Host builds and tests use the pure-Rust backend.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+wayland-backend = { workspace = true, features = ["server_system", "dlopen"] }
+
+[dev-dependencies]
+lumatv-wl-protocols = { path = "../wl-protocols", features = ["client"] }
+wayland-client = { workspace = true }
