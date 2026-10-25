@@ -929,6 +929,13 @@ verb_webglass() {
   return 0
 }
 
+inputcommon_mounted() {
+  # Whether the overlay is in place, by the tool's own report. apply leaves one alone: `on` drops inputcommon's process snapshot,
+  # and doing that at every launch of the app would cost the next input switch a cold start. A reboot clears the mount and the
+  # next apply makes it; after an update of the app, `inputcommon on` stages the new patch.
+  sh "$INPUTCOMMON_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
+}
+
 inputcommon_set() {
   # $1 = on|off. tools/inputcommon.sh stages the patched copy, mounts it and drops inputcommon's process snapshot (or the reverse)
   # and prints one JSON object, kept in $ic_out. It leaves what is in force alone when it cannot stage or mount.
@@ -2139,7 +2146,7 @@ verb_apply() {
   [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "apply: could not mount the settings-app stylesheet"; }
   [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
   [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
-  [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
+  [ -f "$INPUTCOMMON_ON" ] && { inputcommon_mounted || inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
 
   # What the compositor reads (QML, wallpaper) is tracked apart from the rest
   # of the set: a running compositor that already has the shadow only needs a

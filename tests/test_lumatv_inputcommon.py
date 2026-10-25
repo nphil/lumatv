@@ -48,7 +48,8 @@ case "$1" in
   off) if [ -e "$FAKE/off-fails" ]; then echo '{"ok":false,"error":"could not unmount the overlay"}'; exit 1; fi
        echo '{"ok":true,"inputcommon":"off","snapshotsDropped":1}' ;;
   status) [ -e "$FAKE/silent" ] && exit 0
-          echo '{"ok":true,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false}' ;;
+          m=false; [ -e "$FAKE/mounted" ] && m=true
+          echo '{"ok":true,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":'$m'}' ;;
 esac
 """
 
@@ -153,13 +154,50 @@ class Verb(unittest.TestCase):
 class Wiring(unittest.TestCase):
     """The places the switch is read: the registry, apply (the mount does not survive a reboot), revert, the dispatcher."""
 
+    def apply_line(self):
+        lines = [l.strip() for l in function("verb_apply").splitlines() if '"$INPUTCOMMON_ON"' in l]
+        self.assertEqual(len(lines), 1)
+        return lines[0]
+
     def test_apply_mounts_again_while_the_switch_is_on_with_the_other_surfaces(self):
         apply_text = function("verb_apply")
-        line = '[ -f "$INPUTCOMMON_ON" ] && { inputcommon_set on ||'
-        self.assertIn(line, apply_text)
+        line = self.apply_line()
         self.assertLess(apply_text.index('[ -f "$NOTI_ON" ] && { noti_set on'), apply_text.index(line))
         self.assertLess(apply_text.index(line), apply_text.index("compositor_changed=1"))
         self.assertLess(apply_text.index('[ -f "$WEBGLASS_ON" ] && { webglass_set on'), apply_text.index(line))
+
+    def run_apply_line(self, flag=True, mounted=False, fails=False):
+        with tempfile.TemporaryDirectory() as d:
+            tool = os.path.join(d, "inputcommon.sh")
+            with open(tool, "w") as f:
+                f.write(FAKE_TOOL)
+            for name, on in (("mounted", mounted), ("on-fails", fails), (".inputcommon-on", flag)):
+                if on:
+                    open(os.path.join(d, name), "w").close()
+            script = (f'FAKE="{d}"; export FAKE\nINPUTCOMMON_TOOL="{tool}"\nINPUTCOMMON_ON="{d}/.inputcommon-on"\nLOGFILE="{d}/log"\n'
+                      f'log_line() {{ echo "$1" >> "{d}/loglines"; }}\n'
+                      + function("inputcommon_mounted") + function("inputcommon_set") + self.apply_line() + "\ntrue\n")
+            r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            calls = open(os.path.join(d, "tool-calls")).read().split("\n")[:-1] if os.path.exists(os.path.join(d, "tool-calls")) else []
+            logs = open(os.path.join(d, "loglines")).read().split("\n")[:-1] if os.path.exists(os.path.join(d, "loglines")) else []
+            return calls, logs
+
+    def test_a_boot_with_the_switch_on_and_no_mount_makes_the_mount(self):
+        calls, logs = self.run_apply_line()
+        self.assertEqual(calls, ["status", "on"])
+        self.assertEqual(len(logs), 1)
+
+    def test_an_overlay_that_is_in_place_is_left_alone_so_inputcommons_snapshot_is_not_dropped_at_every_launch(self):
+        self.assertEqual(self.run_apply_line(mounted=True), (["status"], []))
+
+    def test_a_switch_that_is_off_asks_nothing(self):
+        self.assertEqual(self.run_apply_line(flag=False), ([], []))
+
+    def test_a_mount_that_fails_is_logged_and_apply_goes_on(self):
+        calls, logs = self.run_apply_line(fails=True)
+        self.assertEqual(calls, ["status", "on"])
+        self.assertEqual(logs[-1], "apply: could not mount the patched input banners over LG's")
 
     def test_revert_puts_LGs_banners_back(self):
         self.assertIn('[ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }', function("do_revert_internal"))

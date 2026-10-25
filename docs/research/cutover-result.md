@@ -178,9 +178,11 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
 
 - `lumatv inputcommon on|off|status` runs `tools/inputcommon.sh` under the mutation lock and prints its JSON (`status` with
   `"on"` in front). The switch is the flag `.inputcommon-on`, off by default and changed only when the tool says ok.
-- The registry (`lumatv surfaces`) has the row `inputcommon` (way back: `inputcommon off`). `apply` mounts again while the
-  flag is on, beside webglass and the other overlays, because the mount does not survive a reboot; `revert` turns it off.
-  Nothing in it restarts a service.
+- The registry (`lumatv surfaces`) has the row `inputcommon` (way back: `inputcommon off`). `apply` mounts when the flag is
+  on and the overlay is not in place (the mount does not survive a reboot), beside the other overlays, and leaves one that
+  is: `on` drops inputcommon's process snapshot, which at every launch of the app would cost the next input switch a cold
+  start. After an update of the app, `inputcommon on` stages the new patch. `revert` turns it off. Nothing in it restarts a
+  service.
 - `build_shadow` runs `tools/keyboard_patch.py` on the shadow module's copy of `views/StarfishKeyboardView.qml` with the
   shipped theme's motion; a view LG changed (an anchor missing, the theme without usable motion) is left as LG's and the
   refusal is logged. It is not behind a switch (the shadow is LumaTV's own copy of the module), matters only while LG's
