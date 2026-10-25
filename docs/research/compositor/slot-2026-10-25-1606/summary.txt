@@ -1,0 +1,29 @@
+# C4 slot 2026-10-25-1606
+
+preflight: guard True, home stub on, picture "pictureMode": "filmMaker"
+deploy: exit 0
+probe: probe: 12 allowed (held by LG's compositor), 0 free, 0 refused
+trial: trial evidence: "summary":"uptime 123.3s clients 2 (total 3) surfaces 4 windows 2 requests 206 commits 29 buffers 0 ticks 7401 drawn 29 callbacks 26 releases 24 skipped 0 gl errors 0 render last 263 us max 8167 us check ok 0 bad 0 unread 0 flips 29 late 1 lost 446 direct 0 odd stamps 0" windows "appId":"com.webos.app.hdmi2" "appId":"com.webos.app.home" 
+trial: SAM subscribed to getForegroundAppInfo: yes
+trial: calls queued before the compositor connected: bridge: 9 call(s) that arrived before the compositor sent on
+trial: 1 client disconnects; the first five: info client disconnected: pid 14868 uid 505 after 2112 ms (ConnectionClosed); bound ["wl_compositor", "wl_subcompositor", "wl_shm", "wl_shell", "wl_seat", "wl_output", "wl_data_device_manager", "wl_webos_shell", "wl_webos_surface_group_compositor", "wl_webos_foreign", "wl_webos_input_manager", "wl_webos_xinput_extension", "text_model_factory", "zwp_linux_dmabuf_v1"]; cmd "/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/"
+trial: protocol errors 0, loop stalls 2, frame gaps 0, fallbacks 5
+trial: SAM's foreground: {     "returnValue": true,     "appId": "com.webos.app.home",     "appCategory": [         "home"     ],     "processId": "",     "windowId": "" } 
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 6863 bytes fg com.webos.app.home
+GATE volume: PASS receiver volume_level before 0.355 after Volume+ 0.36 after Volume- 0.355
+GATE x1: FAIL [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3549, 17.5-20 45, 20-33.5 2, >33.5 0; worst 22.5 ms; ended at monotonic 43356.976 | pacer before: flips 25 late 1 lost 464 after: flips 3623 late 2 lost 2111 | compositor: loop stalls 2, frame gaps 0, clients connected 0
+GATE netflix: FAIL netflix windows 1 video "video":[] placements 3 protocol errors 0 pictureMode playing filmMaker after filmMaker fg playing netflix now com.webos.app.home panel 163003 bytes
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 43419.25 now 43489.20; mounted yes; panel 6863 bytes
+GATE escape: PASS unmounted after 0s; [16:13:30] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 437713 bytes; wam active
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 6863 bytes fg com.webos.app.home
+GATE volume: PASS receiver volume_level before 0.355 after Volume+ 0.36 after Volume- 0.355
+GATE x1: FAIL [x1] RESULT frames=3597 in 60.00 s = 59.95 fps; gaps: <=17.5 ms 3549, 17.5-20 45, 20-33.5 2, >33.5 0; worst 22.5 ms; ended at monotonic 43356.976 | pacer before: flips 25 late 1 lost 464 after: flips 3623 late 2 lost 2111 | compositor: loop stalls 2, frame gaps 0, clients connected 0
+GATE netflix: FAIL netflix windows 1 video "video":[] placements 3 protocol errors 0 pictureMode playing filmMaker after filmMaker fg playing netflix now com.webos.app.home panel 163003 bytes
+GATE hdmi: PASS hdmi2 windows 1 mapped 1 bufferless commits 0 fg while open com.webos.app.hdmi2 now com.webos.app.home panel 6863 bytes
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 43419.25 now 43489.20; mounted yes; panel 6863 bytes
+GATE escape: PASS unmounted after 0s; [16:13:30] fallback: hold Home 650 ms; escaped yes; exe /usr/bin/surface-manager; recovery 15s; panel 437713 bytes; wam active
+GATE: FAIL
+set put in Active Standby

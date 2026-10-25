@@ -1,0 +1,5 @@
+[srv  43297.052] warn loop: 17.4 ms in one pass (tick)
+[srv  43297.066] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+[srv  43357.019] info client disconnected: pid 2961 uid 0 after 60057 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"
+[srv  43357.040] warn loop: 10.3 ms in one pass (tick)
+[srv  43357.053] info kms: page-flip stamp 33.37 ms after the last (one refresh is 16.67)

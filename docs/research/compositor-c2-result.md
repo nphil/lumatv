@@ -9,18 +9,17 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 15:10 EDT, code at `7d10b91` plus the doc): C2 passed; the
-fourth gate ran on the set 14:18-14:27 with the fullscreen-request, placement
-and loop changes of `221b75b`, `168f69a` and `8f69c05` ("Fourth gate on the
-set"; files in `docs/research/compositor/slot-2026-10-25-1418/`): live,
-volume, netflix, standby/wake and escape PASS; x1 FAIL by the rule but down
-to 2 gaps over 20 ms (59.95 fps, worst 24.7 ms in the first second, `late`
-2); hdmi FAIL on the buffer only: the preloaded HDMI 2 instance is raised
-and SAM's foreground, and drew nothing because the compositor sent no
-`wl_webos_shell_surface.exposed`. `7d10b91` sends it, host-tested, not yet
-on the set ("Fourth gate on the set", last paragraphs). LG's compositor is
-live (set in Active Standby, `enabled` absent, Home stub on, receiver
-unmuted). `tv_ui_measure.py` ran after the gate: idle 0.51 ms of GPU a frame
+State (2026-10-25 16:20 EDT, code at `7d10b91`): C2 passed; the fifth gate
+ran on the set 16:06-16:14 with the `exposed` event of `7d10b91` ("Fifth
+gate on the set"; files in `docs/research/compositor/slot-2026-10-25-1606/`):
+live, volume, **hdmi**, standby/wake and escape PASS; x1 FAIL by the rule
+with the fourth gate's shape (2 gaps over 20 ms, worst 22.5 ms in the first
+second); netflix FAIL on the app's side (the preloaded instance showed
+tvq-pb-101, its player attached and left twice; the window, the fullscreen
+raise and the placements were right). HDMI 2 draws now: the preloaded
+instance mapped 83 ms after `exposed`. LG's compositor is live (set in
+Active Standby, `enabled` absent, Home stub on, receiver unmuted).
+`tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
 libmali client, as known. Host: `cd compositor && cargo test` (73 unit, 26
 protocol, 1 bridge, 1 control, 2 LG-table), the same with `--features ui`
@@ -57,22 +56,21 @@ builds the bundle.
   way; the cause is not proven). Still open: the x1 rule (2 gaps in 60 s),
   Netflix's three restarts in the third gate's trial (none in the fourth),
   `getWindowGroupInfo` (HDMI 2 subscribes; no capture shows LG's answer).
-- Built and host-tested after the fourth gate (`7d10b91`): `exposed` to the
-  front card (its buffer's rectangle, or the output's before the first
+- Run on the set in the fifth gate ("Fifth gate on the set"): `exposed` to
+  the front card (its buffer's rectangle, or the output's before the first
   buffer), an empty list to a covered or minimized card, each on change
-  only; journal lines `window N: exposed WxH` / `exposed nothing (covered)`.
-- Next: `python3 compositor/tools/tv_next_slot.py` again with the HDMI 2
-  app preloaded (the memory note keeps it so); the set needs the current
-  `tools/lumatv` (`comp_live` guard) or the script turns the Home stub off
-  for the session and back on. The hdmi check must show, in order, in the
-  journal: HDMI 2's `set_state(fullscreen)`, `window N: exposed 1920x1080`
-  (output size, before any buffer), then its first attach and `mapped`,
-  and Home's `exposed nothing (covered)`. If the exposed line is there and
-  the buffer still never comes, the next suspect is the frame callback HDMI
-  2's bufferless commit asked for and never got (QtWayland unexposes a
-  window whose frame callback times out; see the fourth gate's notes).
-  `tv_ui_measure.py` need not run again unless the engine changes (idle
-  0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a frame; results in
+  only (`7d10b91`); the preloaded HDMI 2 instance drew its first buffer 83
+  ms after the event. Journal lines `window N: exposed WxH` / `exposed
+  nothing (covered)`.
+- Next: the x1 rule (2 gaps over 20 ms in 60 s, both in the first second
+  after the client maps: a `tick` pass of 17.4 ms and a page-flip stamp
+  33.4 ms after the last, the same shape in three gates; not in the GL
+  draw); Netflix's tvq-pb-101 in a preloaded instance (seen under LG's
+  compositor too, `declutter-result.md`: a fresh Netflix start clears it;
+  the gate should end the preloaded instance before its launch, or launch
+  twice); `getWindowGroupInfo` (HDMI 2 subscribes; no capture shows LG's
+  answer). `tv_ui_measure.py` need not run again unless the engine changes
+  (idle 0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a frame; results in
   `docs/research/compositor/ui-measure-2026-10-25-1430/`).
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
@@ -1181,6 +1179,44 @@ gate PASS**; anim60 2.42 % = 0.40 ms at 60 fps, CPU 9.1 %; volume 0.65 % =
 the client's surface: the DIRECT check fails by the known rule of this
 driver. Within 0.02 ms of the third gate's figures. One odd page-flip stamp
 in idle10 and in anim60.
+
+## Fifth gate on the set (2026-10-25 16:06-16:14)
+
+One slot from `compositor/tools/tv_next_slot.py` at `8108c43` (code of
+`7d10b91`: the `exposed` event), from a clean worktree with `LumaShow`
+beside it; receiver muted by the scripts, Home stub on with the `comp_live`
+guard, the HDMI 2 app preloaded (pid 2513, the third and fourth gates'
+instance). Files in `docs/research/compositor/slot-2026-10-25-1606/`
+(`summary.txt`, `trial/`, `gate/`); gate lines in `gate-2026-10-25.txt`.
+The slot took 8 minutes. HDMI 2 draws; the x1 and Netflix rows did not move.
+
+| Step | Result |
+|---|---|
+| `install` + `probe` | 12 allowed, 0 free, 0 refused |
+| `trial 120` | live 123 s, no fallback (the 5 `fallback:` lines of `trial/sm.log` are the earlier sessions' hold-Home escapes, 06:17 to 14:26), 2 clients (3 in all), SAM subscribed (9 calls queued), 1 disconnect (WebAppMgr's first connection, 2.1 s), protocol errors 0, two loop passes (17.3 ms `clients draw-now` at Home's mapping, 8.9 ms `tick`), `late 1 lost 446 odd stamps 0`, `kms: gl warm-up 9.7 ms`; windows Home (exposed 1920x1080 at its mapping) and `com.webos.app.hdmi2` (window 3, bufferless, state Default, not exposed: not the front card) |
+| live | PASS: mounted, 12 names, WAM active, Home (stub) mapped |
+| volume | PASS: receiver 0.355 → 0.36 → 0.355 |
+| x1 | FAIL by the rule, the fourth gate's shape: 3597 frames in 60.00 s = 59.95 fps; gaps ≤17.5 ms 3549, 17.5-20 ms 45, 20-33.5 ms 2, over 33.5 ms 0; worst 22.5 ms, in the first second (61 swaps, then 60 in every second); compositor side frame gaps 0, loop stalls 2: a 17.4 ms `tick` pass between two page-flip stamps 33.4 ms apart right after x1's mapping (no `render:` line: not in the draw) and a 10.3 ms `tick` at its disconnect (`render: 8.9 ms for 1 items`, Home's first draw in 60 s); pacer `late` 1 → 2, `lost` 464 → 2111 |
+| netflix | FAIL on the app's side: Netflix (launched `reason: preload`, pid 4234) sent `set_state(fullscreen)` before its first buffer, was raised and exposed, Home minimized and unexposed, foreground pushed; the player connected twice (872 ms and 822 ms), each time exporting the window (`_Window_Id_3`, `_Window_Id_4`), attaching its punch-through twice, `mute on`, and one placement 3840x2160 `fullScreen` then 0x0 before leaving; `video` empty at the check, Picture Mode `filmMaker` throughout; the panel showed Netflix's "issue with your streaming device" page, error `tvq-pb-101 (5.2.8)` (`gate/netflix.png`), the error the declutter work saw under LG's compositor in a preloaded instance that outlived services bound at its start (`declutter-result.md`); 3 placements, 0 protocol errors |
+| hdmi | PASS: in order in the journal (`gate/hdmi-journal.json`, `gate/compositor-final.log` 43402.706-43402.789): `foreign: surface 6 exported as _Window_Id_5 (type 2)`, `window 3: raised to the front (set_state fullscreen)`, `window 2: minimized (covered by a newer card)`, `window 2: exposed nothing (covered)`, `window 3: exposed 1920x1080` (the output's size: no buffer yet), `foreground ["com.webos.app.hdmi2"] pushed`, then 83 ms later `window 3 mapped (Card app "com.webos.app.hdmi2" title "HDMI 2" size 1920x1080)`: the first buffer of the instance that drew nothing in the third and fourth gates. Then its subscriptions (`getLastInputType`, `getForegroundWindowInfo`, systemUIManager's `getForegroundAppInfo`), `extinput-integration` importing `_Window_Id_5`, the punch-through attached twice, `setDisplayWindow` 3840x2160 `fullScreen` with `sourceInput` 1920x1080 twice, title `AVR-S760H`; `ctl windows`: window 3 mapped, Fullscreen, 1920x1080, `video` one context full screen; Home minimized. Home relaunched over it: window 3 minimized, Home exposed again |
+| standby | PASS: PreparePowerOff and PreparePowerOn acked, state active, still mounted, panel the stub's (6863 bytes) |
+| escape | PASS: Home held 650 ms, `escaped` written, LG's compositor back, recovery 15 s |
+| end | LG's compositor live, flag absent, stub on, `filmMaker`, receiver unmuted, Active Standby |
+
+What the fifth gate settles: the missing `exposed` was the whole cause of
+the bufferless HDMI 2 window. The event with the output's rectangle, sent
+at the fullscreen raise before any buffer, is what the preloaded Qt app
+waits for; the frame-callback suspect of the fourth gate needs no further
+reading. The `exposed` lines appear exactly on the changes of the front
+card (Home at its mapping, Netflix and HDMI 2 at their raise, Home again
+at each return), never repeated for an unchanged state.
+
+Open after this gate: x1's two first-second gaps (three gates, the same
+place: the loop pass and the odd page-flip stamp at the client's mapping);
+Netflix's tvq-pb-101 in the preloaded instance (the compositor's part of
+the launch was right; the next gate should end the preloaded Netflix
+before launching, as a fresh start cleared the error under LG's
+compositor); `getWindowGroupInfo`.
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 
