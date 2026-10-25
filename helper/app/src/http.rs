@@ -688,7 +688,9 @@ fn write_response(
         response.status,
         reason(response.status)
     );
-    let empty = matches!(response.status, 202 | 204);
+    // A 204 never has a body. A 202 without one (an MCP notification's acknowledgement) has no content type either; a 202 with
+    // one (a loopback API answer that says "waiting for the remote") is sent as it is.
+    let empty = response.status == 204 || (response.status == 202 && response.body.is_empty());
     if !empty {
         head.push_str("Content-Type: application/json; charset=utf-8\r\n");
     }
@@ -1220,16 +1222,32 @@ mod tests {
         }
     }
 
-    fn lan_server(status: u16) -> Server {
+    struct Bodyless(u16);
+
+    impl Handler for Bodyless {
+        fn handle(&self, _request: &Request) -> Response {
+            Response {
+                status: self.0,
+                headers: Vec::new(),
+                body: Vec::new(),
+            }
+        }
+    }
+
+    fn lan_server_with(handler: Arc<dyn Handler>) -> Server {
         Server::start(
             "127.0.0.1:0".parse().unwrap(),
-            Arc::new(Fixed(status)),
+            handler,
             Options {
                 mode: Mode::Lan { peers: Vec::new() },
                 ..Options::default()
             },
         )
         .unwrap()
+    }
+
+    fn lan_server(status: u16) -> Server {
+        lan_server_with(Arc::new(Fixed(status)))
     }
 
     fn read_all(mut stream: TcpStream) -> String {
@@ -1248,7 +1266,24 @@ mod tests {
     }
 
     #[test]
-    fn a_202_has_no_body_and_no_content_type() {
+    fn a_202_without_a_body_has_no_content_type() {
+        let server = lan_server_with(Arc::new(Bodyless(202)));
+        let reply = exchange(
+            server.local_addr(),
+            "POST /x HTTP/1.1\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}",
+        );
+        server.stop(Duration::from_millis(200));
+        assert!(reply.starts_with("HTTP/1.1 202 Accepted\r\n"), "{reply}");
+        assert!(reply.contains("Content-Length: 0\r\n"), "{reply}");
+        assert!(
+            !reply.to_ascii_lowercase().contains("\r\ncontent-type:"),
+            "{reply}"
+        );
+        assert!(reply.ends_with("\r\n\r\n"), "{reply}");
+    }
+
+    #[test]
+    fn a_202_with_a_body_and_a_204_are_each_sent_as_they_are() {
         let server = lan_server(202);
         let reply = exchange(
             server.local_addr(),
@@ -1256,6 +1291,14 @@ mod tests {
         );
         server.stop(Duration::from_millis(200));
         assert!(reply.starts_with("HTTP/1.1 202 Accepted\r\n"), "{reply}");
+        assert!(reply.contains("Content-Type: application/json"), "{reply}");
+        assert!(reply.ends_with("{\"ignored\":true}"), "{reply}");
+        let server = lan_server(204);
+        let reply = exchange(
+            server.local_addr(),
+            "POST /x HTTP/1.1\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}",
+        );
+        server.stop(Duration::from_millis(200));
         assert!(reply.contains("Content-Length: 0\r\n"), "{reply}");
         assert!(
             !reply.to_ascii_lowercase().contains("\r\ncontent-type:"),

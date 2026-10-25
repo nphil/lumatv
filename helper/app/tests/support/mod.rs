@@ -3,6 +3,10 @@
 #![allow(dead_code)]
 
 use fetch::{Fetch, FetchError, FetchLimits};
+use lumatv_helper::ai::types::{
+    ActionError, AppInfo, ForegroundApp, InputInfo, KeyEvent, KeySession, KeySource, MediaKey,
+    ReceiverControl, TvControl,
+};
 use lumatv_helper::config::{Config, Paths};
 use lumatv_helper::service::{Service, StartOptions};
 use parking_lot::Mutex;
@@ -390,6 +394,145 @@ impl Fetch for Script {
     }
 }
 
+// ----------------------------------------------------------------------------------------------- the AI module's fakes
+
+/// A remote whose key presses a test makes by hand: `open()` makes a fresh channel and keeps its sender for `tap`.
+#[derive(Default)]
+pub struct ScriptedKeys {
+    sender: Mutex<Option<std::sync::mpsc::Sender<KeyEvent>>>,
+    opens: AtomicUsize,
+}
+
+struct ScriptedSession(std::sync::mpsc::Receiver<KeyEvent>);
+
+impl KeySession for ScriptedSession {
+    fn next(&mut self, timeout: Duration) -> Option<KeyEvent> {
+        self.0.recv_timeout(timeout).ok()
+    }
+}
+
+impl KeySource for ScriptedKeys {
+    fn open(&self) -> Box<dyn KeySession> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        *self.sender.lock() = Some(tx);
+        self.opens.fetch_add(1, Ordering::SeqCst);
+        Box::new(ScriptedSession(rx))
+    }
+}
+
+impl ScriptedKeys {
+    pub fn opens(&self) -> usize {
+        self.opens.load(Ordering::SeqCst)
+    }
+
+    fn send(&self, device: &str, code: u16, value: i32) {
+        if let Some(tx) = self.sender.lock().as_ref() {
+            let _ = tx.send(KeyEvent {
+                device: device.to_owned(),
+                code,
+                value,
+                at: Instant::now(),
+            });
+        }
+    }
+
+    /// A person's tap: press, a moment, release.
+    pub fn tap(&self, device: &str, code: u16) {
+        self.send(device, code, 1);
+        thread::sleep(Duration::from_millis(10));
+        self.send(device, code, 0);
+    }
+}
+
+pub const IR_REMOTE: &str = "LGE RCU";
+pub const MAGIC_REMOTE: &str = "LGE M-RCU - Builtin [2]";
+pub const NETWORK_KEYS: &str = "Smart Remote RCU Input";
+pub const KEY_OK: u16 = 28;
+pub const KEY_BACK: u16 = 412;
+
+/// A TV that records what it was told to do.
+#[derive(Default)]
+pub struct FakeTv {
+    pub acted: Mutex<Vec<String>>,
+}
+
+impl TvControl for FakeTv {
+    fn foreground_app(&self) -> Result<ForegroundApp, ActionError> {
+        Ok(ForegroundApp {
+            app_id: Some("netflix".into()),
+            title: Some("Netflix".into()),
+        })
+    }
+
+    fn launchable_apps(&self) -> Result<Vec<AppInfo>, ActionError> {
+        Ok(vec![
+            AppInfo {
+                id: "netflix".into(),
+                title: "Netflix".into(),
+            },
+            AppInfo {
+                id: "youtube.leanback.v4".into(),
+                title: "YouTube".into(),
+            },
+        ])
+    }
+
+    fn inputs(&self) -> Result<Vec<InputInfo>, ActionError> {
+        Ok(vec![InputInfo {
+            id: "HDMI_2".into(),
+            label: "AVR-S760H".into(),
+            connected: true,
+            app_id: Some("com.webos.app.hdmi2".into()),
+        }])
+    }
+
+    fn launch_app(&self, app_id: &str) -> Result<AppInfo, ActionError> {
+        self.acted.lock().push(format!("launch {app_id}"));
+        Ok(AppInfo {
+            id: app_id.into(),
+            title: "Netflix".into(),
+        })
+    }
+
+    fn switch_input(&self, input_id: &str) -> Result<InputInfo, ActionError> {
+        self.acted.lock().push(format!("switch {input_id}"));
+        Ok(InputInfo {
+            id: input_id.into(),
+            label: "AVR-S760H".into(),
+            connected: true,
+            app_id: None,
+        })
+    }
+
+    fn standby(&self) -> Result<(), ActionError> {
+        self.acted.lock().push("standby".into());
+        Ok(())
+    }
+
+    fn media_key(&self, key: MediaKey) -> Result<(), ActionError> {
+        self.acted.lock().push(format!("key {}", key.id()));
+        Ok(())
+    }
+}
+
+/// A receiver that records what it was told to do.
+#[derive(Default)]
+pub struct FakeReceiver {
+    pub acted: Mutex<Vec<String>>,
+}
+
+impl ReceiverControl for FakeReceiver {
+    fn set_volume(&self, level: f64) -> Result<(), ActionError> {
+        self.acted.lock().push(format!("volume {level}"));
+        Ok(())
+    }
+
+    fn set_mute(&self, muted: bool) -> Result<(), ActionError> {
+        self.acted.lock().push(format!("mute {muted}"));
+        Ok(())
+    }
+}
+
 // ----------------------------------------------------------------------------------------------- the rig
 
 /// The whole service in a temporary data dir, on a loopback port the system chose.
@@ -468,11 +611,21 @@ impl Rig {
     }
 
     pub fn start(&mut self, config: Config, fetcher: Arc<dyn Fetch>) {
+        self.start_with(config, fetcher, None);
+    }
+
+    /// Starts with the AI module acting through the given fakes.
+    pub fn start_with(
+        &mut self,
+        config: Config,
+        fetcher: Arc<dyn Fetch>,
+        ai: Option<lumatv_helper::ai::Deps>,
+    ) {
         let service = Service::start(StartOptions {
             paths: self.paths.clone(),
             config,
             fetcher: Some(fetcher),
-            ai: None,
+            ai,
         })
         .unwrap();
         self.addr = service.addr();
