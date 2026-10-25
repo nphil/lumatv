@@ -89,7 +89,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --capture-dir DIR      write every K-th drawn frame as PNG (frame-NNNN.png) into DIR
   --capture-every K      (default 1)
   --check x2             verify each drawn frame against the X2 client's colour pattern
-  --starfish             also advertise wl_starfish_pointer/output (opcode tables unverified)
+  --starfish             also advertise wl_starfish_pointer/output (WebAppMgr binds them on LG's compositor)
   --log-protocol         log every request
   --output WxH           output size (default 1920x1080)
   --tick-hz HZ           frame tick (default 60)

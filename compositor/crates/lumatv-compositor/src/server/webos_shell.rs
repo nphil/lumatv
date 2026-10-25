@@ -4,7 +4,7 @@ use wayland_backend::server::ClientId;
 use wayland_server::{Client, DataInit, Dispatch, DisplayHandle, Resource};
 
 use lumatv_wl_protocols::webos_shell::server::wl_webos_shell::{self, WlWebosShell};
-use lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::{self, AddonStatus, State as WlState, WlWebosShellSurface};
+use lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::{self, State as WlState, WlWebosShellSurface};
 
 use super::compositor::surface_id;
 use super::shell::take_toplevel_role;
@@ -112,14 +112,13 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
                     w.key_mask = mask;
                 }
             }
-            wl_webos_shell_surface::Request::SetAddon { path } => {
-                state.note_request("wl_webos_shell_surface", pid, &format!("set_addon({path:?})"));
-                // Addons are LG QML loaded into the compositor; this compositor has none.
-                if resource.version() >= 2 {
-                    resource.addon_status_changed(AddonStatus::Denied as u32);
+            wl_webos_shell_surface::Request::SetSize { width, height } => {
+                state.note_request("wl_webos_shell_surface", pid, &format!("set_size({width}, {height})"));
+                // LG-only; recorded with the properties so a TV session shows which apps send it.
+                if let Some(w) = state.scene.window_mut(data.window) {
+                    w.props.insert("lg.setSize".into(), format!("{width}x{height}"));
                 }
             }
-            wl_webos_shell_surface::Request::ResetAddon => state.note_request("wl_webos_shell_surface", pid, "reset_addon"),
             _ => {}
         }
     }

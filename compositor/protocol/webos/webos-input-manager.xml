@@ -25,14 +25,6 @@
       get_webos_seat(seat).
     </description>
 
-    <request name="get_webos_seat">
-      <description summary="get webos seat">
-        Returns a webos_seat associated with the seat.
-      </description>
-      <arg name="id" type="new_id" interface="wl_webos_seat"/>
-      <arg name="seat" type="object" interface="wl_seat"/>
-    </request>
-
     <event name="cursor_visibility">
       <description summary="current cursor visibility">
         If the current cursor visibility is chagned, notify it.
@@ -41,11 +33,19 @@
       <arg name="webos_seat" type="object" interface="wl_webos_seat" allow-null="true" summary="webos_seat cursor visibility changed, if this value is Null All cursors are hidden"/>
     </event>
 
+    <!-- LumaTV: LG's order (first-light-2026-10-25.txt): set_cursor_visibility is request 0, get_webos_seat 1. -->
     <request name="set_cursor_visibility">
       <description summary="set cursor visibility">
         Sets the cursor visibility.
       </description>
       <arg name="visibility" type="uint" summary="boolean for the cursor visibility"/>
+    </request>
+    <request name="get_webos_seat">
+      <description summary="get webos seat">
+        Returns a webos_seat associated with the seat.
+      </description>
+      <arg name="id" type="new_id" interface="wl_webos_seat"/>
+      <arg name="seat" type="object" interface="wl_seat"/>
     </request>
 
   </interface>

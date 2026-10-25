@@ -234,7 +234,9 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     exported.set_exported_window(&src, &dst);
     // The pipeline's side: import by id and attach a punch-through with its context.
     let imported = client.foreign.import_element(window_id.clone(), 0, &client.qh, ());
-    imported.attach_punchthrough_with_context("_ctx_1".into());
+    imported.attach_punchthrough("_ctx_1".into());
+    // LG's opcode 7 (Netflix sends it right after the attach): it must reach the handler, not kill the connection.
+    imported.set_z_index(3);
     client.roundtrip();
     assert!(client.wait_until(WAIT, |s| s.punchthrough_attached == vec!["_ctx_1".to_string()]));
     assert!(client.state.destination_changed.contains(&(960, 540)));
@@ -247,6 +249,7 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     assert_eq!(image.pixel(640, 360), [0, 0, 0, 0], "the exported region is a transparent hole");
     assert!(calls.iter().any(|c| c.contains("display/setDisplayWindow") && c.contains("\"width\":960") && c.contains("_ctx_1")), "{calls:?}");
     assert!(calls.iter().any(|c| c.contains("setDisplayWindowProperty") && c.contains("fastMode")), "{calls:?}");
+    assert!(calls.iter().any(|c| c.contains("setCompositing") && c.contains("_ctx_1")), "{calls:?}");
     assert_eq!(video.len(), 1);
     assert_eq!(video[0]["windowId"], window_id);
 }

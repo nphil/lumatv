@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <protocol name="webos_foreign">
-  <!-- LumaTV: the eight since="2" marks of wl_webos_exported and wl_webos_imported are removed from this copy.
-       LG's compositor (and OSE, webosforeign.cpp) creates both objects at version 2 under the version-1
-       wl_webos_foreign global, so a client whose proxy is version 1 still sends the version-2 requests; with the
-       marks in place libwayland-server refuses them ("invalid method 7 (since 1 < 2)"). Everything else is the
-       public file unchanged. -->
+  <!-- LumaTV: folded to LG's tables on the set (libwayland-webos-client.so.1.0.0 and libwebos-platform-interface,
+       read by wlproto_from_elf.py, docs/research/compositor/first-light-2026-10-25.txt): every interface is version 1
+       there, so no request carries a since mark; wl_webos_imported has eight requests, attach_punchthrough takes the
+       context id, and opcode 7 is set_z_index(i). OSE's attach_punchthrough_with_context does not exist on the set:
+       with it at opcode 7, Netflix's set_z_index arrived as a string too short and libwayland dropped the media
+       connection (2026-10-25 gate). Opcodes are positional, so this order is the one LG's clients send. -->
 
   <copyright>
     Copyright (c) 2018-2019 LG Electronics, Inc.
@@ -72,7 +73,7 @@
 
   </interface>
 
-  <interface name="wl_webos_exported" version="2">
+  <interface name="wl_webos_exported" version="1">
     <description summary="interface for handling exported window">
       This interface defines operations and notifications on an exported window.
     </description>
@@ -118,7 +119,7 @@
 
   </interface>
 
-  <interface name="wl_webos_imported" version="2">
+  <interface name="wl_webos_imported" version="1">
     <description summary="interface for imported content or punchthrough region">
       This interface defines operations and notifications on an imported object.
     </description>
@@ -152,9 +153,10 @@
 
     <request name="attach_punchthrough">
       <description summary="attach punchthrough">
-        Requests a punch-through on the exporetd window associated with
-        this import object.
+        Requests a punch-through on the exported window associated with
+        this import object, for the given context id (LG: the id the media pipeline knows the video by).
       </description>
+      <arg name="context_id" type="string" summary="context id for requesting to external entity"/>
     </request>
 
     <request name="set_punchthrough">
@@ -192,14 +194,6 @@
       <arg name="width" type="uint" summary="destination width of exported window"/>
       <arg name="height" type="uint" summary="destination height of exported window"/>
     </event>
-
-    <request name="attach_punchthrough_with_context">
-      <description summary="attach punchthrough with context id">
-        Requests a punch-through on the exporetd window associated with
-        this import object for a given context id.
-      </description>
-      <arg name="context_id" type="string" summary="context id for requesting to external entity"/>
-    </request>
 
     <request name="set_z_index">
       <description summary="set the z-index for webos_imported">

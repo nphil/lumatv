@@ -214,20 +214,14 @@ impl Dispatch<WlWebosImported, ()> for State {
         let pid = id.protocol_id();
         let window_id = state.foreign.imported.get(&id).map(|i| i.window_id.clone()).unwrap_or_default();
         match request {
-            wl_webos_imported::Request::AttachPunchthrough => {
-                state.note_request("wl_webos_imported", pid, "attach_punchthrough");
-                state.attach_punchthrough(&id, &window_id, None);
-            }
-            wl_webos_imported::Request::AttachPunchthroughWithContext { context_id: context } => {
-                state.note_request("wl_webos_imported", pid, &format!("attach_punchthrough_with_context({context:?})"));
-                state.attach_punchthrough(&id, &window_id, Some(context.clone()));
-                // Sent whatever the proxy's version: LG creates these objects at version 2 under a version-1 global
-                // (see protocol/webos/webos-foreign.xml).
+            wl_webos_imported::Request::AttachPunchthrough { context_id: context } => {
+                state.note_request("wl_webos_imported", pid, &format!("attach_punchthrough({context:?})"));
+                state.attach_punchthrough(&id, &window_id, context.clone());
                 resource.punchthrough_attached(context);
             }
             wl_webos_imported::Request::SetPunchthrough { context_id: context } => {
                 state.note_request("wl_webos_imported", pid, &format!("set_punchthrough({context:?})"));
-                state.attach_punchthrough(&id, &window_id, Some(context));
+                state.attach_punchthrough(&id, &window_id, context);
             }
             wl_webos_imported::Request::DetachPunchthrough => {
                 state.note_request("wl_webos_imported", pid, "detach_punchthrough");
@@ -317,15 +311,14 @@ impl State {
         }
     }
 
-    fn attach_punchthrough(&mut self, imported: &wayland_backend::server::ObjectId, window_id: &str, context: Option<String>) {
+    fn attach_punchthrough(&mut self, imported: &wayland_backend::server::ObjectId, window_id: &str, ctx: String) {
         if let Some(i) = self.foreign.imported.get_mut(imported) {
-            i.context = context.clone();
+            i.context = Some(ctx.clone());
         }
         let Some(e) = self.foreign.exported.get_mut(window_id) else {
             log::warn!("punch-through for unknown export {window_id}");
             return;
         };
-        let ctx = context.unwrap_or_else(|| format!("{window_id}:anonymous"));
         if !e.contexts.contains(&ctx) {
             e.contexts.push(ctx.clone());
         }

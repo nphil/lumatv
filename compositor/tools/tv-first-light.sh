@@ -15,6 +15,9 @@
 #   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): enable, live, x1, netflix, hdmi, standby/wake, escape;
 #                                 --enable-after makes LumaTV's compositor live when every check passed
 #   tv-first-light.sh clean       kill everything of ours on the set
+#   tv-first-light.sh probe       read-only (tools/tv-readonly-probe.sh): LG's wl_webos_* tables in every copy on the set
+#                                 and the Wayland clients of LG's compositor; written to
+#                                 docs/research/compositor/probe-<date>.txt; safe beside another session
 # Transport: docs/research/arch/tv.py (paramiko). Before `run`: confirm the set is idle (getPowerState Active,
 # getForegroundAppInfo) and that nothing else is being measured on it.
 set -eu
@@ -93,8 +96,17 @@ EOF2
     kms-restore)
         python3 "$here/tools/tv_kms.py" restore
         ;;
+    probe)
+        tv "mkdir -p /tmp/lumatv/out"
+        put "$here/tools/tv-readonly-probe.sh" /tmp/lumatv/probe.sh
+        put "$repo/docs/research/arch/wlproto_from_elf.py" /tmp/lumatv/wlproto_from_elf.py
+        tv "sh /tmp/lumatv/probe.sh"
+        mkdir -p "$repo/docs/research/compositor"
+        get /tmp/lumatv/out/probe/probe.txt "$repo/docs/research/compositor/probe-$(date +%Y-%m-%d).txt"
+        echo "wrote docs/research/compositor/probe-$(date +%Y-%m-%d).txt"
+        ;;
     clean)
         tv "sh /tmp/lumatv/run.sh clean"
         ;;
-    *) sed -n 2,10p "$0" ;;
+    *) sed -n 2,21p "$0" ;;
 esac

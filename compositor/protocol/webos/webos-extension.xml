@@ -19,7 +19,10 @@
     SPDX-License-Identifier: Apache-2.0
   </copyright>
 
-  <interface name="wl_webos_xinput" version="1">
+  <!-- LumaTV: LG's table (first-light-2026-10-25.txt) is version 2 with invoke_action_with_window(uuuu) as
+       request 1. The object is made by register_input on the version-1 extension and inherits version 1, so the
+       request carries no since mark (a mark would make libwayland refuse it from LG's clients). -->
+  <interface name="wl_webos_xinput" version="2">
     <description summary="interface for adding extended inputs">
       xinput stands for an extended input which allows a client
       to pass an input event to another client.
@@ -53,6 +56,16 @@
       <arg name="keysym" type="uint"/>
       <arg name="symbol_type" type="uint"/>
       <arg name="event_type" type="uint"/>
+    </request>
+
+    <request name="invoke_action_with_window">
+      <description summary="LG: invokes an action for one window">
+        LG-only: invoke_action with the target window's id as the fourth argument (meaning unverified).
+      </description>
+      <arg name="keysym" type="uint"/>
+      <arg name="symbol_type" type="uint"/>
+      <arg name="event_type" type="uint"/>
+      <arg name="window" type="uint"/>
     </request>
 
     <event name="activation_request">

@@ -147,12 +147,6 @@
       </description>
     </event>
 
-    <request name="destroy" type="destructor">
-      <description summary="destroy object">
-        Destroys the surface group object.
-      </description>
-    </request>
-
     <request name="focus_owner">
       <description summary="transfers keyboard focus to group owner surface">
         Using "focus_owner" a surface-group-client or a surface-group-owner can transfer
@@ -178,6 +172,12 @@
         If anonymous layer is allowed, the key index order doesn't work.
       </description>
       <arg name="commit" type="uint" summary="a boolean to indicate to apply key order of layers"/>
+    </request>
+    <!-- LumaTV: destroy is LG's request 8 (last), not OSE's 5 (first-light-2026-10-25.txt). -->
+    <request name="destroy" type="destructor">
+      <description summary="destroy object">
+        Destroys the surface group object.
+      </description>
     </request>
 
   </interface>

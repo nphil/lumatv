@@ -185,7 +185,7 @@ impl Client {
         let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).unwrap();
         let shell: WlShell = globals.bind(&qh, 1..=1, ()).unwrap();
         let shm: WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
-        let webos_shell: WlWebosShell = globals.bind(&qh, 1..=2, ()).unwrap();
+        let webos_shell: WlWebosShell = globals.bind(&qh, 1..=1, ()).unwrap();
         let foreign: WlWebosForeign = globals.bind(&qh, 1..=1, ()).unwrap();
         let groups: WlWebosSurfaceGroupCompositor = globals.bind(&qh, 1..=1, ()).unwrap();
         let subcompositor: WlSubcompositor = globals.bind(&qh, 1..=1, ()).unwrap();

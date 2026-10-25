@@ -19,7 +19,11 @@
     SPDX-License-Identifier: Apache-2.0
   </copyright>
 
-  <interface name="wl_webos_shell" version="2">
+  <!-- LumaTV: folded to LG's tables on the set (libwayland-webos-client.so.1.0.0, read by wlproto_from_elf.py,
+       docs/research/compositor/first-light-2026-10-25.txt): both interfaces are version 1 there, and request 4 of
+       wl_webos_shell_surface is LG's set_size(ii); OSE's set_addon/reset_addon/addon_status_changed do not exist on
+       the set. Opcodes are positional, so this order is the one LG's clients send. -->
+  <interface name="wl_webos_shell" version="1">
     <description summary="interface for webOS shell">
       This interface provides handlings on webOS shell surfaces.
     </description>
@@ -42,7 +46,7 @@
 
   </interface>
 
-  <interface name="wl_webos_shell_surface" version="2">
+  <interface name="wl_webos_shell_surface" version="1">
     <description summary="interface to handle webos shell surfaces">
       This allows the client to associate an normal surface with a
       shell surface. The shell surface provides webOS specific functionality
@@ -200,41 +204,13 @@
       <arg name="webos_key" type="uint"/>
     </request>
 
-    <request name="set_addon" since="2">
-      <description summary="set the server-side add-on">
-        Sets the path to the server-side add-on. The compositor loads the add-on
-        on receiving this request if the add-on is identified as a valid one.
+    <request name="set_size">
+      <description summary="LG: the size the client wants its window to have">
+        LG-only request (no OSE counterpart); the compositor records it.
       </description>
-      <arg name="path" type="string"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
     </request>
-
-    <request name="reset_addon" since="2">
-      <description summary="reset the server-side add-on">
-        Requests to unload the add-on if it is loaded.
-        If there is no add-on loaded this request is silently ignored.
-      </description>
-    </request>
-
-    <enum name="addon_status" since="2">
-      <description summary="the status of the add-on">
-        Status of the add-on for the given shell surface.
-          null: neither server-side add-on set nor loaded
-          loaded: the server-side add-on is loaded and visible
-          denied: the server-side add-on is not allowed to load
-          error: the server-side add-on is not loaded due to an error
-      </description>
-      <entry name="null" value="0"/>
-      <entry name="loaded" value="1"/>
-      <entry name="denied" value="2"/>
-      <entry name="error" value="3"/>
-    </enum>
-
-    <event name="addon_status_changed" since="2">
-      <description summary="notify the add-on status when changed">
-        Notifies when the add-on status changes.
-      </description>
-      <arg name="addon_status" type="uint"/>
-    </event>
 
   </interface>
 

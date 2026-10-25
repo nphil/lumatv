@@ -1,0 +1,58 @@
+
+=== release
+Rockhopper release 10.2.1-5202 (ponytail-paparoa)
+
+=== libraries and binaries naming wl_webos_imported or attach_punchthrough
+
+
+=== processes with libwayland-client mapped (pid uid unit cmdline)
+10102 uid=0 unit=ls-hubd.service start_ticks=4644 exe=/usr/palm/services/com.webos.service.iotclient/iot-client cmd=/usr/palm/services/com.webos.service.iotclient/iot-client 
+11085 uid=0 unit=nais.service start_ticks=5420 exe=/usr/sbin/nais cmd=/usr/sbin/nais 
+1994 uid=0 unit=kadpd.service start_ticks=205 exe=/usr/bin/gal_renderd cmd=/usr/bin/gal_renderd 
+2255 uid=0 unit=ls-hubd.service start_ticks=259 exe=/usr/sbin/legacy-broadcast-atsc cmd=/usr/sbin/legacy-broadcast-atsc 
+2513 uid=0 unit=sam.service start_ticks=836117 exe=/usr/bin/com.webos.app.inputcommon cmd=/usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.webos.app.inputcommon","parameters":{"snapshot":true},"interfaceVersion":2,"interfaceMethod":"registerApp","@syst
+2517 uid=0 unit=sam.service start_ticks=912917 exe=/usr/bin/com.webos.app.inputcommon cmd=/usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.webos.app.inputcommon","parameters":{"snapshot":true},"interfaceVersion":2,"interfaceMethod":"registerApp","@syst
+2558 uid=5272 unit=sam.service start_ticks=836902 exe=/var/palm/jail/youtube.leanback.v4/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt cmd=/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt {"@system_native_app":true,"reason":"preload","interfaceVersion":2,"event":"launch","interfaceMethod":"registerApp","appId":"youtu
+26320 uid=0 unit=umediaserver.service start_ticks=660357 exe=/usr/sbin/starfish-media-pipeline cmd=/usr/sbin/starfish-media-pipeline pipeline_process -scom.webos.pipeline._LLCx3q1vSDE6im -ccom.webos.pipelinectrl._LLCx3q1vSDE6im -a -r1 
+2690 uid=0 unit=pqcontroller.service start_ticks=982 exe=/usr/sbin/pqcontroller cmd=/usr/sbin/pqcontroller 
+2944 uid=0 unit=micomservice.service start_ticks=1077 exe=/usr/sbin/micomservice cmd=/usr/sbin/micomservice 
+3014 uid=6367 unit=sam.service start_ticks=837603 exe=/var/palm/jail/amazon/media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition cmd=/media/cryptofs/apps/usr/palm/applications/amazon/bin/ignition {"@system_native_app":true,"reason":"preload","interfaceVersion":2,"event":"launch","interfaceMethod":"registerApp","appId":"amazon","pre
+3186 uid=0 unit=luna-sys-service.service start_ticks=1187 exe=/usr/sbin/LunaSysService cmd=/usr/sbin/LunaSysService 
+3224 uid=0 unit=nn-proxy.service start_ticks=1195 exe=/usr/bin/nn-proxy cmd=/usr/bin/nn-proxy 
+3710 uid=0 unit=btaudiosrc.service start_ticks=1398 exe=/usr/sbin/btaudiosrc cmd=/usr/sbin/btaudiosrc 
+3796 uid=0 unit=physical-device-manager.service start_ticks=1447 exe=/usr/sbin/physical-device-manager cmd=/usr/sbin/physical-device-manager 
+4264 uid=0 unit=bthidmanager.service start_ticks=1614 exe=/usr/sbin/bthidmanager cmd=/usr/sbin/bthidmanager 
+4289 uid=0 unit=lginput2.service start_ticks=1625 exe=/usr/sbin/lginput2 cmd=/usr/sbin/lginput2 
+4501 uid=0 unit=btaudiosnk.service start_ticks=1683 exe=/usr/sbin/btaudiosnk cmd=/usr/sbin/btaudiosnk 
+4645 uid=0 unit=ls-hubd.service start_ticks=1730 exe=/usr/sbin/update cmd=/usr/sbin/update 
+7469 uid=0 unit=ls-hubd.service start_ticks=3046 exe=/usr/sbin/network-input-service cmd=/usr/sbin/network-input-service 
+8184 uid=0 unit=surface-manager-daemon.service start_ticks=834142 exe=/usr/bin/surface-manager cmd=/usr/bin/surface-manager -platform eglfs_webos 
+8495 uid=505 unit=webapp-mgr.service start_ticks=834299 exe=/usr/bin/WebAppMgr cmd=/usr/bin/WebAppMgr --accelerated-plugin-rendering-blacklist=device;drmAgent;sound;service --autoplay-policy=no-user-gesture-required --browser-subprocess-path=/usr/bin/WebAppMgr --disable-extensions -
+8594 uid=505 unit=webapp-mgr.service start_ticks=834343 exe=/usr/bin/WebAppMgr cmd=/usr/bin/WebAppMgr --type=zygote --disable-in-process-stack-traces --no-sandbox --disable-quic --use-viz-fmp-with-timeout=0 --js-flags=     --configure_heap_details     --heap_growing_percent=1     --
+8819 uid=505 unit=webapp-mgr.service start_ticks=834569 exe=/usr/bin/WebAppMgr cmd=/usr/bin/WebAppMgr --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --webos-wam --disable-quic --use-viz-fmp-with-timeout=0 --js-fla
+8840 uid=505 unit=webapp-mgr.service start_ticks=834635 exe=/usr/bin/WebAppMgr cmd=/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growing_percent=1     --minimum_allocation_li
+8893 uid=0 unit=extinput-integration.service start_ticks=4159 exe=/usr/sbin/extinput-integration cmd=/usr/sbin/extinput-integration 
+9098 uid=505 unit=webapp-mgr.service start_ticks=834902 exe=/usr/bin/WebAppMgr cmd=/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growing_percent=1     --minimum_allocation_li
+9281 uid=6579 unit=sam.service start_ticks=835403 exe=/var/palm/jail/netflix/media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin cmd=/media/cryptofs/apps/usr/palm/applications/netflix/bin/netflix.bin {"@system_native_app":true,"reason":"preload","interfaceVersion":2,"event":"launch","interfaceMethod":"registerApp","appId":"netflix"
+
+=== their units: restarts
+btaudiosnk.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+btaudiosrc.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+bthidmanager.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+extinput-integration.service Restart=on-failure RestartUSec=100ms NRestarts=1 
+kadpd.service Restart=no RestartUSec=100ms NRestarts=0 
+lginput2.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+ls-hubd.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+luna-sys-service.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+micomservice.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+nais.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+nn-proxy.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+physical-device-manager.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+pqcontroller.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+sam.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+surface-manager-daemon.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+umediaserver.service Restart=on-failure RestartUSec=100ms NRestarts=0 
+webapp-mgr.service Restart=on-failure RestartUSec=100ms NRestarts=2 
+
+=== uptime
+9462.30 25299.54

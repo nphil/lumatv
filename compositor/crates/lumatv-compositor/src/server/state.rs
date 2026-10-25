@@ -133,7 +133,7 @@ impl State {
         dh.create_global::<State, WlSeat, ()>(4, ());
         dh.create_global::<State, WlOutput, ()>(2, ());
         dh.create_global::<State, WlDataDeviceManager, ()>(1, ());
-        dh.create_global::<State, WlWebosShell, ()>(2, ());
+        dh.create_global::<State, WlWebosShell, ()>(1, ());
         dh.create_global::<State, WlWebosSurfaceGroupCompositor, ()>(1, ());
         dh.create_global::<State, WlWebosForeign, ()>(1, ());
         dh.create_global::<State, WlWebosInputManager, ()>(1, ());

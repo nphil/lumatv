@@ -1,10 +1,11 @@
 //! The Wayland protocols LG's webOS clients speak beyond the core, generated from XML.
 //!
-//! `protocol/webos/*.xml` are the public webOS OSE files (webos-wayland-extensions, commit 4059350fd2be); LG's
-//! set may carry newer versions of some, which the first TV session reads out of the client libraries with
-//! `docs/research/arch/wlproto_from_elf.py`. `protocol/private/*.xml` are the tables recovered from LG's own
-//! libraries: `mali_buffer_sharing` (verified on the set in X2) and the two `wl_starfish_*` interfaces (names
-//! known, opcode order not yet verified; the compositor does not advertise them by default).
+//! `protocol/webos/*.xml` started as the public webOS OSE files (webos-wayland-extensions, commit 4059350fd2be) and
+//! are folded to LG's own tables as read on the set by `docs/research/arch/wlproto_from_elf.py`
+//! (`protocol/lg-tables.txt`, checked by `tests/lg_tables.rs`): opcodes are positional, and LG's order and
+//! versions differ from OSE's in six interfaces. `protocol/private/*.xml` are LG's private ones:
+//! `mali_buffer_sharing` (verified on the set in X2) and the two `wl_starfish_*` interfaces (verified tables; the
+//! compositor still advertises them only with `--starfish`, since WebAppMgr runs without them).
 //!
 //! Each protocol module has a `server` submodule (the compositor) and, behind the `client` feature, a `client`
 //! submodule (the test client).
