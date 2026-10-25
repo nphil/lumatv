@@ -1,6 +1,7 @@
-//! `wl_seat`, `wl_keyboard`, `wl_pointer`, `wl_touch`: the objects and keyboard focus. Key events come in C4
-//! from the `lginput2` evdev devices; the data model (focus follows the scene's top window, a keymap is served)
-//! is here so a client that waits for `wl_keyboard.enter` before drawing gets it.
+//! `wl_seat`, `wl_keyboard`, `wl_pointer`, `wl_touch`: the objects, keyboard focus and the pointer. Key and
+//! pointer events come in C4 from the `lginput2` evdev devices (`input.rs`); the data model (focus follows the
+//! scene's top window, a keymap is served, the pointer enters the window under it) is here so a client that waits
+//! for `wl_keyboard.enter` before drawing gets it.
 
 use std::io::Write;
 use std::os::fd::AsFd;
@@ -27,8 +28,19 @@ pub struct SeatState {
     pub last_input: &'static str,
     pub cursor_visible: bool,
     pub pointer_position: (i32, i32),
+    /// The surface under the pointer that was last entered, and the output rectangle it was entered at.
+    pub pointer_focus: Option<SurfaceId>,
+    pub pointer_focus_rect: crate::Rect,
+    /// When the cursor was last shown or moved, for the timeout.
+    pub cursor_shown_at: Option<std::time::Instant>,
+    pub motions: u64,
     pub mrcu_standby_timer: u32,
 }
+
+/// Linux `BTN_LEFT`: what the Magic Remote's OK is to a client while the cursor shows.
+pub const BTN_LEFT: u32 = 0x110;
+/// A cursor that has not moved for this long hides (LG's default cursor timeout is in this range).
+pub const CURSOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// A minimal xkb keymap: evdev codes pass through as keycodes (xkb code = evdev + 8). Covers the keys the remote
 /// sends, including KEY_PREVIOUS (412), which is the remote's Back on this set, and the colour keys. Clients
@@ -225,4 +237,80 @@ pub fn send_key(state: &mut State, code: u32, pressed: bool) -> bool {
     }
     state.seat.last_input = "key";
     sent
+}
+
+/// The pointer moved to `(x, y)` in output pixels: the cursor shows, the surface under it is entered (the
+/// previous one left) and gets the motion in its own coordinates. Returns whether a client got it.
+pub fn pointer_motion(state: &mut State, x: i32, y: i32) -> bool {
+    let (x, y) = (x.clamp(0, crate::OUTPUT_WIDTH as i32 - 1), y.clamp(0, crate::OUTPUT_HEIGHT as i32 - 1));
+    state.seat.pointer_position = (x, y);
+    state.seat.last_input = "pointer";
+    state.seat.cursor_visible = true;
+    state.seat.cursor_shown_at = Some(std::time::Instant::now());
+    state.seat.motions += 1;
+    let hit = state.scene.surface_at(x, y);
+    let target = hit.map(|(s, _)| s);
+    let time = crate::output::monotonic_ms();
+    if target != state.seat.pointer_focus {
+        let serial = state.next_serial();
+        if let Some(old) = state.seat.pointer_focus.take()
+            && let Some(res) = state.seat.surfaces.get(&old).cloned()
+            && res.is_alive()
+        {
+            for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+                p.leave(serial, &res);
+            }
+        }
+        if let Some((n, r)) = hit
+            && let Some(res) = state.seat.surfaces.get(&n).cloned()
+        {
+            for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+                p.enter(serial, &res, (x - r.x) as f64, (y - r.y) as f64);
+            }
+            state.seat.pointer_focus = Some(n);
+            state.seat.pointer_focus_rect = r;
+        }
+    } else if let Some((_, r)) = hit {
+        state.seat.pointer_focus_rect = r;
+    }
+    let Some(n) = state.seat.pointer_focus else { return false };
+    let Some(res) = state.seat.surfaces.get(&n).cloned() else { return false };
+    let r = state.seat.pointer_focus_rect;
+    let mut sent = false;
+    for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+        p.motion(time, (x - r.x) as f64, (y - r.y) as f64);
+        sent = true;
+    }
+    sent
+}
+
+/// OK while the cursor shows: `BTN_LEFT` to the surface under the pointer.
+pub fn pointer_button(state: &mut State, pressed: bool) -> bool {
+    let Some(n) = state.seat.pointer_focus else { return false };
+    let Some(res) = state.seat.surfaces.get(&n).cloned() else { return false };
+    let serial = state.next_serial();
+    let time = crate::output::monotonic_ms();
+    let mut sent = false;
+    for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+        p.button(serial, time, BTN_LEFT, if pressed { wl_pointer::ButtonState::Pressed } else { wl_pointer::ButtonState::Released });
+        sent = true;
+    }
+    state.seat.last_input = "pointer";
+    state.seat.cursor_shown_at = Some(std::time::Instant::now());
+    sent
+}
+
+/// Hides the cursor (a navigation key, the timeout, a client's `set_cursor_visibility(0)`): the surface under it
+/// is left, so a hover state does not linger.
+pub fn hide_cursor(state: &mut State) {
+    state.seat.cursor_visible = false;
+    if let Some(old) = state.seat.pointer_focus.take()
+        && let Some(res) = state.seat.surfaces.get(&old).cloned()
+        && res.is_alive()
+    {
+        let serial = state.next_serial();
+        for p in state.seat.pointers.iter().filter(|p| p.id().same_client_as(&res.id())) {
+            p.leave(serial, &res);
+        }
+    }
 }

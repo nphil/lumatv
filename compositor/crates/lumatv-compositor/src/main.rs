@@ -244,16 +244,21 @@ fn run(config: Config) -> io::Result<()> {
                     let i = (t & 0xffff_ffff) as usize;
                     if let Some(d) = inputs.get_mut(i) {
                         let from_network = d.from_network;
-                        let mut keys: [(u32, bool); 64] = [(0, false); 64];
+                        let mut evs: [lumatv_compositor::input::Event; 64] = [lumatv_compositor::input::Event::Key { code: 0, pressed: false }; 64];
                         let mut n = 0;
-                        let _ = d.drain(|code, pressed| {
-                            if n < keys.len() {
-                                keys[n] = (code, pressed);
+                        let _ = d.drain(|ev| {
+                            if n < evs.len() {
+                                evs[n] = ev;
                                 n += 1;
                             }
                         });
-                        for &(code, pressed) in &keys[..n] {
-                            state.key_event(code, pressed, from_network);
+                        for &ev in &evs[..n] {
+                            match ev {
+                                lumatv_compositor::input::Event::Key { code, pressed } => state.key_event(code, pressed, from_network),
+                                lumatv_compositor::input::Event::Motion { x, y } => {
+                                    lumatv_compositor::server::seat::pointer_motion(&mut state, x, y);
+                                }
+                            }
                         }
                     }
                 }

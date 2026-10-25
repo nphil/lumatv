@@ -137,6 +137,12 @@ impl Scene {
         self.by_surface.get(&surface).copied()
     }
 
+    /// The topmost drawn surface under an output point and the rectangle it is drawn at (the last plan), for
+    /// the pointer. Holes are the video's, not a window's, so they do not count.
+    pub fn surface_at(&self, x: i32, y: i32) -> Option<(SurfaceId, Rect)> {
+        self.plan.items.iter().rev().find(|i| i.rect.contains(x, y)).map(|i| (i.surface, i.rect))
+    }
+
     pub fn windows(&self) -> impl Iterator<Item = &Window> {
         self.windows.values()
     }

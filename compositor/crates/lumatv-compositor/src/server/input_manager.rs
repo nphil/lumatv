@@ -31,7 +31,12 @@ impl Dispatch<WlWebosInputManager, ()> for State {
             }
             wl_webos_input_manager::Request::SetCursorVisibility { visibility } => {
                 state.note_request("wl_webos_input_manager", 0, &format!("set_cursor_visibility({visibility})"));
-                state.seat.cursor_visible = visibility != 0;
+                if visibility == 0 {
+                    crate::server::seat::hide_cursor(state);
+                } else {
+                    state.seat.cursor_visible = true;
+                    state.seat.cursor_shown_at = Some(std::time::Instant::now());
+                }
                 resource.cursor_visibility(visibility, None);
             }
             _ => {}

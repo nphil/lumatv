@@ -34,6 +34,7 @@ pub fn handle(state: &mut State, line: &str) -> String {
             },
             "check": {"ok": state.check.ok, "bad": state.check.bad, "unread": state.check.unread},
             "focus": state.seat.focus.map(|s| s.0),
+            "pointer": {"x": state.seat.pointer_position.0, "y": state.seat.pointer_position.1, "visible": state.seat.cursor_visible, "focus": state.seat.pointer_focus.map(|s| s.0), "motions": state.seat.motions, "lastInput": state.seat.last_input},
             "lastCapture": state.last_capture,
         }),
         "windows" => {
@@ -83,6 +84,31 @@ pub fn handle(state: &mut State, line: &str) -> String {
                 None => json!({"ok": false, "error": "remote CODE [press|release|tap]"}),
             }
         }
+        "pointer" => {
+            // pointer X Y: as if the Magic Remote moved there (enter/leave/motion by the scene, cursor shown).
+            let x: Option<i32> = words.next().and_then(|c| c.parse().ok());
+            let y: Option<i32> = words.next().and_then(|c| c.parse().ok());
+            match (x, y) {
+                (Some(x), Some(y)) => {
+                    let sent = crate::server::seat::pointer_motion(state, x, y);
+                    json!({"ok": true, "delivered": sent, "focus": state.seat.pointer_focus.map(|s| s.0)})
+                }
+                _ => json!({"ok": false, "error": "pointer X Y"}),
+            }
+        }
+        "click" => {
+            // click [press|release|tap]: OK through the key routing while the cursor shows, i.e. BTN_LEFT.
+            let how = words.next().unwrap_or("tap");
+            match how {
+                "press" => state.key_event(crate::input::code::KEY_ENTER, true, false),
+                "release" => state.key_event(crate::input::code::KEY_ENTER, false, false),
+                _ => {
+                    state.key_event(crate::input::code::KEY_ENTER, true, false);
+                    state.key_event(crate::input::code::KEY_ENTER, false, false);
+                }
+            }
+            json!({"ok": true, "delivered": state.keys.delivered, "visible": state.seat.cursor_visible})
+        }
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -96,7 +122,7 @@ pub fn handle(state: &mut State, line: &str) -> String {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, remote CODE, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
         }
     };
     reply.to_string()

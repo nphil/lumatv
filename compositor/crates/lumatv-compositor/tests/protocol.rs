@@ -348,6 +348,52 @@ fn home_held_through_the_remote_command_asks_for_the_fallback() {
 }
 
 #[test]
+fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let _kb = client.seat.get_keyboard(&client.qh, ());
+    let _ptr = client.seat.get_pointer(&client.qh, ());
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Pointed");
+    let buf = client.shm_buffer(64, 64, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
+    std::thread::sleep(Duration::from_millis(30));
+    // Off the window: nothing enters, the cursor shows all the same.
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 500 500"));
+    assert!(reply.contains("\"delivered\":false"), "{reply}");
+    assert!(server.eval(|s| s.seat.cursor_visible && s.seat.last_input == "pointer"));
+    // Onto the 64x64 card at the origin: enter at the surface-local point, then the motion.
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "pointer 10 20"));
+    assert!(reply.contains("\"delivered\":true"), "{reply}");
+    assert!(client.wait_until(WAIT, |s| !s.pointer_enters.is_empty() && !s.motions.is_empty()));
+    assert_eq!(client.state.pointer_enters[0], (10.0, 20.0));
+    assert_eq!(client.state.motions[0], (10.0, 20.0));
+    // OK while the cursor shows is BTN_LEFT, never a key.
+    server.eval(|s| lumatv_compositor::control::handle(s, "click tap"));
+    assert!(client.wait_until(WAIT, |s| s.buttons.len() >= 2));
+    assert_eq!(client.state.buttons[0], (0x110, 1));
+    assert_eq!(client.state.buttons[1], (0x110, 0));
+    assert!(client.state.keys.is_empty(), "the click did not arrive as KEY_ENTER");
+    // An arrow key hides the cursor (leave) and reaches the window as a key; OK is a key again.
+    server.eval(|s| lumatv_compositor::control::handle(s, "remote 108 tap"));
+    assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 1 && s.keys.len() >= 2));
+    assert!(!server.eval(|s| s.seat.cursor_visible));
+    server.eval(|s| lumatv_compositor::control::handle(s, "click tap"));
+    assert!(client.wait_until(WAIT, |s| s.keys.len() >= 4));
+    assert_eq!(client.state.keys[2], (28, 1));
+    assert_eq!(client.state.buttons.len(), 2, "no button without the cursor");
+    // Moving again re-enters; a cursor left alone past the timeout hides from the tick.
+    server.eval(|s| lumatv_compositor::control::handle(s, "pointer 30 30"));
+    assert!(client.wait_until(WAIT, |s| s.pointer_enters.len() >= 2));
+    server.eval(|s| {
+        s.seat.cursor_shown_at = Some(std::time::Instant::now() - lumatv_compositor::server::seat::CURSOR_TIMEOUT);
+        s.poll_holds();
+    });
+    assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 2));
+    assert!(!server.eval(|s| s.seat.cursor_visible));
+}
+
+#[test]
 fn luna_tier_one_methods_answer_from_the_scene() {
     use lumatv_compositor::luna::{Inbound, ToBridge};
     use serde_json::json;

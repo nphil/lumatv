@@ -1,7 +1,10 @@
-//! Keys from the set's input devices (C4). `lginput2` turns every remote (IR `LGE RCU`, the Magic Remote `LGE
-//! M-RCU`, network keys as `Smart Remote RCU Input`, …) into evdev devices; the compositor reads them all and
-//! routes each key by the focused window's key mask and access policies, keeping the compositor's own keys
-//! (Home, the hold-Home escape) for itself. Reads are allocation-free (one fixed buffer per device).
+//! Keys and the pointer from the set's input devices (C4). `lginput2` turns every remote (IR `LGE RCU`, the Magic
+//! Remote `LGE M-RCU`, network keys as `Smart Remote RCU Input`, …) into evdev devices; the compositor reads them
+//! all and routes each key by the focused window's key mask and access policies, keeping the compositor's own
+//! keys (Home, the hold-Home escape) for itself. The Magic Remote's pointer arrives as absolute axes (the census in
+//! `docs/research/arch/input-devices-01.txt`: `ABS=3` on every `LGE M-RCU`, the only relative axis is the wheel);
+//! a motion shows the cursor, OK clicks while it shows, a navigation key or 10 s of stillness hides it. Reads are
+//! allocation-free (one fixed buffer per device).
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read};
@@ -114,15 +117,48 @@ struct InputEvent {
     value: i32,
 }
 
+const EV_SYN: u16 = 0;
 const EV_KEY: u16 = 1;
+const EV_ABS: u16 = 3;
+const ABS_X: u16 = 0;
+const ABS_Y: u16 = 1;
+
+/// What a device reports: one key, or the pointer's new position in output pixels (once per `SYN_REPORT`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    Key { code: u32, pressed: bool },
+    Motion { x: i32, y: i32 },
+}
+
+/// The range of one absolute axis (`EVIOCGABS`), mapped onto the output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AbsRange {
+    pub x: (i32, i32),
+    pub y: (i32, i32),
+}
+
+impl AbsRange {
+    /// `value` on `axis` as an output coordinate: the axis range maps onto `0..=size-1`; a range of one value
+    /// (a device that never set one) takes the value as a pixel.
+    pub fn scale(axis: (i32, i32), value: i32, size: i32) -> i32 {
+        let (min, max) = axis;
+        let v = if max > min { ((value - min) as i64 * (size - 1) as i64 / (max - min) as i64) as i32 } else { value };
+        v.clamp(0, size - 1)
+    }
+}
 
 pub struct Device {
     pub path: String,
     pub name: String,
     /// `Smart Remote RCU Input`: keys from the network (SSAP), told apart from the physical remotes (PLAN, AI access).
     pub from_network: bool,
+    /// Pointer axes, when the device has `ABS_X` and `ABS_Y` (the Magic Remotes); their events are dropped otherwise.
+    pub abs: Option<AbsRange>,
     file: File,
     buf: [InputEvent; 64],
+    /// The position the pending `SYN_REPORT` will report, and the last one reported.
+    pending: Option<(i32, i32)>,
+    last: (i32, i32),
 }
 
 impl Device {
@@ -133,15 +169,21 @@ impl Device {
         let n = unsafe { libc::ioctl(file.as_raw_fd(), eviocgname(name.len()), name.as_mut_ptr()) };
         let name = if n > 0 { String::from_utf8_lossy(&name[..(n as usize).min(name.len())]).trim_end_matches('\0').to_string() } else { String::new() };
         let from_network = name.contains("Smart Remote RCU Input");
-        Ok(Device { path: path.to_string(), name, from_network, file, buf: [InputEvent::default(); 64] })
+        // EVIOCGABS fails on a device without absolute axes (the IR remote); the Magic Remotes and the network
+        // key device answer for both.
+        let abs = match (absinfo(file.as_raw_fd(), ABS_X), absinfo(file.as_raw_fd(), ABS_Y)) {
+            (Some(x), Some(y)) => Some(AbsRange { x, y }),
+            _ => None,
+        };
+        Ok(Device { path: path.to_string(), name, from_network, abs, file, buf: [InputEvent::default(); 64], pending: None, last: (-1, -1) })
     }
 
     pub fn fd(&self) -> i32 {
         self.file.as_raw_fd()
     }
 
-    /// Reads what is pending; `f(code, pressed)` per key event (repeats are reported as presses).
-    pub fn drain(&mut self, mut f: impl FnMut(u32, bool)) -> io::Result<()> {
+    /// Reads what is pending; `f` per key event (repeats are reported as presses) and per pointer motion.
+    pub fn drain(&mut self, mut f: impl FnMut(Event)) -> io::Result<()> {
         loop {
             let size = std::mem::size_of::<InputEvent>();
             // SAFETY: the buffer is a plain array of repr(C) structs; read fills whole events.
@@ -152,9 +194,32 @@ impl Device {
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(e) => return Err(e),
             };
-            for ev in &self.buf[..n / size] {
-                if ev.kind == EV_KEY {
-                    f(ev.code as u32, ev.value != 0);
+            for i in 0..n / size {
+                let ev = self.buf[i];
+                match ev.kind {
+                    EV_KEY => f(Event::Key { code: ev.code as u32, pressed: ev.value != 0 }),
+                    EV_ABS => {
+                        if let Some(abs) = self.abs {
+                            let (mut x, mut y) = self.pending.unwrap_or(self.last);
+                            match ev.code {
+                                ABS_X => x = AbsRange::scale(abs.x, ev.value, crate::OUTPUT_WIDTH as i32),
+                                ABS_Y => y = AbsRange::scale(abs.y, ev.value, crate::OUTPUT_HEIGHT as i32),
+                                _ => continue,
+                            }
+                            self.pending = Some((x, y));
+                        }
+                    }
+                    EV_SYN => {
+                        if let Some((x, y)) = self.pending.take()
+                            && (x, y) != self.last
+                        {
+                            // Both axes are known once the first report carried both; a report with one axis
+                            // keeps the other where it was.
+                            self.last = (x.max(0), y.max(0));
+                            f(Event::Motion { x: self.last.0, y: self.last.1 });
+                        }
+                    }
+                    _ => {}
                 }
             }
             if n < size * self.buf.len() {
@@ -169,6 +234,16 @@ const fn eviocgname(len: usize) -> libc::c_ulong {
     ((2u64 << 30) | ((len as u64) << 16) | (b'E' as u64) << 8 | 0x06) as libc::c_ulong
 }
 
+/// `EVIOCGABS(axis)`: `(minimum, maximum)` of one absolute axis, `None` when the device has no such axis.
+fn absinfo(fd: i32, axis: u16) -> Option<(i32, i32)> {
+    // struct input_absinfo { value, minimum, maximum, fuzz, flat, resolution }: six i32.
+    let mut info = [0i32; 6];
+    let req = ((2u64 << 30) | ((std::mem::size_of_val(&info) as u64) << 16) | (b'E' as u64) << 8 | (0x40 + axis as u64)) as libc::c_ulong;
+    // SAFETY: the kernel writes exactly the struct into the buffer.
+    let r = unsafe { libc::ioctl(fd, req, info.as_mut_ptr()) };
+    if r < 0 { None } else { Some((info[1], info[2])) }
+}
+
 /// Every `/dev/input/event*` that opens.
 pub fn open_all() -> Vec<Device> {
     let mut out = Vec::new();
@@ -178,7 +253,13 @@ pub fn open_all() -> Vec<Device> {
     for p in paths {
         match Device::open(&p) {
             Ok(d) => {
-                log::info!("input: {} {:?}{}", d.path, d.name, if d.from_network { " (network keys)" } else { "" });
+                log::info!(
+                    "input: {} {:?}{}{}",
+                    d.path,
+                    d.name,
+                    if d.from_network { " (network keys)" } else { "" },
+                    d.abs.map(|a| format!(" pointer x {:?} y {:?}", a.x, a.y)).unwrap_or_default()
+                );
                 out.push(d);
             }
             Err(e) => log::warn!("input: {p}: {e}"),
@@ -199,6 +280,16 @@ pub struct Keys {
 impl State {
     /// One key from a device.
     pub fn key_event(&mut self, code: u32, pressed: bool, from_network: bool) {
+        // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
+        // Back hides the cursor and goes on as a key.
+        if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && self.seat.pointer_focus.is_some() {
+            if seat::pointer_button(self, pressed) {
+                self.keys.delivered += 1;
+                return;
+            }
+        } else if pressed && matches!(code, code::KEY_UP | code::KEY_DOWN | code::KEY_LEFT | code::KEY_RIGHT | code::KEY_BACK | code::KEY_PREVIOUS) {
+            seat::hide_cursor(self);
+        }
         let (mask, back, home) = self
             .seat
             .focus
@@ -239,7 +330,8 @@ impl State {
         self.seat.last_input = "key";
     }
 
-    /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN).
+    /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN); a cursor still for
+    /// [`seat::CURSOR_TIMEOUT`] hides.
     pub fn poll_holds(&mut self) {
         if let Some(t) = self.keys.home_down_since
             && !self.keys.home_escape_sent
@@ -248,6 +340,12 @@ impl State {
             self.keys.home_escape_sent = true;
             self.journal("input: Home held 650 ms: asking the supervisor to fall back to LG's compositor".into());
             self.luna.send(ToBridge::Fallback { reason: "hold Home 650 ms".into() });
+        }
+        if self.seat.cursor_visible
+            && let Some(t) = self.seat.cursor_shown_at
+            && t.elapsed() >= seat::CURSOR_TIMEOUT
+        {
+            seat::hide_cursor(self);
         }
     }
 
@@ -293,5 +391,21 @@ mod tests {
         assert_eq!(route(6, key_mask::NUMERIC, false, false), Route::Client, "KEY_5");
         assert_eq!(route(6, key_mask::NAVIGATION, false, false), Route::Dropped);
         assert_eq!(route(9999, 0, false, false), Route::Client, "unknown keys pass through");
+    }
+}
+
+#[cfg(test)]
+mod abs_tests {
+    use super::*;
+
+    #[test]
+    fn axes_map_onto_the_output_and_pixels_pass_through() {
+        assert_eq!(AbsRange::scale((0, 1919), 0, 1920), 0);
+        assert_eq!(AbsRange::scale((0, 1919), 1919, 1920), 1919);
+        assert_eq!(AbsRange::scale((0, 1919), 960, 1920), 960);
+        assert_eq!(AbsRange::scale((0, 65535), 65535, 1080), 1079, "a 16-bit axis ends at the last pixel");
+        assert_eq!(AbsRange::scale((0, 65535), 32768, 1920), 959);
+        assert_eq!(AbsRange::scale((0, 0), 2500, 1920), 1919, "no range: the value is a pixel, clamped");
+        assert_eq!(AbsRange::scale((0, 0), -5, 1920), 0);
     }
 }

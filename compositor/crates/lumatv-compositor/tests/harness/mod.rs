@@ -17,6 +17,7 @@ use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_keyboard::WlKeyboard;
+use wayland_client::protocol::wl_pointer::WlPointer;
 use wayland_client::protocol::wl_region::WlRegion;
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::protocol::wl_seat::WlSeat;
@@ -151,6 +152,10 @@ pub struct ClientState {
     pub alloc_devices: Vec<String>,
     pub keyboard_enters: u32,
     pub keys: Vec<(u32, u32)>,
+    pub pointer_enters: Vec<(f64, f64)>,
+    pub pointer_leaves: u32,
+    pub motions: Vec<(f64, f64)>,
+    pub buttons: Vec<(u32, u32)>,
 }
 
 pub struct Client {
@@ -349,6 +354,19 @@ impl Dispatch<WlKeyboard, ()> for ClientState {
         match event {
             Event::Enter { .. } => state.keyboard_enters += 1,
             Event::Key { key, state: st, .. } => state.keys.push((key, st.into_result().map(|s| s as u32).unwrap_or(99))),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<WlPointer, ()> for ClientState {
+    fn event(state: &mut Self, _: &WlPointer, event: wayland_client::protocol::wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        use wayland_client::protocol::wl_pointer::Event;
+        match event {
+            Event::Enter { surface_x, surface_y, .. } => state.pointer_enters.push((surface_x, surface_y)),
+            Event::Leave { .. } => state.pointer_leaves += 1,
+            Event::Motion { surface_x, surface_y, .. } => state.motions.push((surface_x, surface_y)),
+            Event::Button { button, state: st, .. } => state.buttons.push((button, st.into_result().map(|s| s as u32).unwrap_or(99))),
             _ => {}
         }
     }
