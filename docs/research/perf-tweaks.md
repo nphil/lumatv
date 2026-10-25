@@ -5,40 +5,28 @@ Rule under test: every frame on its 60 Hz deadline, at rest and in motion.
 
 ## Resume here
 
-Status 2026-10-24 20:25: measurements done (baseline, T1-T7, T9, T10,
-stability); results, root causes and the ranked list are below. Left to
-do in this window: the X1 compositor-floor client (ShellArchitecture is
-cross-building it; run it under `capture.sh start floor basic` for 60 s
-over idle Home with wallpaper motion off, then `analyse.py`), restore
-the stock tool, power off.
+Status 2026-10-24 20:35: done. All measurements taken, every tweak
+reverted, the set is in Active Standby, Filmmaker, with nothing of this
+work left on it (old tool restored, env file back to its single line,
+`env.extra`, backups, QML cache and all `/tmp` probe directories
+removed; wallpaper motion back to 30 fps; compositor pid 12279 from the
+last tool restart at 20:26). Raw traces, `summary.txt` and per-run
+analyses are in `/tmp/perf` on the workstation only.
 
-TV state now: Active, Home in front, Filmmaker. Compositor pid 6257,
-started 20:10 by the tool. Applied on the set at this moment, all to be
-undone before handing back:
+Harness (in `docs/research/perf/`): `run.py --tag T --repeat N
+--workloads idle,dpad,qs,apphome,appfull,video,coldhome,pressure,hog
+[--apply CMD --revert CMD] [--start K]` drives the workloads with HA
+keys and luna launches; `capture.sh` (copy to `/tmp/perf` on the set)
+records the ftrace and the 1 s sampler; `analyse.py TRACE --sm PID
+--gap MS` gives the frame stats, the dropped-frame classification and
+the per-gap attribution; `tweak.py` sets the compositor's scheduling
+policy and affinity; `pin.py` mlocks its file pages. HA key presses
+fail with HTTP 500 now and then; `run.py` retries six times.
 
-- The committed tool `cb57f53` is deployed at
-  `/media/developer/apps/usr/palm/applications/org.nphil.lumaglass/tools/lumaglass`
-  (backup of the previous one at `/var/lib/lumaglass/lumaglass.bak`),
-  so the env file carries `QML_FORCE_DISK_CACHE=1`. `env.extra` is
-  absent. Restore: `cp /var/lib/lumaglass/lumaglass.bak $TOOL; $TOOL fps
-  on; $TOOL fps off` (the old tool rewrites the env to its single line
-  and restarts), `rm -rf /home/root/.cache/surface-manager/qmlcache`,
-  `rm /var/lib/lumaglass/lumaglass.bak`; or leave the new tool in place
-  if Main prefers (it is the committed version).
-- Nothing else: `mp_enable` 1, GPU `coarse_demand`, IRQ masks `f`,
-  compositor policy other / nice -19 / all CPUs, cgroup swappiness 60,
-  no pin process, wallpaper motion 30 fps (`theme.json` restored), T7
-  removed. `/tmp/perf` holds the scripts only.
-- Finish: `luna-send -n 1 luna://com.webos.service.tvpower/power/powerOff
-  '{"reason":"remoteKey"}'`, confirm Active Standby and Filmmaker.
-
-Harness: `docs/research/perf/run.py --tag T --repeat N --workloads
-idle,dpad,qs,apphome,appfull,video,coldhome,pressure,hog [--apply CMD
---revert CMD] [--start K]`; traces and `summary.txt` in `/tmp/perf` on
-the workstation; `analyse.py TRACE --sm PID --gap MS` for the gap
-attribution; `capture.sh`, `tweak.py`, `pin.py` on the set under
-`/tmp/perf`. HA key presses fail with HTTP 500 now and then; `run.py`
-retries six times.
+Open items for whoever continues: the X1 `te` run with a trace that
+fits the ring (basic events only); the hog workload again once the
+preload trim and the Home stub are in; Netflix 24p output rate; and the
+one-clock change to idle Home (recommendation 2).
 
 ## Platform facts that bound the search
 
@@ -67,7 +55,7 @@ retries six times.
 - Compositor environment (stock): `QSG_ATLAS_WIDTH/HEIGHT 1024`,
   `QSG_TRANSIENT_IMAGES 1`, `QSG_PROGRAM_BINARY_STORE
   /var/cache/qsg-shader-cache`, `QML_DISABLE_DISK_CACHE 1` (LumaTV's
-  `QML_FORCE_DISK_CACHE=1` is decided but not yet in the env file),
+  `QML_FORCE_DISK_CACHE=1` is decided and ships in phase 1),
   `QML_NO_TOUCH_COMPRESSION 1`, `QMLSCENE_DEVICE customcontext`,
   `QT_QPA_EGLFS_KMS_ATOMIC 1`, `QT_QPA_EGLFS_INTEGRATION eglfs_starfish`.
 - Scheduler: CFS defaults for 4 cores (`sched_latency 18 ms`,
@@ -381,11 +369,28 @@ ms of GPU and 5 ms of CPU per presented client frame: that is the cost
 of compositing one full-screen surface through Qt Quick on this driver,
 and it is what direct scan-out of a client buffer (a plane per client,
 no composition pass) would remove. The idle-Home 8.0 ms is the full
-scene; the wallpaper warp is 0.9 ms of it (T6). An on-screen 60 Hz
-client floor test (X1) was not run: the 64-bit probe binary from 10-22
-did not survive the reboot and no aarch64 toolchain is on the
-workstation; `capture.sh` and `analyse.py` count its presented frames
-whenever one is run.
+scene; the wallpaper warp is 0.9 ms of it (T6).
+
+X1, the floor itself (ShellArchitecture's 64-bit client: one clear and
+one moving 240x480 rect per frame, full-screen overlay over idle Home,
+wallpaper motion off, `eglSwapInterval 1`), counted with the DRM probe:
+
+| buffers | run | client swaps | presented frames | 2-vblank frames | worst |
+|---|---|---|---|---|---|
+| DRM dumb (CMA, all three from CMA) | 60 s | 3,075 = 51.2 fps; swap gaps: 53 under 17.5 ms, 2,466 at 17.5-20, 555 at 20-33.5, 0 over | 3,086 (51.2 fps) | 530 of 3,085 (17 %) | 33.4 ms |
+| `dma_buf_te` (ordinary pages) | 20 s | 959 = 47.9 fps; 631 at 17.5-20, 312 at 20-33.5, 2 over 33.5 | (full trace overflowed) | | 49.3 ms (client clock) |
+
+So LG's compositor does not hold 60 fps for a trivial client either:
+about one presented frame in six takes two vblanks, with the compositor
+doing nothing but composing that one surface over a still Home (Home
+itself presented 58 fps with motion off, because the client's overlay
+keeps the scene animating). After the client exited the compositor ran
+at 685 ms of CPU and 1284 ms of GPU per 3 s (3.9 ms CPU and 7.4 ms GPU
+per presented frame) while Home recovered. The earlier PLAN.md figure
+(60.2-60.8 fps, 2-10 over 20 ms in 8 s) was measured with the client's
+own clock over 8 s; over 60 s and counted at the panel the floor is
+51 fps with 17 % of frames late. This is the compositing cost of option
+B's host, not of the client.
 
 ## How a frame is produced (from the first idle trace, 5 s, 189 frames)
 
@@ -447,19 +452,20 @@ wallpaper motion block lives in `theme.json`, which Home polls every 2 s,
 so `fps`, `enabled` and the look parameters can be A/B-tested live with
 `lumaglass theme set` and no restart.
 
-## Tweak plan (each applied alone, measured, reverted)
+## Tweak plan (each applied alone, measured, reverted) and verdicts
 
-| id | tweak | apply | revert |
-|---|---|---|---|
-| T1 | GPU cores never power-gated | `echo always_on > /sys/class/misc/mali0/device/power_policy` | `echo coarse_demand > ...` |
-| T2 | LG core hot-plug off | `echo 0 > /proc/lg/pm/mp_enable; echo 1 > /sys/devices/system/cpu/cpu3/online` | `echo 1 > /proc/lg/pm/mp_enable` |
-| T3 | GPU and network IRQs off CPU0 | `echo 2 > /proc/irq/{176,178}/smp_affinity; echo 4 > /proc/irq/124/smp_affinity` | `echo f > ...` (stock mask) |
-| T4 | Compositor GUI thread SCHED_FIFO | python3 `os.sched_setscheduler(pid, SCHED_FIFO, 1)` | `SCHED_OTHER`, then nice -19 back |
-| T5 | Compositor GUI thread pinned off CPU0 | `os.sched_setaffinity(pid, {1})` | `{0,1,2,3}` |
-| T6 | Wallpaper motion 30 -> 10 fps, and off | `lumaglass theme set wallpaperMotion.fps 10` (live) | `... 30` |
-| T7 | `QSG_RENDER_LOOP=threaded` | env file + restart through the tool | remove, restart |
-| T8 | swappiness 100 -> 20 | `echo 20 > /proc/sys/vm/swappiness` | `echo 100 > ...` |
-| T9 | `QT_QPA_UPDATE_IDLE_TIME=0` (no 5 ms wait before each animated frame) | env file + compositor restart | remove, restart |
+| id | tweak | apply | revert | verdict |
+|---|---|---|---|---|
+| T1 | GPU cores never power-gated | `echo always_on > /sys/class/misc/mali0/device/power_policy` | `echo coarse_demand > ...` | no effect |
+| T2 | LG core hot-plug off | `echo 0 > /proc/lg/pm/mp_enable; echo 1 > /sys/devices/system/cpu/cpu3/online` | `echo 1 > /proc/lg/pm/mp_enable` | optional, idle only |
+| T3 | GPU and network IRQs off CPU0 | `echo 2 > /proc/irq/{176,178}/smp_affinity; echo 4 > /proc/irq/124/smp_affinity` | `echo f > ...` (stock mask) | no effect |
+| T4 | Compositor GUI thread SCHED_FIFO | `tweak.py fifo 1` | `tweak.py other` | no effect |
+| T5 | Compositor GUI thread pinned to CPU1 | `tweak.py affinity 2` | `tweak.py affinity f` | no effect |
+| T6 | Wallpaper motion 30 -> 10 fps, and off | `lumaglass theme set '{"wallpaperMotion":{"fps":10}}'` (live) | `... 30` | keep 10 fps |
+| T7 | `QSG_RENDER_LOOP=threaded` | `env.extra` + `apply` | remove, `apply` | black screen |
+| T8 | global swappiness 100 -> 20 | `echo 20 > /proc/sys/vm/swappiness` | `echo 100 > ...` | not run (see T10) |
+| T9 | `QT_QPA_UPDATE_IDLE_TIME=0` | `env.extra` + `apply` | remove, `apply` | keep |
+| T10 | pin compositor file pages; its cgroup `memory.swappiness=0` | `pin.py &`; `echo 0 > .../surface-manager-daemon.service/memory.swappiness` | kill `pin.py`; `echo 60 > ...` | not alone |
 
 None survives a reboot by itself; a kept tweak goes into the tool's apply
 and boot hook (sysfs/procfs writes at boot-bind) or the env file.
@@ -510,8 +516,8 @@ lateness accumulates frame over frame, and once it passes about 7.7 ms a
 frame misses its vblank (a 33 ms interval), which resets the chain. So a
 focus move or panel open whose frames need 3.5-4 ms of CPU render drops a
 frame every 6-10 frames. `QT_QPA_UPDATE_IDLE_TIME=0` returns the 5 ms to
-the budget (chain about 10.7 ms at idle). To be measured as T9. It is set
-in the compositor's env file through the tool's new `env.extra` hook
+the budget (chain about 10.7 ms at idle); measured as T9 above. It is
+set in the compositor's env file through the tool's `env.extra` hook
 (the decided `QML_FORCE_DISK_CACHE=1` goes through the same env line).
 
 ## Finding: why idle Home runs at an uneven 36-38 fps

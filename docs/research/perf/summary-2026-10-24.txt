@@ -1,0 +1,192 @@
+base-dpad-1                  dpad             6.66s   359f  53.9fps >17: 40 >33:  1 >50:  1 worst   50.1ms  smrun  1080.8ms lat  0.73 gpu  2890.6ms hp 0
+base-dpad-1                  settle           1.02s    36f  35.3fps >17: 23 >33:  0 >50:  0 worst   33.4ms  smrun    99.8ms lat  0.08 gpu   291.4ms hp 0
+base-qs-1                    qs-open-0        2.50s   115f  45.9fps >17: 33 >33:  1 >50:  1 worst   66.7ms  smrun   427.6ms lat  3.28 gpu  1025.4ms hp 1
+base-qs-1                    qs-close-0       2.50s   111f  44.3fps >17: 38 >33:  0 >50:  0 worst   33.4ms  smrun   380.8ms lat  0.91 gpu   890.0ms hp 0
+base-qs-1                    qs-open-1        2.50s   117f  46.7fps >17: 32 >33:  1 >50:  1 worst   50.1ms  smrun   422.1ms lat  1.78 gpu  1031.9ms hp 0
+base-qs-1                    qs-close-1       2.50s   121f  48.3fps >17: 29 >33:  0 >50:  0 worst   33.4ms  smrun   404.9ms lat  0.21 gpu   936.3ms hp 0
+base-qs-1                    qs-open-2        2.50s   118f  47.1fps >17: 31 >33:  0 >50:  0 worst   33.4ms  smrun   420.0ms lat  1.39 gpu  1062.2ms hp 0
+base-qs-1                    qs-close-2       2.52s   110f  43.7fps >17: 40 >33:  1 >50:  1 worst   50.0ms  smrun   411.2ms lat  0.71 gpu   863.8ms hp 0
+base-apphome-1               home-1           4.00s    44f  11.0fps >17: 27 >33:  0 >50:  0 worst   33.4ms  smrun   295.5ms lat 95.47 gpu  2773.0ms hp 0
+base-apphome-1               app-2            7.05s   279f  39.6fps >17:143 >33:  0 >50:  0 worst   33.4ms  smrun   920.3ms lat  3.52 gpu  2395.8ms hp 1
+base-apphome-1               home-2           5.05s   196f  38.8fps >17:107 >33:  0 >50:  0 worst   33.4ms  smrun   620.0ms lat  3.67 gpu  1555.4ms hp 2
+base-idle-1                  idle            10.02s   365f  36.4fps >17:236 >33:  0 >50:  0 worst   33.4ms  smrun  1021.2ms lat  0.72 gpu  2931.1ms hp 1
+base-dpad-2                  dpad             6.66s   355f  53.3fps >17: 42 >33:  0 >50:  0 worst   33.4ms  smrun  1100.1ms lat  1.27 gpu  2863.4ms hp 1
+base-dpad-2                  settle           1.02s    36f  35.4fps >17: 24 >33:  0 >50:  0 worst   33.4ms  smrun    99.7ms lat  0.04 gpu   283.1ms hp 0
+base-qs-2                    qs-open-0        2.50s   116f  46.3fps >17: 33 >33:  1 >50:  1 worst   50.0ms  smrun   424.4ms lat  0.10 gpu  1009.1ms hp 1
+base-qs-2                    qs-close-0       2.50s   106f  42.4fps >17: 44 >33:  0 >50:  0 worst   33.4ms  smrun   360.4ms lat  0.18 gpu   844.9ms hp 0
+base-qs-2                    qs-open-1        2.50s   117f  46.7fps >17: 32 >33:  0 >50:  0 worst   33.4ms  smrun   427.5ms lat  0.62 gpu  1041.9ms hp 0
+base-qs-2                    qs-close-1       2.50s   105f  41.9fps >17: 45 >33:  0 >50:  0 worst   33.4ms  smrun   361.3ms lat  0.70 gpu   833.7ms hp 0
+base-qs-2                    qs-open-2        2.50s   117f  46.7fps >17: 32 >33:  0 >50:  0 worst   33.4ms  smrun   418.1ms lat  0.30 gpu  1038.2ms hp 0
+base-qs-2                    qs-close-2       2.52s   105f  41.7fps >17: 42 >33:  2 >50:  2 worst   50.1ms  smrun   399.1ms lat  0.16 gpu   825.6ms hp 0
+base-apphome-2               app-2            7.07s   283f  40.0fps >17:140 >33:  0 >50:  0 worst   33.4ms  smrun   951.0ms lat  2.16 gpu  2399.7ms hp 1
+base-apphome-2               home-2           5.05s   193f  38.2fps >17:107 >33:  1 >50:  1 worst   50.0ms  smrun   602.3ms lat  1.62 gpu  1520.8ms hp 0
+base-idle-2                  idle            10.02s   367f  36.6fps >17:230 >33:  4 >50:  4 worst   50.1ms  smrun  1022.0ms lat  2.09 gpu  2953.9ms hp 2
+base-apphome-3               app              7.07s   271f  38.3fps anim   56 drop  13 ( 23.2%) rend p90  2.03 >33:  1 worst   50.1ms  smrun   902.0ms lat  1.68 gpu  2331.4ms hp 0
+base-apphome-3               home             4.00s   158f  39.5fps anim   43 drop   4 (  9.3%) rend p90  1.70 >33:  3 worst   66.7ms  smrun   527.4ms lat  0.11 gpu  1256.1ms hp 0
+base-apphome-3               closing          1.05s    38f  36.2fps anim    7 drop   0 (  0.0%) rend p90  1.62 >33:  0 worst   33.4ms  smrun   103.4ms lat  0.01 gpu   306.8ms hp 0
+base-apphome-4               app              7.07s   203f  28.7fps anim   36 drop   6 ( 16.7%) rend p90  2.06 >33:  1 worst   50.1ms  smrun  1002.4ms lat  1.09 gpu  1738.8ms hp 1
+base-apphome-4               home             4.00s   163f  40.7fps anim   40 drop   5 ( 12.5%) rend p90  1.92 >33:  0 worst   33.4ms  smrun   526.5ms lat  1.96 gpu  1315.0ms hp 2
+base-apphome-4               closing          1.05s    38f  36.0fps anim   12 drop   1 (  8.3%) rend p90  1.85 >33:  0 worst   33.4ms  smrun   107.8ms lat  0.19 gpu   299.4ms hp 0
+base-apphome-5               app              7.07s   279f  39.5fps anim   63 drop  12 ( 19.0%) rend p90  1.98 >33:  1 worst   50.1ms  smrun   931.6ms lat  1.54 gpu  2358.5ms hp 2
+base-apphome-5               home             4.00s   154f  38.5fps anim   35 drop   6 ( 17.1%) rend p90  1.69 >33:  2 worst   50.1ms  smrun   509.6ms lat  0.57 gpu  1216.8ms hp 2
+base-apphome-5               closing          1.04s    37f  35.6fps anim    1 drop   0 (  0.0%) rend p90  0.60 >33:  0 worst   33.4ms  smrun   109.2ms lat  0.11 gpu   290.7ms hp 0
+base-appfull-0               home             4.01s   141f  35.2fps anim   35 drop   5 ( 14.3%) rend p90  1.68 >33:  3 worst  116.8ms  smrun   687.3ms lat  0.86 gpu  1122.2ms hp 2
+base-appfull-0               closing          1.05s    39f  37.0fps anim    8 drop   2 ( 25.0%) rend p90  1.86 >33:  1 worst   50.0ms  smrun   127.5ms lat  0.91 gpu   315.0ms hp 0
+base-appfull-1               app              7.05s    87f  12.3fps anim   38 drop   7 ( 18.4%) rend p90  2.16 >33: 19 worst 1701.5ms  smrun   439.8ms lat  2.67 gpu   548.8ms hp 0
+base-appfull-1               home             4.00s   152f  38.0fps anim   34 drop   4 ( 11.8%) rend p90  1.98 >33:  1 worst   50.1ms  smrun   607.8ms lat  3.10 gpu  1163.1ms hp 0
+base-appfull-1               closing          1.05s    38f  36.0fps anim    1 drop   0 (  0.0%) rend p90  0.61 >33:  0 worst   33.4ms  smrun   118.0ms lat  2.13 gpu   298.9ms hp 0
+base-appfull-2               app              7.05s    47f   6.7fps anim    2 drop   2 (100.0%) rend p90  0.88 >33: 14 worst  400.8ms  smrun   201.3ms lat 1285.77 gpu   397.8ms hp 0
+base-appfull-2               home             4.00s   146f  36.5fps anim   29 drop   7 ( 24.1%) rend p90  3.38 >33:  1 worst   50.0ms  smrun   590.1ms lat  6.09 gpu  1141.8ms hp 0
+base-appfull-2               closing          1.06s    37f  34.7fps anim   10 drop   2 ( 20.0%) rend p90  1.77 >33:  1 worst   50.0ms  smrun   121.5ms lat  1.03 gpu   298.8ms hp 0
+base-video-0                 video-idle       6.00s   215f  35.8fps anim   45 drop   5 ( 11.1%) rend p90  1.89 >33:  1 worst   50.1ms  smrun   606.7ms lat  1.26 gpu  1722.3ms hp 1
+base-video-0                 video-dpad       4.54s   232f  51.2fps anim   81 drop   8 (  9.9%) rend p90  2.30 >33:  0 worst   33.4ms  smrun   704.6ms lat  1.77 gpu  1864.0ms hp 1
+base-video-0                 video-end        2.06s    73f  35.5fps anim   19 drop   2 ( 10.5%) rend p90  1.97 >33:  0 worst   33.4ms  smrun   215.5ms lat  0.10 gpu   588.5ms hp 0
+base-video-1                 video-home       1.00s    39f  38.9fps anim   11 drop   6 ( 54.5%) rend p90  5.56 >33:  1 worst   50.0ms  smrun   327.7ms lat  0.57 gpu   263.4ms hp 0
+base-video-1                 video-idle       6.00s   214f  35.7fps anim   52 drop   4 (  7.7%) rend p90  1.88 >33:  0 worst   33.4ms  smrun   608.0ms lat  0.77 gpu  1717.1ms hp 2
+base-video-1                 video-dpad       4.53s   231f  51.0fps anim   73 drop   8 ( 11.0%) rend p90  2.29 >33:  2 worst   50.0ms  smrun   715.1ms lat  1.51 gpu  1877.5ms hp 0
+base-video-1                 video-end        2.06s    75f  36.4fps anim   20 drop   3 ( 15.0%) rend p90  1.94 >33:  0 worst   33.4ms  smrun   212.1ms lat  0.21 gpu   599.8ms hp 0
+x4-qs-0                      qs-open-0        2.50s   115f  45.9fps anim   26 drop  14 ( 53.8%) rend p90  2.67 >33:  1 worst   50.1ms  smrun   442.3ms lat  0.40 gpu  1008.3ms hp 0
+x4-qs-0                      qs-close-0       2.50s   117f  46.7fps anim   23 drop   6 ( 26.1%) rend p90  2.71 >33:  0 worst   33.4ms  smrun   423.1ms lat  0.18 gpu   932.4ms hp 0
+x4-qs-0                      qs-open-1        2.50s   116f  46.3fps anim   23 drop  14 ( 60.9%) rend p90  2.69 >33:  0 worst   33.4ms  smrun   434.7ms lat  0.14 gpu  1022.5ms hp 0
+x4-qs-0                      qs-close-1       2.50s   109f  43.5fps anim   20 drop   5 ( 25.0%) rend p90  2.52 >33:  0 worst   33.4ms  smrun   406.0ms lat  0.20 gpu   829.1ms hp 0
+x4-qs-0                      qs-open-2        2.50s   114f  45.5fps anim   26 drop  14 ( 53.8%) rend p90  2.76 >33:  1 worst   50.0ms  smrun   435.9ms lat  0.52 gpu  1020.0ms hp 0
+x4-qs-0                      qs-close-2       2.52s   119f  47.2fps anim   35 drop   5 ( 14.3%) rend p90  2.14 >33:  0 worst   33.4ms  smrun   422.0ms lat  0.06 gpu   943.4ms hp 0
+x4-apphome-0                 app              7.27s   281f  38.7fps anim   59 drop  27 ( 45.8%) rend p90  2.40 >33:  3 worst   50.1ms  smrun  1104.5ms lat  1.21 gpu  2366.3ms hp 0
+x4-apphome-0                 home             4.00s   151f  37.7fps anim   33 drop   6 ( 18.2%) rend p90  1.96 >33:  2 worst   50.1ms  smrun   520.5ms lat  4.80 gpu  1200.7ms hp 0
+x4-apphome-0                 closing          1.05s    36f  34.4fps anim    5 drop   1 ( 20.0%) rend p90  1.75 >33:  0 worst   33.4ms  smrun   109.1ms lat  0.06 gpu   299.0ms hp 0
+x4-appfull-0                 home             4.00s   144f  36.0fps anim   36 drop   6 ( 16.7%) rend p90  2.08 >33:  1 worst   50.0ms  smrun   627.5ms lat  2.67 gpu  1162.9ms hp 2
+x4-appfull-0                 closing          1.08s    38f  35.2fps anim    2 drop   1 ( 50.0%) rend p90  2.12 >33:  0 worst   33.4ms  smrun   129.8ms lat  3.37 gpu   299.1ms hp 0
+x4-video-0                   video-home       1.00s    39f  38.9fps anim    5 drop   3 ( 60.0%) rend p90  3.63 >33:  1 worst   83.5ms  smrun   291.5ms lat  1.85 gpu   264.0ms hp 1
+x4-video-0                   video-idle       6.00s   214f  35.7fps anim   60 drop   7 ( 11.7%) rend p90  1.83 >33:  0 worst   33.4ms  smrun   620.3ms lat  0.16 gpu  1709.9ms hp 1
+x4-video-0                   video-dpad       4.54s   228f  50.2fps anim   76 drop   8 ( 10.5%) rend p90  1.96 >33:  1 worst   50.1ms  smrun   727.2ms lat  0.19 gpu  1841.7ms hp 1
+x4-video-0                   video-end        2.06s    73f  35.4fps anim   19 drop   3 ( 15.8%) rend p90  1.87 >33:  0 worst   33.4ms  smrun   219.3ms lat  1.74 gpu   579.9ms hp 0
+cache-dpad-0                 dpad             6.66s   354f  53.1fps anim  156 drop  16 ( 10.3%) rend p90  2.21 >33:  0 worst   33.4ms  smrun  1079.8ms lat  3.63 gpu  2834.4ms hp 0
+cache-dpad-0                 settle           1.01s    35f  34.5fps anim    8 drop   2 ( 25.0%) rend p90  1.93 >33:  0 worst   33.4ms  smrun    99.3ms lat  1.08 gpu   288.4ms hp 0
+cache-qs-0                   qs-open-0        2.50s    73f  29.2fps anim   13 drop  10 ( 76.9%) rend p90  2.25 >33:  5 worst  433.7ms  smrun   801.5ms lat  2.62 gpu   642.9ms hp 1
+cache-qs-0                   qs-close-0       2.50s   115f  45.9fps anim   34 drop   6 ( 17.6%) rend p90  1.92 >33:  1 worst   50.1ms  smrun   411.3ms lat  3.57 gpu   921.3ms hp 0
+cache-qs-0                   qs-open-1        2.50s   116f  46.3fps anim   21 drop  13 ( 61.9%) rend p90  3.01 >33:  1 worst   50.0ms  smrun   435.7ms lat  2.51 gpu  1030.7ms hp 0
+cache-qs-0                   qs-close-1       2.50s   109f  43.5fps anim   28 drop   5 ( 17.9%) rend p90  2.31 >33:  0 worst   33.4ms  smrun   378.5ms lat  0.99 gpu   864.0ms hp 0
+cache-qs-0                   qs-open-2        2.50s   115f  45.9fps anim   27 drop  13 ( 48.1%) rend p90  2.43 >33:  1 worst   50.0ms  smrun   418.8ms lat  0.49 gpu  1032.3ms hp 0
+cache-qs-0                   qs-close-2       2.52s   115f  45.7fps anim   25 drop   7 ( 28.0%) rend p90  2.84 >33:  0 worst   33.4ms  smrun   410.4ms lat  1.77 gpu   914.2ms hp 0
+cache-idle-0                 idle            10.02s   368f  36.7fps anim   86 drop  11 ( 12.8%) rend p90  1.83 >33:  2 worst   50.1ms  smrun  1036.7ms lat  2.64 gpu  2945.3ms hp 2
+cache-dpad-1                 settle           1.01s    37f  36.4fps anim   12 drop   1 (  8.3%) rend p90  1.77 >33:  0 worst   33.4ms  smrun   100.5ms lat  0.89 gpu   296.4ms hp 0
+cache-qs-1                   qs-close-0       2.50s   108f  43.1fps anim   25 drop   9 ( 36.0%) rend p90  3.11 >33:  0 worst   33.4ms  smrun   378.1ms lat  1.01 gpu   834.6ms hp 0
+cache-qs-1                   qs-open-1        2.51s   114f  45.4fps anim   21 drop  10 ( 47.6%) rend p90  2.78 >33:  2 worst   50.0ms  smrun   428.0ms lat  2.54 gpu  1010.8ms hp 0
+cache-qs-1                   qs-close-1       2.50s    96f  38.3fps anim   23 drop  13 ( 56.5%) rend p90  3.71 >33:  1 worst   50.1ms  smrun   363.3ms lat  6.51 gpu   699.1ms hp 0
+cache-qs-1                   qs-open-2        2.50s   112f  44.7fps anim   21 drop  13 ( 61.9%) rend p90  3.50 >33:  1 worst   50.0ms  smrun   416.1ms lat  1.44 gpu   989.9ms hp 0
+cache-qs-1                   qs-close-2       2.52s   112f  44.4fps anim   29 drop   6 ( 20.7%) rend p90  2.61 >33:  0 worst   33.4ms  smrun   397.6ms lat  0.18 gpu   897.2ms hp 0
+cache-idle-1                 idle            10.03s   370f  36.9fps anim   87 drop  12 ( 13.8%) rend p90  1.85 >33:  2 worst   50.0ms  smrun  1033.2ms lat  6.45 gpu  2968.0ms hp 2
+t9-dpad-0                    dpad             6.67s   363f  54.4fps anim   83 drop  10 ( 12.0%) rend p90  2.83 >33:  0 worst   33.4ms  smrun  1087.0ms lat  3.92 gpu  2928.0ms hp 0
+t9-dpad-0                    settle           1.02s    37f  36.4fps anim    2 drop   1 ( 50.0%) rend p90  2.02 >33:  1 worst   50.0ms  smrun   101.6ms lat  0.08 gpu   298.7ms hp 1
+t9-qs-0                      qs-open-1        2.50s   126f  50.3fps anim   11 drop   2 ( 18.2%) rend p90  4.20 >33:  1 worst   50.0ms  smrun   432.7ms lat  0.30 gpu  1112.3ms hp 0
+t9-qs-0                      qs-close-1       2.50s   115f  45.9fps anim    9 drop   2 ( 22.2%) rend p90  4.61 >33:  0 worst   33.4ms  smrun   385.3ms lat  2.49 gpu   793.0ms hp 0
+t9-qs-0                      qs-open-2        2.50s   126f  50.3fps anim    5 drop   2 ( 40.0%) rend p90  2.58 >33:  1 worst   66.7ms  smrun   431.4ms lat  0.98 gpu  1109.5ms hp 0
+t9-qs-0                      qs-close-2       2.52s   116f  46.0fps anim    7 drop   1 ( 14.3%) rend p90  2.49 >33:  0 worst   33.4ms  smrun   384.0ms lat  3.95 gpu   755.9ms hp 0
+t9-idle-0                    idle            10.02s   371f  37.0fps anim   29 drop   8 ( 27.6%) rend p90  2.40 >33:  3 worst   50.1ms  smrun  1027.9ms lat  7.02 gpu  2991.4ms hp 2
+t9-appfull-0                 home             4.00s   147f  36.7fps anim   28 drop   1 (  3.6%) rend p90  2.10 >33:  3 worst   66.7ms  smrun   587.1ms lat  5.07 gpu  1096.2ms hp 0
+t9-appfull-0                 closing          1.06s    39f  36.9fps anim    5 drop   2 ( 40.0%) rend p90  2.03 >33:  0 worst   33.4ms  smrun   113.9ms lat  1.54 gpu   315.1ms hp 0
+t9-video-0                   video-home       1.00s    40f  39.9fps anim    7 drop   3 ( 42.9%) rend p90  3.80 >33:  2 worst  133.4ms  smrun   236.2ms lat 10.40 gpu   266.7ms hp 1
+t9-video-0                   video-idle       6.00s   216f  36.0fps anim   11 drop   4 ( 36.4%) rend p90  1.98 >33:  0 worst   33.4ms  smrun   567.6ms lat  1.08 gpu  1745.0ms hp 1
+t9-video-0                   video-dpad       4.54s   235f  51.8fps anim   56 drop   4 (  7.1%) rend p90  2.75 >33:  0 worst   33.4ms  smrun   680.3ms lat  1.83 gpu  1891.0ms hp 1
+t9-video-0                   video-end        2.06s    75f  36.5fps anim   17 drop   1 (  5.9%) rend p90  2.10 >33:  1 worst   50.0ms  smrun   210.4ms lat  1.23 gpu   599.2ms hp 0
+t9-dpad-1                    dpad             6.66s   365f  54.8fps anim   83 drop   7 (  8.4%) rend p90  3.09 >33:  0 worst   33.4ms  smrun  1067.0ms lat  2.97 gpu  2949.7ms hp 1
+t9-dpad-1                    settle           1.02s    37f  36.4fps anim    2 drop   2 (100.0%) rend p90  0.37 >33:  0 worst   33.4ms  smrun    96.5ms lat  0.11 gpu   290.8ms hp 0
+t9-qs-1                      qs-open-0        2.50s   127f  50.7fps anim    9 drop   0 (  0.0%) rend p90  2.85 >33:  1 worst   50.0ms  smrun   336.3ms lat  1.67 gpu  1106.5ms hp 1
+t9-qs-1                      qs-close-0       2.50s   113f  45.1fps anim   19 drop   3 ( 15.8%) rend p90  2.54 >33:  0 worst   33.4ms  smrun   395.5ms lat  3.35 gpu   800.6ms hp 0
+t9-qs-1                      qs-open-1        2.50s   125f  49.9fps anim    5 drop   3 ( 60.0%) rend p90  2.67 >33:  3 worst   83.4ms  smrun   463.0ms lat  1.43 gpu  1113.7ms hp 0
+t9-qs-1                      qs-close-1       2.50s   111f  44.3fps anim    5 drop   2 ( 40.0%) rend p90  2.07 >33:  0 worst   33.4ms  smrun   371.1ms lat  3.84 gpu   760.0ms hp 0
+t9-qs-1                      qs-open-2        2.50s   127f  50.7fps anim   12 drop   3 ( 25.0%) rend p90  2.51 >33:  1 worst   66.7ms  smrun   442.6ms lat  0.60 gpu  1121.5ms hp 0
+t9-qs-1                      qs-close-2       2.52s   113f  44.9fps anim   11 drop   2 ( 18.2%) rend p90  2.49 >33:  0 worst   33.4ms  smrun   395.5ms lat  0.64 gpu   903.6ms hp 0
+t9-idle-1                    idle            10.02s   373f  37.2fps anim   39 drop   4 ( 10.3%) rend p90  2.25 >33:  2 worst   50.1ms  smrun  1054.5ms lat  2.39 gpu  2994.6ms hp 1
+t9-appfull-1                 app              7.05s    79f  11.2fps anim   13 drop   7 ( 53.8%) rend p90  3.46 >33: 19 worst 1651.5ms  smrun   406.9ms lat 11.15 gpu   553.2ms hp 1
+t9-appfull-1                 home             4.00s   146f  36.5fps anim   26 drop   4 ( 15.4%) rend p90  2.32 >33:  1 worst   50.1ms  smrun   558.1ms lat  6.45 gpu  1119.4ms hp 0
+t9-appfull-1                 closing          1.06s    39f  36.7fps anim    5 drop   0 (  0.0%) rend p90  1.96 >33:  1 worst   50.0ms  smrun   115.4ms lat 12.16 gpu   315.4ms hp 0
+t9-video-1                   video-idle       6.00s   218f  36.3fps anim   13 drop   2 ( 15.4%) rend p90  2.09 >33:  1 worst   50.1ms  smrun   594.0ms lat  0.96 gpu  1757.9ms hp 1
+t9-video-1                   video-dpad       4.54s   237f  52.2fps anim   46 drop   5 ( 10.9%) rend p90  2.62 >33:  0 worst   33.4ms  smrun   682.9ms lat  4.83 gpu  1919.7ms hp 0
+t9-video-1                   video-end        2.07s    75f  36.3fps anim   11 drop   3 ( 27.3%) rend p90  2.28 >33:  0 worst   33.4ms  smrun   213.5ms lat  1.18 gpu   598.3ms hp 1
+t6fps10-idle-0               idle            10.03s   205f  20.4fps anim   80 drop   2 (  2.5%) rend p90  2.10 >33: 83 worst  116.8ms  smrun   569.8ms lat  3.92 gpu  1651.4ms hp 3
+t6fps10-dpad-0               dpad             6.66s   328f  49.3fps anim  265 drop  12 (  4.5%) rend p90  2.65 >33: 17 worst  100.1ms  smrun   938.2ms lat  2.72 gpu  2643.2ms hp 1
+t6fps10-dpad-0               settle           1.02s    19f  18.7fps anim    9 drop   0 (  0.0%) rend p90  2.12 >33:  7 worst  100.1ms  smrun    54.6ms lat  0.05 gpu   153.5ms hp 0
+t6fps10-idle-1               idle            10.02s   204f  20.4fps anim   80 drop   2 (  2.5%) rend p90  2.21 >33: 83 worst  116.8ms  smrun   551.8ms lat  2.19 gpu  1641.4ms hp 2
+t6fps10-dpad-1               dpad             6.66s   337f  50.6fps anim  277 drop   6 (  2.2%) rend p90  2.67 >33: 18 worst  100.1ms  smrun   976.4ms lat  0.89 gpu  2727.9ms hp 0
+t6fps10-dpad-1               settle           1.02s    19f  18.7fps anim    9 drop   1 ( 11.1%) rend p90  2.03 >33:  7 worst  100.1ms  smrun    49.4ms lat  0.03 gpu   154.9ms hp 0
+t6off-idle-0                 idle            10.02s   127f  12.7fps anim   79 drop   3 (  3.8%) rend p90  2.13 >33:  9 worst  834.1ms  smrun   352.3ms lat  0.72 gpu   916.6ms hp 2
+t6off-dpad-0                 dpad             6.66s   327f  49.1fps anim  269 drop  10 (  3.7%) rend p90  2.63 >33: 14 worst  133.5ms  smrun   948.0ms lat  1.52 gpu  2348.7ms hp 0
+t6off-dpad-0                 settle           1.02s    11f  10.8fps anim    9 drop   0 (  0.0%) rend p90  1.94 >33:  0 worst   16.7ms  smrun    29.7ms lat  1.92 gpu    80.7ms hp 0
+t6off-idle-1                 idle            10.02s   131f  13.1fps anim   69 drop   1 (  1.4%) rend p90  2.32 >33: 10 worst  850.8ms  smrun   361.1ms lat  6.53 gpu   924.5ms hp 2
+t6off-dpad-1                 dpad             6.66s   329f  49.4fps anim  277 drop   9 (  3.2%) rend p90  2.68 >33: 14 worst  317.0ms  smrun   978.8ms lat  1.88 gpu  2383.3ms hp 1
+t6off-dpad-1                 settle           1.02s    12f  11.8fps anim    5 drop   0 (  0.0%) rend p90  1.87 >33:  1 worst  834.1ms  smrun    33.4ms lat  0.01 gpu    87.9ms hp 0
+t2-idle-0                    idle            10.02s   371f  37.0fps anim   93 drop   3 (  3.2%) rend p90  2.46 >33:  5 worst   50.1ms  smrun  1025.0ms lat  1.90 gpu  2986.2ms hp 0
+t2-dpad-0                    dpad             6.67s   363f  54.5fps anim  293 drop   8 (  2.7%) rend p90  2.82 >33:  2 worst   50.1ms  smrun  1094.1ms lat  0.94 gpu  2931.9ms hp 0
+t2-dpad-0                    settle           1.02s    37f  36.4fps anim    2 drop   0 (  0.0%) rend p90  1.99 >33:  0 worst   33.4ms  smrun   104.8ms lat  0.78 gpu   291.1ms hp 0
+t2-qs-0                      qs-open-0        2.50s   126f  50.3fps anim   99 drop   3 (  3.0%) rend p90  2.91 >33:  2 worst   50.1ms  smrun   407.8ms lat  1.55 gpu  1119.9ms hp 0
+t2-qs-0                      qs-close-0       2.50s   114f  45.5fps anim   64 drop   2 (  3.1%) rend p90  3.71 >33:  0 worst   33.4ms  smrun   383.8ms lat  0.46 gpu   739.4ms hp 0
+t2-qs-0                      qs-open-1        2.50s   128f  51.1fps anim  101 drop   2 (  2.0%) rend p90  2.67 >33:  0 worst   33.4ms  smrun   447.8ms lat  0.30 gpu  1150.8ms hp 0
+t2-qs-0                      qs-close-1       2.50s   124f  49.5fps anim   91 drop   2 (  2.2%) rend p90  3.47 >33:  0 worst   33.4ms  smrun   413.1ms lat  2.65 gpu   966.5ms hp 0
+t2-qs-0                      qs-open-2        2.50s   128f  51.1fps anim   83 drop   0 (  0.0%) rend p90  2.94 >33:  1 worst   66.7ms  smrun   462.7ms lat  5.47 gpu  1132.4ms hp 0
+t2-qs-0                      qs-close-2       2.52s   113f  44.9fps anim   45 drop   1 (  2.2%) rend p90  3.28 >33:  0 worst   33.4ms  smrun   395.0ms lat  2.11 gpu   794.0ms hp 0
+t2-idle-1                    idle            10.02s   371f  37.0fps anim  103 drop   7 (  6.8%) rend p90  2.31 >33:  1 worst   50.1ms  smrun  1041.3ms lat  2.85 gpu  3003.8ms hp 0
+t2-dpad-1                    dpad             6.67s   366f  54.9fps anim  307 drop  13 (  4.2%) rend p90  2.85 >33:  1 worst   50.1ms  smrun  1065.0ms lat  0.31 gpu  2959.6ms hp 0
+t2-dpad-1                    settle           1.02s    38f  37.4fps anim    4 drop   0 (  0.0%) rend p90  2.04 >33:  0 worst   33.4ms  smrun    99.9ms lat  1.48 gpu   299.0ms hp 0
+t2-qs-1                      qs-open-0        2.50s     0f   0.0fps anim    0 drop   0 (  0.0%) rend p90  0.00 >33:  0 worst    0.0ms  smrun   457.6ms lat  0.74 gpu     0.0ms hp 0
+t2-qs-1                      qs-close-0       2.50s    39f  15.6fps anim   10 drop   1 ( 10.0%) rend p90  2.22 >33:  0 worst   33.4ms  smrun   384.1ms lat  2.54 gpu   315.4ms hp 0
+t2-qs-1                      qs-open-1        2.50s   127f  50.7fps anim  102 drop   3 (  2.9%) rend p90  2.71 >33:  0 worst   33.4ms  smrun   435.2ms lat  2.07 gpu  1127.9ms hp 0
+t2-qs-1                      qs-close-1       2.50s   115f  45.9fps anim   36 drop   2 (  5.6%) rend p90  3.03 >33:  0 worst   33.4ms  smrun   391.6ms lat  2.96 gpu   790.6ms hp 0
+t2-qs-1                      qs-open-2        2.50s   126f  50.3fps anim  102 drop   4 (  3.9%) rend p90  3.09 >33:  2 worst   66.7ms  smrun   449.6ms lat  1.01 gpu  1117.4ms hp 0
+t2-qs-1                      qs-close-2       2.52s   114f  45.3fps anim   67 drop   2 (  3.0%) rend p90  3.84 >33:  0 worst   33.4ms  smrun   394.1ms lat  1.33 gpu   801.3ms hp 0
+cold-coldhome-0              cold             0.05s     0f   0.0fps anim    0 drop   0 (  0.0%) rend p90  0.00 >33:  0 worst    0.0ms  smrun     2.7ms lat  0.01 gpu     0.0ms hp 0
+cold-coldhome-0              app              7.06s    56f   7.9fps anim   11 drop   6 ( 54.5%) rend p90  1.27 >33: 21 worst  450.4ms  smrun   516.8ms lat  4.13 gpu   414.3ms hp 0
+cold-coldhome-0              home             4.00s   139f  34.7fps anim   40 drop  40 (100.0%) rend p90  2.91 >33: 49 worst  100.1ms  smrun   586.5ms lat  4.39 gpu  1137.2ms hp 1
+cold-coldhome-0              closing          1.06s    37f  34.9fps anim   14 drop  14 (100.0%) rend p90  3.02 >33: 15 worst   40.0ms  smrun   120.0ms lat  9.45 gpu   299.4ms hp 1
+cold-coldhome-1              home             4.01s   147f  36.7fps anim   34 drop   3 (  8.8%) rend p90  3.01 >33:  3 worst   66.5ms  smrun   566.5ms lat  3.09 gpu  1106.7ms hp 0
+cold-coldhome-1              closing          1.06s    39f  36.9fps anim   13 drop   2 ( 15.4%) rend p90  1.70 >33:  0 worst   33.4ms  smrun   116.5ms lat  3.61 gpu   307.9ms hp 0
+press-pressure-0             store            9.12s     3f   0.3fps anim    0 drop   0 (  0.0%) rend p90  0.00 >33:  1 worst  250.2ms  smrun   359.3ms lat 99.94 gpu    13.6ms hp 0
+press-pressure-0             browser          7.06s    79f  11.2fps anim   24 drop   5 ( 20.8%) rend p90  2.26 >33: 17 worst 1818.3ms  smrun   358.3ms lat 18.42 gpu   448.7ms hp 1
+press-pressure-0             home             4.00s   142f  35.5fps anim   49 drop   8 ( 16.3%) rend p90  3.52 >33:  4 worst   50.0ms  smrun   592.0ms lat  8.61 gpu  1135.0ms hp 2
+press-pressure-0             closing          2.15s    76f  35.3fps anim   22 drop   4 ( 18.2%) rend p90  2.51 >33:  2 worst   50.1ms  smrun   236.6ms lat 10.00 gpu   614.5ms hp 1
+press-pressure-1             home             4.00s   150f  37.5fps anim   37 drop   2 (  5.4%) rend p90  4.10 >33:  1 worst   50.0ms  smrun   617.6ms lat  5.88 gpu  1183.3ms hp 0
+press-pressure-1             closing          2.14s    78f  36.5fps anim   30 drop   8 ( 26.7%) rend p90  1.98 >33:  2 worst   50.0ms  smrun   233.5ms lat  7.22 gpu   622.9ms hp 0
+hog-hog-0                    home             4.00s   112f  28.0fps anim   45 drop   4 (  8.9%) rend p90  3.01 >33:  4 worst  367.0ms  smrun   805.2ms lat 19.41 gpu   893.1ms hp 0
+hog-hog-0                    closing          2.06s    75f  36.4fps anim   14 drop   1 (  7.1%) rend p90  3.00 >33:  1 worst   50.0ms  smrun   214.8ms lat  6.31 gpu   598.1ms hp 0
+hog-hog-1                    home             4.00s   142f  35.5fps anim   67 drop   6 (  9.0%) rend p90  2.86 >33:  5 worst  250.0ms  smrun   731.8ms lat  3.89 gpu  1034.0ms hp 0
+hog-hog-1                    closing          2.08s    76f  36.6fps anim    9 drop   4 ( 44.4%) rend p90  3.49 >33:  3 worst   50.0ms  smrun   257.3ms lat  9.32 gpu   583.3ms hp 0
+hogpin-hog-0                 home             4.00s   101f  25.3fps anim   38 drop   9 ( 23.7%) rend p90  3.04 >33:  9 worst  566.7ms  smrun   663.4ms lat  9.31 gpu   750.0ms hp 0
+hogpin-hog-0                 closing          2.07s    74f  35.8fps anim   26 drop   6 ( 23.1%) rend p90  2.44 >33:  1 worst   50.1ms  smrun   230.3ms lat  8.23 gpu   608.2ms hp 0
+hogpin-hog-1                 home             4.00s   142f  35.5fps anim   48 drop   4 (  8.3%) rend p90  3.27 >33:  5 worst  416.7ms  smrun   650.6ms lat 87.88 gpu  1049.0ms hp 1
+hogpin-hog-1                 closing          2.06s    75f  36.4fps anim   14 drop   4 ( 28.6%) rend p90  3.17 >33:  1 worst   50.0ms  smrun   219.6ms lat  8.02 gpu   615.0ms hp 0
+hogpin0-hog-0                hog             11.01s    10f   0.9fps anim    0 drop   0 (  0.0%) rend p90  0.00 >33:  6 worst 2802.5ms  smrun   147.4ms lat 11.57 gpu    79.6ms hp 2
+hogpin0-hog-0                home             4.00s   125f  31.2fps anim   60 drop   3 (  5.0%) rend p90  3.41 >33:  4 worst  917.5ms  smrun   703.0ms lat 39.28 gpu   882.3ms hp 0
+hogpin0-hog-0                closing          2.06s    77f  37.4fps anim   25 drop   2 (  8.0%) rend p90  1.99 >33:  0 worst   33.4ms  smrun   211.3ms lat  6.36 gpu   614.7ms hp 0
+hogpin0-hog-1                home             4.00s   125f  31.2fps anim   63 drop   6 (  9.5%) rend p90  3.60 >33:  4 worst  133.5ms  smrun   707.2ms lat 19.25 gpu   892.1ms hp 0
+hogpin0-hog-1                closing          2.06s    76f  36.8fps anim   24 drop   2 (  8.3%) rend p90  1.80 >33:  2 worst   50.1ms  smrun   213.9ms lat  8.55 gpu   606.3ms hp 0
+t1-dpad-0                    dpad             6.66s   367f  55.1fps anim  301 drop  11 (  3.7%) rend p90  2.80 >33:  0 worst   33.4ms  smrun  1086.4ms lat  5.50 gpu  2961.5ms hp 1
+t1-dpad-0                    settle           1.02s    36f  35.3fps anim   10 drop   1 ( 10.0%) rend p90  1.83 >33:  0 worst   33.4ms  smrun    98.2ms lat  0.40 gpu   283.2ms hp 1
+t1-qs-0                      qs-open-0        2.50s   122f  48.7fps anim   95 drop   3 (  3.2%) rend p90  2.99 >33:  2 worst   66.7ms  smrun   448.0ms lat  0.62 gpu  1107.4ms hp 1
+t1-qs-0                      qs-close-0       2.50s   109f  43.5fps anim   61 drop   1 (  1.6%) rend p90  3.85 >33:  0 worst   33.4ms  smrun   375.0ms lat  3.03 gpu   775.3ms hp 0
+t1-qs-0                      qs-open-1        2.50s   126f  50.3fps anim   90 drop   1 (  1.1%) rend p90  3.09 >33:  1 worst   50.0ms  smrun   451.8ms lat  0.61 gpu  1133.5ms hp 0
+t1-qs-0                      qs-close-1       2.50s   118f  47.1fps anim   65 drop   2 (  3.1%) rend p90  3.39 >33:  0 worst   33.4ms  smrun   391.0ms lat  2.57 gpu   892.9ms hp 0
+t1-qs-0                      qs-open-2        2.50s   126f  50.3fps anim   98 drop   1 (  1.0%) rend p90  2.87 >33:  1 worst   50.1ms  smrun   437.0ms lat  0.92 gpu  1128.5ms hp 0
+t1-qs-0                      qs-close-2       2.52s   112f  44.4fps anim   40 drop   0 (  0.0%) rend p90  3.68 >33:  0 worst   33.4ms  smrun   376.5ms lat  0.15 gpu   812.8ms hp 0
+t3-dpad-0                    dpad             6.66s   366f  54.9fps anim  276 drop   8 (  2.9%) rend p90  2.83 >33:  0 worst   33.4ms  smrun  1082.9ms lat  4.16 gpu  2964.5ms hp 1
+t3-dpad-0                    settle           1.01s    36f  35.5fps anim   11 drop   1 (  9.1%) rend p90  2.03 >33:  0 worst   33.4ms  smrun    97.4ms lat  0.41 gpu   299.1ms hp 0
+t3-qs-0                      qs-open-0        2.50s   127f  50.7fps anim   87 drop   2 (  2.3%) rend p90  3.31 >33:  1 worst   66.7ms  smrun   407.9ms lat 198.18 gpu   985.4ms hp 0
+t3-qs-0                      qs-close-0       2.50s   115f  45.9fps anim   43 drop   1 (  2.3%) rend p90  3.46 >33:  0 worst   33.4ms  smrun   382.3ms lat  0.25 gpu   822.1ms hp 0
+t3-qs-0                      qs-open-1        2.50s   128f  51.1fps anim   93 drop   2 (  2.2%) rend p90  2.81 >33:  1 worst   66.7ms  smrun   438.0ms lat  2.55 gpu  1134.1ms hp 0
+t3-qs-0                      qs-close-1       2.50s   114f  45.5fps anim   64 drop   3 (  4.7%) rend p90  3.56 >33:  0 worst   33.4ms  smrun   390.1ms lat  1.15 gpu   742.5ms hp 0
+t3-qs-0                      qs-open-2        2.50s   128f  51.1fps anim  103 drop   3 (  2.9%) rend p90  3.06 >33:  2 worst   50.1ms  smrun   445.6ms lat  1.88 gpu  1133.4ms hp 0
+t3-qs-0                      qs-close-2       2.52s   117f  46.4fps anim   79 drop   2 (  2.5%) rend p90  3.63 >33:  1 worst   50.0ms  smrun   393.0ms lat  0.13 gpu   887.6ms hp 0
+t4-dpad-0                    dpad             6.66s   368f  55.2fps anim  296 drop   8 (  2.7%) rend p90  2.60 >33:  2 worst   66.7ms  smrun  1057.6ms lat  0.03 gpu  2982.5ms hp 1
+t4-dpad-0                    settle           1.02s    37f  36.4fps anim    8 drop   0 (  0.0%) rend p90  2.18 >33:  0 worst   33.4ms  smrun    99.3ms lat  0.02 gpu   291.5ms hp 0
+t4-qs-0                      qs-open-0        5.01s   236f  47.1fps anim   29 drop   1 (  3.4%) rend p90  4.34 >33:  0 worst   33.4ms  smrun   794.8ms lat  0.03 gpu   764.8ms hp 1
+t4-qs-0                      qs-open-1        2.50s   125f  49.9fps anim   98 drop   1 (  1.0%) rend p90  3.25 >33:  1 worst   66.7ms  smrun   453.0ms lat  0.04 gpu  1114.0ms hp 0
+t4-qs-0                      qs-close-1       2.50s   111f  44.4fps anim   31 drop   1 (  3.2%) rend p90  3.46 >33:  0 worst   33.4ms  smrun   368.6ms lat  0.05 gpu   763.7ms hp 0
+t4-qs-0                      qs-open-2        2.50s   126f  50.3fps anim   90 drop   1 (  1.1%) rend p90  2.95 >33:  1 worst   50.1ms  smrun   430.5ms lat  0.02 gpu  1108.3ms hp 0
+t4-qs-0                      qs-close-2       2.52s   112f  44.4fps anim   67 drop   1 (  1.5%) rend p90  3.28 >33:  0 worst   33.4ms  smrun   370.1ms lat  0.02 gpu   816.6ms hp 0
+t5-dpad-0                    dpad             6.66s   367f  55.1fps anim  298 drop  10 (  3.4%) rend p90  2.70 >33:  0 worst   33.4ms  smrun  1071.9ms lat  0.79 gpu  2976.1ms hp 2
+t5-dpad-0                    settle           1.02s    49f  48.0fps anim   26 drop   0 (  0.0%) rend p90  1.99 >33:  0 worst   33.4ms  smrun   124.0ms lat  0.11 gpu   397.5ms hp 0
+t5-qs-0                      qs-open-0        2.50s     0f   0.0fps anim    0 drop   0 (  0.0%) rend p90  0.00 >33:  0 worst    0.0ms  smrun   453.7ms lat  0.11 gpu     0.0ms hp 0
+t5-qs-0                      qs-close-0       2.50s    77f  30.8fps anim   39 drop   1 (  2.6%) rend p90  2.96 >33:  0 worst   33.4ms  smrun   373.6ms lat  2.68 gpu  1012.7ms hp 0
+t5-qs-0                      qs-open-1        2.50s   127f  50.7fps anim  103 drop   2 (  1.9%) rend p90  2.77 >33:  1 worst   66.7ms  smrun   427.3ms lat  0.10 gpu  1129.9ms hp 0
+t5-qs-0                      qs-close-1       2.50s   115f  45.9fps anim   51 drop   2 (  3.9%) rend p90  3.31 >33:  0 worst   33.4ms  smrun   377.4ms lat  0.12 gpu   840.7ms hp 0
+t5-qs-0                      qs-open-2        2.50s   136f  54.3fps anim  123 drop   5 (  4.1%) rend p90  2.89 >33:  1 worst   50.0ms  smrun   454.3ms lat  0.11 gpu  1199.6ms hp 0
+t5-qs-0                      qs-close-2       2.52s   115f  45.6fps anim   40 drop   1 (  2.5%) rend p90  3.59 >33:  0 worst   33.4ms  smrun   387.2ms lat  0.02 gpu   809.7ms hp 0
