@@ -96,7 +96,7 @@ hdmi)
 standby)
     ctl journal > $OUT/standby-journal-before.json
     cat /proc/uptime > $OUT/standby-uptime-before
-    ls1 com.webos.service.tvpower/power2/powerOff '{"reason":"remoteKey"}' > $OUT/standby-poweroff.txt
+    ls1 com.webos.service.tvpower/power/powerOff '{"reason":"remoteKey"}' > $OUT/standby-poweroff.txt
     echo "GATE standby: requested ($(head -c 120 $OUT/standby-poweroff.txt))"
     ;;
 woke)
