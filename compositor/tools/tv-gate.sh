@@ -141,9 +141,11 @@ x1)
     # `late` alone: `lost` sums the idle refreshes of a still screen too (+3957 over 62 s of nothing on the second gate).
     late_before=$(echo "$before" | awk '{print $4}'); late_after=$(echo "$after" | awk '{print $4}')
     # The compositor's own view of the run (its log is on CLOCK_MONOTONIC like x1's): loop stalls, frame gaps of the
-    # X1 surface, clients coming and going, refused commits, lost flips. The gaps' cause is read from these lines.
+    # X1 surface, clients coming and going, refused commits, lost flips, a flip the loop reached late, a frame held while a
+    # driver buffer warms, buffers freed. The gaps' cause is read from these lines; only the ones over the limit count
+    # against the rule (comp_over_limit).
     t0=$(sed -n 's/.*starting at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log); t1=$(sed -n 's/.*ended at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log)
-    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held/) print }' \
+    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|bury:|tick:/) print }' \
         $STATE/compositor.log > $OUT/x1-compositor.txt
     stalls=$(grep -c 'loop:' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).

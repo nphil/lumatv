@@ -29,7 +29,7 @@ def function(name):
 class Registry(unittest.TestCase):
     def run_registry(self, flags=(), helper='{"running":false}', home="off", live=False):
         with tempfile.TemporaryDirectory() as d:
-            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE")}
+            paths = {k: os.path.join(d, k) for k in ("SYSTEMUI_ON", "WEBGLASS_ON", "NOTI_ON", "LOGO_ON", "PRELOAD_STATE", "INPUTCOMMON_ON")}
             for k in flags:
                 open(paths[k], "w").close()
             script = "".join(f'{k}="{v}"\n' for k, v in paths.items())
@@ -42,7 +42,7 @@ class Registry(unittest.TestCase):
 
     def test_every_switch_has_an_entry_that_names_its_way_back(self):
         reg = self.run_registry()
-        self.assertEqual(sorted(reg), ["compositor", "helper", "home", "logos", "notifications", "preload", "quicksettings", "settings-theme"])
+        self.assertEqual(sorted(reg), ["compositor", "helper", "home", "inputcommon", "logos", "notifications", "preload", "quicksettings", "settings-theme"])
         for e in reg.values():
             self.assertIsInstance(e["on"], bool)
             self.assertGreater(len(e["fallback"]), 20, e["id"])
@@ -52,7 +52,7 @@ class Registry(unittest.TestCase):
 
     def test_each_entry_reads_its_own_flag(self):
         for flag, ident in (("SYSTEMUI_ON", "quicksettings"), ("WEBGLASS_ON", "settings-theme"), ("NOTI_ON", "notifications"),
-                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload")):
+                            ("LOGO_ON", "logos"), ("PRELOAD_STATE", "preload"), ("INPUTCOMMON_ON", "inputcommon")):
             reg = self.run_registry(flags=[flag])
             self.assertEqual([k for k, e in reg.items() if e["on"]], [ident], flag)
 

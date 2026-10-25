@@ -24,6 +24,8 @@
 #   log [n]                -> last n log lines (default 20)
 #   systemui on|off|status -> Quick Settings from our staged QML tree, or stock
 #   webglass on|off|status -> glass stylesheet in the settings web apps
+#   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
+#                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
 #   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
 #   version                -> version string from appinfo.json
 #
@@ -179,6 +181,15 @@ LOGO_OFF_APP=com.webos.app.masterbrand
 WEBGLASS_SRC="$APPDIR/payload/webapps"
 WEBGLASS_STAGE="$STATE/webapps"
 WEBGLASS_ON="$STATE/.webglass-on"
+
+# LG's input banners (com.webos.app.inputcommon) in the Luma look: tools/inputcommon.sh stages a patched copy of the app's QML and
+# mounts it over LG's directory. A mount does not survive a reboot, so apply asserts it again while the switch is on, as it does
+# for webglass.
+INPUTCOMMON_TOOL="$APPDIR/tools/inputcommon.sh"
+INPUTCOMMON_ON="$STATE/.inputcommon-on"
+# The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
+# views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one.
+KEYBOARD_TOOL="$APPDIR/tools/keyboard_patch.py"
 
 # The compositor resolves QML modules through QML2_IMPORT_PATH, and its unit
 # reads an optional environment file from /var - which is writable and
@@ -918,6 +929,37 @@ verb_webglass() {
   return 0
 }
 
+inputcommon_set() {
+  # $1 = on|off. tools/inputcommon.sh stages the patched copy, mounts it and drops inputcommon's process snapshot (or the reverse)
+  # and prints one JSON object, kept in $ic_out. It leaves what is in force alone when it cannot stage or mount.
+  ic_out=$(sh "$INPUTCOMMON_TOOL" "$1" < /dev/null 2>>"$LOGFILE"); ic_rc=$?
+  log_line "inputcommon $1: $(printf '%s' "$ic_out" | cut -c1-200)"
+  [ "$ic_rc" -eq 0 ] && printf '%s' "$ic_out" | grep -q '"ok":true'
+}
+
+verb_inputcommon() {
+  case "${1:-status}" in
+    on|off)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if inputcommon_set "$1"; then
+        if [ "$1" = on ]; then : > "$INPUTCOMMON_ON"; else rm -f "$INPUTCOMMON_ON"; fi
+        printf '%s\n' "$ic_out"
+      else
+        case "$ic_out" in '{'*'"ok":false'*) printf '%s\n' "$ic_out" ;; *) emit_error "tools/inputcommon.sh did not answer" ;; esac
+        return 1
+      fi ;;
+    status)
+      ic_out=$(sh "$INPUTCOMMON_TOOL" status < /dev/null 2>>"$LOGFILE")
+      ic_now=false; [ -f "$INPUTCOMMON_ON" ] && ic_now=true
+      case "$ic_out" in
+        '{"ok":true,'*) ic_rest=${ic_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$ic_now" "$ic_rest" ;;
+        *) emit_error "tools/inputcommon.sh did not answer"; return 1 ;;
+      esac ;;
+    *) emit_error "usage: inputcommon on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
 logo_set() {
   # $1 = on|off. The staged windows are laid down first, so a redirect never points at a file that
   # is not there. The windows are preloaded surfaces: closed after the redirect, the next launch
@@ -1103,6 +1145,13 @@ build_shadow() {
   cp -a "$STOCK_QML_MODULE" "$SHADOW_ROOT.next/" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
   cp -f "$COMPOSITOR_STAGE" "$SHADOW_ROOT.next/WebOSCompositor/$MODULE_RELPATH" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
   cp -R "$LUMA_STAGE/$QML_MODULE" "$SHADOW_ROOT.next/WebOSCompositor/$QML_MODULE" 2>/dev/null || { rm -rf "$SHADOW_ROOT.next"; return 1; }
+
+  # The on-screen keyboard's window comes and goes in the theme's layer motion (tools/keyboard_patch.py). The tool writes nothing
+  # when an anchor of LG's view is missing (a firmware update changed it): the shadow then keeps LG's file.
+  kb="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishKeyboardView.qml"
+  if [ -f "$kb" ] && [ -f "$KEYBOARD_TOOL" ]; then
+    python3 "$KEYBOARD_TOOL" "$kb" "$THEME_SRC/theme.json" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the keyboard patch was refused, LG's keyboard view stays"
+  fi
 
   # Get the contents on disk BEFORE the rename publishes them. /var is ext4
   # data=ordered, so without this a power cut can commit the directory entries
@@ -1938,6 +1987,7 @@ do_revert_internal() {
   keyfilter_set remove
   [ -f "$LOGO_ON" ] && logo_set off
   [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
+  [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
   remove_early_hook
@@ -2089,6 +2139,7 @@ verb_apply() {
   [ -f "$WEBGLASS_ON" ] && { webglass_set on || log_line "apply: could not mount the settings-app stylesheet"; }
   [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
   [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
+  [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
 
   # What the compositor reads (QML, wallpaper) is tracked apart from the rest
   # of the set: a running compositor that already has the shadow only needs a
@@ -2456,6 +2507,7 @@ surfaces_json() {
   printf '{"id":"home","on":%s,"state":"%s","fallback":"LG'"'"'s Home: hold Home 650 ms, the guard, or `homestub off`"},' "$( [ "$hs_state" = stub ] || [ "$hs_state" = trial ] && echo true || echo false )" "$hs_state"
   printf '{"id":"quicksettings","on":%s,"fallback":"`systemui off` puts the stock entry back in configd"},' "$(b test -f "$SYSTEMUI_ON")"
   printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
+  printf '{"id":"inputcommon","on":%s,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s input banners return"},' "$(b test -f "$INPUTCOMMON_ON")"
   printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
   printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
   printf '{"id":"helper","on":%s,"fallback":"Home draws the last saved weather and news; `helper stop`"},' "$hp_on"
@@ -2899,7 +2951,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -2971,6 +3023,7 @@ case "$VERB" in
   theme) verb_theme "${2:-get}" "${3:-}"; exit $? ;;
   systemui) verb_systemui "${2:-status}"; exit $? ;;
   webglass) verb_webglass "${2:-status}"; exit $? ;;
+  inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
   homestub) verb_homestub "${2:-status}"; exit $? ;;
   homestub-boot) verb_homestub_boot; exit $? ;;
   homestub-watch) verb_homestub_watch; exit $? ;;
