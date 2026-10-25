@@ -6,7 +6,23 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 05:35 EDT)
+## Resume here (LumaTV, 2026-10-25 08:40 EDT)
+
+- Recovery checkpoint: `/data/home/lumatv-backups/recovery-20261025-083743`
+  contains `base-revision`, tracked changes in `tracked.patch` and all
+  untracked source files in `untracked.tar.gz`. Unfinished, not deployable;
+  the working tree remains intact.
+- At most one task agent, including nested helpers. Its restart could not
+  start because the assigned account was exhausted. No agents are running;
+  recovery continues in the main session, offline only.
+- SurfacesP2d left Settings, resident layers, panels, icons and gate changes
+  uncommitted. Four actual host scenes passed: Sound, Remote & pointer,
+  quick panel and context menu. Behavioral checks and further recovery remain.
+- UiDamage stopped without a final report. Its note claims a partial-redraw
+  section and TV script absent on inspection. Verify code, not those claims.
+- LG's compositor remains live. Protocol, foreground and frame-pacing fixes
+  need a new TV trial. No TV timing or Netflix fix is yet proven for them.
+  TV access waits for a free slot; human-only actions stay human-controlled.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
