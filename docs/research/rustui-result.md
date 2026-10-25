@@ -5,15 +5,14 @@ faster or smoother than today's QML LumaHome inside LG's Qt 5.12 compositor? The
 
 ## Resume here
 
-State (2026-10-25 05:20 EDT): the client is built and passes on the host (Mesa, offscreen and as a window on a headless Weston); the
-aarch64 build is current. The slot is requested ("TV slot for RustUi2: 20 min, measure") and queued behind two other agents; Main expects
-about 06:40 and sends "go RustUi2". The set was in Active Standby at 05:17: the screen must be on first (`tv-run.sh` refuses otherwise).
-Next steps, in order:
+State (2026-10-25 05:35 EDT): the client is built and passes on the host (Mesa, offscreen and as a window on a headless Weston); the
+aarch64 build is current. No TV run yet: Main postponed the slot (Netflix debugging held the set until 07:00; a 15 minute slot had been
+offered for 07:35-07:50, then withdrawn). The whole slot is scripted. Next steps, in order:
 
-1. After "go RustUi2":
-   `python3 rustui/tools/tv-run.py --upload-only`, a short look (`SHOT=4 python3 rustui/tools/tv-run.py look idle:8`, which also saves
-   a panel screenshot to `rustui/build/runs/look.png`: check the picture is upright, else the flip pass is wrong), then the measured runs
-   listed under "TV runs" below.
+1. When Main grants a slot ("go RustUi2"), with the screen on (`tv-run.sh` refuses in Active Standby): `sh rustui/tools/slot.sh [HHMM]`
+   (deadline default 0748; extras are skipped when time is short). It uploads, takes the 8 s look (`rustui/build/runs/look.png`: the
+   picture must be upright, else the flip pass is wrong), runs `idle:45,mix:30`, then `--direct` and `--gpu-sync` runs if time is left,
+   and prints the RESULT lines. Needs about 6 minutes for the first two steps, 15 with the extras.
 2. Fill "TV results" and the recommendation from the numbers, commit, send "TV back".
 
 ## What was built
@@ -66,12 +65,16 @@ llvmpipe is the renderer.
 
 ## TV runs
 
-Not run yet. Planned (one slot, about 20 minutes, screen on, the QML Home hidden behind the overlay):
+Not run yet; `rustui/tools/slot.sh` is the plan (screen on, the QML Home hidden behind the overlay):
 
 1. Upload, 8 s look with a screenshot.
-2. `idle:60,mix:30` twice (idle 60 s, then the `dpad` and `sweep` scripts of the QML gate in turn for 30 s).
-3. `idle:10,mix:30 --direct` (what the flip pass costs) and `mix:30 --gpu-sync` (frame time through the GPU).
-4. The QML numbers to compare with: `docs/research/perf/summary-2026-10-24-phase1.txt` and SurfacesP2b's latest Home gate.
+2. `idle:45,mix:30` (idle 45 s, then the `dpad` and `sweep` scripts of the QML gate in turn for 30 s).
+3. If time is left: `idle:15,mix:30 --direct` (what the flip pass costs) and `mix:30 --gpu-sync` (frame time through the GPU).
+4. The QML numbers to compare with: `docs/research/surfaces-p2-result.md` Slot 1 (Home idle pooled p90 render 2.57 ms over 69 frames;
+   D-pad 2.79 ms, 6 of 533 animated frames dropped; sweep 2.91 ms, 0 of 250; under LG's compositor 17 % of frames of a trivial client
+   take two vblanks, the X1 floor) and `docs/research/perf/summary-2026-10-24-phase1.txt` (idle Home 12.5 fps presented, compositor CPU
+   4.3 % of a core, GPU busy 10 %; D-pad sweep 3.9-4.4 % of animated frames dropped). The Rust run is an overlay under the same LG
+   compositor, so the X1 floor applies to it as well; compare its drops with that floor, not with zero.
 
 ## TV results
 
@@ -79,4 +82,14 @@ Pending.
 
 ## Recommendation
 
-Pending the TV results.
+Not decided: there is no TV measurement yet. Established on the host: LumaShow's toolkit draws LumaHome's look and layout as a 64-bit
+Wayland client with zero text pictures, so what is open is speed and smoothness on the C4's Mali. Decision rule, to apply to the TV results:
+
+- Now (under LG's compositor): Rust is better only if its dropped-frame share is clearly under the QML Home's 1.1 % (D-pad) and its idle
+  GPU busy and CPU are at or under 10 % and 4.3 % of a core. Within the X1 floor (17 % two-vblank frames for a trivial client) it is a
+  tie, and a tie keeps QML for the existing surfaces (no rewrite cost).
+- After the cutover (LumaTV's own compositor, which removes the X1 floor): QML Home's 6 of 533 drops are compositor-made, so what matters
+  is render p50/p90 and RSS. Rust in the app's process adds a GL context and the glyph atlas [INFERENCE]; if its RSS exceeds QML's by more
+  than the compositor-side saving, keep QML for Home and use Rust only for surfaces where QML shows its own floor.
+
+Final text after the TV results.
