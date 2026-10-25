@@ -213,7 +213,7 @@ HS_TRIAL_SECS=120
 # A beat older than this is a fault, once the grace after a start or a
 # compositor restart has passed (a restart needs ~12 s before LumaHome draws).
 HS_STALE=5
-HS_GRACE=45
+HS_GRACE=30
 HS_MAX_STRIKES=2
 SURFACE_SVC=surface-manager-daemon.service
 MSGLOG=/var/log/messages
@@ -1425,10 +1425,10 @@ verb_homestub_watch() {
   HS_IN_GUARD=1
   trap 'hs_guard_exit' TERM INT HUP
   [ -p "$HS_TICK" ] || { rm -f "$HS_TICK"; mkfifo "$HS_TICK" 2>/dev/null; }
-  # Requests left from before this guard started are stale.
-  rm -f "$HS_ESCAPE" "$HS_CONFIRM"
+  # Requests and a beat left from before this guard started are stale.
+  rm -f "$HS_ESCAPE" "$HS_CONFIRM" "$HS_BEAT"
   read -r hs_up hs_idle < /proc/uptime; hs_now=${hs_up%%.*}
-  hs_last=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE)); hs_cpid=""; hs_good=0; hs_mchk=$hs_now
+  hs_last=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE)); hs_cpid=""; hs_gap=0; hs_good=0; hs_mchk=$hs_now
   log_line "homestub: guard started"
   while :; do
     if [ -p "$HS_TICK" ]; then read -t 1 hs_x <> "$HS_TICK" 2>/dev/null; else sleep 1; fi
@@ -1449,18 +1449,33 @@ verb_homestub_watch() {
     fi
 
     # The compositor: a new process, or none yet, means it is restarting and LumaHome
-    # needs the grace again.
+    # needs the grace again. One that started after this guard did has to carry the
+    # module: the first start of a boot is stock, but a restart is ours, and one
+    # without the module (failsafe, revert, a changed env file) leaves the stub
+    # showing nothing.
     if [ -z "$hs_cpid" ] || [ ! -d "/proc/$hs_cpid" ]; then
       hs_np=$(pgrep -x surface-manager 2>/dev/null | head -n1)
       if [ -z "$hs_np" ]; then
-        hs_cpid=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
+        hs_cpid=""; hs_gap=1; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
       elif [ "$hs_np" != "$hs_cpid" ]; then
-        [ -n "$hs_cpid" ] && log_line "homestub: compositor restarted"
-        hs_cpid=$hs_np; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
+        if [ -n "$hs_cpid" ] || [ "$hs_gap" = 1 ]; then
+          log_line "homestub: compositor restarted"
+          if ! compositor_has_shadow; then
+            homestub_fault "the compositor restarted without LumaTV's module"
+            hs_guard_exit
+          fi
+        fi
+        hs_gap=0; hs_cpid=$hs_np; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
       fi
     fi
 
     hs_b=""; { read -r hs_b < "$HS_BEAT"; } 2>/dev/null
+    # The compositor's container writes "error" in place of a beat when LumaHome
+    # failed to load.
+    if [ "$hs_b" = error ]; then
+      homestub_fault "LumaHome could not be loaded"
+      hs_guard_exit
+    fi
     if [ -n "$hs_b" ] && [ "$hs_b" != "$hs_last" ]; then
       hs_last=$hs_b; hs_ok_at=$hs_now; hs_good=$((hs_good + 1))
       # A minute of beats ends the run of faults.

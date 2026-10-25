@@ -219,8 +219,13 @@ FocusScope {
         visible: root.lumaHomeCurrent && status === Loader.Ready && !root.lumaHomeAside
         source: "../../{{qmlModule}}/LumaHome.qml"
         onStatusChanged: {
-            if (status === Loader.Error)
+            if (status === Loader.Error) {
                 console.warn("[FULLSCREEN:Container][" + root.objectName + "] LumaHome failed to load from " + source)
+                // With the Home stub nothing else would draw. The guard reads this in place
+                // of a heartbeat (tools/lumatv homestub).
+                var x = new XMLHttpRequest()
+                try { x.open("PUT", "file:///tmp/{{shortId}}-beat"); x.send("error") } catch (e) {}
+            }
         }
     }
     Binding {
@@ -235,15 +240,16 @@ FocusScope {
         value: root.lumaHomeCurrent
         when: lumaHome.status === Loader.Ready
     }
-    // The stock Home surface is fully covered while LumaHome draws; at opacity 0 the scene
-    // graph skips its full-screen blit (a 1080p texture read and write per frame). Wayland
-    // focus and key delivery do not depend on the item's opacity, and the Binding restores
-    // the value the moment the layer goes away.
+    // The Home surface is fully covered while LumaHome draws; at opacity 0 the scene graph
+    // skips its full-screen blit (a 1080p texture read and write per frame). Wayland focus and
+    // key delivery do not depend on the item's opacity. The value is set both ways, not left
+    // to the Binding to undo: a LumaHome that steps aside while the surface it covered stays
+    // (LG's Home returning under it) would otherwise leave that surface at 0, a black screen.
     Binding {
         target: root.__surfaceItem
         property: "opacity"
-        value: 0
-        when: lumaHome.visible && root.__surfaceItem
+        value: lumaHome.visible ? 0 : 1
+        when: root.lumaHomeCurrent && !!root.__surfaceItem
     }
 
     StarfishFullscreenStandby {
