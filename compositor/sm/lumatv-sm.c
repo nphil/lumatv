@@ -369,6 +369,13 @@ static void json_escape(const char *s, char *out, size_t outsz) {
 static char inbuf[256 * 1024];
 static size_t inlen;
 
+// The bridge is one JSON object per line, and luna payloads arrive as their senders wrote them: com.webos.app.hdmi2's
+// getCurrentHomeUIState came pretty-printed (set, 2026-10-25) and split into four bad lines. A raw newline in valid
+// JSON can only be whitespace between tokens (inside strings it must be escaped), so a space keeps the meaning.
+static void flatten(char *s) {
+    for (; *s; s++) if (*s == '\n' || *s == '\r') *s = ' ';
+}
+
 static void send_line(const char *line) {
     if (bridge_fd < 0) return;
     size_t n = strlen(line);
@@ -449,6 +456,7 @@ static bool on_method(LSHandle *sh, LSMessage *msg, void *ctx) {
     char *line = malloc(need);
     snprintf(line, need, "{\"kind\":\"inbound\",\"token\":%lu,\"service\":\"%s\",\"method\":\"%s\",\"payload\":%s,\"subscribe\":%s,\"sender\":\"%s\"}",
              slot->token, b->name, emethod, payload && *payload ? payload : "{}", slot->subscription ? "true" : "false", esender);
+    flatten(line);
     send_line(line);
     free(line);
     return true;
@@ -494,6 +502,7 @@ static bool on_reply(LSHandle *sh, LSMessage *reply, void *ctx) {
     size_t need = strlen(payload ? payload : "{}") + 64;
     char *line = malloc(need);
     snprintf(line, need, "{\"kind\":\"event\",\"token\":%lu,\"payload\":%s}", o->token, payload && *payload ? payload : "{}");
+    flatten(line);
     send_line(line);
     free(line);
     if (!o->subscribe) memset(o, 0, sizeof *o);
@@ -771,6 +780,10 @@ int main(void) {
     CHECK(json_string(esc, "reason", reason, sizeof reason) && !strcmp(reason, "hold \"Home\" 650 ms"));
     char fp[17]; fingerprint(fp); CHECK(strlen(fp) == 16);
     char e[64]; json_escape("a\"b\\c\n", e, sizeof e); CHECK(!strcmp(e, "a\\\"b\\\\c\\n"));
+    char pretty[] = "{\"kind\":\"inbound\",\"payload\":{\n    \"subscribe\": true\r\n}}";
+    flatten(pretty);
+    CHECK(!strchr(pretty, '\n') && !strchr(pretty, '\r'));
+    CHECK(json_value(pretty, "payload", &v, &n) && v[0] == '{' && v[n - 1] == '}');
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
     return failures_seen ? 1 : 0;
 }
