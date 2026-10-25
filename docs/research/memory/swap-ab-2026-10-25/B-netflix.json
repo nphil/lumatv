@@ -1,0 +1,72 @@
+[
+ {
+  "steps": [
+   {
+    "step": "netflix-front",
+    "at": 1792946701.5995114,
+    "wait": 0.5548921400004474
+   },
+   {
+    "step": "home",
+    "at": 1792946707.8493595,
+    "wait": 0.07875004000015906
+   },
+   {
+    "step": "other-front",
+    "at": 1792946711.8322089,
+    "wait": 0.9329773999997997
+   },
+   {
+    "step": "hog-done",
+    "at": 1792946722.1550024,
+    "mb": 825
+   },
+   {
+    "step": "home-again",
+    "at": 1792946729.0882618,
+    "wait": 0.2764869999991788
+   }
+  ],
+  "launch_call_s": 0.086,
+  "to_foreground_s": 1.06,
+  "to_first_panel_change_s": 0.78,
+  "pswpin": 9515,
+  "pswpout": 0,
+  "pgmajfault": 10317
+ },
+ {
+  "steps": [
+   {
+    "step": "netflix-front",
+    "at": 1792946732.6120489,
+    "wait": 0.23367127999881632
+   },
+   {
+    "step": "home",
+    "at": 1792946739.0323148,
+    "wait": 0.251831220000895
+   },
+   {
+    "step": "other-front",
+    "at": 1792946743.2327194,
+    "wait": 1.1511818600010884
+   },
+   {
+    "step": "hog-done",
+    "at": 1792946753.7820306,
+    "mb": 825
+   },
+   {
+    "step": "home-again",
+    "at": 1792946761.7389536,
+    "wait": 0.09153764000075171
+   }
+  ],
+  "launch_call_s": 0.062,
+  "to_foreground_s": 2.31,
+  "to_first_panel_change_s": 0.3,
+  "pswpin": 4057,
+  "pswpout": 0,
+  "pgmajfault": 4796
+ }
+]

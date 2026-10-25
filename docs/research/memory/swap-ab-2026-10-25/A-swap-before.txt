@@ -1,0 +1,26 @@
+Sun Oct 25 12:39:34 EDT 2026
+Filename				Type		Size	Used	Priority
+/dev/f2io-0                             partition	614396	258920	-2
+
+MemFree:          191964 kB
+MemAvailable:     691808 kB
+Cached:           465484 kB
+SwapCached:         9280 kB
+SwapTotal:        614396 kB
+SwapFree:         355476 kB
+AnonPages:        479080 kB
+GPUCached:             0 kB
+
+pswpin 179320
+pswpout 400139
+pgmajfault 116500
+
+zram0 disksize comp_algorithm max_comp_streams
+0
+lzo [lzo-rle] lz4 
+4
+zram0 mm_stat (orig_data_size compr_data_size mem_used_total mem_limit mem_used_max same_pages pages_compacted huge_pages)
+       0        0        0        0        0        0        0        0
+zram0 stat
+       0        0        0        0        0        0        0        0        0        0        0        0        0        0        0
+cpu  865221 41530 538814 7701950 4405 0 27599 0 0 0

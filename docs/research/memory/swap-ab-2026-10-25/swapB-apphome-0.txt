@@ -1,0 +1,139 @@
+trace /tmp/perf/swapB-apphome-0.trace  sm_pid 3799  span 13.849 s  frames 397  vblank 50.04 Hz  cpuhp 445  gpu_pm 11368
+
+== app: 7.142 s, 255 frames (35.7 fps), >17 125, >20 125, >33 0, >50 0, worst 33.4 ms; vblanks/present {1: 129, 2: 125}
+   animation-driven frames 61, dropped 51 (83.6 %), render ms {'median': 1.57, 'p90': 1.99, 'max': 2.26}, dropped-frame render [1.7, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 1.9, 1.9, 2.0, 2.0]; timer-driven frames 193
+   burst from marker: first frame 807.89 ms, ends None ms, intervals >20 ms 0, animated render p90 None ms
+   compositor: run 779.9 ms, runnable 8.2 ms, max sched latency 1.86 ms, migrations 9; gpu jobs 514 busy 2020.1 ms, pm transitions 6329; cpuhp 3 reclaim 0 cma 0 block 378
+   top cpu: [('migration/3-24', 1348.6), ('surface-manager-3799', 779.9), ('WebAppMgr-2753', 473.1), ('pq_thread-8179', 391.6), ('WebAppMgr-4034', 287.1), ('VizCompositorTh-4218', 85.1), ('ls-hubd-1865', 64.6), ('lginput2-4509', 63.9), ('mrcu_ls2-4819', 60.2), ('mali-cmar-backe-3924', 56.2), ('servicemanager-2939', 53.7), ('arccontroller-3664', 35.8)]
+   irqs: {'arch_timer': 28724, 'IPI': 4510, 'c4250000.gpu': 1535, 'DE2VSYNC': 768, 'osd_irq': 762, 'HDMI21_LINK': 312, 'eth0': 155, 'mmc0': 61}
+   (125 gaps over threshold; 6 longest shown)
+   gap +0.841s 33.4 ms (2 vbl): sm run 3.42 runnable 0.04 (max lat 0.04) sleep 29.91 on [1]; gpu jobs 2 busy 7.92 pm [(8.71, 272, 1), (8.72, 288, 1), (8.72, 256, 0), (8.72, 272, 1)]; irq {'IPI': 0.539, 'arch_timer': 1.065, 'mmc0': 0.292, 'eth0': 0.013, 'DE2VSYNC': 0.036, 'osd_irq': 0.041, 'c4250000.gpu': 0.084, 'HDMI21_LINK': 0.009} softirq 0.91
+      cpu0: [('SettingsService-3648', 20.36), ('swapper/0-0', 4.76), ('WebAppMgr-2753', 2.81), ('mojodb-luna-3343', 1.39)]
+      cpu1: [('swapper/1-0', 27.45), ('surface-manager-3799', 3.42), ('mojodb-luna-3344', 0.93), ('lginput2-4509', 0.47)]
+      cpu2: [('ThreadPoolForeg-2772', 7.97), ('SettingsService-3436', 7.7), ('configd-1912', 5.44), ('swapper/2-0', 3.26)]
+      cpu3: [('WebAppMgr-2753', 11.22), ('WebAppMgr-4034', 6.24), ('swapper/3-0', 6.23), ('mojodb-luna-3361', 2.66)]
+      block: ['179,0 R 73728 () 891936 + 144 [kworker/3:0H]', '179,0 R 65536 () 886368 + 128 [kworker/2:2H]', '179,0 R 77824 () 886496 + 152 [kworker/2:2H]', '179,0 RS 4096 () 13745488 + 8 [kworker/2:2H]']
+      wakeups: [('lginput2', 65), ('Chrome_ChildIOT', 26), ('WebAppMgr', 22), ('kworker/2:2H', 19), ('SettingsService', 18), ('ThreadPoolForeg', 16), ('Chrome_IOThread', 16), ('mojodb-luna', 14)]  wq: [('verity_work', 93), ('blk_mq_run_work_fn', 26), ('vmstat_update', 4), ('kbase_jd_done_worker', 2), ('vmstat_shepherd', 1)]
+   gap +0.891s 33.4 ms (2 vbl): sm run 5.94 runnable 0.01 (max lat 0.0) sleep 27.42 on [1]; gpu jobs 2 busy 7.94 pm [(13.25, 272, 1), (13.26, 288, 1), (13.26, 256, 0), (13.26, 272, 1)]; irq {'arch_timer': 0.874, 'IPI': 0.199, 'mmc0': 0.022, 'DE2VSYNC': 0.03, 'osd_irq': 0.036, 'c4250000.gpu': 0.079, 'eth0': 0.011, 'TE_MCU[0]': 0.005, 'TE_MCU[1]': 0.003} softirq 0.37
+      cpu0: [('swapper/0-0', 24.3), ('WebAppMgr-2753', 7.06), ('VizCompositorTh-4218', 0.48), ('PmLogDaemon-1945', 0.35)]
+      cpu1: [('swapper/1-0', 26.31), ('surface-manager-3799', 5.94), ('lginput2-4509', 0.43), ('tFragmentation-10358', 0.22)]
+      cpu2: [('swapper/2-0', 26.38), ('ls-hubd-1865', 2.44), ('pq_thread-8179', 1.78), ('ThreadPoolForeg-2772', 0.88)]
+      cpu3: [('swapper/3-0', 20.52), ('ls-hubd-1865', 4.99), ('WebAppMgr-4034', 4.73), ('videooutputd-2716', 0.84)]
+      block: ['179,0 RS 4096 () 13699744 + 8 [kworker/3:0H]', '179,0 RS 4096 () 13777776 + 8 [kworker/3:0H]']
+      wakeups: [('lginput2', 66), ('WebAppMgr', 17), ('Chrome_ChildIOT', 15), ('Chrome_IOThread', 7), ('rcu_preempt', 6), ('QThread', 5), ('ls-hubd', 5), ('sdx', 4)]  wq: [('blk_mq_run_work_fn', 2), ('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +0.958s 33.4 ms (2 vbl): sm run 2.63 runnable 0.01 (max lat 0.0) sleep 30.72 on [1]; gpu jobs 2 busy 7.89 pm [(17.39, 272, 1), (17.4, 288, 1), (17.4, 256, 0), (17.4, 272, 1)]; irq {'IPI': 0.044, 'arch_timer': 0.565, 'HDMI21_LINK': 0.017, 'DE2VSYNC': 0.019, 'osd_irq': 0.03, 'c4250000.gpu': 0.072} softirq 0.18
+      cpu0: [('swapper/0-0', 32.19), ('VizCompositorTh-4218', 0.39), ('mrcu_ls2-4819', 0.3), ('sdx-24855', 0.11)]
+      cpu1: [('swapper/1-0', 29.85), ('surface-manager-3799', 2.63), ('lginput2-4509', 0.3), ('arccontroller-3664', 0.25)]
+      cpu2: [('swapper/2-0', 30.72), ('pq_thread-8179', 1.73), ('micomservice-2975', 0.24), ('mali-cmar-backe-3924', 0.2)]
+      cpu3: [('swapper/3-0', 32.39), ('WebAppMgr-4034', 0.89), ('rcu_preempt-10', 0.03), ('darc_thread-2663', 0.01)]
+      wakeups: [('lginput2', 66), ('QThread', 4), ('tCursor', 4), ('rcu_preempt', 4), ('WebAppMgr', 4), ('kworker/u9:1', 4), ('sdx', 3), ('check_mute', 3)]  wq: [('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +0.991s 33.4 ms (2 vbl): sm run 5.14 runnable 0.01 (max lat 0.0) sleep 28.23 on [1]; gpu jobs 2 busy 7.93 pm [(12.56, 272, 1), (12.56, 288, 1), (12.56, 256, 0), (12.57, 272, 1)]; irq {'IPI': 0.055, 'DE2VSYNC': 0.033, 'arch_timer': 0.634, 'osd_irq': 0.032, 'c4250000.gpu': 0.064} softirq 0.18
+      cpu0: [('swapper/0-0', 32.09), ('VizCompositorTh-4218', 0.42), ('mrcu_ls2-4819', 0.27), ('sdx-24855', 0.17)]
+      cpu1: [('swapper/1-0', 27.19), ('surface-manager-3799', 5.14), ('lginput2-4509', 0.35), ('lumatv-7943', 0.35)]
+      cpu2: [('swapper/2-0', 30.64), ('pq_thread-8179', 1.72), ('mali-cmar-backe-3924', 0.19), ('micomservice-2975', 0.14)]
+      cpu3: [('swapper/3-0', 32.36), ('WebAppMgr-4034', 0.97), ('darc_thread-2663', 0.02), ('check_mute-8163', 0.01)]
+      wakeups: [('lginput2', 65), ('sdx', 4), ('extinput-integr', 4), ('rcu_preempt', 4), ('kworker/u9:1', 4), ('WebAppMgr', 4), ('QThread', 3), ('mrcu_ls2', 3)]  wq: [('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +1.058s 33.4 ms (2 vbl): sm run 2.87 runnable 0.01 (max lat 0.0) sleep 30.49 on [1]; gpu jobs 2 busy 7.89 pm [(17.57, 272, 1), (17.57, 288, 1), (17.57, 256, 0), (17.58, 272, 1)]; irq {'IPI': 0.053, 'arch_timer': 0.595, 'DE2VSYNC': 0.026, 'osd_irq': 0.032, 'c4250000.gpu': 0.072, 'HDMI21_LINK': 0.005} softirq 0.17
+      cpu0: [('swapper/0-0', 31.88), ('VizCompositorTh-4218', 0.39), ('mrcu_ls2-4819', 0.22), ('physical-device-4236', 0.17)]
+      cpu1: [('swapper/1-0', 29.7), ('surface-manager-3799', 2.87), ('lginput2-4509', 0.3), ('arccontroller-3664', 0.27)]
+      cpu2: [('swapper/2-0', 30.88), ('pq_thread-8179', 1.71), ('mali-cmar-backe-3924', 0.2), ('kadpd-1986', 0.13)]
+      cpu3: [('swapper/3-0', 32.48), ('WebAppMgr-4034', 0.85), ('darc_thread-2663', 0.01), ('check_mute-8163', 0.01)]
+      wakeups: [('lginput2', 65), ('tCursor', 4), ('rcu_preempt', 4), ('WebAppMgr', 4), ('VizCompositorTh', 4), ('check_mute', 3), ('sdx', 3), ('extinput-integr', 3)]  wq: [('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +1.091s 33.4 ms (2 vbl): sm run 5.1 runnable 0.01 (max lat 0.0) sleep 28.25 on [1]; gpu jobs 2 busy 7.93 pm [(12.02, 272, 1), (12.03, 288, 1), (12.03, 256, 0), (12.03, 272, 1)]; irq {'IPI': 0.067, 'arch_timer': 0.63, 'DE2VSYNC': 0.018, 'osd_irq': 0.03, 'c4250000.gpu': 0.074} softirq 0.22
+      cpu0: [('swapper/0-0', 31.97), ('VizCompositorTh-4218', 0.42), ('mrcu_ls2-4819', 0.27), ('sdx-24855', 0.19)]
+      cpu1: [('swapper/1-0', 27.65), ('surface-manager-3799', 5.1), ('lginput2-4509', 0.35), ('kworker/u9:1-3021', 0.09)]
+      cpu2: [('swapper/2-0', 29.61), ('pq_thread-8179', 2.65), ('micomservice-2975', 0.25), ('mali-cmar-backe-3924', 0.2)]
+      cpu3: [('swapper/3-0', 32.35), ('WebAppMgr-4034', 0.96), ('darc_thread-2663', 0.02), ('latency-8167', 0.01)]
+      wakeups: [('lginput2', 66), ('rcu_preempt', 6), ('sdx', 4), ('extinput-integr', 4), ('kworker/u9:1', 4), ('WebAppMgr', 4), ('QThread', 3), ('darc_thread', 3)]  wq: [('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+
+== home: 4.146 s, 130 frames (31.4 fps), >17 42, >20 42, >33 19, >50 19, worst 100.1 ms; vblanks/present {1: 87, 2: 23, 3: 1, 5: 1, 6: 17}
+   animation-driven frames 69, dropped 4 (5.8 %), render ms {'median': 1.44, 'p90': 2.44, 'max': 5.11}, dropped-frame render [1.3, 1.8, 2.4, 5.1]; timer-driven frames 60
+   burst from marker: first frame 22.0 ms, ends 1089.63 ms, intervals >20 ms 21, animated render p90 2.41 ms
+   compositor: run 409.3 ms, runnable 5.8 ms, max sched latency 1.4 ms, migrations 2; gpu jobs 265 busy 1070.6 ms, pm transitions 3189; cpuhp 3 reclaim 0 cma 0 block 120
+   top cpu: [('migration/3-24', 1579.8), ('surface-manager-3799', 409.3), ('WebAppMgr-2753', 377.6), ('pq_thread-8179', 223.0), ('ThreadPoolForeg-2772', 108.3), ('WebAppMgr-4034', 89.4), ('python3-2807', 58.7), ('lginput2-4509', 43.4), ('mrcu_ls2-4819', 34.9), ('ThreadPoolForeg-2775', 31.9), ('mali-cmar-backe-3924', 27.4), ('VizCompositorTh-4218', 27.3)]
+   irqs: {'arch_timer': 17899, 'IPI': 2529, 'c4250000.gpu': 795, 'DE2VSYNC': 497, 'osd_irq': 497, 'HDMI21_LINK': 216, 'eth0': 183, 'mmc0': 124}
+   (42 gaps over threshold; 6 longest shown)
+   gap +1.173s 100.1 ms (6 vbl): sm run 3.44 runnable 0.01 (max lat 0.01) sleep 96.63 on [2]; gpu jobs 2 busy 8.39 pm [(89.66, 272, 1), (89.67, 288, 1), (89.67, 256, 0), (89.67, 272, 1)]; irq {'IPI': 0.239, 'arch_timer': 1.912, 'DE2VSYNC': 0.07, 'osd_irq': 0.062, 'HDMI21_LINK': 0.025, 'eth0': 0.02, 'c4250000.gpu': 0.072} softirq 1.19
+      cpu0: [('swapper/0-0', 89.53), ('SettingsService-3436', 4.06), ('mojodb-luna-3343', 1.51), ('lginput2-4509', 1.02)]
+      cpu1: [('swapper/1-0', 82.91), ('SettingsService-3648', 7.16), ('pq_thread-8179', 5.13), ('mrcu_ls2-4819', 0.74)]
+      cpu2: [('swapper/2-0', 85.18), ('WebAppMgr-2753', 4.76), ('surface-manager-3799', 3.44), ('ls-hubd-1865', 2.91)]
+      cpu3: [('swapper/3-0', 95.15), ('run-service-2813', 3.36), ('ThreadPoolForeg-2772', 1.07), ('Chrome_IOThread-4192', 0.18)]
+      wakeups: [('lginput2', 196), ('rcu_preempt', 19), ('tFragmentation', 14), ('tLibSystrim', 13), ('com.webos.chrom', 12), ('tCursor', 10), ('tCMState', 10), ('extinput-integr', 10)]  wq: [('free_work', 3), ('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +1.273s 100.1 ms (6 vbl): sm run 4.01 runnable 0.01 (max lat 0.0) sleep 96.07 on [2]; gpu jobs 2 busy 8.4 pm [(90.2, 272, 1), (90.2, 288, 1), (90.2, 256, 0), (90.2, 272, 1)]; irq {'IPI': 0.043, 'arch_timer': 1.613, 'DE2VSYNC': 0.068, 'osd_irq': 0.052, 'c4250000.gpu': 0.07, 'HDMI21_LINK': 0.006} softirq 0.51
+      cpu0: [('swapper/0-0', 96.93), ('WebAppMgr-4034', 1.19), ('lginput2-4509', 0.85), ('micomservice-2975', 0.45)]
+      cpu1: [('swapper/1-0', 91.8), ('pq_thread-8179', 5.15), ('mrcu_ls2-4819', 0.53), ('arccontroller-3664', 0.48)]
+      cpu2: [('swapper/2-0', 95.19), ('surface-manager-3799', 4.01), ('kadpd-1986', 0.23), ('mali-cmar-backe-3924', 0.22)]
+      cpu3: [('swapper/3-0', 100.01), ('rcu_preempt-10', 0.06), ('check_mute-8162', 0.02)]
+      wakeups: [('lginput2', 197), ('rcu_preempt', 17), ('tCursor', 10), ('tCMState', 10), ('extinput-integr', 10), ('tLibSystrim', 10), ('tFragmentation', 10), ('com.webos.chrom', 10)]  wq: [('psi_avgs_work', 4), ('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +1.373s 100.1 ms (6 vbl): sm run 3.44 runnable 0.01 (max lat 0.01) sleep 96.64 on [2]; gpu jobs 2 busy 8.4 pm [(89.13, 272, 1), (89.14, 288, 1), (89.14, 256, 0), (89.14, 272, 1)]; irq {'IPI': 0.033, 'arch_timer': 1.616, 'HDMI21_LINK': 0.015, 'DE2VSYNC': 0.066, 'osd_irq': 0.05, 'eth0': 0.005, 'c4250000.gpu': 0.068} softirq 0.5
+      cpu0: [('swapper/0-0', 97.94), ('lginput2-4509', 0.83), ('micomservice-2975', 0.31), ('extinput-integr-4329', 0.21)]
+      cpu1: [('swapper/1-0', 91.34), ('pq_thread-8179', 5.2), ('mrcu_ls2-4819', 0.56), ('arccontroller-3664', 0.47)]
+      cpu2: [('swapper/2-0', 94.25), ('surface-manager-3799', 3.44), ('python3-2742', 1.6), ('mali-cmar-backe-3924', 0.21)]
+      cpu3: [('swapper/3-0', 100.02), ('rcu_preempt-10', 0.05), ('check_mute-8162', 0.02)]
+      wakeups: [('lginput2', 197), ('rcu_preempt', 13), ('mrcu_ls2', 10), ('sdx', 10), ('tCursor', 10), ('tCMState', 10), ('tLibSystrim', 10), ('extinput-integr', 10)]  wq: [('psi_avgs_work', 2), ('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +1.473s 100.1 ms (6 vbl): sm run 3.43 runnable 0.01 (max lat 0.01) sleep 96.65 on [2]; gpu jobs 2 busy 8.4 pm [(89.07, 272, 1), (89.07, 288, 1), (89.07, 256, 0), (89.07, 272, 1)]; irq {'IPI': 0.061, 'arch_timer': 1.664, 'HDMI21_LINK': 0.018, 'DE2VSYNC': 0.07, 'osd_irq': 0.053, 'c4250000.gpu': 0.057} softirq 0.54
+      cpu0: [('swapper/0-0', 97.52), ('lginput2-4509', 0.85), ('micomservice-2975', 0.51), ('extinput-integr-4329', 0.22)]
+      cpu1: [('swapper/1-0', 91.05), ('pq_thread-8179', 5.2), ('mrcu_ls2-4819', 0.62), ('arccontroller-3664', 0.47)]
+      cpu2: [('swapper/2-0', 95.99), ('surface-manager-3799', 3.43), ('mali-cmar-backe-3924', 0.21), ('tAUDATV-2726', 0.07)]
+      cpu3: [('swapper/3-0', 97.88), ('sleep-2845', 1.78), ('sleep-2798', 0.25), ('rcu_preempt-10', 0.08)]
+      wakeups: [('lginput2', 197), ('rcu_preempt', 15), ('mrcu_ls2', 10), ('sdx', 10), ('tCursor', 10), ('tCMState', 10), ('tLibSystrim', 10), ('extinput-integr', 10)]  wq: [('psi_avgs_work', 7), ('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +1.573s 100.1 ms (6 vbl): sm run 5.28 runnable 0.02 (max lat 0.01) sleep 94.79 on [2]; gpu jobs 2 busy 8.28 pm [(90.68, 272, 1), (90.69, 288, 1), (90.69, 256, 0), (90.69, 272, 1)]; irq {'IPI': 0.062, 'arch_timer': 1.578, 'osd_irq': 0.047, 'DE2VSYNC': 0.061, 'HDMI21_LINK': 0.013, 'eth0': 0.004, 'c4250000.gpu': 0.072} softirq 0.47
+      cpu0: [('swapper/0-0', 96.58), ('QQuickPixmapRea-3965', 0.86), ('lginput2-4509', 0.86), ('QNetworkAccessM-3988', 0.52)]
+      cpu1: [('swapper/1-0', 90.0), ('pq_thread-8179', 6.79), ('mrcu_ls2-4819', 0.59), ('arccontroller-3664', 0.47)]
+      cpu2: [('swapper/2-0', 94.3), ('surface-manager-3799', 5.28), ('mali-cmar-backe-3924', 0.2), ('tDnnService-8174', 0.05)]
+      cpu3: [('swapper/3-0', 99.97), ('rcu_preempt-10', 0.06), ('darc_thread-2663', 0.03), ('check_mute-8162', 0.02)]
+      wakeups: [('lginput2', 199), ('rcu_preempt', 16), ('com.webos.chrom', 10), ('tCursor', 10), ('mrcu_ls2', 10), ('sdx', 10), ('tCMState', 10), ('tLibSystrim', 10)]  wq: [('psi_avgs_work', 6), ('kbase_jd_done_worker', 2), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]
+   gap +2.474s 100.1 ms (6 vbl): sm run 3.26 runnable 0.01 (max lat 0.0) sleep 96.82 on [1]; gpu jobs 2 busy 8.38 pm [(87.86, 272, 1), (87.87, 288, 1), (87.87, 256, 0), (87.87, 272, 1)]; irq {'IPI': 0.139, 'arch_timer': 1.875, 'DE2VSYNC': 0.072, 'osd_irq': 0.064, 'HDMI21_LINK': 0.014, 'c4250000.gpu': 0.07} softirq 0.63
+      cpu0: [('swapper/0-0', 80.18), ('servicemanager-2939', 9.58), ('luna-send-2847', 7.01), ('lginput2-4509', 1.02)]
+      cpu1: [('swapper/1-0', 93.42), ('surface-manager-3799', 3.26), ('tvpowerd-2703', 0.86), ('mrcu_ls2-4819', 0.72)]
+      cpu2: [('swapper/2-0', 87.41), ('ls-hubd-1865', 6.86), ('pq_thread-8179', 5.13), ('screen-7959', 0.24)]
+      cpu3: [('swapper/3-0', 97.03), ('luna-send-2847', 1.12), ('memchute-1923', 0.37), ('hdmi21_rx_engin-2565', 0.27)]
+      wakeups: [('lginput2', 197), ('rcu_preempt', 13), ('tFragmentation', 11), ('tCursor', 10), ('tCMState', 10), ('tLibSystrim', 10), ('extinput-integr', 10), ('com.webos.chrom', 10)]  wq: [('psi_avgs_work', 2), ('kbase_jd_done_worker', 2), ('free_work', 1), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1)]
+
+== closing: 1.053 s, 12 frames (11.4 fps), >17 10, >20 10, >33 10, >50 10, worst 116.8 ms; vblanks/present {1: 1, 4: 1, 6: 8, 7: 1}
+   animation-driven frames 0, dropped 0 (0 %), render ms None, dropped-frame render []; timer-driven frames 11
+   burst from marker: first frame 29.95 ms, ends 29.95 ms, intervals >20 ms 0, animated render p90 None ms
+   compositor: run 76.5 ms, runnable 0.2 ms, max sched latency 0.03 ms, migrations 0; gpu jobs 156 busy 99.3 ms, pm transitions 1554; cpuhp 0 reclaim 0 cma 0 block 226
+   top cpu: [('WebAppMgr-2753', 382.0), ('ThreadPoolForeg-2772', 84.2), ('Chrome_InProcGp-4199', 80.5), ('surface-manager-3799', 76.5), ('WebAppMgr-4034', 63.0), ('pq_thread-8179', 57.5), ('ThreadPoolForeg-2775', 41.5), ('ls-hubd-1865', 27.0), ('Chrome_IOThread-4192', 26.8), ('PmLogDaemon-1945', 22.2), ('Chrome_ChildIOT-2773', 20.8), ('ThreadPoolForeg-2850', 20.1)]
+   irqs: {'arch_timer': 4571, 'IPI': 1801, 'c4250000.gpu': 385, 'mmc0': 230, 'DE2VSYNC': 126, 'osd_irq': 126, 'eth0': 88, 'HDMI21_LINK': 50}
+   (10 gaps over threshold; 6 longest shown)
+   gap +0.03s 100.1 ms (6 vbl): sm run 5.49 runnable 0.02 (max lat 0.01) sleep 94.57 on [1]; gpu jobs 2 busy 8.41 pm [(86.52, 272, 1), (86.53, 288, 1), (86.53, 256, 0), (86.53, 272, 1)]; irq {'arch_timer': 3.267, 'IPI': 0.806, 'eth0': 0.062, 'DE2VSYNC': 0.093, 'osd_irq': 0.098, 'HDMI21_LINK': 0.025, 'mmc0': 0.492, 'c4250000.gpu': 0.08} softirq 3.31
+      cpu0: [('swapper/0-0', 65.68), ('grep-2882', 3.56), ('cut-2879', 3.42), ('rmdir-2873', 3.32)]
+      cpu1: [('swapper/1-0', 61.44), ('surface-manager-3799', 5.49), ('pq_thread-8179', 5.31), ('memchute-1923', 4.76)]
+      cpu2: [('swapper/2-0', 54.52), ('WebAppMgr-2753', 19.2), ('run-service-2874', 9.21), ('ls-hubd-1865', 8.7)]
+      cpu3: [('WebAppMgr-2753', 46.25), ('swapper/3-0', 39.83), ('servicemanager-2939', 7.26), ('kworker/3:0H-4842', 2.08)]
+      block: ['179,0 RS 4096 () 13696184 + 8 [kworker/3:0H]', '179,0 RS 4096 () 13695664 + 8 [kworker/3:0H]', '179,0 RS 4096 () 13701136 + 8 [kworker/3:0H]', '179,0 RS 4096 () 13701944 + 8 [kworker/3:0H]']
+      wakeups: [('lginput2', 193), ('ThreadPoolForeg', 64), ('WebAppMgr', 60), ('kworker/3:0H', 48), ('memchute', 43), ('Chrome_ChildIOT', 26), ('kworker/2:2H', 26), ('Chrome_IOThread', 24)]  wq: [('verity_work', 743), ('blk_mq_run_work_fn', 44), ('free_work', 7), ('psi_avgs_work', 5), ('release_one_tty', 2)]
+   gap +0.13s 100.1 ms (6 vbl): sm run 4.46 runnable 0.02 (max lat 0.01) sleep 95.61 on [1]; gpu jobs 2 busy 8.43 pm [(88.55, 272, 1), (88.56, 288, 1), (88.56, 256, 0), (88.56, 272, 1)]; irq {'arch_timer': 2.479, 'mmc0': 0.353, 'IPI': 1.255, 'DE2VSYNC': 0.086, 'osd_irq': 0.098, 'HDMI21_LINK': 0.028, 'eth0': 0.006, 'c4250000.gpu': 0.089} softirq 1.45
+      cpu0: [('swapper/0-0', 91.53), ('VizCompositorTh-4218', 1.44), ('Compositor-2786', 1.41), ('lginput2-4509', 1.2)]
+      cpu1: [('swapper/1-0', 74.74), ('ThreadPoolForeg-4187', 5.56), ('pq_thread-8179', 5.29), ('surface-manager-3799', 4.46)]
+      cpu2: [('WebAppMgr-2753', 54.92), ('swapper/2-0', 42.43), ('kworker/2:2H-2993', 2.29), ('tCMState-2797', 0.32)]
+      cpu3: [('swapper/3-0', 73.97), ('ThreadPoolForeg-2772', 10.69), ('ThreadPoolForeg-4187', 7.75), ('Chrome_ChildIOT-2773', 3.84)]
+      block: ['179,0 R 86016 () 3564064 + 168 [kworker/2:2H]', '179,0 R 77824 () 3564232 + 152 [kworker/2:2H]', '179,0 R 65536 () 3528936 + 128 [kworker/2:2H]', '179,0 R 53248 () 3566944 + 104 [kworker/2:2H]']
+      wakeups: [('ThreadPoolForeg', 280), ('lginput2', 196), ('WebAppMgr', 132), ('Chrome_IOThread', 117), ('Chrome_ChildIOT', 113), ('kworker/2:2H', 59), ('rcu_preempt', 18), ('VizCompositorTh', 11)]  wq: [('verity_work', 409), ('blk_mq_run_work_fn', 32), ('kbase_jd_done_worker', 2), ('psi_avgs_work', 1), ('commit_work', 1)]
+   gap +0.23s 100.1 ms (6 vbl): sm run 3.71 runnable 0.01 (max lat 0.01) sleep 96.37 on [1]; gpu jobs 2 busy 8.42 pm [(87.03, 272, 1), (87.03, 288, 1), (87.03, 256, 0), (87.04, 272, 1)]; irq {'arch_timer': 2.887, 'IPI': 0.716, 'DE2VSYNC': 0.089, 'osd_irq': 0.099, 'mmc0': 0.07, 'c4250000.gpu': 0.087, 'HDMI21_LINK': 0.01} softirq 0.95
+      cpu0: [('swapper/0-0', 81.38), ('WebAppMgr-4034', 4.7), ('accountmanager-3907', 3.08), ('VizCompositorTh-4218', 1.78)]
+      cpu1: [('swapper/1-0', 67.04), ('ThreadPoolForeg-2772', 14.47), ('pq_thread-8179', 5.34), ('surface-manager-3799', 3.71)]
+      cpu2: [('swapper/2-0', 50.84), ('WebAppMgr-2753', 43.44), ('ls-hubd-1865', 3.49), ('python3-2742', 1.75)]
+      cpu3: [('WebAppMgr-2753', 52.92), ('swapper/3-0', 38.48), ('ThreadPoolForeg-2772', 4.14), ('Chrome_IOThread-4192', 1.92)]
+      block: ['179,0 RS 4096 () 13698112 + 8 [kworker/1:2H]', '179,0 RS 4096 () 13844976 + 8 [kworker/1:2H]', '179,0 R 94208 () 2816112 + 184 [kworker/1:2H]', '179,0 R 65536 () 2816296 + 128 [kworker/1:2H]']
+      wakeups: [('lginput2', 195), ('ThreadPoolForeg', 58), ('Chrome_ChildIOT', 27), ('rcu_preempt', 21), ('Chrome_IOThread', 21), ('WebAppMgr', 12), ('VizCompositorTh', 11), ('extinput-integr', 10)]  wq: [('verity_work', 39), ('blk_mq_run_work_fn', 6), ('fsnotify_mark_destroy_workfn', 3), ('process_srcu', 3), ('srcu_invoke_callbacks', 3)]
+   gap +0.33s 116.8 ms (7 vbl): sm run 33.9 runnable 0.02 (max lat 0.01) sleep 82.86 on [1]; gpu jobs 84 busy 9.96 pm [(26.07, 272, 1), (26.08, 288, 1), (26.08, 256, 0), (26.08, 272, 1)]; irq {'IPI': 2.394, 'arch_timer': 5.679, 'HDMI21_LINK': 0.019, 'DE2VSYNC': 0.12, 'osd_irq': 0.13, 'mmc0': 1.342, 'c4250000.gpu': 2.56} softirq 2.78
+      cpu0: [('swapper/0-0', 30.27), ('WebAppMgr-4034', 21.32), ('WebAppMgr-2753', 17.19), ('Compositor-2786', 7.55)]
+      cpu1: [('swapper/1-0', 37.14), ('surface-manager-3799', 33.9), ('ThreadPoolForeg-2772', 17.41), ('pq_thread-8179', 4.64)]
+      cpu2: [('Chrome_InProcGp-4199', 52.66), ('swapper/2-0', 46.6), ('mali-cmar-backe-4214', 6.57), ('run-service-2892', 3.33)]
+      cpu3: [('WebAppMgr-2753', 64.5), ('swapper/3-0', 9.97), ('Chrome_IOThread-4192', 8.56), ('WebAppMgr-4034', 6.19)]
+      block: ['179,0 RS 4096 () 13701144 + 8 [kworker/1:2H]', '179,0 RS 4096 () 13695672 + 8 [kworker/1:2H]', '179,0 RS 4096 () 13765032 + 8 [kworker/2:2H]', '179,0 RS 4096 () 13765040 + 8 [kworker/2:2H]']
+      wakeups: [('lginput2', 221), ('mali-cmar-backe', 203), ('Chrome_InProcGp', 148), ('kworker/u9:1', 137), ('kworker/2:2H', 106), ('Chrome_ChildIOT', 81), ('Chrome_IOThread', 71), ('PmLogDaemon', 59)]  wq: [('blk_mq_run_work_fn', 125), ('kbase_jd_done_worker', 85), ('verity_work', 85), ('shader_poweroff_timer_stop_callback', 32), ('kbase_pm_gpu_poweroff_wait_wq', 29)]
+   gap +0.53s 100.1 ms (6 vbl): sm run 4.71 runnable 0.02 (max lat 0.01) sleep 95.36 on [1]; gpu jobs 4 busy 9.34 pm [(78.21, 272, 1), (78.22, 288, 1), (78.22, 256, 0), (78.22, 272, 1)]; irq {'arch_timer': 2.04, 'eth0': 0.01, 'IPI': 0.328, 'DE2VSYNC': 0.076, 'osd_irq': 0.072, 'HDMI21_LINK': 0.017, 'gfx_irq': 0.003, 'c4250000.gpu': 0.14} softirq 1.17
+      cpu0: [('swapper/0-0', 85.83), ('pool-4553', 3.3), ('ls-hubd-1865', 2.69), ('SettingsService-3436', 2.29)]
+      cpu1: [('swapper/1-0', 89.54), ('surface-manager-3799', 4.71), ('Chrome_IOThread-4192', 1.1), ('ss.apiadapter-4885', 1.04)]
+      cpu2: [('swapper/2-0', 78.51), ('captureservice-5451', 11.31), ('WebAppMgr-4034', 6.3), ('gal_renderd-1994', 1.43)]
+      cpu3: [('swapper/3-0', 83.67), ('pq_thread-8179', 6.85), ('ThreadPoolForeg-2772', 3.27), ('servicemanager-2939', 3.23)]
+      wakeups: [('lginput2', 196), ('rcu_preempt', 15), ('mali-cmar-backe', 11), ('tCMState', 10), ('com.webos.chrom', 10), ('extinput-integr', 10), ('tCursor', 10), ('mrcu_ls2', 10)]  wq: [('vmstat_update', 4), ('drain_local_pages_wq', 4), ('kbase_jd_done_worker', 4), ('wq_barrier_func', 3), ('shader_poweroff_timer_stop_callback', 2)]
+   gap +0.63s 100.1 ms (6 vbl): sm run 3.26 runnable 0.01 (max lat 0.01) sleep 96.81 on [1]; gpu jobs 2 busy 7.93 pm [(85.48, 272, 1), (85.49, 288, 1), (85.49, 256, 0), (85.49, 272, 1)]; irq {'arch_timer': 1.527, 'DE2VSYNC': 0.059, 'osd_irq': 0.059, 'eth0': 0.021, 'hdmicec': 0.002, 'IPI': 0.028, 'HDMI21_LINK': 0.006, 'c4250000.gpu': 0.07} softirq 0.59
+      cpu0: [('swapper/0-0', 96.46), ('lginput2-4509', 0.94), ('micomservice-2975', 0.51), ('kadpd-1986', 0.32)]
+      cpu1: [('swapper/1-0', 93.35), ('surface-manager-3799', 3.26), ('ss.apiadapter-4885', 1.06), ('mrcu_ls2-4819', 0.68)]
+      cpu2: [('swapper/2-0', 99.72), ('tCMState-2797', 0.14), ('com.webos.chrom-7197', 0.12), ('pqcontroller-2906', 0.03)]
+      cpu3: [('swapper/3-0', 95.03), ('pq_thread-8179', 4.99), ('tAVD-2780', 0.03), ('n000001b-2778', 0.02)]
+      wakeups: [('lginput2', 197), ('rcu_preempt', 13), ('tCMState', 10), ('tCursor', 10), ('extinput-integr', 10), ('com.webos.chrom', 10), ('mrcu_ls2', 10), ('sdx', 10)]  wq: [('kbase_jd_done_worker', 2), ('psi_avgs_work', 1), ('commit_work', 1), ('shader_poweroff_timer_stop_callback', 1), ('kbase_pm_gpu_poweroff_wait_wq', 1)]

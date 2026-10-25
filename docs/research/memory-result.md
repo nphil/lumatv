@@ -7,7 +7,7 @@ snapshots: `meminfo.txt`, `procs.tsv` with PSS, RSS, swap and VmSwap per process
 sysfs counters for the zram slot). Facts are from the set (LG OLED65C4PUA, webOS
 10.2.1) unless marked [INFERENCE].
 
-## Resume here (2026-10-25 12:18 EDT)
+## Resume here (2026-10-25 12:50 EDT)
 
 - On the set: `lumatv preload on` is on with the 14-id list (Netflix, Home and
   the four HDMI input apps stay warm; the HDMI 2 app is preloaded again since
@@ -15,14 +15,17 @@ sysfs counters for the zram slot). Facts are from the set (LG OLED65C4PUA, webOS
   this repository's `payload/preload.json` (md5 `0ccc5bff`) and `tools/lumatv`;
   LG's list is in `/var/lib/lumatv/preload.orig`; the files replaced are in
   `/var/lib/lumatv/exp/memslot-backup/`.
-  Declutter is unchanged (`lean`, `livetv`, `ai`, `cast` off). Swap, boot
+  Declutter is unchanged (`lean`, `livetv`, `ai`, `cast` off). Swap is LG's
+  `/dev/f2io-0` alone again: the zram A/B ("Compressed-RAM swap A/B" below)
+  kept A, `zram0` is back at size 0 with `lzo-rle` selected as found. Boot
   arguments and `/usr` untouched.
 - Way back: `lumatv preload off` restores LG's list and removes the state file;
   the apps load again at the next switch-on.
-- End state at 11:21: Active Standby, `filmMaker`, `external_arc`, Home stub on
-  and beating, helper running, LumaTV applied and live, the receiver off again at
-  -44.5 dB (35.5) as found. `declutter.sh status` reads `settings 15/16` (16/16 at
-  05:19); not touched here, one value drifted or was reset by LG.
+- End state at 12:49: Active Standby, `filmMaker`, `external_arc`, Home stub on
+  and beating, helper healthy, LumaTV applied and live, LG's compositor with no
+  `enabled` flag, the receiver unmuted at 0.355 as found, the same seven failed
+  units as before the slots (`broadcast-configd`, `f2io-on`, `faultmanager`,
+  `gibbs`, `nudge`, `service-logger`, `voiceinput`), no `vt_devmode` file.
 - Open: Live TV cannot be made on demand with the declutter mechanism (below);
   the `iot-client` and `iotjs` stubs and the `ai` group are candidates for a
   later slot.
@@ -48,6 +51,59 @@ port, not installed), then `All apps are preloaded`; the helper sent "14 apps
 kept from preloading" at that screen-on. In the 5 s between `off` and `on` the
 manager loaded LG Channels (the list was briefly all enabled); it was closed
 with `closeByAppId` and did not come back.
+
+## Compressed-RAM swap A/B (2026-10-25 12:39-12:49 EDT): A kept
+
+Driver `docs/research/memory/swap_ab.py` (one side per call; it reuses
+`perf/run.py`, `capture.sh` and the 1 s sampler), results in
+`docs/research/memory/swap-ab-2026-10-25/` (`summary.txt`, per-run `.sys`,
+`.json`, `.txt`, the swap and zram counters before and after each side, the
+Netflix captures; the 694 MB of raw traces are in
+`/data/home/lumatv-backups/swap-ab-2026-10-25-traces/`). A: LG's
+`/dev/f2io-0` (zacc-compressed swap on eMMC `mmcblk0p53`, priority -2) alone.
+B: `zram0` 384 MB, `lz4`, `mkswap`, `swapon -p 100`, f2io left as overflow.
+Same workload both sides, receiver muted, Home stub on, LG's compositor:
+`apphome` x3 (LG Settings, HOME, close), Netflix resume x2 (Netflix to the
+front, HOME, the browser plus an 825 MB hog for 6 s, Netflix launched again;
+825 MB = MemAvailable at the start plus 150), `hog` x2 (browser in front, the
+825 MB hog for 8 s, HOME). The hog is what makes swap matter: without it the
+set at 690-1,020 MB available swaps nothing on a Settings launch.
+
+| | A (f2io) | B (zram0 in front) |
+|---|---|---|
+| `apphome` Home window, 3 runs: fps, dropped animation frames, worst gap | 28.6/18.5/24.6 fps, 9/4/2, 100.1 ms each | 31.4/24.4/24.9 fps, 4/6/10, 100.1 ms each |
+| `apphome` compositor major faults, pages swapped in, 5 s after HOME | 1/0/0, 2/0/0 | 58/1/0, 149/111/12 |
+| `hog` Home return: worst gap | 433.7 ms, 116.8 ms | 333.6 ms, 350.3 ms |
+| `hog` Home return: compositor major faults, pages swapped in, 5 s after HOME | 1,428 and 4,454; 2,552 and 9,638 | 241 and 1,904; 2,693 and 8,320 |
+| `hog` Home return: fps, dropped | 13.8, 2; 8.8, 1 | 13.5, 0; 9.5, 1 |
+| hog window (12 s, swap-out phase): CPU busy of all cores, pages out | 24.7 %, 103,896 | 21.3 % and 21.3 %, 112,006 and 129,472 |
+| Netflix resume: to SAM's foreground, to the first panel change | 2.95 s and 0.81 s; 2.39 s and 0.31 s | 1.06 s and 0.78 s; 2.31 s and 0.30 s |
+| swap written over the side | f2io used 258,920 → 478,824 kB; pswpout +385,853 pages | all 492,658 pages out went to zram0 (its write I/Os), f2io used 472,136 → 458,268 kB |
+| zram0 at the end | | 59.6 MB of pages held in 24.9 MB (`mm_stat`), peak 88.8 MB of RAM used, no compaction failures |
+
+Worst gaps of 100.1 ms in the Home window are the idle cadence (wallpaper
+motion at 10 fps), not hitches; `over33` counts them too. The rule was "keep B
+only if Home-return gaps and resume times are clearly better with no new
+dropped frames": they are not. The pressured Home return costs the same on
+both sides (worst 334-350 ms against 117-434 ms, the compositor's major faults
+2,693 against 2,552 on the second hog) because what the compositor pages back
+in after a big launch is mostly its file-backed pages from dm-verity (the
+rootfs reads measured in `perf-tweaks.md`, "Root causes"), which no swap
+device holds; its swapped anonymous pages were already on f2io from before
+and stay there until read. Netflix's resume is one sample better (1.06 s
+against 2.95 s) and one equal (2.31 against 2.39), its first panel change the
+same (0.3-0.8 s); dropped frames are noise either way (B's third `apphome`
+run dropped 10 of 43 against A's 2 of 43). What B did show: the compressor
+costs nothing extra (21 % busy against 25 % in the hog window; LG's f2io path
+compresses in software too), and 1.9 GB of swap writes in 4 minutes of
+pressure went to RAM instead of the eMMC partition, which is an endurance
+argument, not the speed one the decision asked for. So A stays; B was taken
+down at 12:48:58 (`swapoff /dev/zram0`, `echo 1 > /sys/block/zram0/reset`,
+`comp_algorithm` back to `lzo-rle`): `/proc/swaps` lists f2io alone,
+`disksize` 0. Nothing boots differently. The way to try it again is the
+driver's side B with `--keep`; the way to make it stay would be a script
+under `/var/lib/lumatv` linked from `/var/lib/webosbrew/init.d/` beside
+`50-lumatv`, never the rootfs.
 
 ## Before and after
 
