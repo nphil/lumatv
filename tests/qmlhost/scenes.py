@@ -105,7 +105,7 @@ def scene(name, runner=False, materials=("dark", "light")):
 
 def settings_to(section, *keys):
     """Open Settings and take the D-pad to a section (the rail's order), then the keys."""
-    rail = ["picture", "sound", "inputs", "network", "look", "remote", "ai", "system"]
+    rail = ["picture", "sound", "inputs", "network", "ambient", "look", "remote", "ai", "system"]
     steps = [("eval", 1500, "root.openSettings()")]
     if rail.index(section):
         steps.append(("keys", READY, k(*["down"] * rail.index(section))))

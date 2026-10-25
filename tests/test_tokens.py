@@ -36,6 +36,12 @@ class Tokens(unittest.TestCase):
         self.assertEqual(menu["danger"], "#FFEB6F92")        # the staged notification view's destructive colour
         self.assertEqual(menu["accentInk"], "#FF17131F")     # the ink that reads on an accent fill
 
+    def test_a_light_sheet_has_a_dark_hairline_and_the_shipped_dark_one_keeps_its_white_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            user = self.write(d, "theme.json", {"dark": {"glass": "#FFFAF3", "ink": "#17131F"}})
+            self.assertEqual(json.loads(run(TOKENS, SHIPPED, user, "qml"))["hairline"], "#1F000000")
+        self.assertEqual(json.loads(run(TOKENS, SHIPPED, SHIPPED, "qml"))["hairline"][3:], "FFFFFF")
+
     def test_a_user_file_overrides_only_what_it_says(self):
         with tempfile.TemporaryDirectory() as d:
             user = self.write(d, "theme.json", {"radii": {"sheet": 40}, "dark": {"accent": "#112233"}})

@@ -148,7 +148,7 @@ def resolve(shipped_path, user_path):
         # light fill, so the hue stays and text stays the same ink.
         "focus": argb(255, 255, 255, 0.07) if not sheet_light else argb(0, 0, 0, 0.06),
         "focusEdge": argb(255, 255, 255, 0.28) if not sheet_light else argb(0, 0, 0, 0.22),
-        "hairline": argb(er, eg, eb, min(0.22, max(0.10, ea))),
+        "hairline": argb(er, eg, eb, min(0.22, max(0.10, ea))) if not sheet_light else argb(0, 0, 0, 0.12),
         "ink": argb(ir, ig, ib, 1.0),
         "inkDim": argb(ir, ig, ib, 0.66),
         "focusInk": argb(ir, ig, ib, 1.0),
