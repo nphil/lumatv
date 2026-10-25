@@ -12,6 +12,7 @@
 #   log [n]                -> last n log lines (default 20)
 #   systemui on|off|status -> Quick Settings from our staged QML tree, or stock
 #   webglass on|off|status -> glass stylesheet in the settings web apps
+#   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
 #   version                -> version string from appinfo.json
 #
 # Nothing is ever written outside $APPDIR, $STATE (the brand's dataDir), the
@@ -187,6 +188,33 @@ STOCK_ASSETS=/usr/palm/applications/com.webos.app.home/data/flutter_assets/asset
 HOME_PKILL_PATTERN="flutter-client -i com.webos.app.home"
 HOME_LAUNCH_URI="luna://com.webos.applicationManager/launch"
 HOME_LAUNCH_PARAMS='{"id":"com.webos.app.home"}'
+
+# LG's Home retired behind a stub (see "Home stub" below). The stub is a web app
+# with LG's Home's id and category, bound over LG's app directory; the Home
+# assets bind stays where it is, under it.
+HOME_APP_ID=com.webos.app.home
+HOME_APP_DIR=/usr/palm/applications/$HOME_APP_ID
+STUB_SRC="$APPDIR/payload/homestub"
+STUB_STAGE="$STATE/homestub"
+# tmpfs, so a reboot clears every one of them. The first three are the contract
+# with LumaHome (payload/compositor/lumatv): it rewrites the beat once a second,
+# reads the mode, and the Home key's 650 ms hold writes the request.
+HS_BEAT="/tmp/$SHORT_ID-beat"
+HS_MODE="/tmp/$SHORT_ID-homemode"
+HS_ESCAPE="/tmp/$SHORT_ID-escape"
+HS_CONFIRM="/tmp/$SHORT_ID-confirm"
+HS_TRIAL="/tmp/.$SHORT_ID-homestub-trial"
+HS_SKIP="/tmp/.$SHORT_ID-homestub-skip"
+HS_WD_PID="/tmp/.$SHORT_ID-homestub-guard"
+HS_TICK="/tmp/.$SHORT_ID-homestub-tick"
+# Persisted: faults in a row. Two and the switch turns itself off.
+HS_STRIKES="$STATE/homestub.strikes"
+HS_TRIAL_SECS=120
+# A beat older than this is a fault, once the grace after a start or a
+# compositor restart has passed (a restart needs ~12 s before LumaHome draws).
+HS_STALE=5
+HS_GRACE=45
+HS_MAX_STRIKES=2
 SURFACE_SVC=surface-manager-daemon.service
 MSGLOG=/var/log/messages
 # A compositor that reports active is not yet presenting. Every cheap signal -
@@ -292,18 +320,12 @@ kill_home_app() {
 }
 
 home_running() {
-  # Home runs in its own namespace, where busybox `ps` cannot see it: `ps`
-  # reports zero flutter-client processes while the app is demonstrably
-  # running and on screen. Scan /proc/*/cmdline instead, and anchor on the
-  # binary path so this never matches a shell that merely mentions the app id
-  # on its own command line.
-  for p in /proc/[0-9]*; do
-    c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)
-    case "$c" in
-      /usr/bin/flutter-client*com.webos.app.home*) return 0 ;;
-    esac
-  done
-  return 1
+  # Whether Home is running, by SAM's own list: it holds for LG's Flutter app and
+  # for the stub alike. Home runs in its own namespace, where busybox `ps`
+  # reports zero flutter-client processes while the app is demonstrably on
+  # screen, and the stub is a WebAppMgr renderer with no process to look for.
+  luna-send -n 1 luna://com.webos.applicationManager/running '{}' 2>/dev/null \
+    | grep -q "\"id\":\"$HOME_APP_ID\""
 }
 
 home_in_front() {
@@ -478,22 +500,22 @@ take_mutation_lock() {
 # --------------------------------------------------------------- config i/o
 
 write_config() {
-  # $1=fps $2=persist $3=ntfy_enabled $4=ntfy_url $5=sddp_prev
-  # (fps/persist/enabled: true|false; sddp_prev: on|off|empty)
+  # $1=fps $2=persist $3=ntfy_enabled $4=ntfy_url $5=sddp_prev $6=homestub
+  # (fps/persist/enabled/homestub: true|false; sddp_prev: on|off|empty)
   mkdir -p "$STATE" 2>/dev/null
   url_esc=$(json_escape "$4")
   sddp_esc=$(json_escape "${5:-}")
   tmp="$CONFIG.tmp.$$"
-  printf '{"fps":%s,"ntfy":{"url":"%s","enabled":%s},"persist":%s,"sddp_prev":"%s"}\n' \
-    "$1" "$url_esc" "$3" "$2" "$sddp_esc" > "$tmp" && mv "$tmp" "$CONFIG"
+  printf '{"fps":%s,"ntfy":{"url":"%s","enabled":%s},"persist":%s,"sddp_prev":"%s","homestub":%s}\n' \
+    "$1" "$url_esc" "$3" "$2" "$sddp_esc" "${6:-false}" > "$tmp" && mv "$tmp" "$CONFIG"
 }
 
 ensure_config() {
-  [ -f "$CONFIG" ] || write_config false false false "" ""
+  [ -f "$CONFIG" ] || write_config false false false "" "" false
 }
 
 cfg_get_bool() {
-  # $1 = key name (fps|persist|enabled)
+  # $1 = key name (fps|persist|enabled|homestub)
   sed -n "s/.*\"$1\"[ ]*:[ ]*\\(true\\|false\\).*/\\1/p" "$CONFIG" 2>/dev/null | head -n1
 }
 
@@ -511,29 +533,33 @@ cfg_read_all() {
   # What enableSDDP was before `standby warm` turned it off, so `standby cold`
   # can put it back. Empty when this mod has not touched it.
   CFG_SDDP_PREV=$(cfg_get_str sddp_prev)
+  # The confirmed Home stub switch. A trial that has not been confirmed lives in
+  # tmpfs only (HS_TRIAL), so a reboot in the middle of one ends it.
+  CFG_HOMESTUB=$(cfg_get_bool homestub); [ -n "$CFG_HOMESTUB" ] || CFG_HOMESTUB=false
 }
 
 set_cfg_bool() {
-  # $1 = fps|persist|enabled  $2 = true|false
+  # $1 = fps|persist|enabled|homestub  $2 = true|false
   cfg_read_all
   case "$1" in
     fps) CFG_FPS="$2" ;;
     persist) CFG_PERSIST="$2" ;;
     enabled) CFG_NTFY_ENABLED="$2" ;;
+    homestub) CFG_HOMESTUB="$2" ;;
   esac
-  write_config "$CFG_FPS" "$CFG_PERSIST" "$CFG_NTFY_ENABLED" "$CFG_NTFY_URL" "$CFG_SDDP_PREV"
+  write_config "$CFG_FPS" "$CFG_PERSIST" "$CFG_NTFY_ENABLED" "$CFG_NTFY_URL" "$CFG_SDDP_PREV" "$CFG_HOMESTUB"
 }
 
 set_cfg_ntfy_url() {
   cfg_read_all
   CFG_NTFY_URL="$1"
-  write_config "$CFG_FPS" "$CFG_PERSIST" "$CFG_NTFY_ENABLED" "$CFG_NTFY_URL" "$CFG_SDDP_PREV"
+  write_config "$CFG_FPS" "$CFG_PERSIST" "$CFG_NTFY_ENABLED" "$CFG_NTFY_URL" "$CFG_SDDP_PREV" "$CFG_HOMESTUB"
 }
 
 set_cfg_sddp_prev() {
   cfg_read_all
   CFG_SDDP_PREV="$1"
-  write_config "$CFG_FPS" "$CFG_PERSIST" "$CFG_NTFY_ENABLED" "$CFG_NTFY_URL" "$CFG_SDDP_PREV"
+  write_config "$CFG_FPS" "$CFG_PERSIST" "$CFG_NTFY_ENABLED" "$CFG_NTFY_URL" "$CFG_SDDP_PREV" "$CFG_HOMESTUB"
 }
 
 # ----------------------------------------------------------------- ntfy i/o
@@ -962,6 +988,504 @@ disarm_restart_crashes() {
   return 0
 }
 
+# ----------------------------------------------------------------- Home stub
+#
+# LG's Home is a Flutter app that stays resident under LumaHome (36-72 MB) and is
+# what memchute closes when a big app launches, so each return to Home pays for
+# LG's Home starting again and the compositor paging itself back in. The stub is
+# a web app with the same id and category that draws nothing, bound over LG's
+# app directory, so LumaHome is the only Home.
+#
+# SAM reads an appinfo.json only when it scans. blockSystemApp then
+# releaseBlockSystemApp makes it drop and read that one app again within 0.5 s,
+# with no SAM restart (which on webOS 10 has cost the picture, ARC sound and CEC
+# until a power cut); the release must follow, since an app left blocked cannot
+# launch. The block list file ends byte-identical. SAM keeps the old instance
+# when the type changes under it and can then neither close nor replace it, so
+# the directory and SAM change first and the old instance is stopped after: the
+# Flutter process killed, or the stub's page killed through WebAppMgr
+# (closeByAppId only sends it to the background).
+#
+# The Home assets bind stays where it is, under the stub, so LG's Home finds its
+# decluttered assets when the stub goes.
+#
+# Every way out ends on LG's Home, never a black screen. revert and off remove
+# the stub. The guard (homestub-watch) gives LG's Home back when LumaHome's
+# heartbeat stops or an unconfirmed trial runs out, and when Home is held for
+# 650 ms anywhere; LumaHome and the Home key write a request file for it, since
+# the compositor is not allowed to run commands.
+
+sam_home_type() {
+  luna-send -n 1 luna://com.webos.applicationManager/getAppInfo "{\"id\":\"$HOME_APP_ID\"}" 2>/dev/null \
+    | tr -d '\n' | sed -n 's/.*"type"[ ]*:[ ]*"\([^"]*\)".*/\1/p'
+}
+
+hs_mounted_any() {
+  # Something is mounted on the app directory itself, not on the assets below it.
+  grep -qF " $HOME_APP_DIR " /proc/self/mountinfo 2>/dev/null
+}
+
+hs_mounted_ours() {
+  # Same device and inode as the staged copy.
+  [ -d "$STUB_STAGE" ] || return 1
+  hs_id=$(stat -c %d:%i "$HOME_APP_DIR" 2>/dev/null)
+  [ -n "$hs_id" ] && [ "$hs_id" = "$(stat -c %d:%i "$STUB_STAGE" 2>/dev/null)" ]
+}
+
+hs_stub_in_front() { hs_mounted_ours && home_in_front; }
+
+hs_open_home() { luna-send -n 1 "$HOME_LAUNCH_URI" "$HOME_LAUNCH_PARAMS" >/dev/null 2>&1; }
+
+hs_stage() {
+  # Copied in place, so a mounted stub follows an update. HS_STAGED says the
+  # manifest changed, which SAM only learns of by reading the app again.
+  HS_STAGED=0
+  for hs_f in appinfo.json index.html icon.png; do
+    [ -f "$STUB_SRC/$hs_f" ] || return 1
+  done
+  mkdir -p "$STUB_STAGE" 2>/dev/null || return 1
+  for hs_f in appinfo.json index.html icon.png; do
+    if ! cmp -s "$STUB_SRC/$hs_f" "$STUB_STAGE/$hs_f" 2>/dev/null; then
+      cp -f "$STUB_SRC/$hs_f" "$STUB_STAGE/$hs_f" 2>/dev/null || return 1
+      [ "$hs_f" = appinfo.json ] && HS_STAGED=1
+    fi
+  done
+  return 0
+}
+
+hs_mode_set() {
+  # $1 = stub | lg | legacy. LumaHome reads it: lg steps the layer aside so LG's
+  # Home shows, legacy is the layer over LG's Home as before the stub. The second
+  # field changes with every write, so a new decision is never taken for an old one.
+  printf '%s %s%s\n' "$1" "$(uptime_s)" "$$" > "$HS_MODE.tmp.$$" 2>/dev/null \
+    && mv -f "$HS_MODE.tmp.$$" "$HS_MODE" 2>/dev/null
+  return 0
+}
+
+hs_sam_reread() {
+  luna-send -n 1 luna://com.webos.applicationManager/blockSystemApp "{\"id\":\"$HOME_APP_ID\"}" >/dev/null 2>&1
+  hs_ri=0
+  while [ "$hs_ri" -lt 5 ]; do
+    hs_rr=$(luna-send -n 1 luna://com.webos.applicationManager/releaseBlockSystemApp "{\"id\":\"$HOME_APP_ID\"}" 2>/dev/null | tr -d '\n ')
+    case "$hs_rr" in *'"returnValue":true'*) return 0 ;; esac
+    hs_ri=$((hs_ri+1)); sleep 1
+  done
+  log_line "homestub: SAM would not release $HOME_APP_ID"
+  return 1
+}
+
+hs_wait_type() {
+  # $1 = the type SAM should report for Home (web | flutter); up to 5 s.
+  hs_wi=0
+  while [ "$hs_wi" -lt 10 ]; do
+    [ "$(sam_home_type)" = "$1" ] && return 0
+    sleep 0.5; hs_wi=$((hs_wi+1))
+  done
+  return 1
+}
+
+hs_unmount() {
+  hs_ui=0
+  while hs_mounted_ours && [ "$hs_ui" -lt 3 ]; do
+    umount "$HOME_APP_DIR" >/dev/null 2>&1
+    hs_ui=$((hs_ui+1))
+    hs_mounted_ours && sleep 1
+  done
+  hs_mounted_ours && umount -l "$HOME_APP_DIR" >/dev/null 2>&1
+  hs_mounted_ours && return 1
+  return 0
+}
+
+hs_beat_seen() {
+  # $1 = seconds to wait for LumaHome's beat to change.
+  hs_b0=""; { read -r hs_b0 < "$HS_BEAT"; } 2>/dev/null
+  hs_bi=0
+  while [ "$hs_bi" -lt "$1" ]; do
+    sleep 1
+    hs_b1=""; { read -r hs_b1 < "$HS_BEAT"; } 2>/dev/null
+    [ -n "$hs_b1" ] && [ "$hs_b1" != "$hs_b0" ] && return 0
+    hs_bi=$((hs_bi+1))
+  done
+  return 1
+}
+
+hs_strikes() {
+  hs_sn=$(cat "$HS_STRIKES" 2>/dev/null)
+  case "$hs_sn" in ''|*[!0-9]*) hs_sn=0 ;; esac
+  printf '%s' "$hs_sn"
+}
+
+hs_strike() {
+  # One more fault in a row; at the limit the switch turns itself off.
+  hs_sk=$(( $(hs_strikes) + 1 ))
+  printf '%s\n' "$hs_sk" > "$HS_STRIKES" 2>/dev/null
+  log_line "homestub: fault $hs_sk of $HS_MAX_STRIKES ($1)"
+  if [ "$hs_sk" -ge "$HS_MAX_STRIKES" ]; then
+    set_cfg_bool homestub false
+    log_line "homestub: switched off after $hs_sk faults in a row"
+  fi
+}
+
+hs_wanted() {
+  # An unconfirmed trial counts: it brings the stub up for its 120 s.
+  [ -f "$HS_SKIP" ] && return 1
+  [ "$(hs_strikes)" -lt "$HS_MAX_STRIKES" ] || return 1
+  [ -f "$HS_TRIAL" ] && return 0
+  [ "$(cfg_get_bool homestub)" = true ]
+}
+
+hs_wd_alive() {
+  [ -f "$HS_WD_PID" ] || return 1
+  hs_wp=$(cat "$HS_WD_PID" 2>/dev/null)
+  case "$hs_wp" in ''|*[!0-9]*) return 1 ;; esac
+  [ -d "/proc/$hs_wp" ] && tr '\0' ' ' < "/proc/$hs_wp/cmdline" 2>/dev/null | grep -q 'homestub-watch'
+}
+
+hs_wd_stop() {
+  if hs_wd_alive; then kill "$(cat "$HS_WD_PID")" 2>/dev/null; fi
+  rm -f "$HS_WD_PID"
+}
+
+hs_wd_start() {
+  hs_wd_alive && return 0
+  # Closes the lock descriptors: a child holding them would keep every later
+  # mutation waiting for as long as it lives.
+  setsid "$APPDIR/tools/$SHORT_ID" homestub-watch 8>&- 9>&- </dev/null >/dev/null 2>&1 &
+  return 0
+}
+
+hs_wd_restart() { hs_wd_stop; hs_wd_start; }
+
+hs_guard_exit() {
+  # A guard that was stopped for a restart must not take its successor's pidfile
+  # with it.
+  [ "$(cat "$HS_WD_PID" 2>/dev/null)" = "$$" ] && rm -f "$HS_WD_PID"
+  exit 0
+}
+
+homestub_up() {
+  # LG's Home directory shows the stub, SAM knows it, and LG's own instance, if
+  # one started first, is stopped. 0 = in place; anything else left LG's Home.
+  if hs_mounted_any && ! hs_mounted_ours; then
+    log_line "homestub: something else is mounted on $HOME_APP_DIR, not stacking on it"
+    return 2
+  fi
+  hs_was=0; hs_mounted_ours && hs_was=1
+  hs_stage || { log_line "homestub: the stub's files are missing"; return 1; }
+  if ! hs_mounted_ours; then
+    # The assets bind goes first so that it sits under the stub, where LG's Home
+    # looks once the stub is gone.
+    if ! is_mounted "$STOCK_ASSETS" && [ -d "$ASSETS/i18n" ]; then
+      mount --bind "$ASSETS" "$STOCK_ASSETS" >/dev/null 2>&1
+    fi
+    if ! mount --bind "$STUB_STAGE" "$HOME_APP_DIR" >/dev/null 2>&1 || ! hs_mounted_ours; then
+      log_line "homestub: the bind on $HOME_APP_DIR failed"
+      return 1
+    fi
+  fi
+  hs_sam=$(sam_home_type)
+  if [ "$hs_sam" != web ] || { [ "$hs_was" = 1 ] && [ "$HS_STAGED" = 1 ]; }; then
+    if ! hs_sam_reread || ! hs_wait_type web; then
+      log_line "homestub: SAM did not take the stub as Home"
+      homestub_drop legacy
+      return 1
+    fi
+    # The page that was already running has the old manifest; the next launch
+    # reads the new one.
+    if [ "$hs_sam" = web ]; then
+      luna-send -n 1 luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" >/dev/null 2>&1
+    fi
+  fi
+  kill_home_app
+  hs_mode_set stub
+  log_line "homestub: stub in place at uptime $(uptime_s) s"
+  return 0
+}
+
+homestub_drop() {
+  # LG's Home owns its directory again and SAM knows it. $1 = what LumaHome does
+  # next: legacy (covers LG's Home, as before the stub) or lg (steps aside).
+  # HS_DROPPED says whether a stub was mounted.
+  hs_next="${1:-legacy}"
+  [ "${HS_IN_GUARD:-0}" = 1 ] || hs_wd_stop
+  rm -f "$HS_TRIAL" "$HS_ESCAPE" "$HS_CONFIRM"
+  HS_DROPPED=0
+  if hs_mounted_ours; then
+    HS_DROPPED=1
+    hs_unmount || log_line "homestub: the stub is only lazily unmounted"
+  fi
+  if [ "$(sam_home_type)" = web ]; then
+    hs_sam_reread
+    hs_wait_type flutter || log_line "homestub: SAM still reports a web Home"
+  fi
+  if ! is_mounted "$STOCK_ASSETS" && [ -d "$ASSETS/i18n" ]; then
+    mount --bind "$ASSETS" "$STOCK_ASSETS" >/dev/null 2>&1
+  fi
+  # The stub's page goes last. Where it was in front, SAM opens Home again about
+  # a second later, and now the app it opens is LG's.
+  if [ "$HS_DROPPED" = 1 ]; then
+    luna-send -n 1 luna://com.palm.webappmanager/killApp "{\"appId\":\"$HOME_APP_ID\"}" >/dev/null 2>&1
+    log_line "homestub: LG's Home is back in its directory"
+  fi
+  hs_mode_set "$hs_next"
+  return 0
+}
+
+homestub_escape() {
+  # Home held: LG's own Home on screen, LumaHome out of its way, until the next
+  # apply or reboot.
+  take_mutation_lock || { log_line "homestub: escape could not take the lock"; return 1; }
+  log_line "homestub: Home held, giving LG's Home back"
+  : > "$HS_SKIP"
+  homestub_drop lg
+  hs_open_home
+  return 0
+}
+
+homestub_fault() {
+  # $1 = what went wrong. Home is opened again only where the stub was in front;
+  # an app in front is left alone.
+  take_mutation_lock || return 1
+  log_line "homestub: $1, giving LG's Home back"
+  hs_front=0; hs_stub_in_front && hs_front=1
+  : > "$HS_SKIP"
+  homestub_drop lg
+  [ "$hs_front" = 1 ] && hs_open_home
+  hs_strike "$1"
+  ntfy_notify "$DISPLAY_NAME gave LG's Home back: $1"
+  return 0
+}
+
+homestub_expire() {
+  take_mutation_lock || return 1
+  log_line "homestub: trial not confirmed, giving LG's Home back"
+  hs_front=0; hs_stub_in_front && hs_front=1
+  homestub_drop legacy
+  [ "$hs_front" = 1 ] && hs_open_home
+  ntfy_notify "$DISPLAY_NAME Home stub trial ended unconfirmed"
+  return 0
+}
+
+homestub_confirm() {
+  # Needs the stub in place and LumaHome beating: a stub nobody can see must not
+  # become the setting.
+  [ -f "$HS_TRIAL" ] || return 1
+  hs_mounted_ours && [ "$(sam_home_type)" = web ] || return 2
+  hs_beat_seen 3 || return 3
+  set_cfg_bool homestub true
+  rm -f "$HS_TRIAL" "$HS_STRIKES" "$HS_CONFIRM"
+  log_line "homestub: confirmed"
+  return 0
+}
+
+homestub_sync() {
+  # apply's step: the stub is brought in line with what is wanted, before the
+  # compositor restarts so that the Home it relaunches is the stub. A hand-run
+  # apply is the "next apply" of an escape; the boot worker's own is not.
+  [ "${LUMA_BOOT:-0}" = 1 ] || rm -f "$HS_SKIP"
+  if hs_wanted; then
+    if homestub_up; then
+      hs_wd_restart
+    else
+      log_line "homestub: not in place, LG's Home stays"
+    fi
+  else
+    if hs_mounted_ours || [ "$(sam_home_type)" = web ]; then homestub_drop legacy; else hs_mode_set legacy; fi
+  fi
+  return 0
+}
+
+homestub_json() {
+  hs_cfg=$(cfg_get_bool homestub); [ "$hs_cfg" = true ] || hs_cfg=false
+  hs_mo=false; hs_mounted_ours && hs_mo=true
+  hs_st=$(sam_home_type)
+  hs_fl=false; pgrep -f "$HOME_PKILL_PATTERN" >/dev/null 2>&1 && hs_fl=true
+  hs_left=0
+  if [ -f "$HS_TRIAL" ]; then
+    hs_dl=""; { read -r hs_tb hs_dl < "$HS_TRIAL"; } 2>/dev/null
+    case "$hs_dl" in ''|*[!0-9]*) hs_left=$HS_TRIAL_SECS ;; *) hs_left=$((hs_dl - $(uptime_s))); [ "$hs_left" -gt 0 ] || hs_left=0 ;; esac
+  fi
+  if [ "$hs_mo" = true ] && [ "$hs_st" = web ]; then
+    if [ -f "$HS_TRIAL" ]; then hs_state=trial; else hs_state=stub; fi
+  elif [ "$hs_cfg" = true ] || [ -f "$HS_TRIAL" ]; then
+    hs_state=lg
+  else
+    hs_state=off
+  fi
+  hs_gd=false; hs_wd_alive && hs_gd=true
+  hs_bt=false
+  if [ -f "$HS_BEAT" ]; then
+    hs_age=$(( $(date +%s) - $(mtime_epoch "$HS_BEAT") ))
+    [ "$hs_age" -le 3 ] && hs_bt=true
+  fi
+  printf '{"config":%s,"state":"%s","mounted":%s,"sam":"%s","flutter":%s,"trialLeft":%s,"guard":%s,"beat":%s,"faults":%s}' \
+    "$hs_cfg" "$hs_state" "$hs_mo" "$hs_st" "$hs_fl" "$hs_left" "$hs_gd" "$hs_bt" "$(hs_strikes)"
+}
+
+verb_homestub() {
+  case "${1:-status}" in
+    on)
+      [ -f "$STUB_SRC/appinfo.json" ] || { emit_error "the stub's files are missing from this install"; return 1; }
+      if hs_mounted_any && ! hs_mounted_ours; then
+        emit_error "something else is mounted on LG's Home directory (Glasshouse Home?)"; return 1
+      fi
+      rm -f "$HS_SKIP" "$HS_STRIKES" "$HS_ESCAPE" "$HS_CONFIRM"
+      # A trial with no deadline yet: apply brings the stub up for it, the clock
+      # starts when it has.
+      printf 'pending\n' > "$HS_TRIAL"
+      hs_out=$(verb_apply)
+      case "$hs_out" in
+        *'"ok":true'*) : ;;
+        *) rm -f "$HS_TRIAL"; printf '%s\n' "$hs_out"; return 1 ;;
+      esac
+      if ! hs_mounted_ours || [ "$(sam_home_type)" != web ]; then
+        rm -f "$HS_TRIAL"
+        emit_error "the stub did not come up; LG's Home stays (see the log)"; return 1
+      fi
+      if ! hs_beat_seen 50; then
+        take_mutation_lock >/dev/null 2>&1
+        hs_front=0; hs_stub_in_front && hs_front=1
+        homestub_drop legacy
+        [ "$hs_front" = 1 ] && hs_open_home
+        log_line "homestub: LumaHome never started its heartbeat, stub removed"
+        emit_error "LumaHome did not start drawing; LG's Home is back"; return 1
+      fi
+      printf 'trial %s\n' "$(( $(uptime_s) + HS_TRIAL_SECS ))" > "$HS_TRIAL"
+      log_line "homestub: on trial for $HS_TRIAL_SECS s"
+      printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
+      ;;
+    off)
+      take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+      set_cfg_bool homestub false
+      rm -f "$HS_SKIP" "$HS_STRIKES"
+      hs_front=0; hs_stub_in_front && hs_front=1
+      homestub_drop legacy
+      [ "$hs_front" = 1 ] && hs_open_home
+      log_line "homestub: off"
+      printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
+      ;;
+    confirm)
+      if [ ! -f "$HS_TRIAL" ]; then
+        if [ "$(cfg_get_bool homestub)" = true ] && hs_mounted_ours; then
+          printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"; return 0
+        fi
+        emit_error "no trial is running"; return 1
+      fi
+      homestub_confirm
+      case $? in
+        0) printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)" ;;
+        2) emit_error "the stub is not in place"; return 1 ;;
+        *) emit_error "LumaHome is not drawing (no heartbeat); not confirming"; return 1 ;;
+      esac
+      ;;
+    status) printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)" ;;
+    *) emit_error "usage: homestub on|off|confirm|status"; return 1 ;;
+  esac
+  return 0
+}
+
+verb_homestub_boot() {
+  # The boot worker's first act (tools/autostart.sh), before anything touches
+  # Home: the stub goes over LG's Home as early as the early hook runs, because
+  # bootd opens Home about 14 s into a power-on and the hook starts at 12-14 s.
+  # The compositor is still stock then; the apply that follows restarts it.
+  if [ "$(cfg_get_bool homestub)" != true ]; then
+    printf '{"ok":true,"stub":false,"reason":"off"}\n'; return 0
+  fi
+  take_mutation_lock || { emit_error "another mutation is in progress"; return 1; }
+  rm -f "$HS_SKIP"
+  if [ -f "$BOOT_PENDING" ]; then
+    # The previous boot never reached boot-ok. Whatever stopped it may have been
+    # the stub, so this boot has LG's Home.
+    hs_strike "the previous boot never completed"
+    : > "$HS_SKIP"
+    printf '{"ok":true,"stub":false,"reason":"failsafe"}\n'; return 0
+  fi
+  if [ "$(hs_strikes)" -ge "$HS_MAX_STRIKES" ]; then
+    set_cfg_bool homestub false
+    printf '{"ok":true,"stub":false,"reason":"faults"}\n'; return 0
+  fi
+  if [ ! -d "$ASSETS/i18n" ] || [ ! -f "$STUB_SRC/appinfo.json" ]; then
+    printf '{"ok":true,"stub":false,"reason":"no-stage"}\n'; return 0
+  fi
+  if homestub_up; then
+    hs_wd_start
+    printf '{"ok":true,"stub":true}\n'
+  else
+    printf '{"ok":true,"stub":false,"reason":"failed"}\n'
+  fi
+  return 0
+}
+
+verb_homestub_watch() {
+  # The guard: one detached shell. While all is well it forks nothing: the reads
+  # are builtins and the one-second wait is a read on a fifo.
+  if hs_wd_alive && [ "$(cat "$HS_WD_PID" 2>/dev/null)" != "$$" ]; then exit 0; fi
+  printf '%s\n' "$$" > "$HS_WD_PID"
+  HS_IN_GUARD=1
+  trap 'hs_guard_exit' TERM INT HUP
+  [ -p "$HS_TICK" ] || { rm -f "$HS_TICK"; mkfifo "$HS_TICK" 2>/dev/null; }
+  # Requests left from before this guard started are stale.
+  rm -f "$HS_ESCAPE" "$HS_CONFIRM"
+  read -r hs_up hs_idle < /proc/uptime; hs_now=${hs_up%%.*}
+  hs_last=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE)); hs_cpid=""; hs_good=0; hs_mchk=$hs_now
+  log_line "homestub: guard started"
+  while :; do
+    if [ -p "$HS_TICK" ]; then read -t 1 hs_x <> "$HS_TICK" 2>/dev/null; else sleep 1; fi
+    read -r hs_up hs_idle < /proc/uptime; hs_now=${hs_up%%.*}
+
+    if [ -e "$HS_ESCAPE" ]; then
+      rm -f "$HS_ESCAPE"; homestub_escape; hs_guard_exit
+    fi
+    if [ -e "$HS_CONFIRM" ]; then
+      rm -f "$HS_CONFIRM"; homestub_confirm >/dev/null 2>&1
+    fi
+    if [ -f "$HS_TRIAL" ]; then
+      hs_dl=""; { read -r hs_tb hs_dl < "$HS_TRIAL"; } 2>/dev/null
+      case "$hs_dl" in
+        ''|*[!0-9]*) : ;;
+        *) if [ "$hs_now" -ge "$hs_dl" ]; then homestub_expire; hs_guard_exit; fi ;;
+      esac
+    fi
+
+    # The compositor: a new process, or none yet, means it is restarting and LumaHome
+    # needs the grace again.
+    if [ -z "$hs_cpid" ] || [ ! -d "/proc/$hs_cpid" ]; then
+      hs_np=$(pgrep -x surface-manager 2>/dev/null | head -n1)
+      if [ -z "$hs_np" ]; then
+        hs_cpid=""; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
+      elif [ "$hs_np" != "$hs_cpid" ]; then
+        [ -n "$hs_cpid" ] && log_line "homestub: compositor restarted"
+        hs_cpid=$hs_np; hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
+      fi
+    fi
+
+    hs_b=""; { read -r hs_b < "$HS_BEAT"; } 2>/dev/null
+    if [ -n "$hs_b" ] && [ "$hs_b" != "$hs_last" ]; then
+      hs_last=$hs_b; hs_ok_at=$hs_now; hs_good=$((hs_good + 1))
+      # A minute of beats ends the run of faults.
+      if [ "$hs_good" -eq 60 ]; then rm -f "$HS_STRIKES"; fi
+    fi
+    if [ "$hs_now" -ge "$hs_grace" ] && [ $((hs_now - hs_ok_at)) -ge "$HS_STALE" ]; then
+      homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s)"
+      hs_guard_exit
+    fi
+
+    # Every 5 s: is the stub still mounted? A guard for a stub that is gone has
+    # nothing to guard.
+    if [ $((hs_now - hs_mchk)) -ge 5 ]; then
+      hs_mchk=$hs_now; hs_have=0
+      while read -r hs_m1 hs_m2 hs_m3 hs_m4 hs_m5 hs_mrest; do
+        [ "$hs_m5" = "$HOME_APP_DIR" ] && hs_have=1
+      done < /proc/self/mountinfo
+      if [ "$hs_have" != 1 ]; then
+        log_line "homestub: the stub is no longer mounted, guard stops"
+        hs_guard_exit
+      fi
+    fi
+  done
+}
+
 # ------------------------------------------------------------------- revert
 
 # ---------------------------------------------------------------- tile icons
@@ -1001,6 +1525,11 @@ do_revert_internal() {
   # actually mounted or restored, so callers can decide whether a disruptive
   # compositor restart / Home relaunch is warranted.
   REVERT_CHANGED=0
+
+  # LG's Home first, so what the restart below brings up is LG's, not the stub.
+  homestub_drop legacy
+  if [ "${HS_DROPPED:-0}" = 1 ]; then REVERT_CHANGED=1; fi
+  rm -f "$HS_MODE" "$HS_BEAT" "$HS_SKIP" "$HS_STRIKES"
 
   # The env file is what makes a starting compositor load our module, so it
   # goes first: from that point on any compositor start is stock, whether or
@@ -1071,6 +1600,8 @@ verb_apply() {
   fi
 
   if [ "$need_build" -eq 1 ]; then
+    # The copy below reads LG's own directory; homestub_sync puts the stub back.
+    if hs_mounted_ours; then homestub_drop legacy; fi
     # Unmount first: if a bind is already active, reading the target now
     # would copy a merged view, never real stock.
     drain_umount "$STOCK_ASSETS"
@@ -1204,22 +1735,28 @@ verb_apply() {
       return 1
     fi
 
-    # 5. Bind Home's assets (its layout, strings and banner images).
-    drain_umount "$STOCK_ASSETS"
-    binderr=$(mount --bind "$ASSETS" "$STOCK_ASSETS" 2>&1 >/dev/null)
-    if [ $? -ne 0 ]; then
-      log_line "apply: bind failed on assets: $binderr"
-      do_revert_internal
-      ntfy_notify "$DISPLAY_NAME apply failed: assets bind failed"
-      emit_error "assets bind failed: $binderr"
-      return 1
-    fi
-    if ! is_mounted "$STOCK_ASSETS"; then
-      log_line "apply: assets bind verification failed"
-      do_revert_internal
-      ntfy_notify "$DISPLAY_NAME apply failed: bind verification failed"
-      emit_error "assets bind verification failed"
-      return 1
+    # 5. Bind Home's assets (its layout, strings and banner images). Under the stub
+    # they stay bound where they are: the path below is not LG's directory then.
+    if hs_mounted_ours && ! is_mounted "$STOCK_ASSETS"; then homestub_drop legacy; fi
+    if hs_mounted_ours; then
+      log_line "apply: Home's assets stay bound under the stub"
+    else
+      drain_umount "$STOCK_ASSETS"
+      binderr=$(mount --bind "$ASSETS" "$STOCK_ASSETS" 2>&1 >/dev/null)
+      if [ $? -ne 0 ]; then
+        log_line "apply: bind failed on assets: $binderr"
+        do_revert_internal
+        ntfy_notify "$DISPLAY_NAME apply failed: assets bind failed"
+        emit_error "assets bind failed: $binderr"
+        return 1
+      fi
+      if ! is_mounted "$STOCK_ASSETS"; then
+        log_line "apply: assets bind verification failed"
+        do_revert_internal
+        ntfy_notify "$DISPLAY_NAME apply failed: bind verification failed"
+        emit_error "assets bind verification failed"
+        return 1
+      fi
     fi
     record_bound_now
   fi
@@ -1229,6 +1766,10 @@ verb_apply() {
   REVERT_CHANGED=0
   revert_tile_icons
   TILES_CHANGED=$REVERT_CHANGED
+
+  # 5c. The Home stub, before anything restarts, so the Home the compositor's
+  # restart relaunches is the stub.
+  homestub_sync
 
   # 6. Bring the change on screen.
   #
@@ -1337,6 +1878,7 @@ verb_boot_bind() {
   # Fail safe first: a compositor that never came up outranks everything else.
   if [ -f "$ENV_FILE" ] && ! surface_start_uptime >/dev/null 2>&1; then
     log_line "boot-bind: no compositor running with our env file present, reverting to stock"
+    homestub_drop legacy
     remove_env
     rm -f "$ENV_EXTRA"
     systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
@@ -1363,6 +1905,7 @@ verb_boot_bind() {
       fi
     else
       log_line "boot-bind: shadow rebuild failed, dropping env file"
+      homestub_drop legacy
       remove_env
       if compositor_has_shadow && panel_is_active; then
         restart_surface >/dev/null 2>&1
@@ -1418,8 +1961,9 @@ verb_status() {
   firmware_esc=$(json_escape "$(get_firmware)")
   model_esc=$(json_escape "$(get_model)")
   standby=$(standby_mode)
-  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s"}\n' \
-    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc"
+  homestub=$(homestub_json)
+  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s}\n' \
+    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub"
   return 0
 }
 
@@ -1806,7 +2350,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass)
+  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -1867,6 +2411,9 @@ case "$VERB" in
   theme) verb_theme "${2:-get}" "${3:-}"; exit $? ;;
   systemui) verb_systemui "${2:-status}"; exit $? ;;
   webglass) verb_webglass "${2:-status}"; exit $? ;;
+  homestub) verb_homestub "${2:-status}"; exit $? ;;
+  homestub-boot) verb_homestub_boot; exit $? ;;
+  homestub-watch) verb_homestub_watch; exit $? ;;
   version) verb_version; exit $? ;;
   *) emit_error "unknown verb: $VERB"; exit 1 ;;
 esac

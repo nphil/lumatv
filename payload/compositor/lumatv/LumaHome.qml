@@ -213,6 +213,60 @@ Item {
         }
     }
 
+    // ============================================================= Home stub contract
+    // With the Home stub (tools/lumatv homestub) this layer is the only Home, so
+    // something outside the compositor has to notice when it stops drawing: a file
+    // rewritten once a second for as long as this item lives, read by the tool's
+    // guard. That one write is all that runs per tick, and it runs while Home is
+    // hidden too, since a layer that has died is found out before the next Home key.
+    // The mode comes back the other way: "lg" means LG's own Home is meant to be on
+    // screen (Home held, or the stub gave way) and the layer steps aside; "stub" and
+    // "legacy" (no file) leave it covering Home. The second field of the file changes
+    // with every decision, which ends an escape taken without the tool (legacy mode:
+    // LG's Home is already underneath, so the layer just hides until the next apply).
+    readonly property string beatUrl: "file:///tmp/{{shortId}}-beat"
+    readonly property string modeUrl: "file:///tmp/{{shortId}}-homemode"
+    property int beatSeq: 0
+    property bool homeCurrent: false        // set by the container: Home is its surface
+    property string homeMode: "legacy"
+    property string modeToken: ""
+    property bool escapedLocal: false
+    readonly property bool lgHome: homeMode === "lg" || escapedLocal
+    Timer {
+        interval: 1000; running: true; repeat: true
+        onTriggered: {
+            var x = new XMLHttpRequest()
+            try { x.open("PUT", root.beatUrl); x.send(String(++root.beatSeq)) } catch (e) {}
+        }
+    }
+    function readMode() {
+        var x = new XMLHttpRequest()
+        x.onreadystatechange = function() {
+            if (x.readyState !== 4) return
+            var t = ((x.status === 200 || x.status === 0) ? (x.responseText || "") : "").replace(/\s+$/, "").split(" ")
+            var token = t[1] || ""
+            if (token !== root.modeToken) { root.modeToken = token; root.escapedLocal = false }
+            root.homeMode = (t[0] === "stub" || t[0] === "lg") ? t[0] : "legacy"
+        }
+        try { x.open("GET", modeUrl); x.send() } catch (e) {}
+    }
+    Timer {
+        // the mode is only looked at while Home is the foreground surface
+        interval: 2000; running: root.homeCurrent; repeat: true; triggeredOnStart: true
+        onTriggered: root.readMode()
+    }
+    Timer {
+        // after the Home key has been held: follow the tool's answer closely for 10 s
+        id: modeFast
+        property int ticks: 0
+        interval: 250; repeat: true; running: false
+        onTriggered: { root.readMode(); if (++ticks >= 40 || root.homeMode === "lg") stop() }
+    }
+    function escapeRequested() {
+        if (homeMode === "stub") { modeFast.ticks = 0; modeFast.restart() }   // the tool is on it
+        else escapedLocal = true                                               // LG's Home is already underneath
+    }
+
     // ============================================================= fonts
     FontLoader { source: root.fontsDirUrl + "Manrope-Medium.ttf" }
     FontLoader { source: root.fontsDirUrl + "Manrope-SemiBold.ttf" }
@@ -633,8 +687,8 @@ Item {
         }
         return best
     }
-    Component.onCompleted: { Bus.setHandler(root.key); loadAll() }
-    Component.onDestruction: Bus.setHandler(null)
+    Component.onCompleted: { Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); loadAll(); readMode() }
+    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
     // sees the Magic Remote.

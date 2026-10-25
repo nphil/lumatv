@@ -62,7 +62,10 @@ fi
 
 # --worker: the detached half, run by whichever hook got here first.
 #
-# boot-bind first, so the binds are live within a second; then the full apply,
+# homestub-boot first, when the Home stub is switched on: LG's Home must not
+# start (bootd opens it about 14 s into a power-on, the hook runs at 12-14 s),
+# so the stub goes over its directory before anything else is done. Then
+# boot-bind, so the binds are live within a second; then the full apply,
 # which restarts the compositor because its first start at boot+2.6s cannot
 # see our EnvironmentFile - nothing writable is mounted on /var until
 # mount-readwrite.service at ~13s. The early hook (a PATH shim on
@@ -77,6 +80,8 @@ if [ "$1" = "--worker" ]; then
   echo $$ > "$WORKER_MARK" 2>/dev/null
   # Tells apply it is on the boot path: never force the panel on.
   LUMA_BOOT=1; export LUMA_BOOT
+  hs=$("$CLI" homestub-boot 2>&1)
+  log "homestub-boot: $(echo "$hs" | tr -d '\n' | cut -c1-200)"
   bb=$("$CLI" boot-bind 2>&1)
   log "boot-bind: $(echo "$bb" | tr -d '\n' | cut -c1-200)"
   out=$("$CLI" apply 2>&1)

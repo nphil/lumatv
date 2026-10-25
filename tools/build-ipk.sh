@@ -64,6 +64,9 @@ payload/wallpaper/wall_1080.png
 payload/theme/theme.json
 payload/theme/layout.json
 payload/fonts/Manrope-SemiBold.ttf
+payload/homestub/appinfo.json
+payload/homestub/index.html
+payload/homestub/icon.png
 "
 
 # Check required files
