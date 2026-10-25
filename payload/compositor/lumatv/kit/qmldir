@@ -1,4 +1,5 @@
 singleton Lu 1.0 Lu.qml
+singleton Warm 1.0 Warm.qml
 FocusLift 1.0 FocusLift.qml
 LuHalo 1.0 LuHalo.qml
 LuText 1.0 LuText.qml

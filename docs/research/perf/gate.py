@@ -1,0 +1,662 @@
+#!/usr/bin/env python3
+"""Per-surface frame gate: the PLAN's "Rules every surface meets", measured on the set.
+
+    gate.py [--surfaces a,b] [--cycles N] [--soak] [--json OUT] [--tag T]
+
+For each surface in SURFACES the gate injects its open and close keys with /tmp/kb.py (exact
+timing, markers at the instant of the key), captures with capture.sh, cuts the trace into one
+window per marker with analyse.py and checks every window against the thresholds below:
+
+  p90 animated-frame render      < 3.0 ms
+  animated frames over 20 ms     none (`dropped` and `burst_over20` are 0)
+  first frame after the key      <= 50 ms
+  burst end after the key        <= 180 ms (opens and closes)
+  compositor RSS over N cycles   flat, see rss_growth()
+  /var/log/messages              no line matching LOG_FAIL_PATTERNS
+
+A surface whose key is not consumed (no frame in its window) fails. The run starts with 3
+open/close cycles per surface in `full` captures (scheduler and GPU events, for root-causing a
+miss); then --cycles (default 10) cycles in `basic` captures (frame events only), whose 1 s
+sampler gives the compositor RSS. --soak is the release run: 500 cycles, split into traces of at
+most SOAK_TRACE_MAX so the ring never overflows. Exit status 0 only when every check passes.
+
+Home must be on screen when the gate starts. The set needs python3 for kb.py; kb.py and
+capture.sh are copied to /tmp on the set at the start, so nothing else has to be installed.
+
+Adding a surface is one entry in SURFACES (see the field list there).
+"""
+import argparse
+import json
+import math
+import os
+import re
+import shlex
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+# ------------------------------------------------------------------ surfaces
+#
+# name          unique; also the marker prefix: windows are "<name>-open" and "<name>-close"
+# open, close   kb.py token strings. open starts with the token "@<name>-open" and close with
+#               "@<name>-close", each placed immediately before the key it times. A close with
+#               no key only ends the open window.
+# settle_s      seconds waited after open and after close before the next step
+# transition    True: the close key is a measured response too (checked like the open); False
+#               for workloads on a surface that stays up (Home idle, D-pad, sweep)
+# setup         shell commands run on the set once before the surface, teardown after it
+#               (also on failure)
+# reopen        shell commands run before every cycle, outside the measured windows, for a
+#               surface the close key tears down for good (reopen_wait_s waits for it to build)
+# soak          False when cycling it says nothing about memory (Home idle)
+# thresholds    per-surface overrides of THRESHOLDS; None switches a check off
+SURFACES = [
+    {'name': 'home-idle',
+     'open': '@home-idle-open s5', 'close': '@home-idle-close', 'settle_s': 5,
+     'transition': False, 'soak': False,
+     'thresholds': {'first_frame_ms': None, 'burst_end_ms': None, 'burst_over20': None}},
+    {'name': 'home-dpad',
+     'open': '@home-dpad-open RIGHTx8@0.35 LEFTx8@0.35 UP s0.5 DOWN', 'close': '@home-dpad-close', 'settle_s': 1,
+     'transition': False,
+     'thresholds': {'burst_end_ms': None}},
+    # held keys with the remote's own repeat cadence: first repeat after 300 ms, then every 100 ms
+    {'name': 'home-sweep',
+     'open': '@home-sweep-open RIGHT:1500 s0.4 LEFT:1500 s0.4 UP s0.6 DOWN', 'close': '@home-sweep-close', 'settle_s': 1,
+     'transition': False,
+     'thresholds': {'burst_end_ms': None}},
+    {'name': 'quick-settings',
+     'open': '@quick-settings-open MENU', 'close': '@quick-settings-close BACK', 'settle_s': 2.5},
+    # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
+    # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
+    # D-pad move inside the built gallery (open) and BACK (close).
+    {'name': 'kit-gallery',
+     'setup': ["lumatv theme set '{\"kitGallery\":true}'", 'sleep 3'],
+     'teardown': ["lumatv theme set '{\"kitGallery\":false}'"],
+     'reopen': ["lumatv theme set '{\"kitGallery\":true}'"], 'reopen_wait_s': 3,
+     'open': '@kit-gallery-open DOWN', 'close': '@kit-gallery-close BACK', 'settle_s': 1.5},
+]
+
+SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0,
+                    'transition': True, 'soak': True, 'thresholds': {}}
+
+# The PLAN gate. An override in a surface may set any of these to None to turn the check off.
+THRESHOLDS = {
+    'p90_render_ms': 3.0,     # p90 of the animated-frame render time
+    'dropped': 0,             # animated frames that took over 20 ms between presents
+    'burst_over20': 0,        # frame intervals over 20 ms inside the burst that starts at the key
+    'first_frame_ms': 50.0,   # marker to first presented frame
+    'burst_end_ms': 180.0,    # marker to the last frame of that burst: "fully open"
+}
+
+MEASURE_CYCLES = 3
+SOAK_DEFAULT_CYCLES = 10
+SOAK_RELEASE_CYCLES = 500
+SOAK_TRACE_MAX = 60       # cycles per basic trace in a soak
+# The full trace's 8 MB per-CPU ring held about 13 s at the 44k events/s measured over
+# Quick Settings; a longer capture loses its first markers. A full capture is planned to stay
+# under this many seconds, so a long surface gets one cycle per capture.
+FULL_TRACE_BUDGET_S = 11.0
+GAP_MS = 17.5             # analyse.py's gap listing threshold, as run.py uses
+
+# RSS rule: the first RSS_SKIP_CYCLES cycles warm the compositor and are ignored. After them the
+# resident set may grow by RSS_PER_100_CYCLES_MB per 100 cycles, plus RSS_NOISE_MB for the
+# sampler's own noise (the RSS wobbles by about 0.8 MB around a Quick Settings open in the
+# recorded .sys files, more than the 0.08 MB 10 cycles are allowed to leak). A shrink passes;
+# a missing sample (NaN) fails.
+RSS_SKIP_CYCLES = 2
+RSS_PER_100_CYCLES_MB = 1.0
+RSS_NOISE_MB = 1.0
+PAGE_KB = 4
+
+# A line of /var/log/messages that matches any of these fails the surface.
+LOG_FAIL_PATTERNS = [
+    r'TypeError', r'ReferenceError', r'is not a type', r'Binding loop', r'Unable to assign',
+    r'Cannot assign', r'\[LumaKeys\].*failed', r'\[LumaHome\].*(invalid|unreadable|failed)',
+    r'crash', r'segfault', r'ShaderEffectSource',
+]
+# Known stock-LG noise that the patterns would otherwise flag on every run: Quick Settings' own
+# response callback throws when the foreground-app array changes (surfaces-p1-result.md).
+LOG_IGNORE_PATTERNS = [r'Controllers/ScreenOffInterfaces/Interfaces\.qml:52']
+LOG_FAIL_RE = re.compile('|'.join(LOG_FAIL_PATTERNS))
+LOG_IGNORE_RE = re.compile('|'.join(LOG_IGNORE_PATTERNS))
+LOG_FILE = '/var/log/messages'
+LOG_TS = re.compile(r'\[\s*(\d+\.\d+)\s*\]')
+LOG_REPORT_MAX = 20
+
+KB = '/tmp/kb.py'
+CAPTURE = '/tmp/perf/capture.sh'
+
+
+# ------------------------------------------------------- the surfaces table
+
+def surface(entry):
+    """An entry with the defaults filled in."""
+    s = dict(SURFACE_DEFAULTS)
+    s.update(entry)
+    s['thresholds'] = dict(THRESHOLDS, **entry.get('thresholds', {}))
+    return s
+
+
+def validate(entries):
+    """Raise ValueError on a table the harness would misread."""
+    seen = set()
+    for e in entries:
+        s = surface(e)
+        n = s['name']
+        if n in seen:
+            raise ValueError(f'duplicate surface {n}')
+        seen.add(n)
+        for field in ('open', 'close'):
+            toks = s.get(field, '').split()
+            if not toks or toks[0] != f'@{n}-{field}':
+                raise ValueError(f'{n}: {field} must start with the marker token @{n}-{field}')
+        unknown = set(s['thresholds']) - set(THRESHOLDS)
+        if unknown:
+            raise ValueError(f'{n}: unknown thresholds {sorted(unknown)}')
+    return True
+
+
+def find(names, entries=None):
+    table = {e['name']: e for e in (SURFACES if entries is None else entries)}
+    out = []
+    for n in names:
+        if n not in table:
+            raise ValueError(f'unknown surface {n!r}; known: {", ".join(table)}')
+        out.append(surface(table[n]))
+    return out
+
+
+# ------------------------------------------------------------ cycle commands
+
+def token_seconds(token):
+    """How long kb.py takes to run one token (mirrors kb.py's run())."""
+    if token[0] == '@':
+        return 0.0
+    if token[0] == 's' and token[1:].replace('.', '').isdigit():
+        return float(token[1:])
+    if token.endswith('+') or token.endswith('-'):
+        return 0.0
+    if 'x' in token:
+        _, rest = token.split('x', 1)
+        count, _, gap = rest.partition('@')
+        return int(count) * (0.05 + float(gap or 0.35))
+    if ':' in token:
+        return int(token.split(':')[1]) / 1000.0
+    return 0.05
+
+
+def settle_token(seconds):
+    return f's{seconds:g}' if seconds else None
+
+
+def cycle_tokens(s):
+    """kb.py tokens for one open/close cycle."""
+    toks = s['open'].split()
+    toks.append(settle_token(s['settle_s']))
+    toks += s['close'].split()
+    toks.append(settle_token(s['settle_s']))
+    return [t for t in toks if t]
+
+
+def cycle_seconds(s):
+    """Wall time of one cycle on the set, with a margin for each kb.py start."""
+    return sum(token_seconds(t) for t in cycle_tokens(s)) + s['reopen_wait_s'] + 0.3
+
+
+def cycle_command(s, n):
+    """Shell command that runs n cycles on the set. One kb.py process when nothing has to run
+    between cycles, so the timing across cycles is exact too."""
+    toks = cycle_tokens(s)
+    if not s['reopen']:
+        return f'python3 {KB} ' + ' '.join(shlex.quote(t) for t in toks * n)
+    one = '; '.join(s['reopen'] + ([f'sleep {s["reopen_wait_s"]:g}'] if s['reopen_wait_s'] else []) +
+                    [f'python3 {KB} ' + ' '.join(shlex.quote(t) for t in toks)])
+    return '; '.join([one] * n)
+
+
+def split_cycles(n, max_per):
+    """n cycles in as few traces as hold at most max_per each, sizes as even as possible."""
+    if n <= 0:
+        return []
+    k = -(-n // max_per)
+    q, r = divmod(n, k)
+    return [q + 1] * r + [q] * (k - r)
+
+
+def plan_full(s, cycles):
+    """Cycles per full capture: as many as fit FULL_TRACE_BUDGET_S, at least one."""
+    per = max(1, int(FULL_TRACE_BUDGET_S // cycle_seconds(s)))
+    return split_cycles(cycles, per)
+
+
+# ------------------------------------------------------------------ parsing
+
+MARK = re.compile(r'^\s*.*?-\d+\s+\[\d{3}\]\s+\S+\s+([\d.]+):\s+tracing_mark_write:\s?(.*)$')
+
+
+def parse_markers(text):
+    """[(time, text)] of the trace_marker writes in a trace dump."""
+    out = []
+    for line in text.splitlines():
+        if 'tracing_mark_write' not in line:
+            continue
+        m = MARK.match(line)
+        if m:
+            out.append((float(m.group(1)), m.group(2).strip()))
+    return out
+
+
+def cycle_ends(markers, name):
+    """End time of each cycle of a surface: the next cycle's open marker, the last one's the
+    trace's stop marker (or the last marker when the stop is lost)."""
+    opens = [t for t, txt in markers if txt == f'P:{name}-open']
+    stops = [t for t, txt in markers if txt.startswith('stop ')]
+    tail = stops[-1] if stops else (markers[-1][0] if markers else None)
+    if not opens or tail is None:
+        return []
+    return opens[1:] + [tail]
+
+
+def parse_rss(text):
+    """[(uptime, pages)] from a capture.sh .sys sampler file; lines without an rss= field (the
+    compositor was gone for that sample) are skipped."""
+    out = []
+    for line in text.splitlines():
+        head, _, _ = line.partition('|')
+        m = re.search(r'\brss=(\d+)', line)
+        try:
+            t = float(head)
+        except ValueError:
+            continue
+        if m:
+            out.append((t, int(m.group(1))))
+    return out
+
+
+def rss_at(series, t):
+    """RSS of the last sample at or before t (series sorted by time), else None."""
+    best = None
+    for ts, pages in series:
+        if ts > t:
+            break
+        best = pages
+    return best
+
+
+def rss_growth(series, ends):
+    """Compositor RSS growth after the first RSS_SKIP_CYCLES cycles.
+
+    series: [(uptime, pages)] over all chunks; ends: each cycle's end time. Returns the first
+    sample, the RSS at the end of cycle RSS_SKIP_CYCLES (base) and of the last cycle, the growth
+    and the allowed growth in MB, and ok. Growth is NaN, and not ok, when either sample is
+    missing or there are fewer than RSS_SKIP_CYCLES + 1 cycles.
+    """
+    n = len(ends)
+    series = sorted(series)
+    out = {'cycles': n, 'growth_mb': math.nan, 'allowed_mb': None, 'base_pages': None, 'last_pages': None,
+           'first_pages': None, 'ok': False}
+    if n <= RSS_SKIP_CYCLES or not series:
+        return out
+    out['first_pages'] = series[0][1]
+    out['base_pages'] = rss_at(series, ends[RSS_SKIP_CYCLES - 1])
+    out['last_pages'] = rss_at(series, ends[-1])
+    out['allowed_mb'] = round(RSS_PER_100_CYCLES_MB * (n - RSS_SKIP_CYCLES) / 100.0 + RSS_NOISE_MB, 3)
+    if out['base_pages'] is None or out['last_pages'] is None:
+        return out
+    out['growth_mb'] = round((out['last_pages'] - out['base_pages']) * PAGE_KB / 1024.0, 3)
+    out['ok'] = out['growth_mb'] <= out['allowed_mb']
+    return out
+
+
+# ---------------------------------------------------------------------- log
+
+def lines_since(text, uptime):
+    """Lines of a log whose bracketed monotonic timestamp is at or after uptime. A line without
+    one belongs to the entry above it. Returns (lines, filtered): filtered is False when no line
+    had a timestamp, and then every line is returned."""
+    lines = text.splitlines()
+    if not any(LOG_TS.search(ln) for ln in lines):
+        return lines, False
+    out, keep = [], False
+    for ln in lines:
+        m = LOG_TS.search(ln)
+        if m:
+            keep = float(m.group(1)) >= uptime
+        if keep:
+            out.append(ln)
+    return out, True
+
+
+def log_failures(lines):
+    """(failing lines, ignored count): lines matching LOG_FAIL_PATTERNS, less the known stock noise."""
+    bad, ignored = [], 0
+    for ln in lines:
+        if LOG_FAIL_RE.search(ln):
+            if LOG_IGNORE_RE.search(ln):
+                ignored += 1
+            else:
+                bad.append(ln)
+    return bad, ignored
+
+
+# ----------------------------------------------------------------- checks
+
+def check(name, ok, value, limit, detail=''):
+    return {'name': name, 'ok': bool(ok), 'value': value, 'limit': limit, 'detail': detail}
+
+
+def _worst(values):
+    vals = [v for v in values if v is not None]
+    return max(vals) if vals else None
+
+
+def evaluate_windows(s, report, cycles):
+    """Checks for one surface from an analyse.py report that holds `cycles` cycles (windows of
+    several captures concatenated)."""
+    th = s['thresholds']
+    opens = [w for w in report['windows'] if w['name'] == f"{s['name']}-open"]
+    closes = [w for w in report['windows'] if w['name'] == f"{s['name']}-close"]
+    keyed = opens + (closes if s['transition'] else [])
+    expected = cycles * (2 if s['transition'] else 1)
+    dead = [w['name'] for w in keyed if w['first_frame_ms'] is None]
+    out = [check('windows', len(keyed) == expected and not dead, f'{len(keyed)}/{expected}', f'== {expected}',
+                 ('no frame after the key in ' + ', '.join(dead)) if dead else
+                 ('marker lost: trace overflow or key not delivered' if len(keyed) != expected else ''))]
+
+    if th['first_frame_ms'] is not None:
+        v = _worst([w['first_frame_ms'] for w in keyed]) if not dead else None
+        out.append(check('first_frame_ms', v is not None and v <= th['first_frame_ms'], v, f"<= {th['first_frame_ms']:g}"))
+    if th['burst_end_ms'] is not None:
+        ends = [w['burst_end_ms'] for w in keyed]
+        v = None if any(e is None for e in ends) or not ends else max(ends)
+        out.append(check('burst_end_ms', v is not None and v <= th['burst_end_ms'], v, f"<= {th['burst_end_ms']:g}",
+                         'no burst at the key' if v is None else ''))
+    if th['p90_render_ms'] is not None:
+        vals = []
+        for w in keyed:
+            p = w['burst_anim_p90_ms'] if s['transition'] else None
+            if p is None and w['anim_render_ms']:
+                p = w['anim_render_ms']['p90']
+            vals.append(p)
+        v = _worst(vals)
+        out.append(check('p90_render_ms', v is None or v < th['p90_render_ms'], v, f"< {th['p90_render_ms']:g}",
+                         'no animated frames' if v is None else ''))
+    if th['dropped'] is not None:
+        v = sum(w['dropped'] for w in keyed)
+        out.append(check('dropped', v <= th['dropped'], v, f"<= {th['dropped']}"))
+    if th['burst_over20'] is not None:
+        v = sum(w['burst_over20'] for w in keyed)
+        out.append(check('burst_over20', v <= th['burst_over20'], v, f"<= {th['burst_over20']}"))
+    return out
+
+
+def rss_check(g):
+    if math.isnan(g['growth_mb']):
+        return check('rss_growth_mb', False, None, f"<= {g['allowed_mb']}" if g['allowed_mb'] is not None else '',
+                     f"no RSS sample ({g['cycles']} cycles)")
+    return check('rss_growth_mb', g['ok'], g['growth_mb'], f"<= {g['allowed_mb']:g}",
+                 f"{g['base_pages']} -> {g['last_pages']} pages over {g['cycles'] - RSS_SKIP_CYCLES} cycles")
+
+
+def log_check(bad, ignored):
+    return check('log_errors', not bad, len(bad), '== 0', f'{ignored} known stock lines ignored' if ignored else '')
+
+
+def verdict(results):
+    return 'PASS' if results and all(c['ok'] for r in results for c in r['checks']) else 'FAIL'
+
+
+def fmt_value(v):
+    if v is None:
+        return 'none'
+    if isinstance(v, float):
+        return f'{v:.2f}'
+    return str(v)
+
+
+def format_lines(results):
+    lines = []
+    for r in results:
+        for c in r['checks']:
+            lines.append(f"{'PASS' if c['ok'] else 'FAIL'}  {r['name']:<15} {c['name']:<15} {fmt_value(c['value']):>10}  "
+                         f"({c['limit']})" + (f"  {c['detail']}" if c['detail'] else ''))
+        for ln in r.get('log_lines', [])[:LOG_REPORT_MAX]:
+            lines.append(f"      log: {ln}")
+        if len(r.get('log_lines', [])) > LOG_REPORT_MAX:
+            lines.append(f"      log: ... {len(r['log_lines']) - LOG_REPORT_MAX} more")
+    return '\n'.join(lines)
+
+
+def format_results(results):
+    return format_lines(results) + f'\nVERDICT {verdict(results)}'
+
+
+def jsonable(v):
+    """v with NaN as null, so the --json file stays valid JSON."""
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    if isinstance(v, dict):
+        return {k: jsonable(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [jsonable(x) for x in v]
+    return v
+
+
+WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'anim_render_ms',
+               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms')
+
+
+# ------------------------------------------------------------------- the set
+
+class Rig:
+    """The set, through run.py's Set: shell, capture and trace transfer."""
+
+    def __init__(self):
+        import run  # paramiko; only when there is a set to talk to
+        self.run = run
+        self.set = run.Set()
+
+    @property
+    def sm_pid(self):
+        return self.set.sm_pid
+
+    def sh(self, cmd, timeout=120):
+        return self.set.sh(cmd, timeout=timeout)
+
+    def push_tools(self):
+        self.sh('mkdir -p /tmp/perf')
+        for local, remote, mode in ((os.path.join(HERE, 'kb.py'), KB, '755'), (os.path.join(HERE, 'capture.sh'), CAPTURE, '755')):
+            with open(local, 'rb') as f:
+                data = f.read()
+            stdin, out, _ = self.set.cli.exec_command(f'cat > {remote} && chmod {mode} {remote}')
+            stdin.write(data)
+            stdin.channel.shutdown_write()
+            if out.channel.recv_exit_status() != 0:
+                raise RuntimeError(f'could not copy {local} to the set')
+
+    def remember_compositor(self, pid):
+        self.set.sm_pid = pid
+
+    def compositor_pid(self):
+        rc, out, _ = self.sh('pidof surface-manager')
+        return int(out.split()[0]) if rc == 0 and out.split() else None
+
+    def capture(self, name, mode):
+        self.set.capture(name, mode)
+        time.sleep(1)
+
+    def stop(self, name):
+        """Stop the capture; the local (trace, sys) paths."""
+        self.set.stop(name)
+        return f'{self.run.LOCAL}/{name}.trace', f'{self.run.LOCAL}/{name}.sys'
+
+    def analyse(self, name):
+        return self.run.analyse(name, self.set.sm_pid, GAP_MS)
+
+
+class LogWatch:
+    """What /var/log/messages gained since mark(). The file rotates within minutes: when the
+    inode changed or the file shrank, the whole file is read and cut by the bracketed monotonic
+    timestamp against /proc/uptime at the mark."""
+
+    def __init__(self, rig):
+        self.rig = rig
+
+    def mark(self):
+        _, out, _ = self.rig.sh(f"stat -c '%s %i' {LOG_FILE} 2>/dev/null; cut -d' ' -f1 /proc/uptime")
+        rows = out.split('\n')
+        try:
+            size, inode = rows[0].split()
+            return {'size': int(size), 'inode': inode, 'uptime': float(rows[1])}
+        except (ValueError, IndexError):
+            return {'size': 0, 'inode': None, 'uptime': 0.0}
+
+    def since(self, mark):
+        """(lines, filtered): new lines; filtered False when they could not be cut by time."""
+        _, out, _ = self.rig.sh(f"stat -c '%s %i' {LOG_FILE} 2>/dev/null")
+        try:
+            size, inode = out.split()
+            size = int(size)
+        except ValueError:
+            return [], True
+        if inode == mark['inode'] and size >= mark['size']:
+            _, text, _ = self.rig.sh(f"tail -c +{mark['size'] + 1} {LOG_FILE}")
+            return text.splitlines(), True
+        _, text, _ = self.rig.sh(f'cat {LOG_FILE}')
+        return lines_since(text, mark['uptime'])
+
+
+def read(path):
+    with open(path, errors='replace') as f:
+        return f.read()
+
+
+def merge_reports(reports):
+    """One report whose windows are those of several captures, in order."""
+    out = dict(reports[0])
+    out['windows'] = [w for r in reports for w in r['windows']]
+    out['trace'] = [r['trace'] for r in reports]
+    return out
+
+
+def run_surface(rig, s, tag, soak_cycles, log):
+    base = f'gate-{tag}-{s["name"]}'
+    res = {'name': s['name'], 'checks': [], 'traces': [], 'windows': [], 'log_lines': [], 'log_ignored': 0,
+           'log_unfiltered': False, 'rss': None}
+    checks = res['checks']
+    pid0 = rig.compositor_pid()
+
+    def scan(mark):
+        lines, filtered = log.since(mark)
+        bad, ignored = log_failures(lines)
+        res['log_lines'] += bad
+        res['log_ignored'] += ignored
+        res['log_unfiltered'] = res['log_unfiltered'] or not filtered
+
+    try:
+        mark = log.mark()
+        for cmd in s['setup']:
+            rc, _, err = rig.sh(cmd)
+            if rc != 0:
+                raise RuntimeError(f'setup {cmd!r} failed: {err.strip()}')
+
+        reports = []
+        for i, n in enumerate(plan_full(s, MEASURE_CYCLES)):
+            name = f'{base}-m{i}'
+            res['traces'].append(name)
+            rig.capture(name, 'full')
+            try:
+                rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
+            finally:
+                rig.stop(name)
+            if rc != 0:
+                checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
+            reports.append(rig.analyse(name))
+        report = merge_reports(reports)
+        checks += evaluate_windows(s, report, MEASURE_CYCLES)
+        res['windows'] = [{k: w.get(k) for k in WINDOW_KEYS} for w in report['windows']
+                          if w['name'] in (f"{s['name']}-open", f"{s['name']}-close")]
+        scan(mark)
+
+        if s['soak'] and soak_cycles:
+            series, ends = [], []
+            for i, n in enumerate(split_cycles(soak_cycles, SOAK_TRACE_MAX)):
+                name = f'{base}-s{i}'
+                res['traces'].append(name)
+                mark = log.mark()
+                rig.capture(name, 'basic')
+                try:
+                    rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
+                finally:
+                    trace, sysf = rig.stop(name)
+                if rc != 0:
+                    checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
+                series += parse_rss(read(sysf))
+                ends += cycle_ends(parse_markers(read(trace)), s['name'])
+                scan(mark)
+            res['rss'] = rss_growth(series, ends)
+            if len(ends) != soak_cycles:
+                checks.append(check('soak_cycles', False, len(ends), f'== {soak_cycles}', 'markers lost in the soak traces'))
+            checks.append(rss_check(res['rss']))
+    except Exception as e:  # a surface that cannot be measured fails; the next one still runs
+        checks.append(check('run', False, None, 'no error', f'{type(e).__name__}: {e}'))
+    finally:
+        for cmd in s['teardown']:
+            try:
+                rig.sh(cmd)
+            except Exception as e:
+                checks.append(check('teardown', False, None, 'no error', f'{cmd!r}: {e}'))
+    checks.append(log_check(res['log_lines'], res['log_ignored']))
+    if res['log_unfiltered']:
+        checks[-1]['detail'] = (checks[-1]['detail'] + '; ' if checks[-1]['detail'] else '') + 'rotated log had no timestamps, whole file scanned'
+    pid1 = rig.compositor_pid()
+    checks.append(check('compositor_pid', pid0 is not None and pid0 == pid1, pid1, f'== {pid0}',
+                        'the compositor restarted during the run' if pid0 != pid1 else ''))
+    if pid1 is not None:
+        rig.remember_compositor(pid1)
+    return res
+
+
+def run_gate(rig, surfaces, soak_cycles, tag, log=None):
+    rig.push_tools()
+    log = log or LogWatch(rig)
+    results = []
+    for s in surfaces:
+        r = run_surface(rig, s, tag, soak_cycles, log)
+        print(format_lines([r]), flush=True)
+        results.append(r)
+    return results
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
+                                 epilog='Surfaces: ' + ', '.join(e['name'] for e in SURFACES))
+    ap.add_argument('--surfaces', help='comma-separated names (default: all)')
+    ap.add_argument('--cycles', type=int, help=f'open/close cycles in the RSS soak (default {SOAK_DEFAULT_CYCLES}, '
+                    f'{SOAK_RELEASE_CYCLES} with --soak; at least {RSS_SKIP_CYCLES + 1})')
+    ap.add_argument('--soak', action='store_true', help=f'release run: {SOAK_RELEASE_CYCLES} cycles, traces of at most {SOAK_TRACE_MAX}')
+    ap.add_argument('--json', help='write every number to this file')
+    ap.add_argument('--tag', default=time.strftime('%m%d-%H%M'), help='prefix of the trace names in /tmp/perf')
+    a = ap.parse_args(argv)
+    cycles = a.cycles if a.cycles is not None else (SOAK_RELEASE_CYCLES if a.soak else SOAK_DEFAULT_CYCLES)
+    if cycles <= RSS_SKIP_CYCLES:
+        ap.error(f'--cycles must be at least {RSS_SKIP_CYCLES + 1}: the first {RSS_SKIP_CYCLES} are warm-up')
+    validate(SURFACES)
+    try:
+        chosen = find(a.surfaces.split(',') if a.surfaces else [e['name'] for e in SURFACES])
+    except ValueError as e:
+        ap.error(str(e))
+    tag = re.sub(r'[^\w.-]', '_', a.tag)
+    results = run_gate(Rig(), chosen, cycles, tag)
+    v = verdict(results)
+    print(f'VERDICT {v}')
+    if a.json:
+        with open(a.json, 'w') as f:
+            json.dump(jsonable({'tag': tag, 'verdict': v, 'measure_cycles': MEASURE_CYCLES, 'soak_cycles': cycles,
+                                'thresholds': THRESHOLDS, 'surfaces': results}), f, indent=1, default=str)
+    return 0 if v == 'PASS' else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

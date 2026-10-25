@@ -12,6 +12,11 @@ For every interval over --gap ms (default 20) the analyser lists what ran
 on each CPU, what the compositor's GUI thread was doing (running,
 runnable, sleeping), GPU job activity and power transitions, interrupts,
 hot-plug, reclaim and CMA events inside the interval.
+
+Every window also reports the burst that starts at its marker (the response
+to a key injected right after it, see kb.py @NAME): first_frame_ms, burst_end_ms,
+burst_over20 and burst_anim_p90_ms. A burst continues while each frame is
+within 50 ms of the one before it; the first is measured from the marker.
 """
 import argparse
 import bisect
@@ -75,6 +80,38 @@ class Runs:
                 names[pid] = comm
             i += 1
         return [(pid, names[pid], s) for pid, s in out.most_common()]
+
+
+BURST_GAP_MS = 50.0
+
+
+def burst(times, start, gap_ms=BURST_GAP_MS):
+    """The frame burst that begins at start (a marker) from sorted presentation times.
+
+    Frames chain while each is within gap_ms of the one before, the first measured from start,
+    so a first frame later than gap_ms leaves the burst empty. Returns first_frame_ms (None when
+    no frame follows start), burst_end_ms and over20 (frame-to-frame intervals over 20 ms inside
+    the burst; burst_end_ms is None for an empty burst), plus the burst's frame count and
+    first and last times.
+    """
+    out = {'first_frame_ms': None, 'burst_end_ms': None, 'over20': 0, 'frames': 0, 'first_t': None, 'last_t': None}
+    if not times:
+        return out
+    out['first_frame_ms'] = round((times[0] - start) * 1000.0, 2)
+    prev = start
+    n = 0
+    for t in times:
+        if (t - prev) * 1000.0 > gap_ms:
+            break
+        if n and (t - prev) * 1000.0 > 20:
+            out['over20'] += 1
+        prev = t
+        n += 1
+    if n:
+        out['frames'] = n
+        out['first_t'], out['last_t'] = times[0], times[n - 1]
+        out['burst_end_ms'] = round((times[n - 1] - start) * 1000.0, 2)
+    return out
 
 
 def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
@@ -309,6 +346,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
                 bursts.append([t0, t1, st])
         bstarts = [x[0] for x in bursts]
         anim = []
+        anim_t = []       # presentation time of each animated frame, parallel to anim
         timer = []
         for i in range(1, len(fr)):
             f0, f1 = fr[i - 1][0], fr[i][0]
@@ -324,6 +362,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             if fused and (not after or max(p[1] - p[0] for p in after) < 0.001):
                 x, y = max(fused, key=lambda p: p[1] - p[0])
                 anim.append(((f1 - f0) * 1000, (y - x) * 1000 - 0.7))
+                anim_t.append(f1)
                 continue
             if not after:
                 timer.append(((f1 - f0) * 1000, 0.0))
@@ -332,7 +371,11 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             prev = [y for x, y in bs if y <= rx]
             idle = (rx - max(prev)) * 1000 if prev else None
             rec = ((f1 - f0) * 1000, (ry - rx) * 1000)
-            (anim if idle is not None and idle < 7.5 else timer).append(rec)
+            if idle is not None and idle < 7.5:
+                anim.append(rec)
+                anim_t.append(f1)
+            else:
+                timer.append(rec)
         w['anim_frames'] = len(anim)
         w['dropped'] = sum(1 for iv, r in anim if iv > 20)
         w['dropped_pct'] = round(100.0 * w['dropped'] / len(anim), 1) if anim else 0
@@ -340,6 +383,16 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         rends = sorted(r for iv, r in anim)
         w['anim_render_ms'] = {'median': round(rends[len(rends) // 2], 2), 'p90': round(rends[int(0.9 * (len(rends) - 1))], 2), 'max': round(rends[-1], 2)} if rends else None
         w['dropped_render_ms'] = sorted(round(r, 1) for iv, r in anim if iv > 20)[-12:]
+
+        # The burst that starts at the window's marker: the response to the key
+        # injected right after it. Animated frames count when both of their
+        # frames lie inside it.
+        bu = burst([f[0] for f in fr], a)
+        w['first_frame_ms'] = bu['first_frame_ms']
+        w['burst_end_ms'] = bu['burst_end_ms']
+        w['burst_over20'] = bu['over20']
+        b_rends = sorted(r for (iv, r), t in zip(anim, anim_t) if bu['frames'] and bu['first_t'] < t <= bu['last_t'])
+        w['burst_anim_p90_ms'] = round(b_rends[int(0.9 * (len(b_rends) - 1))], 2) if b_rends else None
 
         for i, x in enumerate(ivals):
             if x <= gap_ms:
@@ -379,6 +432,7 @@ def fmt(report, top=10):
     for w in report['windows']:
         out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}")
         out.append(f"   animation-driven frames {w['anim_frames']}, dropped {w['dropped']} ({w['dropped_pct']} %), render ms {w['anim_render_ms']}, dropped-frame render {w['dropped_render_ms']}; timer-driven frames {w['timer_frames']}")
+        out.append(f"   burst from marker: first frame {w['first_frame_ms']} ms, ends {w['burst_end_ms']} ms, intervals >20 ms {w['burst_over20']}, animated render p90 {w['burst_anim_p90_ms']} ms")
         out.append(f"   compositor: run {w['sm_run_ms']} ms, runnable {w['sm_runnable_ms']} ms, max sched latency {w['sm_max_sched_latency_ms']} ms, migrations {w['sm_migrations']}; gpu jobs {w['gpu_jobs']} busy {w['gpu_busy_ms']} ms, pm transitions {w['gpu_pm_transitions']}; cpuhp {w['cpuhp']} reclaim {w['reclaim_events']} cma {w['cma_events']} block {w['block_rq']}")
         out.append(f"   top cpu: {w['top_cpu_ms']}")
         out.append(f"   irqs: {w['irq_counts']}")

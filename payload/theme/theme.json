@@ -151,5 +151,10 @@
     "bloom": 0,
     "saturation": 1,
     "contrast": 1
+  },
+  "warmup": {
+    "enabled": true,
+    "startMs": 1500,
+    "stepMs": 50
   }
 }

@@ -1057,6 +1057,19 @@ Item {
         source: "KitGallery.qml"
     }
 
+    // ============================================================= startup warm-up
+    // Draws the text styles, images and shader components the surfaces use once, hidden, after Home
+    // has presented (Warmup.qml), so the first open of any of them rasterises and compiles nothing
+    // in the frame the user is waiting for. theme.json "warmup" turns it off.
+    Warmup {
+        id: warmup
+        tree: root
+        enabled: !root.theme.warmup || root.theme.warmup.enabled !== false
+        active: root.hostActive
+        startMs: (root.theme.warmup && root.theme.warmup.startMs) || 1500
+        stepMs: (root.theme.warmup && root.theme.warmup.stepMs) || 50
+    }
+
     // ====================================================== frame pacing probe / overlay
     // onFrameSwapped fires once per presented frame of the compositor's own
     // window, so this counts everything the set draws - Home, and anything
