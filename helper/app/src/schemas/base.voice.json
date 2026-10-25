@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "owner": "base.voice",
+  "revision": 1,
+  "title": "Voice search",
+  "sections": [
+    {
+      "id": "voice",
+      "title": "Voice search",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Search by voice",
+          "help": "Hold the mic key and speak: Home Assistant's Assist turns the words into text for the search box. The microphone is open only while the key is held, and the words never run anything.",
+          "kind": {"type": "bool"},
+          "default": {"type": "bool", "value": false},
+          "apply": "on-commit"
+        },
+        {
+          "key": "pipeline",
+          "label": "Assist pipeline",
+          "help": "The id of the Assist pipeline whose speech-to-text is used. Empty uses Home Assistant's preferred pipeline.",
+          "kind": {"type": "text", "max_chars": 64, "secret": false},
+          "default": {"type": "text", "value": ""},
+          "enabled_when": {"type": "equals", "key": "enabled", "value": {"type": "bool", "value": true}},
+          "apply": "on-commit"
+        }
+      ]
+    }
+  ]
+}

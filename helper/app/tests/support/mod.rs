@@ -621,11 +621,27 @@ impl Rig {
         fetcher: Arc<dyn Fetch>,
         ai: Option<lumatv_helper::ai::Deps>,
     ) {
+        self.start_full(config, fetcher, ai, None);
+    }
+
+    /// Starts with a fake Home Assistant on the loopback: voice search may dial it.
+    pub fn start_voice(&mut self, config: Config, fetcher: Arc<dyn Fetch>) {
+        self.start_full(config, fetcher, None, Some(ha_link::AddressPolicy::TESTING));
+    }
+
+    fn start_full(
+        &mut self,
+        config: Config,
+        fetcher: Arc<dyn Fetch>,
+        ai: Option<lumatv_helper::ai::Deps>,
+        voice_policy: Option<ha_link::AddressPolicy>,
+    ) {
         let service = Service::start(StartOptions {
             paths: self.paths.clone(),
             config,
             fetcher: Some(fetcher),
             ai,
+            voice_policy,
         })
         .unwrap();
         self.addr = service.addr();

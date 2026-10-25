@@ -20,6 +20,7 @@ fetch.workspace = true
 settings-schema.workspace = true
 plugin-api.workspace = true
 service-api.workspace = true
+ha-link.workspace = true
 lumatv-ambient.workspace = true
 lumatv-denon.workspace = true
 lumatv-feeds.workspace = true

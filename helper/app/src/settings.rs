@@ -246,6 +246,10 @@ impl SettingsStore {
                 include_str!("schemas/base.receiver.json"),
                 Some(receiver_rule as Rule),
             ),
+            (
+                include_str!("schemas/base.voice.json"),
+                Some(voice_rule as Rule),
+            ),
         ] {
             let schema = SettingsSchema::parse(json.as_bytes())
                 .map_err(|e| RegisterError(format!("built-in schema: {e}")))?;
@@ -463,6 +467,14 @@ impl SettingsStore {
         }
     }
 
+    /// Voice search's settings: off, and the preferred pipeline, until the owner says otherwise.
+    pub fn voice(&self) -> VoiceSettings {
+        VoiceSettings {
+            enabled: self.flag("base.voice", "enabled").unwrap_or(false),
+            pipeline: self.text("base.voice", "pipeline").unwrap_or_default(),
+        }
+    }
+
     /// The receiver client's settings.
     pub fn receiver(&self) -> ReceiverSettings {
         ReceiverSettings {
@@ -476,6 +488,13 @@ impl SettingsStore {
                 .unwrap_or(8080),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VoiceSettings {
+    pub enabled: bool,
+    /// An Assist pipeline id; empty is Home Assistant's preferred one.
+    pub pipeline: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -552,6 +571,26 @@ fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
     }
 }
 
+/// An Assist pipeline id is Home Assistant's ULID-like word: letters, digits, dashes and underscores, so it can be neither a path nor
+/// a second message.
+fn voice_rule(values: &Values) -> Result<(), FieldErrors> {
+    let mut errors = FieldErrors::default();
+    if text_of(values, "pipeline").is_some_and(|id| {
+        !id.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    }) {
+        errors.insert(
+            field("pipeline"),
+            FieldError::refused("an Assist pipeline id is letters, digits, dashes and underscores"),
+        );
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 /// Wires the settings store to a component: `wake` runs after every change to `owner`, and never after the stop.
 pub fn wake_on_change(
     store: &SettingsStore,
@@ -614,7 +653,13 @@ mod tests {
         let owners: Vec<_> = store.owners().into_iter().map(|s| s.owner).collect();
         assert_eq!(
             owners,
-            ["base.ambient", "base.news", "base.receiver", "base.weather"]
+            [
+                "base.ambient",
+                "base.news",
+                "base.receiver",
+                "base.voice",
+                "base.weather"
+            ]
         );
     }
 
@@ -992,7 +1037,7 @@ mod tests {
         .unwrap();
         s.register(schema.clone(), None).unwrap();
         s.apply("hello", vec![text("name", "Nitin")], None).unwrap();
-        assert_eq!(s.owners().len(), 5);
+        assert_eq!(s.owners().len(), 6);
         // An older revision of the same owner is refused; a newer one replaces the page and keeps the values.
         let mut older = schema.clone();
         older.revision = 0;

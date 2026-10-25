@@ -171,6 +171,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-link"
+version = "0.1.0"
+dependencies = [
+ "fetch",
+ "libc",
+ "parking_lot",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -255,6 +266,7 @@ name = "lumatv-helper"
 version = "0.1.0"
 dependencies = [
  "fetch",
+ "ha-link",
  "libc",
  "lumashow-sdk",
  "lumatv-ambient",

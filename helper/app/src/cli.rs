@@ -1,4 +1,4 @@
-//! The command line: `run`, `start`, `stop`, `status`, `check-config`, `version`.
+//! The command line: `run`, `start`, `stop`, `status`, `check-config`, `voice-link`, `voice-unlink`, `version`.
 //!
 //! `tools/lumatv` starts and stops the helper through this and nothing else. Every command prints exactly one JSON object on
 //! stdout and exits 0 on success, 1 on failure, 2 on a usage or configuration error, and 3 from `status` when nothing runs:
@@ -9,7 +9,13 @@
 //! lumatv-helper status --brand <app dir>/brand.json
 //! lumatv-helper run    --brand ... [--stderr]           foreground (development)
 //! lumatv-helper check-config --brand ...
+//! lumatv-helper voice-link --brand ... --url <Home Assistant>   the access token is read from standard input
+//! lumatv-helper voice-unlink --brand ...
 //! ```
+//!
+//! `voice-link` is how voice search is pointed at Home Assistant: the address is an argument and the token comes on standard input,
+//! so it is in no process list and no shell history that the owner does not choose, and neither is ever printed. It is the only
+//! way to set either (see `voice_store`); a helper that is running is told to read the link again.
 //!
 //! `--data-dir <dir>` replaces `--brand` for tests and development. The data dir from `brand.json` is checked by the tool's own
 //! rule (a directory directly under `/var/lib`).
@@ -35,6 +41,7 @@ struct Args {
     command: String,
     brand: Option<PathBuf>,
     data_dir: Option<PathBuf>,
+    url: Option<String>,
     stderr: bool,
 }
 
@@ -47,6 +54,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--data-dir" => {
                 out.data_dir = Some(it.next().ok_or("--data-dir needs a directory")?.into())
             }
+            "--url" => out.url = Some(it.next().ok_or("--url needs an address")?.clone()),
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -72,7 +80,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|version> (--brand <brand.json> | --data-dir <dir>) [--stderr]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>]",
     })
 }
 
@@ -122,6 +130,10 @@ pub fn main(args: Vec<String>) -> i32 {
         "start" => with_config(&args, start),
         "stop" => with_config(&args, |paths, _| stop(&paths)),
         "status" => with_config(&args, status),
+        "voice-link" => with_config(&args, |paths, config| {
+            voice_link(&paths, &config, args.url.as_deref())
+        }),
+        "voice-unlink" => with_config(&args, voice_unlink),
         other => fail(2, &format!("unknown command {other}")),
     }
 }
@@ -254,6 +266,7 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
         config,
         fetcher: None,
         ai: None,
+        voice_policy: None,
     }) {
         Ok(service) => service,
         Err(e) => {
@@ -386,6 +399,70 @@ fn stop(paths: &Paths) -> i32 {
     } else {
         fail(1, &format!("pid {pid} did not exit"))
     }
+}
+
+/// Saves the link voice search speaks to Home Assistant through: the address from `--url`, the token from standard input.
+fn voice_link(paths: &Paths, config: &Config, url: Option<&str>) -> i32 {
+    let Some(url) = url else {
+        return fail(2, "voice-link needs --url <the address of Home Assistant>");
+    };
+    // A token is about 180 characters: a longer input is not one, and is never read whole.
+    let mut token = String::new();
+    if let Err(e) = std::io::stdin().take(4096).read_to_string(&mut token) {
+        return fail(
+            1,
+            &format!("could not read the token from standard input: {e}"),
+        );
+    }
+    match crate::voice_store::save(&paths.data_dir, url, &token) {
+        Ok(link) => {
+            let told = tell_helper_voice(paths, config);
+            emit(&json!({
+                "ok": true,
+                "linked": true,
+                "url": link.endpoint.display(),
+                "helperTold": told,
+                "next": "voice search also needs the base.voice setting switched on and voice.capture in helper.json",
+            }));
+            0
+        }
+        Err(e) => fail(2, &e.to_string()),
+    }
+}
+
+/// Removes the saved link.
+fn voice_unlink(paths: Paths, config: Config) -> i32 {
+    let removed = crate::voice_store::clear(&paths.data_dir);
+    let told = tell_helper_voice(&paths, &config);
+    emit(&json!({"ok": true, "linked": false, "removed": removed, "helperTold": told}));
+    0
+}
+
+/// Asks a running helper to read the voice link again (`POST /v1/voice/refresh`). False when none runs or it did not answer.
+fn tell_helper_voice(paths: &Paths, config: &Config) -> bool {
+    // The lock is held only by a running helper.
+    if !matches!(sys::try_lock(&paths.lock_file()), Ok(None)) {
+        return false;
+    }
+    let port = sys::read_info(&paths.lock_file())
+        .and_then(|i| i.port)
+        .unwrap_or(config.listen.port);
+    let Ok(ip) = config.listen.host.parse::<IpAddr>() else {
+        return false;
+    };
+    let Ok(mut stream) =
+        TcpStream::connect_timeout(&SocketAddr::new(ip, port), Duration::from_secs(1))
+    else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let request = "POST /v1/voice/refresh HTTP/1.0\r\nX-Luma-Client: cli\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}";
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut reply = Vec::new();
+    let _ = stream.take(8192).read_to_end(&mut reply);
+    String::from_utf8_lossy(&reply).starts_with("HTTP/1.1 200")
 }
 
 /// A one-shot `GET /v1/health`: whether the API answers.

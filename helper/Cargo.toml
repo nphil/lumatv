@@ -17,6 +17,7 @@ settings-schema = { path = "../../LumaShow/lumashow/crates/settings-schema" }
 plugin-api = { path = "../../LumaShow/lumashow/crates/plugin-api" }
 service-api = { path = "../../LumaShow/lumashow/crates/service-api" }
 lumashow-sdk = { path = "../../LumaShow/lumashow/crates/lumashow-sdk" }
+ha-link = { path = "../../LumaShow/lumashow/crates/ha-link" }
 
 libc = "0.2"
 parking_lot = "0.12"

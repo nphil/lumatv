@@ -92,6 +92,8 @@ pub struct Config {
     pub device: DeviceConfig,
     /// Where the ambient lights are (`ambient.rs`). Nothing is ever sent to a device that is not named here.
     pub ambient: AmbientConfig,
+    /// Voice search (`voice.rs`): where the microphone's audio comes from. Which Home Assistant it goes to is the saved link, not here.
+    pub voice: VoiceConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -118,6 +120,7 @@ impl Default for Config {
             plugins: PluginsConfig::default(),
             device: DeviceConfig::default(),
             ambient: AmbientConfig::default(),
+            voice: VoiceConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -386,6 +389,31 @@ fn default_ddp_port() -> u16 {
     4048
 }
 
+/// How voice search listens. Nothing here switches it on (that is the `base.voice` setting) or says where the audio goes (the saved
+/// link, written by `lumatv-helper voice-link`); it is where the audio comes from, which is the owner's to choose.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct VoiceConfig {
+    /// The program that writes the microphone to its standard output as raw 16 kHz, 16-bit, mono, little-endian PCM, with its
+    /// arguments (`["arecord", "-q", "-D", "plughw:1,0", "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"]`). It runs only while
+    /// the mic key is held. Empty: no microphone is chosen, and voice search stays unavailable.
+    pub capture: Vec<String>,
+    /// The longest one request listens, whatever the key does: a missed key release must not leave the microphone open.
+    pub max_seconds: u64,
+    /// How long the microphone stays open after the key is released, so the last word is not cut.
+    pub tail_ms: u64,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            capture: Vec::new(),
+            max_seconds: 20,
+            tail_ms: 250,
+        }
+    }
+}
+
 /// What the device is (`device.rs`): the TV unless `helper.json` says otherwise. The screen and the remote are facts of the
 /// device; a game controller is looked for in the kernel's input list each time it is asked.
 #[derive(Clone, Debug, Deserialize)]
@@ -564,6 +592,16 @@ impl Config {
             .is_some_and(|p| !p.starts_with('/'))
         {
             return err("ambient.captureSocket must be an absolute path");
+        }
+        if self.voice.capture.first().is_some_and(String::is_empty)
+            || self.voice.capture.iter().any(|a| a.contains('\0'))
+        {
+            return err(
+                "voice.capture is a program and its arguments, none empty or holding a NUL",
+            );
+        }
+        if !(1..=120).contains(&self.voice.max_seconds) || self.voice.tail_ms > 5_000 {
+            return err("voice.maxSeconds is 1 to 120 and voice.tailMs at most 5000");
         }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");

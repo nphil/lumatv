@@ -14,6 +14,7 @@
 //! | [`plugins`] | the plugin broker: LumaShow's plugin API level 1 for settings pages, cards, tiles and notifications |
 //! | [`device`] | what this device is (screen class, how a person drives it): the facts plugins get in `welcome`, and `/v1/device` |
 //! | [`ambient`] | ambient light: the Settings page's values as the engine's plan, the picture from the capture helper, DDP to the strip |
+//! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
@@ -38,6 +39,9 @@ pub mod service;
 pub mod settings;
 pub mod sys;
 pub mod timeutil;
+pub mod voice;
+pub mod voice_store;
+pub mod voice_ws;
 
 /// The version of the API paths and documents: `/v1/...`. A change that breaks a client is `/v2`.
 pub const API_VERSION: u32 = 1;

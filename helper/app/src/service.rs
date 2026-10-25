@@ -39,6 +39,9 @@ pub struct StartOptions {
     /// What the AI-access module acts through. `None` builds the real ones (the TV's input devices, `luna-send`, the receiver);
     /// a test gives its own so nothing touches a TV.
     pub ai: Option<crate::ai::Deps>,
+    /// Which addresses voice search may dial Home Assistant at. `None` is the home network and nothing else; a test that runs a
+    /// fake Home Assistant on the loopback says so.
+    pub voice_policy: Option<ha_link::AddressPolicy>,
 }
 
 /// A running helper.
@@ -62,6 +65,7 @@ impl Service {
             config,
             fetcher,
             ai: ai_deps,
+            voice_policy,
         } = options;
         let config = Arc::new(config);
         let stop = Stop::new();
@@ -170,12 +174,17 @@ impl Service {
             .host
             .parse()
             .map_err(|_| other("listen.host is not an address"))?;
+        let voice = crate::voice::Voice::with_policy(
+            &ctx,
+            voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
+        );
         let api = Api {
             hub,
             settings,
             ai: ai.clone(),
             plugins,
             ambient,
+            voice,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,

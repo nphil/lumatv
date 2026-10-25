@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Voice search: the mic key listens, Home Assistant's Assist pipeline turns the speech
+  into text, and the text fills Search. Off until the owner links Home Assistant, chooses a
+  microphone and switches it on; the helper's `voice-link` saves the address and token, and
+  nothing the words say is run.
 - LumaTV's own alert, input pop-up and PIN prompt over LG's notification view;
   toasts keep an app's own icon unless it is LG's generic file.
 - Quick panel plugin tiles and an All settings button; the input picker draws

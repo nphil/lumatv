@@ -14,6 +14,7 @@
 //! | `POST /v1/receiver/nudge` | read the receiver now and fast for a few seconds |
 //! | `POST /v1/refresh` | fetch weather and news now |
 //! | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
+//! | `GET /v1/voice`, `POST /v1/voice/{listen,stop,cancel,refresh}` | voice search (`voice.rs`) |
 //!
 //! A client's loop: `GET /v1/state` once (it carries `seq` and `boot`), then `GET /v1/events?after=<seq>&boot=<boot>` over and
 //! over, each time with the `seq` of the last answer. An answer with `"reset": true` means the client fell behind or the helper
@@ -119,6 +120,8 @@ pub struct Api {
     pub plugins: Arc<crate::plugins::Plugins>,
     /// Ambient light: its status, and the test pattern the Settings page runs.
     pub ambient: Arc<crate::ambient::Ambient>,
+    /// Voice search: the mic key's words as text, through Home Assistant's Assist pipeline (`/v1/voice/...`).
+    pub voice: Arc<crate::voice::Voice>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -289,6 +292,7 @@ impl Api {
             .iter()
             .chain(crate::ai::routes::ROUTES.iter())
             .chain(crate::plugins::routes::ROUTES.iter())
+            .chain(crate::voice::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -486,6 +490,7 @@ impl Handler for Api {
             ["v1", "plugins", rest @ ..] => {
                 crate::plugins::routes::handle(&self.plugins, request, rest)
             }
+            ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -565,6 +570,7 @@ mod tests {
                 ai,
                 plugins: crate::plugins::Plugins::new(&ctx),
                 ambient: crate::ambient::Ambient::new(&ctx),
+                voice: crate::voice::Voice::new(&ctx),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -639,7 +645,10 @@ mod tests {
         let listed = b["endpoints"].as_array().unwrap();
         assert_eq!(
             listed.len(),
-            ROUTES.len() + crate::ai::routes::ROUTES.len() + crate::plugins::routes::ROUTES.len()
+            ROUTES.len()
+                + crate::ai::routes::ROUTES.len()
+                + crate::plugins::routes::ROUTES.len()
+                + crate::voice::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);
@@ -968,7 +977,13 @@ mod tests {
             .collect();
         assert_eq!(
             owners,
-            ["base.ambient", "base.news", "base.receiver", "base.weather"]
+            [
+                "base.ambient",
+                "base.news",
+                "base.receiver",
+                "base.voice",
+                "base.weather"
+            ]
         );
 
         let view = body(
