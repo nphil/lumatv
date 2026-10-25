@@ -1333,9 +1333,11 @@ verb_homestub() {
         emit_error "something else is mounted on LG's Home directory (Glasshouse Home?)"; return 1
       fi
       rm -f "$HS_SKIP" "$HS_STRIKES" "$HS_ESCAPE" "$HS_CONFIRM"
-      # A trial with no deadline yet: apply brings the stub up for it, the clock
-      # starts when it has.
-      printf 'pending\n' > "$HS_TRIAL"
+      # A switch that was already confirmed needs no trial: it only comes back up.
+      # Otherwise a trial with no deadline yet: apply brings the stub up for it, the
+      # clock starts when it has.
+      hs_kept=false; [ "$(cfg_get_bool homestub)" = true ] && hs_kept=true
+      [ "$hs_kept" = true ] || printf 'pending\n' > "$HS_TRIAL"
       hs_out=$(verb_apply)
       case "$hs_out" in
         *'"ok":true'*) : ;;
@@ -1352,6 +1354,11 @@ verb_homestub() {
         [ "$hs_front" = 1 ] && hs_open_home
         log_line "homestub: LumaHome never started its heartbeat, stub removed"
         emit_error "LumaHome did not start drawing; LG's Home is back"; return 1
+      fi
+      if [ "$hs_kept" = true ]; then
+        log_line "homestub: on"
+        printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
+        return 0
       fi
       printf 'trial %s\n' "$(( $(uptime_s) + HS_TRIAL_SECS ))" > "$HS_TRIAL"
       hs_mode_set stub "trial=$HS_TRIAL_SECS"
@@ -1422,8 +1429,8 @@ verb_homestub_boot() {
 }
 
 verb_homestub_watch() {
-  # The guard: one detached shell. While all is well it forks nothing: the reads
-  # are builtins and the one-second wait is a read on a fifo.
+  # The guard: one detached shell. While all is well it forks one grep every 10 s:
+  # the reads are builtins and the one-second wait is a read on a fifo.
   if hs_wd_alive && [ "$(cat "$HS_WD_PID" 2>/dev/null)" != "$$" ]; then exit 0; fi
   printf '%s\n' "$$" > "$HS_WD_PID"
   HS_IN_GUARD=1
@@ -1490,14 +1497,12 @@ verb_homestub_watch() {
       hs_guard_exit
     fi
 
-    # Every 5 s: is the stub still mounted? A guard for a stub that is gone has
-    # nothing to guard.
-    if [ $((hs_now - hs_mchk)) -ge 5 ]; then
-      hs_mchk=$hs_now; hs_have=0
-      while read -r hs_m1 hs_m2 hs_m3 hs_m4 hs_m5 hs_mrest; do
-        [ "$hs_m5" = "$HOME_APP_DIR" ] && hs_have=1
-      done < /proc/self/mountinfo
-      if [ "$hs_have" != 1 ]; then
+    # Every 10 s: is the stub still mounted? A guard for a stub that is gone has
+    # nothing to guard. One grep: a read loop over mountinfo costs a syscall per
+    # byte in busybox's ash, 4 % of a core at one scan in 5 s.
+    if [ $((hs_now - hs_mchk)) -ge 10 ]; then
+      hs_mchk=$hs_now
+      if ! hs_mounted_any; then
         log_line "homestub: the stub is no longer mounted, guard stops"
         hs_guard_exit
       fi
