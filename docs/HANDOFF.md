@@ -12,10 +12,10 @@ live with the owner.
   (inventory), each `docs/research/*-result.md` (its worker's recovery point). An
   implemented file is not proof that its feature passed on the TV.
 - Helpers: at most 10 at once including nested ones; briefs forbid spawning.
-  Only GateFour may still be running (4th C4 gate on the set, 14:10-14:35); its
-  result lands in `compositor-c2-result.md` "Fourth gate on the set". If that
-  section is missing, check the set's end state first (Active Standby, LG's
-  compositor live, no `enabled` flag, receiver unmuted).
+  Fourth gate ran 14:18-14:34 (c41da8d): Netflix, volume, standby/wake and
+  escape pass; x1 down to 2 gaps over 20 ms (worst 24.7 ms, first second);
+  HDMI 2 comes to the front but draws nothing: the compositor never sends
+  `wl_webos_shell_surface.exposed`. That fix is the next compositor task.
 - Done offline today, all slices finished and pushed (notes
   `docs/research/{shell,settings,panels,notify,plugins}-slice-result.md`,
   `cardapp-result.md`): every Phase 2-9 surface except the voice source, gear
