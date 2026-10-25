@@ -176,5 +176,28 @@ class CardApp(unittest.TestCase):
         self.assertEqual(self.calls(), [])
 
 
+class Packaging(unittest.TestCase):
+    """The ipk build names the card app's inputs and ships its installer; whether they exist depends on the checkout (they are built)."""
+
+    def test_the_dry_run_lists_what_the_card_app_is_packed_from(self):
+        r = subprocess.run(["sh", os.path.join(ROOT, "tools", "build-ipk.sh"), "--dry-run"], capture_output=True, text=True, cwd=ROOT, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for want in ("card/appinfo.json", "card/splash.png", "rustui/build/card/bin/lumatv-card", "rustui/build/card/bin64/lumatv-card-app",
+                     "gfx64/launch.sh", "gfx64/build/out/heapshim.so", "gfx64/build/bundle/lib/ld-linux-aarch64.so.1", "tools/cardapp.sh"):
+            self.assertRegex(r.stdout, r"[\u2713\u2717] %s\b" % want.replace(".", r"\."), want)
+
+    def test_the_card_apps_appinfo_is_a_native_app_that_registers_with_sam(self):
+        with open(os.path.join(ROOT, "card", "appinfo.json")) as f:
+            info = json.load(f)
+        self.assertEqual(info["id"], "{{appId}}.card")
+        self.assertEqual((info["type"], info["main"], info["nativeLifeCycleInterfaceVersion"]), ("native", "bin/lumatv-card", 2))
+        self.assertTrue(info["visible"], "the switcher's list only keeps apps that have a launch point")
+        self.assertEqual(info["splashBackground"], "splash.png")
+
+    def test_the_script_is_valid_shell(self):
+        for name in ("build-ipk.sh", "cardapp.sh"):
+            self.assertEqual(subprocess.run(["sh", "-n", os.path.join(ROOT, "tools", name)]).returncode, 0, name)
+
+
 if __name__ == "__main__":
     unittest.main()

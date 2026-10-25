@@ -16,6 +16,7 @@ use lumatv_rustui::lifecycle::{Channel, FromApp, ToApp};
 use lumatv_rustui::window::{self, Event, Spec};
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use ui::{SceneOptions, Ui};
 
@@ -74,6 +75,32 @@ fn log(what: &str) {
 extern "C" fn on_term(_: libc::c_int) {
     // SAFETY: _exit is async-signal-safe.
     unsafe { libc::_exit(0) };
+}
+
+/// When the loop went into a swap, in ms of the monotonic clock; 0 while it is not in one.
+static SWAP_SINCE_MS: AtomicU64 = AtomicU64::new(0);
+/// A swap waits for the compositor's frame callback. A card whose compositor stops sending them without telling it (LG's, for a card it
+/// hides, between the app's last frame and its `state_changed(minimized)` [INFERENCE]) would wait for ever and hear neither SAM nor a
+/// relaunch. Past this the process ends, which SAM and the compositor take as the card closing, and a launch starts it afresh. Power-off
+/// closes native apps through SAM (`close`, reason `powerOff`) well before it matters.
+const SWAP_LIMIT_MS: u64 = 8000;
+
+fn watch_swaps() {
+    let spawned = std::thread::Builder::new().name("swap-watch".into()).spawn(|| {
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let since = SWAP_SINCE_MS.load(Ordering::Relaxed);
+            let now = now_ns() / 1_000_000;
+            if since != 0 && now.saturating_sub(since) > SWAP_LIMIT_MS {
+                log(&format!("a swap has waited {} ms for a frame callback: ending", now - since));
+                // SAFETY: _exit is async-signal-safe and takes nothing with it that a thread's exit would leave in a state.
+                unsafe { libc::_exit(0) };
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        log(&format!("no swap watchdog: {e}"));
+    }
 }
 
 fn main() {
@@ -188,6 +215,7 @@ fn run(o: Options) -> io::Result<i32> {
     land(&mut page.ui)?;
     log(&format!("built the page in {} ms", built.elapsed().as_millis()));
 
+    watch_swaps();
     let began = Instant::now();
     let mut visible = false;
     let mut want_frame = false;
@@ -268,7 +296,10 @@ fn run(o: Options) -> io::Result<i32> {
                     log(&format!("GL error {code:#x}"));
                 }
                 // Only a visible card swaps: a swap waits for a frame callback, which a covered card may never get.
-                engine.gles().swap_buffers()?;
+                SWAP_SINCE_MS.store((now_ns() / 1_000_000).max(1), Ordering::Relaxed);
+                let swapped = engine.gles().swap_buffers();
+                SWAP_SINCE_MS.store(0, Ordering::Relaxed);
+                swapped?;
                 engine.frame_done(now_ns(), &cost);
                 engine.tidy();
                 engine.idle_moment(true);

@@ -144,6 +144,17 @@ class Launcher(unittest.TestCase):
         self.assertEqual(self.finish(proc), 0)
         self.assertIn('--params {"contentTarget": "a b \\"c\\"", "n": [1, 2]} --channel-fd', self.text("app").splitlines()[0])
 
+    def test_the_apps_picture_files_are_cleared_when_it_is_gone(self):
+        shm = os.path.join(self.dir, "shm")
+        os.makedirs(shm)
+        for name in ("layer-1", "layer-2"):
+            with open(os.path.join(shm, name), "w") as f:
+                f.write("pixels")
+        proc = self.start(env={"FAKE_APP_EXIT": "0.5:0", "LUMATV_CARD_SHM": shm})
+        self.assertEqual(self.finish(proc), 0)
+        self.assertIn("--shm " + shm, self.text("app").splitlines()[0])
+        self.assertFalse(os.path.exists(shm), "the directory is gone with the files in it")
+
     def test_a_launch_without_json_still_starts_the_app_under_the_default_id(self):
         proc = self.start(launch=None, env={"FAKE_APP_EXIT": "1:0"})
         self.assertEqual(self.finish(proc), 0)

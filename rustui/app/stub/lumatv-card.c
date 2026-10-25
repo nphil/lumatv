@@ -25,11 +25,13 @@
 // What the app tells it ({"kind":"ready"|"state"|"page"|"exit"}) is only logged: the log is the TV step list's evidence.
 //
 // Environment, all optional: LUMATV_CARD_LOG (log file, default /tmp/lumatv-card.log), LUMATV_CARD_HOME (the app directory; default the
-// parent of this executable's directory), XDG_RUNTIME_DIR and WAYLAND_DISPLAY (defaults /tmp/xdg and wayland-0, LG's socket). Test hooks:
-// LUMATV_CARD_CHILD (a program to run in place of launch.sh and the app; it gets the app's arguments), LUMATV_CARD_KILL_MS (the 4 s).
+// parent of this executable's directory), XDG_RUNTIME_DIR, WAYLAND_DISPLAY and PATH (defaults /tmp/xdg, wayland-0, LG's socket, and the usual four directories). Test hooks:
+// LUMATV_CARD_CHILD (a program to run in place of launch.sh and the app; it gets the app's arguments), LUMATV_CARD_KILL_MS (the 4 s),
+// LUMATV_CARD_SHM (the app's picture directory, default /tmp/lumatv-card-shm).
 //
 // Build: rustui/app/stub/build.sh (zig cc, arm-linux-gnueabi glibc 2.28, stub libraries for the link; the set's libraries at run time).
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -94,6 +96,9 @@ static LSMessageToken sam_token;
 static bool sam_call, sam_answered, closing;
 static unsigned kill_ms = 4000;
 static int child_status = -1;
+// The app's picture files (the toolkit's shared-memory layers) live in /tmp, which is memory: this program clears them when the app is gone,
+// whatever way it went (the app clears them itself on a normal end).
+static char shm_dir[300] = "/tmp/lumatv-card-shm";
 
 static void logline(const char *fmt, ...) {
     struct timespec ts;
@@ -330,12 +335,27 @@ static void unregister_from_sam(void) {
 }
 
 // ---- the app ----
+static void clean_shm(void) {
+    DIR *d = opendir(shm_dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char path[700];
+        snprintf(path, sizeof path, "%s/%s", shm_dir, e->d_name);
+        unlink(path);
+    }
+    closedir(d);
+    rmdir(shm_dir);
+}
+
 static void on_child(int pid, int status, gpointer data) {
     (void)data;
     if (pid != child_pid) return;
     child_pid = 0;
     if (WIFEXITED(status)) { child_status = WEXITSTATUS(status); logline("the app ended with %d", child_status); }
     else { child_status = 128 + WTERMSIG(status); logline("the app was killed by signal %d", WTERMSIG(status)); }
+    clean_shm();
     unregister_from_sam();
     g_main_loop_quit(loop);
 }
@@ -361,6 +381,9 @@ static void start_app(const char *home, bool hidden, const char *reason, const c
         prctl(PR_SET_PDEATHSIG, SIGTERM);
         if (logf) { int lf = fileno(logf); dup2(lf, 1); dup2(lf, 2); }
         if (dup2(sv[1], 3) < 0) _exit(126);
+        // What SAM gives a 32-bit program must not reach the 64-bit loader: it takes its own library path and shim (gfx64/launch.sh).
+        unsetenv("LD_PRELOAD");
+        unsetenv("LD_LIBRARY_PATH");
         for (int fd = 4; fd < 256; fd++) close(fd);
         char *args[32];
         int n = 0;
@@ -378,6 +401,7 @@ static void start_app(const char *home, bool hidden, const char *reason, const c
         args[n++] = "--params"; args[n++] = (char *)params;
         args[n++] = "--channel-fd"; args[n++] = "3";
         args[n++] = "--assets"; args[n++] = assets;
+        args[n++] = "--shm"; args[n++] = shm_dir;
         if (hidden) args[n++] = "--hidden";
         args[n] = NULL;
         execv(override ? override : "/bin/sh", args);
@@ -412,7 +436,15 @@ static void home_of_exe(char *out, size_t n) {
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
     const char *log_path = getenv("LUMATV_CARD_LOG");
-    logf = fopen(log_path && *log_path ? log_path : "/tmp/lumatv-card.log", "a");
+    if (!log_path || !*log_path) log_path = "/tmp/lumatv-card.log";
+    // The log is in /tmp, which is memory: the last launch is kept beside this one, nothing older.
+    struct stat st;
+    if (stat(log_path, &st) == 0 && st.st_size > 128 * 1024) {
+        char old[700];
+        snprintf(old, sizeof old, "%s.1", log_path);
+        rename(log_path, old);
+    }
+    logf = fopen(log_path, "a");
     // SAM's launch: the one argument.
     const char *launch = argc > 1 && argv[1][0] == '{' ? argv[1] : "{}";
     char reason[64] = "undefined", params[1024] = "{}";
@@ -422,13 +454,16 @@ int main(int argc, char **argv) {
     bool snapshot = false;
     if (json_value(launch, "parameters", &p, &n) && n < sizeof params) { memcpy(params, p, n); params[n] = 0; snapshot = json_true(params, "snapshot"); }
     bool hidden = !strcmp(reason, "preload") || snapshot;
+    const char *shm_env = getenv("LUMATV_CARD_SHM");
+    if (shm_env && *shm_env) snprintf(shm_dir, sizeof shm_dir, "%s", shm_env);
     const char *kill_env = getenv("LUMATV_CARD_KILL_MS");
     if (kill_env && atoi(kill_env) > 0) kill_ms = (unsigned)atoi(kill_env);
     setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 0);
     setenv("WAYLAND_DISPLAY", "wayland-0", 0);
+    setenv("PATH", "/usr/sbin:/usr/bin:/sbin:/bin", 0);   // launch.sh needs ls, awk, uname and head
     char home[600];
     home_of_exe(home, sizeof home);
-    logline("launch: app %s reason %s hidden %d parameters %s, home %s", app_id, reason, hidden, params, home);
+    logline("launch: app %s reason %s hidden %d parameters %s, home %s, uid %d gid %d", app_id, reason, hidden, params, home, (int)getuid(), (int)getgid());
 
     loop = g_main_loop_new(NULL, 0);
     start_app(home, hidden, reason, params);

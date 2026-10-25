@@ -42,6 +42,12 @@ const Z_TEXT: i32 = 12;
 const Z_BUTTON: i32 = 14;
 const Z_BUTTON_TEXT: i32 = 16;
 
+// The card is on the screen and its buttons fit it.
+const _: () = {
+    assert!(PANEL.x >= 0.0 && PANEL.y >= 0.0 && PANEL.x + PANEL.w <= W && PANEL.y + PANEL.h <= H);
+    assert!(PAD + BUTTON_W[0] + BUTTON_GAP + BUTTON_W[1] <= PANEL.w - PAD);
+};
+
 const TITLE: Type = look::ty(44, SEMI);
 const CAPTION: Type = look::ty(26, MED);
 const LABEL: Type = look::ty(28, MED);
@@ -293,9 +299,6 @@ mod tests {
         let keys_end = ROW_TOP + card::KEY_LINES as f32 * KEY_PITCH;
         assert!(keys_end + 16.0 <= HINT_TOP, "eight key lines end at {keys_end}");
         assert!(line_height(VALUE) <= ROW_PITCH && line_height(VALUE) <= KEY_PITCH, "a line fits its row");
-        assert!(PANEL.x >= 0.0 && PANEL.y >= 0.0 && PANEL.x + PANEL.w <= W && PANEL.y + PANEL.h <= H, "the card is on the screen");
-        let buttons_w = BUTTON_W.iter().sum::<f32>() + BUTTON_GAP;
-        assert!(PAD + buttons_w <= PANEL.w - PAD, "the buttons fit the card");
         assert!(KEY_COLUMNS.windows(2).all(|c| c[1] - c[0] >= 140.0), "the key columns are apart");
     }
 }

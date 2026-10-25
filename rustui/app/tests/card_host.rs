@@ -58,6 +58,7 @@ struct App {
     pending: Vec<u8>,
     seen: Vec<Value>,
     log: PathBuf,
+    shm: PathBuf,
 }
 
 fn high_dup(fd: i32) -> i32 {
@@ -106,7 +107,7 @@ impl App {
         drop(wayland);
         drop(app_end);
         launcher.set_nonblocking(true).unwrap();
-        App { child, channel: launcher, pending: Vec::new(), seen: Vec::new(), log }
+        App { child, channel: launcher, pending: Vec::new(), seen: Vec::new(), log, shm }
     }
 
     /// What the launcher says to the app, one line.
@@ -166,6 +167,8 @@ impl Drop for App {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        // An app that was ended by the kill above has not cleaned up after itself.
+        let _ = std::fs::remove_dir_all(&self.shm);
     }
 }
 
@@ -414,6 +417,25 @@ fn the_compositors_close_and_a_lost_launcher_end_the_app() {
     drop(channel);
     let status = app.wait_exit(Duration::from_secs(10));
     assert!(status.success(), "{status:?}");
+}
+
+#[test]
+fn a_swap_that_never_gets_its_frame_callback_ends_the_app_instead_of_hanging_it() {
+    let _one = ONE_AT_A_TIME.lock();
+    let mut server = Server::start();
+    let mut app = start(&mut server, "stall", &[]);
+    // The compositor stops presenting: no frame callbacks from here on (LG's, for a card it hides, may do the same).
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(200));
+    for _ in 0..4 {
+        remote(&server, 106);
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    let status = app.wait_exit(Duration::from_secs(30));
+    assert!(status.success(), "{status:?}");
+    let log = app.log_text();
+    assert!(log.contains("a swap has waited"), "{log}");
+    server.ticking.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 struct AppParts {
