@@ -48,3 +48,17 @@ Quick Settings and picker first-frame and p90 numbers (`gate.py --surfaces quick
 - Helper: the per-poll receiver event the recovery had introduced is gone; `set_ignoring` is back with its test, and
   `polls_that_change_nothing_move_the_stamp_in_the_snapshot_and_raise_no_event` replaces the heartbeat test (10 receiver tests,
   283 library tests pass).
+- Tests (2026-10-25, offline host): `cd tests && python3 -m unittest test_volume_osd test_panels` 15 of 15 pass (receiver
+  readings on the tile, the page and the OSD: shown, gone 6 s after the last reading, back with the next, a quiet stamp
+  keeps it and a silent helper loses it, a key after a quiet minute asks the helper; plugin tile reached and posted, an
+  unavailable tile never focused, focus kept by id while tiles come and go; All settings button; input picker tiles, Always
+  and Hidden, launch on OK, the sound line). `cargo test -p lumatv-helper --test receiver` 10 of 10 and `--lib` 283 of 283
+  (host linker: `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=compositor/tools/cc-host`).
+- Renders, dark and light, against the mocks: `python3 tests/qmlhost/scenes.py --out /tmp/panels-shots --only
+  08-input-picker,10-quick-panel,11-volume-osd,11-volume-osd-abs,11-volume-osd-muted,11-volume-osd-offline,24-settings-receiver,
+  24-settings-receiver-levels,24-settings-receiver-audyssey,24-settings-receiver-zones,24-settings-receiver-today`. 24 (all four
+  tabs) matches the mock to the row; 10 matches except the Sleep timer tile (see above) and the toggle thumb colour (LuToggle);
+  08 has the wrapped "HDMI 2 · eARC" caption and the Sound line of the mock; 11 shows the pill over Home (the mocks use a video
+  backdrop). Row dividers of the mocks are LuRow's, not drawn.
+- Set measurements still to take (not run): `gate.py --surfaces quick,picker,osd` (first frame under 50 ms, p90 under 3 ms);
+  a volume key after minutes idle (the confirmation GET, then the burst read) on the real helper.

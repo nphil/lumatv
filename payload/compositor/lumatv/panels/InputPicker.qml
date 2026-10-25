@@ -54,7 +54,7 @@ Item {
     LuPane {
         id: sheet
         x: 64; width: 1792
-        height: 380
+        height: 404
         y: 1080 - 64 - height
         Row {
             id: head
@@ -82,7 +82,7 @@ Item {
                     readonly property var t: picker.tiles[index]
                     readonly property bool focused: picker.index === index
                     width: Math.floor((sheet.width - 2 * Lu.space(7) - (Math.max(picker.tiles.length, 5) - 1) * Lu.space(4)) / Math.max(picker.tiles.length, 5))
-                    height: 240
+                    height: 264
                     opacity: t.on ? 1 : Lu.disabledOpacity
                     FocusLift { id: lift; focused: tile.focused; rested: picker.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
                     scale: 1 + (Lu.rowScale - 1) * 2 * lift.value
@@ -97,7 +97,7 @@ Item {
                     }
                     LuText { id: portText; x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5) - (soundChip.visible ? soundChip.width + Lu.space(2) : 0); role: "caption"; color: Lu.ink2; text: tile.t.port; wrapMode: Text.WordWrap; maximumLineCount: 2 }
                     LuChip { id: soundChip; visible: !!tile.t.sound; x: parent.width - width - Lu.space(3); y: Lu.space(3); text: "Sound out"; tone: "positive" }
-                    LuIcon { x: Lu.space(5); y: Lu.space(4) + Math.max(48, portText.height + Lu.space(3)); name: tile.t.icon; size: 56; color: Lu.ink }
+                    LuIcon { x: Lu.space(5); y: Lu.space(4) + Math.max(48, portText.height + Lu.space(1)); name: tile.t.icon; size: portText.lineCount > 1 ? 44 : 56; color: Lu.ink }
                     Column {
                         x: Lu.space(5); width: parent.width - 2 * Lu.space(5)
                         y: parent.height - height - Lu.space(4)
