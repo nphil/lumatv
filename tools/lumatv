@@ -9,6 +9,7 @@
 #   fps on|off             -> toggle the compositor FPS debug overlay
 #   restart                -> restart the compositor and bring Home back (what apply does when it must)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
+#   compositor on|off|status -> LumaTV's own compositor in place of LG's (tools/compositor.sh)
 #   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
 #   preload on|off|status  -> keep only Netflix and Prime Video warm in the background (payload/preload.json)
 #   standby warm|cold      -> Quick Start+ on with webos-sddp off, or fully off
@@ -284,6 +285,11 @@ EARLY_BIN="$STATE/earlybin"
 EARLY_SHIM="$EARLY_BIN/grep"
 EARLY_ONCE="/tmp/.$SHORT_ID-early-done"
 LOCKFILE="$STATE/mutate.lock"
+
+# LumaTV's own compositor (tools/compositor.sh): the bundle and its state files are under
+# $COMP, put there by compositor/tools/tv-cutover.sh install.
+COMP="$STATE/compositor"
+if [ -f "$APPDIR/tools/compositor.sh" ]; then . "$APPDIR/tools/compositor.sh"; fi
 # Seconds a second mutation waits for the first to finish. An apply takes ~30s
 # at worst, so this is generous without hanging a caller forever.
 LOCK_WAIT=180
@@ -480,6 +486,10 @@ restart_surface() {
   # away and then waits on the panel, which is the only honest gate. Measured:
   # asking for Home at +4s still put content up at +12s, so sleeping first
   # bought nothing and cost 14s.
+  # Nothing restarts the unit while LG's Home is being recovered after LumaTV's compositor was
+  # away: a second restart would take the compositor down under the recovery's Home launch.
+  i=0; while comp_recovering && [ "$i" -lt 60 ]; do sleep 1; i=$((i+1)); done
+  if comp_recovering; then log_line "restart: a recovery of LG's Home is still running, the compositor is not restarted"; return 1; fi
   WAM_STAMP0=$(wam_stamp)
   reports_before=$(snapshot_reports)
   systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
@@ -1057,6 +1067,9 @@ clear_qml_cache() { rm -rf "$QML_CACHE_DIR" 2>/dev/null; return 0; }
 compositor_has_shadow() {
   # Whether the running compositor was started with our import path. Only its
   # own environment says so; the env file on disk says what the NEXT one gets.
+  # LumaTV's compositor draws no QML: the process that carries LG's name is its supervisor, whose
+  # environment says nothing, so a live LumaTV compositor counts as having what it needs.
+  comp_live && return 0
   p=$(pgrep -x surface-manager 2>/dev/null | head -n1)
   [ -n "$p" ] || return 1
   tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qF "QML2_IMPORT_PATH=$SHADOW_ROOT:"
@@ -1603,6 +1616,12 @@ verb_homestub_watch() {
       fi
     fi
 
+    # LumaTV's own compositor draws no LumaHome: there is no beat to read, and its supervisor
+    # falls back by itself (and runs the Home recovery), so the stub stays and the checks below
+    # that read the beat are skipped while it is live.
+    if comp_live; then
+      hs_ok_at=$hs_now; hs_grace=$((hs_now + HS_GRACE))
+    else
     hs_b=""; { read -r hs_b < "$HS_BEAT"; } 2>/dev/null
     # The compositor's container writes "error" in place of a beat when LumaHome
     # failed to load.
@@ -1627,6 +1646,7 @@ verb_homestub_watch() {
         homestub_fault "LumaHome's heartbeat stopped ($((hs_now - hs_ok_at)) s, file $hs_age s old)"
         hs_guard_exit
       fi
+    fi
     fi
 
     # Every 10 s: is the stub still mounted? A guard for a stub that is gone has
@@ -1715,6 +1735,35 @@ verb_preload() {
   esac
 }
 
+recover_home() {
+  # LG's Home after the compositor was away and came back: the bundle's own script when it is there
+  # (it holds the recovery lock), else the tool's relaunch.
+  if [ -f "$COMP/bin/recover-home.sh" ]; then sh "$COMP/bin/recover-home.sh" "$COMP/sm.log" >/dev/null 2>&1
+  else home_back_after_restart; fi
+}
+
+verb_compositor() {
+  case "${1:-status}" in
+    on|off)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      msg=$(comp_switch "$1"); rc=$?
+      if [ "$rc" -ne 0 ]; then emit_error "$msg"; return 1; fi
+      log_line "compositor $1"
+      printf '{"ok":true,"compositor":%s}\n' "$(comp_json)" ;;
+    status) printf '{"ok":true,"compositor":%s}\n' "$(comp_json)" ;;
+    *) emit_error "compositor: on, off or status"; return 1 ;;
+  esac
+  return 0
+}
+
+verb_compositor_boot() {
+  # The early hook's step before apply restarts the compositor: place the mount when it is wanted.
+  r=$(comp_boot_mount)
+  log_line "compositor-boot: $r"
+  printf '{"ok":true,"compositor":"%s"}\n' "$r"
+  return 0
+}
+
 restart_launchpoint_services() {
   systemctl restart sam.service >/dev/null 2>&1
   i=0; while [ "$i" -lt 20 ] && ! systemctl is-active sam.service >/dev/null 2>&1; do sleep 1; i=$((i+1)); done
@@ -1741,6 +1790,7 @@ do_revert_internal() {
   REVERT_CHANGED=0
 
   helper_stop
+  comp_release
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
 
   # LG's Home first, so what the restart below brings up is LG's, not the stub.
@@ -2021,6 +2071,9 @@ verb_apply() {
   # A changed compositor set starts from an empty QML cache; a restart for an
   # env change or a stock compositor at boot keeps it.
   [ "$compositor_changed" -eq 1 ] && clear_qml_cache
+  # LumaTV's own compositor reads none of the QML this apply staged; restarting its unit would only
+  # blank the panel.
+  if comp_live; then restart_needed=0; fi
 
   if [ "$restart_needed" -eq 1 ]; then
     marker=$(wc -l < "$MSGLOG" 2>/dev/null | tr -d ' '); [ -n "$marker" ] || marker=0
@@ -2188,8 +2241,9 @@ verb_status() {
   standby=$(standby_mode)
   homestub=$(homestub_json)
   helper=$(helper_json)
-  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s}\n' \
-    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper"
+  compositor=$(comp_json)
+  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s,"compositor":%s}\n' \
+    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper" "$compositor"
   return 0
 }
 
@@ -2269,6 +2323,7 @@ verb_persist() {
     off)
       rm -f "$AUTOSTART_LINK" 2>/dev/null
       remove_early_hook
+      rm -f "$COMP/enabled" 2>/dev/null
       set_cfg_bool persist false
       ;;
     *)
@@ -2596,7 +2651,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo)
+  status|apply|boot-bind|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|homestub|homestub-boot|homestub-watch|helper|preload|logo|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -2656,6 +2711,8 @@ case "$VERB" in
   helper) verb_helper "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
+  compositor) verb_compositor "${2:-status}"; exit $? ;;
+  compositor-boot) verb_compositor_boot; exit $? ;;
   standby) verb_standby "${2:-}"; exit $? ;;
   ntfy) verb_ntfy "${2:-}" "${3:-}"; exit $? ;;
   log) verb_log "${2:-}"; exit $? ;;

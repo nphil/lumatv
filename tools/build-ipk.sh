@@ -69,6 +69,7 @@ payload/fonts/Manrope-SemiBold.ttf
 payload/fonts/Manrope-Bold.ttf
 tools/tokens.py
 tools/preload.py
+tools/compositor.sh
 payload/preload.json
 payload/homestub/appinfo.json
 payload/homestub/index.html
@@ -189,7 +190,7 @@ cp tools/brand.sh "$DATA_ROOT/tools/"
 cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
-cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh "$DATA_ROOT/tools/"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"

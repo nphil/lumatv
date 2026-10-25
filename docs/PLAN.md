@@ -14,35 +14,46 @@ inventory snapshot of the firmware: `/data/home/lgtv/uiinv`.
 Kept current with every change to this plan. Building is under way (Nitin said go,
 2026-10-24).
 
-- Done: resident Quick Settings, resident LumaHome (idle while hidden), key
-  filter written only on change, Home stub built, measured and left on
-  (2026-10-25, `docs/research/homestub-result.md`), ambient-light hardware
-  chosen, 64-bit drawing proven on screen, the env hook for compositor tuning
-  (`env.extra`) in the tool.
 - Done in phase 1, surfaces (2026-10-25, `docs/research/surfaces-p1-result.md`):
   fail-open key filter with press and release paired, OK acting on release,
   the focus rule (the highlight at once, the lift after 150 ms of rest);
   the wallpaper tint sampler (32x18, 8 levels a channel) feeding the accent
-  and tint tokens; saved-first weather and news in the helper's file format;
-  one token source (`theme.json`, merged over the shipped file, resolved by
-  `tools/tokens.py` for the web CSS, Quick Settings and QML elsewhere);
+  and tint tokens; one token source (`theme.json`, merged over the shipped file,
+  resolved by `tools/tokens.py` for the web CSS, Quick Settings and QML elsewhere);
   Manrope as the one typeface in QML, the web theme and Quick Settings; the
-  component kit (`payload/compositor/lumatv/kit`) and its gallery.
-- Open in phase 1, surfaces: startup warm-up (shaders, Manrope sizes and
-  weights in use, icons) and the per-surface frame gate in the harness; the
-  preload trim and the Home-return re-measure after it.
+  component kit (`payload/compositor/lumatv/kit`) and its gallery; resident Quick
+  Settings; the Home stub (`docs/research/homestub-result.md`); the disk cache and
+  the other compositor env settings.
+- Done in phase 2 of the surfaces work (`docs/research/surfaces-p2-result.md`):
+  the startup warm-up (`Warmup.qml`, `kit/Warm.qml`); the per-surface frame gate and
+  the startup A/B in `docs/research/perf` (`gate.py`, `startup.py`, `preload_ab.py`);
+  the offline QML host and its tests (`tests/qmlhost`); Home's weather and news
+  drawn from the native helper (`kit/Helper.qml`, saved file first); the helper
+  started, staged and stopped by `tools/lumatv` (`lumatv helper`); the preload
+  trim (`lumatv preload on|off`); the power-on and power-off logo windows
+  (`lumatv logo on|off`) with three options each (`docs/mocks/logo`).
+- Done outside the surfaces: the native helper (`helper/`, proven on the set, 35 of
+  35 checks; MCP module and the preload re-apply built offline), the 64-bit
+  drawing path with its heap shim (`gfx64/`, proven on screen), and LumaTV's own
+  compositor through C2 (an unmodified LG app maps and draws, pixel-exact imports),
+  with C3 and C4 built offline and the first KMS window and bridge dry run run
+  on the set (Track C below; `docs/research/compositor-c2-result.md`).
 - Research done: full catalogue of LG's UI (`docs/SURFACES.md`, 178 rows),
   72 mockups in three batches (`docs/mocks/`), the shell architecture study
-  (`docs/research/shell-architecture.md`) and the performance study measured
-  on the set (`docs/research/perf-tweaks.md`). X1 failed (LG's compositor
+  (`docs/research/shell-architecture.md`), the performance study measured
+  on the set (`docs/research/perf-tweaks.md`), the hardware census
+  (`docs/research/hardware-census.md`) and the LumaShow lessons
+  (`docs/research/lumashow-lessons.md`). X1 failed (LG's compositor
   holds 51.2 fps for a trivial client), X2 passed, X4 partly captured.
 - Decided 2026-10-24: LumaTV replaces LG's compositor, in stages (Phases,
   track C); since 2026-10-25 it goes live as soon as it passes the C4 gate.
 - TV tests still open: X4 during PlxNative playback (Netflix done); the
   histogram probe (needs the `libvtcapture` histogram signatures first).
   Need Nitin present: PIN prompt; keys from his universal remote once set up.
-- Next build step: phase 1 warm-up and the frame gate, then the preload
-  trim, the heap shim and the Rust helper.
+- Next, in order: the frame gate on Quick Settings and the kit gallery under the
+  new rules, the boot and power-off logo test on the set, then notifications
+  (phase 2), the quick panel, Settings and AI access (phase 3). The Rust helper's
+  receiver, MCP and preload modules are wired into the surfaces as each needs them.
 
 ## Rules every surface meets
 
@@ -144,12 +155,12 @@ set). The table below is the summary; SURFACES.md is the source.
 | Context menu, on-screen remote | Compositor QML | Rebuilt | System UI redirect |
 | Recents | Drawn by LG's Home | Own switcher | Home stub |
 | Multi-view frames | Compositor QML | Kept as LG's: Multi View is not used (Nitin, 2026-10-23) | None |
-| Boot and power-off logo | Compositor QML | Own animation | System UI redirect |
+| Boot and power-off logo | Compositor QML | Own animation, three options each, option 1 default (Nitin, 2026-10-25); `docs/mocks/logo` | System UI redirect |
 | Screensaver | Flutter | Own, keeping OLED pixel shift | Research |
 | Nudges, sports alarm, store promotions | Compositor QML | Off (empty view) | System UI redirect |
 | Ad and content-recognition overlays | Native | Off through LG settings | Settings |
 | HDMI input banner, OK/INFO banners, no signal | `inputcommon` QML | Rebuilt (input pill, detail, burn-in-safe no-signal) | Overlay mount |
-| Power-off logo, startup cover | Compositor QML, `CoverUI` (bootd opens it; it launches the first app) | Own; CoverUI's launch duty kept | System UI redirect |
+| Power-off logo, startup cover | Compositor QML, `CoverUI` (bootd opens it; it launches the first app) | Power-off logo own (`MasterBrand` redirect); CoverUI's launch duty kept | System UI redirect |
 | Standby screen (Always Ready, Gallery+) | `lifeOnScreenMode: alwaysReady`, LG art and clock | Off: the panel goes fully dark in standby (Nitin, 2026-10-23); instant wake kept | Settings |
 | Voice listening bar, microphone indicator | `VoiceAgent` QML | Own voice bar for search only: app and title results from what is on the set, no LG cloud answers (Nitin, 2026-10-23); mic indicator always shown | Shadow module |
 | Pairing prompts (SSAP "Connection Request", mobile PIN) | SystemUI alert, configd popup | Rebuilt; answered only with the remote | View swap |
@@ -241,6 +252,19 @@ values are read back after each change, and any value older than 6 s
 without an answer is hidden rather than shown.
 
 ## Native helper
+
+Built and proven on the set (`helper/`, `docs/research/native-helper-result.md`):
+a static aarch64 musl daemon of 1.4-1.7 MB, 5-6 MB resident on the host (808 kB
+measured on the set), at nice 10, idle while the screen is off, with a loopback
+JSON API on `127.0.0.1:18731` (state, a long poll for changes, settings, receiver
+nudge, refresh), a schema-checked settings store (`base.weather`, `base.news`,
+`base.receiver`), weather and news saved first and fetched later, the Denon's
+volume, mute and input, an MCP module with its gate, store and broker (built
+offline), and the preload policy re-applied at every switch-on. The smoke test ran
+on the set: 35 of 35 checks. `tools/lumatv` stages and starts it (`lumatv helper
+start|stop|status`; apply and revert call the same code); Home's weather and news
+cards draw what the helper serves through `kit/Helper.qml` and read its saved file
+at a cold start. What follows is the design it was built to.
 
 A static aarch64 helper in Rust runs beside the compositor, in the language
 of LumaShow OS so the two share crates rather than reimplement them
@@ -361,6 +385,32 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
     routing.
   X1 failed and X2 passed, so LumaTV's compositor replaces surface-manager,
   with a watchdog and a firmware check that both fall back to LG's.
+  - Status (2026-10-25, `docs/research/compositor-c2-result.md`). C2 passed on the
+    set: the compositor on a private socket imports LG's AFBC buffers pixel-exact
+    through LG's own libmali (6 of 6 frames) and through the 64-bit blob, serves
+    `wl_shm`, and an unmodified LG Qt app mapped and drew 403 frames. C3 is built
+    offline (16 px damage tiles in a 3-page ring, LumaShow's pacer vendored
+    verbatim, an allocation-free planning path proven at 0 allocations over 200
+    frames, frame skip, the KMS output with an in-fence and commits one frame
+    ahead); its first window on the set got DRM master, the mode and the planes
+    right, rendered a 1080p dma-buf quad in 0.4 ms (the shm upload costs 12-21 ms),
+    and exposed a pacer clock bug (flip timestamps are `CLOCK_MONOTONIC`, the
+    pacer's clock was process-relative) that is fixed and waits for its re-run.
+    C4 is built offline: `lumatv-sm`, the 32-bit supervisor that registers LG's 12
+    bus names and 56 methods and heartbeats the compositor, decides at start
+    (enabled file, firmware fingerprint, recorded escape, fewer than two failures
+    in a row) and otherwise execs LG's binary; evdev key routing with the hold-Home
+    escape; the cutover script (`install`, `probe`, `trial`, `enable`, `disable`,
+    `status`, `revert`). Facts from LG's units: `surface-manager-daemon.service` is
+    `Type=notify` with a 1 s start limit of 10, `webapp-mgr.service` is `PartOf=` it and
+    `ConditionPathExists=/tmp/lsm-ready`, so a compositor that is away leaves
+    WebAppMgr `failed` and the web Home black until `reset-failed` and a start
+    (`tools/tv-recover-home.sh`, run by every revert and fallback path). The bridge
+    dry run found that ls-hubd refuses names for a binary with no role file, so
+    registration under the real names is proven only by `cutover.sh probe`. Next TV
+    steps, each its own slot: the bridge dry run, the KMS re-run, the probe and a
+    120 s trial, then the gate, which makes LumaTV's compositor live when it
+    passes.
 - 64-bit drawing path: works on screen (2026-10-22). LG's `mali_kbase`
   speaks kernel interface 11.40 and accepts 64-bit callers. Rockchip's
   aarch64 Mali-G52 Bifrost builds (`libmali-bifrost-g52-g24p0`, g13p0 too),
@@ -418,6 +468,21 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
     64-bit path fails to start, LumaTV draws through LG's 32-bit driver.
     The kernel-side alternative, a module adding `/dev/dma_heap`, needs LG's
     GPL source for 5.4.268 and is Nitin's decision.
+    Built in `gfx64/` (`docs/research/gfx64-result.md`): the shim (opens of
+    `/dev/dma_heap/system*` get a placeholder fd, `DMA_HEAP_IOCTL_ALLOC` tries a
+    DRM dumb buffer on `card0`, then `dma_buf_te`, other heaps are `ENOENT`),
+    `launch.sh` (preflight, then the client under the bundle's loader; a start that
+    fails inside 5 s runs the 32-bit fallback with `LUMATV_GFX_PATH=32`), and a
+    pinned fetch of the Rockchip blob and six Debian bookworm arm64 libraries
+    (about 37 MB, fetched at build time, never committed). A helper or app on this
+    path is started as `gfx64/launch.sh --fallback <32-bit build> -- <64-bit build>`;
+    the 32-bit fallback runs at 55.5-55.8 fps and needs its own pacing. Smoke run on
+    the set over idle Home with the screen on (2026-10-25): 8 s at 60.63 fps with 4
+    frames over 20 ms and three dumb buffers allocated in 0.8-2.5 ms each; 20 s at
+    59.81 fps with 6 over 20 ms (one dumb buffer and two `dma_buf_te` when CMA ran
+    short, the fallback working as designed; that run carries LG's compositor floor).
+    With the panel in standby the callbacks are unpaced (152.7 fps) and the smoke
+    script refuses such a run. Production env names are `LUMATV_HEAP*`.
     Contiguous buffers hold during 4K Dolby Vision playback (Netflix
     Meridian, 3840x2160 at 59.94 Hz, 2026-10-24): three 1080p dumb buffers
     allocated and held 40 s with no decoder errors. CmaFree reads 4-9 MB
@@ -740,21 +805,28 @@ above replaces it).
    state and fallback, the native helper, the disk cache, and LumaHome in
    LG's Home's place (Home stub, see Glasshouse). Done: kit, tokens, Manrope
    (QML, web theme, Quick Settings), the fail-open key filter, the focus rule,
-   the wallpaper tint and saved-first cards, the disk cache, the Home stub.
-   Open: warm-up, the harness's per-surface gate, the registry, the helper's
-   integration.
+   the wallpaper tint, the disk cache, the Home stub, the warm-up, the harness's
+   per-surface gate, the helper's start and stop and Home's cards fed by it.
+   Open: the registry of every surface's state and fallback.
 2. Notifications: toasts, alerts, PIN prompt, input popups.
 3. Quick panel, Settings, and AI access (MCP server, permissions, prompt).
 4. Input picker, the receiver-fed volume and mute OSD, and ambient light.
-5. Launch splash, spinners, boot and power-off logos, context menu, on-screen
-   remote.
+5. Launch splash, spinners, context menu, on-screen remote. The boot and
+   power-off logos are done (windows for LG's `BootLogo` and `MasterBrand`, three
+   options each in `payload/compositor/lumatv/logo`, `lumatv logo on|off`) and
+   wait only for the owner's choice among the options (`logo.on`, `logo.off` in
+   `theme.json`; option 1 is the default).
 6. Restyles in other processes: Live TV banners, keyboard, search and voice,
    the shared web-app theme.
-7. Removal: nudges, ads and store promotions off; LG's background services
-   off through Glasshouse (below); Apps tile to the own grid; Notification
-   Centre to the own drawer.
-8. Trim background preloads, replace the
-   screensaver. Research first, under the app-manager constraint below.
+7. Removal: nudges, ads and store promotions off; LG's telemetry, ad and
+   app-push services removed outright, not only stopped, with two reversible
+   profiles, `ads` and `lean`, that trim webOS to what it needs (Nitin,
+   2026-10-25; the work of `docs/research/declutter-result.md`, `tools/declutter.sh`);
+   Prime Video stays unless an LG surface clearly pushes it; Apps tile to the own
+   grid; Notification Centre to the own drawer.
+8. Background preloads trimmed (done: `lumatv preload on`, YouTube, LG Channels and the
+   browser dropped, Netflix and Prime Video kept) and the screensaver replaced.
+   Research first, under the app-manager constraint below.
 9. Plugins: the broker on LumaShow's plugin API, TV drawing of cards, tiles,
    settings pages and notifications, and Home's widgets moved to plugins.
 
@@ -772,6 +844,15 @@ when it passes on the set:
   out directly on the overlay plane, commits with an in-fence and one frame
   rendered ahead, damage tracking, and a UI clock independent of the
   content's refresh rate.
+- Status 2026-10-25: C1 done; C2 passed on the set; C3 and C4 built offline and
+  first-run partly on the set (see Rendering stack). `lumatv` owes the enable
+  path: the early boot hook binds `lumatv-sm` over `/usr/bin/surface-manager`
+  when `compositor/enabled` exists, the recorded LG binary's size and mtime still
+  match and the path is not already mounted; `lumatv compositor on|off|status`
+  wraps the cutover script; a live LumaTV compositor is recognised by its process
+  and the mount, never by `QML2_IMPORT_PATH`, the Home stub's guard never gives
+  LG's Home back for it, and the tool never restarts `surface-manager-daemon`
+  while `/tmp/lumatv-recover.lock` exists.
 - C4: cutover with LG's compositor kept installed: a watchdog and a
   boot-time firmware check switch back to it on any failure, and the hold-
   Home escape forces it. Gate: the X1 test with zero frames over 20 ms in
@@ -793,8 +874,12 @@ what it already does.
 - Background services. Glasshouse masks LG daemons under
   `/run/systemd/transient` and holds them down from a boot hook. Running now
   and switchable there: `uploadd`, `rdxd`, `contentminer`, `nudge`,
-  `remotelogger`. Phase 7 switches them off through Glasshouse rather than a
-  second mechanism; `nudge.service` off stops nudges at the source.
+  `remotelogger`. Nitin's decision of 2026-10-25 goes further: telemetry, ad,
+  promotion and app-push services are removed entirely, not only stopped, and
+  webOS is trimmed to its essentials through two reversible profiles, `ads`
+  and `lean`. That is the declutter work (`tools/declutter.sh`,
+  `payload/declutter`), which owns the list of services; `nudge.service` off
+  stops nudges at the source.
 - App manager restarts. Swapping the screensaver's runtime (Flutter to QML on
   webOS 10) or hiding system apps through `appinfo.json` bind-mounts needs SAM
   restarted, and on webOS 10 and 11 that restart has been followed by lost
@@ -830,7 +915,12 @@ what it already does.
   manager forgets the stored value at every switch-on, so `setPreloadPolicy`
   is sent again at each wake. Glasshouse already does this; LumaTV uses it.
   On the set: Netflix, YouTube, Prime Video, the browser and LG Channels are
-  enabled.
+  enabled. `lumatv preload on` (`tools/preload.py`, list in `payload/preload.json`)
+  saves LG's list once in `preload.orig`, writes it back with YouTube, LG Channels
+  and the browser off, tells the running preload manager, and records the ids in
+  `preload.json` for the helper, which sends `setPreloadPolicy` again at every
+  switch-on; `preload off` and `revert` restore each entry as LG had it. Netflix and
+  Prime Video stay warm.
 - Retiring LG's Home: built on 2026-10-25 and left on (`lumatv homestub
   on|off|confirm|status`; tests and the way back in
   `docs/research/homestub-result.md`). The mechanism proven by hand on
@@ -915,6 +1005,11 @@ what it already does.
   installed as the automatic fallback (Nitin, 2026-10-25).
 - Settings layout and sections: the approved mockups (`docs/mocks`, batches
   1-3) are the curated list (Nitin, 2026-10-25).
+- LG's telemetry, ads, promotion and app-push services are removed entirely and
+  webOS is trimmed to essentials, as two reversible profiles, `ads` and `lean`
+  (Nitin, 2026-10-25). Prime Video stays unless an LG surface clearly pushes it.
+- LG's power-on and power-off logos are replaced by LumaTV's, three options of
+  each rendered to `docs/mocks/logo`, option 1 the default (Nitin, 2026-10-25).
 
 ## Open decisions
 

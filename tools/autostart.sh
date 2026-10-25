@@ -82,6 +82,10 @@ if [ "$1" = "--worker" ]; then
   LUMA_BOOT=1; export LUMA_BOOT
   hs=$("$CLI" homestub-boot 2>&1)
   log "homestub-boot: $(echo "$hs" | tr -d '\n' | cut -c1-200)"
+  # LumaTV's own compositor, when it is enabled: the supervisor goes over LG's binary here, before the
+  # restart that apply makes, so that restart starts it. A set that never enabled it answers "off".
+  cb=$("$CLI" compositor-boot 2>&1)
+  log "compositor-boot: $(echo "$cb" | tr -d '\n' | cut -c1-200)"
   bb=$("$CLI" boot-bind 2>&1)
   log "boot-bind: $(echo "$bb" | tr -d '\n' | cut -c1-200)"
   out=$("$CLI" apply 2>&1)
