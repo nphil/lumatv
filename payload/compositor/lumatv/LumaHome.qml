@@ -224,19 +224,28 @@ Item {
     // "legacy" (no file) leave it covering Home. The second field of the file changes
     // with every decision, which ends an escape taken without the tool (legacy mode:
     // LG's Home is already underneath, so the layer just hides until the next apply).
+    // A third field, trial=<seconds>, says the stub is on a trial that ends on its
+    // own: the toast below asks for OK, and OK is the confirmation (a file the guard
+    // reads), because a stub nobody can confirm from the sofa would never be kept.
     readonly property string beatUrl: "file:///tmp/{{shortId}}-beat"
     readonly property string modeUrl: "file:///tmp/{{shortId}}-homemode"
+    readonly property string confirmUrl: "file:///tmp/{{shortId}}-confirm"
     property int beatSeq: 0
     property bool homeCurrent: false        // set by the container: Home is its surface
     property string homeMode: "legacy"
     property string modeToken: ""
     property bool escapedLocal: false
     readonly property bool lgHome: homeMode === "lg" || escapedLocal
+    property double trialEndMs: 0
+    property int trialLeft: 0
+    property bool trialConfirming: false
+    readonly property bool trialOn: homeMode === "stub" && trialLeft > 0
     Timer {
         interval: 1000; running: true; repeat: true
         onTriggered: {
             var x = new XMLHttpRequest()
             try { x.open("PUT", root.beatUrl); x.send(String(++root.beatSeq)) } catch (e) {}
+            root.trialLeft = root.trialEndMs > 0 ? Math.max(0, Math.ceil((root.trialEndMs - Date.now()) / 1000)) : 0
         }
     }
     function readMode() {
@@ -245,10 +254,24 @@ Item {
             if (x.readyState !== 4) return
             var t = ((x.status === 200 || x.status === 0) ? (x.responseText || "") : "").replace(/\s+$/, "").split(" ")
             var token = t[1] || ""
-            if (token !== root.modeToken) { root.modeToken = token; root.escapedLocal = false }
+            if (token !== root.modeToken) {
+                root.modeToken = token
+                root.escapedLocal = false
+                root.trialConfirming = false
+                var m = /^trial=([0-9]+)$/.exec(t[2] || "")
+                root.trialEndMs = m ? Date.now() + parseInt(m[1], 10) * 1000 : 0
+                root.trialLeft = m ? parseInt(m[1], 10) : 0
+            }
             root.homeMode = (t[0] === "stub" || t[0] === "lg") ? t[0] : "legacy"
         }
         try { x.open("GET", modeUrl); x.send() } catch (e) {}
+    }
+    function confirmTrial() {
+        trialConfirming = true
+        var x = new XMLHttpRequest()
+        try { x.open("PUT", confirmUrl); x.send(String(Date.now())) } catch (e) { console.warn("[LumaHome] confirm request failed: " + e) }
+        modeFast.ticks = 0
+        modeFast.restart()
     }
     Timer {
         // the mode is only looked at while Home is the foreground surface
@@ -256,11 +279,15 @@ Item {
         onTriggered: root.readMode()
     }
     Timer {
-        // after the Home key has been held: follow the tool's answer closely for 10 s
+        // after the Home key has been held, or OK confirmed a trial: follow the tool's
+        // answer closely for 10 s
         id: modeFast
         property int ticks: 0
         interval: 250; repeat: true; running: false
-        onTriggered: { root.readMode(); if (++ticks >= 40 || root.homeMode === "lg") stop() }
+        onTriggered: {
+            root.readMode()
+            if (++ticks >= 40 || root.homeMode === "lg") stop()
+        }
     }
     function escapeRequested() {
         if (homeMode === "stub") { modeFast.ticks = 0; modeFast.restart() }   // the tool is on it
@@ -593,6 +620,11 @@ Item {
     function key(k, pressed, autoRepeat, deviceId) {
         var dir = directionFor(k)
         if (!dir || !hostActive) return false
+        if (trialOn && dir === "ok") {
+            // the trial's toast owns OK until the trial ends
+            if (pressed && !autoRepeat && !trialConfirming) confirmTrial()
+            return true
+        }
         if (dir === "ok") {
             if (pressed) {
                 if (autoRepeat || okDown) return true
@@ -890,6 +922,24 @@ Item {
         toRect: {
             var w = 1520, h = 860
             return Qt.rect(Math.round((1920 - w) / 2), Math.round(layout.safe.y + layout.statusBar.height + layout.statusBar.gap + (1080 - layout.safe.y - layout.statusBar.height - layout.statusBar.gap - layout.safe.y - h) / 2), w, h)
+        }
+    }
+
+    // The Home stub's trial: shown only while the tool says one is running, so OK keeps it
+    // (it reverts to LG's Home by itself otherwise).
+    Rectangle {
+        visible: root.trialOn || root.trialConfirming
+        z: 50
+        width: trialText.implicitWidth + 56; height: 56; radius: 28
+        x: Math.round((parent.width - width) / 2); y: parent.height - height - 20
+        color: root.isLight ? "#f2ffffff" : "#f21a1626"
+        border.width: 1; border.color: root.isLight ? "#26000000" : "#33ffffff"
+        Text {
+            id: trialText
+            x: 28; y: Math.round((56 - implicitHeight) / 2)
+            color: root.isLight ? "#17131F" : "#F2EFF6"
+            font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 24; renderType: Text.NativeRendering
+            text: root.trialConfirming ? "Keeping this Home..." : "Press OK to keep this Home. It goes back to LG's Home in " + root.trialLeft + " s."
         }
     }
 

@@ -1054,10 +1054,12 @@ hs_stage() {
 }
 
 hs_mode_set() {
-  # $1 = stub | lg | legacy. LumaHome reads it: lg steps the layer aside so LG's
-  # Home shows, legacy is the layer over LG's Home as before the stub. The second
-  # field changes with every write, so a new decision is never taken for an old one.
-  printf '%s %s%s\n' "$1" "$(uptime_s)" "$$" > "$HS_MODE.tmp.$$" 2>/dev/null \
+  # $1 = stub | lg | legacy; $2 = optional trial=<seconds>. LumaHome reads it: lg
+  # steps the layer aside so LG's Home shows, legacy is the layer over LG's Home as
+  # before the stub. The second field is different on every write, so a new
+  # decision is never taken for an old one.
+  HS_MODE_N=$(( ${HS_MODE_N:-0} + 1 ))
+  printf '%s %s.%s.%s%s\n' "$1" "$(uptime_s)" "$$" "$HS_MODE_N" "${2:+ $2}" > "$HS_MODE.tmp.$$" 2>/dev/null \
     && mv -f "$HS_MODE.tmp.$$" "$HS_MODE" 2>/dev/null
   return 0
 }
@@ -1274,6 +1276,7 @@ homestub_confirm() {
   hs_beat_seen 3 || return 3
   set_cfg_bool homestub true
   rm -f "$HS_TRIAL" "$HS_STRIKES" "$HS_CONFIRM"
+  hs_mode_set stub
   log_line "homestub: confirmed"
   return 0
 }
@@ -1351,6 +1354,7 @@ verb_homestub() {
         emit_error "LumaHome did not start drawing; LG's Home is back"; return 1
       fi
       printf 'trial %s\n' "$(( $(uptime_s) + HS_TRIAL_SECS ))" > "$HS_TRIAL"
+      hs_mode_set stub "trial=$HS_TRIAL_SECS"
       log_line "homestub: on trial for $HS_TRIAL_SECS s"
       printf '{"ok":true,"homestub":%s}\n' "$(homestub_json)"
       ;;
