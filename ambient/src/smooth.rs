@@ -22,7 +22,10 @@ pub struct SmoothConfig {
 
 impl Default for SmoothConfig {
     fn default() -> Self {
-        SmoothConfig { settle_ms: 180, anti_flicker: AntiFlicker::default() }
+        SmoothConfig {
+            settle_ms: 180,
+            anti_flicker: AntiFlicker::default(),
+        }
     }
 }
 
@@ -38,7 +41,11 @@ pub struct AntiFlicker {
 
 impl Default for AntiFlicker {
     fn default() -> Self {
-        AntiFlicker { threshold: 0.012, step: 0.004, timeout_ms: 1500 }
+        AntiFlicker {
+            threshold: 0.012,
+            step: 0.004,
+            timeout_ms: 1500,
+        }
     }
 }
 
@@ -96,7 +103,13 @@ impl Smoother {
         // throw away the travel since the last one.
         self.advance(now_ms);
         let settled = now_ms >= self.run_to_ms;
-        if af.threshold > 0.0 && settled && colors.iter().zip(&self.current).all(|(n, c)| n.max_delta(*c) <= af.threshold) {
+        if af.threshold > 0.0
+            && settled
+            && colors
+                .iter()
+                .zip(&self.current)
+                .all(|(n, c)| n.max_delta(*c) <= af.threshold)
+        {
             // Noise around where the output already is: remember it for the slow creep, do not start a run.
             self.pending.copy_from_slice(colors);
             self.has_pending = colors != self.current.as_slice();
@@ -126,7 +139,8 @@ impl Smoother {
         self.advance(now_ms);
         if now_ms >= self.run_to_ms {
             let af = self.cfg.anti_flicker;
-            if self.has_pending && now_ms.saturating_sub(self.run_to_ms) >= u64::from(af.timeout_ms) {
+            if self.has_pending && now_ms.saturating_sub(self.run_to_ms) >= u64::from(af.timeout_ms)
+            {
                 // Still for the timeout: close the small offset, at most `step` per tick on the furthest channel.
                 let mut open = false;
                 for (c, p) in self.current.iter_mut().zip(&self.pending) {
@@ -150,10 +164,17 @@ impl Smoother {
 mod tests {
     use super::*;
 
-    const OFF: AntiFlicker = AntiFlicker { threshold: 0.0, step: 0.0, timeout_ms: 0 };
+    const OFF: AntiFlicker = AntiFlicker {
+        threshold: 0.0,
+        step: 0.0,
+        timeout_ms: 0,
+    };
 
     fn cfg(settle_ms: u32) -> SmoothConfig {
-        SmoothConfig { settle_ms, anti_flicker: OFF }
+        SmoothConfig {
+            settle_ms,
+            anti_flicker: OFF,
+        }
     }
 
     #[test]
@@ -177,7 +198,10 @@ mod tests {
         assert!((half.r - 0.5).abs() < 1e-6);
         s.set_target(50, &[Rgb::new(0.0, 0.0, 1.0)]);
         let mid = s.step(100)[0];
-        assert!((mid.r - 0.25).abs() < 1e-6 && (mid.b - 0.5).abs() < 1e-6, "{mid:?}");
+        assert!(
+            (mid.r - 0.25).abs() < 1e-6 && (mid.b - 0.5).abs() < 1e-6,
+            "{mid:?}"
+        );
         assert_eq!(s.step(150)[0], Rgb::new(0.0, 0.0, 1.0));
     }
 
@@ -228,7 +252,14 @@ mod tests {
     }
 
     fn af_cfg() -> SmoothConfig {
-        SmoothConfig { settle_ms: 100, anti_flicker: AntiFlicker { threshold: 0.02, step: 0.005, timeout_ms: 1000 } }
+        SmoothConfig {
+            settle_ms: 100,
+            anti_flicker: AntiFlicker {
+                threshold: 0.02,
+                step: 0.005,
+                timeout_ms: 1000,
+            },
+        }
     }
 
     #[test]

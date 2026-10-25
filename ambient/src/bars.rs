@@ -34,7 +34,14 @@ pub struct BarConfig {
 
 impl Default for BarConfig {
     fn default() -> Self {
-        BarConfig { enabled: true, strip_black: 0.92, bottom_black: 0.5, picture_min: 0.06, enter_ms: 1500, leave_ms: 800 }
+        BarConfig {
+            enabled: true,
+            strip_black: 0.92,
+            bottom_black: 0.5,
+            picture_min: 0.06,
+            enter_ms: 1500,
+            leave_ms: 800,
+        }
     }
 }
 
@@ -56,7 +63,12 @@ pub struct BarDetector {
 
 impl BarDetector {
     pub fn new(cfg: BarConfig) -> BarDetector {
-        BarDetector { cfg, state: Bars::None, candidate: Bars::None, since_ms: 0 }
+        BarDetector {
+            cfg,
+            state: Bars::None,
+            candidate: Bars::None,
+            since_ms: 0,
+        }
     }
 
     pub fn state(&self) -> Bars {
@@ -82,7 +94,8 @@ impl BarDetector {
         if !self.cfg.enabled || f.preset == Preset::Games {
             return;
         }
-        let has_picture = f.color[CENTER].max_channel() >= self.cfg.picture_min && f.count[CENTER] > 0;
+        let has_picture =
+            f.color[CENTER].max_channel() >= self.cfg.picture_min && f.count[CENTER] > 0;
         if !has_picture {
             self.candidate = self.state;
             return;
@@ -91,7 +104,9 @@ impl BarDetector {
         let top = strip(TOP_STRIP);
         let left = strip(LEFT_STRIP);
         let bottom_ok = match f.preset {
-            Preset::Plain => f.count[BOTTOM_STRIP] > 0 && f.black[BOTTOM_STRIP] >= self.cfg.bottom_black,
+            Preset::Plain => {
+                f.count[BOTTOM_STRIP] > 0 && f.black[BOTTOM_STRIP] >= self.cfg.bottom_black
+            }
             _ => true,
         };
         let seen = if top && bottom_ok {
@@ -110,7 +125,11 @@ impl BarDetector {
             self.candidate = seen;
             self.since_ms = now_ms;
         }
-        let need = if seen == Bars::None { self.cfg.leave_ms } else { self.cfg.enter_ms };
+        let need = if seen == Bars::None {
+            self.cfg.leave_ms
+        } else {
+            self.cfg.enter_ms
+        };
         if now_ms.saturating_sub(self.since_ms) >= u64::from(need) {
             self.state = seen;
         }
@@ -175,12 +194,27 @@ mod tests {
         run(&mut d, 0, 2000, &frame(Preset::Plain, true, true, false));
         assert_eq!(d.state(), Bars::Letterbox);
         // Capturing with preset 1 now: the bottom area no longer shows bars, the top strip still does.
-        run(&mut d, 2033, 8000, &frame(Preset::TopBottom, true, false, false));
+        run(
+            &mut d,
+            2033,
+            8000,
+            &frame(Preset::TopBottom, true, false, false),
+        );
         assert_eq!(d.state(), Bars::Letterbox);
         // The film ends: top strip carries picture again; leaves after leave_ms.
-        run(&mut d, 8033, 8700, &frame(Preset::TopBottom, false, false, false));
+        run(
+            &mut d,
+            8033,
+            8700,
+            &frame(Preset::TopBottom, false, false, false),
+        );
         assert_eq!(d.state(), Bars::Letterbox, "held for leave_ms");
-        run(&mut d, 8733, 9000, &frame(Preset::TopBottom, false, false, false));
+        run(
+            &mut d,
+            8733,
+            9000,
+            &frame(Preset::TopBottom, false, false, false),
+        );
         assert_eq!(d.state(), Bars::None);
         assert_eq!(d.preset(), Preset::Plain);
     }
@@ -191,7 +225,12 @@ mod tests {
         run(&mut d, 0, 2000, &frame(Preset::Plain, false, false, true));
         assert_eq!(d.state(), Bars::Pillarbox);
         assert_eq!(d.preset(), Preset::SideBars);
-        run(&mut d, 2033, 4000, &frame(Preset::SideBars, false, false, true));
+        run(
+            &mut d,
+            2033,
+            4000,
+            &frame(Preset::SideBars, false, false, true),
+        );
         assert_eq!(d.state(), Bars::Pillarbox);
     }
 
@@ -206,20 +245,32 @@ mod tests {
             black.count[i] = 1000;
         }
         run(&mut d, 2033, 20_000, &black);
-        assert_eq!(d.state(), Bars::Letterbox, "a long fade to black keeps the state");
+        assert_eq!(
+            d.state(),
+            Bars::Letterbox,
+            "a long fade to black keeps the state"
+        );
     }
 
     #[test]
     fn a_short_blip_does_not_switch() {
         let mut d = BarDetector::new(BarConfig::default());
         run(&mut d, 0, 800, &frame(Preset::Plain, true, true, false));
-        run(&mut d, 833, 3000, &frame(Preset::Plain, false, false, false));
+        run(
+            &mut d,
+            833,
+            3000,
+            &frame(Preset::Plain, false, false, false),
+        );
         assert_eq!(d.state(), Bars::None);
     }
 
     #[test]
     fn disabled_and_games_frames_never_change_state() {
-        let mut d = BarDetector::new(BarConfig { enabled: false, ..BarConfig::default() });
+        let mut d = BarDetector::new(BarConfig {
+            enabled: false,
+            ..BarConfig::default()
+        });
         run(&mut d, 0, 5000, &frame(Preset::Plain, true, true, false));
         assert_eq!(d.state(), Bars::None);
         let mut d = BarDetector::new(BarConfig::default());

@@ -2,23 +2,29 @@
 
 ## Resume here
 
-Done (2026-10-25, workstation only, the set has not been touched yet by this task):
+Done (2026-10-25):
 
-- The four `vtCapture_*Histogram` signatures, the data layout, the 16/14-area preset geometry, the return codes and
-  the process allow-list were recovered offline from `libvtcapture.so.1.0.0`, from LG's own caller
-  (`hue_sync_service`) and from LG's published kernel header; see "ABI" below. Header: `ambient/capture/vthist.h`.
-- 32-bit probe `ambient/capture/probe.c` (`./build.sh`, `./test.sh`): builds for the set
-  (`arm-linux-gnueabi.2.28`, the same target as the other 32-bit pieces), host logic tests pass against a fake
-  library (finalize on SIGTERM, on LG policy action, deny path, sweep, EAGAIN accounting).
+- Offline recovery of the four `vtCapture_*Histogram` signatures, data layout, preset geometry, return codes and the
+  process allow-list (see "ABI", "Permission gate"). Header `ambient/capture/vthist.h`.
+- 32-bit probe `ambient/capture/probe.c` (`./build.sh`, `./test.sh`), host tests pass against a fake library.
+  Built for the set as `ambient/capture/build/arm/ambient-probe` (ignored by git; rebuild with `build.sh`).
+- Read-only TV slot done (03:25 EDT): `libvtcapture` on the set is byte-identical to the workstation copy
+  (md5 35d3fec6...); `/var/luna/preferences/vt_devmode` does not exist; nobody holds `/dev/video60`; `arecord` is
+  ALSA 1.0 (symlink to `aplay`) with `libasound.so.2`; `aud_dsp_reset_count` is at
+  `/sys/module/aud/parameters/`. The grep for other readers of `vt_devmode` did not finish (the set rebooted for
+  another task); it needs a short follow-up slot, run per directory in the background.
+- Rust crate `ambient/` (`lumatv-ambient`, `./build.sh check`: fmt, clippy -D warnings, 83 unit tests, 5 interop
+  tests, aarch64-musl release build): zones, layout, bars, delay, tuning with dark gate, smoothing, engine, HueStream
+  v2 over a DTLS 1.2 PSK client, WLED DDP sender. See "Helper-side design".
 
 Next, in order:
 
-1. A read-only TV slot: confirm the pulled libraries match the workstation copies, whether
-   `/var/luna/preferences/vt_devmode` exists, who holds `/dev/video60`, and what audio tools the set has.
-2. A probe slot: 60 s at Home, 60 s on an HDMI input if one is active, 60 s of muted Netflix; then the two audio
-   captures. The probe needs `vt_devmode` (or an LG-allowed process name, see "Permission gate") to get past
-   `initHistogram`.
-3. Helper-side Rust modules in `ambient/` (not started).
+1. Follow-up read-only slot: the `vt_devmode` reader grep.
+2. Probe slot: create `vt_devmode` only if Main allows (record create and remove times), 60 s at Home, 60 s on an HDMI
+   input if one is active, 60 s of muted Netflix (deep link in HANDOFF), then the two audio captures. Fill "Probe
+   results" and "Audio results" below.
+3. Tune defaults in `engine::Config` from the recorded zone values (replay the probe's `-d` dump through
+   `zones::parse_dump`).
 
 ## ABI
 

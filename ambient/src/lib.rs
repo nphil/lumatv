@@ -17,7 +17,9 @@
 pub mod bars;
 pub mod ddp;
 pub mod delay;
+pub mod dtls;
 pub mod engine;
+pub mod huestream;
 pub mod layout;
 mod presets;
 pub mod rgb;

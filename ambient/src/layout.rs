@@ -41,7 +41,10 @@ pub struct Falloff {
 
 impl Default for Falloff {
     fn default() -> Self {
-        Falloff { spread: 0.18, locality: 0.6 }
+        Falloff {
+            spread: 0.18,
+            locality: 0.6,
+        }
     }
 }
 
@@ -49,9 +52,15 @@ impl Default for Falloff {
 pub fn strip(start: (f32, f32), end: (f32, f32), count: usize, first_led: u16) -> Vec<Light> {
     (0..count)
         .map(|i| {
-            let t = if count > 1 { i as f32 / (count - 1) as f32 } else { 0.5 };
+            let t = if count > 1 {
+                i as f32 / (count - 1) as f32
+            } else {
+                0.5
+            };
             Light {
-                target: Target::Wled { led: first_led + i as u16 },
+                target: Target::Wled {
+                    led: first_led + i as u16,
+                },
                 x: start.0 + (end.0 - start.0) * t,
                 y: start.1 + (end.1 - start.1) * t,
             }
@@ -133,13 +142,25 @@ mod tests {
     use super::*;
 
     fn hue(x: f32, y: f32) -> Light {
-        Light { target: Target::Hue { channel: 0 }, x, y }
+        Light {
+            target: Target::Hue { channel: 0 },
+            x,
+            y,
+        }
     }
 
     #[test]
     fn weights_sum_to_one_for_every_preset_and_place() {
         for p in Preset::ALL {
-            for &(x, y) in &[(0.5, 0.5), (0.0, 0.0), (1.0, 1.0), (-0.3, 0.5), (0.5, -0.2), (3.0, 3.0), (0.13, 0.9)] {
+            for &(x, y) in &[
+                (0.5, 0.5),
+                (0.0, 0.0),
+                (1.0, 1.0),
+                (-0.3, 0.5),
+                (0.5, -0.2),
+                (3.0, 3.0),
+                (0.13, 0.9),
+            ] {
                 let m = Mapping::compile(&[hue(x, y)], p, Falloff::default());
                 let s: f32 = m.weights(0).iter().sum();
                 assert!((s - 1.0).abs() < 1e-5, "{p:?} ({x},{y}) sums to {s}");
@@ -151,8 +172,18 @@ mod tests {
 
     #[test]
     fn a_light_follows_the_areas_next_to_it() {
-        let m = Mapping::compile(&[hue(-0.1, 0.5), hue(1.1, 0.5), hue(0.5, -0.1)], Preset::Plain, Falloff::default());
-        let heaviest = |l: usize| m.weights(l).iter().enumerate().fold((0, 0.0), |a, (i, &w)| if w > a.1 { (i, w) } else { a }).0;
+        let m = Mapping::compile(
+            &[hue(-0.1, 0.5), hue(1.1, 0.5), hue(0.5, -0.1)],
+            Preset::Plain,
+            Falloff::default(),
+        );
+        let heaviest = |l: usize| {
+            m.weights(l)
+                .iter()
+                .enumerate()
+                .fold((0, 0.0), |a, (i, &w)| if w > a.1 { (i, w) } else { a })
+                .0
+        };
         // Left of the set: the left strip (15) or the left-middle area (6), never a right-hand one.
         assert!([15, 6].contains(&heaviest(0)), "{}", heaviest(0));
         assert!([10, 9, 13].contains(&heaviest(1)), "{}", heaviest(1));
@@ -163,7 +194,14 @@ mod tests {
 
     #[test]
     fn far_outside_falls_back_to_the_nearest_area() {
-        let m = Mapping::compile(&[hue(40.0, 0.5)], Preset::Plain, Falloff { spread: 0.05, locality: 0.0 });
+        let m = Mapping::compile(
+            &[hue(40.0, 0.5)],
+            Preset::Plain,
+            Falloff {
+                spread: 0.05,
+                locality: 0.0,
+            },
+        );
         let w = m.weights(0);
         assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-6);
         assert_eq!(w.iter().filter(|&&v| v > 0.0).count(), 1);
@@ -172,8 +210,22 @@ mod tests {
     #[test]
     fn locality_prefers_small_areas() {
         let l = hue(0.05, 0.5); // inside the left strip (15), the left-middle (6) and the left half (4)
-        let flat = Mapping::compile(&[l], Preset::Plain, Falloff { spread: 0.1, locality: 0.0 });
-        let local = Mapping::compile(&[l], Preset::Plain, Falloff { spread: 0.1, locality: 1.0 });
+        let flat = Mapping::compile(
+            &[l],
+            Preset::Plain,
+            Falloff {
+                spread: 0.1,
+                locality: 0.0,
+            },
+        );
+        let local = Mapping::compile(
+            &[l],
+            Preset::Plain,
+            Falloff {
+                spread: 0.1,
+                locality: 1.0,
+            },
+        );
         assert!(local.weights(0)[15] > flat.weights(0)[15]);
         assert!(local.weights(0)[4] < flat.weights(0)[4]);
     }
@@ -184,12 +236,18 @@ mod tests {
         for c in f.color.iter_mut() {
             *c = Rgb::new(0.2, 0.4, 0.6);
         }
-        let m = Mapping::compile(&[hue(0.5, 0.5), hue(0.0, 0.0)], Preset::Plain, Falloff::default());
+        let m = Mapping::compile(
+            &[hue(0.5, 0.5), hue(0.0, 0.0)],
+            Preset::Plain,
+            Falloff::default(),
+        );
         let mut out = Vec::new();
         m.apply(&f, &mut out);
         assert_eq!(out.len(), 2);
         for c in out {
-            assert!((c.r - 0.2).abs() < 1e-5 && (c.g - 0.4).abs() < 1e-5 && (c.b - 0.6).abs() < 1e-5);
+            assert!(
+                (c.r - 0.2).abs() < 1e-5 && (c.g - 0.4).abs() < 1e-5 && (c.b - 0.6).abs() < 1e-5
+            );
         }
     }
 

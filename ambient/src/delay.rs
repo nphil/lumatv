@@ -12,7 +12,10 @@ pub struct DelayLine<T> {
 impl<T> DelayLine<T> {
     /// `cap` bounds memory: a stalled consumer drops the oldest entries rather than growing.
     pub fn new(cap: usize) -> DelayLine<T> {
-        DelayLine { items: VecDeque::with_capacity(cap.min(1024)), cap: cap.max(1) }
+        DelayLine {
+            items: VecDeque::with_capacity(cap.min(1024)),
+            cap: cap.max(1),
+        }
     }
 
     pub fn push(&mut self, captured_ms: u64, item: T) {
@@ -68,7 +71,11 @@ mod tests {
         for (t, c) in [(0, 'a'), (20, 'b'), (40, 'c'), (60, 'd')] {
             d.push(t, c);
         }
-        assert_eq!(d.pop_due(100, 50), Some('c'), "a, b and c are due (captured at or before 50 ms), c is newest");
+        assert_eq!(
+            d.pop_due(100, 50),
+            Some('c'),
+            "a, b and c are due (captured at or before 50 ms), c is newest"
+        );
         assert_eq!(d.len(), 1);
         assert_eq!(d.pop_due(110, 50), Some('d'), "d is due at 110");
         assert!(d.is_empty());
@@ -97,6 +104,10 @@ mod tests {
         for i in 0..30u64 {
             d.push(i * 33, i);
         }
-        assert_eq!(d.pop_due(500, 300), Some(6), "captured at or before 200 ms: item 6 at 198 ms");
+        assert_eq!(
+            d.pop_due(500, 300),
+            Some(6),
+            "captured at or before 200 ms: item 6 at 198 ms"
+        );
     }
 }

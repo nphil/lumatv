@@ -80,13 +80,25 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ConfigError::NoLights => write!(f, "no lights"),
-            ConfigError::TooManyLights(n) => write!(f, "{n} lights is more than the pipeline carries"),
-            ConfigError::LightTuning { given, lights } => write!(f, "{given} per-light tunings for {lights} lights"),
-            ConfigError::Tuning => write!(f, "tuning values must be finite, gamma above 0, the rest not negative"),
+            ConfigError::TooManyLights(n) => {
+                write!(f, "{n} lights is more than the pipeline carries")
+            }
+            ConfigError::LightTuning { given, lights } => {
+                write!(f, "{given} per-light tunings for {lights} lights")
+            }
+            ConfigError::Tuning => write!(
+                f,
+                "tuning values must be finite, gamma above 0, the rest not negative"
+            ),
             ConfigError::Delay(ms) => write!(f, "delay {ms} ms is over {MAX_DELAY_MS}"),
             ConfigError::Falloff => write!(f, "falloff spread must be above 0 and locality finite"),
-            ConfigError::Smooth => write!(f, "smoothing times and anti-flicker values must be finite and not negative"),
-            ConfigError::Dark => write!(f, "dark gate threshold, floor and ratios are out of range"),
+            ConfigError::Smooth => write!(
+                f,
+                "smoothing times and anti-flicker values must be finite and not negative"
+            ),
+            ConfigError::Dark => {
+                write!(f, "dark gate threshold, floor and ratios are out of range")
+            }
             ConfigError::Bars => write!(f, "bar fractions must be within 0..1"),
         }
     }
@@ -106,33 +118,51 @@ impl Config {
             return Err(ConfigError::TooManyLights(lights));
         }
         if self.light_tuning.len() > lights {
-            return Err(ConfigError::LightTuning { given: self.light_tuning.len(), lights });
+            return Err(ConfigError::LightTuning {
+                given: self.light_tuning.len(),
+                lights,
+            });
         }
-        let lt_ok = self
-            .light_tuning
-            .iter()
-            .all(|t| t.gain.is_finite() && t.gain >= 0.0 && t.white_balance.iter().all(|w| w.is_finite() && *w >= 0.0));
+        let lt_ok = self.light_tuning.iter().all(|t| {
+            t.gain.is_finite()
+                && t.gain >= 0.0
+                && t.white_balance.iter().all(|w| w.is_finite() && *w >= 0.0)
+        });
         if !self.tuning.is_valid() || !lt_ok {
             return Err(ConfigError::Tuning);
         }
         if self.delay_ms > MAX_DELAY_MS {
             return Err(ConfigError::Delay(self.delay_ms));
         }
-        if !(self.falloff.spread.is_finite() && self.falloff.spread > 0.0 && self.falloff.locality.is_finite()) {
+        if !(self.falloff.spread.is_finite()
+            && self.falloff.spread > 0.0
+            && self.falloff.locality.is_finite())
+        {
             return Err(ConfigError::Falloff);
         }
         let af = self.smooth.anti_flicker;
-        if ![af.threshold, af.step].iter().all(|v| v.is_finite() && *v >= 0.0) {
+        if ![af.threshold, af.step]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0)
+        {
             return Err(ConfigError::Smooth);
         }
         let d = self.dark;
-        if !(d.threshold.is_finite() && (0.0..=1.0).contains(&d.threshold) && (0.0..=1.0).contains(&d.floor))
-            || !(d.enter_ratio > 0.0 && d.enter_ratio <= 1.0 && d.exit_ratio >= 1.0 && d.exit_ratio.is_finite())
+        if !(d.threshold.is_finite()
+            && (0.0..=1.0).contains(&d.threshold)
+            && (0.0..=1.0).contains(&d.floor))
+            || !(d.enter_ratio > 0.0
+                && d.enter_ratio <= 1.0
+                && d.exit_ratio >= 1.0
+                && d.exit_ratio.is_finite())
         {
             return Err(ConfigError::Dark);
         }
         let b = self.bars;
-        if ![b.strip_black, b.bottom_black, b.picture_min].iter().all(|v| (0.0..=1.0).contains(v)) {
+        if ![b.strip_black, b.bottom_black, b.picture_min]
+            .iter()
+            .all(|v| (0.0..=1.0).contains(v))
+        {
             return Err(ConfigError::Bars);
         }
         Ok(())
@@ -156,7 +186,10 @@ pub struct Engine {
 impl Engine {
     pub fn new(cfg: Config, lights: Vec<Light>) -> Result<Engine, ConfigError> {
         cfg.validate(lights.len())?;
-        let mappings = Preset::ALL.iter().map(|&p| Mapping::compile(&lights, p, cfg.falloff)).collect();
+        let mappings = Preset::ALL
+            .iter()
+            .map(|&p| Mapping::compile(&lights, p, cfg.falloff))
+            .collect();
         let n = lights.len();
         Ok(Engine {
             bars: BarDetector::new(cfg.bars),
@@ -183,7 +216,11 @@ impl Engine {
 
     /// The hardware preset the capture should be using now.
     pub fn wanted_preset(&self) -> Preset {
-        if self.cfg.games { Preset::Games } else { self.bars.preset() }
+        if self.cfg.games {
+            Preset::Games
+        } else {
+            self.bars.preset()
+        }
     }
 
     pub fn bars(&self) -> Bars {
@@ -206,7 +243,12 @@ impl Engine {
         self.enabled
     }
 
-    pub fn push_histograms(&mut self, now_ms: u64, preset: Preset, zones: &[RawZone]) -> Result<(), FrameError> {
+    pub fn push_histograms(
+        &mut self,
+        now_ms: u64,
+        preset: Preset,
+        zones: &[RawZone],
+    ) -> Result<(), FrameError> {
         let f = ZoneFrame::from_histograms(preset, zones, self.cfg.frame)?;
         self.push_frame(now_ms, f);
         Ok(())
@@ -223,7 +265,9 @@ impl Engine {
 
     /// The colours to show at `now_ms`, one per light in list order.
     pub fn tick(&mut self, now_ms: u64) -> &[Rgb] {
-        let stale = self.last_frame_ms.is_none_or(|t| now_ms.saturating_sub(t) > u64::from(self.cfg.stale_ms));
+        let stale = self
+            .last_frame_ms
+            .is_none_or(|t| now_ms.saturating_sub(t) > u64::from(self.cfg.stale_ms));
         if self.enabled && !stale {
             self.forced_off = false;
             if let Some(f) = self.delay.pop_due(now_ms, u64::from(self.cfg.delay_ms)) {
@@ -287,14 +331,31 @@ mod tests {
     use crate::zones::{BOTTOM_STRIP, CENTER, TOP_STRIP};
 
     fn hue(ch: u8, x: f32, y: f32) -> Light {
-        Light { target: Target::Hue { channel: ch }, x, y }
+        Light {
+            target: Target::Hue { channel: ch },
+            x,
+            y,
+        }
     }
 
     fn fast() -> Config {
         Config {
-            smooth: SmoothConfig { settle_ms: 100, anti_flicker: AntiFlicker { threshold: 0.0, step: 0.0, timeout_ms: 0 } },
-            dark: DarkConfig { enabled: false, ..DarkConfig::default() },
-            bars: BarConfig { enabled: false, ..BarConfig::default() },
+            smooth: SmoothConfig {
+                settle_ms: 100,
+                anti_flicker: AntiFlicker {
+                    threshold: 0.0,
+                    step: 0.0,
+                    timeout_ms: 0,
+                },
+            },
+            dark: DarkConfig {
+                enabled: false,
+                ..DarkConfig::default()
+            },
+            bars: BarConfig {
+                enabled: false,
+                ..BarConfig::default()
+            },
             ..Config::default()
         }
     }
@@ -303,7 +364,11 @@ mod tests {
     fn split_frame(preset: Preset) -> ZoneFrame {
         let mut f = ZoneFrame::blank(preset);
         for (i, r) in preset.rects().iter().enumerate() {
-            f.color[i] = if (r.x0 + r.x1) / 2.0 < 0.5 { Rgb::new(0.9, 0.0, 0.0) } else { Rgb::new(0.0, 0.0, 0.9) };
+            f.color[i] = if (r.x0 + r.x1) / 2.0 < 0.5 {
+                Rgb::new(0.9, 0.0, 0.0)
+            } else {
+                Rgb::new(0.0, 0.0, 0.9)
+            };
             f.count[i] = 1000;
         }
         f
@@ -326,7 +391,14 @@ mod tests {
 
     #[test]
     fn the_delay_holds_lights_back_by_exactly_delay_ms() {
-        let mut e = Engine::new(Config { delay_ms: 300, ..fast() }, lights()).unwrap();
+        let mut e = Engine::new(
+            Config {
+                delay_ms: 300,
+                ..fast()
+            },
+            lights(),
+        )
+        .unwrap();
         e.push_frame(1000, split_frame(Preset::Plain));
         for t in [1000, 1100, 1299] {
             assert_eq!(e.tick(t), &[Rgb::BLACK; 2], "t={t}");
@@ -339,7 +411,14 @@ mod tests {
 
     #[test]
     fn stale_capture_fades_the_lights_out() {
-        let mut e = Engine::new(Config { stale_ms: 500, ..fast() }, lights()).unwrap();
+        let mut e = Engine::new(
+            Config {
+                stale_ms: 500,
+                ..fast()
+            },
+            lights(),
+        )
+        .unwrap();
         e.push_frame(0, split_frame(Preset::Plain));
         e.tick(0);
         e.tick(100);
@@ -368,7 +447,10 @@ mod tests {
 
     #[test]
     fn letterbox_frames_ask_for_preset_one_and_that_geometry_is_used() {
-        let cfg = Config { bars: BarConfig::default(), ..fast() };
+        let cfg = Config {
+            bars: BarConfig::default(),
+            ..fast()
+        };
         let mut e = Engine::new(cfg, lights()).unwrap();
         assert_eq!(e.wanted_preset(), Preset::Plain);
         let mut f = split_frame(Preset::Plain);
@@ -391,13 +473,24 @@ mod tests {
 
     #[test]
     fn games_setting_forces_preset_three() {
-        let e = Engine::new(Config { games: true, ..fast() }, lights()).unwrap();
+        let e = Engine::new(
+            Config {
+                games: true,
+                ..fast()
+            },
+            lights(),
+        )
+        .unwrap();
         assert_eq!(e.wanted_preset(), Preset::Games);
     }
 
     #[test]
     fn black_scenes_settle_to_the_dim_floor_not_to_noise() {
-        let cfg = Config { dark: DarkConfig::default(), stale_ms: 60_000, ..fast() };
+        let cfg = Config {
+            dark: DarkConfig::default(),
+            stale_ms: 60_000,
+            ..fast()
+        };
         let mut e = Engine::new(cfg, lights()).unwrap();
         let mut t = 0;
         while t < 6000 {
@@ -423,13 +516,26 @@ mod tests {
         let tail = &last[last.len() - 20..];
         assert!(tail.iter().all(|c| *c == tail[0]), "dark output is steady");
         let floor = DarkConfig::default().floor;
-        assert!((tail[0].max_channel() - floor).abs() < 0.004, "{:?}", tail[0]);
-        assert!(tail[0].r > tail[0].b, "keeps the red tint of the last bright scene");
+        assert!(
+            (tail[0].max_channel() - floor).abs() < 0.004,
+            "{:?}",
+            tail[0]
+        );
+        assert!(
+            tail[0].r > tail[0].b,
+            "keeps the red tint of the last bright scene"
+        );
     }
 
     #[test]
     fn per_light_tuning_applies_in_list_order() {
-        let cfg = Config { light_tuning: vec![LightTuning { gain: 0.5, white_balance: [1.0; 3] }], ..fast() };
+        let cfg = Config {
+            light_tuning: vec![LightTuning {
+                gain: 0.5,
+                white_balance: [1.0; 3],
+            }],
+            ..fast()
+        };
         let mut e = Engine::new(cfg, lights()).unwrap();
         let mut f = ZoneFrame::blank(Preset::Plain);
         for i in 0..16 {
@@ -440,35 +546,107 @@ mod tests {
         e.tick(0);
         let out = e.tick(500).to_vec();
         assert!((out[0].r - 0.4).abs() < 1e-5);
-        assert!((out[1].r - 0.8).abs() < 1e-5, "second light has no entry, so the default");
+        assert!(
+            (out[1].r - 0.8).abs() < 1e-5,
+            "second light has no entry, so the default"
+        );
     }
 
     #[test]
     fn config_validation_names_the_problem() {
         let l = lights();
         assert_eq!(Config::default().validate(0), Err(ConfigError::NoLights));
-        assert_eq!(Config { delay_ms: 5000, ..Config::default() }.validate(2), Err(ConfigError::Delay(5000)));
         assert_eq!(
-            Config { light_tuning: vec![LightTuning::default(); 3], ..Config::default() }.validate(2),
-            Err(ConfigError::LightTuning { given: 3, lights: 2 })
+            Config {
+                delay_ms: 5000,
+                ..Config::default()
+            }
+            .validate(2),
+            Err(ConfigError::Delay(5000))
         );
-        assert_eq!(Config { tuning: Tuning { gamma: 0.0, ..Tuning::default() }, ..Config::default() }.validate(2), Err(ConfigError::Tuning));
-        assert_eq!(Config { falloff: Falloff { spread: 0.0, locality: 0.5 }, ..Config::default() }.validate(2), Err(ConfigError::Falloff));
         assert_eq!(
-            Config { dark: DarkConfig { floor: 2.0, ..DarkConfig::default() }, ..Config::default() }.validate(2),
+            Config {
+                light_tuning: vec![LightTuning::default(); 3],
+                ..Config::default()
+            }
+            .validate(2),
+            Err(ConfigError::LightTuning {
+                given: 3,
+                lights: 2
+            })
+        );
+        assert_eq!(
+            Config {
+                tuning: Tuning {
+                    gamma: 0.0,
+                    ..Tuning::default()
+                },
+                ..Config::default()
+            }
+            .validate(2),
+            Err(ConfigError::Tuning)
+        );
+        assert_eq!(
+            Config {
+                falloff: Falloff {
+                    spread: 0.0,
+                    locality: 0.5
+                },
+                ..Config::default()
+            }
+            .validate(2),
+            Err(ConfigError::Falloff)
+        );
+        assert_eq!(
+            Config {
+                dark: DarkConfig {
+                    floor: 2.0,
+                    ..DarkConfig::default()
+                },
+                ..Config::default()
+            }
+            .validate(2),
             Err(ConfigError::Dark)
         );
-        assert_eq!(Config { bars: BarConfig { strip_black: 1.5, ..BarConfig::default() }, ..Config::default() }.validate(2), Err(ConfigError::Bars));
+        assert_eq!(
+            Config {
+                bars: BarConfig {
+                    strip_black: 1.5,
+                    ..BarConfig::default()
+                },
+                ..Config::default()
+            }
+            .validate(2),
+            Err(ConfigError::Bars)
+        );
         assert!(Config::default().validate(l.len()).is_ok());
-        assert!(Engine::new(Config { delay_ms: 5000, ..Config::default() }, l).is_err());
+        assert!(
+            Engine::new(
+                Config {
+                    delay_ms: 5000,
+                    ..Config::default()
+                },
+                l
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn config_survives_json_and_accepts_partial_settings() {
-        let c = Config { delay_ms: 120, games: true, light_tuning: vec![LightTuning { gain: 0.7, white_balance: [1.0, 0.9, 0.8] }], ..Config::default() };
+        let c = Config {
+            delay_ms: 120,
+            games: true,
+            light_tuning: vec![LightTuning {
+                gain: 0.7,
+                white_balance: [1.0, 0.9, 0.8],
+            }],
+            ..Config::default()
+        };
         let s = serde_json::to_string(&c).unwrap();
         assert_eq!(serde_json::from_str::<Config>(&s).unwrap(), c);
-        let partial: Config = serde_json::from_str(r#"{"delay_ms": 250, "tuning": {"brightness": 0.5}}"#).unwrap();
+        let partial: Config =
+            serde_json::from_str(r#"{"delay_ms": 250, "tuning": {"brightness": 0.5}}"#).unwrap();
         assert_eq!(partial.delay_ms, 250);
         assert_eq!(partial.tuning.brightness, 0.5);
         assert_eq!(partial.tuning.saturation, 1.0);
@@ -479,18 +657,39 @@ mod tests {
     fn hue_and_wled_outputs_pick_their_own_targets() {
         let lights = vec![
             hue(3, 0.0, 0.0),
-            Light { target: Target::Wled { led: 1 }, x: 0.5, y: -0.1 },
+            Light {
+                target: Target::Wled { led: 1 },
+                x: 0.5,
+                y: -0.1,
+            },
             hue(1, 1.0, 0.0),
-            Light { target: Target::Wled { led: 9 }, x: 0.9, y: -0.1 },
+            Light {
+                target: Target::Wled { led: 9 },
+                x: 0.9,
+                y: -0.1,
+            },
             hue(1, 1.0, 0.5),
         ];
-        let colors = vec![Rgb::new(1.0, 0.0, 0.0), Rgb::new(0.0, 1.0, 0.0), Rgb::new(0.0, 0.0, 1.0), Rgb::new(1.0, 1.0, 1.0), Rgb::new(0.5, 0.5, 0.5)];
+        let colors = vec![
+            Rgb::new(1.0, 0.0, 0.0),
+            Rgb::new(0.0, 1.0, 0.0),
+            Rgb::new(0.0, 0.0, 1.0),
+            Rgb::new(1.0, 1.0, 1.0),
+            Rgb::new(0.5, 0.5, 0.5),
+        ];
         let h = hue_channels(&lights, &colors);
-        assert_eq!(h, vec![(1, [32768, 32768, 32768]), (3, [65535, 0, 0])], "sorted, duplicate channel: last wins");
+        assert_eq!(
+            h,
+            vec![(1, [32768, 32768, 32768]), (3, [65535, 0, 0])],
+            "sorted, duplicate channel: last wins"
+        );
         let w = wled_leds(&lights, &colors, 4);
         assert_eq!(w.len(), 12);
         assert_eq!(&w[3..6], &[0, 255, 0]);
-        assert!(w[..3].iter().chain(&w[6..]).all(|&b| b == 0), "other LEDs stay black; LED 9 is off the strip");
+        assert!(
+            w[..3].iter().chain(&w[6..]).all(|&b| b == 0),
+            "other LEDs stay black; LED 9 is off the strip"
+        );
     }
 
     #[test]

@@ -49,7 +49,10 @@ impl Format {
 
 /// One packet. `seq` is masked to a nibble.
 pub fn encode(seq: u8, format: Format, offset: u32, data: &[u8], push: bool) -> Vec<u8> {
-    assert!(data.len() <= MAX_DATA, "a DDP packet carries at most {MAX_DATA} bytes");
+    assert!(
+        data.len() <= MAX_DATA,
+        "a DDP packet carries at most {MAX_DATA} bytes"
+    );
     let mut p = Vec::with_capacity(HEADER + data.len());
     p.push(VER1 | if push { PUSH } else { 0 });
     p.push(seq & 0x0F);
@@ -94,7 +97,10 @@ pub fn parse(p: &[u8]) -> Result<Packet<'_>, ParseError> {
     let declared = usize::from(u16::from_be_bytes([p[8], p[9]]));
     let available = p.len() - HEADER;
     if declared > available {
-        return Err(ParseError::Length { declared, available });
+        return Err(ParseError::Length {
+            declared,
+            available,
+        });
     }
     Ok(Packet {
         push: p[0] & PUSH != 0,
@@ -115,10 +121,18 @@ pub struct Sender {
 
 impl Sender {
     pub fn connect(addr: SocketAddr, format: Format) -> io::Result<Sender> {
-        let bind: SocketAddr = if addr.is_ipv4() { ([0, 0, 0, 0], 0).into() } else { ([0u16; 8], 0).into() };
+        let bind: SocketAddr = if addr.is_ipv4() {
+            ([0, 0, 0, 0], 0).into()
+        } else {
+            ([0u16; 8], 0).into()
+        };
         let socket = UdpSocket::bind(bind)?;
         socket.connect(addr)?;
-        Ok(Sender { socket, seq: 0, format })
+        Ok(Sender {
+            socket,
+            seq: 0,
+            format,
+        })
     }
 
     /// Sends one frame (`pixels` is RGB or RGBW bytes for the whole strip) as as many packets as it needs;
@@ -132,7 +146,13 @@ impl Sender {
         while offset < pixels.len() {
             let end = (offset + chunk).min(pixels.len());
             self.seq = next_seq(self.seq);
-            let pkt = encode(self.seq, self.format, offset as u32, &pixels[offset..end], end == pixels.len());
+            let pkt = encode(
+                self.seq,
+                self.format,
+                offset as u32,
+                &pixels[offset..end],
+                end == pixels.len(),
+            );
             self.socket.send(&pkt)?;
             sent += 1;
             offset = end;
@@ -149,7 +169,12 @@ mod tests {
     #[test]
     fn header_bytes_match_the_protocol() {
         let p = encode(3, Format::Rgb, 0x0102_0304, &[9, 8, 7], true);
-        assert_eq!(p, vec![0x41, 0x03, 0x0B, 0x01, 0x01, 0x02, 0x03, 0x04, 0x00, 0x03, 9, 8, 7]);
+        assert_eq!(
+            p,
+            vec![
+                0x41, 0x03, 0x0B, 0x01, 0x01, 0x02, 0x03, 0x04, 0x00, 0x03, 9, 8, 7
+            ]
+        );
         let p = encode(0x1F, Format::Rgbw, 0, &[], false);
         assert_eq!(p, vec![0x40, 0x0F, 0x1B, 0x01, 0, 0, 0, 0, 0, 0]);
     }
@@ -158,12 +183,21 @@ mod tests {
     fn parse_round_trips_and_rejects_bad_packets() {
         let raw = encode(7, Format::Rgb, 90, &[1, 2, 3, 4, 5, 6], false);
         let p = parse(&raw).unwrap();
-        assert_eq!((p.push, p.seq, p.data_type, p.id, p.offset, p.data), (false, 7, 0x0B, 1, 90, &[1u8, 2, 3, 4, 5, 6][..]));
+        assert_eq!(
+            (p.push, p.seq, p.data_type, p.id, p.offset, p.data),
+            (false, 7, 0x0B, 1, 90, &[1u8, 2, 3, 4, 5, 6][..])
+        );
         assert_eq!(parse(&raw[..9]), Err(ParseError::Short));
         let mut v2 = raw.clone();
         v2[0] = 0x80;
         assert_eq!(parse(&v2), Err(ParseError::Version(2)));
-        assert_eq!(parse(&raw[..raw.len() - 1]), Err(ParseError::Length { declared: 6, available: 5 }));
+        assert_eq!(
+            parse(&raw[..raw.len() - 1]),
+            Err(ParseError::Length {
+                declared: 6,
+                available: 5
+            })
+        );
     }
 
     #[test]
@@ -175,7 +209,10 @@ mod tests {
                 s
             })
             .collect();
-        assert_eq!(&seen[..16], &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1]);
+        assert_eq!(
+            &seen[..16],
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1]
+        );
         assert!(seen.iter().all(|&v| (1..=15).contains(&v)));
     }
 
@@ -187,7 +224,9 @@ mod tests {
     impl FakeWled {
         fn new() -> FakeWled {
             let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-            socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
             FakeWled { socket }
         }
 
@@ -266,7 +305,9 @@ mod tests {
         let wled = FakeWled::new();
         let mut s = Sender::connect(wled.addr(), Format::Rgb).unwrap();
         assert_eq!(s.send(&[]).unwrap(), 0);
-        wled.socket.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        wled.socket
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
         assert!(wled.socket.recv(&mut [0u8; 64]).is_err());
     }
 }

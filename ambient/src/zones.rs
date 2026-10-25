@@ -55,7 +55,12 @@ pub enum Preset {
 }
 
 impl Preset {
-    pub const ALL: [Preset; 4] = [Preset::Plain, Preset::TopBottom, Preset::SideBars, Preset::Games];
+    pub const ALL: [Preset; 4] = [
+        Preset::Plain,
+        Preset::TopBottom,
+        Preset::SideBars,
+        Preset::Games,
+    ];
 
     pub fn from_index(i: u8) -> Option<Preset> {
         Preset::ALL.get(i as usize).copied()
@@ -96,7 +101,12 @@ pub struct RawZone {
 
 impl RawZone {
     pub fn empty(area_id: u32) -> RawZone {
-        RawZone { area_id, r: [0; BINS], g: [0; BINS], b: [0; BINS] }
+        RawZone {
+            area_id,
+            r: [0; BINS],
+            g: [0; BINS],
+            b: [0; BINS],
+        }
     }
 
     /// Parses one `struct v4l2_ext_histogram_data` (little-endian, 0x604 bytes).
@@ -131,7 +141,10 @@ pub struct FrameParams {
 impl Default for FrameParams {
     fn default() -> Self {
         // Limited-range video black is code 16; a few codes of margin for noise and dithering.
-        FrameParams { mean: MeanKind::Code, black_code: 20 }
+        FrameParams {
+            mean: MeanKind::Code,
+            black_code: 20,
+        }
     }
 }
 
@@ -167,7 +180,9 @@ pub enum FrameError {
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FrameError::ZoneCount { expected, got } => write!(f, "expected {expected} areas, got {got}"),
+            FrameError::ZoneCount { expected, got } => {
+                write!(f, "expected {expected} areas, got {got}")
+            }
             FrameError::AreaId(id) => write!(f, "bad or repeated area id {id}"),
         }
     }
@@ -177,13 +192,25 @@ impl std::error::Error for FrameError {}
 
 impl ZoneFrame {
     pub fn blank(preset: Preset) -> ZoneFrame {
-        ZoneFrame { preset, color: [Rgb::BLACK; MAX_ZONES], black: [0.0; MAX_ZONES], count: [0; MAX_ZONES] }
+        ZoneFrame {
+            preset,
+            color: [Rgb::BLACK; MAX_ZONES],
+            black: [0.0; MAX_ZONES],
+            count: [0; MAX_ZONES],
+        }
     }
 
-    pub fn from_histograms(preset: Preset, zones: &[RawZone], p: FrameParams) -> Result<ZoneFrame, FrameError> {
+    pub fn from_histograms(
+        preset: Preset,
+        zones: &[RawZone],
+        p: FrameParams,
+    ) -> Result<ZoneFrame, FrameError> {
         let n = preset.zone_count();
         if zones.len() != n {
-            return Err(FrameError::ZoneCount { expected: n, got: zones.len() });
+            return Err(FrameError::ZoneCount {
+                expected: n,
+                got: zones.len(),
+            });
         }
         let mut f = ZoneFrame::blank(preset);
         let mut seen = [false; MAX_ZONES];
@@ -198,7 +225,11 @@ impl ZoneFrame {
             let (g, ng, bg) = channel(&z.g, p, &lut);
             let (b, nb, bb) = channel(&z.b, p, &lut);
             f.color[id] = Rgb::new(r, g, b);
-            f.black[id] = if nr == 0 || ng == 0 || nb == 0 { 0.0 } else { br.min(bg).min(bb) };
+            f.black[id] = if nr == 0 || ng == 0 || nb == 0 {
+                0.0
+            } else {
+                br.min(bg).min(bb)
+            };
             f.count[id] = nr;
         }
         Ok(f)
@@ -216,10 +247,11 @@ fn channel(bins: &[u16; BINS], p: FrameParams, lut: &[f32; BINS]) -> (f32, u32, 
     let mut black: u64 = 0;
     for (i, &c) in bins.iter().enumerate() {
         n += u64::from(c);
-        sum += f64::from(c) * f64::from(match p.mean {
-            MeanKind::Code => i as f32 / 255.0,
-            MeanKind::Linear => lut[i],
-        });
+        sum += f64::from(c)
+            * f64::from(match p.mean {
+                MeanKind::Code => i as f32 / 255.0,
+                MeanKind::Linear => lut[i],
+            });
         if i <= usize::from(p.black_code) {
             black += u64::from(c);
         }
@@ -239,13 +271,21 @@ fn linear_lut() -> [f32; BINS] {
     let mut t = [0.0; BINS];
     for (i, v) in t.iter_mut().enumerate() {
         let c = i as f32 / 255.0;
-        *v = if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+        *v = if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        };
     }
     t
 }
 
 fn encode_srgb(l: f32) -> f32 {
-    if l <= 0.003_130_8 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 }
+    if l <= 0.003_130_8 {
+        l * 12.92
+    } else {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 /// One capture from the probe's `-d` file: header `VTH1`, preset, areas, t_ms (four little-endian u32), then the areas.
@@ -265,7 +305,10 @@ pub fn parse_dump(bytes: &[u8]) -> Result<Vec<DumpFrame>, String> {
         if w(0) != 0x3148_5456 {
             return Err(format!("bad magic at {p}"));
         }
-        let preset = u8::try_from(w(1)).ok().and_then(Preset::from_index).ok_or("bad preset")?;
+        let preset = u8::try_from(w(1))
+            .ok()
+            .and_then(Preset::from_index)
+            .ok_or("bad preset")?;
         let n = w(2) as usize;
         if n != preset.zone_count() {
             return Err(format!("preset {} with {n} areas", w(1)));
@@ -277,7 +320,11 @@ pub fn parse_dump(bytes: &[u8]) -> Result<Vec<DumpFrame>, String> {
             zones.push(RawZone::from_bytes(raw).ok_or("short area")?);
             p += RAW_ZONE_BYTES;
         }
-        out.push(DumpFrame { preset, t_ms: w(3), zones });
+        out.push(DumpFrame {
+            preset,
+            t_ms: w(3),
+            zones,
+        });
     }
     Ok(out)
 }
@@ -302,12 +349,23 @@ mod tests {
         assert_eq!(Preset::Games.zone_count(), 14);
         // Spot checks against the header text.
         assert_eq!(Preset::Plain.rects()[4], Rect::new(0.0, 0.0, 0.5, 1.0));
-        assert_eq!(Preset::TopBottom.rects()[0], Rect::new(0.25, 0.1265, 0.75, 0.8735));
+        assert_eq!(
+            Preset::TopBottom.rects()[0],
+            Rect::new(0.25, 0.1265, 0.75, 0.8735)
+        );
         assert_eq!(Preset::SideBars.rects()[8], Rect::new(0.5, 0.0, 0.87, 1.0));
         assert_eq!(Preset::Games.rects()[13], Rect::new(0.0, 0.62, 0.34, 1.0));
         for p in Preset::ALL {
             for r in p.rects() {
-                assert!(r.x0 < r.x1 && r.y0 < r.y1 && r.x0 >= 0.0 && r.y0 >= 0.0 && r.x1 <= 1.0 && r.y1 <= 1.0, "{p:?} {r:?}");
+                assert!(
+                    r.x0 < r.x1
+                        && r.y0 < r.y1
+                        && r.x0 >= 0.0
+                        && r.y0 >= 0.0
+                        && r.x1 <= 1.0
+                        && r.y1 <= 1.0,
+                    "{p:?} {r:?}"
+                );
             }
         }
         // The bar detector's strips are where it expects them in all three video presets.
@@ -354,8 +412,17 @@ mod tests {
         }
         let mut zones = vec![z];
         zones.extend((1..16).map(RawZone::empty));
-        let code = ZoneFrame::from_histograms(Preset::Plain, &zones, FrameParams::default()).unwrap();
-        let lin = ZoneFrame::from_histograms(Preset::Plain, &zones, FrameParams { mean: MeanKind::Linear, ..FrameParams::default() }).unwrap();
+        let code =
+            ZoneFrame::from_histograms(Preset::Plain, &zones, FrameParams::default()).unwrap();
+        let lin = ZoneFrame::from_histograms(
+            Preset::Plain,
+            &zones,
+            FrameParams {
+                mean: MeanKind::Linear,
+                ..FrameParams::default()
+            },
+        )
+        .unwrap();
         assert!((code.color[0].r - 0.5).abs() < 1e-6);
         // Half the light of white encodes to about 0.735 in sRGB.
         assert!((lin.color[0].r - 0.735).abs() < 0.01, "{}", lin.color[0].r);
@@ -375,14 +442,23 @@ mod tests {
         let zones: Vec<RawZone> = (0..16).map(RawZone::empty).collect();
         assert_eq!(
             ZoneFrame::from_histograms(Preset::Games, &zones, FrameParams::default()),
-            Err(FrameError::ZoneCount { expected: 14, got: 16 })
+            Err(FrameError::ZoneCount {
+                expected: 14,
+                got: 16
+            })
         );
         let mut dup = zones.clone();
         dup[4].area_id = 3;
-        assert_eq!(ZoneFrame::from_histograms(Preset::Plain, &dup, FrameParams::default()), Err(FrameError::AreaId(3)));
+        assert_eq!(
+            ZoneFrame::from_histograms(Preset::Plain, &dup, FrameParams::default()),
+            Err(FrameError::AreaId(3))
+        );
         let mut high = zones;
         high[15].area_id = 16;
-        assert_eq!(ZoneFrame::from_histograms(Preset::Plain, &high, FrameParams::default()), Err(FrameError::AreaId(16)));
+        assert_eq!(
+            ZoneFrame::from_histograms(Preset::Plain, &high, FrameParams::default()),
+            Err(FrameError::AreaId(16))
+        );
     }
 
     #[test]
@@ -406,7 +482,10 @@ mod tests {
         assert_eq!(frames[0].preset, Preset::Games);
         assert_eq!(frames[0].t_ms, 1234);
         assert_eq!(frames[0].zones[13].area_id, 13);
-        assert_eq!(frames[0].zones[2].g[10], 10u16.wrapping_mul(7).wrapping_add(1).wrapping_add(2));
+        assert_eq!(
+            frames[0].zones[2].g[10],
+            10u16.wrapping_mul(7).wrapping_add(1).wrapping_add(2)
+        );
         assert!(parse_dump(&bytes[..bytes.len() - 1]).is_err());
         assert!(parse_dump(&[0u8; 16]).is_err());
     }

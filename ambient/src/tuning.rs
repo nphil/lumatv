@@ -24,7 +24,12 @@ pub struct Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning { brightness: 1.0, saturation: 1.0, gamma: 1.0, white_balance: [1.0; 3] }
+        Tuning {
+            brightness: 1.0,
+            saturation: 1.0,
+            gamma: 1.0,
+            white_balance: [1.0; 3],
+        }
     }
 }
 
@@ -38,14 +43,22 @@ pub struct LightTuning {
 
 impl Default for LightTuning {
     fn default() -> Self {
-        LightTuning { gain: 1.0, white_balance: [1.0; 3] }
+        LightTuning {
+            gain: 1.0,
+            white_balance: [1.0; 3],
+        }
     }
 }
 
 impl Tuning {
     pub fn shape(&self, c: Rgb, per_light: &LightTuning) -> Rgb {
         let l = c.luma();
-        let mut c = Rgb::new(l + (c.r - l) * self.saturation, l + (c.g - l) * self.saturation, l + (c.b - l) * self.saturation).clamp01();
+        let mut c = Rgb::new(
+            l + (c.r - l) * self.saturation,
+            l + (c.g - l) * self.saturation,
+            l + (c.b - l) * self.saturation,
+        )
+        .clamp01();
         let k = self.brightness * per_light.gain;
         c = c * k;
         c = Rgb::new(
@@ -55,7 +68,11 @@ impl Tuning {
         )
         .clamp01();
         if (self.gamma - 1.0).abs() > 1e-6 {
-            c = Rgb::new(c.r.powf(self.gamma), c.g.powf(self.gamma), c.b.powf(self.gamma));
+            c = Rgb::new(
+                c.r.powf(self.gamma),
+                c.g.powf(self.gamma),
+                c.b.powf(self.gamma),
+            );
         }
         c
     }
@@ -67,7 +84,10 @@ impl Tuning {
             && self.saturation >= 0.0
             && self.gamma.is_finite()
             && self.gamma > 0.0
-            && self.white_balance.iter().all(|w| w.is_finite() && *w >= 0.0)
+            && self
+                .white_balance
+                .iter()
+                .all(|w| w.is_finite() && *w >= 0.0)
     }
 }
 
@@ -90,7 +110,15 @@ pub struct DarkConfig {
 
 impl Default for DarkConfig {
     fn default() -> Self {
-        DarkConfig { enabled: true, threshold: 0.06, floor: 0.02, enter_ms: 600, exit_ratio: 1.4, enter_ratio: 0.8, tint_ms: 4000 }
+        DarkConfig {
+            enabled: true,
+            threshold: 0.06,
+            floor: 0.02,
+            enter_ms: 600,
+            exit_ratio: 1.4,
+            enter_ratio: 0.8,
+            tint_ms: 4000,
+        }
     }
 }
 
@@ -106,7 +134,13 @@ pub struct DarkGate {
 
 impl DarkGate {
     pub fn new(cfg: DarkConfig, lights: usize) -> DarkGate {
-        DarkGate { cfg, dark: false, below_since: None, tint: vec![Rgb::new(1.0, 1.0, 1.0); lights], last_ms: None }
+        DarkGate {
+            cfg,
+            dark: false,
+            below_since: None,
+            tint: vec![Rgb::new(1.0, 1.0, 1.0); lights],
+            last_ms: None,
+        }
     }
 
     pub fn is_dark(&self) -> bool {
@@ -118,7 +152,10 @@ impl DarkGate {
         if !self.cfg.enabled {
             return;
         }
-        let level = colors.iter().map(|c| c.max_channel()).fold(0.0f32, f32::max);
+        let level = colors
+            .iter()
+            .map(|c| c.max_channel())
+            .fold(0.0f32, f32::max);
         if self.dark {
             if level > self.cfg.threshold * self.cfg.exit_ratio {
                 self.dark = false;
@@ -170,17 +207,33 @@ mod tests {
     #[test]
     fn saturation_zero_is_luma_grey_and_two_is_more_vivid() {
         let c = Rgb::new(0.8, 0.4, 0.2);
-        let grey = Tuning { saturation: 0.0, ..Tuning::default() }.shape(c, &LightTuning::default());
+        let grey = Tuning {
+            saturation: 0.0,
+            ..Tuning::default()
+        }
+        .shape(c, &LightTuning::default());
         assert!((grey.r - grey.g).abs() < 1e-6 && (grey.g - grey.b).abs() < 1e-6);
         assert!((grey.r - c.luma()).abs() < 1e-6);
-        let vivid = Tuning { saturation: 1.5, ..Tuning::default() }.shape(c, &LightTuning::default());
+        let vivid = Tuning {
+            saturation: 1.5,
+            ..Tuning::default()
+        }
+        .shape(c, &LightTuning::default());
         assert!(vivid.r - vivid.b > c.r - c.b);
     }
 
     #[test]
     fn brightness_gain_balance_and_gamma_compose() {
-        let t = Tuning { brightness: 0.5, gamma: 2.0, white_balance: [1.0, 0.8, 1.0], ..Tuning::default() };
-        let lt = LightTuning { gain: 0.5, white_balance: [1.0, 1.0, 0.5] };
+        let t = Tuning {
+            brightness: 0.5,
+            gamma: 2.0,
+            white_balance: [1.0, 0.8, 1.0],
+            ..Tuning::default()
+        };
+        let lt = LightTuning {
+            gain: 0.5,
+            white_balance: [1.0, 1.0, 0.5],
+        };
         let o = t.shape(Rgb::new(1.0, 1.0, 1.0), &lt);
         // (1 * 0.5 * 0.5) = 0.25 gain; then channel factors; then squared.
         assert!((o.r - 0.25f32.powi(2)).abs() < 1e-6);
@@ -190,7 +243,12 @@ mod tests {
 
     #[test]
     fn output_never_leaves_the_unit_range() {
-        let t = Tuning { brightness: 3.0, saturation: 3.0, white_balance: [2.0; 3], ..Tuning::default() };
+        let t = Tuning {
+            brightness: 3.0,
+            saturation: 3.0,
+            white_balance: [2.0; 3],
+            ..Tuning::default()
+        };
         let o = t.shape(Rgb::new(0.9, 0.1, 0.5), &LightTuning::default());
         for v in [o.r, o.g, o.b] {
             assert!((0.0..=1.0).contains(&v));
@@ -200,9 +258,27 @@ mod tests {
     #[test]
     fn validity_catches_nonsense() {
         assert!(Tuning::default().is_valid());
-        assert!(!Tuning { gamma: 0.0, ..Tuning::default() }.is_valid());
-        assert!(!Tuning { brightness: f32::NAN, ..Tuning::default() }.is_valid());
-        assert!(!Tuning { white_balance: [1.0, -1.0, 1.0], ..Tuning::default() }.is_valid());
+        assert!(
+            !Tuning {
+                gamma: 0.0,
+                ..Tuning::default()
+            }
+            .is_valid()
+        );
+        assert!(
+            !Tuning {
+                brightness: f32::NAN,
+                ..Tuning::default()
+            }
+            .is_valid()
+        );
+        assert!(
+            !Tuning {
+                white_balance: [1.0, -1.0, 1.0],
+                ..Tuning::default()
+            }
+            .is_valid()
+        );
     }
 
     fn frame(v: f32) -> Vec<Rgb> {
@@ -234,14 +310,23 @@ mod tests {
         }
         assert!(g.is_dark());
         let held = *seen.last().unwrap();
-        assert!(seen[seen.len() - 5..].iter().all(|c| *c == held), "steady in the dark");
+        assert!(
+            seen[seen.len() - 5..].iter().all(|c| *c == held),
+            "steady in the dark"
+        );
         assert!((held.max_channel() - 0.02).abs() < 1e-3, "{held:?}");
-        assert!(held.r > held.g && held.b < 0.01, "keeps the orange tint: {held:?}");
+        assert!(
+            held.r > held.g && held.b < 0.01,
+            "keeps the orange tint: {held:?}"
+        );
     }
 
     #[test]
     fn dark_gate_has_hysteresis_and_reopens_at_once() {
-        let cfg = DarkConfig { enter_ms: 0, ..DarkConfig::default() };
+        let cfg = DarkConfig {
+            enter_ms: 0,
+            ..DarkConfig::default()
+        };
         let mut g = DarkGate::new(cfg, 3);
         let mut f = frame(0.01);
         g.process(0, &mut f);
@@ -277,7 +362,13 @@ mod tests {
 
     #[test]
     fn disabled_gate_never_touches_frames() {
-        let mut g = DarkGate::new(DarkConfig { enabled: false, ..DarkConfig::default() }, 3);
+        let mut g = DarkGate::new(
+            DarkConfig {
+                enabled: false,
+                ..DarkConfig::default()
+            },
+            3,
+        );
         let mut f = frame(0.0);
         for t in 0..100 {
             g.process(t * 100, &mut f);

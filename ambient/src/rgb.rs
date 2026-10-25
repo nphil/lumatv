@@ -27,7 +27,11 @@ impl Rgb {
     }
 
     pub fn clamp01(self) -> Rgb {
-        Rgb::new(self.r.clamp(0.0, 1.0), self.g.clamp(0.0, 1.0), self.b.clamp(0.0, 1.0))
+        Rgb::new(
+            self.r.clamp(0.0, 1.0),
+            self.g.clamp(0.0, 1.0),
+            self.b.clamp(0.0, 1.0),
+        )
     }
 
     pub fn lerp(self, to: Rgb, t: f32) -> Rgb {
@@ -36,17 +40,28 @@ impl Rgb {
 
     /// Largest per-channel difference, the distance the smoother's anti-flicker compares.
     pub fn max_delta(self, other: Rgb) -> f32 {
-        (self.r - other.r).abs().max((self.g - other.g).abs()).max((self.b - other.b).abs())
+        (self.r - other.r)
+            .abs()
+            .max((self.g - other.g).abs())
+            .max((self.b - other.b).abs())
     }
 
     pub fn to_u8(self) -> [u8; 3] {
         let c = self.clamp01();
-        [q(c.r, 255.0) as u8, q(c.g, 255.0) as u8, q(c.b, 255.0) as u8]
+        [
+            q(c.r, 255.0) as u8,
+            q(c.g, 255.0) as u8,
+            q(c.b, 255.0) as u8,
+        ]
     }
 
     pub fn to_u16(self) -> [u16; 3] {
         let c = self.clamp01();
-        [q(c.r, 65535.0) as u16, q(c.g, 65535.0) as u16, q(c.b, 65535.0) as u16]
+        [
+            q(c.r, 65535.0) as u16,
+            q(c.g, 65535.0) as u16,
+            q(c.b, 65535.0) as u16,
+        ]
     }
 }
 
