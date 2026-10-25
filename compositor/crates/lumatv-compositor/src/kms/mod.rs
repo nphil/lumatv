@@ -640,19 +640,22 @@ impl Output for Kms {
     }
 
     fn present(&mut self) -> io::Result<Presented> {
-        let Some(a) = self.last_assignment.take() else {
+        let Some(a) = self.last_assignment else {
             // Nothing drawn: the planes keep what they show; no commit, no flip; the run is over.
             self.in_run = false;
             self.seq += 1;
             return Ok(Presented { seq: self.seq, at_ms: crate::output::monotonic_ms() });
         };
-        let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
         // The previous flip must have landed before another commit (the kernel refuses a second non-blocking
         // commit, and the page it reads must not be reused); waiting here is what makes the render above run a
-        // frame ahead of the panel.
+        // frame ahead of the panel. A flip that is still missing after 100 ms keeps the drawn frame for the
+        // next present rather than dropping it: the damage it carries has been cleared by then.
         if !self.wait_flip()? {
-            return Err(other("page flip event did not arrive within 100 ms"));
+            self.in_run = false;
+            return Err(other("page flip event did not arrive within 100 ms; frame kept"));
         }
+        let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
+        self.last_assignment = None;
         self.commit(&a, fence)?;
         self.in_run = true;
         self.seq += 1;
