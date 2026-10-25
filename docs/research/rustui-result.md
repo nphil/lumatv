@@ -137,17 +137,25 @@ The prerequisite above, built and host-tested; nothing of it has run on the set.
   and `leave` put the compositor's arrays back, which are off until the compositor has drawn a quad of its own; every draw was then
   four vertices at the origin, with no GL error. `enter` now sets the arrays the toolkit relies on (0 and 1 on, the rest off). The
   ring test could not see it (both pages were equally blank); `compositor/tests/ui.rs` and `ui_output.rs` now check pixels.
-- In `lumatv-compositor` (feature `ui`, `src/ui`, `render/gl.rs`, `kms/mod.rs`): `Output::ui_needs_frame` every tick (the app's
+- In `lumatv-compositor` (feature `ui`, `src/ui`, `render/gl.rs`, `kms/frames.rs`): `Output::ui_needs_frame` every tick (the app's
   socket is read, a frame is drawn for UI-only changes, atlas-only commits and housekeeping run between frames), the two stacks
-  round the windows inside the owed rectangles, the receipt carried to the flip, direct scan-out off while a UI is attached, the
-  engine's GL errors counted with the compositor's, and an app that hangs up takes its layers with it (one whole redraw).
-  `--ui-demo` draws the demo surface (`src/ui/demo.rs`) on a `gl`/`kms` output.
+  round the windows inside the owed rectangles, the receipt carried to the flip, the engine's GL errors counted with the
+  compositor's, and an app that hangs up takes its layers with it (one whole redraw). `--ui-demo` draws the demo surface
+  (`src/ui/demo.rs`) on a `gl`/`kms` output.
+- Direct scan-out with a UI attached (`kms/frames.rs`, the ring's frame logic without the device): a full-screen opaque window
+  goes to the plane directly whenever the plan allows it and the UI shows nothing over the windows (stack 0 is covered by that
+  window, so Home alone never costs a composed frame per refresh); the frame a system layer appears is composed, and the frame it
+  goes is direct again. The pages miss every frame of a direct run, so the first composed frame after one is drawn whole (the ring
+  forgets its pages). The app's commits are taken in and answered on direct frames too (the engine's frame is planned and finished
+  undrawn, its receipt rides with the direct frame).
 
 Host checks (Mesa software GL, `LIBGL_ALWAYS_SOFTWARE=1`): `cd compositor && cargo test --features ui` (73 unit, 22 protocol,
 1 bridge, 2 LG-table, `ui`: 240 frames pixel-equal with 237 drawn in part and the demo's ground and volume bar on the page,
 `ui_output`: Home and the panel on the first frame, the panel over a card over Home, a panel-only move redrawing two tile runs and
-uncovering the card, zero GL errors, the hang-up); `cargo test` without the feature unchanged; `cd rustui && cargo test` (10 tile
-tests, the two damage tests of `app/tests/damage.rs`, the embedded engine test); clippy clean both ways.
+uncovering the card, zero GL errors, the hang-up; `ui_scanout`: composed, then direct under a full-screen card, direct while Home
+changes under it with the app answered, composed and drawn whole the frame a system layer appears, direct again the frame it goes,
+zero GL errors); `cargo test` without the feature unchanged; `cd rustui && cargo test` (10 tile tests, the two damage tests of
+`app/tests/damage.rs`, the embedded engine test); clippy clean both ways.
 
 Not done: no run on the set (the GPU cost of an idle frame under the compositor, the frame gate under it), no measurement script
 for it, the UI socket is not in the compositor's epoll (an app commit waits for the next tick, at most one refresh), the UI channel

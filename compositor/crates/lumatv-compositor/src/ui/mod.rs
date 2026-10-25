@@ -146,6 +146,12 @@ impl Ui {
         Ok(())
     }
 
+    /// Whether the planned frame shows anything of stack 1 (a layer that is visible, over the windows). Nothing of stack 0 shows
+    /// under a full-screen opaque window, so this alone says whether that window can go to the panel directly.
+    pub fn over_windows(&self) -> bool {
+        self.engine.has_layers(1)
+    }
+
     /// Clears the owed rectangles and draws the layer stack under application windows.
     pub fn draw_under(&mut self, fbo: u32, owed: &[Rect]) -> io::Result<()> {
         self.areas.clear();

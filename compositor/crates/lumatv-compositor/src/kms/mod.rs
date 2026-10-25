@@ -13,6 +13,7 @@
 //! workstation beyond compiling; the pure parts (`assign`) are.
 
 pub mod assign;
+pub mod frames;
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -31,7 +32,6 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
-use crate::damage::{Ring, Tiles};
 use crate::output::{Image, Output, Presented, RenderStats};
 use crate::pacer::{Pacer, Shown};
 use crate::render::gl::{Gl, TargetId};
@@ -117,9 +117,7 @@ pub struct Kms {
     width: u32,
     height: u32,
     pages: Vec<Page>,
-    next_page: usize,
-    ring: Ring,
-    rects: Vec<Rect>,
+    frames: frames::Frames,
     direct: HashMap<ObjectId, DirectFb>,
     /// Modifiers the driver refused in ADDFB2, so they are not tried again.
     refused_modifiers: Vec<u64>,
@@ -284,10 +282,8 @@ impl Kms {
             gl,
             width,
             height,
+            frames: frames::Frames::new(pages.iter().map(|p| p.target).collect(), width, height),
             pages,
-            next_page: 0,
-            ring: Ring::new(PAGES, width, height),
-            rects: Vec::with_capacity(16),
             direct: HashMap::new(),
             refused_modifiers: Vec::new(),
             state: [PlaneState::default(); 2],
@@ -655,8 +651,8 @@ impl Output for Kms {
         }
     }
 
-    /// Draws the plan: decides direct scan-out or composition, composes into the next page (only the tiles the
-    /// page owes), kicks the GPU. The commit is in `present`.
+    /// Draws the plan: direct scan-out or composition into the next page (only the tiles the page owes; `frames`
+    /// decides), kicks the GPU. The commit is in `present`.
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let now = self.now_ns();
         self.frame_started_ns = now;
@@ -667,44 +663,20 @@ impl Output for Kms {
         // flip is pending, one drawn into (a waiting frame's, or the next).
         if let Some(q) = self.queued.take() {
             if let Source::Page(i) = q.assignment.primary {
-                self.next_page = i;
+                self.frames.redraw(i);
             }
             self.replacing = true;
         }
-        let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
-        // Until split-plane composition is enabled, direct scan-out would hide the system layers.
-        let direct = if self.gl.has_ui() {
-            None
-        } else {
-            plan.sole_fullscreen().and_then(|item| {
-                let fb = self.direct_fb(&item.buffer)?;
-                Some(u32::from(fb))
-            })
-        };
-        let assignment = match direct {
-            Some(fb) => Assignment { primary: Source::Direct(fb), overlay: None },
-            None => {
-                let page = self.next_page;
-                let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| Tiles::new(self.width, self.height));
-                tiles.add(&plan.damage);
-                if self.gl.take_redraw_all() {
-                    self.ring.forget();
-                }
-                self.gl.plan_ui(&mut tiles)?;
-                let owed = self.ring.frame(page, &tiles);
-                owed.rects(&mut self.rects);
-                self.gl.set_target(self.pages[page].target);
-                let st = self.gl.render_rects(plan, surfaces, &self.rects)?;
-                stats = st;
-                self.next_page = (page + 1) % PAGES;
-                Assignment { primary: Source::Page(page), overlay: None }
-            }
-        };
-        if matches!(assignment.primary, Source::Direct(_)) {
+        let direct = plan.sole_fullscreen().and_then(|item| {
+            let fb = self.direct_fb(&item.buffer)?;
+            Some(u32::from(fb))
+        });
+        let (primary, stats) = self.frames.draw(&mut self.gl, plan, surfaces, direct)?;
+        if matches!(primary, Source::Direct(_)) {
             self.direct_frames += 1;
         }
         self.last_assignment = Some(Frame {
-            assignment,
+            assignment: Assignment { primary, overlay: None },
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });
@@ -733,9 +705,9 @@ impl Output for Kms {
     }
 
     fn capture(&mut self) -> io::Result<Image> {
-        // The page last drawn (the one before next_page) through the CPU mapping, once the GPU is done with it.
+        // The page last composed, through the CPU mapping, once the GPU is done with it.
         self.gl.finish();
-        let idx = (self.next_page + PAGES - 1) % PAGES;
+        let idx = self.frames.last_page();
         let (w, h, pitch) = (self.width as usize, self.height as usize, self.pages[idx].dumb.pitch() as usize);
         let mapping = self.card.map_dumb_buffer(&mut self.pages[idx].dumb)?;
         let bytes: &[u8] = &mapping;

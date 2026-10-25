@@ -16,8 +16,8 @@ compositor is live, as the decision requires (set left in Active Standby,
 `enabled` absent, Home stub on). Every failure has a fix built and
 host-tested since, none run on the set yet ("After the first gate"). Host:
 `cd compositor && cargo test` (73 unit, 22 protocol, 1 bridge, 2 LG-table),
-the same with `--features ui` plus `ui` and `ui_output` under
-`LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
+the same with `--features ui` plus `ui`, `ui_output` and `ui_scanout`
+under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
 compositor/tools/build-tv.sh` builds the bundle.
 
 - Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
@@ -894,6 +894,13 @@ compositor's own renderer either way.
   the toolkit's `Gles::enter`/`leave` save and put back the compositor's
   state round every call (`rustui/patches/lumatv-gl.patch`). Done; host
   tests `tests/ui.rs` (the ring) and `tests/ui_output.rs` (the live path).
+- Direct scan-out stays with the UI attached (`kms/frames.rs`, decided
+  2026-10-25): a full-screen opaque window goes to the plane whenever the
+  plan allows it and nothing of stack 1 shows (stack 0 is under that
+  window, so Home alone costs no composed frame); the frame a system
+  layer appears is composed and drawn whole, since the pages missed the
+  window's frames, and the frame it goes is direct again. Host test
+  `tests/ui_scanout.rs`.
 - Keys and state. The compositor stays the only reader of the remotes. A
   LumaTV UI channel (JSON lines, `/tmp/xdg/lumatv-ui-input`): to the UI,
   keys while a LumaTV layer holds focus (Home while the stub card is in

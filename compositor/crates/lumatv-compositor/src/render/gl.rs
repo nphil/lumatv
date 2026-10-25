@@ -92,34 +92,16 @@ impl Gl {
             unsafe { egl.bind_wayland_display(dpy)? };
             log::info!("egl: eglBindWaylandDisplayWL ok, the driver serves mali_buffer_sharing on this socket");
         }
+        let (fbo, target) = offscreen_target(&egl, width, height)?;
         let a = &egl.api;
-        // SAFETY: a context is current; every object is checked.
-        let (fbo, target, program, a_pos, a_uv) = unsafe {
-            let mut target = 0;
-            (a.glGenTextures)(1, &mut target);
-            (a.glBindTexture)(egl::GL_TEXTURE_2D, target);
-            (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, egl::GL_RGBA as i32, width as i32, height as i32, 0, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, std::ptr::null());
-            (a.glTexParameteri)(egl::GL_TEXTURE_2D, egl::GL_TEXTURE_MIN_FILTER, egl::GL_NEAREST);
-            (a.glTexParameteri)(egl::GL_TEXTURE_2D, egl::GL_TEXTURE_MAG_FILTER, egl::GL_NEAREST);
-            let mut fbo = 0;
-            (a.glGenFramebuffers)(1, &mut fbo);
-            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
-            (a.glFramebufferTexture2D)(egl::GL_FRAMEBUFFER, egl::GL_COLOR_ATTACHMENT0, egl::GL_TEXTURE_2D, target, 0);
-            let status = (a.glCheckFramebufferStatus)(egl::GL_FRAMEBUFFER);
-            if status != egl::GL_FRAMEBUFFER_COMPLETE {
-                return Err(egl::other(format!("offscreen framebuffer incomplete: 0x{status:x} (gl 0x{:x})", (a.glGetError)())));
-            }
+        // SAFETY: a context is current; the program is checked by `link`.
+        let (program, a_pos, a_uv) = unsafe {
             let program = link(&egl)?;
             let a_pos = (a.glGetAttribLocation)(program, c"a_pos".as_ptr());
             let a_uv = (a.glGetAttribLocation)(program, c"a_uv".as_ptr());
             (a.glUseProgram)(program);
             (a.glUniform1i)((a.glGetUniformLocation)(program, c"u_tex".as_ptr()), 0);
-            // Defined-texture rule (LumaShow lesson 15): the target starts opaque black, not driver noise.
-            (a.glViewport)(0, 0, width as i32, height as i32);
-            (a.glDisable)(egl::GL_SCISSOR_TEST);
-            (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
-            (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
-            (fbo, target, program, a_pos as GLuint, a_uv as GLuint)
+            (program, a_pos as GLuint, a_uv as GLuint)
         };
         let bgra_upload = egl.has_gl_extension("GL_EXT_texture_format_BGRA8888");
         Ok(Gl {
@@ -196,6 +178,41 @@ impl Gl {
         if let Some(ui) = &mut self.ui {
             ui.presented(at, cost);
         }
+    }
+
+    /// Whether the planned frame has a layer over the windows (the system layer shows something): a full-screen window
+    /// cannot be scanned out directly under it. Meaningful after `plan_ui`.
+    pub fn ui_over_windows(&self) -> bool {
+        #[cfg(feature = "ui")]
+        {
+            self.ui.as_ref().is_some_and(|ui| ui.over_windows())
+        }
+        #[cfg(not(feature = "ui"))]
+        {
+            false
+        }
+    }
+
+    /// Ends the planned UI frame without drawing it (the window below is scanned out directly, and nothing of the UI
+    /// shows): the app still gets its receipt when that frame reaches the panel.
+    pub fn skip_ui_frame(&mut self) -> io::Result<()> {
+        self.finish_ui()
+    }
+
+    /// The engine's second half: the frame's receipt is kept for the presentation, and its GL errors count with the
+    /// compositor's (the engine clears the error flag as it reads it, so `render_rects` would not see them).
+    fn finish_ui(&mut self) -> io::Result<()> {
+        #[cfg(feature = "ui")]
+        if let Some(ui) = &mut self.ui {
+            let cost = ui.finish()?;
+            ui.tidy();
+            if let Some(err) = cost.gl_error {
+                self.gl_errors += 1;
+                log::warn!("gl error 0x{err:x} in the system UI's frame");
+            }
+            self.ui_frame = Some(cost);
+        }
+        Ok(())
     }
 
     /// Whether the next frame must draw all of its target (a ring forgets what its pages hold): the system UI went away,
@@ -433,6 +450,14 @@ impl Gl {
         Ok(TargetId(self.targets.len() - 1))
     }
 
+    /// Adds a page in the context's own memory, laid out as a scan-out page is (row 0 at the top): a host's stand-in for a
+    /// dma-buf page, so that the ring's frame logic runs without a device.
+    pub fn add_target(&mut self) -> io::Result<TargetId> {
+        let (fbo, tex) = offscreen_target(&self.egl, self.width, self.height)?;
+        self.targets.push(Target { fbo, tex, image: std::ptr::null_mut(), top_down: true });
+        Ok(TargetId(self.targets.len() - 1))
+    }
+
     /// Selects the target the next `render` draws into.
     pub fn set_target(&mut self, target: TargetId) {
         if target.0 < self.targets.len() {
@@ -531,14 +556,8 @@ impl Gl {
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
             ui.draw_over(fbo, rects)?;
-            let cost = ui.finish()?;
-            ui.tidy();
-            if let Some(err) = cost.gl_error {
-                self.gl_errors += 1;
-                log::warn!("gl error 0x{err:x} in the system UI's frame");
-            }
-            self.ui_frame = Some(cost);
         }
+        self.finish_ui()?;
         if let Some(c) = plan.cursor {
             let tex = self.cursor_texture();
             for r in rects {
@@ -611,6 +630,34 @@ fn bind_image(a: &egl::Api, image: EGLImage) -> GLuint {
         (a.glEGLImageTargetTexture2DOES)(egl::GL_TEXTURE_2D, image);
     }
     t
+}
+
+/// A render target in the context's own memory: a texture with a framebuffer over it, cleared to opaque black (the defined-texture
+/// rule, LumaShow lesson 15: never driver noise). Returns `(fbo, texture)`.
+fn offscreen_target(egl: &Egl, width: u32, height: u32) -> io::Result<(GLuint, GLuint)> {
+    let a = &egl.api;
+    // SAFETY: GL object creation with a current context; the framebuffer is checked.
+    unsafe {
+        let mut tex = 0;
+        (a.glGenTextures)(1, &mut tex);
+        (a.glBindTexture)(egl::GL_TEXTURE_2D, tex);
+        (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, egl::GL_RGBA as i32, width as i32, height as i32, 0, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, std::ptr::null());
+        (a.glTexParameteri)(egl::GL_TEXTURE_2D, egl::GL_TEXTURE_MIN_FILTER, egl::GL_NEAREST);
+        (a.glTexParameteri)(egl::GL_TEXTURE_2D, egl::GL_TEXTURE_MAG_FILTER, egl::GL_NEAREST);
+        let mut fbo = 0;
+        (a.glGenFramebuffers)(1, &mut fbo);
+        (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
+        (a.glFramebufferTexture2D)(egl::GL_FRAMEBUFFER, egl::GL_COLOR_ATTACHMENT0, egl::GL_TEXTURE_2D, tex, 0);
+        let status = (a.glCheckFramebufferStatus)(egl::GL_FRAMEBUFFER);
+        if status != egl::GL_FRAMEBUFFER_COMPLETE {
+            return Err(egl::other(format!("offscreen framebuffer incomplete: 0x{status:x} (gl 0x{:x})", (a.glGetError)())));
+        }
+        (a.glViewport)(0, 0, width as i32, height as i32);
+        (a.glDisable)(egl::GL_SCISSOR_TEST);
+        (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
+        (a.glClear)(egl::GL_COLOR_BUFFER_BIT);
+        Ok((fbo, tex))
+    }
 }
 
 fn link(egl: &Egl) -> io::Result<GLuint> {
