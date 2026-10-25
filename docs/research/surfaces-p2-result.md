@@ -98,10 +98,10 @@ the corrected rules (the first run's rules counted wrongly, below):
 | surface | first frame | pooled p90 render | worst window p90 | drops inside the animation | RSS over 8 cycles |
 |---|---|---|---|---|---|
 | Home idle | not checked | 2.57 ms (69 frames) | 2.57 | 0 | not soaked |
-| Home D-pad | 27.8 ms | 2.79 ms (533 frames) | 3.02 | 6 of 172 animated frames in cycle 0 | -0.00 MB |
+| Home D-pad | 27.8 ms | 2.79 ms (533 frames) | 3.02 | 6 of 533 animated frames (0, 1 and 5 in the three cycles) | -0.00 MB |
 | Home sweep | 25.7 ms | 2.91 ms (250 frames) | 3.25 | 0 | +0.64 MB (allowed 1.08) |
 
-Under LG's compositor, 17 % of frames take two vblanks for a trivial client (X1), so the D-pad's 6 of 172 (3.5 %) is under
+Under LG's compositor, 17 % of frames take two vblanks for a trivial client (X1), so the D-pad's 6 of 533 (1.1 %) is under
 that floor; the gate holds LG's compositor to it and LumaTV's own to zero (`LG_COMPOSITOR_DROP_SHARE`). The gate was stopped
 at Quick Settings to return the set for another agent's slot; Quick Settings and the kit gallery have no number from the new
 gate yet.
