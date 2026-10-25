@@ -6,23 +6,30 @@ startup warm-up, the frame gate, and the preload trim. Measured on the LG C4 (we
 
 ## Resume here
 
-State at 2026-10-25 01:45 EDT. Milestones 1 and 2 of 5 are built, deployed and verified on the
-set and pushed; the gate numbers for 2 are measured after the set comes back from the compositor
-work (section 2).
+State at 2026-10-25 02:20 EDT. Milestones 1, 2 and 3 of 5 are built, deployed, verified on the
+set and pushed. Milestones 4 (warm-up and the frame gate) and 5 (preload trim and the Home-return
+re-measure) are not started: the run reached its request budget. Section 4 holds their designs,
+worked out against the code, so a restart can begin building.
 
-- Done: 1 (key filter, OK on release, focus rest), 2 (wallpaper tint, saved-first weather and news).
-- Next: 3 (kit and tokens), 4 (warm-up and the frame gate), 5 (preload trim and the Home-return
-  re-measure).
-- The set: Active, LumaHome in front, dock order restored after test keys moved a tile (the
-  list is `Apps, Netflix, PlxNative, Apple TV, GeForce NOW, Crunchyroll, ...`; a held OK picks a
-  tile up and an OK release drops it, so test scripts must not leave one picked up).
+- Done: 1 (key filter, OK on release, focus rest), 2 (wallpaper tint, saved-first weather and
+  news), 3 (token source, Manrope, component kit).
+- Next: 4 (warm-up, then the frame gate in `docs/research/perf`), then 5. Both need the set to
+  themselves with the screen on (`tvpower powerOn {"reason":"remoteKey"}`, `turnOnScreen`, and
+  `getPowerState` reads Active).
+- The set: `webglass` and `systemui` are on (they are how Settings, Notification Centre and Quick
+  Settings get the theme and Manrope), the kit gallery is off, the user's theme file holds only
+  Nitin's wallpaper-motion edits, dock order is as he had it (a held OK picks a tile up and an OK
+  release drops it, so test scripts must not leave one picked up). It is left in Active Standby
+  (`tvpower powerOff {"reason":"remoteKey"}`).
 - Tools used (not in the repo): a paramiko wrapper for the set, and `docs/research/perf/kb.py`
   (key injector with trace markers, copy it to `/tmp/kb.py` on the set).
 - Deploy loop: `sh tools/build-ipk.sh`, push the ipk to `/tmp/lumatv.ipk`, `luna-send -n 4 -f
   luna://com.webos.appInstallService/dev/install '{"id":"org.nphil.lumatv","ipkUrl":"/tmp/lumatv.ipk","subscribe":true}'`,
   wait until the app directory matches the build (the install is asynchronous: an `apply` run
   one second after the call staged the previous files), then `lumatv apply` (13 s, restarts the
-  compositor).
+  compositor). `lumatv fps on|off` is the cheap way to restart it.
+- Tests: `TZ=America/New_York bun test tests/` (41) and `python3 -m unittest discover -s tests
+  -p 'test_*.py'` (11).
 
 ## 1. Key filter, OK on release, focus rest
 
@@ -115,3 +122,129 @@ Saved-first cards (`Saved.js`, WeatherWidget.qml, NewsWidget.qml):
   Panel blank to first present: 4.6, 4.8 and 4.8 s (stale, fresh, expired).
 - A request that never answers is cut at 30 s, a zip the lookup cannot place is an error (the
   old card fell back to Atlanta), and a reading for another zip or unit is not used.
+
+Same-session gate, M1 build against M2 builds (idle, dpad and Quick Settings workloads, 2 runs;
+two builds of M2 because the same code differed by 0.3 ms between runs):
+
+| | M1 | M2 | M2 again |
+|---|---|---|---|
+| idle p90 render | 2.41 ms | 2.71 ms | 3.04 ms |
+| dpad p90 render | 2.67 ms | 2.77 ms | 2.94 ms |
+| Quick Settings open, close p90 | 2.98, 3.18 ms | 3.22, 3.44 ms | 3.08, 3.85 ms |
+| idle CPU, GPU | 44, 102 ms/s | 46, 103 ms/s | |
+| dpad CPU | 118 ms/s | 119 ms/s | |
+
+Dropped-frame share and the count of frames over 20 ms did not move. The difference between M1
+and M2 is inside the run-to-run spread, so it is read as noise. Quick Settings is LG's patched
+panel and was already over 3 ms at the Phase 1 baseline (2.7-2.9 open, 3.4-3.9 close); it is
+rebuilt in Phase 3.
+
+## 3. Token source, Manrope, component kit
+
+Token source:
+
+- `payload/theme/theme.json` (version 2) holds every value a surface may use, in Lucent's names:
+  colour roles for both materials (`canvas`, `sheet`, `scrim`, `wallScrim`, `focus`, `focusInk`,
+  `trackOff`, `accent`, `accentInk` and the semantic roles), `font`, the type roles (`display` 92,
+  `title` 40, `body` 28, `label` 26, `caption` 24, `clock`, `temp`), `radii`, `space`, `target` 64,
+  `row` 80, `focus`, `states` and `motion` (`focusMs`, `cardMs`, `layerMs`, `pressMs`, `restMs`,
+  `holdMs`). The old `radius` and `tileRadius` became `radii.card` and `radii.tile`, and a
+  material's `scrim` list became `wallScrim` (`scrim` is now the modal scrim colour).
+- LumaHome no longer carries literal defaults. `stage_luma` stages the shipped files as
+  `theme.default.json` and `layout.default.json` beside the QML, LumaHome reads them through
+  `TextFile` and merges the user's files over them (`mergeDeep`: objects merge, arrays and scalars
+  replace). `theme.py minimize` runs at `apply` and cuts the user's file to what differs from the
+  shipped one, plus drops the retired keys, so what was never changed follows an update. On the
+  set Nitin's file went from a full copy of the old defaults to his wallpaper-motion edits.
+- `tools/tokens.py <shipped> <user> qml|css|js` replaces `palette.py`. `qml` is the settings-sheet
+  palette Quick Settings is patched with and was byte-identical to `palette.py` for the same theme;
+  `css` writes `--lu-*` (Lucent's tokens.css names, plus `--lu-weight-*`), the Sandstone `--sand-*`
+  block and the menu scrim; `js` writes `theme/Tokens.js` for QML in other processes. A sheet
+  below 7:1 against the ink is darkened as before. `lumatv.css` has no colour of its own now and a
+  test fails on any `var(--...)` the generator does not write.
+
+Manrope:
+
+- Four static faces (400, 500, 600, 700) are cut from the pinned variable font (Manrope 4.505,
+  `generators/fonts/`, sha256 in `payload/fonts/Manrope.SOURCE`) by `generators/gen-fonts.py`,
+  named family "Manrope" with the weight as the style. They render pixel-identically to the 4.504
+  statics they replace (13 sizes compared). Inter is removed from the repo and from the data dir.
+- QML loads them from `theme.font.files`. A Repeater delegate must be an `Item` that contains the
+  FontLoader: a FontLoader delegate fails with "Delegate must be of Item type".
+- Web: `lumatv.css` declares the four faces and `font-family` is `var(--lu-font)`. Verified on the
+  set: the Settings app draws in Manrope on the token colours.
+- Quick Settings: `systemui_patch.py` rewrites `LanguageStyle.qml` so every LG family (16) maps to
+  Manrope, LG's regular to Medium and its light to Regular, and `getFontWeight` to match. Verified on
+  the set after `systemui on` and a MENU key. Manrope is a tenth wider than the face LG sized the
+  tiles for, so the tile title and subtitle are set at 0.9 of LG's size; the Picture Mode tile's
+  subtitle (FILMMAKER MODE) still marquees when the tile is focused, which is LG's own handling of
+  text that does not fit.
+
+Component kit (`payload/compositor/lumatv/kit/`):
+
+- `Lu.qml` is a QML singleton (`singleton Lu 1.0 Lu.qml` in the kit's `qmldir`); LumaHome feeds
+  it through four `Binding`s (theme, `isLight`, wall accent, backdrop). Components take every value
+  from it, so a number that is not in `theme.json` does not exist. `LuText`, `LuHalo`, `LuRow`,
+  `LuToggle`, `LuSlider`, `LuButton`, `LuSegmented`, `LuChip` and `FocusLift` use it; each kit file
+  has `import "."`, files in `lumatv/` use `import "kit"`.
+- Qt 5.12 has no `Qt.color()`; `Lu.asColor` uses `Qt.lighter(value, 1.0)`. `Text.style` collides
+  with a custom property of that name, so `LuText` takes `spec`.
+- `KitGallery.qml` shows every component on one sheet in the current material
+  (`lumatv theme set '{"kitGallery":true}'`, Back closes it); a `Loader` in LumaHome keeps it
+  unloaded otherwise. Home's own `Text` items were not converted to `LuText`: Home keeps its
+  values from the approved mock and the kit is for the surfaces built next. The dock's glow is
+  the one Home piece that now uses a kit component (`LuHalo`); the static Home regions are
+  pixel-identical before and after.
+- Checked on the set: the gallery in dark and light glass, D-pad focus through rows, toggle,
+  slider (adjusts), segmented control and buttons; Home text unchanged and Manrope loaded; no
+  new QML errors in the compositor log. `tests/kit.test.js` checks that every `Lu.` member used is
+  declared, that every kit file is in the `qmldir` and that the shipped theme has every key `Lu`
+  asks for.
+
+## 4. Not done: the designs for milestones 4 and 5
+
+Milestone 4, startup warm-up. The costs to remove come from LumaShow's measured lessons
+(`docs/research/lumashow-lessons.md`, glyph-cache fills and shader compiles on first use); they are
+[INFERENCE] for LumaTV until the first-frame times below are measured here. Blank to first present
+after a compositor restart is 4.6-4.8 s today.
+
+- Fonts: at LumaHome start, walk its item tree once and collect every distinct (weight, pixel
+  size) among the `Text` items, so the list cannot drift from the surfaces. Draw the glyph set
+  (digits, Latin, punctuation, degree sign) at each in `Text` items placed offscreen but inside
+  the window's bounds with `opacity` 0.01, for one frame, then remove them. Do the same for the
+  kit's type roles from `theme.type`.
+- Shaders: one tiny `ShaderEffect` per distinct fragment source in use (the glass material, the
+  wallpaper, the halo), drawn offscreen for a frame; a `ShaderEffectSource` that is built by
+  showing a layer is the cost the gate forbids, so the effect sources in use are created hidden
+  with `live: false` and `recursive: false` and updated once.
+- Icons: load every dock and status PNG into the Image cache (`cache: true`) with
+  `asynchronous: false` once, in the same warm frame.
+- Frame gate in `docs/research/perf`: a table, per surface, of the key sequence that shows it and
+  thresholds on the windows `analyse.py` already reports: p90 `anim_render_ms` under 3, no
+  animated frame over 20 ms, first frame within 50 ms of the key (needs `@name` markers from
+  `kb.py` in the trace), fully open by 180 ms, `.sys` RSS flat over 10 open and close cycles.
+  Surfaces to list now: Home (idle, D-pad, sweep), Quick Settings, kit gallery. The gate exits
+  non-zero on a miss, so it can run before every commit that changes a surface.
+- Check after building: Home's time from `lumatv fps on` restart to first present, and the first
+  D-pad sweep's worst frame, with and without the warm-up in the same session.
+
+Milestone 5, preload trim.
+
+- The key is `com.webos.service.preloadmanager.supportAppList` in configd; the target value
+  keeps Netflix and drops YouTube, LG Channels and the browser. Read it first, keep the original
+  in `/var/lib/lumatv/preload.orig` so `revert` restores it, and set it through configd only (no
+  rootfs write). Re-send `setPreloadPolicy` at every wake, as Glasshouse already does.
+- Measure with `run.py --tag preload --repeat 2 --workloads apphome`, against the same workload
+  with the list restored, in one session. The baseline to beat is in HANDOFF: Home-return gaps of
+  50-117 ms and 250-920 ms after a 450 MB hog, unchanged by the Home stub. Record whether the
+  gaps are gone; a gap that remains with a smaller preload set is page-in cost, not preload
+  contention, and the answer is then the heap shim and a smaller resident Home.
+
+Findings kept from this run:
+
+- `Canvas.drawImage` paints nothing on this firmware (Image item, PNG at 1:1 or scaled, icon).
+  Reading pixels back works through `grabToImage` and XPM (`Tint.js`).
+- `Qt.color` does not exist in Qt 5.12; `tintedMaterial` had called it, so `tint.mix` had never
+  run before this build.
+- A key handler with no `try` at all lets the key through on this firmware; the filter's catch is
+  for the log and the pair record.

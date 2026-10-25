@@ -63,7 +63,11 @@ payload/home/en.json.sed
 payload/wallpaper/wall_1080.png
 payload/theme/theme.json
 payload/theme/layout.json
+payload/fonts/Manrope-Regular.ttf
+payload/fonts/Manrope-Medium.ttf
 payload/fonts/Manrope-SemiBold.ttf
+payload/fonts/Manrope-Bold.ttf
+tools/tokens.py
 payload/homestub/appinfo.json
 payload/homestub/index.html
 payload/homestub/icon.png
@@ -175,7 +179,7 @@ cp tools/brand.sh "$DATA_ROOT/tools/"
 cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
-cp tools/palette.py tools/systemui.py tools/systemui_patch.py "$DATA_ROOT/tools/"
+cp tools/tokens.py tools/systemui.py tools/systemui_patch.py "$DATA_ROOT/tools/"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 

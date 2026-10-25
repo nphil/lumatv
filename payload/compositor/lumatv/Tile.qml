@@ -1,4 +1,5 @@
 import QtQuick 2.9
+import "kit"
 
 // One dock tile: plate, icon, inset edge, shadow, accent glow, top rim and sheen are a single
 // shader quad (icon sampled from an offscreen mipmapped Image), so a tile is one draw call

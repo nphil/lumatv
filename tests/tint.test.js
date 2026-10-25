@@ -3,7 +3,7 @@ import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 
 const src = readFileSync(new URL("../payload/compositor/lumatv/Tint.js", import.meta.url), "utf8").replace(/^\.pragma library$/m, "");
-const Tint = new Function(src + "\nreturn { dominant, luma, accentFrom, hex, parseHex, parseXpm, mixToward, rgbToHsl, hslToRgb };")();
+const Tint = new Function(src + "\nreturn { dominant, luma, accentFrom, hex, parseHex, parseXpm, mixToward, rgbToHsl, hslToRgb, luminance, contrast, bestInk };")();
 
 function bitmap(pixels) {
   const data = new Uint8Array(pixels.length * 4);
@@ -121,4 +121,21 @@ test("a transparent entry reads as transparent and XPM junk reads as null", () =
   expect(Tint.parseXpm("")).toBeNull();
   expect(Tint.parseXpm("not an xpm")).toBeNull();
   expect(Tint.parseXpm('"2 2 1 1",\n"a c #000000",\n"aa"')).toBeNull();
+});
+
+test("contrast follows WCAG: black on white is 21, a colour on itself is 1", () => {
+  expect(Tint.contrast({ r: 0, g: 0, b: 0 }, { r: 1, g: 1, b: 1 })).toBeCloseTo(21, 5);
+  expect(Tint.contrast({ r: 0.3, g: 0.5, b: 0.7 }, { r: 0.3, g: 0.5, b: 0.7 })).toBeCloseTo(1, 5);
+  // the dark ink on the shipped dark accent: about 7, as the palette's 4.5:1 target needs
+  const c = (hex) => { const t = Tint.parseHex(hex); return { r: t.r / 255, g: t.g / 255, b: t.b / 255 }; };
+  expect(Tint.contrast(c("#A79BF5"), c("#17131F"))).toBeGreaterThan(6.5);
+  expect(Tint.contrast(c("#A79BF5"), c("#F2EFF6"))).toBeLessThan(3);
+});
+
+test("the ink with the most contrast wins, the first on a tie", () => {
+  const c = (hex) => { const t = Tint.parseHex(hex); return { r: t.r / 255, g: t.g / 255, b: t.b / 255 }; };
+  const dark = c("#17131F"), light = c("#F2EFF6");
+  expect(Tint.bestInk(c("#A79BF5"), [light, dark])).toBe(dark);
+  expect(Tint.bestInk(c("#2A2540"), [dark, light])).toBe(light);
+  expect(Tint.bestInk(c("#808080"), [dark])).toBe(dark);
 });

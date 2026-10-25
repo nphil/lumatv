@@ -94,7 +94,7 @@ KEYFILTER_HANDLER=handleLumaHome
 SYSTEMUI_SRC="$APPDIR/payload/systemui"
 SYSTEMUI_TOOL="$APPDIR/tools/systemui.py"
 SYSTEMUI_PATCH_TOOL="$APPDIR/tools/systemui_patch.py"
-PALETTE_TOOL="$APPDIR/tools/palette.py"
+TOKENS_TOOL="$APPDIR/tools/tokens.py"
 SYSTEMUI_STAGE="$STATE/systemui"
 QS_APP=com.webos.app.quicksettings
 QS_STOCK=/usr/lib/qt5/qml/QuickSettings
@@ -660,7 +660,10 @@ stage_luma() {
   # $1 = fps (true|false), $2 = output dir (default: the live stage). The Home
   # QML directory copied verbatim plus a generated settings.json carrying the
   # fps flag: it lives inside the module so that flipping fps changes the
-  # staged tree and earns the compositor restart that makes it visible.
+  # staged tree and earns the compositor restart that makes it visible. The
+  # shipped theme.json and layout.json go in beside it as theme.default.json and
+  # layout.default.json: LumaHome reads them at once and merges the user's copies
+  # over them, so a changed default is a changed tree, and earns the restart too.
   # build_shadow copies the directory into the module. Nothing under
   # controllers/ is shadowed: types reached through the module's qmldir
   # (StarfishKeyController and friends) resolve to /usr/lib/qt5 regardless of
@@ -672,29 +675,40 @@ stage_luma() {
   mkdir -p "$out.tmp.$$" 2>/dev/null || return 1
   cp -R "$LUMA_SRC" "$out.tmp.$$/$QML_MODULE" 2>/dev/null || { rm -rf "$out.tmp.$$"; return 1; }
   printf '{"fps":%s}\n' "$fps" > "$out.tmp.$$/$QML_MODULE/settings.json"
+  cp "$THEME_SRC/theme.json" "$out.tmp.$$/$QML_MODULE/theme.default.json" 2>/dev/null \
+    && cp "$THEME_SRC/layout.json" "$out.tmp.$$/$QML_MODULE/layout.default.json" 2>/dev/null \
+    || { rm -rf "$out.tmp.$$"; return 1; }
   rm -rf "$out" 2>/dev/null
   mv "$out.tmp.$$" "$out"
 }
 
 stage_theme() {
   # Fonts and the default wallpaper are payload-owned and always refreshed.
-  # theme.json and layout.json belong to the user once edited: the companion
-  # app changes them in place. A file still identical to the copy this tool
-  # last shipped is not edited, so it follows the payload; an edited one is
-  # left alone. cache/ holds the last weather and news the cards drew (their
-  # JSON is the native helper's schema), written by LumaHome.
+  # theme.json and layout.json in the data dir hold only what the user changed:
+  # LumaHome merges them over the shipped files (the defaults staged by
+  # stage_luma), and `theme.py minimize` rewrites each to just the keys that
+  # differ from the shipped copy, so what was never changed follows an update.
+  # cache/ holds the last weather and news the cards drew (their JSON is the
+  # native helper's schema), written by LumaHome. Tokens.js is the resolved
+  # token set for QML in other processes to import by file URL.
   mkdir -p "$FONTS_DIR" "$THEME_DIR" "$STATE/cache" 2>/dev/null || return 1
+  rm -f "$FONTS_DIR"/Inter*.ttf 2>/dev/null
   cp -f "$FONTS_SRC"/*.ttf "$FONTS_DIR/" 2>/dev/null
   cp -f "$WALL_SRC" "$THEME_DIR/wall_1080.png" 2>/dev/null
   for f in theme.json layout.json; do
-    shipped=$(cat "$THEME_DIR/.shipped-$f" 2>/dev/null)
-    current=$(md5sum < "$THEME_DIR/$f" 2>/dev/null | cut -c1-32)
-    if [ ! -f "$THEME_DIR/$f" ] || [ -z "$shipped" ] || [ "$current" = "$shipped" ]; then
-      cp -f "$THEME_SRC/$f" "$THEME_DIR/$f" 2>/dev/null
-      md5sum < "$THEME_SRC/$f" | cut -c1-32 > "$THEME_DIR/.shipped-$f"
-    fi
+    [ -f "$THEME_DIR/$f" ] || printf '{}\n' > "$THEME_DIR/$f"
+    python3 "$THEME_TOOL" "$THEME_DIR/$f" minimize "$THEME_SRC/$f" < /dev/null >/dev/null 2>>"$LOGFILE" \
+      || log_line "stage_theme: $f could not be read, left as it is"
+    rm -f "$THEME_DIR/.shipped-$f" 2>/dev/null
   done
+  write_tokens_js
   return 0
+}
+
+write_tokens_js() {
+  # Rewritten only when it changes, so its mtime says when the tokens last moved.
+  python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" js < /dev/null > "$THEME_DIR/Tokens.js.new" 2>>"$LOGFILE" || { rm -f "$THEME_DIR/Tokens.js.new"; return 1; }
+  if cmp -s "$THEME_DIR/Tokens.js.new" "$THEME_DIR/Tokens.js" 2>/dev/null; then rm -f "$THEME_DIR/Tokens.js.new"; else mv -f "$THEME_DIR/Tokens.js.new" "$THEME_DIR/Tokens.js"; fi
 }
 
 keyfilter_set() {
@@ -752,7 +766,7 @@ systemui_stage() {
   # half-patched menu.
   # The palette comes from the live theme, so the menus are tinted by the
   # wallpaper in use rather than by constants in the patch.
-  pal=$(python3 "$PALETTE_TOOL" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
+  pal=$(python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" qml < /dev/null 2>>"$LOGFILE")
   python3 "$SYSTEMUI_PATCH_TOOL" "$QS_STAGE" "$pal" < /dev/null >>"$LOGFILE" 2>&1
 }
 
@@ -783,10 +797,10 @@ webglass_set() {
       mkdir -p "$up" "$work" 2>/dev/null || { rc=1; continue; }
       cp -f "$WEBGLASS_SRC/userScript.js" "$up/userScript.js" 2>/dev/null || rc=1
       cp -f "$WEBGLASS_SRC/$SHORT_ID.css" "$up/$SHORT_ID.css" 2>/dev/null || rc=1
-      python3 "$PALETTE_TOOL" "$THEME_DIR/theme.json" css < /dev/null > "$up/theme.css" 2>>"$LOGFILE" || rc=1
+      python3 "$TOKENS_TOOL" "$THEME_SRC/theme.json" "$THEME_DIR/theme.json" css < /dev/null > "$up/theme.css" 2>>"$LOGFILE" || rc=1
       # The same font the Home screen uses, beside the stylesheet that asks for
       # it: a web app can only load a face from its own directory.
-      for f in Inter-Regular.ttf Inter-Medium.ttf Inter-SemiBold.ttf InterDisplay-SemiBold.ttf; do
+      for f in Manrope-Regular.ttf Manrope-Medium.ttf Manrope-SemiBold.ttf Manrope-Bold.ttf; do
         cp -f "$FONTS_SRC/$f" "$up/$f" 2>/dev/null || rc=1
       done
       mount -t overlay "$SHORT_ID" -o \
@@ -2462,7 +2476,8 @@ verb_theme() {
   case "$1" in
     get) python3 "$THEME_TOOL" "$THEME_DIR/theme.json" get < /dev/null ;;
     set) [ -n "$2" ] || { emit_error "theme set needs a JSON object"; return 1; }
-         python3 "$THEME_TOOL" "$THEME_DIR/theme.json" set "$2" < /dev/null || { emit_error "theme update failed"; return 1; } ;;
+         python3 "$THEME_TOOL" "$THEME_DIR/theme.json" set "$2" < /dev/null || { emit_error "theme update failed"; return 1; }
+         write_tokens_js || log_line "theme set: Tokens.js not rewritten" ;;
     *) emit_error "theme: get or set"; return 1 ;;
   esac
 }

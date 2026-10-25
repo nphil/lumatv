@@ -7,6 +7,7 @@ import WebOS.Global 1.0
 import TextFile 1.0
 import "LumaBus.js" as Bus
 import "Tint.js" as Tint
+import "kit"
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
 // driven by {{dataDir}}/theme/{theme.json,layout.json}. Keys arrive through
@@ -24,8 +25,21 @@ Item {
     readonly property string fontsDirUrl: "file://{{dataDir}}/fonts/"
     readonly property string moduleDirUrl: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/"
 
-    property var theme: defaultTheme()
-    property var layout: defaultLayout()
+    // The shipped theme.json and layout.json are staged beside this file as the defaults (tools/
+    // lumatv stage_luma) and read at once, so every binding below has a theme to read. The copies
+    // in the data dir are merged over them when they load (applyTheme, applyLayout). The file
+    // names are plain values, not bindings, so they are set before any binding runs.
+    TextFile { id: themeDefaultsFile; name: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/theme.default.json" }
+    TextFile { id: layoutDefaultsFile; name: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/layout.default.json" }
+    function readDefaults(file) {
+        try { return JSON.parse(file.read()) }
+        catch (e) { console.warn("[LumaHome] " + file.name + " unreadable: " + e); return {} }
+    }
+    readonly property var themeDefaults: readDefaults(themeDefaultsFile)
+    readonly property var layoutDefaults: readDefaults(layoutDefaultsFile)
+
+    property var theme: themeDefaults
+    property var layout: layoutDefaults
     property bool isLight: false
     property var mat: theme.dark
     property bool fpsEnabled: false
@@ -33,59 +47,22 @@ Item {
     property string lastLayoutText: ""
 
     // ---- motion tokens ----
-    function easingFromName(n) {
-        if (!n) return Easing.OutCubic
-        var v = Easing[n]
-        return (v !== undefined) ? v : Easing.OutCubic
-    }
-    property var motion: theme.motion || {}
+    property var motion: theme.motion
     property bool motionReduced: !!motion.reduced
-    property int focusMs: motion.focusMs || 150
-    property int focusEasing: easingFromName(motion.focusEasing)
-    property int cardMs: motion.cardMs || 180
-    property int cardEasing: easingFromName(motion.cardEasing)
-    property int scrollMs: motion.scrollMs || 300
-    property int scrollEasing: easingFromName(motion.scrollEasing)
-    property int labelMs: motion.labelMs || 120
-    property int layerMs: motion.layerMs || 220
+    property int focusMs: motion.focusMs
+    property int focusEasing: Lu.easing(motion.focusEasing)
+    property int cardMs: motion.cardMs
+    property int cardEasing: Lu.easing(motion.cardEasing)
+    property int scrollMs: motion.scrollMs
+    property int scrollEasing: Lu.easing(motion.scrollEasing)
+    property int labelMs: motion.labelMs
+    property int layerMs: motion.layerMs
 
-    // ============================================================= defaults
-    function defaultTheme() {
-        return {
-            version: 1, name: "{{displayName}} default", wallpaper: "wall_1080.png",
-            material: "auto", materialThreshold: 0.55,
-            dark: { ink: "#F2EFF6", ink2: "#A8F2EFF6", ink3: "#6BF2EFF6", glass: "#66120E1A", glassEdge: "#21FFFFFF",
-                    glassFocus: "#8F2C263A", glassFocusEdge: "#33FFFFFF", scrim: [0.10, 0.18, 0.46] },
-            light: { ink: "#17131F", ink2: "#A817131F", ink3: "#6B17131F", glass: "#85FFFFFF", glassEdge: "#D9FFFFFF",
-                     glassFocus: "#B8FFFFFF", glassFocusEdge: "#E6FFFFFF", scrim: [0.06, 0.10, -0.10] },
-            accent: "tile", tint: { mix: 0 }, radius: 26, tileRadius: 22, blurRadius: 30, saturation: 0.25,
-            type: { clock: 92, temp: 84 },
-            focus: { tileScale: 1.12, cardScale: 1.03, cardLift: 4, tileGlow: 0, ambient: 0.3 },
-            motion: { focusMs: 150, focusEasing: "OutCubic", cardMs: 180, cardEasing: "OutCubic",
-                      scrollMs: 300, scrollEasing: "OutCubic", labelMs: 120, layerMs: 220, restMs: 150, holdMs: 700, reduced: false },
-            tiles: { inset: 19, fullCanvasEdgeAlpha: 0.9, icons: {} },
-            wallpaperMotion: { enabled: true, amplitude: 4, speed: 1, depth: 0.25, scale: 1, detail: 0.35, fps: 30,
-                               vignette: 0, specular: 0, bloom: 0, saturation: 1, contrast: 1 },
-            clock: { style: "digital", twelveHour: true, greeting: true, secondHand: "#ff3b5c" },
-            weather: { zip: "30311", units: "fahrenheit", days: 5 },
-            news: { slideMs: 10000, refreshMs: 900000 }
-        }
-    }
-    function defaultLayout() {
-        return {
-            version: 1, safe: { x: 64, y: 54 }, grid: { cols: 12, gutter: 20, rows: [222, 238, 392] },
-            statusBar: { height: 60, gap: 20,
-                left: [ { type: "profile" } ],
-                right: [ { type: "notifications" }, { type: "settings" }, { type: "search" } ] },
-            widgets: [
-                { id: "clock", type: "clock", col: 0, row: 0, span: 4, rows: 1 },
-                { id: "home", type: "homeassistant", col: 0, row: 1, span: 4, rows: 1, title: "At home" },
-                { id: "news", type: "news", col: 4, row: 0, span: 5, rows: 2 },
-                { id: "weather", type: "weather", col: 9, row: 0, span: 3, rows: 2 },
-                { id: "dock", type: "dock", col: 0, row: 2, span: 12, rows: 1, tile: 120, gap: 16, padY: 40, fade: 110 }
-            ]
-        }
-    }
+    // The kit's token layer takes what it draws with from here (kit/Lu.qml).
+    Binding { target: Lu; property: "theme"; value: root.theme }
+    Binding { target: Lu; property: "isLight"; value: root.isLight }
+    Binding { target: Lu; property: "wallAccent"; value: root.wallTint ? root.wallAccent : "transparent" }
+    Binding { target: Lu; property: "backdrop"; value: blurTex }
 
     function resolvePath(p) {
         if (!p) return ""
@@ -140,23 +117,28 @@ Item {
         }
         try { x.open("GET", url); x.send() } catch (e) { cb(null, null) }
     }
-    function mergeDefaults(base, over) {
-        if (!over || typeof over !== "object") return base
+    // Objects merge key by key, everything else (numbers, strings, arrays) is replaced by the
+    // override: a user's theme.json keeps only what it says, and a key it never set follows the
+    // shipped file.
+    function mergeDeep(base, over) {
+        if (over === undefined) return base
+        if (over === null || typeof over !== "object" || Array.isArray(over)) return over
+        if (base === null || typeof base !== "object" || Array.isArray(base)) return over
         var out = {}
         for (var k in base) out[k] = base[k]
-        for (var k2 in over) out[k2] = over[k2]
+        for (var k2 in over) out[k2] = mergeDeep(base[k2], over[k2])
         return out
     }
     function applyTheme(json, text) {
-        root.theme = json ? mergeDefaults(defaultTheme(), json) : defaultTheme()
-        if (!json) console.warn("[LumaHome] theme.json missing/invalid, using built-in defaults")
+        root.theme = json ? mergeDeep(themeDefaults, json) : themeDefaults
+        if (!json) console.warn("[LumaHome] theme.json missing/invalid, using the shipped one")
         root.lastThemeText = text || ""
         restoreTint()
         computeMaterial()
     }
     function applyLayout(json, text) {
-        root.layout = json ? mergeDefaults(defaultLayout(), json) : defaultLayout()
-        if (!json) console.warn("[LumaHome] layout.json missing/invalid, using built-in defaults")
+        root.layout = json ? mergeDeep(layoutDefaults, json) : layoutDefaults
+        if (!json) console.warn("[LumaHome] layout.json missing/invalid, using the shipped one")
         root.lastLayoutText = text || ""
         if (widgetIndexById(widgetFocusId) < 0) widgetFocusId = nonDockWidgets.length ? nonDockWidgets[0].id : ""
     }
@@ -300,10 +282,11 @@ Item {
     }
 
     // ============================================================= fonts
-    FontLoader { source: root.fontsDirUrl + "Manrope-Medium.ttf" }
-    FontLoader { source: root.fontsDirUrl + "Manrope-SemiBold.ttf" }
-    FontLoader { source: root.fontsDirUrl + "Manrope-Bold.ttf" }
-    Repeater { model: theme.fonts || []; delegate: FontLoader { source: root.resolvePath(modelData) } }
+    // Faces named by theme.font.files (the family every kit component and every Text here draws
+    // in), then any a theme brings of its own (theme.fonts). The shipped files are in
+    // payload/fonts, copied to the data dir by stage_theme.
+    Repeater { model: (theme.font && theme.font.files) || []; delegate: Item { FontLoader { source: root.fontsDirUrl + modelData } } }
+    Repeater { model: theme.fonts || []; delegate: Item { FontLoader { source: root.resolvePath(modelData) } } }
 
     // ============================================================= material (light/dark) and tint
     // One 32x18 sample of the wallpaper gives both the mean luma, which decides light or dark
@@ -328,7 +311,7 @@ Item {
         if (!(mix > 0) || !wallTint || !m) return m
         var out = {}
         for (var k in m) out[k] = m[k]
-        var c = Qt.color(m.glassFocus), t = Tint.mixToward({ r: c.r, g: c.g, b: c.b, a: c.a }, wallTint, Math.min(1, mix))
+        var c = Qt.lighter(m.glassFocus, 1.0), t = Tint.mixToward({ r: c.r, g: c.g, b: c.b, a: c.a }, wallTint, Math.min(1, mix))
         out.glassFocus = Qt.rgba(t.r, t.g, t.b, t.a)
         return out
     }
@@ -396,15 +379,15 @@ Item {
     property string wallpaperFit: (layout.background && layout.background.wallpaperFit) || "1:1"
     Rectangle { anchors.fill: parent; z: -3; color: (layout.background && layout.background.color) || "#0b0910" }
     Rectangle {
-        // theme.<mat>.scrim: 3 stops at 0 / 55 / 100 %. Drawn by the live wallpaper's shader
+        // theme.<mat>.wallScrim: 3 stops at 0 / 55 / 100 %. Drawn by the live wallpaper's shader
         // while that is on, so the screen carries one full-screen quad, not two.
         anchors.fill: parent
         z: -1
         visible: !liveWall.visible
         gradient: Gradient {
-            GradientStop { position: 0.0; color: root.scrimColor((root.mat.scrim || [0, 0, 0])[0]) }
-            GradientStop { position: 0.55; color: root.scrimColor((root.mat.scrim || [0, 0, 0])[1]) }
-            GradientStop { position: 1.0; color: root.scrimColor((root.mat.scrim || [0, 0, 0])[2]) }
+            GradientStop { position: 0.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0]) }
+            GradientStop { position: 0.55; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1]) }
+            GradientStop { position: 1.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[2]) }
         }
     }
     Image {
@@ -496,9 +479,9 @@ Item {
         property real depth: root.wallMotion.depth === undefined ? 0.25 : root.wallMotion.depth
         property real waveScale: root.wallMotion.scale || 1          // wave frequency multiplier
         property real detail: root.wallMotion.detail === undefined ? 0.35 : root.wallMotion.detail   // finer second layer, 0..1
-        property color s0: root.scrimColor((root.mat.scrim || [0, 0, 0])[0])
-        property color s1: root.scrimColor((root.mat.scrim || [0, 0, 0])[1])
-        property color s2: root.scrimColor((root.mat.scrim || [0, 0, 0])[2])
+        property color s0: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0])
+        property color s1: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1])
+        property color s2: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[2])
         property vector4d scrimA: Qt.vector4d(s0.r, s0.g, s0.b, s0.a)
         property vector4d scrimB: Qt.vector4d(s1.r, s1.g, s1.b, s1.a)
         property vector4d scrimC: Qt.vector4d(s2.r, s2.g, s2.b, s2.a)
@@ -751,6 +734,12 @@ Item {
         return keyAction(dir)
     }
     function keyAction(dir) {
+        if (galleryLoader.item) {
+            // the kit gallery is modal while it is up; Back closes it
+            if (dir === "back") { patchTheme({ kitGallery: false }); persistTheme({ kitGallery: false }) }
+            else galleryLoader.item.key(dir)
+            return true
+        }
         var d = dockLoader.item
 
         if (focusLayer === "popover") {
@@ -1029,7 +1018,7 @@ Item {
         z: 4
         mat: root.mat
         isLight: root.isLight
-        cardRadius: root.theme.radius || 26
+        cardRadius: Lu.radius("card")
         backdrop: blurTex
         motionMs: root.motion.frameMs || 260
         layerMs: root.layerMs
@@ -1055,6 +1044,17 @@ Item {
             font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 24; renderType: Text.NativeRendering
             text: root.trialConfirming ? "Keeping this Home..." : "Press OK to keep this Home. It goes back to LG's Home in " + root.trialLeft + " s."
         }
+    }
+
+    // ============================================================= kit gallery (development)
+    // Every kit component on one sheet, built only while theme.json says "kitGallery": true and
+    // Home is on screen (KitGallery.qml). Nothing is created otherwise.
+    Loader {
+        id: galleryLoader
+        anchors.fill: parent
+        z: 60
+        active: !!root.theme.kitGallery && root.hostActive
+        source: "KitGallery.qml"
     }
 
     // ====================================================== frame pacing probe / overlay

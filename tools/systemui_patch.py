@@ -26,8 +26,9 @@ usage: systemui_patch.py <staged QuickSettings dir>
 Runs on the set (python 3.10). Called by tools/lumatv; see systemui_stage.
 """
 import json
-import sys
 import pathlib
+import re
+import sys
 
 MARKER = "Luma"
 
@@ -50,6 +51,11 @@ PALETTE_SCOPED = [
     # of them rather than to give five icons five different backgrounds.
     ('BG_RADIUS: getRelativeValue(6)', 'BG_RADIUS: getRelativeValue(32)'),
     ('defaultFocusColor: "#E6E6E6"', 'defaultFocusColor: "#LUMAFOCUS"'),
+    # Manrope is about a tenth wider than the face LG sized these for: the control tiles' title and
+    # subtitle (FILMMAKER MODE in the Picture Mode tile) are drawn at 0.9 of LG's size to fit the
+    # same tile.
+    ('TITLEID_FONTPIXEL: getRelativeValue(21)', 'TITLEID_FONTPIXEL: getRelativeValue(19)'),
+    ('SUBTITLEID_FONTPIXEL: getRelativeValue(27)', 'SUBTITLEID_FONTPIXEL: getRelativeValue(24)'),
 ]
 
 PALETTE = [
@@ -389,5 +395,24 @@ for qml in sorted((root / "Component").glob("*.qml")) + sorted((root / "Containe
         out = out.replace(frm, to)
     if out != body:
         qml.write_text(out)
+
+# One typeface. Quick Settings takes every font from the language-style adapter, which hands out
+# LG's families by weight (smart_Regular and so on). They all become Manrope, and each weight moves
+# one step up the way Home's text is set: LG's regular is read at three metres as Manrope's medium,
+# its light as Manrope's regular, and semibold and bold stay. The dingbat families, which are icon
+# fonts, are left alone. Re-running is harmless: nothing LG wrote is left to match.
+language = root / "AdaptationLayer" / "Device" / "LanguageStyle.qml"
+body = language.read_text()
+out = re.sub(r"String\(style\.(?:normal|cond)\d+\.fontFamily\)", '"Manrope"', body)
+out = re.sub(r'"\\"LG Smart UI(?: Condensed)?\\""', '"Manrope"', out)
+out = re.sub(r'((?:smart|cond)_Light = Qt\.font\(\{family: "Manrope", weight: )Font\.Light', r"\1Font.Normal", out)
+out = re.sub(r'((?:smart|cond)_Regular = Qt\.font\(\{family: "Manrope", weight: )Font\.Normal', r"\1Font.Medium", out)
+out = re.sub(r"return typeindex > -1 \? types\[typeindex\] : Font\.Normal;",
+             "return weight >= Font.Bold ? Font.Bold : weight >= Font.DemiBold ? Font.DemiBold"
+             " : weight >= Font.Normal ? Font.Medium : Font.Normal;", out)
+if "fontFamily)" in out or re.search(r'"\\"LG Smart UI(?: Condensed)?\\""', out):
+    raise SystemExit("LanguageStyle.qml still names an LG family: the stock file changed")
+if out != body:
+    language.write_text(out)
 
 print("patched")

@@ -1,10 +1,14 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Ros\u00e9 Pine silk",
   "wallpaper": "wall_1080.png",
   "material": "auto",
   "materialThreshold": 0.55,
   "dark": {
+    "canvas": "#191724",
+    "sheet": "#E81F1D2E",
+    "scrim": "#6B120E1A",
+    "wallScrim": [0.1, 0.18, 0.46],
     "ink": "#F2EFF6",
     "ink2": "#A8F2EFF6",
     "ink3": "#6BF2EFF6",
@@ -12,13 +16,22 @@
     "glassEdge": "#21FFFFFF",
     "glassFocus": "#8F2C263A",
     "glassFocusEdge": "#33FFFFFF",
-    "scrim": [
-      0.1,
-      0.18,
-      0.46
-    ]
+    "focus": "#FAF2EDE8",
+    "focusInk": "#17131F",
+    "trackOff": "#29FFFFFF",
+    "accent": "#A79BF5",
+    "accentInk": "#17131F",
+    "positive": "#9CCFD8",
+    "warning": "#F6C177",
+    "danger": "#EB6F92",
+    "info": "#9CCFD8",
+    "live": "#EB6F92"
   },
   "light": {
+    "canvas": "#FAF4ED",
+    "sheet": "#EBFFFAF3",
+    "scrim": "#4DFAF4ED",
+    "wallScrim": [0.06, 0.1, -0.1],
     "ink": "#17131F",
     "ink2": "#A817131F",
     "ink3": "#6B17131F",
@@ -26,31 +39,66 @@
     "glassEdge": "#D9FFFFFF",
     "glassFocus": "#B8FFFFFF",
     "glassFocusEdge": "#E6FFFFFF",
-    "scrim": [
-      0.06,
-      0.1,
-      -0.1
-    ]
+    "focus": "#F2FFFFFF",
+    "focusInk": "#17131F",
+    "trackOff": "#1F17131F",
+    "accent": "#907AA9",
+    "accentInk": "#FFFFFF",
+    "positive": "#286983",
+    "warning": "#EA9D34",
+    "danger": "#B4637A",
+    "info": "#56949F",
+    "live": "#B4637A"
   },
   "accent": "tile",
   "tint": {
     "mix": 0
   },
-  "radius": 26,
-  "tileRadius": 22,
-  "blurRadius": 30,
+  "font": {
+    "family": "Manrope",
+    "files": ["Manrope-Regular.ttf", "Manrope-Medium.ttf", "Manrope-SemiBold.ttf", "Manrope-Bold.ttf"]
+  },
   "type": {
     "clock": 92,
-    "temp": 84
+    "temp": 84,
+    "display": { "size": 92, "weight": "medium", "line": 1, "tracking": -0.02 },
+    "title": { "size": 40, "weight": "semibold", "line": 1.25, "tracking": -0.01 },
+    "body": { "size": 28, "weight": "medium", "line": 1.45, "tracking": 0 },
+    "label": { "size": 26, "weight": "medium", "line": 1.3, "tracking": 0 },
+    "caption": { "size": 24, "weight": "medium", "line": 1.3, "tracking": 0.01 }
   },
+  "radii": {
+    "sheet": 34,
+    "card": 26,
+    "tile": 22,
+    "row": 22,
+    "control": 18,
+    "pill": 999
+  },
+  "space": [4, 8, 12, 16, 20, 24, 32, 40],
+  "target": 64,
+  "row": 80,
+  "blurRadius": 30,
+  "saturation": 0.25,
   "focus": {
     "tileScale": 1.12,
     "cardScale": 1.03,
+    "rowScale": 1.02,
+    "buttonScale": 1.04,
+    "pressScale": 0.97,
     "cardLift": 4,
+    "landing": 2,
     "tileGlow": 0,
     "ambient": 0.3
   },
+  "states": {
+    "focusWash": [0.07, 0.06],
+    "hoverWash": 0.04,
+    "selectedWash": 0.04,
+    "disabledOpacity": 0.55
+  },
   "motion": {
+    "pressMs": 90,
     "focusMs": 150,
     "focusEasing": "OutCubic",
     "cardMs": 180,
@@ -84,21 +132,12 @@
   },
   "news": {
     "feeds": [
-      {
-        "tag": "WORLD",
-        "src": "BBC News",
-        "url": "https://feeds.bbci.co.uk/news/world/rss.xml"
-      },
-      {
-        "tag": "U.S.",
-        "src": "BBC News",
-        "url": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml"
-      }
+      { "tag": "WORLD", "src": "BBC News", "url": "https://feeds.bbci.co.uk/news/world/rss.xml" },
+      { "tag": "U.S.", "src": "BBC News", "url": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml" }
     ],
     "slideMs": 10000,
     "refreshMs": 900000
   },
-  "saturation": 0.25,
   "wallpaperMotion": {
     "enabled": true,
     "amplitude": 4,

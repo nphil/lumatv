@@ -6,7 +6,7 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 00:45 EDT)
+## Resume here (LumaTV, 2026-10-25 02:10 EDT)
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
@@ -32,6 +32,14 @@ Phases, Decided); this file holds the proven mechanics.
   A boot race (a launch into a closing WebAppMgr) was found and fixed; see
   the result file for what was proven after the fix. Next: heap shim, then
   the Rust helper.
+- Surfaces, phase 1 (2026-10-25, `docs/research/surfaces-p1-result.md`, which
+  has its own Resume here with the exact next steps): the fail-open key
+  filter, OK on release, the focus rule, the wallpaper tint, saved-first
+  weather and news, the one token source, Manrope everywhere, the component
+  kit and its gallery are built, deployed and proven on the set. Not done:
+  the startup warm-up, the frame gate in the harness (`docs/research/perf`),
+  the preload trim and the Home-return re-measure. Deploy loop and test
+  tools are in that note.
 - Remote tests: done 2026-10-24 for Netflix 4K Dolby Vision playback (X4
   pass 3, contiguous-buffer hold) and the SSAP key device; results in
   PLAN.md. Still open: X4 during PlxNative playback
@@ -152,11 +160,19 @@ must be re-measured this way. Measured: idle 0 frames; the analog second hand's
 160 ms tick renders ~10 frames/s; a 150 ms focus change renders 9 frames,
 i.e. 60 fps.
 
-Theme: `/var/lib/lumaglass/theme/` (`theme.json`, `layout.json`, assets)
-polled every 2 s and applied live. `layout.grid.rows` is a count or an array
-of pixel heights; the shipped layout pins the mock's 222/238/392. `stage_theme`
-overwrites a theme file only while it still equals the last shipped copy
-(`.shipped-<file>` md5), so user edits survive updates.
+Theme: `/var/lib/lumatv/theme/` (`theme.json`, `layout.json`, assets) polled
+every 2 s and applied live. The files there hold only what the owner changed:
+LumaHome merges them over the shipped `payload/theme` files, which `stage_luma`
+stages beside the QML as `theme.default.json` and `layout.default.json`
+(objects merge key by key, arrays and scalars replace), and `lumatv apply` runs
+`tools/theme.py minimize` on them so what was never changed follows an update.
+`theme.json` is the one token source (colour roles of both materials in
+Lucent's names, type roles, radii, spacing, focus, states, motion, font);
+`tools/tokens.py` resolves it for the web CSS (`theme.css` in the web apps'
+overlay), for the settings-sheet palette Quick Settings is patched with, and
+for `theme/Tokens.js`, which QML in other processes imports by file URL. The
+compositor's QML reads it through `kit/Lu.qml`. `layout.grid.rows` is a count
+or an array of pixel heights; the shipped layout pins the mock's 222/238/392.
 
 Key codes: the remote's Back arrives as evdev KEY_PREVIOUS (412), not
 KEY_BACK (158); injecting 158 does nothing on Home. Qt 5.12's QML

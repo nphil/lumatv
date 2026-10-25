@@ -25,4 +25,6 @@ Thumbs.db
 # Logs
 *.log
 tools/__pycache__/
+tests/__pycache__/
+generators/__pycache__/
 docs/research/arch/drmplanes

@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import "kit"
 
 // One status-bar entry: a 48px button (avatar for "profile", a built-in glyph, or a theme
 // image), optional label, optional badge. Focus is the same material language as a focused

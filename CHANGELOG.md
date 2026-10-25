@@ -44,6 +44,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Active set at boot is no longer taken for a boot into standby, so the launch
   is repeated. The guard gives LG's Home back for a missing module only after
   3 s, since a process read between fork and exec shows no module.
+- `theme.json` is the one token source: colour roles for both materials in
+  Lucent's names, type roles, radii, spacing, focus, state washes, motion and
+  the font, in the shipped `payload/theme/theme.json`. Home merges the user's
+  file over it key by key (the shipped files are staged as `theme.default.json`
+  and `layout.default.json`, replacing the literal defaults in the QML), and
+  `lumatv apply` cuts the user's files down to what differs from the shipped
+  copy, so what was never changed follows an update. `radius` and `tileRadius`
+  became `radii.card` and `radii.tile`; a material's `scrim` list became
+  `wallScrim`, `scrim` now being the modal scrim colour.
+- `tools/tokens.py` replaces `palette.py` and resolves the same tokens for the
+  consumers that are not the compositor's QML: the web CSS (`--lu-*` as in
+  Lucent's tokens.css, plus the Sandstone variables, generated per app), the
+  settings-sheet palette Quick Settings is patched with (byte-identical to
+  before) and `theme/Tokens.js`, which QML in other processes imports by file
+  URL. `lumatv.css` carries no colour of its own.
+- Manrope is the one typeface: four static faces (400, 500, 600, 700) cut from
+  the pinned variable font by `generators/gen-fonts.py`, rendering identically
+  to the faces they replace, loaded from `theme.font.files`. The web theme and
+  Quick Settings use it (Quick Settings' tile titles are drawn at 0.9 of LG's
+  size, Manrope being wider); Inter is gone from the package (1.7 MB).
 - Home's key filter fails open and pairs presses with releases. A key is taken
   only while Home is in front, LumaHome's heartbeat is under 3 s old and its
   handler takes it; an error anywhere in the filter or the handler passes the
@@ -62,13 +82,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The ipk now ships `palette.py`, `systemui.py` and `systemui_patch.py`, which
-  `systemui on` and `webglass on` call.
+- The ipk now ships the tools `systemui on` and `webglass on` call:
+  `tokens.py`, `systemui.py` and `systemui_patch.py`.
 - The "auto" light or dark glass choice read a canvas that stayed empty on
   this firmware, so it always chose dark. It now reads the wallpaper.
 
 ### Added
 
+- The component kit, `payload/compositor/lumatv/kit/`: the token layer `Lu`
+  (a QML singleton fed by LumaHome), `LuText`, `LuRow`, `LuToggle`,
+  `LuSlider`, `LuButton`, `LuSegmented`, `LuChip`, `LuHalo` (the dock's accent
+  glow, now shared) and `FocusLift`. Every component follows the focus rule
+  and Nitin's cue: no line under the focused item. `theme set
+  '{"kitGallery":true}'` shows them all on one sheet (Back closes it).
+- Tests: `bun test tests/` (key filter, saved-first cache, tint, kit) and
+  `python3 -m unittest discover -s tests -p 'test_*.py'` (tokens, theme file).
 - Weather and news are saved to `/var/lib/lumatv/cache/weather.json` and
   `news.json` after every fetch and drawn from there at once on a cold start,
   then refreshed. A reading is refetched 15 minutes after it was taken, never
@@ -81,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   newer wallpaper cancels a sample still running. The result is kept in
   `theme/tint.json`. A dock tile with no plate colour glows in the tint's
   accent (`accent: "wallpaper"` does so for every tile and for the web menus
-  that `palette.py` themes), and `tint.mix` moves the focused glass toward it.
+  that `tokens.py` themes), and `tint.mix` moves the focused glass toward it.
 - `lumatv homestub on|off|confirm|status` retires LG's Flutter Home behind a
   web stub bound over its directory (`payload/homestub`), so LumaHome is the
   only Home. The stub is one WebAppMgr renderer at 32 MB resident against the

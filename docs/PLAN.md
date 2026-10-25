@@ -11,24 +11,38 @@ inventory snapshot of the firmware: `/data/home/lgtv/uiinv`.
 
 ## Status
 
-Kept current with every change to this plan. Building starts on Nitin's go.
+Kept current with every change to this plan. Building is under way (Nitin said go,
+2026-10-24).
 
 - Done: resident Quick Settings, resident LumaHome (idle while hidden), key
   filter written only on change, Home stub built, measured and left on
   (2026-10-25, `docs/research/homestub-result.md`), ambient-light hardware
   chosen, 64-bit drawing proven on screen, the env hook for compositor tuning
   (`env.extra`) in the tool.
+- Done in phase 1, surfaces (2026-10-25, `docs/research/surfaces-p1-result.md`):
+  fail-open key filter with press and release paired, OK acting on release,
+  the focus rule (the highlight at once, the lift after 150 ms of rest);
+  the wallpaper tint sampler (32x18, 8 levels a channel) feeding the accent
+  and tint tokens; saved-first weather and news in the helper's file format;
+  one token source (`theme.json`, merged over the shipped file, resolved by
+  `tools/tokens.py` for the web CSS, Quick Settings and QML elsewhere);
+  Manrope as the one typeface in QML, the web theme and Quick Settings; the
+  component kit (`payload/compositor/lumatv/kit`) and its gallery.
+- Open in phase 1, surfaces: startup warm-up (shaders, Manrope sizes and
+  weights in use, icons) and the per-surface frame gate in the harness; the
+  preload trim and the Home-return re-measure after it.
 - Research done: full catalogue of LG's UI (`docs/SURFACES.md`, 178 rows),
   72 mockups in three batches (`docs/mocks/`), the shell architecture study
   (`docs/research/shell-architecture.md`) and the performance study measured
   on the set (`docs/research/perf-tweaks.md`). X1 failed (LG's compositor
   holds 51.2 fps for a trivial client), X2 passed, X4 partly captured.
 - Decided 2026-10-24: LumaTV replaces LG's compositor, in stages (Phases,
-  track C). Waiting on Nitin's go to build.
+  track C); since 2026-10-25 it goes live as soon as it passes the C4 gate.
 - TV tests still open: X4 during PlxNative playback (Netflix done); the
   histogram probe (needs the `libvtcapture` histogram signatures first).
   Need Nitin present: PIN prompt; keys from his universal remote once set up.
-- Next build step: phase 1 heap shim, then the Rust helper.
+- Next build step: phase 1 warm-up and the frame gate, then the preload
+  trim, the heap shim and the Rust helper.
 
 ## Rules every surface meets
 
@@ -724,7 +738,11 @@ above replaces it).
 1. Foundation: component kit, tokens, Manrope everywhere including the web
    theme, startup warm-up, frame-probe harness, a registry of every surface's
    state and fallback, the native helper, the disk cache, and LumaHome in
-   LG's Home's place (Home stub, see Glasshouse).
+   LG's Home's place (Home stub, see Glasshouse). Done: kit, tokens, Manrope
+   (QML, web theme, Quick Settings), the fail-open key filter, the focus rule,
+   the wallpaper tint and saved-first cards, the disk cache, the Home stub.
+   Open: warm-up, the harness's per-surface gate, the registry, the helper's
+   integration.
 2. Notifications: toasts, alerts, PIN prompt, input popups.
 3. Quick panel, Settings, and AI access (MCP server, permissions, prompt).
 4. Input picker, the receiver-fed volume and mute OSD, and ambient light.
@@ -754,11 +772,13 @@ when it passes on the set:
   out directly on the overlay plane, commits with an in-fence and one frame
   rendered ahead, damage tracking, and a UI clock independent of the
   content's refresh rate.
-- C4: trial cutover with LG's compositor kept installed: a watchdog and a
+- C4: cutover with LG's compositor kept installed: a watchdog and a
   boot-time firmware check switch back to it on any failure, and the hold-
   Home escape forces it. Gate: the X1 test with zero frames over 20 ms in
   60 s, every surface gate met, and Netflix, HDR, Dolby Vision, PIN, input
-  switching, standby and wake all passing scripted tests.
+  switching, standby and wake all passing scripted tests. Passing the gate
+  makes LumaTV's compositor the live one at once; Nitin's go is not awaited
+  (Decided).
 - Every LG firmware update: LumaTV starts on LG's compositor until the
   contract checks pass again on the new firmware.
 
@@ -890,10 +910,15 @@ what it already does.
   client). Built in stages (track C) beside the surfaces, switched to only
   after passing on the set, with automatic fallback to LG's compositor and
   a re-check after every firmware update.
+- LumaTV's compositor becomes the live compositor as soon as it passes the
+  C4 gate on the set, without waiting for Nitin; LG's compositor stays
+  installed as the automatic fallback (Nitin, 2026-10-25).
+- Settings layout and sections: the approved mockups (`docs/mocks`, batches
+  1-3) are the curated list (Nitin, 2026-10-25).
 
 ## Open decisions
 
-- Curated settings list and layout.
+None.
 
 ## After LumaTV
 

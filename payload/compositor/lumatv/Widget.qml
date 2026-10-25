@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import "kit"
 
 // Generic widget card: Glass chrome, the mock's focus treatment (lift 4px, chrome scaled
 // 1.03, brighter tint/edge/sheen) and a dynamically resolved content component. Content is
@@ -59,7 +60,7 @@ Item {
     Glass {
         mat: card.mat
         isLight: card.isLight
-        cardRadius: card.theme.radius || 26
+        cardRadius: Lu.radius("card")
         focusMix: card.focused ? 1 : 0
         liftMix: lift.value
         edgeFocus: card.inner ? 1 : 0

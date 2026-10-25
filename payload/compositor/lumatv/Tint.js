@@ -118,3 +118,25 @@ function mixToward(base, tint, mix) {
     return { r: base.r + (tint.r / 255 - base.r) * mix, g: base.g + (tint.g / 255 - base.g) * mix,
              b: base.b + (tint.b / 255 - base.b) * mix, a: base.a }
 }
+
+// sRGB relative luminance of a colour given as r, g, b in 0..1 (the form QML colours have).
+function luminance(c) {
+    function lin(v) { return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+    return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+
+// WCAG contrast ratio of two opaque colours, 1..21.
+function contrast(a, b) {
+    var la = luminance(a), lb = luminance(b)
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+// The candidate with the highest contrast against `bg`; the first wins a tie.
+function bestInk(bg, candidates) {
+    var best = candidates[0], bestC = contrast(bg, candidates[0])
+    for (var i = 1; i < candidates.length; i++) {
+        var k = contrast(bg, candidates[i])
+        if (k > bestC) { bestC = k; best = candidates[i] }
+    }
+    return best
+}

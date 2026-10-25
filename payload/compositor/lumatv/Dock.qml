@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import "kit"
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 
@@ -241,7 +242,7 @@ Item {
     Glass {
         mat: dock.dockMat
         isLight: dock.isLight
-        cardRadius: dock.theme.radius || 26
+        cardRadius: Lu.radius("card")
         focusMix: 0
         edgeFocus: dock.focusedLayer ? 1 : 0
         screenX: dock.originX; screenY: dock.originY; screenW: dock.width; screenH: dock.height
@@ -260,26 +261,15 @@ Item {
         anchors.fill: parent
         clip: true
         // radial-gradient(440px 230px at tile centre, accent .5 -> 0 at 70%), opacity .75
-        ShaderEffect {
+        LuHalo {
             id: ambient
             width: 440; height: 230
             x: Math.round(dock.focusCenter().x - width / 2)
             y: Math.round(dock.focusCenter().y - height / 2)
             // The glow follows the highlight at once, like it: a glow that glides draws a frame
             // per key press. Only its fade, when the dock gains or loses focus, animates.
-            opacity: dock.focusedLayer ? ((dock.theme.focus && dock.theme.focus.ambient !== undefined) ? dock.theme.focus.ambient : 0.3) : 0
-            visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 180 } }
-            property vector4d tintC: Qt.vector4d(dock.currentAccent.r, dock.currentAccent.g, dock.currentAccent.b, 0.5)
-            fragmentShader: "
-                uniform highp vec4 tintC;
-                uniform lowp float qt_Opacity;
-                varying highp vec2 qt_TexCoord0;
-                void main() {
-                    highp float r = length((qt_TexCoord0 - 0.5) * 2.0);
-                    highp float a = tintC.a * (1.0 - smoothstep(0.0, 0.7, r));
-                    gl_FragColor = vec4(tintC.rgb * a, a) * qt_Opacity;
-                }"
+            on: dock.focusedLayer
+            tint: dock.currentAccent
         }
         Item {
             id: grid
@@ -300,7 +290,7 @@ Item {
                     Behavior on y { enabled: dock.moving; NumberAnimation { duration: moving ? 120 : 220; easing.type: Easing.OutCubic } }
                     moving: dock.moving && index === (dock.row * dock.cols + dock.col)
                     size: dock.tileSize
-                    tileRadius: dock.theme.tileRadius || 22
+                    tileRadius: Lu.radius("tile")
                     inset: (dock.theme.tiles && dock.theme.tiles.inset) || 19
                     ink: dock.mat.ink
                     isLight: dock.isLight
@@ -336,7 +326,7 @@ Item {
         property real mid: dock.isLight ? 0.78 : 0.72
         property vector2d dims: Qt.vector2d(width, height)
         property vector2d card: Qt.vector2d(dock.width, dock.height)
-        property real radius: dock.theme.radius || 26
+        property real radius: Lu.radius("card")
         fragmentShader: "
             uniform highp vec4 fadeC;
             uniform highp float mid;

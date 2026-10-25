@@ -1,0 +1,11 @@
+Family: Manrope (SIL Open Font License 1.1, OFL.txt)
+Version: 4.505
+Source: https://github.com/google/fonts/blob/23e54b51ddffbc7713c583748e3bd86f62b1fa4a/ofl/manrope/Manrope%5Bwght%5D.ttf
+Pinned Google Fonts commit: 23e54b51ddffbc7713c583748e3bd86f62b1fa4a
+Variable file SHA-256: 3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6
+  (kept as generators/fonts/Manrope-Variable.ttf; LumaShow embeds the same file)
+
+The static faces here are instantiated from it by generators/gen-fonts.py at weights 400, 500, 600
+and 700, named family "Manrope" with the weight as the style, which is what Qt's FontLoader and the
+web @font-face rules in payload/webapps/lumatv.css take. They render pixel for pixel like the 4.504
+statics they replaced (compared at 13 sizes from 14 to 92 px).
