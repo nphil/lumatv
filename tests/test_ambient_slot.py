@@ -419,7 +419,7 @@ class Slot(unittest.TestCase):
         rc, out = self.run_slot(fake, "--role-type", "privileged")
         self.assertEqual(rc, 0)
         role = json.loads(load(os.path.join(out, "role.json")))
-        self.assertEqual(role["role"]["type"], "privileged")
+        self.assertEqual(role["type"], "privileged")
         self.assertTrue(any(remote.endswith("/role.json") and local == os.path.join(out, "role.json") for local, remote in puts))
 
     def test_a_flag_left_behind_is_removed_and_reported(self):

@@ -22,9 +22,12 @@ ROLE = os.path.join(REPO, "payload", "capture", "role.json")
 BUILD = os.path.join(REPO, "ambient", "capture", "build", "host")
 HOST_BIN = os.path.join(BUILD, "lumatv-capture")
 
-# What LG's library registers and calls (the strings of libvtcapture.so.1.0.0, docs/research/ambient-result.md), and the bus's own service.
-CLIENT_NAMES = {"com.webos.service.capture.client", "com.webos.service.capture.client.*"}
-MAY_CALL = {"com.webos.service.capture", "com.webos.service.capturepermission", "com.palm.bus"}
+# What LG's library registers (seen on the set 2026-10-25: a resource-manager client first, `com.webos.rm.client.<session>`, then
+# the capture client; LG's own role for vtCaptureTestSuite names the same two) and what each name may call.
+CLIENT_NAMES = {"com.webos.service.capture.client*", "com.webos.rm.client.*"}
+MAY_CALL = {"com.webos.service.capture.client*": {"com.webos.service.capture", "com.webos.service.capturepermission"},
+            "com.webos.rm.client.*": {"com.webos.media"}}
+MAY_ANSWER = {"com.webos.service.capture.client*": set(), "com.webos.rm.client.*": {"com.webos.media"}}
 
 
 class Base(unittest.TestCase):
@@ -63,6 +66,10 @@ class Base(unittest.TestCase):
         with open(os.path.join(self.ls2, "roles.d", "lumatv-capture.json")) as f:
             return json.load(f)
 
+    def manifest(self):
+        with open(os.path.join(self.ls2, "manifests.d", "org.nphil.lumatv.capture.json")) as f:
+            return json.load(f)
+
 
 
 class Install(Base):
@@ -72,12 +79,16 @@ class Install(Base):
         exe = os.path.join(self.state, "bin", "lumatv-capture")
         self.assertTrue(os.access(exe, os.X_OK))
         role = self.role()
-        self.assertEqual(role["role"]["exeName"], exe, "ls-hubd matches a role by the executable's path")
-        self.assertEqual(set(role["role"]["allowedNames"]), CLIENT_NAMES, "no name but the library's client is registered")
+        self.assertEqual(role["exeName"], exe, "ls-hubd matches a role by the executable's path")
+        self.assertEqual(role["type"], "regular")
+        self.assertEqual(set(role["allowedNames"]), CLIENT_NAMES, "no name but the library's two clients is registered")
+        self.assertEqual({r["service"] for r in role["permissions"]}, CLIENT_NAMES)
         for rule in role["permissions"]:
-            self.assertIn(rule["service"], CLIENT_NAMES)
-            self.assertEqual(rule["inbound"], [], "nothing is offered to any caller")
-            self.assertEqual(set(rule["outbound"]), MAY_CALL, "it may call the capture service, its permission service and the bus, nothing else")
+            self.assertEqual(set(rule["inbound"]), MAY_ANSWER[rule["service"]], "nothing is offered but the resource manager's replies")
+            self.assertEqual(set(rule["outbound"]), MAY_CALL[rule["service"]], "the capture services and the resource manager, nothing else")
+        m = self.manifest()
+        self.assertEqual(m["id"], "org.nphil.lumatv.capture")
+        self.assertEqual(m["roleFiles"], [os.path.join(self.ls2, "roles.d", "lumatv-capture.json")], "the hub reads a volatile role through its manifest")
         self.assertEqual(self.ls_calls(), ["scan-volatile-dirs", "scan-services"], "the hub is asked to read it")
 
     def test_installing_again_does_not_ask_the_hub_to_rescan_and_a_new_binary_is_swapped_in(self):
@@ -105,6 +116,7 @@ class Install(Base):
         self.assertEqual(json.loads(self.run_sh("status", self.state).stdout)["role"], True)
         self.assertEqual(self.run_sh("remove", self.state).returncode, 0)
         self.assertFalse(os.path.exists(os.path.join(self.ls2, "roles.d", "lumatv-capture.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.ls2, "manifests.d", "org.nphil.lumatv.capture.json")))
         self.assertFalse(os.path.exists(os.path.join(self.state, "bin", "lumatv-capture")))
         self.assertEqual(json.loads(self.run_sh("status", self.state).stdout), {"installed": False, "role": False, "running": False, "pid": 0})
         self.assertEqual(self.ls_calls()[2:], ["scan-volatile-dirs", "scan-services"])
