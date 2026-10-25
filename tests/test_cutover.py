@@ -16,6 +16,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -28,9 +29,9 @@ LIB = os.path.join(ROOT, "tools", "compositor.sh")
 SM_C = os.path.join(ROOT, "compositor", "sm", "lumatv-sm.c")
 
 try:
-    from test_compositor import SM, RELEASE
+    from test_compositor import SM, RELEASE, Fixture
 except ImportError:
-    from tests.test_compositor import SM, RELEASE
+    from tests.test_compositor import SM, RELEASE, Fixture
 
 MOUNT = '''#!/bin/sh
 [ "$1" = "--bind" ] || exit 1
@@ -760,6 +761,107 @@ class SupervisorBuild(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("lumatv-sm json tests: ok", r.stdout + r.stderr)
         self.assertNotIn("warning:", r.stdout + r.stderr)
+
+
+
+@unittest.skipUnless(shutil.which("zig"), "zig cc builds the supervisor")
+class RealSupervisor(Fixture):
+    """The shell library against the real supervisor (its host build: the same decide(), Home and state code, linked to stub
+    libraries): the words and exit codes of --would-run, that it changes nothing, and the boot hook's answers from them."""
+
+    @classmethod
+    def setUpClass(cls):
+        r = subprocess.run(["sh", os.path.join(ROOT, "compositor", "sm", "build.sh")], capture_output=True, text=True, timeout=300)
+        cls.host = os.path.join(ROOT, "compositor", "deploy", "sm", "host")
+        if r.returncode != 0 or not os.path.exists(os.path.join(cls.host, "lumatv-sm")):
+            raise unittest.SkipTest("the supervisor did not build: " + (r.stdout + r.stderr)[-300:])
+
+    def setUp(self):
+        super().setUp()
+        self.write_bin("lumatv-sm", '#!/bin/sh\nLD_LIBRARY_PATH="%s" exec "%s/lumatv-sm" "$@"\n' % (self.host, self.host))
+        self.put("bin/recover-home.sh", "#!/bin/sh\n")
+        self.put("lib/libmali-bifrost-g52-g24p0-wayland-gbm.so", "blob\n")
+        self.install()
+        rc, fp = self.sm("--print-fingerprint")
+        self.assertRegex(fp, r"^[0-9a-f]{16}$")
+        self.put("fingerprint", fp + "\n")
+        self.fingerprint = fp
+
+    def sm(self, *args):
+        r = subprocess.run([os.path.join(self.comp, "bin", "lumatv-sm"), "--state", self.comp, *args], capture_output=True, text=True, timeout=30)
+        return r.returncode, r.stdout.strip()
+
+    def boot_id(self):
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            return f.read().strip()
+
+    def test_it_runs_when_everything_is_in_place(self):
+        self.assertEqual(self.sm("--would-run"), (0, "run"))
+
+    def test_every_refusal_has_its_word_its_reason_and_exit_3(self):
+        os.remove(self.state("enabled"))
+        self.assertEqual(self.sm("--would-run"), (3, "no off: not enabled"))
+        self.put("enabled", "session NOT-THIS-BOOT\n")
+        self.assertEqual(self.sm("--would-run"), (3, "no session: the enable was a session of an earlier boot"))
+        self.put("enabled")
+        self.put("escaped", "hold Home 650 ms")
+        self.assertEqual(self.sm("--would-run"), (3, "no escaped: escape recorded; re-enable from the tool"))
+        os.remove(self.state("escaped"))
+        os.remove(self.state("lib/libmali-bifrost-g52-g24p0-wayland-gbm.so"))
+        self.assertEqual(self.sm("--would-run"), (3, "no bundle: the bundle is incomplete: lib/libmali-bifrost-g52-g24p0-wayland-gbm.so is missing"))
+        self.put("lib/libmali-bifrost-g52-g24p0-wayland-gbm.so", "blob\n")
+        self.put("fingerprint", "0000000000000000\n")
+        self.assertEqual(self.sm("--would-run"), (3, "no firmware: firmware fingerprint differs from the verified one"))
+        self.put("fingerprint", self.fingerprint + "\n")
+        self.put("verified.list", "build x\nfingerprint 1111111111111111\nend\n")
+        self.assertEqual(self.sm("--would-run"), (3, "no firmware: firmware build is not on the verified list"))
+        self.install()
+        self.put("fingerprint", self.fingerprint + "\n")
+        self.put("failures", "2\n")
+        self.assertEqual(self.sm("--would-run"), (3, "no failures: two consecutive failures"))
+
+    def test_a_run_that_never_settled_counts_as_a_failure_without_being_consumed(self):
+        self.put("failures", "1\n")
+        self.put("running", "X 1\n")
+        self.assertEqual(self.sm("--would-run"), (3, "no failures: two consecutive failures"))
+        self.assertEqual(open(self.state("failures")).read().strip(), "1")
+        self.assertTrue(os.path.exists(self.state("running")))
+
+    def test_a_session_of_this_boot_runs_on_a_build_that_is_not_listed(self):
+        self.put("verified.list", "# nothing listed\n")
+        self.assertEqual(self.sm("--would-run")[0], 3)                           # persistent: refused
+        self.put("enabled", "session %s\n" % self.boot_id())
+        self.assertEqual(self.sm("--would-run"), (0, "run"))
+
+    def test_asking_changes_nothing_and_writes_no_log(self):
+        before = sorted(os.listdir(self.comp))
+        self.sm("--would-run")
+        self.sm("--home-held", "100")
+        self.assertEqual(sorted(os.listdir(self.comp)), before)
+        self.assertFalse(os.path.exists(self.state("sm.log")))
+
+    def test_the_boot_hook_reads_the_real_binarys_answers(self):
+        self.assertEqual(self.sh("comp_sm_says; echo $COMP_WORD")[1], "run")
+        self.assertEqual(self.sh("comp_boot_mount check"), (0, "would-mount"))
+        self.put("escaped", "hold Home 650 ms")
+        self.assertEqual(self.sh("comp_boot_mount check"), (0, "escaped"))
+        os.remove(self.state("escaped"))
+        self.put("failures", "2\n")
+        self.assertEqual(self.sh("comp_boot_mount check"), (0, "failures"))
+        self.put("failures", "0\n")
+        self.put("fingerprint", "0000000000000000\n")
+        self.assertEqual(self.sh("comp_boot_mount check"), (0, "firmware"))
+        self.assertIn("log: compositor-boot: firmware: firmware fingerprint differs from the verified one", self.calls())
+
+    def test_home_is_not_held_on_a_machine_with_no_remote(self):
+        t0 = time.time()
+        self.assertEqual(self.sm("--home-held")[0], 1)
+        self.assertLess(time.time() - t0, 2)
+        self.assertEqual(self.sm("--home-held", "abc")[0], 1)          # not a number: the default, and still not held
+
+    def test_a_binary_that_runs_is_what_the_hook_mounts(self):
+        self.assertEqual(self.sh("comp_boot_mount"), (0, "mounted"))
+        self.assertTrue(self.mounted())
 
 
 SAM = re.compile(

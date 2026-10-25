@@ -1172,7 +1172,8 @@ static gboolean on_input(GIOChannel *ch, int cond, gpointer data) {
             if (ev[i].type == EV_KEY) home_event(&home_state, ev[i].code, ev[i].value, mono_now());
         if ((size_t)n < sizeof ev) break;
     }
-    if (gone) { close(fd); inputs[idx].fd = -1; return 0; }
+    // A device that goes (a remote's radio dropping) takes its key releases with it: a Home that was down on it is no hold.
+    if (gone) { close(fd); inputs[idx].fd = -1; home_state.down_at = 0; return 0; }
     return 1;
 }
 
@@ -1635,6 +1636,32 @@ static void test_home(void) {
     CHECK(!home_held_for(700) && mono_now() - t0 < 0.1);
 }
 
+// What the watcher reads from a device: Home's press and release in the layout of this build's input_event, other keys
+// ignored, and a device that goes taking a Home held on it with it.
+static void test_input_reads(void) {
+    for (int i = 0; i < MAX_INPUTS; i++) inputs[i].fd = -1;
+    memset(&home_state, 0, sizeof home_state);
+    int p[2];
+    CHECK(pipe2(p, O_NONBLOCK) == 0);
+    inputs[0].fd = p[0];
+    struct input_event ev[2];
+    memset(ev, 0, sizeof ev);
+    ev[0].type = EV_KEY; ev[0].code = KEY_ENTER; ev[0].value = 1;
+    ev[1].type = EV_KEY; ev[1].code = KEY_HOMEPAGE; ev[1].value = 1;
+    CHECK(write(p[1], ev, sizeof ev) == (ssize_t)sizeof ev);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1);
+    CHECK(home_state.down_at != 0);
+    ev[0].code = KEY_HOMEPAGE; ev[0].value = 0;
+    CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at == 0);
+    ev[0].value = 2;                                                    // a repeat is the key still down
+    CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at != 0);
+    CHECK(on_input(NULL, G_IO_HUP, (gpointer)(intptr_t)0) == 0);        // the device is gone with Home down on it
+    CHECK(inputs[0].fd == -1 && home_state.down_at == 0);
+    close(p[1]);
+}
+
 static void test_log_rotation(void) {
     fresh_state();
     put("sm.log", "short\n");
@@ -1657,6 +1684,7 @@ int main(void) {
     test_status_parsing();
     test_control_query();
     test_home();
+    test_input_reads();
     test_log_rotation();
     for (int i = 0; i < nmade; i++) { char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", made[i]); if (system(cmd) != 0) failures_seen++; }
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");

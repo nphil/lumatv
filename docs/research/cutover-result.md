@@ -7,16 +7,19 @@ zero frames over 20 ms in 60 s"). Offline work, 2026-10-25; nothing here has run
 
 ## Resume here
 
-State (2026-10-25, commit `ba6e1ab` and the note's own): everything below is built and host-tested, and none of it is
-verified on the TV. The flag that makes LumaTV's compositor start at boot (`enabled`) was never set by this work and
-nothing here sets it except the user's commands (`lumatv compositor on`, `cutover.sh enable`) and the gate's own
+State (2026-10-25, commits `ba6e1ab` and `fe0003f`, and this note's): everything below is built and host-tested, and none
+of it is verified on the TV. The flag that makes LumaTV's compositor start at boot (`enabled`) was never set by this work
+and nothing here sets it except the user's commands (`lumatv compositor on`, `cutover.sh enable`) and the gate's own
 `--enable-after` after a full pass. `compositor/firmware/verified.list` has no entry, so a persistent enable is refused
 on the set's firmware (webOS 10.2.1-5202) until the gate has passed on it.
 
-Checks that ran here: `sh compositor/sm/build.sh` (arm and host builds, the supervisor's C tests, no warnings),
-`python3 -m unittest tests.test_compositor tests.test_cutover tests.test_tool_rules` (129 tests, OK; the shell library
-also under `set -u`). Mutations of the library, the cutover script, the gate rule, the gate driver and the slot rule were
-each caught by at least one test.
+Checks that ran here: `sh compositor/sm/build.sh` (arm and host builds, the supervisor's C tests, no warnings);
+`python3 -m unittest tests.test_compositor tests.test_cutover tests.test_lumatv_inputcommon tests.test_surfaces_registry
+tests.test_tool_rules tests.test_keyboard_patch tests.test_inputcommon_stage` all OK (51, 72, 17, 5, 25, 11 and 10 tests;
+the shell library also under `set -u`, and `RealSupervisor` runs it against the supervisor's own host build). Mutations of
+the library, the cutover script, the gate rule, the gate driver and the slot rule were each caught by at least one test.
+Not run to the end: `unittest discover` of the whole suite (`tests/test_settings.py` alone runs over four minutes, and
+`tests.test_voice_search` imports `test_settings` as a top-level module, so it only loads under `discover -s tests`).
 
 Next: the TV steps below, in order, each its own slot. Step 3 is the existing slot (`tv_next_slot.py`), which now also
 runs the new checks.
@@ -144,6 +147,11 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
    power-seen 1`: if `power-seen` is 0 the reply of `power2/getPowerState` has no `state` key the supervisor reads, and the
    empty-panel rule is off); `x1` (the rule above); `homekey`; `wd-hang`; `wd-crash`; `escape`. Anything after `escape`
    is LG's compositor again.
+   With Nitin at the set, in a session of its own (`cutover.sh enable --session`, then `disable`; no script can make this
+   check): tap Home ten times on the physical remote and read `sm.log` (no `fallback:`), then hold it for a second
+   (`hold Home 650 ms`, the supervisor's or the compositor's line, whichever reads the key first). The supervisor's Home
+   reader takes a tap as a press and a release; a remote driver that never sent the release would make every tap an
+   escape, and this is where that shows. Do it before step 4.
 4. After a pass of every check (x1 included): `tv_gate.py --enable-after` lists the build, installs, enables for good and
    runs `live`. Commit `compositor/firmware/verified.list` and the gate evidence.
 5. Boot path without a reboot: `lumatv compositor check` should say `would-mount`; `lumatv compositor status`
@@ -165,6 +173,19 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
 - The supervisor's two control queries every 2 s are two loop passes on the compositor's side; if x1 gaps ever recur
   every 2 s, the `loop:` lines (pass `control-client`) will say.
 - `compositor/sm/` is not under any owner's list; the supervisor is the watchdog, so it was changed here.
+
+## Also wired in `tools/lumatv` (LgRestyles' leftovers, at Main's request)
+
+- `lumatv inputcommon on|off|status` runs `tools/inputcommon.sh` under the mutation lock and prints its JSON (`status` with
+  `"on"` in front). The switch is the flag `.inputcommon-on`, off by default and changed only when the tool says ok.
+- The registry (`lumatv surfaces`) has the row `inputcommon` (way back: `inputcommon off`). `apply` mounts again while the
+  flag is on, beside webglass and the other overlays, because the mount does not survive a reboot; `revert` turns it off.
+  Nothing in it restarts a service.
+- `build_shadow` runs `tools/keyboard_patch.py` on the shadow module's copy of `views/StarfishKeyboardView.qml` with the
+  shipped theme's motion; a view LG changed (an anchor missing, the theme without usable motion) is left as LG's and the
+  refusal is logged. It is not behind a switch (the shadow is LumaTV's own copy of the module), matters only while LG's
+  compositor is live, and takes the theme's motion as of the build: a changed `layerMs` shows after the next rebuild.
+- Tests: `tests/test_lumatv_inputcommon.py` (verb, wiring, the shadow build on LG's own view), the registry's.
 
 CHANGELOG line: "LumaTV's compositor starts at boot only on a firmware build the gate passed on; a supervisor that falls
 back on a frozen output, an empty panel, a run that never settled and a held Home key."
