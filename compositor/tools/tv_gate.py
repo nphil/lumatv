@@ -6,8 +6,8 @@ check ends the live session. Exit 0 only when every check passed; the result lin
 
     tv_gate.py [--skip netflix,hdmi,...] [--x1-seconds N] [--enable-after]
 
---enable-after re-enables LumaTV's compositor at the end when every check passed (Nitin's decision: live once the
-gate passes); without it LG's compositor stays after the escape check."""
+Afterwards LG's compositor is live and the enabled flag is removed, whatever failed. --enable-after re-installs
+and re-enables LumaTV's compositor when every check passed (Nitin's decision: live once the gate passes)."""
 import argparse, os, socket, subprocess, sys, time, json, urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'docs', 'research', 'arch'))
 import tv, paramiko
@@ -66,15 +66,22 @@ def power_state():
     return out.strip()[:80]
 
 def wake():
+    """Active Standby keeps SSH up, so the set is woken the way the X4 session did (powerOn, then the screen);
+    a set that has gone on to suspend gets the magic packet first."""
+    if not wait_ssh(10):
+        wol(); time.sleep(5); wol()
+        if not wait_ssh(90):
+            return False
     st = power_state()
     print("power state:", st)
     if st == "active":
-        return
+        return True
     pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/powerOn '{\"reason\":\"remoteKey\"}'", 20)
     time.sleep(20)
     pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/turnOnScreen '{}'", 20)
     time.sleep(8)
     print("power state after wake:", power_state())
+    return True
 
 def main():
     ap = argparse.ArgumentParser()
@@ -96,7 +103,8 @@ def main():
             if l.startswith("GATE "):
                 lines.append(l)
         return out
-    wake()
+    if not wake():
+        sys.exit("the set does not answer; nothing was changed")
     avr_mute(True)
     try:
         print(pty("sh /tmp/lumatv/cutover.sh enable", 300))
@@ -111,22 +119,25 @@ def main():
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
             time.sleep(25)
-            wol(); time.sleep(5); wol()
-            if not wait_ssh(90):
+            if not wake():
                 lines.append("GATE standby: FAIL no SSH after the wake")
-            else:
-                step("woke", "sh /tmp/lumatv/gate.sh woke", 180)
+                raise SystemExit("the set did not come back; LumaTV's compositor may still be enabled on it")
+            step("woke", "sh /tmp/lumatv/gate.sh woke", 180)
         if "escape" not in skip:
             step("escape", "sh /tmp/lumatv/gate.sh escape", 300)
-        else:
-            print(pty("sh /tmp/lumatv/cutover.sh disable", 300))
     finally:
+        # Whatever happened above, LG's compositor is the live one afterwards with the flag removed (a failed
+        # escape would otherwise leave LumaTV's running); --enable-after turns it back on below after a pass.
+        try:
+            print(pty("sh /tmp/lumatv/cutover.sh disable", 300))
+        except Exception as e:
+            print("disable failed: %s" % e)
         avr_mute(False)
     ok = lines and all(": PASS" in l for l in lines)
     print("\n".join(lines))
     print("GATE: %s" % ("PASS" if ok else "FAIL"))
     if ok and a.enable_after:
-        print(pty("rm -f /var/lib/lumatv/compositor/escaped; sh /tmp/lumatv/cutover.sh enable", 300))
+        print(pty("sh /tmp/lumatv/cutover.sh install > /dev/null; sh /tmp/lumatv/cutover.sh enable", 300))
         print(pty("sh /tmp/lumatv/gate.sh live", 120))
     tv.tv("cd /tmp/lumatv && tar czf /tmp/lumatv-gate.tgz out/gate")
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
