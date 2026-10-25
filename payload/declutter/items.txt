@@ -1,5 +1,5 @@
 # kind|group|name|arg|evidence
-# unit    name = systemd unit; stopped and masked in /run/systemd/system
+# unit    name = systemd unit; stopped and masked in /run/systemd/system.control
 # luna    name = executable of an on-demand ls-hubd service, matched by path
 #         suffix against /proc/PID/exe (a jail prefixes the path). arg = stub:
 #         kill it and bind a do-nothing script over the file, so ls-hubd's next

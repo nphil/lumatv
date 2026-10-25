@@ -7,13 +7,17 @@
 #   declutter.sh status                   one JSON object: profile, groups, memory
 #   declutter.sh list                     groups and what each costs
 #   declutter.sh boot                     boot hook entry: re-applies what is on, detached
+#   declutter.sh early                    early boot hook entry: masks the units of the groups that are on
 #   declutter.sh persist on|off           run `boot` from Homebrew Channel's init.d
 #   declutter.sh measure [seconds]        memory, resident sizes and CPU over an interval
 #   declutter.sh verify                   power state, foreground app, sound output, key services
 #
 # What it does, and only this:
-#   unit     stop the unit and mask it with a symlink in /run/systemd/system
-#            (tmpfs: gone at reboot, which is why `boot` exists)
+#   unit     stop the unit and mask it with a symlink in /run/systemd/system.control
+#            (tmpfs: gone at reboot, which is why `boot` exists). Not
+#            /run/systemd/system: systemd searches /etc/systemd/system before it, so
+#            a mask there is ignored for the units LG defines in /etc, and a killed
+#            nudge was restarted by Restart=on-failure.
 #   luna     kill an on-demand ls-hubd service and bind a do-nothing script over
 #            its executable; jailed ones are only killed
 #   setting  hold a value in LG's settings service
@@ -58,7 +62,10 @@ LOGFILE="$DCS/log"
 LOCKDIR="$DCS/.lock"
 BOOT_PENDING="$DCS/.boot-pending"
 SKIP="$DCS/skip"
-RUNSYS=/run/systemd/system
+# Searched before /etc/systemd/system. RUNSYS_OLD is where earlier versions put
+# their masks, which have no effect on units defined in /etc; removed on contact.
+RUNSYS=/run/systemd/system.control
+RUNSYS_OLD=/run/systemd/system
 INIT_LINK=/var/lib/webosbrew/init.d/52-declutter
 DRY="${DECLUTTER_DRY:-0}"
 
@@ -214,7 +221,9 @@ unit_on() {
   fi
   if ! unit_masked "$u"; then
     record unit "$u" "$(unit_state "$u")"
+    mut mkdir -p "$RUNSYS"
     mut ln -sf /dev/null "$RUNSYS/$u"
+    [ -L "$RUNSYS_OLD/$u" ] && mut rm -f "$RUNSYS_OLD/$u"
     UNITS_NEW="$UNITS_NEW $u"
     NEED_RELOAD=1
   elif [ "$(unit_state "$u")" = active ]; then
@@ -251,8 +260,8 @@ units_flush() {
 unit_off() {
   u=$1
   prev=$(recorded unit "$u")
-  if unit_masked "$u"; then
-    mut rm -f "$RUNSYS/$u"
+  if unit_masked "$u" || [ -L "$RUNSYS_OLD/$u" ]; then
+    mut rm -f "$RUNSYS/$u" "$RUNSYS_OLD/$u"
     UNITS_NEW="$UNITS_NEW $u"
     UNITS_START="$UNITS_START $u:$prev"
   fi
@@ -704,6 +713,34 @@ boot_worker() {
   return 0
 }
 
+# Called from the early boot hook (about 14 s after power-on), before the targets
+# that pull nudge, user-context-manager, uploadd and the rest of the late units
+# (webos-rbd.target at about +22 s, webos-bd.target at about +30 s): only lays the
+# masks down and reloads systemd once, so those units never start. It stops
+# nothing and needs neither luna-send nor the settings service; the passes of
+# `boot` do the rest. Silent and fast; honours the skip file and the marker of a
+# boot that never completed (which `boot` itself consumes).
+verb_early() {
+  [ -s "$ACTIVE" ] || exit 0
+  [ -f "$SKIP" ] && exit 0
+  [ -f "$BOOT_PENDING" ] && exit 0
+  refuse_denied >/dev/null || exit 0
+  take_lock || exit 0
+  n=0
+  for g in $(cat "$ACTIVE" 2>/dev/null); do
+    for u in $(group_items "$g" | awk -F'|' '$1=="unit" {print $3}'); do
+      unit_exists "$u" || continue
+      unit_masked "$u" && continue
+      mkdir -p "$RUNSYS"
+      ln -sf /dev/null "$RUNSYS/$u" && n=$((n + 1))
+    done
+  done
+  [ "$n" -gt 0 ] && systemctl daemon-reload >/dev/null 2>&1
+  log_line "early: $n unit(s) masked at uptime $(cut -d. -f1 /proc/uptime) s"
+  release_lock
+  exit 0
+}
+
 verb_boot() {
   [ -s "$ACTIVE" ] || exit 0
   [ -f "$SKIP" ] && { log_line "boot: skip file present, nothing done"; exit 0; }
@@ -745,9 +782,10 @@ case "$VERB" in
   status)   verb_status ;;
   list)     verb_list ;;
   boot)     verb_boot ;;
+  early)    verb_early ;;
   --boot-worker) boot_worker ;;
   persist)  verb_persist "$@" ;;
   measure)  verb_measure "$@" ;;
   verify)   verb_verify ;;
-  *)        emit_error "usage: declutter.sh on|off|status|list|boot|persist|measure|verify"; exit 1 ;;
+  *)        emit_error "usage: declutter.sh on|off|status|list|boot|early|persist|measure|verify"; exit 1 ;;
 esac
