@@ -13,7 +13,7 @@
 #   compositor on|off|status -> LumaTV's own compositor in place of LG's (tools/compositor.sh)
 #   notifications on|off|status -> LG's toast, alert and PIN views in the Luma look, without their shadow layers
 #   logo on|off|status     -> LumaTV's power-on and power-off logos in place of LG's (theme.json logo.on / logo.off: 1-3)
-#   preload on|off|status  -> keep only Netflix and Prime Video warm in the background (payload/preload.json)
+#   preload on|off|status  -> keep only Netflix warm in the background (payload/preload.json)
 #   standby warm|cold      -> Quick Start+ on with webos-sddp off, or fully off
 #   ntfy set <url>|off|test -> configure/test ntfy.sh notifications
 #   log [n]                -> last n log lines (default 20)
@@ -98,7 +98,7 @@ KEYFILTER_HANDLER=handleLumaHome
 # the receiver and the settings store for the compositor's QML. An ipk update cannot overwrite a
 # running executable (text busy), so the shipped copy is staged under $STATE/bin and swapped when
 # it differs; the daemon is stopped for the swap and started again.
-# LG's background preloads (YouTube, LG Channels, the browser: about 307 MB resident). The tool
+# LG's background preloads (YouTube, LG Channels, the browser, Prime Video: about 377 MB resident). The tool
 # switches the apps in payload/preload.json off in configd and in the live preload manager;
 # $PRELOAD_STATE names them for the helper, which sends the live policy again at every screen-on
 # (webOS 10 forgets it at each switch-on). $PRELOAD_ORIG is LG's list as found, so `off` and
