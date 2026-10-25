@@ -1742,17 +1742,14 @@ verb_homestub_watch() {
 # ------------------------------------------------------------------- revert
 
 # ---------------------------------------------------------------- tile icons
-# Dock tiles are Home painting each launch point's iconColor with its icon on
-# top; tools/tileicons.js derives the colour from the icon so the tile is
-# filled edge to edge, and lifts pure black in icons (the compositor keys pure
-# black as scaffold). Both are appinfo.json / icon file edits that sam and
-# homelaunchpoints only read on start, so a change means restarting both;
-# neither restart disturbs the user's row order (moveLaunchPoint state is
-# db8-backed and survived it, measured), but sam's takes Home down, so the
-# caller relaunches Home afterwards.
+# An earlier version edited each app's icon and iconColor so that Home's dock tiles filled edge to
+# edge (tools/tileicons.js). The compositor paints the dock itself now, so `revert` and every
+# apply only put the original files back. sam and homelaunchpoints read those files when they
+# start, so the restored ones show from the next boot. Neither is restarted here: SAM is never
+# restarted, a set rule (eARC, CEC and the picture mode are at risk when it is), and a stale
+# icon colour costs nothing.
 TILEICONS="$APPDIR/tools/tileicons.js"
 NODE=/usr/bin/node
-TILES_CHANGED=0
 
 # ------------------------------------------------------------------- helper
 
@@ -1841,23 +1838,12 @@ verb_compositor_boot() {
   return 0
 }
 
-restart_launchpoint_services() {
-  systemctl restart sam.service >/dev/null 2>&1
-  i=0; while [ "$i" -lt 20 ] && ! systemctl is-active sam.service >/dev/null 2>&1; do sleep 1; i=$((i+1)); done
-  systemctl restart homelaunchpoints.service >/dev/null 2>&1
-  i=0; while [ "$i" -lt 20 ] && ! systemctl is-active homelaunchpoints.service >/dev/null 2>&1; do sleep 1; i=$((i+1)); done
-}
-
-
 revert_tile_icons() {
   [ -x "$NODE" ] && [ -f "$TILEICONS" ] || return 0
   out=$("$NODE" "$TILEICONS" revert "$STATE" 2>>"$LOGFILE") || return 0
   n=$(printf '%s' "$out" | sed -n 's/.*"restored":\([0-9]*\).*/\1/p'); [ -n "$n" ] || n=0
-  if [ "$n" -gt 0 ]; then
-    log_line "tile icons: restored $n file(s)"
-    restart_launchpoint_services
-    REVERT_CHANGED=1
-  fi
+  [ "$n" -gt 0 ] && log_line "tile icons: restored $n file(s); the launcher reads them at its next start"
+  return 0
 }
 
 do_revert_internal() {
@@ -2111,9 +2097,7 @@ verb_apply() {
 
   # 5b. The compositor paints the dock itself now, so the per-app icon and
   # iconColor edits Home once needed are restored and never made again.
-  REVERT_CHANGED=0
   revert_tile_icons
-  TILES_CHANGED=$REVERT_CHANGED
 
   # 5c. The Home stub, before anything restarts, so the Home the compositor's
   # restart relaunches is the stub.
@@ -2173,7 +2157,7 @@ verb_apply() {
       emit_error "shader compilation failed; auto-reverted to stock"
       return 1
     fi
-  elif [ "$changed" -eq 1 ] || [ "$TILES_CHANGED" -eq 1 ]; then
+  elif [ "$changed" -eq 1 ]; then
     # Compositor already serves the shadow (or is not yet up); only Home needs
     # to re-read the freshly bound assets.
     kill_home_app
