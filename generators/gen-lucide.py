@@ -8,12 +8,15 @@ The icon source is `docs/mocks/icons.js` (Lucide 1.27, ISC licence): 24-grid str
 square (a 32 px icon on the TV, drawn at twice the pixels so a 1080p panel scaled to 4K stays crisp), white
 on a transparent ground: `kit/LuIcon.qml` multiplies the alpha by the colour it is given, so one file
 serves every colour of both materials. Rendering is Chromium's, headless, on one sheet of all icons.
-`index.json` lists the names; a mock gaining an icon means re-running this.
+`index.json` lists the names; a mock gaining an icon means re-running this. The icons are Lucide's, so the output
+directory also gets `LICENSE`: the package's own file for that version (ISC, with the MIT notice for the icons Lucide
+took from Feather), kept beside this script as `lucide-LICENSE` and copied verbatim.
 """
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +25,7 @@ from PIL import Image
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "docs", "mocks", "icons.js")
+LICENSE = os.path.join(os.path.dirname(__file__), "lucide-LICENSE")
 STROKE = 1.9
 COLS = 16
 
@@ -75,6 +79,7 @@ def main():
             if cell.getchannel("A").getextrema()[1] == 0:
                 raise SystemExit("icon %s rendered empty" % name)
             cell.save(os.path.join(a.out, name + ".png"), optimize=True)
+    shutil.copyfile(LICENSE, os.path.join(a.out, "LICENSE"))
     with open(os.path.join(a.out, "index.json"), "w") as f:
         json.dump(names, f)
         f.write("\n")
