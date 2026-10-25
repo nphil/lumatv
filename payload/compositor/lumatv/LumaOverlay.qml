@@ -55,7 +55,6 @@ Item {
         visible: false
     }
     onBaseColorChanged: flatTex.scheduleUpdate()
-    // An assignment on the way in, as Home's is on the way back (LumaHome.onHostActiveChanged): a Binding that switches off behaves differently in Qt 5.12 and 5.15
     readonly property bool flatGlass: Lu.backdrop === flatTex       // the glass samples the flat colour, not Home's wallpaper blur
 
     // ---- the surfaces, built once and kept (Resident.qml)
@@ -99,6 +98,8 @@ Item {
         if (bannerRes.item) bannerRes.item.hide()
         return was !== ""
     }
+    // The backdrop is an assignment on the way in, as Home's is on the way back (LumaHome.onHostActiveChanged): a Binding that switches off
+    // behaves differently in Qt 5.12 (the set) and 5.15 (the offline host).
     onAppFrontChanged: { if (appFront) { Lu.backdrop = flatTex; tryPending() } else { pending = null; closeAll() } }
 
     // ---- banners
