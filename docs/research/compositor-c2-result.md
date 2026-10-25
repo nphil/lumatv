@@ -711,12 +711,13 @@ expected results below.
   for `wl_keyboard.key` (raw code; the keymap maps code+8) is unverified
   on LG's clients.
 - `tools/tv-cutover.sh`: `install` (bundle to
-  `/var/lib/lumatv/compositor`, fingerprint recorded, failures 0,
-  enabled), `trial SECS` (bind-mount `lumatv-sm` over
-  `/usr/bin/surface-manager`, restart the unit, watch, then revert),
-  `status`, `revert`. The boot-time re-mount (early hook) and the tool's
-  enable/disable commands belong to `tools/lumatv` (not this slice): until
-  they exist, a reboot brings LG's compositor back by itself.
+  `/var/lib/lumatv/compositor`, fingerprint recorded, failures 0, not
+  enabled), `trial SECS` (flag, bind-mount `lumatv-sm` over
+  `/usr/bin/surface-manager`, restart the unit, watch, keep the evidence,
+  then flag removed and revert), `enable`, `disable`, `status`, `revert`.
+  The boot-time re-mount and the tool's commands are `tools/lumatv`'s
+  (`tools/compositor.sh`); the early hook mounts only while `enabled`
+  exists.
 
 TV steps, in order, each a separate slot:
 
@@ -768,13 +769,20 @@ In `compositor/tools` (`tv-cutover.sh`, on the set as `cutover.sh`):
 `install` puts the bundle under `/var/lib/lumatv/compositor` (`bin/
 lumatv-sm`, `bin/lumatv-compositor`, `bin/recover-home.sh`, `lib/`),
 records the firmware fingerprint (`fingerprint`), LG's binary's size and
-mtime (`lg-binary`), `failures 0`, and touches `enabled`; `enable` mounts
-`bin/lumatv-sm` over `/usr/bin/surface-manager` and restarts the unit;
-`disable` removes `enabled`, unmounts, restarts LG's and runs the
-recovery. The supervisor decides at every start (enabled, fingerprint,
-no `escaped`, `failures < 2`) and falls back by itself; the watchdog
-(heartbeat 500 ms, two misses or a child exit) and the hold-Home escape
-fall back at run time; every fallback brings WebAppMgr and Home back.
+mtime (`lg-binary`) and `failures 0`, and leaves the set not enabled;
+`enable` touches `enabled`, mounts `bin/lumatv-sm` over
+`/usr/bin/surface-manager`, restarts the unit and runs the WebAppMgr and
+Home recovery (WebAppMgr is `PartOf` the oneshot wrapper
+`surface-manager.service`, not the daemon unit, so a restart of the daemon
+leaves it to its start limit); `disable` removes `enabled`, unmounts,
+restarts LG's and runs the recovery. The supervisor decides at every start
+(enabled, fingerprint, no `escaped`, `failures < 2`) and falls back by
+itself; the watchdog (heartbeat 500 ms, two misses or a child exit) and the
+hold-Home escape fall back at run time; every fallback brings WebAppMgr and
+Home back. Before the exec of LG's binary the supervisor unregisters every
+bus name it holds and closes every descriptor above stderr: otherwise the
+luna-service2 sockets would live on inside LG's process and ls-hubd would
+refuse LG's own registration of the same names.
 
 Requested in `tools/lumatv` and landed there as `tools/compositor.sh`
 (458fc0b, SurfacesP2b: `lumatv compositor-boot` from the autostart
