@@ -98,6 +98,17 @@ class Set:
                     raise
                 time.sleep(2.0)
 
+    def kbkey(self, button):
+        # The key injected on the set (kb.py: exact timing, no HA hop, no token). Needs /tmp/kb.py there,
+        # which gate.py and the workloads that use it copy; falls back to Home Assistant without it.
+        if self.sh('test -f /tmp/kb.py')[0] != 0:
+            data = open(os.path.join(HERE, 'kb.py'), 'rb').read()
+            stdin, out, _ = self.cli.exec_command('cat > /tmp/kb.py && chmod 755 /tmp/kb.py')
+            stdin.write(data)
+            stdin.channel.shutdown_write()
+            out.channel.recv_exit_status()
+        self.sh(f'python3 /tmp/kb.py {button}')
+
     def keys(self, button, n, gap):
         for i in range(n):
             self.key(button)
@@ -172,7 +183,7 @@ def wl_apphome(s, app='com.palm.app.settings'):
     s.luna('luna://com.webos.applicationManager/launch', json.dumps({'id': app}))
     time.sleep(7)
     s.mark('P:home')
-    s.key('HOME')
+    s.kbkey('HOME')
     time.sleep(4)
     s.mark('P:closing')
     s.luna('luna://com.webos.applicationManager/closeByAppId', json.dumps({'id': app}))
@@ -245,7 +256,7 @@ def wl_hog(s, mb=450, hold=8):
     s.sh('nohup ' + (HOG % (mb, hold)) + ' >/dev/null 2>&1 &')
     time.sleep(hold + 3)
     s.mark('P:home')
-    s.key('HOME')
+    s.kbkey('HOME')
     time.sleep(4)
     s.mark('P:closing')
     s.luna('luna://com.webos.applicationManager/closeByAppId', json.dumps({'id': 'com.webos.app.browser'}))
