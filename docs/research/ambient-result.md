@@ -8,23 +8,38 @@ Done (2026-10-25):
   process allow-list (see "ABI", "Permission gate"). Header `ambient/capture/vthist.h`.
 - 32-bit probe `ambient/capture/probe.c` (`./build.sh`, `./test.sh`), host tests pass against a fake library.
   Built for the set as `ambient/capture/build/arm/ambient-probe` (ignored by git; rebuild with `build.sh`).
-- Read-only TV slot done (03:25 EDT): `libvtcapture` on the set is byte-identical to the workstation copy
-  (md5 35d3fec6...); `/var/luna/preferences/vt_devmode` does not exist; nobody holds `/dev/video60`; `arecord` is
-  ALSA 1.0 (symlink to `aplay`) with `libasound.so.2`; `aud_dsp_reset_count` is at
-  `/sys/module/aud/parameters/`. The grep for other readers of `vt_devmode` did not finish (the set rebooted for
-  another task); it needs a short follow-up slot, run per directory in the background.
-- Rust crate `ambient/` (`lumatv-ambient`, `./build.sh check`: fmt, clippy -D warnings, 87 unit tests, 11 interop
-  tests, aarch64-musl release build): zones, layout, bars, delay, tuning with dark gate, smoothing, engine, HueStream
-  v2 over a DTLS 1.2 PSK client, WLED DDP sender. See "Helper-side design".
+- Read-only TV slot (03:25 EDT): `libvtcapture` on the set is byte-identical to the workstation copy (md5 35d3fec6...);
+  `/var/luna/preferences/vt_devmode` did not exist; nobody held `/dev/video60`; `arecord` is ALSA 1.0 with
+  `libasound.so.2`; `aud_dsp_reset_count` is at `/sys/module/aud/parameters/`.
+- Second slot (05:17 to 05:28 EDT): the `vt_devmode` reader search finished (3 readers, see "Permission gate"), the
+  flag was NOT created (decision for Nitin below), the audio captures were done ("Audio results"). Set left in Active
+  Standby, receiver unmuted at volume 0.355.
+- Rust crate `ambient/` (`lumatv-ambient`, `./build.sh check` green at 05:19: fmt, clippy -D warnings, 87 unit tests,
+  11 interop tests, aarch64-musl release build): zones, layout, bars, delay, tuning with dark gate, smoothing, engine,
+  HueStream v2 over a DTLS 1.2 PSK client, WLED DDP sender. See "Helper-side design". Nothing was sent to any real
+  Hue or WLED device.
+
+Decision for Nitin (the only thing blocking the picture side):
+
+- The capture probe needs the file `/var/luna/preferences/vt_devmode` to exist, because LG's library refuses
+  `initHistogram` to any process that is not LG's Hue Sync service. The same file is read by two more programs of LG's
+  screen-capture package: `/usr/sbin/captureservice` (the running `com.webos.service.capture`, which owns screenshots
+  and the video-capture resource) and the test tool `/usr/bin/vtCaptureTestSuite`. The flag is therefore a
+  development switch for LG's whole capture stack, not just one library check; with it set, LG's capture service
+  most likely skips its caller permission check too (the exact effect in `captureservice` was not recovered: the path
+  string sits in `captureService.cpp` and its use was not traced).
+- Question: may the flag exist permanently (a file in `/var`, nothing on the read-only parts), so ambient light can
+  run; or only for short supervised tests (create, probe, remove); or not at all, in which case the alternative is
+  to run the capture helper as a process whose command line contains Hue Sync's service path, which is impersonation
+  and is not proposed.
+- With "short tests": the probe plan is 3 runs of 60 s (Home, HDMI 2 if it has signal, muted Netflix), flag removed
+  straight after each batch.
 
 Next, in order:
 
-1. Follow-up read-only slot: the `vt_devmode` reader grep.
-2. Probe slot: create `vt_devmode` only if Main allows (record create and remove times), 60 s at Home, 60 s on an HDMI
-   input if one is active, 60 s of muted Netflix (deep link in HANDOFF), then the two audio captures. Fill "Probe
-   results" and "Audio results" below.
-3. Tune defaults in `engine::Config` from the recorded zone values (replay the probe's `-d` dump through
-   `zones::parse_dump`).
+1. Nitin's answer on the flag. If yes: probe slot as above (the Netflix title must play first: see "Audio results"),
+   fill "Probe results", then tune `engine::Config` defaults from the dumps (replay through `zones::parse_dump`).
+2. Build the 32-bit capture helper from `probe.c` (lifecycle in "Helper-side design").
 
 ## ABI
 
@@ -75,6 +90,12 @@ The second is LG's own development switch, the first is what LG's Hue Sync servi
 Hue Sync would pass the check by impersonation and is not used. Creating the flag file writes outside the set's
 approved write list and relaxes the gate for every user of the library, so it needs Main's decision; the probe
 reports whether it already exists.
+
+Readers of the string `vt_devmode` on the set (read-only search of `/usr/bin`, `/usr/sbin`, `/usr/lib`, `/usr/palm`,
+05:18 EDT; `/etc`, `/lib` and the other trees were not searched): `/usr/lib/libvtcapture.so.1(.0.0)`,
+`/usr/bin/vtCaptureTestSuite`, `/usr/sbin/captureservice`. In `captureservice` the path is next to the service name
+`com.webos.service.capture` and the source file name `captureService.cpp`; the code that reads it was not traced
+(its caller-permission use is an inference). No script, app or JS file mentions it.
 
 Other facts from the same code: `initHistogram` also fails with code 11 when the resource manager's `acquire` is
 refused, which is the "second `vtCapture_init` fails with 11" seen before (one VT consumer at a time).
@@ -152,6 +173,37 @@ of the plan still to confirm; the handshake is what OpenSSL accepts, which is wh
 audio-driven effects. Constants for these (`spread`, `settle_ms`, dark `floor`) are first guesses to tune with
 `examples/replay.rs` on probe dumps and then on the lights.
 
+## Audio results (2026-10-25, 05:19 to 05:28 EDT)
+
+Source played: a 12 s stereo sine file (440 Hz left, 660 Hz right, 8000/32768 = 0.244 of full scale) through the
+default ALSA device (pulseaudio sink `pdefaultapp`), receiver muted through Home Assistant, TV on Home.
+
+- `/dev/snd/pcmC1D*c` are the capture devices of card 1 (`LGSIC`): D0 (WoV PDM mic) offers S24_LE only, D1
+  (SpeakerFeedback) S32_LE only; D2 (MixerCapture), D3 (SoundEngineCapture) and D4 (BluetoothCapture) offer S16_LE and
+  S32_LE, 2 or 8 channels, 48 kHz only, periods 64 to 512 frames.
+- `hw:1,2` (MixerCapture, S16_LE, 48 kHz, 2 ch): works. During the tone: peak 0.2441, rms 0.1221 over 5 s, so the mix
+  arrives at its source level, before the TV volume (TV volume reads 0 with output `external_arc`) and before the
+  receiver's mute. In standby, with nothing playing, and with the muted Netflix error screen, it records exact
+  silence (peak 0.0000). Opening it logs `mix_cap ... free mc done` on close only.
+- `hw:1,3` (SoundEngineCapture): opens, but every read stalls until the 10 s `timeout` kills it ("Input/output
+  error"), at S16_LE or S32_LE, 2 or 8 channels, in standby, during Netflix and during the tone. The kernel logs
+  `aud_bm ERR bm_get_block_tail: block_info is NULL` and `auimc ERR ausrimc_post_imc: no such processor number` when
+  it closes: that stream has no source block wired. `aud_dsp_reset_count` stayed 0.
+- Conclusion: `hw:1,2` is the audio source for sound-reactive effects (mono mix of both channels at line level, no
+  volume dependence); `hw:1,3` is not usable.
+- Nothing in the playback path changed: arecord only reads, and no mixer or routing was touched.
+
+Netflix did not play. The 4K title (`80141336`, deep link and ENTER as in HANDOFF) opened its detail page and the
+first Play, made before any capture, ended in Netflix error `tvq-pb-101 (5.2.8)`; the log shows `audio codec not
+supported` on the `audio-app-es` stream (`GST_STREAM_ERROR`, `netflix.player PF_EVENT_TYPE_INT_ERROR 18`) with sound
+output `external_arc` to the AVR-S760H, and a second Play after Netflix's own "Restart" failed the same way. Netflix
+was closed afterwards. Open: whether this is the receiver's ARC audio format list (Dolby Atmos or DD+ stream
+refused), or something that changed since the 24 Oct Dolby Vision pass; an audio-output/ARC check is the first thing
+to do before the next playback test. No Netflix picture was therefore captured.
+
 ## Open
 
-Zone values, update rate, latency, CPU, audio: need the TV slots above.
+- Zone values, update rate, latency, CPU of the histogram: need the flag decision above, then one probe slot.
+- Netflix playback error above.
+- Home Assistant showed the receiver `off` while the TV was in Active Standby, and `on`, unmuted, 0.355 once the screen
+  was on.
