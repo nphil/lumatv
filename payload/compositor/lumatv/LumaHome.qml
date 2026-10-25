@@ -8,6 +8,7 @@ import TextFile 1.0
 import "LumaBus.js" as Bus
 import "Tint.js" as Tint
 import "kit"
+import "kit/Match.js" as Match
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
 // driven by {{dataDir}}/theme/{theme.json,layout.json}. Keys arrive through
@@ -64,6 +65,10 @@ Item {
     Binding { target: Lu; property: "wallAccent"; value: root.wallTint ? root.wallAccent : "transparent" }
     Binding { target: Lu; property: "backdrop"; value: blurTex }
     Binding { target: Lu; property: "baseUrl"; value: root.moduleDirUrl }
+    // What the all-apps library lists and in which order: the owner's choices (theme.apps) and the dock's tiles (kit/Apps.qml).
+    Binding { target: Apps; property: "prefs"; value: root.theme.apps || ({}) }
+    Binding { target: Apps; property: "dockKey"; value: root.dockKey }
+    readonly property string dockKey: dockLoader.item ? dockLoader.item.points.map(function(p) { return p.id }).join("|") : ""
 
     function resolvePath(p) {
         if (!p) return ""
@@ -197,14 +202,17 @@ Item {
             })
             loadJson(root.themeDirUrl + "layout.json", function(json, text) { if ((text || "") !== root.lastLayoutText) root.applyLayout(json, text) })
             // The development door: a layer named in this file is shown (the gate and the host use it for surfaces that no
-            // Home key opens yet). The file is in /tmp, so a reboot clears it.
+            // Home key opens yet). The file is in /tmp, so a reboot clears it. A name that is no surface is ignored: it would
+            // own every key and show nothing.
             var door = (layerFile.exists ? layerFile.read() : "").replace(/\s+/g, "")
+            if (door !== "" && !layers.find(door)) { if (door !== root.badDoor) console.warn("[LumaHome] the layer door names no surface: " + door); root.badDoor = door; door = "" }
             if (door !== root.doorLayer) root.doorLayer = door
         }
     }
     TextFile { id: layerFile; name: "file:///tmp/{{shortId}}-layer" }
     property string doorLayer: ""             // a layer the development door asked for
-    property string layerOpen: ""             // a layer Home opened itself (the quick panel from the Menu key)
+    property string badDoor: ""               // the last name the door gave that is no surface, said once
+    property string layerOpen: ""             // the layer that has the keys, one Home opened itself (the quick panel, the library, a menu)
 
     // ============================================================= Home stub contract
     // With the Home stub (tools/lumatv homestub) this layer is the only Home, so
@@ -624,6 +632,7 @@ Item {
         if (hostActive) { focusLayer = "dock"; statusBarItem.requestClosePopover() }
         else {
             if (settingsOpen) closeSettings()
+            closeAllLayers()
             if (miniFrame.open) { miniFrame.open = false; miniFrame.loading = false; miniSpec = null; frameAppWanted = false }
         }
     }
@@ -701,9 +710,11 @@ Item {
     property int holdMs: motion.holdMs || 700
     property bool okDown: false
     property bool okHeld: false
+    // A held OK has a meaning on a dock tile and on a library icon: the options of that app.
     function holdAvailable() {
+        if (layers.open === "apps") return true
         var d = dockLoader.item
-        return focusLayer === "dock" && !!d && !d.moving
+        return layers.open === "" && focusLayer === "dock" && !!d && !d.moving
     }
     Timer {
         id: holdTimer
@@ -711,19 +722,23 @@ Item {
         onTriggered: {
             if (!root.okDown || !root.holdAvailable()) return
             root.okHeld = true
-            dockLoader.item.beginMove()
+            if (layers.open === "apps") layers.hold(); else root.openTileMenu()
         }
     }
     function key(k, pressed, autoRepeat, deviceId) {
         // The volume keys are only watched: the receiver's OSD asks the helper for a fresh reading, and LG's chain
         // still gets the key. Nothing else here depends on them.
         if (pressed && !autoRepeat && (k === Qt.Key_VolumeUp || k === Qt.Key_VolumeDown || k === Qt.Key_VolumeMute)) { layers.volumeKey(); return false }
-        // The Menu key opens LumaTV's own quick panel when the owner has turned it on (theme `quickPanel.own`); otherwise
-        // it goes to LG's Quick Settings as it always did.
-        if (hostActive && pressed && !autoRepeat && k === Qt.Key_Menu && theme.quickPanel && theme.quickPanel.own && !aiPrompt.up) {
-            if (layers.open === "quick") closeLayer(); else if (layers.open === "") openLayer("quick")
+        // The Menu key: the options of the app under the focus (docs/mocks/16-context-menu: "hold OK or the Menu key on a dock
+        // tile", and on a library icon); anywhere else LumaTV's own quick panel when the owner has turned it on (theme
+        // `quickPanel.own`), else the library, which is where LG's "Home with My Apps" (this same key) goes.
+        if (hostActive && k === Qt.Key_Menu && !aiPrompt.up) {
+            if (pressed && !autoRepeat) menuKey()
             return true
         }
+        // The on-screen remote key (123) opens LumaTV's remote; the Search key opens search (a surface that has the keys keeps them)
+        if (hostActive && pressed && !autoRepeat && !aiPrompt.up && k === WebOS.Key_webOS_ScreenRemote) { remoteKeyPressed(); return true }
+        if (hostActive && pressed && !autoRepeat && !aiPrompt.up && k === Qt.Key_Search && layers.open === "") { openSearch(); return true }
         var dir = directionFor(k)
         if (!dir) return false
         // An AI prompt is up: the helper reads the answer from the physical remote itself, and nothing
@@ -757,6 +772,7 @@ Item {
         return keyAction(dir)
     }
     function keyAction(dir) {
+        if (layers.open !== "" && !layers.find(layers.open)) closeLayer()      // a name that is no surface owns no key
         if (layers.open !== "") {
             // a modal surface owns the keys while it is up; Back closes the kit gallery, any other asks to close itself
             if (layers.open === "gallery" && dir === "back") closeLayer()
@@ -852,7 +868,7 @@ Item {
     StatusBar {
         id: statusBarItem
         z: 3
-        visible: !root.settingsOpen
+        visible: !root.settingsOpen && !root.appsUp
         x: layout.safe.x
         y: layout.safe.y
         width: 1920 - 2 * layout.safe.x
@@ -874,6 +890,7 @@ Item {
         onThemePatch: root.patchTheme(patch)
         onThemePersist: root.persistTheme(patch)
         onRequestOpenSettings: root.openSettings()
+        onRequestSearch: root.openSearch()
         onHoverFocus: { root.statusFocusIndex = index; if (root.focusLayer !== "popover") root.focusLayer = "statusbar" }
     }
 
@@ -881,7 +898,7 @@ Item {
     // dim (~30%) marks the popover as the top layer while the page stays readable. The
     // wallpaper settings popover instead clears the page: widgets and dock fade out so the
     // wallpaper is seen bare while it is adjusted.
-    property bool previewMode: (root.popoverOpen && statusBarItem.popoverType === "settings") || root.settingsOpen
+    property bool previewMode: (root.popoverOpen && statusBarItem.popoverType === "settings") || root.settingsOpen || root.appsUp
     Rectangle {
         anchors.fill: parent
         z: miniFrame.open ? 3.5 : 2
@@ -960,6 +977,8 @@ Item {
             onRowChanged: root.dockRow = row
             onColChanged: root.dockCol = col
             onLaunching: layers.launchSplash(title, iconUrl)
+            onAppsRequested: root.openApps()
+            onMenuRequested: root.openTileMenu()
         }
         MouseArea {
             // hovering the dock card itself hands the layer to the dock
@@ -1086,15 +1105,35 @@ Item {
         settingsOpen = true
     }
     function closeSettings() { settingsOpen = false; if (hostActive) focusLayer = "statusbar" }
-    function openLayer(id) { if (!hostActive) return; statusBarItem.requestClosePopover(); layerOpen = id }
+    // ---- layers: `layerOpen` has the keys. A surface opened over another (a menu over the library, the keyboard over the
+    // library) pushes the one under it and closing pops it, so Back from the menu is the library again and Back from the
+    // library is Home with the focus where it was.
+    property var layerStack: []
+    readonly property bool appsUp: layerOpen === "apps" || layerStack.indexOf("apps") >= 0
+    function openLayer(id) {
+        if (!hostActive) return
+        if (!layers.find(id)) { console.warn("[LumaHome] no surface is called " + id); return }
+        statusBarItem.requestClosePopover()
+        if (layerOpen !== "" && layerOpen !== id) { var s = layerStack.slice(); s.push(layerOpen); layerStack = s }
+        layerOpen = id
+    }
     function closeLayer() {
+        if (layerStack.length > 0) { var s = layerStack.slice(); layerOpen = s.pop(); layerStack = s; return }
         layerOpen = ""
         if (doorLayer !== "") { layerFile.write(""); doorLayer = "" }
         if (theme.kitGallery) { patchTheme({ kitGallery: false }); persistTheme({ kitGallery: false }) }
     }
+    // A surface that ends by itself (the banner's timer, a picker that has acted) is dropped wherever it is: the top one is
+    // closed, one under it is taken out of the stack, one that is not up is left alone.
+    function closeLayerById(id) {
+        if (layerOpen === id || (layerOpen === "" && doorLayer === id)) closeLayer()
+        else if (layerStack.indexOf(id) >= 0) layerStack = layerStack.filter(function(x) { return x !== id })
+    }
+    function closeAllLayers() { layerStack = []; layerOpen = "" }
     // What the rest of Home asks of the small panels: a menu next to something, a question, the on-screen remote, the
     // launch splash, a spinner, the ring around a tile that is being held. Each is a call on a built item.
-    function showMenu(spec) { layers.openMenu(spec); openLayer("menu") }
+    property string menuKind: ""
+    function showMenu(spec) { menuKind = spec.kind || ""; layers.openMenu(spec); openLayer("menu") }
     function showConfirm(spec) { layers.askConfirm(spec); openLayer("confirm") }
     function showRemote() { openLayer("remote") }
     function showSplash(name, icon) { layers.launchSplash(name, icon) }
@@ -1104,9 +1143,190 @@ Item {
         id: layers
         z: 60
         home: root
+        below: root.layerStack
         open: !root.hostActive ? "" : root.settingsOpen ? "settings" : root.layerOpen !== "" ? root.layerOpen : root.doorLayer !== "" ? root.doorLayer : root.galleryOn ? "gallery" : ""
-        onCloseRequested: { if (id === "settings") root.closeSettings(); else root.closeLayer() }
+        onCloseRequested: { if (id === "settings") root.closeSettings(); else root.closeLayerById(id) }
         onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
+        onAppLaunched: root.launchApp(app)
+        onAppMenu: root.appMenu(app, "library", anchor, null)
+        onSearchRequested: root.openSearch()
+        onSearchPicked: root.searchPicked(kind, id, text)
+        onEntered: root.entered(text)
+        onMenuPicked: root.menuPicked(id, index)
+        onConfirmAnswered: root.confirmAnswered(id)
+        onRemoteKey: root.sendRemoteKey(name)
+        onVoicePicked: root.voicePicked(id)
+        onBannerPicked: root.bannerPicked(id)
+    }
+
+    // ============================================================= what the panels ask Home to do
+    // A panel never acts: it says what was chosen and Home does it, with the calls the rest of Home makes (luna through
+    // LS, the theme through patchTheme and persistTheme, Settings through goTo). Each panel is a surface that is already built.
+    readonly property string appMgr: "luna://com.webos.applicationManager"
+
+    // ---- the library, search, an app's options
+    function openApps() { layers.appsReset(); openLayer("apps") }
+    function launchApp(app) {
+        if (!app) return
+        closeAllLayers()
+        layers.launchSplash(app.title || app.id, app.iconUrl || "")
+        LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: app.id, params: app.params || {} }))
+    }
+    function openSearch(text) {
+        layers.searchOpen({ sources: { apps: Apps.shown, pages: layers.settingsPages() }, text: text || "", voice: !!(theme.voice && theme.voice.enabled) })
+        openLayer("search")
+    }
+    function searchPicked(kind, id, text) {
+        if (kind === "app") launchApp(Apps.byId(id))
+        else if (kind === "page") { closeAllLayers(); openSettings(); layers.settingsGoTo(id) }
+        else if (kind === "web") webSearch(text)
+    }
+    // The search engine is the owner's to name (theme `search.url`, the query address); the default keeps the question off Google.
+    function webSearch(text) {
+        var base = (theme.search && theme.search.url) || "https://duckduckgo.com/?q="
+        closeAllLayers()
+        LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: "com.webos.app.browser", params: { target: Match.webUrl(base, text) } }))
+    }
+
+    property var appTarget: null            // what the open menu or dialog is about: { app, source: "dock" | "library" }
+    function menuKey() {
+        if (layers.open === "apps") { layers.hold(); return }
+        if (layers.open === "quick") { closeLayer(); return }
+        if (layers.open !== "") return
+        var d = dockLoader.item
+        if (focusLayer === "dock" && d && !d.moving) { openTileMenu(); return }
+        if (theme.quickPanel && theme.quickPanel.own) openLayer("quick"); else openApps()
+    }
+    function openTileMenu() {
+        var d = dockLoader.item
+        var t = d ? d.focusedTile() : null
+        if (!t || t.unmovable || t.id === d.appsTileId) return            // the Apps tile has no options of its own
+        var app = Apps.byId(t.id) || { id: t.id, title: t.title, iconUrl: t.iconUrl, params: t.params, launchPointId: t.launchPointId, onDock: true, dockIndex: t.index, removable: false, hidden: false }
+        appMenu(app, "dock", t.rect, t)
+    }
+    // The options of one app, beside the tile or icon they belong to, which stays lit above the scrim. On the dock the
+    // choices are the dock's (Move, Hide from the dock); in the library they are the library's (Move on the dock, Hide, Show again).
+    function appMenu(app, source, anchor, tile) {
+        appTarget = { app: app, source: source }
+        var dock = source === "dock"
+        var items = [{ id: "open", icon: "play", label: "Open" }]
+        if (app.onDock && app.id !== Apps.storeId) items.push(dock ? { id: "move", icon: "layout-grid", label: "Move", hint: "then \u2190 \u2192" } : { id: "move", icon: "layout-grid", label: "Move on the dock" })
+        if (dock) items.push({ id: "unpin", icon: "eye-off", label: "Hide from the dock" })
+        else items.push(app.hidden ? { id: "show", icon: "eye", label: "Show again" } : { id: "hide", icon: "eye-off", label: "Hide" })
+        items.push({ id: "rename", icon: "keyboard", label: "Rename" })
+        if (app.removable) items.push({ id: "uninstall", icon: "trash-2", label: "Uninstall", danger: true })
+        var raised = tile ? { x: anchor.x, y: anchor.y, width: anchor.width, height: anchor.height, iconUrl: tile.iconUrl, plate: tile.plate, inset: tile.floating ? ((theme.tiles && theme.tiles.inset) || 19) : 0, radius: Lu.radius("tile") }
+                          : { x: anchor.x + Math.round((anchor.width - 152) / 2), y: anchor.y + 14, width: 152, height: 152, iconUrl: anchor.iconUrl, radius: 30 }
+        showMenu({ kind: "app", title: app.title, sub: app.onDock ? "On the dock \u00b7 tile " + (app.dockIndex + 1) : app.hidden ? "Hidden" : "Not on the dock",
+                   iconUrl: app.iconUrl, anchor: anchor, raised: raised, width: 520, items: items })
+    }
+    function menuPicked(id, index) {
+        var t = appTarget
+        if (menuKind !== "app" || !t) { closeLayer(); return }
+        var app = t.app
+        closeLayer()                                                    // the menu: back to the library, or to Home
+        if (id === "open") launchApp(app)
+        else if (id === "move") { closeAllLayers(); moveOnDock(app.id) }
+        else if (id === "unpin") hideFromDock(app)
+        else if (id === "hide") setAppHidden(app.id, true)
+        else if (id === "show") setAppHidden(app.id, false)
+        else if (id === "rename") renameApp(app)
+        else if (id === "uninstall") askUninstall(app)
+    }
+    function moveOnDock(id) { var d = dockLoader.item; if (!d) return; focusLayer = "dock"; d.beginMoveOf(id) }
+    // Hiding from the dock is LG's own list (homelaunchpoints); hiding from the library is the owner's (theme.apps.hidden).
+    function hideFromDock(app) { LS.adhoc.call("luna://com.webos.service.homelaunchpoints", "/hideLaunchPoint", JSON.stringify({ launchPointId: app.launchPointId })) }
+    function setAppHidden(id, hide) {
+        var next = ((theme.apps && theme.apps.hidden) || []).filter(function(x) { return x !== id })
+        if (hide) next.push(id)
+        var patch = { apps: { hidden: next } }
+        patchTheme(patch); persistTheme(patch)
+    }
+    // A new name is the owner's (theme.apps.names, one name per app id); an empty one brings back the name LG gave.
+    property string renameId: ""
+    function renameApp(app) {
+        renameId = app.id
+        layers.searchOpen({ mode: "entry", prompt: "Rename " + app.title, text: app.title })
+        openLayer("search")
+    }
+    function entered(text) {
+        if (renameId === "") return
+        var id = renameId
+        renameId = ""
+        var names = JSON.parse(JSON.stringify((theme.apps && theme.apps.names) || {}))
+        var name = String(text).trim()
+        if (name === "") delete names[id]; else names[id] = name
+        var patch = { apps: { names: names } }
+        patchTheme(patch); persistTheme(patch)
+    }
+    function askUninstall(app) {
+        appTarget = { app: app, source: "confirm" }
+        showConfirm({ iconUrl: app.iconUrl, title: "Uninstall " + app.title + "?",
+                      body: "The app and its data on this TV are removed. It can be installed again from where it came from.",
+                      answers: [{ id: "keep", label: "Keep it" }, { id: "uninstall", label: "Uninstall", danger: true }], focus: 0 })
+    }
+    function confirmAnswered(id) {
+        var t = appTarget
+        if (id === "uninstall" && t && t.source === "confirm" && t.app.removable)
+            LS.adhoc.call("luna://com.webos.appInstallService", "/remove", JSON.stringify({ id: t.app.id, subscribe: false }))
+        appTarget = null
+    }
+
+    // ---- the on-screen remote: its keys are the TV's own. LG's own on-screen remote presses them through the micom service
+    // (`sendKeycode`, the remote's decimal keycode), which is also how the third-party launchers' keypads do it
+    // (docs/research/home-launcher-replacements.md). The numbers are LG's published IR command numbers for its remotes
+    // [INFERENCE: not yet run on this set]; a key the table lacks is not sent.
+    readonly property var remoteCodes: ({ "0": 16, "1": 17, "2": 18, "3": 19, "4": 20, "5": 21, "6": 22, "7": 23, "8": 24, "9": 25,
+                                          red: 114, green: 113, yellow: 99, blue: 97, play: 176, pause: 186, stop: 177, rewind: 143, forward: 142, info: 170 })
+    function remoteKeyPressed() { if (layers.open === "remote") closeLayer(); else if (layers.open === "") showRemote() }
+    function sendRemoteKey(name) {
+        if (name === "back") { closeLayer(); return }                  // Back on the panel is leaving it
+        var code = remoteCodes[name]
+        if (code === undefined) return
+        LS.adhoc.call("luna://com.webos.service.micomservice", "/sendKeycode", JSON.stringify({ keycode: code }))
+    }
+
+    // ---- voice: the voice bar draws, whoever has the recogniser calls these (PLAN: search only, nothing leaves the TV)
+    property string voiceWords: ""
+    function voiceStart() { voiceAct.stop(); layers.voiceListen(); openLayer("voice") }
+    function voiceHeard(words) {
+        voiceWords = words
+        var r = Match.voice(words, Apps.shown, layers.settingsPages())
+        if (r.act) { layers.voiceHeard(words, [], "Opening\u2026"); voiceAct.app = r.act; voiceAct.restart() }
+        else { voiceAct.stop(); layers.voiceHeard(words, r.options) }
+        openLayer("voice")
+    }
+    function voiceStop() { voiceAct.stop(); layers.voiceIdle(); closeLayerById("voice") }
+    // The microphone is open for something else (an app): the indicator says so and takes no key.
+    function showMic(on) { layers.voiceMic(on) }
+    // a command that named one app opens it a moment after the words are shown
+    Timer {
+        id: voiceAct
+        property var app: null
+        interval: 700
+        onTriggered: { var a = app; app = null; layers.voiceIdle(); if (layers.open === "voice") launchApp(a) }
+    }
+    function voicePicked(id) {
+        voiceAct.stop()
+        layers.voiceIdle()
+        closeAllLayers()
+        if (id.indexOf("app:") === 0) launchApp(Apps.byId(id.substring(4)))
+        else if (id.indexOf("page:") === 0) { openSettings(); layers.settingsGoTo(id.substring(5)) }
+        else if (id === "web") webSearch(voiceWords)
+    }
+
+    // ---- banners: what the TV says about what is on it. Only one with buttons takes the keys; the others show and hide.
+    function showBanner(spec) {
+        layers.bannerShow(spec)
+        if (spec.kind === "nosignal" || spec.buttons) openLayer("banner")
+    }
+    function hideBanner() { layers.bannerHide() }
+    function bannerPicked(id) {
+        closeAllLayers()
+        if (id === "inputs") openLayer("picker")
+        else if (id === "picture") { openSettings(); layers.settingsGoTo("picture") }
+        else if (id === "details") { openSettings(); layers.settingsGoTo("inputs") }
+        else if (id === "home") LS.adhoc.call(appMgr, "/launchDefaultApp", JSON.stringify({ category: "home" }))
     }
 
     // ============================================================= AI prompt

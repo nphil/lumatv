@@ -2,28 +2,33 @@ import QtQuick 2.4
 import WebOSServices 1.0
 import "kit"
 
-// The surfaces Home keeps built: Settings, the kit gallery, the input picker, the quick panel, the volume OSD
-// and, as they are added, the panels that open over Home. LumaHome owns when each is shown (`open`, its key
-// dispatch and the focus it gives back); this file owns that each exists before it is asked for. After Home has
-// presented, each is built in the background, one after the other, so that showing one is a `visible` flip on a
-// tree that is already laid out, and the startup warm-up (Warmup.qml) starts only when they are all built, so it
+// The surfaces Home keeps built: Settings, the kit gallery, the input picker, the quick panel, the volume OSD, the
+// small panels (menu, confirm, remote, splash) and the library, search, voice bar and banner. LumaHome owns when each
+// is shown (`open`, its key dispatch and the focus it gives back); this file owns that each exists before it is asked
+// for. After Home has presented, each is built in the background, one after the other, so that showing one is a `visible`
+// flip on a tree that is already laid out, and the startup warm-up (Warmup.qml) starts only when they are all built, so it
 // finds their text styles in Home's item tree.
 //
 // A surface here is an Item with `key(dir)` (up, down, left, right, ok, back; returns nothing, it owns the keys
 // while it is shown), `built` when it builds parts of itself, and signals the host connects to below. It never
 // writes a file or calls a service of its own: it asks through those signals (the quick panel and the input
 // picker are the exceptions that the TV's own services are the point of: they call luna through LS).
+//
+// One surface has the keys, `open`; the ones under it (a menu over the library, a keyboard over the library) are `below`:
+// they stay drawn and take no key, and when the top one closes the one under it has the keys again.
 Item {
     id: layers
     anchors.fill: parent
     property Item home                                  // LumaHome
     readonly property bool hostActive: home ? home.hostActive : false
     property string open: ""                            // the modal surface that owns the keys ("" none)
+    property var below: []                              // the modal surfaces under it, drawn and without keys
     property int buildStep: -1                          // -1: waiting for Home to present
-    readonly property int steps: 8                      // surfaces in the build chain
+    readonly property int steps: 12                     // surfaces in the build chain
     readonly property bool built: buildStep >= steps
     signal closeRequested(string id)
     signal openSettingsPage(string id)
+    function up(id) { return open === id || below.indexOf(id) >= 0 }
 
     // Home has presented a second ago: start the chain. A built chain is never restarted.
     Timer {
@@ -39,18 +44,31 @@ Item {
     }
     function advance(step) { if (buildStep <= step) buildStep = step + 1 }
 
+    // The modal surfaces, by the name Home opens them with (the OSD, the splash and the mic indicator are always up and never open).
     function find(id) {
         return id === "settings" ? settingsRes : id === "gallery" ? galleryRes : id === "picker" ? pickerRes : id === "quick" ? quickRes
-             : id === "menu" ? menuRes : id === "confirm" ? confirmRes : id === "remote" ? remoteRes : null
+             : id === "menu" ? menuRes : id === "confirm" ? confirmRes : id === "remote" ? remoteRes
+             : id === "apps" ? appsRes : id === "search" ? searchRes : id === "voice" ? voiceRes : id === "banner" ? bannerRes : null
     }
     function key(dir) {
         var r = find(open)
         if (r && r.item) r.item.key(dir)
         return open !== ""
     }
+    // The long press of OK or the Menu key on the surface that has the keys: the library opens the options of its icon.
+    function hold() {
+        var r = find(open)
+        if (r && r.item && r.item.hold) r.item.hold()
+    }
     // The input key pressed again while the picker is up goes on to the next input.
     // Open Settings at a page (the quick panel's tiles do): the page's rail section is selected and the page has the focus.
     function settingsGoTo(id) { if (settingsRes.item && id !== "") settingsRes.item.goTo(id) }
+    // Settings' pages as the search lists them: [{ id, title, sub, icon }], each with its own one-line summary.
+    function settingsPages() {
+        var s = settingsRes.item
+        if (!s) return []
+        return s.pages.map(function(p) { var sum = String(s.summaryFor(p.id)).split(" \u00b7 ")[0]; return { id: p.id, title: p.title, icon: p.icon, sub: "Settings" + (sum ? " \u00b7 " + sum : "") } })
+    }
     function pickerNext() { if (pickerRes.item) pickerRes.item.next() }
     // A volume key was pressed: the OSD asks the helper for a fresh reading and shows the pill.
     function volumeKey() { if (osdRes.item) osdRes.item.nudge() }
@@ -59,6 +77,14 @@ Item {
     // What the host asks of the small panels. They are built, so each is a call on an item that is already there.
     function openMenu(spec) { if (menuRes.item) menuRes.item.open(spec) }
     function askConfirm(spec) { if (confirmRes.item) confirmRes.item.ask(spec) }
+    function appsReset() { if (appsRes.item) appsRes.item.open() }
+    function searchOpen(spec) { if (searchRes.item) searchRes.item.open(spec) }
+    function voiceListen() { if (voiceRes.item) voiceRes.item.listen() }
+    function voiceHeard(words, options, doing) { if (voiceRes.item) voiceRes.item.heard(words, options, doing) }
+    function voiceIdle() { if (voiceRes.item) voiceRes.item.idle() }
+    function voiceMic(on) { if (voiceRes.item) voiceRes.item.micOpen = on }
+    function bannerShow(spec) { if (bannerRes.item) bannerRes.item.show(spec) }
+    function bannerHide() { if (bannerRes.item) bannerRes.item.hide() }
     function launchSplash(name, icon) {
         if (!splashRes.item) return
         splashRes.item.launch(name, icon)
@@ -88,7 +114,7 @@ Item {
         ignoreUnknownSignals: true
         onThemePatch: layers.home.patchTheme(patch)
         onThemePersist: layers.home.persistTheme(patch)
-        onLaunchApp: LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: appId }))
+        onLaunchApp: LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: appId, params: params || {} }))
         onCloseRequested: layers.closeRequested("settings")
     }
 
@@ -101,7 +127,7 @@ Item {
         anchors.fill: parent
         z: 62
         build: layers.buildStep >= step
-        shown: layers.open === "picker"
+        shown: layers.up("picker")
         onDone: layers.advance(step)
     }
     Connections {
@@ -120,7 +146,7 @@ Item {
         anchors.fill: parent
         z: 63
         build: layers.buildStep >= step
-        shown: layers.open === "quick"
+        shown: layers.up("quick")
         onDone: layers.advance(step)
     }
     Connections {
@@ -152,7 +178,7 @@ Item {
         anchors.fill: parent
         z: 64
         build: layers.buildStep >= step
-        shown: layers.open === "menu"
+        shown: layers.up("menu")
         onDone: layers.advance(step)
     }
     Connections {
@@ -170,7 +196,7 @@ Item {
         anchors.fill: parent
         z: 65
         build: layers.buildStep >= step
-        shown: layers.open === "confirm"
+        shown: layers.up("confirm")
         onDone: layers.advance(step)
     }
     Connections {
@@ -188,7 +214,7 @@ Item {
         anchors.fill: parent
         z: 66
         build: layers.buildStep >= step
-        shown: layers.open === "remote"
+        shown: layers.up("remote")
         onDone: layers.advance(step)
     }
     Connections {
@@ -210,6 +236,91 @@ Item {
         build: layers.buildStep >= step
         shown: layers.hostActive
         onDone: layers.advance(step)
+    }
+
+    // ---- the all-apps library (step 8): the Apps tile's own grid, and Search over it (step 9)
+    Resident {
+        id: appsRes
+        name: "apps"
+        step: 8
+        source: "panels/AppsGrid.qml"
+        anchors.fill: parent
+        z: 61
+        build: layers.buildStep >= step
+        shown: layers.up("apps")
+        onDone: layers.advance(step)
+    }
+    signal appLaunched(var app)
+    signal appMenu(var app, var anchor)
+    signal searchRequested()
+    Connections {
+        target: appsRes.item
+        ignoreUnknownSignals: true
+        onLaunched: layers.appLaunched(app)
+        onMenuRequested: layers.appMenu(app, anchor)
+        onSearchRequested: layers.searchRequested()
+        onCloseRequested: layers.closeRequested("apps")
+    }
+    Resident {
+        id: searchRes
+        name: "search"
+        step: 9
+        source: "panels/Search.qml"
+        anchors.fill: parent
+        z: 62
+        build: layers.buildStep >= step
+        shown: layers.up("search")
+        onDone: layers.advance(step)
+    }
+    signal searchPicked(string kind, string id, string text)
+    signal entered(string text)
+    Connections {
+        target: searchRes.item
+        ignoreUnknownSignals: true
+        onPicked: layers.searchPicked(kind, id, text)
+        onEntered: layers.entered(text)
+        onCloseRequested: layers.closeRequested("search")
+    }
+
+    // ---- the voice bar (step 10): above every surface but the AI prompt, and its mic indicator stays up while the mic is open
+    Resident {
+        id: voiceRes
+        name: "voice"
+        step: 10
+        source: "panels/VoiceBar.qml"
+        anchors.fill: parent
+        z: 91
+        build: layers.buildStep >= step
+        shown: layers.up("voice") || (!!item && item.micOpen)
+        onDone: layers.advance(step)
+    }
+    signal voicePicked(string id)
+    Connections {
+        target: voiceRes.item
+        ignoreUnknownSignals: true
+        onPicked: layers.voicePicked(id)
+        onCloseRequested: layers.closeRequested("voice")
+    }
+
+    // ---- the banner (step 11): the channel banner, the input pill and the no-signal screen. A banner without buttons takes no key
+    // and hides itself, so the resident is always up and draws only what it has been given.
+    Resident {
+        id: bannerRes
+        name: "banner"
+        step: 11
+        source: "panels/Banner.qml"
+        anchors.fill: parent
+        z: 72
+        build: layers.buildStep >= step
+        shown: layers.hostActive
+        onDone: layers.advance(step)
+    }
+    signal bannerPicked(string id)
+    Connections {
+        target: bannerRes.item
+        ignoreUnknownSignals: true
+        onPicked: layers.bannerPicked(id)
+        onCloseRequested: layers.closeRequested("banner")
     }
 
     // ---- the kit gallery (development): built the first time the flag asks for it, then kept

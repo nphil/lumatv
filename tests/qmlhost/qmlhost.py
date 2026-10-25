@@ -268,8 +268,9 @@ def main(argv=None):
         for e in view.errors():
             print('ERROR', e.toString())
         return 1
+    QtGui.QCursor.setPos(0, 0)      # Xvfb starts the pointer mid-screen, which hovers whatever is there: park it before the window maps
     view.show()
-    QtGui.QCursor.setPos(0, 0)      # Xvfb starts the pointer mid-screen, which hovers whatever is there
+    QtGui.QCursor.setPos(0, 0)
     root = view.rootObject()
     surface = root.findChild(QtCore.QObject, 'surface')
     for p in a.prop:

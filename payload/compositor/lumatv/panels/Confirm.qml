@@ -4,7 +4,8 @@ import "../kit"
 // A question with two answers (docs/mocks/06-confirm-dialog): "Uninstall Crunchyroll?" with the app's icon, what
 // happens, and Keep it / Uninstall. The safe answer is focused first; Back is that answer. Built once and given its
 // text when it opens (`ask(spec)`), `answered(id)` carries the choice and the host does the work, so a dialog
-// never does anything itself. A danger answer is drawn in the danger colour.
+// never does anything itself; `closeRequested()` follows every answer, so the host closes it in one place. A danger
+// answer is drawn in the danger colour.
 //
 //   spec = { icon | iconUrl, title, body, answers: [{ id, label, danger, icon }], focus: 0 }
 Item {
@@ -22,7 +23,7 @@ Item {
     function key(dir) {
         if (dir === "left") index = Math.max(0, index - 1)
         else if (dir === "right") index = Math.min(answers.length - 1, index + 1)
-        else if (dir === "ok" && answers[index]) answered(answers[index].id)
+        else if (dir === "ok" && answers[index]) { answered(answers[index].id); closeRequested() }
         else if (dir === "back") { answered(answers.length ? answers[spec.focus || 0].id : ""); closeRequested() }
         rested = false
         restTimer.restart()

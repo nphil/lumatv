@@ -11,7 +11,8 @@ import "../kit"
 //             It is black on purpose: a still frame on an OLED is what the screen must never hold.
 //
 // One built item that is given a spec (`show(spec)`) and hides itself after `spec.holdMs`; the buttons take the D-pad when
-// there are some (`key(dir)`), and `picked(id)` says which. Nothing is created per show.
+// there are some (`key(dir)`), and `picked(id)` says which. Nothing is created per show. Any end, the timer, Back or a
+// pick on a banner without buttons, is `hide()`, and `closeRequested()` follows it so the host drops the layer.
 //
 //   spec = { kind: "channel", number, call, title, sub, progress, next, chips: [..] }
 //        | { kind: "input", icon, name, facts, buttons: bool }
@@ -26,6 +27,7 @@ Item {
     signal closeRequested()
     readonly property bool built: true
     readonly property string kind: spec.kind || ""
+    readonly property bool interactive: buttons.length > 0
     readonly property var buttons: kind === "nosignal" ? [{ id: "inputs", icon: "cable", label: "Inputs" }, { id: "home", icon: "house", label: "Home" }]
                                   : kind === "input" && spec.buttons ? [{ id: "details", icon: "info", label: "Details" }, { id: "inputs", icon: "cable", label: "Inputs" }, { id: "picture", icon: "image", label: "Picture" }] : []
     visible: kind !== ""
@@ -35,14 +37,19 @@ Item {
         hold.interval = s.holdMs || (s.kind === "nosignal" ? 0 : s.buttons ? 8000 : 4000)
         if (hold.interval > 0) hold.restart(); else hold.stop()
     }
-    function hide() { spec = { kind: "" }; hold.stop() }
+    function hide() {
+        var was = kind !== ""
+        spec = { kind: "" }
+        hold.stop()
+        if (was) closeRequested()
+    }
     function key(dir) {
-        if (buttons.length === 0) { if (dir === "back" || dir === "ok") closeRequested(); return }
+        if (!interactive) { if (dir === "back" || dir === "ok") hide(); return }
         if (dir === "left") index = Math.max(0, index - 1)
         else if (dir === "right") index = Math.min(buttons.length - 1, index + 1)
-        else if (dir === "ok") picked(buttons[index].id)
-        else if (dir === "back") closeRequested()
-        rested = false; restTimer.restart(); hold.restart()
+        else if (dir === "ok") { picked(buttons[index].id); hide() }
+        else if (dir === "back") hide()
+        rested = false; restTimer.restart(); if (hold.interval > 0) hold.restart()
     }
     Timer { id: hold; onTriggered: banner.hide() }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: banner.rested = true }
@@ -52,72 +59,93 @@ Item {
     Column {
         visible: banner.kind === "nosignal"
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 420
-        spacing: Lu.space(3)
-        LuIcon { anchors.horizontalCenter: parent.horizontalCenter; name: banner.spec.icon || "unplug"; size: 56; color: Lu.ink3 }
-        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; color: Lu.ink3; text: banner.spec.port || "" }
-        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; color: Lu.ink2; text: banner.spec.title || "" }
-        LuText { anchors.horizontalCenter: parent.horizontalCenter; width: 760; horizontalAlignment: Text.AlignHCenter; role: "label"; color: Lu.ink3; wrapMode: Text.WordWrap; text: banner.spec.body || "" }
+        y: 336
+        width: 760
+        spacing: Lu.space(4)
+        opacity: 0.62
+        LuIcon { anchors.horizontalCenter: parent.horizontalCenter; name: banner.spec.icon || "unplug"; size: 64; color: Lu.ink2 }
+        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.weight: Font.DemiBold; color: Lu.ink2; text: banner.spec.port || "" }
+        LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; text: banner.spec.title || "" }
+        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; color: Lu.ink2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }
+        Item { width: 1; height: Lu.space(1) }
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
-            spacing: Lu.space(4)
+            spacing: Lu.space(3)
             Repeater {
                 model: banner.kind === "nosignal" ? banner.buttons.length : 0
-                delegate: LuButton { text: banner.buttons[index].label; focused: banner.index === index; rested: banner.rested; onHoverFocus: banner.index = index; onActivated: banner.picked(banner.buttons[index].id) }
+                delegate: BannerButton {
+                    icon: banner.buttons[index].icon; text: banner.buttons[index].label
+                    focused: banner.index === index; rested: banner.rested
+                    onHoverFocus: banner.index = index
+                    onActivated: { banner.index = index; banner.key("ok") }
+                }
             }
         }
     }
 
-    // ---- channel banner and input pill/bar: a glass pill at the bottom left
+    // ---- channel banner: a glass bar at the bottom left, 1240 wide
     LuPane {
-        id: pill
-        visible: banner.kind === "channel" || banner.kind === "input"
-        x: 64; y: 1080 - 64 - height
-        width: banner.kind === "channel" ? 1280 : Math.max(420, bar.width + 2 * Lu.space(5))
-        height: banner.kind === "channel" ? 132 : 96
+        id: channel
+        visible: banner.kind === "channel"
+        x: 64; y: 1080 - 56 - height; width: 1240; height: 148
         cardRadius: Lu.radius("card")
-
-        // channel
-        Item {
-            visible: banner.kind === "channel"
-            anchors.fill: parent
-            Rectangle {
-                id: chTile
-                x: Lu.space(5); anchors.verticalCenter: parent.verticalCenter; width: 104; height: 88; radius: Lu.radius("tile"); color: Lu.wash("selected"); border.width: 1; border.color: Lu.edge; antialiasing: true
-                Column { anchors.centerIn: parent; LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; lineHeight: 1.0; text: banner.spec.number || "" }
-                         LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.call || "" } }
-            }
+        Rectangle {
+            id: chTile
+            x: 22; anchors.verticalCenter: parent.verticalCenter; width: 104; height: 104; radius: Lu.radius("tile"); antialiasing: true
+            color: Lu.wash("selected"); border.width: 1; border.color: Lu.edge
             Column {
-                x: chTile.x + chTile.width + Lu.space(5); width: parent.width - x - 320; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(1)
-                LuText { width: parent.width; role: "label"; lineHeight: 1.0; text: banner.spec.title || ""; elide: Text.ElideRight }
-                Row {
-                    spacing: Lu.space(4)
-                    LuText { role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.sub || "" }
-                    LuText { role: "caption"; lineHeight: 1.0; color: Lu.ink3; text: banner.spec.next ? "Next \u00b7 " + banner.spec.next : "" }
-                }
-                Rectangle { width: parent.width * 0.5; height: 4; radius: 2; color: Lu.trackOff
-                            Rectangle { width: parent.width * (banner.spec.progress || 0); height: parent.height; radius: 2; color: Lu.ink } }
-            }
-            Row {
-                x: parent.width - width - Lu.space(5); anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
-                Repeater { model: banner.spec.chips || []; delegate: LuChip { text: modelData } }
+                anchors.centerIn: parent; spacing: Lu.space(1)
+                LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; font.pixelSize: 32; font.weight: Font.DemiBold; lineHeight: 1.0; text: banner.spec.number || "" }
+                LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.pixelSize: 20; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.call || "" }
             }
         }
-        // input
+        Row {
+            id: tags
+            x: parent.width - width - 28; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
+            Repeater { model: banner.kind === "channel" ? (banner.spec.chips || []) : []; delegate: LuChip { text: modelData } }
+        }
+        Column {
+            x: chTile.x + chTile.width + 24; width: tags.x - x - 24; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
+            LuText { width: parent.width; role: "body"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; text: banner.spec.title || "" }
+            Item {
+                width: parent.width; height: subText.implicitHeight
+                LuText { id: subText; role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.sub || "" }
+                LuText { x: parent.width - width; width: Math.min(implicitWidth, parent.width - subText.implicitWidth - Lu.space(5)); role: "caption"; lineHeight: 1.0; color: Lu.ink3; elide: Text.ElideRight
+                         visible: !!banner.spec.next; text: banner.spec.next ? "Next \u00b7 " + banner.spec.next : "" }
+            }
+            Rectangle {
+                width: parent.width; height: 5; radius: 3; color: Lu.trackOff; antialiasing: true
+                Rectangle { width: parent.width * (banner.spec.progress || 0); height: parent.height; radius: 3; color: Lu.ink; antialiasing: true }
+            }
+        }
+    }
+
+    // ---- input pill, and the same pill grown into three actions
+    LuPane {
+        id: pill
+        visible: banner.kind === "input"
+        x: 64; y: 1080 - 56 - height; height: 96
+        width: Math.max(420, bar.width + 16 + 30)
+        cardRadius: Lu.radius("pill")
         Row {
             id: bar
-            visible: banner.kind === "input"
-            x: Lu.space(5); anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(4)
-            LuTile { anchors.verticalCenter: parent.verticalCenter; size: 52; icon: banner.spec.icon || "cable" }
+            x: 16; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(4)
+            LuTile { anchors.verticalCenter: parent.verticalCenter; size: 64; radiusScale: 0.5; icon: banner.spec.icon || "cable" }
             Column {
-                anchors.verticalCenter: parent.verticalCenter
-                LuText { role: "label"; lineHeight: 1.0; text: banner.spec.name || "" }
+                anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(1)
+                LuText { role: "body"; font.weight: Font.DemiBold; lineHeight: 1.0; text: banner.spec.name || "" }
                 LuText { role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.facts || "" }
             }
+            Rectangle { visible: banner.interactive && banner.kind === "input"; anchors.verticalCenter: parent.verticalCenter; width: 1; height: 40; color: Lu.edge }
             Repeater {
                 model: banner.kind === "input" ? banner.buttons.length : 0
-                delegate: LuButton { anchors.verticalCenter: parent.verticalCenter; text: banner.buttons[index].label; focused: banner.index === index; rested: banner.rested
-                                     onHoverFocus: banner.index = index; onActivated: banner.picked(banner.buttons[index].id) }
+                delegate: BannerButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    icon: banner.buttons[index].icon; text: banner.buttons[index].label
+                    focused: banner.index === index; rested: banner.rested
+                    onHoverFocus: banner.index = index
+                    onActivated: { banner.index = index; banner.key("ok") }
+                }
             }
         }
     }

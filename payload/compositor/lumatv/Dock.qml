@@ -80,12 +80,13 @@ Item {
         list = list.filter(function(p) { return !p.hidden })
         var neutral = ["#ffffff", "#fff", "#000000", "#000", "#060606", "#1e1e1e"]
         var overrides = (theme.tiles && theme.tiles.icons) || {}
+        var renamed = (theme.apps && theme.apps.names) || {}      // the names the owner gave in the library
         var plates = (theme.tiles && theme.tiles.plates) || {}
         points = list.map(function(p) {
             var raw = String(p.iconColor || p.bgColor || "#2a2833").toLowerCase()
             var forced = plates[p.id] ? String(plates[p.id]).toLowerCase() : ""
             var icon = overrides[p.id] ? dock.themeIcon(overrides[p.id]) : dock.iconUrl(iconFor(p))
-            return { id: p.id, launchPointId: p.launchPointId, title: p.title || p.id, params: p.params || {},
+            return { id: p.id, launchPointId: p.launchPointId, title: (typeof renamed[p.id] === "string" && renamed[p.id] !== "" ? renamed[p.id] : p.title) || p.id, params: p.params || {},
                      iconUrl: icon, plate: forced || raw, forced: forced !== "", floating: false,
                      neutralPlate: !forced && neutral.indexOf(raw) >= 0, unmovable: !!p.unmovable }
         })
@@ -309,7 +310,7 @@ Item {
                     glowStrength: (dock.theme.focus && dock.theme.focus.tileGlow) || 0
                     onHoverFocus: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; dock.ensureRowVisible() }
                     onActivated: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; if (dock.moving) dock.endMove(); else dock.activate() }
-                    onHoldActivated: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; dock.beginMove() }
+                    onHoldActivated: { dock.row = Math.floor(index / dock.cols); dock.col = index % dock.cols; if (!dock.moving) dock.menuRequested() }
                 }
             }
         }
@@ -412,11 +413,35 @@ Item {
         ensureRowVisible()
     }
     signal launching(string title, string iconUrl)
+    signal appsRequested()          // the Apps tile: Home opens LumaTV's own library instead of LG's store
+    signal menuRequested()          // the focused tile's options (hold OK, the Menu key or a long press); Home draws the menu
+    readonly property string appsTileId: "com.webos.app.discovery"
     function activate() {
         var p = points[row * cols + col]
         if (!p) return
+        if (p.id === appsTileId) { appsRequested(); return }
         launching(p.title || p.id, p.iconUrl || "")
         LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: p.id, params: p.params || {} }))
     }
     function focusedCenterX() { return originX + focusCenter().x }
+    // A tile and where it is in Home's own coordinates, for the menu that opens beside it.
+    function tileAt(i) {
+        var p = points[i]
+        if (!p) return null
+        var r = Math.floor(i / cols), c = i % cols
+        return { id: p.id, launchPointId: p.launchPointId, title: p.title, iconUrl: p.iconUrl, params: p.params, unmovable: p.unmovable, plate: String(p.plate), floating: p.floating,
+                 index: i, rect: { x: originX + padX + c * (tileSize + gap), y: originY + gridTop + (r - scrollRow) * (tileSize + gap), width: tileSize, height: tileSize } }
+    }
+    function focusedTile() { return tileAt(row * cols + col) }
+    // The library's "Move on the dock": the tile is focused and picked up as if it had been held.
+    function beginMoveOf(id) {
+        for (var i = 0; i < points.length; i++) {
+            if (points[i].id !== id) continue
+            row = Math.floor(i / cols); col = i % cols
+            ensureRowVisible()
+            beginMove()
+            return moving
+        }
+        return false
+    }
 }

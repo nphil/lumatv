@@ -6,7 +6,8 @@ import WebOSServices 1.0
 // layout.statusBar.left/right through a small type registry. Unknown types render a generic
 // glyph so a bad layout entry never breaks the bar. "profile" and "notifications" open a
 // glass popover under their button (rows navigable with Up/Down, OK activates, Back closes);
-// "settings" and "search" launch their apps. Profile data comes from the LG account
+// "settings" opens LumaTV's Settings and "search" its own search (Home opens both, `requestOpenSettings`,
+// `requestSearch`). Profile data comes from the LG account
 // (accountmanager/getLoginUserData with serviceName LGE): nickname, initial, avatar colour.
 Item {
     id: bar
@@ -34,11 +35,12 @@ Item {
     signal themePatch(var patch)
     signal themePersist(var patch)
     signal requestOpenSettings()
+    signal requestSearch()
 
     function activate(index) {
         var type = items[index] ? items[index].type : ""
         if (type === "notifications" || type === "profile" || type === "settings") { bar.requestOpenPopover(index); return }
-        if (type === "search") LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: "com.webos.app.voice" }))
+        if (type === "search") bar.requestSearch()
     }
 
     function itemAt(index) {

@@ -6,6 +6,11 @@ import "../kit"
 // Remote's pointer. One built item that is given a spec when it opens, so nothing is created per open:
 //
 //   spec = { title, sub, icon (Lucide) | iconUrl (a picture), x, y (where it opens, in the 1920x1080 scene),
+//            anchor: { x, y, width, height, place } (instead of x, y: opens beside that rectangle, level with its bottom edge,
+//            on the left of it when it does not fit on the right; place "below" opens under it, left edges level, above it
+//            when it does not fit),
+//            raised: { x, y, width, height, iconUrl, plate, inset, radius } (the thing the menu belongs to, drawn above the
+//            scrim so it stays lit: a dock tile or a library icon),
 //            items: [{ id, icon, label, detail, hint, danger, options: [...], index }], hint }
 //
 // An item with `options` is a segmented row (the sleep timer): Left and Right move inside it. Up and Down move,
@@ -51,12 +56,32 @@ Item {
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: menu.rested = true }
 
     Rectangle { anchors.fill: parent; color: spec.scrim === false ? "transparent" : Lu.scrim; opacity: 0.6 }
+    // the thing the menu belongs to, lit above the scrim
+    Item {
+        visible: !!menu.spec.raised
+        readonly property var r: menu.spec.raised || ({ x: 0, y: 0, width: 0, height: 0 })
+        x: r.x; y: r.y; width: r.width; height: r.height
+        LuHalo { anchors.centerIn: parent; width: parent.width * 1.9; height: parent.height * 1.9; z: -1; on: visible }
+        Rectangle { visible: !!parent.r.plate; anchors.fill: parent; radius: parent.r.radius || Lu.radius("tile"); color: parent.r.plate || "transparent"; border.width: 1; border.color: Lu.edgeRaised; antialiasing: true }
+        Image {
+            x: parent.r.inset || 0; y: parent.r.inset || 0; width: parent.width - 2 * (parent.r.inset || 0); height: parent.height - 2 * (parent.r.inset || 0)
+            source: parent.r.iconUrl || ""; fillMode: Image.PreserveAspectFit; asynchronous: false; cache: true; smooth: true
+        }
+    }
     LuPane {
         id: card
         width: spec.width || 520
         height: (menu.hasHead ? Math.round(Lu.row * 1.0) : 0) + menu.bodyH + 2 * menu.pad + (spec.hint ? Math.round(Lu.row * 0.55) : 0)
-        x: Math.max(48, Math.min(1920 - 48 - width, spec.x === undefined ? Math.round((1920 - width) / 2) : spec.x))
-        y: Math.max(48, Math.min(1080 - 48 - height, spec.y === undefined ? Math.round((1080 - height) / 2) : spec.y))
+        readonly property var anchor: menu.spec.anchor || null
+        readonly property bool below: !!anchor && anchor.place === "below"
+        readonly property real wantX: !anchor ? (spec.x === undefined ? Math.round((1920 - width) / 2) : spec.x)
+                                      : below ? anchor.x
+                                      : (anchor.x + anchor.width + Lu.space(4) + width + 48 <= 1920 ? anchor.x + anchor.width + Lu.space(4) : anchor.x - Lu.space(4) - width)
+        readonly property real wantY: !anchor ? (spec.y === undefined ? Math.round((1080 - height) / 2) : spec.y)
+                                      : below ? (anchor.y + anchor.height + Lu.space(1) + height + 48 <= 1080 ? anchor.y + anchor.height + Lu.space(1) : anchor.y - Lu.space(1) - height)
+                                      : anchor.y + anchor.height - height
+        x: Math.max(48, Math.min(1920 - 48 - width, wantX))
+        y: Math.max(48, Math.min(1080 - 48 - height, wantY))
         cardRadius: Lu.radius("card")
         onXChanged: locate()
         onYChanged: locate()

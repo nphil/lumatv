@@ -19,5 +19,6 @@ singleton Net 1.0 Net.qml
 singleton Helper 1.0 Helper.qml
 singleton Sio 1.0 Sio.qml
 singleton PluginHub 1.0 PluginHub.qml
-PluginCard 1.0 PluginCard.qml
+singleton NoteLog 1.0 NoteLog.qml
 ReceiverGate 1.0 ReceiverGate.qml
+singleton Apps 1.0 Apps.qml
