@@ -2,11 +2,15 @@ import QtQuick 2.4
 import "../kit"
 
 // Voice search (docs/mocks/28-voice-listening, 28-voice-heard, 28-voice-results, 28-mic-indicator): what the TV shows
-// while the mic key is held. It draws, it does not listen: whoever has the recogniser (a plugin, the AI assistant; LG's
-// voice service is not used, PLAN: voice is for search only and nothing leaves the TV) calls `listen()`, `heard(words,
-// options, doing)` and `idle()`, and `picked(id)` says which option was taken.
+// while the mic key is held. It draws, it does not listen: Home drives it from the helper's `voice` topic (the helper
+// turns the speech into text through Home Assistant's Assist pipeline; LG's voice service is not used, PLAN: voice is for
+// search only). Home calls `listen()` when the key goes down, `working()` when it goes up, `failed(words)` when no words
+// came back and `idle()` at the end; the heard words do not stop here, Home types them into Search (`heard(words, options,
+// doing)` and `picked(id)` are the older recogniser API, which nothing calls now).
 //   listening  a bar at the bottom left: the mic in an accent circle with one ring, "Listening", "Speak now...", and what
 //              to do
+//   working    the key is up and the words are on their way: "One moment..."
+//   failed     why there are no words ("Nothing was heard", "Home Assistant is not reachable"), shown for a moment
 //   heard      the words that were heard in the bar; one command acts at once (`doing`, "Opening...", at the right); any
 //              other words list up to three things they can do above the bar, the first focused, Up and Down move, OK takes
 //   mic        the round mic at the bottom right, with a green dot, for as long as the microphone is open: the one thing on
@@ -17,7 +21,7 @@ import "../kit"
 Item {
     id: voice
     anchors.fill: parent
-    property string state: ""                 // "", "listening", "heard"
+    property string state: ""                 // "", "listening", "working", "failed", "heard"
     property string text: ""
     property string status: ""
     property var options: []
@@ -30,6 +34,8 @@ Item {
 
     function listen() { state = "listening"; micOpen = true; text = ""; options = []; status = "" }
     function heard(words, opts, doing) { text = words; options = opts || []; index = 0; state = "heard"; micOpen = false; status = doing || "" }
+    function working() { if (state === "listening") state = "working" }
+    function failed(words) { state = "failed"; micOpen = false; text = words; options = []; status = "" }
     function idle() { state = ""; micOpen = false; status = ""; options = [] }
     function key(dir) {
         if (dir === "back") { idle(); closeRequested(); return }
@@ -64,9 +70,11 @@ Item {
             x: 18 + 72 + 20; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(1)
             width: parent.width - x - 26 - hint.width - (hint.visible ? Lu.space(4) : 0)
             LuText { width: parent.width; role: "caption"; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2
-                     text: voice.state === "listening" ? "Listening" : voice.options.length > 0 ? "Heard \u00b7 pick one" : "Heard" }
+                     text: voice.state === "listening" ? "Listening" : voice.state === "working" ? "Working it out"
+                         : voice.state === "failed" ? "Voice search" : voice.options.length > 0 ? "Heard \u00b7 pick one" : "Heard" }
             LuText { width: parent.width; role: "title"; font.pixelSize: 30; lineHeight: 1.0; elide: Text.ElideRight
-                     text: voice.state === "listening" ? "Speak now\u2026" : "\u201c" + voice.text + "\u201d" }
+                     text: voice.state === "listening" ? "Speak now\u2026" : voice.state === "working" ? "One moment\u2026"
+                         : voice.state === "failed" ? voice.text : "\u201c" + voice.text + "\u201d" }
         }
         LuText {
             id: hint

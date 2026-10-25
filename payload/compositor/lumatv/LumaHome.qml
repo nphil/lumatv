@@ -631,6 +631,7 @@ Item {
         resetOk()
         if (hostActive) { focusLayer = "dock"; statusBarItem.requestClosePopover() }
         else {
+            if (voiceBusy) voiceAbort()
             if (settingsOpen) closeSettings()
             closeAllLayers()
             if (miniFrame.open) { miniFrame.open = false; miniFrame.loading = false; miniSpec = null; frameAppWanted = false }
@@ -736,6 +737,14 @@ Item {
         if (hostActive && !aiPrompt.up && (layers.saverUp || (!pressed && saverEaten === k))) {
             if (pressed) { if (!autoRepeat) { saverEaten = k; layers.saverKey() } }
             else if (saverEaten === k) saverEaten = 0
+            return true
+        }
+        // The mic key (push-to-talk) is LumaTV's while voice search is ready: the press starts listening, the release ends it, and
+        // LG's chain never sees either (LG's voice would send the speech to LG). When the helper does not say `ready` (voice search
+        // is off, not linked, or has no microphone) the key goes down LG's chain as it always did.
+        if (hostActive && !aiPrompt.up && k === WebOS.Key_webOS_Voice && (voiceBusy || (voiceReady && !settingsOpen))) {
+            if (pressed && !autoRepeat) voiceKeyDown()
+            else if (!pressed) voiceKeyUp()
             return true
         }
         // The Menu key: the options of the app under the focus (docs/mocks/16-context-menu: "hold OK or the Menu key on a dock
@@ -1155,7 +1164,10 @@ Item {
         home: root
         below: root.layerStack
         open: !root.hostActive ? "" : root.settingsOpen ? "settings" : root.layerOpen !== "" ? root.layerOpen : root.doorLayer !== "" ? root.doorLayer : root.galleryOn ? "gallery" : ""
-        onCloseRequested: { if (id === "settings") root.closeSettings(); else root.closeLayerById(id) }
+        onCloseRequested: {
+            if (id === "settings") root.closeSettings()
+            else { if (id === "voice" && root.voiceBusy) root.voiceAbort(); root.closeLayerById(id) }
+        }
         onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
         onAppLaunched: root.launchApp(app)
         onAppMenu: root.appMenu(app, "library", anchor, null)
@@ -1183,7 +1195,7 @@ Item {
         LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: app.id, params: app.params || {} }))
     }
     function openSearch(text) {
-        layers.searchOpen({ sources: { apps: Apps.shown, pages: layers.settingsPages() }, text: text || "", voice: !!(theme.voice && theme.voice.enabled) })
+        layers.searchOpen({ sources: { apps: Apps.shown, pages: layers.settingsPages() }, text: text || "", voice: voiceReady })
         openLayer("search")
     }
     function searchPicked(kind, id, text) {
@@ -1316,6 +1328,76 @@ Item {
         interval: 700
         onTriggered: { var a = app; app = null; layers.voiceIdle(); if (layers.open === "voice") launchApp(a) }
     }
+    // ---- voice search: hold the mic key and speak; the words are typed into Search and nothing acts on them. The helper listens
+    // (`POST /v1/voice/listen` and `/stop`) and has Home Assistant's Assist pipeline turn the speech into text; what it knows is
+    // its `voice` topic: ready, listening, thinking, then heard (the words) or error (why not).
+    readonly property bool voiceReady: !!(Helper.topics.voice && Helper.topics.voice.ready === true)
+    property bool voiceBusy: false              // from the key going down to the end of the request
+    property bool voiceReleased: false
+    property int voiceSession: 0                // the helper's number for the request, 0 until it has answered
+    property int voiceRequest: 0                // which key press this is, so a late answer to an old one is told apart
+    function voiceKeyDown() {
+        if (voiceBusy) return
+        var mine = ++voiceRequest
+        voiceBusy = true; voiceReleased = false; voiceSession = 0
+        voiceClear.stop()
+        voiceStart()
+        Helper.post("/v1/voice/listen", {}, function(status, doc) {
+            var ok = status === 200 && doc && doc.ok
+            // Back (or the app launched) came first: whatever started is ended again.
+            if (mine !== voiceRequest || !voiceBusy) { if (ok) Helper.post("/v1/voice/cancel", {}); return }
+            if (ok) {
+                voiceSession = doc.session
+                if (voiceReleased) Helper.post("/v1/voice/stop", {})
+                voiceTopicChanged()
+            } else voiceFail(voiceWhy(doc))
+        })
+    }
+    // Why the helper would not listen. Qt's XMLHttpRequest reports no status and no body for a 409, so when there is no document
+    // the helper's own `voice` topic (it carries a `reason` whenever it is not ready) says it.
+    function voiceWhy(doc) {
+        if (doc && doc.error && doc.error.message) return doc.error.message
+        if (!Helper.up) return "The TV's helper is not running"
+        var v = Helper.topics.voice, r = v ? v.reason : ""
+        return r === "voice_off" ? "Voice search is switched off" : r === "voice_unlinked" ? "Voice search is not linked to Home Assistant"
+             : r === "no_microphone" ? "No microphone is chosen for voice search" : "Voice search is busy or not available"
+    }
+    function voiceKeyUp() {
+        if (!voiceBusy) return
+        voiceReleased = true
+        layers.voiceWorking()
+        if (voiceSession !== 0) Helper.post("/v1/voice/stop", {})
+    }
+    // Back, or anything that takes Home away: the microphone is closed and nothing is reported.
+    function voiceAbort() {
+        voiceBusy = false; voiceSession = 0
+        layers.voiceMic(false)
+        Helper.post("/v1/voice/cancel", {})
+    }
+    function voiceTopicChanged() {
+        var v = Helper.topics.voice
+        if (!voiceBusy || voiceSession === 0 || !v || v.session !== voiceSession || v.state === "listening") return
+        layers.voiceMic(false)                  // the helper says the microphone is closed
+        if (v.state === "thinking") layers.voiceWorking()
+        else if (v.state === "heard") voiceFill(v.text)
+        else if (v.state === "error") voiceFail(v.error ? v.error.message : "Voice search failed")
+        else voiceEnd()                         // idle: the helper ended it (switched off, or stopping)
+    }
+    Connections { target: Helper; onUpdated: if (topic === "voice") root.voiceTopicChanged() }
+    function voiceFill(words) {
+        voiceBusy = false
+        layers.voiceIdle()
+        closeLayerById("voice")
+        openSearch(words)
+    }
+    function voiceFail(words) {
+        voiceBusy = false
+        layers.voiceFailed(words)
+        voiceClear.restart()
+    }
+    function voiceEnd() { voiceBusy = false; layers.voiceIdle(); closeLayerById("voice") }
+    // A reason stays on the bar long enough to read, then the bar goes (unless a new request has taken it).
+    Timer { id: voiceClear; interval: 2600; onTriggered: { if (!root.voiceBusy && layers.up("voice")) root.voiceEnd() } }
     function voicePicked(id) {
         voiceAct.stop()
         layers.voiceIdle()

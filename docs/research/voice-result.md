@@ -7,7 +7,7 @@ Decided (PLAN, 2026-10-25): speech becomes text through Nitin's Home Assistant A
 Done on the offline host, committed:
 
 - Helper: `voice.rs`, `voice_ws.rs`, `voice_store.rs`, the `base.voice` setting, `/v1/voice/*`, `lumatv-helper voice-link` / `voice-unlink`. 15 end-to-end tests in `helper/app/tests/voice.rs` against a fake Home Assistant and a fake microphone; the whole helper suite passes.
-- QML: the mic key path in `LumaHome.qml`, the voice bar's `working` and `failed` states, the heard text typed into Search.
+- QML: the mic key path in `LumaHome.qml`, the voice bar's `working` and `failed` states, the heard text typed into Search. 5 host tests in `tests/test_voice_search.py`; the 12 shell, 13 panel, 3 scene-loader and 2 volume tests still pass; scenes `28-voice-working`, `28-voice-failed` and `09-search-keyboard` (now lit by the helper's `ready`, not `theme.voice.enabled`) were rendered in both materials.
 
 Open, in this order:
 
@@ -81,6 +81,15 @@ Hold the mic key on Home: the voice bar shows "Listening" and the mic indicator,
 - **The mic key**: `LumaHome.key` takes `Key_webOS_Voice` only while Home is in front, the AI prompt is not up, and the helper says `ready`. Otherwise the key goes down LG's chain as before. A taken press means LG's voice never sees the key, so nothing of LG's listens even where its services are running.
 - **TLS**: an `https://` address goes through the system's `openssl s_client`, as the weather does (LumaShow's `fetch`, the certificate and host name checked). The set's `openssl` may be 1.1.1 and the `s_client` flags need 3.x (see `fetcher.rs`); use the plain `http://` LAN address.
 
+## Left as found, for Main
+
+- `LumaHome.voiceHeard(words)` and `Match.voice` (ShellSlice's recogniser API, with the voice bar's `heard` state and its options) are not on the new path and nothing calls them. They can launch an app when the words name one, which is a command, so they should go (with the `28-voice-heard` and `28-voice-results` scenes and the shell test that uses them) once Nitin confirms the search box is the only result.
+- No Settings page switches voice search on; the API call above does. A page would also show `ready` and its `reason`.
+- `docs/research/shell-slice-result.md` still says nothing starts the voice bar.
+- Qt's `XMLHttpRequest` in the QML host reports status 0 and no body for a 409, so the voice bar names the refusal from the helper's `reason` on the `voice` topic. [INFERENCE: the TV's Qt 5.12 does the same; the host runs the same Qt.]
+
 ## Tests
 
-`cd helper && cargo test --offline` (all of it; the voice end-to-end tests are `--test voice`), `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`. QML: see the end of this file.
+- Helper: `cd helper && cargo test --offline` (everything, 310 unit and all integration tests; the voice ones are `--test voice`, 15 tests), `cargo clippy --offline --all-targets -- -D warnings`, `cargo fmt --check`.
+- QML: `python3 -m unittest discover -s tests -p 'test_voice_search.py'` (5), `test_shell_surfaces.py` (12), `test_panels.py` (13).
+- Scenes: `python3 tests/qmlhost/scenes.py --out /tmp/voice-shots --only 09-search-keyboard,28-voice-listening,28-voice-working,28-voice-failed,28-mic-indicator`.

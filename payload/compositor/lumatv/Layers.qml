@@ -83,6 +83,8 @@ Item {
     function voiceListen() { if (voiceRes.item) voiceRes.item.listen() }
     function voiceHeard(words, options, doing) { if (voiceRes.item) voiceRes.item.heard(words, options, doing) }
     function voiceIdle() { if (voiceRes.item) voiceRes.item.idle() }
+    function voiceWorking() { if (voiceRes.item) voiceRes.item.working() }
+    function voiceFailed(words) { if (voiceRes.item) voiceRes.item.failed(words) }
     function voiceMic(on) { if (voiceRes.item) voiceRes.item.micOpen = on }
     function bannerShow(spec) { if (bannerRes.item) bannerRes.item.show(spec) }
     function bannerHide() { if (bannerRes.item) bannerRes.item.hide() }

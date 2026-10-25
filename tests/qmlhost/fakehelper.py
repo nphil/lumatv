@@ -102,6 +102,7 @@ class State:
         self.ambient_state = "idle"
         self.ambient_strip = True
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
+        self.voice_session = 0
 
     def publish(self, topic, data):
         if topic == "__audit":              # not a topic: the recent-activity list of /v1/ai/audit
@@ -216,6 +217,31 @@ def handler(st):
                 return self.ai_reply(200, changed=True, pending=False)
             return self.send(404, {"ok": False, "api": 1, "error": {"code": "not_found", "message": "no such route"}})
 
+        def voice_route(self, path, body):
+            """Voice search as the helper's /v1/voice/* answers it. Not a model of the speech: the `voice` topic a test publishes
+            says whether it is `ready` and, in a `say` key that only this fake reads, what the next request hears: {"text": ...} or
+            {"error": {"code", "message"}}, after `delayMs` (150); a `refuse` {code, message} makes listen answer 409 with it."""
+            st.posts.append([path, body])
+            cur = st.topics.get("voice") or {"state": "idle", "session": 0, "ready": False}
+            base = {k: v for k, v in cur.items() if k not in ("text", "error")}
+            if path == "/v1/voice/listen":
+                if not cur.get("ready") or cur.get("refuse"):
+                    return self.send(409, {"ok": False, "api": 1, "error": cur.get("refuse") or {"code": "voice_off", "message": "voice search is switched off"}})
+                st.voice_session += 1
+                st.publish("voice", dict(base, state="listening", session=st.voice_session))
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "session": st.voice_session})
+            if path == "/v1/voice/stop":
+                session, say = cur.get("session", 0), dict(cur.get("say") or {"error": {"code": "nothing_heard", "message": "Nothing was heard"}})
+                delay = say.pop("delayMs", 150) / 1000
+                st.publish("voice", dict(base, state="thinking"))
+                answer = dict(base, state="heard", **say) if "text" in say else dict(base, state="error", **say)
+                threading.Timer(delay, lambda: st.publish("voice", answer) if (st.topics.get("voice") or {}).get("session") == session else None).start()
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "stopped": True})
+            if path == "/v1/voice/cancel":
+                st.publish("voice", dict(base, state="idle"))
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "cancelled": True})
+            return self.send(200, {"ok": True, "api": 1})
+
         def do_DELETE(self):
             u = urlparse(self.path)
             if u.path.startswith("/v1/ai"):
@@ -295,6 +321,8 @@ def handler(st):
                 self.send(200, {"ok": True, "api": 1})
             elif u.path.startswith("/v1/ai"):
                 self.ai_route("POST", u.path, body)
+            elif u.path.startswith("/v1/voice/"):
+                self.voice_route(u.path, body)
             else:
                 st.posts.append([u.path, body])
                 self.send(200, {"ok": True, "api": 1})

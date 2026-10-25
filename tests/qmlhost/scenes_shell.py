@@ -49,6 +49,9 @@ def _():
     return [("keys", READY, "right menu"), ("snap", READY + 1400, "16-context-menu-dock")]
 
 
+VOICE_READY = {"state": "idle", "session": 0, "ready": True}
+
+
 @scene("06-confirm-uninstall")
 def _():
     # library, Down to Crunchyroll, its menu, Down to Uninstall, OK: the question, with Keep it focused
@@ -57,7 +60,8 @@ def _():
 
 @scene("09-search-keyboard")
 def _():
-    return [("theme", 0, {"voice": {"enabled": True}}), ("eval", READY, "root.openSearch('Net')"), ("snap", READY + 1500, "09-search-keyboard")]
+    # the mic hint shows when the helper says voice search is ready
+    return [("publish", 300, "voice", VOICE_READY), ("eval", READY, "root.openSearch('Net')"), ("snap", READY + 1500, "09-search-keyboard")]
 
 
 @scene("09-search-rename")
@@ -80,6 +84,19 @@ def _():
 @scene("28-voice-results")
 def _():
     return [("eval", READY, "root.voiceHeard('netflix series about chess')"), ("snap", READY + 1200, "28-voice-results")]
+
+
+@scene("28-voice-working")
+def _():
+    # the key is up and the words are on their way
+    return [("publish", 300, "voice", dict(VOICE_READY, say={"text": "x", "delayMs": 20000})), ("eval", READY, "root.voiceKeyDown()"),
+            ("eval", READY + 500, "root.voiceKeyUp()"), ("snap", READY + 1500, "28-voice-working")]
+
+
+@scene("28-voice-failed")
+def _():
+    return [("publish", 300, "voice", VOICE_READY), ("eval", READY, "root.voiceKeyDown()"), ("eval", READY + 500, "root.voiceKeyUp()"),
+            ("snap", READY + 1500, "28-voice-failed")]
 
 
 @scene("28-mic-indicator")
