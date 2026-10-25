@@ -83,8 +83,9 @@ class Preload(unittest.TestCase):
         rc, out = self.run_tool("on")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.enabled(), {"netflix": True, "youtube.leanback.v4": False, "com.webos.app.lgchannels": False,
-                                          "com.webos.app.browser": False, "amazon": True, "airplay": False})
-        self.assertEqual(self.read("live.json"), {"youtube.leanback.v4": False, "com.webos.app.lgchannels": False, "com.webos.app.browser": False})
+                                          "com.webos.app.browser": False, "amazon": False, "airplay": False})
+        self.assertEqual(self.read("live.json"), {"youtube.leanback.v4": False, "com.webos.app.lgchannels": False,
+                                                  "com.webos.app.browser": False, "amazon": False})
         self.assertEqual(self.read("data/preload.json"), {"off": json.load(open(PAYLOAD))["off"]})
         self.assertEqual(json.load(open(self.orig)), LG)
 
@@ -109,11 +110,11 @@ class Preload(unittest.TestCase):
         self.run_tool("on")
         lst = self.read("list.json")
         for e in lst:
-            if e["id"] == "amazon":
-                e["isEnabled"] = False
+            if e["id"] == "airplay":
+                e["isEnabled"] = True
         json.dump(lst, open(os.path.join(self.tmp.name, "list.json"), "w"))
         self.run_tool("off")
-        self.assertFalse(self.enabled()["amazon"])
+        self.assertTrue(self.enabled()["airplay"])
         self.assertTrue(self.enabled()["youtube.leanback.v4"])
 
     def test_off_without_a_backup_fails_and_changes_nothing(self):
@@ -128,7 +129,7 @@ class Preload(unittest.TestCase):
         os.remove(os.path.join(self.tmp.name, "live.json"))
         rc, out = self.run_tool("wake")
         self.assertEqual(rc, 0)
-        self.assertEqual(self.read("live.json"), {"youtube.leanback.v4": False, "com.webos.app.lgchannels": False, "com.webos.app.browser": False})
+        self.assertEqual(self.read("live.json"), {i: False for i in json.load(open(PAYLOAD))["off"]})
 
     def test_an_unreadable_list_fails_and_writes_no_state(self):
         with open(os.path.join(self.tmp.name, "fail"), "w") as f:
@@ -143,18 +144,19 @@ class Preload(unittest.TestCase):
             f.write("setPreloadPolicy")
         rc, out = self.run_tool("on")
         self.assertEqual(rc, 1)
-        self.assertEqual(len(out["failed"]), 3)
+        self.assertEqual(len(out["failed"]), len(json.load(open(PAYLOAD))["off"]))
 
     def test_status_reads_without_writing(self):
         rc, out = self.run_tool("status")
         self.assertEqual(rc, 0)
         self.assertFalse(out["on"])
-        self.assertEqual([o["enabled"] for o in out["off"]], [True, True, True])
+        self.assertEqual([o["enabled"] for o in out["off"]], [True] * len(json.load(open(PAYLOAD))["off"]))
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "data")))
 
-    def test_the_shipped_list_keeps_netflix_prime_and_the_essentials(self):
+    def test_the_shipped_list_keeps_only_netflix_warm(self):
         off = json.load(open(PAYLOAD))["off"]
-        self.assertEqual(sorted(off), ["com.webos.app.browser", "com.webos.app.lgchannels", "youtube.leanback.v4"])
+        self.assertEqual(sorted(off), ["amazon", "com.webos.app.browser", "com.webos.app.lgchannels", "youtube.leanback.v4"])
+        self.assertNotIn("netflix", off)
 
 
 if __name__ == "__main__":

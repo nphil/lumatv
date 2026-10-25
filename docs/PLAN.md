@@ -914,10 +914,10 @@ above replaces it).
    `lean` is applied and persisted on the set (Status); Prime Video stays unless an
    LG surface clearly pushes it. Still to do: the Apps tile to the own grid and the
    Notification Centre to the own drawer.
-8. Background preloads: `lumatv preload on` (YouTube, LG Channels and the browser
-   dropped from the list, Netflix and Prime Video kept) is built; the A/B on the set
-   (slot 2) showed no gain, because the list only matters at a cold start and
-   closes nothing that runs, so it is off until a cold boot shows one. The
+8. Background preloads: `lumatv preload on` (YouTube, LG Channels, the browser and
+   Prime Video dropped from the list, Netflix kept) is built; the A/B on the set
+   (slot 2) showed no warm-start gain, because the list only matters at a cold start
+   and closes nothing that runs; it is applied for the memory it frees. The
    screensaver is to be replaced. Research first, under the app-manager
    constraint below.
 9. Plugins: the broker on LumaShow's plugin API, TV drawing of cards, tiles,
@@ -1009,11 +1009,11 @@ what it already does.
   is sent again at each wake. Glasshouse already does this; LumaTV uses it.
   On the set: Netflix, YouTube, Prime Video, the browser and LG Channels are
   enabled. `lumatv preload on` (`tools/preload.py`, list in `payload/preload.json`)
-  saves LG's list once in `preload.orig`, writes it back with YouTube, LG Channels
-  and the browser off, tells the running preload manager, and records the ids in
-  `preload.json` for the helper, which sends `setPreloadPolicy` again at every
-  switch-on; `preload off` and `revert` restore each entry as LG had it. Netflix and
-  Prime Video stay warm.
+  saves LG's list once in `preload.orig`, writes it back with YouTube, LG Channels,
+  the browser and Prime Video off, tells the running preload manager, and records
+  the ids in `preload.json` for the helper, which sends `setPreloadPolicy` again at
+  every switch-on; `preload off` and `revert` restore each entry as LG had it.
+  Netflix stays warm.
 - Retiring LG's Home: built on 2026-10-25 and left on (`lumatv homestub
   on|off|confirm|status`; tests and the way back in
   `docs/research/homestub-result.md`). The mechanism proven by hand on
@@ -1080,7 +1080,8 @@ what it already does.
 - Background preloads: only Netflix stays warm; YouTube (135 MB), LG
   Channels (100 MB) and the web browser (72 MB) are dropped from
   `preloadmanager.supportAppList`, about 307 MB, re-sent at every wake as
-  webOS 10 requires (Nitin, 2026-10-23). Phase 8.
+  webOS 10 requires (Nitin, 2026-10-23); Prime Video (70 MB) too, and Live TV
+  need not be kept ready: it is used rarely (Nitin, 2026-10-25). Phase 8.
 - Light sync capture: the `vt_devmode` flag file, LG's developer switch that
   also relaxes the capture service's caller check, may be created for short
   probe slots and is removed at the end of each (Nitin, 2026-10-25). Keeping it
