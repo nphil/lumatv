@@ -197,32 +197,87 @@ pub fn on_card_gone(state: &mut State) {
 /// a relaunch (WAM, from a minimized window) then has a state to change; without this Home's relaunch over HDMI 2 sent
 /// nothing and HDMI 2 stayed in front (second gate, 2026-10-25). `except` is a card that asked to be minimized itself:
 /// it keeps that, and the one below it comes back. A card that never came to the front (a preloaded app's window
-/// before its relaunch, bufferless in state Default) is left as it is.
+/// before its relaunch, bufferless in state Default) is left as it is. The card that ends up in front is then exposed
+/// and every other card unexposed.
 pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
-    let Some(top) = state.scene.front_card(&state.surfaces, except) else { return };
-    let changes: Vec<(WindowId, ShellState)> = state
+    if let Some(top) = state.scene.front_card(&state.surfaces, except) {
+        let changes: Vec<(WindowId, ShellState)> = state
+            .scene
+            .windows()
+            .filter(|w| w.kind.is_card() && w.front > 0 && Some(w.id) != except)
+            .filter(|w| w.map_serial == 0 || state.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
+            .filter_map(|w| {
+                let wanted = if w.id == top { ShellState::Fullscreen } else { ShellState::Minimized };
+                (w.state != wanted).then_some((w.id, wanted))
+            })
+            .collect();
+        for (wid, wanted) in changes {
+            if let Some(w) = state.scene.window_mut(wid) {
+                w.state = wanted;
+            }
+            if let Some(res) = state.webos_shell_resource(wid) {
+                send_state(&res, wanted);
+            }
+            state.journal(format!(
+                "window {}: {}",
+                wid.0,
+                if wanted == ShellState::Fullscreen { "fullscreen (the front card)" } else { "minimized (covered by a newer card)" }
+            ));
+        }
+    }
+    sync_exposed(state);
+}
+
+/// Tells each card what `wl_webos_shell_surface.exposed` it has: the foreground card its whole rectangle, every other
+/// card none. OSE's compositor sends the rectangle (0, 0, surface size) when a card becomes fullscreen and nothing
+/// else, and LG's Qt platform plugin turns the event into Qt's expose, without which a Qt window does not render (the
+/// preloaded HDMI 2 app never drew on the fourth gate, 2026-10-25). A card raised before its first buffer has no
+/// surface size yet; it gets the output's, the rectangle a card fills [INFERENCE: OSE would send an empty list
+/// there, which Qt 5 takes as an expose all the same]. The empty list for a covered or minimized card is this
+/// compositor's reading of the protocol ("areas that are visible in this surface"); OSE never unexposes a card.
+pub fn sync_exposed(state: &mut State) {
+    let fg = state.scene.foreground(&state.surfaces).map(|w| w.id);
+    let changes: Vec<(WindowId, bool)> = state
         .scene
         .windows()
-        .filter(|w| w.kind.is_card() && w.front > 0 && Some(w.id) != except)
-        .filter(|w| w.map_serial == 0 || state.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
+        .filter(|w| w.kind.is_card() && w.has_webos_shell)
         .filter_map(|w| {
-            let wanted = if w.id == top { ShellState::Fullscreen } else { ShellState::Minimized };
-            (w.state != wanted).then_some((w.id, wanted))
+            let wanted = Some(w.id) == fg;
+            (w.exposed != wanted).then_some((w.id, wanted))
         })
         .collect();
     for (wid, wanted) in changes {
-        if let Some(w) = state.scene.window_mut(wid) {
-            w.state = wanted;
-        }
+        let Some(w) = state.scene.window_mut(wid) else { continue };
+        w.exposed = wanted;
+        let surface = w.surface;
+        let rect = wanted.then(|| {
+            let (sw, sh) = state.surfaces.get(surface).filter(|s| s.is_mapped()).map(|s| s.size()).unwrap_or((0, 0));
+            if sw > 0 && sh > 0 {
+                (sw, sh)
+            } else {
+                let (ow, oh) = state.output.size();
+                (ow as i32, oh as i32)
+            }
+        });
         if let Some(res) = state.webos_shell_resource(wid) {
-            send_state(&res, wanted);
+            send_exposed(&res, rect);
         }
-        state.journal(format!(
-            "window {}: {}",
-            wid.0,
-            if wanted == ShellState::Fullscreen { "fullscreen (the front card)" } else { "minimized (covered by a newer card)" }
-        ));
+        state.journal(match rect {
+            Some((w, h)) => format!("window {}: exposed {w}x{h}", wid.0),
+            None => format!("window {}: exposed nothing (covered)", wid.0),
+        });
     }
+}
+
+/// `exposed` with one rectangle at the origin, or none: ints x,y,w,h per rectangle and a closing -1, in the
+/// client's byte order (a `wl_array` is memory, not marshalled ints).
+fn send_exposed(resource: &WlWebosShellSurface, rect: Option<(i32, i32)>) {
+    let mut ints = Vec::with_capacity(5);
+    if let Some((w, h)) = rect {
+        ints.extend([0, 0, w, h]);
+    }
+    ints.push(-1);
+    resource.exposed(ints.iter().flat_map(|v| v.to_ne_bytes()).collect());
 }
 
 impl State {

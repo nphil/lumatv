@@ -155,6 +155,8 @@ pub struct ClientState {
     /// `state_changed` by the shell surface it came on (its protocol id), in order.
     pub states_of: Vec<(u32, u32)>,
     pub positions: Vec<(i32, i32)>,
+    /// `exposed` by the shell surface it came on: the ints of the array, closing -1 included.
+    pub exposed_of: Vec<(u32, Vec<i32>)>,
     pub closes: u32,
     pub window_ids: Vec<(String, u32)>,
     pub punchthrough_attached: Vec<String>,
@@ -330,6 +332,10 @@ impl Dispatch<WlWebosShellSurface, ()> for ClientState {
                 state.states_of.push((s.id().protocol_id(), st));
             }
             wl_webos_shell_surface::Event::PositionChanged { x, y } => state.positions.push((x, y)),
+            wl_webos_shell_surface::Event::Exposed { rectangles } => {
+                let ints = rectangles.chunks_exact(4).map(|c| i32::from_ne_bytes([c[0], c[1], c[2], c[3]])).collect();
+                state.exposed_of.push((s.id().protocol_id(), ints));
+            }
             wl_webos_shell_surface::Event::Close => state.closes += 1,
             _ => {}
         }

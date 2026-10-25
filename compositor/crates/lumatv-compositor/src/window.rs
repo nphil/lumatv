@@ -159,6 +159,9 @@ pub struct Window {
     pub has_webos_shell: bool,
     /// Whether a commit without a buffer was seen while unmapped (journalled once).
     pub bare_commit_seen: bool,
+    /// What the client was last told by `wl_webos_shell_surface.exposed`: its rectangle (true) or none (false). Sent
+    /// on each change only, as OSE's `WebOSSurfaceItem::m_exposed` latches it.
+    pub exposed: bool,
 }
 
 impl Window {
@@ -179,6 +182,7 @@ impl Window {
             has_wl_shell: false,
             has_webos_shell: false,
             bare_commit_seen: false,
+            exposed: false,
         }
     }
 

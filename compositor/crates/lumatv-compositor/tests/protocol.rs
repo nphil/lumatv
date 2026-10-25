@@ -245,6 +245,59 @@ fn a_preloaded_card_relaunched_is_the_foreground_before_its_first_buffer() {
     assert_eq!(image.pixel(5, 5), [0xff, 0, 0, 0xff]);
 }
 
+/// `wl_webos_shell_surface.exposed`, which LG's Qt platform plugin turns into Qt's expose (a Qt window that is not
+/// exposed does not render; the preloaded HDMI 2 app never drew on the fourth gate, 2026-10-25): the card at the
+/// front gets its rectangle, once, at its `set_state(fullscreen)` even before its first buffer (the output's size
+/// then) or at its mapping; a card that is covered or minimizes itself gets an empty list; nothing is repeated.
+#[test]
+fn the_front_card_is_exposed_and_a_covered_card_is_not() {
+    use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::State as WlState;
+    let (fullscreen, minimized) = (WlState::Fullscreen as u32, WlState::Minimized as u32);
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    let exposed = |s: &harness::ClientState, id: u32| -> Vec<Vec<i32>> { s.exposed_of.iter().filter(|(w, _)| *w == id).map(|(_, r)| r.clone()).collect() };
+    let (full, none) = (vec![0, 0, 1920, 1080, -1], vec![-1]);
+
+    // Home maps: exposed with its buffer's rectangle.
+    let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
+    let home_id = home.webos.id().protocol_id();
+    let red = client.shm_buffer(1920, 1080, 0xffff_0000);
+    client.present(&home.surface, &red);
+    assert!(client.wait_until(WAIT, |s| exposed(s, home_id) == [full.clone()]));
+
+    // Preloaded HDMI 2: a window without a buffer, nothing asked, nothing exposed.
+    let hdmi = client.card("_WEBOS_WINDOW_TYPE_CARD", "HDMI2");
+    let hdmi_id = hdmi.webos.id().protocol_id();
+    hdmi.surface.commit();
+    client.roundtrip();
+    std::thread::sleep(Duration::from_millis(30));
+    client.roundtrip();
+    assert!(exposed(&client.state, hdmi_id).is_empty());
+
+    // Relaunched: fullscreen before any buffer. Exposed with the output's rectangle; Home, covered, with none.
+    hdmi.webos.set_state(fullscreen);
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| exposed(s, hdmi_id) == [full.clone()] && exposed(s, home_id) == [full.clone(), none.clone()]));
+    assert_eq!(client.state.states_of.iter().filter(|(w, _)| *w == hdmi_id).map(|(_, st)| *st).collect::<Vec<_>>(), [fullscreen]);
+    assert!(!server.eval(|s| s.scene.windows().find(|w| w.title == "HDMI2").map(|w| w.map_serial > 0).unwrap()));
+
+    // Its first buffer maps and is drawn; the expose is not repeated.
+    let blue = client.shm_buffer(1920, 1080, 0xff00_00ff);
+    client.present(&hdmi.surface, &blue);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 2));
+    std::thread::sleep(Duration::from_millis(30));
+    client.roundtrip();
+    let (mapped, image) = server.eval(|s| (s.scene.windows().find(|w| w.title == "HDMI2").map(|w| w.map_serial > 0).unwrap(), s.output.capture().unwrap()));
+    assert!(mapped);
+    assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
+    assert_eq!(exposed(&client.state, hdmi_id), [full.clone()]);
+
+    // HDMI 2 minimizes itself: unexposed; Home comes back and is exposed again.
+    hdmi.webos.set_state(minimized);
+    client.conn.flush().unwrap();
+    assert!(client.wait_until(WAIT, |s| exposed(s, hdmi_id) == [full.clone(), none.clone()] && exposed(s, home_id) == [full.clone(), none.clone(), full.clone()]));
+}
+
 #[test]
 fn overlay_stacks_above_the_card_at_its_position() {
     let mut server = Server::start();
