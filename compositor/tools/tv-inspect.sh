@@ -11,11 +11,14 @@ sec "/tmp/xdg (socket directory and socket modes)"; ls -la /tmp/xdg/ 2>/dev/null
 sec "env file"; cat /var/systemd/system/env/surface-manager.env 2>/dev/null
 sec "/usr/bin/surface-manager"; ls -la /usr/bin/surface-manager; stat -c '%s %Y' /usr/bin/surface-manager
 sec "webapp-mgr.service"; systemctl show webapp-mgr.service -p ActiveState,SubState,Result,NRestarts,StartLimitBurst,StartLimitIntervalUSec,ExecMainStartTimestampMonotonic; ls -la /tmp/lsm-ready 2>/dev/null
-sec "initctl"; ls -la /sbin/initctl 2>/dev/null; file /sbin/initctl 2>/dev/null; head -c 400 /sbin/initctl 2>/dev/null | strings | head -5
+sec "initctl"; ls -la /sbin/initctl 2>/dev/null; head -c 400 /sbin/initctl 2>/dev/null | tr -cd '[:print:]\n' | head -5
 sec "luna-service2 directories"; ls -d /usr/share/luna-service2/*/ /var/luna-service2/*/ /etc/luna-service2 2>/dev/null; ls /usr/share/luna-service2/ 2>/dev/null
-sec "role files naming surface-manager"; grep -rl 'surface-manager' /usr/share/luna-service2 /var/luna-service2 /etc/luna-service2 2>/dev/null | head -40
-for f in $(grep -rl '"/usr/bin/surface-manager"' /usr/share/luna-service2 /var/luna-service2 2>/dev/null | head -8); do echo "--- $f"; cat "$f"; echo; done
-sec "role files naming com.webos.surfacemanager (allowedNames / provides)"; grep -rl 'com.webos.surfacemanager"' /usr/share/luna-service2 /var/luna-service2 2>/dev/null | head -20
+# Regular files only and bounded: the first inspection (2026-10-25) hung for minutes in a recursive grep here,
+# most likely on a FIFO or socket under /var/luna-service2.
+lsfiles() { timeout 20 find /usr/share/luna-service2 /var/luna-service2 /etc/luna-service2 -type f 2>/dev/null; }
+sec "role files naming surface-manager"; lsfiles | xargs timeout 20 grep -l 'surface-manager' 2>/dev/null | head -40
+for f in $(lsfiles | xargs timeout 20 grep -l '"/usr/bin/surface-manager"' 2>/dev/null | head -8); do echo "--- $f"; cat "$f"; echo; done
+sec "role files naming com.webos.surfacemanager (allowedNames / provides)"; lsfiles | xargs timeout 20 grep -l 'com.webos.surfacemanager"' 2>/dev/null | head -20
 sec "ls-hubd configuration"; ls -la /etc/luna-service2/ 2>/dev/null; grep -E 'security|Security' /etc/luna-service2/ls-hubd.conf 2>/dev/null
 sec "/etc/ld.so.preload"; cat /etc/ld.so.preload 2>/dev/null
 sec "DRM"; ls -la /dev/dri/; cat /sys/class/drm/card0/device/uevent 2>/dev/null | head -5
