@@ -14,14 +14,14 @@ inventory snapshot of the firmware: `/data/home/lgtv/uiinv`.
 Kept current with every change to this plan. Building is under way (Nitin said go,
 2026-10-24).
 
-Recovery after the quota interruption (2026-10-25): `docs/HANDOFF.md`
-contains the current recovery checklist and next action. The interrupted
-surfaces pass 23 dark/light scene pairs and 18 Settings behavior checks.
-Receiver expiry and unchanged-volume heartbeats pass offline. The partial-redraw
-bridge still needs attachment to the live output path; the phases below remain
-subject to their TV gates. Newer dated worker
-notes take precedence over older status descriptions. No TV deployment
-has occurred during recovery.
+Recovery after the quota interruption (2026-10-25): a review of the fallback
+model's commits (94cb377..76e470b) found overstated claims, corrected here and in
+`docs/HANDOFF.md`. The recovered scenes load in the QML host without warnings,
+but the scene tool wrote no renders (its snap step was lost), so no dark/light
+screenshot backs them yet. The context menu, confirmation and on-screen remote
+are built but nothing opens them on the set; search, voice bar, apps grid,
+banner and drawer are not instantiated. The engine-in-compositor bridge draws
+into the compositor's pages on the host (41c6e83); not on the TV.
 
 - Done in phase 1, surfaces (2026-10-25, `docs/research/surfaces-p1-result.md`):
   fail-open key filter with press and release paired, OK acting on release,
@@ -86,11 +86,10 @@ has occurred during recovery.
   histogram probe (needs the `libvtcapture` histogram signatures first); the five
   census experiments, each its own slot; a TV smoke test of the plugin broker.
   Need Nitin present: PIN prompt; keys from his universal remote once set up.
-- Next: finish offline recovery from `docs/HANDOFF.md`, starting with the
-  AI-approval behavioral failure and the interrupted surface changes. Then
-  continue phases 2-9 and Track C; the next TV trial is described in
-  `docs/research/compositor-c2-result.md`. Existing TV results remain in the
-  dated worker notes; do not repeat completed slots from an older summary.
+- Next: the slices in `docs/HANDOFF.md` (Resume here) finish phases 2-9 offline;
+  TV slots run one at a time (memory, compositor trial, light-sync probe,
+  compressed-RAM swap). Existing TV results remain in the dated worker notes; do
+  not repeat completed slots from an older summary.
 
 ## Rules every surface meets
 

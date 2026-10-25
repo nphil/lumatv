@@ -6,13 +6,11 @@ Plan: `docs/PLAN.md` (Rules every surface meets, Phases). Previous owner's notes
 
 ## Resume here
 
-Offline recovery, 2026-10-25: Picture, Sound, Inputs, Network, Home, Remote, System, AI access and receiver pages, the input picker,
-quick panel, receiver OSD, splash, spinner, hold ring, context/power/pointer menus, confirmation and screen remote now render
-through the QML host in both materials (23 scenes each, no reported errors). All 18 Settings behavior checks pass. Receiver
-readings expire by their source timestamp and recover on a new reading, including unchanged-volume heartbeats. These recovered
-surfaces are not TV-validated; the older milestone list below records the last live slot, not current offline implementation.
-Search, voice, apps grid and drawer still need behavior coverage; screensaver/art mode and the separate system-window host
-remain unfinished. No TV access occurred during this recovery.
+Offline recovery, 2026-10-25, corrected after review: the recovered pages and panels load in the QML host without
+warnings, but no render was written (the scene tool's snap step was lost), so their look is unchecked. The context menu,
+confirmation and screen remote have no opener on the set; search, voice, apps grid, banner and drawer are not instantiated.
+Slices now own the rest (`docs/research/*-slice-result.md`). None of this is TV-validated; the older milestone list below
+records the last live slot.
 
 State at 2026-10-25 07:00 EDT (SurfacesP2c, the restart after the credit cut-off). Slot 2 ran 06:27-06:59 and the set is back in
 Active Standby, LG's compositor, Home stub on, receiver untouched; the numbers are under "Slot 2" in the Log. Milestones 1-6 are built

@@ -6,51 +6,29 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25, offline recovery)
+## Resume here (LumaTV, 2026-10-25 11:10 EDT)
 
-- Source of truth: `docs/PLAN.md` holds the project phases, acceptance gates and
-  decisions; `docs/SURFACES.md` holds the surface inventory. Each
-  `docs/research/*-result.md` has its worker's recovery point and evidence.
-  The latest dated recovery entry takes precedence over an older summary;
-  an implemented file is not proof that its feature passed on the TV.
-- Recovery checkpoint: `/data/home/lumatv-backups/recovery-20261025-083743`
-  contains `base-revision`, `tracked.patch` and `untracked.tar.gz`. The working
-  tree also retains the interrupted Settings, panels and renderer changes.
-  These are not a deployable release.
-- At most one task agent, including nested helpers; none currently running.
-  Continue offline. LG's compositor remains live according to the last TV
-  handback; no TV access or deployment occurred during this recovery.
-
-Recovery checklist, before returning to the project phases:
-
-- [x] Read the saved plan, handoff and compositor, surfaces, ambient, native-helper
-  and Rust UI recovery notes. The phase descriptions contain older status;
-  reconcile them with the newer worker evidence rather than repeating work.
-- [x] Fix initial Settings focus: selecting before asynchronous service values
-  arrived trapped Picture navigation on the LG link. Defer placement until
-  page entry; the existing brightness-write regression now passes. Picture and
-  Remote scenes run in dark and light; the escape note now says 650 ms.
-- [x] Recover interrupted surfaces offline: all 18 Settings checks pass. The
-  approval fixture waits for its asynchronous response; production approval
-  permissions are unchanged. All 23 recovered scenes run in dark and light
-  without reported errors. Receiver expiry and fresh-reading recovery pass
-  through the running QML host; 10 receiver integration checks and the helper
-  build gate pass. No recovered surface has been deployed during recovery.
-- [x] Run renderer recovery checks: 10 tile tests, two pixel-comparison damage
-  tests and the actual whole-versus-partial drawing benchmark pass locally.
-  Partial drawing covers 36.4% of the panel at idle in the short benchmark;
-  this is software GL, not evidence of TV speed or the 60 fps gate.
-- [ ] Finish renderer integration. The current-context UI bridge is exercised
-  by its host test, but is not attached to the compositor's live drawing path.
-  The Rust UI note references a missing damage section and
-  `rustui/tools/tv-damage.py`; neither is a completed deliverable.
-- [ ] Return to `docs/PLAN.md` phases 2-9 and Track C after recovery. Preserve
-  every outstanding surface and integration; TV gates need a free slot and
-  human-only actions remain human-controlled.
-
-Next action: attach the optional UI engine to the compositor output path and
-verify actual window composition offline. Compositor protocol, foreground and pacing
-fixes still need a new TV trial; no Netflix or frame-timing fix is proven live.
+- Source of truth: `docs/PLAN.md` (phases, gates, decisions), `docs/SURFACES.md`
+  (inventory), each `docs/research/*-result.md` (its worker's recovery point). An
+  implemented file is not proof that its feature passed on the TV.
+- Helpers: at most 10 at once including nested ones; briefs forbid spawning.
+  Running: ShellSlice, SettingsSlice, PanelsSlice, NotifySlice, PluginsSlice
+  (offline, disjoint files, notes `docs/research/*-slice-result.md`),
+  RendererIntegration (compositor/rustui), MemorySlot (holds the TV).
+- TV slots, one at a time: memory (`docs/research/memory-result.md`), then the
+  compositor trial (`compositor/tools/tv_next_slot.py`), the light-sync probe
+  (`vt_devmode` allowed for the slot only), the compressed-RAM swap A/B.
+- Review of the fallback model's commits (94cb377..76e470b), fixes assigned:
+  the scene tool lost its snap step, so "23 scenes in dark and light" meant
+  loading without warnings, not renders; the AI-approval "failure" was a port
+  collision on 18731, not a behaviour bug; the receiver was made to publish on
+  every poll, reversing the no-wake design (being restored); the 36.4 % idle
+  figure and the sampler's 50-60 ms cost have no evidence file; context menu,
+  confirmation and screen remote have no opener on the set.
+- Renderer: the engine draws inside the compositor's pages on the host
+  (41c6e83; root cause of the blank UI was the toolkit's vertex-attribute
+  invariant lost across the context switch). Not run on the TV.
+- Backups of uncommitted work: `/data/home/lumatv-backups/recovery-*`.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
