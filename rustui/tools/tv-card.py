@@ -4,10 +4,13 @@ written offline, while the set was another worker's slot; tests/test_card_tv.py 
 agrees with itself and nothing about the TV. What it asks of the set is in docs/research/cardapp-result.md ("TV step list").
 
     python3 rustui/tools/tv-card.py facts      read-only: who an app runs as, the devices, the mounts, what SAM lists
-    python3 rustui/tools/tv-card.py install    the card ipk (build/card-ipk/, made by tools/build-ipk.sh) through tools/cardapp.sh
+    python3 rustui/tools/tv-card.py install --approved   the card ipk (build/card-ipk/, made by tools/build-ipk.sh) through tools/cardapp.sh
     python3 rustui/tools/tv-card.py scenario   launch, keys, Home, relaunch, Back, SAM's close, Back held (the app must be installed)
-    python3 rustui/tools/tv-card.py remove     the app off the set
-    python3 rustui/tools/tv-card.py all        install, scenario; the app stays installed
+    python3 rustui/tools/tv-card.py remove --approved    the app off the set
+    python3 rustui/tools/tv-card.py all --approved       install, scenario; the app stays installed
+
+`--approved` says Nitin has said yes to this app being installed or removed (docs/research/cardapp-result.md, "Principle 0"): putting an
+app on the set or taking it off is not something an AI does on its own. It is a reminder, not a lock.
 
 Only with a slot, the screen on (tvpower `Active`) and Home in front. The set is left as found: the card closed, Home in front. Nothing here
 restarts, stops or kills SAM or any LG service, writes a role file or changes a setting; the only things it changes are the card app's own
@@ -311,6 +314,8 @@ def main(argv=None, tv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("facts", "install", "scenario", "remove", "all"):
         sys.exit(__doc__)
+    if argv[0] in ("install", "remove", "all") and "--approved" not in argv[1:]:
+        sys.exit("%s puts an app on the set or takes it off: Nitin's go first, then pass --approved" % argv[0])
     if tv is None:
         import tv as tv_module  # docs/research/arch/tv.py (paramiko)
         tv = tv_module

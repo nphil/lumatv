@@ -233,6 +233,15 @@ class CardTv(unittest.TestCase):
         run = self.run_script(fake, "scenario")
         self.assertTrue(any(l.startswith("FAIL") and "covered card is idle" in l for l in run.lines), "\n".join(run.lines))
 
+    def test_installing_and_removing_need_the_approval_flag(self):
+        for verb in ("install", "remove", "all"):
+            with self.assertRaises(SystemExit) as caught:
+                self.mod.main([verb], tv=FakeSet())
+            self.assertIn("Nitin's go first", str(caught.exception))
+        with self.assertRaises(SystemExit) as caught:
+            self.mod.main([], tv=FakeSet())
+        self.assertIn("tv-card.py facts", str(caught.exception))
+
     def test_it_refuses_a_set_that_is_not_awake(self):
         fake = FakeSet()
         original = fake.tv

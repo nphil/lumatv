@@ -8,7 +8,7 @@ State (2026-10-25, offline): built, packed into the ipk and tested on the host u
 
 Next slot (screen on, Home in front, about 15 minutes, Nitin's go for the install; see "Principle 0"):
 
-1. `sh tools/build-ipk.sh` (needs `rustui/tools/build-card.sh` and `gfx64/fetch-blob.sh` + `gfx64/build.sh` first), then `python3 rustui/tools/tv-card.py all`.
+1. `sh tools/build-ipk.sh` (needs `rustui/tools/build-card.sh` and `gfx64/fetch-blob.sh` + `gfx64/build.sh` first), then `python3 rustui/tools/tv-card.py all --approved` (`install`, `remove` and `all` refuse without the flag, which says Nitin has said yes).
 2. Read `docs/research/cardapp/tv-<time>/summary.txt`; every FAIL line has a row in "TV step list".
 3. Fill "TV results" and move what held from "Inferred" to "Observed".
 
@@ -16,7 +16,7 @@ For Main:
 
 - `tools/lumatv` does not install the app yet: the hook is under "Hook request for tools/lumatv" (owner of that file). Whether `apply` installs it by default is a decision: the package grows by 31.6 MB (4.0 to 35.6 MB), 26 MB of it the 64-bit runtime, and the launcher shows a "LumaTV Card" tile.
 - PLAN.md's "Native helper" section still says only the overlay window type is proven; it is host-proven for the card, TV-unproven.
-- Principle 0: installing and removing an app on the set is on the list of things an AI does not do on its own; `tv-card.py install` and `remove` need Nitin's explicit go, or Nitin runs them.
+- Principle 0: installing and removing an app on the set is on the list of things an AI does not do on its own; `tv-card.py install` and `remove` need Nitin's explicit go (the `--approved` flag is a reminder, not a lock), or Nitin runs them.
 
 ## What exists
 
@@ -93,9 +93,10 @@ Decisions and why:
 
 Run (2026-10-25, Mesa llvmpipe, the compositor as the working tree had it after `221b75b`, `168f69a`, `8f69c05`):
 
-- `cd rustui && cargo test --features window --lib --test card_host --test embedded -- --test-threads=1`: 14 unit tests, 6 host tests (the first five three passes in a row, 24.4-24.6 s each), `embedded` 1; `damage` (2, 208 s) and the rest of the suite also pass. `cargo fmt --check` and `cargo clippy --all-targets` clean.
+- `cd rustui && cargo test --features window -p lumatv-rustui --lib --test card_host --test embedded -- --test-threads=1` (`-p`: the vendored `lumatv-render` has no test modules and does not compile as a test target): 14 unit tests, 6 host tests (the first five three passes in a row, 24.4-24.6 s each), `embedded` 1; `damage` (2, 208 s) and the rest of the suite also pass. `cargo fmt --check` and `cargo clippy --all-targets` clean.
 - `python3 -m unittest tests.test_card_launcher tests.test_cardapp tests.test_card_tv tests.test_tool_rules`: 13 + 10 + 7 + 3.
 - `sh rustui/tools/build-card.sh` (23 s): aarch64 app and arm launcher; `sh tools/build-ipk.sh`: the main ipk with `payload/card/org.nphil.lumatv.card.ipk` (29.4 MB) inside.
+- A headless Weston 10 (the `xdg_shell` path of `window.rs`, which the Home spike also uses): the card app presents its first frame, and the spike's `--mode window --run idle:3,dpad:3` still runs and reports.
 - A smoke run of the real `lumatv-compositor` binary on a real socket with the real app binary (`ctl windows`: Card, Fullscreen, `KEYS_BACK` true, the app's own pid; `ctl remote 412`: the app ends).
 
 `card_host.rs` runs the compositor in process with its own harness (`compositor/crates/lumatv-compositor/tests/harness`, software renderer) and the app binary as a child on a socket pair (`WAYLAND_SOCKET`), with the test playing the launcher (the app's channel) and SAM (luna calls into the compositor). Shown:
@@ -115,7 +116,7 @@ What none of this says: that the set's hub gives the launcher the bus name, what
 
 ## TV step list
 
-NOT VERIFIED ON THE TV. `python3 rustui/tools/tv-card.py all` does steps 1 to 3; its checks are named as below.
+NOT VERIFIED ON THE TV. `python3 rustui/tools/tv-card.py all --approved` does steps 1 to 3 (`facts`, `install --approved`, `scenario`; `remove --approved` is step 4); its checks are named as below.
 
 Needs: power state `Active`, Home in front, nothing else of ours running, Nitin's go for the install. Build first: `sh gfx64/fetch-blob.sh && sh gfx64/build.sh && sh rustui/tools/build-card.sh && sh tools/build-ipk.sh`.
 
