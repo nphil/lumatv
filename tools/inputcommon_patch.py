@@ -33,6 +33,7 @@ that rewrites these files must fail here, loudly, instead of shipping a broken b
 (`tools/inputcommon.sh stage`) works on a fresh copy every time and leaves LG's tree in force when this fails.
 
 usage: inputcommon_patch.py <staged qml dir> <palette JSON from `tokens.py qml`> <fonts dir with Manrope-*.ttf>
+Prints the paths it rewrote (relative to the staged dir), one a line.
 Exit status: 0 patched, 1 an anchor is missing or the palette or fonts lack something, 2 usage.
 """
 import json
@@ -299,6 +300,7 @@ def patch_tree(root, pal, fonts):
         out[f] = fn(f.read_text(), pal)
     for f, text in out.items():
         f.write_text(text)
+    return sorted(str(f.relative_to(root)) for f in out)
 
 
 def main(argv):
@@ -311,10 +313,12 @@ def main(argv):
         for k in NEEDED:
             if k not in pal:
                 raise ValueError("palette has no " + k)
-        patch_tree(argv[1], pal, argv[3])
+        changed = patch_tree(argv[1], pal, argv[3])
     except (ValueError, OSError) as e:
         print("inputcommon_patch: " + str(e), file=sys.stderr)
         return 1
+    # What was rewritten, one path a line: the caller lays exactly these over LG's tree.
+    print("\n".join(changed))
     return 0
 
 

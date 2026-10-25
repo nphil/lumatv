@@ -72,6 +72,7 @@ class InputcommonPatch(unittest.TestCase):
 
     def run_tool(self, pal=None, fonts=FONTS):
         r = subprocess.run([sys.executable, TOOL, self.dir, json.dumps(pal or self.pal), fonts], capture_output=True, text=True)
+        self.stdout = r.stdout
         return r.returncode, r.stderr
 
     def read(self, rel):
@@ -114,9 +115,10 @@ class InputcommonPatch(unittest.TestCase):
         self.assertNotIn('infoBannerColor: "#575E66"', style)
         self.assertNotIn('nsuBgColor: "#575E66"', style)
 
-    def test_it_changes_the_seven_files_it_names_and_no_other(self):
+    def test_it_changes_the_seven_files_it_names_and_no_other_and_prints_them(self):
         self.run_tool()
         self.assertEqual(self.differing(), sorted(TOUCHED))
+        self.assertEqual(self.stdout.split("\n")[:-1], sorted(TOUCHED))
 
     def test_only_style_is_removed_and_every_line_of_LGs_behaviour_is_still_there(self):
         self.run_tool()
