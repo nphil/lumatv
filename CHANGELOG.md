@@ -97,13 +97,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   '{"kitGallery":true}'` shows them all on one sheet (Back closes it).
 - Tests: `bun test tests/` (key filter, saved-first cache, tint, kit) and
   `python3 -m unittest discover -s tests -p 'test_*.py'` (tokens, theme file).
-- Weather and news are saved to `/var/lib/lumatv/cache/weather.json` and
-  `news.json` after every fetch and drawn from there at once on a cold start,
-  then refreshed. A reading is refetched 15 minutes after it was taken, never
-  drawn after 6 hours (or when stamped over 5 minutes in the future), and a
-  failed refresh is retried after 2 and 10 minutes, then every 30. The files
-  are in the native helper's schema, and a newer file replaces what is on
-  screen, so the helper can take over fetching.
+- Home's weather and news cards draw what the native helper serves (`kit/Helper.qml`:
+  one state read, then a long poll, so the cards fetch nothing themselves) and, until
+  the helper has answered, the document it saved last time in
+  `/var/lib/lumatv/cache/weather.json` and `news.json`. A reading is never drawn after
+  6 hours (or when stamped over 5 minutes in the future) and an older reading never
+  replaces a newer one. The ZIP, units and news edition are the helper's settings
+  (`base.weather`, `base.news`) instead of keys in `theme.json`.
+- `lumatv helper start|stop|status`: the native helper is staged under
+  `/var/lib/lumatv/bin` (an update cannot overwrite a running executable) and started
+  by every apply and boot, stopped by revert. The ipk carries `helper/dist/lumatv-helper`
+  and the build refuses to run without it.
+- `lumatv preload on|off|status` keeps only Netflix and Prime Video warm: YouTube, LG
+  Channels and the browser are dropped from the preload list in configd and in the running
+  preload manager, LG's list is saved once and restored by `off` and `revert`, and the
+  helper sends the policy again at every switch-on, which webOS 10 needs.
+- `lumatv logo on|off|status` replaces LG's power-on and power-off logos with LumaTV's:
+  windows for `BootLogo` and `MasterBrand` that load one of three animations each
+  (`theme.json` `logo.on`, `logo.off`, default 1; stills in `docs/mocks/logo`). The
+  power-off window answers `tvpowerd` once, whatever happens, so a missing or broken logo
+  never holds a power-off.
+- The startup warm-up draws every text style, image and shader component the surfaces use
+  once, hidden, after Home has presented, so a first open compiles and rasterises nothing;
+  `theme.json` `warmup` switches it off.
+- `docs/research/perf/gate.py` is the per-surface frame gate (p90 render under 3 ms over all
+  the surface's animated frames, no frame over 20 ms inside a running animation, first frame
+  within 50 ms, open by 180 ms, RSS flat over the cycles, no QML error in the log) and
+  `startup.py` and `preload_ab.py` are the A/B drivers; the gate holds LG's compositor to its
+  measured floor of 17 % late frames and LumaTV's own to none.
+- `tests/qmlhost` loads a compositor surface on the workstation (PyQt5 on Xvfb) with stand-ins
+  for LG's modules and a fake helper: load errors, screenshots, scripted window life cycles.
+- `lumatv compositor on|off|status` and the boot worker's `compositor-boot` put LumaTV's own
+  compositor over LG's `surface-manager` when the bundle is installed and enabled, check that
+  LG's binary is the one the bundle was installed against, and fall back to LG's compositor
+  by revert, by `off` or by the supervisor. While it is live, the Home stub's guard does not
+  read LumaHome's heartbeat, apply does not restart the compositor, and nothing restarts it
+  while a Home recovery holds `/tmp/lumatv-recover.lock`.
 - Wallpaper tint: LumaHome samples the wallpaper at 32x18, cuts each channel
   into 8 levels, skips near-black pixels and takes the most common bin; a
   newer wallpaper cancels a sample still running. The result is kept in
