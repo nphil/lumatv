@@ -103,7 +103,8 @@ Two halves, one owner each.
   lib/qt5/qml` there. `/usr` is a lowerdir-only overlay and can never be
   written. The Loader instantiates LumaHome above the Home surface while
   Home is the container's app; the stock Flutter Home stays resident and
-  unseen underneath.
+  unseen underneath, or the web stub that `homestub on` puts in its place (see
+  "The Home stub").
 - Home: `mount --bind /var/lib/lumaglass/assets` over
   `/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets`
   (decluttered `home.xml`, strings, blank hero banners), then relaunch Home.
@@ -155,6 +156,11 @@ Key codes: the remote's Back arrives as evdev KEY_PREVIOUS (412), not
 KEY_BACK (158); injecting 158 does nothing on Home. Qt 5.12's QML
 XMLHttpRequest can PUT to file://, which is how the Home popovers save
 theme.json (the compositor is not allowed to call Homebrew's exec service).
+It goes through the network access manager's queue, though: PUTs of the Home
+stub's heartbeat twice landed 5 s late while the timer ticked on time. Where
+timing matters LG's own `TextFile` (`import TextFile 1.0`; `name` as a
+`file:///` URL, `exists`, `read()`, `write(text)`, all synchronous) is used
+instead, as in the stub's heartbeat, mode, escape and confirm files.
 
 Luna from the layer: `Service { appId: LS.appId }` (the compositor's own
 identity; a made-up appId gets no reply, silently). Account data:
@@ -331,8 +337,95 @@ is 24 (hours) via configd, after which a warm set is refreshed cold once
 history at `/mnt/lg/cmn_data/tvpower/webos_offhistory`; neither needed
 touching.
 
+## The Home stub: the proven mechanism
+
+LG's Home (`com.webos.app.home`, a Flutter app) is retired behind a web stub:
+`payload/homestub` (same id, `type: web`, `appCategory: ["home"]`,
+`visible: false`, a blank page) staged at `/var/lib/lumatv/homestub` and
+bind-mounted over `/usr/palm/applications/com.webos.app.home`, so LumaHome is
+the only Home. `lumatv homestub on|off|confirm|status`; results and the way
+back in `docs/research/homestub-result.md`.
+
+- **Order.** The Home assets bind goes in first and stays under the stub (the
+  mount over the parent hides it; unmounting shows it again). Then SAM:
+  `blockSystemApp` followed at once by `releaseBlockSystemApp` makes it read
+  the directory again in under 0.1 s, with no SAM restart, and
+  `blockedSystemAppList/USA.json` is byte-identical afterwards (md5 `26e1a4ce...`
+  after dozens of cycles). `getAppInfo` then reports `type: web`. The release is
+  retried: an app left blocked cannot launch. Only then is LG's instance
+  stopped (`pkill` on `flutter-client -i com.webos.app.home`); with Home in
+  front, SAM's `last_input_handler` opens the stub about a second later. Going
+  back: unmount, block and release (`type: flutter`), then WebAppMgr's `killApp`
+  on the stub page (`closeByAppId` only backgrounds it); SAM opens LG's Home
+  about 3 s later.
+- **The manifest must not set `handlesRelaunch`.** WAM then logs "handlesRelanch
+  : true; Do not call raise()" and the stub stays behind the app the Home key
+  was pressed in. Home launches skip memchute's memory check ("launch without
+  memory check").
+- **`/usr` is a shared mount**, so the bind and the unmount propagate into every
+  app jail's mirror of the directory.
+- **WebAppMgr is the stub's clock.** A compositor restart kills WAM, systemd
+  restarts it, and the stub can only launch once it is back: 3 s on two boots
+  and on every restart on an idle set, 56 s (stub at 65 s) on the first boot
+  after an install. The fullscreen view is hidden and the container 0x0 while no
+  surface exists, so nothing of LumaHome can cover that gap: black until Home
+  is up. LumaHome is therefore built when the compositor starts (the container
+  loads it for the base container at once), which also gives the guard its beat
+  and a load error immediately.
+- **Qt 5.12's `Binding` does not restore a property** when its `when` ends over
+  a surface that stays. The container sets the Home surface's opacity to 0 or 1
+  explicitly; before that, LG's Home returning under a LumaHome that stepped
+  aside stayed at opacity 0, a black screen.
+- **Boot.** `autostart.sh --worker` runs `homestub-boot` first: stub in place at
+  uptime 15 s in three boots, before the compositor restart (36 s), so Flutter
+  Home never ran. It skips the stub when the previous boot never reached
+  `boot-ok`, and a boot-time fault or two in a row turns the switch off.
+  bootd's own first app is launched at 13.9 s: on a `reboot` that is the last
+  input (reason `micomPower` is not a full-home boot), but a power-on that
+  opens Home would start Flutter Home about 1 s before the 15 s mount and be
+  killed 1.5 s later. `homeAutoLaunch` was left as the owner set it: holding
+  it off would make every wake land on the last input.
+- **The guard** (`lumatv homestub-watch`, one detached shell, 0.05 % of a
+  core: builtin reads, a fifo for the one-second wait, one `grep` every 10 s)
+  watches `/tmp/lumatv-beat`, which LumaHome rewrites once a second for as long
+  as it lives. A beat unchanged for 5 s (and the file 3 s old) is a fault; the
+  guard also acts at once when the compositor restarts without the module (its
+  environment lacks the shadow path) and when the container writes `error` in
+  place of a beat because LumaHome failed to load. A fault drops the stub
+  (mode `lg`), opens Home if the stub was in front, and counts a strike; two in
+  a row, or an unfinished boot, switch the stub off. Strikes clear after a
+  minute of beats.
+- **LumaHome and the tool talk through `/tmp`:** `lumatv-beat` (LumaHome writes),
+  `lumatv-homemode` (tool writes: `stub|lg|legacy <token> [trial=<s>]`;
+  `lg` steps the layer aside, the token changes with every write), `lumatv-escape`
+  (the Home key writes) and `lumatv-confirm` (OK on the trial toast writes).
+  The compositor may not run commands, so every action goes through a file the
+  guard reads. LumaHome and the key bridge use LG's `TextFile` for all of them,
+  synchronously; `XMLHttpRequest` PUTs for the beat were seen to land 5 s late.
+- **Home held 650 ms** is watched by the key filter's first handler (the press
+  still reaches LG's chain untouched, so a short press behaves as before). At
+  650 ms it writes the request, cancels LG's own 2.5 s hold (Screen Zoom) with
+  `longPressTimer.setBlockCancel(false); cancel()`, and swallows the repeats
+  and the release. With no stub the layer hides itself, since LG's Home is
+  already underneath.
+- **Trial.** `on` writes `/tmp/.lumatv-homestub-trial` (a deadline in uptime
+  seconds); the guard drops the stub when it passes. Only `confirm`, or OK on
+  LumaHome's toast, writes `"homestub":true` to `config.json`; a reboot in the
+  middle of a trial ends it, since the file is in tmpfs.
+- **Do not run `apply` over an SSH command that can time out**: the shell dying
+  mid-restart leaves the compositor on whatever it had loaded (a stale module
+  that `apply` then calls current). Detach it (`nohup`) and read its output.
+
 ## Tried and dead
 
+- **A LumaHome boot cover for the stub's late launch.** Built and logged on the
+  set: the cover state flipped on, and the screen stayed black. The base
+  container is 0x0 and invisible, and its parent view invisible too, while no
+  surface exists, so a layer inside it cannot draw. Removed. Covering that gap
+  needs the layer above the view (track C's compositor).
+- **Holding `homeAutoLaunch` off while the stub is in place.** Nothing brought
+  Flutter Home back in any test, so there was nothing for it to fix, and it
+  changes where every wake lands (bootd opens the last input instead of Home).
 - **Baking the mod into the hibernation image.** LG's own remake path is
   `snapshot-boot-manager --remove` then `reboot`; the next boot comes up
   `mode=making` and the kernel writes a fresh image to p54 (250 MB

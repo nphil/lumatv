@@ -14,9 +14,10 @@ inventory snapshot of the firmware: `/data/home/lgtv/uiinv`.
 Kept current with every change to this plan. Building starts on Nitin's go.
 
 - Done: resident Quick Settings, resident LumaHome (idle while hidden), key
-  filter written only on change, Home stub tested on the set and reverted,
-  ambient-light hardware chosen, 64-bit drawing proven on screen, the env
-  hook for compositor tuning (`env.extra`) in the tool.
+  filter written only on change, Home stub built, measured and left on
+  (2026-10-25, `docs/research/homestub-result.md`), ambient-light hardware
+  chosen, 64-bit drawing proven on screen, the env hook for compositor tuning
+  (`env.extra`) in the tool.
 - Research done: full catalogue of LG's UI (`docs/SURFACES.md`, 178 rows),
   72 mockups in three batches (`docs/mocks/`), the shell architecture study
   (`docs/research/shell-architecture.md`) and the performance study measured
@@ -27,7 +28,7 @@ Kept current with every change to this plan. Building starts on Nitin's go.
 - TV tests still open: X4 during PlxNative playback (Netflix done); the
   histogram probe (needs the `libvtcapture` histogram signatures first).
   Need Nitin present: PIN prompt; keys from his universal remote once set up.
-- Next build step: phase 1.
+- Next build step: phase 1 heap shim, then the Rust helper.
 
 ## Rules every surface meets
 
@@ -48,7 +49,11 @@ Kept current with every change to this plan. Building starts on Nitin's go.
   3. Memory headroom before any memory tweak: the Home-return gaps (50-117
      ms, 250-920 ms after a 450 MB launch) are the compositor paging itself
      back in (1,000-4,600 major faults) and LG's memchute closing LG Home.
-     The preload trim and the Home stub remove both; re-measure after.
+     The Home stub was measured on the set (2026-10-25): it frees 40-48 MB
+     of RSS but does not move the gaps (worst gap after a 450 MB hog 100 and
+     467 ms with the stub, 117 and 267 ms without; the stub's own page-ins
+     show as verity reads), so the paging is the compositor's. The preload
+     trim and the heap shim are what is left to try.
   4. New surfaces gated at p90 render under 3 ms with no ShaderEffectSource
      rebuild on show (the third vblank on every Home return is the blur and
      icon rebuild).
@@ -806,20 +811,28 @@ what it already does.
   is sent again at each wake. Glasshouse already does this; LumaTV uses it.
   On the set: Netflix, YouTube, Prime Video, the browser and LG Channels are
   enabled.
-- Retiring LG's Home: tested on the set on 2026-10-22 (webOS 10.2.1). A web
-  stub with `appCategory: ["home"]` and `visible: false`, bind-mounted over
-  `/usr/palm/applications/com.webos.app.home`; `blockSystemApp` then
-  `releaseBlockSystemApp` made SAM report the stub's type within 0.5 s, with
-  `blockedSystemAppList/USA.json` byte-identical afterwards and no SAM
-  restart. Killing LG's Flutter process left the stub in front 3 s later and
-  LumaHome drawing over it. Passed: Home key from YouTube, closing the last
-  app, standby and wake, remote focus in LumaHome, volume to the AVR over
-  eARC, AVR-S760H still listed on HDMI 2. Home's process went from 66-88 MB
-  (Flutter) to 26-29 MB (one WebAppMgr renderer). Reverted by unmounting, the
-  same block and release, and WebAppMgr `killApp`; LG's Home was back in 2 s.
-  Moves into phase 1, with a heartbeat that gives LG's Home back if
-  LumaHome stops drawing, a boot hook that mounts before SAM first starts
-  Home, and LG's `homeAutoLaunch` held off while it is in place.
+- Retiring LG's Home: built on 2026-10-25 and left on (`lumatv homestub
+  on|off|confirm|status`; tests and the way back in
+  `docs/research/homestub-result.md`). The mechanism proven by hand on
+  2026-10-22 held: a web stub with `appCategory: ["home"]` and `visible:
+  false` bound over `/usr/palm/applications/com.webos.app.home`, SAM made to
+  read it by `blockSystemApp` then `releaseBlockSystemApp` (type `web` in
+  under 0.1 s, block list byte-identical, no SAM restart), LG's Flutter
+  process stopped. Measured: Home's process 72-80 MB RSS (PSS 36-46 MB) to
+  one WebAppMgr renderer at 32 MB (PSS 15 MB); Home key to Home 0.32 s against
+  0.33 s; idle compositor CPU unchanged; the guard 0.05 % of a core. Passed:
+  Home key from YouTube and the browser, closing the last app, standby and
+  wake, three reboots (stub mounted at uptime 15 s and Flutter Home never ran;
+  Home on screen at 39.7 s as before, but 65 s on the first boot after an
+  install, when WebAppMgr, which restarts with the compositor, was slow), the
+  120 s trial rollback, OK on the toast, the hold-Home escape in 2.1 s, the
+  heartbeat fallback in about 6 s, a compositor restarted without the module
+  and a LumaHome that fails to load (LG's Home in 4 s and 1.5 s), revert, the
+  AVR still listed on HDMI 2 and volume reaching it. Not moved: the Home-return
+  page-in gaps (Phase 1, item 3). Open: a power-on that opens Home starts
+  Flutter Home about 1 s before the early hook mounts the stub, since bootd
+  launches it at 13.9 s and the hook runs at 15 s; `homeAutoLaunch` is left as
+  the owner set it.
 - Recent apps: `com.webos.service.recent/listRecents` with snapshots, closing
   with `closeByAppId` (native) or WebAppMgr `killApp` (web) before
   `removeRecent`, since removing the card alone leaves the app running on

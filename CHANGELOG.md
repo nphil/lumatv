@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `repo.json` lists no package until the first LumaTV release regenerates it.
   Its `brand.json` `repo` entry (`nphil/lumatv`) names the GitHub repository
   that release URLs point at.
+- LumaHome is built when the compositor starts, not at the first visit to
+  Home, so its heartbeat and a load error are visible at once. The Home
+  surface's opacity is set to 0 or 1 outright: Qt 5.12's `Binding` left LG's
+  Home at 0 when LumaHome stepped aside.
+- Revert, the boot fallbacks and a failed apply remove the Home stub before
+  the compositor restarts. `apply` leaves Home's assets bound under it.
 
 ### Fixed
 
@@ -40,6 +46,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `lumatv homestub on|off|confirm|status` retires LG's Flutter Home behind a
+  web stub bound over its directory (`payload/homestub`), so LumaHome is the
+  only Home. The stub is one WebAppMgr renderer at 32 MB resident against the
+  Flutter process's 72-80 MB. SAM is made to read it with `blockSystemApp` and
+  `releaseBlockSystemApp`, never restarted, and the block list is
+  byte-identical afterwards; LG's process is stopped; Home's assets bind stays
+  under the stub for the way back. `status` reports it.
+- `homestub on` starts a 120 s trial that reverts itself unless `confirm`
+  or OK on a toast in LumaHome arrives. Only a confirmed switch is kept in
+  `config.json` and mounted at boot, by the boot worker's first act, ahead of
+  anything that could start LG's Home; a boot after one that never finished
+  skips it.
+- A guard process (`homestub-watch`, 0.05 % of a core) gives LG's Home back
+  about 6 s after LumaHome's once-a-second heartbeat stops, at once when the
+  compositor restarts without the LumaTV module or LumaHome fails to load, and
+  when Home is held for 650 ms anywhere, until the next apply or reboot. Two
+  faults in a row switch the stub off. The 650 ms hold also cancels LG's own
+  2.5 s Home hold (Screen Zoom). The heartbeat, mode, escape and confirm files
+  go through LG's synchronous `TextFile` type: `XMLHttpRequest` PUTs twice
+  reached the file 5 s late with the timer on time.
 - `lumatv systemui on|off|status` runs Quick Settings from a copy of LG's
   QML tree under `/var/lib/lumatv/systemui`, by pointing the panel's entry
   in the configd object `com.webos.surfacemanager.systemUIManager` at it.
