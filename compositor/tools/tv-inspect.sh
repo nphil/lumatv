@@ -22,3 +22,5 @@ sec "DRM"; ls -la /dev/dri/; cat /sys/class/drm/card0/device/uevent 2>/dev/null 
 sec "power state"; timeout 10 luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}' 2>&1 | head -c 300; echo
 sec "foreground"; timeout 10 luna-send -n 1 -f luna://com.webos.applicationManager/getForegroundAppInfo '{}' 2>&1 | head -c 300; echo
 sec "memory"; grep -E 'MemAvailable|CmaFree' /proc/meminfo
+sec "space for the bundle (about 38 MB in /var/lib/lumatv/compositor)"; df -h /var /tmp 2>/dev/null; du -sh /var/lib/lumatv/compositor 2>/dev/null
+sec "mounts over LG's paths"; grep -E ' /usr/bin/surface-manager | /usr/palm/applications/com.webos.app.home ' /proc/self/mountinfo
