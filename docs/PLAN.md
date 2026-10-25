@@ -1086,6 +1086,10 @@ what it already does.
   also relaxes the capture service's caller check, may be created for short
   probe slots and is removed at the end of each (Nitin, 2026-10-25). Keeping it
   for everyday light sync is a separate decision.
+- Light-sync capture service: LumaTV's colour reader is installed with the ipk
+  as a registered native service whose LS2 role allows reading screen colours
+  (LG's histogram capture) and nothing else; it is removed with LumaTV. Its
+  readings are never exposed to AI access (Nitin, 2026-10-25).
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
