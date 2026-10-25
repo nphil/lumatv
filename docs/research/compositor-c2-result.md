@@ -9,7 +9,7 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 03:05 EDT): **first light passed on the set** on all
+State (2026-10-25 03:40 EDT): **first light passed on the set** on all
 three buffer paths across two runs; one last harness-level gap is fixed
 offline and C3 work has started. Log of both runs:
 `docs/research/compositor/first-light-2026-10-25.txt` (the re-run
@@ -50,7 +50,9 @@ overwrote the first; the first run's numbers are kept below).
   deploy && … run all && … fetch && … clean`; expected `driver`, `own`,
   `shm` all `check ok 6 bad 0`, and `out/protocols.txt` with the
   `wl_webos_*`/`wl_starfish_*` tables to compare with `compositor/protocol/`.
-- C3 (in progress, offline): see "C3 status" at the end of this file.
+- C3 and C4 (offline, built, not yet on the set): see "C3 status" and
+  "C4 status" at the end of this file; the TV steps are listed there in
+  order (bridge dry run, KMS window, trial cutover, gate).
 - TV state: not touched by this slice; the main agent's runs left
   nothing running.
 
@@ -591,6 +593,80 @@ If the server fails at start with `DRM master on /dev/dri/card0: … (is
 LG's compositor still running?)`, something else holds the master; the
 script's `restore` runs on any exit. `kms-restore` restarts LG's compositor
 by itself if the window was interrupted.
+
+## C4 status (offline, 2026-10-25)
+
+Built and host-tested where possible; the on-set steps are scripts with
+expected results below.
+
+- `compositor/sm/lumatv-sm.c`: the 32-bit supervisor and luna bridge
+  (24 KB, glibc 2.28 soft-float, `DT_NEEDED libluna-service2.so.3`,
+  `libglib-2.0.so.0`; built by `sm/build.sh` against stub libraries,
+  bound to LG's real ones on the set). At start it decides (enabled file,
+  firmware fingerprint over `/etc/starfish-release` and the GPU/Wayland/
+  compositor/LS2 libraries, no recorded escape, fewer than two consecutive
+  failures), otherwise unmounts itself from `/usr/bin/surface-manager`
+  and execs LG's binary at that path (unit, role and exe name stay LG's).
+  Then it opens the bridge socket, registers the 12 bus names and their
+  56 methods at category `/`, spawns the 64-bit compositor through the
+  private loader on `/tmp/xdg/wayland-0` with `--renderer kms`, and
+  heartbeats it every 500 ms; a child exit or two missed beats is a
+  failure (counted; two in a row keep LG's), a `fallback` message from the
+  compositor (hold-Home) records an escape that keeps LG's until the tool
+  re-enables. Ten minutes healthy resets the failure count. `--dry-run`
+  registers the names with a `.lumatv` suffix, runs the compositor
+  offscreen on the private socket and exits 75 instead of falling back,
+  so the bridge is testable beside LG's compositor. The JSON-line scanner
+  has host tests (`sm/build.sh` runs them).
+- Compositor side: `ToBridge::Cancel` and `ToBridge::Fallback`; the
+  control socket's `fallback [reason]`; `input.rs`: evdev readers for
+  `/dev/input/event*` (`--input`), `EVIOCGNAME` to tell the network key
+  device (`Smart Remote RCU Input`) from the remotes, key routing by the
+  focused window's mask and `_WEBOS_ACCESS_POLICY_KEYS_BACK/HOME`
+  (tested), Home → `launchDefaultApp`, Back on a window that does not
+  take it → `close` + `closeByAppId {reason: windowPolicy}`, and the
+  hold-Home escape (650 ms) → `Fallback`. The evdev key-code convention
+  for `wl_keyboard.key` (raw code; the keymap maps code+8) is unverified
+  on LG's clients.
+- `tools/tv-cutover.sh`: `install` (bundle to
+  `/var/lib/lumatv/compositor`, fingerprint recorded, failures 0,
+  enabled), `trial SECS` (bind-mount `lumatv-sm` over
+  `/usr/bin/surface-manager`, restart the unit, watch, then revert),
+  `status`, `revert`. The boot-time re-mount (early hook) and the tool's
+  enable/disable commands belong to `tools/lumatv` (not this slice): until
+  they exist, a reboot brings LG's compositor back by itself.
+
+TV steps, in order, each a separate slot:
+
+1. Bridge dry run beside LG's compositor (no risk, ~1 min):
+   `sh compositor/tools/tv-first-light.sh deploy && sh compositor/tools/tv-first-light.sh sm`.
+   Expected: `sm.log` has `registered com.webos.surfacemanager.lumatv (27
+   methods)` and the other 11 names, `compositor started`, `bridge:
+   compositor connected`; `luna-send … com.webos.surfacemanager.lumatv/getForegroundAppInfo`
+   answers `{"returnValue":true,"mode":"normal","foregroundAppInfo":[]}`
+   before the client and an entry with `"appId":""`, `"windowType":"_WEBOS_WINDOW_TYPE_CARD"`
+   while the X2 client is mapped; `getFocusedWindowInfo` with subscribe
+   gets a first reply with `"subscribed":true`; the `fallback` command
+   makes `lumatv-sm` log `fallback: dry-run-test` and exit 75 with
+   `last-fallback` and `escaped` written. An `LSRegister` error names the
+   hub's objection (role/permission) and is the thing to fix before 3.
+2. The C3 maintenance window (above).
+3. Trial cutover (~3 min, LG's compositor replaced then restored):
+   `tv.py 'sh /tmp/lumatv/cutover.sh install && sh /tmp/lumatv/cutover.sh trial 120'`
+   with the receiver muted and the set idle. Expected: `exe=/usr/bin/surface-manager`
+   stays (the mount), `compositor=<pid>` present, `sm.log` shows the 12
+   registrations and heartbeats, no `fallback:` line; LG's apps (WAM,
+   SAM) reconnect to `/tmp/xdg/wayland-0` and their windows appear in
+   `ctl windows`; after 120 s `revert` restores LG's Home. A `fallback:`
+   line within the trial names the reason (the supervisor already execd
+   LG's binary at that point) and the trial is over; `status` shows the
+   state files.
+4. The gate (`tools/tv-gate.sh`, to be written once 3 passes): the X1
+   client against the live LumaTV compositor for 60 s with the frame
+   probe (`docs/research/perf/`), expected zero frames over 20 ms and
+   `late 0 lost 0` from the pacer; then the scripted checks from PLAN
+   (Netflix 4K Dolby Vision deep link, HDR, PIN, input switching, standby
+   and wake with the tvpower rounds visible in `sm.log`/the journal).
 
 ## What C3 and C4 need next
 

@@ -43,6 +43,9 @@ pub struct Config {
     pub tick_ns: u64,
     pub control: bool,
     pub exit_on_disconnect: bool,
+    /// Read the set's input devices and route keys (C4). Off by default: beside LG's compositor it would only
+    /// feed the test clients.
+    pub input: bool,
 }
 
 impl Default for Config {
@@ -67,6 +70,7 @@ impl Default for Config {
             tick_ns: 16_666_667,
             control: true,
             exit_on_disconnect: false,
+            input: false,
         }
     }
 }
@@ -90,6 +94,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --output WxH           output size (default 1920x1080)
   --tick-hz HZ           frame tick (default 60)
   --no-control           no control socket
+  --input                read /dev/input/event* and route keys to the focused window (C4)
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
 ";
 
@@ -153,6 +158,7 @@ impl Config {
                     c.tick_ns = (1e9 / hz) as u64;
                 }
                 "--no-control" => c.control = false,
+                "--input" => c.input = true,
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),
             }

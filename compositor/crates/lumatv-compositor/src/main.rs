@@ -143,11 +143,16 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_TICK: u64 = 3;
     const TAG_CONTROL: u64 = 4;
     const TAG_CONTROL_CLIENT: u64 = 1 << 32;
+    const TAG_INPUT: u64 = 1 << 33;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
     epoll.add(timer.as_raw_fd(), TAG_TICK)?;
     if let Some(l) = &control_listener {
         epoll.add(l.as_raw_fd(), TAG_CONTROL)?;
+    }
+    let mut inputs = if config.input { lumatv_compositor::input::open_all() } else { Vec::new() };
+    for (i, d) in inputs.iter().enumerate() {
+        epoll.add(d.fd(), TAG_INPUT | i as u64)?;
     }
     let client_events = Arc::new(Mutex::new(Vec::new()));
     let mut control_clients: Vec<(u64, BufReader<UnixStream>)> = Vec::new();
@@ -189,6 +194,7 @@ fn run(config: Config) -> io::Result<()> {
                     // SAFETY: reading the 8-byte expiration count the timerfd owes.
                     unsafe { libc::read(timer.as_raw_fd(), expirations.as_mut_ptr() as *mut libc::c_void, 8) };
                     state.tick();
+                    state.poll_holds();
                     if let Some(at) = state.output.next_frame_at(Instant::now()) {
                         // The output paces itself: the next frame starts at its latch, not at the fixed tick.
                         arm_once(&timer, at.saturating_duration_since(Instant::now()).max(Duration::from_micros(500)))?;
@@ -209,6 +215,23 @@ fn run(config: Config) -> io::Result<()> {
                             next_control += 1;
                             epoll.add(s.as_raw_fd(), tag)?;
                             control_clients.push((tag, BufReader::new(s)));
+                        }
+                    }
+                }
+                t if t & TAG_INPUT != 0 => {
+                    let i = (t & 0xffff_ffff) as usize;
+                    if let Some(d) = inputs.get_mut(i) {
+                        let from_network = d.from_network;
+                        let mut keys: [(u32, bool); 64] = [(0, false); 64];
+                        let mut n = 0;
+                        let _ = d.drain(|code, pressed| {
+                            if n < keys.len() {
+                                keys[n] = (code, pressed);
+                                n += 1;
+                            }
+                        });
+                        for &(code, pressed) in &keys[..n] {
+                            state.key_event(code, pressed, from_network);
                         }
                     }
                 }

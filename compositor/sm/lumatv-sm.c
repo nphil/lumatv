@@ -21,8 +21,9 @@
 //                        {"kind":"cancel","token":N}   {"kind":"pong","seq":N}   {"kind":"fallback","reason":R}
 //
 // Build: compositor/sm/build.sh (zig cc, arm-linux-gnueabi glibc 2.28, stub libraries for the link; the set's
-// libraries at run time). Usage: lumatv-sm [--dry-run] [--state DIR]; --dry-run never touches the mount or
-// execs LG's binary and registers the bus names with a ".lumatv" suffix, for a test beside LG's compositor.
+// libraries at run time). Usage: lumatv-sm [--dry-run] [--state DIR] [--print-fingerprint]; --dry-run never
+// touches the mount or execs LG's binary and registers the bus names with a ".lumatv" suffix, for a test beside
+// LG's compositor; --print-fingerprint prints the firmware fingerprint the enable step records.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -655,6 +656,7 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--dry-run")) dry_run = true;
         else if (!strcmp(argv[i], "--state") && i + 1 < argc) state_dir = argv[++i];
+        else if (!strcmp(argv[i], "--print-fingerprint")) { char fp[17]; fingerprint(fp); printf("%s\n", fp); return 0; }
     }
     mkdir(state_dir, 0755);
     logf = fopen(path_in_state("sm.log"), "a");
