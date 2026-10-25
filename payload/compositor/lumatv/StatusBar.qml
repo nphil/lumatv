@@ -33,6 +33,7 @@ Item {
     signal hoverFocus(int index)
     signal themePatch(var patch)
     signal themePersist(var patch)
+    signal requestOpenSettings()
 
     function activate(index) {
         var type = items[index] ? items[index].type : ""
@@ -161,7 +162,8 @@ Item {
     property var popoverRows: popoverType === "profile"
         ? [ { label: account.signedIn ? "Manage LG account" : "Sign in to LG account", action: "membership" } ]
         : popoverType === "settings"
-        ? [ { label: "Wallpaper motion", kind: "toggle", key: "enabled", value: wm.enabled !== false },
+        ? [ { label: "All settings", action: "settings" },
+            { label: "Wallpaper motion", kind: "toggle", key: "enabled", value: wm.enabled !== false },
             { label: "Amount", kind: "slider", key: "amplitude", value: wm.amplitude === undefined ? 4 : wm.amplitude, min: 0, max: 16, step: 1, unit: " px" },
             { label: "Speed", kind: "slider", key: "speed", value: wm.speed === undefined ? 1 : wm.speed, min: 0.2, max: 3, step: 0.1, unit: "x" },
             { label: "Depth", kind: "slider", key: "depth", value: wm.depth === undefined ? 0.25 : wm.depth, min: 0, max: 1, step: 0.05, unit: "" },
@@ -208,6 +210,7 @@ Item {
         if (r.kind === "toggle") { popoverAdjust(1); return }
         if (r.kind === "slider") return
         if (r.action === "membership") LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: "com.webos.app.membership" }))
+        if (r.action === "settings") { bar.requestClosePopover(); bar.requestOpenSettings(); return }
         if (r.action === "tvsettings") LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: "com.palm.app.settings" }))
         bar.requestClosePopover()
     }

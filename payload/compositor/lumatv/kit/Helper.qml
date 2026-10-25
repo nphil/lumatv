@@ -14,7 +14,7 @@ QtObject {
     id: helper
 
     readonly property string base: "http://127.0.0.1:18731"
-    readonly property string subscribed: "screen,weather,news,receiver"
+    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt"
 
     property bool up: false
     property var topics: ({})           // topic -> latest value (weather and news: {doc, status, ...})
@@ -22,6 +22,8 @@ QtObject {
     property double seq: 0              // last event applied
     readonly property var receiver: topics.receiver || null
     readonly property var screen: topics.screen || null
+    readonly property var ai: topics.ai || null                  // AI access: listener, pairing, assistants, limits
+    readonly property var aiPrompt: topics["ai.prompt"] || null  // the open prompt, or null
     signal updated(string topic)
 
     property bool started: false

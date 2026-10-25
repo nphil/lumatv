@@ -614,7 +614,10 @@ Item {
     onHostActiveChanged: {
         resetOk()
         if (hostActive) { focusLayer = "dock"; statusBarItem.requestClosePopover() }
-        else if (miniFrame.open) { miniFrame.open = false; miniFrame.loading = false; miniSpec = null; frameAppWanted = false }
+        else {
+            if (settingsOpen) closeSettings()
+            if (miniFrame.open) { miniFrame.open = false; miniFrame.loading = false; miniSpec = null; frameAppWanted = false }
+        }
     }
     // A held OK or a tile picked up for rearranging never outlives the screen it belongs to:
     // the release of a press taken on Home can arrive after an app has opened, and Home must
@@ -734,6 +737,7 @@ Item {
         return keyAction(dir)
     }
     function keyAction(dir) {
+        if (settingsOpen && settingsLoader.item) { settingsLoader.item.key(dir); return true }
         if (galleryLoader.item) {
             // the kit gallery is modal while it is up; Back closes it
             if (dir === "back") { patchTheme({ kitGallery: false }); persistTheme({ kitGallery: false }) }
@@ -829,6 +833,7 @@ Item {
     StatusBar {
         id: statusBarItem
         z: 3
+        visible: !root.settingsOpen
         x: layout.safe.x
         y: layout.safe.y
         width: 1920 - 2 * layout.safe.x
@@ -849,6 +854,7 @@ Item {
         onRequestOpenPopover: { root.statusFocusIndex = index; root.focusLayer = "popover" }
         onThemePatch: root.patchTheme(patch)
         onThemePersist: root.persistTheme(patch)
+        onRequestOpenSettings: root.openSettings()
         onHoverFocus: { root.statusFocusIndex = index; if (root.focusLayer !== "popover") root.focusLayer = "statusbar" }
     }
 
@@ -856,7 +862,7 @@ Item {
     // dim (~30%) marks the popover as the top layer while the page stays readable. The
     // wallpaper settings popover instead clears the page: widgets and dock fade out so the
     // wallpaper is seen bare while it is adjusted.
-    property bool previewMode: root.popoverOpen && statusBarItem.popoverType === "settings"
+    property bool previewMode: (root.popoverOpen && statusBarItem.popoverType === "settings") || root.settingsOpen
     Rectangle {
         anchors.fill: parent
         z: miniFrame.open ? 3.5 : 2
@@ -1055,6 +1061,35 @@ Item {
         z: 60
         active: !!root.theme.kitGallery && root.hostActive
         source: "KitGallery.qml"
+    }
+
+    // ============================================================= settings
+    // LumaTV's Settings (Settings.qml): built on the first open and kept, so a later open shows the
+    // item and moves focus. It asks for what it needs through its signals and owns no file.
+    property bool settingsOpen: false
+    property bool settingsBuilt: false
+    function openSettings() {
+        if (!hostActive) return
+        statusBarItem.requestClosePopover()
+        settingsBuilt = true
+        settingsOpen = true
+    }
+    function closeSettings() { settingsOpen = false; if (hostActive) focusLayer = "statusbar" }
+    Loader {
+        id: settingsLoader
+        anchors.fill: parent
+        z: 61
+        active: root.settingsBuilt
+        visible: root.settingsOpen
+        source: "Settings.qml"
+    }
+    Connections {
+        target: settingsLoader.item
+        ignoreUnknownSignals: true
+        onThemePatch: root.patchTheme(patch)
+        onThemePersist: root.persistTheme(patch)
+        onLaunchApp: LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: appId }))
+        onCloseRequested: root.closeSettings()
     }
 
     // ============================================================= startup warm-up

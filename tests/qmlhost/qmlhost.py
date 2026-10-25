@@ -33,6 +33,8 @@ os.environ.setdefault('LIBGL_ALWAYS_SOFTWARE', '1')
 os.environ.setdefault('XDG_RUNTIME_DIR', '/tmp/qmlhost-runtime')
 os.makedirs(os.environ['XDG_RUNTIME_DIR'], mode=0o700, exist_ok=True)
 os.environ.setdefault('QML_XHR_ALLOW_FILE_READ', '1')
+# Qt 5.12 on the set writes local files from XMLHttpRequest (Home saves theme.json that way); 5.15 asks.
+os.environ.setdefault('QML_XHR_ALLOW_FILE_WRITE', '1')
 
 from PyQt5 import QtCore, QtGui, QtQml, QtQuick  # noqa: E402
 
@@ -251,6 +253,7 @@ def main(argv=None):
             print('ERROR', e.toString())
         return 1
     view.show()
+    QtGui.QCursor.setPos(0, 0)      # Xvfb starts the pointer mid-screen, which hovers whatever is there
     root = view.rootObject()
     surface = root.findChild(QtCore.QObject, 'surface')
     for p in a.prop:
