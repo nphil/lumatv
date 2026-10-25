@@ -13,7 +13,7 @@ Done (2026-10-25):
   ALSA 1.0 (symlink to `aplay`) with `libasound.so.2`; `aud_dsp_reset_count` is at
   `/sys/module/aud/parameters/`. The grep for other readers of `vt_devmode` did not finish (the set rebooted for
   another task); it needs a short follow-up slot, run per directory in the background.
-- Rust crate `ambient/` (`lumatv-ambient`, `./build.sh check`: fmt, clippy -D warnings, 83 unit tests, 5 interop
+- Rust crate `ambient/` (`lumatv-ambient`, `./build.sh check`: fmt, clippy -D warnings, 87 unit tests, 11 interop
   tests, aarch64-musl release build): zones, layout, bars, delay, tuning with dark gate, smoothing, engine, HueStream
   v2 over a DTLS 1.2 PSK client, WLED DDP sender. See "Helper-side design".
 
