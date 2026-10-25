@@ -21,15 +21,24 @@
 //                        {"kind":"cancel","token":N}   {"kind":"pong","seq":N}   {"kind":"fallback","reason":R}
 //
 // Build: compositor/sm/build.sh (zig cc, arm-linux-gnueabi glibc 2.28, stub libraries for the link; the set's
-// libraries at run time). Usage: lumatv-sm [--dry-run] [--state DIR] [--print-fingerprint]; --dry-run never
-// touches the mount or execs LG's binary and registers the bus names with a ".lumatv" suffix, for a test beside
-// LG's compositor; --print-fingerprint prints the firmware fingerprint the enable step records.
+// libraries at run time). Usage: lumatv-sm [--dry-run|--probe] [--state DIR] [--print-fingerprint]
+//   --dry-run   never touches the mount or execs LG's binary; registers the bus names with a ".lumatv" suffix and
+//               runs the compositor offscreen on the private socket, for a test of the bridge beside LG's compositor
+//               (the hub refuses the suffixed names, since no role file allows them: that part proves nothing).
+//   --probe     asks the hub for the real names and exits: run from the real path (bind-mounted, LG's compositor
+//               still running) it tells the role check from the name being taken, because ls-hubd checks the role
+//               before it checks for a duplicate (luna-service2 hub.cpp _LSHubHandleRequestName). Exit 0 = every
+//               name is allowed to this executable path (all answered "already exists"), 2 = at least one refused.
+//   --print-fingerprint prints the firmware fingerprint the enable step records.
+// The unit is Type=notify: READY=1 goes to systemd's socket once the compositor is connected (else the start
+// times out and the unit is restarted), and /tmp/lsm-ready is touched, which is what webapp-mgr.service waits for.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,7 +105,8 @@ static const char *state_dir = "/var/lib/lumatv/compositor";
 static const char *lg_binary = "/usr/bin/surface-manager";
 static const char *runtime_dir = "/tmp/xdg";
 static const char *socket_name = "wayland-0";
-static bool dry_run = false;
+static bool dry_run = false, probe = false;
+static bool supervising = false;
 static char **saved_argv;
 static GMainLoop *loop;
 static pid_t child_pid = 0;
@@ -191,6 +201,63 @@ static void fingerprint(char out[17]) {
     snprintf(out, 17, "%016llx", (unsigned long long)h);
 }
 
+// ---- systemd and the rest of webOS ----
+// READY=1 on $NOTIFY_SOCKET (a datagram socket, "@" for the abstract namespace), as LG's compositor does.
+static void sd_notify_ready(void) {
+    const char *path = getenv("NOTIFY_SOCKET");
+    if (!path || !*path) { logline("no NOTIFY_SOCKET (not started by systemd)"); return; }
+    int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return;
+    struct sockaddr_un a = { .sun_family = AF_UNIX };
+    size_t len = strlen(path);
+    if (len >= sizeof a.sun_path) len = sizeof a.sun_path - 1;
+    memcpy(a.sun_path, path, len);
+    if (a.sun_path[0] == '@') a.sun_path[0] = 0;
+    socklen_t alen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + len);
+    const char *msg = "READY=1\n";
+    ssize_t n = sendto(fd, msg, strlen(msg), MSG_NOSIGNAL, (struct sockaddr *)&a, alen);
+    logline("sd_notify READY=1 to %s: %s", path, n < 0 ? strerror(errno) : "sent");
+    close(fd);
+}
+
+// /tmp/lsm-ready is the file lsm-ready.path watches and webapp-mgr.service's ConditionPathExists; LG's compositor
+// has it made through `initctl emit lsm-ready` when its first frame is up.
+static void emit_lsm_ready(void) {
+    int fd = open("/tmp/lsm-ready", O_WRONLY | O_CREAT, 0644);
+    if (fd >= 0) close(fd);
+    if (access("/sbin/initctl", X_OK) == 0) {
+        pid_t p = fork();
+        if (p == 0) { execl("/sbin/initctl", "initctl", "emit", "--no-wait", "lsm-ready", (char *)NULL); _exit(127); }
+        if (p > 0) waitpid(p, NULL, 0);
+    }
+    logline("lsm-ready emitted");
+}
+
+// After this process execs LG's compositor, WebAppMgr may have hit its start limit and the web Home cannot come
+// back by itself; recover-home.sh (compositor/tools/tv-recover-home.sh) waits for LG's compositor and repairs
+// that. Started as its own session so it outlives the exec and nothing of it reaches the unit's main process.
+static void spawn_recovery(void) {
+    char script[600], logpath[600];
+    snprintf(script, sizeof script, "%s/bin/recover-home.sh", state_dir);
+    snprintf(logpath, sizeof logpath, "%s/sm.log", state_dir);
+    if (access(script, R_OK) != 0) { logline("no %s; LG's Home is not relaunched", script); return; }
+    pid_t p = fork();
+    if (p < 0) return;
+    if (p == 0) {
+        setsid();
+        pid_t q = fork();
+        if (q != 0) _exit(0);
+        int null = open("/dev/null", O_RDWR);
+        if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); close(null); }
+        for (int fd = 3; fd < 256; fd++) close(fd);
+        unsetenv("NOTIFY_SOCKET");
+        execl("/bin/sh", "sh", script, logpath, (char *)NULL);
+        _exit(127);
+    }
+    waitpid(p, NULL, 0);
+    logline("recover-home.sh started");
+}
+
 // ---- fallback to LG's compositor ----
 static void fallback(const char *reason, bool count_failure) {
     logline("fallback: %s", reason);
@@ -203,10 +270,13 @@ static void fallback(const char *reason, bool count_failure) {
         waitpid(child_pid, NULL, 0);
         child_pid = 0;
     }
-    if (dry_run) {
-        logline("dry run: would unmount %s and exec LG's compositor", lg_binary);
+    if (dry_run || probe) {
+        logline("%s: would unmount %s and exec LG's compositor", dry_run ? "dry run" : "probe", lg_binary);
         exit(75);
     }
+    // A fallback after the unit started under this supervisor (not the decision at start-up, where nothing of
+    // LG's was disturbed yet) needs WebAppMgr and Home brought back once LG's compositor is up.
+    if (supervising) spawn_recovery();
     // The bind mount placed by the early hook: once it is gone, the path is LG's file again, and so is every later
     // restart of the unit until the next boot decides anew.
     if (umount2(lg_binary, MNT_DETACH) != 0 && errno != EINVAL) logline("umount %s: %s", lg_binary, strerror(errno));
@@ -500,6 +570,8 @@ static gboolean on_bridge_accept(GIOChannel *ch, int cond, gpointer data) {
     bridge_fd = fd;
     logline("bridge: compositor connected");
     g_io_add_watch(g_io_channel_unix_new(fd), G_IO_IN | G_IO_HUP | G_IO_ERR, on_bridge_readable, NULL);
+    // The compositor is listening on LG's socket and the bus names are ours: the unit is up.
+    if (!dry_run) { sd_notify_ready(); emit_lsm_ready(); }
     return 1;
 }
 
@@ -559,6 +631,8 @@ static struct { const char *name; LSMethod *methods; } bus_table[] = {
     { NULL, NULL },
 };
 
+// Registers every bus name. Live, any refusal is a fallback at once: the names are what SAM and the key filters
+// talk to, and a compositor without them is a black panel for every app that waits on an answer.
 static void register_buses(void) {
     for (int i = 0; bus_table[i].name; i++) {
         char name[128];
@@ -568,7 +642,7 @@ static void register_buses(void) {
         if (!LSRegister(name, &sh, &e)) {
             logline("LSRegister %s: %s", name, e.message ? e.message : "?");
             LSErrorFree(&e);
-            if (i == 0 && !dry_run) fallback("cannot register com.webos.surfacemanager", true);
+            if (!dry_run) { char why[200]; snprintf(why, sizeof why, "cannot register %s", name); fallback(why, true); }
             continue;
         }
         buses[nbuses].name = bus_table[i].name;
@@ -581,6 +655,30 @@ static void register_buses(void) {
         nbuses++;
         logline("registered %s (%d methods)", name, (int)({ int c = 0; while (bus_table[i].methods[c].name) c++; c; }));
     }
+}
+
+// --probe: one LSRegister per real name, the hub's verdict logged and printed, nothing kept.
+static int probe_buses(void) {
+    int refused = 0, taken = 0, got = 0;
+    for (int i = 0; bus_table[i].name; i++) {
+        LSError e; LSErrorInit(&e);
+        LSHandle *sh = NULL;
+        if (LSRegister(bus_table[i].name, &sh, &e)) {
+            got++;
+            printf("probe %s: registered (nobody holds it)\n", bus_table[i].name);
+            logline("probe %s: registered", bus_table[i].name);
+            LSUnregister(sh, &e);
+        } else {
+            const char *m = e.message ? e.message : "?";
+            bool dup = strstr(m, "already exists") != NULL;
+            if (dup) taken++; else refused++;
+            printf("probe %s: %s -> %s\n", bus_table[i].name, m, dup ? "role allows it" : "REFUSED");
+            logline("probe %s: %s", bus_table[i].name, m);
+        }
+        LSErrorFree(&e);
+    }
+    printf("probe: %d allowed (held by LG's compositor), %d free, %d refused\n", taken, got, refused);
+    return refused ? 2 : 0;
 }
 
 // ---- the compositor child ----
@@ -655,6 +753,7 @@ int main(int argc, char **argv) {
     saved_argv = argv;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--dry-run")) dry_run = true;
+        else if (!strcmp(argv[i], "--probe")) probe = true;
         else if (!strcmp(argv[i], "--state") && i + 1 < argc) state_dir = argv[++i];
         else if (!strcmp(argv[i], "--print-fingerprint")) { char fp[17]; fingerprint(fp); printf("%s\n", fp); return 0; }
     }
@@ -662,6 +761,14 @@ int main(int argc, char **argv) {
     logf = fopen(path_in_state("sm.log"), "a");
     started_at = time(NULL);
     signal(SIGPIPE, SIG_IGN);
+    if (probe) {
+        char exe[256] = "?";
+        ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+        if (n > 0) exe[n] = 0;
+        logline("probe from %s", exe);
+        printf("probe from %s\n", exe);
+        return probe_buses();
+    }
 
     // 1. Decide.
     char fp[17];
@@ -678,7 +785,8 @@ int main(int argc, char **argv) {
         if (failures >= 2) fallback("two consecutive failures", false);
     }
 
-    // 2 and 3. Supervise and bridge.
+    // 2 and 3. Supervise and bridge. From here a fallback also brings LG's Home back (spawn_recovery).
+    supervising = true;
     loop = g_main_loop_new(NULL, 0);
     open_bridge();
     register_buses();

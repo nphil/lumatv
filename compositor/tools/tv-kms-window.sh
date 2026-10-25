@@ -26,12 +26,9 @@ restore() {
     sleep 0.5
     systemctl start surface-manager-daemon
     echo "restore: surface-manager-daemon started ($(systemctl is-active surface-manager-daemon))"
-    # The restart makes com.webos.app.inputcommon crash on teardown; its report would make faultmanager reboot
-    # the set at the next power-off (HANDOFF "Standby"). Pathname expansion handles the raw bytes in the names.
-    n=0
-    while [ $n -lt 40 ]; do sleep 1; n=$((n+1)); done
-    rm -f /tmp/var/log/reports/librdx/* 2>/dev/null
-    echo "restore: librdx reports swept; remaining: $(ls /tmp/var/log/reports/librdx 2>/dev/null | wc -l)"
+    # WebAppMgr hit its start limit while the compositor was away and the web Home cannot launch until it is
+    # reset; recover-home.sh does that, launches Home and sweeps the librdx report LG's inputcommon leaves.
+    sh $D/recover-home.sh
 }
 
 case "${1:-help}" in
@@ -60,7 +57,7 @@ run)
     wait $CLIPID; echo "A: client exit $?"
     n=0; while pgrep -f 'bin/lumatv-compositor' >/dev/null && [ $n -lt 10 ]; do sleep 0.5; n=$((n+1)); done
     pkill -f 'bin/lumatv-compositor' 2>/dev/null; sleep 0.5
-    grep -E 'kms:|direct:|egl:|error|warn|summary' $OUT/a-server.log | head -30
+    grep -E 'kms:|direct:|egl:|error|warn|summary' $OUT/a-server.log | grep -v 'ld.so.preload' | head -30
     # Case B: LG's own client (32-bit libmali, AFBC dma-bufs): the direct scan-out attempt (ADDFB2 with modifier
     # 0x0800000000000151). "direct: fb N for ..." means the plane took it; "ADDFB2 refused" means composition.
     ( $SRV --renderer kms --driver $BLOB --buffers own --card /dev/dri/card0 --seconds 30 --exit-on-disconnect --capture-dir $OUT/b --capture-every 50 > $OUT/b-server.log 2>&1 & )
@@ -75,7 +72,7 @@ run)
     wait $CLIPID; echo "B: client exit $?"
     n=0; while pgrep -f 'bin/lumatv-compositor' >/dev/null && [ $n -lt 10 ]; do sleep 0.5; n=$((n+1)); done
     pkill -f 'bin/lumatv-compositor' 2>/dev/null; sleep 0.5
-    grep -E 'kms:|direct:|egl:|error|warn|summary' $OUT/b-server.log | head -30
+    grep -E 'kms:|direct:|egl:|error|warn|summary' $OUT/b-server.log | grep -v 'ld.so.preload' | head -30
     trap - EXIT INT TERM
     restore
     ;;

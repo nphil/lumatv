@@ -8,6 +8,10 @@
 #   tv-first-light.sh kms         the C3 maintenance window (tools/tv_kms.py): LG's compositor stopped, LumaTV as DRM
 #                                 master for ~40 s, LG's compositor restarted; results in /tmp/lumatv-tv-out/out/kms
 #   tv-first-light.sh sm          the C4 supervisor/bridge dry run beside LG's compositor (bus names suffixed .lumatv)
+#   tv-first-light.sh inspect     read-only: the compositor unit, its wrapper, the role files for /usr/bin/surface-manager,
+#                                 initctl, the state of webapp-mgr; written to docs/research/compositor/set-inspect-<date>.txt
+#   tv-first-light.sh cutover ARGS  /tmp/lumatv/cutover.sh ARGS on the set under a PTY (install | probe | trial SECS |
+#                                 enable | disable | status | revert)
 #   tv-first-light.sh clean       kill everything of ours on the set
 # Transport: docs/research/arch/tv.py (paramiko). Before `run`: confirm the set is idle (getPowerState Active,
 # getForegroundAppInfo) and that nothing else is being measured on it.
@@ -58,15 +62,27 @@ case "${1:-help}" in
     kms)
         python3 "$here/tools/tv_kms.py" run
         ;;
-    sm)
-        # The luna-send probes need a PTY (HANDOFF), so the whole on-set script runs under one.
-        python3 - <<EOF2
+    sm|cutover|inspect)
+        # luna-send needs a PTY (HANDOFF), so the whole on-set script runs under one.
+        case "$1" in
+            sm) cmd="sh /tmp/lumatv/sm-dryrun.sh run" ;;
+            cutover) shift; cmd="sh /tmp/lumatv/cutover.sh $*" ;;
+            inspect) cmd="sh /tmp/lumatv/inspect.sh" ; put "$here/tools/tv-inspect.sh" /tmp/lumatv/inspect.sh ;;
+        esac
+        out=$(python3 - "$cmd" <<EOF2
 import sys; sys.path.insert(0, "$repo/docs/research/arch"); import tv, paramiko
 c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 c.connect(tv.TV, username="root", password="alpine", timeout=10, look_for_keys=False, allow_agent=False)
-_, out, _ = c.exec_command("sh /tmp/lumatv/sm-dryrun.sh run", timeout=180, get_pty=True)
+_, out, _ = c.exec_command(sys.argv[1], timeout=600, get_pty=True)
 print(out.read().decode("utf-8", "replace")); c.close()
 EOF2
+)
+        echo "$out"
+        if [ "$1" = inspect ]; then
+            mkdir -p "$repo/docs/research/compositor"
+            echo "$out" > "$repo/docs/research/compositor/set-inspect-$(date +%Y-%m-%d).txt"
+            echo "wrote docs/research/compositor/set-inspect-$(date +%Y-%m-%d).txt"
+        fi
         ;;
     kms-restore)
         python3 "$here/tools/tv_kms.py" restore

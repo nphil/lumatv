@@ -28,15 +28,17 @@ def wait_for(path, seconds):
 
 def main():
     what = sys.argv[1] if len(sys.argv) > 1 else "run"
-    if what == "restore":
-        print(tv.tv("sh /tmp/lumatv/kms-window.sh restore", timeout=120)); return
     here = os.path.dirname(os.path.abspath(__file__))
     tv.put(os.path.join(here, "tv-kms-window.sh"), "/tmp/lumatv/kms-window.sh")
+    tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
+    if what == "restore":
+        print(pty("sh /tmp/lumatv/kms-window.sh restore", 180)); return
     tv.tv("rm -rf /tmp/lumatv/out/kms; mkdir -p /tmp/lumatv/out/kms")
     print("power state:", pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/getPowerState '{}'", 20).strip()[:200])
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     c.connect(tv.TV, username="root", password="alpine", timeout=10, look_for_keys=False, allow_agent=False)
     chan = c.get_transport().open_session()
+    chan.get_pty()   # the recovery's luna-send calls want a PTY (HANDOFF)
     chan.exec_command("sh /tmp/lumatv/kms-window.sh run > /tmp/lumatv/out/kms/run.log 2>&1")
     for case in ("a", "b"):
         if wait_for("/tmp/lumatv/out/kms/%s-ready" % case, 60):
@@ -45,7 +47,7 @@ def main():
         else:
             print("case %s never became ready (see run.log)" % case)
     t0 = time.time()
-    while not chan.exit_status_ready() and time.time() - t0 < 180:
+    while not chan.exit_status_ready() and time.time() - t0 < 300:
         time.sleep(2)
     print("run exit", chan.recv_exit_status() if chan.exit_status_ready() else "still running")
     c.close()
@@ -54,7 +56,7 @@ def main():
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
     tv.get("/tmp/lumatv-kms.tgz", "/tmp/lumatv-tv-out/kms.tgz")
     os.system("tar -C /tmp/lumatv-tv-out -xzf /tmp/lumatv-tv-out/kms.tgz && ls -la /tmp/lumatv-tv-out/out/kms")
-    print(tv.tv("systemctl is-active surface-manager-daemon; pgrep -l 'lumatv|x2cli' || echo 'none of ours running'"))
+    print(tv.tv("systemctl is-active surface-manager-daemon webapp-mgr; pgrep -l 'lumatv|x2cli' || echo 'none of ours running'"))
 
 if __name__ == "__main__":
     main()
