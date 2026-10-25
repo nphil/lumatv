@@ -1,6 +1,6 @@
 # Shell slice: library, search, voice bar, banners, drawer and saver wiring, shared web theme
 
-Everything here is on `main` and passes on the offline host (tests and scenes below). Nothing has run on the TV, and no timing was measured.
+Everything here is on `main` and passes on the offline host: `test_shell_surfaces.py` (12), `test_settings.py` (31), `test_panels.py` (13), `test_volume_osd.py` (2), `test_logos.py` (7), `test_scenes_loader.py` (3), `test_tokens.py` (15), `test_webapps.py` (2), `test_gate.py` (46), `test_surfaces_registry.py` (5), `bun test tests/` (42), and the shell scenes in dark and light. Nothing has run on the TV, and no timing was measured.
 
 ## Resume here
 
@@ -21,7 +21,7 @@ Offline, not done:
 - Restyles of LG's own processes (the `inputcommon` banners, maliit keyboard, voice app) through the overlay mount.
 - The input banner's Details card (mock 25-input-info): the button opens Settings > Inputs instead. The update badge on the banner. Search answers beyond apps, Settings pages and the web (no "Network for AI" style answers).
 - The gear hold (below) and the pointer's right-button menu; the power menu opener (no key reaches Home).
-- SettingsSlice's tool-level item: the launch redirect must not swallow `com.palm.app.settings` when Home launches it itself.
+- The launch redirect for LG's Settings app does not exist yet: nothing in `tools/lumatv`, the key filter or the compositor patch names `com.palm.app.settings` (PLAN's "Launch redirect" rows are plans). Whoever builds it must let a launch with `params.target` through (LumaTV's own Settings opens LG's deep screens that way) and redirect only plain launches (gear hold, remote); there is no code to test until then.
 
 ## What exists and where it is wired
 
