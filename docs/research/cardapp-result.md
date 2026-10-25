@@ -77,6 +77,14 @@ Each row names where it was read.
 | `kb.py` writes into the `Smart Remote RCU Input` evdev device, which the compositor takes as a remote (a device id of its own, so a seat of its own); WAM received its keys as `wl_keyboard.key` with the Linux code (`WaylandKeyboard::OnKey key:106` for Right) | `docs/research/perf/kb.py`, `docs/research/surfaces-p1-result.md` (fault injection) |
 | `wayland-client`'s `GlobalList::bind` binds the first global of an interface; with several `wl_seat`s the rest need `wl_registry.bind` by name, and `Dispatch<WlRegistry>` for the ones announced later | `~/.cargo/registry/src/*/wayland-client-0.31.15/src/globals.rs` (`bind`: `.next()`) |
 
+Keys, the card against LG's own clients (what was compared for the 17:41 failure, and why only the seats changed):
+
+- `wl_seat`: LG's is version 4 with capabilities pointer, keyboard, touch (`QWaylandSeat::DefaultCapabilities`; the fork adds no bit), bound at 4 by the card, as before; the unknown-bit fallback is a precaution. The difference is the count: LG's own clients bind every seat (Qt's client does per `wl_seat` global; Chromium's ozone and `libwayland-input-helper` too [INFERENCE for those two]), the card bound one.
+- Keymap: LG serves an xkb keymap from `QT_WAYLAND_XKB_RULE_NAMES=evdev:lgwebostv:us` (`uiinv/sm_env.txt`); `wl_keyboard.key` carries the Linux code (xkb − 8), which is what the card reads; the keymap is for clients that want symbols.
+- `wl_webos_input_manager` is cursor visibility and `wl_webos_seat` (gyroscope, accelerometer); `wl_webos_xinput` is a client passing a keysym to the fullscreen surface (the virtual keyboard's path); `text_model` is the IME. None carries the remote's keys; the card binds none.
+- `_WEBOS_ACCESS_POLICY_KEYS_BACK` (set) and `KEYS_EXIT` (unset, as the design wants) decide only what the key filter does with Back and Exit; OK and the arrows are not policy keys. The key mask (`set_key_mask`) is read only for surface-group members (`acceptsKeyEvent` in `processKeyEvent`'s group branch); a plain card is not one.
+- Focus: there is no request for it. The fullscreen view's container gives its item focus; `focusInEvent` sets Wayland keyboard focus on every seat; `getFocusedWindowInfo` naming the card 17:41 is that focus.
+
 ## Design
 
 Two programs, one app directory (`/media/developer/apps/usr/palm/applications/<appId>.card`).
