@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <protocol name="webos_foreign">
+  <!-- LumaTV: the eight since="2" marks of wl_webos_exported and wl_webos_imported are removed from this copy.
+       LG's compositor (and OSE, webosforeign.cpp) creates both objects at version 2 under the version-1
+       wl_webos_foreign global, so a client whose proxy is version 1 still sends the version-2 requests; with the
+       marks in place libwayland-server refuses them ("invalid method 7 (since 1 < 2)"). Everything else is the
+       public file unchanged. -->
 
   <copyright>
     Copyright (c) 2018-2019 LG Electronics, Inc.
@@ -94,7 +99,7 @@
       <arg name="exported_type" type="uint"/>
     </event>
 
-    <request name="set_crop_region" since="2">
+    <request name="set_crop_region">
       <description summary="set region to be cropped">
         Sets a region to be cropped.
       </description>
@@ -103,7 +108,7 @@
       <arg name="destination_region" type="object" interface="wl_region" summary="destination region of exported window"/>
     </request>
 
-    <request name="set_property" since="2">
+    <request name="set_property">
       <description summary="set a property">
         Sets a property for this webos_exported. The property is given by a string pair (name, value).
       </description>
@@ -188,7 +193,7 @@
       <arg name="height" type="uint" summary="destination height of exported window"/>
     </event>
 
-    <request name="attach_punchthrough_with_context" since="2">
+    <request name="attach_punchthrough_with_context">
       <description summary="attach punchthrough with context id">
         Requests a punch-through on the exporetd window associated with
         this import object for a given context id.
@@ -196,7 +201,7 @@
       <arg name="context_id" type="string" summary="context id for requesting to external entity"/>
     </request>
 
-    <request name="set_z_index" since="2">
+    <request name="set_z_index">
       <description summary="set the z-index for webos_imported">
         Set the z index for webos_imported. The compositor will move the surface,
         that is attached to webos_imported, to this layer. If no surface is attached to
@@ -205,28 +210,28 @@
       <arg name="z_index" type="int"/>
     </request>
 
-    <event name="punchthrough_attached" since="2">
+    <event name="punchthrough_attached">
       <description summary="punchthrough attached">
         Notifies that a punchthrough is attached to webos_imported.
       </description>
       <arg name="context_id" type="string"/>
     </event>
 
-    <event name="punchthrough_detached" since="2">
+    <event name="punchthrough_detached">
       <description summary="punchthrough detached">
         Notifies that a punchthrough is detached from webos_imported.
       </description>
       <arg name="context_id" type="string"/>
     </event>
 
-    <event name="surface_attached" since="2">
+    <event name="surface_attached">
       <description summary="surface attached">
         Notifies that a surface is attached to webos_imported.
       </description>
       <arg name="surface" type="object" interface="wl_surface"/>
     </event>
 
-    <event name="surface_detached" since="2">
+    <event name="surface_detached">
       <description summary="surface detached">
         Notifies that a surface is detached from webos_imported.
       </description>

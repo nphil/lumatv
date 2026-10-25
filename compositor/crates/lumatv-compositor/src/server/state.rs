@@ -371,6 +371,11 @@ impl State {
     pub fn buffer_path(&self) -> BufferPath {
         self.config.buffers
     }
+
+    /// Outbound luna calls so far (what the bridge would have sent).
+    pub fn luna_sent(&self) -> Vec<(String, serde_json::Value)> {
+        self.luna.sent()
+    }
 }
 
 /// Per-client bookkeeping; the backend calls these from `dispatch_clients`.

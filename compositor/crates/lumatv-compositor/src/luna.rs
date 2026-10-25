@@ -93,6 +93,10 @@ pub trait Bridge {
     /// Messages that arrived since the last call.
     fn poll(&mut self) -> Vec<FromBridge>;
     fn is_connected(&self) -> bool;
+    /// The outbound calls kept for inspection (the null bridge keeps the last 256).
+    fn sent(&self) -> Vec<(String, Value)> {
+        Vec::new()
+    }
 }
 
 /// No bridge: outbound calls are kept (bounded) for the control socket to show.
@@ -118,6 +122,10 @@ impl Bridge for Null {
 
     fn is_connected(&self) -> bool {
         false
+    }
+
+    fn sent(&self) -> Vec<(String, Value)> {
+        self.sent.iter().filter_map(|m| match m { ToBridge::Outbound(o) => Some((o.uri.clone(), o.payload.clone())), _ => None }).collect()
     }
 }
 
@@ -243,6 +251,7 @@ pub mod power {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Rect;
 
     #[test]
     fn placement_payloads_match_lg() {

@@ -10,9 +10,14 @@ description = "LumaTV's compositor: a 64-bit Wayland server for LG's webOS clien
 name = "lumatv-compositor"
 path = "src/main.rs"
 
+[[bin]]
+name = "lumatv-testclient"
+path = "src/bin/lumatv-testclient.rs"
+
 [dependencies]
-lumatv-wl-protocols = { path = "../wl-protocols" }
+lumatv-wl-protocols = { path = "../wl-protocols", features = ["client"] }
 wayland-server = { workspace = true }
+wayland-client = { workspace = true }
 wayland-backend = { workspace = true }
 wayland-protocols = { workspace = true }
 libc = { workspace = true }
@@ -27,6 +32,3 @@ serde_json = "1"
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 wayland-backend = { workspace = true, features = ["server_system", "dlopen"] }
 
-[dev-dependencies]
-lumatv-wl-protocols = { path = "../wl-protocols", features = ["client"] }
-wayland-client = { workspace = true }

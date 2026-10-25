@@ -181,9 +181,9 @@ impl Dispatch<WlWebosImported, ()> for State {
             wl_webos_imported::Request::AttachPunchthroughWithContext { context_id: context } => {
                 state.note_request("wl_webos_imported", pid, &format!("attach_punchthrough_with_context({context:?})"));
                 state.attach_punchthrough(&id, &window_id, Some(context.clone()));
-                if resource.version() >= 2 {
-                    resource.punchthrough_attached(context);
-                }
+                // Sent whatever the proxy's version: LG creates these objects at version 2 under a version-1 global
+                // (see protocol/webos/webos-foreign.xml).
+                resource.punchthrough_attached(context);
             }
             wl_webos_imported::Request::SetPunchthrough { context_id: context } => {
                 state.note_request("wl_webos_imported", pid, &format!("set_punchthrough({context:?})"));
@@ -192,9 +192,7 @@ impl Dispatch<WlWebosImported, ()> for State {
             wl_webos_imported::Request::DetachPunchthrough => {
                 state.note_request("wl_webos_imported", pid, "detach_punchthrough");
                 let ctx = state.detach_punchthrough(&id, &window_id);
-                if resource.version() >= 2 {
-                    resource.punchthrough_detached(ctx.unwrap_or_default());
-                }
+                resource.punchthrough_detached(ctx.unwrap_or_default());
             }
             wl_webos_imported::Request::AttachSurface { surface } => {
                 let sid = surface_id(&surface);
@@ -202,17 +200,13 @@ impl Dispatch<WlWebosImported, ()> for State {
                 if let (Some(sid), Some(i)) = (sid, state.foreign.imported.get_mut(&id)) {
                     i.attached_surface = Some(sid);
                 }
-                if resource.version() >= 2 {
-                    resource.surface_attached(&surface);
-                }
+                resource.surface_attached(&surface);
             }
             wl_webos_imported::Request::DetachSurface { surface } => {
                 if let Some(i) = state.foreign.imported.get_mut(&id) {
                     i.attached_surface = None;
                 }
-                if resource.version() >= 2 {
-                    resource.surface_detached(&surface);
-                }
+                resource.surface_detached(&surface);
             }
             wl_webos_imported::Request::SetSurfaceAlignment { format } => {
                 let v = match format {
