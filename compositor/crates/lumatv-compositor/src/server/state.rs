@@ -79,6 +79,7 @@ pub struct State {
     pub seat: SeatState,
     pub foreign: ForeignState,
     pub luna: Box<dyn luna::Bridge>,
+    pub luna_state: crate::luna_methods::LunaState,
     pub stats: Stats,
     pub check: CheckState,
     pub clients: HashMap<ClientId, ClientInfo>,
@@ -105,6 +106,7 @@ impl State {
             seat: SeatState::default(),
             foreign: ForeignState::default(),
             luna,
+            luna_state: crate::luna_methods::LunaState::default(),
             stats: Stats::default(),
             check: CheckState::default(),
             clients: HashMap::new(),
@@ -268,6 +270,9 @@ impl State {
             }
         }
         self.surfaces.clear_damage();
+        if drew {
+            self.luna_notify();
+        }
         if let Some(n) = self.config.frames
             && self.stats.frames_drawn >= n
         {

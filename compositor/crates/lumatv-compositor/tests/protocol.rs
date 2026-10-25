@@ -320,3 +320,54 @@ fn keyboard_focus_enters_the_mapped_card_and_keys_reach_it() {
     assert_eq!(client.state.keys[0], (412, 1));
     assert_eq!(client.state.keys[1], (412, 0));
 }
+
+#[test]
+fn luna_tier_one_methods_answer_from_the_scene() {
+    use lumatv_compositor::luna::{Inbound, ToBridge};
+    use serde_json::json;
+    let mut server = Server::start();
+    let mut client = Client::connect(&mut server);
+    // A subscription opened before any window exists, like SAM's at boot.
+    server.eval(|s| {
+        s.luna_inbound(Inbound { token: 11, service: "com.webos.surfacemanager".into(), method: "getForegroundAppInfo".into(), payload: json!({"subscribe": true}), subscribe: true, sender: "com.webos.applicationManager".into(), cancelled: false });
+        s.luna_inbound(Inbound { token: 12, service: "com.webos.coverUI".into(), method: "getStatus".into(), payload: json!({}), subscribe: false, sender: "com.webos.applicationManager".into(), cancelled: false });
+        s.luna_inbound(Inbound { token: 13, service: "com.webos.surfacemanager".into(), method: "noSuchMethod".into(), payload: json!({}), subscribe: false, sender: "x".into(), cancelled: false });
+    });
+    let win = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
+    let buf = client.shm_buffer(1920, 1080, 0xff00_0000);
+    client.present(&win.surface, &buf);
+    assert!(client.wait_until(WAIT, |s| s.frames_done >= 1));
+    std::thread::sleep(Duration::from_millis(20));
+    let history = server.eval(|s| s.luna.history());
+    let replies: Vec<(u64, serde_json::Value)> = history.iter().filter_map(|m| match m { ToBridge::Reply(r) => Some((r.token, r.payload.clone())), _ => None }).collect();
+    let first = &replies.iter().find(|(t, _)| *t == 11).unwrap().1;
+    assert_eq!(first["returnValue"], true);
+    assert_eq!(first["subscribed"], true);
+    assert_eq!(first["foregroundAppInfo"].as_array().unwrap().len(), 0, "nothing in front at subscription time");
+    let cover = &replies.iter().find(|(t, _)| *t == 12).unwrap().1;
+    assert_eq!(cover["status"], "closed");
+    let unknown = &replies.iter().find(|(t, _)| *t == 13).unwrap().1;
+    assert_eq!(unknown["returnValue"], false);
+    let pushed = replies.iter().filter(|(t, _)| *t == 11).last().unwrap();
+    let info = &pushed.1["foregroundAppInfo"][0];
+    assert_eq!(info["appId"], "org.test.player", "the mapped card was pushed to the subscriber");
+    assert_eq!(info["windowType"], "_WEBOS_WINDOW_TYPE_CARD");
+    assert_eq!(info["primary"], true);
+    assert_eq!(pushed.1["mode"], "normal");
+
+    let (focused, windows, keymask) = server.eval(|s| {
+        (
+            s.luna_method("com.webos.surfacemanager", "getFocusedWindowInfo", &json!({}), "eim").unwrap(),
+            s.luna_method("com.webos.surfacemanager", "getCurrentState", &json!({}), "alwaysready").unwrap(),
+            s.luna_method("com.webos.surfacemanager.input", "getForegroundAppKeymask", &json!({}), "qt").unwrap(),
+        )
+    });
+    assert_eq!(focused["focusedWindowInfo"][0]["type"], "fullscreen");
+    assert_eq!(windows["windows"][0]["appId"], "org.test.player");
+    assert_eq!(keymask["appId"], "org.test.player");
+
+    // closeByAppId reaches the window as wl_webos_shell_surface.close.
+    let closed = server.eval(|s| s.luna_method("com.webos.surfacemanager", "closeByAppId", &json!({"appId": "org.test.player"}), "home").unwrap());
+    assert_eq!(closed["closed"], 1);
+    assert!(client.wait_until(WAIT, |s| s.closes >= 1));
+}

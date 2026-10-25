@@ -97,6 +97,10 @@ pub trait Bridge {
     fn sent(&self) -> Vec<(String, Value)> {
         Vec::new()
     }
+    /// Everything sent, for tests.
+    fn history(&self) -> Vec<ToBridge> {
+        Vec::new()
+    }
 }
 
 /// No bridge: outbound calls are kept (bounded) for the control socket to show.
@@ -126,6 +130,10 @@ impl Bridge for Null {
 
     fn sent(&self) -> Vec<(String, Value)> {
         self.sent.iter().filter_map(|m| match m { ToBridge::Outbound(o) => Some((o.uri.clone(), o.payload.clone())), _ => None }).collect()
+    }
+
+    fn history(&self) -> Vec<ToBridge> {
+        self.sent.iter().cloned().collect()
     }
 }
 

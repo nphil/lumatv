@@ -174,10 +174,10 @@ fn run(config: Config) -> io::Result<()> {
                     unsafe { libc::read(timer.as_raw_fd(), expirations.as_mut_ptr() as *mut libc::c_void, 8) };
                     state.tick();
                     for m in state.luna.poll() {
-                        if let luna::FromBridge::Ping { seq } = m {
-                            state.luna.send(luna::ToBridge::Pong { seq });
-                        } else {
-                            log::info!("luna: {m:?}");
+                        match m {
+                            luna::FromBridge::Ping { seq } => state.luna.send(luna::ToBridge::Pong { seq }),
+                            luna::FromBridge::Inbound(i) => state.luna_inbound(i),
+                            luna::FromBridge::Event(e) => state.luna_event(e),
                         }
                     }
                 }

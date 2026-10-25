@@ -14,7 +14,7 @@ aarch64 bundle builds; the TV run is a ready script waiting for "TV is
 yours". Nothing of this slice has run on the set yet.
 
 - Done: design (below); workspace `compositor/` builds and tests on the
-  host (`cargo test`: 5 unit + 13 protocol tests, a real `wayland-client`
+  host (`cargo test`: 6 unit + 14 protocol tests, a real `wayland-client`
   over a socketpair); the real binaries ran end to end on the host
   (`lumatv-compositor --renderer software --check x2` + `lumatv-testclient`:
   6/6 frames pixel-exact, PNGs written, `state_changed(fullscreen)`,
@@ -22,8 +22,14 @@ yours". Nothing of this slice has run on the set yet.
   set with `tools/build-tv.sh` (1.46 MB compositor, 0.57 MB test client,
   16 KB `x2cli`, only `libc.so.6` as a DT_NEEDED, max GLIBC_2.34; libwayland
   and the blob are `dlopen`ed from the private directory).
-- Half-done: nothing offline. The `luna` module is the bridge contract and
-  the null bridge; the 32-bit bridge program itself is C4 (§5).
+- Also done offline: the tier-1 luna methods answer from the scene
+  (`luna_methods.rs`: foreground app, focused window, window list, video
+  window, last input type, closeByAppId → `close`, recents, coverUI,
+  setPinOverlayView, screen visible, key block and key mask, home UI state;
+  subscriptions pushed when the scene changes; the tvpower rounds answered
+  with their timestamp), tested in `luna_tier_one_methods_answer_from_the_scene`.
+  The 32-bit bridge program itself is C4 (§5).
+- Half-done: nothing offline.
 - Next command (needs the TV): `sh compositor/tools/tv-first-light.sh
   deploy`, then `… run all`, `… app`, `… fetch` (expected results in "TV
   run" below), then `… clean`.
@@ -429,15 +435,16 @@ registry binds, the window properties and the first frame.
   `EGL_WAYLAND_BUFFER_WL` and dma-buf import, fence kick), `output.rs` (the
   C3 seam), `luna.rs` (bridge contract, LG's placement and power payloads),
   `control.rs` (status/windows/journal/capture/key/quit), `capture.rs`
-  (PNG, the X2 colour check), `main.rs` (epoll: Wayland, listener, 60 Hz
-  timerfd, control), `bin/lumatv-testclient.rs` (shm X2 pattern).
-- Host checks: `cargo test` in `compositor/`. Tests cover the advertised
-  globals, a card reaching the output pixel-exact, a small card over black,
+  (PNG, the X2 colour check), `luna_methods.rs` (tier-1 methods, pushes,
+  tvpower rounds), `main.rs` (epoll: Wayland, listener, 60 Hz timerfd,
+  control), `bin/lumatv-testclient.rs` (shm X2 pattern).
+- Host checks: `cargo test` in `compositor/` (6 unit, 14 protocol). Tests
+  cover the advertised globals, a card reaching the output pixel-exact, a small card over black,
   properties/type/key mask/state, foreground switching on close, overlay
   stacking at `windowPosX/Y`, release after replacement, damage after a
   4 px commit, group members above the owner, export → hole + placement
   calls, own `mali_buffer_sharing` create_buffer, synchronized subsurfaces,
-  keyboard enter and key delivery.
+  keyboard enter and key delivery, the luna tier-1 answers and pushes.
 - Build for the set: `sh compositor/tools/build-tv.sh` → `compositor/deploy/`
   (ignored by git). Toolchain: `cargo zigbuild --target
   aarch64-unknown-linux-gnu.2.36`; host linker is zig's clang
