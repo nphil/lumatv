@@ -65,7 +65,7 @@ Item {
             width: parent.width - x - 26 - hint.width - (hint.visible ? Lu.space(4) : 0)
             LuText { width: parent.width; role: "caption"; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2
                      text: voice.state === "listening" ? "Listening" : voice.options.length > 0 ? "Heard \u00b7 pick one" : "Heard" }
-            LuText { width: parent.width; role: "title"; lineHeight: 1.0; elide: Text.ElideRight
+            LuText { width: parent.width; role: "title"; font.pixelSize: 30; lineHeight: 1.0; elide: Text.ElideRight
                      text: voice.state === "listening" ? "Speak now\u2026" : "\u201c" + voice.text + "\u201d" }
         }
         LuText {

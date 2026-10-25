@@ -40,6 +40,7 @@ Item {
     function hide() {
         var was = kind !== ""
         spec = { kind: "" }
+        spot = 0
         hold.stop()
         if (was) closeRequested()
     }
@@ -54,19 +55,27 @@ Item {
     Timer { id: hold; onTriggered: banner.hide() }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: banner.rested = true }
 
-    // ---- no signal: black, the icon dim, the words, the two buttons
+    // ---- no signal: black, the icon dim, the words, the two buttons. The block moves to another spot every minute (the mock's
+    // first is 180, -120 from the centre): a screen nobody switches away from must not hold one pattern.
     Rectangle { anchors.fill: parent; visible: banner.kind === "nosignal"; color: "#000000" }
+    readonly property var spots: [[0, 0], [180, -120], [-200, 100], [140, 150], [-170, -110]]
+    property int spot: 0
+    Timer { interval: 60000; repeat: true; running: banner.kind === "nosignal"; onTriggered: banner.spot = (banner.spot + 1) % banner.spots.length }
     Column {
         visible: banner.kind === "nosignal"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 336
+        property real driftX: banner.spots[banner.spot][0]
+        property real driftY: banner.spots[banner.spot][1]
+        Behavior on driftX { NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad } }
+        Behavior on driftY { NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad } }
+        x: Math.round((parent.width - width) / 2 + driftX)
+        y: Math.round((parent.height - height) / 2 + driftY)
         width: 760
         spacing: Lu.space(4)
         opacity: 0.62
         LuIcon { anchors.horizontalCenter: parent.horizontalCenter; name: banner.spec.icon || "unplug"; size: 64; color: Lu.ink2 }
         LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.weight: Font.DemiBold; color: Lu.ink2; text: banner.spec.port || "" }
         LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; text: banner.spec.title || "" }
-        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; color: Lu.ink2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }
+        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; lineHeight: 0.99; color: Lu.ink2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
         Item { width: 1; height: Lu.space(1) }
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -102,20 +111,26 @@ Item {
         Row {
             id: tags
             x: parent.width - width - 28; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
-            Repeater { model: banner.kind === "channel" ? (banner.spec.chips || []) : []; delegate: LuChip { text: modelData } }
+            Repeater {
+                model: banner.kind === "channel" ? (banner.spec.chips || []) : []
+                delegate: Rectangle {                       // the mock's banner chip: 40 high, 21 px, 12 either side (the kit's chip is a size up)
+                    width: chipText.implicitWidth + 24; height: 40; radius: 20; antialiasing: true; color: Lu.wash("selected")
+                    LuText { id: chipText; anchors.centerIn: parent; role: "caption"; font.pixelSize: 21; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2; text: modelData }
+                }
+            }
         }
         Column {
             x: chTile.x + chTile.width + 24; width: tags.x - x - 24; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
-            LuText { width: parent.width; role: "body"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; text: banner.spec.title || "" }
+            LuText { width: parent.width; role: "body"; font.pixelSize: 32; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; text: banner.spec.title || "" }
             Item {
                 width: parent.width; height: subText.implicitHeight
-                LuText { id: subText; role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.sub || "" }
-                LuText { x: parent.width - width; width: Math.min(implicitWidth, parent.width - subText.implicitWidth - Lu.space(5)); role: "caption"; lineHeight: 1.0; color: Lu.ink3; elide: Text.ElideRight
+                LuText { id: subText; role: "caption"; font.pixelSize: 22; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.sub || "" }
+                LuText { x: parent.width - width; width: Math.min(implicitWidth, parent.width - subText.implicitWidth - Lu.space(5)); role: "caption"; font.pixelSize: 22; lineHeight: 1.0; color: Lu.ink2; elide: Text.ElideRight
                          visible: !!banner.spec.next; text: banner.spec.next ? "Next \u00b7 " + banner.spec.next : "" }
             }
             Rectangle {
-                width: parent.width; height: 5; radius: 3; color: Lu.trackOff; antialiasing: true
-                Rectangle { width: parent.width * (banner.spec.progress || 0); height: parent.height; radius: 3; color: Lu.ink; antialiasing: true }
+                width: parent.width; height: 6; radius: 3; color: Lu.trackOff; antialiasing: true
+                Rectangle { width: parent.width * (banner.spec.progress || 0); height: parent.height; radius: 3; color: Lu.ink2; antialiasing: true }
             }
         }
     }
@@ -126,7 +141,7 @@ Item {
         visible: banner.kind === "input"
         x: 64; y: 1080 - 56 - height; height: 96
         width: Math.max(420, bar.width + 16 + 30)
-        cardRadius: Lu.radius("pill")
+        cardRadius: height / 2
         Row {
             id: bar
             x: 16; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(4)

@@ -138,7 +138,8 @@ Item {
                     }
                     Column {
                         x: lead.x + lead.width + 18; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 22; spacing: Lu.space(1)
-                        LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; textFormat: Text.StyledText; text: Match.highlight(ans.a.title, ans.a.match, String(Lu.accent)) }
+                        LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; textFormat: Text.StyledText
+                                 color: ans.a.match ? Lu.ink2 : Lu.ink; text: Match.highlight(ans.a.title, ans.a.match, String(Lu.ink)) }      // the typed part in full ink: the accent is too pale on the light sheet
                         LuText { width: parent.width; role: "caption"; lineHeight: 1.0; color: Lu.ink2; elide: Text.ElideRight; text: ans.a.sub || "" }
                     }
                     MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: search.index = search.nKeys + index; onClicked: { search.index = search.nKeys + index; search.key("ok") } }

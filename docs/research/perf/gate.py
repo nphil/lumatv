@@ -85,6 +85,12 @@ SURFACES = [
      'thresholds': {'burst_end_ms': None}},
     {'name': 'quick-settings', 'act': 'release',
      'open': '@quick-settings-open MENU', 'close': '@quick-settings-close BACK', 'settle_s': 2.5},
+    # The library behind the Apps tile, on request (`--surfaces apps`, with LumaTV's Home in front and at rest, its Apps tile focused:
+    # OK on LG's own Home would launch what it has focused). OK, decided on its release, opens it and BACK closes it. Search, the
+    # drawer and the voice bar sit behind longer key paths (the bar's icons, the library's search button) that a surface here
+    # cannot spell out yet.
+    {'name': 'apps', 'default': False, 'act': 'release',
+     'open': '@apps-open OK', 'close': '@apps-close BACK', 'settle_s': 2.5},
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first
     # D-pad move inside the built gallery (open) and BACK (close).
