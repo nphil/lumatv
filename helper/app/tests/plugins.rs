@@ -852,10 +852,38 @@ fn the_welcome_tells_the_plugin_what_device_it_is_on_and_the_api_says_the_same()
     let welcome = read_frame(&mut raw);
     assert_eq!(welcome["t"], "welcome");
     assert_eq!(welcome["api"], 1);
-    let device = json!({"screen": {"class": "tv", "width": 1920, "height": 1080}, "input": ["remote"]});
+    let device =
+        json!({"screen": {"class": "tv", "width": 1920, "height": 1080}, "input": ["remote"]});
     assert_eq!(welcome["device"], device);
 
     let served = get(rig.rig.addr, "/v1/device").json();
     assert_eq!(served["ok"], true);
     assert_eq!(served["device"], device);
+}
+
+#[test]
+fn a_plugin_cannot_take_the_name_of_one_the_helper_carries() {
+    let (rig, socket) = PluginRig::prepare();
+    let rig = PluginRig::start(rig, socket);
+    // The owner's file lists a plugin called `weather`, with a manifest that is approved: the name is not free.
+    rig.switch_on("weather", r#""cards""#);
+    let topic = rig
+        .wait_topic("plugins", |v| v["plugins"][0]["state"] == "inert")
+        .expect("the clash is reported");
+    assert_eq!(topic["plugins"][0]["id"], "weather");
+    assert!(
+        topic["plugins"][0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("belongs to a plugin of the helper's own"),
+        "{topic}"
+    );
+    // Nothing of it is on, so there is no socket for it, and the helper's own weather plugin is untouched.
+    assert!(!rig.socket.exists());
+    assert!(
+        rig.wait_topic("plugins", |v| v["firstParty"].as_array().is_some_and(|a| a
+            .iter()
+            .any(|p| p["id"] == "weather" && p["state"] == "connected")))
+            .is_some()
+    );
 }

@@ -13,10 +13,12 @@
 //! | [`ai`] | the MCP server: AI assistants on the LAN, every permission held on the TV and changed only with the physical remote |
 //! | [`plugins`] | the plugin broker: LumaShow's plugin API level 1 for settings pages, cards, tiles and notifications |
 //! | [`device`] | what this device is (screen class, how a person drives it): the facts plugins get in `welcome`, and `/v1/device` |
+//! | [`ambient`] | ambient light: the Settings page's values as the engine's plan, the picture from the capture helper, DDP to the strip |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
 pub mod ai;
+pub mod ambient;
 pub mod api;
 pub mod cli;
 pub mod config;

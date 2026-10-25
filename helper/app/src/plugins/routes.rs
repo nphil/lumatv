@@ -56,9 +56,10 @@ pub fn handle(plugins: &Plugins, request: &Request, rest: &[&str]) -> Response {
                 .shared()
                 .hub
                 .get("plugins")
-                .unwrap_or_else(|| json!({"plugins": [], "problem": null}));
+                .unwrap_or_else(|| json!({"plugins": [], "firstParty": [], "problem": null}));
             let mut body = Map::new();
             body.insert("plugins".into(), view["plugins"].clone());
+            body.insert("firstParty".into(), view["firstParty"].clone());
             body.insert("problem".into(), view["problem"].clone());
             ok(200, body)
         }

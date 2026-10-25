@@ -133,6 +133,8 @@ struct RosterView {
     members: Vec<(String, String, String, String)>,
     inert: Vec<(String, String)>,
     problem: Option<String>,
+    /// The helper's own plugins (`local.rs`): id, name, version. Listed apart, in the `plugins` topic's `firstParty`.
+    first_party: Vec<(String, String, String)>,
 }
 
 /// What other threads need of a registered connection: where to speak to the plugin, and what waits for an answer.
@@ -212,6 +214,22 @@ impl Shared {
         self.counter.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// A connection number nobody else has: what a plugin of the helper's own (`local.rs`) connects as.
+    pub fn connection_id(&self) -> u64 {
+        self.next()
+    }
+
+    /// Lists a plugin of the helper's own in the `plugins` topic (`firstParty`), connected once it has registered.
+    pub fn add_first_party(&self, id: &str, name: &str, version: &str) {
+        {
+            let mut view = self.roster.lock();
+            view.first_party.retain(|(known, _, _)| known != id);
+            view.first_party
+                .push((id.to_owned(), name.to_owned(), version.to_owned()));
+        }
+        self.publish_plugins();
+    }
+
     /// Records what the roster is (and why a plugin is inert) and publishes the `plugins` topic.
     pub fn set_roster(&self, roster: &Roster, problem: Option<String>) {
         {
@@ -255,9 +273,19 @@ impl Shared {
         plugins.extend(view.inert.iter().map(|(id, reason)| {
             json!({"id": id, "state": "inert", "registered": false, "reason": reason})
         }));
+        let first_party: Vec<Json> = view
+            .first_party
+            .iter()
+            .map(|(id, name, version)| {
+                let connected = live.contains(id);
+                json!({"id": id, "name": name, "version": version, "class": "S",
+                       "state": if connected { "connected" } else { "waiting" }, "registered": connected,
+                       "firstParty": true})
+            })
+            .collect();
         self.hub.set(
             "plugins",
-            json!({"plugins": plugins, "problem": view.problem}),
+            json!({"plugins": plugins, "firstParty": first_party, "problem": view.problem}),
         );
     }
 

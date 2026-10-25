@@ -64,6 +64,21 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
     ),
     (
         "GET",
+        "/v1/ambient",
+        "the ambient light: whether it is on, what it is doing, and why not when it cannot",
+    ),
+    (
+        "POST",
+        "/v1/ambient/test",
+        "the test pattern, each section of the strip in turn: {\"run\": true} or {\"run\": false}",
+    ),
+    (
+        "POST",
+        "/v1/ambient/context",
+        "what covers the picture: {\"covered\": bool, \"game\": bool}, either may be left out",
+    ),
+    (
+        "GET",
         "/v1/events",
         "long poll: ?after=<seq>&boot=<boot>&timeout=<seconds, max 30>&topics=<a,b>",
     ),
@@ -102,6 +117,8 @@ pub struct Api {
     pub ai: Arc<crate::ai::Ai>,
     /// The plugin broker: the TV's UI asks a plugin to run an action through `/v1/plugins/...`.
     pub plugins: Arc<crate::plugins::Plugins>,
+    /// Ambient light: its status, and the test pattern the Settings page runs.
+    pub ambient: Arc<crate::ambient::Ambient>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -210,6 +227,48 @@ impl Api {
             Some(device) => self.ok(json!({"device": device})),
             None => error_response(404, "no_device_facts", "this helper has no device facts"),
         }
+    }
+
+    fn ambient_status(&self) -> Response {
+        self.ok(json!({"ambient": self.ambient.status()}))
+    }
+
+    fn ambient_test(&self, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let Some(run) = body.get("run").and_then(Value::as_bool) else {
+            return bad_request("run must be true or false");
+        };
+        match self.ambient.test(run) {
+            Ok(()) => self.ok(json!({"ambient": self.ambient.status()})),
+            Err(crate::ambient::TestError::NoStrip) => error_response(
+                409,
+                "no_strip",
+                "no strip is set up: helper.json needs ambient.wled.host",
+            ),
+            Err(crate::ambient::TestError::NoLights(why)) => {
+                error_response(409, "no_lights", &why)
+            }
+        }
+    }
+
+    fn ambient_context(&self, request: &Request) -> Response {
+        let body = match body_object(request) {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let mut flags = [None, None];
+        for (slot, name) in flags.iter_mut().zip(["covered", "game"]) {
+            match body.get(name) {
+                None => {}
+                Some(Value::Bool(b)) => *slot = Some(*b),
+                Some(_) => return bad_request(&format!("{name} must be true or false")),
+            }
+        }
+        self.ambient.set_context(flags[0], flags[1]);
+        self.ok(json!({"ambient": self.ambient.status()}))
     }
 
     fn helper_info(&self, now: u64) -> Value {
@@ -414,6 +473,9 @@ impl Handler for Api {
             ["v1", name @ ("screen" | "receiver" | "weather" | "news")] if get => self.topic(name),
             ["v1", "events"] if get => self.events(request),
             ["v1", "device"] if get => self.device(),
+            ["v1", "ambient"] if get => self.ambient_status(),
+            ["v1", "ambient", "test"] if post => self.ambient_test(request),
+            ["v1", "ambient", "context"] if post => self.ambient_context(request),
             ["v1", "receiver", "nudge"] if post => {
                 let _ = self.receiver_tx.send(receiver::Cmd::Nudge);
                 self.ok(json!({"requested": true}))
@@ -452,15 +514,19 @@ fn is_known_path(segments: &[&str]) -> bool {
                     | "weather"
                     | "news"
                     | "device"
+                    | "ambient"
             ]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
+            | ["v1", "ambient", "test" | "context"]
     )
 }
 
 fn allowed_methods(segments: &[&str]) -> &'static str {
     match segments {
-        ["v1", "refresh"] | ["v1", "receiver", "nudge"] => "POST",
+        ["v1", "refresh"] | ["v1", "receiver", "nudge"] | ["v1", "ambient", "test" | "context"] => {
+            "POST"
+        }
         ["v1", "settings", _] => "GET, POST",
         _ => "GET",
     }
@@ -500,6 +566,7 @@ mod tests {
                 settings,
                 ai,
                 plugins: crate::plugins::Plugins::new(&ctx),
+                ambient: crate::ambient::Ambient::new(&ctx),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -619,6 +686,48 @@ mod tests {
         assert_eq!(b["device"]["input"][0], "remote");
         let r = rig.api.handle(&request("POST", "/v1/device", ""));
         assert_eq!(r.status, 405);
+    }
+
+    #[test]
+    fn the_ambient_routes_report_run_the_test_pattern_and_take_what_covers_the_picture() {
+        let rig = rig();
+        let status = body(&rig.api.handle(&request("GET", "/v1/ambient", "")));
+        assert_eq!(status["ambient"]["state"], "off");
+        assert_eq!(status["ambient"]["available"], false);
+        assert_eq!(status["ambient"]["sections"], 58);
+        // With no strip named in helper.json the test is refused, in words, and nothing is started.
+        let refused = rig
+            .api
+            .handle(&request("POST", "/v1/ambient/test", r#"{"run":true}"#));
+        assert_eq!(refused.status, 409);
+        assert_eq!(body(&refused)["error"]["code"], "no_strip");
+        // Stopping is always allowed; the request must say which.
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/ambient/test", r#"{"run":false}"#))
+                .status,
+            200
+        );
+        for bad in ["{}", r#"{"run":"yes"}"#, "[true]"] {
+            let r = rig.api.handle(&request("POST", "/v1/ambient/test", bad));
+            assert_eq!(r.status, 400, "{bad}");
+        }
+        // What covers the picture.
+        let covered = body(&rig.api.handle(&request(
+            "POST",
+            "/v1/ambient/context",
+            r#"{"covered":true}"#,
+        )));
+        assert_eq!(covered["ambient"]["covered"], true);
+        let r = rig.api.handle(&request(
+            "POST",
+            "/v1/ambient/context",
+            r#"{"game":"maybe"}"#,
+        ));
+        assert_eq!(r.status, 400);
+        let r = rig.api.handle(&request("GET", "/v1/ambient/test", ""));
+        assert_eq!(r.status, 405);
+        assert!(r.headers.iter().any(|(n, v)| *n == "Allow" && v == "POST"));
     }
 
     #[test]

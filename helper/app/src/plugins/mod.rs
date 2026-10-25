@@ -9,6 +9,8 @@
 //! | [`roster`] | which plugins are on (`plugins/enabled.json`, written by the owner's settings flow, never by the helper) and who each is |
 //! | [`session`] | one plugin's conversation without a socket: checks, topics, settings, actions |
 //! | [`broker`] | the socket, one reader and one writer thread per connection, rate and size limits |
+//! | [`local`] | a plugin of the helper's own, in the same conversation with no socket (the TV's first-party plugins) |
+//! | [`firstparty`] | the helper's first-party plugins: Home's weather, news and clock, and the ambient light tile |
 //! | [`routes`] | `/v1/plugins`: ask a plugin to run an action |
 //!
 //! [`Plugins`] is the helper's component: a manager thread that reads the roster every `plugins.rescanSeconds` and keeps the
@@ -20,6 +22,8 @@
 //! namespaces and no seccomp, so the Show's sandbox is not reproduced: only reviewed plugins belong in `enabled.json`.
 
 pub mod broker;
+pub mod firstparty;
+pub mod local;
 pub mod roster;
 pub mod routes;
 pub mod session;
@@ -77,8 +81,11 @@ impl Plugins {
         {
             let config = ctx.config.clone();
             shared.set_device_source(Arc::new(move || {
-                crate::device::facts(&config.device, std::path::Path::new(&config.ai.sys_input_dir))
-                    .to_json()
+                crate::device::facts(
+                    &config.device,
+                    std::path::Path::new(&config.ai.sys_input_dir),
+                )
+                .to_json()
             }));
         }
         let wake = Arc::new(Wake {

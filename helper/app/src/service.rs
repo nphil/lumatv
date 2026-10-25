@@ -77,17 +77,25 @@ impl Service {
             settings: settings.clone(),
             stop: stop.clone(),
         };
+        // Ambient light exists from the start (its status and routes answer); its thread runs only while something asks for light.
+        let ambient = crate::ambient::Ambient::new(&ctx);
 
         let (receiver_tx, receiver_rx) = mpsc::channel();
         let (feeds_tx, feeds_rx) = mpsc::channel();
 
         // Stopping wakes everything that blocks: the runners on their channels, long polls on the hub.
         {
-            let (r, f, hub) = (receiver_tx.clone(), feeds_tx.clone(), hub.clone());
+            let (r, f, hub, a) = (
+                receiver_tx.clone(),
+                feeds_tx.clone(),
+                hub.clone(),
+                ambient.clone(),
+            );
             stop.on_stop(move || {
                 let _ = r.send(receiver::Cmd::Stop);
                 let _ = f.send(homefeeds::Cmd::Stop);
                 hub.close();
+                a.wake();
             });
         }
         // A changed setting reaches the component that reads it at once.
@@ -108,16 +116,18 @@ impl Service {
 
         // The screen watcher tells both runners when the panel goes on or off.
         let notify: Arc<dyn Fn() + Send + Sync> = {
-            let (r, f) = (receiver_tx.clone(), feeds_tx.clone());
+            let (r, f, a) = (receiver_tx.clone(), feeds_tx.clone(), ambient.clone());
             Arc::new(move || {
                 let _ = r.send(receiver::Cmd::Wake);
                 let _ = f.send(homefeeds::Cmd::Wake);
+                a.wake();
             })
         };
         if let Some(handle) = screen::spawn(&ctx, notify)? {
             threads.push(("screen", handle));
         }
         threads.push(("receiver", receiver::spawn(&ctx, receiver_rx)?));
+        threads.push(("ambient", ambient.spawn()?));
         let (fetcher, fetch_backend) = match fetcher {
             Some(injected) => (injected, json!({"backend": "injected"})),
             None => {
@@ -149,6 +159,10 @@ impl Service {
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
         let plugins = crate::plugins::Plugins::new(&ctx);
         threads.push(("plugins", plugins.spawn(&ctx)?));
+        threads.push((
+            "plugins-1p",
+            crate::plugins::firstparty::spawn(&ctx, plugins.shared().clone(), feeds_tx.clone())?,
+        ));
         threads.push(("preload", preload::spawn(&ctx)?));
 
         let ip: IpAddr = config
@@ -161,6 +175,7 @@ impl Service {
             settings,
             ai: ai.clone(),
             plugins,
+            ambient,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,

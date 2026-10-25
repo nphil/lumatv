@@ -11,6 +11,7 @@
 //! - [`engine`]: those, wired in order, with the Hue channel and WLED LED output conversions.
 //! - [`huestream`] and [`dtls`]: the HueStream v2 packet and the DTLS 1.2 PSK client under it.
 //! - [`ddp`]: WLED's UDP realtime packets.
+//! - [`plan`]: the person's settings (the Settings page's values) as the engine's configuration and the strip's lights.
 //! - [`wire`]: the frame the capture helper sends over the local socket.
 
 #![forbid(unsafe_code)]
@@ -22,6 +23,7 @@ pub mod dtls;
 pub mod engine;
 pub mod huestream;
 pub mod layout;
+pub mod plan;
 mod presets;
 pub mod rgb;
 pub mod smooth;

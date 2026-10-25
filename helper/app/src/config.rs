@@ -90,6 +90,8 @@ pub struct Config {
     pub plugins: PluginsConfig,
     /// What the device is, told to plugins in `welcome` and served at `/v1/device` (the TV by default; see `device.rs`).
     pub device: DeviceConfig,
+    /// Where the ambient lights are (`ambient.rs`). Nothing is ever sent to a device that is not named here.
+    pub ambient: AmbientConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -115,6 +117,7 @@ impl Default for Config {
             ai: AiConfig::default(),
             plugins: PluginsConfig::default(),
             device: DeviceConfig::default(),
+            ambient: AmbientConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -358,6 +361,31 @@ impl Default for PluginsConfig {
     }
 }
 
+/// Where the ambient lights are. Which of them to drive, how bright and when are settings (`base.ambient`, the Settings page); an
+/// address on the network is the owner's to give, here, so the helper never finds a device by itself and never sends the picture's
+/// colours to one that is not named.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct AmbientConfig {
+    /// The WLED strip (DDP over UDP). Unset: no strip, and ambient light has nothing to drive.
+    pub wled: Option<WledConfig>,
+    /// Where the 32-bit capture helper hands the picture's areas to this one (a unix socket). Unset: `ambient.sock` in the data dir.
+    pub capture_socket: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WledConfig {
+    /// An IPv4 address on the home network (loopback, private or link-local): a picture's colours never leave it.
+    pub host: String,
+    #[serde(default = "default_ddp_port")]
+    pub port: u16,
+}
+
+fn default_ddp_port() -> u16 {
+    4048
+}
+
 /// What the device is (`device.rs`): the TV unless `helper.json` says otherwise. The screen and the remote are facts of the
 /// device; a game controller is looked for in the kernel's input list each time it is asked.
 #[derive(Clone, Debug, Deserialize)]
@@ -519,6 +547,24 @@ impl Config {
         {
             return err("device.width and device.height are 1 to 16384");
         }
+        if let Some(wled) = &self.ambient.wled {
+            match wled.host.parse::<std::net::Ipv4Addr>() {
+                Ok(ip) if crate::sys::is_lan_address(ip) && wled.port != 0 => {}
+                _ => {
+                    return err(
+                        "ambient.wled.host must be a private (or loopback) IPv4 address and ambient.wled.port above 0",
+                    );
+                }
+            }
+        }
+        if self
+            .ambient
+            .capture_socket
+            .as_deref()
+            .is_some_and(|p| !p.starts_with('/'))
+        {
+            return err("ambient.captureSocket must be an absolute path");
+        }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");
         }
@@ -604,7 +650,10 @@ mod tests {
     #[test]
     fn the_device_is_the_tv_unless_the_file_says_otherwise_and_nonsense_is_refused() {
         let tv = Config::parse("{}").unwrap().device;
-        assert_eq!((tv.screen_class.as_str(), tv.width, tv.height), ("tv", 1920, 1080));
+        assert_eq!(
+            (tv.screen_class.as_str(), tv.width, tv.height),
+            ("tv", 1920, 1080)
+        );
         assert!(tv.remote && tv.pointer && tv.detect_controllers && !tv.touch);
         let smart = Config::parse(
             r#"{"device":{"screenClass":"smart","width":960,"height":480,"touch":true,"remote":false}}"#,
@@ -617,6 +666,28 @@ mod tests {
             r#"{"device":{"width":0}}"#,
             r#"{"device":{"height":100000}}"#,
             r#"{"device":{"inputs":["remote"]}}"#,
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn no_ambient_device_is_named_until_the_owner_names_one_and_only_on_the_home_network() {
+        let none = Config::parse("{}").unwrap().ambient;
+        assert!(none.wled.is_none() && none.capture_socket.is_none());
+        let named = Config::parse(r#"{"ambient":{"wled":{"host":"192.168.1.50"}}}"#)
+            .unwrap()
+            .ambient;
+        let wled = named.wled.unwrap();
+        assert_eq!((wled.host.as_str(), wled.port), ("192.168.1.50", 4048));
+        assert!(Config::parse(r#"{"ambient":{"wled":{"host":"127.0.0.1","port":4049}}}"#).is_ok());
+        for bad in [
+            r#"{"ambient":{"wled":{"host":"8.8.8.8"}}}"#,
+            r#"{"ambient":{"wled":{"host":"strip.example.com"}}}"#,
+            r#"{"ambient":{"wled":{"host":"192.168.1.50","port":0}}}"#,
+            r#"{"ambient":{"wled":{}}}"#,
+            r#"{"ambient":{"captureSocket":"relative.sock"}}"#,
+            r#"{"ambient":{"hue":{"host":"192.168.1.60"}}}"#,
         ] {
             assert!(Config::parse(bad).is_err(), "{bad}");
         }

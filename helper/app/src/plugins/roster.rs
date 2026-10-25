@@ -134,6 +134,10 @@ impl Roster {
                 inert("listed twice".into());
                 continue;
             }
+            if super::local::FIRST_PARTY_IDS.contains(&entry.id.as_str()) {
+                inert("that name belongs to a plugin of the helper's own".into());
+                continue;
+            }
             if entry.uid < first_uid || entry.uid - first_uid >= plugin_api::MAX_PLUGINS {
                 inert(format!(
                     "user id {} is outside the plugin range {} to {}",

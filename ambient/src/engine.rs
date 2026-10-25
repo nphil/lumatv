@@ -223,6 +223,12 @@ impl Engine {
         }
     }
 
+    /// The games preset while a game is on (the helper knows from the input and the picture mode); off hands the choice back to
+    /// the bar detector. The smoothing and the dark gate keep their state, so switching never makes the lights jump.
+    pub fn set_games(&mut self, on: bool) {
+        self.cfg.games = on;
+    }
+
     pub fn bars(&self) -> Bars {
         self.bars.state()
     }
