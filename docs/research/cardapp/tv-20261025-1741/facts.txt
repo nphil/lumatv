@@ -1,0 +1,14 @@
+id: uid=0(root) gid=0(root) groups=0(root),10(wheel),506(pulse-access),509(se),777(crashd),995(lpadmin)
+machine: aarch64
+crw-rw-rw-    1 root     root       10,  60 Dec 31  1969 /dev/dma_buf_te
+crw-rw-rw-    1 root     root       10,  59 Dec 31  1969 /dev/dma_buf_unified
+crw-------    1 root     root      226,   0 Dec 31  1969 /dev/dri/card0
+crw-rw-rw-    1 root     root       10,  58 Dec 31  1969 /dev/mali0
+tmpfs /tmp tmpfs rw,relatime 0 0
+overlay /var overlay ro,relatime,lowerdir=/overlay/bsppart/bsp/var:/var 0 0
+/dev/mmcblk0p58 /var ext4 rw,nosuid,relatime,data=ordered 0 0
+/dev/mmcblk0p59        6296308   2150680   4129244  34% /mnt/lg/appstore
+tmpfs                  1015196     84780    930416   8% /tmp
+MemAvailable:     959212 kB
+CmaFree:          166584 kB
+compositor: LG

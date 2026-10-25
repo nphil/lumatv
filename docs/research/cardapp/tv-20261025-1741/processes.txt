@@ -1,0 +1,23 @@
+{
+ "stub": [
+  {
+   "pid": 7531,
+   "uid": "5227",
+   "cmd": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"org.nphil.lumatv.card\",\"parameters\":{},\"interfaceVersion\":2,\"interfaceMethod\":\"registerApp\",\"@system_native_app\":true} "
+  }
+ ],
+ "shell": [
+  {
+   "pid": 7540,
+   "uid": "5227",
+   "cmd": "sh /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/launch.sh --bundle /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle --shim /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so -- /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app --app-id org.nphil.lumatv.card --reason undefined --params {} --channel-fd 3 --assets /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/assets --shm /tmp/lumatv-card-shm "
+  }
+ ],
+ "app": [
+  {
+   "pid": 7550,
+   "uid": "5227",
+   "cmd": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib/ld-linux-aarch64.so.1 --library-path /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib --preload /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app --app-id org.nphil.lumatv.card --reason undefined --params {} --channel-fd 3 --assets /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/assets --shm /tmp/lumatv-card-shm "
+  }
+ ]
+}

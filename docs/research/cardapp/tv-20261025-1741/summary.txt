@@ -1,0 +1,64 @@
+INFO evidence: /tmp/lumatv-slot/docs/research/cardapp/tv-20261025-1741
+INFO facts: id: uid=0(root) gid=0(root) groups=0(root),10(wheel),506(pulse-access),509(se),777(crashd),995(lpadmin)
+INFO facts: machine: aarch64
+INFO facts: crw-rw-rw-    1 root     root       10,  60 Dec 31  1969 /dev/dma_buf_te
+INFO facts: crw-rw-rw-    1 root     root       10,  59 Dec 31  1969 /dev/dma_buf_unified
+INFO facts: crw-------    1 root     root      226,   0 Dec 31  1969 /dev/dri/card0
+INFO facts: crw-rw-rw-    1 root     root       10,  58 Dec 31  1969 /dev/mali0
+INFO facts: tmpfs /tmp tmpfs rw,relatime 0 0
+INFO facts: overlay /var overlay ro,relatime,lowerdir=/overlay/bsppart/bsp/var:/var 0 0
+INFO facts: /dev/mmcblk0p58 /var ext4 rw,nosuid,relatime,data=ordered 0 0
+INFO facts: /dev/mmcblk0p59        6296308   2150680   4129244  34% /mnt/lg/appstore
+INFO facts: tmpfs                  1015196     84780    930416   8% /tmp
+INFO facts: MemAvailable:     959212 kB
+INFO facts: CmaFree:          166584 kB
+INFO facts: compositor: LG
+INFO SAM lists the card app: no
+INFO foreground: com.webos.app.home
+INFO running apps: com.webos.app.home
+INFO dev-installed native apps: amazon, com.apple.appletv, com.beb.plxnative, com.limelight.webos, io.unom.punktfunk.client-webos, netflix, org.webosbrew.bridge-64to32, youtube.leanback.v4
+PASS install: {"installed":true,"version":"0.1.0","shipped":"0.1.0","running":false}
+PASS the launcher is executable: -rwxr-xr-x    1 root     root         17148 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card
+FAIL SAM lists the app as native with lifecycle 2: {}
+FAIL a launch point exists (the switcher needs one): 
+PASS launch: the card is in front: after 2.4 s
+PASS launch: the launcher and the 64-bit app run: {"stub": [7531], "shell": [7540], "app": [7550]}
+PASS launch: the window is a card: {"order": 0, "displayId": 0, "processId": "7550", "windowType": "_WEBOS_WINDOW_TYPE_CARD", "viewType": "normal", "params": {}, "windowGroup": false, "appId": "org.nphil.lumatv.card", "appCategory": []
+INFO launch: users: {"stub": ["5227"], "shell": ["5227"], "app": ["5227"]}
+INFO launch: processId in SAM's foreground info: 7550 (the app is 7550, the launcher 7531)
+PASS launch: the launcher registered with SAM: 
+PASS launch: the 64-bit path was used: gfx64: 64-bit path: /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib/libmali-bifrost-g52-g24p0-wayland-gbm.so
+PASS launch: no GL error: 
+INFO launch: buffer source: dma_buf_unified
+PASS launch: no buffer allocation failed: 
+PASS launch: SAM lists it as running: 
+INFO launch: app RSS kB: 136124
+INFO screenshot status: not fetched: [Errno 2] No such file
+PASS launch: SAM leaves it running for 20 s: 
+FAIL keys: OK reaches the app and opens the keys page: 
+INFO screenshot keys: not fetched: [Errno 2] No such file
+FAIL keys: Back goes up a page and the app stays: 
+INFO keys: codes the compositor sent (presses): 
+PASS home: Home is in front: com.webos.app.home
+PASS home: the card was told it is minimized: 
+PASS home: the covered card keeps running: 
+PASS home: the covered card is idle: 0 clock ticks in 5 s
+PASS home: the app switcher lists the card: {"returnValue": true, "ready": true, "recentsAppList": [{"customImageFilePath": "", "appId": "org.nphil.lumatv.card", "splashBackground": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.
+INFO screenshot home: not fetched: [Errno 2] No such file
+PASS relaunch: the card comes back to the front: org.nphil.lumatv.card
+PASS relaunch: SAM's relaunch reached the app: 
+PASS relaunch: the same process (no second start): 
+PASS relaunch: the window is fullscreen again: 
+INFO screenshot relaunched: not fetched: [Errno 2] No such file
+FAIL back: Back at the first page ends the app: {"stub": [{"pid": 7531, "uid": "5227", "cmd": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"org.nphil.lumatv.card\",\"parameters\":{},\"interfaceVersion\":2,\"interfaceMethod\":\"registerApp\",\"@system_native_app\":true} "}], "shell": [{"pid": 7540, "uid": "5227", "cmd": "sh /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/launch.sh --bundle /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle --shim /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so -- /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app --app-id org.nphil.lumatv.card --reason undefined --params {} --channel-fd 3 --assets /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/assets --shm /tmp/lumatv-card-shm "}], "app": [{"pid": 7550, "uid": "5227", "cmd": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib/ld-linux-aarch64.so.1 --library-path /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib --preload /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app --app-id org.nphil.lumatv.card --reason undefined --params {} --channel-fd 3 --assets /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/assets --shm /tmp/lumatv-card-shm "}]}
+FAIL back: Home is in front again: org.nphil.lumatv.card
+FAIL back: the launcher ended with the app's status: no 'done' line
+FAIL back: SAM no longer lists it as running: 
+FAIL back: its picture files are gone: 
+INFO screenshot after-back: not fetched: [Errno 2] No such file
+PASS close: SAM's close reaches the app: [lumatv-card 4124.812] SAM: close (undefined)
+PASS close: the app and its launcher end: {}
+FAIL exit: Back held closes the app: {"stub": [{"pid": 15862, "uid": "5227", "cmd": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin/lumatv-card {\"event\":\"launch\",\"reason\":\"undefined\",\"appId\":\"org.nphil.lumatv.card\",\"parameters\":{},\"interfaceVersion\":2,\"interfaceMethod\":\"registerApp\",\"@system_native_app\":true} "}], "shell": [{"pid": 15870, "uid": "5227", "cmd": "sh /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/launch.sh --bundle /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle --shim /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so -- /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app --app-id org.nphil.lumatv.card --reason undefined --params {} --channel-fd 3 --assets /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/assets --shm /tmp/lumatv-card-shm "}], "app": [{"pid": 15880, "uid": "5227", "cmd": "/media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib/ld-linux-aarch64.so.1 --library-path /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/bundle/lib --preload /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/gfx64/heapshim.so /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/bin64/lumatv-card-app --app-id org.nphil.lumatv.card --reason undefined --params {} --channel-fd 3 --assets /media/developer/apps/usr/palm/applications/org.nphil.lumatv.card/assets --shm /tmp/lumatv-card-shm "}]}
+INFO exit: how it ended: card[4124.813]: exit: SAM closed the app (undefined)
+PASS end: Home is in front, nothing of the card runs: 
+INFO done: 10 checks failed
