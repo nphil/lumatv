@@ -27,6 +27,9 @@ revert() {
         systemctl restart surface-manager-daemon
     fi
     echo "revert: $(systemctl is-active surface-manager-daemon); mounted: $(is_mounted && echo yes || echo no); exe: $(readlink /proc/$(pgrep -x surface-manager | head -1)/exe 2>/dev/null)"
+    # A recovery still running from the forward switch would make this one a no-op (recover-home.sh joins a
+    # running one and exits); it is bounded, so wait for it first.
+    n=0; while [ -d /tmp/lumatv-recover.lock ] && [ $n -lt 150 ]; do sleep 1; n=$((n+1)); done
     sh $STATE/bin/recover-home.sh $STATE/sm.log
 }
 
@@ -69,6 +72,11 @@ trial|enable)
     mount --bind $STATE/bin/lumatv-sm $LG
     echo "mounted; restarting the unit"
     systemctl restart surface-manager-daemon
+    # WebAppMgr loses its socket with the old compositor and restarts into none until systemd's start limit
+    # leaves it failed (webapp-mgr.service is PartOf surface-manager.service, not the daemon unit, so nothing
+    # restarts it for us); the same recovery as after a fallback brings it and Home back once the supervisor
+    # reports ready. It holds /tmp/lumatv-recover.lock while it runs.
+    ( sh $STATE/bin/recover-home.sh $STATE/sm.log > /dev/null 2>&1 & )
     t=0
     while [ $t -lt $secs ]; do
         sleep 5; t=$((t+5))
@@ -78,7 +86,10 @@ trial|enable)
         if ! is_mounted; then echo "the supervisor fell back to LG's compositor: $(cat $STATE/last-fallback 2>/dev/null)"; break; fi
         if [ "$1" = enable ] && [ $t -ge 30 ]; then break; fi
     done
-    if [ "$1" = trial ]; then trap - EXIT INT TERM; revert; else echo "enabled: LumaTV's compositor stays live; 'cutover.sh disable' restores LG's"; fi
+    if [ "$1" = trial ]; then trap - EXIT INT TERM; revert; else
+        n=0; while [ -d /tmp/lumatv-recover.lock ] && [ $n -lt 90 ]; do sleep 1; n=$((n+1)); done
+        echo "enabled: LumaTV's compositor stays live (recovery done after ${n}s more); 'cutover.sh disable' restores LG's"
+    fi
     ;;
 disable)
     rm -f $STATE/enabled
