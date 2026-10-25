@@ -70,12 +70,19 @@ PageList {
         { kind: "toggle", icon: "hash", label: "Number keys open dock tiles", detail: "1 opens the first tile on the dock, 2 the second, and so on.",
           on: function() { return !page.theme.remote || page.theme.remote.numberKeys !== false },
           act: function(v) { if (page.host) page.host.patch({ remote: { numberKeys: v } }) } },
+        { kind: "toggle", icon: "bell", label: "Hold the gear key for notifications", detail: "Hold Settings for a moment to open the notifications. Off gives the hold back to LG's Settings.",
+          on: function() { return !page.theme.remote || page.theme.remote.gearHold !== false },
+          act: function(v) { if (page.host) page.host.patch({ remote: { gearHold: v } }) } },
         R.head("App keys")
     ].concat(AK.keys.map(function(k) { return page.appKeyRow(k) }), [
         R.head("Voice"),
         R.toggle(voiceSettings, { ds: "enabled", on: "true", off: "false", icon: "mic", label: "Search by voice",
                                   detail: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),
         R.note(function() { return page.voiceNeeds }, 0, function() { return page.voiceOn && page.voiceNeeds !== "" }),
+        R.head("On screen"),
+        { kind: "toggle", icon: "tv-minimal-play", label: "Banners over video", detail: "LumaTV draws its own input banner over an input or Live TV, besides LG's. For when LG's is hidden.",
+          on: function() { return !!(page.theme.banners && page.theme.banners.own === true) },
+          act: function(v) { if (page.host) page.host.patch({ banners: { own: v } }) } },
         R.lg(page, { target: "RemoteSlowInput", detail: "Universal remote control, extended press times, Settings help." })
     ])
 }

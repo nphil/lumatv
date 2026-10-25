@@ -63,18 +63,18 @@ def _():
 # and the chooser opened for the Netflix key
 @scene("03-settings-remote-appkeys")
 def _():
-    return page("remote", 0, *["down"] * 7) + [("snap", READY + 2600, "03-settings-remote-appkeys")]
+    return page("remote", 0, *["down"] * 8) + [("snap", READY + 2600, "03-settings-remote-appkeys")]
 
 
 @scene("03-settings-appkey-chooser")
 def _():
-    return page("remote", 0, *["down"] * 4, "ok") + [("snap", READY + 2800, "03-settings-appkey-chooser")]
+    return page("remote", 0, *["down"] * 5, "ok") + [("snap", READY + 2800, "03-settings-appkey-chooser")]
 
 
 @scene("03-settings-appkey-chosen")
 def _():
     # the Prime Video key set to "Does nothing": the chooser is left and the row says Nothing
-    return page("remote", 0, *["down"] * 5, "ok", "down", "ok") + [("snap", READY + 3000, "03-settings-appkey-chosen")]
+    return page("remote", 0, *["down"] * 6, "ok", "down", "ok") + [("snap", READY + 3000, "03-settings-appkey-chosen")]
 
 
 # Glass depth (Home & look › Look): the row focused at the shipped step, and the panes at each of the other two

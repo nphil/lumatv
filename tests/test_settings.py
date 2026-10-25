@@ -263,11 +263,11 @@ class Settings(HostCase):
     def test_choosing_writes_one_entry_each_and_leaving_the_default_removes_it(self):
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            # Remote page: four stops (pointer, speed, size, number keys), then Netflix. Right enters, Down x4 lands on Netflix, OK opens the chooser
+            # Remote page: five stops (pointer, speed, size, number keys, gear hold), then Netflix. Right enters, Down x5 lands on Netflix, OK opens the chooser
             # on LG's default; Down + OK is "Does nothing" and returns to the page; Down is Prime Video, the same; Up and OK reopens Netflix on
             # "Does nothing" (the one in force), Up + OK is LG's default again, which removes the entry. One key every 350 ms: each choice is
             # written to the file before the next, as a person's presses are.
-            steps = ["right"] + ["down"] * 4 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
+            steps = ["right"] + ["down"] * 5 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
             presses = [a for i, s in enumerate(steps) for a in self.keys(READY + 1500 + 350 * i, s)]
             end = READY + 1500 + 350 * len(steps)
             rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, *(["down"] * RAIL["remote"])), *presses,
@@ -279,11 +279,24 @@ class Settings(HostCase):
             with open(os.path.join(data, "theme", "theme.json")) as f:
                 self.assertEqual(json.load(f)["remote"]["appKeys"], {"amazon": ""})
 
+    def test_the_gear_hold_and_own_banner_switches_write_the_keys_the_shell_reads(self):
+        # Remote page, Right enters: pointer, speed, size, number keys, gear hold (on by default): OK turns it off. The banners switch is the
+        # last stop but the LG row and the voice switch, off by default: OK turns it on.
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", *["down"] * 4, "ok"),
+                                *self.keys(READY + 2400, "down", "down", "down", "down", "down", "down", "ok"),
+                                "--eval", "%d:JSON.stringify({remote: root.theme.remote, banners: root.theme.banners || null})" % (READY + 3800), "--wait", str(READY + 4400), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            doc = self.docs(out)[-1]
+            self.assertEqual(doc["remote"]["gearHold"], False)
+            self.assertEqual(doc["banners"], {"own": True})
+
     def test_an_app_chosen_for_a_key_is_that_apps_id(self):
         # the first app row: Down x2 from LG's default (past Does nothing and the heading), then OK
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", *["down"] * 4, "ok", "down", "down", "ok"),
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", *["down"] * 5, "ok", "down", "down", "ok"),
                                 "--eval", "%d:JSON.stringify(root.theme.remote.appKeys)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
             self.assertEqual(rc, 0, out[-1500:])
             self.assertEqual(self.docs(out)[-1], {"netflix": "com.webos.app.discovery"})        # the dock's first tile: the all-apps store
