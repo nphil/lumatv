@@ -8,8 +8,16 @@
 //!    The configuration lists the channels (up to 20) and where each light sits.
 //! 2. DTLS to UDP port 2100 with PSK identity = the application id (`hue-application-id`, from `GET /auth/v1`) and PSK =
 //!    the `clientkey` the bridge returned when the application key was created (32 hex characters, 16 bytes).
-//! 3. [`Session::send`] about 25 to 60 times a second. The bridge stops the stream after about 10 s of silence; Zigbee
-//!    lights take roughly 25 updates a second whatever the stream rate, so more than 25 buys smoother fades only.
+//! 3. [`Session::send`] about 20 to 25 times a second. The bridge stops the stream after about 10 s of silence; Zigbee
+//!    lights take roughly 25 updates a second whatever the stream rate. Bifrost forwards at most `streaming_fps` frames
+//!    a second (default 20) and smooths between them for the rate it sees, so it looks best when the stream rate
+//!    equals that setting.
+//!
+//! Bifrost (read from its source, `src/server/entertainment.rs` and `crates/hue/src/stream.rs`): the DTLS server is
+//! OpenSSL's with a PSK callback that ignores the identity and always answers with the fixed key `BifrostHueTlsKey`
+//! ([`BIFROST_CLIENT_KEY_HEX`]); it accepts HueStream v1 and v2, RGB and xy; it reads each datagram into a 1024-byte
+//! buffer; it allows 5 s for the handshake and 10 s of silence; the first frame of a session is used to find the
+//! entertainment configuration and is not forwarded; the configuration must exist in Bifrost.
 //!
 //! Packet (v2), all integers big endian:
 //!
@@ -29,6 +37,9 @@ pub const MAX_CHANNELS: usize = 20;
 const MAGIC: &[u8; 9] = b"HueStream";
 const HEADER: usize = 16;
 pub const CONFIG_ID_LEN: usize = 36;
+
+/// The 16-byte key Bifrost uses for every entertainment stream (`BifrostHueTlsKey`), as the `clientkey` text it hands out.
+pub const BIFROST_CLIENT_KEY_HEX: &str = "426966726f7374487565546c734b6579";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorSpace {
@@ -342,6 +353,14 @@ mod tests {
         assert_eq!(
             decode_client_key("zz112233445566778899aabbccddeeff"),
             Err(StreamError::ClientKey)
+        );
+    }
+
+    #[test]
+    fn bifrosts_fixed_key_is_the_text_it_uses() {
+        assert_eq!(
+            decode_client_key(BIFROST_CLIENT_KEY_HEX).unwrap(),
+            b"BifrostHueTlsKey"
         );
     }
 

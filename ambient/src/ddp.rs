@@ -11,6 +11,10 @@
 //!   bytes 8-9  length of the data that follows, big endian
 //! ```
 //!
+//! Checked against WLED's own receiver (`handleDDPPacket` in `wled00/e131.cpp`): RGB versus RGBW is read from the data
+//! type bits, destination ids for control, status and config are refused, id 1 is accepted, and its own sender uses the
+//! same 1440-byte packets with push on the last.
+//!
 //! A longer strip is several packets with growing offsets and push on the last. WLED leaves realtime mode about
 //! 2.5 s after the last packet (its `realtime timeout`), so [`Sender::send`] is called at the output rate even when
 //! the picture is still. ESPHome's WLED effect and any DDP receiver take the same packets.

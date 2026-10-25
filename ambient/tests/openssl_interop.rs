@@ -214,6 +214,48 @@ fn the_psk_identity_reaches_openssl_exactly() {
 }
 
 #[test]
+fn bifrosts_standard_key_works_with_any_identity() {
+    if !have_openssl() {
+        return;
+    }
+    // Bifrost answers every PSK request with `BifrostHueTlsKey` whatever identity arrives; model that with s_server.
+    let port = UdpSocket::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut child = Command::new("openssl")
+        .args([
+            "s_server",
+            "-dtls1_2",
+            "-accept",
+            &format!("127.0.0.1:{port}"),
+            "-nocert",
+            "-psk",
+            huestream::BIFROST_CLIENT_KEY_HEX,
+        ])
+        .args(["-cipher", "PSK-AES128-GCM-SHA256"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_millis(500));
+    let mut cfg = SessionConfig::new(
+        ([127, 0, 0, 1], port).into(),
+        "any-application-id",
+        huestream::BIFROST_CLIENT_KEY_HEX,
+        CONFIG,
+    );
+    cfg.handshake_timeout = Duration::from_secs(3);
+    let result = Session::connect(&cfg).map(|mut s| s.send(&[(0, [1, 2, 3])]));
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(matches!(result, Ok(Ok(()))), "{:?}", result.map(|_| ()));
+}
+
+#[test]
 fn a_huestream_session_reaches_openssl_as_whole_packets() {
     if !have_openssl() {
         return;
