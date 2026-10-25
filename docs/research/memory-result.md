@@ -7,12 +7,14 @@ snapshots: `meminfo.txt`, `procs.tsv` with PSS, RSS, swap and VmSwap per process
 sysfs counters for the zram slot). Facts are from the set (LG OLED65C4PUA, webOS
 10.2.1) unless marked [INFERENCE].
 
-## Resume here (2026-10-25 11:25 EDT)
+## Resume here (2026-10-25 12:18 EDT)
 
-- On the set: `lumatv preload on` is on with the Netflix-only list (18 ids off,
-  `/var/lib/lumatv/preload.json`; LG's list saved in `preload.orig`). The app dir
-  carries this repository's `payload/preload.json` and `tools/lumatv` (comment
-  change only); the files replaced are in `/var/lib/lumatv/exp/memslot-backup/`.
+- On the set: `lumatv preload on` is on with the 14-id list (Netflix, Home and
+  the four HDMI input apps stay warm; the HDMI 2 app is preloaded again since
+  the 12:17 screen-on, "Preload fix on the set" below). The app dir carries
+  this repository's `payload/preload.json` (md5 `0ccc5bff`) and `tools/lumatv`;
+  LG's list is in `/var/lib/lumatv/preload.orig`; the files replaced are in
+  `/var/lib/lumatv/exp/memslot-backup/`.
   Declutter is unchanged (`lean`, `livetv`, `ai`, `cast` off). Swap, boot
   arguments and `/usr` untouched.
 - Way back: `lumatv preload off` restores LG's list and removes the state file;
@@ -24,6 +26,28 @@ sysfs counters for the zram slot). Facts are from the set (LG OLED65C4PUA, webOS
 - Open: Live TV cannot be made on demand with the declutter mechanism (below);
   the `iot-client` and `iotjs` stubs and the `ai` group are candidates for a
   later slot.
+
+## Preload fix on the set (2026-10-25 12:15-12:18 EDT)
+
+Evidence `docs/research/memory/preload-fix-2026-10-25.txt`. The app dir still
+had the 18-id list, so `com.webos.app.hdmi1`-`hdmi4` were off in configd. In
+order, with the screen on (`setPreloadPolicy` is only answered then): `lumatv
+preload off` with the 18-id payload still installed (`turn_off` restores the
+ids the payload names, so the new payload first would have left the HDMI four
+off), then the 14-id `payload/preload.json` copied in, then `lumatv preload
+on`. Both runs report `amazon.alexapr` failed as before (configd holds it
+off). configd now enables `hdmi1`-`hdmi4`, `com.webos.app.home` and `netflix`
+and nothing else; the state file lists the 14.
+
+The preload manager took HDMI 2 as its target straight after the policy
+change (`NEW_TARGET(com.webos.app.hdmi2)`, 12:16:11; `inputcommon` pid 2513,
+41 MB RSS) and after the screen-off/on cycle at 12:16:42-12:17:10 it logs
+`(com.webos.app.hdmi2) preloaded`, `(netflix) preloaded`, the 14 `disabled`,
+`hdmi1`, `hdmi3`, `hdmi4` and `yandex.alice` `Not allowed` (no device on the
+port, not installed), then `All apps are preloaded`; the helper sent "14 apps
+kept from preloading" at that screen-on. In the 5 s between `off` and `on` the
+manager loaded LG Channels (the list was briefly all enabled); it was closed
+with `closeByAppId` and did not come back.
 
 ## Before and after
 

@@ -1,0 +1,36 @@
+# preload fix 2026-10-25 12:15-12:18 EDT
+# installed payload md5
+0ccc5bffb3f1de33ca08ec409a9d645f  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/preload.json
+# configd list
+enabled: ['com.webos.app.hdmi1', 'com.webos.app.hdmi2', 'com.webos.app.hdmi3', 'com.webos.app.hdmi4', 'com.webos.app.home', 'netflix']
+off: ['youtube.leanback.v4', 'com.webos.app.lgchannels', 'com.webos.app.browser', 'amazon', 'com.webos.app.livetv', 'com.webos.app.livemenu', 'com.webos.app.voice', 'amazon.alexapr', 'com.webos.app.miracast', 'com.webos.app.miracast-overlay', 'vudu', 'pooq', 'globoplaywebos', 'yandex.alice']
+# state file
+{"off":["youtube.leanback.v4","com.webos.app.lgchannels","com.webos.app.browser","amazon","com.webos.app.livetv","com.webos.app.livemenu","com.webos.app.voice","amazon.alexapr","com.webos.app.miracast","com.webos.app.miracast-overlay","vudu","pooq","globoplaywebos","yandex.alice"]}
+# running apps
+"webprocessid":"", "id":"netflix", "processid":"19027", "webprocessid":"5856", "id":"com.webos.app.home", "processid":"5856", "webprocessid":"", "id":"com.webos.app.hdmi2", "processid":"2513", 
+# preload manager at the 12:17 screen-on (one line per message; the manager prints the pass several times)
+  (com.webos.app.lgchannels) disabled
+  (netflix) preloaded. pinup(1) reserved(1)
+  (com.webos.app.hdmi2) preloaded. pinup(0) reserved(0)
+  (youtube.leanback.v4) disabled
+  (com.webos.app.browser) disabled
+  (com.webos.app.voice) disabled
+  (amazon) disabled
+  (com.webos.app.livetv) disabled
+  (airplay) disabled
+  (com.webos.app.hdmi3) Not allowed
+  (com.webos.app.hdmi4) Not allowed
+  (com.webos.app.livemenu) disabled
+  (com.webos.app.miracast) disabled
+  (yandex.alice) Not allowed
+  (com.webos.app.hdmi1) Not allowed
+  All apps are preloaded
+# helper
+2026-10-25T16:15:30Z INFO  screen: Active (on)
+2026-10-25T16:15:31Z INFO  preload: 18 apps kept from preloading
+2026-10-25T16:16:42Z INFO  screen: Active Standby (off)
+2026-10-25T16:17:10Z INFO  screen: Active (on)
+2026-10-25T16:17:10Z INFO  preload: 14 apps kept from preloading
+# inputcommon
+  PID   RSS    VSZ     ELAPSED COMMAND
+ 2513 41492 247632       01:42 /usr/bin/com.webos.app.inputcommon {"event":"laun
