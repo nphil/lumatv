@@ -43,8 +43,9 @@ run)
     echo "stopped: surface-manager pids: $(pgrep -x surface-manager || echo none); DRM holders: $(ls -l /proc/*/fd 2>/dev/null | grep -c card0)"
     # Case A: the 64-bit shm client, 600 frames at the tick (10 s; the X2 colour pattern saturates to ff8000 after
     # frame 10, so the panel holds one colour long enough to capture); composition into the dumb-buffer ring,
-    # in-fence commits, flip timestamps into the pacer.
-    ( $SRV --renderer kms --driver $BLOB --buffers own --card /dev/dri/card0 --seconds 40 --exit-on-disconnect --capture-dir $OUT/a --capture-every 50 > $OUT/a-server.log 2>&1 & )
+    # in-fence commits, flip timestamps into the pacer. A capture (8 MB read back through the CPU mapping) costs
+    # the frame it lands on, so only every 200th frame is captured and the client's callback gaps stay honest.
+    ( $SRV --renderer kms --driver $BLOB --buffers own --card /dev/dri/card0 --seconds 40 --exit-on-disconnect --capture-dir $OUT/a --capture-every 200 > $OUT/a-server.log 2>&1 & )
     n=0; while [ ! -S $D/wayland-lumatv ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done
     if [ ! -S $D/wayland-lumatv ]; then echo "A: server did not start"; sed -n 1,40p $OUT/a-server.log; exit 1; fi
     sleep 0.5
@@ -60,7 +61,7 @@ run)
     grep -E 'kms:|direct:|egl:|error|warn|summary' $OUT/a-server.log | grep -v 'ld.so.preload' | head -30
     # Case B: LG's own client (32-bit libmali, AFBC dma-bufs): the direct scan-out attempt (ADDFB2 with modifier
     # 0x0800000000000151). "direct: fb N for ..." means the plane took it; "ADDFB2 refused" means composition.
-    ( $SRV --renderer kms --driver $BLOB --buffers own --card /dev/dri/card0 --seconds 30 --exit-on-disconnect --capture-dir $OUT/b --capture-every 50 > $OUT/b-server.log 2>&1 & )
+    ( $SRV --renderer kms --driver $BLOB --buffers own --card /dev/dri/card0 --seconds 30 --exit-on-disconnect --capture-dir $OUT/b --capture-every 200 > $OUT/b-server.log 2>&1 & )
     n=0; while [ ! -S $D/wayland-lumatv ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n+1)); done
     sleep 0.5
     timeout 30 $D/bin/x2cli $MALI32 --frames 600 --size 1920x1080 --interval 1 > $OUT/b-client.log 2>&1 &
