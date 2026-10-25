@@ -22,7 +22,7 @@ luna|ads|/usr/sbin/admanager|stub|ad manager; US.info.lgsmartad.com in the boot 
 luna|ads|/usr/sbin/adoverlay-service|stub|ad overlay
 luna|ads|/usr/sbin/acr2|stub|content recognition; launched at every boot although consent is off
 luna|ads|/usr/sbin/sportsalarm|stub|sports alarm nudges
-luna|ads|/usr/sbin/pbs|stub|promotion banner prefetch; 190 MB written to flash in 2.4 h, pluto.tv images
+luna|ads|/usr/sbin/pbs|stub|fetches banner images (aic-ngfts.tv.wiselg.com, pluto.tv) at boot; 190 MB written to flash in 2.4 h
 
 unit|push|com.webos.service.pushclient.service||AWS IoT MQTT push channel (port 8883, iot.us-west-2.amazonaws.com)
 unit|push|nudge.service||nudge engine
@@ -54,8 +54,6 @@ app|apps|com.lgtvod.us.app||LG Movies & TV, installed 2026-09-22 by the same syn
 unit|voice|voiceconductor.service||voice assistant conductor; spawns performer, ThinQ AI, Alexa adapters
 unit|voice|voiceinput.service||voice input
 unit|voice|google-home-controller.service||Google Home controller
-unit|voice|ai-inference-manager.service||NPU inference manager, idle in Filmmaker mode
-unit|voice|nais.service||AI inference service
 luna|voice|/usr/sbin/nlpmanager|stub|natural language manager
 luna|voice|/usr/sbin/trigger_alexa|stub|Alexa wake trigger
 luna|voice|/usr/sbin/trigger_thinq|stub|ThinQ wake trigger
@@ -90,6 +88,10 @@ luna|share|/usr/sbin/mfi|stub|Apple MFi
 unit|misc|cups.path||printing
 unit|misc|cups.socket||printing, listens on port 631
 unit|misc|cups-lpd.socket||line printer daemon, listens on port 515
+
+unit|ai|ai-inference-manager.service||NPU inference manager; the NPU reads 0 % use in Filmmaker mode
+unit|ai|nais.service||AI inference service
+unit|ai|nn-proxy.service||neural network proxy; 2 MB resident, 6.5 MB swapped, 10 s of CPU in 2.4 h
 
 unit|livetv|utp.service||UTP broadcast stack
 unit|livetv|iepg.service||programme guide

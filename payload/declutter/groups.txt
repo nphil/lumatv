@@ -10,5 +10,6 @@ voice|lean|voice assistants, voice input, Google Home, AI inference|Magic Remote
 connectivity|lean|iconnectivity (IoT/ThinQ discovery), rule engine, IoT clients|LG ThinQ app control of the set stops
 share|lean|AirPlay, Miracast, DLNA/UPnP, app casting, TV Link, My Car, fitness|casting from phones through these protocols stops; DIAL (YouTube/Netflix cast) and Chromecast stay
 misc|lean|printing sockets|none
+ai|opt|NPU inference stack: ai-inference-manager, nais, nn-proxy|AI picture and AI sound features stop; unmeasured against the picture pipeline, so not in lean until the slot shows it is safe
 livetv|opt|the broadcast TV stack|Live TV and the programme guide stop working
 cast|opt|Chromecast built-in|Home Assistant's Cast session and Cast from phones stop

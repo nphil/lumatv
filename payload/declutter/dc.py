@@ -141,6 +141,7 @@ def cmd_measure(secs):
         mem[k] = int(v.split()[0]) if v.split() else 0
     units = {}
     cpu = {}
+    comms = {}
     for pid, (comm, cg, ticks, pss, swap) in b.items():
         u = units.setdefault(cg, [0, 0, 0])
         u[0] += pss
@@ -148,6 +149,11 @@ def cmd_measure(secs):
         d = ticks - a[pid][2] if pid in a else 0
         u[2] += d
         cpu[comm] = cpu.get(comm, 0) + d
+        if pss or swap:
+            c = comms.setdefault(comm, [0, 0, 0])
+            c[0] += pss
+            c[1] += swap
+            c[2] += 1
     span = secs * hz
     res = {
         'secs': secs,
@@ -158,10 +164,12 @@ def cmd_measure(secs):
         'procs': len(b),
         'pssTotalKb': sum(u[0] for u in units.values()),
         'pssLsHubdKb': units.get('ls-hubd.service', [0])[0],
-        'cpuBusyPct': round(100.0 * (b1 - b0) / max(1, t1 - t0), 2),
+        # CPUs go offline and online; their counters can step backwards, so a wild value is dropped
+        'cpuBusyPct': round(100.0 * (b1 - b0) / max(1, t1 - t0), 2) if 0 <= b1 - b0 <= t1 - t0 else None,
         'cpuProcsPct': round(100.0 * sum(cpu.values()) / span, 2),
         'topCpuPct': {k: round(100.0 * v / span, 2) for k, v in sorted(cpu.items(), key=lambda x: -x[1])[:8] if v},
-        'units': {k: v for k, v in sorted(units.items(), key=lambda x: -x[1][0])[:60]},
+        'units': units,
+        'comms': comms,
     }
     print(json.dumps(res, separators=(',', ':')))
 

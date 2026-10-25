@@ -201,8 +201,10 @@ unit_masked() {
   [ -L "$RUNSYS/$1" ] && [ "$(readlink "$RUNSYS/$1")" = /dev/null ]
 }
 
-# Units stopped and masked in this run; one reload and one stop at the end.
+# Units stopped and masked in this run; one reload (only when a mask is new)
+# and one stop at the end.
 UNITS_NEW=""
+NEED_RELOAD=0
 
 unit_on() {
   u=$1
@@ -214,6 +216,7 @@ unit_on() {
     record unit "$u" "$(unit_state "$u")"
     mut ln -sf /dev/null "$RUNSYS/$u"
     UNITS_NEW="$UNITS_NEW $u"
+    NEED_RELOAD=1
   elif [ "$(unit_state "$u")" = active ]; then
     UNITS_NEW="$UNITS_NEW $u"
   fi
@@ -221,7 +224,8 @@ unit_on() {
 
 units_flush() {
   [ -n "$UNITS_NEW" ] || return 0
-  mut systemctl daemon-reload >/dev/null 2>&1
+  [ "$NEED_RELOAD" = 1 ] && mut systemctl daemon-reload >/dev/null 2>&1
+  NEED_RELOAD=0
   # shellcheck disable=SC2086
   mut systemctl stop --no-block $UNITS_NEW >/dev/null 2>&1
   [ "$DRY" = 1 ] && { UNITS_NEW=""; return 0; }
@@ -235,7 +239,12 @@ units_flush() {
     n=$((n + 1))
     sleep 1
   done
-  [ -n "${left:-}" ] && log_line "units still active after 15 s:$left"
+  if [ -n "${left:-}" ]; then
+    # nudge and a few others ignore SIGTERM and would take 90 s to die.
+    log_line "units still active after 15 s, killed:$left"
+    # shellcheck disable=SC2086
+    mut systemctl kill -s KILL $left >/dev/null 2>&1
+  fi
   UNITS_NEW=""
 }
 
@@ -264,14 +273,20 @@ units_restore() {
 
 # ---------------------------------------------------------------- luna services
 
-kill_exe() {
-  # $1 = executable path; matches a jail's prefixed copy of it too.
-  want=$1
-  pids=""
-  for d in /proc/[0-9]*; do
-    e=$(readlink "$d/exe" 2>/dev/null) || continue
-    case "$e" in *"$want") pids="$pids ${d#/proc/}" ;; esac
-  done
+# Pids whose /proc/PID/exe ends with one of the given paths (newline-separated);
+# one pass over /proc, a jail's prefixed copy of a path matches too.
+exe_pids() {
+  ls -l /proc/[0-9]*/exe 2>/dev/null | awk -v pats="$1" '
+    BEGIN { n = split(pats, p, "\n") }
+    $(NF-1) == "->" {
+      exe = $NF; split($(NF-2), a, "/")
+      for (i = 1; i <= n; i++)
+        if (p[i] != "" && length(exe) >= length(p[i]) && substr(exe, length(exe) - length(p[i]) + 1) == p[i]) { print a[3]; break }
+    }'
+}
+
+kill_exes() {
+  pids=$(exe_pids "$1")
   [ -n "$pids" ] || return 0
   # shellcheck disable=SC2086
   mut kill $pids 2>/dev/null
@@ -287,10 +302,8 @@ is_bound() {
   grep -qF " $1 " /proc/self/mounts 2>/dev/null
 }
 
-luna_on() {
-  exe=$1 mode=$2
-  kill_exe "$exe"
-  [ "$mode" = stub ] || return 0
+luna_bind() {
+  exe=$1
   if [ ! -f "$exe" ]; then
     log_line "luna $exe: no such file, not stubbed"
     return 0
@@ -299,7 +312,6 @@ luna_on() {
     record luna "$exe" unbound
     mut mount --bind "$STUB" "$exe" || log_line "luna $exe: bind failed"
   fi
-  kill_exe "$exe"
 }
 
 luna_off() {
@@ -449,10 +461,9 @@ split_item() {
   A=${rest%%|*}
 }
 
-group_on() {
+# Phase one of switching a group on: queue its units, hold its settings.
+group_prepare() {
   g=$1
-  group_known "$g" || { emit_error "unknown group: $g"; return 1; }
-  UNITS_NEW=""
   items=$(group_items "$g")
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -464,17 +475,51 @@ group_on() {
   done <<EOF
 $items
 EOF
-  units_flush
+}
+
+# Phase two, after the units were stopped: the on-demand services and the apps.
+group_finish() {
+  g=$1
+  items=$(group_items "$g")
+  pats=""
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     split_item "$line"
-    [ "$K" = luna ] && luna_on "$N" "$A"
+    [ "$K" = luna ] && pats="$pats$N
+"
   done <<EOF
 $items
 EOF
+  if [ -n "$pats" ]; then
+    kill_exes "$pats"
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      split_item "$line"
+      [ "$K" = luna ] && [ "$A" = stub ] && luna_bind "$N"
+    done <<EOF
+$items
+EOF
+    kill_exes "$pats"
+  fi
   case "$g" in apps) apps_on "$g" ;; esac
   mark_active "$g"
   log_line "group $g on"
+}
+
+# Several groups with one daemon-reload and one stop for all their units.
+groups_on() {
+  for g in "$@"; do
+    group_known "$g" || { emit_error "unknown group: $g"; return 1; }
+  done
+  UNITS_NEW=""
+  NEED_RELOAD=0
+  for g in "$@"; do
+    group_prepare "$g"
+  done
+  units_flush
+  for g in "$@"; do
+    group_finish "$g"
+  done
   return 0
 }
 
@@ -505,11 +550,7 @@ EOF
 # ---------------------------------------------------------------- verbs
 
 exe_running() {
-  for d in /proc/[0-9]*; do
-    e=$(readlink "$d/exe" 2>/dev/null) || continue
-    case "$e" in *"$1") return 0 ;; esac
-  done
-  return 1
+  [ -n "$(exe_pids "$1")" ]
 }
 
 state_json() {
@@ -517,7 +558,8 @@ state_json() {
   g=$1
   total=0
   done_=0
-  apps=$(py apps 2>/dev/null)
+  apps=""
+  [ "$g" = apps ] && apps=$(py apps 2>/dev/null)
   items=$(group_items "$g")
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -575,9 +617,8 @@ verb_on() {
   done
   [ -n "$groups" ] || { emit_error "usage: on ads|lean | on --group NAME"; return 1; }
   take_lock || { emit_error "another run holds the lock"; return 1; }
-  for g in $groups; do
-    group_on "$g" || return 1
-  done
+  # shellcheck disable=SC2086
+  groups_on $groups || return 1
   if [ -n "$profile" ]; then
     [ "$DRY" = 1 ] || printf '%s\n' "$profile" > "$PROFILE_FILE"
   elif [ ! -f "$PROFILE_FILE" ] && [ "$DRY" != 1 ]; then
@@ -601,7 +642,7 @@ verb_off() {
     group_off "$g" || return 1
   done
   if [ ! -s "$ACTIVE" ] && [ "$DRY" != 1 ]; then
-    rm -f "$BEFORE" "$ACTIVE" "$PROFILE_FILE"
+    rm -rf "$BEFORE" "$ACTIVE" "$PROFILE_FILE" "$BACKUP"
   fi
   printf '{"ok":true,"off":"%s"}\n' "$(json_escape "$(echo $groups)")"
 }
@@ -624,37 +665,42 @@ verb_verify() {
 
 boot_pass() {
   take_lock || return 1
-  for g in $(cat "$ACTIVE" 2>/dev/null); do
-    group_on "$g" >/dev/null 2>&1
-  done
+  # shellcheck disable=SC2046
+  groups_on $(cat "$ACTIVE" 2>/dev/null) >/dev/null 2>&1
   release_lock
+}
+
+boot_settled() {
+  # The TV answers and the services we must not disturb are up.
+  [ "$(systemctl is-active sam.service 2>/dev/null)" = active ] && \
+    [ "$(systemctl is-active webapp-mgr.service 2>/dev/null)" = active ] && \
+    timeout 10 luna-send -n 1 luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | grep -q '"returnValue"[^,]*true'
 }
 
 boot_worker() {
   # Re-applies every group that is on. Units that LG starts after this point
   # are masked before they start; the ones that came up first are stopped, and
-  # the passes later in the boot catch what a dependency or a retry started.
+  # two more passes later in the boot catch what a dependency or a retry started.
+  # The marker covers only the first pass: if the set answers 15 s after it,
+  # whatever this tool did has not broken the boot, and the marker goes.
   boot_pass
   log_line "boot: first pass done"
-  for wait_s in 20 40; do
+  n=0
+  while [ "$n" -lt 12 ]; do
+    sleep 15
+    if boot_settled; then
+      rm -f "$BOOT_PENDING"
+      log_line "boot: settled"
+      break
+    fi
+    n=$((n + 1))
+  done
+  [ -f "$BOOT_PENDING" ] && log_line "boot: the set did not settle; the next boot skips declutter once"
+  for wait_s in 5 25; do
     sleep "$wait_s"
     boot_pass
   done
-  # Boot counts as complete when the TV answers and the services we must not
-  # disturb are up; otherwise the marker stays and the next boot skips us once.
-  n=0
-  while [ "$n" -lt 12 ]; do
-    if [ "$(systemctl is-active sam.service 2>/dev/null)" = active ] && \
-       [ "$(systemctl is-active webapp-mgr.service 2>/dev/null)" = active ] && \
-       timeout 10 luna-send -n 1 luna://com.webos.service.tvpower/power/getPowerState '{}' 2>/dev/null | grep -q '"returnValue"[^,]*true'; then
-      rm -f "$BOOT_PENDING"
-      log_line "boot: complete"
-      return 0
-    fi
-    n=$((n + 1))
-    sleep 10
-  done
-  log_line "boot: the set did not settle; the next boot skips declutter once"
+  log_line "boot: later passes done"
   return 0
 }
 
