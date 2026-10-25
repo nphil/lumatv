@@ -36,6 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   main one with its own 64-bit runtime (31 MB larger package). Under SAM's
   jail, whose `/dev` has only `dma_buf_unified` to allocate from, the heap shim
   takes the window buffers from that device.
+- Hue Entertainment streaming as a second ambient output: `lumatv-helper
+  hue-link` saves the bridge's keys privately with its certificate pinned, and
+  the stream stops when the screen goes off.
+- LumaTV's own banners over video (`LumaOverlay.qml`, switch `banners.own`,
+  off by default), holding the gear key opens the notification drawer
+  (`remote.gearHold`), number keys open dock tiles (`remote.numberKeys`), and
+  the remote's app keys open the app chosen per key in Settings.
+- Settings: Glass depth (Flat, Normal, Deep), a sleep timer on System and in
+  the quick panel, and panel hours on OLED care.
+- LG's input banners in the Lucent look (`lumatv inputcommon on`, off by
+  default) and the on-screen keyboard's open and close in the theme's layer
+  motion, by anchored patches that refuse when LG's code changes.
+- Cutover safety for LumaTV's compositor: a firmware check against a list of
+  verified builds, a watchdog that falls back to LG's compositor on a frozen or
+  empty panel or an unsettled run, the hold-Home escape from the first moment of
+  boot, and a gate that allows no gap over 20 ms.
 
 ### Changed
 
@@ -58,6 +74,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full-screen window, the UI app's socket wakes the event loop, the frame latch
   learns the GPU's finish from the in-fence, and a covered card is minimized and
   returns on fullscreen.
+- The helper takes the receiver's volume, mute, input and power over one held
+  telnet connection, so changes reach the volume display as the receiver makes
+  them; the HTTP status read is a fallback while telnet is down.
+- The colour reader polls 10 times a second with an integer NEON reduce
+  (output bit-identical, about 1.9 M instructions a poll down to 15 k).
+- Compositor: foreground pushes leave the frame path, a frame is held while a
+  driver buffer's first GPU job runs, texture frees are spread over flips, a
+  system layer can sit on the overlay plane above a directly scanned-out
+  window, the pacer follows the panel's measured refresh, each input device has
+  its own `wl_seat`, and a keyboard made after focus is entered at once.
+- The 64-bit card app binds every `wl_seat`, so the remote's keys reach it under
+  LG's compositor, which sends a key on the pressing device's seat only.
+- Boot: a set that boots into standby no longer gives LG's Home back, the
+  preload policy waits for the screen, the compositor restart comes right after
+  boot-bind so Home is up sooner, a set configured to start on its last input
+  keeps it, and the logo windows keep a stamped record in `logo-events`.
 - The compositor starts with `QT_QPA_UPDATE_IDLE_TIME=0`, removing Qt's fixed
   5 ms wait before each update; dropped animation frames fell from 8-9 % to
   3.4-4 % on a D-pad sweep and from 46-67 % to 2.5-4 % opening Quick Settings.
