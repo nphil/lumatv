@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "pictures": [
+    {
+      "id": "great-wave",
+      "file": "great-wave.jpg",
+      "artist": "Katsushika Hokusai",
+      "title": "Under the Wave off Kanagawa",
+      "year": "about 1831",
+      "licence": "Public domain",
+      "licenceChecked": "Public domain",
+      "source": "https://commons.wikimedia.org/wiki/File:Tsunami_by_hokusai_19th_century.jpg",
+      "checkedAt": "2026-10-25",
+      "width": 1280,
+      "height": 860,
+      "sha256": "fc230d4bb1ed1b436c0a2fc3765f1cbed4bd2258e464309748e8f0a396a960a4"
+    },
+    {
+      "id": "starry-night",
+      "file": "starry-night.jpg",
+      "artist": "Vincent van Gogh",
+      "title": "The Starry Night",
+      "year": "1889",
+      "licence": "Public domain",
+      "licenceChecked": "Public domain",
+      "source": "https://commons.wikimedia.org/wiki/File:Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg",
+      "checkedAt": "2026-10-25",
+      "width": 1280,
+      "height": 1014,
+      "sha256": "6dc34ae3aefd71e7d690d90920925f90ddbe6dfe5e6cc4aecca9a0df276453d2"
+    },
+    {
+      "id": "impression-sunrise",
+      "file": "impression-sunrise.jpg",
+      "artist": "Claude Monet",
+      "title": "Impression, Sunrise",
+      "year": "1872",
+      "licence": "Public domain",
+      "licenceChecked": "Public domain",
+      "source": "https://commons.wikimedia.org/wiki/File:Claude_Monet,_Impression,_soleil_levant.jpg",
+      "checkedAt": "2026-10-25",
+      "width": 1280,
+      "height": 996,
+      "sha256": "b0c8e37ecf26adec5b93799e009b342fa4f9948905073a2e8e92fc7330c89618"
+    },
+    {
+      "id": "fighting-temeraire",
+      "file": "fighting-temeraire.jpg",
+      "artist": "J. M. W. Turner",
+      "title": "The Fighting Temeraire",
+      "year": "1839",
+      "licence": "Public domain",
+      "licenceChecked": "Public domain",
+      "source": "https://commons.wikimedia.org/wiki/File:The_Fighting_Temeraire,_JMW_Turner,_National_Gallery.jpg",
+      "checkedAt": "2026-10-25",
+      "width": 1280,
+      "height": 951,
+      "sha256": "9339053dd38ed48b6bb6de702a5e784f1c1ef58c4eb5b97ed52d136685dd766f"
+    },
+    {
+      "id": "view-of-delft",
+      "file": "view-of-delft.jpg",
+      "artist": "Johannes Vermeer",
+      "title": "View of Delft",
+      "year": "about 1660",
+      "licence": "Public domain",
+      "licenceChecked": "Public domain",
+      "source": "https://commons.wikimedia.org/wiki/File:Vermeer-view-of-delft.jpg",
+      "checkedAt": "2026-10-25",
+      "width": 1280,
+      "height": 1063,
+      "sha256": "cdd50a2eda6e2ed9fcc0698c7ad70284d329b054784a9327b1873c5b81fb2641"
+    },
+    {
+      "id": "sierra-nevada",
+      "file": "sierra-nevada.jpg",
+      "artist": "Albert Bierstadt",
+      "title": "Among the Sierra Nevada, California",
+      "year": "1868",
+      "licence": "Public domain",
+      "licenceChecked": "Public domain",
+      "source": "https://commons.wikimedia.org/wiki/File:Albert_Bierstadt_-_Among_the_Sierra_Nevada,_California_-_Google_Art_Project.jpg",
+      "checkedAt": "2026-10-25",
+      "width": 1280,
+      "height": 765,
+      "sha256": "d47dcfc7012bddeae8d55c5bd0ab46199a82291e05fab89bd3183b11084e190a"
+    }
+  ]
+}
