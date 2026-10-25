@@ -9,14 +9,22 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 05:50 EDT, code at `1712de0`): C2 passed; the first C3
+State (2026-10-25 06:05 EDT, code at `a2c4a12`): C2 passed; the first C3
 window and the C4 dry run ran on the set (02:37-02:42) and their findings
 are fixed offline; the re-run, the probe, the trial and the gate wait for
 a TV slot (asked of the main agent: 07:00-07:45 if the set's Netflix
 playback is repaired by then, else the next day). Everything builds (`sh
-compositor/tools/build-tv.sh`, bundle of 05:43) and tests on the host
+compositor/tools/build-tv.sh`, bundle of 05:59) and tests on the host
 (`cd compositor && cargo test`: 73 unit, 20 protocol, 1 bridge;
 `sm/build.sh` runs the supervisor's scanner tests; clippy clean).
+
+- Fixed before the slot (06:00): the supervisor gives back its bus names
+  and closes every inherited descriptor before it execs LG's compositor (a
+  fallback would otherwise leave LG's own registration refused); `install`
+  no longer enables, so a reboot mid-session comes up on LG's; the forward
+  switch runs the WebAppMgr/Home recovery too; the gate ends on LG's
+  compositor whatever failed and counts only the current supervisor run;
+  cursor show/hide reach every client as `cursor_visibility`.
 
 - The Magic Remote's pointer (05:40, offline, host-tested): every
   `LGE M-RCU` is an evdev device with `ABS_X`/`ABS_Y` and only the wheel
@@ -94,15 +102,24 @@ compositor/tools/build-tv.sh`, bundle of 05:43) and tests on the host
   tvpower rounds, hold-Home escape; `--enable-after` makes LumaTV live when
   every check passed).
 - Next TV steps, in one slot, each with a go/no-go (the slot ends at
-  07:45, the set must be LG's, Home up, Active Standby by 07:50): 1.
-  `deploy` + `inspect` (read-only); 2. `cutover install` + `cutover probe`
-  (exit 0, else the role check is the thing to fix and only `kms` can run);
-  3. `cutover trial 120` (no `fallback:` line, compositor pid stays, WAM
-  active, LG's windows in `ctl windows`); 4. `gate` (no `--enable-after`,
-  see the decision above); 5. `kms` re-run if six minutes remain (expect
-  `drawn ≈ 600`, `flips` close, callback gaps in `a-client.log` ≤ 20 ms).
-  End state: `cutover.sh disable` (flag removed), `lumatv compositor
-  status` showing `enabled:false, live:false`, Home on the panel, standby.
+  07:45, the set must be LG's, Home up, Active Standby by 07:50), run from
+  the repository root with `F=compositor/tools/tv-first-light.sh`:
+  1. `sh $F deploy && sh $F inspect` (read-only; the inspection lands in
+     `docs/research/compositor/set-inspect-<date>.txt`).
+  2. `sh $F cutover install && sh $F cutover probe` (exit 0; exit 2 means
+     the role refuses the names to this path: only `kms` runs then).
+  3. `sh $F cutover trial 120` (no `fallback:` line, compositor pid stays,
+     WAM active; evidence in `/tmp/lumatv/out/trial` on the set).
+  4. `python3 compositor/tools/tv_gate.py` (add `--skip netflix` while the
+     set's Netflix playback is broken; never `--enable-after`, see the
+     decision above). It mutes and unmutes the receiver itself and always
+     ends with `cutover.sh disable`.
+  5. `sh $F kms` if six minutes remain (expect `drawn ≈ 600`, `flips`
+     close, callback gaps in `a-client.log` ≤ 20 ms).
+  End: `tv.py 'rm -rf /tmp/lumatv/bin /tmp/lumatv/lib'` (38 MB of tmpfs),
+  `…/org.nphil.lumatv/tools/lumatv compositor status` showing `enabled`
+  and `live` false, Home on the panel, then `tvpower power/powerOff
+  {"reason":"remoteKey"}`.
 - Open: the cursor plane for the sprite (no repaint per move), GBM on
   `card0` for the fast render path, the `wl_webos_*` opcode tables, the
   `wl_keyboard` key-code convention (the gate's Netflix ENTER is the first
