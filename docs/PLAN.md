@@ -203,7 +203,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Pointer right-click menu | Compositor QML (Back/Home) | Rebuilt | Shadow module |
 | App launch prompts (update required, unavailable) | SAM alerts | Rebuilt through the item contract | View swap |
 | Quick Access (number keys) | Toast and slot alert | Rebuilt | View swap |
-| Game Dashboard | HDMI game-mode overlay | Restyled; a PC is used on HDMI (Nitin, 2026-10-23), so input details show PC facts (4:4:4 chroma, refresh, VRR, ALLM); game mode, VRR and latency untouched | Overlay mount |
+| Game Dashboard | HDMI game-mode overlay | Restyled; no PC is connected to this TV (Nitin, 2026-10-25, correcting 2026-10-23), so input details show what the HDMI source reports (4:4:4 chroma, refresh, VRR, ALLM) only when a game source is present; game mode, VRR and latency untouched | Overlay mount |
 | Setting confirmations and recommendations | pqcontroller, ocp alerts | Rebuilt | View swap |
 
 Messages that are never filtered or delayed, whatever LumaTV's state: US
@@ -1083,7 +1083,7 @@ what it already does.
   `preloadmanager.supportAppList`, about 307 MB, re-sent at every wake as
   webOS 10 requires (Nitin, 2026-10-23); Prime Video (70 MB) too, and Live TV
   need not be kept ready: it is used rarely (Nitin, 2026-10-25). The HDMI input
-  apps stay ready so switching to the PC is instant (Nitin, 2026-10-25). Phase 8.
+  apps stay ready so switching inputs is instant (Nitin, 2026-10-25). Phase 8.
 - Light sync capture: the `vt_devmode` flag file, LG's developer switch that
   also relaxes the capture service's caller check, may be created for short
   probe slots and is removed at the end of each (Nitin, 2026-10-25). Keeping it
@@ -1143,3 +1143,7 @@ None.
   must go to the video planes, not the GPU), whether it decodes 4:4:4 at
   all, whether VRR applies to anything but HDMI inputs, Qt 6 versus a
   LumaTV-native UI over the streamer, and controller input.
+  No PC or console is connected to this TV, so this port is Nitin's only way
+  to play GeForce NOW on it for now; 4:4:4 and VRR are wanted and every route
+  to them is being tried (`docs/research/gfn-444-vrr-result.md`), with the
+  research in `docs/research/opennow-result.md` (Nitin, 2026-10-25).
