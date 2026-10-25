@@ -18,6 +18,8 @@ path = "src/main.rs"
 [dependencies]
 fetch.workspace = true
 settings-schema.workspace = true
+plugin-api.workspace = true
+service-api.workspace = true
 lumatv-denon.workspace = true
 lumatv-feeds.workspace = true
 libc.workspace = true
@@ -28,3 +30,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+lumashow-sdk.workspace = true

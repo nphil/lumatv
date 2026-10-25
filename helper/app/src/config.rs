@@ -51,6 +51,11 @@ impl Paths {
     pub fn settings_dir(&self) -> PathBuf {
         self.data_dir.join("settings")
     }
+
+    /// `plugins/`: `enabled.json` (which plugins are on) and one directory per installed plugin, with its `plugin.json`.
+    pub fn plugins_dir(&self) -> PathBuf {
+        self.data_dir.join("plugins")
+    }
 }
 
 /// A config problem, in words.
@@ -76,6 +81,8 @@ pub struct Config {
     pub luna: LunaConfig,
     /// The AI-access module (the MCP server). Off until the TV's owner turns it on with the remote; these are only how it runs.
     pub ai: AiConfig,
+    /// The plugin broker. It exists only while `plugins/enabled.json` lists a plugin; these are only how it runs.
+    pub plugins: PluginsConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -99,6 +106,7 @@ impl Default for Config {
             fetch: FetchConfig::default(),
             luna: LunaConfig::default(),
             ai: AiConfig::default(),
+            plugins: PluginsConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -314,6 +322,34 @@ impl Default for AiConfig {
     }
 }
 
+/// How the plugin broker runs. Which plugins are on is not here: it is `plugins/enabled.json` in the data dir, which the helper
+/// never writes and no API of it can change.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct PluginsConfig {
+    /// The broker's unix socket. Plugins find it at LumaShow's path and nowhere else, so this changes only in tests.
+    pub socket: String,
+    /// How often `enabled.json` is read again while the helper runs (a plugin switched on later is noticed within this).
+    pub rescan_seconds: u64,
+    /// How long a connection has to say `hello`, and how long a question to a plugin (an action) waits for its answer.
+    pub handshake_seconds: u64,
+    pub answer_seconds: u64,
+    /// The user id of plugin 0: a plugin runs as this id plus its number (0 to 63). Only a test changes it, to the id it runs as.
+    pub first_uid: u32,
+}
+
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        Self {
+            socket: plugin_api::BROKER_SOCKET.to_owned(),
+            rescan_seconds: 30,
+            handshake_seconds: plugin_api::limits::HANDSHAKE_SECS,
+            answer_seconds: plugin_api::limits::ANSWER_SECS,
+            first_uid: plugin_api::PLUGIN_UID_BASE,
+        }
+    }
+}
+
 /// The CA bundles a Linux image keeps, in the order they are tried when the config names none.
 pub const CA_BUNDLE_CANDIDATES: [&str; 5] = [
     fetch::IMAGE_CA_BUNDLE,
@@ -418,6 +454,20 @@ impl Config {
         {
             return err("ai.inputDir, ai.sysInputDir and ai.injectDevice must not be empty");
         }
+        if !self.plugins.socket.starts_with('/') {
+            return err("plugins.socket must be an absolute path");
+        }
+        if !(1..=3600).contains(&self.plugins.rescan_seconds)
+            || !(1..=60).contains(&self.plugins.handshake_seconds)
+            || !(1..=60).contains(&self.plugins.answer_seconds)
+        {
+            return err(
+                "plugins.rescanSeconds is 1 to 3600, plugins.handshakeSeconds and plugins.answerSeconds are 1 to 60",
+            );
+        }
+        if self.plugins.first_uid > u32::MAX - plugin_api::MAX_PLUGINS {
+            return err("plugins.firstUid leaves no room for 64 plugin user ids");
+        }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");
         }
@@ -483,6 +533,22 @@ pub fn find_ca_bundle(config: &FetchConfig) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_plugin_broker_defaults_to_lumashows_socket_and_rejects_nonsense() {
+        let config = Config::parse("{}").unwrap();
+        assert_eq!(config.plugins.socket, "/run/lumashow-plugins/broker.sock");
+        assert_eq!(config.plugins.first_uid, 20_000);
+        for bad in [
+            r#"{"plugins":{"socket":"relative/path"}}"#,
+            r#"{"plugins":{"rescanSeconds":0}}"#,
+            r#"{"plugins":{"handshakeSeconds":61}}"#,
+            r#"{"plugins":{"firstUid":4294967290}}"#,
+            r#"{"plugins":{"enabled":true}}"#,
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn no_file_means_the_defaults() {

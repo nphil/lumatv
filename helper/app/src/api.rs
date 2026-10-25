@@ -95,6 +95,8 @@ pub struct Api {
     pub fetch_backend: Value,
     /// The AI-access module: the TV's UI asks it for changes through `/v1/ai/...`.
     pub ai: Arc<crate::ai::Ai>,
+    /// The plugin broker: the TV's UI asks a plugin to run an action through `/v1/plugins/...`.
+    pub plugins: Arc<crate::plugins::Plugins>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -216,6 +218,7 @@ impl Api {
         let endpoints: Vec<Value> = ROUTES
             .iter()
             .chain(crate::ai::routes::ROUTES.iter())
+            .chain(crate::plugins::routes::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -406,6 +409,9 @@ impl Handler for Api {
             ["v1", "settings", owner] if get => self.settings_get(owner),
             ["v1", "settings", owner] if post => self.settings_post(owner, request),
             ["v1", "ai", rest @ ..] => crate::ai::routes::handle(&self.ai, request, rest),
+            ["v1", "plugins", rest @ ..] => {
+                crate::plugins::routes::handle(&self.plugins, request, rest)
+            }
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -478,6 +484,7 @@ mod tests {
                 hub,
                 settings,
                 ai,
+                plugins: crate::plugins::Plugins::new(&ctx),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -550,7 +557,10 @@ mod tests {
         let rig = rig();
         let b = body(&rig.api.handle(&request("GET", "/v1", "")));
         let listed = b["endpoints"].as_array().unwrap();
-        assert_eq!(listed.len(), ROUTES.len() + crate::ai::routes::ROUTES.len());
+        assert_eq!(
+            listed.len(),
+            ROUTES.len() + crate::ai::routes::ROUTES.len() + crate::plugins::routes::ROUTES.len()
+        );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);
         // The AI routes have their own tests (tests/ai.rs); here only that the router hands them on.

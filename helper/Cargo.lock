@@ -121,6 +121,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumashow-sdk"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "plugin-api",
+ "serde_json",
+ "settings-schema",
+]
+
+[[package]]
 name = "lumatv-denon"
 version = "0.1.0"
 
@@ -140,11 +150,14 @@ version = "0.1.0"
 dependencies = [
  "fetch",
  "libc",
+ "lumashow-sdk",
  "lumatv-denon",
  "lumatv-feeds",
  "parking_lot",
+ "plugin-api",
  "serde",
  "serde_json",
+ "service-api",
  "settings-schema",
  "sha2",
  "tempfile",
@@ -183,6 +196,17 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "plugin-api"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "service-api",
+ "settings-schema",
 ]
 
 [[package]]
@@ -278,6 +302,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "service-api"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "settings-schema",
 ]
 
 [[package]]

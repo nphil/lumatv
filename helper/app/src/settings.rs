@@ -221,6 +221,18 @@ impl SettingsStore {
         removed
     }
 
+    /// Takes an owner's page off the list but keeps its stored values on disk and in the store's files: a plugin that disconnected
+    /// has no page until it comes back, and its settings are what the person chose when it does.
+    pub fn retire(&self, owner: &str) -> bool {
+        let removed = self.owners.lock().remove(owner).is_some();
+        self.listeners.lock().retain(|(o, _)| o != owner);
+        if removed {
+            self.hub
+                .emit("settings", "retired", json!({"owner": owner}));
+        }
+        removed
+    }
+
     /// Registers the helper's own pages: `base.weather`, `base.news` and `base.receiver`.
     pub fn register_builtin(&self) -> Result<(), RegisterError> {
         for (json, rule) in [

@@ -145,6 +145,10 @@ impl Service {
         };
         let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
 
+        // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
+        let plugins = crate::plugins::Plugins::new(&ctx);
+        threads.push(("plugins", plugins.spawn(&ctx)?));
+
         let ip: IpAddr = config
             .listen
             .host
@@ -154,6 +158,7 @@ impl Service {
             hub,
             settings,
             ai: ai.clone(),
+            plugins,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,

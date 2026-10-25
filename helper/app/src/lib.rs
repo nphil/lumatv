@@ -11,9 +11,8 @@
 //! | [`settings`] | the data layer on LumaShow's `settings-schema` |
 //! | [`api`], [`http`] | the v1 API and the loopback server it runs on |
 //! | [`ai`] | the MCP server: AI assistants on the LAN, every permission held on the TV and changed only with the physical remote |
+//! | [`plugins`] | the plugin broker: LumaShow's plugin API level 1 for settings pages, cards, tiles and notifications |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
-//!
-//! Phase 3 adds the MCP server and phase 9 the plugin broker as components of [`service::Service`] (see its docs).
 
 pub mod ai;
 pub mod api;
@@ -26,6 +25,7 @@ pub mod homefeeds;
 pub mod http;
 pub mod hub;
 pub mod log;
+pub mod plugins;
 pub mod receiver;
 pub mod screen;
 pub mod service;
