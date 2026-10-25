@@ -47,6 +47,8 @@ pub struct RenderStats {
     pub render_us: u64,
     /// GL errors seen so far (cumulative); zero for the software renderer.
     pub gl_errors: u64,
+    /// Buffers this frame imported for the first time (none when the commit prepared them).
+    pub imports: u32,
 }
 
 pub trait Output {
@@ -57,6 +59,12 @@ pub trait Output {
     /// The size of a buffer the output can read but the protocol layer cannot (the GL driver's own buffers),
     /// and whether its rows are stored bottom-up. `None` when the output cannot tell.
     fn query_buffer(&mut self, buffer: &WlBuffer) -> Option<((i32, i32), bool)>;
+
+    /// A buffer a client just committed for the first time: the output pays its first-use costs now (import, first
+    /// draw) instead of in the frame that first shows it. `true` when it did something. The default does nothing.
+    fn prepare_buffer(&mut self, _buffer: &WlBuffer) -> bool {
+        false
+    }
 
     /// Forgets anything cached for a buffer the client destroyed. A released buffer keeps its import: clients
     /// re-attach the same buffers every few frames.

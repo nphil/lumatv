@@ -11,8 +11,9 @@
 # LG's compositor "it" is pixels on the panel; under LumaTV's the Home app is the transparent stub (LumaHome is
 # LG's compositor's QML), so there the wait is for Home in listRunningApps.
 #
-#   recover-home.sh [LOG]   wait for surface-manager-daemon to be active, recover WebAppMgr, launch Home,
-#                           sweep the librdx crash reports (HANDOFF "Standby"); lines appended to LOG if given
+#   recover-home.sh [LOG]   wait for surface-manager-daemon to be active, recover WebAppMgr, launch Home, end the
+#                           Netflix instance of the compositor that went, sweep the librdx crash reports (HANDOFF
+#                           "Standby"); lines appended to LOG if given
 WAM=webapp-mgr.service
 SM=surface-manager-daemon.service
 LOG=${1:-}
@@ -77,6 +78,14 @@ else
     if [ $n -lt 30 ]; then say "Home on the panel after ${n}s (capture $b bytes)"; else say "panel still blank after 30 s (capture ${b:-none} bytes)"; fi
 fi
 rm -f $CAP
+# A Netflix instance preloaded under the compositor that just went keeps the services it bound at its start and fails
+# to play (tvq-pb-101 in the third and fifth gates; the same under LG's compositor after declutter's runtime changes).
+# Ending it is enough: the preload manager loads a fresh one as soon as an app closes. Only Netflix: the HDMI input
+# apps survive a swap (HDMI 2's preloaded instance drew under LumaTV's compositor on the fifth gate).
+if timeout 10 luna-send -n 1 luna://com.webos.applicationManager/running '{}' 2>/dev/null | grep -q '"id":"netflix"'; then
+    timeout 10 luna-send -n 1 luna://com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null 2>&1
+    say "ended the Netflix instance of the previous compositor; the preload manager loads a fresh one"
+fi
 # The compositor restart makes com.webos.app.inputcommon crash on teardown; its report would make faultmanager
 # reboot the set at the next power-off. Pathname expansion handles the raw bytes in the names.
 sleep 10

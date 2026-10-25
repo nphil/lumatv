@@ -6,8 +6,9 @@
 #   gate.sh live      LumaTV is the compositor: mounted, 12 names registered, no fallback, WAM up, Home (the web
 #                     stub) mapped and on the panel
 #   gate.sh x1 SECS   the X1 probe client (64-bit, LG's blob) for SECS: no frame gap over 20 ms; pacer late unchanged
-#   gate.sh netflix   the Dolby Vision test film by deep link: card mapped, video window exported, Picture Mode
-#                     dolbyHdrCinema while playing, filmMaker back on Home
+#   gate.sh netflix   the Dolby Vision test film by deep link, from a fresh Netflix instance (a running one is
+#                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
+#                     playing, filmMaker back on Home
 #   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
@@ -74,6 +75,17 @@ x1)
     if [ -n "$res" ] && [ "$over" = 0 ] && [ "${late_before:-0}" = "${late_after:-1}" ]; then pass x1 "$fps fps, no gap over 20 ms, pacer late unchanged"; else fail x1 "$detail"; fi
     ;;
 netflix)
+    # A Netflix instance that was preloaded under another compositor (or while this one's services were still
+    # coming up) keeps what it bound at its start and shows tvq-pb-101 at play (third and fifth gates; the same
+    # error under LG's compositor after declutter's runtime changes). The check is a fresh start: a running
+    # instance is ended and the preload manager loads a new one, which the launch then takes.
+    closed=0
+    if ls1 com.webos.applicationManager/running '{}' | grep -q '"id":"netflix"'; then
+        ls1 com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null
+        closed=1
+        n=0; while [ $n -lt 15 ] && ls1 com.webos.applicationManager/running '{}' | grep -q '"id":"netflix"'; do sleep 1; n=$((n+1)); done
+        sleep 5
+    fi
     ls1 com.webos.applicationManager/launch '{"id":"netflix","params":{"contentTarget":"m=https://www.netflix.com/watch/80141336&source_type=4"}}' > /dev/null
     sleep 12
     ctl remote 28 tap > /dev/null
@@ -90,7 +102,7 @@ netflix)
     ls1 com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null
     sleep 2; home; sleep 6
     pm2=$(picture_mode)
-    detail="netflix windows $card video $video placements $placements protocol errors $drops pictureMode playing $pm after $pm2 fg playing $fgp now $(fg) panel ${b:-0} bytes"
+    detail="netflix windows $card video $video placements $placements protocol errors $drops pictureMode playing $pm after $pm2 fg playing $fgp now $(fg) panel ${b:-0} bytes stale-instance-closed $closed"
     echo "$detail" > $OUT/netflix-result.txt
     if [ "$card" -ge 1 ] && [ "$pm" = dolbyHdrCinema ] && [ "$pm2" = filmMaker ]; then pass netflix "$detail"; else fail netflix "$detail"; fi
     ;;

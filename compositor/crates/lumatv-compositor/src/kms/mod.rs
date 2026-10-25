@@ -472,12 +472,21 @@ impl Kms {
     }
 
     /// Commits a drawn frame now: the GL fence of a composed page goes along as the in-fence, and a duplicate of it
-    /// stays with the flip for its signal time.
+    /// stays with the flip for its signal time. The two steps are timed apart: the fence's export waits for the
+    /// driver to submit the draw (what a frame costs between `render:` and the loop's own line), the commit is the
+    /// kernel's atomic check.
     fn commit_frame(&mut self, frame: Frame) -> io::Result<()> {
         let a = frame.assignment;
+        let t0 = Instant::now();
         let fence = if matches!(a.primary, Source::Page(_)) { self.gl.export_fence() } else { None };
         let kept = fence.as_ref().and_then(|f| f.try_clone().ok());
-        self.commit(&a, fence)?;
+        let t1 = Instant::now();
+        let committed = self.commit(&a, fence);
+        let t2 = Instant::now();
+        if t2 - t0 > Duration::from_millis(4) {
+            log::info!("present: fence export {:.1} ms, atomic commit {:.1} ms", (t1 - t0).as_secs_f64() * 1000.0, (t2 - t1).as_secs_f64() * 1000.0);
+        }
+        committed?;
         self.in_flight = Some(InFlight {
             timing: frame.timing,
             fence: kept,
@@ -720,6 +729,12 @@ impl Output for Kms {
             log::warn!("kms: queued frame: {e}");
             landed += 1;
         }
+        if landed > 0 {
+            // The GPU is done with the frame that landed, the last that could have read a retired texture; the
+            // frame drawn next is a latch away, so the driver's unmapping costs this pass and no frame.
+            self.gl.bury();
+            self.prune_direct();
+        }
         Ok(landed)
     }
 
@@ -759,6 +774,10 @@ impl Output for Kms {
         self.gl.query_buffer(buffer)
     }
 
+    fn prepare_buffer(&mut self, buffer: &WlBuffer) -> bool {
+        self.gl.prepare(buffer)
+    }
+
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
         self.gl.forget_buffer(buffer);
         if let Some(d) = self.direct.remove(&buffer.id()) {
@@ -772,7 +791,6 @@ impl Output for Kms {
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
         let now = self.now_ns();
         let slot_ns = self.pacer.plan(now).slot_ns;
-        self.prune_direct();
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
         // flip is pending, one drawn into (a waiting frame's, or the next).

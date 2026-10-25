@@ -9,7 +9,7 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 16:20 EDT, code at `7d10b91`): C2 passed; the fifth gate
+State (2026-10-25 17:30 EDT, code after `7d10b91`): C2 passed; the fifth gate
 ran on the set 16:06-16:14 with the `exposed` event of `7d10b91` ("Fifth
 gate on the set"; files in `docs/research/compositor/slot-2026-10-25-1606/`):
 live, volume, **hdmi**, standby/wake and escape PASS; x1 FAIL by the rule
@@ -19,13 +19,18 @@ tvq-pb-101, its player attached and left twice; the window, the fullscreen
 raise and the placements were right). HDMI 2 draws now: the preloaded
 instance mapped 83 ms after `exposed`. LG's compositor is live (set in
 Active Standby, `enabled` absent, Home stub on, receiver unmuted).
+Built since, NOT RUN ON THE SET ("Built for the sixth gate"): a buffer's
+first-use costs paid at its commit, texture frees deferred to the flip
+after, a `tick:`/`present:` breakdown of any slow pass, the gate's Netflix
+check from a fresh instance, and `recover-home.sh` ending the Netflix of
+the compositor that went.
 `tv_ui_measure.py` ran after the fourth gate: idle 0.51 ms of GPU a frame
 at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
 libmali client, as known. Host: `cd compositor && cargo test` (73 unit, 26
-protocol, 1 bridge, 1 control, 2 LG-table), the same with `--features ui`
-plus `ui`, `ui_output` and `ui_scanout` under `LIBGL_ALWAYS_SOFTWARE=1`,
-`sm/build.sh`, clippy clean both ways; `sh compositor/tools/build-tv.sh`
-builds the bundle.
+protocol, 1 bridge, 1 control, 1 warm, 2 LG-table), the same with
+`--features ui` plus `ui`, `ui_output` and `ui_scanout` under
+`LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean both ways; `sh
+compositor/tools/build-tv.sh` builds the bundle.
 
 - Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
   trial and three gate runs live with no watchdog fallback, `READY=1`
@@ -62,16 +67,11 @@ builds the bundle.
   only (`7d10b91`); the preloaded HDMI 2 instance drew its first buffer 83
   ms after the event. Journal lines `window N: exposed WxH` / `exposed
   nothing (covered)`.
-- Next: the x1 rule (2 gaps over 20 ms in 60 s, both in the first second
-  after the client maps: a `tick` pass of 17.4 ms and a page-flip stamp
-  33.4 ms after the last, the same shape in three gates; not in the GL
-  draw); Netflix's tvq-pb-101 in a preloaded instance (seen under LG's
-  compositor too, `declutter-result.md`: a fresh Netflix start clears it;
-  the gate should end the preloaded instance before its launch, or launch
-  twice); `getWindowGroupInfo` (HDMI 2 subscribes; no capture shows LG's
-  answer). `tv_ui_measure.py` need not run again unless the engine changes
-  (idle 0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a frame; results in
-  `docs/research/compositor/ui-measure-2026-10-25-1430/`).
+- Next: the sixth gate with the build above (what it must show is in
+  "Built for the sixth gate"); `getWindowGroupInfo` (HDMI 2 subscribes; no
+  capture shows LG's answer). `tv_ui_measure.py` need not run again unless
+  the engine changes (idle 0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a
+  frame; results in `docs/research/compositor/ui-measure-2026-10-25-1430/`).
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
@@ -1217,6 +1217,80 @@ Netflix's tvq-pb-101 in the preloaded instance (the compositor's part of
 the launch was right; the next gate should end the preloaded Netflix
 before launching, as a fresh start cleared the error under LG's
 compositor); `getWindowGroupInfo`.
+
+## Built for the sixth gate (2026-10-25, offline; not run on the set)
+
+Two fixes for the two open rows, from the fifth gate's evidence alone.
+
+**x1's first second.** What the three logs agree on: x1 maps at T, SAM's
+foreground push goes out at T+3 ms, and 20-35 ms later one `tick` pass
+takes 13.7-18.8 ms with no `render:` line (the draw stayed under 4 ms, 0
+new imports measured inside it), and the page flip after it lands a
+refresh late. That is the client's second and third buffers (x1 allocates
+a 9 MB `dma_buf_te` buffer at its second and third swap: `x1.log`), each
+drawn for the first time by the frame that stalled. What the draw's own
+timer does not cover inside the tick is the fence export and the atomic
+commit (`present`), and the frame callbacks, releases and `luna_notify`
+after it. The driver's part of a first use that is not in
+`eglCreateImageKHR`/`glEGLImageTargetTexture2DOES` [INFERENCE: the Mali
+blob submits jobs from its `mali-cmar-backe` thread, so the mapping of a
+client's dma-buf at its first job lands in the wait for the native fence
+(`eglDupNativeFenceFDANDROID`), not in the draw]. The matching stall is
+proven the other way round: x1's disconnect costs a `render:` of 8.9-18.8
+ms "for 1 items, 0 new imports" on the fourth and fifth gates, which is
+`prune` destroying its three images inside the frame, waiting for the GPU.
+Changes (`gl.rs`, `kms/mod.rs`, `server/state.rs`, `output.rs`):
+
+- `Output::prepare_buffer`, called from `State::commit` for every buffer a
+  surface commits for the first time: the GL output imports it (EGLImage
+  and texture) and draws one quad from it into a 16x16 warm target with a
+  fence kick, not waited for. The cost moves from the tick to the clients'
+  pass that carries the commit, which is a latch earlier than the frame.
+  `prepared` and `frame imports` count both ways in the summary, `ctl
+  status` and `tests/warm.rs` (Mesa: the commit imports before any frame,
+  the frame then imports nothing, the picture is right).
+- Textures of dead buffers are retired by `prune` and freed by `bury`,
+  which the KMS output runs when a page flip lands (the GPU is done with
+  the last frame that could have read them, the next frame is a latch
+  away); offscreen, before the next frame. `prune_direct` moves with it.
+  `tests/warm.rs` covers the destroy path (no GL error, the next buffer
+  shows).
+- Attribution for the next slot: a tick over 8 ms logs `tick: N ms: plan
+  and draw A, present B, callbacks, releases and luna C`; a `present` over
+  4 ms logs `present: fence export A ms, atomic commit B ms`. With the
+  `render:` line that is every phase of the frame path.
+
+**Netflix tvq-pb-101.** The fifth gate's instance was `reason: preload`,
+pid 4234, connected to LumaTV's compositor only at the launch; whichever
+compositor it was preloaded under (the trial's, LG's between trial and
+gate, or this one's while WebAppMgr and the names were still coming up),
+it had bound its services at a time nothing of the current set-up
+existed. The declutter work saw the same error under LG's compositor in a
+preloaded instance that outlived runtime changes, and a fresh start
+cleared it; `memory-result.md`: the preload manager reloads an enabled app
+as soon as an app closes. Decision: end it, never launch into it.
+
+- `gate.sh netflix` ends a running Netflix (`running` lists it) before the
+  launch, waits for it to go, and the detail line carries
+  `stale-instance-closed 0|1`; a FAIL with the error still showing after
+  `1` would be a fresh instance's error and the compositor's to read.
+- `recover-home.sh` (every swap goes through it: enable, disable, trial
+  revert, the supervisor's fallback) ends a running Netflix after Home is
+  back, logged as `recover: ended the Netflix instance of the previous
+  compositor`; the preload manager loads a fresh one. The HDMI input apps
+  are left alone: their preloaded instance survived every swap and drew.
+  `lumatv compositor on|off` (`tools/compositor.sh`, `recover_home` in
+  `tools/lumatv`) runs the bundle's `recover-home.sh` when it is installed,
+  so LumaTV restarts a stale instance by that path too; nothing to add
+  there until the bundle ships in the ipk.
+
+The sixth gate must show, in order: x1's `loop:` lines at its mapping gone
+or moved to a `clients` pass (then the cost is on the API thread and the
+pre-import alone is the fix), `tick:`/`present:` lines for anything left,
+`prepared 3 frame imports 0` for x1 in `ctl status` after the x1 step, no
+`render:` line at x1's disconnect, netflix with `stale-instance-closed 1`
+and `dolbyHdrCinema`, and `recover: ended the Netflix instance` in
+`sm.log` after the enable.
 
 ## Surfaces under LumaTV's compositor (plan, 2026-10-25)
 

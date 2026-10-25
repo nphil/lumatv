@@ -60,6 +60,11 @@ pub struct Gl {
     a_pos: GLuint,
     a_uv: GLuint,
     textures: HashMap<ObjectId, Tex>,
+    /// Textures of buffers that died, destroyed later (`bury`): freeing a driver import stalls the caller until the GPU
+    /// is done with the last frame that read it (8.9-18.8 ms renders at X1's disconnect on the fourth and fifth gates).
+    graveyard: Vec<Tex>,
+    /// A 16x16 target the first draw from a fresh import goes into (`prepare`), made on first use: `(fbo, texture)`.
+    warm: Option<(GLuint, GLuint)>,
     bgra_upload: bool,
     clock: FrameClock,
     path: BufferPath,
@@ -167,6 +172,8 @@ impl Gl {
             a_pos,
             a_uv,
             textures: HashMap::new(),
+            graveyard: Vec::new(),
+            warm: None,
             bgra_upload,
             clock: FrameClock::new(),
             path,
@@ -342,7 +349,9 @@ impl Gl {
         }
     }
 
-    fn texture_for(&mut self, buffer: &WlBuffer, damage: Option<&[Rect]>, rect: &Rect) -> Option<(GLuint, (i32, i32), bool)> {
+    /// Makes `buffer` a texture if it is not one yet: `Some(true)` for a fresh import, `Some(false)` for one already
+    /// made, `None` when the driver refuses it (counted in `import_failures`).
+    fn import(&mut self, buffer: &WlBuffer) -> Option<bool> {
         let id = buffer.id();
         let a = &self.egl.api;
         if !self.textures.contains_key(&id) {
@@ -398,8 +407,70 @@ impl Gl {
                     Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true }
                 }
             };
-            self.textures.insert(id.clone(), tex);
+            self.textures.insert(id, tex);
+            return Some(true);
         }
+        Some(false)
+    }
+
+    /// A buffer's first-use costs, paid when the client commits it rather than in the frame that first draws it: the
+    /// import (the driver's mapping of a client buffer) and one draw from it into the warm target, started with a fence
+    /// and not waited for. `true` when the buffer was new. On the set a new client's second and third buffers each cost
+    /// the frame that first drew them a refresh (X1's first second on the third to fifth gates: 13.7-18.8 ms passes with
+    /// nothing of it in the draw itself), so the cost belongs in the clients' pass, before the pacer's latch.
+    pub fn prepare(&mut self, buffer: &WlBuffer) -> bool {
+        if self.import(buffer) != Some(true) {
+            return false;
+        }
+        let (tex, y_invert) = {
+            let t = &self.textures[&buffer.id()];
+            (t.tex, t.y_invert)
+        };
+        let (fbo, _) = match self.warm {
+            Some(w) => w,
+            None => match offscreen_target(&self.egl, 16, 16) {
+                Ok(w) => {
+                    self.warm = Some(w);
+                    w
+                }
+                Err(e) => {
+                    log::warn!("warm target: {e}");
+                    return true;
+                }
+            },
+        };
+        let a = &self.egl.api;
+        // SAFETY: state calls on the current context; the warm framebuffer and the program are this renderer's.
+        unsafe {
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, fbo);
+            (a.glViewport)(0, 0, 16, 16);
+            (a.glUseProgram)(self.program);
+            (a.glDisable)(egl::GL_SCISSOR_TEST);
+            (a.glDisable)(egl::GL_BLEND);
+        }
+        // The whole output rectangle fills the 16x16 viewport: every texel row is sampled.
+        self.draw_quad(tex, &Rect::new(0, 0, self.width as i32, self.height as i32), y_invert);
+        if let Some(sync) = self.egl.kick_fence() {
+            // SAFETY: a fence this renderer just created, consumed here.
+            unsafe { self.egl.wait_fence(sync, 0) };
+        } else {
+            // SAFETY: plain call.
+            unsafe { (a.glFlush)() };
+        }
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            self.gl_errors += 1;
+            log::warn!("gl error 0x{err:x} warming a buffer");
+        }
+        true
+    }
+
+    /// The texture for a buffer, imported now if the commit did not (`prepare`); `new` says which. Shm content is
+    /// uploaded here, where the frame's damage is known.
+    fn texture_for(&mut self, buffer: &WlBuffer, damage: Option<&[Rect]>, rect: &Rect) -> Option<(GLuint, (i32, i32), bool, bool)> {
+        let new = self.import(buffer)?;
+        let id = buffer.id();
+        let a = &self.egl.api;
         let entry = self.textures.get_mut(&id)?;
         if let BufferKindRef::Shm(shm) = kind_of(buffer) {
             // Upload what changed (clients draw into the same shm buffer between commits).
@@ -449,7 +520,7 @@ impl Gl {
             });
             entry.uploaded = true;
         }
-        Some((entry.tex, entry.size, entry.y_invert))
+        Some((entry.tex, entry.size, entry.y_invert, new))
     }
 
     fn draw_quad(&self, tex: GLuint, rect: &Rect, y_invert: bool) {
@@ -634,9 +705,8 @@ impl Gl {
         }
         let (mut imports, mut import_us) = (0u32, 0u64);
         for item in &plan.items {
-            let new = !self.textures.contains_key(&item.buffer.id());
             let began = std::time::Instant::now();
-            let Some((tex, _size, y_invert)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
+            let Some((tex, _size, y_invert, new)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
                 stats.skipped += 1;
                 continue;
             };
@@ -703,6 +773,7 @@ impl Gl {
             log::warn!("gl error 0x{err:x} during render");
         }
         stats.gl_errors = self.gl_errors;
+        stats.imports = imports;
         stats.render_us = t0.elapsed().as_micros() as u64;
         // A frame that cost more than half a refresh on the CPU is one the loop's own line will show as a stall; what
         // of it was the driver taking in a client's buffer for the first time is only known here (X1's first second
@@ -720,10 +791,10 @@ impl Gl {
         Ok(stats)
     }
 
-    /// Drops textures of buffers the clients destroyed and no surface shows any more. A destroyed buffer that is
-    /// still a surface's current one keeps its import: the surface goes on showing it until the client commits
-    /// another (the driver's own buffers have no destroy callback here, so liveness is the only signal).
-    fn prune(&mut self, surfaces: &Surfaces) {
+    /// Retires textures of buffers the clients destroyed and no surface shows any more; `bury` frees them. A destroyed
+    /// buffer that is still a surface's current one keeps its import: the surface goes on showing it until the client
+    /// commits another (the driver's own buffers have no destroy callback here, so liveness is the only signal).
+    pub fn prune(&mut self, surfaces: &Surfaces) {
         let dead: Vec<ObjectId> = self
             .textures
             .iter()
@@ -732,11 +803,19 @@ impl Gl {
             .collect();
         for id in dead {
             if let Some(t) = self.textures.remove(&id) {
-                // SAFETY: objects this renderer created, dropped once.
-                unsafe {
-                    (self.egl.api.glDeleteTextures)(1, &t.tex);
-                    self.egl.destroy_image(t.image);
-                }
+                self.graveyard.push(t);
+            }
+        }
+    }
+
+    /// Frees the retired textures. Called once the GPU is done with the last frame that could have read them (KMS:
+    /// when the next page flip lands; offscreen: before the next frame), never between a frame's draw and its commit.
+    pub fn bury(&mut self) {
+        for t in self.graveyard.drain(..) {
+            // SAFETY: objects this renderer created, dropped once.
+            unsafe {
+                (self.egl.api.glDeleteTextures)(1, &t.tex);
+                self.egl.destroy_image(t.image);
             }
         }
     }
@@ -841,9 +920,13 @@ impl Drop for Gl {
         drop(self.ui.take());
         // SAFETY: objects this renderer created, dropped once; the EGL display outlives them until `egl` drops.
         unsafe {
-            for t in self.textures.values() {
+            for t in self.textures.values().chain(&self.graveyard) {
                 (self.egl.api.glDeleteTextures)(1, &t.tex);
                 self.egl.destroy_image(t.image);
+            }
+            if let Some((fbo, tex)) = self.warm {
+                (self.egl.api.glDeleteFramebuffers)(1, &fbo);
+                (self.egl.api.glDeleteTextures)(1, &tex);
             }
             for t in &self.targets {
                 (self.egl.api.glDeleteFramebuffers)(1, &t.fbo);
@@ -875,13 +958,13 @@ impl Output for Gl {
         }
     }
 
+    fn prepare_buffer(&mut self, buffer: &WlBuffer) -> bool {
+        self.prepare(buffer)
+    }
+
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
         if let Some(t) = self.textures.remove(&buffer.id()) {
-            // SAFETY: objects this renderer created, dropped once.
-            unsafe {
-                (self.egl.api.glDeleteTextures)(1, &t.tex);
-                self.egl.destroy_image(t.image);
-            }
+            self.graveyard.push(t);
         }
     }
 
@@ -921,6 +1004,8 @@ impl Output for Gl {
     }
 
     fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> io::Result<RenderStats> {
+        // Offscreen there is no flip to wait for: the frame before this one is the last that could have read them.
+        self.bury();
         let mut tiles = plan.tiles.as_ref().cloned().unwrap_or_else(|| crate::damage::Tiles::new(self.width, self.height));
         tiles.add(&plan.damage);
         if self.take_redraw_all() {

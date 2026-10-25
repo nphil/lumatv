@@ -32,6 +32,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
                 "ticks": state.stats.ticks, "drawn": state.stats.frames_drawn, "callbacks": state.stats.callbacks_sent,
                 "releases": state.stats.releases, "skipped": state.stats.skipped_items,
                 "renderUsLast": state.stats.render_us_last, "renderUsMax": state.stats.render_us_max,
+                "prepared": state.stats.prepared, "frameImports": state.stats.frame_imports,
             },
             "check": {"ok": state.check.ok, "bad": state.check.bad, "unread": state.check.unread},
             "focus": state.seat.focus.map(|s| s.0),

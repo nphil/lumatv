@@ -54,6 +54,10 @@ pub struct Stats {
     pub render_us_max: u64,
     pub skipped_items: u64,
     pub gl_errors: u64,
+    /// Buffers whose first-use costs the commit paid (`Output::prepare_buffer`).
+    pub prepared: u64,
+    /// Buffers a frame had to import itself (zero while every commit prepares its buffer).
+    pub frame_imports: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -259,6 +263,13 @@ impl State {
             }
             if eff.new_buffer {
                 self.note_cadence(sid);
+                // The buffer's first-use costs are paid here, in the clients' pass, not in the frame that first
+                // draws it (the driver's import of a client buffer cost X1's first second a refresh on three gates).
+                if let Some(b) = self.surfaces.get(sid).and_then(|s| s.current.buffer.clone())
+                    && self.output.prepare_buffer(&b)
+                {
+                    self.stats.prepared += 1;
+                }
             }
         }
         // A window that commits but never attaches a buffer never maps (HDMI 2 on the 2026-10-25 gate: created,
@@ -319,8 +330,10 @@ impl State {
         super::seat::refocus(self);
     }
 
-    /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases.
+    /// One frame: plan, draw what changed, present, pay out frame callbacks and buffer releases. A tick over half a
+    /// refresh logs what each phase took, so a stall the loop's line attributes to `tick` is read without guessing.
     pub fn tick(&mut self) -> Presented {
+        let t0 = Instant::now();
         self.stats.ticks += 1;
         self.scene.cursor =
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
@@ -339,10 +352,12 @@ impl State {
                     stats.render_us_max = stats.render_us_max.max(st.render_us);
                     stats.skipped_items += st.skipped as u64;
                     stats.gl_errors = st.gl_errors;
+                    stats.frame_imports += st.imports as u64;
                 }
                 Err(e) => log::error!("render: {e}"),
             }
         }
+        let t_rendered = Instant::now();
         let presented = match self.output.present() {
             Ok(p) => p,
             Err(e) => {
@@ -350,6 +365,7 @@ impl State {
                 Presented::default()
             }
         };
+        let t_presented = Instant::now();
         if drew {
             self.stats.frames_drawn += 1;
             self.after_drawn_frame();
@@ -371,6 +387,16 @@ impl State {
             && self.stats.frames_drawn >= n
         {
             self.should_exit = true;
+        }
+        let t_end = Instant::now();
+        if t_end - t0 > Duration::from_millis(8) {
+            log::warn!(
+                "tick: {:.1} ms: plan and draw {:.1}, present {:.1}, callbacks, releases and luna {:.1}",
+                (t_end - t0).as_secs_f64() * 1000.0,
+                (t_rendered - t0).as_secs_f64() * 1000.0,
+                (t_presented - t_rendered).as_secs_f64() * 1000.0,
+                (t_end - t_presented).as_secs_f64() * 1000.0
+            );
         }
         presented
     }
@@ -472,7 +498,7 @@ impl State {
         let s = &self.stats;
         let out = self.output.stats_line();
         format!(
-            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us check ok {} bad {} unread {}{}{}",
+            "uptime {:.1}s clients {} (total {}) surfaces {} windows {} requests {} commits {} buffers {} ticks {} drawn {} callbacks {} releases {} skipped {} gl errors {} render last {} us max {} us prepared {} frame imports {} check ok {} bad {} unread {}{}{}",
             self.started.elapsed().as_secs_f64(),
             self.clients.len(),
             s.clients_total,
@@ -489,6 +515,8 @@ impl State {
             s.gl_errors,
             s.render_us_last,
             s.render_us_max,
+            s.prepared,
+            s.frame_imports,
             self.check.ok,
             self.check.bad,
             self.check.unread,
