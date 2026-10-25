@@ -6,12 +6,13 @@ startup warm-up, the frame gate, and the preload trim. Measured on the LG C4 (we
 
 ## Resume here
 
-State at 2026-10-25 01:10 EDT. Milestone 1 of 5 is built, deployed and verified on the set;
-the commit follows this note.
+State at 2026-10-25 01:45 EDT. Milestones 1 and 2 of 5 are built, deployed and verified on the
+set and pushed; the gate numbers for 2 are measured after the set comes back from the compositor
+work (section 2).
 
-- Done: 1 (key filter, OK on release, focus rest).
-- Next: 2 (wallpaper tint, saved-first weather and news), 3 (kit and tokens), 4 (warm-up and
-  the frame gate), 5 (preload trim and the Home-return re-measure).
+- Done: 1 (key filter, OK on release, focus rest), 2 (wallpaper tint, saved-first weather and news).
+- Next: 3 (kit and tokens), 4 (warm-up and the frame gate), 5 (preload trim and the Home-return
+  re-measure).
 - The set: Active, LumaHome in front, dock order restored after test keys moved a tile (the
   list is `Apps, Netflix, PlxNative, Apple TV, GeForce NOW, Crunchyroll, ...`; a held OK picks a
   tile up and an OK release drops it, so test scripts must not leave one picked up).
@@ -68,3 +69,49 @@ Checked on the set:
   the sweep): it counts an animated frame that follows an idle gap, and the gap before the lift
   that starts 150 ms after the last key is one; the render time of those frames is 0.7-3.7 ms,
   so none was late to render. The gate in step 4 counts only frames inside a running animation.
+
+## 2. Wallpaper tint and saved-first cards
+
+Wallpaper tint (`payload/compositor/lumatv/Tint.js`, LumaHome.qml, Dock.qml, `tools/palette.py`):
+
+- LumaHome decodes the wallpaper a second time at 64x36, grabs that item at 32x18, saves the grab
+  as XPM (the one text image format Qt writes) and reads it back through `TextFile`. Canvas could
+  not be used: on this firmware `Canvas.drawImage` paints nothing, for an Image item, for a
+  loaded PNG at 1:1 or scaled, and for an icon PNG alike (a `fillRect` on the same canvas read back
+  correctly). The stock 16x9 luma sampler therefore always read zero, so the "auto" glass was
+  always dark; it now reads the wallpaper (luma 0.293 for the shipped one, dark; with
+  `materialThreshold` set to 0.2 the Home turns light).
+- Each channel is cut into 8 levels (512 bins), transparent and near-black pixels (every channel
+  under 32) are skipped, the most common bin wins and a tie goes to the lower bin. Shipped
+  wallpaper: `#505070`, 24 % of the picture, which a PIL cross-check of the same rule reproduces;
+  the parser reads the XPM the set wrote to the same value on the workstation.
+- A newer wallpaper cancels a running sample: every decoded copy that becomes ready bumps a
+  generation and a grab from an older one is dropped. [INFERENCE: not provoked on the set, the 2 s
+  theme poll never changes the wallpaper twice inside one decode.]
+- The result is `theme/tint.json` (`wallpaper`, `tint`, `accent`, `light`, `luma`); a cold start
+  restores it for the same picture before the first sample lands, and `palette.py` reads the accent
+  from it. The accent keeps the tint's hue at saturation 0.55 (0.35 on light glass) and lightness 0.74
+  (0.42): `#9898e1` for the shipped wallpaper.
+- Feeding the tokens: `accent: "tile"` (shipped) keeps each tile's own colour and gives a tile with
+  no plate colour (white or black plate) the wallpaper accent where it had a fixed lavender;
+  `accent: "wallpaper"` uses it for every tile and for the web menus' accent (`palette.py css`:
+  `#A79BF5` becomes `#9898e1`); `tint.mix` (0 shipped) moves the focused glass toward the tint
+  (a focused card went from rgb 55,59,87 to 82,85,103 at 0.8).
+
+Saved-first cards (`Saved.js`, WeatherWidget.qml, NewsWidget.qml):
+
+- Both cards write `cache/weather.json` and `news.json` (the helper's schema, same directory the
+  helper uses) after each fetch and read them at creation, which is compositor start.
+  `Saved.js` carries the helper's policy and its documents: 15 min fresh, stale to 6 h, expired
+  after 6 h or stamped more than 5 min ahead, retries after 2 and 10 min then every 30. Its
+  weather document is checked against the helper's fixture and expected rows in `tests/saved.test.js`.
+  A newer file than what is on screen replaces it (when Home is shown), so the helper can fetch.
+- On the set, with a restart (the compositor restarts at `fps on`) and the panel watched from
+  blank to first present, the documents edited to a distinctive place and headline:
+  stale (20 min old): the first presented frame shows SAVEDVILLE 88 and the saved headline with its
+  hero picture, the refetch replaces the weather within 3 s and the headline later;
+  fresh (2 min old): shown, not refetched (the file is unchanged 143 s later);
+  expired (7 h old): not shown, both cards empty in the first frame, real data by 12 s.
+  Panel blank to first present: 4.6, 4.8 and 4.8 s (stale, fresh, expired).
+- A request that never answers is cut at 30 s, a zip the lookup cannot place is an error (the
+  old card fell back to Atlanta), and a reading for another zip or unit is not used.

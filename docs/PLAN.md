@@ -894,3 +894,15 @@ what it already does.
 ## Open decisions
 
 - Curated settings list and layout.
+
+## After LumaTV
+
+- Port OpenNOW (github.com/OpenCloudGaming/OpenNOW, MIT: Qt 6.8 UI, Rust
+  core and native NVST streamer, Linux ARM64 builds exist) to the set as a
+  LumaTV app (Nitin, 2026-10-25), aimed at a smooth UI and the best stream
+  the set can show: 4K, 120 fps, HDR, 4:4:4, VRR. Starts once LumaTV is
+  done. Research before any build: whether the set's video decoder accepts
+  a 4K120 low-latency stream through LG's media pipeline (decoded video
+  must go to the video planes, not the GPU), whether it decodes 4:4:4 at
+  all, whether VRR applies to anything but HDMI inputs, Qt 6 versus a
+  LumaTV-native UI over the streamer, and controller input.

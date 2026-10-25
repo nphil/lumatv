@@ -215,11 +215,17 @@ Item {
     }
 
     // ---------------------------------------------------------------- accent
+    // theme.accent: "tile" (the focused tile's own colour; a tile whose plate is white or black
+    // has none, so it takes the wallpaper's accent), "wallpaper" (the wallpaper's accent for
+    // every tile) or a fixed #rrggbb. wallAccent is the tint LumaHome sampled from the wallpaper
+    // (Tint.js), kept across restarts in theme/tint.json.
+    property color wallAccent: "#9a8cf0"
     function accentFor(p) {
-        if (!p) return "#9a8cf0"
+        if (!p) return wallAccent
         var t = theme.accent || "tile"
+        if (t === "wallpaper") return wallAccent
         if (/^#/.test(t)) return t
-        if (p.neutralPlate) return /netflix/i.test(p.title || p.id) ? "#e50914" : "#9a8cf0"
+        if (p.neutralPlate) return /netflix/i.test(p.title || p.id) ? "#e50914" : wallAccent
         return p.plate
     }
     property color currentAccent: accentFor(points[row * cols + col])

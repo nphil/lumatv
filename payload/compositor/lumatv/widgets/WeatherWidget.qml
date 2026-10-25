@@ -1,9 +1,12 @@
 import QtQuick 2.4
+import TextFile 1.0
+import "../Saved.js" as Saved
 
 // Current conditions and forecast rows on the mock's boxes: h3 at 0, "now" row at 47 (icon
 // 96, temperature 84px on a line-height-1 box, condition under it), stats at 179, a rule at
 // 220 and 41px rows from 225 with columns 70 | icon | 56 | 56. Data: zippopotam for lat/lon,
-// Open-Meteo for conditions, unchanged from the previous widget layer.
+// Open-Meteo for conditions. The last reading is saved to {{dataDir}}/cache/weather.json after
+// every fetch and drawn from there at once on a cold start (Saved.js).
 Item {
     id: root
     property var theme: ({})
@@ -14,7 +17,11 @@ Item {
     property bool focused: false
     property bool inner: false
     property bool live: true
-    property double fetchedAt: 0
+    property double fetchedAt: 0        // when the reading on screen was fetched, also when it came from disk
+    property int failures: 0
+    property double lastAttempt: 0
+    property bool fetching: false
+    property int fetchGen: 0
     readonly property string iconDir: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/icons/"
 
     function activate() {}
@@ -33,59 +40,91 @@ Item {
     property int rowsTop: 225
     property int maxDays: Math.max(0, Math.min(maxConfiguredDays, Math.floor((height - rowsTop) / 41)))
 
-    function kindFor(code, isDay) {
-        if (code === 0) return isDay ? "sun" : "moon"
-        if (code <= 2) return isDay ? "partly" : "partly-night"
-        if (code === 3) return "cloud"
-        if (code === 45 || code === 48) return "fog"
-        if (code >= 95) return "storm"
-        if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "snow"
-        if (code >= 61 || code >= 80) return "rain"
-        if (code >= 51) return "drizzle"
-        return "cloud"
+    // The strings of a reading, as Saved.weatherDoc computes them for the document on disk.
+    function show(doc) {
+        var d = doc.display
+        place = d.place; temp = d.temp; cond = d.cond; stats = d.stats; nowKind = d.nowKind; days = d.days
+        fetchedAt = doc.fetchedAt
     }
-    function textFor(code) {
-        if (code === 0) return "Clear"; if (code === 1) return "Mostly clear"; if (code === 2) return "Partly cloudy"; if (code === 3) return "Overcast"
-        if (code === 45 || code === 48) return "Fog"; if (code >= 95) return "Thunderstorm"
-        if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "Snow"
-        if (code >= 80) return "Showers"; if (code >= 61) return "Rain"; if (code >= 51) return "Drizzle"; return "Cloudy"
-    }
-    function dayName(iso) { var d = new Date(iso + "T12:00:00"); return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()] }
 
+    // ---- saved first. A newer reading on disk than the one on screen (the native helper's)
+    // replaces it. Refresh is due 15 min after the reading, retries after 2, 10 and then every
+    // 30 minutes (Saved.js). A place the zip lookup cannot resolve is an error, never another
+    // place's weather: the saved reading stays up and the lookup is tried again.
+    TextFile { id: savedFile; name: "file://{{dataDir}}/cache/weather.json" }
+    function loadSaved() {
+        var doc = Saved.parse(savedFile.exists ? savedFile.read() : "")
+        if (!Saved.weatherUsable(doc, zip, units, Date.now()) || doc.fetchedAt <= fetchedAt) return
+        show(doc)
+    }
     function fetchWeather() {
+        if (fetching) return
+        fetching = true
+        lastAttempt = Date.now()
+        var gen = ++fetchGen, askedZip = zip, askedUnits = units
+        watchdog.restart()
         var z = new XMLHttpRequest()
         z.onreadystatechange = function() {
-            if (z.readyState !== 4) return
-            var lat = 33.72, lon = -84.45, name = "Atlanta"
-            try { var j = JSON.parse(z.responseText); lat = parseFloat(j.places[0].latitude); lon = parseFloat(j.places[0].longitude); name = j.places[0]["place name"] } catch (e) {}
-            root.place = name
-            var u = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+            if (z.readyState !== 4 || gen !== root.fetchGen) return
+            var geo = null
+            try {
+                var p = JSON.parse(z.responseText).places[0]
+                geo = { place: p["place name"], lat: parseFloat(p.latitude), lon: parseFloat(p.longitude) }
+                if (!geo.place || isNaN(geo.lat) || isNaN(geo.lon)) geo = null
+            } catch (e) { geo = null }
+            if (!geo) { root.fail("place lookup"); return }
+            var u = "https://api.open-meteo.com/v1/forecast?latitude=" + geo.lat + "&longitude=" + geo.lon +
                     "&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m" +
-                    "&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=" + root.units + "&wind_speed_unit=mph&timezone=auto&forecast_days=7"
+                    "&daily=weather_code,temperature_2m_max,temperature_2m_min&temperature_unit=" + askedUnits + "&wind_speed_unit=mph&timezone=auto&forecast_days=7"
             var x = new XMLHttpRequest()
             x.onreadystatechange = function() {
-                if (x.readyState !== 4) return
-                try {
-                    var w = JSON.parse(x.responseText)
-                    root.temp = Math.round(w.current.temperature_2m) + "\u00b0"
-                    root.cond = textFor(w.current.weather_code)
-                    root.stats = "Feels like " + Math.round(w.current.apparent_temperature) + "\u00b0 \u00b7 " + w.current.relative_humidity_2m + "% humidity \u00b7 " + Math.round(w.current.wind_speed_10m) + " mph"
-                    root.nowKind = kindFor(w.current.weather_code, w.current.is_day === 1)
-                    var rows = []
-                    for (var i = 0; i < w.daily.time.length; i++)
-                        rows.push({ day: i === 0 ? "Today" : dayName(w.daily.time[i]), kind: kindFor(w.daily.weather_code[i], true),
-                                    hi: Math.round(w.daily.temperature_2m_max[i]) + "\u00b0", lo: Math.round(w.daily.temperature_2m_min[i]) + "\u00b0" })
-                    root.days = rows
-                } catch (e) { console.warn("[WeatherWidget] parse failed: " + e) }
+                if (x.readyState !== 4 || gen !== root.fetchGen) return
+                var doc = null
+                try { doc = Saved.weatherDoc(askedZip, askedUnits, geo, JSON.parse(x.responseText), Date.now()) }
+                catch (e) { doc = null }
+                if (!doc) { root.fail("forecast"); return }
+                root.finish(doc)
             }
             x.open("GET", u); x.send()
         }
-        z.open("GET", "https://api.zippopotam.us/us/" + zip); z.send()
+        z.open("GET", "https://api.zippopotam.us/us/" + askedZip); z.send()
     }
-    // Fetches only while Home is on screen. Showing it again fetches at once if the reading is
-    // older than the interval, so a TV left on an app does not poll unseen for hours.
-    Timer { interval: 900000; running: root.live; repeat: true; triggeredOnStart: true
-            onTriggered: if (Date.now() - root.fetchedAt >= interval - 5000) { root.fetchedAt = Date.now(); root.fetchWeather() } }
+    function finish(doc) {
+        watchdog.stop(); fetching = false
+        if (doc.zip !== zip || doc.units !== units) { refresh(); return }   // reconfigured meanwhile
+        show(doc)
+        failures = 0
+        savedFile.write(JSON.stringify(doc))
+        schedule()
+    }
+    function fail(what) {
+        watchdog.stop(); fetching = false
+        failures++
+        console.warn("[WeatherWidget] " + what + " failed; retry in " + Math.round(Saved.retryDelay(failures) / 60000) + " min")
+        schedule()
+    }
+    // A request that never answers must not hold the card back from its next try.
+    Timer { id: watchdog; interval: 30000; onTriggered: { if (root.fetching) { root.fetchGen++; root.fail("request") } } }
+    Timer { id: due; repeat: false; onTriggered: root.refresh() }
+    function schedule() {
+        due.stop()
+        if (!live) return
+        due.interval = Math.max(1000, Math.min(Saved.nextAttempt(fetchedAt, failures, lastAttempt) - Date.now(), 3600000))
+        due.restart()
+    }
+    function refresh() {
+        if (!live || fetching) return
+        if (Saved.nextAttempt(fetchedAt, failures, lastAttempt) > Date.now() + 1000) { schedule(); return }
+        fetchWeather()
+    }
+    // Fetches only while Home is on screen; showing it again looks at the disk (the helper may
+    // have fetched) and fetches if the reading is due, so a TV left on an app does not poll
+    // unseen for hours.
+    onLiveChanged: { if (live) { loadSaved(); refresh() } else { due.stop() } }
+    onZipChanged: reconfigured()
+    onUnitsChanged: reconfigured()
+    function reconfigured() { fetchedAt = 0; failures = 0; loadSaved(); refresh() }
+    Component.onCompleted: loadSaved()
 
     Text {
         x: 0; y: 0

@@ -6,6 +6,7 @@ import WebOSServices 1.0
 import WebOS.Global 1.0
 import TextFile 1.0
 import "LumaBus.js" as Bus
+import "Tint.js" as Tint
 
 // The compositor-drawn Home: wallpaper, glass material, status bar, widget grid and dock,
 // driven by {{dataDir}}/theme/{theme.json,layout.json}. Keys arrive through
@@ -57,7 +58,7 @@ Item {
                     glassFocus: "#8F2C263A", glassFocusEdge: "#33FFFFFF", scrim: [0.10, 0.18, 0.46] },
             light: { ink: "#17131F", ink2: "#A817131F", ink3: "#6B17131F", glass: "#85FFFFFF", glassEdge: "#D9FFFFFF",
                      glassFocus: "#B8FFFFFF", glassFocusEdge: "#E6FFFFFF", scrim: [0.06, 0.10, -0.10] },
-            accent: "tile", radius: 26, tileRadius: 22, blurRadius: 30, saturation: 0.25,
+            accent: "tile", tint: { mix: 0 }, radius: 26, tileRadius: 22, blurRadius: 30, saturation: 0.25,
             type: { clock: 92, temp: 84 },
             focus: { tileScale: 1.12, cardScale: 1.03, cardLift: 4, tileGlow: 0, ambient: 0.3 },
             motion: { focusMs: 150, focusEasing: "OutCubic", cardMs: 180, cardEasing: "OutCubic",
@@ -150,6 +151,7 @@ Item {
         root.theme = json ? mergeDefaults(defaultTheme(), json) : defaultTheme()
         if (!json) console.warn("[LumaHome] theme.json missing/invalid, using built-in defaults")
         root.lastThemeText = text || ""
+        restoreTint()
         computeMaterial()
     }
     function applyLayout(json, text) {
@@ -303,24 +305,87 @@ Item {
     FontLoader { source: root.fontsDirUrl + "Manrope-Bold.ttf" }
     Repeater { model: theme.fonts || []; delegate: FontLoader { source: root.resolvePath(modelData) } }
 
-    // ============================================================= material (light/dark)
+    // ============================================================= material (light/dark) and tint
+    // One 32x18 sample of the wallpaper gives both the mean luma, which decides light or dark
+    // glass for an "auto" material, and the dominant colour that tints the accent and, when the
+    // theme asks (tint.mix), the focused glass (Tint.js). A newer wallpaper cancels a sample that
+    // has not painted yet: the paint checks that the picture it was asked about is still the one
+    // loaded. The last result is kept in {{dataDir}}/theme/tint.json, so a cold start has it
+    // before the first sample, and the tool's palette reads the same file for the web menus.
+    property real wallLuma: -1                 // -1 until the wallpaper has been sampled
+    property var wallTint: null                // {r, g, b} 0..255, or null
+    property string sampledSource: ""          // the picture wallLuma and wallTint describe
+    readonly property var wallAccentRgb: wallTint ? Tint.accentFrom(wallTint, isLight) : null
+    readonly property color wallAccent: wallAccentRgb ? Qt.rgba(wallAccentRgb.r / 255, wallAccentRgb.g / 255, wallAccentRgb.b / 255, 1) : "#9a8cf0"
     function computeMaterial() {
-        if (theme.material === "light") { root.isLight = true; root.mat = theme.light; return }
-        if (theme.material === "dark") { root.isLight = false; root.mat = theme.dark; return }
-        if (wallpaperImg.status === Image.Ready) lumaSampler.requestPaint()
+        if (theme.material === "light") root.isLight = true
+        else if (theme.material === "dark") root.isLight = false
+        else if (wallLuma >= 0) root.isLight = wallLuma > theme.materialThreshold
+        root.mat = tintedMaterial(root.isLight ? theme.light : theme.dark)
     }
-    Canvas {
-        // "auto": mean luminance of the wallpaper against theme.materialThreshold
-        id: lumaSampler
-        width: 16; height: 9; visible: false
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.drawImage(wallpaperImg, 0, 0, 16, 9)
-            var d = ctx.getImageData(0, 0, 16, 9).data, sum = 0
-            for (var i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-            root.isLight = (sum / (16 * 9) / 255) > root.theme.materialThreshold
-            root.mat = root.isLight ? root.theme.light : root.theme.dark
-        }
+    function tintedMaterial(m) {
+        var mix = (theme.tint && theme.tint.mix) || 0
+        if (!(mix > 0) || !wallTint || !m) return m
+        var out = {}
+        for (var k in m) out[k] = m[k]
+        var c = Qt.color(m.glassFocus), t = Tint.mixToward({ r: c.r, g: c.g, b: c.b, a: c.a }, wallTint, Math.min(1, mix))
+        out.glassFocus = Qt.rgba(t.r, t.g, t.b, t.a)
+        return out
+    }
+    // The sample is taken without a canvas: Canvas.drawImage paints nothing on this Qt build
+    // (a loaded PNG or an Image item both read back as transparent). The wallpaper is decoded
+    // again at 64x36 (area-averaged by the image reader), that item is grabbed at 32x18, and the
+    // grab is saved as XPM, the one text image format Qt writes, which reads back through
+    // TextFile (Tint.parseXpm).
+    property int sampleGen: 0
+    readonly property string sampleUrl: "file:///tmp/{{shortId}}-wallsample.xpm"
+    TextFile { id: sampleFile; name: root.sampleUrl }
+    Image {
+        id: wallSmall
+        visible: false
+        asynchronous: true; cache: false; smooth: true
+        sourceSize: Qt.size(64, 36)
+        source: wallpaperImg.source
+        onStatusChanged: if (status === Image.Ready) root.sampleWallpaper()
+    }
+    function sampleWallpaper() {
+        if (wallSmall.status !== Image.Ready) return
+        var gen = ++sampleGen, source = String(wallSmall.source)
+        wallSmall.grabToImage(function(grab) {
+            if (gen !== sampleGen) return        // a newer wallpaper cancelled this sample
+            if (!grab.saveToFile("/tmp/{{shortId}}-wallsample.xpm")) { console.warn("[LumaHome] wallpaper sample could not be saved"); return }
+            var px = Tint.parseXpm(sampleFile.read())
+            if (!px) { console.warn("[LumaHome] wallpaper sample could not be read"); return }
+            root.takeSample(source, Tint.luma(px.data, px.count), Tint.dominant(px.data, px.count))
+        }, Qt.size(32, 18))
+    }
+    function takeSample(source, luma, tint) {
+        sampledSource = source
+        wallLuma = luma
+        wallTint = tint
+        console.info("[LumaHome] wallpaper sampled: luma " + luma.toFixed(3) + ", tint " + (tint ? Tint.hex(tint) + " (" + Math.round(tint.share * 100) + " %)" : "none"))
+        computeMaterial()
+        saveTint()
+    }
+    TextFile { id: tintFile; name: root.themeDirUrl + "tint.json" }
+    property string tintText: ""
+    function saveTint() {
+        if (!wallTint) return
+        var text = JSON.stringify({ wallpaper: sampledSource, tint: Tint.hex(wallTint), accent: Tint.hex(Tint.accentFrom(wallTint, isLight)),
+                                    light: isLight, luma: Math.round(wallLuma * 1000) / 1000 })
+        if (text === tintText) return
+        tintText = text
+        tintFile.write(text)
+    }
+    // A saved sample of the picture now loaded stands in until the real one lands.
+    function restoreTint() {
+        if (wallLuma >= 0) return
+        var j = null
+        try { j = JSON.parse(tintFile.exists ? tintFile.read() : "") } catch (e) { j = null }
+        var t = j ? Tint.parseHex(j.tint) : null
+        if (!t || typeof j.luma !== "number" || j.wallpaper !== String(wallpaperImg.source)) return
+        sampledSource = j.wallpaper; wallLuma = j.luma; wallTint = t
+        tintText = JSON.stringify(j)
     }
     function scrimColor(v) {
         if (!root.isLight) return Qt.rgba(0, 0, 0, v)
@@ -352,7 +417,6 @@ Item {
         cache: false
         fillMode: root.wallpaperFit === "cover" ? Image.PreserveAspectCrop
                   : root.wallpaperFit === "contain" ? Image.PreserveAspectFit : Image.Stretch
-        onStatusChanged: if (status === Image.Ready) root.computeMaterial()
     }
     // Colour grade (saturation / contrast) baked once into a texture the live pass, the still
     // path and the glass blur all read; re-baked only when the values change, so grading
@@ -870,6 +934,7 @@ Item {
             originY: dockLoader.y
             focusedLayer: root.focusLayer === "dock"
             dimmed: root.focusLayer === "widgets"
+            wallAccent: root.wallAccent
             backdrop: blurTex
             scrollMs: root.scrollMs
             scrollEasing: root.scrollEasing

@@ -8,7 +8,8 @@ changes. Everything here comes out of the data dir's theme/theme.json:
   dark.glass      the Home cards' material -> the sheet tint
   dark.ink        body text
   dark.glassEdge  the hairline along a lit edge
-  accent          toggles, sliders, selection
+  accent          toggles, sliders, selection: a #rrggbb, or "wallpaper" for the tint in
+                  theme/tint.json (LumaHome writes it after sampling the wallpaper)
   radius          sheet corners; tileRadius is the rows and buttons
 
 The theme's glass is deliberately sheer - it sits over a wallpaper the
@@ -20,6 +21,7 @@ usage: palette.py <theme.json> qml|css
 Runs on the set (python 3.10). Called by tools/lumatv.
 """
 import json
+import os
 import sys
 
 # Used when the theme is missing a key, and equal to the shipped dark theme, so
@@ -69,6 +71,14 @@ glass = dark.get("glass") or FALLBACK["glass"]
 ink = dark.get("ink") or FALLBACK["ink"]
 edge = dark.get("glassEdge") or FALLBACK["glassEdge"]
 accent = theme.get("accent") or FALLBACK["accent"]
+if accent == "wallpaper":
+    # LumaHome saves the tint it samples from the wallpaper beside theme.json (tint.json); the
+    # menus take that accent as of the last sample, or the default before there is one.
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "tint.json")) as f:
+            accent = json.load(f).get("accent")
+    except Exception:
+        accent = None
 if not isinstance(accent, str) or not accent.startswith("#"):
     accent = FALLBACK["accent"]           # "tile" means per-tile on Home, which a menu has no equivalent of
 radius = int(theme.get("radius") or FALLBACK["radius"])

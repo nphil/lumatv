@@ -681,8 +681,9 @@ stage_theme() {
   # theme.json and layout.json belong to the user once edited: the companion
   # app changes them in place. A file still identical to the copy this tool
   # last shipped is not edited, so it follows the payload; an edited one is
-  # left alone.
-  mkdir -p "$FONTS_DIR" "$THEME_DIR" 2>/dev/null || return 1
+  # left alone. cache/ holds the last weather and news the cards drew (their
+  # JSON is the native helper's schema), written by LumaHome.
+  mkdir -p "$FONTS_DIR" "$THEME_DIR" "$STATE/cache" 2>/dev/null || return 1
   cp -f "$FONTS_SRC"/*.ttf "$FONTS_DIR/" 2>/dev/null
   cp -f "$WALL_SRC" "$THEME_DIR/wall_1080.png" 2>/dev/null
   for f in theme.json layout.json; do

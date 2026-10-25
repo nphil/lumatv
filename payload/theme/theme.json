@@ -33,6 +33,9 @@
     ]
   },
   "accent": "tile",
+  "tint": {
+    "mix": 0
+  },
   "radius": 26,
   "tileRadius": 22,
   "blurRadius": 30,

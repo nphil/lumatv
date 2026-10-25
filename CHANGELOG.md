@@ -64,9 +64,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The ipk now ships `palette.py`, `systemui.py` and `systemui_patch.py`, which
   `systemui on` and `webglass on` call.
+- The "auto" light or dark glass choice read a canvas that stayed empty on
+  this firmware, so it always chose dark. It now reads the wallpaper.
 
 ### Added
 
+- Weather and news are saved to `/var/lib/lumatv/cache/weather.json` and
+  `news.json` after every fetch and drawn from there at once on a cold start,
+  then refreshed. A reading is refetched 15 minutes after it was taken, never
+  drawn after 6 hours (or when stamped over 5 minutes in the future), and a
+  failed refresh is retried after 2 and 10 minutes, then every 30. The files
+  are in the native helper's schema, and a newer file replaces what is on
+  screen, so the helper can take over fetching.
+- Wallpaper tint: LumaHome samples the wallpaper at 32x18, cuts each channel
+  into 8 levels, skips near-black pixels and takes the most common bin; a
+  newer wallpaper cancels a sample still running. The result is kept in
+  `theme/tint.json`. A dock tile with no plate colour glows in the tint's
+  accent (`accent: "wallpaper"` does so for every tile and for the web menus
+  that `palette.py` themes), and `tint.mix` moves the focused glass toward it.
 - `lumatv homestub on|off|confirm|status` retires LG's Flutter Home behind a
   web stub bound over its directory (`payload/homestub`), so LumaHome is the
   only Home. The stub is one WebAppMgr renderer at 32 MB resident against the
