@@ -21,9 +21,9 @@ Kept current with every change to this plan. Building starts on Nitin's go.
   72 mockups in three batches (`docs/mocks/`), the shell architecture study
   (`docs/research/shell-architecture.md`) and the performance study measured
   on the set (`docs/research/perf-tweaks.md`). X1 failed (LG's compositor
-  holds 51.2 fps for a trivial client), X2 passed, X4 captured.
-- Waiting on Nitin: whether LumaTV owns the compositor (Rendering stack);
-  then go to build.
+  holds 51.2 fps for a trivial client), X2 passed, X4 partly captured.
+- Decided 2026-10-24: LumaTV replaces LG's compositor, in stages (Phases,
+  track C). Waiting on Nitin's go to build.
 - TV tests that need Nitin present: receiver volume drift, histogram during
   Netflix, contiguous memory during 4K HDR, which input device network and
   CEC keys arrive on, pointer cost.
@@ -280,8 +280,8 @@ ways (best of 3 runs): 64-bit is level at byte hashing (736 vs 686 ms), 8-10 %
 faster at sorting and text parsing, and 31 % faster at float loops (91 vs
 119 ms). The helper and plugins are 64-bit already.
 
-- Compositor replacement is open, decided by measurement
-  (`docs/research/shell-architecture.md`, 2026-10-23). LG's compositor
+- Compositor replacement: decided yes (Nitin, 2026-10-24) on the X1 and X2
+  results below (`docs/research/shell-architecture.md`). LG's compositor
   repaints the whole 1080p window every frame on one thread, with LG's JS
   key filters and luna callbacks on the same thread; it holds 100 MB and
   13 % of a core at rest, and an idle LumaHome frame costs 2.8-3.4 ms CPU
@@ -296,8 +296,9 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
   (primary and overlay are LG's, the cursor plane carries LG's pointer), and
   only the DRM master can commit.
 - Path: (1) the 64-bit Rust UI from LumaShow's toolkit as a client of LG's
-  compositor, written so it can later run inside LumaTV's own; (2) the
-  experiments that decide the rest:
+  compositor, written so it runs unchanged inside LumaTV's own; (2) LumaTV's
+  compositor built beside it (Phases, track C) and switched to only when it
+  passes the gate on the set. The experiments behind the decision:
   - X1, failed (2026-10-24): a trivial 64-bit client over idle Home with
     wallpaper motion off held 51.2 fps for 60 s on contiguous buffers, 530
     of 3,085 presented frames took two vblanks (17 %), worst 33.4 ms; 47.9
@@ -329,7 +330,7 @@ faster at sorting and text parsing, and 31 % faster at float loops (91 vs
   - Still open for an own compositor: LG's window and view behaviour (the
     webOS Wayland extensions), the tvpower handshake, punch-through and key
     routing.
-  If X1 fails and X2 passes, LumaTV's compositor replaces surface-manager,
+  X1 failed and X2 passed, so LumaTV's compositor replaces surface-manager,
   with a watchdog and a firmware check that both fall back to LG's.
 - 64-bit drawing path: works on screen (2026-10-22). LG's `mali_kbase`
   speaks kernel interface 11.40 and accepts 64-bit callers. Rockchip's
@@ -717,6 +718,28 @@ above replaces it).
 9. Plugins: the broker on LumaShow's plugin API, TV drawing of cards, tiles,
    settings pages and notifications, and Home's widgets moved to plugins.
 
+Track C, the compositor, runs beside phases 1-9 and switches over only
+when it passes on the set:
+
+- C1: finish the X4 capture (standby and wake, Netflix, PlxNative, the
+  input picker, PIN) so the whole contract LG's apps and services rely on
+  is known before code is written.
+- C2: a 64-bit Rust compositor on a private socket, built on the X2 import
+  path, running LG's apps unchanged: the webOS Wayland extensions, the 56
+  luna methods, the tvpower handshake, key routing, punch-through and video
+  placement through videooutputd.
+- C3: the 60 fps work LG's compositor cannot do: a full-screen app scanned
+  out directly on the overlay plane, commits with an in-fence and one frame
+  rendered ahead, damage tracking, and a UI clock independent of the
+  content's refresh rate.
+- C4: trial cutover with LG's compositor kept installed: a watchdog and a
+  boot-time firmware check switch back to it on any failure, and the hold-
+  Home escape forces it. Gate: the X1 test with zero frames over 20 ms in
+  60 s, every surface gate met, and Netflix, HDR, Dolby Vision, PIN, input
+  switching, standby and wake all passing scripted tests.
+- Every LG firmware update: LumaTV starts on LG's compositor until the
+  contract checks pass again on the new firmware.
+
 ## Glasshouse
 
 Glasshouse (rorygallagher2024/lg-webos-dashboard) is installed on the set: a
@@ -829,6 +852,11 @@ what it already does.
   with the switch from `lumaglass`: app id `org.nphil.lumatv`, data in
   `/var/lib/lumatv`, repo renamed on the forge, and the tool migrating the
   old data directory and removing the old app on first run.
+- LumaTV replaces LG's compositor (Nitin, 2026-10-24): it is the only way
+  to meet the 60 fps rule (X1: 51.2 fps, 17 % of frames late for a trivial
+  client). Built in stages (track C) beside the surfaces, switched to only
+  after passing on the set, with automatic fallback to LG's compositor and
+  a re-check after every firmware update.
 
 ## Open decisions
 
