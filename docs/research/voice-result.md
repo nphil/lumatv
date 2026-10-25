@@ -4,16 +4,18 @@ Decided (PLAN, 2026-10-25): speech becomes text through Nitin's Home Assistant A
 
 ## Resume here
 
+Decided by Nitin (2026-10-25): the microphone is the TV's built-in one (`hw:1,0` through `arecord`; LG's voice services stay stopped) and the pipeline is **Local (Kokoro + Whisper)**.
+
 Done on the offline host, committed:
 
-- Helper: `voice.rs`, `voice_ws.rs`, `voice_store.rs`, the `base.voice` setting, `/v1/voice/*`, `lumatv-helper voice-link` / `voice-unlink`. 15 end-to-end tests in `helper/app/tests/voice.rs` against a fake Home Assistant and a fake microphone; the whole helper suite passes.
-- QML: the mic key path in `LumaHome.qml`, the voice bar's `working` and `failed` states, the heard text typed into Search. 5 host tests in `tests/test_voice_search.py`; the 12 shell, 13 panel, 3 scene-loader and 2 volume tests still pass; scenes `28-voice-working`, `28-voice-failed` and `09-search-keyboard` (now lit by the helper's `ready`, not `theme.voice.enabled`) were rendered in both materials.
+- Helper: `voice.rs`, `voice_ws.rs`, `voice_store.rs`, the `base.voice` setting, `/v1/voice/*`, `lumatv-helper voice-link` / `voice-unlink`. The defaults are the decision: `voice.capture` is `arecord -q -D plughw:1,0 -t raw -f S16_LE -r 16000 -c 1` and `base.voice` `pipeline` is `01m3xamd8xzkdv52syapw0cmf2`. 16 end-to-end tests in `helper/app/tests/voice.rs` against a fake Home Assistant and a fake microphone; the whole helper suite passes.
+- QML: the mic key path in `LumaHome.qml`, the voice bar's listening, working and failed states, the heard text typed into Search. ShellSlice's recogniser path (`voiceHeard`, `voicePicked`, `Match.voice`, the bar's options) is gone: nothing said can open an app or a page. A "Search by voice" switch sits in Settings, Remote & pointer, under Voice.
+- Tests: `tests/test_voice_search.py` (7), the shell, panel, settings, scene-loader and volume host tests, `bun test tests/`.
 
 Open, in this order:
 
-1. Nitin decides the microphone source (next section). Until `voice.capture` names one, voice search reports `no_microphone` and opens nothing.
-2. Nitin creates the token and links it (steps below).
-3. On the set: nothing here has run on the TV. First check is `arecord` reading the chosen device at 16 kHz and a `voice-link` against the real Home Assistant.
+1. Nitin creates the token and links it (steps below), then switches "Search by voice" on in Settings.
+2. The TV check list (below). Nothing here has run on the TV.
 
 ## What Home Assistant does with the speech (read-only discovery, 2026-10-25)
 
@@ -25,7 +27,7 @@ Open, in this order:
 | Local (Kokoro + Whisper) | `stt.openai`, a Wyoming entry titled "openai" | Local by its name; where that server runs was not read (config entries do not show it) |
 | Backup (local CPU) | `stt.faster_whisper` (Wyoming "Whisper") | Yes, on the local network |
 
-So with no pipeline chosen the words go to Nabu Casa, not to LG. If the words must stay in the house, `base.voice` has a `pipeline` field: set it to `01m3xamd8xzkdv52syapw0cmf2` (Local, Kokoro + Whisper) or `01m3yddanfdmg4epdmbmaht8kb` (Backup, local CPU). The helper sends it as `pipeline` in `assist_pipeline/run`. Nitin's choice: the default is the preferred pipeline, which is the cloud one.
+Nitin chose **Local (Kokoro + Whisper)**, `01m3xamd8xzkdv52syapw0cmf2`, which is now the default of `base.voice`. Emptying the field makes the helper leave `pipeline` out of `assist_pipeline/run`, which is Home Assistant's preferred pipeline: the cloud one, so the audio would leave the house. Where the Wyoming "openai" server behind it runs was not read (config entries do not show it): the check list below tests that it answers.
 
 ## Where the microphone audio comes from (repo research, nothing opened on the set)
 
@@ -43,7 +45,7 @@ The helper does not choose. `helper.json` takes the microphone as a program that
 
 [INFERENCE: `plughw` converting S24_LE stereo 48 kHz to S16_LE mono 16 kHz is alsa-lib's plug plugin's job and is expected to work; it has not run on the set.] The program runs only while the mic key is held, plus 250 ms, and never longer than 20 s.
 
-**Decision for Nitin:** (a) the TV's microphone through `arecord` (nothing of LG's re-enabled; first try is read-only for 3 s with the receiver muted and the DSP reset counter checked), (b) the Magic Remote's microphone through LG's voice services (re-enables the `voice` group, needs a luna interface to reverse), or (c) neither for now. Until he picks, nothing opens a microphone.
+**Decided (Nitin, 2026-10-25): the TV's built-in microphone, `hw:1,0` through `arecord`.** The Magic Remote's microphone and LG's voice services are left as they are (stopped by `lean`). The mic key is still taken by LumaHome when voice search is ready, so LG's voice never sees it. Emptying `voice.capture` in `helper.json` takes the microphone away again.
 
 ## Nitin's steps
 
@@ -58,18 +60,9 @@ Home Assistant's long-lived tokens are not scoped: a token can do everything the
    ```
 
    Paste the token, press Return and then Ctrl-D. The command prints the address it saved and never the token. `voice-unlink` removes it. The token and the address are saved together in `/var/lib/lumatv/voice/ha.json` (mode 0600): the token only ever goes to that address, and only on the home network (the helper refuses any name that resolves elsewhere). Nothing else can change either: not the settings, not the API, not an assistant.
-4. Choose the microphone in `/var/lib/lumatv/helper.json` (above, after the decision) and restart the helper.
-5. Switch voice search on, which it is not by default:
+4. Switch it on in Settings, Remote & pointer, Voice, "Search by voice". It is off until then. The row shows what is still missing (not linked, no microphone) once it is on.
 
-   ```sh
-   curl -s -X POST -H 'X-Luma-Client: nitin' -H 'Content-Type: application/json' \
-     -d '{"changes":[{"key":"enabled","value":{"type":"bool","value":true}}]}' \
-     http://127.0.0.1:18731/v1/settings/base.voice
-   ```
-
-   (Add `{"key":"pipeline","value":{"type":"text","value":"01m3yddanfdmg4epdmbmaht8kb"}}` to keep the words in the house.)
-
-There is no Settings page for it yet; the switch is the API call above.
+The microphone and the pipeline need no step: they are the defaults. To change them, `voice.capture` goes in `/var/lib/lumatv/helper.json` (a program that writes 16 kHz, 16-bit, mono, little-endian PCM to its standard output) and `pipeline` is a setting (`POST /v1/settings/base.voice`).
 
 ## How it works
 
@@ -81,15 +74,34 @@ Hold the mic key on Home: the voice bar shows "Listening" and the mic indicator,
 - **The mic key**: `LumaHome.key` takes `Key_webOS_Voice` only while Home is in front, the AI prompt is not up, and the helper says `ready`. Otherwise the key goes down LG's chain as before. A taken press means LG's voice never sees the key, so nothing of LG's listens even where its services are running.
 - **TLS**: an `https://` address goes through the system's `openssl s_client`, as the weather does (LumaShow's `fetch`, the certificate and host name checked). The set's `openssl` may be 1.1.1 and the `s_client` flags need 3.x (see `fetcher.rs`); use the plain `http://` LAN address.
 
+## TV check list (not run)
+
+Each step is read-only or reversible; stop at the first surprise. The set stays on Home, Picture Mode `filmMaker`, and is left in Active Standby afterwards. Abort on a new `failed` unit, an `aud_dsp_reset_count` that moved, or a Mali frame rate under 59 fps.
+
+1. **Before.** Mute `media_player.living_room_avr` through Home Assistant (unmute at the end). Record `cat /sys/module/aud/parameters/aud_dsp_reset_count` (it was 0), `ls -l /dev/snd/pcmC1D0c` (root:audio 0660), `cat /proc/asound/card1/pcm0c/info` and `systemctl list-units --state=failed`. Nothing may hold the device: `fuser /dev/snd/pcmC1D0c` prints nothing. LG's own "built-in mic" switch must be on in LG's Settings (the set has a "The built-in mic is turned off." notice); with it off the capture is expected to be silent [INFERENCE].
+2. **Level test, receiver muted.** In a quiet room: `arecord -q -D plughw:1,0 -t raw -f S16_LE -r 16000 -c 1 -d 3 /tmp/mic-quiet.raw`. Expect 96000 bytes. Then again with someone speaking at the sofa's distance, into `/tmp/mic-speech.raw`. Peak of each: `od -An -t d2 -v FILE | tr -s ' ' '\n' | awk 'NF{a=$1<0?-$1:$1; if(a>m)m=a} END{print m}'`. Pass: speech peaks at least ten times higher than the quiet room, and the quiet room is not exactly 0. All zeros means the stream has no source or LG's mic switch is off; a full-scale square or a stall means the format is wrong (check `arecord -D hw:1,0 --dump-hw-params -d 1 /dev/null` for S24_LE stereo and the rate range). Play the speech file back on a PC if the numbers look right but the words must be checked (`aplay -t raw -f S16_LE -r 16000 -c 1`).
+3. **The device after.** `aud_dsp_reset_count` unchanged, `dmesg | tail -20` has no `aud_bm ERR` or `auimc ERR` lines, the receiver's sound on unmute is as before.
+4. **Home Assistant's side.** In Home Assistant, Settings, Devices & services: the Wyoming entries "openai" and "Whisper" show as loaded. Link the token (steps above). `curl -s http://127.0.0.1:18731/v1/voice` shows `"ready": false, "reason": "voice_off"` before the switch and `"ready": true` after it is turned on in Settings.
+5. **One listen round trip, by hand.**
+   ```sh
+   curl -s -X POST -H 'X-Luma-Client: check' -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18731/v1/voice/listen
+   # say "what time is it" at the sofa, about three seconds
+   curl -s -X POST -H 'X-Luma-Client: check' -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18731/v1/voice/stop
+   sleep 3; curl -s http://127.0.0.1:18731/v1/voice
+   ```
+   Pass: `state` is `heard` and `text` is the words (Whisper may be slow on the first request: up to 12 s before `timeout`). While it listens `pgrep arecord` finds one process; after `stop` and after the answer it finds none. `grep -c` of the token and of the words in `/var/lib/lumatv/log-helper` is 0.
+6. **Failure shapes.** With the speech-to-text server stopped the answer is an `error` with code `stt` or `timeout`, in words, and `pgrep arecord` is empty. With a wrong token, code `auth`.
+7. **The key.** On Home, hold the mic key, say "netflix", release. Pass: the bar shows Listening, then One moment, then Search opens with "netflix" typed in and nothing launches (Netflix only starts if OK is pressed on its answer); LG's voice bar does not appear. Back during listening closes the bar and `pgrep arecord` is empty.
+8. **After.** Unmute the receiver; leave the set in Active Standby. If the TV mic's capture disturbs LG's audio graph, turn the switch off in Settings (the helper then never starts `arecord`) and empty `voice.capture`.
+
 ## Left as found, for Main
 
-- `LumaHome.voiceHeard(words)` and `Match.voice` (ShellSlice's recogniser API, with the voice bar's `heard` state and its options) are not on the new path and nothing calls them. They can launch an app when the words name one, which is a command, so they should go (with the `28-voice-heard` and `28-voice-results` scenes and the shell test that uses them) once Nitin confirms the search box is the only result.
-- No Settings page switches voice search on; the API call above does. A page would also show `ready` and its `reason`.
-- `docs/research/shell-slice-result.md` still says nothing starts the voice bar.
+- `docs/research/shell-slice-result.md` still says nothing starts the voice bar and lists the old recogniser calls and scenes `28-voice-heard` and `28-voice-results`; the mock shots of those two stay in `docs/mocks/shots` as design history.
+- No Settings control for the pipeline or for linking Home Assistant: both are command-line or API steps on purpose (a link is a key action, and nothing a page can reach may change where the audio goes).
 - Qt's `XMLHttpRequest` in the QML host reports status 0 and no body for a 409, so the voice bar names the refusal from the helper's `reason` on the `voice` topic. [INFERENCE: the TV's Qt 5.12 does the same; the host runs the same Qt.]
 
 ## Tests
 
 - Helper: `cd helper && cargo test --offline` (everything, 310 unit and all integration tests; the voice ones are `--test voice`, 15 tests), `cargo clippy --offline --all-targets -- -D warnings`, `cargo fmt --check`.
-- QML: `python3 -m unittest discover -s tests -p 'test_voice_search.py'` (5), `test_shell_surfaces.py` (12), `test_panels.py` (13).
+- QML: `python3 -m unittest discover -s tests -p 'test_voice_search.py'` (7), `test_shell_surfaces.py` (12), `test_panels.py` (13), `test_settings.py`; `TZ=America/New_York bun test tests/`.
 - Scenes: `python3 tests/qmlhost/scenes.py --out /tmp/voice-shots --only 09-search-keyboard,28-voice-listening,28-voice-working,28-voice-failed,28-mic-indicator`.

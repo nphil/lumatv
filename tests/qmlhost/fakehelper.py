@@ -63,6 +63,14 @@ def ambient_schema():
     return {fl["key"]: fl for s in doc["sections"] for fl in s["fields"]}
 
 
+def voice_schema():
+    """The `base.voice` settings owner, from the helper's own schema file."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "helper", "app", "src", "schemas", "base.voice.json")
+    with open(path) as f:
+        doc = json.load(f)
+    return {fl["key"]: fl for s in doc["sections"] for fl in s["fields"]}
+
+
 def ambient_check(schema, key, value):
     """Why the helper's schema would refuse `value` for `key`, or None."""
     f = schema.get(key)
@@ -99,6 +107,8 @@ class State:
         self.audit = []
         self.ambient_schema = ambient_schema()
         self.ambient = {k: f["default"] for k, f in self.ambient_schema.items()}      # key -> {type, value}: the owner's stored values over its defaults
+        self.voice_fields = voice_schema()
+        self.voice_values = {k: f["default"] for k, f in self.voice_fields.items()}    # key -> {type, value}
         self.ambient_state = "idle"
         self.ambient_strip = True
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
@@ -118,6 +128,11 @@ class State:
 def ambient_view(st):
     return {"ok": True, "api": 1, "owner": "base.ambient", "version": 1, "schema": {"sections": [{"id": "all", "fields": list(st.ambient_schema.values())}]},
             "values": st.ambient, "effective": st.ambient, "invalid": {}, "unknown": []}
+
+
+def voice_view(st):
+    return {"ok": True, "api": 1, "owner": "base.voice", "version": 1, "schema": {"sections": [{"id": "all", "fields": list(st.voice_fields.values())}]},
+            "values": st.voice_values, "effective": st.voice_values, "invalid": {}, "unknown": []}
 
 
 def handler(st):
@@ -255,6 +270,8 @@ def handler(st):
                 return self.ai_route("GET", u.path, {})
             if u.path == "/v1/settings/base.ambient":
                 return self.send(200, ambient_view(st))
+            if u.path == "/v1/settings/base.voice":
+                return self.send(200, voice_view(st))
             if u.path == "/v1/ambient":
                 on = st.ambient["enabled"]["value"]
                 return self.send(200, {"ok": True, "api": 1, "now": NOW(), "enabled": on, "mode": st.ambient["mode"]["value"], "state": st.ambient_state if on or st.ambient_state == "testing" else "off",
@@ -315,6 +332,15 @@ def handler(st):
                     st.ambient[c["key"]] = c["value"]
                 st.posts.append([u.path, body])
                 self.send(200, {"ok": True, "api": 1, "changed": [c["key"] for c in changes], "version": 1, "settings": ambient_view(st)})
+            elif u.path == "/v1/settings/base.voice":
+                changes = body.get("changes", [])
+                st.posts.append([u.path, body])
+                for c in changes:
+                    if c["key"] not in st.voice_fields or c["value"].get("type") != st.voice_fields[c["key"]]["kind"]["type"]:
+                        return self.send(422, {"ok": False, "api": 1, "error": {"code": "invalid", "message": "a setting was refused"}})
+                for c in changes:
+                    st.voice_values[c["key"]] = c["value"]
+                self.send(200, {"ok": True, "api": 1, "changed": True, "version": 2, "settings": voice_view(st)})
             elif u.path == "/v1/ambient/test":
                 st.ambient_state = "testing" if body.get("run") else "idle"
                 st.posts.append([u.path, body])

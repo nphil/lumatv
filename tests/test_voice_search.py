@@ -13,6 +13,7 @@ from test_settings import HostCase
 from xdisplay import DISPLAY, HAVE_QT
 
 import test_shell_surfaces as shell
+import test_settings as settings
 
 READY = shell.READY
 MIC = 16777316                                 # the host's stand-in for WebOS.Key_webOS_Voice (stubs/WebOS/Global)
@@ -112,6 +113,38 @@ class VoiceSearch(HostCase):
         got = self.go(args, READY + 900)
         self.assertEqual(json.loads(got["bar"]), {"state": "failed", "text": "Voice search is busy or not available", "mic": False})
         self.assertEqual(json.loads(got["posts"]), ["/v1/voice/listen"])
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
+class VoiceSwitch(HostCase):
+    """The Voice row of Settings, Remote & pointer: the helper's `base.voice` switch, and the helper's words for what is missing."""
+
+    def page(self, *keys, publish=None, after=6600):
+        rc, out = self.host("--eval", "%d:root.openSettings()" % settings.OPEN_AT,
+                            *self.keys(settings.READY + 3000, *(["down"] * settings.RAIL["remote"])),
+                            *self.keys(settings.READY + 4500, "right", *keys),
+                            *(["--publish", "%d:voice:%s" % (settings.READY + 4000, json.dumps(publish))] if publish else []),
+                            "--eval", "%d:%s" % (settings.READY + 5800, settings.POSTS),
+                            "--eval", "%d:%s" % (settings.READY + 5900, NOTE),
+                            "--wait", str(settings.READY + after))
+        self.assertEqual(rc, 0, out[-1500:])
+        return self.tagged(out, "posts")[-1]["posts"], self.docs(out)[-1]
+
+    def test_the_switch_is_a_helper_setting_and_changes_nothing_else(self):
+        # pointer, speed, size, number keys, then the voice switch (it is off by default)
+        posts, _ = self.page("down", "down", "down", "down", "ok")
+        self.assertEqual([p for p in posts if p[0] == "/v1/settings/base.voice"],
+                         [["/v1/settings/base.voice", {"changes": [{"key": "enabled", "value": {"type": "bool", "value": True}}]}]])
+        self.assertEqual([p[0] for p in posts if "voice" in p[0] and p[0] != "/v1/settings/base.voice"], [], "the page never starts a request")
+
+    def test_what_is_missing_is_said_under_the_switch_once_it_is_on(self):
+        posts, note = self.page("down", "down", "down", "down", "ok", publish={"state": "idle", "session": 0, "ready": False, "reason": "voice_unlinked"})
+        self.assertIn("not linked", note["text"])
+        self.assertTrue(note["shown"], "voice search is on and cannot listen: the page says why")
+
+
+# the note under the switch, from the page that has `voiceNeeds`
+NOTE = shell.probe("voiceNeeds", "{ text: s.voiceNeeds, shown: s.voiceOn && s.voiceNeeds !== '' }", panel=False)
 
 
 if __name__ == "__main__":

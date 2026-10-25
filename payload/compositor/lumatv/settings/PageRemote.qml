@@ -8,9 +8,23 @@ import "."
 // moves. Speed and size are the service's own settings (`option.pointerSpeed`, `option.pointerSize`). Holding Home
 // for LG's Home stays on: it is the escape if LumaTV's Home ever misbehaves, so it is shown, not switchable.
 // Whether the number keys open the dock's tiles is LumaTV's own (`remote.numberKeys` in theme.json, default on).
+// Voice search is the mic key's: the helper's `base.voice` owner has its switch (off until the owner turns it on here), and the
+// helper's `voice` topic says whether it can listen yet and, when it cannot, why. Which Home Assistant it speaks to is not a
+// setting: it is linked from a command line on the TV (docs/research/voice-result.md).
 PageList {
     id: page
     title: "Remote & pointer"
+    HelperSettings { id: voiceSettings; owner: "base.voice" }
+    readonly property var voiceTopic: Helper.topics.voice || null
+    readonly property bool voiceOn: voiceSettings.known && voiceSettings.get("enabled") === true
+    // What the helper says is missing, in words for the owner; empty when voice search can listen.
+    readonly property string voiceNeeds: {
+        var r = voiceTopic ? voiceTopic.reason : ""
+        return r === "voice_unlinked" ? "Home Assistant is not linked yet. Link it from the TV's command line (see the voice notes), then it listens."
+             : r === "no_microphone" ? "No microphone is set in the helper's configuration."
+             : r === "link_unreadable" ? "The saved Home Assistant link cannot be read. Link it again."
+             : !voiceTopic ? "The TV's helper does not answer for voice search." : ""
+    }
     readonly property var theme: Lu.theme || ({})
     readonly property bool pointerOn: String(Sio.get("general.remotePointer")) === "on"
     readonly property string speed: R.name({ slow: "Slow speed", normal: "Normal speed", fast: "Fast speed" }, Sio.get("option.pointerSpeed"), "")
@@ -18,6 +32,7 @@ PageList {
     summary: "Pointer " + (Sio.has("general.remotePointer") ? (pointerOn ? "on" : "off") : "unknown") + (pointerOn && speed ? " \u00b7 " + speed : "")
 
     function refresh() {
+        voiceSettings.refresh()
         Sio.read("general", ["remotePointer"])
         Sio.read("option", ["pointerSpeed", "pointerSize"])
     }
@@ -38,6 +53,10 @@ PageList {
         { kind: "toggle", icon: "hash", label: "Number keys open dock tiles", detail: "1 opens the first tile on the dock, 2 the second, and so on.",
           on: function() { return !page.theme.remote || page.theme.remote.numberKeys !== false },
           act: function(v) { if (page.host) page.host.patch({ remote: { numberKeys: v } }) } },
+        R.head("Voice"),
+        R.toggle(voiceSettings, { ds: "enabled", on: "true", off: "false", icon: "mic", label: "Search by voice",
+                                  detail: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),
+        R.note(function() { return page.voiceNeeds }, 0, function() { return page.voiceOn && page.voiceNeeds !== "" }),
         R.lg(page, { target: "RemoteSlowInput", detail: "Universal remote control, extended press times, Settings help." })
     ]
 }
