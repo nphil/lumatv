@@ -178,7 +178,10 @@ mod tests {
         let path = dir.path().join("log-helper");
         let logger = Logger::open(&path, Level::Info, 1024, false).unwrap();
         for i in 0..100 {
-            logger.log(Level::Info, format_args!("line number {i:04} {}", "x".repeat(40)));
+            logger.log(
+                Level::Info,
+                format_args!("line number {i:04} {}", "x".repeat(40)),
+            );
         }
         let current = fs::metadata(&path).unwrap().len();
         let old = fs::metadata(rotated(&path)).unwrap().len();

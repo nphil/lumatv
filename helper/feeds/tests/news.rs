@@ -39,14 +39,23 @@ fn defaults_match_the_qml() {
     assert_eq!(cfg.feeds, default_feeds());
     assert_eq!(cfg.alt, default_alt_feeds());
     let f = default_feeds();
-    assert_eq!((f[0].tag.as_str(), f[0].src.as_str(), f[0].url.as_str()), ("WORLD", "BBC News", BBC_WORLD_URL));
-    assert_eq!((f[1].tag.as_str(), f[1].src.as_str(), f[1].url.as_str()), ("U.S.", "BBC News", BBC_US_URL));
+    assert_eq!(
+        (f[0].tag.as_str(), f[0].src.as_str(), f[0].url.as_str()),
+        ("WORLD", "BBC News", BBC_WORLD_URL)
+    );
+    assert_eq!(
+        (f[1].tag.as_str(), f[1].src.as_str(), f[1].url.as_str()),
+        ("U.S.", "BBC News", BBC_US_URL)
+    );
     let a = default_alt_feeds();
     assert_eq!(
         (a[0].tag.as_str(), a[0].src.as_str(), a[0].url.as_str()),
         ("WORLD", "The New York Times", NYT_WORLD_URL)
     );
-    assert_eq!((a[1].tag.as_str(), a[1].src.as_str(), a[1].url.as_str()), ("U.S.", "The New York Times", NYT_US_URL));
+    assert_eq!(
+        (a[1].tag.as_str(), a[1].src.as_str(), a[1].url.as_str()),
+        ("U.S.", "The New York Times", NYT_US_URL)
+    );
 }
 
 #[test]
@@ -56,12 +65,18 @@ fn bbc_world_fixture() {
     let first = &items[0];
     assert_eq!(first.tag, "WORLD");
     assert_eq!(first.src, "BBC News");
-    assert_eq!(first.title, "Almost 1,000 arrested as clashes follow another day of mass protests across France");
+    assert_eq!(
+        first.title,
+        "Almost 1,000 arrested as clashes follow another day of mass protests across France"
+    );
     assert_eq!(
         first.summary,
         "Hundreds of thousands took part in demonstrations in France, with protests also taking place in other European countries."
     );
-    assert_eq!(first.link, "https://www.bbc.co.uk/news/articles/c95ynd587ynzo?at_medium=RSS&at_campaign=rss");
+    assert_eq!(
+        first.link,
+        "https://www.bbc.co.uk/news/articles/c95ynd587ynzo?at_medium=RSS&at_campaign=rss"
+    );
     assert_eq!(
         first.img,
         "https://ichef.bbci.co.uk/ace/standard/240/cpsprodpb/3d00/live/edf93830-cffb-11f1-b444-6fb1f13f8d87.jpg"
@@ -71,11 +86,20 @@ fn bbc_world_fixture() {
     assert_eq!(first.pub_ms, Some(1_792_901_812_000));
 
     let second = &items[1];
-    assert_eq!(second.title, "Ukraine says Starlink connection 'now stable' after network limits");
+    assert_eq!(
+        second.title,
+        "Ukraine says Starlink connection 'now stable' after network limits"
+    );
     assert_eq!(second.pub_date, "Sat, 24 Oct 2026 12:12:40 GMT");
     assert_eq!(second.pub_ms, Some(1_792_843_960_000));
-    assert_eq!(items[2].title, "Palestinian families displaced as Israeli forces demolish Hebron homes");
-    assert_eq!(items[3].title, "Man arrested after fire at Hitler's mountaintop Eagle's Nest retreat");
+    assert_eq!(
+        items[2].title,
+        "Palestinian families displaced as Israeli forces demolish Hebron homes"
+    );
+    assert_eq!(
+        items[3].title,
+        "Man arrested after fire at Hitler's mountaintop Eagle's Nest retreat"
+    );
     // a trailing space inside the CDATA is trimmed
     assert_eq!(
         items[3].summary,
@@ -87,13 +111,25 @@ fn bbc_world_fixture() {
 fn bbc_world_fixture_all_six() {
     let items = parse_feed(BBC_WORLD, &world(), 10);
     assert_eq!(items.len(), 6);
-    assert_eq!(items[4].title, "Father who killed Oregon school gunman describes anguish over children he couldn't save");
-    assert_eq!(items[5].title, "British woman dies after trying to rescue sons swept away at sea in the Bahamas");
-    assert_eq!(items[5].summary, "Nathan Gregory says the loss of childhood sweetheart Leanne \"is unimaginable for our family\".");
+    assert_eq!(
+        items[4].title,
+        "Father who killed Oregon school gunman describes anguish over children he couldn't save"
+    );
+    assert_eq!(
+        items[5].title,
+        "British woman dies after trying to rescue sons swept away at sea in the Bahamas"
+    );
+    assert_eq!(
+        items[5].summary,
+        "Nathan Gregory says the loss of childhood sweetheart Leanne \"is unimaginable for our family\"."
+    );
     for it in &items {
         assert!(it.link.starts_with("https://www.bbc.co.uk/news/articles/"));
         assert!(!it.link.contains("&amp;"));
-        assert!(it.img.starts_with("https://ichef.bbci.co.uk/ace/standard/240/"));
+        assert!(
+            it.img
+                .starts_with("https://ichef.bbci.co.uk/ace/standard/240/")
+        );
         assert!(it.pub_ms.is_some());
     }
 }
@@ -103,14 +139,26 @@ fn bbc_us_fixture_heads() {
     let items = parse_feed(BBC_US, &us(), 4);
     assert_eq!(items.len(), 4);
     assert_eq!(items[0].tag, "U.S.");
-    assert_eq!(items[0].title, "Obama attacks Trump as he campaigns for Democrats ahead of midterm elections");
+    assert_eq!(
+        items[0].title,
+        "Obama attacks Trump as he campaigns for Democrats ahead of midterm elections"
+    );
     assert_eq!(
         items[0].summary,
         "\"This election is our last best chance to at least rein in some of the foolishness of this administration,\" Obama said."
     );
-    assert_eq!(items[0].link, "https://www.bbc.co.uk/news/articles/cmj6jwe1j1gjo?at_medium=RSS&at_campaign=rss");
-    assert_eq!(items[1].title, "Are California voters about to impose 'world's first' tax on billionaires?");
-    assert_eq!(items[2].title, "White House lifts tariffs on some Canadian goods as midterm elections loom");
+    assert_eq!(
+        items[0].link,
+        "https://www.bbc.co.uk/news/articles/cmj6jwe1j1gjo?at_medium=RSS&at_campaign=rss"
+    );
+    assert_eq!(
+        items[1].title,
+        "Are California voters about to impose 'world's first' tax on billionaires?"
+    );
+    assert_eq!(
+        items[2].title,
+        "White House lifts tariffs on some Canadian goods as midterm elections loom"
+    );
 }
 
 #[test]
@@ -120,13 +168,19 @@ fn nyt_world_fixture() {
     let first = &items[0];
     assert_eq!(first.tag, "WORLD");
     assert_eq!(first.src, "The New York Times");
-    assert_eq!(first.title, "Elon Musk Says Ukraine Violated Starlink\u{2019}s Rules");
+    assert_eq!(
+        first.title,
+        "Elon Musk Says Ukraine Violated Starlink\u{2019}s Rules"
+    );
     assert_eq!(
         first.summary,
         "The comments were his first since the disruption in the country\u{2019}s satellite service. Earlier, Ukraine said drones using Starshield, the Pentagon-funded service, were back to normal speeds."
     );
     // the <link>, not the <atom:link> that follows the <guid>
-    assert_eq!(first.link, "https://www.nytimes.com/2026/10/24/world/europe/ukraine-starshield-drone-speed.html");
+    assert_eq!(
+        first.link,
+        "https://www.nytimes.com/2026/10/24/world/europe/ukraine-starshield-drone-speed.html"
+    );
     // the only media is 1800 wide: nothing is <= 1200, so it is the "over" image
     assert_eq!(
         first.img,
@@ -134,15 +188,33 @@ fn nyt_world_fixture() {
     );
     assert_eq!(first.pub_date, "Sun, 25 Oct 2026 00:10:07 +0000");
     assert_eq!(first.pub_ms, Some(1_792_887_007_000));
-    assert_eq!(items[1].title, "Iranians Face Anxious Wait as Threat of Attack Looms");
-    assert_eq!(items[2].title, "Italy\u{2019}s Young Protesters Return to the Streets");
+    assert_eq!(
+        items[1].title,
+        "Iranians Face Anxious Wait as Threat of Attack Looms"
+    );
+    assert_eq!(
+        items[2].title,
+        "Italy\u{2019}s Young Protesters Return to the Streets"
+    );
 
     let all = parse_feed(NYT_WORLD, &default_alt_feeds()[0], 10);
     assert_eq!(all.len(), 6);
-    assert_eq!(all[4].title, "\u{2018}Eagle\u{2019}s Nest,\u{2019} Nazi-Era Guesthouse in German Alps, Is Gutted by Fire");
+    assert_eq!(
+        all[4].title,
+        "\u{2018}Eagle\u{2019}s Nest,\u{2019} Nazi-Era Guesthouse in German Alps, Is Gutted by Fire"
+    );
     for it in &all {
-        assert!(it.img.starts_with("https://static01.nyt.com/images/2026/10/24/multimedia/"), "{}", it.title);
-        assert!(it.link.starts_with("https://www.nytimes.com/"), "{}", it.link);
+        assert!(
+            it.img
+                .starts_with("https://static01.nyt.com/images/2026/10/24/multimedia/"),
+            "{}",
+            it.title
+        );
+        assert!(
+            it.link.starts_with("https://www.nytimes.com/"),
+            "{}",
+            it.link
+        );
         assert!(it.pub_ms.is_some());
     }
     // 1491 is the narrowest wide image of its item, but it is the only one there
@@ -153,7 +225,11 @@ fn nyt_world_fixture() {
 fn nyt_us_fixture() {
     let items = parse_feed(NYT_US, &default_alt_feeds()[1], 10);
     assert_eq!(items.len(), 6);
-    assert!(items.iter().all(|i| i.tag == "U.S." && !i.title.is_empty() && !i.title.contains('<')));
+    assert!(
+        items
+            .iter()
+            .all(|i| i.tag == "U.S." && !i.title.is_empty() && !i.title.contains('<'))
+    );
 }
 
 #[test]
@@ -163,7 +239,9 @@ fn per_feed_limit_and_empty_titles() {
     assert_eq!(parse_feed(BBC_WORLD, &world(), 100).len(), 6);
     assert!(parse_feed(BBC_WORLD, &world(), 0).is_empty());
 
-    let xml = feed("<item><title>  </title></item><item><title><![CDATA[]]></title></item><item><description>d</description></item><item><title>Real</title></item><item><title>Second</title></item>");
+    let xml = feed(
+        "<item><title>  </title></item><item><title><![CDATA[]]></title></item><item><description>d</description></item><item><title>Real</title></item><item><title>Second</title></item>",
+    );
     let items = parse_feed(&xml, &world(), 1);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "Real");
@@ -187,7 +265,9 @@ fn element_names_match_whole_names_only() {
     assert_eq!(items[0].summary, "Yes");
     assert_eq!(items[0].pub_ms, Some(1_792_886_400_000));
 
-    let only_atom = feed("<item><title>T</title><atom:link href=\"https://wrong/\"/><link rel=\"x\">https://also-wrong/</link></item>");
+    let only_atom = feed(
+        "<item><title>T</title><atom:link href=\"https://wrong/\"/><link rel=\"x\">https://also-wrong/</link></item>",
+    );
     let items = parse_feed(&only_atom, &world(), 4);
     assert_eq!(items[0].link, "");
     assert_eq!(items[0].summary, "");
@@ -205,27 +285,60 @@ fn image_of(tags: &str) -> String {
 fn image_selection_rules() {
     // widest at most 1200 wins
     assert_eq!(
-        image_of("<media:thumbnail width=\"240\" url=\"a\"/><media:thumbnail width=\"480\" url=\"b\"/><media:content url=\"c\" width=\"1300\"/>"),
+        image_of(
+            "<media:thumbnail width=\"240\" url=\"a\"/><media:thumbnail width=\"480\" url=\"b\"/><media:content url=\"c\" width=\"1300\"/>"
+        ),
         "b"
     );
     // 1200 still qualifies; a later, narrower one does not replace it
-    assert_eq!(image_of("<media:content width=\"1200\" url=\"x\"/><media:thumbnail url=\"y\" width=\"100\"/>"), "x");
+    assert_eq!(
+        image_of(
+            "<media:content width=\"1200\" url=\"x\"/><media:thumbnail url=\"y\" width=\"100\"/>"
+        ),
+        "x"
+    );
     // equal width: the first stays
-    assert_eq!(image_of("<media:thumbnail width=\"480\" url=\"first\"/><media:thumbnail width=\"480\" url=\"second\"/>"), "first");
+    assert_eq!(
+        image_of(
+            "<media:thumbnail width=\"480\" url=\"first\"/><media:thumbnail width=\"480\" url=\"second\"/>"
+        ),
+        "first"
+    );
     // no width counts as 0 and still qualifies; a wider one replaces it
     assert_eq!(image_of("<media:content url=\"nowidth\"/>"), "nowidth");
-    assert_eq!(image_of("<media:content url=\"nowidth\"/><media:content url=\"w\" width=\"10\"/>"), "w");
+    assert_eq!(
+        image_of("<media:content url=\"nowidth\"/><media:content url=\"w\" width=\"10\"/>"),
+        "w"
+    );
     // only wide images: the narrowest
     assert_eq!(
-        image_of("<media:content width=\"1800\" url=\"big\"/><media:content width=\"1300\" url=\"mid\"/><media:content width=\"1500\" url=\"upper\"/>"),
+        image_of(
+            "<media:content width=\"1800\" url=\"big\"/><media:content width=\"1300\" url=\"mid\"/><media:content width=\"1500\" url=\"upper\"/>"
+        ),
         "mid"
     );
     // single quotes, other attributes around, `&amp;` decoded, nothing else touched
-    assert_eq!(image_of("<media:content medium='image' url='https://i/x.jpg?a=1&amp;b=2' width='300'></media:content>"), "https://i/x.jpg?a=1&b=2");
-    assert_eq!(image_of("<media:thumbnail url=\"https://i/standard/240/p.jpg\" width=\"240\"/>"), "https://i/standard/240/p.jpg");
+    assert_eq!(
+        image_of(
+            "<media:content medium='image' url='https://i/x.jpg?a=1&amp;b=2' width='300'></media:content>"
+        ),
+        "https://i/x.jpg?a=1&b=2"
+    );
+    assert_eq!(
+        image_of("<media:thumbnail url=\"https://i/standard/240/p.jpg\" width=\"240\"/>"),
+        "https://i/standard/240/p.jpg"
+    );
     // a tag without url is skipped; other media elements are not images
-    assert_eq!(image_of("<media:content width=\"100\"/><media:credit url=\"no\"/><media:description>d</media:description>"), "");
-    assert_eq!(image_of("<media:content data-url=\"no\" width=\"100\"/>"), "");
+    assert_eq!(
+        image_of(
+            "<media:content width=\"100\"/><media:credit url=\"no\"/><media:description>d</media:description>"
+        ),
+        ""
+    );
+    assert_eq!(
+        image_of("<media:content data-url=\"no\" width=\"100\"/>"),
+        ""
+    );
     assert_eq!(image_of(""), "");
 }
 
@@ -235,7 +348,10 @@ fn decode_text_table() {
         ("", ""),
         ("plain", "plain"),
         ("<![CDATA[Hello]]>", "Hello"),
-        ("<![CDATA[<b>markup inside CDATA</b>]]>", "markup inside CDATA"),
+        (
+            "<![CDATA[<b>markup inside CDATA</b>]]>",
+            "markup inside CDATA",
+        ),
         ("a <b>bold <i>nested</i></b> word", "a bold nested word"),
         ("&amp;lt;", "&lt;"),
         ("&lt;p&gt;", "<p>"),
@@ -272,9 +388,21 @@ fn merge_interleaves_and_dedupes() {
     let c = vec![];
     let d = vec![plain("D", "TWO"), plain("D", "five")];
     let out = merge(vec![a, b, c, d]);
-    let got: Vec<(&str, &str)> = out.iter().map(|i| (i.tag.as_str(), i.title.as_str())).collect();
+    let got: Vec<(&str, &str)> = out
+        .iter()
+        .map(|i| (i.tag.as_str(), i.title.as_str()))
+        .collect();
     // round 0: A:one, B:ONE (duplicate), D:TWO; round 1: A:Two (duplicate: D took "two" in round 0), B:four, D:five; round 2: A:three
-    assert_eq!(got, [("A", "one"), ("D", "TWO"), ("B", "four"), ("D", "five"), ("A", "three")]);
+    assert_eq!(
+        got,
+        [
+            ("A", "one"),
+            ("D", "TWO"),
+            ("B", "four"),
+            ("D", "five"),
+            ("A", "three")
+        ]
+    );
 }
 
 #[test]
@@ -309,7 +437,10 @@ fn rfc2822_dates() {
         ("Sun, 25 Oct 2026 00:10:07 +0530", Some(1_792_867_207_000)),
         ("Sun, 25 Oct 2026 00:10 GMT", Some(1_792_887_000_000)),
         ("25 Oct 2026 00:00:00 GMT", Some(1_792_886_400_000)),
-        ("5 Oct 2026 00:00:00 GMT", Some(1_792_886_400_000 - 20 * 86_400_000)),
+        (
+            "5 Oct 2026 00:00:00 GMT",
+            Some(1_792_886_400_000 - 20 * 86_400_000),
+        ),
         ("25 oct 2026 00:00:00 gmt", Some(1_792_886_400_000)),
         ("  Sun, 25 Oct 2026 00:00:00 GMT  ", Some(1_792_886_400_000)),
         ("Thu, 01 Jan 1970 00:00:00 GMT", Some(0)),
@@ -341,7 +472,10 @@ fn rfc2822_dates() {
 }
 
 fn bbc_script() -> Script {
-    Script::new(vec![(BBC_WORLD_URL, ok(BBC_WORLD)), (BBC_US_URL, ok(BBC_US))])
+    Script::new(vec![
+        (BBC_WORLD_URL, ok(BBC_WORLD)),
+        (BBC_US_URL, ok(BBC_US)),
+    ])
 }
 
 #[test]
@@ -356,11 +490,28 @@ fn refresh_interleaves_both_feeds() {
     assert_eq!(doc.feeds, [BBC_WORLD_URL, BBC_US_URL]);
     assert_eq!(doc.items.len(), 8);
     let tags: Vec<&str> = doc.items.iter().map(|i| i.tag.as_str()).collect();
-    assert_eq!(tags, ["WORLD", "U.S.", "WORLD", "U.S.", "WORLD", "U.S.", "WORLD", "U.S."]);
-    assert_eq!(doc.items[0].title, "Almost 1,000 arrested as clashes follow another day of mass protests across France");
-    assert_eq!(doc.items[1].title, "Obama attacks Trump as he campaigns for Democrats ahead of midterm elections");
-    assert_eq!(doc.items[2].title, "Ukraine says Starlink connection 'now stable' after network limits");
-    assert_eq!(doc.items[3].title, "Are California voters about to impose 'world's first' tax on billionaires?");
+    assert_eq!(
+        tags,
+        [
+            "WORLD", "U.S.", "WORLD", "U.S.", "WORLD", "U.S.", "WORLD", "U.S."
+        ]
+    );
+    assert_eq!(
+        doc.items[0].title,
+        "Almost 1,000 arrested as clashes follow another day of mass protests across France"
+    );
+    assert_eq!(
+        doc.items[1].title,
+        "Obama attacks Trump as he campaigns for Democrats ahead of midterm elections"
+    );
+    assert_eq!(
+        doc.items[2].title,
+        "Ukraine says Starlink connection 'now stable' after network limits"
+    );
+    assert_eq!(
+        doc.items[3].title,
+        "Are California voters about to impose 'world's first' tax on billionaires?"
+    );
 }
 
 #[test]
@@ -375,7 +526,10 @@ fn refresh_honours_per_feed() {
 
 #[test]
 fn refresh_survives_one_failing_feed() {
-    let script = Script::new(vec![(BBC_WORLD_URL, Err(FetchError::Http(503))), (BBC_US_URL, ok(BBC_US))]);
+    let script = Script::new(vec![
+        (BBC_WORLD_URL, Err(FetchError::Http(503))),
+        (BBC_US_URL, ok(BBC_US)),
+    ]);
     let doc = refresh(&script, &NewsConfig::standard(), NOW).unwrap();
     assert_eq!(doc.items.len(), 4);
     assert!(doc.items.iter().all(|i| i.tag == "U.S."));
@@ -393,12 +547,18 @@ fn refresh_falls_back_to_the_alternative_feeds() {
         (NYT_US_URL, ok(NYT_US)),
     ]);
     let doc = refresh(&script, &NewsConfig::standard(), NOW).unwrap();
-    assert_eq!(script.requests(), [BBC_WORLD_URL, BBC_US_URL, NYT_WORLD_URL, NYT_US_URL]);
+    assert_eq!(
+        script.requests(),
+        [BBC_WORLD_URL, BBC_US_URL, NYT_WORLD_URL, NYT_US_URL]
+    );
     // the key is the configuration, not the source that answered
     assert_eq!(doc.feeds, [BBC_WORLD_URL, BBC_US_URL]);
     assert_eq!(doc.items.len(), 8);
     assert!(doc.items.iter().all(|i| i.src == "The New York Times"));
-    assert_eq!(doc.items[0].title, "Elon Musk Says Ukraine Violated Starlink\u{2019}s Rules");
+    assert_eq!(
+        doc.items[0].title,
+        "Elon Musk Says Ukraine Violated Starlink\u{2019}s Rules"
+    );
     assert_eq!(doc.items[0].tag, "WORLD");
     assert_eq!(doc.items[1].tag, "U.S.");
 }
@@ -435,7 +595,10 @@ fn refresh_everything_offline_reports_the_first_error() {
         (NYT_WORLD_URL, Err(FetchError::Offline)),
         (NYT_US_URL, Err(FetchError::Offline)),
     ]);
-    assert_eq!(refresh(&script, &NewsConfig::standard(), NOW).unwrap_err(), FeedError::Fetch(FetchError::Timeout));
+    assert_eq!(
+        refresh(&script, &NewsConfig::standard(), NOW).unwrap_err(),
+        FeedError::Fetch(FetchError::Timeout)
+    );
 }
 
 #[test]
@@ -459,7 +622,10 @@ fn refresh_with_no_feeds_is_empty() {
         alt: vec![],
         per_feed: 4,
     };
-    assert_eq!(refresh(&Script::new(vec![]), &cfg, NOW).unwrap_err(), FeedError::Empty);
+    assert_eq!(
+        refresh(&Script::new(vec![]), &cfg, NOW).unwrap_err(),
+        FeedError::Empty
+    );
 }
 
 #[test]
@@ -467,7 +633,10 @@ fn refresh_reads_non_utf8_feeds_lossily() {
     let mut bytes = b"<rss><item><title>Caf".to_vec();
     bytes.push(0xE9);
     bytes.extend_from_slice(b"</title></item></rss>");
-    let script = Script::new(vec![(BBC_WORLD_URL, Ok(bytes)), (BBC_US_URL, Err(FetchError::Offline))]);
+    let script = Script::new(vec![
+        (BBC_WORLD_URL, Ok(bytes)),
+        (BBC_US_URL, Err(FetchError::Offline)),
+    ]);
     let doc = refresh(&script, &NewsConfig::standard(), NOW).unwrap();
     assert_eq!(doc.items.len(), 1);
     assert_eq!(doc.items[0].title, "Caf\u{fffd}");
@@ -479,10 +648,30 @@ fn json_shape() {
     let v = serde_json::to_value(&doc).unwrap();
     let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["expiresAt", "feeds", "fetchedAt", "items", "schema", "staleAt"]);
-    let mut item: Vec<&str> = v["items"][0].as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "expiresAt",
+            "feeds",
+            "fetchedAt",
+            "items",
+            "schema",
+            "staleAt"
+        ]
+    );
+    let mut item: Vec<&str> = v["items"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     item.sort_unstable();
-    assert_eq!(item, ["img", "link", "pub", "pubMs", "src", "summary", "tag", "title"]);
+    assert_eq!(
+        item,
+        [
+            "img", "link", "pub", "pubMs", "src", "summary", "tag", "title"
+        ]
+    );
     assert_eq!(v["items"][0]["pub"], "Sun, 25 Oct 2026 04:16:52 GMT");
     assert_eq!(v["items"][0]["pubMs"], 1_792_901_812_000_u64);
 

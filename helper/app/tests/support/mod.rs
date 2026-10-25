@@ -52,7 +52,8 @@ pub struct Reply {
 
 impl Reply {
     pub fn json(&self) -> Value {
-        serde_json::from_slice(&self.body).unwrap_or_else(|e| panic!("not JSON ({e}): {}", String::from_utf8_lossy(&self.body)))
+        serde_json::from_slice(&self.body)
+            .unwrap_or_else(|e| panic!("not JSON ({e}): {}", String::from_utf8_lossy(&self.body)))
     }
 
     pub fn header(&self, name: &str) -> Option<&str> {
@@ -66,7 +67,9 @@ impl Reply {
 /// Sends raw bytes and reads the whole answer (the server closes the connection).
 pub fn raw(addr: SocketAddr, request: &[u8]) -> Reply {
     let mut stream = TcpStream::connect(addr).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(40))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(40)))
+        .unwrap();
     stream.write_all(request).unwrap();
     let mut data = Vec::new();
     let _ = stream.read_to_end(&mut data);
@@ -97,7 +100,13 @@ pub fn parse_reply(data: &[u8]) -> Reply {
 }
 
 /// One request with the headers a QML client sends.
-pub fn http(addr: SocketAddr, method: &str, target: &str, extra: &[(&str, &str)], body: Option<&str>) -> Reply {
+pub fn http(
+    addr: SocketAddr,
+    method: &str,
+    target: &str,
+    extra: &[(&str, &str)],
+    body: Option<&str>,
+) -> Reply {
     let mut request = format!("{method} {target} HTTP/1.1\r\nHost: {addr}\r\n");
     for (name, value) in extra {
         request.push_str(&format!("{name}: {value}\r\n"));
@@ -121,7 +130,10 @@ pub fn post(addr: SocketAddr, target: &str, body: &str) -> Reply {
         addr,
         "POST",
         target,
-        &[("X-Luma-Client", "test"), ("Content-Type", "application/json")],
+        &[
+            ("X-Luma-Client", "test"),
+            ("Content-Type", "application/json"),
+        ],
         Some(body),
     )
 }
@@ -185,13 +197,16 @@ impl FakeAvr {
                             Ok(n) => request.extend_from_slice(&buf[..n]),
                         }
                     }
-                    if !String::from_utf8_lossy(&request).starts_with("GET /goform/formMainZone_MainZoneXmlStatusLite.xml ") {
+                    if !String::from_utf8_lossy(&request)
+                        .starts_with("GET /goform/formMainZone_MainZoneXmlStatusLite.xml ")
+                    {
                         continue;
                     }
                     hits.fetch_add(1, Ordering::SeqCst);
                     let s = state.lock().clone();
                     let reply = if s.forbidden {
-                        "HTTP/1.0 403 Forbidden\r\n\r\nError 403: Forbidden\r\nAccess Forbidden\r\n".to_owned()
+                        "HTTP/1.0 403 Forbidden\r\n\r\nError 403: Forbidden\r\nAccess Forbidden\r\n"
+                            .to_owned()
                     } else {
                         format!(
                             "HTTP/1.0 200 OK\r\nServer: mongoose2.5\r\nPragma: no-cache\r\nCache-control: no-cache\r\nContent-Type: text/xml; charset=utf-8\r\n\r\n<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n<item>\n<Power><value>{}</value></Power>\n<InputFuncSelect><value>{}</value></InputFuncSelect>\n<VolumeDisplay><value>Absolute</value></VolumeDisplay>\n<MasterVolume><value>{}</value></MasterVolume>\n<Mute><value>{}</value></Mute>\n</item>\n",
@@ -310,7 +325,10 @@ impl Script {
     /// The standard reachable internet: Atlanta's geocoding and forecast and the four feeds.
     pub fn internet() -> Arc<Self> {
         let script = Self::new();
-        script.answer("https://api.zippopotam.us/us/30311", Ok(ZIPPOPOTAM.as_bytes().to_vec()));
+        script.answer(
+            "https://api.zippopotam.us/us/30311",
+            Ok(ZIPPOPOTAM.as_bytes().to_vec()),
+        );
         script.answer(FORECAST_ATLANTA, Ok(OPEN_METEO.as_bytes().to_vec()));
         script.answer(BBC_WORLD_URL, Ok(BBC_WORLD.as_bytes().to_vec()));
         script.answer(BBC_US_URL, Ok(BBC_US.as_bytes().to_vec()));
@@ -346,7 +364,10 @@ impl Fetch for Script {
             .lock()
             .iter()
             .find(|(u, _)| u == url)
-            .map_or_else(|| Err(FetchError::Failed(format!("no script for {url}"))), |(_, a)| a.clone())
+            .map_or_else(
+                || Err(FetchError::Failed(format!("no script for {url}"))),
+                |(_, a)| a.clone(),
+            )
     }
 }
 
@@ -394,7 +415,11 @@ pub fn seed_settings(paths: &Paths, owner: &str, values: Value) {
 
 /// Stored values that switch the receiver off, so a test that is not about it never polls anything.
 pub fn receiver_off(paths: &Paths) {
-    seed_settings(paths, "base.receiver", json!({"enabled": {"type": "bool", "value": false}}));
+    seed_settings(
+        paths,
+        "base.receiver",
+        json!({"enabled": {"type": "bool", "value": false}}),
+    );
 }
 
 /// Stored values that point the receiver client at a loopback port.
@@ -445,7 +470,12 @@ impl Rig {
     }
 
     /// Waits until the topic satisfies `check`; returns its value then (or the last one seen).
-    pub fn wait_topic(&self, name: &str, timeout: Duration, check: impl Fn(&Value) -> bool) -> Option<Value> {
+    pub fn wait_topic(
+        &self,
+        name: &str,
+        timeout: Duration,
+        check: impl Fn(&Value) -> bool,
+    ) -> Option<Value> {
         let mut last = None;
         let ok = wait_until(timeout, || {
             last = self.topic(name);

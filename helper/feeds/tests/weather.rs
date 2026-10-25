@@ -37,7 +37,11 @@ fn geo_rejects_bad_replies() {
         br#"{"places":[{"place name":"","latitude":"1","longitude":"2"}]}"#,
         br#"{"places":[{"latitude":"1","longitude":"2"}]}"#,
     ] {
-        assert!(matches!(parse_geo(body), Err(FeedError::Parse(_))), "{}", String::from_utf8_lossy(body));
+        assert!(
+            matches!(parse_geo(body), Err(FeedError::Parse(_))),
+            "{}",
+            String::from_utf8_lossy(body)
+        );
     }
 }
 
@@ -65,8 +69,20 @@ fn units_names() {
 fn zip_validation() {
     assert!(validate_zip("30311").is_ok());
     assert!(validate_zip("00000").is_ok());
-    for bad in ["", "3031", "303111", "3031a", " 30311", "30311 ", "３０３１１", "-0311"] {
-        assert!(matches!(validate_zip(bad), Err(FeedError::Config(_))), "{bad:?}");
+    for bad in [
+        "",
+        "3031",
+        "303111",
+        "3031a",
+        " 30311",
+        "30311 ",
+        "３０３１１",
+        "-0311",
+    ] {
+        assert!(
+            matches!(validate_zip(bad), Err(FeedError::Config(_))),
+            "{bad:?}"
+        );
     }
 }
 
@@ -78,11 +94,17 @@ fn forecast_fixture_to_document() {
     assert_eq!(doc.stale_at, NOW + REFRESH_MS);
     assert_eq!(doc.expires_at, NOW + EXPIRE_MS);
     assert_eq!((doc.zip.as_str(), doc.units), ("30311", Units::Fahrenheit));
-    assert_eq!((doc.place.as_str(), doc.lat, doc.lon), ("Atlanta", 33.723, -84.4702));
+    assert_eq!(
+        (doc.place.as_str(), doc.lat, doc.lon),
+        ("Atlanta", 33.723, -84.4702)
+    );
 
     let c = &doc.current;
     assert_eq!(c.time, "2026-10-25T00:15");
-    assert_eq!((c.temp, c.feels_like, c.humidity, c.wind_mph), (54.2, 49.7, 72.0, 7.8));
+    assert_eq!(
+        (c.temp, c.feels_like, c.humidity, c.wind_mph),
+        (54.2, 49.7, 72.0, 7.8)
+    );
     assert_eq!(c.code, 0);
     assert!(!c.is_day);
 
@@ -90,7 +112,10 @@ fn forecast_fixture_to_document() {
     assert_eq!(d.place, "Atlanta");
     assert_eq!(d.temp, "54\u{b0}");
     assert_eq!(d.cond, "Clear");
-    assert_eq!(d.stats, "Feels like 50\u{b0} \u{b7} 72% humidity \u{b7} 8 mph");
+    assert_eq!(
+        d.stats,
+        "Feels like 50\u{b0} \u{b7} 72% humidity \u{b7} 8 mph"
+    );
     assert_eq!(d.now_kind, "moon");
 }
 
@@ -111,7 +136,11 @@ fn forecast_fixture_daily_rows() {
     ];
     for (i, (date, code, hi, lo, day, kind, rhi, rlo)) in want.into_iter().enumerate() {
         let d = &doc.daily[i];
-        assert_eq!((d.date.as_str(), d.code, d.hi, d.lo), (date, code, hi, lo), "daily {i}");
+        assert_eq!(
+            (d.date.as_str(), d.code, d.hi, d.lo),
+            (date, code, hi, lo),
+            "daily {i}"
+        );
         let r = &doc.display.days[i];
         assert_eq!(r.day, day, "row {i}");
         assert_eq!(r.kind, kind, "row {i}");
@@ -131,7 +160,10 @@ fn forecast_skips_null_rows_and_rejects_missing_fields() {
     let doc = parse_forecast(body, &geo, &cfg, NOW).unwrap();
     assert_eq!(doc.daily.len(), 1);
     assert_eq!(doc.display.temp, "-2\u{b0}");
-    assert_eq!(doc.display.stats, "Feels like -7\u{b0} \u{b7} 72.5% humidity \u{b7} 0 mph");
+    assert_eq!(
+        doc.display.stats,
+        "Feels like -7\u{b0} \u{b7} 72.5% humidity \u{b7} 0 mph"
+    );
     assert_eq!(doc.display.now_kind, "snow");
     assert_eq!(doc.display.cond, "Snow");
     assert_eq!(doc.display.days[0].hi, "2\u{b0}");
@@ -188,7 +220,11 @@ fn expected_text(code: i64) -> &'static str {
 fn kind_and_text_over_every_code() {
     for code in -1..=120 {
         for day in [true, false] {
-            assert_eq!(kind_for(code, day), expected_kind(code, day), "kind_for({code}, {day})");
+            assert_eq!(
+                kind_for(code, day),
+                expected_kind(code, day),
+                "kind_for({code}, {day})"
+            );
         }
         assert_eq!(text_for(code), expected_text(code), "text_for({code})");
     }
@@ -242,8 +278,22 @@ fn weekday_names() {
 #[test]
 fn invalid_dates_have_no_name() {
     for bad in [
-        "", "2026-02-29", "2100-02-29", "2026-13-01", "2026-00-10", "2026-10-00", "2026-10-32", "2026-04-31", "2026-1-05",
-        "26-10-25", "2026/10/25", "2026-10-25T00:00", "abcd-ef-gh", "2026-10-2a", "+026-10-25", "２０２６-10-25",
+        "",
+        "2026-02-29",
+        "2100-02-29",
+        "2026-13-01",
+        "2026-00-10",
+        "2026-10-00",
+        "2026-10-32",
+        "2026-04-31",
+        "2026-1-05",
+        "26-10-25",
+        "2026/10/25",
+        "2026-10-25T00:00",
+        "abcd-ef-gh",
+        "2026-10-2a",
+        "+026-10-25",
+        "２０２６-10-25",
     ] {
         assert_eq!(day_name(bad), None, "{bad:?}");
     }
@@ -256,7 +306,18 @@ fn document_json_shape() {
     let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort_unstable();
     let mut want = vec![
-        "schema", "fetchedAt", "staleAt", "expiresAt", "zip", "units", "place", "lat", "lon", "current", "daily", "display",
+        "schema",
+        "fetchedAt",
+        "staleAt",
+        "expiresAt",
+        "zip",
+        "units",
+        "place",
+        "lat",
+        "lon",
+        "current",
+        "daily",
+        "display",
     ];
     want.sort_unstable();
     assert_eq!(keys, want);
@@ -264,16 +325,47 @@ fn document_json_shape() {
     assert_eq!(v["schema"], 1);
     assert_eq!(v["fetchedAt"], NOW);
 
-    let mut cur: Vec<&str> = v["current"].as_object().unwrap().keys().map(String::as_str).collect();
+    let mut cur: Vec<&str> = v["current"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     cur.sort_unstable();
-    assert_eq!(cur, ["code", "feelsLike", "humidity", "isDay", "temp", "time", "windMph"]);
-    let mut disp: Vec<&str> = v["display"].as_object().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(
+        cur,
+        [
+            "code",
+            "feelsLike",
+            "humidity",
+            "isDay",
+            "temp",
+            "time",
+            "windMph"
+        ]
+    );
+    let mut disp: Vec<&str> = v["display"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     disp.sort_unstable();
     assert_eq!(disp, ["cond", "days", "nowKind", "place", "stats", "temp"]);
-    let mut row: Vec<&str> = v["display"]["days"][0].as_object().unwrap().keys().map(String::as_str).collect();
+    let mut row: Vec<&str> = v["display"]["days"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     row.sort_unstable();
     assert_eq!(row, ["day", "hi", "kind", "lo"]);
-    let mut day: Vec<&str> = v["daily"][0].as_object().unwrap().keys().map(String::as_str).collect();
+    let mut day: Vec<&str> = v["daily"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     day.sort_unstable();
     assert_eq!(day, ["code", "date", "hi", "lo"]);
 
@@ -289,7 +381,10 @@ fn geocode_ok() -> (&'static str, Result<Vec<u8>, FetchError>) {
 fn refresh_without_previous_asks_twice() {
     let script = Script::new(vec![geocode_ok(), (FORECAST_F, ok(OPEN_METEO))]);
     let doc = refresh(&script, &atlanta(), None, NOW).unwrap();
-    assert_eq!(script.requests(), ["https://api.zippopotam.us/us/30311", FORECAST_F]);
+    assert_eq!(
+        script.requests(),
+        ["https://api.zippopotam.us/us/30311", FORECAST_F]
+    );
     assert_eq!(doc, weather_doc(NOW));
 }
 
@@ -309,7 +404,10 @@ fn refresh_reuses_the_place_of_a_previous_document_of_the_same_zip() {
     let script = Script::new(vec![(url.as_str(), ok(OPEN_METEO))]);
     let doc = refresh(&script, &atlanta(), Some(&previous), NOW).unwrap();
     assert_eq!(script.requests(), [url]);
-    assert_eq!((doc.place.as_str(), doc.lat, doc.lon, doc.fetched_at), ("Atlanta", 1.5, 2.5, NOW));
+    assert_eq!(
+        (doc.place.as_str(), doc.lat, doc.lon, doc.fetched_at),
+        ("Atlanta", 1.5, 2.5, NOW)
+    );
 }
 
 #[test]
@@ -318,7 +416,10 @@ fn refresh_geocodes_again_for_another_zip() {
     previous.zip = "30312".to_owned();
     let script = Script::new(vec![geocode_ok(), (FORECAST_F, ok(OPEN_METEO))]);
     refresh(&script, &atlanta(), Some(&previous), NOW).unwrap();
-    assert_eq!(script.requests(), ["https://api.zippopotam.us/us/30311", FORECAST_F]);
+    assert_eq!(
+        script.requests(),
+        ["https://api.zippopotam.us/us/30311", FORECAST_F]
+    );
 }
 
 #[test]
@@ -345,7 +446,10 @@ fn refresh_uses_the_configured_units() {
 #[test]
 fn refresh_geocode_failure_is_an_error_and_no_forecast_is_asked() {
     let script = Script::new(vec![
-        ("https://api.zippopotam.us/us/30311", Err(FetchError::Offline)),
+        (
+            "https://api.zippopotam.us/us/30311",
+            Err(FetchError::Offline),
+        ),
         (FORECAST_F, ok(OPEN_METEO)),
     ]);
     let err = refresh(&script, &atlanta(), None, NOW).unwrap_err();
@@ -356,7 +460,10 @@ fn refresh_geocode_failure_is_an_error_and_no_forecast_is_asked() {
 #[test]
 fn refresh_geocode_garbage_is_a_parse_error() {
     let script = Script::new(vec![("https://api.zippopotam.us/us/30311", ok("<html>"))]);
-    assert!(matches!(refresh(&script, &atlanta(), None, NOW), Err(FeedError::Parse(_))));
+    assert!(matches!(
+        refresh(&script, &atlanta(), None, NOW),
+        Err(FeedError::Parse(_))
+    ));
     assert_eq!(script.requests().len(), 1);
 }
 
@@ -383,6 +490,9 @@ fn refresh_rejects_a_bad_zip_before_any_request() {
         zip: "3031".to_owned(),
         units: Units::Fahrenheit,
     };
-    assert!(matches!(refresh(&script, &cfg, None, NOW), Err(FeedError::Config(_))));
+    assert!(matches!(
+        refresh(&script, &cfg, None, NOW),
+        Err(FeedError::Config(_))
+    ));
     assert!(script.requests().is_empty());
 }

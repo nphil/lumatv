@@ -224,7 +224,12 @@ impl Hub {
     }
 
     /// The events after `after` without waiting. `after: None` only reports the current `seq`.
-    pub fn events_after(&self, after: Option<u64>, client_boot: Option<u64>, topics: Option<&[String]>) -> Batch {
+    pub fn events_after(
+        &self,
+        after: Option<u64>,
+        client_boot: Option<u64>,
+        topics: Option<&[String]>,
+    ) -> Batch {
         let inner = self.inner.lock();
         Self::collect(&inner, self.boot, after, client_boot, topics)
     }
@@ -295,15 +300,38 @@ mod tests {
     #[test]
     fn a_quiet_key_updates_the_value_without_an_event() {
         let hub = Hub::new(1);
-        assert!(hub.set_ignoring("receiver", json!({"volume": 5, "updatedAt": 100}), &["updatedAt"]));
-        assert!(!hub.set_ignoring("receiver", json!({"volume": 5, "updatedAt": 200}), &["updatedAt"]));
-        assert_eq!(hub.get("receiver"), Some(json!({"volume": 5, "updatedAt": 200})));
+        assert!(hub.set_ignoring(
+            "receiver",
+            json!({"volume": 5, "updatedAt": 100}),
+            &["updatedAt"]
+        ));
+        assert!(!hub.set_ignoring(
+            "receiver",
+            json!({"volume": 5, "updatedAt": 200}),
+            &["updatedAt"]
+        ));
+        assert_eq!(
+            hub.get("receiver"),
+            Some(json!({"volume": 5, "updatedAt": 200}))
+        );
         assert_eq!(hub.snapshot().seq, 1);
-        assert!(hub.set_ignoring("receiver", json!({"volume": 6, "updatedAt": 300}), &["updatedAt"]));
+        assert!(hub.set_ignoring(
+            "receiver",
+            json!({"volume": 6, "updatedAt": 300}),
+            &["updatedAt"]
+        ));
         assert_eq!(hub.snapshot().seq, 2);
         // A key that appears or disappears is a change even when it is quiet's neighbour.
-        assert!(hub.set_ignoring("receiver", json!({"volume": 6, "updatedAt": 300, "extra": 1}), &["updatedAt"]));
-        assert!(!hub.set_ignoring("receiver", json!({"volume": 6, "updatedAt": 301, "extra": 1}), &["updatedAt"]));
+        assert!(hub.set_ignoring(
+            "receiver",
+            json!({"volume": 6, "updatedAt": 300, "extra": 1}),
+            &["updatedAt"]
+        ));
+        assert!(!hub.set_ignoring(
+            "receiver",
+            json!({"volume": 6, "updatedAt": 301, "extra": 1}),
+            &["updatedAt"]
+        ));
     }
 
     #[test]
@@ -335,7 +363,11 @@ mod tests {
         assert_eq!(batch.events[0].topic, "b");
         assert_eq!(batch.seq, 2);
         // Asking again from the returned seq finds nothing, and does not re-deliver.
-        assert!(hub.events_after(Some(batch.seq), None, Some(&only_b)).events.is_empty());
+        assert!(
+            hub.events_after(Some(batch.seq), None, Some(&only_b))
+                .events
+                .is_empty()
+        );
     }
 
     #[test]
@@ -371,7 +403,9 @@ mod tests {
         let hub = Arc::new(Hub::new(1));
         let waiter = {
             let hub = hub.clone();
-            std::thread::spawn(move || hub.wait_events(Some(0), None, None, Duration::from_secs(20)))
+            std::thread::spawn(move || {
+                hub.wait_events(Some(0), None, None, Duration::from_secs(20))
+            })
         };
         std::thread::sleep(Duration::from_millis(50));
         hub.set("x", json!("go"));
@@ -395,7 +429,12 @@ mod tests {
         let waiter = {
             let hub = hub.clone();
             std::thread::spawn(move || {
-                hub.wait_events(Some(0), None, Some(&topics(&["wanted"])), Duration::from_millis(400))
+                hub.wait_events(
+                    Some(0),
+                    None,
+                    Some(&topics(&["wanted"])),
+                    Duration::from_millis(400),
+                )
             })
         };
         std::thread::sleep(Duration::from_millis(30));

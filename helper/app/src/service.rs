@@ -50,7 +50,11 @@ fn other(message: impl Into<String>) -> std::io::Error {
 impl Service {
     /// Starts every component and the API. Returns when the API is listening.
     pub fn start(options: StartOptions) -> std::io::Result<Self> {
-        let StartOptions { paths, config, fetcher } = options;
+        let StartOptions {
+            paths,
+            config,
+            fetcher,
+        } = options;
         let config = Arc::new(config);
         let stop = Stop::new();
         let hub = Arc::new(Hub::new(now_ms()));

@@ -78,7 +78,10 @@ impl Publisher<'_> {
         if self.last_state.as_deref() != Some(state) {
             self.last_state = Some(state.to_owned());
             self.since = now_ms();
-            crate::log_info!("screen: {state} ({})", if state_is_on(state) { "on" } else { "off" });
+            crate::log_info!(
+                "screen: {state} ({})",
+                if state_is_on(state) { "on" } else { "off" }
+            );
         }
         self.publish(state_is_on(state), state, source, None);
     }
@@ -87,7 +90,9 @@ impl Publisher<'_> {
         if self.last_state.as_deref() != Some("assumed") {
             self.last_state = Some("assumed".to_owned());
             self.since = now_ms();
-            crate::log_warn!("screen: the power state cannot be read ({error}); assuming the screen is on");
+            crate::log_warn!(
+                "screen: the power state cannot be read ({error}); assuming the screen is on"
+            );
         }
         self.publish(true, "Active", "assumed", Some(error));
     }
@@ -157,7 +162,10 @@ impl Subscription {
             .spawn(move || {
                 // Each reply is one line (compact output); a pretty-printed reply is joined until it parses.
                 let mut pending = String::new();
-                for line in BufReader::new(out.take(1024 * 1024)).lines().map_while(Result::ok) {
+                for line in BufReader::new(out.take(1024 * 1024))
+                    .lines()
+                    .map_while(Result::ok)
+                {
                     pending.push_str(&line);
                     pending.push('\n');
                     if let Some(state) = parse_state(&pending) {
@@ -204,7 +212,10 @@ enum Spell {
 
 /// Starts the watcher. With `screen.source = "on"` the topic is set once and no thread runs. `notify` is called after every
 /// change of the topic (the runners re-check the screen then).
-pub fn spawn(ctx: &Ctx, notify: Arc<dyn Fn() + Send + Sync>) -> std::io::Result<Option<JoinHandle<()>>> {
+pub fn spawn(
+    ctx: &Ctx,
+    notify: Arc<dyn Fn() + Send + Sync>,
+) -> std::io::Result<Option<JoinHandle<()>>> {
     if ctx.config.screen.source == "on" {
         let value = json!({"on": true, "state": "Active", "since": now_ms(), "source": "config", "error": null});
         ctx.hub.set(TOPIC, value);
@@ -245,7 +256,9 @@ fn watch(ctx: &Ctx, notify: &(dyn Fn() + Send + Sync)) {
             match subscribe_spell(&program, &stop, &mut publisher, &slot) {
                 Spell::Stopped => return,
                 Spell::Failed(why) => {
-                    crate::log_info!("screen: using the poll ({why}); the subscription is tried again in ten minutes");
+                    crate::log_info!(
+                        "screen: using the poll ({why}); the subscription is tried again in ten minutes"
+                    );
                     subscribe_after = Instant::now() + POLL_SPELL;
                 }
             }
@@ -289,7 +302,9 @@ fn subscribe_spell(
     let result = (|| {
         let first = match subscription.rx.recv_timeout(FIRST_READING) {
             Ok(state) => state,
-            Err(RecvTimeoutError::Timeout) => return Spell::Failed("no reading from the subscription".to_owned()),
+            Err(RecvTimeoutError::Timeout) => {
+                return Spell::Failed("no reading from the subscription".to_owned());
+            }
             Err(RecvTimeoutError::Disconnected) => {
                 return if stop.is_set() {
                     Spell::Stopped
@@ -310,7 +325,9 @@ fn subscribe_spell(
                     Ok(state) if state == last => {}
                     Ok(state) => {
                         publisher.reading(&state, "luna-poll");
-                        return Spell::Failed(format!("the subscription missed a change to {state}"));
+                        return Spell::Failed(format!(
+                            "the subscription missed a change to {state}"
+                        ));
                     }
                     Err(why) => crate::log_debug!("screen: cross-check failed ({why})"),
                 },
@@ -328,7 +345,11 @@ fn subscribe_spell(
         }
     })();
     subscription.end();
-    if stop.is_set() { Spell::Stopped } else { result }
+    if stop.is_set() {
+        Spell::Stopped
+    } else {
+        result
+    }
 }
 
 #[cfg(test)]
@@ -340,7 +361,14 @@ mod tests {
         for on in ["Active", "Screen Saver"] {
             assert!(state_is_on(on), "{on}");
         }
-        for off in ["Active Standby", "Screen Off", "Suspend", "Power Off", "Garbage", ""] {
+        for off in [
+            "Active Standby",
+            "Screen Off",
+            "Suspend",
+            "Power Off",
+            "Garbage",
+            "",
+        ] {
             assert!(!state_is_on(off), "{off}");
         }
     }
@@ -348,11 +376,13 @@ mod tests {
     #[test]
     fn the_state_is_found_in_compact_and_pretty_output() {
         assert_eq!(
-            parse_state(r#"{"returnValue":true,"state":"Active","processing":"Active"}"#).as_deref(),
+            parse_state(r#"{"returnValue":true,"state":"Active","processing":"Active"}"#)
+                .as_deref(),
             Some("Active")
         );
         assert_eq!(
-            parse_state("{\n    \"returnValue\": true,\n    \"state\": \"Active Standby\"\n}\n").as_deref(),
+            parse_state("{\n    \"returnValue\": true,\n    \"state\": \"Active Standby\"\n}\n")
+                .as_deref(),
             Some("Active Standby")
         );
         // Two replies: the first one counts.
@@ -360,7 +390,10 @@ mod tests {
             parse_state("{\"state\":\"Screen Saver\"}\n{\"state\":\"Active\"}\n").as_deref(),
             Some("Screen Saver")
         );
-        assert_eq!(parse_state(r#"{"returnValue":false,"errorText":"Denied method call"}"#), None);
+        assert_eq!(
+            parse_state(r#"{"returnValue":false,"errorText":"Denied method call"}"#),
+            None
+        );
         assert_eq!(parse_state("Unable to connect to the bus"), None);
         assert_eq!(parse_state(""), None);
     }

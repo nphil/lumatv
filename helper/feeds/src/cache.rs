@@ -64,7 +64,11 @@ pub fn retry_delay_ms(consecutive_failures: u32) -> u64 {
 
 /// When the next fetch is due, in epoch milliseconds. After failures: the last attempt plus the retry delay. Otherwise the
 /// reading's age reaching the refresh interval minus 5 s (the QML's rule); no reading at all is due at 0, i.e. now.
-pub fn next_attempt_ms(fetched_at: Option<u64>, consecutive_failures: u32, last_attempt_ms: u64) -> u64 {
+pub fn next_attempt_ms(
+    fetched_at: Option<u64>,
+    consecutive_failures: u32,
+    last_attempt_ms: u64,
+) -> u64 {
     if consecutive_failures > 0 {
         return last_attempt_ms.saturating_add(retry_delay_ms(consecutive_failures));
     }
@@ -145,26 +149,40 @@ impl DocCache {
     pub fn load_news(&self, cfg: &NewsConfig, now_ms: u64) -> Option<NewsDoc> {
         let doc: NewsDoc = read_json(&self.news_path())?;
         let usable = doc.schema == SCHEMA
-            && doc.feeds.iter().map(String::as_str).eq(cfg.feeds.iter().map(|f| f.url.as_str()))
+            && doc
+                .feeds
+                .iter()
+                .map(String::as_str)
+                .eq(cfg.feeds.iter().map(|f| f.url.as_str()))
             && freshness(doc.fetched_at, now_ms) != Freshness::Expired;
         usable.then_some(doc)
     }
 
     /// Saves the weather document atomically as compact JSON.
     pub fn store_weather(&self, doc: &WeatherDoc) -> io::Result<()> {
-        atomic_write(&self.weather_path(), &serde_json::to_vec(doc).map_err(io::Error::other)?)
+        atomic_write(
+            &self.weather_path(),
+            &serde_json::to_vec(doc).map_err(io::Error::other)?,
+        )
     }
 
     /// Saves the news document atomically as compact JSON.
     pub fn store_news(&self, doc: &NewsDoc) -> io::Result<()> {
-        atomic_write(&self.news_path(), &serde_json::to_vec(doc).map_err(io::Error::other)?)
+        atomic_write(
+            &self.news_path(),
+            &serde_json::to_vec(doc).map_err(io::Error::other)?,
+        )
     }
 }
 
 /// A JSON file of at most [`MAX_DOC_BYTES`] as `T`; `None` for every kind of failure.
 fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     let mut bytes = Vec::new();
-    File::open(path).ok()?.take(MAX_DOC_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    File::open(path)
+        .ok()?
+        .take(MAX_DOC_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
     if bytes.len() as u64 > MAX_DOC_BYTES {
         return None;
     }

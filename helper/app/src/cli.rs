@@ -44,7 +44,9 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--brand" => out.brand = Some(it.next().ok_or("--brand needs a file")?.into()),
-            "--data-dir" => out.data_dir = Some(it.next().ok_or("--data-dir needs a directory")?.into()),
+            "--data-dir" => {
+                out.data_dir = Some(it.next().ok_or("--data-dir needs a directory")?.into())
+            }
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -79,7 +81,8 @@ fn resolve(args: &Args) -> Result<(Paths, Config), String> {
     let data_dir = match (&args.data_dir, &args.brand) {
         (Some(dir), _) => dir.clone(),
         (None, Some(brand)) => {
-            let text = std::fs::read_to_string(brand).map_err(|e| format!("{}: {e}", brand.display()))?;
+            let text =
+                std::fs::read_to_string(brand).map_err(|e| format!("{}: {e}", brand.display()))?;
             data_dir_from_brand(&text).map_err(|e| e.to_string())?
         }
         (None, None) => return Err("give --brand <brand.json> or --data-dir <dir>".to_owned()),
@@ -104,11 +107,15 @@ pub fn main(args: Vec<String>) -> i32 {
             0
         }
         "version" => {
-            emit(&json!({"ok": true, "name": "lumatv-helper", "version": crate::VERSION, "api": crate::API_VERSION}));
+            emit(
+                &json!({"ok": true, "name": "lumatv-helper", "version": crate::VERSION, "api": crate::API_VERSION}),
+            );
             0
         }
         "check-config" => with_config(&args, check_config),
-        "run" => with_config(&args, |paths, config| serve(paths, config, None, args.stderr)),
+        "run" => with_config(&args, |paths, config| {
+            serve(paths, config, None, args.stderr)
+        }),
         "start" => with_config(&args, start),
         "stop" => with_config(&args, |paths, _| stop(&paths)),
         "status" => with_config(&args, status),
@@ -128,7 +135,8 @@ fn program_found(program: &str) -> bool {
     if program.contains('/') {
         return Path::new(program).is_file();
     }
-    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
 }
 
 fn check_config(paths: Paths, config: Config) -> i32 {
@@ -173,8 +181,12 @@ fn report(ready: &mut Option<File>, outcome: &Outcome) {
 
 fn outcome_json(outcome: &Outcome) -> Value {
     match outcome {
-        Outcome::Listening { pid, port } => json!({"ok": true, "started": true, "pid": pid, "port": port}),
-        Outcome::Already { pid } => json!({"ok": true, "started": false, "already": true, "pid": pid}),
+        Outcome::Listening { pid, port } => {
+            json!({"ok": true, "started": true, "pid": pid, "port": port})
+        }
+        Outcome::Already { pid } => {
+            json!({"ok": true, "started": false, "already": true, "pid": pid})
+        }
         Outcome::Failed(why) => json!({"ok": false, "error": why}),
     }
 }
@@ -188,7 +200,13 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
     match Logger::open(&paths.log_file(), level, config.log.max_bytes, stderr_log) {
         Ok(logger) => log::init(logger),
         Err(e) => {
-            report(&mut ready, &Outcome::Failed(format!("cannot open the log {}: {e}", paths.log_file().display())));
+            report(
+                &mut ready,
+                &Outcome::Failed(format!(
+                    "cannot open the log {}: {e}",
+                    paths.log_file().display()
+                )),
+            );
             return 1;
         }
     }
@@ -200,7 +218,13 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
             return if ready.is_some() { 0 } else { 3 };
         }
         Err(e) => {
-            report(&mut ready, &Outcome::Failed(format!("cannot take the lock {}: {e}", paths.lock_file().display())));
+            report(
+                &mut ready,
+                &Outcome::Failed(format!(
+                    "cannot take the lock {}: {e}",
+                    paths.lock_file().display()
+                )),
+            );
             return 1;
         }
     };
@@ -209,7 +233,11 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
     if config.nice > 0 {
         sys::lower_priority(config.nice);
     }
-    crate::log_info!("starting lumatv-helper {} (pid {pid}, data dir {})", crate::VERSION, paths.data_dir.display());
+    crate::log_info!(
+        "starting lumatv-helper {} (pid {pid}, data dir {})",
+        crate::VERSION,
+        paths.data_dir.display()
+    );
     let service = match Service::start(StartOptions {
         paths: paths.clone(),
         config,
@@ -219,7 +247,10 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
         Err(e) => {
             crate::log_error!("could not start: {e}");
             let _ = sys::write_info(&mut lock, 0, None);
-            report(&mut ready, &Outcome::Failed(format!("could not start: {e}")));
+            report(
+                &mut ready,
+                &Outcome::Failed(format!("could not start: {e}")),
+            );
             return 1;
         }
     };
@@ -245,7 +276,12 @@ fn start(paths: Paths, config: Config) -> i32 {
             emit(&outcome_json(&Outcome::Already { pid }));
             return 0;
         }
-        Err(e) => return fail(1, &format!("cannot take the lock {}: {e}", paths.lock_file().display())),
+        Err(e) => {
+            return fail(
+                1,
+                &format!("cannot take the lock {}: {e}", paths.lock_file().display()),
+            );
+        }
     }
     match sys::fork_detached() {
         Err(e) => fail(1, &format!("cannot fork: {e}")),
@@ -255,7 +291,10 @@ fn start(paths: Paths, config: Config) -> i32 {
         }
         Ok(Forked::Parent { child, mut ready }) => {
             let line = sys::read_line_timeout(&mut ready, READY_WAIT);
-            let outcome = match line.as_deref().map(|l| l.splitn(3, ' ').collect::<Vec<_>>()) {
+            let outcome = match line
+                .as_deref()
+                .map(|l| l.splitn(3, ' ').collect::<Vec<_>>())
+            {
                 Some(parts) if parts.first() == Some(&"ok") => {
                     let pid = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(child);
                     let port = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
@@ -264,8 +303,12 @@ fn start(paths: Paths, config: Config) -> i32 {
                 Some(parts) if parts.first() == Some(&"already") => Outcome::Already {
                     pid: parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0),
                 },
-                Some(parts) if parts.first() == Some(&"err") => Outcome::Failed(parts[1..].join(" ")),
-                _ => Outcome::Failed(format!("the helper (pid {child}) did not report ready within {READY_WAIT:?}")),
+                Some(parts) if parts.first() == Some(&"err") => {
+                    Outcome::Failed(parts[1..].join(" "))
+                }
+                _ => Outcome::Failed(format!(
+                    "the helper (pid {child}) did not report ready within {READY_WAIT:?}"
+                )),
             };
             emit(&outcome_json(&outcome));
             i32::from(matches!(outcome, Outcome::Failed(_)))
@@ -281,7 +324,12 @@ fn stop(paths: &Paths) -> i32 {
             return 0;
         }
         Ok(None) => {}
-        Err(e) => return fail(1, &format!("cannot check the lock {}: {e}", lock_path.display())),
+        Err(e) => {
+            return fail(
+                1,
+                &format!("cannot check the lock {}: {e}", lock_path.display()),
+            );
+        }
     }
     // The holder writes its pid right after taking the lock; give a helper that is just starting a moment to do so.
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -353,13 +401,20 @@ fn status(paths: Paths, config: Config) -> i32 {
         }
         Ok(None) => {
             let info = sys::read_info(&paths.lock_file());
-            let port = info.and_then(|i| i.port).or((config.listen.port != 0).then_some(config.listen.port));
+            let port = info
+                .and_then(|i| i.port)
+                .or((config.listen.port != 0).then_some(config.listen.port));
             let ip = config.listen.host.parse::<IpAddr>().ok();
             let healthy = port.zip(ip).map(|(port, ip)| healthy(ip, port));
-            emit(&json!({"ok": true, "running": true, "pid": info.map(|i| i.pid), "port": port, "healthy": healthy}));
+            emit(
+                &json!({"ok": true, "running": true, "pid": info.map(|i| i.pid), "port": port, "healthy": healthy}),
+            );
             0
         }
-        Err(e) => fail(1, &format!("cannot check the lock {}: {e}", paths.lock_file().display())),
+        Err(e) => fail(
+            1,
+            &format!("cannot check the lock {}: {e}", paths.lock_file().display()),
+        ),
     }
 }
 
@@ -395,7 +450,12 @@ mod tests {
         let a = parse_args(&args(&["status"])).unwrap();
         assert!(resolve(&a).unwrap_err().contains("--brand"));
         let dir = tempfile::tempdir().unwrap();
-        let a = parse_args(&args(&["status", "--data-dir", dir.path().to_str().unwrap()])).unwrap();
+        let a = parse_args(&args(&[
+            "status",
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+        ]))
+        .unwrap();
         let (paths, config) = resolve(&a).unwrap();
         assert_eq!(paths.data_dir, dir.path());
         assert_eq!(config.listen.port, crate::config::DEFAULT_PORT);
@@ -426,13 +486,19 @@ mod tests {
     #[test]
     fn outcomes_have_the_documented_json() {
         assert_eq!(
-            outcome_json(&Outcome::Listening { pid: 5, port: 18731 }),
+            outcome_json(&Outcome::Listening {
+                pid: 5,
+                port: 18731
+            }),
             json!({"ok": true, "started": true, "pid": 5, "port": 18731})
         );
         assert_eq!(
             outcome_json(&Outcome::Already { pid: 5 }),
             json!({"ok": true, "started": false, "already": true, "pid": 5})
         );
-        assert_eq!(outcome_json(&Outcome::Failed("x".into())), json!({"ok": false, "error": "x"}));
+        assert_eq!(
+            outcome_json(&Outcome::Failed("x".into())),
+            json!({"ok": false, "error": "x"})
+        );
     }
 }

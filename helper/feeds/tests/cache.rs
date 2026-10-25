@@ -20,7 +20,10 @@ fn freshness_boundaries() {
     assert_eq!(freshness(T0, T0 + 900_000), Freshness::Stale);
     assert_eq!(freshness(T0, T0 + 900_000), freshness(T0, T0 + REFRESH_MS));
     // 5:59:59 is stale, 6:00:00 is expired
-    assert_eq!(freshness(T0, T0 + 5 * 3_600_000 + 59 * 60_000 + 59_000), Freshness::Stale);
+    assert_eq!(
+        freshness(T0, T0 + 5 * 3_600_000 + 59 * 60_000 + 59_000),
+        Freshness::Stale
+    );
     assert_eq!(freshness(T0, T0 + 21_599_999), Freshness::Stale);
     assert_eq!(freshness(T0, T0 + 21_600_000), Freshness::Expired);
     assert_eq!(freshness(T0, T0 + EXPIRE_MS), Freshness::Expired);
@@ -65,7 +68,10 @@ fn next_attempts() {
 #[test]
 fn paths() {
     let cache = DocCache::new("/some/dir");
-    assert_eq!(cache.weather_path().to_str(), Some("/some/dir/weather.json"));
+    assert_eq!(
+        cache.weather_path().to_str(),
+        Some("/some/dir/weather.json")
+    );
     assert_eq!(cache.news_path().to_str(), Some("/some/dir/news.json"));
 }
 
@@ -78,14 +84,23 @@ fn round_trip_both_documents() {
     cache.store_weather(&w).unwrap();
     cache.store_news(&n).unwrap();
     assert_eq!(cache.load_weather(&atlanta(), T0 + 1_000), Some(w.clone()));
-    assert_eq!(cache.load_news(&NewsConfig::standard(), T0 + 1_000), Some(n.clone()));
+    assert_eq!(
+        cache.load_news(&NewsConfig::standard(), T0 + 1_000),
+        Some(n.clone())
+    );
 
     // the file itself is compact JSON that parses back to an equal document
     let text = fs::read_to_string(cache.weather_path()).unwrap();
     assert!(!text.contains('\n'));
-    assert_eq!(serde_json::from_str::<lumatv_feeds::weather::WeatherDoc>(&text).unwrap(), w);
+    assert_eq!(
+        serde_json::from_str::<lumatv_feeds::weather::WeatherDoc>(&text).unwrap(),
+        w
+    );
     let text = fs::read_to_string(cache.news_path()).unwrap();
-    assert_eq!(serde_json::from_str::<lumatv_feeds::news::NewsDoc>(&text).unwrap(), n);
+    assert_eq!(
+        serde_json::from_str::<lumatv_feeds::news::NewsDoc>(&text).unwrap(),
+        n
+    );
 }
 
 #[test]
@@ -93,7 +108,8 @@ fn stored_weather_file_has_the_keys_qml_reads() {
     let dir = tempfile::tempdir().unwrap();
     let cache = DocCache::new(dir.path());
     cache.store_weather(&weather_doc(T0)).unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&fs::read(cache.weather_path()).unwrap()).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_slice(&fs::read(cache.weather_path()).unwrap()).unwrap();
     assert_eq!(v["schema"], 1);
     assert_eq!(v["fetchedAt"], T0);
     assert_eq!(v["units"], "fahrenheit");
@@ -192,7 +208,10 @@ fn stale_is_returned_and_expired_is_not() {
     let cfg = NewsConfig::standard();
 
     assert!(cache.load_weather(&atlanta(), T0 + 899_999).is_some());
-    assert!(cache.load_weather(&atlanta(), T0 + 900_000).is_some(), "stale is still shown");
+    assert!(
+        cache.load_weather(&atlanta(), T0 + 900_000).is_some(),
+        "stale is still shown"
+    );
     assert!(cache.load_news(&cfg, T0 + 21_599_999).is_some());
     assert_eq!(cache.load_weather(&atlanta(), T0 + 21_600_000), None);
     assert_eq!(cache.load_news(&cfg, T0 + 21_600_000), None);
@@ -253,7 +272,10 @@ fn atomic_write_is_world_readable_whatever_the_leftovers() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("doc.json");
     atomic_write(&path, b"{}").unwrap();
-    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o644);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
 
     // a stale temp file with restrictive permissions from a crashed run does not leak its mode
     let tmp = dir.path().join(".doc.json.tmp");
@@ -261,7 +283,10 @@ fn atomic_write_is_world_readable_whatever_the_leftovers() {
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).unwrap();
     atomic_write(&path, b"{\"n\":1}").unwrap();
     assert_eq!(fs::read(&path).unwrap(), b"{\"n\":1}");
-    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o644);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
     assert!(!tmp.exists());
 }
 

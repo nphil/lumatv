@@ -120,10 +120,11 @@ impl Client {
             .connect_timeout
             .min(deadline.saturating_duration_since(Instant::now()))
             .max(Duration::from_millis(1));
-        let mut stream = TcpStream::connect_timeout(&addr, connect).map_err(|e| match e.kind() {
-            ErrorKind::TimedOut | ErrorKind::WouldBlock => ClientError::Timeout,
-            _ => ClientError::Unreachable(short(&e)),
-        })?;
+        let mut stream =
+            TcpStream::connect_timeout(&addr, connect).map_err(|e| match e.kind() {
+                ErrorKind::TimedOut | ErrorKind::WouldBlock => ClientError::Timeout,
+                _ => ClientError::Unreachable(short(&e)),
+            })?;
         let _ = stream.set_nodelay(true);
         // HTTP/1.0 with a close: the receiver's server is HTTP/1.0 and ends the body by closing, so a 1.0 request can never be
         // answered with chunked framing.
@@ -138,7 +139,9 @@ impl Client {
                     .max(Duration::from_millis(1)),
             ))
             .map_err(|e| ClientError::Io(short(&e)))?;
-        stream.write_all(request.as_bytes()).map_err(|e| io_error(&e))?;
+        stream
+            .write_all(request.as_bytes())
+            .map_err(|e| io_error(&e))?;
 
         let mut raw = Vec::new();
         let mut chunk = [0u8; 2048];
@@ -234,8 +237,8 @@ pub(crate) fn parse_response(raw: &[u8]) -> Result<&[u8], ClientError> {
     if end > MAX_HEAD {
         return Err(ClientError::BadResponse("headers too long"));
     }
-    let head =
-        std::str::from_utf8(&raw[..end]).map_err(|_| ClientError::BadResponse("headers not text"))?;
+    let head = std::str::from_utf8(&raw[..end])
+        .map_err(|_| ClientError::BadResponse("headers not text"))?;
     let mut parts = head.lines().next().unwrap_or("").split(' ');
     let version = parts.next().unwrap_or("");
     let code = parts

@@ -57,16 +57,32 @@ fn spec(tag: &str, src: &str, url: &str) -> FeedSpec {
 /// The QML's primary feeds: BBC World, then BBC U.S. & Canada.
 pub fn default_feeds() -> Vec<FeedSpec> {
     vec![
-        spec("WORLD", "BBC News", "https://feeds.bbci.co.uk/news/world/rss.xml"),
-        spec("U.S.", "BBC News", "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml"),
+        spec(
+            "WORLD",
+            "BBC News",
+            "https://feeds.bbci.co.uk/news/world/rss.xml",
+        ),
+        spec(
+            "U.S.",
+            "BBC News",
+            "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
+        ),
     ]
 }
 
 /// The QML's fallback feeds: NYT World, then NYT U.S.
 pub fn default_alt_feeds() -> Vec<FeedSpec> {
     vec![
-        spec("WORLD", "The New York Times", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
-        spec("U.S.", "The New York Times", "https://rss.nytimes.com/services/xml/rss/nyt/US.xml"),
+        spec(
+            "WORLD",
+            "The New York Times",
+            "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        ),
+        spec(
+            "U.S.",
+            "The New York Times",
+            "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+        ),
     ]
 }
 
@@ -161,9 +177,13 @@ pub fn parse_feed(xml: &str, feed: &FeedSpec, per_feed: usize) -> Vec<NewsItem> 
     let mut out = Vec::new();
     let mut rest = xml;
     while out.len() < per_feed {
-        let Some(start) = rest.find("<item>") else { break };
+        let Some(start) = rest.find("<item>") else {
+            break;
+        };
         let after = &rest[start + "<item>".len()..];
-        let Some(end) = after.find("</item>") else { break };
+        let Some(end) = after.find("</item>") else {
+            break;
+        };
         let block = &after[..end];
         rest = &after[end + "</item>".len()..];
         let title = field(block, "title");
@@ -284,13 +304,20 @@ fn entity_char(digits: &str) -> Option<char> {
         }
         _ => return None,
     };
-    if code == 0 { None } else { char::from_u32(code) }
+    if code == 0 {
+        None
+    } else {
+        char::from_u32(code)
+    }
 }
 
 /// One space per run of whitespace (JavaScript's `\s`, which also counts U+FEFF), no leading or trailing space.
 fn collapse_whitespace(s: &str) -> String {
     let is_ws = |c: char| c.is_whitespace() || c == '\u{feff}';
-    s.split(is_ws).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
+    s.split(is_ws)
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The decoded text of the first `<tag ...>..</tag>` of `block`, or empty. The element name must be followed by `>`,
@@ -306,18 +333,28 @@ fn field(block: &str, tag: &str) -> String {
             Some(c) if c == '>' || c == '/' || c.is_whitespace() => {}
             _ => continue,
         }
-        let Some(gt) = block[name_end..].find('>') else { break };
+        let Some(gt) = block[name_end..].find('>') else {
+            break;
+        };
         let inner = &block[name_end + gt + 1..];
-        return inner.find(&close).map(|e| decode_text(&inner[..e])).unwrap_or_default();
+        return inner
+            .find(&close)
+            .map(|e| decode_text(&inner[..e]))
+            .unwrap_or_default();
     }
     String::new()
 }
 
 /// The decoded text of a bare `<link>`..`</link>` (no attributes), so Atom's `<atom:link href=...>` never matches.
 fn link(block: &str) -> String {
-    let Some(start) = block.find("<link>") else { return String::new() };
+    let Some(start) = block.find("<link>") else {
+        return String::new();
+    };
     let inner = &block[start + "<link>".len()..];
-    inner.find("</link>").map(|e| decode_text(&inner[..e])).unwrap_or_default()
+    inner
+        .find("</link>")
+        .map(|e| decode_text(&inner[..e]))
+        .unwrap_or_default()
 }
 
 /// The widest `<media:content>` / `<media:thumbnail>` image that is at most 1200 wide (a later tag replaces the best only
@@ -341,7 +378,9 @@ fn image_of(block: &str) -> String {
         let Some(end) = tail.find('>') else { break };
         let attrs = &tail[..end];
         rest = &tail[end..];
-        let Some(url) = attribute(attrs, "url").filter(|u| !u.is_empty()) else { continue };
+        let Some(url) = attribute(attrs, "url").filter(|u| !u.is_empty()) else {
+            continue;
+        };
         let width = attribute(attrs, "width").map_or(0, number_or_zero);
         if width <= 1200 {
             if best.is_none_or(|(w, _)| width > w) {
@@ -351,7 +390,9 @@ fn image_of(block: &str) -> String {
             over = Some((width, url));
         }
     }
-    best.or(over).map(|(_, u)| u.replace("&amp;", "&")).unwrap_or_default()
+    best.or(over)
+        .map(|(_, u)| u.replace("&amp;", "&"))
+        .unwrap_or_default()
 }
 
 /// A run of digits as a number (saturating); anything else is 0, as for an absent `width`.
@@ -369,11 +410,19 @@ fn attribute<'a>(attrs: &'a str, name: &str) -> Option<&'a str> {
     while let Some(rel) = attrs[from..].find(name) {
         let at = from + rel;
         from = at + name.len();
-        if attrs[..at].chars().next_back().is_some_and(|c| !c.is_whitespace()) {
+        if attrs[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace())
+        {
             continue;
         }
-        let Some(value) = attrs[from..].strip_prefix('=') else { continue };
-        let Some(quote) = value.chars().next().filter(|c| *c == '"' || *c == '\'') else { continue };
+        let Some(value) = attrs[from..].strip_prefix('=') else {
+            continue;
+        };
+        let Some(quote) = value.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+            continue;
+        };
         let value = &value[1..];
         if let Some(end) = value.find(quote) {
             return Some(&value[..end]);
@@ -433,7 +482,8 @@ pub fn parse_rfc2822_ms(s: &str) -> Option<u64> {
     let zone_seconds = zone_offset_seconds(zone)?;
     let days = calendar::days_from_civil(year, month, day);
     let seconds =
-        days * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second) - zone_seconds;
+        days * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second)
+            - zone_seconds;
     u64::try_from(seconds).ok()?.checked_mul(1000)
 }
 
@@ -446,7 +496,9 @@ fn small_number(s: &str, len: std::ops::RangeInclusive<usize>) -> Option<u32> {
 }
 
 fn month_number(name: &str) -> Option<u32> {
-    const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    const MONTHS: [&str; 12] = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
     MONTHS
         .iter()
         .position(|m| name.eq_ignore_ascii_case(m))

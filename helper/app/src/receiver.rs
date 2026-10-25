@@ -70,7 +70,11 @@ impl Poller<'_> {
     /// The document for the topic, as of now.
     fn document(&self, enabled: bool, host: &str, polling: bool) -> Value {
         let hide = Duration::from_millis(self.ctx.config.receiver.hide_after_ms);
-        let fresh = polling && self.last_ok.as_ref().is_some_and(|r| r.at.elapsed() <= hide);
+        let fresh = polling
+            && self
+                .last_ok
+                .as_ref()
+                .is_some_and(|r| r.at.elapsed() <= hide);
         let reachable = match (&self.last_attempt, polling) {
             (Some(attempt), true) => Value::Bool(attempt.is_none()),
             _ => Value::Null,
@@ -85,14 +89,23 @@ impl Poller<'_> {
         doc.insert("polling".into(), json!(polling));
         doc.insert("reachable".into(), reachable);
         doc.insert("fresh".into(), json!(fresh));
-        doc.insert("updatedAt".into(), json!(self.last_ok.as_ref().map(|r| r.at_ms)));
+        doc.insert(
+            "updatedAt".into(),
+            json!(self.last_ok.as_ref().map(|r| r.at_ms)),
+        );
         doc.insert("error".into(), error);
         let shown = self.last_ok.as_ref().filter(|_| fresh).map(|r| &r.status);
         doc.insert("power".into(), json!(shown.map(|s| s.power.word())));
         doc.insert("input".into(), json!(shown.and_then(|s| s.input.clone())));
         doc.insert("volumeDb".into(), json!(shown.and_then(|s| s.volume_db)));
-        doc.insert("volumeAbs".into(), json!(shown.and_then(Status::volume_absolute)));
-        doc.insert("volumeDisplay".into(), json!(shown.map(|s| s.volume_display.word())));
+        doc.insert(
+            "volumeAbs".into(),
+            json!(shown.and_then(Status::volume_absolute)),
+        );
+        doc.insert(
+            "volumeDisplay".into(),
+            json!(shown.map(|s| s.volume_display.word())),
+        );
         doc.insert("volumeText".into(), json!(shown.and_then(volume_text)));
         doc.insert("mute".into(), json!(shown.and_then(|s| s.mute)));
         Value::Object(doc)
@@ -213,7 +226,8 @@ fn run(ctx: &Ctx, rx: &Receiver<Cmd>) {
         // Wake for the next poll, or earlier to hide a reading that has gone stale (a backed-off poll may be far away).
         let mut wake_at = next_poll;
         if let Some(reading) = &poller.last_ok {
-            let hide_at = reading.at + Duration::from_millis(tuning.hide_after_ms) + Duration::from_millis(5);
+            let hide_at =
+                reading.at + Duration::from_millis(tuning.hide_after_ms) + Duration::from_millis(5);
             if hide_at > Instant::now() && hide_at < wake_at {
                 wake_at = hide_at;
             }
@@ -259,9 +273,18 @@ mod tests {
 
     #[test]
     fn the_volume_text_follows_the_receivers_display_mode() {
-        assert_eq!(volume_text(&status(Some(-44.5), VolumeDisplay::Absolute)).as_deref(), Some("35.5"));
-        assert_eq!(volume_text(&status(Some(-44.5), VolumeDisplay::Relative)).as_deref(), Some("-44.5 dB"));
-        assert_eq!(volume_text(&status(Some(-80.0), VolumeDisplay::Absolute)).as_deref(), Some("0"));
+        assert_eq!(
+            volume_text(&status(Some(-44.5), VolumeDisplay::Absolute)).as_deref(),
+            Some("35.5")
+        );
+        assert_eq!(
+            volume_text(&status(Some(-44.5), VolumeDisplay::Relative)).as_deref(),
+            Some("-44.5 dB")
+        );
+        assert_eq!(
+            volume_text(&status(Some(-80.0), VolumeDisplay::Absolute)).as_deref(),
+            Some("0")
+        );
         assert_eq!(volume_text(&status(None, VolumeDisplay::Absolute)), None);
     }
 }

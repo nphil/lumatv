@@ -11,7 +11,11 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
-    if result < 0 { Err(io::Error::last_os_error()) } else { Ok(result) }
+    if result < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(result)
+    }
 }
 
 /// Opens (creating) a lock file and takes an exclusive `flock` on it without waiting. `Some(file)` holds the lock for as long as
@@ -62,7 +66,12 @@ pub fn write_info(file: &mut File, pid: u32, port: Option<u16>) -> io::Result<()
 pub fn read_info(path: &Path) -> Option<LockInfo> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut lines = text.lines();
-    let pid = lines.next()?.trim().parse::<u32>().ok().filter(|p| *p > 1)?;
+    let pid = lines
+        .next()?
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|p| *p > 1)?;
     let port = lines.next().and_then(|l| l.trim().parse::<u16>().ok());
     Some(LockInfo { pid, port })
 }
@@ -73,7 +82,8 @@ pub fn pid() -> u32 {
 
 /// Sends `signal` to `pid`.
 pub fn kill(pid: u32, signal: i32) -> io::Result<()> {
-    let pid = libc::pid_t::try_from(pid).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let pid =
+        libc::pid_t::try_from(pid).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
     // SAFETY: `kill` takes plain integers.
     check(unsafe { libc::kill(pid, signal) }).map(drop)
 }
@@ -94,7 +104,11 @@ pub fn lookup_user(name: &str) -> Option<(u32, u32)> {
     // SAFETY: `getpwnam` returns null or a pointer to a static record that is read at once, before any other call.
     unsafe {
         let entry = libc::getpwnam(name.as_ptr());
-        if entry.is_null() { None } else { Some(((*entry).pw_uid, (*entry).pw_gid)) }
+        if entry.is_null() {
+            None
+        } else {
+            Some(((*entry).pw_uid, (*entry).pw_gid))
+        }
     }
 }
 
@@ -287,7 +301,13 @@ mod tests {
         let mut first = try_lock(&path).unwrap().expect("first lock");
         write_info(&mut first, 4242, Some(18731)).unwrap();
         assert!(try_lock(&path).unwrap().is_none());
-        assert_eq!(read_info(&path), Some(LockInfo { pid: 4242, port: Some(18731) }));
+        assert_eq!(
+            read_info(&path),
+            Some(LockInfo {
+                pid: 4242,
+                port: Some(18731)
+            })
+        );
         drop(first);
         assert!(try_lock(&path).unwrap().is_some());
     }
@@ -315,7 +335,13 @@ mod tests {
         std::fs::write(&path, "1\n").unwrap();
         assert_eq!(read_info(&path), None);
         std::fs::write(&path, "55\nnot-a-port\n").unwrap();
-        assert_eq!(read_info(&path), Some(LockInfo { pid: 55, port: None }));
+        assert_eq!(
+            read_info(&path),
+            Some(LockInfo {
+                pid: 55,
+                port: None
+            })
+        );
     }
 
     #[test]
@@ -342,10 +368,19 @@ mod tests {
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
         let mut read = unsafe { File::from_raw_fd(fds[0]) };
         let mut write = unsafe { File::from_raw_fd(fds[1]) };
-        assert_eq!(read_line_timeout(&mut read, Duration::from_millis(30)), None);
+        assert_eq!(
+            read_line_timeout(&mut read, Duration::from_millis(30)),
+            None
+        );
         write.write_all(b"ok 18731\nrest").unwrap();
-        assert_eq!(read_line_timeout(&mut read, Duration::from_secs(1)).as_deref(), Some("ok 18731"));
+        assert_eq!(
+            read_line_timeout(&mut read, Duration::from_secs(1)).as_deref(),
+            Some("ok 18731")
+        );
         drop(write);
-        assert_eq!(read_line_timeout(&mut read, Duration::from_secs(1)).as_deref(), Some("rest"));
+        assert_eq!(
+            read_line_timeout(&mut read, Duration::from_secs(1)).as_deref(),
+            Some("rest")
+        );
     }
 }

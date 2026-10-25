@@ -196,7 +196,10 @@ impl<F: Feed> Lane<F> {
                 crate::log_info!("{}: settings changed; fetching for the new ones", F::NAME);
             }
         }
-        let interval_changed = self.cfg.as_ref().is_some_and(|c| c.interval_ms != cfg.interval_ms);
+        let interval_changed = self
+            .cfg
+            .as_ref()
+            .is_some_and(|c| c.interval_ms != cfg.interval_ms);
         if interval_changed && let Some(doc) = self.doc.as_mut() {
             F::set_interval(doc, cfg.interval_ms);
         }
@@ -230,7 +233,10 @@ impl<F: Feed> Lane<F> {
             Ok(mut doc) => {
                 F::set_interval(&mut doc, cfg.interval_ms);
                 if let Err(e) = F::store(cache, &doc) {
-                    crate::log_warn!("{}: could not save the reading ({e}); it is served from memory", F::NAME);
+                    crate::log_warn!(
+                        "{}: could not save the reading ({e}); it is served from memory",
+                        F::NAME
+                    );
                 }
                 if self.failures > 0 || self.doc.is_none() {
                     crate::log_info!("{}: fetched", F::NAME);
@@ -252,10 +258,10 @@ impl<F: Feed> Lane<F> {
 
     fn publish(&self, ctx: &Ctx) {
         let doc: Value = serde_json::to_value(&self.doc).unwrap_or(Value::Null);
-        let error = self
-            .error
-            .as_ref()
-            .map_or(Value::Null, |(code, message)| json!({"code": code, "message": message}));
+        let error = self.error.as_ref().map_or(
+            Value::Null,
+            |(code, message)| json!({"code": code, "message": message}),
+        );
         let last_attempt = (self.last_attempt > 0).then_some(self.last_attempt);
         ctx.hub.set(
             F::TOPIC,
@@ -278,7 +284,9 @@ impl Fetch for Unavailable {
 pub fn make_fetcher(config: &FetchConfig) -> Arc<dyn Fetch> {
     let Some(bundle) = crate::config::find_ca_bundle(config) else {
         crate::log_warn!("feeds: no CA bundle found; weather and news cannot be fetched");
-        return Arc::new(Unavailable("no CA certificate bundle on this system".to_owned()));
+        return Arc::new(Unavailable(
+            "no CA certificate bundle on this system".to_owned(),
+        ));
     };
     let mut fetcher = TlsFetch::new(&config.openssl, bundle);
     if sys::is_root()
@@ -286,14 +294,20 @@ pub fn make_fetcher(config: &FetchConfig) -> Arc<dyn Fetch> {
     {
         match sys::lookup_user(user) {
             Some((uid, gid)) => fetcher = fetcher.unprivileged(uid, gid),
-            None => crate::log_warn!("feeds: user {user} does not exist; the TLS child runs as root"),
+            None => {
+                crate::log_warn!("feeds: user {user} does not exist; the TLS child runs as root")
+            }
         }
     }
     Arc::new(fetcher)
 }
 
 /// Starts the feeds thread.
-pub fn spawn(ctx: &Ctx, rx: Receiver<Cmd>, fetch: Arc<dyn Fetch>) -> std::io::Result<JoinHandle<()>> {
+pub fn spawn(
+    ctx: &Ctx,
+    rx: Receiver<Cmd>,
+    fetch: Arc<dyn Fetch>,
+) -> std::io::Result<JoinHandle<()>> {
     let ctx = ctx.clone();
     thread::Builder::new()
         .name("feeds".to_owned())

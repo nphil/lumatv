@@ -8,7 +8,10 @@ use lumatv_feeds::news::{self, NewsConfig};
 use lumatv_feeds::weather::{self, Units, WeatherConfig};
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 #[test]
@@ -23,7 +26,10 @@ fn live_pipeline() {
     };
     let w = weather::refresh(&fetch, &cfg, None, now).expect("weather refresh");
     println!("weather: {} ({}, {})", w.place, w.lat, w.lon);
-    println!("  {} {} | {} | icon {}", w.display.temp, w.display.cond, w.display.stats, w.display.now_kind);
+    println!(
+        "  {} {} | {} | icon {}",
+        w.display.temp, w.display.cond, w.display.stats, w.display.now_kind
+    );
     for d in &w.display.days {
         println!("  {:<5} {:<8} {} / {}", d.day, d.kind, d.hi, d.lo);
     }
@@ -34,7 +40,10 @@ fn live_pipeline() {
     let n = news::refresh(&fetch, &NewsConfig::standard(), now).expect("news refresh");
     println!("news: {} stories from {:?}", n.items.len(), n.feeds);
     for item in &n.items {
-        println!("  [{} | {}] {} ({:?})", item.tag, item.src, item.title, item.pub_ms);
+        println!(
+            "  [{} | {}] {} ({:?})",
+            item.tag, item.src, item.title, item.pub_ms
+        );
         println!("    link {}", item.link);
         println!("    img  {}", item.img);
     }

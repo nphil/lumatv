@@ -48,18 +48,42 @@ const FUTURE_SKEW_MS: u64 = 300_000;
 pub const ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/v1", "the list of endpoints"),
     ("GET", "/v1/health", "liveness"),
-    ("GET", "/v1/state", "every topic, the seq they are current to, and facts about the helper"),
+    (
+        "GET",
+        "/v1/state",
+        "every topic, the seq they are current to, and facts about the helper",
+    ),
     ("GET", "/v1/state/{topic}", "one topic"),
     ("GET", "/v1/screen", "the screen topic"),
     ("GET", "/v1/receiver", "the receiver topic"),
     ("GET", "/v1/weather", "the weather topic"),
     ("GET", "/v1/news", "the news topic"),
-    ("GET", "/v1/events", "long poll: ?after=<seq>&boot=<boot>&timeout=<seconds, max 30>&topics=<a,b>"),
-    ("POST", "/v1/receiver/nudge", "read the receiver now and fast for a few seconds"),
-    ("POST", "/v1/refresh", "fetch weather and news now: {\"what\": [\"weather\", \"news\"]} (optional)"),
+    (
+        "GET",
+        "/v1/events",
+        "long poll: ?after=<seq>&boot=<boot>&timeout=<seconds, max 30>&topics=<a,b>",
+    ),
+    (
+        "POST",
+        "/v1/receiver/nudge",
+        "read the receiver now and fast for a few seconds",
+    ),
+    (
+        "POST",
+        "/v1/refresh",
+        "fetch weather and news now: {\"what\": [\"weather\", \"news\"]} (optional)",
+    ),
     ("GET", "/v1/settings", "the settings owners"),
-    ("GET", "/v1/settings/{owner}", "one owner's schema, stored and effective values"),
-    ("POST", "/v1/settings/{owner}", "a transaction: {\"changes\": [{\"key\", \"value\"}], \"ifVersion\": n (optional)}"),
+    (
+        "GET",
+        "/v1/settings/{owner}",
+        "one owner's schema, stored and effective values",
+    ),
+    (
+        "POST",
+        "/v1/settings/{owner}",
+        "a transaction: {\"changes\": [{\"key\", \"value\"}], \"ifVersion\": n (optional)}",
+    ),
 ];
 
 /// The API's handler.
@@ -76,9 +100,9 @@ pub struct Api {
 fn topic_ok(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-'))
+        && name.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+        })
 }
 
 /// Adds `ok`, `api` and `now` to an object body.
@@ -121,7 +145,11 @@ pub fn decorate(topic: &str, value: &Value, now: u64) -> Value {
         return out;
     };
     let doc = map.get("doc").cloned().unwrap_or(Value::Null);
-    let (state, age) = if doc.is_null() { ("none", None) } else { freshness_word(&doc, now) };
+    let (state, age) = if doc.is_null() {
+        ("none", None)
+    } else {
+        freshness_word(&doc, now)
+    };
     if state == "expired" {
         map.insert("doc".into(), Value::Null);
     }
@@ -210,7 +238,11 @@ impl Api {
         let now = now_ms();
         let (seq, value) = self.hub.topic_at(name);
         let Some(value) = value else {
-            return error_response(404, "no_such_topic", "nothing has been published under that topic");
+            return error_response(
+                404,
+                "no_such_topic",
+                "nothing has been published under that topic",
+            );
         };
         Response::json(
             200,
@@ -251,15 +283,24 @@ impl Api {
             Some(list) => {
                 let names: Vec<String> = list.split(',').map(str::to_owned).collect();
                 if names.len() > 16 || !names.iter().all(|n| topic_ok(n)) {
-                    return bad_request("topics is a comma-separated list of at most 16 topic names");
+                    return bad_request(
+                        "topics is a comma-separated list of at most 16 topic names",
+                    );
                 }
                 Some(names)
             }
         };
-        let batch = self
-            .hub
-            .wait_events(after, boot, topics.as_deref(), Duration::from_secs_f64(wait));
-        let events: Vec<Value> = batch.events.iter().map(crate::hub::Event::to_json).collect();
+        let batch = self.hub.wait_events(
+            after,
+            boot,
+            topics.as_deref(),
+            Duration::from_secs_f64(wait),
+        );
+        let events: Vec<Value> = batch
+            .events
+            .iter()
+            .map(crate::hub::Event::to_json)
+            .collect();
         self.ok(json!({"boot": self.hub.boot(), "seq": batch.seq, "reset": batch.reset, "events": events}))
     }
 
@@ -306,7 +347,9 @@ impl Api {
                 let view = self.settings.describe(owner).unwrap_or(Value::Null);
                 self.ok(json!({"changed": applied.changed, "version": applied.version, "settings": view}))
             }
-            Err(ApplyError::UnknownOwner) => error_response(404, "no_such_owner", "no such settings owner"),
+            Err(ApplyError::UnknownOwner) => {
+                error_response(404, "no_such_owner", "no such settings owner")
+            }
             Err(ApplyError::Conflict { current }) => Response::json(
                 409,
                 &json!({"ok": false, "api": API_VERSION, "error": {
@@ -349,8 +392,10 @@ impl Handler for Api {
             ["v1", "settings"] if get => self.settings_list(),
             ["v1", "settings", owner] if get => self.settings_get(owner),
             ["v1", "settings", owner] if post => self.settings_post(owner, request),
-            _ if is_known_path(&segments) => error_response(405, "method_not_allowed", "that method is not served here")
-                .with_header("Allow", allowed_methods(&segments)),
+            _ if is_known_path(&segments) => {
+                error_response(405, "method_not_allowed", "that method is not served here")
+                    .with_header("Allow", allowed_methods(&segments))
+            }
             _ => not_found(),
         }
     }
@@ -361,7 +406,18 @@ fn is_known_path(segments: &[&str]) -> bool {
     matches!(
         segments,
         [""] | ["v1"]
-            | ["v1", "health" | "state" | "events" | "refresh" | "settings" | "screen" | "receiver" | "weather" | "news"]
+            | [
+                "v1",
+                "health"
+                    | "state"
+                    | "events"
+                    | "refresh"
+                    | "settings"
+                    | "screen"
+                    | "receiver"
+                    | "weather"
+                    | "news"
+            ]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
     )
@@ -450,7 +506,10 @@ mod tests {
         let r = rig.api.handle(&request("GET", "/v1/nope", ""));
         assert_eq!(r.status, 404);
         let b = body(&r);
-        assert_eq!((b["ok"].clone(), b["api"].clone()), (json!(false), json!(1)));
+        assert_eq!(
+            (b["ok"].clone(), b["api"].clone()),
+            (json!(false), json!(1))
+        );
         assert_eq!(b["error"]["code"], "not_found");
         let r = rig.api.handle(&request("POST", "/v1/state", ""));
         assert_eq!(r.status, 405);
@@ -472,10 +531,19 @@ mod tests {
             let concrete = path
                 .replace("{topic}", "screen")
                 .replace("{owner}", "base.news");
-            let r = rig.api.handle(&request(method, &concrete, if *method == "POST" && concrete.contains("settings") { r#"{"changes":[]}"# } else { "" }));
+            let r = rig.api.handle(&request(
+                method,
+                &concrete,
+                if *method == "POST" && concrete.contains("settings") {
+                    r#"{"changes":[]}"#
+                } else {
+                    ""
+                },
+            ));
             // 404 would mean the table lists a route the router does not have; a missing topic is the one honest 404 here.
             assert!(
-                r.status != 405 && (r.status != 404 || body(&r)["error"]["code"] == "no_such_topic"),
+                r.status != 405
+                    && (r.status != 404 || body(&r)["error"]["code"] == "no_such_topic"),
                 "{method} {path} -> {} {}",
                 r.status,
                 String::from_utf8_lossy(&r.body)
@@ -510,7 +578,12 @@ mod tests {
         let r = rig.api.handle(&request("GET", "/v1/receiver", ""));
         assert_eq!(r.status, 404);
         assert_eq!(body(&r)["error"]["code"], "no_such_topic");
-        assert_eq!(rig.api.handle(&request("GET", "/v1/state/Bad%20Name", "")).status, 404);
+        assert_eq!(
+            rig.api
+                .handle(&request("GET", "/v1/state/Bad%20Name", ""))
+                .status,
+            404
+        );
     }
 
     fn weather_doc(fetched: u64, stale: u64, expires: u64) -> Value {
@@ -520,24 +593,59 @@ mod tests {
     #[test]
     fn saved_documents_are_decorated_with_their_age() {
         let now = 10_000_000_000u64;
-        let fresh = decorate("weather", &weather_doc(now - 1_000, now + 899_000, now + 21_599_000), now);
-        assert_eq!((fresh["state"].clone(), fresh["ageMs"].clone()), (json!("fresh"), json!(1_000)));
+        let fresh = decorate(
+            "weather",
+            &weather_doc(now - 1_000, now + 899_000, now + 21_599_000),
+            now,
+        );
+        assert_eq!(
+            (fresh["state"].clone(), fresh["ageMs"].clone()),
+            (json!("fresh"), json!(1_000))
+        );
         assert_eq!(fresh["doc"]["place"], "Atlanta");
-        let stale = decorate("news", &weather_doc(now - 1_000_000, now - 100_000, now + 100_000), now);
+        let stale = decorate(
+            "news",
+            &weather_doc(now - 1_000_000, now - 100_000, now + 100_000),
+            now,
+        );
         assert_eq!(stale["state"], "stale");
         assert_eq!(stale["doc"]["place"], "Atlanta");
-        let expired = decorate("weather", &weather_doc(now - 30_000_000, now - 29_000_000, now - 1), now);
+        let expired = decorate(
+            "weather",
+            &weather_doc(now - 30_000_000, now - 29_000_000, now - 1),
+            now,
+        );
         assert_eq!(expired["state"], "expired");
         assert!(expired["doc"].is_null());
-        let future = decorate("weather", &weather_doc(now + 400_000, now + 1_000_000, now + 22_000_000), now);
+        let future = decorate(
+            "weather",
+            &weather_doc(now + 400_000, now + 1_000_000, now + 22_000_000),
+            now,
+        );
         assert_eq!(future["state"], "expired");
-        let none = decorate("weather", &json!({"doc": null, "status": {"failures": 1}}), now);
-        assert_eq!((none["state"].clone(), none["ageMs"].clone()), (json!("none"), Value::Null));
+        let none = decorate(
+            "weather",
+            &json!({"doc": null, "status": {"failures": 1}}),
+            now,
+        );
+        assert_eq!(
+            (none["state"].clone(), none["ageMs"].clone()),
+            (json!("none"), Value::Null)
+        );
         // Other topics are left as they are.
-        assert_eq!(decorate("screen", &json!({"on": true}), now), json!({"on": true}));
+        assert_eq!(
+            decorate("screen", &json!({"on": true}), now),
+            json!({"on": true})
+        );
         // The boundary: exactly at staleAt it is stale, exactly at expiresAt expired.
-        assert_eq!(decorate("weather", &weather_doc(now - 5, now, now + 5), now)["state"], "stale");
-        assert_eq!(decorate("weather", &weather_doc(now - 5, now - 1, now), now)["state"], "expired");
+        assert_eq!(
+            decorate("weather", &weather_doc(now - 5, now, now + 5), now)["state"],
+            "stale"
+        );
+        assert_eq!(
+            decorate("weather", &weather_doc(now - 5, now - 1, now), now)["state"],
+            "expired"
+        );
     }
 
     #[test]
@@ -555,13 +663,20 @@ mod tests {
         let rig = rig();
         rig.api.hub.set("a", json!(1));
         rig.api.hub.set("b", json!(2));
-        let b = body(&rig.api.handle(&request("GET", "/v1/events?after=0&boot=777&topics=b", "")));
+        let b = body(
+            &rig.api
+                .handle(&request("GET", "/v1/events?after=0&boot=777&topics=b", "")),
+        );
         assert_eq!(b["events"].as_array().unwrap().len(), 1);
         assert_eq!(b["events"][0]["topic"], "b");
         assert_eq!(b["events"][0]["kind"], "changed");
         assert_eq!(b["events"][0]["data"], json!(2));
         assert_eq!(b["seq"], 2);
-        let again = body(&rig.api.handle(&request("GET", "/v1/events?after=2&boot=777&timeout=0", "")));
+        let again = body(&rig.api.handle(&request(
+            "GET",
+            "/v1/events?after=2&boot=777&timeout=0",
+            "",
+        )));
         assert_eq!(again["events"], json!([]));
     }
 
@@ -569,7 +684,10 @@ mod tests {
     fn events_from_another_run_say_reset() {
         let rig = rig();
         rig.api.hub.set("a", json!(1));
-        let b = body(&rig.api.handle(&request("GET", "/v1/events?after=1&boot=1", "")));
+        let b = body(
+            &rig.api
+                .handle(&request("GET", "/v1/events?after=1&boot=1", "")),
+        );
         assert_eq!(b["reset"], true);
         let b = body(&rig.api.handle(&request("GET", "/v1/events?after=99", "")));
         assert_eq!(b["reset"], true);
@@ -600,7 +718,9 @@ mod tests {
         let api = Arc::new(rig.api);
         let waiter = {
             let api = api.clone();
-            std::thread::spawn(move || body(&api.handle(&request("GET", "/v1/events?after=0&timeout=20", ""))))
+            std::thread::spawn(move || {
+                body(&api.handle(&request("GET", "/v1/events?after=0&timeout=20", "")))
+            })
         };
         std::thread::sleep(Duration::from_millis(60));
         hub.set("receiver", json!({"volumeDb": -30.5}));
@@ -611,36 +731,78 @@ mod tests {
     #[test]
     fn nudge_and_refresh_reach_their_threads() {
         let rig = rig();
-        assert_eq!(rig.api.handle(&request("POST", "/v1/receiver/nudge", "")).status, 200);
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/receiver/nudge", ""))
+                .status,
+            200
+        );
         assert_eq!(rig.receiver_rx.try_recv(), Ok(receiver::Cmd::Nudge));
-        assert_eq!(rig.api.handle(&request("POST", "/v1/refresh", "")).status, 200);
+        assert_eq!(
+            rig.api.handle(&request("POST", "/v1/refresh", "")).status,
+            200
+        );
         assert_eq!(rig.feeds_rx.try_recv(), Ok(homefeeds::Cmd::Refresh));
-        assert_eq!(rig.api.handle(&request("POST", "/v1/refresh", r#"{"what":["news"]}"#)).status, 200);
-        assert_eq!(rig.api.handle(&request("POST", "/v1/refresh", r#"{"what":["tv"]}"#)).status, 400);
-        assert_eq!(rig.api.handle(&request("POST", "/v1/refresh", "[1]")).status, 400);
-        assert_eq!(rig.api.handle(&request("POST", "/v1/refresh", "{")).status, 400);
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/refresh", r#"{"what":["news"]}"#))
+                .status,
+            200
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/refresh", r#"{"what":["tv"]}"#))
+                .status,
+            400
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/refresh", "[1]"))
+                .status,
+            400
+        );
+        assert_eq!(
+            rig.api.handle(&request("POST", "/v1/refresh", "{")).status,
+            400
+        );
     }
 
     #[test]
     fn settings_are_listed_described_and_changed() {
         let rig = rig();
         let list = body(&rig.api.handle(&request("GET", "/v1/settings", "")));
-        let owners: Vec<_> = list["owners"].as_array().unwrap().iter().map(|o| o["owner"].as_str().unwrap().to_owned()).collect();
+        let owners: Vec<_> = list["owners"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o["owner"].as_str().unwrap().to_owned())
+            .collect();
         assert_eq!(owners, ["base.news", "base.receiver", "base.weather"]);
 
-        let view = body(&rig.api.handle(&request("GET", "/v1/settings/base.weather", "")));
+        let view = body(
+            &rig.api
+                .handle(&request("GET", "/v1/settings/base.weather", "")),
+        );
         assert_eq!(view["schema"]["title"], "Weather");
         assert_eq!(view["effective"]["zip"]["value"], "30311");
 
-        let change = r#"{"changes":[{"key":"zip","value":{"type":"text","value":"10001"}}],"ifVersion":0}"#;
-        let r = rig.api.handle(&request("POST", "/v1/settings/base.weather", change));
+        let change =
+            r#"{"changes":[{"key":"zip","value":{"type":"text","value":"10001"}}],"ifVersion":0}"#;
+        let r = rig
+            .api
+            .handle(&request("POST", "/v1/settings/base.weather", change));
         assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
         let b = body(&r);
-        assert_eq!((b["changed"].clone(), b["version"].clone()), (json!(true), json!(1)));
+        assert_eq!(
+            (b["changed"].clone(), b["version"].clone()),
+            (json!(true), json!(1))
+        );
         assert_eq!(b["settings"]["effective"]["zip"]["value"], "10001");
 
         // The same precondition again is stale.
-        let r = rig.api.handle(&request("POST", "/v1/settings/base.weather", change));
+        let r = rig
+            .api
+            .handle(&request("POST", "/v1/settings/base.weather", change));
         assert_eq!(r.status, 409);
         assert_eq!(body(&r)["error"]["version"], 1);
     }
@@ -649,20 +811,52 @@ mod tests {
     fn refused_settings_say_which_field_and_why() {
         let rig = rig();
         let bad_zip = r#"{"changes":[{"key":"zip","value":{"type":"text","value":"abcde"}}]}"#;
-        let r = rig.api.handle(&request("POST", "/v1/settings/base.weather", bad_zip));
+        let r = rig
+            .api
+            .handle(&request("POST", "/v1/settings/base.weather", bad_zip));
         assert_eq!(r.status, 422);
         let b = body(&r);
         assert_eq!(b["error"]["code"], "invalid");
-        assert!(b["error"]["fields"]["zip"].as_str().unwrap().contains("five digits"));
-        let wrong_type = r#"{"changes":[{"key":"units","value":{"type":"choice","value":"kelvin"}}]}"#;
-        let r = rig.api.handle(&request("POST", "/v1/settings/base.weather", wrong_type));
+        assert!(
+            b["error"]["fields"]["zip"]
+                .as_str()
+                .unwrap()
+                .contains("five digits")
+        );
+        let wrong_type =
+            r#"{"changes":[{"key":"units","value":{"type":"choice","value":"kelvin"}}]}"#;
+        let r = rig
+            .api
+            .handle(&request("POST", "/v1/settings/base.weather", wrong_type));
         assert_eq!(r.status, 422);
         assert!(body(&r)["error"]["fields"]["units"].is_string());
-        for malformed in ["", "{}", r#"{"changes":[{"key":"zip"}]}"#, r#"{"changes":[],"extra":1}"#, "not json"] {
-            let r = rig.api.handle(&request("POST", "/v1/settings/base.weather", malformed));
+        for malformed in [
+            "",
+            "{}",
+            r#"{"changes":[{"key":"zip"}]}"#,
+            r#"{"changes":[],"extra":1}"#,
+            "not json",
+        ] {
+            let r = rig
+                .api
+                .handle(&request("POST", "/v1/settings/base.weather", malformed));
             assert_eq!(r.status, 400, "{malformed}");
         }
-        assert_eq!(rig.api.handle(&request("GET", "/v1/settings/base.nope", "")).status, 404);
-        assert_eq!(rig.api.handle(&request("POST", "/v1/settings/base.nope", r#"{"changes":[]}"#)).status, 404);
+        assert_eq!(
+            rig.api
+                .handle(&request("GET", "/v1/settings/base.nope", ""))
+                .status,
+            404
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request(
+                    "POST",
+                    "/v1/settings/base.nope",
+                    r#"{"changes":[]}"#
+                ))
+                .status,
+            404
+        );
     }
 }

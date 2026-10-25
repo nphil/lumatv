@@ -238,7 +238,8 @@ pub const CA_BUNDLE_CANDIDATES: [&str; 5] = [
 impl Config {
     /// Parses a config document and checks what serde cannot.
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
-        let config: Self = serde_json::from_str(text).map_err(|e| ConfigError(format!("helper.json: {e}")))?;
+        let config: Self =
+            serde_json::from_str(text).map_err(|e| ConfigError(format!("helper.json: {e}")))?;
         config.check()?;
         Ok(config)
     }
@@ -274,8 +275,14 @@ impl Config {
             ("receiver.fastPollMs", self.receiver.fast_poll_ms),
             ("receiver.maxBackoffMs", self.receiver.max_backoff_ms),
             ("receiver.hideAfterMs", self.receiver.hide_after_ms),
-            ("receiver.connectTimeoutMs", self.receiver.connect_timeout_ms),
-            ("receiver.requestTimeoutMs", self.receiver.request_timeout_ms),
+            (
+                "receiver.connectTimeoutMs",
+                self.receiver.connect_timeout_ms,
+            ),
+            (
+                "receiver.requestTimeoutMs",
+                self.receiver.request_timeout_ms,
+            ),
         ] {
             if value == 0 {
                 return err(&format!("{name} must be above 0"));
@@ -302,9 +309,16 @@ pub fn data_dir_from_brand(brand_json: &str) -> Result<PathBuf, ConfigError> {
         .ok_or_else(|| ConfigError("brand.json: dataDir is missing".to_owned()))?;
     let name = dir
         .strip_prefix("/var/lib/")
-        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'))
+        .filter(|n| {
+            !n.is_empty()
+                && n.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
         .ok_or_else(|| {
-            ConfigError("brand.json: dataDir must be /var/lib/<lowercase letters, digits, dashes>".to_owned())
+            ConfigError(
+                "brand.json: dataDir must be /var/lib/<lowercase letters, digits, dashes>"
+                    .to_owned(),
+            )
         })?;
     Ok(PathBuf::from(format!("/var/lib/{name}")))
 }
@@ -338,7 +352,8 @@ mod tests {
 
     #[test]
     fn a_partial_file_overrides_only_what_it_names() {
-        let config = Config::parse(r#"{"listen":{"port":19000},"receiver":{"pollMs":5000}}"#).unwrap();
+        let config =
+            Config::parse(r#"{"listen":{"port":19000},"receiver":{"pollMs":5000}}"#).unwrap();
         assert_eq!(config.listen.port, 19000);
         assert_eq!(config.listen.host, "127.0.0.1");
         assert_eq!(config.receiver.poll_ms, 5000);
@@ -366,11 +381,36 @@ mod tests {
 
     #[test]
     fn bad_values_are_named() {
-        assert!(Config::parse(r#"{"log":{"level":"loud"}}"#).unwrap_err().0.contains("log.level"));
-        assert!(Config::parse(r#"{"screen":{"source":"magic"}}"#).unwrap_err().0.contains("screen.source"));
-        assert!(Config::parse(r#"{"receiver":{"pollMs":0}}"#).unwrap_err().0.contains("receiver.pollMs"));
-        assert!(Config::parse(r#"{"nice":20}"#).unwrap_err().0.contains("nice"));
-        assert!(Config::parse(r#"{"nice":-1}"#).unwrap_err().0.contains("nice"));
+        assert!(
+            Config::parse(r#"{"log":{"level":"loud"}}"#)
+                .unwrap_err()
+                .0
+                .contains("log.level")
+        );
+        assert!(
+            Config::parse(r#"{"screen":{"source":"magic"}}"#)
+                .unwrap_err()
+                .0
+                .contains("screen.source")
+        );
+        assert!(
+            Config::parse(r#"{"receiver":{"pollMs":0}}"#)
+                .unwrap_err()
+                .0
+                .contains("receiver.pollMs")
+        );
+        assert!(
+            Config::parse(r#"{"nice":20}"#)
+                .unwrap_err()
+                .0
+                .contains("nice")
+        );
+        assert!(
+            Config::parse(r#"{"nice":-1}"#)
+                .unwrap_err()
+                .0
+                .contains("nice")
+        );
     }
 
     #[test]
@@ -384,7 +424,10 @@ mod tests {
     #[test]
     fn the_data_dir_comes_from_brand_json_by_the_tools_rule() {
         let brand = r#"{"displayName":"LumaTV","dataDir":"/var/lib/lumatv"}"#;
-        assert_eq!(data_dir_from_brand(brand).unwrap(), PathBuf::from("/var/lib/lumatv"));
+        assert_eq!(
+            data_dir_from_brand(brand).unwrap(),
+            PathBuf::from("/var/lib/lumatv")
+        );
         for bad in [
             r#"{"dataDir":"/var/lib/"}"#,
             r#"{"dataDir":"/var/lib/Luma"}"#,
@@ -402,7 +445,10 @@ mod tests {
     fn paths_are_under_the_data_dir() {
         let p = Paths::new("/var/lib/lumatv");
         assert_eq!(p.log_file(), PathBuf::from("/var/lib/lumatv/log-helper"));
-        assert_eq!(p.config_file(), PathBuf::from("/var/lib/lumatv/helper.json"));
+        assert_eq!(
+            p.config_file(),
+            PathBuf::from("/var/lib/lumatv/helper.json")
+        );
         assert_eq!(p.lock_file(), PathBuf::from("/var/lib/lumatv/helper.lock"));
         assert_eq!(p.cache_dir(), PathBuf::from("/var/lib/lumatv/cache"));
         assert_eq!(p.settings_dir(), PathBuf::from("/var/lib/lumatv/settings"));

@@ -57,11 +57,8 @@ fn reads_the_reply_as_the_set_sends_it() {
 #[test]
 fn a_declared_length_ends_the_read_without_waiting_for_the_close() {
     let body = STATUS_ON_THE_SET.as_bytes();
-    let mut reply = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
+    let mut reply =
+        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).into_bytes();
     reply.extend_from_slice(body);
     // The server keeps the connection open after the reply.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

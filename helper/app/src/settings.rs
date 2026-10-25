@@ -36,7 +36,9 @@ pub type Rule = fn(&Values) -> Result<(), FieldErrors>;
 pub enum ApplyError {
     UnknownOwner,
     /// The client asked to apply to a version that is no longer current.
-    Conflict { current: u64 },
+    Conflict {
+        current: u64,
+    },
     /// The schema or the owner's rule refused one or more fields.
     Invalid(FieldErrors),
     /// The values could not be written; nothing changed.
@@ -146,8 +148,14 @@ impl SettingsStore {
 
     /// Registers an owner's page and loads its stored values. A second registration of the same owner replaces the schema
     /// when its revision is not lower (a changed page), keeping the stored values.
-    pub fn register(&self, schema: SettingsSchema, rule: Option<Rule>) -> Result<(), RegisterError> {
-        schema.validate().map_err(|e| RegisterError(format!("{}: {e}", schema.owner)))?;
+    pub fn register(
+        &self,
+        schema: SettingsSchema,
+        rule: Option<Rule>,
+    ) -> Result<(), RegisterError> {
+        schema
+            .validate()
+            .map_err(|e| RegisterError(format!("{}: {e}", schema.owner)))?;
         let name = schema.owner.as_str().to_owned();
         let mut owners = self.owners.lock();
         if let Some(existing) = owners.get(&name)
@@ -164,7 +172,9 @@ impl SettingsStore {
         };
         let audit = schema.audit_stored(&stored);
         for (key, error) in audit.invalid.iter() {
-            crate::log_warn!("settings: {name}: stored {key} is not accepted ({error}); the default is used");
+            crate::log_warn!(
+                "settings: {name}: stored {key} is not accepted ({error}); the default is used"
+            );
         }
         owners.insert(
             name,
@@ -181,11 +191,18 @@ impl SettingsStore {
     /// Registers the helper's own pages: `base.weather`, `base.news` and `base.receiver`.
     pub fn register_builtin(&self) -> Result<(), RegisterError> {
         for (json, rule) in [
-            (include_str!("schemas/base.weather.json"), Some(weather_rule as Rule)),
+            (
+                include_str!("schemas/base.weather.json"),
+                Some(weather_rule as Rule),
+            ),
             (include_str!("schemas/base.news.json"), None),
-            (include_str!("schemas/base.receiver.json"), Some(receiver_rule as Rule)),
+            (
+                include_str!("schemas/base.receiver.json"),
+                Some(receiver_rule as Rule),
+            ),
         ] {
-            let schema = SettingsSchema::parse(json.as_bytes()).map_err(|e| RegisterError(format!("built-in schema: {e}")))?;
+            let schema = SettingsSchema::parse(json.as_bytes())
+                .map_err(|e| RegisterError(format!("built-in schema: {e}")))?;
             self.register(schema, rule)?;
         }
         Ok(())
@@ -199,11 +216,17 @@ impl SettingsStore {
         match serde_json::from_str::<StoredFile>(&text) {
             Ok(file) if file.owner == owner => (file.values, file.version),
             Ok(_) => {
-                crate::log_warn!("settings: {} belongs to another owner; ignored", path.display());
+                crate::log_warn!(
+                    "settings: {} belongs to another owner; ignored",
+                    path.display()
+                );
                 (Values::new(), 0)
             }
             Err(e) => {
-                crate::log_warn!("settings: {} is not readable ({e}); the defaults are used", path.display());
+                crate::log_warn!(
+                    "settings: {} is not readable ({e}); the defaults are used",
+                    path.display()
+                );
                 (Values::new(), 0)
             }
         }
@@ -288,14 +311,19 @@ impl SettingsStore {
                 version: o.version + 1,
                 values: after.clone(),
             };
-            let bytes = serde_json::to_vec_pretty(&file).map_err(|e| ApplyError::Io(e.to_string()))?;
-            lumatv_feeds::cache::atomic_write(&self.file_of(owner), &bytes).map_err(|e| ApplyError::Io(e.to_string()))?;
+            let bytes =
+                serde_json::to_vec_pretty(&file).map_err(|e| ApplyError::Io(e.to_string()))?;
+            lumatv_feeds::cache::atomic_write(&self.file_of(owner), &bytes)
+                .map_err(|e| ApplyError::Io(e.to_string()))?;
             o.stored = after;
             o.version += 1;
             o.version
         };
-        self.hub
-            .emit("settings", "changed", json!({"owner": owner, "version": version}));
+        self.hub.emit(
+            "settings",
+            "changed",
+            json!({"owner": owner, "version": version}),
+        );
         let to_call: Vec<Listener> = self
             .listeners
             .lock()
@@ -314,7 +342,9 @@ impl SettingsStore {
 
     /// Calls `listener` after every change to `owner`'s values.
     pub fn on_change(&self, owner: &str, listener: impl Fn() + Send + Sync + 'static) {
-        self.listeners.lock().push((owner.to_owned(), Arc::new(listener)));
+        self.listeners
+            .lock()
+            .push((owner.to_owned(), Arc::new(listener)));
     }
 
     fn text(&self, owner: &str, key: &str) -> Option<String> {
@@ -342,15 +372,21 @@ impl SettingsStore {
     /// The weather card's settings (the schema's defaults when nothing is stored).
     pub fn weather(&self) -> WeatherSettings {
         WeatherSettings {
-            zip: self.text("base.weather", "zip").unwrap_or_else(|| "30311".to_owned()),
-            units: self.text("base.weather", "units").unwrap_or_else(|| "fahrenheit".to_owned()),
+            zip: self
+                .text("base.weather", "zip")
+                .unwrap_or_else(|| "30311".to_owned()),
+            units: self
+                .text("base.weather", "units")
+                .unwrap_or_else(|| "fahrenheit".to_owned()),
         }
     }
 
     /// The news card's settings.
     pub fn news(&self) -> NewsSettings {
         NewsSettings {
-            edition: self.text("base.news", "edition").unwrap_or_else(|| "bbc".to_owned()),
+            edition: self
+                .text("base.news", "edition")
+                .unwrap_or_else(|| "bbc".to_owned()),
             refresh_minutes: self
                 .integer("base.news", "refresh_minutes")
                 .and_then(|n| u64::try_from(n).ok())
@@ -362,7 +398,9 @@ impl SettingsStore {
     pub fn receiver(&self) -> ReceiverSettings {
         ReceiverSettings {
             enabled: self.flag("base.receiver", "enabled").unwrap_or(true),
-            host: self.text("base.receiver", "host").unwrap_or_else(|| "192.168.1.93".to_owned()),
+            host: self
+                .text("base.receiver", "host")
+                .unwrap_or_else(|| "192.168.1.93".to_owned()),
             port: self
                 .integer("base.receiver", "port")
                 .and_then(|n| u16::try_from(n).ok())
@@ -409,9 +447,16 @@ fn weather_rule(values: &Values) -> Result<(), FieldErrors> {
     if let Some(zip) = text_of(values, "zip")
         && !(zip.len() == 5 && zip.bytes().all(|b| b.is_ascii_digit()))
     {
-        errors.insert(field("zip"), FieldError::refused("a ZIP code is five digits"));
+        errors.insert(
+            field("zip"),
+            FieldError::refused("a ZIP code is five digits"),
+        );
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// An address is a name or an IPv4 number: letters, digits, dots and dashes, as the text goes into a request line.
@@ -420,18 +465,31 @@ fn receiver_rule(values: &Values) -> Result<(), FieldErrors> {
     if let Some(host) = text_of(values, "host")
         && (host.is_empty()
             || host.starts_with(['-', '.'])
-            || !host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-'))
+            || !host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-'))
     {
         errors.insert(
             field("host"),
-            FieldError::refused("use the receiver's IP address or name (letters, digits, dots and dashes)"),
+            FieldError::refused(
+                "use the receiver's IP address or name (letters, digits, dots and dashes)",
+            ),
         );
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Wires the settings store to a component: `wake` runs after every change to `owner`, and never after the stop.
-pub fn wake_on_change(store: &SettingsStore, owner: &str, stop: &Stop, wake: impl Fn() + Send + Sync + 'static) {
+pub fn wake_on_change(
+    store: &SettingsStore,
+    owner: &str,
+    stop: &Stop,
+    wake: impl Fn() + Send + Sync + 'static,
+) {
     let stop = stop.clone();
     store.on_change(owner, move || {
         if !stop.is_set() {
@@ -527,31 +585,48 @@ mod tests {
             w.fetch_add(1, Ordering::SeqCst);
         });
         let applied = s
-            .apply("base.weather", vec![text("zip", "10001"), choice("units", "celsius")], None)
+            .apply(
+                "base.weather",
+                vec![text("zip", "10001"), choice("units", "celsius")],
+                None,
+            )
             .unwrap();
-        assert_eq!(applied, Applied { version: 1, changed: true });
+        assert_eq!(
+            applied,
+            Applied {
+                version: 1,
+                changed: true
+            }
+        );
         assert_eq!(s.weather().zip, "10001");
         assert_eq!(s.weather().units, "celsius");
         assert_eq!(woken.load(Ordering::SeqCst), 1);
         let events = hub.events_after(Some(0), None, None).events;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].topic, "settings");
-        assert_eq!(events[0].data, json!({"owner": "base.weather", "version": 1}));
+        assert_eq!(
+            events[0].data,
+            json!({"owner": "base.weather", "version": 1})
+        );
 
         let (_, again) = store(dir.path());
         assert_eq!(again.weather().zip, "10001");
-        assert_eq!(again.owners().iter().find(|o| o.owner == "base.weather").unwrap().version, 1);
+        assert_eq!(
+            again
+                .owners()
+                .iter()
+                .find(|o| o.owner == "base.weather")
+                .unwrap()
+                .version,
+            1
+        );
     }
 
     #[test]
     fn the_schema_refuses_what_its_field_cannot_hold() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        for bad in [
-            choice("units", "kelvin"),
-            int("zip", 5),
-            text("nope", "x"),
-        ] {
+        for bad in [choice("units", "kelvin"), int("zip", 5), text("nope", "x")] {
             let Err(ApplyError::Invalid(errors)) = s.apply("base.weather", vec![bad], None) else {
                 panic!("accepted");
             };
@@ -568,7 +643,11 @@ mod tests {
         ));
         // Twice in one transaction.
         assert!(matches!(
-            s.apply("base.weather", vec![text("zip", "10001"), text("zip", "10002")], None),
+            s.apply(
+                "base.weather",
+                vec![text("zip", "10001"), text("zip", "10002")],
+                None
+            ),
             Err(ApplyError::Invalid(_))
         ));
         assert_eq!(s.weather().zip, "30311");
@@ -578,7 +657,11 @@ mod tests {
     fn a_transaction_is_all_or_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let (hub, s) = store(dir.path());
-        let result = s.apply("base.weather", vec![text("zip", "10001"), choice("units", "kelvin")], None);
+        let result = s.apply(
+            "base.weather",
+            vec![text("zip", "10001"), choice("units", "kelvin")],
+            None,
+        );
         assert!(matches!(result, Err(ApplyError::Invalid(_))));
         assert_eq!(s.weather().zip, "30311");
         assert!(hub.events_after(Some(0), None, None).events.is_empty());
@@ -589,7 +672,9 @@ mod tests {
     fn the_owners_own_rule_runs_after_the_schema() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        let Err(ApplyError::Invalid(errors)) = s.apply("base.weather", vec![text("zip", "3031a")], None) else {
+        let Err(ApplyError::Invalid(errors)) =
+            s.apply("base.weather", vec![text("zip", "3031a")], None)
+        else {
             panic!("accepted");
         };
         let (key, error) = errors.iter().next().unwrap();
@@ -603,7 +688,10 @@ mod tests {
             s.apply("base.receiver", vec![text("host", "evil host/../x")], None),
             Err(ApplyError::Invalid(_))
         ));
-        assert!(s.apply("base.receiver", vec![text("host", "avr.local")], None).is_ok());
+        assert!(
+            s.apply("base.receiver", vec![text("host", "avr.local")], None)
+                .is_ok()
+        );
         assert_eq!(s.receiver().host, "avr.local");
     }
 
@@ -611,15 +699,22 @@ mod tests {
     fn a_field_that_another_setting_disables_cannot_change() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        s.apply("base.receiver", vec![flag("enabled", false)], None).unwrap();
-        let Err(ApplyError::Invalid(errors)) = s.apply("base.receiver", vec![int("port", 9000)], None) else {
+        s.apply("base.receiver", vec![flag("enabled", false)], None)
+            .unwrap();
+        let Err(ApplyError::Invalid(errors)) =
+            s.apply("base.receiver", vec![int("port", 9000)], None)
+        else {
             panic!("accepted");
         };
         assert!(errors.get(&field("port")).is_some());
         // Turning it on and changing the port in one transaction is judged against the values it leaves.
         assert!(
-            s.apply("base.receiver", vec![flag("enabled", true), int("port", 9000)], None)
-                .is_ok()
+            s.apply(
+                "base.receiver",
+                vec![flag("enabled", true), int("port", 9000)],
+                None
+            )
+            .is_ok()
         );
         assert_eq!(s.receiver().port, 9000);
     }
@@ -628,22 +723,37 @@ mod tests {
     fn a_version_precondition_guards_against_a_stale_client() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        s.apply("base.news", vec![choice("edition", "nyt")], Some(0)).unwrap();
-        let Err(ApplyError::Conflict { current }) = s.apply("base.news", vec![choice("edition", "bbc")], Some(0)) else {
+        s.apply("base.news", vec![choice("edition", "nyt")], Some(0))
+            .unwrap();
+        let Err(ApplyError::Conflict { current }) =
+            s.apply("base.news", vec![choice("edition", "bbc")], Some(0))
+        else {
             panic!("accepted");
         };
         assert_eq!(current, 1);
         assert_eq!(s.news().edition, "nyt");
-        assert!(s.apply("base.news", vec![choice("edition", "bbc")], Some(1)).is_ok());
+        assert!(
+            s.apply("base.news", vec![choice("edition", "bbc")], Some(1))
+                .is_ok()
+        );
     }
 
     #[test]
     fn values_already_held_change_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let (hub, s) = store(dir.path());
-        s.apply("base.weather", vec![text("zip", "10001")], None).unwrap();
-        let applied = s.apply("base.weather", vec![text("zip", "10001")], None).unwrap();
-        assert_eq!(applied, Applied { version: 1, changed: false });
+        s.apply("base.weather", vec![text("zip", "10001")], None)
+            .unwrap();
+        let applied = s
+            .apply("base.weather", vec![text("zip", "10001")], None)
+            .unwrap();
+        assert_eq!(
+            applied,
+            Applied {
+                version: 1,
+                changed: false
+            }
+        );
         let none = s.apply("base.weather", vec![], None).unwrap();
         assert!(!none.changed);
         assert_eq!(hub.events_after(Some(0), None, None).events.len(), 1);
@@ -653,7 +763,10 @@ mod tests {
     fn an_unknown_owner_is_reported() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        assert!(matches!(s.apply("base.nope", vec![], None), Err(ApplyError::UnknownOwner)));
+        assert!(matches!(
+            s.apply("base.nope", vec![], None),
+            Err(ApplyError::UnknownOwner)
+        ));
         assert!(s.describe("base.nope").is_none());
     }
 
@@ -678,7 +791,11 @@ mod tests {
         assert_eq!(view["unknown"], json!(["old_key"]));
         assert_eq!(view["effective"]["units"]["value"], "fahrenheit");
         // The file keeps what the person wrote until a transaction replaces it.
-        assert!(std::fs::read_to_string(dir.path().join("base.weather.json")).unwrap().contains("kelvin"));
+        assert!(
+            std::fs::read_to_string(dir.path().join("base.weather.json"))
+                .unwrap()
+                .contains("kelvin")
+        );
     }
 
     #[test]
@@ -687,7 +804,8 @@ mod tests {
         std::fs::write(dir.path().join("base.news.json"), "{not json").unwrap();
         let (_, s) = store(dir.path());
         assert_eq!(s.news().edition, "bbc");
-        s.apply("base.news", vec![choice("edition", "nyt")], None).unwrap();
+        s.apply("base.news", vec![choice("edition", "nyt")], None)
+            .unwrap();
         let (_, again) = store(dir.path());
         assert_eq!(again.news().edition, "nyt");
     }
@@ -701,20 +819,34 @@ mod tests {
         )
         .unwrap();
         let (_, s) = store(dir.path());
-        assert_eq!(s.owners().iter().find(|o| o.owner == "base.news").unwrap().version, 0);
+        assert_eq!(
+            s.owners()
+                .iter()
+                .find(|o| o.owner == "base.news")
+                .unwrap()
+                .version,
+            0
+        );
     }
 
     #[test]
     fn describe_carries_the_documented_schema_and_values() {
         let dir = tempfile::tempdir().unwrap();
         let (_, s) = store(dir.path());
-        s.apply("base.news", vec![choice("edition", "nyt")], None).unwrap();
+        s.apply("base.news", vec![choice("edition", "nyt")], None)
+            .unwrap();
         let view = s.describe("base.news").unwrap();
         assert_eq!(view["owner"], "base.news");
         assert_eq!(view["schema"]["format"], 1);
         assert_eq!(view["schema"]["sections"][0]["fields"][0]["key"], "edition");
-        assert_eq!(view["values"]["edition"], json!({"type": "choice", "value": "nyt"}));
-        assert_eq!(view["effective"]["refresh_minutes"], json!({"type": "integer", "value": 15}));
+        assert_eq!(
+            view["values"]["edition"],
+            json!({"type": "choice", "value": "nyt"})
+        );
+        assert_eq!(
+            view["effective"]["refresh_minutes"],
+            json!({"type": "integer", "value": 15})
+        );
     }
 
     #[test]
@@ -736,7 +868,10 @@ mod tests {
         let mut newer = schema;
         newer.revision = 2;
         s.register(newer, None).unwrap();
-        assert_eq!(s.describe("hello").unwrap()["values"]["name"]["value"], "Nitin");
+        assert_eq!(
+            s.describe("hello").unwrap()["values"]["name"]["value"],
+            "Nitin"
+        );
     }
 
     #[test]
@@ -744,7 +879,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let hub = Arc::new(Hub::new(1));
         let s = SettingsStore::new(dir.path(), hub);
-        let mut schema = SettingsSchema::parse(include_str!("schemas/base.news.json").as_bytes()).unwrap();
+        let mut schema =
+            SettingsSchema::parse(include_str!("schemas/base.news.json").as_bytes()).unwrap();
         schema.title = "   ".into();
         assert!(s.register(schema, None).is_err());
     }

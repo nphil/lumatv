@@ -13,7 +13,10 @@ fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(DEFAULT_PORT);
     match Client::new(host, port).status() {
-        Ok(status) => println!("{status:#?}\nvolume on the panel (absolute): {:?}", status.volume_absolute()),
+        Ok(status) => println!(
+            "{status:#?}\nvolume on the panel (absolute): {:?}",
+            status.volume_absolute()
+        ),
         Err(e) => {
             eprintln!("{} ({e})", e.code());
             std::process::exit(1);

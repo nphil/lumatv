@@ -127,7 +127,11 @@ pub struct Server {
 
 impl Server {
     /// Binds `addr` (loopback only) and starts accepting.
-    pub fn start(addr: SocketAddr, handler: Arc<dyn Handler>, options: Options) -> std::io::Result<Self> {
+    pub fn start(
+        addr: SocketAddr,
+        handler: Arc<dyn Handler>,
+        options: Options,
+    ) -> std::io::Result<Self> {
         if !addr.ip().is_loopback() {
             return Err(std::io::Error::new(
                 ErrorKind::InvalidInput,
@@ -246,7 +250,12 @@ enum ReadError {
     NotImplemented(&'static str),
 }
 
-fn serve_connection(mut stream: TcpStream, local: SocketAddr, handler: &dyn Handler, options: &Options) {
+fn serve_connection(
+    mut stream: TcpStream,
+    local: SocketAddr,
+    handler: &dyn Handler,
+    options: &Options,
+) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_write_timeout(Some(SEND_TIMEOUT));
     let request = match read_request(&mut stream, Instant::now() + RECEIVE_DEADLINE) {
@@ -254,10 +263,16 @@ fn serve_connection(mut stream: TcpStream, local: SocketAddr, handler: &dyn Hand
         Err(ReadError::Closed) => return,
         Err(e) => {
             let response = match e {
-                ReadError::Timeout => error_response(408, "timeout", "the request did not arrive in time"),
+                ReadError::Timeout => {
+                    error_response(408, "timeout", "the request did not arrive in time")
+                }
                 ReadError::Bad(why) => error_response(400, "bad_request", why),
-                ReadError::HeadTooLarge => error_response(431, "too_large", "the request headers are too large"),
-                ReadError::BodyTooLarge => error_response(413, "too_large", "the request body is too large"),
+                ReadError::HeadTooLarge => {
+                    error_response(431, "too_large", "the request headers are too large")
+                }
+                ReadError::BodyTooLarge => {
+                    error_response(413, "too_large", "the request body is too large")
+                }
                 ReadError::NotImplemented(why) => error_response(501, "not_implemented", why),
                 ReadError::Closed => return,
             };
@@ -275,11 +290,25 @@ fn serve_connection(mut stream: TcpStream, local: SocketAddr, handler: &dyn Hand
             body: Vec::new(),
         },
         None => catch_unwind(AssertUnwindSafe(|| handler.handle(&request))).unwrap_or_else(|_| {
-            crate::log_error!("http: a handler panicked on {} {}", request.method, request.path);
-            error_response(500, "internal", "the helper hit a bug handling this request")
+            crate::log_error!(
+                "http: a handler panicked on {} {}",
+                request.method,
+                request.path
+            );
+            error_response(
+                500,
+                "internal",
+                "the helper hit a bug handling this request",
+            )
         }),
     };
-    let _ = write_response(&mut stream, &response, origin.as_deref().filter(|o| options.allowed_origins.iter().any(|a| a == o)));
+    let _ = write_response(
+        &mut stream,
+        &response,
+        origin
+            .as_deref()
+            .filter(|o| options.allowed_origins.iter().any(|a| a == o)),
+    );
     let _ = stream.shutdown(Shutdown::Both);
 }
 
@@ -288,12 +317,20 @@ fn guard(request: &Request, local: SocketAddr, options: &Options) -> Option<Resp
     if let Some(host) = request.header("host")
         && !host_is_local(host, local.port())
     {
-        return Some(error_response(403, "host_not_allowed", "this API answers only to its own loopback address"));
+        return Some(error_response(
+            403,
+            "host_not_allowed",
+            "this API answers only to its own loopback address",
+        ));
     }
     if let Some(origin) = request.header("origin")
         && !options.allowed_origins.iter().any(|a| a == origin)
     {
-        return Some(error_response(403, "origin_not_allowed", "web pages may not call this API"));
+        return Some(error_response(
+            403,
+            "origin_not_allowed",
+            "web pages may not call this API",
+        ));
     }
     match request.method.as_str() {
         "GET" | "OPTIONS" => None,
@@ -310,12 +347,17 @@ fn guard(request: &Request, local: SocketAddr, options: &Options) -> Option<Resp
                     .header("content-type")
                     .is_some_and(|t| t.to_ascii_lowercase().starts_with("application/json"))
             {
-                return Some(error_response(415, "unsupported_media_type", "send the body as application/json"));
+                return Some(error_response(
+                    415,
+                    "unsupported_media_type",
+                    "send the body as application/json",
+                ));
             }
             None
         }
         _ => Some(
-            error_response(405, "method_not_allowed", "use GET, POST, PUT or DELETE").with_header("Allow", "GET, POST, PUT, DELETE"),
+            error_response(405, "method_not_allowed", "use GET, POST, PUT or DELETE")
+                .with_header("Allow", "GET, POST, PUT, DELETE"),
         ),
     }
 }
@@ -362,13 +404,23 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
-fn write_response(stream: &mut TcpStream, response: &Response, cors_origin: Option<&str>) -> std::io::Result<()> {
-    let mut head = format!("HTTP/1.1 {} {}\r\n", response.status, reason(response.status));
+fn write_response(
+    stream: &mut TcpStream,
+    response: &Response,
+    cors_origin: Option<&str>,
+) -> std::io::Result<()> {
+    let mut head = format!(
+        "HTTP/1.1 {} {}\r\n",
+        response.status,
+        reason(response.status)
+    );
     if response.status != 204 {
         head.push_str("Content-Type: application/json; charset=utf-8\r\n");
     }
     head.push_str(&format!("Content-Length: {}\r\n", response.body.len()));
-    head.push_str("Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n");
+    head.push_str(
+        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n",
+    );
     for (name, value) in &response.headers {
         // Header values come from our own code; keep a stray line break from ever splitting a response.
         let value: String = value.chars().filter(|c| !c.is_control()).collect();
@@ -409,9 +461,12 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> Result<Request, Re
     if head_end > MAX_HEAD {
         return Err(ReadError::HeadTooLarge);
     }
-    let head = std::str::from_utf8(&data[..head_end]).map_err(|_| ReadError::Bad("the headers are not text"))?;
+    let head = std::str::from_utf8(&data[..head_end])
+        .map_err(|_| ReadError::Bad("the headers are not text"))?;
     let mut request = parse_head(head)?;
-    let expects_continue = request.header("expect").is_some_and(|v| v.eq_ignore_ascii_case("100-continue"));
+    let expects_continue = request
+        .header("expect")
+        .is_some_and(|v| v.eq_ignore_ascii_case("100-continue"));
     let length = body_length(&request)?;
     let mut body = data[head_end + 4..].to_vec();
     if body.len() > length {
@@ -431,7 +486,11 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> Result<Request, Re
     Ok(request)
 }
 
-fn read_some(stream: &mut TcpStream, buf: &mut [u8], deadline: Instant) -> Result<usize, ReadError> {
+fn read_some(
+    stream: &mut TcpStream,
+    buf: &mut [u8],
+    deadline: Instant,
+) -> Result<usize, ReadError> {
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
@@ -441,7 +500,9 @@ fn read_some(stream: &mut TcpStream, buf: &mut [u8], deadline: Instant) -> Resul
         match stream.read(buf) {
             Ok(n) => return Ok(n),
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => return Err(ReadError::Timeout),
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                return Err(ReadError::Timeout);
+            }
             Err(_) => return Err(ReadError::Closed),
         }
     }
@@ -453,7 +514,9 @@ fn body_length(request: &Request) -> Result<usize, ReadError> {
         return Err(if length.is_some() {
             ReadError::Bad("both Content-Length and Transfer-Encoding")
         } else {
-            ReadError::NotImplemented("chunked request bodies are not accepted; send Content-Length")
+            ReadError::NotImplemented(
+                "chunked request bodies are not accepted; send Content-Length",
+            )
         });
     }
     let Some(length) = length else {
@@ -472,7 +535,9 @@ fn parse_head(head: &str) -> Result<Request, ReadError> {
     let mut lines = head.split("\r\n");
     let line = lines.next().unwrap_or("");
     let mut parts = line.split(' ');
-    let (Some(method), Some(target), Some(version), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
+    let (Some(method), Some(target), Some(version), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
         return Err(ReadError::Bad("malformed request line"));
     };
     if method.is_empty() || !method.bytes().all(|b| b.is_ascii_uppercase()) {
@@ -554,7 +619,13 @@ mod tests {
 
     #[test]
     fn hosts_must_name_this_listener() {
-        for ok in ["127.0.0.1:18731", "localhost:18731", "LOCALHOST:18731", "[::1]:18731", "127.0.0.2:18731"] {
+        for ok in [
+            "127.0.0.1:18731",
+            "localhost:18731",
+            "LOCALHOST:18731",
+            "[::1]:18731",
+            "127.0.0.2:18731",
+        ] {
             assert!(host_is_local(ok, 18731), "{ok}");
         }
         for bad in [
@@ -577,7 +648,10 @@ mod tests {
         assert_eq!(percent_decode("a%20b", false).as_deref(), Some("a b"));
         assert_eq!(percent_decode("a+b", false).as_deref(), Some("a+b"));
         assert_eq!(percent_decode("a+b", true).as_deref(), Some("a b"));
-        assert_eq!(percent_decode("%e2%82%ac", false).as_deref(), Some("\u{20ac}"));
+        assert_eq!(
+            percent_decode("%e2%82%ac", false).as_deref(),
+            Some("\u{20ac}")
+        );
         assert_eq!(percent_decode("%zz", false), None);
         assert_eq!(percent_decode("%2", false), None);
         assert_eq!(percent_decode("%ff", false), None);
@@ -628,6 +702,9 @@ mod tests {
         assert!(matches!(body_length(&with("-1")), Err(ReadError::Bad(_))));
         assert!(matches!(body_length(&with("1e3")), Err(ReadError::Bad(_))));
         assert!(matches!(body_length(&with("")), Err(ReadError::Bad(_))));
-        assert_eq!(body_length(&with("99999999999999999999999")), Err(ReadError::BodyTooLarge));
+        assert_eq!(
+            body_length(&with("99999999999999999999999")),
+            Err(ReadError::BodyTooLarge)
+        );
     }
 }

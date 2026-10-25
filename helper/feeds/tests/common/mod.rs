@@ -7,12 +7,30 @@ use fetch::{Fetch, FetchError, FetchLimits};
 use lumatv_feeds::news::{self, NewsConfig, NewsDoc};
 use lumatv_feeds::weather::{self, Units, WeatherConfig, WeatherDoc};
 
-pub const OPEN_METEO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/open-meteo.json"));
-pub const ZIPPOPOTAM: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/zippopotam-30311.json"));
-pub const BBC_WORLD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bbc-world.xml"));
-pub const BBC_US: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bbc-us.xml"));
-pub const NYT_WORLD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/nyt-world.xml"));
-pub const NYT_US: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/nyt-us.xml"));
+pub const OPEN_METEO: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/open-meteo.json"
+));
+pub const ZIPPOPOTAM: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/zippopotam-30311.json"
+));
+pub const BBC_WORLD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/bbc-world.xml"
+));
+pub const BBC_US: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/bbc-us.xml"
+));
+pub const NYT_WORLD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/nyt-world.xml"
+));
+pub const NYT_US: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/nyt-us.xml"
+));
 
 pub const BBC_WORLD_URL: &str = "https://feeds.bbci.co.uk/news/world/rss.xml";
 pub const BBC_US_URL: &str = "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml";
@@ -35,7 +53,12 @@ fn held<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Script {
     pub fn new(replies: Vec<(&str, Result<Vec<u8>, FetchError>)>) -> Self {
         Self {
-            replies: Mutex::new(replies.into_iter().map(|(u, r)| (u.to_owned(), r)).collect()),
+            replies: Mutex::new(
+                replies
+                    .into_iter()
+                    .map(|(u, r)| (u.to_owned(), r))
+                    .collect(),
+            ),
             log: Mutex::new(Vec::new()),
         }
     }
@@ -76,6 +99,9 @@ pub fn weather_doc(now_ms: u64) -> WeatherDoc {
 
 /// The fixture news document (BBC feeds), fetched at `now_ms`.
 pub fn news_doc(now_ms: u64) -> NewsDoc {
-    let script = Script::new(vec![(BBC_WORLD_URL, ok(BBC_WORLD)), (BBC_US_URL, ok(BBC_US))]);
+    let script = Script::new(vec![
+        (BBC_WORLD_URL, ok(BBC_WORLD)),
+        (BBC_US_URL, ok(BBC_US)),
+    ]);
     news::refresh(&script, &NewsConfig::standard(), now_ms).unwrap()
 }

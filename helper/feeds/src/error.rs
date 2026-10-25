@@ -68,7 +68,10 @@ mod tests {
             (FeedError::Fetch(FetchError::Timeout), "timeout"),
             (FeedError::Fetch(FetchError::TooLarge), "too_large"),
             (FeedError::Fetch(FetchError::Http(404)), "http"),
-            (FeedError::Fetch(FetchError::Untrusted("x".into())), "untrusted"),
+            (
+                FeedError::Fetch(FetchError::Untrusted("x".into())),
+                "untrusted",
+            ),
             (FeedError::Fetch(FetchError::Denied("x".into())), "denied"),
             (FeedError::Fetch(FetchError::Failed("x".into())), "fetch"),
             (FeedError::Parse("x".into()), "parse"),

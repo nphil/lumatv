@@ -186,7 +186,9 @@ pub fn parse_forecast(
     now_ms: u64,
 ) -> Result<WeatherDoc, FeedError> {
     let v = parse_json(body, "forecast")?;
-    let cur = v.get("current").ok_or_else(|| parse_err("forecast has no current"))?;
+    let cur = v
+        .get("current")
+        .ok_or_else(|| parse_err("forecast has no current"))?;
     let current = Current {
         time: string(cur, "time")?,
         temp: number(cur, "temperature_2m")?,
@@ -304,7 +306,8 @@ pub fn day_name(iso_date: &str) -> Option<&'static str> {
     let digits = |r: std::ops::Range<usize>| -> Option<u32> {
         let part = &b[r];
         if part.iter().all(u8::is_ascii_digit) {
-            part.iter().try_fold(0u32, |n, d| Some(n * 10 + u32::from(d - b'0')))
+            part.iter()
+                .try_fold(0u32, |n, d| Some(n * 10 + u32::from(d - b'0')))
         } else {
             None
         }
@@ -358,7 +361,9 @@ fn degrees(x: f64) -> String {
 }
 
 fn daily_rows(v: &Value) -> Result<Vec<Day>, FeedError> {
-    let daily = v.get("daily").ok_or_else(|| parse_err("forecast has no daily"))?;
+    let daily = v
+        .get("daily")
+        .ok_or_else(|| parse_err("forecast has no daily"))?;
     let times = array(daily, "time")?;
     let codes = array(daily, "weather_code")?;
     let his = array(daily, "temperature_2m_max")?;
