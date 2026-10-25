@@ -290,7 +290,7 @@ fn the_front_card_is_exposed_and_a_covered_card_is_not() {
     let (mapped, image) = server.eval(|s| (s.scene.windows().find(|w| w.title == "HDMI2").map(|w| w.map_serial > 0).unwrap(), s.output.capture().unwrap()));
     assert!(mapped);
     assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
-    assert_eq!(exposed(&client.state, hdmi_id), [full.clone()]);
+    assert_eq!(exposed(&client.state, hdmi_id), std::slice::from_ref(&full));
 
     // HDMI 2 minimizes itself: unexposed; Home comes back and is exposed again.
     hdmi.webos.set_state(minimized);

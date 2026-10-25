@@ -9,23 +9,24 @@ marked [INFERENCE] were not observed on the set.
 
 ## Resume here
 
-State (2026-10-25 14:45 EDT, code at `dd793ff`): C2 passed; the fourth gate
-ran on the set 14:18-14:27 with the fullscreen-request, placement and loop
-changes of `221b75b`, `168f69a` and `8f69c05` ("Fourth gate on the set";
-files in `docs/research/compositor/slot-2026-10-25-1418/`): live, volume,
-netflix, standby/wake and escape PASS; x1 FAIL by the rule but down to 2
-gaps over 20 ms (59.95 fps, worst 24.7 ms in the first second, `late` 2);
-hdmi FAIL on the buffer only: the preloaded HDMI 2 instance is raised and
-SAM's foreground now, and draws nothing because this compositor never sends
-`wl_webos_shell_surface.exposed`, which LG's Qt platform plugin turns into
-Qt's expose (open; the fix is to send it). LG's compositor is live (set in
-Active Standby, `enabled` absent, Home stub on, receiver unmuted).
-`tv_ui_measure.py` ran after it: idle 0.51 ms of GPU a frame at 10 fps,
-the RustUi gate passes; DIRECT shows no direct frame for a libmali client,
-as known. Host: `cd compositor && cargo test` (73 unit, 25 protocol, 1 bridge, 1 control,
-2 LG-table), the same with `--features ui` plus `ui`, `ui_output` and
-`ui_scanout` under `LIBGL_ALWAYS_SOFTWARE=1`, `sm/build.sh`, clippy clean
-both ways; `sh compositor/tools/build-tv.sh` builds the bundle.
+State (2026-10-25 15:10 EDT, code at `7d10b91` plus the doc): C2 passed; the
+fourth gate ran on the set 14:18-14:27 with the fullscreen-request, placement
+and loop changes of `221b75b`, `168f69a` and `8f69c05` ("Fourth gate on the
+set"; files in `docs/research/compositor/slot-2026-10-25-1418/`): live,
+volume, netflix, standby/wake and escape PASS; x1 FAIL by the rule but down
+to 2 gaps over 20 ms (59.95 fps, worst 24.7 ms in the first second, `late`
+2); hdmi FAIL on the buffer only: the preloaded HDMI 2 instance is raised
+and SAM's foreground, and drew nothing because the compositor sent no
+`wl_webos_shell_surface.exposed`. `7d10b91` sends it, host-tested, not yet
+on the set ("Fourth gate on the set", last paragraphs). LG's compositor is
+live (set in Active Standby, `enabled` absent, Home stub on, receiver
+unmuted). `tv_ui_measure.py` ran after the gate: idle 0.51 ms of GPU a frame
+at 10 fps, the RustUi gate passes; DIRECT shows no direct frame for a
+libmali client, as known. Host: `cd compositor && cargo test` (73 unit, 26
+protocol, 1 bridge, 1 control, 2 LG-table), the same with `--features ui`
+plus `ui`, `ui_output` and `ui_scanout` under `LIBGL_ALWAYS_SOFTWARE=1`,
+`sm/build.sh`, clippy clean both ways; `sh compositor/tools/build-tv.sh`
+builds the bundle.
 
 - Proven on the set: all 12 bus names are LumaTV's at LG's path; a 120 s
   trial and three gate runs live with no watchdog fallback, `READY=1`
@@ -54,16 +55,25 @@ both ways; `sh compositor/tools/build-tv.sh` builds the bundle.
   loop pass 573-590 ms → 117-136 ms (the read-back remains on the loop).
   Netflix's player error of the third gate did not recur (one pass each
   way; the cause is not proven). Still open: the x1 rule (2 gaps in 60 s),
-  the `exposed` event (HDMI 2's buffer), Netflix's three restarts in the
-  third gate's trial (none in the fourth).
-- Next: send `exposed` (the window's rectangle when a card comes to the
-  front or maps, empty when minimized), then `python3
-  compositor/tools/tv_next_slot.py` again with the HDMI 2 app preloaded
-  (the memory note keeps it so); the set needs the current `tools/lumatv`
-  (`comp_live` guard) or the script turns the Home stub off for the session
-  and back on. `tv_ui_measure.py` need not run again unless the engine
-  changes (idle 0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a frame;
-  results in `docs/research/compositor/ui-measure-2026-10-25-1430/`).
+  Netflix's three restarts in the third gate's trial (none in the fourth),
+  `getWindowGroupInfo` (HDMI 2 subscribes; no capture shows LG's answer).
+- Built and host-tested after the fourth gate (`7d10b91`): `exposed` to the
+  front card (its buffer's rectangle, or the output's before the first
+  buffer), an empty list to a covered or minimized card, each on change
+  only; journal lines `window N: exposed WxH` / `exposed nothing (covered)`.
+- Next: `python3 compositor/tools/tv_next_slot.py` again with the HDMI 2
+  app preloaded (the memory note keeps it so); the set needs the current
+  `tools/lumatv` (`comp_live` guard) or the script turns the Home stub off
+  for the session and back on. The hdmi check must show, in order, in the
+  journal: HDMI 2's `set_state(fullscreen)`, `window N: exposed 1920x1080`
+  (output size, before any buffer), then its first attach and `mapped`,
+  and Home's `exposed nothing (covered)`. If the exposed line is there and
+  the buffer still never comes, the next suspect is the frame callback HDMI
+  2's bufferless commit asked for and never got (QtWayland unexposes a
+  window whose frame callback times out; see the fourth gate's notes).
+  `tv_ui_measure.py` need not run again unless the engine changes (idle
+  0.51 ms, anim60 0.40 ms, volume 0.65 ms of GPU a frame; results in
+  `docs/research/compositor/ui-measure-2026-10-25-1430/`).
 - Go-live: not before the surfaces exist under LumaTV's compositor
   ("Surfaces under LumaTV's compositor": key filters and IME, LumaHome,
   the volume OSD, toasts, alerts and PIN, quick panel and picker). The
@@ -1135,10 +1145,33 @@ does not render. A freshly shown window exposes itself (the second gate's
 HDMI 2 mapped in 160 ms); the preloaded instance made its window at the
 enable, committed it without a buffer, got no frame callback and waits for
 an expose that LG's compositor would send at the relaunch [INFERENCE on the
-app's wait; the symbols and the missing sender are read]. Next: `exposed`
-with the window's rectangle when a card comes to the front or maps, an empty
-one when it is minimized. Also seen, both gates: `getWindowGroupInfo`
-answered "unknown method" (the fresh instance mapped regardless).
+app's wait; the symbols and the missing sender are read]. Also seen, both
+gates: `getWindowGroupInfo` answered "unknown method" (the fresh instance
+mapped regardless). Open: no capture in the repo shows LG's answer (the
+HDMI 2 app subscribes to it; `CompositorViews.json` lists it as a state
+subscription only), so it stays unanswered until a session on the set
+records LG's reply.
+
+Sent since `7d10b91` (host-tested, not yet on the set). OSE's
+luna-surfacemanager is the model: `WebOSSurfaceItem::setFullscreen(true)`
+calls `setExposed(true)`, which sends one rectangle `(0, 0, surface size)`
+and a closing `-1` as native ints in the `wl_array`, latched in
+`m_exposed` so a repeat sends nothing; OSE core never calls
+`setExposed(false)` (the QML property is writable, so LG's TV build may).
+This compositor exposes the foreground card (`Scene::foreground`: at the
+front and not minimized) and unexposes every other card, on each change of
+that set: at a card's mapping, at its `set_state(fullscreen)` before any
+buffer, at a cover or a self-minimize, and when the front card goes. The
+rectangle is the surface's buffer size, or the output's for a card raised
+before its first buffer [INFERENCE: OSE's `surface()->size()` is 0x0 then
+and the region it builds is empty, so OSE would send just the `-1`; Qt 5's
+`handleExposeEvent` takes the window's exposure from the platform window,
+not from the region, so either reading delivers the expose]. The empty list
+for a covered card is the protocol text's reading ("areas that are visible
+in this surface"), not OSE's code. Non-card windows get nothing, as in OSE.
+Journal: `window N: exposed WxH`, `window N: exposed nothing (covered)`.
+Host test `the_front_card_is_exposed_and_a_covered_card_is_not`
+(`tests/protocol.rs`).
 
 `tv_ui_measure.py` (engine host, `LUMATV_FEATURES=ui`): idle10 GPU busy
 0.51 % over 28 s = 0.51 ms a frame at 10 fps, compositor CPU 3.3 %, **idle
