@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Renders LumaTV's surfaces through the offline host into docs/mocks/host/, one PNG per mock they answer, dark and light.
 
-    python3 tests/qmlhost/scenes.py [--out DIR] [--only NAME[,NAME]] [--dark | --light] [--list]
+    python3 tests/qmlhost/scenes.py [--out DIR] [--only NAME[,NAME]] [--theme dark|light|both] [--list]
 
 Each scene is Home (LumaHome.qml) with a fake helper, driven by the host's own clock: topics published, keys
 sent, a surface opened by the way Home opens it, and a window grab at the end. The file names follow the mocks
@@ -297,8 +297,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=os.path.join(ROOT, "docs", "mocks", "host"))
     ap.add_argument("--only", help="comma-separated scene names")
-    ap.add_argument("--dark", action="store_true", help="the dark material only")
-    ap.add_argument("--light", action="store_true", help="the light material only")
+    ap.add_argument("--theme", choices=["dark", "light", "both"], default="both", help="the material to render (default both)")
+    ap.add_argument("--dark", action="store_true", help="same as --theme dark")
+    ap.add_argument("--light", action="store_true", help="same as --theme light")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
     load_modules()
@@ -307,7 +308,7 @@ def main():
     if a.list:
         print("\n".join(SCENES))
         return 1 if LOAD_ERRORS else 0
-    materials = [m for m, on in (("dark", a.dark), ("light", a.light)) if on] or ["dark", "light"]
+    materials = [m for m, on in (("dark", a.dark or a.theme == "dark"), ("light", a.light or a.theme == "light")) if on] or ["dark", "light"]
     os.makedirs(a.out, exist_ok=True)
     names = a.only.split(",") if a.only else list(SCENES)
     bad = len(LOAD_ERRORS)

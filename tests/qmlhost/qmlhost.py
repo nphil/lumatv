@@ -18,12 +18,14 @@ calls are recorded in `LS.calls`, `TextFile` reads and writes real files.
 Exit status 0 when the surface loaded and printed no warning from its own files, 1 otherwise.
 """
 import argparse
+import errno
 import json
 import os
 import re
 import shutil
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -230,11 +232,19 @@ def main(argv=None):
         sys.path.insert(0, HERE)
         import fakehelper
         # The helper's port is fixed (kit/Helper.qml): two hosts at once (parallel workers, a test beside a scene
-        # render) cannot both bind it, so the second waits for the first to exit.
+        # render) cannot both bind it, so the second waits for the first to exit. The lock is released when main()
+        # returns, a moment before the process (and its listening socket) is gone, so the bind itself retries.
         import fcntl
         _lock = open(os.path.join(tempfile.gettempdir(), 'lumatv-qmlhost.lock'), 'w')
         fcntl.flock(_lock, fcntl.LOCK_EX)
-        _srv, helper_state = fakehelper.serve(18731)
+        for attempt in range(200):
+            try:
+                _srv, helper_state = fakehelper.serve(18731)
+                break
+            except OSError as e:
+                if e.errno != errno.EADDRINUSE or attempt == 199:
+                    raise
+                time.sleep(0.05)
 
     w, h = (int(x) for x in a.size.split('x'))
     view = QtQuick.QQuickView()
