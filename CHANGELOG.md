@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   options), Time & power (clock, power timers, auto-off, Screen Off), Bluetooth speakers
   and controllers, Wi-Fi join and IP settings, the HDMI rows and every Picture tab, on LG's
   own keys and value lists. The remaining LG menus open from a "More in LG settings" row.
+- The gear tap and the Input key open LumaTV's quick panel (tall, docked at the left where
+  LG's sat, sliding out of the edge) and input picker, on Home and over apps; LG's own
+  stay one button away and take over whenever LumaTV cannot show its own.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
