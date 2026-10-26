@@ -1,0 +1,20 @@
+# Host (tests, proc macros, build scripts): the workstation has no system cc; zig's clang links instead.
+[target.x86_64-unknown-linux-gnu]
+linker = "tools/cc-host"
+
+# The set: a glibc 2.36 aarch64 binary, run through the private Debian loader beside the 64-bit Mali blob. Build with
+# `cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36` (cargo-zigbuild sets the linker and the glibc version).
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=cortex-a76"]
+
+# C code in dependencies (ring, aws-lc-sys through str0m) builds with zig's clang here as well: cargo-zigbuild sets these for the
+# target build, this covers host builds and the tests.
+[env]
+RUST_MIN_STACK = "8388608"
+CC = { value = "tools/cc-host", relative = true }
+CXX = { value = "tools/cxx-host", relative = true }
+# bindgen (the `mtu` crate's build script) needs libclang; the workstation's is the pip package's.
+LIBCLANG_PATH = "/data/home/.local/lib/python3.11/site-packages/clang/native"
+# ... and the kernel and glibc headers it parses are zig's bundled ones (the workstation has none installed).
+BINDGEN_EXTRA_CLANG_ARGS_x86_64_unknown_linux_gnu = "-I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/x86-linux-gnu -I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/generic-glibc -I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/x86-linux-any -I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/any-linux-any"
+BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu = "-I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/aarch64-linux-gnu -I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/generic-glibc -I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/aarch64-linux-any -I/data/home/.local/lib/python3.11/site-packages/ziglang/lib/libc/include/any-linux-any --target=aarch64-unknown-linux-gnu"

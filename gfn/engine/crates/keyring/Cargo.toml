@@ -1,0 +1,18 @@
+[package]
+name = "keyring"
+version = "3.6.3"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "A stand-in for the keyring crate on webOS: no OS credential store exists there, so every entry reports the store unavailable and opennow-core keeps its sessions in its own 0600 JSON fallback"
+license = "MIT"
+
+[dependencies]
+
+# The features opennow-core asks of the real crate; nothing behind them here.
+[features]
+apple-native = []
+windows-native = []
+sync-secret-service = []
+crypto-rust = []
+vendored = []

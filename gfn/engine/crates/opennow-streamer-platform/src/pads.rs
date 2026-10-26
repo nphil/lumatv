@@ -1,0 +1,183 @@
+//! The pads' way into the engine: every changed report becomes a `CapturedInput::Gamepad` sample (the engine serialises it into
+//! GFN's 38-byte event and sends it at once), the PS button becomes `Guide` (the engine asks the UI for its overlay), and the exit
+//! chord a `StopStream` shortcut. While the UI's overlay is up (input paused) the reports go to the UI's own socket instead, as JSON
+//! datagrams, so the menu can be driven with the same pad without releasing the grab.
+use std::os::unix::net::UnixDatagram;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use lumatv_gfn_pad::{PadConfig, PadEvent, PadRuntime, PadSink, PadState};
+
+use crate::types::{CapturedInput, CapturedInputQueue, StreamShortcutAction};
+
+struct Bridge {
+    queue: Arc<CapturedInputQueue>,
+    active: AtomicBool,
+    paused: AtomicBool,
+    side: Option<(UnixDatagram, PathBuf)>,
+}
+
+impl Bridge {
+    fn aside(&self, line: String) {
+        if let Some((sock, path)) = &self.side {
+            let _ = sock.send_to(line.as_bytes(), path);   /* nobody listening is normal before the UI opens */
+        }
+    }
+}
+
+fn gamepad(slot: u8, bitmap: u16, s: PadState) -> CapturedInput {
+    CapturedInput::Gamepad {
+        controller_id: slot,
+        bitmap,
+        buttons: s.buttons,
+        left_trigger: s.left_trigger,
+        right_trigger: s.right_trigger,
+        left_stick_x: s.left_x,
+        left_stick_y: s.left_y,
+        right_stick_x: s.right_x,
+        right_stick_y: s.right_y,
+    }
+}
+
+impl PadSink for Bridge {
+    fn pad_event(&self, bitmap: u16, event: PadEvent) {
+        match event {
+            PadEvent::Connected { slot, name, uniq } => {
+                self.aside(format!("{{\"pad\":\"connected\",\"slot\":{slot},\"name\":{},\"uniq\":{},\"bitmap\":{bitmap}}}", json_str(&name), json_str(&uniq)));
+                if self.active.load(Ordering::Acquire) {
+                    self.queue.push(gamepad(slot, bitmap, PadState::default()));
+                }
+            }
+            PadEvent::Disconnected { slot } => {
+                self.aside(format!("{{\"pad\":\"disconnected\",\"slot\":{slot},\"bitmap\":{bitmap}}}"));
+                if self.active.load(Ordering::Acquire) {
+                    self.queue.release_gamepad(slot, bitmap);
+                }
+            }
+            PadEvent::Report { slot, state } => {
+                if self.paused.load(Ordering::Acquire) || !self.active.load(Ordering::Acquire) {
+                    self.aside(format!(
+                        "{{\"pad\":\"report\",\"slot\":{slot},\"buttons\":{},\"lt\":{},\"rt\":{},\"lx\":{},\"ly\":{},\"rx\":{},\"ry\":{}}}",
+                        state.buttons, state.left_trigger, state.right_trigger, state.left_x, state.left_y, state.right_x, state.right_y
+                    ));
+                } else {
+                    self.queue.push(gamepad(slot, bitmap, state));
+                }
+            }
+            PadEvent::Guide { slot, pressed } => {
+                self.aside(format!("{{\"pad\":\"guide\",\"slot\":{slot},\"pressed\":{pressed}}}"));
+                if pressed && self.active.load(Ordering::Acquire) {
+                    self.queue.push(CapturedInput::Guide);
+                }
+            }
+            PadEvent::ExitChord { slot } => {
+                self.aside(format!("{{\"pad\":\"exit\",\"slot\":{slot}}}"));
+                if self.active.load(Ordering::Acquire) {
+                    self.queue.push(CapturedInput::Shortcut(StreamShortcutAction::StopStream));
+                }
+            }
+        }
+    }
+}
+
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The pads as the runtime sees them: started once, told when a session is live and when the overlay has the input.
+pub struct PadBridge {
+    bridge: Arc<Bridge>,
+    runtime: Mutex<Option<PadRuntime>>,
+}
+
+impl PadBridge {
+    pub fn new(queue: Arc<CapturedInputQueue>) -> Self {
+        let side = std::env::var_os("LUMATV_GFN_PAD_SIDE").and_then(|p| UnixDatagram::unbound().ok().map(|s| (s, PathBuf::from(p))));
+        Self {
+            bridge: Arc::new(Bridge { queue, active: AtomicBool::new(false), paused: AtomicBool::new(false), side }),
+            runtime: Mutex::new(None),
+        }
+    }
+
+    pub fn start(&self) {
+        let mut rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+        if rt.is_none() {
+            let sink: Arc<dyn PadSink> = Arc::clone(&self.bridge) as Arc<dyn PadSink>;
+            *rt = Some(PadRuntime::start(PadConfig::from_env(), sink));
+        }
+    }
+
+    pub fn set_active(&self, active: bool) {
+        self.bridge.active.store(active, Ordering::Release);
+        if !active {
+            self.bridge.queue.clear();
+        }
+    }
+
+    pub fn set_paused(&self, paused: bool) {
+        self.bridge.paused.store(paused, Ordering::Release);
+    }
+
+    pub fn set_grab(&self, grab: bool) {
+        if let Some(rt) = self.runtime.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            rt.set_grab(grab);
+        }
+    }
+
+    pub fn rumble(&self, slot: u8, low: u16, high: u16, duration_ms: u32) -> Result<(), String> {
+        match self.runtime.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            Some(rt) => rt.rumble(slot, low, high, duration_ms).map_err(|e| e.to_string()),
+            None => Err("pads not started".to_owned()),
+        }
+    }
+
+    pub fn stop(&self) {
+        if let Some(rt) = self.runtime.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            rt.stop();
+        }
+    }
+
+    pub fn runtime(&self) -> Option<PadRuntime> {
+        self.runtime.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_reach_the_queue_only_while_active_and_not_paused() {
+        let queue = Arc::new(CapturedInputQueue::default());
+        let b = Bridge { queue: Arc::clone(&queue), active: AtomicBool::new(false), paused: AtomicBool::new(false), side: None };
+        let s = PadState { buttons: 0x1000, ..Default::default() };
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s });
+        assert!(queue.take().is_none());
+        b.active.store(true, Ordering::Release);
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s });
+        assert!(matches!(queue.take(), Some(CapturedInput::Gamepad { controller_id: 0, bitmap: 0x0101, buttons: 0x1000, .. })));
+        b.paused.store(true, Ordering::Release);
+        b.pad_event(0x0101, PadEvent::Report { slot: 0, state: s });
+        assert!(queue.take().is_none());
+        b.paused.store(false, Ordering::Release);
+        b.pad_event(0x0101, PadEvent::Guide { slot: 0, pressed: true });
+        assert!(matches!(queue.take(), Some(CapturedInput::Guide)));
+        b.pad_event(0x0101, PadEvent::ExitChord { slot: 0 });
+        assert!(matches!(queue.take(), Some(CapturedInput::Shortcut(StreamShortcutAction::StopStream))));
+        b.pad_event(0x0000, PadEvent::Disconnected { slot: 0 });
+        assert!(matches!(queue.take(), Some(CapturedInput::Gamepad { bitmap: 0, buttons: 0, .. })));
+        assert_eq!(json_str("a\"b"), "\"a\\\"b\"");
+    }
+}

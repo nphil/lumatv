@@ -1,0 +1,10 @@
+[package]
+name = "lumatv-gfn-pad"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Game controllers read straight from evdev for the GeForce NOW app: discovery, one reader thread per pad, the exclusive grab while a stream is in front, rumble"
+
+[dependencies]
+libc.workspace = true

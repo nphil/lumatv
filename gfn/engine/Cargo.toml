@@ -1,0 +1,40 @@
+# The GeForce NOW stream engine for the TV: OpenNOW's native streamer (pinned below) with its platform crate replaced by one that
+# feeds LG's video plane through lumatv-gfn-feeder and reads the controller from evdev. Nothing of upstream is modified: the git
+# source is patched by package name, and the binary's main is this workspace's own (crates/lumatv-gfn-streamer).
+[workspace]
+resolver = "2"
+members = ["crates/opennow-streamer-platform", "crates/lumatv-gfn-pad", "crates/lumatv-gfn-streamer", "crates/keyring"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+opennow-streamer-core = { git = "https://github.com/OpenCloudGaming/OpenNOW", rev = "a49b124ce31e87113fd4961f6a321fbf0ad1fdc5" }
+opennow-streamer-protocol = { git = "https://github.com/OpenCloudGaming/OpenNOW", rev = "a49b124ce31e87113fd4961f6a321fbf0ad1fdc5" }
+opennow-streamer-transport = { git = "https://github.com/OpenCloudGaming/OpenNOW", rev = "a49b124ce31e87113fd4961f6a321fbf0ad1fdc5" }
+opennow-streamer-hid = { git = "https://github.com/OpenCloudGaming/OpenNOW", rev = "a49b124ce31e87113fd4961f6a321fbf0ad1fdc5" }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Upstream's streamer workspace patches these from its vendor/ tree; a git dependency does not carry its workspace's patches, so they
+# are repeated here from the same revision.
+[patch.crates-io]
+str0m = { git = "https://github.com/OpenCloudGaming/OpenNOW", rev = "a49b124ce31e87113fd4961f6a321fbf0ad1fdc5" }
+keyring = { path = "crates/keyring" }
+
+[patch."https://github.com/OpenCloudGaming/OpenNOW"]
+opennow-streamer-platform = { path = "crates/opennow-streamer-platform" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+strip = false
+debug = "line-tables-only"
+
+[profile.dev]
+debug = "line-tables-only"

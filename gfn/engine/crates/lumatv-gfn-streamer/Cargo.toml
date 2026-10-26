@@ -1,0 +1,17 @@
+[package]
+name = "lumatv-gfn-streamer"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The GeForce NOW stream engine for the TV: OpenNOW's native streamer with the webOS platform crate, spoken to by opennow-core over JSON lines"
+
+[[bin]]
+name = "opennow-streamer"
+path = "src/main.rs"
+
+[dependencies]
+opennow-streamer-core.workspace = true
+opennow-streamer-platform = { path = "../opennow-streamer-platform" }
+opennow-streamer-protocol.workspace = true
+serde_json.workspace = true

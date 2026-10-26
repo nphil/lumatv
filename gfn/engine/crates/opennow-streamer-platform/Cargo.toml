@@ -1,0 +1,18 @@
+[package]
+name = "opennow-streamer-platform"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "MIT"
+description = "OpenNOW's platform crate for LG webOS: the stream goes to lumatv-gfn-feeder (LG's NDL DirectMedia, 32-bit) over a socket; controllers come from evdev"
+
+[features]
+default = []
+test-runtime = []
+
+[dependencies]
+libc.workspace = true
+lumatv-gfn-pad = { path = "../lumatv-gfn-pad" }
+opennow-streamer-protocol.workspace = true
+serde_json.workspace = true

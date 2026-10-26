@@ -1,0 +1,3 @@
+#!/bin/sh
+# Host C compiler and linker: the workstation has no cc; cargo-zigbuild rewrites the flags cc-rs passes into what zig takes.
+exec cargo-zigbuild zig cc -- "$@"
