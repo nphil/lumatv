@@ -7,8 +7,10 @@
 //! `session.create` (acknowledged with an `ack` as the protocol demands), `session.poll` until the seat is ready (status 2 or 3 with
 //! endpoints), `streamer.start {session}`. Stopping is `streamer.stop` and `session.stop`. HDR is only resolved against the runtime
 //! capabilities the shell passes, so `session.create` carries the engine's report plus `nativeHdrSupported` and the display's nits.
+use crate::gfn::prefs::{Prefs, Row};
 use crate::home::Key;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::time::Duration;
 
 /// The screens, in the order Back walks them.
@@ -18,6 +20,8 @@ pub enum Screen {
     Starting,
     SignIn,
     Library,
+    /// The stream's tier, HDR, the bitrate cap, the stick dead zone and the stats line, from the library's header.
+    Settings,
     Detail,
     Launching,
     Stream,
@@ -37,6 +41,18 @@ pub struct Game {
     pub image_url: String,
     pub store: String,
     pub in_library: bool,
+}
+
+/// What the core has said about one picture of the library, by its source address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Art {
+    /// Asked for; the core is fetching it (or has not answered yet).
+    Pending,
+    /// In the core's disk cache at this path.
+    File(String),
+    /// The core could not give it (no network, a refusal) at this time on the app's clock: the tile keeps its placeholder, and the
+    /// picture is asked for again after [`ART_AGAIN_MS`] if its tile is on the screen.
+    Missing(u64),
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -107,12 +123,37 @@ pub enum Action {
     Ack { id: String },
     /// The engine's input is paused (the overlay has the pad) or resumed.
     PauseInput(bool),
+    /// The settings screen changed a value: the app writes its preferences file.
+    SavePrefs(Prefs),
     Exit(String),
 }
 
 pub const OVERLAY_HIDE_MS: u64 = 4000;
 pub const POLL_SESSION_MS: u64 = 2000;
 pub const LIBRARY_COLUMNS: usize = 6;
+/// Rows of tiles on the screen at once; the grid scrolls by whole rows.
+pub const GRID_ROWS: usize = 2;
+/// OK held this long on a settings row opens the row's explanation (the help mark's gesture on LumaTV's own settings).
+pub const HOLD_MS: u64 = 600;
+/// Box art is asked for again this long after the core said it was busy.
+pub const ART_RETRY_MS: u64 = 1500;
+/// Picture requests waiting for an answer at once: the core serves its library and picture calls on four workers between them and
+/// refuses the rest as busy, and a library page must never be the call that is refused.
+pub const ART_INFLIGHT: usize = 3;
+/// A picture the core could not give is asked for again this long after, when its tile is on the screen.
+pub const ART_AGAIN_MS: u64 = 60_000;
+
+/// The first row shown so that the focused tile is on the screen.
+pub fn first_row_for(focus: usize, current: usize) -> usize {
+    let row = focus / LIBRARY_COLUMNS;
+    if row < current {
+        row
+    } else if row >= current + GRID_ROWS {
+        row + 1 - GRID_ROWS
+    } else {
+        current
+    }
+}
 
 pub struct App {
     pub screen: Screen,
@@ -135,7 +176,16 @@ pub struct App {
     pub overlay_row: usize,
     pub overlay_since_ms: u64,
     pub chrome_until_ms: u64,
-    pub show_stats: bool,
+    pub prefs: Prefs,
+    /// The settings row with the focus, and whether its explanation is open.
+    pub settings_row: usize,
+    pub help_open: bool,
+    /// The library's focus is on the header's settings button, above the first row of tiles.
+    pub header_focus: bool,
+    /// The first row of tiles on the screen.
+    pub first_row: usize,
+    /// The box art of the library, by source address.
+    pub art: HashMap<String, Art>,
     pub error: String,
     pub runtime_capabilities: Value,
     pub region: Option<(String, String)>,
@@ -145,6 +195,17 @@ pub struct App {
     create_id: String,
     hello_done: bool,
     minimized: bool,
+    /// The regions are asked for with the first `settings.set` answer (the handshake's), not with the ones the settings screen causes.
+    regions_asked: bool,
+    ok_down_ms: Option<u64>,
+    ok_held: bool,
+    ok_swallow: bool,
+    /// Request id to source address for the picture requests in flight, and the core's normalised spelling of an address to ours.
+    art_ids: HashMap<String, String>,
+    art_alias: HashMap<String, String>,
+    art_retry_ms: u64,
+    /// Picture requests asked and not yet answered.
+    art_asked: usize,
 }
 
 fn key_of(code: u32) -> Option<Key> {
@@ -153,6 +214,10 @@ fn key_of(code: u32) -> Option<Key> {
 
 impl App {
     pub fn new() -> Self {
+        Self::with_prefs(Prefs::default())
+    }
+
+    pub fn with_prefs(prefs: Prefs) -> Self {
         Self {
             screen: Screen::Starting,
             previous: Screen::Starting,
@@ -174,7 +239,12 @@ impl App {
             overlay_row: 0,
             overlay_since_ms: 0,
             chrome_until_ms: 0,
-            show_stats: false,
+            prefs,
+            settings_row: 0,
+            help_open: false,
+            header_focus: false,
+            first_row: 0,
+            art: HashMap::new(),
             error: String::new(),
             runtime_capabilities: Value::Null,
             region: None,
@@ -184,6 +254,14 @@ impl App {
             create_id: String::new(),
             hello_done: false,
             minimized: false,
+            regions_asked: false,
+            ok_down_ms: None,
+            ok_held: false,
+            ok_swallow: false,
+            art_ids: HashMap::new(),
+            art_alias: HashMap::new(),
+            art_retry_ms: 0,
+            art_asked: 0,
         }
     }
 
@@ -210,6 +288,11 @@ impl App {
         !self.minimized
     }
 
+    /// The library has asked for a page and has not heard back: an empty grid is a wait, not an empty library.
+    pub fn loading_library(&self) -> bool {
+        self.has_pending("catalog.library.list")
+    }
+
     /// When the loop should wake the rules next, if nothing else happens.
     pub fn next_wake(&self) -> Option<Duration> {
         let mut at: Option<u64> = None;
@@ -224,6 +307,14 @@ impl App {
         if self.screen == Screen::Stream && self.now_ms < self.chrome_until_ms {
             consider(self.chrome_until_ms);
         }
+        if let Some(t) = self.ok_down_ms {
+            if self.screen == Screen::Settings && !self.ok_held && !self.help_open {
+                consider(t + HOLD_MS);
+            }
+        }
+        if self.screen == Screen::Library && self.art_retry_ms > 0 {
+            consider(self.art_retry_ms);
+        }
         at.map(|t| Duration::from_millis(t.saturating_sub(self.now_ms)))
     }
 
@@ -234,13 +325,14 @@ impl App {
                 self.tick()
             }
             Input::Key { code, pressed } => {
+                let Some(k) = key_of(code) else { return Vec::new() };
+                if self.screen == Screen::Settings && k == Key::Ok {
+                    return self.settings_ok(pressed);
+                }
                 if !pressed {
                     return Vec::new();
                 }
-                match key_of(code) {
-                    Some(k) => self.key(k),
-                    None => Vec::new(),
-                }
+                self.key(k)
             }
             Input::Pad(p) => self.pad(p),
             Input::Core(m) => self.core(m),
@@ -263,6 +355,16 @@ impl App {
             self.sign_in.poll_id = "pending".to_owned();
             out.push(Self::req("auth.device.poll", json!({"attemptId": self.sign_in.attempt_id})));
         }
+        if let Some(t) = self.ok_down_ms {
+            if self.screen == Screen::Settings && !self.ok_held && !self.help_open && self.now_ms >= t + HOLD_MS {
+                self.ok_held = true;
+                self.help_open = true;
+            }
+        }
+        if self.art_retry_ms > 0 && self.now_ms >= self.art_retry_ms && self.screen == Screen::Library {
+            self.art_retry_ms = 0;
+            out.extend(self.art_wanted());
+        }
         out
     }
 
@@ -278,6 +380,7 @@ impl App {
                 _ => Vec::new(),
             },
             Screen::Library => self.library_key(k),
+            Screen::Settings => self.settings_key(k),
             Screen::Detail => match k {
                 Key::Back => {
                     self.screen = Screen::Library;
@@ -338,6 +441,17 @@ impl App {
 
     fn library_key(&mut self, k: Key) -> Vec<Action> {
         let n = self.games.len();
+        if self.header_focus {
+            return match k {
+                Key::Back => self.leave("back on the library"),
+                Key::Ok => self.open_settings(),
+                Key::Down if n > 0 => {
+                    self.header_focus = false;
+                    Vec::new()
+                }
+                _ => Vec::new(),
+            };
+        }
         match k {
             Key::Back => self.leave("back on the library"),
             Key::Ok => {
@@ -350,26 +464,148 @@ impl App {
             }
             Key::Left if self.focus > 0 => {
                 self.focus -= 1;
-                Vec::new()
+                self.moved()
             }
             Key::Right if self.focus + 1 < n => {
                 self.focus += 1;
-                Vec::new()
+                self.moved()
             }
             Key::Up if self.focus >= LIBRARY_COLUMNS => {
                 self.focus -= LIBRARY_COLUMNS;
+                self.moved()
+            }
+            Key::Up => {
+                self.header_focus = true;
                 Vec::new()
             }
             Key::Down if self.focus + LIBRARY_COLUMNS < n => {
                 self.focus += LIBRARY_COLUMNS;
-                self.maybe_fetch_more()
+                self.moved()
             }
             Key::Down if n > 0 && self.focus < n - 1 => {
                 self.focus = n - 1;
-                self.maybe_fetch_more()
+                self.moved()
             }
             _ => Vec::new(),
         }
+    }
+
+    /// The focus moved: the grid scrolls to keep it on the screen, the pictures near it are asked for, and the next page is fetched
+    /// when the end is near.
+    fn moved(&mut self) -> Vec<Action> {
+        self.first_row = first_row_for(self.focus, self.first_row);
+        let mut out = self.maybe_fetch_more();
+        out.extend(self.art_wanted());
+        out
+    }
+
+    /// The pictures of the tiles on the screen first, then of the row below and the row above, once each: `artwork.resolve` answers
+    /// with a file in the core's disk cache, or with "pending" and an `artwork.ready` event when the download is done. At most
+    /// [`ART_INFLIGHT`] requests wait at a time; each answer asks for the next.
+    fn art_wanted(&mut self) -> Vec<Action> {
+        if self.now_ms < self.art_retry_ms || !matches!(self.screen, Screen::Library | Screen::Settings | Screen::Detail) {
+            return Vec::new();
+        }
+        let n = self.games.len();
+        let row = |r: usize| (r * LIBRARY_COLUMNS).min(n)..((r + 1) * LIBRARY_COLUMNS).min(n);
+        let mut order: Vec<usize> = (self.first_row..self.first_row + GRID_ROWS).flat_map(row).collect();
+        order.extend(row(self.first_row + GRID_ROWS));
+        if self.first_row > 0 {
+            order.extend(row(self.first_row - 1));
+        }
+        let mut out = Vec::new();
+        for i in order {
+            if self.art_asked >= ART_INFLIGHT {
+                break;
+            }
+            let url = self.games[i].image_url.clone();
+            let due = match self.art.get(&url) {
+                None => true,
+                Some(Art::Missing(at)) => self.now_ms >= at + ART_AGAIN_MS,
+                Some(_) => false,
+            };
+            if url.is_empty() || !due {
+                continue;
+            }
+            self.art.insert(url.clone(), Art::Pending);
+            self.art_asked += 1;
+            out.push(Self::req("artwork.resolve", json!({"sourceUrl": url})));
+        }
+        out
+    }
+
+    fn open_settings(&mut self) -> Vec<Action> {
+        self.screen = Screen::Settings;
+        self.settings_row = 0;
+        self.help_open = false;
+        self.ok_down_ms = None;
+        self.ok_held = false;
+        Vec::new()
+    }
+
+    fn settings_key(&mut self, k: Key) -> Vec<Action> {
+        if self.help_open {
+            self.help_open = false;   /* any key closes the explanation, and is not also a command */
+            return Vec::new();
+        }
+        match k {
+            Key::Back => {
+                self.screen = Screen::Library;
+                self.ok_down_ms = None;
+                self.ok_held = false;
+                Vec::new()
+            }
+            Key::Up if self.settings_row > 0 => {
+                self.settings_row -= 1;
+                Vec::new()
+            }
+            Key::Down if self.settings_row + 1 < Row::ALL.len() => {
+                self.settings_row += 1;
+                Vec::new()
+            }
+            Key::Left => self.settings_step(-1, false),
+            Key::Right => self.settings_step(1, false),
+            Key::Ok => self.settings_step(1, true),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A row's value one rung along (round to the other end on OK); a changed value is kept in the preferences file and, when the core
+    /// needs it, sent to the core.
+    fn settings_step(&mut self, step: i32, wrap: bool) -> Vec<Action> {
+        let row = Row::ALL[self.settings_row];
+        if !row.step(&mut self.prefs, step, wrap) {
+            return Vec::new();
+        }
+        let mut out = vec![Action::SavePrefs(self.prefs)];
+        if row.is_core_setting() {
+            out.push(Self::req("settings.set", self.prefs.settings()));
+        }
+        out
+    }
+
+    /// OK on the settings screen is told by how long it is held: pressed and let go it is the row's action, held for `HOLD_MS` it opens the
+    /// row's explanation. While an explanation is open, OK closes it and the release that follows does nothing.
+    fn settings_ok(&mut self, pressed: bool) -> Vec<Action> {
+        if pressed {
+            if self.help_open {
+                self.help_open = false;
+                self.ok_swallow = true;
+                self.ok_down_ms = None;
+                self.ok_held = false;
+            } else if self.ok_down_ms.is_none() {
+                self.ok_down_ms = Some(self.now_ms);
+                self.ok_held = false;
+            }
+            return Vec::new();
+        }
+        let down = self.ok_down_ms.take();
+        let swallowed = std::mem::take(&mut self.ok_swallow);
+        let held = std::mem::take(&mut self.ok_held);
+        if swallowed || held || down.is_none() {
+            return Vec::new();
+        }
+        self.settings_step(1, true)
     }
 
     fn maybe_fetch_more(&mut self) -> Vec<Action> {
@@ -444,8 +680,10 @@ impl App {
             Key::Ok => match self.overlay_row {
                 0 => self.close_overlay(),
                 1 => {
-                    self.show_stats = !self.show_stats;
-                    self.close_overlay()
+                    self.prefs.show_stats = !self.prefs.show_stats;
+                    let mut out = vec![Action::SavePrefs(self.prefs)];
+                    out.extend(self.close_overlay());
+                    out
                 }
                 _ => self.stop_session(),
             },
@@ -486,6 +724,16 @@ impl App {
         }
     }
 
+    /// [`App::sent`] for a request whose parameters matter to the answer: a picture request's address is what its answer is about.
+    pub fn sent_params(&mut self, id: &str, method: &str, params: &Value) {
+        self.sent(id, method);
+        if method == "artwork.resolve" {
+            if let Some(url) = params["sourceUrl"].as_str() {
+                self.art_ids.insert(id.to_owned(), url.to_owned());
+            }
+        }
+    }
+
     fn core(&mut self, m: crate::gfn::core::CoreMsg) -> Vec<Action> {
         use crate::gfn::core::CoreMsg;
         match m {
@@ -493,12 +741,31 @@ impl App {
             CoreMsg::Event { name, payload } => self.event(&name, payload),
             CoreMsg::Response { id, method, ok, result, error_code, error_message } => {
                 self.pending.retain(|(i, _)| *i != id);
+                if method == "artwork.resolve" {
+                    self.art_asked = self.art_asked.saturating_sub(1);
+                    let mut out = if ok { self.response(&id, &method, result) } else { self.art_failed(&id, &error_code) };
+                    out.extend(self.art_wanted());
+                    return out;
+                }
                 if !ok {
                     return self.error_response(&method, &error_code, &error_message);
                 }
                 self.response(&id, &method, result)
             }
         }
+    }
+
+    /// A picture request failed: a picture is never worth an error screen. Busy is asked again soon; anything else leaves the placeholder.
+    fn art_failed(&mut self, id: &str, code: &str) -> Vec<Action> {
+        if let Some(url) = self.art_ids.remove(id) {
+            if code == "busy" {
+                self.art.remove(&url);
+                self.art_retry_ms = self.now_ms + ART_RETRY_MS;
+            } else {
+                self.art.insert(url, Art::Missing(self.now_ms));
+            }
+        }
+        Vec::new()
     }
 
     fn error_response(&mut self, method: &str, code: &str, message: &str) -> Vec<Action> {
@@ -540,9 +807,13 @@ impl App {
                 caps["nativeHdrSupported"] = json!(true);
                 caps["nativeHdrDisplay"] = json!({"minimumNits": 0, "maximumNits": 1000, "maximumFullFrameNits": 400});
                 self.runtime_capabilities = caps;
-                vec![Self::req("settings.set", json!({"resolution": "3840x2160", "fps": 120, "codec": "auto", "colorQuality": "10bit_420", "enableHdr": true, "maxBitrateMbps": 80, "nativeVideoBackend": "ndl"}))]
+                vec![Self::req("settings.set", self.prefs.settings())]
             }
-            "settings.set" => vec![Self::req("network.regions.list", json!({}))],
+            "settings.set" if !self.regions_asked => {
+                self.regions_asked = true;
+                vec![Self::req("network.regions.list", json!({}))]
+            }
+            "settings.set" => Vec::new(),
             "network.regions.list" => {
                 if let Some(first) = r["regions"].as_array().and_then(|a| a.first()) {
                     if let (Some(n), Some(u)) = (first["name"].as_str(), first["url"].as_str()) {
@@ -606,7 +877,7 @@ impl App {
                 self.next_cursor = r["nextCursor"].as_str().unwrap_or("").to_owned();
                 self.catalog_revision = r["catalogRevision"].clone();
                 self.catalog_context = r["catalogContext"].clone();
-                Vec::new()
+                self.art_wanted()
             }
             "catalog.launch.inspect" => {
                 self.decision = r["decision"]["status"].as_str().unwrap_or("metadata_unconfirmed").to_owned();
@@ -634,6 +905,21 @@ impl App {
                 self.screen = Screen::Stream;
                 self.chrome_until_ms = self.now_ms + OVERLAY_HIDE_MS;
                 self.stats_from(&r);
+                Vec::new()
+            }
+            "artwork.resolve" => {
+                let Some(url) = self.art_ids.remove(id) else { return Vec::new() };
+                if let Some(norm) = r["sourceUrl"].as_str() {
+                    if norm != url {
+                        self.art_alias.insert(norm.to_owned(), url.clone());
+                    }
+                }
+                let state = match r["status"].as_str() {
+                    Some("ready") if r["filePath"].as_str().is_some_and(|p| !p.is_empty()) => Art::File(r["filePath"].as_str().unwrap_or("").to_owned()),
+                    Some("pending") => Art::Pending,
+                    _ => Art::Missing(self.now_ms),
+                };
+                self.art.insert(url, state);
                 Vec::new()
             }
             _ => Vec::new(),
@@ -724,6 +1010,17 @@ impl App {
                 }
                 Vec::new()
             }
+            "artwork.ready" => {
+                let reported = payload["sourceUrl"].as_str().unwrap_or("");
+                let url = self.art_alias.get(reported).map(String::as_str).unwrap_or(reported).to_owned();
+                if let Some(slot) = self.art.get_mut(&url) {
+                    *slot = match payload["filePath"].as_str() {
+                        Some(p) if payload["cached"] == true && !p.is_empty() => Art::File(p.to_owned()),
+                        _ => Art::Missing(self.now_ms),
+                    };
+                }
+                Vec::new()
+            }
             _ => Vec::new(),
         }
     }
@@ -742,7 +1039,7 @@ fn game_of(g: &Value) -> Game {
         id: g["id"].as_str().map(str::to_owned).unwrap_or_else(|| g["id"].to_string()),
         variant_id: selected["id"].as_str().map(str::to_owned).unwrap_or_else(|| if selected["id"].is_null() { String::new() } else { selected["id"].to_string() }),
         title: g["title"].as_str().unwrap_or("").to_owned(),
-        image_url: g["imageUrl"].as_str().or_else(|| g["keyArtUrl"].as_str()).unwrap_or("").to_owned(),
+        image_url: g["imageUrl"].as_str().or_else(|| g["keyArtUrl"].as_str()).or_else(|| g["heroImageUrl"].as_str()).unwrap_or("").to_owned(),
         store: selected["store"].as_str().unwrap_or("").to_owned(),
         in_library: selected["inLibrary"] == true,
     }
@@ -774,6 +1071,27 @@ mod tests {
             "variants": [{"id": format!("v{i}"), "store": "STEAM", "inLibrary": true}]})).collect::<Vec<_>>())
     }
 
+    /// What the loop does with the requests the rules return: each is sent and noted with its id (`art<N>`, in order); the picture
+    /// requests come back as (id, address).
+    fn sent_art(app: &mut App, actions: &[Action], n: &mut u32) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for a in actions {
+            if let Action::Request { method, params } = a {
+                *n += 1;
+                let id = format!("art{n}");
+                app.sent_params(&id, method, params);
+                if method == "artwork.resolve" {
+                    out.push((id, params["sourceUrl"].as_str().unwrap_or("").to_owned()));
+                }
+            }
+        }
+        out
+    }
+
+    fn ready(url: &str, path: &str) -> Value {
+        json!({"status": "ready", "sourceUrl": url, "artworkUrl": format!("file://{path}"), "filePath": path, "cached": true})
+    }
+
     /// The handshake through the library, with the sign-in in between: the requests in OpenNOW's order.
     fn signed_in_app() -> App {
         let mut app = App::new();
@@ -792,6 +1110,8 @@ mod tests {
             assert_eq!(params["fps"], 120);
             assert_eq!(params["enableHdr"], true);
         }
+        app.sent("2b", "settings.set");
+        assert_eq!(methods(&app.handle(ok("2b", "settings.set", json!({"settings": {}})))), ["network.regions.list"]);
         let a = app.handle(ok("3", "auth.session.get", json!({"session": null, "scope": {"generation": 1}})));
         assert_eq!(app.screen, Screen::SignIn);
         assert_eq!(methods(&a), ["auth.device.start"]);
@@ -817,7 +1137,10 @@ mod tests {
         assert_eq!((app.user_name.as_str(), app.tier.as_str()), ("Nitin", "ULTIMATE"));
         assert_eq!(methods(&a), ["catalog.library.list"]);
         app.sent("8", "catalog.library.list");
-        app.handle(ok("8", "catalog.library.list", json!({"games": games(14), "nextCursor": "c2", "hasNextPage": true, "catalogRevision": 3, "catalogContext": "ctx"})));
+        let a = app.handle(ok("8", "catalog.library.list", json!({"games": games(14), "nextCursor": "c2", "hasNextPage": true, "catalogRevision": 3, "catalogContext": "ctx"})));
+        // the first pictures are in flight and stay so: the tests below that are not about pictures see no picture requests
+        let mut n = 0;
+        assert_eq!(sent_art(&mut app, &a, &mut n).len(), ART_INFLIGHT);
         assert_eq!(app.games.len(), 14);
         assert_eq!(app.games[0].variant_id, "v0");
         app
@@ -994,5 +1317,216 @@ mod tests {
         assert!(!app.wants_frames());
         app.handle(Input::State(crate::card::FULLSCREEN));
         assert!(app.wants_frames());
+    }
+
+    #[test]
+    fn the_library_asks_for_the_pictures_on_the_screen_three_at_a_time_and_each_answer_asks_for_the_next() {
+        let mut app = App::new();
+        app.screen = Screen::Library;
+        let a = app.handle(ok("1", "catalog.library.list", json!({"games": games(30), "nextCursor": "", "catalogRevision": 1, "catalogContext": "c"})));
+        let mut n = 0;
+        let mut asked = sent_art(&mut app, &a, &mut n);
+        let urls = |v: &[(String, String)]| v.iter().map(|(_, u)| u.clone()).collect::<Vec<_>>();
+        assert_eq!(urls(&asked), ["https://x/0.jpg", "https://x/1.jpg", "https://x/2.jpg"], "the first row first, three at a time");
+        // every answer lets exactly one more go, in the order of the screen: the two visible rows, then the row below, never more than three waiting
+        let mut order = urls(&asked);
+        let mut in_flight = asked.clone();
+        while let Some((id, url)) = in_flight.first().cloned() {
+            in_flight.remove(0);
+            let a = app.handle(ok(&id, "artwork.resolve", ready(&url, &format!("/cache/{}", url.rsplit('/').next().unwrap()))));
+            assert!(matches!(app.art.get(&url), Some(Art::File(_))));
+            let more = sent_art(&mut app, &a, &mut n);
+            assert!(more.len() <= 1, "one answer, at most one more request");
+            order.extend(urls(&more));
+            in_flight.extend(more);
+            assert!(in_flight.len() <= ART_INFLIGHT);
+            asked.clear();
+        }
+        let want: Vec<String> = (0..18).map(|i| format!("https://x/{i}.jpg")).collect();
+        assert_eq!(order, want, "two visible rows (12) and the row below (6): the pictures of the row above and of the rest wait for the focus to move");
+        // moving down two rows scrolls the grid by one: the row below that is asked for now (the rows already asked for are not)
+        for _ in 0..2 {
+            let a = app.handle(key(108));
+            let more = sent_art(&mut app, &a, &mut n);
+            order.extend(urls(&more));
+        }
+        assert_eq!(app.first_row, 1);
+        assert_eq!(order.len(), 21, "the row below has six pictures: three go at once, the rest wait for answers");
+        assert_eq!(order[18], "https://x/18.jpg");
+    }
+
+    #[test]
+    fn a_picture_the_core_is_still_fetching_arrives_by_its_event_and_one_it_could_not_get_is_asked_for_again_after_a_minute() {
+        let mut app = App::new();
+        app.screen = Screen::Library;
+        let a = app.handle(ok("1", "catalog.library.list", json!({"games": games(3), "nextCursor": "", "catalogRevision": 1, "catalogContext": "c"})));
+        let mut n = 0;
+        let asked = sent_art(&mut app, &a, &mut n);
+        assert_eq!(asked.len(), 3);
+        let (a0, u0) = asked[0].clone();
+        let (a1, u1) = asked[1].clone();
+        let (a2, u2) = asked[2].clone();
+        // pending: the tile keeps its placeholder until the core says the file is there; the core spells the address its own way
+        app.handle(ok(&a0, "artwork.resolve", json!({"status": "pending", "sourceUrl": "https://x/0.jpg?normalised"})));
+        assert_eq!(app.art[&u0], Art::Pending);
+        app.handle(Input::Core(CoreMsg::Event { name: "artwork.ready".into(), payload: json!({"sourceUrl": "https://x/0.jpg?normalised", "filePath": "/cache/a.jpg", "cached": true}) }));
+        assert_eq!(app.art[&u0], Art::File("/cache/a.jpg".into()));
+        // a download that failed: the placeholder stays, and nothing asks again for a minute
+        app.handle(Input::Tick { now_ms: 5000 });
+        app.handle(ok(&a1, "artwork.resolve", json!({"status": "pending", "sourceUrl": u1})));
+        app.handle(Input::Core(CoreMsg::Event { name: "artwork.ready".into(), payload: json!({"sourceUrl": u1, "cached": false, "fallbackReason": "network-error"}) }));
+        assert_eq!(app.art[&u1], Art::Missing(5000));
+        app.handle(ok(&a2, "artwork.resolve", json!({"status": "fallback", "sourceUrl": u2, "fallbackReason": "queue-full"})));
+        assert_eq!(app.art[&u2], Art::Missing(5000));
+        app.handle(Input::Tick { now_ms: 5000 + ART_AGAIN_MS - 1 });
+        assert!(methods(&app.handle(key(106))).is_empty(), "not yet");
+        app.handle(Input::Tick { now_ms: 5000 + ART_AGAIN_MS });
+        let a = app.handle(key(105));
+        let again = sent_art(&mut app, &a, &mut n);
+        assert_eq!(again.iter().map(|(_, u)| u.as_str()).collect::<Vec<_>>(), ["https://x/1.jpg", "https://x/2.jpg"]);
+        assert_eq!(app.art[&u1], Art::Pending);
+    }
+
+    #[test]
+    fn a_busy_core_gets_the_picture_request_again_after_a_moment_and_a_picture_never_makes_an_error_screen() {
+        let mut app = App::new();
+        app.screen = Screen::Library;
+        app.handle(Input::Tick { now_ms: 100 });
+        let a = app.handle(ok("1", "catalog.library.list", json!({"games": games(2), "nextCursor": "", "catalogRevision": 1, "catalogContext": "c"})));
+        let mut n = 0;
+        let asked = sent_art(&mut app, &a, &mut n);
+        let a = app.handle(err(&asked[0].0, "artwork.resolve", "busy", "the core is busy"));
+        assert!(a.is_empty(), "no new request while the core says busy");
+        assert_eq!(app.screen, Screen::Library);
+        assert!(!app.art.contains_key(&asked[0].1));
+        assert_eq!(app.next_wake(), Some(Duration::from_millis(ART_RETRY_MS)));
+        app.handle(err(&asked[1].0, "artwork.resolve", "invalid_params", "not a picture address"));
+        assert_eq!(app.screen, Screen::Library, "a refused picture is not an error screen");
+        assert_eq!(app.art[&asked[1].1], Art::Missing(100));
+        let a = app.handle(Input::Tick { now_ms: 100 + ART_RETRY_MS });
+        let again = sent_art(&mut app, &a, &mut n);
+        assert_eq!(again.iter().map(|(_, u)| u.as_str()).collect::<Vec<_>>(), ["https://x/0.jpg"]);
+        assert_eq!(app.next_wake(), None);
+    }
+
+    #[test]
+    fn the_settings_screen_is_reached_from_the_header_and_each_change_is_kept_and_sent_to_the_core() {
+        use crate::gfn::prefs::Tier;
+        let mut app = signed_in_app();
+        app.handle(key(103));
+        assert!(app.header_focus, "Up from the first row reaches the header's button");
+        assert!(app.handle(key(108)).is_empty());
+        assert!(!app.header_focus);
+        app.handle(key(103));
+        assert!(app.handle(key(28)).is_empty());
+        assert_eq!(app.screen, Screen::Settings);
+        let set = |a: &[Action]| -> Value {
+            assert!(matches!(a[0], Action::SavePrefs(_)), "the change is kept first");
+            match &a[1] {
+                Action::Request { method, params } if method == "settings.set" => params.clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        let a = app.handle(key(106));
+        assert_eq!(app.prefs.tier, Tier::Qhd120);
+        assert!(matches!(a[0], Action::SavePrefs(p) if p.tier == Tier::Qhd120));
+        let p = set(&a);
+        assert_eq!((p["resolution"].as_str(), p["fps"].as_u64()), (Some("2560x1440"), Some(120)));
+        assert!(!app.handle(key(105)).is_empty());
+        assert_eq!(app.prefs.tier, Tier::Uhd120);
+        assert!(app.handle(key(105)).is_empty(), "nothing before the first rung: nothing to keep or send");
+        app.handle(key(108));
+        let p = set(&app.handle(key(106)));
+        assert_eq!((p["enableHdr"].as_bool(), p["colorQuality"].as_str()), (Some(false), Some("8bit_420")));
+        app.handle(key(108));
+        let p = set(&app.handle(key(106)));
+        assert_eq!(p["maxBitrateMbps"].as_u64(), Some(100));
+        assert!(app.handle(key(106)).is_empty(), "the ladder ends at 100");
+        app.handle(key(108));
+        let p = set(&app.handle(key(106)));
+        assert_eq!((p["controllerLeftStickDeadzone"].as_u64(), p["controllerRightStickDeadzone"].as_u64()), (Some(10), Some(10)));
+        app.handle(key(108));
+        let a = app.handle(key(106));
+        assert_eq!(a.len(), 1, "the stats line is the app's own: kept, not sent");
+        assert!(matches!(a[0], Action::SavePrefs(p) if p.show_stats));
+        assert!(app.handle(key(108)).is_empty());
+        assert_eq!(app.settings_row, 4);
+        // the answers to these do not ask for the regions again
+        app.sent("s1", "settings.set");
+        assert!(app.handle(ok("s1", "settings.set", json!({"settings": {}}))).is_empty());
+        app.handle(key(412));
+        assert_eq!(app.screen, Screen::Library);
+        assert!(app.header_focus, "back to the button the screen was opened from");
+        assert_eq!(app.handle(key(412)), vec![Action::Exit("back on the library".into())]);
+    }
+
+    #[test]
+    fn ok_on_a_settings_row_steps_it_round_and_held_for_600_ms_opens_the_explanation_which_any_key_closes() {
+        let mut app = signed_in_app();
+        app.handle(key(103));
+        app.handle(key(28));
+        app.handle(Input::Tick { now_ms: 1000 });
+        // a tap is a step with wrap
+        assert!(app.handle(Input::Key { code: 28, pressed: true }).is_empty());
+        assert_eq!(app.next_wake(), Some(Duration::from_millis(HOLD_MS)));
+        app.handle(Input::Tick { now_ms: 1200 });
+        assert!(!app.help_open);
+        let a = app.handle(Input::Key { code: 28, pressed: false });
+        assert_eq!(app.prefs.tier, crate::gfn::prefs::Tier::Qhd120);
+        assert!(matches!(a[0], Action::SavePrefs(_)));
+        // a hold opens the explanation of the focused row and the release that follows changes nothing
+        app.handle(Input::Tick { now_ms: 2000 });
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Key { code: 28, pressed: true });
+        assert_eq!(app.next_wake(), Some(Duration::from_millis(HOLD_MS)), "a repeat of the press does not restart the hold");
+        app.handle(Input::Tick { now_ms: 2000 + HOLD_MS });
+        assert!(app.help_open);
+        assert_eq!(app.next_wake(), None);
+        assert!(app.handle(Input::Key { code: 28, pressed: false }).is_empty());
+        assert!(app.help_open && app.prefs.tier == crate::gfn::prefs::Tier::Qhd120);
+        // a direction closes it and is not a move; OK closes it and its release is not a step
+        assert!(app.handle(key(108)).is_empty());
+        assert!(!app.help_open);
+        assert_eq!(app.settings_row, 0);
+        app.handle(Input::Tick { now_ms: 4000 });
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Tick { now_ms: 4000 + HOLD_MS });
+        assert!(app.help_open);
+        app.handle(Input::Key { code: 28, pressed: false });
+        assert!(app.handle(Input::Key { code: 28, pressed: true }).is_empty());
+        assert!(!app.help_open);
+        assert!(app.handle(Input::Key { code: 28, pressed: false }).is_empty());
+        assert_eq!(app.prefs.tier, crate::gfn::prefs::Tier::Qhd120, "the closing OK was not a step");
+        // Back closes the explanation first, and only then leaves the screen
+        app.handle(Input::Tick { now_ms: 6000 });
+        app.handle(Input::Key { code: 28, pressed: true });
+        app.handle(Input::Tick { now_ms: 6000 + HOLD_MS });
+        app.handle(Input::Key { code: 28, pressed: false });
+        assert!(app.help_open);
+        app.handle(key(412));
+        assert!(!app.help_open);
+        assert_eq!(app.screen, Screen::Settings);
+        app.handle(key(412));
+        assert_eq!(app.screen, Screen::Library);
+    }
+
+    #[test]
+    fn the_viewers_choices_are_what_the_handshake_sends_the_core_and_the_regions_follow_the_first_answer_only() {
+        use crate::gfn::prefs::{Prefs, Tier};
+        let mut app = App::with_prefs(Prefs { tier: Tier::Uhd60, hdr: false, bitrate_mbps: 50, deadzone: 12, show_stats: true });
+        app.start();
+        app.sent("1", "core.hello");
+        app.handle(ok("1", "core.hello", json!({})));
+        app.sent("2", "streamer.detect");
+        let a = app.handle(ok("2", "streamer.detect", json!({"capabilities": {"protocolVersion": 7}})));
+        let Action::Request { params, .. } = &a[0] else { panic!("{a:?}") };
+        assert_eq!((params["resolution"].as_str(), params["fps"].as_u64()), (Some("3840x2160"), Some(60)));
+        assert_eq!((params["enableHdr"].as_bool(), params["colorQuality"].as_str(), params["maxBitrateMbps"].as_u64()), (Some(false), Some("8bit_420"), Some(50)));
+        assert_eq!(params["controllerLeftStickDeadzone"].as_u64(), Some(12));
+        app.sent("3", "settings.set");
+        assert_eq!(methods(&app.handle(ok("3", "settings.set", json!({})))), ["network.regions.list"]);
+        app.sent("4", "settings.set");
+        assert!(app.handle(ok("4", "settings.set", json!({}))).is_empty());
+        assert_eq!(app.prefs.summary(), "4K · 60 fps");
     }
 }

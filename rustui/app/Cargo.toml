@@ -14,6 +14,8 @@ device-profile = { path = "../../../LumaShow/lumashow/crates/device-profile" }
 libc = "0.2"
 png = "0.17"
 serde_json = "1"
+jpeg-decoder = { version = "0.3", default-features = false }
+image-webp = { version = "0.2", default-features = false }
 
 [[bin]]
 name = "lumatv-damage-bench"
@@ -61,3 +63,4 @@ features = ["client"]
 lumatv-compositor = { path = "../../compositor/crates/lumatv-compositor" }
 wayland-server = "0.31"
 parking_lot = "0.12"
+jpeg-encoder = "0.7"

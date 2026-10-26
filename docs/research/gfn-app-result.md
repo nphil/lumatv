@@ -18,7 +18,7 @@ Done (2026-10-25/26, offline, host-tested; counts under "Checks run"):
 Open, in order:
 
 7. Phase 1 on the set (E1-E3, approved; the slot is Main's to grant): the list at the end; then the first launch of the whole app (step 11).
-8. After the TV: box art on the tiles (the core's `artwork.*` cache gives file paths; the toolkit's image layer takes pixels, so a JPEG decoder is needed in the app), the engine's stats in the status line beyond fps and bitrate, a settings screen (resolution and fps tiers, HDR, bitrate: `settings.set`), SAM registration in the feeder if step 3 asks for it.
+8. Box art on the tiles (`art.rs`: JPEG, PNG or WebP from the core's `artwork.*` cache, decoded on a worker thread, placeholder until it arrives) and the settings screen (`prefs.rs`: stream tier, HDR, bitrate cap, stick dead zone, stats line; reached from the library header, Hold OK explains a row) are built and host-tested; open: the engine reading the dead zone from `prefs.json`, the feeder's SAM start (the JSON argument SAM passes, registration, close), the engine's stats beyond fps and bitrate, TV checks of all of it.
 
 Commits: `b62692b` (streams, feeder, tests), `c422b7a` (engine, core build), `d57f2ce` (the package), `de33b62` (the core client and rules), then the screens, the window's export and the package with the UI. Builds needed after a fresh checkout: `sh gfn/feeder/build.sh`, `cd gfn/engine && cargo build && cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36 -p lumatv-gfn-streamer`, `sh gfn/engine/build-core.sh` (and `--host`), `gfx64/fetch-blob.sh && sh gfx64/build.sh`, `sh rustui/tools/build-gfn.sh`, `sh gfn/build-ipk.sh`, `python3 gfn/tools/gfn_streams.py gen` (15 minutes).
 

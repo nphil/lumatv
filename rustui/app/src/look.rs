@@ -30,6 +30,29 @@ pub fn black(alpha: f32) -> Rgba {
     Rgba(0, 0, 0, (alpha.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
 
+/// Which material the app is drawn in: `theme.json`'s `dark` or `light` roles. LumaHome picks by the wallpaper's brightness
+/// (`"material": "auto"`, threshold 0.55); the app reads the same rule from its own wallpaper ([`Mode::of_wallpaper`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Dark,
+    Light,
+}
+
+impl Mode {
+    /// `theme.json`'s `materialThreshold`: a wallpaper brighter than this is drawn on with the light material.
+    pub const THRESHOLD: f32 = 0.55;
+
+    /// The mode a wallpaper of straight RGBA pixels asks for: its mean relative luminance against the threshold.
+    pub fn of_wallpaper(rgba: &[u8]) -> Mode {
+        let n = (rgba.len() / 4).max(1) as f64;
+        let mut sum = 0.0;
+        for p in rgba.chunks_exact(4) {
+            sum += 0.2126 * f64::from(p[0]) + 0.7152 * f64::from(p[1]) + 0.0722 * f64::from(p[2]);
+        }
+        if sum / n / 255.0 > f64::from(Self::THRESHOLD) { Mode::Light } else { Mode::Dark }
+    }
+}
+
 pub struct Palette {
     pub ink: Rgba,
     pub ink2: Rgba,
@@ -41,20 +64,55 @@ pub struct Palette {
     pub accent: Rgba,
     pub second: Rgba,
     pub ink_on_accent: Rgba,
+    /// The backdrop that hides what is under a confirmation or an explanation (`scrimHide`, at least .97 opaque).
+    pub scrim_hide: Rgba,
+    /// Text over a picture's darkened strip: light in both modes, since the strip is dark in both.
+    pub on_art: Rgba,
+    /// A hairline, and the faint plate of a small pill.
+    pub rule: Rgba,
+    pub wash: Rgba,
 }
 
 pub fn palette() -> Palette {
-    Palette {
-        ink: hex("#F2EFF6"),
-        ink2: hex("#A8F2EFF6"),
-        ink3: hex("#6BF2EFF6"),
-        glass: hex("#66120E1A"),
-        glass_edge: hex("#21FFFFFF"),
-        glass_focus: hex("#8F2C263A"),
-        glass_focus_edge: hex("#33FFFFFF"),
-        accent: hex("#A79BF5"),
-        second: hex("#ff3b5c"),
-        ink_on_accent: hex("#17131F"),
+    palette_for(Mode::Dark)
+}
+
+/// `payload/theme/theme.json`'s `dark` and `light` colours for the roles the apps draw with. The light danger colour is darker than
+/// theme.json's `#B4637A` (3.8:1 on the light sheet) so that a destructive label reads at 4.5:1.
+pub fn palette_for(mode: Mode) -> Palette {
+    match mode {
+        Mode::Dark => Palette {
+            ink: hex("#F2EFF6"),
+            ink2: hex("#A8F2EFF6"),
+            ink3: hex("#6BF2EFF6"),
+            glass: hex("#66120E1A"),
+            glass_edge: hex("#21FFFFFF"),
+            glass_focus: hex("#8F2C263A"),
+            glass_focus_edge: hex("#33FFFFFF"),
+            accent: hex("#A79BF5"),
+            second: hex("#ff3b5c"),
+            ink_on_accent: hex("#17131F"),
+            scrim_hide: hex("#F8120E1A"),
+            on_art: hex("#F2EFF6"),
+            rule: white(0.10),
+            wash: white(0.10),
+        },
+        Mode::Light => Palette {
+            ink: hex("#17131F"),
+            ink2: hex("#A817131F"),
+            ink3: hex("#6B17131F"),
+            glass: hex("#85FFFFFF"),
+            glass_edge: hex("#D9FFFFFF"),
+            glass_focus: hex("#B8FFFFFF"),
+            glass_focus_edge: hex("#E6FFFFFF"),
+            accent: hex("#907AA9"),
+            second: hex("#9E3A57"),
+            ink_on_accent: hex("#FFFFFF"),
+            scrim_hide: hex("#F8FAF4ED"),
+            on_art: hex("#F2EFF6"),
+            rule: black(0.10),
+            wash: black(0.08),
+        },
     }
 }
 

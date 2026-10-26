@@ -13,7 +13,10 @@ use lumatv_render::{Demand, Gles, now_ns};
 use lumatv_rustui::card::{FULLSCREEN, key_of};
 use lumatv_rustui::gfn::app::{Action, App, Input, PadKey};
 use lumatv_rustui::gfn::core::{CoreClient, CoreMsg};
-use lumatv_rustui::gfn::ui::{GfnUi, H, W};
+use lumatv_rustui::gfn::layout::{H, W};
+use lumatv_rustui::gfn::prefs::Prefs;
+use lumatv_rustui::gfn::ui::GfnUi;
+use lumatv_rustui::look::Mode;
 use lumatv_rustui::window::{self, Event, Spec};
 use serde_json::Value;
 use std::io;
@@ -36,6 +39,10 @@ struct Options {
     pad_side: PathBuf,
     feeder_socket: PathBuf,
     window_id_file: PathBuf,
+    /// The text scale (1.0; Lucent's 200 % check is 2.0) and the material (`dark`, `light`; absent: the wallpaper's brightness decides).
+    text_scale: f32,
+    mode: Option<Mode>,
+    prefs: Option<PathBuf>,
 }
 
 fn parse() -> Result<Options, String> {
@@ -52,6 +59,9 @@ fn parse() -> Result<Options, String> {
         pad_side: PathBuf::from("/tmp/lumatv-gfn/pad.sock"),
         feeder_socket: PathBuf::from("/tmp/lumatv-gfn/feed.sock"),
         window_id_file: PathBuf::from("/tmp/lumatv-gfn/window-id"),
+        text_scale: 1.0,
+        mode: None,
+        prefs: None,
     };
     let mut args = std::env::args().skip(1);
     let mut core_args_given = false;
@@ -75,6 +85,16 @@ fn parse() -> Result<Options, String> {
             "--pad-side" => o.pad_side = PathBuf::from(value("--pad-side")?),
             "--feeder-socket" => o.feeder_socket = PathBuf::from(value("--feeder-socket")?),
             "--window-id-file" => o.window_id_file = PathBuf::from(value("--window-id-file")?),
+            "--text-scale" => o.text_scale = value("--text-scale")?.parse::<f32>().map_err(|e| format!("--text-scale: {e}"))?,
+            "--mode" => {
+                o.mode = match value("--mode")?.as_str() {
+                    "dark" => Some(Mode::Dark),
+                    "light" => Some(Mode::Light),
+                    "auto" => None,
+                    other => return Err(format!("--mode is dark, light or auto, not {other}")),
+                }
+            }
+            "--prefs" => o.prefs = Some(PathBuf::from(value("--prefs")?)),
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -206,6 +226,22 @@ impl PadSide {
     }
 }
 
+/// Where the core keeps its account files and the app its preferences: the directory asked for if this user can write there, else a
+/// directory under the temporary one (the account then has to be signed in again after a restart of the TV). SAM's jail may not
+/// give the app a persistent directory of its own.
+fn writable_data_dir(wanted: &PathBuf) -> PathBuf {
+    let probe = |dir: &PathBuf| -> bool {
+        let file = dir.join(format!(".write-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&file, b"x")).is_ok() && std::fs::remove_file(&file).is_ok()
+    };
+    if probe(wanted) {
+        return wanted.clone();
+    }
+    let fallback = std::env::temp_dir().join("lumatv-gfn-data");
+    log(&format!("{} is not writable: the account and the preferences go to {}, which does not survive a restart", wanted.display(), fallback.display()));
+    fallback
+}
+
 fn run(o: Options) -> io::Result<i32> {
     log(&format!("start: {} core {} engine {} data {}", o.app_id, o.core.display(), o.engine.display(), o.data.display()));
     let _ = std::fs::remove_dir_all(&o.shm);
@@ -261,20 +297,23 @@ fn run(o: Options) -> io::Result<i32> {
             std::thread::sleep(Duration::from_millis(1));
         }
     };
-    let mut page = GfnUi::build(ui, &o.assets, &mut land)?;
+    let mut page = GfnUi::build(ui, &o.assets, o.text_scale, o.mode, None, &mut land)?;
     land(&mut page.ui)?;
 
     // The core, with the engine's whereabouts and the feeder's socket in its environment (the engine reads them; the core passes
-    // its environment on).
+    // its environment on). The engine reads the dead zone from the preferences file when a stream starts.
+    let data = writable_data_dir(&o.data);
+    let prefs_path = o.prefs.clone().unwrap_or_else(|| data.join("prefs.json"));
     let env = [
         ("LUMATV_GFN_FEEDER_SOCKET", o.feeder_socket.to_string_lossy().into_owned()),
         ("LUMATV_GFN_PAD_SIDE", o.pad_side.to_string_lossy().into_owned()),
-        ("OPENNOW_STREAMER_LOG_FILE", o.data.join("streamer.log").to_string_lossy().into_owned()),
+        ("LUMATV_GFN_PREFS", prefs_path.to_string_lossy().into_owned()),
+        ("OPENNOW_STREAMER_LOG_FILE", data.join("streamer.log").to_string_lossy().into_owned()),
     ];
-    let mut core = CoreClient::spawn(&o.core, &o.core_args, &o.data, &env)?;
-    log(&format!("core started, pid {:?}", core.child_pid()));
+    let mut core = CoreClient::spawn(&o.core, &o.core_args, &data, &env)?;
+    log(&format!("core started, pid {:?}, data {}", core.child_pid(), data.display()));
     let mut pad = PadSide::open(&o.pad_side);
-    let mut app = App::new();
+    let mut app = App::with_prefs(Prefs::load(&prefs_path));
     let started = Instant::now();
     let mut actions = app.start();
     // The engine's path goes into the core's settings once the handshake answered; the first settings.set the rules send carries
@@ -291,9 +330,15 @@ fn run(o: Options) -> io::Result<i32> {
                     if method == "settings.set" {
                         params["nativeStreamerExecutablePath"] = Value::String(engine_path.clone());
                     }
+                    let shown = params.clone();
                     match core.request(&method, params) {
-                        Ok(id) => app.sent(&id, &method),
+                        Ok(id) => app.sent_params(&id, &method, &shown),
                         Err(e) => log(&format!("core request {method}: {e}")),
+                    }
+                }
+                Action::SavePrefs(p) => {
+                    if let Err(e) = p.save(&prefs_path) {
+                        log(&format!("cannot write {}: {e}", prefs_path.display()));
                     }
                 }
                 Action::Ack { id } => {
@@ -387,7 +432,10 @@ fn run(o: Options) -> io::Result<i32> {
             want_frame = true;
         }
 
-        let mut wait_ms = 250i64;    /* the core's and the pad's messages arrive on channels with no descriptor to wait on */
+        let mut wait_ms = 250i64;    /* the core's messages arrive on a channel with no descriptor to wait on */
+        if page.art_busy() {
+            wait_ms = wait_ms.min(16);   /* a decoded picture arrives on a channel too: look for it every frame while any is in the works */
+        }
         if let Some(d) = app.next_wake() {
             wait_ms = wait_ms.min(d.as_millis() as i64);
         }
