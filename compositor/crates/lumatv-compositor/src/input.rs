@@ -396,10 +396,12 @@ impl State {
             }
         }
         // An input method that holds the keyboard grab (the on-screen keyboard) is given every key the app would have got, Back
-        // and the arrows included; Home, Volume and Mute stay the compositor's.
+        // and the arrows included; Home, Volume and Mute stay the compositor's. A release of a key the app has the press of (the
+        // OK that opened the keyboard) goes to the app, so that the key does not stay down in its state.
         let grabbing = self.ime_grabbing();
+        let app_holds = !pressed && self.seat.pressed.contains(&(seat, code)) && !self.ime.grab_down.contains(&code);
         match r {
-            Route::Client | Route::Dropped | Route::Back if grabbing => self.grab_key(code, pressed),
+            Route::Client | Route::Dropped | Route::Back if grabbing && !app_holds => self.grab_key(code, pressed),
             Route::Client => {
                 if seat::send_key(self, seat, code, pressed) {
                     self.keys.delivered += 1;
@@ -486,9 +488,10 @@ impl State {
         self.scene.foreground(&self.surfaces).map(|w| w.app_id().to_string()).unwrap_or_default()
     }
 
-    /// Whether a keyboard window is on the screen.
+    /// Whether a keyboard is on the screen with a text field to close it for: its window is mapped and a field holds the activation.
+    /// A keyboard window nobody asked for (no field) is none of the keys' business.
     pub fn keyboard_up(&self) -> bool {
-        self.scene.windows().any(|w| w.kind == WindowType::Keyboard && w.map_serial > 0)
+        self.ime.active_model().is_some() && self.scene.windows().any(|w| w.kind == WindowType::Keyboard && w.map_serial > 0)
     }
 
     fn home_pressed(&mut self, from_network: bool) {

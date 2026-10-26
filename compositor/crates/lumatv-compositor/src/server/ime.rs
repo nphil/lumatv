@@ -578,6 +578,8 @@ pub fn deactivate(state: &mut State, mid: u32, why: &str) {
     }
     m.active = false;
     m.show_wanted = false;
+    m.surface = None;
+    m.surface_id = None;
     let (res, ctx, method) = (m.res.clone(), m.ctx.take(), m.method.take());
     if state.ime.active == Some(mid) {
         state.ime.active = None;

@@ -6,12 +6,11 @@ in its own QML (gear, Input, the app keys, Quick Access digits, Mute held, Exit;
 
 ## Resume here
 
-State (2026-10-26): safety timer committed first (aa3a2eb). Key routing built and host-tested (`keys.rs` the decisions, `input.rs`
-the routing, `system_ui.rs` the asks, `tests/keys.rs`; clippy clean with and without `ui`). IME routing is written
-(`server/ime.rs`, the keyboard window's placement in `scene.rs`, `ctl ime`) and compiles, but its host tests (`tests/ime.rs`) are
-the next piece. After that: the gate's `keys` and `ime` checks (`tv-gate.sh`, `tv_gate.py`, Python tests), then the sections
-still missing here (what was built, assumed codes, the TV command, pass criteria). The TV is not touched by this work: Main runs
-the TV test.
+State (2026-10-26): safety timer committed first (aa3a2eb); key routing (21b6013) and the keyboard path built and host-tested
+(`keys.rs` the decisions, `input.rs` the routing, `system_ui.rs` the asks, `server/ime.rs` the text model to input method path,
+`scene.rs` the keyboard window's place; `tests/keys.rs`, `tests/ime.rs`; clippy clean with and without `ui`). Still to do, in
+order: the gate's `keys` and `ime` checks (`tv-gate.sh`, `tv_gate.py`, Python tests), then the sections missing here (what was
+built, assumed codes, the TV command, pass criteria). The TV is not touched by this work: Main runs the TV test.
 
 ## Safety timer
 
