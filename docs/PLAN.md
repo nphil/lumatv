@@ -1156,3 +1156,11 @@ None.
   the streamer reads it at the lowest level the set allows (its own device
   node, highest poll rate the device takes, no LG input service in the path),
   sending each change to GeForce NOW at once (Nitin, 2026-10-25).
+  Research result (2026-10-25, `docs/research/gfn-444-vrr-result.md`): 4K120
+  HEVC Main10 HDR10 4:2:0 at a fixed 120 Hz with LG's low-delay cloud-game
+  mode is the ceiling on the set; 4:4:4 (decoder refuses it) and VRR (panel
+  VRR only for an HDMI source) are not reachable on any on-TV path. The
+  controller (GameSir receiver as a DualShock 4, 1 ms poll, 500 reports/s,
+  rumble) adds about 2 ms read directly (`docs/research/gfn-input-result.md`).
+  Nitin approved the probe tests E1-E3 (test app with sample clips, a 4:4:4
+  refusal check, a CPU decode benchmark) for the next free TV slot.
