@@ -1,4 +1,5 @@
 .pragma library
+.import "LgDesc.js" as Desc
 
 // What the offline TV answers for the keys and luna methods the coverage pages (docs/research/settings-coverage.md) read: one
 // plausible value per key, from the lists in LgDesc.js (the TV's own), and replies for the services LG's Settings calls. FakeSettings
@@ -13,7 +14,11 @@ var seed = {
               screenMagnification: "off", highContrast: "off", focusEmphasis: "off", adjustments: { colorInversion: "off", blackAndWhite: "off" },
               supplementaryAudio: "off", additionalAudioSelection: "none", subtitleLanguageFirst: "eng", subtitleLanguageSecond: "eng" },
     sound: { deviceCntOfBtGeneral: "singleConnection", audioDescription: "off", audioDescriptionAtsc30: "off", audioDescriptionVolume: "10", visualImpaired: "off", hearingAid: "off", dialogEnhancementAtsc30: "off",
-             dialogEnhancementVolumeAtsc30: "3", tvPowerSound: "on" },
+             dialogEnhancementVolumeAtsc30: "3", tvPowerSound: "on",
+             applyToAllInputSSM: "done", avSyncBypassInput: "off", supportATMOS: "on", userEqualizer: "on", userEqualizerValues: [0, 0, 0, 0, 0], soundModeModified: "false",
+             tvSetupConfiguration: "stand", digitalAudioPriority: "auto", lgSoundSync: "off", soundAlive: "off", magicSpaceSound: "off",
+             inputAudioFormatHDMI1: "bitstream", inputAudioFormatHDMI2: "bitstream", inputAudioFormatHDMI3: "pcm", inputAudioFormatHDMI4: "pcm" },
+    general: { tvOnSound: "medium" },
     other: { autoSLZoomWithObjectDetection: "off", qmsVrr: "on", uhdDeepColor: "4k", "444BypassHDMI1": "off", "444BypassHDMI2": "off", "444BypassHDMI3": "off",
              "444BypassHDMI4": "off", enableDolbyVisionPC: "off" },
     network: { ipv6Enable: "true", bleAdvertisingOnOff: "on" },
@@ -28,7 +33,8 @@ seed.option.screenOff = "off";
 
 // Keys the TV's description marks not visible, as it said on 2026-10-25 (LG leaves such a row out): the offline description says so too.
 var hidden = { "caption.aiCaptionEnable": true, "option.signLanguageGuidance": true, "time.automaticStandBy": true,
-               "picture.nearBlackDetail": true, "picture.expressionEnhancer": true, "picture.dolbyPrecisionDetail": true, "picture.hdrDynamicToneMapping": true };
+               "picture.nearBlackDetail": true, "picture.expressionEnhancer": true, "picture.dolbyPrecisionDetail": true, "picture.hdrDynamicToneMapping": true,
+               "sound.eArcSupport": true, "sound.inputAudioFormatDP1": true, "sound.inputAudioFormatDP2": true, "sound.inputAudioFormatUSBC1": true, "sound.inputAudioFormatUSBC2": true };
 
 function apply(data) {
     for (var c in seed) {
@@ -47,14 +53,20 @@ var zones = [
 ];
 var clock = { utc: 1761501000, auto: true, zone: zones[0] };     // 2025-10-26 17:30:00 UTC
 
-// What a picture reset was asked for, as {category, dimension}: the service wants the input and the mode it is to reset.
+// What a reset was asked for, as {category, dimension} (a picture mode) or {category, keys}: the service wants the input and the mode it is to
+// reset, or the keys.
 var resets = [];
 
 // A call that changes the TV (what the stub's `adhoc.call` hands over, as "uri + method" and its parameters): null, or the reason it was refused.
 function act(path, params) {
     if (path === "luna://com.webos.service.settings/resetSystemSettings") {
-        if (params.category !== "picture") return "unknown category";
-        if (!params.dimension || typeof params.dimension.input !== "string" || typeof params.dimension.pictureMode !== "string") return "no dimension";
+        if (params.dimension) {
+            if (params.category !== "picture") return "unknown category";
+            if (typeof params.dimension.input !== "string" || typeof params.dimension.pictureMode !== "string") return "no dimension";
+        } else {
+            if (!params.category || !Array.isArray(params.keys) || !params.keys.length) return "no keys";
+            for (var i = 0; i < params.keys.length; i++) if (!Desc.d[params.category + "." + params.keys[i]]) return "unknown key " + params.category + "." + params.keys[i];
+        }
         resets.push(params);
         return null;
     }

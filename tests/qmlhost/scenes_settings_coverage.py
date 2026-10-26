@@ -27,14 +27,22 @@ register("30-settings-captions-choice", "system", 3, *[DOWN] * 6, "ok", DOWN, "o
 register("30-settings-audio-options", "system", 3, *[DOWN] * 8, "ok")
 
 
-def direct(name, page_id, *after, at=2800):
-    """A child page opened the way a quick-panel tile or a search result opens it, so no rows are counted to reach it."""
+def direct(name, page_id, *after, at=2800, before=()):
+    """A child page opened the way a quick-panel tile or a search result opens it, so no rows are counted to reach it. `before` are steps
+    that put the TV in the state the page needs (a different sound out)."""
     @scene(name)
     def _():
-        steps = [("eval", 1500, "root.openSettings()"), ("eval", READY, "root.searchPicked('page','%s','')" % page_id)]
+        steps = list(before) + [("eval", 1500, "root.openSettings()"), ("eval", READY, "root.searchPicked('page','%s','')" % page_id)]
         if after:
             steps.append(("keys", READY + 900, k(*after)))
         return steps + [("snap", READY + at, name)]
+
+
+def tv_setting(category, settings):
+    """A step that changes one of the offline TV's settings before Settings opens."""
+    js = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set() { "
+          "LS.adhoc.call(\"luna://com.webos.service.settings\", \"/setSystemSettings\", JSON.stringify({category: \"%s\", settings: %s})) } }', root);o.set();return 1})()" % (category, settings))
+    return ("eval", 1000, js)
 
 
 # System › Time & power's pages, Bluetooth, Join Network and IP Settings
@@ -47,3 +55,14 @@ direct("30-settings-wifi", "wifi")
 direct("30-settings-wifi-ask", "wifi", DOWN, "ok")
 direct("30-settings-wifi-password", "wifi", DOWN, DOWN, "ok")
 direct("30-settings-ip", "ipsettings")
+
+# Sound: the chooser for the sound out, and the pages under it (the equalizer answers only with the TV's own speakers)
+register("30-settings-sound-choice", "sound", 0, "ok")
+direct("30-settings-hdmi-audio", "hdmiaudio", at=4500)
+direct("30-settings-equalizer", "equalizer", at=4500, before=[tv_setting("sound", '{soundOutput: "tv_speaker"}')])
+
+# System › Language & location: the language list, the chooser of the menu language, the keyboards and the location
+direct("30-settings-language", "language", at=4500)
+direct("30-settings-language-choice", "language", "ok", at=4500)
+direct("30-settings-language-keyboards", "language", "up", "right", DOWN, at=4500)
+direct("30-settings-language-location", "language", "up", "right", "right", DOWN, at=4500)

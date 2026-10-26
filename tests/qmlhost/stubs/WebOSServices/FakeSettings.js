@@ -2,6 +2,7 @@
 .import "LgSettings.js" as Lg
 .import "LgDesc.js" as Desc
 .import "FakeCoverage.js" as Cov
+.import "FakeMore.js" as More
 
 // A stand-in settings service for the offline host: the values the owner's TV answered in the X4 capture
 // (picture mode Filmmaker, OLED pixel brightness 80, sound out the receiver over eARC) and plausible
@@ -33,6 +34,17 @@ var data = {
     "": { localeInfo: { keyboards: ["en"], locales: { UI: "en-US", FMT: "en-US", STT: "en-US" }, clock: "locale", timezone: "" } }
 };
 Cov.apply(data);
+More.apply(data);
+// What the TV starts with, for a reset to put back.
+var defaults = JSON.parse(JSON.stringify(data));
+// resetSystemSettings {category, keys}: each key goes back to the value the TV started with (LG's reset of a sound mode, of Fine Tune or of
+// White Balance sends the keys it wants back; a picture mode's reset names the mode instead and changes no key here).
+function restore(params) {
+    if (!params || !params.category || !Array.isArray(params.keys)) return;
+    var cat = data[params.category] || {};
+    var def = defaults[params.category] || {};
+    for (var i = 0; i < params.keys.length; i++) if (def[params.keys[i]] !== undefined) cat[params.keys[i]] = JSON.parse(JSON.stringify(def[params.keys[i]]));
+}
 // the keys the service keeps per app: answered only with `app_id`
 var perApp = { picture: ["truMotionMode"], aspectRatio: ["arcPerApp"] };
 
@@ -82,7 +94,7 @@ function desc(category, keys) {
     var list = keys && keys.length ? keys : Object.keys(cat);
     for (var i = 0; i < list.length; i++) {
         if (cat[list[i]] === undefined) { missing.push(list[i]); continue; }
-        var entry = { key: list[i], category: category || "", ui: { displayName: list[i], visible: Cov.hidden[category + "." + list[i]] !== true, active: inactive[category + "." + list[i]] !== false, widget: "None" }, values: {} };
+        var entry = { key: list[i], category: category || "", ui: { displayName: list[i], visible: Cov.hidden[category + "." + list[i]] !== true && More.hidden[category + "." + list[i]] !== true, active: inactive[category + "." + list[i]] !== false, widget: "None" }, values: {} };
         // the value list or range the TV's own description gives the key (LgDesc.js)
         var t = Desc.d[category + "." + list[i]];
         if (t && t[0] === "E") entry.values = { arrayExt: t[1].map(function(v) { return { visible: true, active: true, value: v }; })
@@ -134,14 +146,14 @@ function sleepAdd(params) {
 
 function call(service, method, params) {
     // a call that changes the TV in a way the coverage pages read back (FakeCoverage.js), or is refused
-    var refused = Cov.act(service + "/" + method, params || {});
+    var refused = Cov.act(service + "/" + method, params || {}) || More.act(service + "/" + method, params || {});
     if (refused) return { returnValue: false, errorText: refused };
     if (method === "getSystemSettings") return read(params.category, params.keys || (params.key ? [params.key] : null), params.app_id);
     if (method === "getSystemSettingDesc") return desc(params.category, params.keys || (params.key ? [params.key] : null));
     if (service.indexOf("tvReservationAgent") >= 0 && method === "getRemainTime") {
         return sleepSeconds > 0 ? { returnValue: true, sleepTimeMinute: Math.floor(sleepSeconds / 60), sleepTimeSecond: sleepSeconds % 60 } : { returnValue: true, sleepTimeSecond: 0 };
     }
-    var doc = Cov.services[service + "/" + method] || services[service + "/" + method];
+    var doc = Cov.services[service + "/" + method] || More.services[service + "/" + method] || services[service + "/" + method];
     if (typeof doc === "function") doc = doc(params);
     return doc || { returnValue: true };
 }

@@ -16,5 +16,8 @@ var pages = [
     { id: "btdevice", title: "Bluetooth device", icon: "headphones", page: "settings/PageBtDevice.qml", rail: false, search: false },
     { id: "wifi", title: "Join Network", icon: "wifi", page: "settings/PageWifi.qml", rail: false, parent: "network" },
     { id: "ipsettings", title: "IP Settings", icon: "router", page: "settings/PageIp.qml", rail: false, parent: "network" },
-    { id: "poweroff", title: "Power Off Timer", icon: "power", page: "settings/PagePowerOff.qml", rail: false, parent: "system" }
+    { id: "poweroff", title: "Power Off Timer", icon: "power", page: "settings/PagePowerOff.qml", rail: false, parent: "system" },
+    { id: "hdmiaudio", title: "HDMI input audio", icon: "cable", page: "settings/PageHdmiAudio.qml", rail: false, parent: "sound" },
+    { id: "equalizer", title: "Equalizer", icon: "sliders-vertical", page: "settings/PageEqualizer.qml", rail: false, parent: "sound" },
+    { id: "language", title: "Language & location", icon: "languages", page: "settings/PageLanguage.qml", rail: false, parent: "system" }
 ];

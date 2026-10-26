@@ -51,7 +51,7 @@ Item {
         width: sl.thumbSize
         height: width
         radius: width / 2
-        scale: sl.active ? Lu.focus.buttonScale : 1
+        scale: sl.active ? Lu.buttonScale : 1
         x: track.x + track.width * sl.fraction - width / 2
         anchors.verticalCenter: parent.verticalCenter
         color: Lu.ink

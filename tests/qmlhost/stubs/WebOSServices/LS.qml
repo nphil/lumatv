@@ -3,6 +3,7 @@ import QtQuick 2.4
 import "FakeSettings.js" as Fake
 import "FakeApps.js" as FakeApps
 import "FakeCoverage.js" as Cov
+import "FakeMore.js" as More
 
 // Offline stand-in for the compositor's luna bridge. Every call is appended to `calls`, so a
 // surface's luna use can be read back from the host; a setSystemSettings also lands in the fake
@@ -56,7 +57,8 @@ QtObject {
                 try { error = Fake.sleepAdd(JSON.parse(payload)).errorText || "" } catch (e2) { error = "bad payload" }
             }
             // the coverage pages' services (FakeCoverage.js): a change of the clock, the zone or a pairing is kept for the next read
-            try { error = error || Cov.act(uri + method, JSON.parse(payload)) || "" } catch (e3) { error = error || "bad payload" }
+            try { error = error || Cov.act(uri + method, JSON.parse(payload)) || More.act(uri + method, JSON.parse(payload)) || "" } catch (e3) { error = error || "bad payload" }
+            if (method === "/resetSystemSettings" && !error) { try { Fake.restore(JSON.parse(payload)) } catch (e4) { error = "bad payload" } }
             ls.record(uri, method, payload, error)
         }
     }

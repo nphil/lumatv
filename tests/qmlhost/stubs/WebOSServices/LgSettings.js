@@ -94,13 +94,21 @@ function domain(ds) {
     return null;
 }
 
-// null when the write is accepted, else the reason the service would give.
+// null when the write is accepted, else the reason the service would give. A key that holds a list (the equalizer's five levels) is
+// checked level by level against the key's own range.
 function refuse(category, key, value) {
     var ds = category + "." + key;
     if (!keys[category] && !Desc.d[ds]) return "unknown category " + category;
     if ((keys[category] || []).indexOf(key) < 0 && !Desc.d[ds]) return "unknown key " + ds;
     var d = domain(ds);
     if (!d) return null;
+    if (Array.isArray(value)) {
+        for (var i = 0; i < value.length; i++) {
+            var why = refuse(category, key, value[i]);
+            if (why) return why;
+        }
+        return null;
+    }
     var s = String(value);
     if (d.kind === "enum") return d.list.indexOf(s) >= 0 ? null : "value " + s + " is not one of " + d.list.join("|") + " for " + ds;
     var n = Number(s);

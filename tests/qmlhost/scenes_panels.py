@@ -46,8 +46,8 @@ MOCK24 = dict(controls=True, soundModeId="movie", levels={"dialog": 2, "subwoofe
 
 
 def receiver_page(*after):
-    """Settings on Sound, OK on Sound out opens the receiver's page; `after` is (ms offset, keys, snapshot name)."""
-    steps = [again(300, **MOCK24)] + settings_to("sound", "right", "ok")
+    """Settings on Sound, OK on the Receiver row (the one under Sound out) opens the receiver's page; `after` is (ms offset, keys, snapshot name)."""
+    steps = [again(300, **MOCK24)] + settings_to("sound", "right", "down", "ok")
     for at, keys, name in after:
         steps.append(again(READY + at - 700, **MOCK24))
         if keys:
@@ -78,4 +78,4 @@ def _():
 
 @scene("24-settings-receiver-today")
 def _():
-    return [again(300)] + settings_to("sound", "right", "ok") + [again(READY + 2300), ("snap", READY + 3000, "24-settings-receiver-today")]
+    return [again(300)] + settings_to("sound", "right", "down", "ok") + [again(READY + 2300), ("snap", READY + 3000, "24-settings-receiver-today")]

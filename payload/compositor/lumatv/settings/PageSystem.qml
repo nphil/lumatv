@@ -47,10 +47,10 @@ PageList {
     }
 
     rows: [
-        { kind: "value", tab: 0, icon: "languages", label: "Language", help: "Menus, keyboard and audio language. OK opens LG's Language screen.", chevron: true,
-          enabled: function() { return Sio.has("localeInfo") },
-          value: function() { return R.name({ "en-US": "English (US)", "en-GB": "English (UK)", "es-US": "Spanish (US)", "fr-FR": "French" }, page.locales.UI, "") },
-          act: function() { page.launch("Language") } },
+        R.link({ tab: 0, id: "language", icon: "languages", label: "Language & location", help: "Menu, audio and keyboard languages, the zip code and the LG services country.",
+                 enabled: function() { return Sio.has("localeInfo") },
+                 value: function() { return R.name({ "en-US": "English (US)", "en-GB": "English (UK)", "es-US": "Spanish (US)", "fr-FR": "French" }, page.locales.UI, "") },
+                 go: function() { page.host.openPage("language") } }),
         C.lgShown(Sio, "time.noOperationAutoOff", R.seg(Sio, { ds: "time.noOperationAutoOff", tab: 0, icon: "power", label: "No Operation Auto Off", help: "No key for this long turns the TV off.",
                      options: ["Off", "3 h", "6 h", "12 h", "24 h"], values: ["off", "3", "6", "12", "24"] })),
         R.lg(page, { tab: 0, label: "Open LG settings", help: "LG's full Settings app, themed. Channels, privacy, account, reset." }),

@@ -31,7 +31,16 @@ var tables = {
     colorGamut: { wide: "Wide", extended: "Extended", normal: "Normal", auto: "Auto Detect", native: "Native", dynamic: "Dynamic", srgb: "sRGB", adobeRGB: "Adobe RGB", "dci-p3": "Cinema" },
     truMotion: { off: "Off", smooth: "Smooth Movement", clear: "Clear", user: "User Selection", cinemaClear: "Cinematic Movement", natural: "Natural" },
     toneMapping: { on: "On", off: "Off", HGIG: "HGiG" },
-    expression: { auto: "Auto", on: "On", off: "Off", detail: "Detail", highlight: "Brightness" }
+    expression: { auto: "Auto", on: "On", off: "Off", detail: "Detail", highlight: "Brightness" },
+    soundOutput: { tv_speaker: "TV Speaker", external_arc: "HDMI(ARC) Device", external_optical: "Optical Out Device", bt_soundbar: "Bluetooth Device",
+                   wow_cast: "LG WOWCAST Device", mobile_phone: "Mobile Device", lineout: "Audio Out Device", headphone: "Wired Headphones", usb_speaker: "USB Device",
+                   tv_speaker_bluetooth: "Bluetooth Device + TV Speaker", tv_speaker_wow_cast: "LG WOWCAST Device + TV Speaker",
+                   tv_external_speaker: "Optical Out Device + TV Speaker", tv_speaker_external_arc: "HDMI(ARC) Device + TV Speaker",
+                   tv_speaker_headphone: "Wired Headphones + TV Speaker", wisa_speaker: "WiSA Speakers" },
+    tvSetup: { stand: "Stand", wall_mount: "Wall-mounted" },
+    dtvAudio: { mpeg: "MPEG", dra: "DRA", dolbyDigital: "Dolby Digital", dobyDigitalPlus: "Dolby Digital Plus", heAaC: "HE-AAC", auto: "Auto" },
+    hdmiAudio: { bitstream: "Bitstream", pcm: "PCM" },
+    magicSound: { off: "Off", standard: "Standard", bass: "Bass Boost", treble: "Treble Boost", flat: "Flat Mode" }
 };
 
 // The name for `value` in `table` (a table name or an object); `fallback` (default: the value itself) when it has none.

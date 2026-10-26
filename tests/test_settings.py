@@ -153,9 +153,9 @@ class Settings(HostCase):
         self.assertEqual(sent, [str(v) for v in list(range(81, 91)) + [92, 94, 96, 98, 100]])
 
     def test_a_row_the_service_does_not_answer_is_dimmed_and_does_not_take_focus(self):
-        # Sound: Receiver volume and Sound mode only show, so Down from Sound out lands on Match screen and sound, then on Digital
-        # sound output (Pass through now): Left picks PCM
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("sound", "right", "down", "down", "left", "ok"),
+        # Sound: Receiver volume and Sound mode only show, so Down from Sound out lands on Receiver, Match screen and sound, Delay bypass and then
+        # Digital sound output (Pass through now): Left picks PCM
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("sound", "right", "down", "down", "down", "down", "left", "ok"),
                             "--eval", "%d:%s" % (READY + 3200, LUNA), "--wait", str(READY + 3800))
         self.assertEqual(rc, 0, out[-1500:])
         calls = json.loads(re.findall(r"\[eval\] \('(\[.*\])'", out)[-1])

@@ -71,7 +71,7 @@ class Receiver(HostCase):
 
     def test_settings_receiver_page_says_not_answering_six_seconds_after_the_last_reading(self):
         page = "return {answers:s.answers, chip:s.chip, summary:s.summary, volume:s.rc.volumeText || null};"
-        rc, out = self.host("--eval", "%d:root.openSettings()" % 1500, *self.keys(READY + 600, *(["down"] * RAIL["sound"]), "right", "ok"),
+        rc, out = self.host("--eval", "%d:root.openSettings()" % 1500, *self.keys(READY + 600, *(["down"] * RAIL["sound"]), "right", "down", "ok"),
                             *self.reading(READY + 1500), *probe(READY + 2200, "fresh", "ctl", page),
                             *probe(READY + 8000, "old", "ctl", page),
                             *self.reading(READY + 8200), *probe(READY + 8700, "again", "ctl", page),

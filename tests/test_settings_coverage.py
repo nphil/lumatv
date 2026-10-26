@@ -28,7 +28,8 @@ FIND = "var p=root.pageItem('%s');function R(l){for(var i=0;i<p.rows.length;i++)
 # Every row of every page, as the offline TV can take it: a switch both ways, each value of a list, a slider at both ends. A row that is dimmed
 # or left out is skipped, as a person could not press it. A switch ends on, so the rows that wait for it (Audio Guidance's speed) are walked too.
 # the pages of this slice and the one it extends (others' pages are walked by their own tests)
-OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs", "picture"]
+OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs", "picture",
+       "equalizer", "sound", "hdmiaudio"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
 WALK = ("var n=0;var ids=" + json.dumps(OWN) + ";for(var ii=0;ii<ids.length;ii++){var p=root.pageItem(ids[ii]);if(!p||!p.rows)continue;"
         "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(!row.act||row.info===true)continue;"
         "if(p.ev(row.enabled)===false||p.ev(row.visible)===false)continue;var k=row.kind;"
@@ -148,6 +149,66 @@ probe("picture_reset_no", "root.key('ok');return 1", wait=250)
 probe("picture_reset_yes", FIND % "picture" + "R('Reset').act();return 1", wait=250)
 probe("picture_reset_go", "root.key('right');root.key('ok');return 1", wait=250)
 
+# ---- Sound: the rows of each tab, the chooser on the TV's own list, what the sound out changes, the equalizer, the audio format per input, Apply and Reset
+SOUND_TABS = ("var p=root.pageItem('sound');var out=[[],[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];"
+              "if(p.ev(r.visible)===false||r.label===undefined)continue;out[r.tab||0].push(String(p.ev(r.label)))}return out")
+SOUND_STATE = ("function S(l){var r=R(l);return {on:p.ev(r.enabled)!==false,detail:String(p.ev(r.detail)||'')}}"
+               "return {balance:S('Balance'),eq:S('Equalizer'),install:S('Installation Type'),acoustic:S('AI Acoustic Tuning Options'),speakersToo:S('TV speakers too'),"
+               "atmos:S('Dolby Atmos'),lgsync:S('LG Sound Sync'),share:S('TV Sound Mode Share'),reset:S('Reset')}")
+probe("sound_tabs", SOUND_TABS)
+probe("sound_state_receiver", FIND % "sound" + SOUND_STATE)
+probe("sound_out_options", FIND % "sound" + "var row=R('Sound out');return {now:row.current(),value:p.ev(row.value),options:row.options().map(function(o){return o.value+':'+o.label})}")
+probe("sound_out_open", "root.goTo('sound');root.key('ok');return {at:root.current}", wait=300)
+probe("sound_out_chooser", "var p=root.pageItem('choice');return {title:p.title,rows:p.rows.map(function(r){return p.ev(r.label)}),stop:p.stop,back:p.back}")
+probe("sound_out_picked", "root.key('up');root.key('ok');return {at:root.current,out:root.pageItem('sound').output}", wait=400)
+probe("sound_tabs_tv", SOUND_TABS)
+probe("sound_state_tv", FIND % "sound" + SOUND_STATE)
+probe("eq_open", "root.openPage('equalizer');return 1", wait=400)
+probe("eq_rows", "var p=root.pageItem('equalizer');return p.rows.map(function(r){return [p.ev(r.label),p.ev(r.valueText),p.ev(r.enabled)!==false]})")
+probe("eq_band", FIND % "equalizer" + "R('1 kHz').act(5);R('100 Hz').act(-3);return {text:p.ev(R('1 kHz').valueText),bass:p.ev(R('100 Hz').valueText),levels:p.levels,min:p.ev(R('1 kHz').min),max:p.ev(R('1 kHz').max)}", wait=300)
+probe("hdmi_audio_open", "root.openPage('hdmiaudio');return 1", wait=400)
+probe("hdmi_audio_rows", "var p=root.pageItem('hdmiaudio');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+      "var o=p.ev(r.options);out.push([p.ev(r.label),o.join('/'),o[p.ev(r.index)]])}return out")
+probe("hdmi_audio_pick", FIND % "hdmiaudio" + "R('HDMI 3').act(0);R('HDMI 1').act(1);return 1", wait=300)
+probe("sound_apply", FIND % "sound" + "R('Apply to All Inputs').act();return {asked:root.confirmOpen}", wait=250)
+probe("sound_apply_yes", "root.key('right');root.key('ok');return 1", wait=250)
+probe("sound_reset", FIND % "sound" + "R('Balance').act(4);var before=p.ev(R('Balance').num);R('Reset').act();return {asked:root.confirmOpen,danger:!!p.ev(R('Reset').danger),before:before}", wait=250)
+probe("sound_reset_no", "root.key('ok');return 1", wait=250)
+probe("sound_reset_go", FIND % "sound" + "R('Reset').act();root.key('right');root.key('ok');return 1", wait=400)
+probe("sound_reset_after", FIND % "sound" + "return {balance:p.ev(R('Balance').num)}")
+probe("sound_movie", SET + "s.set('sound', {soundMode: 'movie'});root.pageItem('sound').refresh();return 1", wait=400)
+probe("sound_reset_movie", FIND % "sound" + "var r=R('Reset');return {on:p.ev(r.enabled)!==false,detail:p.ev(r.detail),eq:p.ev(R('Equalizer').detail)}")
+probe("sound_standard", SET + "s.set('sound', {soundMode: 'standard'});root.pageItem('sound').refresh();return 1", wait=300)
+probe("sound_optical", SET + "s.set('sound', {soundOutput: 'external_optical'});root.pageItem('sound').refresh();return 1", wait=400)
+probe("sound_lgsync", FIND % "sound" + "var r=R('LG Sound Sync');var on=p.ev(r.enabled)!==false;r.act(true);return {on:on,now:p.ev(r.on),balance:p.ev(R('Balance').detail)}", wait=300)
+probe("sound_arc", SET + "s.set('sound', {soundOutput: 'external_arc'});root.pageItem('sound').refresh();return 1", wait=400)
+probe("sound_share", FIND % "sound" + "var r=R('TV Sound Mode Share');var on=p.ev(r.enabled)!==false;r.act(true);return {on:on,now:p.ev(r.on)}", wait=300)
+probe("sound_tv_again", SET + "s.set('sound', {soundOutput: 'tv_speaker'});root.pageItem('sound').refresh();return 1", wait=400)
+
+# ---- Language and location: the lists the TV gives, the menu language (asks first), the audio language, the keyboards, the country switch, the zip code
+LANG_TABS = ("var p=root.pageItem('language');var out=[[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+             "out[r.tab||0].push(String(p.ev(r.label)))}return out")
+KEYBOARD = "function K(l){var r=R(l);return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}}"
+probe("lang_open", "root.openPage('language');return 1", wait=600)
+probe("lang_tabs", LANG_TABS)
+probe("lang_menu_options", FIND % "language" + "var row=R('Menu Language');return {now:row.current(),value:p.ev(row.value),options:row.options().map(function(o){return o.value+':'+o.label})}")
+probe("lang_menu_ask", FIND % "language" + "var row=R('Menu Language');row.pick(row.options().map(function(o){return o.value}).indexOf('es-US'));return {asked:root.confirmOpen,value:p.ev(row.value)}", wait=250)
+probe("lang_menu_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("lang_menu_yes", FIND % "language" + "var row=R('Menu Language');row.pick(row.options().map(function(o){return o.value}).indexOf('es-US'));root.key('right');root.key('ok');return 1", wait=400)
+probe("lang_menu_after", FIND % "language" + "return {info:p.info,value:p.ev(R('Menu Language').value)}")
+probe("lang_keyboards", FIND % "language" + KEYBOARD + "return {en:K('English'),es:K('Espa\\u00f1ol'),fr:K('Fran\\u00e7ais')}")
+probe("lang_keyboard_fr", FIND % "language" + KEYBOARD + "R('Fran\\u00e7ais').act(true);return K('Fran\\u00e7ais')", wait=300)
+probe("lang_audio", FIND % "language" + "var row=R('Audio Language');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('fr-FR'));return {value:p.ev(row.value),asked:root.confirmOpen,options:o.map(function(x){return x.value+':'+x.label})}", wait=300)
+probe("lang_location", FIND % "language" + "return {country:p.ev(R('Broadcast Country').value),svc:p.ev(R('LG Services Country').on),zip:p.ev(R('Zip Code').value)}")
+probe("lang_svc_ask", FIND % "language" + "R('LG Services Country').act(false);return {asked:root.confirmOpen,on:p.ev(R('LG Services Country').on)}", wait=250)
+probe("lang_svc_off", "root.key('right');root.key('ok');return 1", wait=300)
+probe("lang_svc_on", FIND % "language" + "R('LG Services Country').act(true);root.key('right');root.key('ok');return 1", wait=400)
+probe("lang_svc_after", FIND % "language" + "return {on:p.ev(R('LG Services Country').on)}")
+probe("lang_zip_bad", FIND % "language" + "R('Zip Code').act();" + (TYPE % "'123'") + "return 1", wait=200)
+probe("lang_zip_bad_state", FIND % "language" + "return {detail:p.ev(R('Zip Code').detail),value:p.ev(R('Zip Code').value)}")
+probe("lang_zip", FIND % "language" + "R('Zip Code').act();" + (TYPE % "'90210'") + "return 1", wait=200)
+probe("lang_zip_after", FIND % "language" + "return {detail:p.ev(R('Zip Code').detail),value:p.ev(R('Zip Code').value)}")
+
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
       "\"/setSystemSettings\", JSON.stringify({category: c, settings: v})) } }', root);s.set('caption', {captionStyle: 'manual'});root.pageItem('captions').refresh();"
@@ -208,7 +269,8 @@ class Coverage(unittest.TestCase):
                 "offTimerEnable", "autoClock", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI4", "enableDolbyVisionPC",
                 "ipv6Enable", "bleAdvertisingOnOff", "dynamicContrast", "peakBrightness", "gamma", "motionEyeCare", "colorTemperature", "colorGamut",
                 "dynamicColor", "superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "motionPro", "filmMakerMode", "justScan",
-                "truMotionMode", "truMotionJudder"}
+                "truMotionMode", "truMotionJudder", "soundOutput", "avSyncBypassInput", "supportATMOS", "audioBalance", "autoVolume", "tvSetupConfiguration",
+                "magicSpaceSound", "tvOnSound", "digitalAudioPriority", "inputAudioFormatHDMI1", "soundOutputDigital", "userEqualizerValues", "soundModeModified"}
         self.assertEqual(want - written, set())
         self.assertEqual(written & {"nearBlackDetail", "expressionEnhancer", "dolbyPrecisionDetail", "hdrDynamicToneMapping"}, set())       # the TV hides them
 
@@ -380,6 +442,119 @@ class Coverage(unittest.TestCase):
         done = [c for c in self.probe("picture_reset_go")["calls"] if c["method"] == "/resetSystemSettings"]
         self.assertEqual([c["payload"] for c in done], [{"category": "picture", "dimension": {"input": "default", "pictureMode": "filmMaker"}}])
         self.assertEqual([c["error"] for c in done], [""])
+
+    # ---- Sound
+    def written(self, name):
+        """The settings the probe wrote, each as the service got them."""
+        return [c["payload"]["settings"] for c in self.probe(name)["calls"] if c["method"] == "/setSystemSettings"]
+
+    OUTPUTS = ["tv_speaker:TV Speaker", "external_arc:HDMI(ARC) Device", "external_optical:Optical Out Device", "lineout:Audio Out Device", "headphone:Wired Headphones",
+               "tv_speaker_external_arc:HDMI(ARC) Device + TV Speaker", "tv_external_speaker:Optical Out Device + TV Speaker", "tv_speaker_headphone:Wired Headphones + TV Speaker"]
+
+    def test_the_sound_tabs_list_what_LG_lists_for_the_sound_out_in_force(self):
+        self.assertEqual(self.probe("sound_tabs")["res"], [
+            ["Sound out", "Receiver", "Receiver volume", "Sound mode", "Match screen and sound", "Delay bypass", "Digital sound output", "TV speakers too", "Bluetooth Speakers"], [],
+            ["Dolby Atmos", "Balance", "Equalizer", "Automatic volume", "Installation Type", "AI Acoustic Tuning Options", "TV Power Sound Volume", "Apply to All Inputs", "Reset"],
+            ["Select HDMI Input Audio Format", "LG Sound Sync", "TV Sound Mode Share", "DTV Audio Setting"]])         # the TV hides eARC Support
+        self.assertEqual(self.probe("sound_tabs_tv")["res"][0][:2], ["Sound out", "Receiver volume"])                # no receiver, no row for it
+
+    def test_sound_out_is_LGs_chooser_on_the_tvs_list_in_LGs_names(self):
+        d = self.probe("sound_out_options")["res"]
+        self.assertEqual((d["now"], d["value"], d["options"]), ("external_arc", "HDMI(ARC) Device", self.OUTPUTS))      # Bluetooth, USB and the wireless ones are not offered here
+        d = self.probe("sound_out_chooser")["res"]
+        self.assertEqual((d["title"], d["rows"], d["stop"], d["back"]), ("Sound out", [o.split(":", 1)[1] for o in self.OUTPUTS], 1, "Sound"))   # the focus starts on the one in force
+        self.assertEqual(self.probe("sound_out_open")["res"], {"at": "choice"})
+        done = self.probe("sound_out_picked")
+        self.assertEqual(done["res"], {"at": "sound", "out": "tv_speaker"})
+        self.assertEqual(self.written("sound_out_picked"), [{"soundOutput": "tv_speaker"}])
+        self.assertEqual([c["error"] for c in done["calls"]], [""] * len(done["calls"]))
+
+    def test_the_tvs_own_sound_settings_wait_for_the_sound_out_LG_waits_for(self):
+        r = self.probe("sound_state_receiver")["res"]
+        self.assertEqual({k: v["on"] for k, v in r.items()}, {"balance": False, "eq": False, "install": False, "acoustic": False, "speakersToo": True, "atmos": True,
+                                                              "lgsync": False, "share": True, "reset": True})
+        self.assertEqual((r["balance"]["detail"], r["lgsync"]["detail"]), ("Needs the TV speakers", "Needs the optical out"))
+        t = self.probe("sound_state_tv")["res"]
+        self.assertEqual({k: v["on"] for k, v in t.items()}, {"balance": True, "eq": True, "install": True, "acoustic": True, "speakersToo": False, "atmos": True,
+                                                              "lgsync": False, "share": False, "reset": True})
+        self.assertEqual((t["speakersToo"]["detail"], t["share"]["detail"]), ("Needs the receiver", "Needs HDMI(ARC)"))
+        d = self.probe("sound_lgsync")["res"]
+        self.assertEqual((d["on"], d["now"], d["balance"]), (True, True, "Needs the TV speakers"))                      # the optical out: Sound Sync answers, the TV's balance does not
+        self.assertEqual(self.written("sound_lgsync"), [{"lgSoundSync": "on"}])
+        d = self.probe("sound_share")["res"]
+        self.assertEqual((d["on"], d["now"]), (True, True))
+        self.assertEqual(self.written("sound_share"), [{"soundAlive": "on"}])
+
+    def test_the_equalizer_sends_all_five_levels_with_the_mode_marked_modified(self):
+        self.assertEqual(self.probe("eq_rows")["res"], [[b, "0", True] for b in ("100 Hz", "300 Hz", "1 kHz", "3 kHz", "10 kHz")])
+        d = self.probe("eq_band")["res"]
+        self.assertEqual((d["text"], d["bass"], d["levels"], d["min"], d["max"]), ("+5", "-3", [-3, 0, 5, 0, 0], -10, 10))
+        self.assertEqual(self.written("eq_band"), [{"userEqualizerValues": [0, 0, 5, 0, 0], "soundModeModified": "true"}, {"userEqualizerValues": [-3, 0, 5, 0, 0], "soundModeModified": "true"}])
+        self.assertEqual([c["error"] for c in self.probe("eq_band")["calls"]], ["", ""])
+
+    def test_the_audio_format_is_chosen_for_each_hdmi_input_the_tv_shows(self):
+        self.assertEqual(self.probe("hdmi_audio_rows")["res"], [["HDMI 1", "Bitstream/PCM", "Bitstream"], ["HDMI 2", "Bitstream/PCM", "Bitstream"],
+                                                                ["HDMI 3", "Bitstream/PCM", "PCM"], ["HDMI 4", "Bitstream/PCM", "PCM"]])       # DisplayPort and USB-C are hidden
+        self.assertEqual(self.written("hdmi_audio_pick"), [{"inputAudioFormatHDMI3": "bitstream"}, {"inputAudioFormatHDMI1": "pcm"}])
+
+    def test_sound_apply_to_all_inputs_asks_and_reset_asks_in_the_danger_style_and_sends_the_keys_LG_sends(self):
+        self.assertTrue(self.probe("sound_apply")["res"]["asked"])
+        self.assertEqual(self.written("sound_apply_yes"), [{"applyToAllInputSSM": "sound"}])
+        d = self.probe("sound_reset")["res"]
+        self.assertEqual((d["asked"], d["danger"], d["before"]), (True, True, 4))
+        self.assertEqual([c for c in self.probe("sound_reset_no")["calls"] if c["method"] == "/resetSystemSettings"], [])
+        done = [c for c in self.probe("sound_reset_go")["calls"] if c["method"] == "/resetSystemSettings"]
+        self.assertEqual([c["payload"] for c in done], [{"category": "sound", "keys": ["audioBalance", "userEqualizerValues", "soundModeModified"]}])
+        self.assertEqual([c["error"] for c in done], [""])
+        self.assertEqual(self.probe("sound_reset_after")["res"], {"balance": 0})                                       # the TV put the balance back
+        d = self.probe("sound_reset_movie")["res"]
+        self.assertEqual((d["on"], d["detail"], d["eq"]), (False, "Standard mode only", "Standard mode and TV speakers"))   # LG's Reset is Standard's, without the sound wizard
+
+    # ---- Language and location
+    def test_the_language_page_has_the_tvs_lists_and_the_rows_LG_has(self):
+        self.assertEqual(self.probe("lang_tabs")["res"], [["Menu Language", "Audio Language"], ["English", "Espa\u00f1ol", "Fran\u00e7ais"], ["Broadcast Country", "LG Services Country", "Zip Code"]])
+        d = self.probe("lang_menu_options")["res"]
+        self.assertEqual((d["now"], d["value"]), ("en-US", "English - United States"))
+        self.assertEqual(d["options"], ["en-US:English - United States", "en-GB:English - United Kingdom", "es-US:Espa\u00f1ol - Estados Unidos", "fr-FR:Fran\u00e7ais - France"])
+
+    def test_the_menu_language_asks_first_and_writes_the_locales_and_keyboards_LG_writes(self):
+        d = self.probe("lang_menu_ask")["res"]
+        self.assertEqual((d["asked"], d["value"]), (True, "English - United States"))                               # nothing changes before the answer
+        self.assertEqual([c for c in self.probe("lang_menu_no")["calls"] if c["method"] == "/setSystemSettings"], [])      # Cancel, the safe answer, changes nothing
+        sent = self.written("lang_menu_yes")
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["localeInfo"], {"keyboards": ["en", "es"], "locales": {"UI": "es-US", "FMT": "es-US", "TV": "es-US", "STT": "en-US"}, "clock": "locale", "timezone": ""})
+        self.assertEqual([c for c in self.probe("lang_menu_yes")["calls"] if c["method"] == "/setSystemSettings"][0].get("payload", {}).get("category"), None)    # no category, as LG's own
+        self.assertEqual(self.probe("lang_menu_after")["res"]["value"], "Espa\u00f1ol - Estados Unidos")
+
+    def test_keyboards_of_english_and_the_menu_language_stay_and_the_others_are_added_and_removed(self):
+        d = self.probe("lang_keyboards")["res"]
+        self.assertEqual((d["en"], d["es"]), ({"on": True, "enabled": False, "detail": "In use"}, {"on": True, "enabled": False, "detail": "In use"}))
+        self.assertEqual(d["fr"], {"on": False, "enabled": True, "detail": ""})
+        self.assertEqual(self.probe("lang_keyboard_fr")["res"]["on"], True)
+        self.assertEqual(self.written("lang_keyboard_fr")[0]["localeInfo"]["keyboards"], ["en", "es", "fr"])
+
+    def test_the_audio_language_is_written_at_once_without_a_question(self):
+        d = self.probe("lang_audio")["res"]
+        self.assertEqual((d["value"], d["asked"]), ("French", False))
+        self.assertEqual(d["options"], ["en-US:English", "es-US:Spanish", "fr-FR:French"])
+        self.assertEqual(self.written("lang_audio")[0]["localeInfo"]["locales"]["AUD"], "fr-FR")
+
+    def test_location_shows_the_country_and_asks_before_the_services_country_changes(self):
+        self.assertEqual(self.probe("lang_location")["res"], {"country": "United States", "svc": True, "zip": "94105"})
+        d = self.probe("lang_svc_ask")["res"]
+        self.assertEqual((d["asked"], d["on"]), (True, True))
+        self.assertEqual(self.written("lang_svc_off"), [{"autoSmartServiceCountry": "off"}])
+        done = self.probe("lang_svc_on")
+        self.assertEqual(self.written("lang_svc_on"), [{"autoSmartServiceCountry": "on"}])
+        self.assertEqual([(c["method"], c["payload"]) for c in done["calls"] if c["method"] == "/setCountrySettingByAuto"], [("/setCountrySettingByAuto", {"uniqueIndex": "2013"})])
+        self.assertEqual(self.probe("lang_svc_after")["res"], {"on": True})
+
+    def test_a_zip_code_is_five_digits_and_nothing_else_is_written(self):
+        self.assertEqual(self.written("lang_zip_bad"), [])
+        self.assertEqual(self.probe("lang_zip_bad_state")["res"], {"detail": "Needs 5 digits", "value": "94105"})
+        self.assertEqual(self.written("lang_zip"), [{"zipcode": "90210"}])
+        self.assertEqual(self.probe("lang_zip_after")["res"], {"detail": "", "value": "90210"})
 
 
 if __name__ == "__main__":

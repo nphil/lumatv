@@ -9,7 +9,7 @@ from scenes import scene, k, READY
 RAIL = ["picture", "sound", "inputs", "network", "ambient", "look", "remote", "ai", "system"]
 TABS = {
     "picture": ["Mode", "Brightness", "Colour", "Advanced"],
-    "sound": ["Output", "Mode", "Advanced"],
+    "sound": ["Output", "Mode", "Advanced", "Devices"],
     "inputs": ["Inputs", "HDMI", "Devices"],
     "network": ["Wi-Fi", "Wired", "Details"],
     "ambient": ["Light", "Layout", "Colour"],

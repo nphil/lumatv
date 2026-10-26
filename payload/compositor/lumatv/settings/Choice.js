@@ -69,6 +69,24 @@ function seg(sio, o) {
     return lgShown(sio, o.ds, row)
 }
 
+// A slider whose limits are the TV's own: the key's description gives its range (`values.range`: min, max, interval), so a page
+// never holds a table of guesses. `o.min`, `o.max` and `o.step` are only what it uses until the description has come. o: ds, label,
+// icon, tab, help, detail, unit, id, appId, format (a function from the number to its text).
+function range(sio, o) {
+    function lim() { var d = sio.descs[o.ds]; return d && d.values && d.values.range && d.values.range.max !== undefined ? d.values.range : null }
+    var row = R.slider(sio, { ds: o.ds, tab: o.tab, id: o.id, icon: o.icon, label: o.label, help: o.help, detail: o.detail, unit: o.unit, appId: o.appId,
+                              min: o.min || 0, max: o.max || 100, step: o.step || 1 })
+    row.min = function() { var l = lim(); return l ? l.min : (o.min || 0) }
+    row.max = function() { var l = lim(); return l ? l.max : (o.max || 100) }
+    row.step = function() { var l = lim(); return l && l.interval ? l.interval : (o.step || 1) }
+    row.valueText = function() {
+        if (!sio.has(o.ds)) return "\u2013"
+        var n = Math.round(sio.num(o.ds, row.min()))
+        return (o.format ? o.format(n) : String(n)) + (o.unit || "")
+    }
+    return lgShown(sio, o.ds, row)
+}
+
 // The five display switches of LG's Accessibility that exclude each other: Text with High Contrast (`highContrast`), Focus with High
 // Contrast (`focusEmphasis`), Screen Zoom (`screenMagnification`), Grayscale (`blackAndWhite`) and Invert Colors (`colorInversion`).
 // A switch writes the keys LG's own row writes with it: the first three switch the pair `option.adjustments` off, the last two first

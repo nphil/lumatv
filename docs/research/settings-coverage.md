@@ -4,13 +4,13 @@ Goal (Nitin, 2026-10-25): every item of LG's Settings app, even the rarely used 
 
 ## Resume here
 
-Inventory done: 287 groups of LG items: 47 covered, 69 built, 86 to build, 85 cannot.
+Inventory done: 287 groups of LG items: 43 covered, 90 built, 69 to build, 85 cannot (the count is the status column of the tables below; after the Sound commit).
 
-Built and pushed: Accessibility (Audio Guidance, Closed Caption with its Text, Background and Subtitles tabs, the display switches, Audio options), Time & power (clock, Power On and Power Off timers, auto off, Screen Off), Bluetooth speakers and controllers, Join Network and IP Settings, TV Name, IPv6, HDMI settings, and Picture (Brightness, Colour, Clarity, Motion and Expert tabs, Apply to All Inputs, Reset).
+Built and pushed: Accessibility (Audio Guidance, Closed Caption with its Text, Background and Subtitles tabs, the display switches, Audio options), Time & power (clock, Power On and Power Off timers, auto off, Screen Off), Bluetooth speakers and controllers, Join Network and IP Settings, TV Name, IPv6, HDMI settings, Picture (Brightness, Colour, Clarity, Motion and Expert tabs, Apply to All Inputs, Reset), and Sound (Sound out chooser, Receiver, Delay bypass, Dolby Atmos, Equalizer, Installation Type, AI Acoustic Tuning Options, TV Power Sound Volume, Apply to All Inputs, Reset, and the Devices tab: HDMI input audio, LG Sound Sync, TV Sound Mode Share, eARC Support, DTV Audio Setting).
 
-Left: Picture (White Balance, Fine Tune, Video Range, the zoom ratios), Sound (Output, Advanced, per-input audio), Language and Location, Support (TV information, update, self-diagnosis, privacy, reset), Safety (lock PIN prompt, locks), Channels, and the one-off rows (Always Ready, extended press time, AI recommendations, OLED care extras). The "More in LG settings" rows stay on the pages not yet built.
+Left, in this order (one commit each; the rows' status flips from `build` to `built` with the commit): Language and Location, Support (TV information, software update state, self-diagnosis, privacy, reset), Safety (the locks' state only; the PIN is never asked for), Channels, Picture (White Balance, Fine Tune, Video Range, the zoom ratios, Minimum Brightness), and the one-off rows (Always Ready, extended press time, AI recommendations, OLED care extras, Home settings, screen saver, Emergency Information). The "More in LG settings" rows stay on the pages not yet built.
 
-Next, in this order: Sound (Sound Out chooser on the TV's own list with LG's names, HDMI input audio per port `sound.inputAudioFormatHDMI1..4` bitstream or pcm, Installation Type, DTV Audio, Dolby Atmos, LG Sound Sync, Apply to All Inputs `sound.applyToAllInputSSM = sound`, Reset `resetSystemSettings {category: sound, keys}` with LG's key list), then Language and Location, Support, Safety, Channels. The scenes of every page built so far are registered in `tests/qmlhost/scenes_settings_coverage.py`; only Time & Date was rendered and viewed in this pass, so render the rest with `python3 tests/qmlhost/scenes.py --only <names> --theme both --audit` before calling them done.
+How a page is made (read `settings/Choice.js`, `PageSound.qml`, `PageEqualizer.qml`): a row names LG's key (`C.seg`, `C.choice`, `C.range`, `R.toggle`), its list or range comes from the TV's description; a child page is added to `settings/Children.js`; the offline TV's answers are in `tests/qmlhost/stubs/WebOSServices` (`LgDesc.js` the TV's own descriptions, `FakeCoverage.js` the values, the services and what a call changes); probes are in `tests/test_settings_coverage.py` (one host run answers them all) and scenes in `tests/qmlhost/scenes_settings_coverage.py` (`python3 tests/qmlhost/scenes.py --only <names> --theme both --audit`).
 
 Next: the build order below, one page per commit. Each built row flips its status here from `build` to `built`; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
 
@@ -136,20 +136,20 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 |---|---|---|---|---|
 | Select Mode | sound.soundMode (dimension soundOutput) | aiSoundPlus, aiSound, standard, movie, news, sports, music, game | Sound › Mode | covered — AI Sound Pro, Standard, Cinema, Clear Voice Pro, Sports, Music, Game; the others (AI Sound, Bass Blast, Personalized) follow the TV's list |
 | Personalized Sound Wizard | luna app com.webos.app.soundwizard |  | - | cannot: LG's own listening-test app |
-| Sound Out (all choices below) | sound.soundOutput | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | covered — TV speakers and receiver today; the full list to build |
-| Use TV Speaker | sound.soundOutput tv_speaker | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
-| Use Wired Speaker: Optical Out Device | sound.soundOutput external_optical | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
-| Use Wired Speaker: HDMI (ARC) Device | sound.soundOutput external_arc | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | covered |
-| Use Wired Speaker: Audio Out Device (line out) | sound.soundOutput lineout | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
-| Use Wired Speaker: Wired Headphones | sound.soundOutput headphone | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
-| Use Wired Speaker: USB Device | sound.soundOutput usb_speaker; luna com.webos.service.audio setSoundOutput, com.webos.service.audio/tv getSoundCardsState | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
+| Sound Out (all choices below) | sound.soundOutput | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output (Sound out) | built — LG's chooser on the TV's own list, in LG's names; Bluetooth and USB are not in it (Bluetooth Speakers pairs them) |
+| Use TV Speaker | sound.soundOutput tv_speaker | as above | Sound › Output (Sound out) | built |
+| Use Wired Speaker: Optical Out Device | sound.soundOutput external_optical | as above | Sound › Output (Sound out) | built |
+| Use Wired Speaker: HDMI (ARC) Device | sound.soundOutput external_arc | as above | Sound › Output (Sound out, Receiver) | built |
+| Use Wired Speaker: Audio Out Device (line out) | sound.soundOutput lineout | as above | Sound › Output (Sound out) | built |
+| Use Wired Speaker: Wired Headphones | sound.soundOutput headphone | as above | Sound › Output (Sound out) | built |
+| Use Wired Speaker: USB Device | sound.soundOutput usb_speaker; luna com.webos.service.audio setSoundOutput {soundOutput, cardNumber}, com.webos.service.audio/tv getSoundCardsState | as above | Sound › Output | build — the chooser does not offer it: LG lists the attached sound cards first |
 | Use Wireless Speaker: Bluetooth Device | sound.soundOutput bt_soundbar; luna com.webos.service.btaudiosrc getPairedDevices, getDeviceStatus, startDiscovery, connect, disconnect, removePairedDevice, onDeviceSelectionMenu | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output › Bluetooth Speakers | built |
 | Bluetooth: Speaker Connection Settings (1 or 2 devices) | sound.deviceCntOfBtGeneral (singleConnection, multiConnection) | singleConnection, dualConnection | Sound › Output › Bluetooth Speakers | built |
 | Bluetooth: Bluetooth Speaker Volume | luna com.webos.service.btaudiosrc getDeviceVolume |  | Sound › Output › Bluetooth Speakers | built — the volume keys move it; LG has no separate row on this set |
 | Use Wireless Speaker: LG WOWCAST Device | sound.soundOutput wow_cast; luna com.webos.service.wowplay startDiscovery, p2pSearch, p2pDisconnect, removePairedDevice | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: LG WOWCAST dongle protocol (Wi-Fi Direct); the TV lists no paired device |
 | Use Wireless Speaker: WiSA Speakers | sound.soundOutput wisa_speaker, sound.wisaSpeakerChannelType; luna com.webos.service.wisa searchSpeaker, setSpeakerType, deleteOneSpeaker, setLogVolumeTrim, soundTestOneSpeaker | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: needs the WiSA dongle the C4 does not have; LG hides it |
 | Use Wireless Speaker: Mobile Device | sound.soundOutput mobile_phone; luna com.webos.service.soundshare getStreamOutStatus | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: LG ThinQ phone link; the TV answers no paired phone |
-| Use External Speakers with TV Speaker | sound.soundOutput tv_speaker_external_arc, tv_external_speaker (optical), tv_speaker_headphone, tv_speaker_bluetooth, tv_speaker_wow_cast | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | covered — TV speakers too switch (ARC); optical and headphone twins to build |
+| Use External Speakers with TV Speaker | sound.soundOutput tv_speaker_external_arc, tv_external_speaker (optical), tv_speaker_headphone, tv_speaker_bluetooth, tv_speaker_wow_cast | as above | Sound › Output (Sound out, TV speakers too) | built — the HDMI (ARC), optical and headphone pairings; the Bluetooth pairing needs Bluetooth Speakers |
 | Bluetooth Device + TV Speaker: Playback Option, Audio Delay, Sound Balance, Speaker positions | sound.bluetoothMode, sound.avSyncBtSurround, luna com.webos.service.btaudiosrc/surround getVolumeBalancing, notifyEvent, com.webos.service.btaudiosrc setChannel | surroundMode, speakerMode | Bluetooth speakers | build |
 | Bluetooth Surround Setup / Reset Settings | luna app com.webos.app.btsurroundautotuning; luna com.webos.service.btaudiosrc/surround notifyEvent |  | - | cannot: LG's surround auto-tuning app (microphone sweep) |
 | Soundbar App | sound.blegattSoundbar; luna app com.webos.app.soundbar-setting | hidden now | - | cannot: LG soundbar's own app; the Denon is driven by the receiver page |
@@ -158,21 +158,21 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Dolby Atmos | sound.supportATMOS | on, off | Sound › Advanced | build |
-| Balance | sound.audioBalance | -50 to 50 | Sound › Advanced | covered |
-| Equalizer | sound.userEqualizer, sound.userEqualizerValues (per band) | on, off | Sound › Advanced | build — User sound mode only |
-| Apply to All Inputs | sound.applyToAllInputSSM | sound, done | Sound › Advanced | build — asks first |
-| Reset (the sound mode's settings) | luna settingsservice resetSystemSettings (category sound, current mode) |  | Sound › Advanced | build — asks first, danger style |
+| Dolby Atmos | sound.supportATMOS | on, off | Sound › Advanced | built — LG dims it unless the TV or the receiver plays; the TV said inactive on the receiver |
+| Balance | sound.audioBalance | -50 to 50 | Sound › Advanced | covered — dimmed unless the TV's speakers play, as LG's |
+| Equalizer | sound.userEqualizer, sound.userEqualizerValues (five bands, 100 Hz to 10 kHz), sound.soundModeModified | on, off; -10 to 10 | Sound › Advanced › Equalizer | built — Standard mode and the TV's speakers, as LG's |
+| Apply to All Inputs | sound.applyToAllInputSSM | sound, done | Sound › Advanced | built — asks first |
+| Reset (the sound mode's settings) | luna settingsservice resetSystemSettings (category sound, keys audioBalance, userEqualizerValues, soundModeModified; game: gameTVEqualizer, gameTVEqualizer10band) |  | Sound › Advanced | built — asks first, danger style; LG offers it in Standard mode (any mode but Personalized where the TV has the wizard); not run on the set |
 | Broadcasting on Auracast | sound.auracast; luna app com.webos.app.leaudio | on, off; hidden now | - | cannot: Auracast broadcast runs in LG's LE Audio app |
-| Installation Type | sound.tvSetupConfiguration | stand, wall_mount | Sound › Advanced | build |
+| Installation Type | sound.tvSetupConfiguration | stand, wall_mount | Sound › Advanced | built — dimmed unless the TV's speakers play |
 | Automatic Volume Adjustment | sound.autoVolume | on, off | Sound › Advanced | covered |
-| DTV Audio Setting | sound.digitalAudioPriority | mpeg, dolbyDigital, dobyDigitalPlus, heAaC, auto | Sound › Advanced | build |
-| Match Screen and Sound (AV Sync) | sound.avSync (on, off), sound.avSyncSpeaker, avSyncSpdif, avSyncWisa, avSyncBtSurround, sound.avSyncBypassInput | on, off | Sound › Output | covered — Bypass switch to build |
-| Select HDMI Input Audio Format | sound.inputAudioFormatHDMI1..4 (bitstream, pcm), inputAudioFormatDP1, DP2, USBC1, USBC2 | bitstream, pcm | HDMI input audio (child of Sound › Devices) | build |
-| TV Sound Mode Share | sound.soundAlive | on, off | Sound › Advanced | build |
-| LG Sound Sync | sound.lgSoundSync | on, off | Sound › Advanced | build |
+| DTV Audio Setting | sound.digitalAudioPriority | mpeg, dolbyDigital, dobyDigitalPlus, heAaC, auto | Sound › Devices | built — LG shows it on DVB sets only; the offline TV and this one answer it, so it shows |
+| Match Screen and Sound (AV Sync) | sound.avSync (on, off), sound.avSyncSpeaker, avSyncSpdif, avSyncWisa, avSyncBtSurround, sound.avSyncBypassInput | on, off | Sound › Output | built — the Delay bypass switch holds the delay slider, as LG's |
+| Select HDMI Input Audio Format | sound.inputAudioFormatHDMI1..4 (bitstream, pcm), inputAudioFormatDP1, DP2, USBC1, USBC2 | bitstream, pcm | Sound › Devices › HDMI input audio | built — the rows the TV shows; the TV said inactive on the receiver |
+| TV Sound Mode Share | sound.soundAlive | on, off | Sound › Devices | built — dimmed unless the sound goes over HDMI (ARC) |
+| LG Sound Sync | sound.lgSoundSync | on, off | Sound › Devices | built — dimmed unless the optical out plays |
 | Digital Sound Output | sound.soundOutputDigital | pcm, auto, passThrough | Sound › Output | covered |
-| eARC Support | sound.eArcSupport | on, off; hidden now | Sound › Advanced | build |
+| eARC Support | sound.eArcSupport | on, off; hidden now | Sound › Devices | built — the TV hides it on this set, so the row is left out |
 
 ### General › AI Service (sound)
 
@@ -180,13 +180,13 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 |---|---|---|---|---|
 | AI Sound Pro / AI Sound | sound.soundMode aiSoundPlus, aiSound | aiSoundPlus, aiSound, standard, movie, news, sports, music, game | Sound › Mode | covered |
 | AI Acoustic Tuning | sound.magicSpaceSound; luna app com.webos.app.onetouchsoundtuning | off, standard, bass, treble | - | cannot: needs the Magic Remote's microphone sweep in LG's tuning app; the stored result's switch is to build as the AI acoustic tuning row |
-| AI Acoustic Tuning Options | sound.magicSpaceSound | off, standard, bass, treble | Sound › Advanced | build |
+| AI Acoustic Tuning Options | sound.magicSpaceSound | off, standard, bass, treble | Sound › Advanced | built — dimmed unless the TV's speakers play |
 
 ### Other sound items LG places elsewhere
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| TV Power Sound Volume | general.tvOnSound | off, veryLow, low, medium, high, veryHigh | Sound › Advanced | build |
+| TV Power Sound Volume | general.tvOnSound | off, veryLow, low, medium, high, veryHigh | Sound › Advanced | built |
 | Device Power Sound (Accessibility) | sound.tvPowerSound | on, off | System › Accessibility › Audio options | built |
 | Clear Voice, Game TV Equalizer, Sliding Speaker, Bluetooth Speaker Mode | sound.clearVoice, sound.gameTVEqualizer, sound.slidingSpeaker, sound.btSpeakerMode | off, level1, level2, level3 | - | cannot: not in LG's menu on this model (no description visible or the hardware is absent) |
 
@@ -381,7 +381,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Emergency Information | option.emergencyInformationAtsc30, emergencyInformationLanguageAtsc30 | on, off | System › Accessibility | build |
 | Screen Off Time (standby screen) | option.screenOffTime | 5, 10, 30, 60, 120 | - | cannot: Always Ready hardware sensor models; LG hides it on this set |
 | Motion Sensor Sensitivity | option.motionSensorSensitivity | low, medium, high | - | cannot: motion-sensor models only |
-| View Transition Sound | general.tvOnSound | off, veryLow, low, medium, high, veryHigh | Sound › Advanced | build |
+| View Transition Sound | general.tvOnSound | off, veryLow, low, medium, high, veryHigh | Sound › Advanced (TV Power Sound Volume) | built |
 | Artistic Display Timer | option.artisticDisplayTimer | off, 10, 30, 60, 120; hidden now | - | cannot: lifestyle models; LG hides it |
 | Adaptive Power Delivery | general.adaptivePowerDelivery (no key on this set) | no description | - | cannot: USB-C power models only |
 
