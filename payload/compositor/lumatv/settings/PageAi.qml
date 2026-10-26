@@ -151,9 +151,11 @@ Item {
     function clock(ms) { return ms ? Qt.formatTime(new Date(ms), "h:mm") : "" }
     function outcomeName(o) { return o === "ok" ? "Allowed" : o === "denied" ? "Denied" : o === "expired" ? "Expired" : o === "never" ? "Blocked" : o === "paused" ? "Paused" : o }
     function outcomeColor(o) { return o === "ok" ? Lu.positive : o === "denied" || o === "never" ? Lu.danger : o === "expired" || o === "paused" ? Lu.warning : Lu.ink2 }
+    // an assistant's state line: paused, else when it was last heard from (the request itself is in the activity list)
     function lastFor(a) {
-        for (var i = 0; i < audit.length; i++) if (audit[i].assistant && audit[i].assistant.id === a.id) return (audit[i].message || audit[i].tool) + " \u00b7 " + ago(audit[i].at)
-        return (a.paused ? "Paused" : "Active") + (a.lastSeenAt ? " \u00b7 last seen " + ago(a.lastSeenAt) : "")
+        if (a.paused) return "Paused"
+        for (var i = 0; i < audit.length; i++) if (audit[i].assistant && audit[i].assistant.id === a.id) return ago(audit[i].at)
+        return a.lastSeenAt ? ago(a.lastSeenAt) : "Active"
     }
     // the helper's group titles, in the short form the column has room for
     readonly property var groupLabels: ({ state: "What's playing", playback: "Playback", launch: "Apps and inputs", power: "Power" })
@@ -296,7 +298,7 @@ Item {
                 delegate: LuRow {
                     width: colR.width
                     label: page.groupLabels[modelData.id] || modelData.title
-                    detail: page.groupNotes[modelData.id] || ""
+                    help: page.groupNotes[modelData.id] || ""
                     focused: page.active && page.fk === "level" && page.fi === index; rested: page.rested
                     onHoverFocus: page.pointAt("level", index)
                     trailing: LuSegmented {
@@ -315,8 +317,9 @@ Item {
             y: parent.height - height
             width: colL.width
             icon: "ban"
-            label: page.armed === "lockout" ? "Press OK again" : "Lock out all AI"
-            detail: page.armed === "lockout" ? "Every assistant is removed and access goes off." : "Removes every assistant and turns access off. Takes effect at once."
+            label: "Lock out all AI"
+            detail: page.armed === "lockout" ? "Press OK again" : ""
+            help: "Removes every assistant and turns access off, at once."
             focused: page.active && page.fk === "lock"; rested: page.rested
             onActivated: { page.pointAt("lock", 0); page.act() }
             onHoverFocus: page.pointAt("lock", 0)

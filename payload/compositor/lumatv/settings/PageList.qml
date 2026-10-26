@@ -12,11 +12,17 @@ import "../kit"
 // (default 0), `id`, `icon` (a Lucide name), `label`, `detail`, and per kind `on` (toggle), `options` and
 // `index` (seg, stepper, cards), `min`, `max`, `step`, `num`, `unit` and `valueText` (slider; a text for the number at the right, which replaces the rounded value), `value` (value, a text), `zones` and `text` (figure: a small TV with the lit edges and a caption; shown, never focused),
 // `button` (action), `cols` (cards), `text` (note, head), `chevron`, `selected` (value: the chosen one of a list of rows, drawn with a wash and a check at the right), `info` (a row that only shows: full strength,
-// never focused). Any of label, detail, value, on, index,
+// never focused unless it has `help`). Any of label, detail, value, on, index,
 // num, options, text, selected, enabled and visible may be a function: it runs inside the binding that draws the row,
 // so what it reads (the settings service, the helper's topics) redraws the row when it changes. `act(v)` is
 // called with the new value: a boolean for a toggle, the segment or card index for seg, stepper and cards, the
 // number for a slider, nothing for value and action.
+//
+// Text (Nitin, 2026-10-25: minimal text on every screen): a row is its `label` and its value. `detail`, the second line, is only for state the
+// person needs now ("HDMI 2", "TV not answering", "Press OK again"), at most a few words, never a sentence about what the setting does.
+// `help` (a text, or a function giving one) is that sentence: one or two plain sentences behind the row's small info mark. A row with help is
+// held on OK (or the Menu key, or a click on the mark) to open it: the host's LuHelp sheet, one for every page, `helpReady()` and `openHelp()`
+// below. Rows without help show no mark; a page needs a `help` only where the label alone leaves a real question.
 //
 // Keys, from the host: Up and Down move between rows (the tab bar is above the first), Left and Right
 // move inside a segmented row, a stepper, a card grid or a slider, or change the tab on the tab bar, OK
@@ -48,7 +54,8 @@ Item {
     function shown(i) { var r = rows[i]; return !!r && rowTab(r) === tab && ev(r.visible) !== false }
     function focusable(i) {
         var r = rows[i]
-        return shown(i) && r.kind !== "head" && r.kind !== "note" && r.kind !== "figure" && r.info !== true && ev(r.enabled) !== false
+        // a row that only shows (`info`) is skipped by the D-pad, unless it has help: then the focus can reach its info mark
+        return shown(i) && r.kind !== "head" && r.kind !== "note" && r.kind !== "figure" && (r.info !== true || helpFor(i) !== "") && ev(r.enabled) !== false
     }
     function first() { for (var i = 0; i < rows.length; i++) if (focusable(i)) return i; return -2 }
     function step(from, dir) {
@@ -102,6 +109,9 @@ Item {
         return true
     }
 
+    property double sliderAt: 0                         // when the last Left or Right ran a slider, and how many in a row, and which way
+    property int sliderRun: 0
+    property int sliderDir: 0
     function key(dir) {
         if (blocked) return true
         if (stop === -2) { var f0 = first(); if (f0 >= 0) enter(f0) }      // rows that were not there yet
@@ -146,7 +156,13 @@ Item {
             if (k === "slider") {
                 var lo = ev(r.min), hi = ev(r.max), st = ev(r.step) || 1
                 var cur = ev(r.num) || 0
-                var v = Math.max(lo, Math.min(hi, Math.round((cur + d * st) / st) * st))
+                // a key held (or pressed again within a quarter second in the same direction) runs: on a range of more than 40 steps the
+                // step grows to 2 after ten presses and to 5 after twenty-four, so 0 to 100 takes a few seconds, not a hundred presses
+                var now = Date.now()
+                sliderRun = d === sliderDir && now - sliderAt < 250 ? sliderRun + 1 : 0
+                sliderDir = d; sliderAt = now
+                var mult = (hi - lo) / st > 40 ? (sliderRun >= 24 ? 5 : sliderRun >= 10 ? 2 : 1) : 1
+                var v = Math.max(lo, Math.min(hi, Math.round((cur + d * st * mult) / st) * st))
                 if (v !== cur) change(stop, v)
                 return true
             }
@@ -173,6 +189,7 @@ Item {
             border.color: Lu.edge
             LuIcon { x: Lu.space(3); anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: Math.round(Lu.target * 0.36); color: Lu.ink2 }
             LuText { id: backText; x: Lu.space(3) + Math.round(Lu.target * 0.36) + Lu.space(1); anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink2; text: page.back }
+            MouseArea { anchors.fill: parent; onClicked: if (page.host) { page.host.zone = "page"; page.host.key("back") } }       // the pointer's way back, as the Back key
         }
         LuText { id: titleText; x: backPill.visible ? backPill.width + Lu.space(4) : 0; role: "title"; text: page.title }
         LuText {
@@ -349,7 +366,8 @@ Item {
                                     from: page.ev(cell.r.min) || 0; to: page.ev(cell.r.max) === undefined ? 100 : page.ev(cell.r.max)
                                     step: page.ev(cell.r.step) || 1
                                     value: page.ev(cell.r.num) || 0
-                                    active: cell.isFocus
+                                    active: cell.isFocus && cell.r.info !== true
+                                    readOnly: cell.r.info === true
                                     onMoved: { page.pointAt(cell.ri); page.change(cell.ri, value) }
                                 }
                                 LuText {

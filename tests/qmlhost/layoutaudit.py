@@ -173,7 +173,7 @@ def audit(root, width, height, image=None, checks=None):
     checks = set(KINDS if checks is None else checks)
     window = QtCore.QRectF(0, 0, width, height)
     findings = []
-    texts = []          # (item, glyph rect, box item)
+    texts = []          # (item, ink rect, box item): two runs overlap when their ink does, not their boxes
     boxes = {}          # box item -> {"rect", "texts": [rects], "icons": [rects]}
 
     def add(kind, item, detail, rect=None):
@@ -258,7 +258,7 @@ def audit(root, width, height, image=None, checks=None):
                 measured = contrast_in(image, ink)
                 if measured is not None and measured[0] < need:
                     add("contrast", item, "reads at %.1f:1 on its background (needs %.1f; ink alpha %.2f, %.0f px)" % (measured[0], need, alpha, size), ink)
-            texts.append((item, glyph, box))
+            texts.append((item, ink, box))
             note_in_box(box, "texts", glyph)
             return
         for child in sorted(item.childItems(), key=lambda c: c.z()):      # paint order

@@ -71,7 +71,7 @@ Item {
         id: words
         x: row.textX
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: -detailText.trailing / 2
+        anchors.verticalCenterOffset: detailText.trailing / 2       // the glyphs are the top of the column: they, not the leading, sit in the middle
         width: parent.width - row.textX - Lu.space(6) - trailingSlot.width - valueText.width - (valueText.visible ? Lu.space(4) : 0)
         Item {
             width: parent.width
@@ -109,6 +109,7 @@ Item {
         height: childrenRect.height
     }
     MouseArea {
+        z: -1                               // under the controls: a click on a segment or on the info mark is theirs, the rest of the row is the row's
         anchors.fill: parent
         hoverEnabled: true
         onEntered: row.hoverFocus()
