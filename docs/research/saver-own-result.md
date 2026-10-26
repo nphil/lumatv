@@ -88,6 +88,8 @@ On a clean checkout of HEAD plus these files, `nice -n 10`, one module at a time
 - `tests/test_vplane_saver.py` (16 tests, 13 minutes): each test gives the saver a mailbox of its own (the host's default one, `/tmp/lumatv-vplane`, is the real player's and was shared by every run), and a preview never asks the player.
 - `tests/test_plugins_surfaces.py` (`Saver`, 3 tests): the assertion on the TV calls leaves the vote's subscription out (Home's own saver is on the list in the host).
 - `tests/test_lumatv_vplane.py` (33 tests): the started supervisor does not keep the tool's lock. `tests/test_vplane_clips.py` (24 tests) reads `Screensaver.qml`.
+- `tests/test_saver_deck.py` (11 tests) and `tests/test_shell_surfaces.py -k screensaver` (1 test; the checkout needs `assets` and `docs/mocks/img` for the tiles' pictures): the deck file and the key path of a forced saver, as they were.
+- `tests/test_saver_own.py` `Cycles` once more with the final windows (seven cycles, limit 6 MB): the means of cycles 5-11 and of the last seven are 431.9 and 434.3 MB (+2.4 MB).
 
 ## TV check (for the slot)
 
