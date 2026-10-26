@@ -441,6 +441,8 @@ class FrameRule(unittest.TestCase):
             "[srv  43297.052] warn loop: 21.0 ms in one pass (tick)",                        # over, inside
             "[srv  43297.066] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)",   # over, inside
             "[srv  43297.500] info kms: page-flip stamp 16.70 ms after the last (one refresh is 16.67)",   # one refresh
+            # a refresh with nothing new to show: not a frame the panel missed
+            "[srv  43297.600] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)",
             "[srv  43300.000] warn frame gap 33.3 ms on surface 7 (x1) after 291 steady frames",           # over, inside
             "[srv  43300.100] warn frame gap 18.0 ms on surface 7 (x1) after 292 steady frames",
             "[srv  43357.053] info kms: page-flip stamp 33.37 ms after the last (one refresh is 16.67)",   # after the client left
@@ -701,6 +703,8 @@ class Slot(unittest.TestCase):
         over = self.slot.over_limit("[srv 1.0] warn loop: 20.0 ms in one pass (x)\n[srv 2.0] warn loop: 20.1 ms in one pass (x)\n")
         self.assertEqual(len(over), 1)
         self.assertEqual(self.slot.over_limit("[srv 1.0] info kms: page-flip stamp 16.70 ms after the last (one refresh is 16.67)"), [])
+        idle = "[srv 1.0] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)"
+        self.assertEqual(self.slot.over_limit(idle), [], "a refresh with nothing new to show is no frame missed")
 
 
 class VirtualRemote(unittest.TestCase):

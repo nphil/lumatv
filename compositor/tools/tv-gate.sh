@@ -82,7 +82,8 @@ x1_numbers() {
 }
 
 # What the compositor's log records over GAP_LIMIT_MS between two monotonic times: a loop pass, a client's frame gap or
-# a page-flip interval. The log is on CLOCK_MONOTONIC like the client's; each such line is a frame the panel missed.
+# a page-flip interval. The log is on CLOCK_MONOTONIC like the client's; each such line is a frame the panel missed (a
+# refresh skipped with nothing due at it is logged as `page-flip interval ... nothing due`, and is not one).
 comp_over_limit() {
     [ -r "$1" ] || { echo unreadable; return 0; }
     awk -v a="$2" -v b="$3" -v lim="$GAP_LIMIT_MS" '
@@ -91,6 +92,15 @@ comp_over_limit() {
         /frame gap [0-9.]+ ms on surface/ { v = $0; sub(/.*frame gap /, "", v); if (v + 0 > lim) n++ }
         /page-flip stamp [0-9.]+ ms after the last/ { v = $0; sub(/.*page-flip stamp /, "", v); if (v + 0 > lim) n++ }
         END { print n + 0 }' "$1" 2>/dev/null
+}
+
+# The compositor's major page faults and its loop thread's run-queue wait in ns, as "MAJFLT WAIT": what holds the loop
+# without a line of its own (a page read back from swap, the CPU given to another task), read before and after a run.
+comp_sched() {
+    c_pid=$(pgrep -f 'bin/lumatv-compositor' | head -1)
+    c_mf=$(awk '{print $12}' /proc/$c_pid/stat 2>/dev/null)
+    c_w=$(awk '{print $2}' /proc/$c_pid/task/$c_pid/schedstat 2>/dev/null)
+    echo "${c_mf:--} ${c_w:--}"
 }
 
 # x1_rule RESULT SECONDS_ASKED LATE_BEFORE LATE_AFTER COMPOSITOR_OVER (a count, or "unreadable"): prints "PASS what held"
@@ -141,11 +151,13 @@ live)
 x1)
     secs=${2:-60}
     before=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
+    sched_before=$(comp_sched)
     XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 X1_SECONDS=$secs X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY \
         $LD --library-path $LIB --preload $LIB/x1heapshim.so $D/bin/x1client $BLOB > $OUT/x1.log 2>&1
     res=$(grep RESULT $OUT/x1.log)
     after=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
-    # `late` alone: `lost` sums the idle refreshes of a still screen too (+3957 over 62 s of nothing on the second gate).
+    sched=$(echo "$sched_before $(comp_sched)" | awk '{ f = ($1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/) ? sprintf("+%d", $3 - $1) : "not read"; w = ($2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/) ? sprintf("+%.1f ms", ($4 - $2) / 1e6) : "not read"; print "major faults " f ", run-queue wait " w }')
+    # `late` alone: `lost` is the pacer's own measure, which leaves a frame's render time out.
     late_before=$(echo "$before" | awk '{print $4}'); late_after=$(echo "$after" | awk '{print $4}')
     # The compositor's own view of the run (its log is on CLOCK_MONOTONIC like x1's): loop stalls, frame gaps of the
     # X1 surface, clients coming and going, refused commits, lost flips, a flip the loop reached late, a frame held while a
@@ -157,7 +169,7 @@ x1)
     stalls=$(grep -c 'loop:' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).
     comp_over=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}")
-    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over"
+    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over; $sched"
     echo "$detail" > $OUT/x1-result.txt
     verdict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over")
     case "$verdict" in PASS*) pass x1 "${verdict#PASS }" ;; *) fail x1 "${verdict#FAIL } | $detail" ;; esac
