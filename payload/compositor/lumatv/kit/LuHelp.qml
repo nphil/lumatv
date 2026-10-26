@@ -38,6 +38,8 @@ Item {
     opacity: shown ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: Lu.reduced ? 120 : Lu.layerMs; easing.type: Lu.cardEasing } }
 
+    // the page steps back (the same dim as a menu over Home): the row stays readable, the sheet is the one thing to read
+    Rectangle { anchors.fill: parent; color: Lu.scrim }
     MouseArea { anchors.fill: parent; enabled: sheet.shown; hoverEnabled: true; onClicked: sheet.hide() }
 
     Item {

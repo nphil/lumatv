@@ -56,7 +56,7 @@ PageList {
           act: function(i) { page.patch({ depth: { level: page.depthLevels[i] } }) } },
         R.lg(page, { tab: 0, target: "HomeSettings" }),
 
-        { kind: "toggle", tab: 1, icon: "clock", label: "12-hour clock", detail: "Off shows 24-hour time on Home and in the bar.",
+        { kind: "toggle", tab: 1, icon: "clock", label: "12-hour clock",
           on: function() { return !theme.clock || theme.clock.twelveHour !== false }, act: function(v) { page.patch({ clock: { twelveHour: v } }) } },
         R.link({ tab: 1, id: "homeassistant", icon: "house-wifi", label: "Home Assistant",
                  value: function() { return PluginHub.haWords }, go: function() { page.host.openPage("homeassistant") } }),
