@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Out, Dolby Atmos, Equalizer, Bluetooth speakers, USB devices), Accessibility, Time & power,
   Wi-Fi and IP settings, the HDMI rows, Home Settings and screen saver rows, Support and
   privacy, Safety, Channels, Always Ready and OLED care. Live Plus asks before it turns on.
-  What remains of LG's menus opens from a "More in LG settings" row.
+  What remains of LG's menus opens from a "More in LG settings" row. As in LG's Settings,
+  the NEXTGEN TV rows show only on a TV with an ATSC 3.0 tuner.
 - The gear tap and the Input key open LumaTV's quick panel (tall, docked at the left where
   LG's sat, sliding out of the edge) and input picker, on Home and over apps; LG's own
   stay one button away and take over whenever LumaTV cannot show its own. Both slide in
