@@ -857,9 +857,12 @@ Platform findings:
   (scaler busy), so the ambient histogram and any frame capture cannot run
   together (lg-hue-sync). That project's bridge client accepts only Hue's own
   certificates, so it would not talk to Bifrost.
-- LG Home can be restored from a CRIU snapshot that ignores changed files; a
-  stale one is dropped by touching `invalid_img` in its checkpoint directory.
-  On this set `/mnt/lg/cmn_data/checkpoint` holds only `inputcommon`.
+- Apps can be restored from a CRIU snapshot that ignores changed files, with
+  the pid they were dumped with. A launch restores from CRIU's working copy in
+  `/tmp/checkpoint/<app>`; `/mnt/lg/cmn_data/checkpoint` is only LG's
+  persisted second copy (on this set it holds only `inputcommon`), and
+  `invalid_img` there does not force a cold start. `lumatv inputcommon on`
+  sets the working copy aside (`docs/research/lg-restyles-result.md`).
 - HbbTV is already off (`option.hbbTV`).
 - LG hard-codes public DNS servers and DNS-over-TLS, so a hosts-file blocker
   is incomplete without redirecting DNS; that redirect is a network change and
