@@ -245,6 +245,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compositor: landed flips are handled first in each loop pass, so a frame callback no longer
+  waits behind a draw; a window made or named before its first buffer draws no frame; the
+  first commit with the mode is non-blocking; a refresh skipped with nothing due is no longer
+  counted as missed; the watchdog's fallback reason comes from the child's exit status.
 - Video-plane saver: the player's window is double-buffered and repaints a buffer only after
   the compositor releases it, so no half-painted frame (a veil without its caption) can show.
 - Home: a read of `theme.json` that landed while Home was writing it reset the theme on
