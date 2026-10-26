@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state; on the set it cut Mali from 21.9 % to 1.9 %). The player is `lumatv-vplane`
   (`lumatv vplane install|start|stop|remove|status`). The shuffle order is kept across
   restarts, and the twelve-hour clock shows 12-hour time.
+- Saver: while Home is in front LumaTV answers LG's idle question with no, so LG's Flutter
+  saver never starts and LumaTV's clock or art saver is what the TV shows; a key, the
+  pointer, standby or leaving Home ends it (`screensaver.own` off gives LG's saver back).
 - Restyles of LG's own processes in the Lucent look: the input banners, Live TV's channel
   banner and INFO card, the no-signal screen, the banner position editor and the set-top
   box and input lock prompts (`lumatv inputcommon on|off`, which also sets LG's CRIU dump
