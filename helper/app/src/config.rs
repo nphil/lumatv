@@ -379,6 +379,36 @@ pub struct AmbientConfig {
     pub wled: Option<WledConfig>,
     /// Where the 32-bit capture helper hands the picture's areas to this one (a unix socket). Unset: `ambient.sock` in the data dir.
     pub capture_socket: Option<String>,
+    /// Where the sound for the sound modes of ambient light comes from.
+    pub sound: SoundConfig,
+}
+
+/// The TV's own sound mix for ambient light's sound modes (`ambient_audio_capture.rs`). Whether the lights use it is the
+/// `sound` setting (`base.ambient`); where it is read from is the owner's to choose, here.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct SoundConfig {
+    /// The program that writes the mix to its standard output as raw 48 kHz, 16-bit, two-channel, little-endian PCM, with its
+    /// arguments. It runs only while a sound mode is on and the lights are lit. The default is `arecord` on card 1 `LGSIC`,
+    /// device 2 `MixerCapture`, which carries the TV's sound before its volume and before the receiver's mute; no microphone is
+    /// involved. Empty: no sound modes.
+    pub capture: Vec<String>,
+}
+
+/// The mix as the TV's own sound card gives it.
+pub const DEFAULT_SOUND_CAPTURE: [&str; 12] = [
+    "arecord", "-q", "-D", "hw:1,2", "-t", "raw", "-f", "S16_LE", "-r", "48000", "-c", "2",
+];
+
+impl Default for SoundConfig {
+    fn default() -> Self {
+        Self {
+            capture: DEFAULT_SOUND_CAPTURE
+                .iter()
+                .map(|a| (*a).to_owned())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -615,6 +645,18 @@ impl Config {
         {
             return err("ambient.captureSocket must be an absolute path");
         }
+        if self
+            .ambient
+            .sound
+            .capture
+            .first()
+            .is_some_and(String::is_empty)
+            || self.ambient.sound.capture.iter().any(|a| a.contains('\0'))
+        {
+            return err(
+                "ambient.sound.capture is a program and its arguments, none empty or holding a NUL",
+            );
+        }
         if self.voice.capture.first().is_some_and(String::is_empty)
             || self.voice.capture.iter().any(|a| a.contains('\0'))
         {
@@ -772,6 +814,27 @@ mod tests {
             r#"{"ambient":{"wled":{}}}"#,
             r#"{"ambient":{"captureSocket":"relative.sock"}}"#,
             r#"{"ambient":{"hue":{"host":"192.168.1.60"}}}"#,
+        ] {
+            assert!(Config::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_sound_for_ambient_light_is_the_tvs_mix_unless_the_owner_names_another_or_none() {
+        let config = Config::parse("{}").unwrap();
+        assert_eq!(
+            config.ambient.sound.capture.join(" "),
+            "arecord -q -D hw:1,2 -t raw -f S16_LE -r 48000 -c 2"
+        );
+        let other =
+            Config::parse(r#"{"ambient":{"sound":{"capture":["cat","/tmp/x.pcm"]}}}"#).unwrap();
+        assert_eq!(other.ambient.sound.capture, ["cat", "/tmp/x.pcm"]);
+        // Emptying it is how the owner takes the sound modes away.
+        let none = Config::parse(r#"{"ambient":{"sound":{"capture":[]}}}"#).unwrap();
+        assert!(none.ambient.sound.capture.is_empty());
+        for bad in [
+            r#"{"ambient":{"sound":{"capture":[""]}}}"#,
+            r#"{"ambient":{"sound":{"mic":"x"}}}"#,
         ] {
             assert!(Config::parse(bad).is_err(), "{bad}");
         }

@@ -279,11 +279,22 @@ pub fn ambient_tile(topic: &Json) -> Option<Json> {
     let hint = if !enabled {
         "Off".to_owned()
     } else {
+        let sound = text(topic, "sound");
         match (text(topic, "state"), text(topic, "mode")) {
             ("testing", _) => "Test pattern".to_owned(),
             ("waiting", _) => "Waiting for the picture".to_owned(),
+            _ if sound == "sound" => format!("Follows the sound \u{b7} {level}%"),
+            (_, "colour") if sound == "picture-sound" => {
+                format!("Still colour with sound \u{b7} {level}%")
+            }
             (_, "colour") => format!("Still colour \u{b7} {level}%"),
+            (_, "picture-off-home") if sound == "picture-sound" => {
+                format!("Follows the picture and sound, off on Home \u{b7} {level}%")
+            }
             (_, "picture-off-home") => format!("Follows the picture, off on Home \u{b7} {level}%"),
+            _ if sound == "picture-sound" => {
+                format!("Follows the picture and sound \u{b7} {level}%")
+            }
             _ => format!("Follows the picture \u{b7} {level}%"),
         }
     };
@@ -692,6 +703,22 @@ mod tests {
         assert_eq!(waiting["hint"], "Waiting for the picture");
         let still = ambient_tile(&json!({"enabled": true, "available": true, "mode": "colour", "state": "running", "brightness": 40})).unwrap();
         assert_eq!(still["hint"], "Still colour \u{b7} 40%");
+        let sound = |mode: &str, sound: &str| {
+            ambient_tile(&json!({"enabled": true, "available": true, "mode": mode, "sound": sound, "state": "running", "brightness": 55})).unwrap()["hint"].clone()
+        };
+        assert_eq!(
+            sound("picture", "picture-sound"),
+            "Follows the picture and sound \u{b7} 55%"
+        );
+        assert_eq!(
+            sound("colour", "picture-sound"),
+            "Still colour with sound \u{b7} 55%"
+        );
+        assert_eq!(sound("picture", "sound"), "Follows the sound \u{b7} 55%");
+        assert_eq!(
+            sound("picture", "picture"),
+            "Follows the picture \u{b7} 55%"
+        );
     }
 
     #[test]

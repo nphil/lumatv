@@ -415,9 +415,14 @@ class Settings(HostCase):
                          [{"key": "enabled", "value": {"type": "bool", "value": True}},               # in the order made, one at a time,
                           {"key": "brightness", "value": {"type": "integer", "value": 80}}])         # and a held slider sends the value it ended on
 
+    def test_the_sound_row_is_the_helpers_sound_mode(self):
+        # switch the lights on (the row waits for it), then brightness, mode, Sound (Picture now): Right picks Picture + sound, OK sets it
+        posts = [p for p in self.ambient_posts("ok", "down", "down", "down", "right", "ok") if p[0] == "/v1/settings/base.ambient"]
+        self.assertEqual([p[1]["changes"][0] for p in posts][1:], [{"key": "sound", "value": {"type": "choice", "value": "picture-sound"}}])
+
     def test_the_test_pattern_button_starts_and_the_helpers_state_turns_it_into_stop(self):
-        # toggle, brightness, mode, then the Run button
-        self.assertIn(["/v1/ambient/test", {"run": True}], self.ambient_posts("down", "down", "down", "ok"))
+        # toggle, brightness, mode, sound, then the Run button
+        self.assertIn(["/v1/ambient/test", {"run": True}], self.ambient_posts("down", "down", "down", "down", "ok"))
 
     def test_the_layout_tab_writes_one_edge_at_a_time(self):
         # up to the tab bar, Right to Layout (the focus stays on the bar), Down to Top, Right adds a section

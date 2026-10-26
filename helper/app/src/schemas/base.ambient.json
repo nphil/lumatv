@@ -1,7 +1,7 @@
 {
   "format": 1,
   "owner": "base.ambient",
-  "revision": 1,
+  "revision": 2,
   "title": "Ambient light",
   "sections": [
     {
@@ -65,6 +65,43 @@
                 {
                   "id": "picture-off-home",
                   "label": "Off on Home"
+                }
+              ]
+            }
+          },
+          "default": {
+            "type": "choice",
+            "value": "picture"
+          },
+          "enabled_when": {
+            "type": "equals",
+            "key": "enabled",
+            "value": {
+              "type": "bool",
+              "value": true
+            }
+          },
+          "apply": "on-commit"
+        },
+        {
+          "key": "sound",
+          "label": "Sound",
+          "help": "Lights can follow the TV's own sound too, read before the volume and the receiver's mute. The sound is never saved or sent anywhere.",
+          "kind": {
+            "type": "choice",
+            "options": {
+              "inline": [
+                {
+                  "id": "picture",
+                  "label": "Picture"
+                },
+                {
+                  "id": "picture-sound",
+                  "label": "Picture + sound"
+                },
+                {
+                  "id": "sound",
+                  "label": "Sound"
                 }
               ]
             }

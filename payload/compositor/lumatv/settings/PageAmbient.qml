@@ -6,9 +6,10 @@ import "."
 // Ambient light (docs/mocks/30-settings-ambient): the settings of LumaTV's own lights-around-the-TV feature, kept in the
 // helper's settings layer as the owner `base.ambient` (helper/app/src/schemas/base.ambient.json) and drawn through the same
 // row builders as LG's settings (HelperSettings has Sio's interface). This page only sets; the capture, the mapping and the
-// light output run in the helper (`GET /v1/ambient` says what they are doing). The strip's and Hue's addresses are not
-// settings here: they live in the helper's own file. LG has no equivalent on the C4; its "Lighting" settings are for other
-// models and are not shown.
+// light output run in the helper (`GET /v1/ambient` says what they are doing). The Sound row is the helper's sound mode: the
+// picture as it is, with the TV's own sound on it (brightness and beats), or the sound alone; the helper reads the sound only
+// then. The strip's and Hue's addresses are not settings here: they live in the helper's own file. LG has no equivalent on
+// the C4; its "Lighting" settings are for other models and are not shown.
 PageList {
     id: page
     title: "Ambient light"
@@ -23,7 +24,9 @@ PageList {
     readonly property int sections: hs.num("top") + hs.num("right") + hs.num("bottom") + hs.num("left")
     readonly property int edges: (hs.num("top") > 0 ? 1 : 0) + (hs.num("right") > 0 ? 1 : 0) + (hs.num("bottom") > 0 ? 1 : 0) + (hs.num("left") > 0 ? 1 : 0)
     readonly property string modeLine: !hs.has("enabled") ? "" : !hs.get("enabled") ? "Off"
+        : hs.get("sound") === "sound" ? "Follows the sound"
         : R.name({ picture: "Follows the picture", colour: "Still colour", "picture-off-home": "Follows the picture, off on Home" }, hs.get("mode"), "")
+          + (hs.get("sound") === "picture-sound" ? " with sound" : "")
     subtitle: modeLine === "" ? "" : modeLine + (hs.has("top") ? " \u00b7 " + sections + " sections on " + edges + (edges === 1 ? " edge" : " edges") : "")
     summary: modeLine === "" ? "Not available" : modeLine
 
@@ -40,6 +43,8 @@ PageList {
         R.slider(hs, { ds: "brightness", tab: 0, min: 0, max: 100, step: 5, unit: "%", icon: "sun", label: "Brightness", detail: "How bright the strip goes. Dims with the room at night." }),
         R.seg(hs, { ds: "mode", tab: 0, icon: "sliders-horizontal", label: "Mode", detail: "Follows the picture, a still colour, or off on Home and menus.",
                     options: ["Picture", "Colour", "Off on Home"], values: ["picture", "colour", "picture-off-home"], segWidth: 150 }),
+        R.seg(hs, { ds: "sound", tab: 0, icon: "audio-waveform", label: "Sound", detail: "Add the TV's own sound: its loudness and its beats. Read before the volume and never saved.",
+                    options: ["Picture", "Picture + sound", "Sound"], values: ["picture", "picture-sound", "sound"], segWidth: 150 }),
         R.note(function() { return page.testProblem !== "" ? page.testProblem : (page.amb && page.amb.problem ? String(page.amb.problem) : "") }, 0,
                function() { return page.testProblem !== "" || !!(page.amb && page.amb.problem) }),
         R.head("Strip", 0),

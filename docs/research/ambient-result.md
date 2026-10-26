@@ -220,6 +220,60 @@ was closed afterwards. Open: whether this is the receiver's ARC audio format lis
 refused), or something that changed since the 24 Oct Dolby Vision pass; an audio-output/ARC check is the first thing
 to do before the next playback test. No Netflix picture was therefore captured.
 
+## Sound-reactive (2026-10-25)
+
+Setting `sound` of `base.ambient` (Settings, Ambient light, Light tab, row "Sound"): `picture` (Picture, the default: no sound is
+read), `picture-sound` (Picture + sound) or `sound` (Sound). It is independent of Mode: Picture and Off on Home put the sound on the
+picture's colours; Colour puts it on the still colour; `sound` is the still colour at the sound's brightness in any Mode, and reads no
+picture (the capture socket is not opened). Off on Home still means dark on Home and menus. The tile hint and the page's summary say
+which. Code: `helper/app/src/ambient_audio.rs` (analysis and the colour functions), `ambient_audio_capture.rs` (the program and its
+thread), wiring in `ambient.rs` (`Want::Sound`, `tend_sound`, `wants_sound`).
+
+- **Source.** `ambient.sound.capture` in `helper.json`, default `arecord -q -D hw:1,2 -t raw -f S16_LE -r 48000 -c 2`: the mix before
+  the TV's volume and before the receiver's mute (see "Audio results"), so a muted receiver changes nothing. An empty list removes the
+  sound modes. The program runs only while a sound mode is set, ambient light is on, the screen is on and Home is not covering the
+  lights in Off on Home; leaving any of these kills it (its process group) at the helper's next step. It stopping or failing to start is the
+  topic's `problem` ("the sound capture stopped (exit status: 1): arecord: ...") and it is started again no sooner than 10 s later.
+  The PCM is read, summed and dropped; nothing is written, and the topic carries the mode word only, never a level.
+- **Analysis**, per 10 ms hop (480 frames) of the mono mix: energy of the whole mix, of a bass band (two one-pole low-passes at
+  150 Hz) and of a top band (the mix minus a one-pole low-pass at 2.5 kHz); no FFT. `level` and `bass` are the hop's dB against the
+  loudest recent hop of the same band (reference falling 1 dB/s, floors -38 and -46 dBFS) over 30 dB, attack 0.6, release 0.06 per
+  hop. A beat is a hop whose bass energy is 2.4 times its own running average (3.2 times in the top band, counted at 0.7), above
+  -60 dBFS, at least 120 ms after the last; strength is `ln(ratio)/ln(10)` clamped to 0.3..1, the pulse falls by 0.93 a hop.
+  `active` rises in about 10 hops and falls only after 0.8 s of hops below -64 dBFS, then over about 2 s.
+- **Colours.** Picture + sound: gain `0.55 + 0.4 * (0.65 level + 0.35 bass) + 0.45 * pulse` on each light (the pulse weighted 0.75
+  at the top edge to 1.0 at the bottom), eased to 1 as `active` falls, a channel past full scale scaling the other two with it. Sound:
+  the still colour at the chosen brightness times `min(1, 0.15 + 0.45 body + 0.6 pulse)` times `active`, dark (one black frame, then
+  the thread sleeps and the capture's "sound began" wakes it) when there is no sound. With no sound or no capture Picture + sound is
+  the plain picture. In every case the strip is fed at 30 a second while there is sound, once a second otherwise.
+- **Host tests** (`cargo test -p lumatv-helper`): synthetic PCM through the analyser (silence, steady tone, 60 Hz kicks four a second
+  give 15 to 17 beats in 4 s 25 hops apart, hard against soft kicks, 6 kHz bursts, a 20 dB drop in level and the reference recovering,
+  stop and restart, noise below the gate, the same results for any cut of the byte stream); the colour functions; the `ambient` steps
+  (gains on a settled picture, the sound-only strip and its black frame, the still colour's once-a-second keepalive); the capture
+  program's lifecycle (started, failing with arecord's own words, killed with its children, restarted no sooner than the retry); the
+  whole chain with a shell program writing a tone, through the thread and DDP to a fake strip; the schema, the Settings row and the
+  tile hint. No recorded music is in the repository; the 60 Hz, 220 Hz and 6 kHz material is generated.
+- **CPU on the host** (x86, release, opt-level s): the analyser takes 0.023 % of a core at real time (27 ms for 120 s of audio); the
+  reading thread fed 1920 bytes every 10 ms by a paced program uses 0.12 to 0.13 % (`pipeline_cost`, `LUMATV_SOUND_BENCH=<command>
+  cargo test --release -p lumatv-helper --lib -- --ignored pipeline_cost --nocapture`; most of it is the 100 reads a second, not the
+  analysis). `arecord`'s own cost is not in these figures. The TV's cores are slower: the budget is under 1 % of a core for both
+  processes together; unmeasured there.
+
+TV steps (not run; the receiver may stay muted, the capture is before it):
+
+1. `arecord -D hw:1,2 -t raw -f S16_LE -r 48000 -c 2 -v -d 3 /dev/null` while something plays: the printed hardware parameters show
+   the period size (512 frames or less expected) and no error; nothing else holds the device.
+2. Settings, Ambient light on, Sound: Sound. Play anything with sound (Netflix, a YouTube video): the strip
+   follows the loudness and thumps on beats within about 50 ms of the sound; stopped, it fades to dark in 2 s.
+   `pidof arecord` shows one process; Picture again, or the screen off, and none within a second.
+3. Picture + sound over a film: the picture's colours with the brightness following the dialogue and music; in a pause the picture
+   as it is. If the dips are too deep or the beats too weak, the gain constants are at the top of `ambient_audio.rs`'s
+   `with_picture` and `only`, the beat ratios and the reference at its top.
+4. CPU over a minute of a film: `top -H -p $(pidof lumatv-helper)`, thread `ambient-sound`, and `top -p $(pidof arecord)`.
+5. A source whose mix is silent (ARC passthrough of a bitstream, if the mixer is not fed it) gives the plain picture in Picture +
+   sound and a dark strip in Sound; the settings note shows no problem since the capture runs. This is the limit to record.
+6. The `ambient` topic (`GET /v1/ambient`) shows `"sound"` and no level in any field.
+
 ## Probe slot (2026-10-25 12:35 EDT): the flag passes, the bus registration does not
 
 `python3 ambient/capture/tv_probe_slot.py --go` from a clean worktree at `c91148d`, probe built there by
@@ -522,6 +576,8 @@ Not verified on the TV (next slot, in this order):
 
 ## Open
 
+- Sound-reactive lights: every TV step above, the constants against real material, and whether ARC passthrough reaches the mixer
+  capture.
 - Latency of the histogram against the picture (a flash on the screen to the zone change): the next slot, with the
   helper side on the socket. The reader at 10 and 5 polls a second is measured ("Reader CPU at 10 and 5 polls a second").
 - Netflix playback error of 05:19: the title played at 12:35 (`dolbyHdrCinema`) and failed at 12:23 under LumaTV's

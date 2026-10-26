@@ -34,7 +34,16 @@
 //! a light to drive; `strip`, `hue` and `z2m` say which (`hue`: a bridge is linked with an area and is the output; `z2m`:
 //! Zigbee2MQTT is linked and is the output); `hueState` and `z2mState` are that output's own: `idle`, `connecting`, `streaming` or
 //! `error` (its words are in `problem`), and `off` for the one that is not running.
+//!
+//! - **Sound modes** (`ambient_audio.rs`, `ambient_audio_capture.rs`): the `sound` setting is `picture` (no sound), `picture-sound`
+//!   (the picture's colours, or the still colour in Colour mode, with the TV's own sound mix on them: brightness with the
+//!   loudness, a lift on each beat) or `sound` (the still colour alone, its brightness the sound's). The mix is read by
+//!   `ambient.sound.capture` (`arecord` on `hw:1,2` by default) and only while a sound mode is set and the lights are lit; four
+//!   numbers come out of it, no audio is kept and the topic never carries a level. In `sound` the picture is not captured. With
+//!   no sound (or no capture) `picture-sound` is the plain picture and `sound` is dark; "off on Home" still means off on Home.
 
+use crate::ambient_audio::{self, Features, Meter, SoundMode};
+use crate::ambient_audio_capture::SoundCapture;
 use crate::ambient_z2m;
 use crate::ambient_z2m_store;
 use crate::config::WledConfig;
@@ -81,6 +90,8 @@ const TEST_PASSES: u32 = 2;
 const FADE_GRACE: Duration = Duration::from_millis(400);
 /// After a failed send the strip is tried again no sooner than this.
 const RETRY: Duration = Duration::from_secs(2);
+/// After the sound capture stopped or could not start it is tried again no sooner than this.
+const SOUND_RETRY: Duration = Duration::from_secs(10);
 
 /// The entertainment output: the Hue bridge (or Bifrost) over HueStream, or Zigbee2MQTT straight. One or the other; both take
 /// the same demand and frames (one 16-bit RGB per channel) and report the same status.
@@ -165,6 +176,14 @@ pub fn read_settings(values: &Values) -> Settings {
     }
 }
 
+/// The `sound` setting: what the TV's sound does to the lights (the schema's default, no sound, for what is missing or unusable).
+pub fn read_sound(values: &Values) -> SoundMode {
+    match values.get("sound") {
+        Some(Value::Choice(c)) => SoundMode::parse(&c.to_string()).unwrap_or(SoundMode::Off),
+        _ => SoundMode::Off,
+    }
+}
+
 /// Why the test pattern was not started.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TestError {
@@ -209,6 +228,14 @@ struct Inner {
     hue_frame: Option<Frame>,
     /// The last entertainment frame had a lit channel.
     hue_lit: bool,
+    /// What the TV's sound does to the lights.
+    sound: SoundMode,
+    /// Why the sound is not being read although a sound mode is set.
+    sound_problem: Option<String>,
+    /// The sound capture, or the capture program's end, wants the thread to look again (the sound began, the capture stopped).
+    poked: bool,
+    /// The colours of one sound step, kept between steps.
+    colours: Vec<Rgb>,
 }
 
 /// What one step of the thread has to do.
@@ -226,6 +253,8 @@ pub struct Ambient {
     origin: Instant,
     inner: Mutex<Inner>,
     wake: Condvar,
+    /// The latest of the sound's features, written by the capture's thread, read by the steps.
+    meter: Arc<Meter>,
 }
 
 impl Ambient {
@@ -236,6 +265,7 @@ impl Ambient {
         let ambient = Arc::new(Self {
             ctx: ctx.clone(),
             target,
+            meter: Arc::new(Meter::new()),
             origin: Instant::now(),
             inner: Mutex::new(Inner {
                 settings,
@@ -258,6 +288,10 @@ impl Ambient {
                 hue_lights: Vec::new(),
                 hue_frame: None,
                 hue_lit: false,
+                sound: sound_of(&ctx.settings),
+                sound_problem: None,
+                poked: false,
+                colours: Vec::new(),
             }),
             wake: Condvar::new(),
         });
@@ -295,13 +329,30 @@ impl Ambient {
 
     fn settings_changed(&self) {
         let settings = settings_of(&self.ctx.settings);
+        let sound = sound_of(&self.ctx.settings);
         let mut g = self.inner.lock();
         if g.settings != settings {
             g.settings = settings;
         }
+        g.sound = sound;
         g.dirty = true;
         drop(g);
         self.wake.notify_all();
+    }
+
+    /// The sound capture's thread says the sound began or the capture ended: the lights' thread looks again.
+    fn poke(&self) {
+        self.inner.lock().poked = true;
+        self.wake.notify_all();
+    }
+
+    /// Sets (or clears) why the sound is not being read, for the status.
+    fn set_sound_problem(&self, problem: Option<String>) {
+        let mut g = self.inner.lock();
+        if g.sound_problem != problem {
+            g.sound_problem = problem;
+            self.publish(&g);
+        }
     }
 
     /// What covers the picture: Home or a menu (`covered`), a game on the input (`game`). Either may be left out.
@@ -531,6 +582,7 @@ impl Ambient {
             .clone()
             .or(ent_words)
             .or_else(|| g.ent_note.clone())
+            .or_else(|| g.sound_problem.clone())
             .or_else(|| {
                 (self.target.is_none() && g.ent.is_none()).then(|| {
                     "No light is set up: helper.json needs ambient.wled.host, or run lumatv-helper z2m-link or hue-link".to_owned()
@@ -545,6 +597,7 @@ impl Ambient {
         json!({
             "enabled": g.settings.enabled,
             "mode": g.settings.mode.word(),
+            "sound": g.sound.word(),
             "brightness": g.settings.brightness,
             "sections": g.settings.edges.sum(),
             "available": self.target.is_some() || g.ent.is_some(),
@@ -587,10 +640,14 @@ impl Ambient {
         if !plan.enabled || !screen_on {
             return Want::Idle;
         }
-        match plan.mode {
-            Mode::Colour => Want::Still,
-            Mode::PictureOffHome if g.covered => Want::Idle,
-            Mode::Picture | Mode::PictureOffHome => Want::Picture,
+        if plan.mode == Mode::PictureOffHome && g.covered {
+            return Want::Idle;
+        }
+        match (plan.mode, g.sound) {
+            (Mode::Colour, SoundMode::Off) => Want::Still,
+            // The sound alone, or the still colour with the sound on it: no picture is read for either.
+            (_, SoundMode::Only) | (Mode::Colour, SoundMode::WithPicture) => Want::Sound,
+            (Mode::Picture | Mode::PictureOffHome, _) => Want::Picture,
         }
     }
 
@@ -601,6 +658,7 @@ impl Ambient {
             _ if !g.settings.enabled => "off",
             Want::Idle => "idle",
             Want::Still => "running",
+            Want::Sound => "running",
             Want::Picture => {
                 let fresh = g
                     .last_frame
@@ -632,6 +690,7 @@ impl Ambient {
             Want::Test => self.step_test(&mut g, now, leds),
             Want::Still => self.step_still(&mut g, now, leds),
             Want::Picture => self.step_picture(&mut g, now, leds, true),
+            Want::Sound => self.step_sound(&mut g, now, leds),
             Want::Idle => {
                 if g.engine.is_some()
                     && g.live
@@ -711,11 +770,13 @@ impl Ambient {
         }
     }
 
-    /// The picture's tick. With `on` false the engine is being faded out.
+    /// The picture's tick. With `on` false the engine is being faded out. In the mode with sound on the picture, the sound's
+    /// brightness and beats are put on the engine's colours (before the fade-out, which has no sound: the capture is closed).
     fn step_picture(&self, g: &mut Inner, now: Instant, leds: usize, on: bool) -> Step {
         let ms = self.ms(now);
         let game = g.plan.as_ref().is_some_and(|p| p.game_edges) && g.game;
         let last_frame = g.last_frame;
+        let features = (g.sound == SoundMode::WithPicture).then(|| self.meter.get(now));
         let (Some(engine), Some(plan)) = (g.engine.as_mut(), g.plan.as_ref()) else {
             return Step {
                 frame: None,
@@ -724,18 +785,67 @@ impl Ambient {
         };
         engine.set_enabled(on);
         engine.set_games(game);
-        let colours: Vec<Rgb> = engine.tick(ms).to_vec();
-        let frame = wled_leds(&plan.lights, &colours, leds);
-        let hue_frame = hue_channels(&plan.lights, &colours);
+        let mut colours: Vec<Rgb> = engine.tick(ms).to_vec();
+        if let Some(features) = &features {
+            ambient_audio::with_picture(&mut colours, &plan.lights, features);
+        }
+        let quiet =
+            last_frame.is_none_or(|t| now.saturating_duration_since(t) >= FADE_GRACE) || !on;
+        Self::emit(g, now, leds, &colours, quiet, false)
+    }
+
+    /// The sound's tick: the still colour with the sound on it, or the sound alone. No picture is read.
+    fn step_sound(&self, g: &mut Inner, now: Instant, leds: usize) -> Step {
+        let features = self.meter.get(now);
+        let mut colours = std::mem::take(&mut g.colours);
+        let Some(plan) = &g.plan else {
+            g.colours = colours;
+            return Step {
+                frame: None,
+                next: None,
+            };
+        };
+        if g.sound == SoundMode::WithPicture {
+            colours.clear();
+            colours.resize(plan.lights.len(), plan.still);
+            ambient_audio::with_picture(&mut colours, &plan.lights, &features);
+        } else {
+            ambient_audio::only(&mut colours, &plan.lights, plan.still, &features);
+        }
+        // With no sound the lights are still (the still colour, or dark): once a second is enough, and a sound starting wakes
+        // the thread. Quiet is the same: it may go to sleep dark only while the sound is not there.
+        let silent = features == Features::SILENT;
+        let step = Self::emit(g, now, leds, &colours, features.active < 0.5, silent);
+        g.colours = colours;
+        step
+    }
+
+    /// What one tick's colours come to: the strip's frame and the entertainment channels. All dark and `quiet` (nothing coming
+    /// that could light them): one black frame, then the thread sleeps. `settled` colours that have not changed are sent again
+    /// only each [`KEEPALIVE`]; otherwise the next tick is [`TICK`] away.
+    fn emit(
+        g: &mut Inner,
+        now: Instant,
+        leds: usize,
+        colours: &[Rgb],
+        quiet: bool,
+        settled: bool,
+    ) -> Step {
+        let Some(plan) = &g.plan else {
+            return Step {
+                frame: None,
+                next: None,
+            };
+        };
+        let frame = wled_leds(&plan.lights, colours, leds);
+        let hue_frame = hue_channels(&plan.lights, colours);
         let hue_lit = plan
             .lights
             .iter()
-            .zip(&colours)
+            .zip(colours)
             .any(|(l, c)| matches!(l.target, Target::Hue { .. }) && c.to_u8() != [0; 3]);
         // Dark is every light, the strip's and the Hue area's, rounding to black.
         let dark = colours.iter().all(|c| c.to_u8() == [0; 3]);
-        let quiet =
-            last_frame.is_none_or(|t| now.saturating_duration_since(t) >= FADE_GRACE) || !on;
         if dark && quiet {
             // Faded out and nothing arriving: one black frame (if the last thing sent was not), then wait for a change.
             // Nothing sent yet means the strip was never lit by this: there is nothing to take down.
@@ -760,6 +870,25 @@ impl Ambient {
         g.live = true;
         g.hue_lit = hue_lit;
         g.hue_frame = Some(hue_frame);
+        if settled {
+            let waited = g
+                .last_sent
+                .as_ref()
+                .filter(|(sent, _)| *sent == frame)
+                .map(|(_, at)| now.saturating_duration_since(*at))
+                .filter(|w| *w < KEEPALIVE);
+            if let Some(waited) = waited {
+                return Step {
+                    frame: None,
+                    next: Some(KEEPALIVE - waited),
+                };
+            }
+            g.last_sent = Some((frame.clone(), now));
+            return Step {
+                frame: Some(frame),
+                next: Some(KEEPALIVE),
+            };
+        }
         g.last_sent = Some((frame.clone(), now));
         Step {
             frame: Some(frame),
@@ -788,15 +917,28 @@ impl Ambient {
         }
     }
 
-    /// Whether the capture socket should exist: a picture is wanted and something can show it.
+    /// Whether the capture socket should exist: a picture is wanted and something can show it. The sound alone needs none.
     pub fn wants_capture(&self) -> bool {
         let g = self.inner.lock();
         let ent = g.ent.is_some();
         (self.target.is_some() || ent)
             && screen::is_on(&self.ctx.hub)
+            && g.sound != SoundMode::Only
             && g.plan
                 .as_ref()
                 .is_some_and(|p| p.enabled && self.drives(ent, p) && p.mode.follows_picture())
+    }
+
+    /// Whether the sound should be read: a sound mode is set and the lights are lit by it (the screen on, ambient light on, not
+    /// dark on Home), and the owner has not taken the capture away.
+    pub fn wants_sound(&self) -> bool {
+        let mut g = self.inner.lock();
+        g.sound.listens()
+            && !self.ctx.config.ambient.sound.capture.is_empty()
+            && matches!(
+                self.want(&mut g, screen::is_on(&self.ctx.hub), Instant::now()),
+                Want::Picture | Want::Sound
+            )
     }
 
     /// Starts the thread that drives the strip.
@@ -808,9 +950,63 @@ impl Ambient {
             .spawn(move || this.run())
     }
 
+    /// Starts, ends and restarts the sound capture as the lights want it, and says how soon the loop must look again for it.
+    fn tend_sound(
+        self: &Arc<Self>,
+        sound: &mut Option<SoundCapture>,
+        retry: &mut Option<Instant>,
+    ) -> Option<Duration> {
+        let now = Instant::now();
+        let wants = self.wants_sound();
+        if let Some(why) = sound.as_mut().and_then(SoundCapture::ended) {
+            *sound = None;
+            *retry = Some(now + SOUND_RETRY);
+            self.set_sound_problem(Some(why));
+        }
+        if !wants {
+            *sound = None;
+            *retry = None;
+            self.set_sound_problem(None);
+            return None;
+        }
+        if sound.is_some() {
+            return None;
+        }
+        if let Some(at) = *retry
+            && now < at
+        {
+            return Some(at - now);
+        }
+        let weak = Arc::downgrade(self);
+        let started = SoundCapture::start(
+            &self.ctx.config.ambient.sound.capture,
+            self.meter.clone(),
+            move || {
+                if let Some(ambient) = weak.upgrade() {
+                    ambient.poke();
+                }
+            },
+        );
+        match started {
+            Ok(capture) => {
+                *sound = Some(capture);
+                *retry = None;
+                self.set_sound_problem(None);
+                None
+            }
+            Err(e) => {
+                *retry = Some(now + SOUND_RETRY);
+                self.set_sound_problem(Some(format!("the sound capture cannot start: {e}")));
+                Some(SOUND_RETRY)
+            }
+        }
+    }
+
     fn run(self: Arc<Self>) {
         let mut sender: Option<ddp::Sender> = None;
         let mut link: Option<Link> = None;
+        let mut sound: Option<SoundCapture> = None;
+        let mut sound_retry: Option<Instant> = None;
         let mut last_warning = String::new();
         loop {
             if self.ctx.stop.is_set() {
@@ -826,11 +1022,19 @@ impl Ambient {
                 (false, true) => link = None,
                 _ => {}
             }
+            // The sound is read exactly as long as a sound mode is lighting the lights.
+            let retry_in = self.tend_sound(&mut sound, &mut sound_retry);
             let mut g = self.inner.lock();
-            if g.dirty || self.ctx.stop.is_set() {
+            if g.dirty || g.poked || self.ctx.stop.is_set() {
+                g.poked = false;
                 continue;
             }
-            match step.next {
+            let next = match (step.next, retry_in) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (None, b) => b,
+                (a, None) => a,
+            };
+            match next {
                 Some(wait) => {
                     let _ = self
                         .wake
@@ -845,6 +1049,7 @@ impl Ambient {
             }
         }
         drop(link);
+        drop(sound);
         // The stream ends with the helper: black, closed, and the bridge's area handed back or the bulbs put back.
         let output = self.inner.lock().ent.take();
         if let Some(output) = output {
@@ -897,6 +1102,7 @@ enum Want {
     Idle,
     Still,
     Picture,
+    Sound,
     Test,
 }
 
@@ -914,6 +1120,12 @@ fn settings_of(store: &SettingsStore) -> Settings {
     store
         .effective(OWNER)
         .map_or_else(Settings::default, |v| read_settings(&v))
+}
+
+fn sound_of(store: &SettingsStore) -> SoundMode {
+    store
+        .effective(OWNER)
+        .map_or(SoundMode::Off, |v| read_sound(&v))
 }
 
 // -- the capture socket ------------------------------------------------------------------------------------------------------
@@ -1078,7 +1290,7 @@ fn read_exact_or_idle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AmbientConfig, Config, Paths};
+    use crate::config::{AmbientConfig, Config, Paths, SoundConfig};
     use crate::hub::Hub;
     use lumatv_ambient::zones::MAX_ZONES;
     use settings_schema::SettingChange;
@@ -1091,6 +1303,10 @@ mod tests {
     }
 
     fn rig(strip: Option<SocketAddr>) -> Rig {
+        rig_with(strip, SoundConfig::default())
+    }
+
+    fn rig_with(strip: Option<SocketAddr>, sound: SoundConfig) -> Rig {
         let dir = tempfile::tempdir().unwrap();
         let hub = Arc::new(Hub::new(1));
         let settings = Arc::new(SettingsStore::new(dir.path().join("settings"), hub.clone()));
@@ -1102,6 +1318,7 @@ mod tests {
                     port: a.port(),
                 }),
                 capture_socket: None,
+                sound,
             },
             ..Config::default()
         };
@@ -1520,6 +1737,7 @@ mod tests {
                     port: addr.port(),
                 }),
                 capture_socket: Some(socket.display().to_string()),
+                ..AmbientConfig::default()
             },
             ..Config::default()
         };
@@ -1609,6 +1827,7 @@ mod tests {
                         port: addr.port(),
                     }),
                     capture_socket: Some(socket.display().to_string()),
+                    ..AmbientConfig::default()
                 },
                 ..Config::default()
             }),
@@ -1665,5 +1884,405 @@ mod tests {
         ctx.stop.request();
         ambient.wake();
         handle.join().unwrap();
+    }
+
+    // -- sound
+
+    fn loud() -> Features {
+        Features {
+            level: 1.0,
+            bass: 1.0,
+            pulse: 0.0,
+            active: 1.0,
+        }
+    }
+
+    /// Feeds `colour` as the picture for 40 ticks (the engine settles) with `sound` as what the TV is playing at each, and gives the
+    /// last frame's first LED.
+    fn settle(r: &Rig, t: &mut Instant, colour: Rgb, sound: Option<Features>) -> [u8; 3] {
+        let mut last = Vec::new();
+        for _ in 0..40 {
+            r.ambient.push_frame(solid(colour), *t);
+            if let Some(f) = sound {
+                r.ambient.meter.put(f, *t);
+            }
+            if let Some(frame) = r.ambient.step(*t).frame {
+                last = frame;
+            }
+            *t += TICK;
+        }
+        [last[0], last[1], last[2]]
+    }
+
+    #[test]
+    fn the_sound_setting_is_read_and_a_missing_or_unknown_one_is_no_sound() {
+        let r = rig(None);
+        assert_eq!(sound_of(&r.ctx.settings), SoundMode::Off);
+        assert_eq!(r.ambient.status()["sound"], "picture");
+        for (word, mode) in [
+            ("picture-sound", SoundMode::WithPicture),
+            ("sound", SoundMode::Only),
+            ("picture", SoundMode::Off),
+        ] {
+            set(
+                &r,
+                vec![("enabled", Value::Bool(true)), ("sound", choice(word))],
+            );
+            assert_eq!(sound_of(&r.ctx.settings), mode);
+        }
+        assert_eq!(read_sound(&Values::default()), SoundMode::Off);
+    }
+
+    #[test]
+    fn the_sound_on_the_picture_dims_the_lights_in_quiet_lifts_them_on_a_beat_and_leaves_them_alone_with_none()
+     {
+        let r = rig(Some(strip()));
+        set(
+            &r,
+            vec![
+                ("enabled", Value::Bool(true)),
+                ("brightness", Value::Integer(100)),
+                ("delay_ms", Value::Integer(0)),
+                ("sound", choice("picture-sound")),
+            ],
+        );
+        r.ambient.step(Instant::now());
+        assert!(r.ambient.wants_capture() && r.ambient.wants_sound());
+        let green = Rgb::new(0.1, 0.9, 0.2);
+        let mut t = Instant::now();
+        // No sound heard (nothing reading it): the picture as it is.
+        let plain = settle(&r, &mut t, green, None);
+        assert!(plain[1] > 150, "{plain:?}");
+        let at = |gain: f32| (f32::from(plain[1]) * gain) as u8;
+        let quiet = Features {
+            level: 0.0,
+            bass: 0.0,
+            ..loud()
+        };
+        let hushed = settle(&r, &mut t, green, Some(quiet));
+        assert!(hushed[1].abs_diff(at(0.55)) <= 3, "{hushed:?} vs {plain:?}");
+        let steady = settle(&r, &mut t, green, Some(loud()));
+        assert!(steady[1].abs_diff(at(0.95)) <= 3, "{steady:?} vs {plain:?}");
+        let beat = settle(
+            &r,
+            &mut t,
+            green,
+            Some(Features {
+                pulse: 1.0,
+                ..loud()
+            }),
+        );
+        // Past where the picture is, up to full scale, the hue kept.
+        assert!(beat[1] > plain[1] && beat[1] >= 250, "{beat:?}");
+        assert!(beat[0] > plain[0] && beat[2] > plain[2], "{beat:?}");
+        // The sound stopping (its readings go stale) gives the picture back.
+        let gone = settle(&r, &mut t, green, None);
+        assert_eq!(gone, plain);
+        assert_eq!(r.ambient.status()["state"], "running");
+    }
+
+    #[test]
+    fn the_sound_alone_lights_the_still_colour_with_the_sound_and_goes_dark_without_it_and_reads_no_picture()
+     {
+        let r = rig(Some(strip()));
+        set(
+            &r,
+            vec![
+                ("enabled", Value::Bool(true)),
+                ("brightness", Value::Integer(100)),
+                ("still_colour", choice("foam")),
+                ("sound", choice("sound")),
+            ],
+        );
+        r.ambient.step(Instant::now());
+        assert!(r.ambient.wants_sound() && !r.ambient.wants_capture());
+        let foam = Still::Foam.rgb();
+        let t0 = Instant::now();
+        // Silent and never lit: nothing to send, nothing to wait for.
+        assert_eq!(
+            r.ambient.step(t0),
+            Step {
+                frame: None,
+                next: None
+            }
+        );
+        assert_eq!(r.ambient.status()["state"], "running");
+        // Loud: the still colour at 0.6, every light, and thirty a second.
+        let t1 = t0 + Duration::from_millis(100);
+        r.ambient.meter.put(loud(), t1);
+        let step = r.ambient.step(t1);
+        let frame = step.frame.unwrap();
+        assert_eq!(frame.len(), 58 * 3);
+        assert!(frame.chunks(3).all(|p| p == (foam * 0.6).to_u8()));
+        assert_eq!(step.next, Some(TICK));
+        // A beat takes it to the chosen brightness.
+        let t2 = t1 + TICK;
+        r.ambient.meter.put(
+            Features {
+                pulse: 1.0,
+                ..loud()
+            },
+            t2,
+        );
+        let frame = r.ambient.step(t2).frame.unwrap();
+        assert!(frame.chunks(3).all(|p| p == foam.to_u8()));
+        // The sound stops being read: one black frame, then quiet.
+        let t3 = t2 + Duration::from_secs(1);
+        let dark = r.ambient.step(t3);
+        assert_eq!(dark.frame, Some(vec![0u8; 58 * 3]));
+        assert_eq!(dark.next, None);
+        assert_eq!(
+            r.ambient.step(t3 + TICK),
+            Step {
+                frame: None,
+                next: None
+            }
+        );
+        // And it lights again when the sound does.
+        let t4 = t3 + Duration::from_secs(1);
+        r.ambient.meter.put(loud(), t4);
+        assert!(r.ambient.step(t4).frame.is_some());
+    }
+
+    #[test]
+    fn the_still_colour_with_sound_is_the_still_colour_once_a_second_with_none_and_moves_with_it() {
+        let r = rig(Some(strip()));
+        set(
+            &r,
+            vec![
+                ("enabled", Value::Bool(true)),
+                ("mode", choice("colour")),
+                ("brightness", Value::Integer(50)),
+                ("sound", choice("picture-sound")),
+            ],
+        );
+        let warm = Still::Warm.rgb() * 0.5;
+        let t0 = Instant::now();
+        let first = r.ambient.step(t0);
+        assert!(r.ambient.wants_sound() && !r.ambient.wants_capture());
+        assert_eq!(&first.frame.unwrap()[..3], &warm.to_u8());
+        assert_eq!(first.next, Some(KEEPALIVE));
+        // Nothing heard, nothing changed: again after a second, not at thirty a second.
+        let quiet = r.ambient.step(t0 + Duration::from_millis(400));
+        assert_eq!(quiet.frame, None);
+        assert_eq!(quiet.next, Some(Duration::from_millis(600)));
+        // Sound: dimmed to 0.95 and following it.
+        let t1 = t0 + Duration::from_millis(500);
+        r.ambient.meter.put(loud(), t1);
+        let step = r.ambient.step(t1);
+        assert_eq!(&step.frame.unwrap()[..3], &(warm * 0.95).to_u8());
+        assert_eq!(step.next, Some(TICK));
+        // And back to still when the sound goes.
+        let back = r.ambient.step(t1 + Duration::from_secs(1));
+        assert_eq!(&back.frame.unwrap()[..3], &warm.to_u8());
+        assert_eq!(back.next, Some(KEEPALIVE));
+    }
+
+    #[test]
+    fn the_sound_is_read_only_while_a_sound_mode_is_lighting_the_lights() {
+        let r = rig(Some(strip()));
+        assert!(!r.ambient.wants_sound(), "off by default");
+        set(
+            &r,
+            vec![
+                ("enabled", Value::Bool(true)),
+                ("sound", choice("picture-sound")),
+            ],
+        );
+        r.ambient.step(Instant::now());
+        assert!(r.ambient.wants_sound());
+        set(&r, vec![("enabled", Value::Bool(false))]);
+        r.ambient.step(Instant::now());
+        assert!(!r.ambient.wants_sound(), "ambient light is off");
+        set(&r, vec![("enabled", Value::Bool(true))]);
+        r.ambient.step(Instant::now());
+        assert!(r.ambient.wants_sound());
+        r.ctx
+            .hub
+            .set("screen", json!({"on": false, "state": "Active Standby"}));
+        assert!(!r.ambient.wants_sound(), "the screen is off");
+        r.ctx
+            .hub
+            .set("screen", json!({"on": true, "state": "Active"}));
+        assert!(r.ambient.wants_sound());
+        set(&r, vec![("mode", choice("picture-off-home"))]);
+        r.ambient.step(Instant::now());
+        r.ambient.set_context(Some(true), None);
+        assert!(!r.ambient.wants_sound(), "off on Home covers the sound too");
+        r.ambient.set_context(Some(false), None);
+        assert!(r.ambient.wants_sound());
+        set(&r, vec![("sound", choice("picture"))]);
+        assert!(!r.ambient.wants_sound());
+        // The owner emptied the capture: no sound modes.
+        let none = rig_with(Some(strip()), SoundConfig { capture: vec![] });
+        set(
+            &none,
+            vec![("enabled", Value::Bool(true)), ("sound", choice("sound"))],
+        );
+        none.ambient.step(Instant::now());
+        assert!(!none.ambient.wants_sound());
+    }
+
+    #[test]
+    fn the_status_names_the_sound_mode_and_never_a_level() {
+        let r = rig(Some(strip()));
+        set(
+            &r,
+            vec![("enabled", Value::Bool(true)), ("sound", choice("sound"))],
+        );
+        r.ambient.meter.put(loud(), Instant::now());
+        r.ambient.step(Instant::now());
+        let status = r.ambient.status();
+        assert_eq!(status["sound"], "sound");
+        let text = status.to_string();
+        for word in ["level", "bass", "pulse", "loud"] {
+            assert!(!text.contains(word), "{word} in {text}");
+        }
+    }
+
+    /// A second of 220 Hz, half scale, in the capture's format, written where the fake capture program reads it.
+    fn tone_file(dir: &std::path::Path) -> PathBuf {
+        let mut bytes = Vec::new();
+        for i in 0..48_000 {
+            let v = ((std::f32::consts::TAU * 220.0 * i as f32 / 48_000.0).sin() * 16_000.0) as i16;
+            for _ in 0..2 {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        let path = dir.join("tone.pcm");
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn argv(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| (*w).to_owned()).collect()
+    }
+
+    /// The whole chain on the host, the TV's capture replaced by a program that writes a tone: capture program -> analyser ->
+    /// the sound-only lights -> DDP packets at a fake WLED socket; and the program stops when the sound mode does.
+    #[test]
+    fn the_sound_from_the_capture_program_lights_the_strip_and_the_program_runs_only_while_wanted()
+    {
+        let wled = UdpSocket::bind("127.0.0.1:0").unwrap();
+        wled.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let addr = wled.local_addr().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let pcm = tone_file(dir.path());
+        let pidfile = dir.path().join("pid");
+        // It records its process number, writes the tone at once, then idles as a capture with nothing new to say would.
+        let script = format!(
+            "echo $$ > {m}; cat {p}; sleep 30 & wait",
+            m = pidfile.display(),
+            p = pcm.display()
+        );
+        let running = || {
+            std::fs::read_to_string(&pidfile)
+                .is_ok_and(|pid| std::path::Path::new(&format!("/proc/{}", pid.trim())).exists())
+        };
+        let r = rig_with(
+            Some(addr),
+            SoundConfig {
+                capture: argv(&["sh", "-c", &script]),
+            },
+        );
+        set(
+            &r,
+            vec![
+                ("enabled", Value::Bool(true)),
+                ("brightness", Value::Integer(100)),
+                ("sound", choice("sound")),
+            ],
+        );
+        let handle = r.ambient.spawn().unwrap();
+        r.ambient.wake();
+        let mut buf = [0u8; 2048];
+        let mut lit = false;
+        let mut dark_after = false;
+        let until = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < until && !dark_after {
+            if let Ok(n) = wled.recv(&mut buf) {
+                let data = ddp::parse(&buf[..n]).unwrap().data;
+                lit |= data.iter().any(|b| *b > 20);
+                dark_after = lit && data.iter().all(|b| *b == 0);
+            }
+        }
+        assert!(lit, "the tone never lit the strip");
+        assert!(
+            dark_after,
+            "the strip stayed lit after the capture said nothing more"
+        );
+        assert!(running(), "the capture program was not running");
+        // The mode is switched to none: the program is stopped.
+        set(&r, vec![("sound", choice("picture"))]);
+        for _ in 0..100 {
+            if !running() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!running(), "the capture program was left running");
+        r.ctx.stop.request();
+        r.ambient.wake();
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn a_capture_that_cannot_start_or_stops_is_said_in_the_problem_and_is_not_asked_again_at_once()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let started = dir.path().join("starts");
+        let script = format!(
+            "echo x >> {}; echo 'arecord: audio open error: Device or resource busy' >&2; exit 1",
+            started.display()
+        );
+        for (capture, said) in [
+            (argv(&["/nonexistent/arecord"]), "cannot start"),
+            (argv(&["sh", "-c", &script]), "Device or resource busy"),
+        ] {
+            let r = rig_with(Some(strip()), SoundConfig { capture });
+            set(
+                &r,
+                vec![("enabled", Value::Bool(true)), ("sound", choice("sound"))],
+            );
+            let handle = r.ambient.spawn().unwrap();
+            r.ambient.wake();
+            let mut problem = String::new();
+            for _ in 0..100 {
+                problem = r.ambient.status()["problem"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_owned();
+                if problem.contains(said) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            assert!(problem.contains(said), "{problem:?}");
+            assert!(problem.contains("sound capture"), "{problem:?}");
+            // Not tried again for SOUND_RETRY: a program that fails at once has started once.
+            thread::sleep(Duration::from_millis(500));
+            if started.exists() {
+                assert_eq!(
+                    std::fs::read_to_string(&started).unwrap().lines().count(),
+                    1
+                );
+            }
+            // Turning the sound mode off takes the problem away.
+            set(&r, vec![("sound", choice("picture"))]);
+            let mut cleared = false;
+            for _ in 0..100 {
+                let now = r.ambient.status()["problem"].clone();
+                if now.as_str().is_none_or(|p| !p.contains("sound capture")) {
+                    cleared = true;
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            assert!(cleared);
+            r.ctx.stop.request();
+            r.ambient.wake();
+            handle.join().unwrap();
+            let _ = std::fs::remove_file(&started);
+        }
     }
 }

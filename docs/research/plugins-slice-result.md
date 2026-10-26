@@ -58,6 +58,8 @@ State at 2026-10-25, offline only.
   never black if nothing was lit before). The capture side talks over a unix socket (`ambient.sock` in the data dir, or
   `ambient.captureSocket`) that exists only while a picture is wanted: it reads `wire` frames and answers one byte, the wanted
   hardware preset. Hue is not driven (see Open).
+  The `sound` setting adds the TV's own sound mix (`ambient.sound.capture` in `helper.json`) to the lights; see ambient-result.md,
+  "Sound-reactive".
 - **The colour reader** (Nitin's decision, 2026-10-25): `lumatv-capture`, a 32-bit native service the package ships with the one LS2 role
   it needs (below). Built, tested on the host against the fake library, packaged, wired into `tools/lumatv`; **not run on the set**.
 - **Light-sync probe slot**: `ambient/capture/tv_probe_slot.py`, now installs the reader and its role as the package does and captures
