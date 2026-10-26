@@ -47,6 +47,10 @@ Item {
     property var mat: theme.dark
     property bool fpsEnabled: false
     property string lastThemeText: ""
+    // theme.json is written by a PUT that is not atomic: a read that is out while one is out (or one that began before it ended) can see the file empty or cut
+    // short, or as it was. `themeWritesOut` counts the PUTs not yet answered, `themeWriteSeq` the writes begun and ended.
+    property int themeWritesOut: 0
+    property int themeWriteSeq: 0
     property string lastLayoutText: ""
 
     // ---- motion tokens ----
@@ -160,6 +164,17 @@ Item {
         loadFpsSetting()
     }
     function reload() { loadAll() }
+    // The poll's read of theme.json. A read that overlapped one of this layer's own writes is dropped, not applied: applied as an empty file it would put
+    // the shipped theme on screen and clear `lastThemeText`, the text the next write starts from, so that write would keep none of the earlier choices. The
+    // next poll finds the whole file.
+    function pollTheme() {
+        var seq = root.themeWriteSeq
+        loadJson(root.themeDirUrl + "theme.json", function(json, text) {
+            if (seq !== root.themeWriteSeq || root.themeWritesOut > 0) return
+            if ((text || "") === root.lastThemeText) return
+            root.applyTheme(json, text)
+        })
+    }
     // Popover settings: apply a patch to the live theme immediately and persist it through
     // the tool (theme set), which the 2 s poll then reads back as the same content.
     function patchTheme(patch) {
@@ -187,12 +202,16 @@ Item {
         var x = new XMLHttpRequest()
         x.onreadystatechange = function() {
             if (x.readyState !== 4) return
+            root.themeWritesOut--
+            root.themeWriteSeq++
             console.info("[LumaHome] theme.json write status " + x.status)
             if (x.status === 200 || x.status === 0) root.lastThemeText = text   // the poll sees its own write
             else console.warn("[LumaHome] theme.json write failed: " + x.status)
         }
+        root.themeWritesOut++
+        root.themeWriteSeq++
         try { x.open("PUT", root.themeDirUrl + "theme.json"); x.send(text) }
-        catch (e) { console.warn("[LumaHome] theme.json write failed: " + e) }
+        catch (e) { root.themeWritesOut--; root.themeWriteSeq++; console.warn("[LumaHome] theme.json write failed: " + e) }
     }
 
     // ---- the owner's layout.json: what Settings' Home widgets page and the layout editor ask for through HomeLayout. `next` is the whole
@@ -225,10 +244,7 @@ Item {
         // Only while Home is on screen; showing Home again catches up at once.
         interval: 2000; running: root.hostActive; repeat: true; triggeredOnStart: true
         onTriggered: {
-            loadJson(root.themeDirUrl + "theme.json", function(json, text) {
-                if ((text || "") === root.lastThemeText) return
-                root.applyTheme(json, text)
-            })
+            root.pollTheme()
             loadJson(root.themeDirUrl + "layout.json", function(json, text) { if (!root.editing && (text || "") !== root.lastLayoutText) root.applyLayout(json, text) })
             // The development door: a layer named in this file is shown (the gate and the host use it for surfaces that no
             // Home key opens yet). The file is in /tmp, so a reboot clears it. A name that is no surface is ignored: it would

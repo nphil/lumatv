@@ -297,6 +297,27 @@ class Settings(HostCase):
             with open(os.path.join(data, "theme", "theme.json")) as f:
                 self.assertEqual(json.load(f)["remote"]["appKeys"], {"amazon": ""})
 
+    def test_a_read_of_theme_json_that_overlaps_one_of_homes_own_writes_changes_nothing(self):
+        # A PUT of theme.json is not atomic, so the 2 s poll can read the file empty while a write is out. Applied, that put the shipped theme up and cleared the
+        # text the next write starts from, so the next choice kept none of the earlier ones (and the host counted the warning as a failure, one run in three
+        # under load). Here one choice is written, the file is then emptied by hand with a write counted as out, and the poll is left to run for more than one
+        # tick: the theme on screen and the text of the next write stay as they were, and nothing is warned.
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            snap = "JSON.stringify({remote: root.theme.remote, text: root.lastThemeText})"
+            empty = ("(function(){var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState===4)console.info('[emptied] ' + x.status)};"
+                     "root.themeWritesOut=1;x.open('PUT',root.themeDirUrl+'theme.json');x.send('');return 1})()")
+            put_back = ("(function(){var t=root.lastThemeText;var x=new XMLHttpRequest();x.onreadystatechange=function(){if(x.readyState===4)root.themeWritesOut=0};"
+                        "x.open('PUT',root.themeDirUrl+'theme.json');x.send(t);return 1})()")
+            rc, out = self.host("--eval", "%d:(function(){var p={remote: {numberKeys: false}};root.patchTheme(p);root.persistTheme(p);return 1})()" % (READY + 300),
+                                "--eval", "%d:%s" % (READY + 1200, snap), "--eval", "%d:%s" % (READY + 1400, empty),
+                                "--eval", "%d:%s" % (READY + 4200, snap), "--eval", "%d:%s" % (READY + 4300, put_back), "--wait", str(READY + 5200), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            self.assertIn("[emptied] 0", out)
+            before, after = self.docs(out)[-2:]
+            self.assertEqual(before["remote"]["numberKeys"], False)
+            self.assertEqual(after, before)
+
     def test_the_gear_hold_switch_writes_the_key_the_shell_reads(self):
         # Remote page, Keys tab: Hold Home, number keys, gear hold (on by default): OK turns it off
         with tempfile.TemporaryDirectory() as d:
