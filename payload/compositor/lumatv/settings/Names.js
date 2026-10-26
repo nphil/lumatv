@@ -25,7 +25,13 @@ var tables = {
     automaticStandBy: { 0: "Off", 2: "2 hours", 4: "4 hours", 6: "6 hours", 8: "8 hours" },
     timerInput: { dtv: "Live TV", atv: "Analog TV", av1: "AV 1", av2: "AV 2", comp1: "Component 1", comp2: "Component 2", comp3: "Component 3", rgb: "RGB",
                   hdmi1: "HDMI 1", hdmi2: "HDMI 2", hdmi3: "HDMI 3", hdmi4: "HDMI 4" },
-    captionPosOption: { auto: "Set by program", autoAi: "Automatic", manual: "Manual", splitDown16_9: "Separated caption (bottom)", splitUp16_9: "Separated caption (top)" }
+    captionPosOption: { auto: "Set by program", autoAi: "Automatic", manual: "Manual", splitDown16_9: "Separated caption (bottom)", splitUp16_9: "Separated caption (top)" },
+    lmha: { off: "Off", on: "On", low: "Low", medium: "Medium", high: "High", auto: "Auto", user: "User" },
+    gamma: { low: "1.9", medium: "2.2", high1: "2.4", high2: "BT.1886", mediumHavingLevel: "2.2" },
+    colorGamut: { wide: "Wide", extended: "Extended", normal: "Normal", auto: "Auto Detect", native: "Native", dynamic: "Dynamic", srgb: "sRGB", adobeRGB: "Adobe RGB", "dci-p3": "Cinema" },
+    truMotion: { off: "Off", smooth: "Smooth Movement", clear: "Clear", user: "User Selection", cinemaClear: "Cinematic Movement", natural: "Natural" },
+    toneMapping: { on: "On", off: "Off", HGIG: "HGiG" },
+    expression: { auto: "Auto", on: "On", off: "Off", detail: "Detail", highlight: "Brightness" }
 };
 
 // The name for `value` in `table` (a table name or an object); `fallback` (default: the value itself) when it has none.

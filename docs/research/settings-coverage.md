@@ -4,11 +4,11 @@ Goal (Nitin, 2026-10-25): every item of LG's Settings app, even the rarely used 
 
 ## Resume here
 
-Inventory done: 287 groups of LG items: 48 covered, 46 built, 110 to build, 83 cannot.
+Inventory done: 287 groups of LG items: 47 covered, 69 built, 86 to build, 85 cannot.
 
-Built and pushed: Accessibility (Audio Guidance, Closed Caption with its Text, Background and Subtitles tabs, the display switches, Audio options), Time & power (clock, Power On and Power Off timers, auto off, Screen Off), Bluetooth speakers and controllers, Join Network and IP Settings, TV Name, IPv6, HDMI settings.
+Built and pushed: Accessibility (Audio Guidance, Closed Caption with its Text, Background and Subtitles tabs, the display switches, Audio options), Time & power (clock, Power On and Power Off timers, auto off, Screen Off), Bluetooth speakers and controllers, Join Network and IP Settings, TV Name, IPv6, HDMI settings, and Picture (Brightness, Colour, Clarity, Motion and Expert tabs, Apply to All Inputs, Reset).
 
-Left: Picture (Brightness, Colour, Clarity, Expert, White Balance, Fine Tune, zoom), Sound (Output, Advanced, per-input audio), Language and Location, Support (TV information, update, self-diagnosis, privacy, reset), Safety (lock PIN prompt, locks), Channels, and the one-off rows (Always Ready, extended press time, AI recommendations, OLED care extras). The "More in LG settings" rows stay on the pages not yet built.
+Left: Picture (White Balance, Fine Tune, Video Range, the zoom ratios), Sound (Output, Advanced, per-input audio), Language and Location, Support (TV information, update, self-diagnosis, privacy, reset), Safety (lock PIN prompt, locks), Channels, and the one-off rows (Always Ready, extended press time, AI recommendations, OLED care extras). The "More in LG settings" rows stay on the pages not yet built.
 
 Next: the build order below, one page per commit. Each built row flips its status here from `build` to `built`; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
 
@@ -48,7 +48,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Personalized Picture Wizard | luna app com.webos.app.picturewizard |  | - | cannot: LG's own image-survey app; the result lands in `picture.pictureMode` personalized |
 | Aspect Ratio: 16:9, Original, 4:3 | aspectRatio.arcPerApp (per app_id) | no description | Picture › Mode | covered |
 | Aspect Ratio: Vertical Zoom, 4-Way Zoom | aspectRatio.arcPerApp + aspectRatio.vertZoomVRatio, vertZoomVPosition, allDirZoomHRatio, allDirZoomVRatio, allDirZoomHPosition, allDirZoomVPosition | no description | Picture › Mode | build — two more values on the row, the zoom sliders under it while one is chosen |
-| Just Scan | aspectRatio.justScan | on, off | Picture › Mode | build |
+| Just Scan | aspectRatio.justScan | on, off | Picture › Mode | built |
 
 ### Advanced Settings › Brightness
 
@@ -57,17 +57,17 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | OLED Pixel Brightness | picture.backlight | 0 to 100 | Picture › Mode, Brightness | covered |
 | Adjust Contrast | picture.contrast | 0 to 100 | Picture › Brightness | covered |
 | Screen Brightness | picture.brightness | 0 to 100 | Picture › Brightness | covered |
-| Auto Dynamic Contrast | picture.dynamicContrast | off, low, medium, high | Picture › Brightness | build |
-| HGiG | picture.hgig (the TV has no description for it) | no description | Picture › Expert | build — shown only where the TV answers the key |
-| Dynamic Tone Mapping | picture.hdrDynamicToneMapping, picture.DtmProfessional, picture.DtmMastering1k, DtmMastering4k, DtmMastering10k | on, off, HGIG; hidden now | Picture › Expert | build — LG shows it for HDR signals only |
-| Expression Enhancer | picture.expressionEnhancer | off, detail, highlight; hidden now | Picture › Expert | build |
-| Peak Brightness | picture.peakBrightness | off, low, medium, high | Picture › Brightness | build |
-| Gamma (Adjust Brightness) | picture.gamma, picture.gammaLevel | low, medium, high1, high2 | Picture › Brightness | build |
+| Auto Dynamic Contrast | picture.dynamicContrast | off, low, medium, high | Picture › Brightness | built |
+| HGiG | picture.hgig | no description | - | cannot: the TV has no description of it on this set, so its values are unknown |
+| Dynamic Tone Mapping | picture.hdrDynamicToneMapping, picture.DtmProfessional, picture.DtmMastering1k, DtmMastering4k, DtmMastering10k | on, off, HGIG; hidden now | Picture › Expert | built — HDR only: the TV hides it for an SDR picture |
+| Expression Enhancer | picture.expressionEnhancer | off, detail, highlight; hidden now | Picture › Expert | built — the TV hides it on this set |
+| Peak Brightness | picture.peakBrightness | off, low, medium, high | Picture › Brightness | built |
+| Gamma (Adjust Brightness) | picture.gamma, picture.gammaLevel | low, medium, high1, high2 | Picture › Brightness | built — the TV's gamma list; the level step belongs to a gamma mode this TV does not list |
 | FILMMAKER MODE Ambient Light | picture.filmmakerAmbientLight | no description | Picture › Mode | covered — the C4 answers no such key; the row stays out |
-| Near Black Detail | picture.nearBlackDetail | -3 to 3; hidden now | Picture › Brightness | build — LG shows it for HDR only |
+| Near Black Detail | picture.nearBlackDetail | -3 to 3; hidden now | Picture › Brightness | built — HDR only: the TV hides it for an SDR picture |
 | Video Range (Black Level) | picture.blackLevel | auto, low, high | Picture › Brightness | build |
 | LED Local Dimming | picture.localDimming | off, low, medium, high; hidden now | - | cannot: edge-lit LCD only; the C4's panel is OLED, LG hides it |
-| Motion Eye Care | picture.motionEyeCare | off, on | Picture › Brightness | build |
+| Motion Eye Care | picture.motionEyeCare | off, on | Picture › Brightness | built |
 
 ### Advanced Settings › Color
 
@@ -75,11 +75,11 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 |---|---|---|---|---|
 | Color Depth | picture.color | 0 to 100 | Picture › Colour | covered |
 | Tint | picture.tint | -50 to 50 | Picture › Colour | covered |
-| Color Gamut | picture.colorGamut | auto, native, dynamic, adobeRGB | Picture › Colour | build |
-| Fine Tune: Color Adjustment | picture.dynamicColor | off, low, medium, high, user | Picture › Colour | build |
+| Color Gamut | picture.colorGamut | auto, native, dynamic, adobeRGB | Picture › Colour | built |
+| Fine Tune: Color Adjustment | picture.dynamicColor | off, low, medium, high, user | Picture › Colour (Color Adjustment) | built |
 | Fine Tune: Select Color, Adjust Saturation, Adjust Tint (hue), Adjust Luminance | picture.colorManagementColorSystem, colorManagementSaturation*, colorManagementHue*, colorManagementLuminance* (Red, Green, Blue, Cyan, Magenta, Yellow) | red, green, blue, cyan, magenta, yellow | Fine Tune (child of Colour) | build |
 | Fine Tune: Reset | luna settingsservice resetSystemSettings (the colorManagement* keys) |  | Fine Tune | build — asks first |
-| White Balance: Color Temperature | picture.colorTemperature | -50 to 50 | Picture › Colour | build |
+| White Balance: Color Temperature | picture.colorTemperature | -50 to 50 | Picture › Colour (Color Temperature) | built |
 | White Balance: Method, Point, Signal Level, Code Value | picture.whiteBalanceMethod (2, 10, 22 point), whiteBalancePoint, whiteBalanceIre, whiteBalanceIre10pt, whiteBalanceCodeValue | 2, 10, 22 | White balance (child of Colour) | build — Code Value is a test-pattern drive LG hides on this set |
 | White Balance: Luminance, Red, Green, Blue | picture.whiteBalanceLuminance, whiteBalanceRed/Green/Blue (22 values), whiteBalanceRed10pt/Green10pt/Blue10pt, whiteBalanceRedGain/GreenGain/BlueGain, whiteBalanceRedOffset/GreenOffset/BlueOffset, adjustingLuminance | 50 to 500 | White balance | build |
 | White Balance: Reset | luna settingsservice resetSystemSettings (whiteBalance* keys) |  | White balance | build — asks first |
@@ -89,27 +89,27 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
 | Adjust Sharpness | picture.sharpness | 0 to 50 | Picture › Clarity | covered |
-| Super Resolution | picture.superResolution | off, low, medium, high | Picture › Clarity | build |
-| Noise Reduction | picture.noiseReduction | off, low, medium, high, auto | Picture › Clarity | build |
-| MPEG Noise Reduction | picture.mpegNoiseReduction | off, low, medium, high, auto | Picture › Clarity | build |
-| Smooth Gradation | picture.smoothGradation | off, low, medium, high | Picture › Clarity | build |
-| Real Cinema | picture.realCinema | on, off | Picture › Clarity | build |
-| TruMotion (Off, Natural, Smooth, Clear / Cinema Clear, User) | picture.truMotionMode | no description | Picture › Clarity | covered — Natural, Smooth, Clear, Off; Cinema Clear and User to build |
-| TruMotion: De-Judder, De-Blur (User mode) | picture.truMotionJudder, picture.truMotionBlur | 0 to 10 | Picture › Clarity | build |
-| OLED Motion Pro | picture.motionPro (on, off; LG's radio form picture.motionProOLED is hidden on this set) | on, off | Picture › Clarity | build |
-| Precision Detail | picture.dolbyPrecisionDetail | on, off; hidden now | Picture › Clarity | build — Dolby Vision content only |
+| Super Resolution | picture.superResolution | off, low, medium, high | Picture › Clarity | built |
+| Noise Reduction | picture.noiseReduction | off, low, medium, high, auto | Picture › Clarity | built |
+| MPEG Noise Reduction | picture.mpegNoiseReduction | off, low, medium, high, auto | Picture › Clarity | built |
+| Smooth Gradation | picture.smoothGradation | off, low, medium, high | Picture › Clarity | built |
+| Real Cinema | picture.realCinema | on, off | Picture › Clarity | built |
+| TruMotion (Off, Natural, Smooth, Clear / Cinema Clear, User) | picture.truMotionMode | no description | Picture › Motion | built — the TV's own list for the input in front |
+| TruMotion: De-Judder, De-Blur (User mode) | picture.truMotionJudder, picture.truMotionBlur | 0 to 10 | Picture › Motion | built — offered when TruMotion is User Selection |
+| OLED Motion Pro | picture.motionPro (on, off; LG's radio form picture.motionProOLED is hidden on this set) | on, off | Picture › Motion | built |
+| Precision Detail | picture.dolbyPrecisionDetail | on, off; hidden now | Picture › Clarity | built — Dolby Vision only: the TV hides it otherwise |
 
 ### Advanced Settings › other items
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
 | Response Time | picture.responseTime | no description | - | cannot: the TV answers no such key (monitor models only) |
-| Precision HDR Master Pro | picture.precisionHdrMasterPro (no description on this set) | no description | Picture › Expert | build — shown only where the TV answers the key |
-| FILMMAKER MODE Auto Start | picture.filmMakerMode | on, off | Picture › Expert | build |
+| Precision HDR Master Pro | picture.precisionHdrMasterPro | no description | - | cannot: the TV has no description of it on this set, so its values are unknown |
+| FILMMAKER MODE Auto Start | picture.filmMakerMode | on, off | Picture › Expert (Filmmaker Auto Start) | built |
 | Reduce Blue Light | picture.eyeComfortMode | on, off | Picture › Brightness | covered — LumaTV's row is named Eye comfort |
 | DR Mode (Demand Response) | picture.demandResponse | on, off; hidden now | - | cannot: utility demand-response programme; LG hides it on this set |
-| Apply to All Inputs | picture.applyToAllInput | picture, done | Picture › Expert | build — asks first |
-| Reset (the picture mode's settings) | luna settingsservice resetSystemSettings (category picture, current mode) |  | Picture › Expert | build — asks first, danger style |
+| Apply to All Inputs | picture.applyToAllInput | picture, done | Picture › Expert | built — asks first |
+| Reset (the picture mode's settings) | luna settingsservice resetSystemSettings (category picture, current mode) |  | Picture › Expert | built — the service call is LG's resetSystemSettings with the input and mode; not run on the set |
 
 ### General › AI Service (picture)
 

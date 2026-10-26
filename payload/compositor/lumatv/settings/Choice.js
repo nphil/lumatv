@@ -53,6 +53,22 @@ function choice(sio, o) {
     return row
 }
 
+// A short list on one row (a segmented control) built from the TV's own list for the key, in the TV's order, each value named as LG names
+// it. `o.values` orders or narrows the list; the TV's list still decides what is on it, so a value the TV does not offer is never shown or
+// written. o: ds, label, icon, tab, help, detail, names (a table of Names.js), values, appId, id.
+function seg(sio, o) {
+    function list() { return options(sio, o) }
+    var row = R.seg(sio, { ds: o.ds, tab: o.tab, id: o.id, icon: o.icon, label: o.label, help: o.help, detail: o.detail, appId: o.appId, options: [], values: [] })
+    row.options = function() { return list().map(function(x) { return x.label }) }
+    row.index = function() {
+        var l = list(), v = String(sio.get(o.ds))
+        for (var i = 0; i < l.length; i++) if (l[i].value === v) return i
+        return undefined
+    }
+    row.act = function(i) { var c = list()[i]; if (c && c.enabled) sio.write(o.ds, c.value, R.app(o)) }
+    return lgShown(sio, o.ds, row)
+}
+
 // The five display switches of LG's Accessibility that exclude each other: Text with High Contrast (`highContrast`), Focus with High
 // Contrast (`focusEmphasis`), Screen Zoom (`screenMagnification`), Grayscale (`blackAndWhite`) and Invert Colors (`colorInversion`).
 // A switch writes the keys LG's own row writes with it: the first three switch the pair `option.adjustments` off, the last two first

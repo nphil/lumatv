@@ -844,3 +844,5 @@ var d = {
     "time.warmTimerWeekend7Enable": ["E",["off","on"],[],1,1,1],
     "time.warmTimerWeekend8Enable": ["E",["off","on"],[],1,1,1]
 };
+// The keys the TV answers only for an app, which the census could not read: the values LG's own names give TruMotion for an app (fixture).
+d["picture.truMotionMode"] = ["E", ["off", "natural", "smooth", "clear", "user"], ["cinemaClear"], 1, 1, 1];

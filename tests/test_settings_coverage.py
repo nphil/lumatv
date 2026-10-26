@@ -28,7 +28,7 @@ FIND = "var p=root.pageItem('%s');function R(l){for(var i=0;i<p.rows.length;i++)
 # Every row of every page, as the offline TV can take it: a switch both ways, each value of a list, a slider at both ends. A row that is dimmed
 # or left out is skipped, as a person could not press it. A switch ends on, so the rows that wait for it (Audio Guidance's speed) are walked too.
 # the pages of this slice and the one it extends (others' pages are walked by their own tests)
-OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs"]
+OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs", "picture"]
 WALK = ("var n=0;var ids=" + json.dumps(OWN) + ";for(var ii=0;ii<ids.length;ii++){var p=root.pageItem(ids[ii]);if(!p||!p.rows)continue;"
         "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(!row.act||row.info===true)continue;"
         "if(p.ev(row.enabled)===false||p.ev(row.visible)===false)continue;var k=row.kind;"
@@ -135,6 +135,19 @@ probe("tv_name", "var p=root.pageItem('network');function R(l){for(var i=0;i<p.r
       "var before=p.ev(R('TV Name').value);R('TV Name').act();" + (TYPE % "'Den TV'") + "return {before:before}", wait=200)
 probe("tv_name_after", "var p=root.pageItem('network');for(var i=0;i<p.rows.length;i++)if(p.ev(p.rows[i].label)==='TV Name')return {name:p.ev(p.rows[i].value)}")
 
+# ---- Picture: the rows of each tab (the ones the TV hides are left out), the user TruMotion mode's two sliders, Apply to All Inputs and Reset
+PICTURE_TABS = ("var p=root.pageItem('picture');var out=[[],[],[],[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];"
+                "if(p.ev(r.visible)===false||r.label===undefined)continue;out[r.tab||0].push(String(p.ev(r.label)))}return out")
+probe("picture_tabs", PICTURE_TABS)
+probe("picture_user_motion", FIND % "picture" + "var o=R('TruMotion').options().map(function(x){return x.value});R('TruMotion').pick(o.indexOf('user'));return {options:o}", wait=200)
+probe("picture_tabs_user", PICTURE_TABS)
+probe("picture_apply", FIND % "picture" + "R('Apply to All Inputs').act();return {asked:root.confirmOpen}", wait=250)
+probe("picture_apply_yes", "root.key('right');root.key('ok');return 1", wait=250)
+probe("picture_reset", FIND % "picture" + "R('Reset').act();return {asked:root.confirmOpen,danger:!!p.ev(R('Reset').danger)}", wait=250)
+probe("picture_reset_no", "root.key('ok');return 1", wait=250)
+probe("picture_reset_yes", FIND % "picture" + "R('Reset').act();return 1", wait=250)
+probe("picture_reset_go", "root.key('right');root.key('ok');return 1", wait=250)
+
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
       "\"/setSystemSettings\", JSON.stringify({category: c, settings: v})) } }', root);s.set('caption', {captionStyle: 'manual'});root.pageItem('captions').refresh();"
@@ -193,8 +206,11 @@ class Coverage(unittest.TestCase):
                 "subtitleLanguageFirst", "audioGuidanceSpeed", "supplementaryAudio", "hearingAid", "dialogEnhancementVolumeAtsc30",
                 "highContrast", "adjustments", "onTimerEnable", "onTimerHour", "onTimerMinute", "onTimerWeekday", "onTimerSource", "onTimerVolume",
                 "offTimerEnable", "autoClock", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI4", "enableDolbyVisionPC",
-                "ipv6Enable", "bleAdvertisingOnOff"}
+                "ipv6Enable", "bleAdvertisingOnOff", "dynamicContrast", "peakBrightness", "gamma", "motionEyeCare", "colorTemperature", "colorGamut",
+                "dynamicColor", "superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "motionPro", "filmMakerMode", "justScan",
+                "truMotionMode", "truMotionJudder"}
         self.assertEqual(want - written, set())
+        self.assertEqual(written & {"nearBlackDetail", "expressionEnhancer", "dolbyPrecisionDetail", "hdrDynamicToneMapping"}, set())       # the TV hides them
 
     def test_the_stub_refuses_a_caption_value_the_tv_does_not_list(self):
         doc = self.probe("refusals")
@@ -336,6 +352,34 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("tv_name")["res"]["before"], "Living Room TV")
         self.assertEqual([c["payload"]["settings"] for c in self.probe("tv_name")["calls"] if c["method"] == "/setSystemSettings"], [{"deviceName": "Den TV"}])
         self.assertEqual(self.probe("tv_name_after")["res"], {"name": "Den TV"})
+
+    # ---- Picture
+    def test_the_picture_tabs_list_what_LG_lists_and_leave_out_what_the_tv_hides(self):
+        self.assertEqual(self.probe("picture_tabs")["res"], [
+            ["OLED pixel brightness", "AI Picture Pro", "Aspect ratio", "Energy saving", "Just Scan", "More in LG settings"],
+            ["Contrast", "Brightness", "Eye comfort", "Auto Dynamic Contrast", "Peak Brightness", "Gamma", "Motion Eye Care", "More in LG settings"],
+            ["Colour", "Tint", "Color Temperature", "Color Gamut", "Color Adjustment", "More in LG settings"],
+            ["Sharpness", "Super Resolution", "Noise Reduction", "MPEG Noise Reduction", "Smooth Gradation", "Real Cinema"],
+            ["TruMotion", "OLED Motion Pro"],
+            ["Filmmaker Auto Start", "AI genre selection", "AI brightness", "Apply to All Inputs", "Reset"]])
+
+    def test_de_judder_and_de_blur_wait_for_the_user_motion_mode(self):
+        self.assertEqual(self.probe("picture_user_motion")["res"]["options"], ["off", "natural", "smooth", "clear", "user"])
+        self.assertEqual(self.probe("picture_tabs_user")["res"][4], ["TruMotion", "De-Judder", "De-Blur", "OLED Motion Pro"])
+        sent = [c["payload"] for c in self.probe("picture_user_motion")["calls"] if c["method"] == "/setSystemSettings"]
+        self.assertEqual([(p["settings"], p["app_id"]) for p in sent], [({"truMotionMode": "user"}, "com.webos.app.hdmi2")])
+
+    def test_apply_to_all_inputs_asks_first_and_then_writes_the_key_LG_writes(self):
+        self.assertTrue(self.probe("picture_apply")["res"]["asked"])
+        self.assertEqual([c["payload"]["settings"] for c in self.probe("picture_apply_yes")["calls"] if c["method"] == "/setSystemSettings"], [{"applyToAllInput": "picture"}])
+
+    def test_reset_asks_in_the_danger_style_and_names_the_input_and_the_mode_it_resets(self):
+        d = self.probe("picture_reset")["res"]
+        self.assertEqual((d["asked"], d["danger"]), (True, True))
+        self.assertEqual([c for c in self.probe("picture_reset_no")["calls"] if c["method"] == "/resetSystemSettings"], [])        # Back or Cancel resets nothing
+        done = [c for c in self.probe("picture_reset_go")["calls"] if c["method"] == "/resetSystemSettings"]
+        self.assertEqual([c["payload"] for c in done], [{"category": "picture", "dimension": {"input": "default", "pictureMode": "filmMaker"}}])
+        self.assertEqual([c["error"] for c in done], [""])
 
 
 if __name__ == "__main__":

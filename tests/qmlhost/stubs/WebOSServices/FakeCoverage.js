@@ -17,13 +17,18 @@ var seed = {
     other: { autoSLZoomWithObjectDetection: "off", qmsVrr: "on", uhdDeepColor: "4k", "444BypassHDMI1": "off", "444BypassHDMI2": "off", "444BypassHDMI3": "off",
              "444BypassHDMI4": "off", enableDolbyVisionPC: "off" },
     network: { ipv6Enable: "true", bleAdvertisingOnOff: "on" },
+    picture: { dynamicContrast: "off", peakBrightness: "off", gamma: "high2", nearBlackDetail: "0", motionEyeCare: "off", colorTemperature: "0", colorGamut: "auto",
+               dynamicColor: "off", superResolution: "off", noiseReduction: "off", mpegNoiseReduction: "off", smoothGradation: "off", realCinema: "on",
+               dolbyPrecisionDetail: "off", truMotionJudder: "0", truMotionBlur: "10", motionPro: "off", hdrDynamicToneMapping: "on",
+               expressionEnhancer: "off", applyToAllInput: "done" },
     time: { autoClock: "on", autoOff2HourOnTimer: "on", automaticStandBy: "0", onTimerEnable: "off", onTimerHour: "7", onTimerMinute: "30", onTimerWeekday: "0",
             onTimerSource: "hdmi1", onTimerVolume: "10", offTimerEnable: "off", offTimerHour: "23", offTimerMinute: "0", offTimerWeekday: "0" }
 };
 seed.option.screenOff = "off";
 
 // Keys the TV's description marks not visible, as it said on 2026-10-25 (LG leaves such a row out): the offline description says so too.
-var hidden = { "caption.aiCaptionEnable": true, "option.signLanguageGuidance": true, "time.automaticStandBy": true };
+var hidden = { "caption.aiCaptionEnable": true, "option.signLanguageGuidance": true, "time.automaticStandBy": true,
+               "picture.nearBlackDetail": true, "picture.expressionEnhancer": true, "picture.dolbyPrecisionDetail": true, "picture.hdrDynamicToneMapping": true };
 
 function apply(data) {
     for (var c in seed) {
@@ -42,8 +47,17 @@ var zones = [
 ];
 var clock = { utc: 1761501000, auto: true, zone: zones[0] };     // 2025-10-26 17:30:00 UTC
 
+// What a picture reset was asked for, as {category, dimension}: the service wants the input and the mode it is to reset.
+var resets = [];
+
 // A call that changes the TV (what the stub's `adhoc.call` hands over, as "uri + method" and its parameters): null, or the reason it was refused.
 function act(path, params) {
+    if (path === "luna://com.webos.service.settings/resetSystemSettings") {
+        if (params.category !== "picture") return "unknown category";
+        if (!params.dimension || typeof params.dimension.input !== "string" || typeof params.dimension.pictureMode !== "string") return "no dimension";
+        resets.push(params);
+        return null;
+    }
     if (path === "luna://com.palm.systemservice/time/setSystemTime") {
         if (typeof params.utc !== "number") return "utc is not a number";
         clock.utc = params.utc;
