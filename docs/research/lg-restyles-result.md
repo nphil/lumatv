@@ -18,7 +18,7 @@ Built and tested offline, **not verified on the TV**:
   shadow once on every set.
 - `tools/voice_patch.py`, `tools/voice.sh`: the restyle of LG's Search app (`com.webos.app.voice`, 202 QML), same shape as inputcommon's ("LG's Search app" below).
   Switch: `lumatv voice on|off|status` (off by default, mounted again by `apply` at boot). The app is resident (SAM keeps it alive, round 11), so `on` and `off` also
-  end its process and the next open starts it from the files then mounted ("Search restyle: hosting").
+  end its process and the next open starts it from the files then mounted ("Search restyle: hosting"). Verified on the TV 2026-10-26: Search shows the patched look after `on` and LG's after `off`.
 
 **Not done, for lack of source:** maliit's keys (key caps, language bar, candidate list). Round 8's script copies maliit's tree
 (`docs/research/round8/tv-2026-10-25/maliit/`, step `maliit`) and it has not arrived: no QML of maliit is on this workstation (only its systemd unit and
@@ -390,9 +390,13 @@ again, so that LG's files are what the next start reads. An overlay that is busy
 An app that is not running costs nothing: the mount is enough. `status` lists the pids, `on` and `off` say `ended`. `tests/test_voice_stage.py`, class `VoiceResident`, runs all of it on a fake `/proc` and once
 on real processes.
 
-Open: that the patched Search shows on the set after `voice on` (TV check, step 3), and that SIGTERM leaves no crash report (none in the memory round).
+Verified on the TV (2026-10-26 04:53, ipk of commit 6afef85, which holds this commit's scripts; `voice-check.txt` and `voice-own`, `voice-search`, `voice-down`, `voice-reopen`, `voice-restored.png` in the round 11 directory): Search opened the old way
+was pid 13642 (parent pid 2500, SAM's in the census; `SigCgt` 0x84e8, so SIGTERM is not caught). `voice on` took 1.9 s and answered `"closed":["com.webos.app.voice"],...,"ended":["com.webos.app.voice"]`, and SAM then said
+`launchable`. The next launch was pid 14126 and drew the patched look (pill field, hairline chips, dark sheet, Manrope; maliit's keyboard unchanged); its mountinfo has the `voice` overlay over the QML directory, and a second open
+after a close was the same pid, patched, at once. `voice off` took 1.4 s and the next launch (pid 14543) was LG's look again. Failed units, crash reports and DSP resets were as before. The binary is a 30 kB launcher that builds
+`applicationDirPath + "/qml/Main.qml"` (no resource shadows the overlay). With the keyboard up `kb DOWN` moves the keyboard's key focus (g to v), not the chips: the lit chip, the typed auto keywords and the option popup are not yet looked at on the TV.
 
-## TV check, keyboard and search (not verified on the TV)
+## TV check, keyboard and search (search: done in round 11, see above; keyboard: not verified on the TV)
 
 One short slot, after "TV check, overnight round". Set on Home, receiver muted through Home Assistant, evidence to `docs/research/lg-restyles/tv/` (`log.txt` first, PASS/FAIL/INFO a line).
 Renders to compare with: `09-lg-search*` (960x540).
@@ -406,7 +410,7 @@ Renders to compare with: `09-lg-search*` (960x540).
 3. **On.** `$TOOL voice on` (PTY; about 3 s when Search's process has to be ended). PASS: `{"ok":true,"voice":"on",...,"closed":["com.webos.app.voice"],"onScreen":"","ended":["com.webos.app.voice"]}` (`"ended":[]` when Search was not open),
    `grep ' overlay ' /proc/mounts` shows the overlay over that directory, `$TOOL voice status` has `"pids":[]`, no new `failed` unit and no new file in `/tmp/var/log/reports/librdx/`. FAIL with the old pid still in `pids`: read the tool's
    log (`ignored SIGTERM`, `still running`). Launch Search and `shot voice-search` at 5 s (a cold start, a new pid in `running`):
-   the field is a pill (hairline, `09-lg-search.jpg`), Manrope, the sheet dark with nothing white. `kb DOWN`: the lit chip with a ring. Type through LG's keyboard (it is maliit's, unchanged): the auto keywords
+   the field is a pill (hairline, `09-lg-search.jpg`), Manrope, the sheet dark with nothing white. `kb DOWN` moves the keyboard's key focus while it is up (round 11: g to v): the lit chip is INFO. Type through LG's keyboard (it is maliit's, unchanged): the auto keywords
    appear under the field as hairline chips (`09-lg-search-auto.jpg`). The microphone/account buttons show LG's pictures on the sheet: INFO what they look like (the pictures were not in the copy).
    Right to the more key, OK: the option popup (`09-lg-search-option.jpg`): a sheet with a hairline, the switch in the accent. Quit with its last row or `kb BACK`. Close the app (`closeByAppId`), wait 2 s and launch it again: the same
    pid opens at once, still in the patched look.

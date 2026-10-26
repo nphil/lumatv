@@ -1,0 +1,104 @@
+04:53:05 before failed units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+04:53:05 before crash reports: total 0
+drwxr-xr-x    2 root     root             0 Oct 26 00:17 .
+drwxr-xr-x    3 root     root             0 Oct 26 00:17 ..
+04:53:06 before DSP resets: 0
+04:53:06 $ (command -v strings >/dev/null && strings /usr/bin/com.webos.app.voice || grep -a -o -E '[[:print:]]{6,}' /usr/bin/com.webos.app.voice) | grep -i -E 'Main\.qml|qrc:|/qml|QML2_IMPORT|QML_DISK|applicationDirPath' | head -30; ls -la /usr/bin/com.webos.app.voice; find /usr/palm/applications/com.webos.app.voice -name '*.qmlc' | head -3; ls -d /var/cache/*qml* /home/root/.cache/*qml* /tmp/*qml* 2>/dev/null || true
+_ZN16QCoreApplication18applicationDirPathEv
+applicationDirPath
+/qml/Main.qml
+-rwxr-xr-x    1 root     root         30200 Apr  5  2011 /usr/bin/com.webos.app.voice
+/tmp/r11-maliit-qml.tgz
+04:53:06 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status
+{"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true,"pids":[]}
+04:53:06 step 1 PASS
+04:53:13 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status
+{"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true,"pids":[13642]}
+04:53:13 step 2 P1=[13642]
+04:53:14 $ ps -o pid,ppid,lstart,args -p 13642; grep -E "PPid|SigCgt" /proc/13642/status; readlink /proc/13642/ns/mnt /proc/1/ns/mnt; ls -l /proc/13642/fd | grep -i voice || true
+PID  PPID                  STARTED COMMAND
+13642  2500 Mon Oct 26 04:53:04 2026 /usr/bin/com.webos.app.voice {"event":"laun
+PPid:	2500
+SigCgt:	00000001000084e8
+BusyBox v1.35.0 () multi-call binary.
+
+Usage: readlink [-fnv] FILE
+
+Display the value of a symlink
+
+	-f	Canonicalize by following all symlinks
+	-n	Don't add newline
+	-v	Verbose
+lrwx------    1 root     root            64 Oct 26 04:53 5 -> /tmp/app.voice.log
+04:53:15 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice on
+{"ok":true,"voice":"on","checkpointAside":0,"closed":["com.webos.app.voice"],"onScreen":"","ended":["com.webos.app.voice"]}
+04:53:15 step 3 voice on took 1.9 s
+04:53:16 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status
+{"ok":true,"on":true,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":true,"checkpoint":"none","criuEnabled":true,"pids":[]}
+04:53:16 $ luna-send -n 1 luna://com.webos.applicationManager/getAppStatus '{"appId":"com.webos.app.voice"}'
+{"event":"nothing","appId":"com.webos.app.voice","exist":true,"launchable":true,"status":"launchable","returnValue":true}
+04:53:16 $ grep " /usr/palm/applications/com.webos.app.voice/qml overlay " /proc/mounts; tail -5 /var/lib/lumatv/log
+voice /usr/palm/applications/com.webos.app.voice/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work 0 0
+2026-10-26 04:49:44 home on panel after 0 relaunch attempt(s)
+2026-10-26 04:49:45 apply: success version=0.4.0 mounts=1 took=17s
+2026-10-26 04:53:14 voice: ended com.webos.app.voice (pids 13642)
+2026-10-26 04:53:15 voice: on: mounted over /usr/palm/applications/com.webos.app.voice/qml, dumps set aside 0, closed: com.webos.app.voice, ended:com.webos.app.voice, on screen: none
+2026-10-26 04:53:15 voice on: {"ok":true,"voice":"on","checkpointAside":0,"closed":["com.webos.app.voice"],"onScreen":"","ended":["com.webos.app.voice"]}
+04:53:16 after on failed units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+04:53:16 after on crash reports: total 0
+drwxr-xr-x    2 root     root             0 Oct 26 00:17 .
+drwxr-xr-x    3 root     root             0 Oct 26 00:17 ..
+04:53:16 after on DSP resets: 0
+04:53:16 step 3 PASS
+04:53:24 step 4 running [{'webprocessid': '', 'defaultWindowType': 'overlay', 'id': 'com.webos.app.voice', 'processid': '14126', 'appType': 'native'}]
+04:53:26 $ ls -l /proc/14126/fd | grep -i voice || true; grep voice /proc/14126/mountinfo || true
+lrwx------    1 root     root            64 Oct 26 04:53 5 -> /tmp/app.voice.log
+10779 56 0:94 / /usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10791 859 0:94 / /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10790 858 0:94 / /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10789 857 0:94 / /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10788 2908 0:94 / /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10787 2907 0:94 / /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10786 2906 0:94 / /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10785 5006 0:94 / /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10784 5005 0:94 / /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10783 5004 0:94 / /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10782 5025 0:94 / /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10781 5024 0:94 / /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+10780 5023 0:94 / /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.voice/qml rw,relatime shared:4419 - overlay voice rw,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work
+(402 lines of the process's mountinfo that name LG's voice.performer jail, not the Search app, omitted; the overlay `voice` lines above are kept)
+04:53:30 step 5 pid after reopen [{'webprocessid': '', 'defaultWindowType': 'overlay', 'id': 'com.webos.app.voice', 'processid': '14126', 'appType': 'native'}] (P2 14126)
+04:53:34 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice off
+{"ok":true,"voice":"off","checkpointBack":0,"closed":["com.webos.app.voice"],"onScreen":"","ended":["com.webos.app.voice"]}
+04:53:34 step 6 voice off took 1.4 s
+04:53:34 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status
+{"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true,"pids":[]}
+04:53:34 step 6 status mounted=False pids=[]
+04:53:42 step 6 P3 [{'webprocessid': '', 'defaultWindowType': 'overlay', 'id': 'com.webos.app.voice', 'processid': '14543', 'appType': 'native'}]
+04:53:48 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status
+{"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true,"pids":[14543]}
+04:53:49 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv surfaces
+{"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},{"id":"helper","on":true,"fallback":"Home draws the last saved weather and news; `helper stop`"},{"id":"preload","on":true,"fallback":"`preload off` restores LG's list from preload.orig"},{"id":"compositor","on":false,"fallback":"the supervisor falls back by itself; `compositor off`, revert, or hold Home"}]}
+04:53:49 end failed units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+04:53:49 end crash reports: total 0
+drwxr-xr-x    2 root     root             0 Oct 26 00:17 .
+drwxr-xr-x    3 root     root             0 Oct 26 00:17 ..
+04:53:49 end DSP resets: 0
