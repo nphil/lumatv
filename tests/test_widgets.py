@@ -232,6 +232,26 @@ class Widgets(HostCase):
             self.assertEqual(got["list"], "add", "the Add button did not open the list of types")
             self.assertEqual(got["left"], "false/", "Cancel with nothing changed asked or stayed")
 
+    def test_ok_on_save_in_the_save_changes_prompt_writes_the_layout_and_leaves_the_editor(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            steps = [self.js_at(-1000, "root.editHome('weather')"),
+                     # the weather card: pick up, left, put down; Back asks; Right is Save, OK answers it
+                     self.keys_at(-200, "ok", "left", "ok", "ok", "back"),
+                     self.at(900, "asked", "root.layerOpen"),
+                     self.keys_at(1100, "right", "ok"),
+                     self.at(1900, "after", STATE),
+                     self.at(1900, "layout", LAYOUT),
+                     self.at(1900, "file", "root.lastLayoutText")]
+            got = self.run_host(steps, 2500, data=data, layout=FREE)
+            self.assertEqual(got["asked"], "confirm")
+            self.assertEqual(got["after"], "false/", "OK on Save left the editor up or the prompt open")
+            weather = {r[0]: r for r in json.loads(got["layout"])}["weather"]
+            self.assertEqual(weather[1], 8, "OK on Save did not keep the move")
+            with open(os.path.join(data, "theme", "layout.json")) as fh:
+                saved = {c["id"]: c for c in json.load(fh)["widgets"]}
+            self.assertEqual(saved["weather"]["col"], 8, "OK on Save wrote nothing")
+
     def test_holding_ok_on_a_card_opens_the_editor_and_its_release_is_not_an_ok(self):
         steps = [self.js_at(-1500, "root.focusLayer = 'widgets'; root.widgetFocusId = 'weather'"),
                  self.js_at(-1000, "root.key(%s, true, false, 0)" % ENTER),

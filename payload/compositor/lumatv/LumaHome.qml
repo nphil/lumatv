@@ -1230,6 +1230,7 @@ Item {
     // on a tree that is already laid out, never a build inside the frame the key waits for. Home decides
     // which one is open and gives it the keys; the layer decides nothing else.
     property bool settingsOpen: false
+    readonly property bool settingsHelpOpen: layers.settingsHelpOpen
     readonly property var lunaCalls: LS.calls || []        // what the offline host's luna stand-in recorded; the set's bridge has none
     readonly property bool galleryOn: !!root.theme.kitGallery && root.hostActive
     function openSettings() {
@@ -1238,7 +1239,6 @@ Item {
         settingsOpen = true
     }
     function closeSettings() { settingsOpen = false; if (hostActive) focusLayer = "statusbar" }
-    // ---- layers: `layerOpen` has the keys. A surface opened over another (a menu over the library, the keyboard over the
     // ---- the layout editor (LayoutEdit.qml, kept built once the layers are, and drawn under them: the confirmation it asks "Save changes?"
     // with is a layer and stands above it). It is opened from Settings' Home widgets page (HomeLayout.edit) or by holding OK on a card.
     // While it is up it has the D-pad, OK and Back, Home draws the layout it is changing, and nothing is written until it says save.
@@ -1302,6 +1302,7 @@ Item {
     }
     Connections { target: HomeLayout; onEditRequested: root.editHome(id) }
     Binding { target: HomeLayout; property: "editing"; value: root.editing }
+    // ---- layers: `layerOpen` has the keys. A surface opened over another (a menu over the library, the keyboard over the
     // library) pushes the one under it and closing pops it, so Back from the menu is the library again and Back from the
     // library is Home with the focus where it was.
     property var layerStack: []
@@ -1327,7 +1328,6 @@ Item {
     }
     function closeAllLayers() { layerStack = []; layerOpen = "" }
     // What the rest of Home asks of the small panels: a menu next to something, a question, the on-screen remote, the
-    readonly property bool settingsHelpOpen: layers.settingsHelpOpen
     // launch splash, a spinner, the ring around a tile that is being held. Each is a call on a built item.
     property string menuKind: ""
     function showMenu(spec) { menuKind = spec.kind || ""; layers.openMenu(spec); openLayer("menu") }
@@ -1467,9 +1467,9 @@ Item {
                       answers: [{ id: "keep", label: "Keep it" }, { id: "uninstall", label: "Uninstall", danger: true }], focus: 0 })
     }
     function confirmAnswered(id) {
+        if (id.indexOf("edit-") === 0) { if (editRes.item) editRes.item.answer(id); return }
         var t = appTarget
         if (id === "uninstall" && t && t.source === "confirm" && t.app.removable)
-        if (id.indexOf("edit-") === 0) { if (editRes.item) editRes.item.answer(id); return }
             LS.adhoc.call("luna://com.webos.appInstallService", "/remove", JSON.stringify({ id: t.app.id, subscribe: false }))
         appTarget = null
     }
