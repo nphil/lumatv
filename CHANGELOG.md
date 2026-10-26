@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Home widgets: Settings > Home & look > Home widgets (show, hide, size, order, reset), an
   on-TV layout editor (hold OK on a card), and Clock, Weather, News and At-home cards that
   use the room they get; `lumatv layout` writes the owner's layout file.
+- Settings and every custom screen: words are never cut, crammed, moved by focus or
+  unreadable. The settings service's partial answers are read (OLED pixel brightness and
+  Energy saving are live again; a key the TV lacks hides its row), focus lifts the plate
+  only, cards and pills centre their text, lists scroll by whole rows, and tab bars scroll
+  when labels do not fit. A layout and contrast audit at 100 % and 200 % text guards it.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
