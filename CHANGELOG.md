@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Frame rate: after 25 or 50 fps video the panel goes back to 120 Hz when Home is in front
+  and no video source is connected (LG's kernel otherwise stays at 100 Hz until the next
+  video), so Home never runs at 50 fps; `frameRate.returnOnHome` false turns it off.
 - Volume and mute: a slim bar at the bottom centre is the only volume display, over Home,
   every app and every input; LG's popup is patched out of the shadow module (`lumatv revert`
   brings it back). It answers on the key before the receiver does, shows the Denon's level
