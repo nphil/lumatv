@@ -396,6 +396,12 @@ probe("usb_pick", FIND % "usbsound" + "R('USB Audio Device').act();return 1", wa
 probe("usb_after", (ROWS % "usbsound") + "return out")
 probe("usb_restore", SET + "s.set('sound', {soundOutput: 'tv_speaker'});root.pageItem('sound').refresh();return 1", wait=500)
 
+# ---- the NEXTGEN TV rows wait for the ATSC 3.0 tuner: shown with the offline TV's, left out with the owner's TV's answer (`atsc3` false)
+probe("nextgen_rows", "var vis=function(p,l){for(var k=0;k<p.rows.length;k++)if(p.ev(p.rows[k].label)===l)return p.ev(p.rows[k].visible)!==false;return null};"
+      "var names={channels:['Interactive Service','Interactive Service (HDMI)'],audiooptions:['NEXTGEN TV Description','Amplify Dialogue','Gain Level'],captions:['NEXTGEN TV Mode']};"
+      "var out={};for(var id in names){var p=root.pageItem(id);var a=names[id].map(function(l){return vis(p,l)});p.atsc3=false;"
+      "var b=names[id].map(function(l){return vis(p,l)});p.atsc3=true;out[id]=[a,b]}return out")
+
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
       "\"/setSystemSettings\", JSON.stringify({category: c, settings: v})) } }', root);s.set('caption', {captionStyle: 'manual'});root.pageItem('captions').refresh();"
@@ -1011,18 +1017,22 @@ class Coverage(unittest.TestCase):
         self.assertEqual([c["error"] for c in done], [""] * 5)
         self.assertEqual(self.probe("history_after")["res"], {"button": "Done"})
 
+    # the camera table as the TV keeps it: an id and a title for each app, and the microphone's flag beside the camera's
+    CAMERA = [{"appId": "com.webos.app.camera", "_id": "a1", "appTitle": "Camera", "permissions": [{"permission": True, "_id": "a2", "resource": "camera"}, {"permission": False, "_id": "a3", "resource": "mic"}]},
+              {"appId": "netflix", "_id": "a4", "appTitle": "Netflix", "permissions": [{"permission": False, "_id": "a5", "resource": "camera"}, {"permission": False, "_id": "a6", "resource": "mic"}]}]
+
     def test_app_permissions_are_LGs_four_lists_and_an_app_is_allowed_only_after_the_question(self):
         rows = self.probe("perm_rows")["res"]
         self.assertEqual(rows, [[["Camera", True], ["Netflix", False]], [["Camera", False], ["Netflix", True], ["Hue Sync", False]], [["Hue Sync", True]], [["Netflix", True]]])
         d = self.probe("perm_camera_ask")["res"]
         self.assertEqual((d["asked"], d["on"]), (True, False))
         self.assertEqual([c for c in self.probe("perm_camera_no")["calls"] if c["method"] == "/setSystemSettings"], [])           # Block leaves it blocked
-        cam = {"cameraResourcePermission": [{"appId": "com.webos.app.camera", "permissions": [{"resource": "camera", "permission": True}]},
-                                             {"appId": "netflix", "permissions": [{"resource": "camera", "permission": True}]}]}
-        self.assertEqual(self.written("perm_camera_yes"), [cam])                                                              # the whole table, one flag changed
+        cam = json.loads(json.dumps(self.CAMERA))
+        cam[1]["permissions"][0]["permission"] = True
+        self.assertEqual(self.written("perm_camera_yes"), [{"cameraResourcePermission": cam}])                                # the whole table, one flag changed
         self.assertEqual(self.probe("perm_camera_off")["res"], {"camera": False, "netflix": True})
-        cam["cameraResourcePermission"][0]["permissions"][0]["permission"] = False
-        self.assertEqual(self.written("perm_camera_off"), [cam])
+        cam[0]["permissions"][0]["permission"] = False
+        self.assertEqual(self.written("perm_camera_off"), [{"cameraResourcePermission": cam}])
         self.assertEqual(self.written("perm_ble_off"), [{"nearbyDevicePermission": [{"appId": "com.lighting.huesync", "permissions": [{"resource": "ble", "permission": False}]}]}])
         self.assertEqual([c["payload"] for c in self.probe("perm_mic_on")["calls"] if c["method"] == "/setPermission"],
                          [{"appId": "com.webos.app.camera", "privacyGroup": "microphone.privacy", "status": "allow"}])
@@ -1032,6 +1042,10 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("perm_file_after")["res"], {"on": False})
         for name in ("perm_camera_yes", "perm_camera_off", "perm_mic_on", "perm_ble_off", "perm_file_off"):
             self.assertEqual([c for c in self.probe(name)["calls"] if c["error"]], [])
+
+    def test_the_nextgen_tv_rows_wait_for_the_atsc_3_tuner(self):
+        self.assertEqual(self.probe("nextgen_rows")["res"], {"channels": [[True, True], [False, False]], "audiooptions": [[True, True, True], [False, False, False]],
+                                                             "captions": [[True], [False]]})
 
     def test_delete_my_personal_information_waits_for_the_terms_and_the_network_and_asks_before_it_tells_LGs_services(self):
         self.assertEqual(self.probe("del_state")["res"], {"a": True, "da": "", "b": True, "db": ""})

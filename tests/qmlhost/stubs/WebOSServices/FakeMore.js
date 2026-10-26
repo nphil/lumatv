@@ -18,8 +18,8 @@ var seed = {
               broadcastInfoNoti: "on", lifeOnScreenEnergySaving: "auto", lifeOnScreenNotification: "true", lifeOnScreenUsingMotionSensor: "false",
               remoteSlowInput: "off", longPressInterval: "basic", repeatInterval: "basic", livePlus: "off", livePromotion: "off", emergencyInformationAtsc30: "off",
               emergencyInformationLanguageAtsc30: "eng", checkChangedScreenSaverTimerByUser: "default",
-              cameraResourcePermission: [{ appId: "com.webos.app.camera", permissions: [{ resource: "camera", permission: true }] },
-                                         { appId: "netflix", permissions: [{ resource: "camera", permission: false }] }],
+              cameraResourcePermission: [{ appId: "com.webos.app.camera", _id: "a1", appTitle: "Camera", permissions: [{ permission: true, _id: "a2", resource: "camera" }, { permission: false, _id: "a3", resource: "mic" }] },
+                                         { appId: "netflix", _id: "a4", appTitle: "Netflix", permissions: [{ permission: false, _id: "a5", resource: "camera" }, { permission: false, _id: "a6", resource: "mic" }] }],
               nearbyDevicePermission: [{ appId: "com.lighting.huesync", permissions: [{ resource: "ble", permission: true }] }], fileapiResourcePermission: [] },
     other: { oledCareMode: "off", oledCareRecommendation: "on", contentRecommendation: "on", colorimetry: "auto", eotf: "auto", masteringPeak: "auto", masteringColor: "auto",
              maxCLL: "auto", maxFALL: "auto", dolbyVSVDBVer: "v1" },
@@ -119,7 +119,11 @@ var languages = {
 
 var services = {
     "luna://com.webos.service.settings/getSystemSettingValues": function(p) { return p && p.key === "locale" ? languages : { returnValue: false, errorText: "unknown key" }; },
-    "luna://com.webos.service.ppm/queryPermissions": function() { return { returnValue: true, subscribed: true, privacyPermissions: privacy }; },
+    // the TV answers only LG's own call, {subscribe: true}; an empty request is refused (errorCode 8006, read on the set 2026-10-26)
+    "luna://com.webos.service.ppm/queryPermissions": function(p) {
+        return p && p.subscribe === true ? { returnValue: true, subscribed: true, privacyPermissions: privacy } : { returnValue: false, errorCode: 8006, errorText: "Invalid JSON format" };
+    },
+    // the offline TV has the ATSC 3.0 tuner and the USB sound output that the owner's does not (config read on the set 2026-10-26), so the rows that wait for them show here
     "luna://com.webos.service.config/getConfigs": function(p) {
         var known = { "tv.conti.supportUsedTime": true, "system.supportATSC3tuner": true, "profile.list": ["ledLighting", "usbSoundOutput"],
                       "system.supportBluetoothFeatures": ["wirelesskeyboard", "btsound", "remoteapp", "btsoundsink", "bluetoothPlusTvSpeaker"] }, out = {};

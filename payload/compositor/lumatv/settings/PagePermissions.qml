@@ -8,7 +8,8 @@ import "."
 // files, a tab for each and in it an app with a switch, as LG's four lists are. The camera's and the nearby devices' tables are TV settings
 // (`option.cameraResourcePermission` and `option.nearbyDevicePermission`: [{appId, permissions: [{resource, permission}]}]), written whole with the one
 // flag changed; the microphone's and the files' are the permission service's (`ppm`: `queryPermissions` lists them, `setPermission {appId, privacyGroup,
-// status}` changes one). An app is named as its launch point is, or by its id. Turning one on asks first (Allow, Block), as LG's does; turning one off
+// status}` changes one; the TV answers only LG's own call, `{subscribe: true}`). An app is named as its launch point is, else by the table's own title,
+// else by its id. Turning one on asks first (Allow, Block), as LG's does; turning one off
 // does not. A tab the TV's description calls not visible is left empty.
 PageList {
     id: page
@@ -43,18 +44,20 @@ PageList {
             page.fileTable = files
         }
     }
-    Timer { id: reread; interval: 600; onTriggered: luna.call("perm", page.ppm, "queryPermissions", {}) }
+    Timer { id: reread; interval: 600; onTriggered: page.queryPermissions() }
+    // LG's own call: the TV refuses an empty request (errorCode 8006, read on the set 2026-10-26)
+    function queryPermissions() { luna.call("perm", ppm, "queryPermissions", { subscribe: true }) }
 
     function refresh() {
         Sio.read("option", ["cameraResourcePermission", "nearbyDevicePermission", "fileapiResourcePermission"])
-        luna.call("perm", ppm, "queryPermissions", {})
+        queryPermissions()
     }
     onOpened: refresh()
 
-    function appTitle(appId) {
+    function appTitle(appId, fallback) {
         var l = Apps.launchPoints
-        for (var i = 0; i < l.length; i++) if (l[i].id === appId) return l[i].title || appId
-        return appId
+        for (var i = 0; i < l.length; i++) if (l[i].id === appId) return l[i].title || fallback || appId
+        return fallback || appId
     }
     // LG's tables: [{appId, permissions: [{resource, permission}]}], the entry that names the resource kept
     function fromSettings(ds, resource) {
@@ -62,7 +65,7 @@ PageList {
         if (!t || !t.length) return out
         for (var i = 0; i < t.length; i++) {
             var p = t[i].permissions || []
-            for (var j = 0; j < p.length; j++) if (p[j].resource === resource) { out.push({ appId: t[i].appId, on: p[j].permission === true }); break }
+            for (var j = 0; j < p.length; j++) if (p[j].resource === resource) { out.push({ appId: t[i].appId, title: t[i].appTitle, on: p[j].permission === true }); break }
         }
         return out
     }
@@ -93,11 +96,11 @@ PageList {
         reread.restart()
     }
     function appRow(i, e) {
-        return { kind: "toggle", tab: i, id: "app:" + i + ":" + e.appId, icon: "layout-grid", label: page.appTitle(e.appId),
+        return { kind: "toggle", tab: i, id: "app:" + i + ":" + e.appId, icon: "layout-grid", label: page.appTitle(e.appId, e.title),
                  on: function() { return e.on },
                  act: function(v) {
                      if (!v) { page.setPermission(i, e.appId, false); return }
-                     C.ask(page, { icon: "shield-check", title: "Allow " + page.kinds[i].noun + " access?", body: page.appTitle(e.appId), yes: "Allow", no: "Block" },
+                     C.ask(page, { icon: "shield-check", title: "Allow " + page.kinds[i].noun + " access?", body: page.appTitle(e.appId, e.title), yes: "Allow", no: "Block" },
                            function() { page.setPermission(i, e.appId, true) })()
                  } }
     }

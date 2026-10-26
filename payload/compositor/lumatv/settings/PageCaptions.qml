@@ -8,12 +8,17 @@ import "."
 // where the captions sit, and what they look like (LG's Digital Mode Option: style, size, font, colours, opacities, edge, window).
 // The look rows answer only while the style is Custom, as in LG's own screen. Every row is LG's own key in the `caption` category
 // (and `option.subtitleLanguageFirst` and `Second`), its values the TV's own list.
+// NEXTGEN TV Mode waits for the ATSC 3.0 tuner (`system.supportATSC3tuner`), as LG's does.
 PageList {
     id: page
     title: "Closed Caption"
     back: "System"
     tabs: ["Captions", "Text", "Background", "Subtitles"]
     readonly property bool custom: String(Sio.get("caption.captionStyle")) === "manual"
+
+    // LG shows NEXTGEN TV Mode only on a TV with an ATSC 3.0 tuner
+    Atsc3 { id: tuner }
+    property alias atsc3: tuner.present
 
     function refresh() {
         Sio.read("caption", ["captionEnable", "captionAnalog", "captionDigital", "digitalPlusCaptionLanguage", "captionStyle", "captionSize", "captionFont",
@@ -34,7 +39,8 @@ PageList {
         R.toggle(Sio, { ds: "caption.captionEnable", tab: 0, icon: "type", label: "Closed Caption" }),
         C.choice(Sio, { ds: "caption.captionAnalog", tab: 0, icon: "tv", label: "Analog Mode", names: "captionAnalog", page: page }),
         C.choice(Sio, { ds: "caption.captionDigital", tab: 0, icon: "monitor", label: "Digital Mode", names: "captionDigital", page: page }),
-        C.choice(Sio, { ds: "caption.digitalPlusCaptionLanguage", tab: 0, icon: "languages", label: "NEXTGEN TV Mode", names: "digitalPlusCaption", page: page }),
+        R.over(C.choice(Sio, { ds: "caption.digitalPlusCaptionLanguage", tab: 0, icon: "languages", label: "NEXTGEN TV Mode", names: "digitalPlusCaption", page: page }),
+               { visible: function() { return page.atsc3 && C.shown(Sio, "caption.digitalPlusCaptionLanguage") } }),
         C.choice(Sio, { ds: "caption.captionDigitalPosOption", tab: 0, icon: "layout-grid", label: "Position Settings", names: "captionPosOption", page: page,
                         values: ["auto", "autoAi", "splitDown16_9", "splitUp16_9"] }),
         C.lgShown(Sio, "caption.captionStyle", R.seg(Sio, { ds: "caption.captionStyle", tab: 0, icon: "paintbrush", label: "Style",

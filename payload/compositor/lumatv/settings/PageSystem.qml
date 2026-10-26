@@ -32,21 +32,13 @@ PageList {
         Sio.read("network", ["deviceName"])
         Power.readSleep()
         Power.readPanel()
-        cfg.call("atsc3", "luna://com.webos.service.config", "getConfigs", { configNames: ["system.supportATSC3tuner"] })
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
 
-    // LG shows Emergency Information only on a TV with an ATSC 3.0 tuner: the TV's config `system.supportATSC3tuner`
-    property bool atsc3: false
-    LunaCall {
-        id: cfg
-        onAnswered: {
-            if (tag !== "atsc3" || !doc || doc.returnValue === false || !doc.configs) return
-            var v = doc.configs["system.supportATSC3tuner"]
-            page.atsc3 = !(v === "false" || v === false || v === 0 || v === null || v === undefined)
-        }
-    }
+    // LG shows Emergency Information only on a TV with an ATSC 3.0 tuner
+    Atsc3 { id: tuner }
+    property alias atsc3: tuner.present
 
     function launch(target) { if (host) { host.launchApp("com.palm.app.settings", { target: target }); host.closeRequested() } }
 

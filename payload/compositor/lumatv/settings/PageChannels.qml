@@ -18,6 +18,10 @@ PageList {
 
     readonly property bool liveTv: Inputs.current ? Inputs.current.appId === "com.webos.app.livetv" : false
 
+    // LG shows the two Interactive Service switches only on a TV with an ATSC 3.0 tuner
+    Atsc3 { id: tuner }
+    property alias atsc3: tuner.present
+
     function refresh() {
         Sio.read("channel", ["autoscanChannelGroup", "analogSystemColor"])
         Sio.read("option", ["interactive-service", "interactive-service-hdmi"])
@@ -29,7 +33,7 @@ PageList {
     function interactive(ds, label, help) {
         var row = R.toggle(Sio, { ds: ds, tab: 0, icon: "globe", label: label, help: help, on: "onByUser", off: "offByUser" })
         row.on = function() { var v = String(Sio.get(ds)); return v === "on" || v === "onByUser" }
-        return C.lgShown(Sio, ds, row)
+        return R.over(row, { visible: function() { return page.atsc3 && C.shown(Sio, ds) } })
     }
 
     rows: [
