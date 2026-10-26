@@ -93,6 +93,11 @@ widget entries with col/row/span/rows) and the assets they reference
 compositor restart. Widget types resolve to a built-in, a `.qml` file in the
 theme directory, or an installed pack under `/var/lib/lumatv/widgets/`.
 
+The owner's `layout.json` holds only what differs from the shipped one, and is written by Settings › Home & look › Home widgets, by the
+layout editor on Home (hold OK on a card) and by `lumatv layout get|check|put|set|reset`. A card has `id`, `type`, `col`, `row`, `span`
+and `rows` on the grid's cells (`grid.rows` is a count or a list of pixel heights), and `hidden: true` to leave it off Home without
+losing its place. `lumatv layout reset` is the way back to the shipped layout.
+
 ### 3. Home app assets (`/usr/palm/applications/com.webos.app.home/data/flutter_assets/assets`)
 
 A bind mount of a merged copy of the stock assets with a decluttered

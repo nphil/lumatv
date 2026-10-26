@@ -51,6 +51,7 @@ tools/autostart.sh
 tools/bootcap.sh
 tools/keyfilter.py
 tools/theme.py
+tools/layout.py
 frame/appinfo.json
 frame/index.html
 frame/frame.js
@@ -279,6 +280,7 @@ cp tools/brand.sh "$DATA_ROOT/tools/"
 cp tools/tileicons.js "$DATA_ROOT/tools/"
 cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
+cp tools/layout.py "$DATA_ROOT/tools/"
 cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py tools/cardapp.sh "$DATA_ROOT/tools/"
 # The input banners' restyle and the keyboard's motion (tools/lumatv inputcommon, build_shadow): the tool calls them, and they import
 # notification_patch and tokens, which are shipped above. The volume popup's patch (build_shadow) imports notification_patch too.

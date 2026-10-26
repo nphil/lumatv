@@ -13,7 +13,9 @@ import "../kit"
 //   (`openSettingsPage`). Never a made-up house: a chip is a plugin's, or this one.
 //
 // Chips follow the mock's grid (2 columns, 12px gap, 16px under the title) with the icon slot the mock left empty filled in: a
-// 36px tinted disc, 22px glyph, text 14px to its right and centred as a block.
+// 36px tinted disc, 22px glyph, text 14px to its right and centred as a block. The lane takes the room the card has: as many columns
+// as fit chips at least 250 wide (up to four; a `full` card takes a whole row), as many rows as fit chips at least 60 high, the chips
+// sharing the height (the mock's two columns and two rows at the shipped size), no title on a card too low for one.
 Item {
     id: root
     property var theme: ({})
@@ -33,25 +35,27 @@ Item {
     readonly property string noneTitle: none.title
     readonly property string noneSub: none.sub
 
-    // ---- the plugins' cards, laid out in rows of two places
+    // ---- the plugins' cards, laid out in rows of `cols` places
+    readonly property int chipGap: 12
+    readonly property int cols: Math.max(1, Math.min(4, Math.floor((width + chipGap) / (250 + chipGap))))
     readonly property var cards: PluginHub.homeCards
     readonly property bool pluginMode: cards.length > 0
     // [{ card, row, col, span }]
     readonly property var places: {
         var out = [], row = 0, col = 0
         for (var i = 0; i < cards.length; i++) {
-            var span = cards[i].size === "full" ? 2 : 1
-            if (col + span > 2) { row++; col = 0 }
+            var span = cards[i].size === "full" ? cols : 1
+            if (col + span > cols) { row++; col = 0 }
             out.push({ card: cards[i], row: row, col: col, span: span })
             col += span
-            if (col >= 2) { row++; col = 0 }
+            if (col >= cols) { row++; col = 0 }
         }
         return out
     }
     readonly property int rowCount: places.length ? places[places.length - 1].row + 1 : 0
     property int index: 0                         // the focused place (inner layer)
     property int scroll: 0                        // the first row shown
-    readonly property int shownRows: 2
+    readonly property int shownRows: Math.max(1, Math.floor((height - chipTop + chipGap) / (minChipH + chipGap)))
 
     onPlacesChanged: { if (index >= places.length) index = Math.max(0, places.length - 1); reveal() }
     function reveal() {
@@ -106,6 +110,7 @@ Item {
 
     Text {
         id: title
+        visible: root.showTitle
         x: 0; y: 0
         text: root.entry.title || "At home"
         color: root.mat.ink2
@@ -113,7 +118,7 @@ Item {
         renderType: Text.NativeRendering
     }
     Text {
-        visible: root.pluginMode && root.rowCount > root.shownRows
+        visible: root.showTitle && root.pluginMode && root.rowCount > root.shownRows
         x: parent.width - width; y: 0
         text: String(root.cards.length)
         color: root.mat.ink3 || root.mat.ink2
@@ -121,18 +126,20 @@ Item {
         renderType: Text.NativeRendering
     }
 
-    property int chipTop: 49
-    property int chipGap: 12
-    property int chipW: Math.floor((width - chipGap) / 2)
-    property int chipH: Math.floor((height - chipTop - chipGap) / 2)
+    readonly property bool showTitle: height >= 130
+    readonly property int chipTop: showTitle ? 49 : 0
+    readonly property int minChipH: 60
+    readonly property int chipW: Math.floor((width - chipGap * (cols - 1)) / cols)
+    readonly property int chipH: Math.min(76, Math.floor((height - chipTop + chipGap) / shownRows) - chipGap)
     readonly property color noneTone: toneOf(none.role)
     readonly property color chipFill: isLight ? "#8cffffff" : "#12ffffff"
     readonly property color chipEdge: isLight ? "#e6ffffff" : "#14ffffff"
 
-    // no card: one chip, the width of the lane
+    // no card: one chip, the width of the lane; on a card tall enough, the same words in the middle of the lane
+    readonly property bool emptyFills: height - chipTop >= 180
     Item {
         id: emptyChip
-        visible: !root.pluginMode
+        visible: !root.pluginMode && !root.emptyFills
         x: 0; y: root.chipTop
         width: root.width; height: root.chipH
         Rectangle {
@@ -176,6 +183,40 @@ Item {
         }
         LuIcon { x: parent.width - 16 - 22; y: Math.round((parent.height - 22) / 2); size: 22; name: "chevron-right"; color: root.mat.ink2 }
     }
+    Item {
+        id: emptyFill
+        visible: !root.pluginMode && root.emptyFills
+        x: 0; y: root.chipTop
+        width: root.width; height: root.height - root.chipTop
+        Rectangle {
+            id: emptyDisc
+            x: Math.round((parent.width - width) / 2); y: Math.round(parent.height / 2) - 64
+            width: 64; height: 64; radius: 32
+            antialiasing: true
+            color: Qt.rgba(root.noneTone.r, root.noneTone.g, root.noneTone.b, 0.2)
+            LuIcon { anchors.centerIn: parent; size: 32; name: "house-wifi"; color: root.noneTone }
+        }
+        Text {
+            x: 0; y: emptyDisc.y + 64 + 16
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: root.noneTitle
+            elide: Text.ElideRight
+            color: root.mat.ink
+            font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 26
+            renderType: Text.NativeRendering
+        }
+        Text {
+            x: 0; y: emptyDisc.y + 64 + 16 + 38
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: root.noneSub
+            elide: Text.ElideRight
+            color: root.focused ? Lu.accent : root.mat.ink2
+            font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 22
+            renderType: Text.NativeRendering
+        }
+    }
 
     // the plugins' cards
     Item {
@@ -196,7 +237,7 @@ Item {
                 visible: modelData.row >= root.scroll && modelData.row < root.scroll + root.shownRows
                 x: modelData.col * (root.chipW + root.chipGap)
                 y: (modelData.row - root.scroll) * (root.chipH + root.chipGap)
-                width: modelData.span === 2 ? root.width : root.chipW
+                width: modelData.span * root.chipW + (modelData.span - 1) * root.chipGap
                 height: root.chipH
                 Rectangle {
                     anchors.fill: parent

@@ -95,6 +95,7 @@ THEME_SRC="$APPDIR/payload/theme"
 KEYFILTER_SRC="$APPDIR/payload/keyfilter/$SHORT_ID.js"
 KEYFILTER_TOOL="$APPDIR/tools/keyfilter.py"
 THEME_TOOL="$APPDIR/tools/theme.py"
+LAYOUT_TOOL="$APPDIR/tools/layout.py"
 FRAME_APP="$APP_ID.frame"
 FRAME_IPK="$APPDIR/payload/frame/$FRAME_APP.ipk"
 FRAME_DIR="/media/developer/apps/usr/palm/applications/$FRAME_APP"
@@ -3130,6 +3131,19 @@ verb_theme() {
   esac
 }
 
+verb_layout() {
+  # layout get | check '<json>' | put '<json>' | set '<json>' | reset: the owner's Home layout (layout.json), by the same rules as the
+  # layout editor on Home (tools/layout.py). The Home layer polls the file, so a change is live within 2 s and nothing here restarts. No
+  # copy of the file it replaces is kept: `layout reset` is the way back to the shipped layout, and `put` of the layout wanted any other.
+  [ -f "$THEME_DIR/layout.json" ] || stage_theme
+  case "$1" in
+    get|reset) python3 "$LAYOUT_TOOL" "$THEME_DIR/layout.json" "$1" < /dev/null ;;
+    check|put|set) [ -n "$2" ] || { emit_error "layout $1 needs a JSON object"; return 1; }
+         python3 "$LAYOUT_TOOL" "$THEME_DIR/layout.json" "$1" "$2" --shipped "$THEME_SRC/layout.json" < /dev/null || return 1 ;;
+    *) emit_error "layout: get, check, put, set or reset"; return 1 ;;
+  esac
+}
+
 case "$VERB" in
   status) verb_status; exit $? ;;
   apply) verb_apply; exit $? ;;
@@ -3153,6 +3167,7 @@ case "$VERB" in
   ntfy) verb_ntfy "${2:-}" "${3:-}"; exit $? ;;
   log) verb_log "${2:-}"; exit $? ;;
   theme) verb_theme "${2:-get}" "${3:-}"; exit $? ;;
+  layout) verb_layout "${2:-get}" "${3:-}"; exit $? ;;
   systemui) verb_systemui "${2:-status}"; exit $? ;;
   webglass) verb_webglass "${2:-status}"; exit $? ;;
   inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;

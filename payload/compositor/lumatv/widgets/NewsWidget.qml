@@ -53,7 +53,7 @@ Item {
     // image host has buckets). The saved stories keep the address as the feed gave it.
     function imgUrl(n) {
         if (!n || !n.img) return ""
-        return n.img.replace(/\/standard\/[0-9]+\//, "/standard/" + ichefWidth(Math.round(root.width)) + "/")
+        return n.img.replace(/\/standard\/[0-9]+\//, "/standard/" + ichefWidth(Math.round(root.imgW)) + "/")
     }
     function ago(pub) {
         var t = Date.parse(pub); if (isNaN(t)) return ""
@@ -89,8 +89,23 @@ Item {
     // 420 ms while the text fades out, swaps and fades back in. Opacity on native text and
     // one mix uniform on a quad already being drawn: nothing extra per frame.
     property var current: ({ tag: "", src: "", title: "", summary: "", pub: "", img: "" })
-    // rows: hero 196, gap 18, headline (2 lines of 41), gap 8, summary, meta 30 at the bottom
-    property int heroH: 196
+    // The mock's rows at its own size: hero 196, gap 18, headline (2 lines of 41), gap 8, summary, meta 30 at the bottom. The card
+    // takes the room it has: the hero is 46 % of the height (96 to 262), left out of a card under 240 high; a wide, low card (700 by
+    // under 420) puts the hero on the left and the words on the right; the headline is 28, 34 or 38 by the width of its column and
+    // takes two lines, three when the room is there; the summary takes what is left.
+    readonly property bool landscape: width >= 700 && height < 420
+    readonly property bool metaOn: height >= 96
+    readonly property int metaH: metaOn ? 30 : 0
+    readonly property int bodyH: height - (metaOn ? metaH + 18 : 0)
+    readonly property int imgW: landscape ? Math.round(Math.min(width * 0.42, bodyH * 1.5)) : width
+    readonly property int heroH: landscape ? Math.max(0, bodyH) : (height >= 240 ? Math.max(96, Math.min(262, Math.round(height * 0.46))) : 0)
+    readonly property int textX: landscape ? imgW + 24 : 0
+    readonly property int textW: Math.max(0, width - textX)
+    readonly property int textTop: landscape ? 0 : (heroH > 0 ? heroH + 18 : 0)
+    readonly property int headSize: width >= 1000 ? 38 : textW < 400 ? 28 : 34
+    readonly property int headLine: Math.round(headSize * 1.2)
+    readonly property int headRoom: height - (metaOn ? metaH + 14 : 0) - textTop
+    readonly property int headLines: Math.max(1, Math.min(headRoom >= headLine * 3 + 60 ? 3 : 2, Math.floor(headRoom / headLine)))
     property var pendingItem: null
     property int fadeMs: 420
     onIndexChanged: showItem(items[index])
@@ -124,8 +139,9 @@ Item {
     // hero: rounded 18, cover-cropped image at exactly the box size (no resampling later)
     Item {
         id: hero
+        visible: root.heroH > 0 && root.items.length > 0
         x: 0; y: 0
-        width: parent.width
+        width: root.imgW
         height: root.heroH
         property bool frontIsA: true
         property real mixv: 0       // 0 shows A, 1 shows B
@@ -201,27 +217,29 @@ Item {
 
     Item {
         id: textBlock
+        visible: root.items.length > 0
         anchors.fill: parent
     Text {
         id: headline
-        x: 0; y: root.heroH + 18
-        width: parent.width
+        x: root.textX; y: root.textTop
+        width: root.textW
         text: root.current.title
         color: root.mat.ink
-        font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 34
-        font.letterSpacing: -0.34
-        lineHeight: 41
+        font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: root.headSize
+        font.letterSpacing: -root.headSize * 0.01
+        lineHeight: root.headLine
         lineHeightMode: Text.FixedHeight
         wrapMode: Text.WordWrap
-        maximumLineCount: 2
+        maximumLineCount: root.headLines
         elide: Text.ElideRight
         renderType: Text.NativeRendering
     }
     Text {
         id: summary
-        x: 0; y: headline.y + headline.height + 8
-        width: parent.width
-        height: Math.max(0, meta.y - 12 - y)
+        x: root.textX; y: headline.y + headline.height + 8
+        width: root.textW
+        height: Math.max(0, (root.metaOn ? meta.y - 12 : root.height) - y)
+        visible: height >= 30
         text: root.current.summary
         color: root.mat.ink2
         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 22
@@ -235,13 +253,14 @@ Item {
 
     Item {
         id: meta
+        visible: root.metaOn
         x: 0
         y: parent.height - 30
         width: parent.width
         height: 30
         Text {
             x: 0; y: Math.round((parent.height - implicitHeight) / 2)
-            text: (root.current.tag ? root.current.tag + " \u00b7 " : "") + root.ago(root.current.pub)
+            text: (root.heroH === 0 && root.current.src ? root.current.src + " \u00b7 " : "") + (root.current.tag ? root.current.tag + " \u00b7 " : "") + root.ago(root.current.pub)
             color: root.mat.ink2
             font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 22
             renderType: Text.NativeRendering
@@ -262,5 +281,16 @@ Item {
             }
         }
     }
+    }
+    // no story yet: the card says so, and draws nothing in the place of one
+    Text {
+        visible: root.items.length === 0
+        anchors.centerIn: parent
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        text: "No stories yet"
+        color: root.mat.ink2
+        font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 24
+        renderType: Text.NativeRendering
     }
 }

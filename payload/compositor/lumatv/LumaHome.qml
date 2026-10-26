@@ -7,6 +7,7 @@ import WebOS.Global 1.0
 import TextFile 1.0
 import "LumaBus.js" as Bus
 import "Tint.js" as Tint
+import "LayoutGrid.js" as Grid
 import "kit"
 import "kit/Match.js" as Match
 import "settings/AppKeys.js" as AppKeys
@@ -82,36 +83,35 @@ Item {
 
     // ============================================================= grid geometry
     // grid.rows is either a count (uniform rows filling the area) or an array of pixel
-    // heights (the reference layout pins the mock's 222/238/392).
-    function areaRect() {
-        var x = layout.safe.x, y = layout.safe.y + layout.statusBar.height + layout.statusBar.gap
-        return Qt.rect(x, y, 1920 - 2 * layout.safe.x, 1080 - 2 * layout.safe.y - layout.statusBar.height - layout.statusBar.gap)
-    }
-    function rowHeights() {
-        var a = areaRect(), g = layout.grid
-        if (g.rows && g.rows.length !== undefined) return g.rows
-        var n = Math.max(1, g.rows || 8), h = (a.height - (n - 1) * g.gutter) / n, out = []
-        for (var i = 0; i < n; i++) out.push(h)
-        return out
-    }
-    function rowCount() { return rowHeights().length }
-    function cellRect(entry) {
-        var a = areaRect(), g = layout.grid, rows = rowHeights()
-        var cellW = (a.width - (g.cols - 1) * g.gutter) / g.cols
-        var y = a.y, h = 0
-        for (var r = 0; r < entry.row && r < rows.length; r++) y += rows[r] + g.gutter
-        for (var k = entry.row; k < entry.row + entry.rows && k < rows.length; k++) h += rows[k] + (k > entry.row ? g.gutter : 0)
-        return Qt.rect(Math.round(a.x + entry.col * (cellW + g.gutter)), Math.round(y),
-                       Math.round(entry.span * cellW + (entry.span - 1) * g.gutter), Math.round(h))
-    }
-    property var nonDockWidgets: (layout.widgets || []).filter(function(e) { return e.type !== "dock" })
+    // heights (the reference layout pins the mock's 222/238/392). The model is LayoutGrid.js, the one
+    // the Home widgets page and the layout editor change layouts with, so a card is drawn where they put it.
+    function areaRect() { var a = Grid.area(layout); return Qt.rect(a.x, a.y, a.w, a.h) }
+    function rowHeights() { return Grid.rowHeights(layout) }
+    function rowCount() { return Grid.rowCount(layout) }
+    function cellRect(entry) { var r = Grid.rectOf(layout, entry); return Qt.rect(r.x, r.y, r.w, r.h) }
+    // A card the owner hid (Settings, Home widgets) is not drawn and takes no focus; the dock cannot be hidden.
+    property var nonDockWidgets: (layout.widgets || []).filter(function(e) { return e.type !== "dock" && !e.hidden })
+    // The ids of those cards, in order, behind a string: the list the widgets are built from is replaced only when a card comes or goes
+    // or changes place in the order, not at every move and every size of the layout editor.
+    readonly property string widgetKey: nonDockWidgets.map(function(e) { return e.id }).join("|")
+    property var widgetIds: widgetKey === "" ? [] : widgetKey.split("|")
     property var dockEntry: { var l = (layout.widgets || []).filter(function(e) { return e.type === "dock" }); return l.length ? l[0] : null }
     function widgetIndexById(id) {
         for (var i = 0; i < nonDockWidgets.length; i++) if (nonDockWidgets[i].id === id) return i
         return -1
     }
-    function isTopRow(e) { return e.row === 0 }
-    function isBottomRow(e) { return dockEntry ? (e.row + e.rows) === dockEntry.row : (e.row + e.rows) === rowCount() }
+    // Whether no card is above (below) another whose columns meet its own: Up from such a card reaches the status bar and Down the
+    // dock, whatever the owner's layout leaves above or under it (a card off the first row, a gap above the dock).
+    function cardBeside(e, dy) {
+        for (var i = 0; i < nonDockWidgets.length; i++) {
+            var o = nonDockWidgets[i]
+            if (o.id === e.id || o.col >= e.col + e.span || e.col >= o.col + o.span) continue
+            if (dy < 0 ? o.row + o.rows <= e.row : o.row >= e.row + e.rows) return true
+        }
+        return false
+    }
+    function isTopRow(e) { return !cardBeside(e, -1) }
+    function isBottomRow(e) { return !cardBeside(e, 1) }
 
     // ============================================================= JSON load / reload
     function loadJson(url, cb) {
@@ -194,6 +194,32 @@ Item {
         try { x.open("PUT", root.themeDirUrl + "theme.json"); x.send(text) }
         catch (e) { console.warn("[LumaHome] theme.json write failed: " + e) }
     }
+
+    // ---- the owner's layout.json: what Settings' Home widgets page and the layout editor ask for through HomeLayout. `next` is the whole
+    // layout wanted; the file keeps only what differs from the shipped one (Grid.forFile: the cut `theme.py minimize` makes at every
+    // apply). No copy of the file it replaces is kept: the way back is "Reset to default" (the file is `{}` again), and the editor's own
+    // Undo and Cancel before a save. TextFile writes at once, like the beat, and the layout is applied here before the poll could find
+    // the file changed, so the poll reads back what was written and does nothing.
+    TextFile { id: layoutFile; name: root.themeDirUrl + "layout.json" }
+    readonly property bool layoutCustom: { var t = lastLayoutText.replace(/\s+/g, ""); return t !== "" && t !== "{}" }
+    function persistLayout(next) { writeLayoutFile(Grid.forFile(next, layoutDefaults)) }
+    function resetLayout() { writeLayoutFile({}) }
+    function writeLayoutFile(file) {
+        var text = JSON.stringify(file, null, 2) + "\n"
+        if (text !== (layoutFile.exists ? layoutFile.read() : "")) {
+            layoutFile.write(text)
+            console.info("[LumaHome] layout.json written, " + (file.widgets ? file.widgets.length + " cards" : "the shipped layout"))
+        }
+        applyLayout(file, text)
+    }
+    Binding { target: HomeLayout; property: "layout"; value: root.layout }
+    Binding { target: HomeLayout; property: "shipped"; value: root.layoutDefaults }
+    Binding { target: HomeLayout; property: "customised"; value: root.layoutCustom }
+    Connections {
+        target: HomeLayout
+        onChangeRequested: root.persistLayout(layout)
+        onResetRequested: root.resetLayout()
+    }
     Timer {
         // live theme preview for the companion app: content compare every 2 s, no restart.
         // Only while Home is on screen; showing Home again catches up at once.
@@ -203,7 +229,7 @@ Item {
                 if ((text || "") === root.lastThemeText) return
                 root.applyTheme(json, text)
             })
-            loadJson(root.themeDirUrl + "layout.json", function(json, text) { if ((text || "") !== root.lastLayoutText) root.applyLayout(json, text) })
+            loadJson(root.themeDirUrl + "layout.json", function(json, text) { if (!root.editing && (text || "") !== root.lastLayoutText) root.applyLayout(json, text) })
             // The development door: a layer named in this file is shown (the gate and the host use it for surfaces that no
             // Home key opens yet). The file is in /tmp, so a reboot clears it. A name that is no surface is ignored: it would
             // own every key and show nothing.
@@ -646,6 +672,7 @@ Item {
         else {
             if (voiceBusy) voiceAbort()
             if (settingsOpen) closeSettings()
+            if (editing) { if (editRes.item) previewLayout(editRes.item.orig); editEnd() }
             closeAllLayers()
             if (miniFrame.open) { miniFrame.open = false; miniFrame.loading = false; miniSpec = null; frameAppWanted = false }
         }
@@ -730,6 +757,7 @@ Item {
         if (layers.open === "apps") return true
         if (layers.open === "settings") return layers.holdReady()
         var d = dockLoader.item
+        if (layers.open === "" && focusLayer === "widgets" && widgetFocusId !== "" && !editing) return true          // a card: Edit Home
         return layers.open === "" && focusLayer === "dock" && !!d && !d.moving
     }
     Timer {
@@ -810,6 +838,8 @@ Item {
             else if (saverEaten === k) saverEaten = 0
             return true
         }
+        // The layout editor has the D-pad, OK and Back while it is up (a confirmation it asks with is a layer and has the keys instead).
+        if (editing && hostActive && !aiPrompt.up && layers.open === "") return editKey(k, pressed, autoRepeat)
         // The mic key (push-to-talk) is LumaTV's while voice search is ready: the press starts listening, the release ends it, and
         // LG's chain never sees either (LG's voice would send the speech to LG). When the helper does not say `ready` (voice search
         // is off, not linked, or has no microphone) the key goes down LG's chain as it always did.
@@ -965,7 +995,7 @@ Item {
     StatusBar {
         id: statusBarItem
         z: 3
-        visible: !root.settingsOpen && !root.appsUp
+        visible: !root.settingsOpen && !root.appsUp && !root.editing
         x: layout.safe.x
         y: layout.safe.y
         width: 1920 - 2 * layout.safe.x
@@ -1016,21 +1046,25 @@ Item {
         Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
         Repeater {
             id: widgetRepeater
-            model: root.nonDockWidgets
+            model: root.widgetIds
             delegate: Widget {
-                gridX: root.cellRect(modelData).x
-                gridY: root.cellRect(modelData).y
-                width: root.cellRect(modelData).width
-                height: root.cellRect(modelData).height
+                // the card of this id in the layout now: a new layout (a move in the editor, a width from Settings) moves and sizes this
+                // delegate and builds nothing; one is built only for a card that comes, and dropped for one that goes
+                readonly property var entry: { var i = root.widgetIndexById(modelData); return i >= 0 ? root.nonDockWidgets[i] : ({ id: modelData, type: "", col: 0, row: 0, span: 1, rows: 1 }) }
+                readonly property var box: root.cellRect(entry)
+                gridX: box.x
+                gridY: box.y
+                width: box.width
+                height: box.height
                 theme: root.theme
                 mat: root.mat
                 isLight: root.isLight
-                layoutEntry: modelData
+                layoutEntry: entry
                 themeDirUrl: root.themeDirUrl
                 moduleDirUrl: root.moduleDirUrl
-                focused: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId === modelData.id
-                dimmed: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId !== modelData.id
-                onOpenMini: root.openMini(spec, root.cellRect(modelData))
+                focused: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId === modelData
+                dimmed: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId !== modelData
+                onOpenMini: root.openMini(spec, box)
                 onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
                 backdrop: blurTex
                 cardMs: root.cardMs
@@ -1039,7 +1073,7 @@ Item {
                 rested: root.focusRested
                 live: root.hostActive
                 frameTick: root.frameTick
-                onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData.id) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData.id; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData.id) root.focusLayer = "widgets" }
+                onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData) root.focusLayer = "widgets" }
             }
         }
     }
@@ -1205,6 +1239,69 @@ Item {
     }
     function closeSettings() { settingsOpen = false; if (hostActive) focusLayer = "statusbar" }
     // ---- layers: `layerOpen` has the keys. A surface opened over another (a menu over the library, the keyboard over the
+    // ---- the layout editor (LayoutEdit.qml, kept built once the layers are, and drawn under them: the confirmation it asks "Save changes?"
+    // with is a layer and stands above it). It is opened from Settings' Home widgets page (HomeLayout.edit) or by holding OK on a card.
+    // While it is up it has the D-pad, OK and Back, Home draws the layout it is changing, and nothing is written until it says save.
+    property bool editing: false
+    property string editWanted: ""
+    function editHome(id) {
+        if (!hostActive || editing) return
+        statusBarItem.requestClosePopover()
+        settingsOpen = false
+        closeAllLayers()
+        editWanted = id || widgetFocusId
+        editing = true
+        focusLayer = "edit"
+        if (editRes.item) editRes.item.start(editWanted)
+    }
+    function editEnd() {
+        if (!editing) return
+        var keep = editRes.item ? editRes.item.sel : ""
+        editing = false
+        if (hostActive) {
+            if (widgetIndexById(keep) >= 0) widgetFocusId = keep
+            focusLayer = dockEntry && dockEntry.id === keep ? "dock" : "widgets"
+        }
+    }
+    function previewLayout(next) { root.layout = next }
+    function editSave(next) { persistLayout(next); editEnd() }
+    function editLeave(orig) { previewLayout(orig); editEnd() }
+    // OK is decided on release, as everywhere on Home; the release of the hold that opened the editor is not an OK.
+    function editKey(k, pressed, autoRepeat) {
+        if (k === Qt.Key_Menu) { if (pressed && !autoRepeat && editRes.item) editRes.item.menu(); return true }
+        var dir = directionFor(k)
+        if (dir === "") return k >= Qt.Key_0 && k <= Qt.Key_9 || k === Qt.Key_Search || k === WebOS.Key_webOS_Voice || k === WebOS.Key_webOS_ScreenRemote
+        if (dir === "ok") {
+            if (pressed) { if (!autoRepeat) { okDown = true; okHeld = false }; return true }
+            var armed = okDown && !okHeld
+            okDown = false; okHeld = false
+            if (armed && editRes.item) editRes.item.key("ok")
+            return true
+        }
+        if (!pressed || (autoRepeat && dir === "back")) return true
+        if (editRes.item) editRes.item.key(dir)
+        return true
+    }
+    Resident {
+        id: editRes
+        name: "edit"
+        source: "LayoutEdit.qml"
+        anchors.fill: parent
+        z: 59
+        build: layers.built
+        shown: root.editing && root.hostActive
+        onItemChanged: if (item && root.editing) item.start(root.editWanted)
+    }
+    Connections {
+        target: editRes.item
+        ignoreUnknownSignals: true
+        onPreview: root.previewLayout(layout)
+        onSave: root.editSave(layout)
+        onLeave: root.editLeave(layout)
+        onAsk: root.showConfirm(spec)
+    }
+    Connections { target: HomeLayout; onEditRequested: root.editHome(id) }
+    Binding { target: HomeLayout; property: "editing"; value: root.editing }
     // library) pushes the one under it and closing pops it, so Back from the menu is the library again and Back from the
     // library is Home with the focus where it was.
     property var layerStack: []
@@ -1370,6 +1467,7 @@ Item {
     function confirmAnswered(id) {
         var t = appTarget
         if (id === "uninstall" && t && t.source === "confirm" && t.app.removable)
+        if (id.indexOf("edit-") === 0) { if (editRes.item) editRes.item.answer(id); return }
             LS.adhoc.call("luna://com.webos.appInstallService", "/remove", JSON.stringify({ id: t.app.id, subscribe: false }))
         appTarget = null
     }

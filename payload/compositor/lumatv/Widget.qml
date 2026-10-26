@@ -86,10 +86,13 @@ Item {
         anchors.fill: parent
         clip: true
         Item {
+            // the content's box: it follows this one, whatever order the card's own size and this one's change in
             id: contentArea
             x: card.padSide; y: card.padTop
-            width: parent.width - 2 * card.padSide
-            height: parent.height - 2 * card.padTop
+            width: Math.max(0, parent.width - 2 * card.padSide)
+            height: Math.max(0, parent.height - 2 * card.padTop)
+            onWidthChanged: if (card.content) card.content.width = width
+            onHeightChanged: if (card.content) card.content.height = height
         }
     }
 
@@ -191,8 +194,10 @@ Item {
         try { x.open("GET", url); x.send() } catch (e) { cb(null) }
     }
 
+    property string loadedType: ""
     function loadContent() {
         var type = card.layoutEntry.type || ""
+        loadedType = type
         var builtin = builtinUrl(type)
         if (builtin) { instantiate(builtin, card.layoutEntry.settings || {}); return }
         if (/\.qml$/.test(type)) { instantiate(card.themeDirUrl + type, card.layoutEntry.settings || {}); return }
@@ -206,8 +211,12 @@ Item {
     onFrameTickChanged: if (content && "frameTick" in content) content.frameTick = card.frameTick
     onThemeChanged: if (content && "theme" in content) content.theme = card.theme
     onMatChanged: if (content) { if ("mat" in content) content.mat = card.mat; if ("isLight" in content) content.isLight = card.isLight }
-    onWidthChanged: if (content) content.width = contentArea.width
-    onHeightChanged: if (content) content.height = contentArea.height
+    // A new layout gives the card's entry again, with the same id: the content is told, and rebuilt only if the type is another one.
+    onLayoutEntryChanged: {
+        if (!content) return
+        if (card.layoutEntry.type !== loadedType) { loadContent(); return }
+        if ("entry" in content) content.entry = card.layoutEntry
+    }
 
     Component.onCompleted: loadContent()
 

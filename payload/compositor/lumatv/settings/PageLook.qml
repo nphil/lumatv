@@ -56,6 +56,9 @@ PageList {
           act: function(i) { page.patch({ depth: { level: page.depthLevels[i] } }) } },
         R.lg(page, { tab: 0, target: "HomeSettings" }),
 
+        R.link({ tab: 1, id: "widgets", icon: "layout-grid", label: "Home widgets",
+                 value: function() { return ((HomeLayout.layout.widgets || []).filter(function(e) { return e.type !== "dock" && !e.hidden }).length) + " shown" },
+                 go: function() { page.host.openPage("widgets") } }),
         { kind: "toggle", tab: 1, icon: "clock", label: "12-hour clock",
           on: function() { return !theme.clock || theme.clock.twelveHour !== false }, act: function(v) { page.patch({ clock: { twelveHour: v } }) } },
         R.link({ tab: 1, id: "homeassistant", icon: "house-wifi", label: "Home Assistant",

@@ -25,4 +25,5 @@ singleton NoteLog 1.0 NoteLog.qml
 ReceiverGate 1.0 ReceiverGate.qml
 singleton Apps 1.0 Apps.qml
 singleton Power 1.0 Power.qml
+singleton HomeLayout 1.0 HomeLayout.qml
 singleton TvVolume 1.0 TvVolume.qml

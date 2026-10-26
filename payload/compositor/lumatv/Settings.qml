@@ -52,7 +52,8 @@ Item {
         { id: "system", title: "System", icon: "settings", page: "settings/PageSystem.qml", rail: true },
         { id: "receiver", title: "Receiver", icon: "boom-box", page: "settings/PageReceiver.qml", rail: false },
         { id: "appkey", title: "App key", icon: "layout-grid", page: "settings/PageAppKey.qml", rail: false, search: false },
-        { id: "homeassistant", title: "Home Assistant", icon: "house-wifi", page: "settings/PageHomeAssistant.qml", rail: false }
+        { id: "homeassistant", title: "Home Assistant", icon: "house-wifi", page: "settings/PageHomeAssistant.qml", rail: false },
+        { id: "widgets", title: "Home widgets", icon: "layout-grid", page: "settings/PageWidgets.qml", rail: false }
     ]
     readonly property var sections: pages.filter(function(p) { return p.rail })
     readonly property int railCount: sections.length + 1        // the last row is LG's Settings
@@ -88,7 +89,7 @@ Item {
         if (!known) return
         var def = null
         for (var d = 0; d < pages.length; d++) if (pages[d].id === id) def = pages[d]
-        var parentId = def && def.parent ? def.parent : id === "receiver" ? "sound" : id === "appkey" ? "remote" : id === "homeassistant" ? "look" : id
+        var parentId = def && def.parent ? def.parent : id === "receiver" ? "sound" : id === "appkey" ? "remote" : id === "homeassistant" || id === "widgets" ? "look" : id
         for (var i = 0; i < sections.length; i++) if (sections[i].id === parentId) { railIndex = i; break }
         current = id
         zone = "page"
