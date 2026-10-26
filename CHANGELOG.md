@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Quick panel and input picker draw their content from one cached texture, so opening and
+  closing over Home costs fewer draws per frame (101 to 72 batches).
 - Compositor (not live yet): LumaTV's compositor routes the remote's gear, Input, app
   buttons, Quick Access digits, Mute held and Exit, and brings up the on-screen keyboard for
   text fields; a test session ends by itself after 15 minutes and LG's comes back. The Magic
