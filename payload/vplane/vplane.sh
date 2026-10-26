@@ -117,6 +117,9 @@ supervise_cmd() { # runs in the background: the player, again after a crash
   trap 'if [ -n "$child" ]; then kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; fi; rm -f "$state/vplane.child"; exit 0' TERM INT
   fails=0
   window=$(date +%s)
+  # LG's AV connector opens its own Wayland connection to register the window id and reads XDG_RUNTIME_DIR for it (nothing else
+  # tells it the socket): without it `avc.lsm registerId` fails and the pipeline reports "fail to create AVProxy" (set, 2026-10-25 23:38).
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
   while :; do
     # shellcheck disable=SC2086
     "$exe" -d "$mailbox" -c "$state/vplane/clips" ${appid:+-a "$appid"} $extra >> "$log" 2>&1 < /dev/null &

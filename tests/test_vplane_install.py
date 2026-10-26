@@ -23,9 +23,17 @@ CLIPS = os.path.join(REPO, "payload", "vplane", "clips")
 HOST_BIN = os.path.join(REPO, "vplane", "build", "host", "lumatv-vplane")
 NDL = os.path.join(REPO, "vplane", "build", "host")
 
-# What LG's media library registers (docs/research/ambient-result.md: a resource-manager client first; LG's client permissions give both
-# names the `private` group) and the one name they call and answer.
-CLIENT_NAMES = {"com.webos.rm.client.*", "com.webos.media.client.*"}
+# What LG's media library registers on the set (2026-10-25 23:3x, docs/research/videoplane-saver-result.md): the resource-manager and
+# media clients, the pipeline and AV-mute clients, the AV connector, the video-texture client and one handle with no name at all
+# (`LSHUB_NO_NAME_PERMS ... register name: "(null)"` without the empty entry), the names Moonlight's and PlxNative's roles carry; and
+# what each may call.
+CLIENT_NAMES = {"com.webos.rm.client.*", "com.webos.media.client.*", "com.webos.pipeline.*", "com.webos.pipe.avmuteclient.*",
+                "com.webos.avconnector.*", "com.webos.vt.*", ""}
+OUTBOUND = {"com.webos.rm.client.*": ["com.webos.media"], "com.webos.media.client.*": ["com.webos.media"],
+            "com.webos.pipeline.*": ["com.webos.pipelinectrl.*"], "com.webos.pipe.avmuteclient.*": ["com.webos.service.avmutemanager"],
+            "com.webos.avconnector.*": ["com.webos.service.videooutput", "com.webos.service.audio", "com.webos.service.multiviewcontroller",
+                                        "com.webos.service.utp.extinputs", "com.webos.service.config"],
+            "com.webos.vt.*": ["*"]}
 
 
 class Base(unittest.TestCase):
@@ -98,11 +106,11 @@ class Install(Base):
         role = self.role()
         self.assertEqual(role["exeName"], exe, "ls-hubd matches a role by the executable's path")
         self.assertEqual(role["type"], "regular")
-        self.assertEqual(set(role["allowedNames"]), CLIENT_NAMES, "no name but the library's two clients is registered")
-        self.assertEqual({r["service"] for r in role["permissions"]}, CLIENT_NAMES)
+        self.assertEqual(set(role["allowedNames"]), CLIENT_NAMES, "the names LG's media library registers, and no other")
+        self.assertEqual({r["service"] for r in role["permissions"]}, CLIENT_NAMES - {""}, "the nameless handle has no rule of its own")
         for rule in role["permissions"]:
-            self.assertEqual(rule["inbound"], ["com.webos.media"], "nothing is offered but the media service's replies")
-            self.assertEqual(rule["outbound"], ["com.webos.media"], "and nothing is called but the media service")
+            self.assertEqual(rule["outbound"], OUTBOUND[rule["service"]], "each client calls only what LG's own roles let it call")
+            self.assertIn(rule["service"], CLIENT_NAMES)
         with open(os.path.join(self.ls2, "manifests.d", "org.nphil.lumatv.vplane.json")) as f:
             m = json.load(f)
         self.assertEqual(m["id"], "org.nphil.lumatv.vplane")
