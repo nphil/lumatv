@@ -3,12 +3,17 @@
 tools/voice.sh: LG's Search app's overlay, run by tools/inputcommon.sh with this app's names. What matters here is what differs from the input
 banners': the tree (Main.qml and Style.qml), its own stage directory, the patch it runs, the dump it sets aside (voice, and never voiceweb or
 voiceagent, or the input banners' own dump) and the answers it prints. The staging and the cold start themselves are tests.test_inputcommon_stage's.
+
+`VoiceResident` is the part that makes the patched app show: SAM keeps the Search app alive, a close only hides it and it reads its QML once, so
+`on` ends its process after the mount and `off` after the unmount (round 11: pid 8321 before and after the close). It runs on a stand-in tree
+and patch with a fake /proc and a stand-in `kill`, and once on real processes.
 """
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +25,21 @@ SCRIPT = os.path.join(ROOT, "tools", "voice.sh")
 CENSUS = next((p for p in ("/data/home/lgtv/uiinv/voice/qml", "/tmp/tvsrc/apps/com.webos.app.voice/qml") if os.path.isdir(p)), "/data/home/lgtv/uiinv/voice/qml")
 VOICE = "com.webos.app.voice"
 ASIDE = ".lumatv-aside-voice."
+VOICE_BIN = "/usr/bin/com.webos.app.voice"
+AGENT_BIN = "/usr/bin/com.webos.app.voiceagent"
+# A stand-in for the patch of the stand-in tree of VoiceResident.
+FAKE_VOICE_PATCH = """#!/usr/bin/env python3
+import sys
+open(sys.argv[1] + "/Style.qml", "a").write("// Luma: patched\\n")
+print("Style.qml")
+"""
+# umount, finding the overlay busy for as long as process $FAKE_BUSY_PID is there (something holds a file of it)
+FAKE_UMOUNT_BUSY = """#!/bin/sh
+echo "umount $*" >> "$FAKE_LOG"
+[ -d "$PROC_ROOT/$FAKE_BUSY_PID" ] && exit 1
+grep -v " $1 overlay " "$PROC_MOUNTS" > "$PROC_MOUNTS.tmp"
+mv "$PROC_MOUNTS.tmp" "$PROC_MOUNTS"
+"""
 
 
 class VoiceBase(ics.Base):
@@ -118,6 +138,194 @@ class VoiceStaging(VoiceBase):
     def test_usage(self):
         rc, out = self.run_script("sideways")
         self.assertEqual((rc, out["error"]), (1, "usage: voice.sh on|off|stage|status"))
+
+
+class VoiceResident(VoiceBase):
+    def make_qml(self):
+        os.makedirs(self.qml)
+        for rel in ("Main.qml", "Style.qml"):
+            with open(os.path.join(self.qml, rel), "w") as f:
+                f.write("// LG's\n")
+
+    def appdir(self):
+        d = os.path.join(self.t, "app")
+        os.makedirs(os.path.join(d, "tools"))
+        os.symlink(os.path.join(ROOT, "tools", "inputcommon.sh"), os.path.join(d, "tools", "inputcommon.sh"))
+        for name, body in (("tokens.py", ics.FAKE_TOKENS), ("voice_patch.py", FAKE_VOICE_PATCH)):
+            with open(os.path.join(d, "tools", name), "w") as f:
+                f.write(body)
+        return d
+
+    def setUp(self):
+        super().setUp()
+        # the Search app as it stands on the set once it has been opened: a process of its own that SAM lists, and forgets when it ends
+        self.process(8321)
+        self.running_as({"com.webos.app.home": 17483, VOICE: 8321})
+        self.after_kill({"com.webos.app.home": 17483})
+
+    def after_kill(self, apps):
+        self.write("sam/running-after-kill", json.dumps({"running": [{"id": a, "processid": str(p)} for a, p in apps.items()], "returnValue": True}))
+
+    def kills(self):
+        return [c for c in self.sam_calls() if c.startswith("kill")]
+
+    def log_text(self):
+        return "\n".join(self.lines(os.path.join(self.state, "log")))
+
+    def test_on_ends_the_process_after_the_mount_and_the_close_and_no_other(self):
+        self.process(8400, AGENT_BIN, comm="com.webos.app.v")                # the same comm, another binary
+        self.process(2513, "/usr/bin/com.webos.app.inputcommon")
+        self.process(8500, "/usr/bin/flutter-client")                        # a process that only names the app in its arguments
+        with open(os.path.join(self.proc, "8500", "cmdline"), "wb") as f:
+            f.write(b"/usr/bin/flutter-client\0-i\0" + VOICE.encode() + b"\0")
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["ok"], out["voice"], out["closed"], out["ended"]), (0, True, "on", [VOICE], [VOICE]), out)
+        self.assertFalse(self.alive(8321))
+        for pid in (8400, 2513, 8500):
+            self.assertTrue(self.alive(pid), pid)
+        self.assertEqual(self.kills(), ["kill TERM 8321"])
+        sam = self.sam_calls()
+        self.assertLess(sam.index('closeByAppId {"id":"%s"}' % VOICE), sam.index("kill TERM 8321"))
+        names = [c.split()[0] for c in self.calls()]
+        self.assertLess(names.index("mount"), names.index("kill"))
+        self.assertIn("ended com.webos.app.voice (pids 8321)", self.log_text())
+
+    def test_a_process_that_ignores_SIGTERM_is_killed(self):
+        self.write("sam/ignore-term", "")
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["ok"], out["ended"]), (0, True, [VOICE]), out)
+        self.assertEqual(self.kills(), ["kill TERM 8321", "kill KILL 8321"])
+        self.assertFalse(self.alive(8321))
+        self.assertIn("ignored SIGTERM (pids 8321): SIGKILL", self.log_text())
+
+    def test_a_process_that_survives_both_signals_is_reported_and_not_claimed(self):
+        self.write("sam/immortal", "")
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["ok"], out["ended"]), (0, True, []), out)
+        self.assertEqual(self.kills(), ["kill TERM 8321", "kill KILL 8321"])
+        self.assertTrue(self.alive(8321))
+        self.assertIn("pid 8321 of com.webos.app.voice is still running", self.log_text())
+        self.assertTrue(self.run_script("status")[1]["mounted"])
+
+    def test_off_unmounts_first_and_ends_the_process_so_that_the_next_start_reads_LGs_files(self):
+        self.run_script("on")
+        self.process(9001)                                                   # started since: it holds the patched files
+        self.running_as({VOICE: 9001})
+        self.after_kill({})
+        rc, out = self.run_script("off")
+        self.assertEqual((rc, out["voice"], out["closed"], out["ended"]), (0, "off", [VOICE], [VOICE]), out)
+        names = [c.split()[0] for c in self.calls()]
+        self.assertLess(names.index("umount"), names.index("kill", names.index("umount")))
+        self.assertFalse(self.alive(9001))
+        self.assertFalse(self.run_script("status")[1]["mounted"])
+
+    def test_off_on_a_set_that_never_used_the_switch_leaves_the_running_app_alone(self):
+        rc, out = self.run_script("off")
+        self.assertEqual((rc, out["ended"], out["closed"]), (0, [], []), out)
+        self.assertTrue(self.alive(8321))
+        self.assertEqual(self.sam_calls(), [])
+
+    def test_a_busy_overlay_is_let_go_by_ending_the_app_that_holds_it_and_tried_again(self):
+        self.run_script("on")
+        self.process(9001)
+        self.running_as({VOICE: 9001})
+        self.after_kill({})
+        with open(self.env["UMOUNT"], "w") as f:
+            f.write(FAKE_UMOUNT_BUSY)
+        rc, out = self.run_script("off", FAKE_BUSY_PID="9001")
+        self.assertEqual((rc, out["ok"], out["ended"]), (0, True, [VOICE]), out)
+        self.assertEqual([c.split()[0] for c in self.calls()], ["mount", "kill", "umount", "kill", "umount"])
+        self.assertFalse(self.run_script("status")[1]["mounted"])
+
+    def test_an_overlay_that_stays_busy_after_the_app_is_ended_stops_off(self):
+        self.run_script("on")
+        self.process(7777, "/usr/bin/some-other-holder", comm="holder")      # not the Search app: not ours to end
+        with open(self.env["UMOUNT"], "w") as f:
+            f.write(FAKE_UMOUNT_BUSY)
+        rc, out = self.run_script("off", FAKE_BUSY_PID="7777")
+        self.assertEqual((rc, out["ok"]), (1, False))
+        self.assertIn("could not unmount", out["error"])
+        self.assertTrue(self.alive(7777))
+
+    def test_the_app_on_screen_is_left_running(self):
+        self.write("sam/foreground", VOICE)
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["closed"], out["ended"], out["onScreen"]), (0, [], [], VOICE), out)
+        self.assertTrue(self.alive(8321))
+        self.assertEqual(self.kills(), [])
+
+    def test_a_process_SAM_does_not_list_is_ended_without_a_close(self):
+        self.running_as({"com.webos.app.home": 17483})
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["closed"], out["ended"]), (0, [], [VOICE]), out)
+        self.assertFalse([c for c in self.sam_calls() if c.startswith("closeByAppId")])
+        self.assertFalse(self.alive(8321))
+
+    def test_a_zombie_keeps_its_comm_but_is_neither_signalled_nor_waited_for(self):
+        self.process(8600)
+        open(os.path.join(self.proc, "8600", "cmdline"), "w").close()        # a zombie has no command line
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["ended"], self.kills()), (0, [VOICE], ["kill TERM 8321"]), out)
+        self.assertTrue(self.alive(8600))
+
+    def test_with_no_process_there_is_nothing_to_end(self):
+        shutil.rmtree(os.path.join(self.proc, "8321"))
+        self.running_as({"com.webos.app.home": 17483})
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["ok"], out["closed"], out["ended"]), (0, True, [], []), out)
+        self.assertEqual(self.kills(), [])
+
+    def test_the_app_gets_a_second_after_the_close_before_the_signal(self):
+        t0 = time.time()
+        rc, out = self.run_script("on", IC_STEP="1")
+        self.assertEqual((rc, out["ended"]), (0, [VOICE]), out)
+        self.assertGreaterEqual(time.time() - t0, 1.0)
+
+    def test_SAM_still_listing_the_pid_is_waited_for_a_few_steps_and_then_let_go(self):
+        os.unlink(os.path.join(self.t, "sam", "running-after-kill"))
+        rc, out = self.run_script("on", IC_SAM_STEPS="2")
+        self.assertEqual((rc, out["ok"], out["ended"]), (0, True, [VOICE]), out)
+        # one read for the close, then a look before each of the two steps and one after
+        self.assertEqual(len([c for c in self.sam_calls() if c.startswith("running")]), 4)
+        self.assertIn("SAM still lists pids 8321 after 2 steps", self.log_text())
+
+    def test_a_new_pid_for_the_app_means_SAM_has_forgotten_the_old_one(self):
+        self.after_kill({VOICE: 9000})                                       # LG's preload manager started it again
+        rc, out = self.run_script("on", IC_SAM_STEPS="2")
+        self.assertEqual((rc, out["ended"]), (0, [VOICE]), out)
+        self.assertEqual(len([c for c in self.sam_calls() if c.startswith("running")]), 2)
+        self.assertNotIn("still lists", self.log_text())
+
+    def test_status_lists_the_processes_of_the_app_and_only_those(self):
+        self.process(8400, AGENT_BIN, comm="com.webos.app.v")
+        self.assertEqual(self.run_script("status")[1]["pids"], [8321])
+        self.run_script("on")
+        self.assertEqual(self.run_script("status")[1]["pids"], [])
+
+    def test_real_processes_get_the_same_signals_and_the_lookalike_is_left(self):
+        # no stand-ins for /proc and kill: copies of sleep named like the Search binary and like a lookalike (the same first 15 characters,
+        # so the same comm), started with their own path as argv[0], in a directory of their own so that nothing else on the machine matches
+        d = os.path.join(self.t, "bin")
+        os.makedirs(d)
+        procs = {}
+        try:
+            for name in ("com.webos.app.voice", "com.webos.app.voiceagent"):
+                path = os.path.join(d, name)
+                shutil.copy(shutil.which("sleep"), path)
+                procs[name] = subprocess.Popen([path, "60", "0"], stdin=subprocess.DEVNULL)
+            binary = os.path.join(d, "com.webos.app.voice")
+            env = dict(VOICE_BINARY=binary, PROC_ROOT="/proc", KILL="kill", IC_STEP="1")
+            pid = procs["com.webos.app.voice"].pid
+            self.assertEqual(self.run_script("status", **env)[1]["pids"], [pid])
+            rc, out = self.run_script("on", **env)
+            self.assertEqual((rc, out["ok"], out["ended"]), (0, True, [VOICE]), out)
+            self.assertIsNotNone(procs["com.webos.app.voice"].wait(timeout=5))
+            self.assertIsNone(procs["com.webos.app.voiceagent"].poll())
+            self.assertEqual(self.run_script("status", **env)[1]["pids"], [])
+        finally:
+            for p in procs.values():
+                p.kill()
+                p.wait()
 
 
 if __name__ == "__main__":

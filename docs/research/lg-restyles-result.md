@@ -17,7 +17,8 @@ Built and tested offline, **not verified on the TV**:
   under LG's compositor, restarts it once). The flag is part of the shadow's fingerprint, so the first `apply` after this update rebuilds the
   shadow once on every set.
 - `tools/voice_patch.py`, `tools/voice.sh`: the restyle of LG's Search app (`com.webos.app.voice`, 202 QML), same shape as inputcommon's ("LG's Search app" below).
-  Switch: `lumatv voice on|off|status` (off by default, mounted again by `apply` at boot).
+  Switch: `lumatv voice on|off|status` (off by default, mounted again by `apply` at boot). The app is resident (SAM keeps it alive, round 11), so `on` and `off` also
+  end its process and the next open starts it from the files then mounted ("Search restyle: hosting").
 
 **Not done, for lack of source:** maliit's keys (key caps, language bar, candidate list). Round 8's script copies maliit's tree
 (`docs/research/round8/tv-2026-10-25/maliit/`, step `maliit`) and it has not arrived: no QML of maliit is on this workstation (only its systemd unit and
@@ -356,28 +357,62 @@ picture buttons show nothing; the close, more and profile buttons' places are vi
 nothing while the dim is down) and the auto-keyword delegates reading their `ListView` while the model is cleared.
 
 `tools/voice.sh` is `tools/inputcommon.sh` with another tree's names (the script reads `IC_NAME`, `IC_ID`, `IC_ROOT_FILE` (`Main.qml`), `IC_STYLE_FILE` (`Style.qml`), `IC_PATCH_TOOL`,
-`IC_ASIDE` (`.lumatv-aside-voice.`), `IC_DUMP_GLOBS`, `IC_APPS`, `VOICE_QML`): the overlay is named `voice`, the stage directory is `$STATE/voice`, the dump set aside is `com.webos.app.voice` and
-nothing else (`voiceweb` and `voiceagent` are not matched, nor is inputcommon's dump), and only the Search app is ended through SAM. [INFERENCE] the QML is at
-`/usr/palm/applications/com.webos.app.voice/qml` (the app's `Main.qml` builds its picture path from `applicationDirPath + "/qml/Views/images/"`); `VOICE_QML` overrides.
-Whether the Search app is restored from a CRIU dump like the input apps is not known: if it is not, `on` sets aside nothing (`"checkpointAside":0`) and the app, ended once through SAM,
-starts again from the patched files.
+`IC_ASIDE` (`.lumatv-aside-voice.`), `IC_DUMP_GLOBS`, `IC_APPS`, `IC_BINARY`, `VOICE_QML`, `VOICE_BINARY`): the overlay is named `voice`, the stage directory is `$STATE/voice`, a dump named
+`com.webos.app.voice` would be set aside and nothing else (`voiceweb` and `voiceagent` are not matched, nor is inputcommon's dump; the set has none), and the app's process is ended after the
+mount or the unmount (next section). The QML is at `/usr/palm/applications/com.webos.app.voice/qml` (round 11: 203 `.qml` files, `Style.qml` and `Main.qml` with the census copy's md5s);
+`VOICE_QML` overrides.
+
+## Search restyle: hosting
+
+Round 11 found `lumatv voice on` without effect: `closeByAppId` left pid 8321 where it was and a later launch showed LG's look. The app is not hosted in another process and not restored from a CRIU
+dump. It is one resident native process that SAM keeps alive, and it reads its QML once, when that process starts; a mount shows only in a process started after it.
+Evidence: `docs/research/round9/r11-2026-10-26/` (`log.txt`, `voice-host.txt`, `search-*.png`).
+
+- **Resident.** `keepAliveApps` in `com.webos.applicationManager` lists `com.webos.app.voice` in every layer of the census. SAM answers `closeByAppId` with `returnValue true` and [INFERENCE: SAM's own lines for a close
+  were not captured] sends `close` through `registerApp`; the app's `Main.qml` answers that event with `requestDeactivateApp("close")`, `clearApp(true)` and the C++ `VoiceView::hideView(bool killProcess)` (names from the
+  binary's strings), which hides the window and leaves the process. Pid 8321 stood through every close of the round (04:05:09 to 04:06:11). The memory round (2026-10-25, `memory-result.md`) found that SIGTERM ends it.
+- **No shared host.** The process runs `/usr/bin/com.webos.app.voice` (`ps` shows `com.webos.app.v`, the name cut to 15 characters), SAM lists it as `native` with that pid, and the mount table has no jail
+  for it. `RelaunchAsCommon` in SAM's log is, by the lines around it (`relaunching` with `processId` 8321, then the app's own `voice_app_registerApp ... "event":"relaunch"`), the handler for a native app whose process
+  is already there: it sends the `relaunch` event through `registerApp` and starts nothing.
+- **No dump.** `/tmp/checkpoint` held only inputcommon's dump (04:23) and `voice status` says `"checkpoint":"none"`. LG's preload list has the app as `oneshot` and `partial`, not `criu`; with `lumatv preload on`
+  it is `isEnabled:false`, so the process of round 11 was started by the round's own first launch (04:05:03; LG's Search on screen within 3 s).
+- **The relaunch after a close is dropped.** `SystemSettings.qml` ignores any `registerApp` event except `pause` and `close` that comes less than 300 ms after the previous one (`_IGNORED_KEY_INTERVAL`); the log's
+  `{"key interval":266}` is that. The round launched Search straight after the closes of `voice on` and `voice off`, so `search-on.png`, `search-down.png` and `search-restored.png` show Home, not Search in either look.
+  `search-recovery.png` (a launch six seconds after a close, the mount already off) shows LG's look from the same process.
+- **Launch class.** `type native`, `privilegedJail false`, `trustLevel default`, lifecycle version 2, `main` a binary in `/usr/bin`: the class of the input apps, whose cold start showed the overlay in the same
+  round (`restyle-pill.png`, `restyle-ok.png`). A process started after the mount is therefore expected to read the patched files.
+
+`voice on` unmounts any overlay, stages, mounts, closes the app through SAM (it hides and merges its history), waits a second, ends its process with SIGTERM (SIGKILL after three seconds if ignored) and waits up
+to three seconds for SAM to stop listing the pid. The next open, or LG's preload manager when its policy is on, starts the app from the patched files: a cold start. `voice off` unmounts first and ends the process
+again, so that LG's files are what the next start reads. An overlay that is busy (the process holds a file of it) is let go by ending the process and unmounting again. Processes are found by the first word of
+`/proc/<pid>/cmdline`, which has to be the binary: `comm` is shared by any `com.webos.app.voice*` binary and only picks candidates. Nothing else is signalled, SAM is not touched and nothing is written under
+`/usr`. An app SAM names as the foreground app is left, as for the input apps; Search is an overlay, which `getForegroundAppInfo` never names (`home` with Search open, round 11), so it is ended wherever it is.
+An app that is not running costs nothing: the mount is enough. `status` lists the pids, `on` and `off` say `ended`. `tests/test_voice_stage.py`, class `VoiceResident`, runs all of it on a fake `/proc` and once
+on real processes.
+
+Open: that the patched Search shows on the set after `voice on` (TV check, step 3), and that SIGTERM leaves no crash report (none in the memory round).
 
 ## TV check, keyboard and search (not verified on the TV)
 
 One short slot, after "TV check, overnight round". Set on Home, receiver muted through Home Assistant, evidence to `docs/research/lg-restyles/tv/` (`log.txt` first, PASS/FAIL/INFO a line).
 Renders to compare with: `09-lg-search*` (960x540).
 
-1. **Where the QML is.** `ls -d /usr/palm/applications/com.webos.app.voice/qml`; `find <dir> -name '*.qml' | wc -l` is 202 and `md5sum <dir>/Style.qml Main.qml` against
-   `/data/home/lgtv/uiinv/voice/qml`. If the QML is not there, `find / -name SearchInputBox.qml 2>/dev/null` and run the tool with `VOICE_QML=<dir>`. Also `ls <dir>/Views/images | head`.
-2. **Before.** `$TOOL voice status` answers `"ok":true,"on":false,"mounted":false`; `ls -A /tmp/checkpoint | grep -i voice` (what dumps exist: a `com.webos.app.voice` there means a restore, none means the app starts cold anyway);
-   `$TOOL surfaces` has `"id":"voice","on":false`; `ls $APP/tools/voice.sh $APP/tools/voice_patch.py` lists both. LG's own Search for comparison: launch it
-   (`luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.voice"}'`, PTY) and `shot own-search` at 3 s, `kb OK` on the field for LG's keyboard, `shot own-keyboard`, `kb BACK` twice.
-3. **On.** `$TOOL voice on` (PTY). PASS: `{"ok":true,"voice":"on",...}`, `grep ' overlay ' /proc/mounts` shows the overlay over that directory, no new `failed` unit. Launch Search, `shot voice-search` at 3 s:
+1. **Where the QML is.** Found in round 11: `/usr/palm/applications/com.webos.app.voice/qml`, 203 `.qml` files (the census copy has 202), `Style.qml` and `Main.qml` with the census copy's md5s
+   (`9319a9d40bde81ea919d713f3fdd9e50`, `5b49a4d9e6f1309799814623ee3c09dd`), and the patch applied. After a firmware update: `find / -name SearchInputBox.qml 2>/dev/null` and `VOICE_QML=<dir>`; `ls <dir>/Views/images | head`.
+2. **Before.** `$TOOL voice status` answers `"ok":true,"on":false,"mounted":false,"checkpoint":"none"` and `"pids"` (empty until Search has been opened since boot); `$TOOL surfaces` has `"id":"voice","on":false`;
+   `ls $APP/tools/voice.sh $APP/tools/voice_patch.py` lists both. LG's own Search for comparison, which also starts the resident process whose end step 3 checks: launch it
+   (`luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.voice"}'`, PTY), `shot own-search` at 4 s, `kb OK` on the field for LG's keyboard, `shot own-keyboard`, `kb BACK` twice, `closeByAppId` it and
+   wait 2 s (the app drops a launch that comes less than 300 ms after a close). `$TOOL voice status` now has its pid in `pids`; `ps -o pid,ppid,lstart,args -p <pid>` for the record.
+3. **On.** `$TOOL voice on` (PTY; about 3 s when Search's process has to be ended). PASS: `{"ok":true,"voice":"on",...,"closed":["com.webos.app.voice"],"onScreen":"","ended":["com.webos.app.voice"]}` (`"ended":[]` when Search was not open),
+   `grep ' overlay ' /proc/mounts` shows the overlay over that directory, `$TOOL voice status` has `"pids":[]`, no new `failed` unit and no new file in `/tmp/var/log/reports/librdx/`. FAIL with the old pid still in `pids`: read the tool's
+   log (`ignored SIGTERM`, `still running`). Launch Search and `shot voice-search` at 5 s (a cold start, a new pid in `running`):
    the field is a pill (hairline, `09-lg-search.jpg`), Manrope, the sheet dark with nothing white. `kb DOWN`: the lit chip with a ring. Type through LG's keyboard (it is maliit's, unchanged): the auto keywords
    appear under the field as hairline chips (`09-lg-search-auto.jpg`). The microphone/account buttons show LG's pictures on the sheet: INFO what they look like (the pictures were not in the copy).
-   Right to the more key, OK: the option popup (`09-lg-search-option.jpg`): a sheet with a hairline, the switch in the accent. Quit with its last row or `kb BACK`.
+   Right to the more key, OK: the option popup (`09-lg-search-option.jpg`): a sheet with a hairline, the switch in the accent. Quit with its last row or `kb BACK`. Close the app (`closeByAppId`), wait 2 s and launch it again: the same
+   pid opens at once, still in the patched look.
 4. **Light.** None needed on the set: the sheet is always the dark material's.
-5. **Off.** `$TOOL voice off`: `"voice":"off"`, the overlay gone, LG's look is back at the next launch (compare `own-search`); `$TOOL surfaces` has `"id":"voice","on":false`. Leave it as found (off).
+5. **Off.** `$TOOL voice off` (PTY): `"voice":"off"`, `"ended":["com.webos.app.voice"]` after step 3, the overlay gone, `pids` empty. The next launch (a cold start, `shot own-search-restored` at 5 s) shows LG's look (compare `own-search`) in a process with another
+   new pid; `$TOOL surfaces` has `"id":"voice","on":false`. Close it. Leave it as found (off).
 6. **Keyboard switch** is step 10 of "TV check, overnight round"; maliit's keys cannot be restyled until its tree is copied: round 8's `maliit` step or the `maliit` commands of "Needs the TV" 5.
 7. **End.** Home in front, `$TOOL voice status`, `$TOOL inputcommon status`, `$TOOL surfaces` in the log, the receiver as found.
 

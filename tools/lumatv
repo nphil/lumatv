@@ -32,7 +32,8 @@
 #   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
 #                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
 #   voice on|off|status    -> LG's Search app (com.webos.app.voice) in the Lucent look: a patched copy of its QML mounted over
-#                            LG's (tools/voice.sh); off by default, re-mounted by apply at every boot while on
+#                            LG's (tools/voice.sh), and the app's resident process ended so that the next open reads it; off by default,
+#                            re-mounted by apply at every boot while on
 #   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
 #                            off by default; a change is one rebuild and, under LG's compositor, one restart
 #   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place

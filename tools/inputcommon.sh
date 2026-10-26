@@ -25,6 +25,13 @@
 # Running instances hold the old QML in memory, so the ones that are not on screen are ended through SAM (closeByAppId); the
 # preload manager loads them again, cold. The input on screen is left: it keeps LG's banners until it is next launched.
 #
+# Resident apps (tools/voice.sh): some of LG's apps are kept alive by SAM (keepAliveApps in configd's com.webos.applicationManager;
+# the Search app is one, and LG's preload manager starts it hidden). closeByAppId answers true and the process stays, with the QML
+# it read when it started, for as long as the set is up: round 11 had pid 8321 before and after the close and LG's own Search at
+# the next open. IC_BINARY names the binary such an app runs; its processes are found by that (argv[0]) and, after the close,
+# ended with SIGTERM, which ends the app (memory round: no restart by LG's preload manager when its policy for the app is off),
+# SIGKILL if that is ignored. The next launch is cold, from whatever is mounted then. Unset for the input banners: a close ends those.
+#
 # [INFERENCE] where the QML is: the census copy of the tree has the same layout as the QML of LG's other native apps
 # (/usr/palm/applications/<id>/qml); INPUTCOMMON_QML overrides. Verified on the set in round 7 (273 files, same GlobalStyle.qml).
 set -u
@@ -67,6 +74,17 @@ SAM_TIMEOUT=${SAM_TIMEOUT:-10}
 SAM_URI=luna://com.webos.applicationManager
 # The apps whose main is /usr/bin/com.webos.app.inputcommon (listApps.json of the census), the ones an instance can be running for.
 IC_APPS=${IC_APPS:-"com.webos.app.inputcommon com.webos.app.livetv com.webos.app.livetvopapp com.webos.app.hdmi1 com.webos.app.hdmi2 com.webos.app.hdmi3 com.webos.app.hdmi4 com.webos.app.dp1 com.webos.app.dp2 com.webos.app.externalinput.av1 com.webos.app.externalinput.av2 com.webos.app.externalinput.component com.webos.app.externalinput.scart com.webos.app.usbc1 com.webos.app.usbc2"}
+# Resident apps (above): the binary the tree's app runs (empty for the input banners), where /proc is and what sends signals, and
+# the pace of the waits: a step is IC_STEP seconds and each wait takes a number of steps (the host tests run steps of no time).
+# IC_ENDED collects what a run ended: the app's id once its process went, whichever step of the run ended it.
+IC_ENDED=""
+IC_BINARY=${IC_BINARY:-}
+PROC_ROOT=${PROC_ROOT:-/proc}
+KILL=${KILL:-kill}
+IC_STEP=${IC_STEP:-1}
+IC_TERM_STEPS=${IC_TERM_STEPS:-3}
+IC_KILL_STEPS=${IC_KILL_STEPS:-2}
+IC_SAM_STEPS=${IC_SAM_STEPS:-3}
 PROC_MOUNTS=${PROC_MOUNTS:-/proc/mounts}
 MOUNT=${MOUNT:-mount}
 UMOUNT=${UMOUNT:-umount}
@@ -224,9 +242,96 @@ ic_sam() {
   timeout "$SAM_TIMEOUT" $LUNA_SEND -n 1 "$SAM_URI/$1" "$2" 2>/dev/null | tr -d ' \r\n'
 }
 
-# Ends the input apps' instances that are running but not on screen: they hold LG's QML, and the preload manager loads them
-# again as soon as one closes. The one on screen stays (closing it would leave the input) and keeps its banners until it is next
-# launched. Sets IC_CLOSED (ids, one space before each) and IC_ONSCREEN.
+# Whether process $1 runs the resident binary: argv[0] is the first word of cmdline, which is NUL-separated. A process that has
+# gone, or is a zombie (its cmdline is empty), does not.
+ic_runs() {
+  [ "$({ tr '\0' '\n' < "$PROC_ROOT/$1/cmdline"; } 2>/dev/null | sed -n 1p)" = "$IC_BINARY" ]
+}
+
+# The pids of the resident app, by what each process runs. comm is the binary's name cut to 15 characters, which a lookalike binary
+# (com.webos.app.voice*) shares, so it only picks the candidates, reading it forks nothing, and argv[0] decides.
+ic_pids() {
+  [ -n "$IC_BINARY" ] || return 0
+  pp_short=$(printf '%.15s' "${IC_BINARY##*/}")
+  for pp_d in "$PROC_ROOT"/[0-9]*; do
+    pp_comm=""
+    { read -r pp_comm < "$pp_d/comm"; } 2>/dev/null
+    [ "$pp_comm" = "$pp_short" ] || continue
+    ic_runs "${pp_d##*/}" && printf '%s\n' "${pp_d##*/}"
+  done
+  return 0
+}
+
+# Waits up to $1 steps for the processes after it to end, looking before each step.
+ic_wait_gone() {
+  wg_steps=$1; shift
+  wg_n=0
+  while [ "$wg_n" -lt "$wg_steps" ]; do
+    wg_any=0
+    for wg_p in "$@"; do ic_runs "$wg_p" && wg_any=1; done
+    [ "$wg_any" = 0 ] && return 0
+    sleep "$IC_STEP"
+    wg_n=$((wg_n+1))
+  done
+  return 0
+}
+
+# Waits up to IC_SAM_STEPS steps for SAM to stop listing the pids given: a launch while it still does is a relaunch of a process
+# that is gone. A SAM that does not answer lists nothing.
+ic_wait_sam() {
+  ws_n=0
+  while :; do
+    ws_running=$(ic_sam running '{}')
+    ws_stale=0
+    for ws_p in "$@"; do
+      case "$ws_running" in *"\"processid\":\"$ws_p\""*) ws_stale=1 ;; esac
+    done
+    [ "$ws_stale" = 0 ] && return 0
+    if [ "$ws_n" -ge "$IC_SAM_STEPS" ]; then log_line "SAM still lists pids $* after $IC_SAM_STEPS steps"; return 0; fi
+    ws_n=$((ws_n+1))
+    sleep "$IC_STEP"
+  done
+}
+
+# Ends the resident app: SIGTERM, SIGKILL for a process that ignores it (a few steps each), then waits for SAM to forget it.
+# Sets IC_ENDED to the app's id when a process went.
+ic_end_resident() {
+  [ -n "$IC_BINARY" ] || return 0
+  er_pids=$(ic_pids)
+  [ -n "$er_pids" ] || return 0
+  for er_p in $er_pids; do $KILL -TERM "$er_p" 2>>"$LOGFILE"; done
+  ic_wait_gone "$IC_TERM_STEPS" $er_pids
+  er_left=""
+  for er_p in $er_pids; do if ic_runs "$er_p"; then er_left="$er_left $er_p"; fi; done
+  if [ -n "$er_left" ]; then
+    log_line "$IC_ID ignored SIGTERM (pids$er_left): SIGKILL"
+    for er_p in $er_left; do $KILL -KILL "$er_p" 2>>"$LOGFILE"; done
+    ic_wait_gone "$IC_KILL_STEPS" $er_left
+  fi
+  er_gone=""
+  for er_p in $er_pids; do
+    if ic_runs "$er_p"; then log_line "pid $er_p of $IC_ID is still running"; else er_gone="$er_gone $er_p"; fi
+  done
+  [ -n "$er_gone" ] || return 0
+  IC_ENDED=$IC_ID
+  log_line "ended $IC_ID (pids$er_gone)"
+  ic_wait_sam $er_gone
+  return 0
+}
+
+# Unmounts our overlay over $1. A busy one is let go by ending the resident app, which holds files of it, and tried once more.
+ic_release() {
+  ic_umount "$1" && return 0
+  [ -n "$IC_BINARY" ] || return 1
+  log_line "the overlay over $1 is busy: ending $IC_ID and trying again"
+  ic_end_resident
+  ic_umount "$1"
+}
+
+# Ends the apps' instances that are running but not on screen: they hold the QML they started with, and the preload manager loads
+# them again as soon as one closes. The one on screen stays (closing it would leave the input) and keeps its banners until it is
+# next launched. A resident app stays through the close, so its process is ended after it (a moment to hide and merge its history
+# first). Sets IC_CLOSED (ids, one space before each) and IC_ONSCREEN; what was ended is IC_ENDED's.
 ic_close_idle() {
   IC_CLOSED=""; IC_ONSCREEN=""
   running=$(ic_sam running '{}')
@@ -239,6 +344,10 @@ ic_close_idle() {
       *) log_line "SAM did not close $app" ;;
     esac
   done
+  if [ -n "$IC_BINARY" ] && [ -z "$IC_ONSCREEN" ]; then
+    [ -z "$IC_CLOSED" ] || sleep "$IC_STEP"
+    ic_end_resident
+  fi
   return 0
 }
 
@@ -247,6 +356,23 @@ ic_json_list() {
   out=""
   for w in "$@"; do out="$out${out:+,}\"$w\""; done
   printf '[%s]' "$out"
+}
+
+# [8321] from the words given; and the parts of the answers that only a resident app has (nothing for the input banners).
+ic_json_nums() {
+  out=""
+  for w in "$@"; do out="$out${out:+,}$w"; done
+  printf '[%s]' "$out"
+}
+
+ic_ended_json() {
+  [ -n "$IC_BINARY" ] && printf ',"ended":%s' "$(ic_json_list $IC_ENDED)"
+  return 0
+}
+
+ic_pids_json() {
+  [ -n "$IC_BINARY" ] && printf ',"pids":%s' "$(ic_json_nums $(ic_pids))"
+  return 0
 }
 
 verb_stage() {
@@ -264,7 +390,7 @@ verb_stage() {
 verb_on() {
   qml=$(ic_qml)
   [ -n "$qml" ] || { emit_error "LG's $IC_NAME QML was not found (set ${IC_OVERRIDE_NAME:-INPUTCOMMON_QML})"; return 1; }
-  ic_umount "$qml" || { emit_error "could not unmount the overlay over $qml"; return 1; }
+  ic_release "$qml" || { emit_error "could not unmount the overlay over $qml"; return 1; }
   if ! ic_stage "$qml"; then
     emit_error "could not stage the patched copy; LG's banners are in place"
     return 1
@@ -275,30 +401,31 @@ verb_on() {
   fi
   aside=$(ic_checkpoint_aside)
   ic_close_idle
-  log_line "on: mounted over $qml, dumps set aside $aside, ended:${IC_CLOSED:- none}, on screen: ${IC_ONSCREEN:-none}"
-  printf '{"ok":true,"%s":"on","checkpointAside":%s,"closed":%s,"onScreen":"%s"}\n' "$IC_NAME" "$aside" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN"
+  log_line "on: mounted over $qml, dumps set aside $aside, closed:${IC_CLOSED:- none}, ended:${IC_ENDED:- none}, on screen: ${IC_ONSCREEN:-none}"
+  printf '{"ok":true,"%s":"on","checkpointAside":%s,"closed":%s,"onScreen":"%s"%s}\n' "$IC_NAME" "$aside" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN" "$(ic_ended_json)"
 }
 
 verb_off() {
   qml=$(ic_qml)
   [ -n "$qml" ] || { emit_error "LG's $IC_NAME QML was not found (set ${IC_OVERRIDE_NAME:-INPUTCOMMON_QML})"; return 1; }
   was=0; ic_mounted "$qml" && was=1
-  ic_umount "$qml" || { emit_error "could not unmount the overlay over $qml"; return 1; }
+  ic_release "$qml" || { emit_error "could not unmount the overlay over $qml"; return 1; }
   back=$(ic_checkpoint_back)
   IC_CLOSED=""; IC_ONSCREEN=""
   # Only when there was something to undo: a set that never used the switch loses no running app to `off`.
   if [ "$was" = 1 ] || [ "$back" != 0 ]; then ic_close_idle; fi
-  log_line "off: unmounted from $qml, dumps put back $back, ended:${IC_CLOSED:- none}, on screen: ${IC_ONSCREEN:-none}"
-  printf '{"ok":true,"%s":"off","checkpointBack":%s,"closed":%s,"onScreen":"%s"}\n' "$IC_NAME" "$back" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN"
+  log_line "off: unmounted from $qml, dumps put back $back, closed:${IC_CLOSED:- none}, ended:${IC_ENDED:- none}, on screen: ${IC_ONSCREEN:-none}"
+  printf '{"ok":true,"%s":"off","checkpointBack":%s,"closed":%s,"onScreen":"%s"%s}\n' "$IC_NAME" "$back" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN" "$(ic_ended_json)"
 }
 
 verb_status() {
   qml=$(ic_qml)
-  printf '{"ok":true,"qml":"%s","staged":%s,"mounted":%s,"checkpoint":"%s","criuEnabled":%s}\n' "$(json_escape "${qml:-}")" \
+  printf '{"ok":true,"qml":"%s","staged":%s,"mounted":%s,"checkpoint":"%s","criuEnabled":%s%s}\n' "$(json_escape "${qml:-}")" \
     "$( [ -f "$IC_UPPER/$IC_STYLE_FILE" ] && echo true || echo false )" \
     "$( [ -n "$qml" ] && ic_mounted "$qml" && echo true || echo false )" \
     "$(ic_checkpoint_state)" \
-    "$( [ -e "$CRIU_ENABLE" ] && echo true || echo false )"
+    "$( [ -e "$CRIU_ENABLE" ] && echo true || echo false )" \
+    "$(ic_pids_json)"
 }
 
 case "${1:-status}" in

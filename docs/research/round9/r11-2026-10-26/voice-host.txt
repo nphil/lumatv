@@ -1,0 +1,53 @@
+### time
+Mon Oct 26 04:23:43 EDT 2026
+Mon Oct 26 08:23:43 UTC 2026
+14791.51 37771.45
+### SAM running: the voice entry
+### SAM getAppStatus / getAppLifeStatus of the voice app
+{"event":"nothing","appId":"com.webos.app.voice","exist":true,"launchable":true,"status":"launchable","returnValue":true}
+{"subscribed":false,"returnValue":false,"errorText":"subscription is required","errorCode":1}
+### every process whose argv[0] is /usr/bin/com.webos.app.voice
+pids: none
+### any process (any pid) with a file open under /usr/palm/applications/com.webos.app.voice
+### mounts and CRIU
+(926 lines of /proc/mounts matching voice|overlay, all of them LG's jails and overlays, trimmed here; none is over a path of com.webos.app.voice, and the app has no jail)
+total 8
+drwxr-xr-x    4 root     root           120 Oct 26 04:04 .
+drwxrwxrwt   54 root     root          4020 Oct 26 04:23 ..
+drwxr--r--    2 root     root           520 Oct 26 04:17 com.webos.app.inputcommon
+drwxr-xr-x    2 root     root            40 Dec 31  2022 error
+-rw-r--r--    1 root     root             2 Oct 26 04:17 hash_check_com.webos.app.inputcommon
+-rw-r--r--    1 root     root             5 Oct 26 04:04 manager_pid
+com.webos.app.inputcommon
+### preload policy of the voice app in configd (isEnabled)
+{"requiredMemory":72,"staticPriority":10,"preloadType":"oneshot","id":"com.webos.app.browser","preloadMode":"partial","isEnabled":false},
+{"requiredMemory":55,"staticPriority":10,"preloadType":"oneshot","id":"com.webos.app.voice","preloadMode":"partial","isEnabled":false},
+{"requiredMemory":73,"staticPriority":10,"preloadType":"oneshot","id":"vudu","preloadMode":"partial","isEnabled":false},
+{"requiredMemory":100,"staticPriority":10,"preloadType":"oneshot","id":"amazon","preloadMode":"partial","isEnabled":false},
+{"requiredMemory":100,"staticPriority":10,"preloadType":"oneshot","id":"pooq","preloadMode":"partial","isEnabled":false},
+{"requiredMemory":40,"staticPriority":10,"preloadType":"periodic","id":"com.webos.app.livetv","preloadMode":"partial","isEnabled":false},
+{"requiredMemory":40,"staticPriority":10,"preloadType":"periodic","id":"com.webos.app.hdmi1","preloadMode":"partial","isEnabled":true},
+{"requiredMemory":40,"staticPriority":10,"preloadType":"periodic","id":"com.webos.app.hdmi2","preloadMode":"partial","isEnabled":true},
+{"requiredMemory":40,"staticPriority":10,"preloadType":"periodic","id":"com.webos.app.hdmi3","preloadMode":"partial","isEnabled":true},
+### lumatv
+{"ok":true,"version":"0.4.0"}
+{"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true}
+{"ok": true, "on": true, "backup": true, "off": [{"id": "youtube.leanback.v4", "listed": true, "enabled": false}, {"id": "com.webos.app.lgchannels", "listed": true, "enabled": false}, {"id": "com.webos.app.browser", "listed": true, "enabled": false}, {"id": "amazon", "listed": true, "enabled": false}, {"id": "com.webos.app.livetv", "listed": true, "enabled": false}, {"id": "com.webos.app.livemenu", "listed": true, "enabled": false}, {"id": "com.webos.app.voice", "listed": true, "enabled": false}
+### log: the voice app's own lines, last 150
+### log: SAM, memory manager, preload manager lines for the voice app that are not launch-stage noise, 08:03Z to 08:08Z
+### log: first and last 25 lines mentioning the voice app since boot
+1581:2026-10-26T08:21:56.875014Z [14685.005553920] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} (com.webos.app.voice) disabled
+8750:2026-10-26T08:23:30.874994Z [14779.005534120] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} (com.webos.app.voice) disabled
+...
+1581:2026-10-26T08:21:56.875014Z [14685.005553920] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} (com.webos.app.voice) disabled
+8750:2026-10-26T08:23:30.874994Z [14779.005534120] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} (com.webos.app.voice) disabled
+### log: preload manager lines about voice
+2026-10-26T08:21:56.875014Z [14685.005553920] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} (com.webos.app.voice) disabled
+2026-10-26T08:23:30.874994Z [14779.005534120] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} (com.webos.app.voice) disabled
+### strings of the binary that bear on quitting and the lifecycle
+2quitApp()
+<---------------------------------------- HideView
+hideView
+killProcess
+void VoiceView::hideView(bool)
+### done

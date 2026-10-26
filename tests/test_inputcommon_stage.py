@@ -11,6 +11,9 @@ failed stage, put the unmount before the stage (a copy of an already-patched tre
 symlinks into the persisted copy), a persisted copy that must come out byte for byte as it went in, and a `luna-send` that plays SAM:
 LG's dump is renamed in the working directory (never deleted, the persisted copy never touched), the input apps that are running
 and not on screen are closed through SAM and only after the dump is aside, the one on screen is left, `off` puts everything back.
+
+Both run with a fake /proc, a stand-in `kill` and waits of no time (IC_STEP=0): the resident-app part of the script (the Search app's
+process, ended after the close) is tests.test_voice_stage's; here the input banners' run must never signal a process.
 """
 import hashlib
 import json
@@ -48,6 +51,20 @@ FAKE_UMOUNT = """#!/bin/sh
 echo "umount $*" >> "$FAKE_LOG"
 grep -v " $1 overlay " "$PROC_MOUNTS" > "$PROC_MOUNTS.tmp"
 mv "$PROC_MOUNTS.tmp" "$PROC_MOUNTS"
+"""
+# kill, as tools/inputcommon.sh sends it: kill -SIGNAL PID. A process ends by its directory leaving the fake /proc and SAM drops it from
+# the running list when an answer for after the kill is there; $FAKE_SAM/ignore-term makes SIGTERM do nothing, immortal every signal.
+# The calls go to the SAM log, where the order of a close and a kill can be read, and to the mount log.
+FAKE_KILL = """#!/bin/sh
+sig=${1#-}; pid=$2
+echo "kill $sig $pid" >> "$FAKE_SAM/calls"
+echo "kill $sig $pid" >> "$FAKE_LOG"
+[ -d "$PROC_ROOT/$pid" ] || exit 1
+[ -e "$FAKE_SAM/immortal" ] && exit 0
+[ "$sig" = TERM ] && [ -e "$FAKE_SAM/ignore-term" ] && exit 0
+rm -rf "$PROC_ROOT/$pid"
+[ -f "$FAKE_SAM/running-after-kill" ] && cp "$FAKE_SAM/running-after-kill" "$FAKE_SAM/running"
+exit 0
 """
 # SAM, as luna-send reaches it: luna-send -n 1 luna://com.webos.applicationManager/METHOD PAYLOAD. The answers come from files in
 # $FAKE_SAM; a close records what the working directory held at that moment.
@@ -125,9 +142,11 @@ class Base(unittest.TestCase):
         self.log = os.path.join(t, "calls")
         self.sam = os.path.join(t, "sam")
         os.makedirs(self.sam)
+        self.proc = os.path.join(t, "proc")
+        os.makedirs(self.proc)
         self.write("sam/foreground", "com.webos.app.home")
         self.write("sam/running", '{"running":[{"id":"com.webos.app.home","processid":"17483"},{"id":"netflix","processid":"17580"}],"returnValue":true}')
-        for name, body in (("mount", FAKE_MOUNT), ("umount", FAKE_UMOUNT), ("luna-send", FAKE_LUNA)):
+        for name, body in (("mount", FAKE_MOUNT), ("umount", FAKE_UMOUNT), ("luna-send", FAKE_LUNA), ("kill", FAKE_KILL)):
             path = os.path.join(t, name)
             with open(path, "w") as f:
                 f.write(body)
@@ -136,7 +155,8 @@ class Base(unittest.TestCase):
                         THEME_DIR=os.path.join(t, "theme"), FONTS_DIR=os.path.join(ROOT, "payload", "fonts"),
                         CRIU_TMP=self.criu, CRIU_RESTORING=os.path.join(t, "criu_restoring"), CRIU_ENABLE=os.path.join(t, "criu_enable"), RESTORE_WAIT="1",
                         LUNA_SEND=os.path.join(t, "luna-send"), SAM_TIMEOUT="1", FAKE_SAM=self.sam,
-                        PROC_MOUNTS=self.mounts, MOUNT=os.path.join(t, "mount"), UMOUNT=os.path.join(t, "umount"), FAKE_LOG=self.log)
+                        PROC_MOUNTS=self.mounts, MOUNT=os.path.join(t, "mount"), UMOUNT=os.path.join(t, "umount"), FAKE_LOG=self.log,
+                        PROC_ROOT=self.proc, KILL=os.path.join(t, "kill"), IC_STEP="0")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -182,6 +202,22 @@ class Base(unittest.TestCase):
 
     def running(self, *apps):
         self.write("sam/running", json.dumps({"running": [{"id": a, "processid": str(2500 + i)} for i, a in enumerate(apps)], "returnValue": True}))
+
+    def running_as(self, apps):
+        """SAM's list for {app id: pid}."""
+        self.write("sam/running", json.dumps({"running": [{"id": a, "processid": str(p), "appType": "native"} for a, p in apps.items()], "returnValue": True}))
+
+    def process(self, pid, binary="/usr/bin/com.webos.app.voice", comm=None):
+        """A process in the fake /proc: comm is the binary's name cut to 15 characters, cmdline is NUL-separated with the launch JSON after it."""
+        d = os.path.join(self.proc, str(pid))
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "comm"), "w") as f:
+            f.write((comm or os.path.basename(binary)[:15]) + "\n")
+        with open(os.path.join(d, "cmdline"), "wb") as f:
+            f.write(binary.encode() + b'\0{"event":"launch","appId":"x"}\0')
+
+    def alive(self, pid):
+        return os.path.isdir(os.path.join(self.proc, str(pid)))
 
 
 @unittest.skipUnless(os.path.isdir(CENSUS) and shutil.which("python3"), "needs the census copy of LG's inputcommon tree")
@@ -467,6 +503,19 @@ class ColdStart(Base):
         self.run_script("on")
         j = self.run_script("status")[1]
         self.assertEqual((j["checkpoint"], j["criuEnabled"], j["mounted"]), ("aside", True, True))
+
+    def test_the_input_banners_run_never_signals_a_process_and_says_nothing_of_one(self):
+        # a close ends the input apps; only a tree with a resident app (the Search app, tools/voice.sh) has processes to end
+        self.process(8321)
+        self.running("com.webos.app.hdmi2")
+        rc, out = self.run_script("on")
+        self.assertEqual((rc, out["ok"], out["closed"]), (0, True, ["com.webos.app.hdmi2"]), out)
+        self.assertNotIn("ended", out)
+        rc, out = self.run_script("off")
+        self.assertNotIn("ended", out)
+        self.assertNotIn("pids", self.run_script("status")[1])
+        self.assertTrue(self.alive(8321))
+        self.assertFalse([c for c in self.sam_calls() if c.startswith("kill")])
 
     def test_the_boot_path_does_the_whole_of_it_again(self):
         # a cold power-on brings back the boot snapshot: the overlay is gone and so is the aside copy; LG's dump is where it was
