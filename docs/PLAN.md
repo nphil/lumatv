@@ -1107,6 +1107,10 @@ what it already does.
 
 ## Decided
 
+- LG's compositor stays live for now (Nitin, 2026-10-26 14:12, after gate 9). LumaTV's
+  passes every safety check but draws a black Home and none of the QML surfaces yet;
+  its frame timing, those surfaces and the quick panel's lag over Netflix are parked
+  for later.
 - Focus cue: no line under the focused item (Nitin, 2026-10-23, replacing
   the earlier "keep the bright lower edge"). The focused item lifts, its
   glass brightens and a soft accent halo spreads under it; tabs and
