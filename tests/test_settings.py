@@ -479,9 +479,9 @@ class Settings(HostCase):
             "if(k==='toggle'){row.act(true);row.act(false);n+=2}"
             "else if(k==='seg'||k==='cards'){var c=p.count(r);for(var j=0;j<c;j++){row.act(j);n++}}"
             "else if(k==='slider'){row.act(p.ev(row.min));row.act(p.ev(row.max));n+=2}}}return n})()")
-    SET_OUTPUT = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSServices 1.0; QtObject { function set(c, s) { LS.adhoc.call(\"luna://com.webos.service.settings\", \"/setSystemSettings\", JSON.stringify({category: c, settings: s})) } }', root);"
+    SET_OUTPUT = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, s) { LS.adhoc.call(\"luna://com.webos.service.settings\", \"/setSystemSettings\", JSON.stringify({category: c, settings: s})) } }', root);"
                   "o.set('sound', {soundOutput: 'tv_speaker'});root.pageItem('sound').refresh();return 1})()")
-    CALLS = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSServices 1.0; QtObject { property var calls: LS.calls }', root);"
+    CALLS = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { property var calls: LS.calls }', root);"
              "return JSON.stringify(o.calls.filter(function(c){return c.method==='/setSystemSettings'}).map(function(c){return {payload: JSON.parse(c.payload), error: c.error}}))})()")
 
     def test_no_row_writes_a_setting_or_value_the_service_refuses(self):
@@ -500,7 +500,7 @@ class Settings(HostCase):
 
     def test_the_stub_refuses_what_the_real_service_would(self):
         # the check above means something only if the stub says no: a key LG has no such name for, and a value outside a key's table
-        rc, out = self.host("--eval", "5000:(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSServices 1.0; QtObject { function set(c, s) { LS.adhoc.call(\"u\", \"/setSystemSettings\", JSON.stringify({category: c, settings: s})) } property var calls: LS.calls }', root);"
+        rc, out = self.host("--eval", "5000:(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, s) { LS.adhoc.call(\"u\", \"/setSystemSettings\", JSON.stringify({category: c, settings: s})) } property var calls: LS.calls }', root);"
                             "o.set('general', {pointerSpeed: 'fast'});o.set('sound', {soundMode: 'cinema'});o.set('picture', {backlight: '101'});o.set('picture', {backlight: '70'});"
                             "return JSON.stringify(o.calls.filter(function(c){return c.method==='/setSystemSettings'}).map(function(c){return c.error !== ''}))})()", "--wait", "5600", surface="Settings.qml")
         self.assertEqual(rc, 0, out[-1500:])
