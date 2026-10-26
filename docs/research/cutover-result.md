@@ -51,6 +51,13 @@ Session or persistent: `cutover.sh trial` and the gate's `enable --session` writ
 only and on any firmware; the hook and the supervisor ignore (and the hook deletes) one left from an earlier boot, so a
 test cut short can never become a boot-time enable. `enable` and `lumatv compositor on` write `persistent`.
 
+Safety timer: a session starts a detached job on the set (`setsid sh cutover.sh safety-run N`; record `safety-timer` and
+log `safety-timer.log` in the state directory) that runs `disable` after N minutes unless the session ended by then (not
+mounted, or a flag that is no longer this boot's session). N is `--max-minutes` (whole minutes, 1 to 1440, default 15; a
+trial's is its seconds plus 5 minutes), so a test whose workstation dies leaves the set on LG's compositor and Home by
+itself. `disable` and `revert` cancel it, a new session replaces it, a persistent enable has none, and a session starts
+only once the job's record exists. The gate gives its first session 12 minutes and each later one 6.
+
 State files in `/var/lib/lumatv/compositor`, new ones in bold: `enabled`, `escaped`, `failures`, `fingerprint`,
 `lg-binary`, `last-fallback`, `sm.log`, `compositor.log`, **`verified.list`** (copy of the repo's), **`manifest`** (SHA-256
 of LG's files as installed: LG's binary is hidden once mounted), **`bundle.manifest`**, **`supervisor-api`** (2: the

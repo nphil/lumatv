@@ -11,6 +11,9 @@ The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, 
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, standby, homekey, wd-hang,
 wd-crash, escape.
 
+Every session carries the set's own safety timer (cutover.sh enable --session --max-minutes): if this driver or the
+workstation dies in the middle of the gate, the set ends the session by itself and LG's compositor and Home come back.
+
 Afterwards LG's compositor is live and the enabled flag is removed, whatever failed. --enable-after (Nitin's decision:
 live once the gate passes) takes the firmware build the gate has just passed on into compositor/firmware/verified.list
 (the working tree: commit it), installs it on the set, and enables LumaTV's compositor for good; a pass on another build
@@ -25,6 +28,13 @@ HA = "http://192.168.1.146"
 AVR = "media_player.living_room_avr"
 VERIFIED_LIST = os.path.join(here, "..", "firmware", "verified.list")
 LIBRARY = os.path.join(here, "..", "..", "tools", "compositor.sh")
+
+# Minutes a session may live before the set ends it (--max-minutes). The first session (live, volume, x1's 60 s, netflix,
+# hdmi, standby and wake, then the key and keyboard checks) ran 4 minutes in the gate of 2026-10-26 (supervisor starts
+# 14:03:11 to 14:07:12), each session that follows an ending check 33-35 s; each gets at least three times that, so that a
+# healthy run never meets its own timer, which would end it under the checks.
+FIRST_SESSION_MINUTES = 12
+LATER_SESSION_MINUTES = 6
 
 def pty(cmd, timeout=600):
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -196,10 +206,12 @@ def main():
             if l.startswith("GATE "):
                 lines.append(l.rstrip("\r"))
         return out
-    def session(label=None):
-        """LumaTV's compositor live for this boot only, then `live` says so (the label names the line when it is a
-        second session of the run)."""
-        print(pty("sh /tmp/lumatv/cutover.sh enable --session", 300))
+    # An x1 run longer than the rule's 60 s lengthens the first session by its extra minutes.
+    first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
+    def session(minutes, label=None):
+        """LumaTV's compositor live for this boot only, ended by the set itself after `minutes`, then `live` says so (the
+        label names the line when it is a second session of the run)."""
+        print(pty("sh /tmp/lumatv/cutover.sh enable --session --max-minutes %d" % minutes, 300))
         step("live", "sh /tmp/lumatv/gate.sh live%s" % (" " + label if label else ""))
     if not wake():
         sys.exit("the set does not answer; nothing was changed")
@@ -210,7 +222,7 @@ def main():
             step("firmware", "sh /tmp/lumatv/gate.sh firmware", 300)
         if "homeheld" not in skip:
             step("homeheld", "sh /tmp/lumatv/gate.sh homeheld", 120)
-        session()
+        session(first_minutes)
         if "volume" not in skip:
             line = volume_check()
             print(line)
@@ -236,7 +248,7 @@ def main():
             if name in skip:
                 continue
             step(name, "sh /tmp/lumatv/gate.sh %s" % name, 300)
-            session("after-" + name)
+            session(LATER_SESSION_MINUTES, "after-" + name)
         if "escape" not in skip:
             step("escape", "sh /tmp/lumatv/gate.sh escape", 300)
     finally:

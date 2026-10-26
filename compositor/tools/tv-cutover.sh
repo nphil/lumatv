@@ -15,10 +15,15 @@
 #                          the flag names this boot and is gone when the trial ends, on any firmware
 #   cutover.sh enable      persistent flag, mount, restart the unit and leave LumaTV's compositor live (also after
 #                          reboots); refused on a firmware build that is not on verified.list (exit 5)
-#   cutover.sh enable --session   the same for this boot only (what the gate runs on a build it has not passed on)
-#   cutover.sh disable     unmount, restart LG's compositor, bring Home back; the enabled flag is removed
-#   cutover.sh status      what is live now
-#   cutover.sh revert      unmount and restart LG's compositor (the flag stays)
+#   cutover.sh enable --session [--max-minutes N]   the same for this boot only (what the gate runs on a build it has
+#                          not passed on), with a safety timer: a detached job runs `disable` after N minutes (whole
+#                          minutes, 1 to 1440, default 15) unless the session has ended by then, so that a test whose
+#                          workstation dies does not leave the set on LumaTV's compositor. A trial's timer is its SECS
+#                          plus 5 minutes, for the evidence and the revert.
+#   cutover.sh disable     unmount, restart LG's compositor, bring Home back; the enabled flag is removed; the timer
+#                          is cancelled
+#   cutover.sh status      what is live now, and the timer
+#   cutover.sh revert      unmount and restart LG's compositor (the flag stays); the timer is cancelled
 #   cutover.sh firmware check    hash LG's binary and libraries and say whether this build is on verified.list (exit 0/5)
 #   cutover.sh firmware record   print the verified.list entry for this build, for the gate to add once it has passed
 #   cutover.sh boot-check  what the boot hook would decide now (JSON), changing nothing
@@ -36,7 +41,63 @@ log_line() { :; }
 
 is_mounted() { comp_mounted; }
 
+# The safety timer. Its job is this script run as `safety-run MINUTES`, detached from the caller (setsid, and no
+# descriptor of the caller's: a PTY that a background job holds open never reaches its end of file, and the job has to
+# outlive the SSH session that may die). Its record is one line, "PID END MINUTES", with END in seconds of /proc/uptime
+# (no clock step moves it); the job writes it itself, so that a pid changed by setsid's fork cannot be the wrong one.
+SELF=$0
+case $SELF in /*) ;; *) SELF=$PWD/$SELF ;; esac
+SAFETY=$STATE/safety-timer
+SAFETY_LOG=$STATE/safety-timer.log
+SAFETY_DEFAULT=15
+SAFETY_MINUTE=${LUMATV_SAFETY_MINUTE:-60}   # seconds in one of the timer's minutes; the host test shortens it
+
+now_s() { read -r n_up _ < /proc/uptime; echo "${n_up%.*}"; }
+safety_log() { echo "[$(date +%H:%M:%S)] $*" >> $SAFETY_LOG; }
+safety_owner() { o_pid=""; { read -r o_pid _ < $SAFETY; } 2>/dev/null; echo "$o_pid"; }
+
+# The pid the record names, when that process is a timer job: a job that was killed leaves its record behind, and the
+# pid may be any process by now.
+safety_pid() {
+    p_pid=$(safety_owner)
+    case "$p_pid" in ''|*[!0-9]*) return 1 ;; esac
+    tr '\0' ' ' < /proc/$p_pid/cmdline 2>/dev/null | grep -q ' safety-run [0-9]' || return 1
+    echo "$p_pid"
+}
+
+safety_cancel() {
+    c_pid=$(safety_pid)
+    rm -f $SAFETY
+    [ -n "$c_pid" ] || return 0
+    kill $(pgrep -P $c_pid 2>/dev/null) $c_pid 2>/dev/null
+    safety_log "cancelled (pid $c_pid)"
+    echo "safety timer cancelled"
+}
+
+safety_state() {
+    if s_pid=$(safety_pid); then
+        set -- $(cut -d ' ' -f 2,3 $SAFETY)
+        echo "pid $s_pid, $(( ($1 - $(now_s) + SAFETY_MINUTE - 1) / SAFETY_MINUTE )) of $2 min left"
+    else
+        echo none
+    fi
+}
+
+# Starts the job and waits for its record: a session starts only with a timer behind it.
+safety_start() {
+    safety_cancel > /dev/null
+    if command -v setsid > /dev/null 2>&1; then
+        setsid sh "$SELF" safety-run "$1" < /dev/null > /dev/null 2>&1 &
+    else
+        sh "$SELF" safety-run "$1" < /dev/null > /dev/null 2>&1 &
+    fi
+    s0=$(now_s)
+    while ! safety_pid > /dev/null && [ $(( $(now_s) - s0 )) -lt 3 ]; do sleep 0.1; done
+    safety_pid > /dev/null
+}
+
 revert() {
+    safety_cancel
     # When the supervisor already fell back (unmounted and execd LG's binary, recovery under way) a second restart
     # would only take LG's compositor down again; then only the recovery is joined.
     if is_mounted; then
@@ -103,6 +164,7 @@ status)
     echo "surface-manager-daemon: $(systemctl is-active surface-manager-daemon) pid $(pgrep -x surface-manager | head -1); webapp-mgr: $(systemctl is-active webapp-mgr)"
     echo "lumatv-sm: $(pgrep -f lumatv-sm | head -1 || echo none); compositor: $(pgrep -f 'bin/lumatv-compositor' | head -1 || echo none)"
     echo "flag: $(comp_flag); firmware: $(comp_fw_state); supervisor-api: $(cat $STATE/supervisor-api 2>/dev/null || echo none)"
+    echo "safety timer: $(safety_state)"
     ls -la $STATE 2>/dev/null | grep -vE 'bin|lib'
     tail -5 $STATE/sm.log 2>/dev/null
     ;;
@@ -117,15 +179,25 @@ boot-check)
     comp_check_json; echo
     ;;
 trial|enable)
-    secs=120; mode=persistent
-    case "$1" in
-    trial) secs=${2:-120}; mode=session ;;
+    cmd=$1; shift
+    secs=120; mode=persistent; mins=""
+    case "$cmd" in
+    trial)
+        secs=${1:-120}; mode=session
+        case "$secs" in ''|*[!0-9]*|0?*) echo "trial [SECS]"; exit 1 ;; esac ;;
     enable)
-        case "${2:-}" in
-        --session) mode=session ;;
-        "") ;;
-        *) echo "enable [--session]"; exit 1 ;;
-        esac ;;
+        while [ $# -gt 0 ]; do
+            case "$1" in
+            --session) mode=session ;;
+            --max-minutes)
+                shift; mins=${1:-}
+                case "$mins" in ''|*[!0-9]*|0?*|0) echo "--max-minutes N: whole minutes, 1 to 1440"; exit 1 ;; esac
+                [ "$mins" -le 1440 ] || { echo "--max-minutes N: whole minutes, 1 to 1440"; exit 1; } ;;
+            *) echo "enable [--session [--max-minutes N]]"; exit 1 ;;
+            esac
+            shift
+        done
+        [ -z "$mins" ] || [ $mode = session ] || { echo "--max-minutes goes with --session: a persistent enable has no timer"; exit 1; } ;;
     esac
     [ -x $STATE/bin/lumatv-sm ] || { echo "run install first"; exit 1; }
     [ "$(cat $STATE/supervisor-api 2>/dev/null)" = 2 ] || { echo "the bundle predates supervisor-api; run install first"; exit 1; }
@@ -151,7 +223,17 @@ trial|enable)
         echo "the supervisor would not start: $COMP_WORD: $COMP_WHY"
         exit 7
     fi
-    if [ "$1" = trial ]; then trap 'rm -f $STATE/enabled; revert' EXIT INT TERM; fi
+    if [ $mode = session ]; then
+        if [ $cmd = trial ]; then mins=$(( (secs + 59) / 60 + 5 )); else mins=${mins:-$SAFETY_DEFAULT}; fi
+        if ! safety_start $mins; then
+            safety_cancel > /dev/null
+            rm -f $STATE/enabled
+            echo "the safety timer did not start; nothing was mounted"
+            exit 8
+        fi
+        echo "safety timer: this session ends by itself after $mins min if it is still live ('cutover.sh disable' cancels the timer)"
+    fi
+    if [ $cmd = trial ]; then trap 'rm -f $STATE/enabled; revert' EXIT INT TERM; fi
     mount --bind $STATE/bin/lumatv-sm $LG
     echo "mounted; restarting the unit"
     systemctl restart surface-manager-daemon
@@ -167,9 +249,9 @@ trial|enable)
         echo "t=${t}s unit=$(systemctl is-active surface-manager-daemon) exe=$(readlink /proc/$sm/exe 2>/dev/null) compositor=$(pgrep -f 'bin/lumatv-compositor' | head -1 || echo none) mounted=$(is_mounted && echo yes || echo no) wam=$(systemctl is-active webapp-mgr)"
         tail -2 $STATE/sm.log 2>/dev/null | sed 's/^/   /'
         if ! is_mounted; then echo "the supervisor fell back to LG's compositor: $(cat $STATE/last-fallback 2>/dev/null)"; break; fi
-        if [ "$1" = enable ] && [ $t -ge 30 ]; then break; fi
+        if [ $cmd = enable ] && [ $t -ge 30 ]; then break; fi
     done
-    if [ "$1" = trial ]; then
+    if [ $cmd = trial ]; then
         # Evidence for the note before LG's compositor comes back: who connected, which windows mapped, what the
         # compositor journalled, and the panel as LG's capture service reads it.
         O=$D/out/trial; mkdir -p $O
@@ -193,9 +275,35 @@ trial|enable)
     fi
     ;;
 disable)
+    safety_cancel
     rm -f $STATE/enabled $STATE/running
     revert
     ;;
 revert) revert ;;
+safety-run)
+    # Not typed by hand: the job safety_start detaches. The shell has parsed this whole statement before it runs, so a
+    # deploy over this file while the job sleeps changes nothing for it.
+    trap '' HUP
+    mins=${2:-$SAFETY_DEFAULT}
+    end=$(( $(now_s) + mins * SAFETY_MINUTE ))
+    echo "$$ $end $mins" > $SAFETY
+    while [ "$(now_s)" -lt "$end" ]; do
+        [ "$(safety_owner)" = "$$" ] || exit 0
+        left=$(( end - $(now_s) ))
+        [ $left -le 20 ] || left=20
+        sleep $left
+    done
+    [ "$(safety_owner)" = "$$" ] || exit 0
+    # Claimed: the disable below must not cancel the job it runs under.
+    rm -f $SAFETY
+    if is_mounted && [ "$(comp_flag)" = session ]; then
+        safety_log "$mins min are up with the session still live: disable"
+        sh "$SELF" disable >> $SAFETY_LOG 2>&1
+        safety_log "disable exit $?"
+    else
+        safety_log "$mins min are up; the session had already ended (mounted $(is_mounted && echo yes || echo no), flag $(comp_flag))"
+    fi
+    exit 0
+    ;;
 *) sed -n '2,/^[^#]/{/^#/p;}' $0 ;;
 esac

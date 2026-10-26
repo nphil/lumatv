@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import struct
 import subprocess
@@ -59,6 +60,11 @@ esac
 exit 1
 '''
 NOOP = "#!/bin/sh\nexit 0\n"
+# A sleep that waits a thousandth of what it is asked: the scripts' own waits cost nothing, and the safety timer's job,
+# which sleeps against the clock, does not spin as it would on a sleep that returns at once.
+FAST_SLEEP = '''#!/bin/sh
+exec REAL_SLEEP "$(awk -v s="$1" 'BEGIN { printf "%.3f", s / 1000 }')"
+'''.replace("REAL_SLEEP", shutil.which("sleep") or "/bin/sleep")
 RECOVER = '#!/bin/sh\necho recover >> "$FAKE/calls"\n'
 
 
@@ -73,6 +79,34 @@ def write(path, text, mode=None):
 def read(path):
     with open(path) as f:
         return f.read()
+
+
+def alive(pid):
+    """Whether the process runs: a zombie that has not been reaped yet does not."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+def session_of(pid):
+    with open("/proc/%d/stat" % pid) as f:
+        return int(f.read().rsplit(")", 1)[1].split()[3])
+
+
+def uptime():
+    with open("/proc/uptime") as f:
+        return float(f.read().split()[0])
+
+
+def wait_until(cond, seconds=8.0):
+    end = time.time() + seconds
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return cond()
 
 
 class FakeSet(unittest.TestCase):
@@ -102,18 +136,26 @@ class FakeSet(unittest.TestCase):
         shutil.copy(LIB, os.path.join(self.dep, "compositor.sh"))
         write(os.path.join(d, "mountinfo"), "")
         self.fakebin = os.path.join(d, "fakebin")
-        for name, body in (("mount", MOUNT), ("umount", UMOUNT), ("systemctl", SYSTEMCTL), ("pgrep", PGREP), ("sleep", NOOP), ("luna-send", NOOP)):
+        for name, body in (("mount", MOUNT), ("umount", UMOUNT), ("systemctl", SYSTEMCTL), ("pgrep", PGREP), ("sleep", FAST_SLEEP), ("luna-send", NOOP)):
             write(os.path.join(self.fakebin, name), body, 0o755)
         self.env = dict(os.environ, PATH=self.fakebin + os.pathsep + os.environ["PATH"], FAKE=d,
                         LUMATV_STATE=self.state, LUMATV_D=self.dep, LUMATV_LG=self.lg, LUMATV_MOUNTINFO=os.path.join(d, "mountinfo"),
                         LUMATV_RECOVER_LOCK=os.path.join(d, "recover.lock"), LUMATV_OUT=self.out,
-                        COMP_RELEASE=self.release, COMP_FW_LIBS="\n".join(self.libs), COMP_BOOT_ID=os.path.join(d, "boot_id"))
+                        COMP_RELEASE=self.release, COMP_FW_LIBS="\n".join(self.libs), COMP_BOOT_ID=os.path.join(d, "boot_id"),
+                        LUMATV_SAFETY_MINUTE="1")
 
     def tearDown(self):
+        # a safety timer a test left running: its record names it
+        try:
+            os.kill(int(read(self.st("safety-timer")).split()[0]), signal.SIGKILL)
+        except (OSError, ValueError, IndexError):
+            pass
         self.tmp.cleanup()
 
-    def cutover(self, *args, env=None):
-        r = subprocess.run(["sh", CUTOVER, *args], env=dict(self.env, **(env or {})), capture_output=True, text=True, timeout=120)
+    def cutover(self, *args, env=None, timeout=120):
+        """The script under sh; an env value of None removes the variable."""
+        e = {k: v for k, v in dict(self.env, **(env or {})).items() if v is not None}
+        r = subprocess.run(["sh", CUTOVER, *args], env=e, capture_output=True, text=True, timeout=timeout)
         return r.returncode, r.stdout + r.stderr
 
     def gate(self, *args, env=None):
@@ -293,7 +335,7 @@ class Enable(FakeSet):
     def test_an_unknown_argument_is_refused(self):
         rc, out = self.cutover("enable", "--forever")
         self.assertEqual(rc, 1)
-        self.assertIn("enable [--session]", out)
+        self.assertIn("enable [--session [--max-minutes N]]", out)
 
     def test_disable_removes_the_flag_and_the_unsettled_marker_and_restores_lgs(self):
         self.cutover("enable", "--session")
@@ -302,6 +344,189 @@ class Enable(FakeSet):
         self.assertEqual(rc, 0, out)
         self.assertFalse(os.path.exists(self.st("enabled")) or os.path.exists(self.st("running")))
         self.assertFalse(self.mounted())
+
+
+class SafetyTimer(FakeSet):
+    """`enable --session --max-minutes N`: the detached job that puts LG's compositor back when a session outlives its
+    minutes (the workstation that drove it died). The job runs for real here, under setsid, as the script's own
+    `safety-run`, at one second to the minute."""
+
+    def setUp(self):
+        super().setUp()
+        self.cutover("install")
+
+    def record(self):
+        pid, end, mins = read(self.st("safety-timer")).split()
+        return int(pid), int(end), int(mins)
+
+    def log(self):
+        p = self.st("safety-timer.log")
+        return read(p) if os.path.exists(p) else ""
+
+    def restarts(self):
+        return self.calls().count("systemctl restart surface-manager-daemon")
+
+    def test_a_session_starts_a_detached_timer_of_15_minutes_unless_told_otherwise(self):
+        t0 = time.time()
+        rc, out = self.cutover("enable", "--session", env={"LUMATV_SAFETY_MINUTE": None}, timeout=20)   # the set's own minute
+        self.assertEqual(rc, 0, out)
+        self.assertLess(time.time() - t0, 10, "the job holds the caller's pipes")
+        pid, end, mins = self.record()
+        self.assertEqual(mins, 15)
+        self.assertAlmostEqual(end - uptime(), 15 * 60, delta=5)
+        self.assertIn("ends by itself after 15 min", out)
+        self.assertTrue(alive(pid))
+        with open("/proc/%d/cmdline" % pid) as f:
+            self.assertIn("safety-run", f.read())
+        self.assertNotEqual(session_of(pid), session_of(os.getpid()))
+        for fd in (0, 1, 2):
+            self.assertEqual(os.readlink("/proc/%d/fd/%d" % (pid, fd)), os.devnull)
+
+    def test_max_minutes_sets_the_length(self):
+        rc, out = self.cutover("enable", "--session", "--max-minutes", "3", env={"LUMATV_SAFETY_MINUTE": "60"}, timeout=20)
+        self.assertEqual(rc, 0, out)
+        pid, end, mins = self.record()
+        self.assertEqual(mins, 3)
+        self.assertAlmostEqual(end - uptime(), 180, delta=5)
+        self.assertIn("ends by itself after 3 min", out)
+
+    def test_a_length_that_is_not_a_whole_number_of_minutes_is_refused_before_anything_happens(self):
+        for bad in ("0", "-1", "x", "1.5", "05", "1441", ""):
+            rc, out = self.cutover("enable", "--session", "--max-minutes", bad)
+            self.assertEqual(rc, 1, (bad, out))
+            self.assertIn("--max-minutes N: whole minutes, 1 to 1440", out)
+        rc, out = self.cutover("enable", "--session", "--max-minutes")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(os.path.exists(self.st("enabled")) or os.path.exists(self.st("safety-timer")))
+
+    def test_a_persistent_enable_has_no_timer_and_the_option_needs_a_session(self):
+        self.list_this_build()
+        self.cutover("install")
+        rc, out = self.cutover("enable", "--max-minutes", "5")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("goes with --session", out)
+        self.assertFalse(self.mounted())
+        rc, out = self.cutover("enable")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(os.path.exists(self.st("safety-timer")))
+        self.assertNotIn("safety timer", out)
+
+    def test_a_refused_enable_starts_no_timer(self):
+        self.fake("sm-says", "no escaped: escape recorded; re-enable from the tool\n")
+        rc, out = self.cutover("enable", "--session")
+        self.assertEqual(rc, 7, out)
+        self.assertFalse(os.path.exists(self.st("safety-timer")))
+
+    def test_a_session_whose_timer_cannot_start_is_not_mounted(self):
+        os.makedirs(self.st("safety-timer"))             # the job cannot write its record there
+        rc, out = self.cutover("enable", "--session", timeout=30)
+        self.assertEqual(rc, 8, out)
+        self.assertIn("the safety timer did not start; nothing was mounted", out)
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(self.st("enabled")))
+        self.assertEqual(self.calls(), [])
+
+    def test_the_job_ends_a_session_that_outlives_its_minutes(self):
+        rc, out = self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+        self.assertEqual(rc, 0, out)
+        pid = self.record()[0]
+        self.assertTrue(self.mounted())
+        self.assertTrue(wait_until(lambda: "disable exit" in self.log(), 10), self.log())
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(self.st("enabled")))
+        self.assertFalse(os.path.exists(self.st("safety-timer")))
+        c = self.calls()
+        self.assertEqual(c.count("systemctl restart surface-manager-daemon"), 2)         # the session's start and the job's disable
+        self.assertIn("umount " + self.lg, c)
+        self.assertEqual(c.count("recover"), 2)
+        self.assertIn("disable exit 0", self.log())                                         # the disable was not cut short by its own cancel
+        self.assertTrue(wait_until(lambda: not alive(pid), 5))
+
+    def test_disable_and_revert_cancel_it(self):
+        for ending in ("disable", "revert"):
+            with self.subTest(ending):
+                self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+                pid = self.record()[0]
+                rc, out = self.cutover(ending)
+                self.assertEqual(rc, 0, out)
+                self.assertIn("safety timer cancelled", out)
+                self.assertTrue(wait_until(lambda: not alive(pid), 3))
+                self.assertFalse(os.path.exists(self.st("safety-timer")))
+                self.assertFalse(self.mounted())
+
+    def test_a_cancelled_timer_never_runs_disable_when_its_time_comes(self):
+        self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+        self.cutover("disable")
+        self.assertEqual(self.restarts(), 2)
+        time.sleep(2.6)                                  # past what its deadline would have been
+        self.assertEqual(self.restarts(), 2)
+        self.assertNotIn("disable", self.log().replace("cancelled", ""))
+
+    def test_a_second_session_replaces_the_timer_of_the_first(self):
+        self.cutover("enable", "--session", "--max-minutes", "5", timeout=20)
+        first = self.record()[0]
+        write(os.path.join(self.tmp.name, "mountinfo"), "")        # the supervisor fell back: the session is over
+        self.cutover("enable", "--session", "--max-minutes", "7", timeout=20)
+        pid, _, mins = self.record()
+        self.assertNotEqual(pid, first)
+        self.assertEqual(mins, 7)
+        self.assertTrue(wait_until(lambda: not alive(first), 3))
+        self.assertTrue(alive(pid))
+
+    def test_a_session_that_ended_by_itself_is_left_alone(self):
+        self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+        write(os.path.join(self.tmp.name, "mountinfo"), "")        # the supervisor fell back to LG's compositor
+        self.assertTrue(wait_until(lambda: "had already ended" in self.log(), 10), self.log())
+        self.assertIn("mounted no, flag session", self.log())
+        self.assertEqual(self.restarts(), 1)
+        self.assertNotIn("umount " + self.lg, self.calls())
+
+    def test_a_persistent_flag_is_not_the_timers_to_end(self):
+        self.cutover("enable", "--session", "--max-minutes", "2", timeout=20)
+        write(self.st("enabled"), "persistent\n")                   # `lumatv compositor on` while the session ran
+        self.assertTrue(wait_until(lambda: "had already ended" in self.log(), 10), self.log())
+        self.assertTrue(self.mounted())
+        self.assertEqual(self.restarts(), 1)
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+
+    def test_a_record_naming_another_process_is_not_a_timer(self):
+        other = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(other.wait)
+        self.addCleanup(other.kill)
+        write(self.st("safety-timer"), "%d 0 15\n" % other.pid)
+        rc, out = self.cutover("status")
+        self.assertIn("safety timer: none", out)
+        rc, out = self.cutover("disable")
+        self.assertNotIn("cancelled", out)
+        self.assertIsNone(other.poll())
+        self.assertFalse(os.path.exists(self.st("safety-timer")))
+
+    def test_status_says_how_long_the_timer_has_left(self):
+        env = {"LUMATV_SAFETY_MINUTE": "60"}
+        self.cutover("enable", "--session", "--max-minutes", "7", env=env, timeout=20)
+        rc, out = self.cutover("status", env=env)
+        self.assertRegex(out, r"safety timer: pid \d+, [67] of 7 min left")
+        self.cutover("disable", env=env)
+        rc, out = self.cutover("status", env=env)
+        self.assertIn("safety timer: none", out)
+
+    def test_a_trial_is_covered_for_its_watch_and_five_minutes_and_ends_with_it(self):
+        rc, out = self.cutover("trial", "120", timeout=30)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("ends by itself after 7 min", out)
+        self.assertFalse(os.path.exists(self.st("safety-timer")))        # the trial's own revert cancelled it
+
+    def test_a_deploy_over_the_script_while_the_job_sleeps_does_not_reach_the_job(self):
+        script = os.path.join(self.tmp.name, "deployed.sh")
+        shutil.copy(CUTOVER, script)
+        r = subprocess.run(["sh", script, "enable", "--session", "--max-minutes", "2"], env=self.env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # The next deploy, written in place as the copy to the set is: every line of it would show if the job read on into it.
+        write(script, '[ "$1" = disable ] && { echo replaced-disable >> "$FAKE/calls"; exit 0; }\n' + 'echo read-on >> "$FAKE/calls"\n' * 400)
+        self.assertTrue(wait_until(lambda: "disable exit" in self.log(), 10), self.log())
+        self.assertIn("replaced-disable", self.calls())
+        self.assertNotIn("read-on", self.calls())
 
 
 class Firmware(FakeSet):
@@ -611,17 +836,28 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key")], [
             "firmware", "homeheld",
-            "cutover enable --session", "live", "x1 60", "netflix", "hdmi", "evidence", "standby", "woke",
-            "homekey", "cutover enable --session", "live after-homekey",
-            "wd-hang", "cutover enable --session", "live after-wd-hang",
-            "wd-crash", "cutover enable --session", "live after-wd-crash",
+            "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "evidence", "standby", "woke",
+            "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
+            "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
+            "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
             "escape",
             "cutover disable"])
 
     def test_skips_leave_out_their_checks_and_their_sessions(self):
         calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,standby,homekey,wd-hang,wd-crash"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key")],
-                         ["cutover enable --session", "live", "x1 60", "evidence", "escape", "cutover disable"])
+                         ["cutover enable --session --max-minutes 12", "live", "x1 60", "evidence", "escape", "cutover disable"])
+
+    def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
+        calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
+        enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
+        self.assertEqual(enables, ["enable --session --max-minutes 14"] + ["enable --session --max-minutes 6"] * 3)
+
+    def test_the_persistent_enable_after_a_pass_has_no_timer(self):
+        answers = {"cutover.sh firmware record": "noise\r\n" + BLOCK.replace("\n", "\r\n")}
+        calls, code, _ = self.run_main(pty_answers=answers, argv=["--enable-after"])
+        enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
+        self.assertEqual(enables[-1], "enable")
 
     def test_a_failed_check_fails_the_gate_and_never_enables_anything_for_good(self):
         calls, code, lst = self.run_main(argv=["--enable-after"], passed=False)
