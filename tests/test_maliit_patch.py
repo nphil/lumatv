@@ -405,6 +405,19 @@ class PatchedKeyboardInTheHost(unittest.TestCase):
                 rc, out = self.run_host("--scene", scene, "--wait", "1000", *extra, patched=patched)
                 self.assertEqual(rc, 0, "%s patched=%s %s: %s" % (scene, patched, extra, "\n".join(l for l in out.splitlines() if "file://" in l)[-1500:]))
 
+    def test_every_qml_file_of_every_plugin_compiles_as_it_did_in_stock(self):
+        """The Latin plugin's scenes are run above; the Chinese and Japanese plugins and the shared files they draw are only compiled here (each file on
+        its own): a type that is unavailable, a syntax error or a module that is not installed in any of the 85 would be a keyboard that does not open.
+        The dictation card's four errors are the host's (its luna `Service` stand-in has no `onCallFailure`) and are the same stock."""
+        found = {}
+        for patched in (False, True):
+            rc, out = self.run_host("--compile", patched=patched)
+            errors = re.findall(r"\[compile\] ERROR (.*)", out)
+            found[patched] = errors
+            self.assertTrue(re.search(r"\[compile\] 85 file\(s\)", out), out[-500:])
+            self.assertEqual([e for e in errors if not e.startswith("view-stt/")], [], patched)
+        self.assertEqual(found[False], found[True])
+
     def test_the_patch_adds_no_warning_of_LGs_kind_either(self):
         """LG's tree has a handful of its own (a radius read off a style that has none, an assignment of `undefined`); the patched tree has the same."""
         for scene in ("letters", "numbers", "candidates", "hid"):

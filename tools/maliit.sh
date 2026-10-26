@@ -23,7 +23,7 @@
 #
 # A server that does not come back, or that logs a QML file it could not load (a type that is unavailable, a syntax error), takes the
 # mount away again and is brought up on LG's QML: a keyboard that cannot open is the one fault of this patch that leaves a TV without a way
-# to type. [INFERENCE] where the QML is: /usr/lib/maliit/plugins/qml (copied from the set in round 11, 85 files); MALIIT_QML overrides.
+# to type. Where the QML is: /usr/lib/maliit/plugins/qml (round 11 copied its 85 files from there); MALIIT_QML overrides.
 set -u
 
 APPDIR=${APPDIR:-$(cd "$(dirname "$0")/.." && pwd)}
@@ -56,7 +56,7 @@ MT_SETTLE=${MALIIT_SETTLE:-5}
 MT_STEP=${MALIIT_STEP:-1}
 # What the QML engine says of a file it could not load; LG's own warnings about values (`Unable to assign [undefined] to int`, a handler's
 # ReferenceError) are in the stock keyboard's log too and are not these.
-MT_LOAD_ERRORS='plugins/qml/.*(Type [A-Za-z0-9_]+ unavailable|is not a type|is not installed|File not found|Syntax error|Unexpected token|Invalid alias reference|Invalid property|Cannot override|Duplicate)'
+MT_LOAD_ERRORS='plugins/qml/.*(Type [A-Za-z0-9_]+ unavailable|is not a type|is not installed|File not found|Syntax error|Unexpected token|Expected token|Invalid alias reference|Invalid property|Cannot override|Duplicate)'
 MT_CANDIDATES="/usr/lib/maliit/plugins/qml"
 MT_ROOT_FILE=view-global/main.qml
 MT_STYLE_FILE=keyboard-common/style/Style.qml

@@ -2,7 +2,7 @@
 """Offline preview of LG's on-screen keyboard (maliit's `view-global` plugin, the one a Latin locale uses): the letter keys, the symbol
 keys, the number pad, the candidate row and the HID candidate bar, stock or restyled by `tools/maliit_patch.py`.
 
-    python3 tests/qmlhost/maliit.py --scene letters|shift|symbols|numbers|candidates|hid|focus-enter|focus-shift|focus-delete|focus-space|focus-language
+    python3 tests/qmlhost/maliit.py --scene letters|single-language|shift|symbols|numbers|numbers-symbols|candidates|candidates-focus|hid|focus-enter|focus-shift|focus-delete|focus-space|focus-language|focus-voice
         [--patched] [--light] [--text PERCENT] [--audit [KINDS]] [--shot out.png]
         [--wait MS] [--backdrop IMG] [--press MS:KEY[,KEY...]] [--probe MS:OBJECT:PROP] [--keep DIR]
 
@@ -62,6 +62,8 @@ DEFAULT_ENTER, SEARCH_ENTER = 0, 5
 # One entry per screen: the plugin's state when it is shown, and the keys the host sends once it stands (`press`: ms after it does).
 SCENES = {
     'letters': {},
+    # one language only: the language key is disabled, as on this set
+    'single-language': {'languages': 1},
     'shift': {'press': ((300, 'DOWN,LEFT,LEFT,LEFT,LEFT,LEFT'), (900, 'OK'))},
     'symbols': {'press': ((300, 'LEFT,LEFT,LEFT,LEFT,LEFT'), (900, 'OK'))},
     'numbers': {'content': NUMBER},
@@ -352,6 +354,32 @@ def layout():
     return {'row': 4, 'column': 10, 'keys': keys, 'supportAccent': False, 'supportAccentEx': False}
 
 
+def compile_tree(qml, stubs, work, keep):
+    """Every .qml file of the staged tree compiled on its own: a type that is unavailable, a syntax error, a missing module, a property
+    that does not exist. Only the files the three plugins draw themselves (their `main.qml` need a plugin object to run) are not run."""
+    from PyQt5 import QtCore, QtGui, QtQml
+    app = QtGui.QGuiApplication(sys.argv[:1])
+    engine = QtQml.QQmlEngine()
+    engine.addImportPath(stubs)
+    bad, total = [], 0
+    for base, _, names in sorted(os.walk(qml)):
+        for name in sorted(names):
+            if not name.endswith('.qml'):
+                continue
+            total += 1
+            path = os.path.join(base, name)
+            comp = QtQml.QQmlComponent(engine, QtCore.QUrl.fromLocalFile(path), QtQml.QQmlComponent.PreferSynchronous)
+            if comp.status() == QtQml.QQmlComponent.Error:
+                for e in comp.errors():
+                    bad.append('%s:%d: %s' % (os.path.relpath(path, qml), e.line(), e.description()))
+    for line in bad:
+        print('[compile] ERROR ' + line)
+    print('[compile] %d file(s), %d error(s)' % (total, len(bad)))
+    if not keep:
+        shutil.rmtree(work, ignore_errors=True)
+    return 1 if bad else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--scene', choices=sorted(SCENES), default='letters')
@@ -363,6 +391,7 @@ def main(argv=None):
     ap.add_argument('--press', action='append', default=[], metavar='MS:KEYS', help='keys sent at MS, comma separated')
     ap.add_argument('--probe', action='append', default=[], metavar='MS:OBJECT:PROP', help='print a property of the item with this objectName at MS, as `[probe] OBJECT.PROP=value`')
     ap.add_argument('--keep', help='keep the staged tree in this directory')
+    ap.add_argument('--compile', action='store_true', help='instead of a scene, compile every .qml file of every plugin (the Latin, Chinese and Japanese views and the dictation card) and print `[compile] ERROR file: message` for what does not')
     ap.add_argument('--text', type=int, default=100, help='text size in percent (200 doubles every fontSize of the style sheets)')
     ap.add_argument('--audit', metavar='KINDS', nargs='?', const='overlap', help='run the layout audit of the finished picture (tests/qmlhost/layoutaudit.py) for these kinds, comma separated; `all` for every kind; findings are warnings')
     a = ap.parse_args(argv)
@@ -390,6 +419,8 @@ def main(argv=None):
     host = os.path.join(work, 'Host.qml')
     with open(host, 'w') as f:
         f.write(HOST_QML)
+    if a.compile:
+        return compile_tree(qml, stubs, work, a.keep)
 
     from PyQt5 import QtCore, QtGui, QtQml, QtQuick
     messages = []
