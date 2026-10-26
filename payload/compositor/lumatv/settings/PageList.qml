@@ -209,6 +209,7 @@ Item {
         visible: page.tabs.length > 0
         y: head.height + Lu.space(4)
         options: page.tabs
+        tray: false
         current: page.tab
         focusedIndex: page.active && page.stop === -1 ? page.tab : -1
         segmentWidth: page.tabs.length > 0 ? Math.floor(page.width / page.tabs.length) : Lu.target * 3

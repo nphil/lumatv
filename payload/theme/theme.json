@@ -20,7 +20,7 @@
     "readingAlpha": 0.8,
     "focus": "#FAF2EDE8",
     "focusInk": "#17131F",
-    "trackOff": "#1AFFFFFF",
+    "trackOff": "#0FFFFFFF",
     "accent": "#A79BF5",
     "accentInk": "#17131F",
     "positive": "#9CCFD8",

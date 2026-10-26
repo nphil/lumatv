@@ -118,7 +118,7 @@ class Surfaces(unittest.TestCase):
     SCENES = ["01-settings-picture", "02-settings-sound-mode", "03-settings-remote", "10-quick-panel", "08-input-picker", "16-context-menu",
               "06-confirm-dialog", "34-screen-remote"]
     # the 200 % text pass (overlap only) holds on these; a tab bar of five and the picker's tiles cannot take doubled type yet
-    AT_200 = {"01-settings-picture", "02-settings-sound-mode", "03-settings-remote", "10-quick-panel"}
+    AT_200 = {"02-settings-sound-mode", "03-settings-remote", "10-quick-panel"}
 
     def test_every_kind_of_screen_passes_the_audit(self):
         import scenes

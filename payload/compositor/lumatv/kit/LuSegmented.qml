@@ -5,7 +5,8 @@ import "."
 // a light wash; the focused one the focus wash and lit edge, so the two read apart. Segments do
 // not lift (the highlight and the halo are the cue), and the host owns focusedIndex (-1: none).
 // Every segment is as wide as the widest label, measured as drawn, plus the pill's own air on each
-// side, and never narrower than a target: a label is never cut or crammed against its pill.
+// side, and never narrower than a target: a label is never cut or crammed against its pill. A tab bar
+// (Lucent: destinations, labels and the current mark) has no tray: its labels read on the pane.
 Item {
     id: seg
     property var options: []
@@ -15,6 +16,7 @@ Item {
     signal hoverFocus(int index)
 
     property string textRole: "label"        // "caption" for a dense row
+    property bool tray: true                 // the quiet tray under the options; off for a tab bar, whose labels sit on the pane itself
     readonly property int pad: Lu.space(4)   // air between a label and its pill's edge
     property int widest: 0                   // the widest label as drawn; the delegates keep it
     function measure() {
@@ -31,6 +33,7 @@ Item {
     opacity: enabled ? 1 : Lu.disabledOpacity
 
     Rectangle {
+        visible: seg.tray
         anchors.fill: parent
         radius: Lu.radius("control")
         color: Lu.trackOff

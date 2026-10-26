@@ -1,5 +1,6 @@
 import QtQuick 2.4
 import "kit"
+import "Tint.js" as Tint
 
 // One status-bar entry: a 48px button (avatar for "profile", a built-in glyph, or a theme
 // image), optional label, optional badge. Focus is the same material language as a focused
@@ -69,13 +70,14 @@ Item {
             radius: 24
             antialiasing: true
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.lighter(item.avatarColor, 1.25) }
+                GradientStop { position: 0.0; color: Qt.lighter(item.avatarColor, 1.1) }      // 1.25 left the initial under 3:1 on its top half
                 GradientStop { position: 1.0; color: Qt.darker(item.avatarColor, 1.15) }
             }
             Text {
                 x: Math.round((48 - implicitWidth) / 2); y: Math.round((48 - implicitHeight) / 2)
                 text: item.initial || (item.label ? item.label.charAt(0).toUpperCase() : "?")
-                color: "#ffffff"
+                // whichever ink reads better on the avatar's colour: white read 3.3:1 on the lavender one
+                color: Tint.bestInk(item.avatarColor, [Lu.asColor("#17131F"), Lu.asColor("#F2EFF6")])
                 font.family: "Manrope"; font.weight: Font.Bold; font.pixelSize: 22
                 renderType: Text.NativeRendering
             }

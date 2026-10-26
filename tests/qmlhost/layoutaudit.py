@@ -18,7 +18,8 @@ Thresholds, in px of the 1920x1080 surface: a word may leave its box, a clip or 
 within 2.5 of the box's, and is level with the icon before it when their centres are within 3. Contrast follows
 Lucent (LANGUAGE.md section 3): the background is the median luminance of the ink rectangle in the finished picture,
 the ink the pixel farthest from it; 4.5:1 for text under 48 px and 3:1 from 48 px up (the TV's "large", twice the
-Show's 24 units) for ink at .9 alpha or more; fainter text (ink2, a dimmed row) is muted by design and needs 3:1.
+Show's 24 units) and for a one-glyph mark (an initial, a badge digit) for ink at .9 alpha or more; fainter text (ink2, a
+dimmed row) is muted by design and needs 3:1.
 
 `checks` names the kinds to report (default all): the 200 % text pass asks for "overlap" alone, the one universal
 rule that holds at any text size on a screen without a text-size setting.
@@ -280,7 +281,8 @@ def audit(root, width, height, image=None, checks=None):
             if image is not None and "contrast" in checks:
                 alpha = colour_alpha(item.property("color")) * opacity
                 size = float(item.property("font").pixelSize())
-                need = CONTRAST["muted"] if alpha < READING_ALPHA else CONTRAST["large"] if size >= LARGE_PX else CONTRAST["text"]
+                mark = len((item.property("text") or "").strip()) <= 1          # one glyph (an initial, a badge digit) is a mark, not reading
+                need = CONTRAST["muted"] if alpha < READING_ALPHA else CONTRAST["large"] if size >= LARGE_PX or mark else CONTRAST["text"]
                 measured = contrast_in(image, ink)
                 if measured is not None and measured[0] < need:
                     add("contrast", item, "reads at %.1f:1 on its background (needs %.1f; ink alpha %.2f, %.0f px)" % (measured[0], need, alpha, size), ink)
