@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own keys and value lists. The remaining LG menus open from a "More in LG settings" row.
 - The gear tap and the Input key open LumaTV's quick panel (tall, docked at the left where
   LG's sat, sliding out of the edge) and input picker, on Home and over apps; LG's own
-  stay one button away and take over whenever LumaTV cannot show its own.
+  stay one button away and take over whenever LumaTV cannot show its own. Both slide in
+  110 ms and keep their rows still while sliding.
 - Home widgets: Settings > Home & look > Home widgets (show, hide, size, order, reset), an
   on-TV layout editor (hold OK on a card), and Clock, Weather, News and At-home cards that
   use the room they get; `lumatv layout` writes the owner's layout file.
