@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behind one info mark, opened by holding OK. The rail shows one short fact per section,
   Remote & pointer has tabs, the Settings bar shows the link that is really up, and held
   Left/Right speeds up long sliders.
+- Settings: native pages for LG's Accessibility (Closed Caption, Audio Guidance, audio
+  options), Time & power (clock, power timers, auto-off, Screen Off), Bluetooth speakers
+  and controllers, Wi-Fi join and IP settings, the HDMI rows and every Picture tab, on LG's
+  own keys and value lists. The remaining LG menus open from a "More in LG settings" row.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
