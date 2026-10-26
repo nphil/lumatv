@@ -39,3 +39,21 @@ try:
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
+
+
+def own_tmp(case):
+    """A /tmp of this test's own for the QML host (`QMLHOST_TMP`: its `/tmp/<name>` is `<dir>/<name>`), for the compositor's doors that other
+    runs on the machine write at the real path. Returns the directory; the environment is put back when the test ends."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix="qmlhost-tmp-")
+    before = os.environ.get("QMLHOST_TMP")
+    os.environ["QMLHOST_TMP"] = d
+
+    def restore():
+        shutil.rmtree(d, ignore_errors=True)
+        if before is None:
+            os.environ.pop("QMLHOST_TMP", None)
+        else:
+            os.environ["QMLHOST_TMP"] = before
+    case.addCleanup(restore)
+    return d

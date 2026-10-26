@@ -119,6 +119,10 @@ def stage(data_dir, module_src, extra_src=None):
         if os.path.isdir(os.path.join(sysui, name)):
             shutil.copytree(os.path.join(sysui, name), os.path.join(data_dir, 'systemui', name))
     os.makedirs(os.path.join(data_dir, 'cache'), exist_ok=True)
+    # The compositor's files in /tmp (`/tmp/lumatv-overlay`, `-beat`, `-wallsample.xpm`) are shared by every host running on the machine: each
+    # gets a directory of its own for them (QMLHOST_TMP when a test needs to write one itself).
+    door_dir = os.environ.get('QMLHOST_TMP') or os.path.join(data_dir, 'tmp')
+    os.makedirs(door_dir, exist_ok=True)
     subst = {'displayName': b['displayName'], 'shortId': b['shortId'], 'appId': b['appId'],
              'dataDir': data_dir, 'qmlModule': b['qmlModule']}
     for dirpath, _, files in list(os.walk(mod)) + list(os.walk(os.path.join(data_dir, 'systemui'))):
@@ -128,6 +132,7 @@ def stage(data_dir, module_src, extra_src=None):
                 with open(p, encoding='utf-8') as f:
                     s = f.read()
                 s2 = re.sub(r'\{\{(\w+)\}\}', lambda m: subst.get(m.group(1), m.group(0)), s)
+                s2 = s2.replace('/tmp/' + b['shortId'] + '-', door_dir + '/' + b['shortId'] + '-')
                 if s2 != s:
                     with open(p, 'w', encoding='utf-8') as f:
                         f.write(s2)

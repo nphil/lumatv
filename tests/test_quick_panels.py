@@ -12,7 +12,7 @@ import re
 import unittest
 
 from test_settings import HostCase, READY
-from xdisplay import DISPLAY, HAVE_QT
+from xdisplay import DISPLAY, HAVE_QT, own_tmp
 
 FIND = """function find(p, name) {
     if (p[name] !== undefined && p.children !== undefined && p.visible !== undefined) return p;
@@ -279,16 +279,13 @@ class OverlayPanels(HostCase):
         import os
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         with open(os.path.join(root, "brand.json")) as f:
-            door = "/tmp/%s-overlay" % json.load(f)["shortId"]
-        with open(door, "w") as f:
+            door = "%s-overlay" % json.load(f)["shortId"]
+        with open(os.path.join(own_tmp(self), door), "w") as f:
             f.write('{"open":"quick"}')
-        try:
-            p, out = self.overlay_host([
-                (1000, "front", "overlay.appFront = true; return 1;"),
-                (1500, "read", "overlay.readDoor(); return [overlay.surface, overlay.wants];"),       # the poll reads it every second; the test does not wait for the tick
-            ], 2400)
-        finally:
-            os.remove(door)
+        p, out = self.overlay_host([
+            (1000, "front", "overlay.appFront = true; return 1;"),
+            (1500, "read", "overlay.readDoor(); return [overlay.surface, overlay.wants];"),       # the poll reads it every second; the test does not wait for the tick
+        ], 2400)
         self.assertEqual(p["read"], ["quick", True], out[-2000:])
 
 

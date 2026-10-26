@@ -11,11 +11,11 @@ import re
 import unittest
 
 from test_settings import HostCase
-from xdisplay import DISPLAY, HAVE_QT
+from xdisplay import DISPLAY, HAVE_QT, own_tmp
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SHORT_ID = json.load(open(os.path.join(ROOT, "brand.json")))["shortId"]
-DOOR = "/tmp/%s-overlay" % SHORT_ID
+DOOR = "%s-overlay" % SHORT_ID               # a name in the host's /tmp (own_tmp)
 PLAIN = '{"perf":{"syncResidents":true}}'
 OWN = '{"perf":{"syncResidents":true},"banners":{"own":true}}'
 CALLS = "JSON.stringify(root.lunaCalls.map(function(c) { var p; try { p = JSON.parse(c.payload) } catch (e) { p = c.payload } return { u: c.uri, m: c.method, p: p } }))"
@@ -194,14 +194,11 @@ class Overlay(HostCase):
         self.assertEqual((got["api"], got["api_banner"]), ("true", "true"), "a surface that asks for a banner is not the owner's switch")
 
     def test_the_door_shows_a_banner_written_to_it(self):
-        with open(DOOR, "w") as f:
+        with open(os.path.join(own_tmp(self), DOOR), "w") as f:
             json.dump(dict(PILL, name="HDMI 4 \u00b7 door"), f)
-        try:
-            # The door's own timer ticks once a second from the moment an app is in front; where that tick falls among the residents' builds
-            # depends on the machine, so the step reads the door itself.
-            got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, do("overlay.readDoor()"), "read"), (1300, "overlay.bannerUp", "banner")], 1700)
-        finally:
-            os.remove(DOOR)
+        # The door's own timer ticks once a second from the moment an app is in front; where that tick falls among the residents' builds
+        # depends on the machine, so the step reads the door itself.
+        got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, do("overlay.readDoor()"), "read"), (1300, "overlay.bannerUp", "banner")], 1700)
         self.assertEqual(got["banner"], "true")
 
 
