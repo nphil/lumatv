@@ -2,8 +2,8 @@
 
 Home's At-home lane with the Home Assistant plugin, through the offline QML host against the fake helper, with what the real plugin
 and the real helper publish (tests/qmlhost/fixtures/ha-plugin.json). The plugin's cards are chips, the ring first, and OK on a chip
-runs its first action; with no card the lane says where Home Assistant stands (not switched on, not linked, token refused, offline,
-connecting, linked with nothing to show, cannot run, starting).
+runs its first action; with no card the lane says, in two or three words, where Home Assistant stands (not switched on, not linked,
+token refused, offline, connecting, linked with nothing to show, cannot run, starting, not running).
 """
 import unittest
 
@@ -71,19 +71,18 @@ class Lane(HaCase):
         self.assertEqual(self.own_warnings(out), [], out[-3000:])
         p = probes(out)
         got = [(name, p["s%d" % n]["st"], p["s%d" % n]["title"], p["s%d" % n]["sub"]) for n, (name, _) in enumerate(steps)]
-        where = "Settings \u203a Home Assistant"
         self.assertEqual(got, [
-            ("off", "off", "Home Assistant isn't linked yet", "Link it in " + where),
-            ("unlinked", "unlinked", "Home Assistant isn't linked yet", "Link it in " + where),
-            ("connecting", "connecting", "Connecting to Home Assistant", ""),
-            ("refused", "refused", "Home Assistant refused the token", "Link it again in " + where),
-            ("offline", "offline", "Can't reach Home Assistant", "It is tried again. See " + where),
-            ("connected", "connected", "Nothing to show yet", "Pick a room in " + where),
-            ("inert", "inert", "Home Assistant can't run on this TV", "See " + where),
-            ("starting", "waiting", "Starting Home Assistant", ""),
-            ("not running", "waiting", "Home Assistant isn't running", "See " + where),
+            ("off", "off", "Home Assistant", "Not switched on"),
+            ("unlinked", "unlinked", "Home Assistant", "Not linked"),
+            ("connecting", "connecting", "Home Assistant", "Connecting"),
+            ("refused", "refused", "Home Assistant", "Token refused"),
+            ("offline", "offline", "Home Assistant", "Offline"),
+            ("connected", "connected", "Home Assistant", "Nothing to show"),
+            ("inert", "inert", "Home Assistant", "Cannot run"),
+            ("starting", "waiting", "Home Assistant", "Starting"),
+            ("not running", "waiting", "Home Assistant", "Not running"),
         ])
-        self.assertEqual([p["s%d" % n]["role"] for n in (3, 4)], ["danger", "warning"], "a refusal is bad, an outage is slow: the glyph says which")
+        self.assertEqual([p["s%d" % n]["role"] for n in (3, 4, 6, 8)], ["danger", "warning", "warning", "warning"], "a refusal is bad, an outage is slow: the glyph says which")
         self.assertFalse(any(p["s%d" % n]["mode"] for n in range(len(steps))), "no card, no chips")
 
 

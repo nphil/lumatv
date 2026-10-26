@@ -89,6 +89,41 @@ def ambient_check(schema, key, value):
     return None
 
 
+HA = "home-assistant"
+
+
+def ha_fixture():
+    """What the real Home Assistant plugin and the helper make for a house with a room, a doorbell that rang and a notification
+    (tests/qmlhost/fixtures/ha-plugin.json, written by helper/app/tests/ha_plugin.rs, which fails when it is not what they make
+    now): the settings page, the pickers' pages and the topics. None if the file is not there."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "ha-plugin.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except OSError:
+        return None
+
+
+def ha_view(st):
+    """`GET /v1/settings/home-assistant`: the plugin's page exists only while it is connected, as in the helper."""
+    roster = (st.topics.get("plugins") or {}).get("plugins") or []
+    if st.ha is None or not any(p.get("id") == HA and p.get("state") == "connected" for p in roster):
+        return None
+    return {"ok": True, "api": 1, "owner": HA, "version": st.ha_version, "schemaRevision": 1, "schema": st.ha["settings"]["schema"],
+            "values": st.ha_effective, "effective": st.ha_effective, "invalid": {}, "unknown": []}
+
+
+def ha_check(st, key, value):
+    """Why the helper would refuse this change of the plugin's page, or None (the schema's kind is the rule)."""
+    fields = {f["key"]: f for sec in st.ha["settings"]["schema"]["sections"] for f in sec["fields"]}
+    if key not in fields:
+        return "no such setting " + key
+    want = {"choice": "choice", "ordered-set": "ordered", "bool": "bool", "integer": "integer", "text": "text"}[fields[key]["kind"]["type"]]
+    if value.get("type") != want:
+        return "%s takes a %s" % (key, want)
+    return None
+
+
 class State:
     def __init__(self, a):
         self.boot = NOW()
@@ -109,6 +144,9 @@ class State:
         self.ambient = {k: f["default"] for k, f in self.ambient_schema.items()}      # key -> {type, value}: the owner's stored values over its defaults
         self.voice_fields = voice_schema()
         self.voice_values = {k: f["default"] for k, f in self.voice_fields.items()}    # key -> {type, value}
+        self.ha = ha_fixture()
+        self.ha_effective = json.loads(json.dumps(self.ha["settings"]["effective"])) if self.ha else {}
+        self.ha_version = 1
         self.ambient_state = "idle"
         self.ambient_strip = True
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
@@ -272,6 +310,18 @@ def handler(st):
                 return self.send(200, ambient_view(st))
             if u.path == "/v1/settings/base.voice":
                 return self.send(200, voice_view(st))
+            if u.path == "/v1/settings/" + HA:
+                view = ha_view(st)
+                return self.send(200, view) if view else self.send(404, {"ok": False, "api": 1, "error": {"code": "no_such_owner", "message": "no such settings owner"}})
+            if u.path.startswith("/v1/plugins/" + HA + "/choices/"):
+                provider = u.path.rsplit("/", 1)[1]
+                if st.ha is None or provider not in st.ha["choices"]:
+                    return self.send(404, {"ok": False, "api": 1, "error": {"code": "no_such_provider", "message": "no such provider"}})
+                page = json.loads(json.dumps(st.ha["choices"][provider]))
+                link = (st.topics.get("ha.link") or {}).get("state", "off")
+                if link != "connected":              # the plugin asks Home Assistant, which cannot answer: the page says why and has no rows
+                    page.update({"state": "offline" if link == "offline" else "unconfigured", "rows": [], "more": False})
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "plugin": HA, "provider": provider, "page": page})
             if u.path == "/v1/ambient":
                 on = st.ambient["enabled"]["value"]
                 return self.send(200, {"ok": True, "api": 1, "now": NOW(), "enabled": on, "mode": st.ambient["mode"]["value"], "state": st.ambient_state if on or st.ambient_state == "testing" else "off",
@@ -341,6 +391,26 @@ def handler(st):
                 for c in changes:
                     st.voice_values[c["key"]] = c["value"]
                 self.send(200, {"ok": True, "api": 1, "changed": True, "version": 2, "settings": voice_view(st)})
+            elif u.path == "/v1/settings/" + HA:
+                st.posts.append([u.path, body])
+                view = ha_view(st)
+                if not view:
+                    return self.send(404, {"ok": False, "api": 1, "error": {"code": "no_such_owner", "message": "no such settings owner"}})
+                changes = body.get("changes", [])
+                for c in changes:
+                    why = ha_check(st, c["key"], c["value"])
+                    if why:
+                        return self.send(422, {"ok": False, "api": 1, "error": {"code": "invalid", "message": why}})
+                for c in changes:
+                    st.ha_effective[c["key"]] = c["value"]
+                st.ha_version += 1
+                self.send(200, {"ok": True, "api": 1, "changed": True, "version": st.ha_version, "settings": ha_view(st)})
+            elif u.path == "/v1/plugins/" + HA + "/actions/lease.ha.forget":
+                # the helper's own action: the saved link goes and the lease says it is not linked
+                st.posts.append([u.path, body])
+                link = dict(st.topics.get("ha.link") or {}, state="unconfigured", detail="Home Assistant is not linked yet", address=None, token=False)
+                st.publish("ha.link", link)
+                self.send(202, {"ok": True, "api": 1, "op": 1})
             elif u.path == "/v1/ambient/test":
                 st.ambient_state = "testing" if body.get("run") else "idle"
                 st.posts.append([u.path, body])

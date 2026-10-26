@@ -14,7 +14,7 @@ from test_plugins_surfaces import Surfaces, publish  # noqa: E402
 
 HUB = ("function hub() { return Qt.createQmlObject('import QtQuick 2.4\\nimport \"' + root.moduleDirUrl + 'kit\"\\n"
        "QtObject { property string st: PluginHub.haState; property var none: PluginHub.laneNone; property string words: PluginHub.haWords;"
-       " property var cards: PluginHub.homeCards; function glance(c) { return PluginHub.glance(c) } }', root) }")
+       " property var cards: PluginHub.homeCards; function glance(c) { return PluginHub.glance(c) } function rows() { return PluginHub.tileRows() } }', root) }")
 FOCUS = "root.widgetFocusId = 'home'; root.focusLayer = 'widgets';"
 
 
@@ -24,11 +24,13 @@ def feed(at=300, **kw):
 
 
 class HaCase(Surfaces):
-    MINE = Surfaces.MINE + ("PageHomeAssistant.qml", "PluginRows.js", "QuickPanel.qml", "PluginTiles.qml")
+    # What this slice owns. The other cards and the saver are other slices': one that has not landed whole says so through Widget.qml
+    # or its own file, which is not this slice's to fail on (Widget.qml counts only for this slice's card, 'homeassistant').
+    MINE = ("PluginHub.qml", "HomeAssistantWidget.qml", "PageHomeAssistant.qml", "PluginRows.js", "PluginTiles.qml", "QuickPanel.qml", "Drawer.qml")
 
     def own_warnings(self, out, allow=()):
-        # the weather card is another slice's: a change of it that has not landed whole says so through Widget.qml
-        return super().own_warnings(out, allow + ("for 'weather'",))
+        return [l for l in out.splitlines() if l.startswith("[warning]") and "Implicitly defined onFoo" not in l
+                and (any(f in l for f in self.MINE) or "falling back to UnknownWidget for 'homeassistant'" in l) and not any(a in l for a in allow)]
 
     def plugin_posts(self, out):
         return [(path, body) for path, body in self.posts(out) if path.startswith("/v1/plugins/")]

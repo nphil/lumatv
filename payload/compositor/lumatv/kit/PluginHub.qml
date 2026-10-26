@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 
 // What the plugin broker (the helper's `plugins` module, LumaShow plugin API level 1) puts on screen, as lists a surface
@@ -108,25 +109,19 @@ QtObject {
         var s = haLink.state
         return s === "auth_failed" ? "refused" : (!s || s === "off" || s === "unconfigured") ? "unlinked" : s
     }
-    // What the At-home lane says when no plugin has a card: a title, the line under it, and the tone of its glyph.
+    // What the At-home lane says when no plugin has a card: a name, the state under it (the same words as the page's chip, but for the
+    // two that need more) and the tone of its glyph.
     readonly property var laneNone: {
-        var where = "Settings \u203a Home Assistant"
-        switch (haState) {
-        case "inert": return { title: "Home Assistant can't run on this TV", sub: "See " + where, role: "warning" }
-        case "waiting": return { title: haPlugin && haPlugin.reason ? "Home Assistant isn't running" : "Starting Home Assistant", sub: haPlugin && haPlugin.reason ? "See " + where : "", role: haPlugin && haPlugin.reason ? "warning" : "" }
-        case "refused": return { title: "Home Assistant refused the token", sub: "Link it again in " + where, role: "danger" }
-        case "offline": return { title: "Can't reach Home Assistant", sub: "It is tried again. See " + where, role: "warning" }
-        case "connecting": return { title: "Connecting to Home Assistant", sub: "", role: "" }
-        case "connected": return { title: "Nothing to show yet", sub: "Pick a room in " + where, role: "" }
-        default: return { title: "Home Assistant isn't linked yet", sub: "Link it in " + where, role: "" }
-        }
+        var stuck = haState === "waiting" && haPlugin && haPlugin.reason
+        var role = haState === "refused" ? "danger" : haState === "inert" || haState === "offline" || stuck ? "warning" : ""
+        return { title: "Home Assistant", sub: haState === "connected" ? "Nothing to show" : haWords, role: role }
     }
     // A short phrase for a row that opens the page.
     readonly property string haWords: {
         switch (haState) {
         case "off": return "Not switched on"
         case "inert": return "Cannot run"
-        case "waiting": return "Starting"
+        case "waiting": return haPlugin && haPlugin.reason ? "Not running" : "Starting"
         case "unlinked": return "Not linked"
         case "refused": return "Token refused"
         case "offline": return "Offline"
@@ -203,7 +198,7 @@ QtObject {
         var stateful = t.state && (t.state.type === "on" || t.state.type === "off" || t.state.type === "observed")
         return {
             kind: stateful ? "toggle" : "value", id: "plugin." + pid + "." + id, icon: hub.icon(t.icon), label: t.label || id,
-            detail: function() { var x = me(); if (!x) return ""; return x.state.type === "unavailable" ? hub.unavailableText(x.state) : (x.hint || x.plugin) },
+            detail: function() { var x = me(); if (!x) return ""; return x.state.type === "unavailable" ? hub.unavailableText(x.state) : (x.hint || "") },
             value: "",
             enabled: function() { var x = me(); return !!x && x.state.type !== "unavailable" && x.state.type !== "observed" },
             on: function() { var x = me(); return !!x && hub.tileOn(x.state) },
