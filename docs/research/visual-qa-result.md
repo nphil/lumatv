@@ -47,12 +47,13 @@ reading ink (the wash and the accent mark say which is chosen), and a tab bar ha
 is destinations with a current mark, Lucent 9), so its labels read on the pane. The status bar's avatar initial takes the ink
 that reads better on the avatar colour. `tests/test_layout.py` passes: the rules, eight scenes at 100 %, three at 200 %.
 
-Open (2026-10-25 22:55, the log of the after run is `docs/research/visual-qa/audit.txt`): at 200 % text the five-tab bar of
-System and the input picker's tiles overlap (a tab bar cannot take doubled type; `tests/test_layout.py` holds the 200 % pass on
-the scenes where it passes, `AT_200`). Findings in files owned by other workers were sent to them: HomeAssistantWidget (state line
-1 px from its box, contrast), Weather and Clock widgets (muted lines under 3:1, since fixed by WidgetEditor), Screensaver (its
-`lineHeight: 0.95` must become `line: 0.95`). The full-run log of every scene before these fixes is `/tmp/vqa/full/audit.log`
-on the workstation (not kept).
+200 % text (Lucent's overlap rule at twice the type): a tab bar whose labels no longer share the page's width widens every tab
+to its widest label and scrolls by whole tabs, the focused (else the chosen) one in view and a chevron where more are
+(`LuSegmented.fit`); the picker's tiles grew with their words (ShellHost). `tests/test_layout.py` holds the 200 % pass on
+Picture, Sound › Mode, Remote, the quick panel and the input picker (`AT_200`); the other scenes of the test pass at 100 %.
+The Home Assistant, Weather and Clock widgets' findings were fixed by their owners (the four Home scenes pass); the
+Screensaver's `lineHeight: 0.95` must become `line: 0.95` (VideoPlaneSaver). The log of the after run is
+`docs/research/visual-qa/audit.txt`.
 
 ## How to run
 

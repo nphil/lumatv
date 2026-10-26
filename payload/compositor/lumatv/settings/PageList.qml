@@ -212,7 +212,9 @@ Item {
         tray: false
         current: page.tab
         focusedIndex: page.active && page.stop === -1 ? page.tab : -1
-        segmentWidth: page.tabs.length > 0 ? Math.floor(page.width / page.tabs.length) : Lu.target * 3
+        // the tabs share the page's width; a label too wide for its share (a long translation, doubled type) widens every tab and the bar scrolls
+        segmentWidth: Math.max(page.tabs.length > 0 ? Math.floor(page.width / page.tabs.length) : Lu.target * 3, Math.ceil(tabBar.widest) + 2 * tabBar.pad + 2 * Lu.space(1))
+        fit: page.width
         onPicked: { if (page.host) page.host.zone = "page"; page.stop = -1; page.tab = index }
         onHoverFocus: { if (page.host) page.host.zone = "page"; page.stop = -1; page.tab = index }
     }

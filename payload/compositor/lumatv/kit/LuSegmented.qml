@@ -7,6 +7,8 @@ import "."
 // Every segment is as wide as the widest label, measured as drawn, plus the pill's own air on each
 // side, and never narrower than a target: a label is never cut or crammed against its pill. A tab bar
 // (Lucent: destinations, labels and the current mark) has no tray: its labels read on the pane.
+// Given a width to stay within (`fit`), segments that do not fit scroll into view by whole
+// segments, the focused (else the chosen) one always in it and a chevron where more are.
 Item {
     id: seg
     property var options: []
@@ -17,6 +19,7 @@ Item {
 
     property string textRole: "label"        // "caption" for a dense row
     property bool tray: true                 // the quiet tray under the options; off for a tab bar, whose labels sit on the pane itself
+    property int fit: 0                      // the width to stay within (0: as wide as the segments need)
     readonly property int pad: Lu.space(4)   // air between a label and its pill's edge
     property int widest: 0                   // the widest label as drawn; the delegates keep it
     function measure() {
@@ -25,8 +28,19 @@ Item {
         widest = w
     }
     property int segmentWidth: Math.max(Lu.target, Math.ceil(widest) + 2 * pad + 2 * Lu.space(1))
+    readonly property int need: options.length * segmentWidth
+    readonly property bool scrolls: fit > 0 && need > fit
+    readonly property int inView: scrolls ? Math.max(1, Math.floor(fit / segmentWidth)) : options.length
+    readonly property int at: focusedIndex >= 0 ? focusedIndex : Math.max(0, current)
+    property int first: 0
+    function follow() { if (at < first) first = at; else if (at >= first + inView) first = at - inView + 1; if (first > options.length - inView) first = Math.max(0, options.length - inView) }
+    onAtChanged: follow()
+    onInViewChanged: follow()
+    Component.onCompleted: follow()
+    readonly property bool moreLeft: scrolls && first > 0
+    readonly property bool moreRight: scrolls && first + inView < options.length
 
-    implicitWidth: options.length * segmentWidth
+    implicitWidth: scrolls ? fit : need
     implicitHeight: Lu.target
     width: implicitWidth
     height: implicitHeight
@@ -40,7 +54,7 @@ Item {
         antialiasing: true
     }
     LuHalo {
-        x: seg.focusedIndex * seg.segmentWidth + seg.segmentWidth / 2 - width / 2
+        x: (seg.focusedIndex - seg.first) * seg.segmentWidth + seg.segmentWidth / 2 - width / 2
         y: seg.height / 2 - height / 2
         width: seg.segmentWidth * 1.8
         height: seg.height * 3
@@ -48,47 +62,55 @@ Item {
         on: seg.focusedIndex >= 0
         Behavior on x { enabled: !Lu.reduced; NumberAnimation { duration: Lu.focusMs; easing.type: Lu.focusEasing } }
     }
-    Repeater {
-        id: rep
-        model: seg.options
-        delegate: Item {
-            readonly property real labelWidth: label.implicitWidth
-            onLabelWidthChanged: seg.measure()
-            Component.onCompleted: seg.measure()
-            x: index * seg.segmentWidth
-            width: seg.segmentWidth
-            height: seg.height
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: Lu.space(1)
-                radius: Lu.radius("control") - Lu.space(1)
-                color: index === seg.focusedIndex ? Lu.wash("focus") : index === seg.current ? Lu.wash("selected") : "transparent"
-                border.width: index === seg.focusedIndex ? 1 : 0
-                border.color: Lu.edgeRaised
-                antialiasing: true
-            }
-            LuText {
-                id: label
-                anchors.centerIn: parent
-                role: seg.textRole
-                text: modelData
-                color: Lu.ink            // every label in the reading ink: ink2 read under 3:1 on the tray; the wash and the mark say which is chosen
-            }
-            Rectangle {
-                visible: index === seg.current
-                width: Lu.space(5); height: Lu.space(1)
-                radius: height / 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: parent.height - height - Lu.space(2)
-                color: Lu.accent
-                antialiasing: true
-            }
-            MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                onEntered: seg.hoverFocus(index)
-                onClicked: seg.picked(index)
+    Item {
+        anchors.fill: parent
+        clip: seg.scrolls
+        Repeater {
+            id: rep
+            model: seg.options
+            delegate: Item {
+                readonly property real labelWidth: label.implicitWidth
+                onLabelWidthChanged: seg.measure()
+                Component.onCompleted: seg.measure()
+                visible: !seg.scrolls || (index >= seg.first && index < seg.first + seg.inView)
+                x: (index - seg.first) * seg.segmentWidth
+                width: seg.segmentWidth
+                height: seg.height
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: Lu.space(1)
+                    radius: Lu.radius("control") - Lu.space(1)
+                    color: index === seg.focusedIndex ? Lu.wash("focus") : index === seg.current ? Lu.wash("selected") : "transparent"
+                    border.width: index === seg.focusedIndex ? 1 : 0
+                    border.color: Lu.edgeRaised
+                    antialiasing: true
+                }
+                LuText {
+                    id: label
+                    anchors.centerIn: parent
+                    role: seg.textRole
+                    text: modelData
+                    color: Lu.ink            // every label in the reading ink: ink2 read under 3:1 on the tray; the wash and the mark say which is chosen
+                }
+                Rectangle {
+                    visible: index === seg.current
+                    width: Lu.space(5); height: Lu.space(1)
+                    radius: height / 2
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: parent.height - height - Lu.space(2)
+                    color: Lu.accent
+                    antialiasing: true
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onEntered: seg.hoverFocus(index)
+                    onClicked: seg.picked(index)
+                }
             }
         }
     }
+    // more segments that way: a chevron at the edge, over the last segment's air
+    LuIcon { visible: seg.moreLeft; x: Lu.space(1); anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: Lu.space(5); color: Lu.ink3 }
+    LuIcon { visible: seg.moreRight; x: parent.width - width - Lu.space(1); anchors.verticalCenter: parent.verticalCenter; name: "chevron-right"; size: Lu.space(5); color: Lu.ink3 }
 }
