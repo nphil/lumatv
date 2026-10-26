@@ -78,7 +78,9 @@ Item {
     readonly property bool empty: temp === "" && place === ""
     readonly property bool compact: height < 130
     readonly property int nowIcon: compact ? Math.max(40, Math.min(64, height - 8)) : mode === "stack" ? 96 : height >= 300 ? 112 : height >= 200 ? 96 : 72
-    readonly property int nowTemp: compact ? Math.round(nowIcon * 0.875) : mode === "stack" ? tempToken : Math.round(nowIcon * tempToken / 96)
+    // the wide cards' temperature is the token's size, but no larger than the width left of the icon (a "-12°" is 2 em) and the height under the place
+    readonly property int nowTemp: compact ? Math.round(nowIcon * 0.875) : mode === "stack" ? tempToken
+        : Math.max(40, Math.min(Math.round(nowIcon * tempToken / 96), Math.floor((nowWidth - nowIcon - Math.round(nowIcon * 18 / 96) - 4) / 2), height - showPlace * 40 - condH - 4))
     readonly property int nowWidth: mode === "stack" ? width : mode === "list" ? Math.max(300, Math.min(400, Math.round(width * 0.4))) : Math.max(300, Math.min(440, Math.round(width * 0.3)))
     readonly property int showPlace: compact || height < 110 ? 0 : 1
     readonly property int condSize: nowIcon >= 96 ? 26 : 22
@@ -90,6 +92,9 @@ Item {
     readonly property int blockH: coreH + (statLines > 0 ? 12 + statLines * 32 : 0)
     readonly property int nowTop: mode === "stack" && !compact ? 47 : showPlace * 40 + Math.max(0, Math.round((height - showPlace * 40 - blockH) / 2))
     readonly property int tempTop: nowTop + (compact ? Math.round((nowIcon - nowTemp) / 2) : 0)
+    // the narrow card's stats line, rule and rows sit under the now row: the mock's 179, 220 and 225 at the shipped type, lower at a larger one
+    readonly property int statsY: nowTop + coreH + 8
+    readonly property int rowsTop: statsY + 46
 
     Text {
         visible: root.showPlace === 1 && !root.empty
@@ -132,7 +137,7 @@ Item {
     // the stats: one line under the narrow card's "now" row, one line a part under a wide card's
     Text {
         visible: root.mode === "stack" && !root.compact && root.height >= 200
-        x: 0; y: 179
+        x: 0; y: root.statsY
         width: parent.width
         text: root.stats
         elide: Text.ElideRight
@@ -166,12 +171,11 @@ Item {
     }
 
     // ---- stack: the rows under the rule
-    readonly property int rowsTop: 225
-    readonly property int stackDays: Math.max(0, Math.min(maxConfiguredDays, week.length, Math.floor((height - rowsTop) / 41)))
+    readonly property int stackDays: compact ? 0 : Math.max(0, Math.min(maxConfiguredDays, week.length, Math.floor((height - rowsTop) / 41)))
     readonly property int stackRow: stackDays > 0 ? Math.max(41, Math.min(56, Math.floor((height - rowsTop) / stackDays))) : 41
     Rectangle {
         visible: root.mode === "stack" && root.stackDays > 0
-        x: 0; y: 220
+        x: 0; y: root.statsY + 41
         width: parent.width; height: 1
         color: root.isLight ? "#1f17131f" : "#1affffff"
     }
