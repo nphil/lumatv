@@ -11,7 +11,7 @@ Everything is fail-open: with the files missing, a handler absent or an error an
 
 **Round 8 (2026-10-25 evening, offline only, not run on the TV):** the gear's tap and the Input key show LumaTV's quick panel (left-docked, 492 x 1008 where LG's sat, sliding out of the left edge) and input picker on Home and over apps, in place of LG's Quick Settings and picker (section 6). LG's own stay reachable (the panel's "LG" button, the fail-open, the switches). Needs the compositor restarted (`lumatv apply`: a changed key-filter script is read once, and the QML is in the shadow module). The next TV slot runs steps 3a and 3b of "Set steps" and reports the gate's numbers.
 
-**Rounds 11 and 12 (2026-10-26, gate FAIL; "Over video, round 11"):** over the Dolby Vision film the first frame can wait about 1.5 s for the display's OSD path, which is off until something draws (round 11 only; not the panel's doing; LG's own Quick Settings there is the new baseline surface and misses the bar too). Fixed offline: neither the scrim nor the sheet fades (each opacity change re-batched the scene), the picker no longer restarts its tile's lift at each opening, the inputs' luna subscriptions no longer pile up, the gate times the picker from the Input key's press and keeps the film's markers. Open: the picker's RSS stair (part with the door, most with the key). Next: the re-gate on the newest `main`.
+**Rounds 11-14 (2026-10-26, gate FAIL; "Over video, round 11"):** fixed and measured on the set (r14, `2888577`): neither the scrim nor the sheet fades (each opacity change re-batched the scene), the picker no longer restarts its tile's lift at each opening, the inputs' luna subscriptions no longer pile up (every RSS check passes), LG's Dolby toast line is stock noise, and the gate times the picker from the Input key's press and keeps the film's markers. Left: quick p90 over Home 3.43 ms (the frames where the panel joins and leaves Home's scene, 3.2-4.4 ms), single burst-end and first-frame misses where other frames chained in, and over the Dolby Vision film the first frame can wait about 1.5 s for the display's OSD path (round 11 only; not the panel's doing; LG's own Quick Settings misses the bar there too). Next: the picker soak below.
 
 | What | Where | Switch (owner's, `theme.json`, defaults in code) |
 |---|---|---|
@@ -294,9 +294,26 @@ chained by something else drawing). The OSD was on at every key this time (`osd_
   key-driven rate (+1.85 MB over 8). So part of it is the picker's own path (its readings: the open subscriptions above are fixed in
   `2886b62`, which this round did not run) and the larger part comes with the key.
 
-Next on the set: the re-gate on the newest `main`, the same command with `--tag r13-qp`. If the picker's RSS still climbs, `gate.py
---surfaces picker --input-key 241 --soak` (500 cycles, about 26 min) tells a heap that grows to its collection threshold and stays
-(steps that stop) from a leak (steps that go on); the steps of about 236 KB look like the former [INFERENCE].
+### Rounds 13 and 14 (TvRound11; `quick-picker-gate-r13.json` on `1aaf632`, `quick-picker-gate-r14.json` and `picker-rss-r14.txt` on `2888577`)
+
+- **RSS**: with the inputs' subscriptions cancelled (r13 on) the picker's RSS passes over Home and HDMI 3; in r14 every RSS check passes
+  and 12 door cycles stayed flat for 9 of them (+352 KB, one step). Round 13 had +1.97 MB on quick-hdmi and +1.10 MB on quick-netflix
+  that r14 did not repeat: steps of about 236 KB land in whichever surface's 8 cycles they fall in.
+- **The fade frames are gone** (r14, sheet without a fade): the second frame of an opening and the fourth and fifth of a closing in r13
+  (3.25-5.55 ms, the picker's worst) are 1.7-2.6 ms. Picker p90 passes (3.50 in r13).
+- **What keeps quick over Home at p90 3.43 ms** (36 frames; the bar is 3): the frame where the panel's nodes join the scene (an
+  opening's first, 3.2-3.4 ms) and the one where they leave it (a closing's last before Home alone, 4.0-4.4 ms). The offline renderer's
+  statistics show a rebuild of the whole render list at exactly these two frames, and Home's list is long; over HDMI 3 the same two
+  frames take 1.6-1.9 ms. A node cannot join or leave without that rebuild, and keeping the panel's nodes in the scene while it is
+  hidden would make every frame of Home pay for them [INFERENCE]. What would help: fewer nodes and batches in Home's scene under a
+  layer. Not done.
+- **The other r14 misses**: quick-hdmi first frame 50.51 ms in one window with no burst after it (a single late first frame); picker-hdmi
+  and picker-netflix burst ends 206 and 301 ms and one interval over 20 ms on each film surface, with frames that the panel's 110 ms
+  slide does not account for, so something else drew in the same windows [INFERENCE: the input's or Netflix's own frames]. LG's own
+  Quick Settings over the film (r12, r13): first frame 81 and 88 ms, no burst at the key, its own log lines.
+
+Next on the set: `gate.py --surfaces picker --input-key 241 --soak` (500 cycles, about 26 min) tells a heap that grows to its collection
+threshold and stays (steps that stop) from a leak (steps that go on); the 236 KB steps look like the former [INFERENCE].
 
 ## Under LumaTV's own compositor
 
