@@ -22,7 +22,9 @@
 #            its executable; jailed ones are only killed
 #   setting  hold a value in LG's settings service
 #   app      remove a server-pushed stub app, take its entries out of the
-#            customization lists SAM syncs from, and mark it deleted
+#            customization lists SAM syncs from, and mark it deleted; its copy
+#            goes to $STATE/declutter/backup unless the item says nobackup
+#            (then `off` cannot bring it back: the store can)
 #   sync     mark every id of LG's country lists that is not installed as
 #            deleted, so the wake-time customization sync adds nothing
 # Nothing under /usr, /etc or the rootfs is written. SAM, WebAppMgr, the
@@ -381,6 +383,11 @@ app_ids() {
   group_items "$1" | awk -F'|' '$1=="app" {print $3}'
 }
 
+# app items with arg nobackup are removed without a copy kept
+app_nobackup() {
+  group_items "$1" | awk -F'|' -v id="$2" '$1=="app" && $3==id && $4=="nobackup" {f=1} END {exit !f}'
+}
+
 group_syncs() {
   group_items "$1" | grep -q "^sync|"
 }
@@ -444,6 +451,11 @@ apps_on() {
   done
   for id in $ids; do
     if app_installed "$id" && ! grep -q "^app|$id|" "$BEFORE" 2>/dev/null; then
+      if app_nobackup "$g" "$id"; then
+        # the owner's choice for a stub: no copy kept, `off` cannot bring it back (the store can)
+        record app "$id" removed-no-backup
+        continue
+      fi
       # only what the app has: a factory stub has no packages dir, and a missing member must not cost the archive
       parts=""
       for p in "usr/palm/applications/$id" "usr/palm/packages/$id" "var/lib/opkg/info/$id.control" "var/lib/opkg/info/$id.list"; do
@@ -486,8 +498,12 @@ apps_off() {
     mut chattr -i "$f" 2>/dev/null
     mut cp -p "$b" "$f"
   done
+  gone=""
   for id in $ids; do
-    [ -f "$BACKUP/app-$id.tgz" ] || continue
+    if [ ! -f "$BACKUP/app-$id.tgz" ]; then
+      [ "$(recorded app "$id")" = removed-no-backup ] && gone="$gone $id"
+      continue
+    fi
     app_installed "$id" && continue
     mut tar xzf "$BACKUP/app-$id.tgz" -C "${ROOT:-/}"
   done
@@ -499,6 +515,7 @@ apps_off() {
     for f in $(custom_files); do mut chattr +i "$f" 2>/dev/null; done
   done
   [ -n "$ids" ] && log_line "apps restored from backup; SAM sees them at the next start (reboot)"
+  [ -n "$gone" ] && log_line "removed without a copy, not restored (the store can install them):$gone"
   return 0
 }
 

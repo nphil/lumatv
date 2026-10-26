@@ -126,16 +126,18 @@ named it [INFERENCE].
 |---|---|---|
 | `setting option.appUpdateMode "manual"` | LG's own automatic-app-update switch, held off; `off` puts `auto` back | the Home Hub's "Automatic Update"; the one LG-side knob for the updater that the set exposes |
 | `setting support.automaticUpdate "off"` | LG's "Allow Automatic Updates", recorded and held | the updater subscribes to it; already off, a reset or a menu visit cannot flip it unnoticed |
-| `app dazn`, the four stubs | removed through `appInstallService/remove`, their folders and opkg entries kept in `declutter/backup`, their ids on SAM's deleted list and out of the US7 list | no stub, nothing for an update to turn into an app; DAZN on the deleted list in case LG lists it |
+| `app dazn`, the four stubs (`nobackup`) | removed through `appInstallService/remove`, no copy kept (Nitin, 2026-10-25 21:07: no backups for small reversible changes), their ids on SAM's deleted list and out of the US7 list | no stub, nothing for an update to turn into an app; DAZN on the deleted list in case LG lists it |
 | `sync lists` | every id of LG's country lists that is neither in SAM's app list nor a folder under `/media/cryptofs/apps` goes on the deleted list (`dc.py deleted-missing`) | the wake-time sync has nothing left to add; an installed app is never marked, not even by the boot pass that runs before SAM has scanned |
 
 Kept: the install service, the store's own installs and updates (the store
 calls the install service itself; `sdx` stays), the "update to open" prompt
 LG shows for an app with a pending update. Cost: apps update only by hand.
-`off --group autoinstall` restores the two settings, the stub folders and the
-list files; the lists are then edited again for every other group that is
-still on (the `apps` group's two ids), so switching one off does not undo the
-other (`tests/test_declutter.py`).
+`off --group autoinstall` restores the two settings and the list files; the
+stubs stay gone (the way back is the LG Content Store: Twitch, Kanto, Highbrow
+and Tennis TV install from their store pages, and come back as full apps, not
+stubs); the lists are then edited again for every other group that is still on
+(the `apps` group's two ids), so switching one off does not undo the other
+(`tests/test_declutter.py`).
 
 Not done, and why: masking the updater is not possible without masking the
 install service (one process, one service file); an LS2 permission cannot be
@@ -162,7 +164,7 @@ item as not in target.
    `tv.twitch.tv.starshot.lg`, `karaokesmart`, `com.joinhighbrow.highbrow`,
    `com.deltatre.tennistv.lgapp`; `deletedSystemAppList.json` names them, `dazn`
    and every not-installed id of the USA list; `lsattr` shows `i` on both
-   `applist.json`; `/var/lib/lumatv/declutter/backup/app-*.tgz` has the four.
+   `applist.json`; no `app-*.tgz` for the four in `declutter/backup`.
 4. The store still works (Nitin, on the set): LG Content Store opens and lists
    its catalogue; an app page's Install/Update button works (install a small
    free app, then remove it from LumaTV's library: both go through

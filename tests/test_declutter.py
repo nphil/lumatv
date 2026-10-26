@@ -3,9 +3,9 @@
 tools/declutter.sh against a made-up set: a root directory with LG's customization lists, SAM's deleted list and the app
 folders (DECLUTTER_ROOT), and stand-ins for luna-send, systemctl, chattr and mount on the PATH that record what the tool
 asked and answer as the set does (a settings store, SAM's app list, an install service that removes a folder). The
-`autoinstall` group is what is exercised: LG's two update switches held, the factory stubs removed and backed up, every
-not-installed id of the country lists on the deleted list, and `off` putting the files back byte for byte without undoing
-another group that is still on.
+`autoinstall` group is what is exercised: LG's two update switches held, the factory stubs removed without a copy (the
+owner's choice), every not-installed id of the country lists on the deleted list, and `off` putting the files back byte
+for byte without undoing another group that is still on; the `apps` group shows an item with a copy coming back.
 """
 import json
 import os
@@ -192,8 +192,11 @@ class Autoinstall(unittest.TestCase):
         self.assertEqual(sorted(c["id"] for c in self.fake.calls("/remove")), sorted(STUBS), "dazn is not on the set: nothing to remove")
         self.assertEqual(self.fake.installed_dirs(), ["com.folder.only", "com.miniclip.eightballpool", "netflix"])
         backup = os.path.join(self.fake.root, "var/lib/lumatv/declutter/backup")
+        self.assertEqual([f for f in os.listdir(backup) if f.startswith("app-")], [], "a stub marked nobackup was copied")
+        with open(os.path.join(self.fake.root, "var/lib/lumatv/declutter/before")) as f:
+            before = f.read()
         for i in STUBS:
-            self.assertTrue(os.path.exists(os.path.join(backup, "app-%s.tgz" % i)), i)
+            self.assertIn("app|%s|removed-no-backup" % i, before)
         self.assertEqual(read_json(self.fake.path("var/palm/customization/launchpoints/US7/applist.json")),
                          {"applications_dosci": ["amazon", "youtube.leanback.v4"]})
         self.assertEqual(read_json(self.fake.path("var/palm/customization/launchpoints/USA/applist.json")), USA, "the USA list named no stub")
@@ -208,25 +211,35 @@ class Autoinstall(unittest.TestCase):
         status = self.fake.status()
         self.assertEqual(status["groups"]["autoinstall"], {"on": True, "inTarget": "8/8"})
         self.assertEqual(status["profile"], "custom")
-        with open(os.path.join(self.fake.root, "var/lib/lumatv/declutter/before")) as f:
-            before = f.read()
         self.assertIn('setting|option.appUpdateMode|"auto"', before)
         self.assertIn('setting|support.automaticUpdate|"off"', before)
 
-    def test_off_puts_the_files_the_switch_and_the_stubs_back(self):
+    def test_off_puts_the_files_and_the_switch_back_and_says_the_stubs_stay_gone(self):
         self.fake.run("on", "--group", "autoinstall")
         rc, out, err = self.fake.run("off", "--group", "autoinstall")
         self.assertEqual(rc, 0, err)
         self.assertEqual(self.fake.st()["settings"]["option"]["appUpdateMode"], "auto")
         for p, text in self.fake.originals.items():
             self.assertEqual(self.fake.file(p), text, p + " did not come back as it was")
-        self.assertEqual(self.fake.installed_dirs(), sorted(STUBS + ["com.folder.only", "com.miniclip.eightballpool", "netflix"]))
-        for i in STUBS:
-            self.assertTrue(os.path.exists(self.fake.path("media/cryptofs/apps/var/lib/opkg/info/%s.control" % i)), i)
+        self.assertEqual(self.fake.installed_dirs(), ["com.folder.only", "com.miniclip.eightballpool", "netflix"], "a stub removed without a copy came back")
+        with open(os.path.join(self.fake.root, "var/lib/lumatv/declutter/log")) as f:
+            log = f.read()
+        self.assertIn("removed without a copy, not restored (the store can install them): " + " ".join(STUBS), log)
         status = self.fake.status()
         self.assertEqual(status["groups"]["autoinstall"]["on"], False)
         self.assertEqual(status["profile"], "off")
         self.assertFalse(os.path.exists(os.path.join(self.fake.root, "var/lib/lumatv/declutter/before")), "nothing is on: the record goes")
+
+    def test_an_app_item_without_nobackup_is_copied_and_comes_back(self):
+        rc, out, err = self.fake.run("on", "--group", "apps")
+        self.assertEqual(rc, 0, err)
+        tgz = os.path.join(self.fake.root, "var/lib/lumatv/declutter/backup/app-com.miniclip.eightballpool.tgz")
+        self.assertTrue(os.path.exists(tgz))
+        self.assertNotIn("com.miniclip.eightballpool", self.fake.installed_dirs())
+        rc, out, err = self.fake.run("off", "--group", "apps")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("com.miniclip.eightballpool", self.fake.installed_dirs())
+        self.assertTrue(os.path.exists(self.fake.path("media/cryptofs/apps/usr/palm/packages/com.miniclip.eightballpool/packageinfo.json")))
 
     def test_switching_one_group_off_keeps_the_edits_of_another_that_is_still_on(self):
         rc, out, err = self.fake.run("on", "--group", "apps", "--group", "autoinstall")

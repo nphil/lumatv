@@ -6,7 +6,7 @@
 #         launch exits at once; kill: only kill it (services inside a jail, and
 #         shared interpreters, where a bind mount cannot or must not reach)
 # setting name = category.key in LG's settings service; arg = JSON value to hold
-# app     name = app id removed through appInstallService
+# app     name = app id removed through appInstallService; arg = nobackup: no copy kept, off cannot bring it back
 # sync    every id of LG's country lists that is not installed goes on SAM's deleted list
 # Every name here was seen running or enabled on the set (docs/research/declutter-result.md).
 
@@ -62,11 +62,11 @@ app|apps|com.lgtvod.us.app||LG Movies & TV, installed 2026-09-22 by the same syn
 # on SAM's deleted list. The store's own installs and updates (by hand) are untouched.
 setting|autoinstall|option.appUpdateMode|"manual"|LG's automatic app update switch (Home Hub reads it as "Automatic Update"); auto on the set
 setting|autoinstall|support.automaticUpdate|"off"|LG's "Allow Automatic Updates" (Support > Software Update), subscribed by the updater; off on the set, held
-app|autoinstall|dazn||factory stub (US7 list, 2024-10-12), replaced by the full app on 2026-10-25 02:59 by the updater; removed by hand at 20:20
-app|autoinstall|tv.twitch.tv.starshot.lg||factory stub, dormant (a folder and an opkg entry, not in SAM's lists); the same route open
-app|autoinstall|karaokesmart||factory stub (Kanto), dormant
-app|autoinstall|com.joinhighbrow.highbrow||factory stub, dormant
-app|autoinstall|com.deltatre.tennistv.lgapp||factory stub, dormant
+app|autoinstall|dazn|nobackup|factory stub (US7 list, 2024-10-12), replaced by the full app on 2026-10-25 02:59 by the updater; removed by hand at 20:20
+app|autoinstall|tv.twitch.tv.starshot.lg|nobackup|factory stub, dormant (a folder and an opkg entry, not in SAM's lists); the same route open; no copy (Nitin, 2026-10-25)
+app|autoinstall|karaokesmart|nobackup|factory stub (Kanto), dormant; no copy
+app|autoinstall|com.joinhighbrow.highbrow|nobackup|factory stub, dormant; no copy
+app|autoinstall|com.deltatre.tennistv.lgapp|nobackup|factory stub, dormant; no copy
 sync|autoinstall|lists||every id of LG's country lists that is not installed goes on the deleted list: the wake-time sync adds nothing
 
 unit|voice|voiceconductor.service||voice assistant conductor; spawns performer, ThinQ AI, Alexa adapters
