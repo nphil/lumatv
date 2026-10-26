@@ -19,18 +19,19 @@ Built and tested offline, **not verified on the TV**:
 - `tools/voice_patch.py`, `tools/voice.sh`: the restyle of LG's Search app (`com.webos.app.voice`, 202 QML), same shape as inputcommon's ("LG's Search app" below).
   Switch: `lumatv voice on|off|status` (off by default, mounted again by `apply` at boot). The app is resident (SAM keeps it alive, round 11), so `on` and `off` also
   end its process and the next open starts it from the files then mounted ("Search restyle: hosting"). Verified on the TV 2026-10-26: Search shows the patched look after `on` and LG's after `off`.
+- `tools/maliit_patch.py`, `tools/maliit.sh`: the restyle of LG's on-screen keyboard keys (maliit: key caps, function keys, focus, candidate rows, number pad; 85 QML in
+  `/usr/lib/maliit/plugins/qml`), same shape as inputcommon's ("The keyboard's keys (maliit)" below). The server reads its QML once, when it starts, so `on` and `off` restart
+  `maliit-server.service` (`systemctl try-restart`, the restart LG's own `lsm-ready.service` does at every compositor start; never SAM), and a server that does not come back, or
+  logs a file it could not load, gets the mount taken away again. Switch: `lumatv keys on|off|status` (off by default, mounted again by `apply` at boot), separate from `keyboard`.
 
-**Not done, for lack of source:** maliit's keys (key caps, language bar, candidate list). Round 8's script copies maliit's tree
-(`docs/research/round8/tv-2026-10-25/maliit/`, step `maliit`) and it has not arrived: no QML of maliit is on this workstation (only its systemd unit and
-start script). When it is in `/data/home/lgtv/uiinv/maliit/` it is a patch of `inputcommon_patch.py`'s shape and the host gets scenes for it;
-if maliit's keys are a compiled resource (`qrc`), no mount reaches them and the rebuild of that resource is Nitin's call. LG's voice bar
-(`VoiceAgent`, source on disk) is not restyled: the `lean` profile stops the voice services that open it and LumaHome takes the mic key
-(`voice-result.md`), so it cannot appear; with `lean`'s `voice` group turned back on it shows in LG's look.
+**Not done:** LG's voice bar (`VoiceAgent`, source on disk) is not restyled: the `lean` profile stops the voice services that open it and LumaHome takes the mic key
+(`voice-result.md`), so it cannot appear; with `lean`'s `voice` group turned back on it shows in LG's look. maliit's dictation card (`view-stt`, what the keyboard's mic
+key opens) is left for the same reason.
 
 Renders, dark and light, 960x540, in `docs/research/lg-restyles/` (`25-lg-input-*`, `20-lg-channel-*`, `18-lg-no-signal*`, `25-lg-banner-position`,
 `35-lg-prompt`); regenerate with `python3 tests/qmlhost/scenes.py --only <names> --out DIR --theme both`.
 
-Next, in order: (1) "TV check, overnight round" below; (2) "TV check, keyboard and search" below, and maliit's patch once its tree is copied;
+Next, in order: (1) "TV check, overnight round" below; (2) "TV check, keyboard and search" below, then "TV check, keyboard keys";
 (3) the owner's pick on the optional items ("Not done").
 
 CHANGELOG line for the main agent: *Restyles of LG's own processes in the Lucent look: the input banners, Live TV's channel banner and INFO card, the
@@ -45,7 +46,7 @@ at 200 % text; both patches fail loudly when LG changes the code they patch.*
 |---|---|---|
 | inputcommon QML, 273 files, 11 MB, with its images | `/data/home/lgtv/uiinv/inputcommon/qml` | made durable here from `/tmp/tvsrc/inputcommon/qml` (the only copy there was in `/tmp`). The tests and the host use the first of the two that exists. |
 | `StarfishKeyboardView.qml` (342 lines), `BaseView.qml`, `KeyboardView.qml` | `/data/home/lgtv/uiinv/qml/qml/WebOSCompositor[Base]/views` | the compositor side of the keyboard; OSE's open `luna-surfacemanager` (`/tmp/ose`) has a near-identical `KeyboardView.qml` |
-| maliit's QML | none | see above |
+| maliit's QML, 85 `.qml` (164 files with its pictures and style lists) | `/data/home/lgtv/uiinv/maliit/qml` | round 11, from `/usr/lib/maliit/plugins/qml` on the set; the archive `docs/research/round9/r11-2026-10-26/maliit-qml.tgz` is in the repository, and the tests and the host use the first of the two that exists |
 
 Facts found on the way (kept so they are not rediscovered):
 
@@ -133,8 +134,7 @@ Run from the repo root:
 3. **Stage, mount, look.** `sh tools/inputcommon.sh stage`, `sh tools/inputcommon.sh on`, `grep inputcommon /proc/mounts`; from LumaHome switch to HDMI 2 (the Denon): the pill, OK (the inset on the name, Right to the options key, OK opens LG's
    options), INFO (the detail card), and a screenshot of each. Check `faultmanager` for an inputcommon crash (the compositor-restart segfault in HANDOFF is a different path). The mount does not survive a reboot: `apply`'s boot path must run `on` again (as `webglass` does), or the banners go back to LG's.
 4. **Revert.** `sh tools/inputcommon.sh off`, switch input, LG's look is back. A reboot also clears the mount.
-5. **maliit.** `find / -iname '*maliit*' 2>/dev/null`, `cat /var/lib/maliit/server.conf`, `ls -R /usr/share/maliit* /usr/lib/maliit* 2>/dev/null`, `strings $(find / -name 'libplugin-global.so' 2>/dev/null | head -1) | grep -i 'qrc:\|\.qml' | head`. Copy
-   whatever QML there is to `/data/home/lgtv/uiinv/maliit/`. If the keys are compiled into the plugin (a `qrc`), the patch has to be a rebuilt resource, which is a bigger decision for Nitin; report what is there.
+5. **maliit.** Done in round 11 (the tree is copied, it is plain QML on disk and the keys are not a compiled resource): "The keyboard's keys (maliit)" below.
 6. **Frame cost.** The pill and banners are over video drawn by inputcommon: no live shadow is added and two were removed, so none is expected; the frame gate does not cover a banner over HDMI, so this stays unmeasured.
 
 ## TV check, overnight round (not verified on the TV)
@@ -179,9 +179,7 @@ Renders to compare with are the files named in each step (`docs/research/lg-rest
     black, Home back after); under LumaTV's compositor there is no restart and no visible change to expect: INFO, say which one was live. With LG's compositor live, open a text field of an LG app (LG Settings, Network, a
     Wi-Fi password field [INFERENCE]), `shot keyboard` at 1 s: PASS the panel stands flush at the bottom with no squashed copy of itself, and open and close take well under half a second with no overshoot (by eye).
     `kb BACK`. Then `$TOOL keyboard off`: `"keyboard":"off","patched":false`, the grep is 0, `$TOOL surfaces` has `"id":"keyboard","on":false`. Leave it as found (off).
-11. **The two trees nobody has copied.** If round 8's `maliit/tree/` (or `maliit/` with an INFO that the keys are compiled in) is not there: the `maliit` commands of "Needs the TV" 5; and for LG's Search app
-    `tar cf - $(find /usr/palm/applications/com.webos.app.voice/qml \( -name '*.qml' -o -name '*.js' -o -name qmldir -o -name '*.json' \) -type f)` with `md5sum` of each, copied to `/data/home/lgtv/uiinv/voice/`.
-    PASS: the voice tree has about 203 `.qml` files; for maliit either the files or the finding that the keys are a `qrc` (the rebuild of that resource is Nitin's call).
+11. **The two trees** were copied in round 11 (`/data/home/lgtv/uiinv/voice/`, `/data/home/lgtv/uiinv/maliit/`): nothing to copy.
 12. **End.** Home in front, `$TOOL inputcommon status`, `$TOOL keyboard status`, `$TOOL surfaces` saved in the log, the receiver as found.
 
 ## On the TV (2026-10-25 19:43-19:48)
@@ -213,7 +211,7 @@ at 19:28. Files in `docs/research/round7-2026-10-25/slot6/` and `slot6b/` (`log.
    resolution chips over LG's name line (`slot6/info.png`: "16:9 2160p PCM" drawn over "HDMI 2"). LG's OK banner with the options key
    was not captured; whether SIMPLINK forwards the key before the banner or the capture missed it is open, and the captures are LG's
    look either way (3).
-5. maliit: not looked at (no time in the round).
+5. maliit: not looked at in the round; copied in round 11 (85 QML).
 
 Next: the TV check of "Cold start" below (the scripts are in the ipk now, and `inputcommon on` does the cold start).
 
@@ -417,14 +415,91 @@ Renders to compare with: `09-lg-search*` (960x540).
 4. **Light.** None needed on the set: the sheet is always the dark material's.
 5. **Off.** `$TOOL voice off` (PTY): `"voice":"off"`, `"ended":["com.webos.app.voice"]` after step 3, the overlay gone, `pids` empty. The next launch (a cold start, `shot own-search-restored` at 5 s) shows LG's look (compare `own-search`) in a process with another
    new pid; `$TOOL surfaces` has `"id":"voice","on":false`. Close it. Leave it as found (off).
-6. **Keyboard switch** is step 10 of "TV check, overnight round"; maliit's keys cannot be restyled until its tree is copied: round 8's `maliit` step or the `maliit` commands of "Needs the TV" 5.
+6. **Keyboard switch** is step 10 of "TV check, overnight round"; the keys' own switch is "TV check, keyboard keys".
 7. **End.** Home in front, `$TOOL voice status`, `$TOOL inputcommon status`, `$TOOL surfaces` in the log, the receiver as found.
 
 Offline checks that back the steps: `python3 -m unittest tests.test_voice_patch tests.test_voice_stage tests.test_lumatv_inputcommon tests.test_package_tools tests.test_surfaces_registry`.
 
+## The keyboard's keys (maliit)
+
+Source: `/data/home/lgtv/uiinv/maliit/qml` (85 `.qml`, round 11, from `/usr/lib/maliit/plugins/qml`). `MaliitServer` (`maliit-server.service`) runs LG's plugins: the Latin one (`libplugin-global.so`, every language this set types) runs
+`view-global/main.qml`, which imports the shared `keyboard-common/` (the keys, the three function areas, the focus box, the style sheets); `view-chinese/` and `view-japanese/` are the other two plugins, `view-stt/` the dictation card.
+
+Facts found on the way (kept so they are not rediscovered):
+
+- **The keys are plain QML on disk.** Every view's `main.qml` imports `../keyboard-common`, which a compiled resource cannot give it; the only resource is the pictures (`qrc:///images-2k/...`, listed by the tree's `.qrc` files; `common.qrc` and `japanese.qrc`
+  are build leftovers). The patch needs no rebuilt resource.
+- **The server loads its QML once and keeps it.** Its own line (`MaliitServer ... IME default ... @@@@ root.foregroundAppId <app>`, written by `main.qml`) is in the logs of rounds 9 and 10 at every change of the foreground app, with no keyboard on screen: the server runs
+  all the time. A mount is read after a restart of the server. LG restarts it itself: `lsm-ready.service` stops and starts `maliit-server.service` every time the compositor comes up (the unit is in the census), so `systemctl try-restart` of that one unit is
+  LG's own move, and `maliit.sh` never speaks to SAM. Under LumaTV's compositor the census found the unit inactive and maliit unrouted (phase 6): `keys on` then mounts and restarts nothing, and the keys are read when the unit next starts.
+- **Sizes.** `Screen` picks the resolution (4K 1, 2K 2, HD 3) and every number of the sheets is `N / resolution`: at 1080p a letter cell is 87 x 66 px with a 39 px label, the panel 1920 x 438 (and 90 more for the candidate row). Every label is
+  `fontSizeMode: Text.Fit`, so a larger type shrinks into its key; the grid is not touched.
+- **Focus is one rectangle.** `FocusPanel` is moved over the focused key (15 x 12 px larger than it), draws the key's words and glyph again in its own fill (opaque white with dark words, over a DropShadow layer), and the key itself looks the same focused or not.
+  The pictures come in pairs, a light one and a dark `_f` one drawn for the white box.
+- LG's own faults in the stock tree, on the set too and left alone (the host counts them, `[known] 18`): `ButtonBase.radius` reads a style that has none, the language key's TTS string and the focus box's `focusedItem` are assigned `undefined`, the page-count row reads
+  `fontfamily`, which nothing defines. The hardware-keyboard bar's chip put its F-key label over its word (LG's Chinese chip already fits the word): fixed here.
+
+**`tools/maliit_patch.py`** (38 files, `tests/test_maliit_patch.py` names them; style only):
+
+- *Colour roles.* Every quoted colour of the 33 style sheets is looked up in a table by its object path (`normal.bgColor`, `hid.hidPredItem.normal.fgColor`); a colour with no role, or a role whose colour is gone, refuses the whole tree. Each colour written is an opaque composite of
+  the palette: the panel is the opaque sheet (a keyboard is words over whatever is behind, and an opaque sheet makes each contrast a number the picture cannot change), the character keys the lifted tile (the hairline wash on the sheet) with a hairline edge, the function keys the
+  recessed one (the row wash), the candidate row a well with tile chips, Search and Enter the accent with its ink, and the shift and accent-letter marks the accent when on (taken toward the ink until it reads 3:1 on the focus fill, which the light material needs).
+- *Focus.* A lit tile (the focus-edge wash over the sheet), a 3 px ring in the ink, the same ink, no shadow (`layer.enabled: false`). The glyph pictures are the one of each pair that reads on the sheet, in both states (`getImage`: the dark twins on a light sheet).
+- *Type.* Manrope Medium (57) on the keys; `setDefaultFont` goes through LG's language table (`languageClass === "latin"`) and other scripts keep LG's face; the four faces are loaded by FontLoaders in the style sheet (`$STATE/fonts`); the literals that name LG Smart UI are Manrope.
+- *Shape.* The corner is the palette's row radius, the edge one pixel (LG's is two); LG's sizes and offsets stay, so keys are readable at 10 feet as they were (39 px labels) and the focus box is lifted 15 x 12 px as before.
+- *Not touched:* anything LG's code does (every handler, key, signal, service read and focus line is the same in the patched tree), the plugins' layouts, `main.qml` files and `view-stt`.
+
+**`tools/maliit.sh`** is `inputcommon.sh`'s overlay (stage in `$STATE/maliit`, mount over `/usr/lib/maliit/plugins/qml`, `MALIIT_QML` overrides) with the start of a service in place of the cold start of an app: `on` unmounts, stages, mounts, runs `systemctl try-restart maliit-server.service`,
+watches the unit for five seconds and reads what `MaliitServer` logged since the restart. A unit that is not active afterwards, or a log line that says a file of the keys did not load (`Type X unavailable`, `is not a type`, a syntax error), takes the mount away again, brings the unit up on LG's QML
+(`reset-failed` and `restart` for a failed one), answers `ok:false` and leaves `lumatv`'s flag off: a keyboard that cannot open is the one fault that leaves a TV with no way to type. `off` unmounts and restarts, only when there was a mount. A unit that is not running stays not running.
+Wiring: `lumatv keys on|off|status`, the flag `.keys-on` (off by default), the registry row `keys`, `apply` mounts again at boot while the flag is on and the overlay is not, `revert` turns it off; `keyboard` (the window's motion: a shadow-module rebuild and one compositor restart) is a separate switch.
+`tools/build-ipk.sh` copies both files and lists them in REQUIRED_FILES.
+
+Verified offline, from the repo root:
+
+- `python3 -m unittest tests.test_maliit_patch` (22 on the census tree: the files named and no others, every colour a role of the palette, behaviour lines identical, no live shadow, every pair reads 4.5:1 (words) and 3:1 (ring, marks) in both materials, anchors missing or doubled fatal and all-or-nothing,
+  a colour or a role that LG adds or loses fatal, twice refused, palette and fonts checked; and 11 in the host: every scene loads clean stock and patched in both materials with the same count of LG's own warnings, Manrope in the sheet, the focus box lit and ringed and opaque and without a shadow layer, Search in the accent,
+  **the keys send what LG's send** (a letter, a shifted letter, Search, delete, Clear all, space, a symbol, the number pad: the same lines stock and patched), the shift mark, **no two runs of words overlap or are cut at 100 % and 200 % text, dark and light**, and every run reads 4.5:1 in the picture's own pixels).
+- `python3 -m unittest tests.test_maliit_stage` (15: stage keeps only the rewritten files, a refused patch leaves the last stage and restarts nothing, `on` unmounts then stages then mounts then restarts the one unit, only that unit is ever called and SAM never, an inactive unit is left inactive,
+  a unit that does not come back or a log line about a file that did not load rolls back and brings the unit up, LG's own warnings and lines from before the restart are not a failure, `off` restarts only after a mount, status, no QML directory, usage; `mount`, `umount`, `systemctl` are stand-in scripts),
+  `tests.test_lumatv_keys` (the verb, the flag, apply's boot re-mount, revert, dispatch, the verb never touching a unit itself), `tests.test_surfaces_registry` (`keys` is a registry row), `tests.test_package_tools`.
+- The host `tests/qmlhost/maliit.py` (`--scene letters|shift|symbols|numbers|numbers-symbols|candidates|candidates-focus|hid|focus-*`, `--patched`, `--light`, `--text 200`, `--audit`) runs LG's `view-global/main.qml` the way the plugin does, with stand-ins for `PluginProxy`, `Prediction`, `PmLog`, the luna `Service`
+  (the five calls `main.qml` makes), the `com.meego.maliit` enums and LG's language library; the library's absolute path and the `qrc:///images-2k/` pictures are redirected in the staged copy as text edits. Every time of a run counts from the moment the keyboard stands (the focus box has landed), not from the start, so a loaded machine cannot
+  move a key press before the keyboard is up. Qt is 5.15 on software GL: layout, colour and states, no timing.
+- Renders, dark and light, 100 % and 200 % text, 960x540, in `docs/research/lg-restyles/` (`09-lg-keys`, `-focus-search`, `-focus-shift`, `-symbols`, `-numbers`, `-candidates`, each with `-200` and `-light`), looked at against `docs/mocks/shots/09-search-keyboard.png` and `keyboard-own.png` (LG's, round 11):
+  `python3 tests/qmlhost/scenes.py --only 09-lg-keys,09-lg-keys-focus-search,09-lg-keys-focus-shift,09-lg-keys-symbols,09-lg-keys-numbers,09-lg-keys-candidates --out DIR --theme both` (and the `-200` names).
+
+## TV check, keyboard keys (not verified on the TV)
+
+One short slot, after "TV check, keyboard and search"; it needs Nitin's go like the keyboard switch's compositor restart (`keys on` restarts `maliit-server.service`, the keyboard's own process: no app, no SAM). Set on Home, receiver muted through Home Assistant, evidence to
+`docs/research/lg-restyles/tv/` (`log.txt` first, PASS/FAIL/INFO a line), `TOOL`, `APP`, `shot` and `kb` as in "TV check, overnight round". The keys are drawn by LG's compositor's keyboard view: `$TOOL compositor status` says which compositor is live; under LumaTV's own (maliit unrouted, phase 6)
+there is nothing to see and only steps 1, 2 and 8 apply. Renders to compare with: `09-lg-keys*` (960x540). Abort the slot, undoing the step in hand (`$TOOL keys off`), on a new `failed` unit in `systemctl --failed`, a new file in `/tmp/var/log/reports/librdx/` or a moved `aud_dsp_reset_count`.
+
+1. **Before.** All read-only. `$TOOL version` is the commit's; `ls $APP/tools/maliit.sh $APP/tools/maliit_patch.py` lists both; `$TOOL keys status` answers `"ok":true,"on":false` with `"mounted":false` and the unit's state; `systemctl is-active maliit-server.service`, `systemctl show -p MainPID maliit-server.service`
+   (keep the pid), `pidof MaliitServer`; `find /usr/lib/maliit/plugins/qml -name '*.qml' | wc -l` is 85 and `md5sum` of `keyboard-common/style/Style.qml` is `5dc6e9bbd84af0b846b0c0b16fb2b866`, of `view-global/main.qml` `5b52f8f4826d140611a201a9d506062e` (any other count or md5 is a
+   firmware change: stop and report). If the keyboard is up and the unit is not `active`, the server is not that unit: INFO `ps -ef | grep -i [m]aliit` and stop. LG's own look for comparison: launch the Search app (`luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.voice"}'`, PTY),
+   `kb OK` on the field, `shot keys-own` at 1 s (`keyboard-own.png` of round 11 is what to expect), `kb BACK` twice, Home.
+2. **On.** `$TOOL keys on` (PTY; about 8 s: the restart and five seconds of watching). PASS: `{"ok":true,"keys":"on","restarted":true,"unit":"active"}`; `grep ' overlay ' /proc/mounts` has `maliit ... /usr/lib/maliit/plugins/qml`; `find /var/lib/lumatv/maliit/upper -name '*.qml' | wc -l` is 38;
+   `systemctl show -p MainPID maliit-server.service` is a new pid; `grep MaliitServer /var/log/messages | tail -5` has a `root.foregroundAppId` line from after the restart (the patched `main.qml` is running) and none with `unavailable`, `is not a type` or `Syntax`; nothing new in `systemctl --failed`.
+   FAIL with `"ok":false`: the tool already took the mount away and brought the server up on LG's QML; copy `error` and the log lines, `$TOOL keys status` must say `"mounted":false`, stop. FAIL with `refused` in `/var/lib/lumatv/log` (an `anchor found 0 times` line): LG's QML differs from the census in that file; copy the line, stop (nothing was mounted or restarted).
+3. **The keys.** Search app, `kb OK` on the field, `shot keys-letters` at 1 s; record the seconds from the key to the first frame (INFO: the server was just restarted). PASS against `09-lg-keys.jpg`: an opaque dark panel (no LG grey-blue), four rows of rounded tiles in Manrope Medium, the function keys darker with a hairline,
+   **`g` lit with a white ring and no white box and no shadow under it**, Search in the accent with dark words (LG's is green). FAIL, LG's look after an `ok:true`: the keys are not read from that directory: INFO `strings $(find /usr/lib/maliit -name 'libplugin-global.so*' | head -1) | grep -E 'qrc:|plugins/qml|\.qml' | sort -u | head -30`
+   and `grep -c 'plugins/qml' /proc/$(pidof MaliitServer)/maps`; stop (then the keys are a compiled resource after all and a rebuild of it is Nitin's call).
+4. **Focus and keys.** The D-pad walks the focus as with LG's keys and `kb OK` types the letter into the field. `kb RIGHT` to the end of the row and `kb UP`: `shot keys-focus-search` (`09-lg-keys-focus-search.jpg`: the lit box with its ring over Search, the word in the ink). Shift: `kb DOWN`, `kb LEFT` x 5 from `g`, `kb OK`,
+   `shot keys-shift`: capitals, and the mark in the key's corner is the accent. `$%^` (`kb LEFT` x 5 from `g`, `kb OK`): the symbol grid and the key reads `ABC` (`09-lg-keys-symbols.jpg`). Delete, the space bar, Clear all and Search do what they did. PASS: every key as with LG's look.
+5. **Candidates and the number pad.** Two letters in the Search field: the candidate row above the keys (`09-lg-keys-candidates.jpg`) if LG's prediction offers words, INFO if it does not. A number field (LG Settings, Network, an IP address field [INFERENCE]; skip after two minutes): `shot keys-numbers` (`09-lg-keys-numbers.jpg`).
+6. **Cost.** `$TOOL fps on` before step 3 and `$TOOL fps off` after: `grep -c FPSJANK /var/log/messages` before and after. INFO only (the focus box lost its shadow layer).
+7. **Off.** `$TOOL keys off` (PTY): `"keys":"off","restarted":true`; the overlay is gone from `/proc/mounts`; the next open of the keyboard is LG's (`shot keys-own-again` equals `keys-own`); `$TOOL surfaces` has `"id":"keys","on":false`; a second `keys off` says `"restarted":false`.
+   Leave it as found (off) unless Nitin wants the keys: `keys on` survives a reboot (`apply` mounts again).
+8. **Boot** (only with Nitin's OK for a restart, after the steps above, with `keys on` kept): after the restart `$TOOL keys status` has `"on":true,"mounted":true` within a minute and the first keyboard shows the Lucent keys. INFO whether `maliit-server` was started before the mount
+   (the first open LG's, then Lucent once `apply`'s `keys on` has restarted it): `apply` runs `keys on` at boot only while the overlay is not there.
+9. **End.** Home in front, `$TOOL keys status`, `$TOOL surfaces` in the log, the receiver as found.
+
+Offline checks that back the steps: `python3 -m unittest tests.test_maliit_patch tests.test_maliit_stage tests.test_lumatv_keys tests.test_package_tools tests.test_surfaces_registry`.
+
 ## Not done
 
-- maliit's keys: no source ("Resume here").
+- maliit's dictation card (`view-stt`) and the screens that only the Chinese and Japanese plugins draw (their stroke and kana layouts): those two plugins take the shared style sheets' colours, faces and focus, and nothing else is restyled in them.
 - LG's voice bar (`VoiceAgent`): its source is on disk, but it cannot open while `lean` is on and LumaHome holds the mic key; the plan's one arc in place of the 485-frame animation is
   not built (SURFACES.md row 183).
 - Live TV screens that cannot appear on this set (Teletext, CI, EWS, DVR, LG Channels, region popups) keep LG's look apart from the shared fonts and colours (SURFACES.md rows 167-173).

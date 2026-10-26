@@ -34,6 +34,9 @@
 #   voice on|off|status    -> LG's Search app (com.webos.app.voice) in the Lucent look: a patched copy of its QML mounted over
 #                            LG's (tools/voice.sh), and the app's resident process ended so that the next open reads it; off by default,
 #                            re-mounted by apply at every boot while on
+#   keys on|off|status     -> LG's on-screen keyboard keys (maliit) in the Lucent look: a patched copy of its QML mounted over LG's
+#                            (tools/maliit.sh) and the keyboard's server (maliit-server.service) restarted so that it reads it; off by
+#                            default, re-mounted by apply at every boot while on
 #   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
 #                            off by default; a change is one rebuild and, under LG's compositor, one restart
 #   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
@@ -213,6 +216,10 @@ INPUTCOMMON_ON="$STATE/.inputcommon-on"
 # LG's Search app (com.webos.app.voice): the same overlay mount, by tools/voice.sh (it runs tools/inputcommon.sh for the other tree).
 VOICE_TOOL="$APPDIR/tools/voice.sh"
 VOICE_ON="$STATE/.voice-on"
+# LG's on-screen keyboard keys (maliit, MaliitServer): the same overlay mount, by tools/maliit.sh, and a restart of maliit-server.service
+# (the one unit LG's lsm-ready.service restarts itself) so that the server reads the mounted QML; it never touches SAM.
+KEYS_TOOL="$APPDIR/tools/maliit.sh"
+KEYS_ON="$STATE/.keys-on"
 # The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
 # views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one. Off by
 # default like every other restyle of an LG process: `keyboard on` leaves the flag that build_shadow reads and the rebuild makes the patch.
@@ -1101,6 +1108,42 @@ verb_voice() {
   return 0
 }
 
+keys_mounted() {
+  # As inputcommon_mounted: apply leaves a mounted overlay alone, `keys on` is what restarts the server.
+  sh "$KEYS_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
+}
+
+keys_set() {
+  # $1 = on|off, one JSON object in $ks_out; what is in force stays when it cannot stage or mount, and a server that does not come back
+  # on the patched keys (or logs a file of them it could not load) is put back on LG's by the tool, which then answers ok:false.
+  ks_out=$(sh "$KEYS_TOOL" "$1" < /dev/null 2>>"$LOGFILE"); ks_rc=$?
+  log_line "keys $1: $(printf '%s' "$ks_out" | cut -c1-200)"
+  [ "$ks_rc" -eq 0 ] && printf '%s' "$ks_out" | grep -q '"ok":true'
+}
+
+verb_keys() {
+  case "${1:-status}" in
+    on|off)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if keys_set "$1"; then
+        if [ "$1" = on ]; then : > "$KEYS_ON"; else rm -f "$KEYS_ON"; fi
+        printf '%s\n' "$ks_out"
+      else
+        case "$ks_out" in '{'*'"ok":false'*) printf '%s\n' "$ks_out" ;; *) emit_error "tools/maliit.sh did not answer" ;; esac
+        return 1
+      fi ;;
+    status)
+      ks_out=$(sh "$KEYS_TOOL" status < /dev/null 2>>"$LOGFILE")
+      ks_now=false; [ -f "$KEYS_ON" ] && ks_now=true
+      case "$ks_out" in
+        '{"ok":true,'*) ks_rest=${ks_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$ks_now" "$ks_rest" ;;
+        *) emit_error "tools/maliit.sh did not answer"; return 1 ;;
+      esac ;;
+    *) emit_error "usage: keys on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
 keyboard_patched() {
   # Whether the shadow module's copy of LG's keyboard view carries the patch (true or false).
   if grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishKeyboardView.qml" 2>/dev/null; then printf true; else printf false; fi
@@ -1110,7 +1153,7 @@ verb_keyboard() {
   # The on-screen keyboard's window in the theme's layer motion (tools/keyboard_patch.py). The patch is made when the shadow module is
   # built, so a change of the switch is a rebuild: apply does it, once, and restarts LG's compositor if that is the live one. A set that
   # was never applied has no module yet: the flag is all there is to change and the first apply reads it. The keys themselves
-  # (maliit's) are not restyled yet (docs/research/lg-restyles-result.md).
+  # (maliit's, in another process) are `keys on|off`, a switch of their own: no rebuild and no compositor restart.
   case "${1:-status}" in
     on|off)
       kb_was=off; [ -f "$KEYBOARD_ON" ] && kb_was=on
@@ -2311,6 +2354,7 @@ do_revert_internal() {
   rm -f "$KEYBOARD_ON"
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
   [ -f "$VOICE_ON" ] && { voice_set off; rm -f "$VOICE_ON"; }
+  [ -f "$KEYS_ON" ] && { keys_set off; rm -f "$KEYS_ON"; }
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
   remove_early_hook
@@ -2464,6 +2508,7 @@ verb_apply() {
   [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_mounted || inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
   [ -f "$VOICE_ON" ] && { voice_mounted || voice_set on || log_line "apply: could not mount the patched Search app over LG's"; }
+  [ -f "$KEYS_ON" ] && { keys_mounted || keys_set on || log_line "apply: could not mount the patched keyboard keys over LG's"; }
 
   # What the compositor reads (QML, wallpaper) is tracked apart from the rest
   # of the set: a running compositor that already has the shadow only needs a
@@ -2845,6 +2890,7 @@ surfaces_json() {
   printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
   printf '{"id":"inputcommon","on":%s,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s input banners return"},' "$(b test -f "$INPUTCOMMON_ON")"
   printf '{"id":"voice","on":%s,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Search app returns"},' "$(b test -f "$VOICE_ON")"
+  printf '{"id":"keys","on":%s,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG'"'"'s keys return"},' "$(b test -f "$KEYS_ON")"
   printf '{"id":"keyboard","on":%s,"fallback":"`keyboard off` rebuilds the shadow module with LG'"'"'s own keyboard view; revert drops the module"},' "$(b test -f "$KEYBOARD_ON")"
   printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
   printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
@@ -3289,7 +3335,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|keyboard|voice|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|keyboard|voice|keys|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -3379,6 +3425,7 @@ case "$VERB" in
   webglass) verb_webglass "${2:-status}"; exit $? ;;
   inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
   voice) verb_voice "${2:-status}"; exit $? ;;
+  keys) verb_keys "${2:-status}"; exit $? ;;
   keyboard) verb_keyboard "${2:-status}"; exit $? ;;
   homestub) verb_homestub "${2:-status}"; exit $? ;;
   homestub-boot) verb_homestub_boot; exit $? ;;
