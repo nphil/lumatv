@@ -86,6 +86,7 @@ helper/dist/lumatv-helper
 ambient/capture/build/arm/lumatv-capture
 payload/capture/capture.sh
 payload/capture/role.json
+jpeg/build/arm/lumatv-jpeg
 tools/cardapp.sh
 card/appinfo.json
 card/splash.png
@@ -133,6 +134,12 @@ if [ -n "$MISSING" ]; then
         *ambient/capture/build/arm/lumatv-capture*)
             # Git-ignored like the helper; without it the ambient light would have no picture and say nothing.
             echo "The 32-bit colour reader is built by ambient/capture/build.sh; this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *jpeg/build/arm/lumatv-jpeg*)
+            # Git-ignored like the helper; without it pictures are decoded by the shell, which works, but the hardware block idles.
+            echo "The 32-bit picture decoder is built by jpeg/build.sh; this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -263,6 +270,10 @@ chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"
 mkdir -p "$DATA_ROOT/payload/capture"
 cp ambient/capture/build/arm/lumatv-capture payload/capture/capture.sh payload/capture/role.json "$DATA_ROOT/payload/capture/"
 chmod 755 "$DATA_ROOT/payload/capture/lumatv-capture" "$DATA_ROOT/payload/capture/capture.sh"
+# The picture decoder over LG's hardware JPEG block (32-bit, like LG's library); `lumatv` stages it beside the helper.
+mkdir -p "$DATA_ROOT/payload/jpeg"
+cp jpeg/build/arm/lumatv-jpeg "$DATA_ROOT/payload/jpeg/"
+chmod 755 "$DATA_ROOT/payload/jpeg/lumatv-jpeg"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"

@@ -188,6 +188,7 @@ impl Service {
             plugins,
             ambient,
             voice,
+            images: Arc::new(crate::images::Images::new(&config, &paths)),
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,

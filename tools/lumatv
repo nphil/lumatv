@@ -127,6 +127,9 @@ CAPTURE_SH="$APPDIR/payload/capture/capture.sh"
 CAPTURE_SRC="$APPDIR/payload/capture/lumatv-capture"
 CAPTURE_ROLE="$APPDIR/payload/capture/role.json"
 CAPTURE_SOCKET="$STATE/ambient.sock"
+# The picture decoder (jpeg/service.c), started by the helper from $JPEG_BIN, where `jpeg_stage` puts it.
+JPEG_SRC="$APPDIR/payload/jpeg/lumatv-jpeg"
+JPEG_BIN="$STATE/bin/lumatv-jpeg"
 
 # Quick Settings, drawn by the compositor from a QML tree in /usr that configd
 # names per app id. The stock tree is copied to /var once, our replacement
@@ -1865,6 +1868,18 @@ NODE=/usr/bin/node
 
 # ------------------------------------------------------------------- helper
 
+# The picture decoder (jpeg/service.c): a 32-bit program over LG's hardware JPEG block that the helper starts when a picture is
+# wanted and that ends by itself when it is not. Staged beside the helper, which looks for it there. Not fatal: without it the
+# helper serves pictures as the files they are and the shell decodes them.
+jpeg_stage() {
+  [ -x "$JPEG_SRC" ] || return 0   # a package built before it existed
+  cmp -s "$JPEG_SRC" "$JPEG_BIN" 2>/dev/null && return 0
+  mkdir -p "$STATE/bin" 2>/dev/null \
+    && cp -f "$JPEG_SRC" "$JPEG_BIN.new" 2>/dev/null && chmod 755 "$JPEG_BIN.new" \
+    && mv -f "$JPEG_BIN.new" "$JPEG_BIN" 2>/dev/null \
+    || { rm -f "$JPEG_BIN.new"; log_line "jpeg: could not stage the decoder"; return 1; }
+}
+
 helper_start() {
   # Idempotent. Needs $STATE writable (the boot worker and apply run after /var is). A failure is
   # logged and never fatal: Home draws the last saved weather and news without it.
@@ -1876,6 +1891,7 @@ helper_start() {
       && mv -f "$HELPER_BIN.new" "$HELPER_BIN" 2>/dev/null \
       || { rm -f "$HELPER_BIN.new"; log_line "helper: could not stage the binary"; return 1; }
   fi
+  jpeg_stage || true
   out=$("$HELPER_BIN" start --brand "$APPDIR/brand.json" 2>&1)
   case "$out" in
     *'"ok":true'*) return 0 ;;
@@ -1998,6 +2014,7 @@ do_revert_internal() {
 
   helper_stop
   capture_remove
+  rm -f "$JPEG_BIN" "$JPEG_BIN.new"   # the picture decoder: the helper that started it is stopped, so it has ended
   comp_release
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
 

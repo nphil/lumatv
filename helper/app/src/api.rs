@@ -127,6 +127,8 @@ pub struct Api {
     pub ambient: Arc<crate::ambient::Ambient>,
     /// Voice search: the mic key's words as text, through Home Assistant's Assist pipeline (`/v1/voice/...`).
     pub voice: Arc<crate::voice::Voice>,
+    /// Pictures for the shell, decoded off the CPU where the TV can (`/v1/image`, `/v1/images`).
+    pub images: Arc<crate::images::Images>,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -304,6 +306,7 @@ impl Api {
             .chain(crate::ai::routes::ROUTES.iter())
             .chain(crate::plugins::routes::ROUTES.iter())
             .chain(crate::voice::ROUTES.iter())
+            .chain(crate::images::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -503,6 +506,8 @@ impl Handler for Api {
                 crate::plugins::routes::handle(&self.plugins, request, rest)
             }
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
+            ["v1", "image", root, file] if get => self.images.serve(request, root, file),
+            ["v1", "images"] if get => self.ok(self.images.status()),
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -530,7 +535,9 @@ fn is_known_path(segments: &[&str]) -> bool {
                     | "news"
                     | "device"
                     | "ambient"
+                    | "images"
             ]
+            | ["v1", "image", _, _]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
             | ["v1", "ambient", "test" | "context" | "refresh"]
@@ -583,6 +590,7 @@ mod tests {
                 plugins: crate::plugins::Plugins::new(&ctx),
                 ambient: crate::ambient::Ambient::new(&ctx),
                 voice: crate::voice::Voice::new(&ctx),
+                images: Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -661,6 +669,7 @@ mod tests {
                 + crate::ai::routes::ROUTES.len()
                 + crate::plugins::routes::ROUTES.len()
                 + crate::voice::ROUTES.len()
+                + crate::images::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);
@@ -705,6 +714,43 @@ mod tests {
         assert_eq!(b["device"]["input"][0], "remote");
         let r = rig.api.handle(&request("POST", "/v1/device", ""));
         assert_eq!(r.status, 405);
+    }
+
+    #[test]
+    fn the_image_routes_are_listed_and_answer_through_the_router() {
+        let rig = rig();
+        let listed = body(&rig.api.handle(&request("GET", "/v1", "")));
+        let paths: Vec<&str> = listed["endpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e["path"].as_str())
+            .collect();
+        assert!(paths.contains(&"/v1/image/{root}/{file}") && paths.contains(&"/v1/images"));
+        let status = body(&rig.api.handle(&request("GET", "/v1/images", "")));
+        assert_eq!(status["images"]["enabled"], true);
+        assert_eq!(
+            status["images"]["roots"]["images"],
+            rig._dir.path().join("images").display().to_string()
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request("GET", "/v1/image/images/none.jpg", ""))
+                .status,
+            404
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request("POST", "/v1/image/images/none.jpg", ""))
+                .status,
+            405
+        );
+        assert_eq!(
+            rig.api
+                .handle(&request("GET", "/v1/image/images", ""))
+                .status,
+            404
+        );
     }
 
     #[test]

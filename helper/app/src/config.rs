@@ -94,6 +94,8 @@ pub struct Config {
     pub ambient: AmbientConfig,
     /// Voice search (`voice.rs`): where the microphone's audio comes from. Which Home Assistant it goes to is the saved link, not here.
     pub voice: VoiceConfig,
+    /// Pictures decoded for the shell (`images.rs`): which folders it may ask for, and the decoder that does the work.
+    pub images: ImagesConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -105,6 +107,9 @@ pub struct Config {
     /// assistant must never be able to open.
     #[serde(skip)]
     pub brand_app_id: Option<String>,
+    /// The brand's QML module (from `brand.json`, set by the command line): where the packaged `art` folder is.
+    #[serde(skip)]
+    pub brand_qml_module: Option<String>,
 }
 
 impl Default for Config {
@@ -121,9 +126,43 @@ impl Default for Config {
             device: DeviceConfig::default(),
             ambient: AmbientConfig::default(),
             voice: VoiceConfig::default(),
+            images: ImagesConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
+            brand_qml_module: None,
+        }
+    }
+}
+
+/// Pictures for the shell. The shell asks `/v1/image/{root}/{file}` and never names a path: a root is a folder the owner's config
+/// (or the package) names, a file is a name directly inside it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct ImagesConfig {
+    /// Off: every picture is served as the file it is, and the shell decodes it.
+    pub enabled: bool,
+    /// The 32-bit decoder (`jpeg/service.c`, over LG's hardware JPEG block, with libjpeg as its own fallback). Empty: `bin/lumatv-jpeg`
+    /// in the data dir, where `lumatv` stages it.
+    pub decoder: String,
+    /// Extra arguments for the decoder: the hardware buffer's row and plane alignment (`-A 64 -B 16`) and the colour range (`-L`)
+    /// as the TV slot finds them (`docs/research/hwjpeg-result.md`).
+    pub decoder_args: Vec<String>,
+    /// Folders by name, each an absolute path, added to the two the helper knows (`images`, the data dir's `images/`, and `art`,
+    /// the package's paintings).
+    pub roots: std::collections::BTreeMap<String, String>,
+    /// The most pixels of one decoded picture (after the scaled decode); a larger one is served as the file.
+    pub max_pixels: u32,
+}
+
+impl Default for ImagesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            decoder: String::new(),
+            decoder_args: Vec::new(),
+            roots: std::collections::BTreeMap::new(),
+            max_pixels: 16 * 1024 * 1024,
         }
     }
 }
@@ -667,6 +706,30 @@ impl Config {
         if !(1..=120).contains(&self.voice.max_seconds) || self.voice.tail_ms > 5_000 {
             return err("voice.maxSeconds is 1 to 120 and voice.tailMs at most 5000");
         }
+        let images = &self.images;
+        if !images.decoder.is_empty() && !images.decoder.starts_with('/') {
+            return err("images.decoder must be an absolute path");
+        }
+        if images.decoder_args.len() > 12
+            || images
+                .decoder_args
+                .iter()
+                .any(|a| a.is_empty() || a.contains('\0'))
+        {
+            return err("images.decoderArgs is at most 12 arguments, none empty or holding a NUL");
+        }
+        if images.roots.len() > 16
+            || images.roots.iter().any(|(name, dir)| {
+                !crate::images::root_name_ok(name) || !dir.starts_with('/') || dir.contains('\0')
+            })
+        {
+            return err(
+                "images.roots is at most 16 folders: a lowercase name (letters, digits, dashes) and an absolute path each",
+            );
+        }
+        if !(1..=64 * 1024 * 1024).contains(&images.max_pixels) {
+            return err("images.maxPixels is 1 to 67108864");
+        }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");
         }
@@ -716,6 +779,18 @@ pub fn app_id_from_brand(brand_json: &str) -> Option<String> {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-'))
     .then(|| id.to_owned())
+}
+
+/// The QML module from a `brand.json` (`qmlModule`), by the tool's own rule: lowercase letters and digits. `None` when it is missing
+/// or not of that shape.
+pub fn qml_module_from_brand(brand_json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(brand_json).ok()?;
+    let name = value.get("qmlModule")?.as_str()?;
+    (!name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+    .then(|| name.to_owned())
 }
 
 /// The first CA bundle that exists, as the config or the usual places give it.

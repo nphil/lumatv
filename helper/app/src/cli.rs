@@ -137,12 +137,14 @@ fn usage() -> Value {
 /// The data dir and the config for this invocation.
 fn resolve(args: &Args) -> Result<(Paths, Config), String> {
     let mut brand_app_id = None;
+    let mut brand_qml_module = None;
     let data_dir = match (&args.data_dir, &args.brand) {
         (Some(dir), _) => dir.clone(),
         (None, Some(brand)) => {
             let text =
                 std::fs::read_to_string(brand).map_err(|e| format!("{}: {e}", brand.display()))?;
             brand_app_id = crate::config::app_id_from_brand(&text);
+            brand_qml_module = crate::config::qml_module_from_brand(&text);
             data_dir_from_brand(&text).map_err(|e| e.to_string())?
         }
         (None, None) => return Err("give --brand <brand.json> or --data-dir <dir>".to_owned()),
@@ -150,6 +152,7 @@ fn resolve(args: &Args) -> Result<(Paths, Config), String> {
     let paths = Paths::new(data_dir);
     let mut config = Config::load(&paths.config_file()).map_err(|e| e.to_string())?;
     config.brand_app_id = brand_app_id;
+    config.brand_qml_module = brand_qml_module;
     Ok((paths, config))
 }
 

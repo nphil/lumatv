@@ -691,14 +691,22 @@ fn write_response(
     // A 204 never has a body. A 202 without one (an MCP notification's acknowledgement) has no content type either; a 202 with
     // one (a loopback API answer that says "waiting for the remote") is sent as it is.
     let empty = response.status == 204 || (response.status == 202 && response.body.is_empty());
-    if !empty {
+    // A picture names its own type and may name its own caching; everything else is JSON, never cached.
+    let named = |name: &str| {
+        response
+            .headers
+            .iter()
+            .any(|(n, _)| n.eq_ignore_ascii_case(name))
+    };
+    if !empty && !named("Content-Type") {
         head.push_str("Content-Type: application/json; charset=utf-8\r\n");
     }
     let body: &[u8] = if empty { &[] } else { &response.body };
     head.push_str(&format!("Content-Length: {}\r\n", body.len()));
-    head.push_str(
-        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n",
-    );
+    if !named("Cache-Control") {
+        head.push_str("Cache-Control: no-store\r\n");
+    }
+    head.push_str("X-Content-Type-Options: nosniff\r\nConnection: close\r\n");
     for (name, value) in &response.headers {
         // Header values come from our own code; keep a stray line break from ever splitting a response.
         let value: String = value.chars().filter(|c| !c.is_control()).collect();
