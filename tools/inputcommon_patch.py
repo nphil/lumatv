@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Patches a staged copy of `com.webos.app.inputcommon`'s QML (the HDMI input pill, the OK banner with its options
-button, the INFO detail card and the software-update bar) into the Luma look and removes what costs a frame.
+button, the INFO detail card and the software-update bar; Live TV's channel banner and INFO card; the no-signal screen; the
+banner position editor; the prompts) into the Luma look and removes what costs a frame.
 
 inputcommon is one native process per input (`hdmi1`-`hdmi4`, Live TV, ...) that draws every banner over the video from
 a tree of QML; the banner list, its focus and key handling, the luna calls behind the options button and the audio
@@ -23,9 +24,13 @@ guide are LG's and stay as they are (docs/research/lg-restyles-result.md). What 
   * The update bar (and every progress bar the sheet draws) has a light track and an accent fill.
   * The detail card is a sheet of its own width and height with the palette's sheet radius and a hairline, its chips
     are lifted tiles (the palette's hairline wash) with ink text.
-  * The shared style (info banner colours, chips, the clock, the option bar) moves with the input banners; the channel
-    banner draws from the same sheet and gets the colours and the face, while its LG background pictures and layout are
-    left to its own restyle.
+  * The channel banner (Live TV) is drawn the same way as the pill: sheet, hairline, lit inset on focus, 64 px off the edge; its
+    number, name and programme are smaller and grow the strip with the type; its INFO card keeps LG's layout on the sheet.
+  * The no-signal screen keeps LG's block that hops against burn-in and drops its animation; its words are dim ink over black
+    (the palette's light colour on any theme), or sit in a sheet when LG's photo setting is on. The banner position editor is four
+    of the pill; the prompts are a sheet with rows for buttons.
+  * The shared style (info banner colours, chips, the clock, the option bar) moves with all of them. Type-dependent geometry
+    (the strip's height, the INFO cards') is derived from the font sizes, so a larger type never makes words meet.
 
 Every edit is anchored to an exact fragment of LG's source and must find it exactly as many times as it expects: a
 missing or doubled anchor is fatal, because a half-patched banner is worse than an unpatched one, and a firmware update
