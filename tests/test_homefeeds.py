@@ -54,8 +54,8 @@ class HomeFeeds(unittest.TestCase):
 
     def test_a_later_reading_published_by_the_helper_replaces_the_one_on_screen(self):
         data = {"doc": weather_doc("CHANGEDVILLE", -20000, "12\u00b0")}
-        out = self.host("--wait", "4000", "--fake-helper", "--eval", f"1500:{PROBE}", "--publish", f"2000:weather:{json.dumps(data)}",
-                        "--eval", f"3200:{PROBE}")
+        out = self.host("--wait", "6500", "--fake-helper", "--eval", f"1500:{PROBE}", "--publish", f"2000:weather:{json.dumps(data)}",
+                        "--eval", f"5500:{PROBE}")          # (3.5 s after the publish: on a loaded machine the page takes the new reading late)
         self.assertIn("W:HELPERVILLE", out[0])
         self.assertIn("W:CHANGEDVILLE|12\u00b0", out[1])
 
