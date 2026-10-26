@@ -31,6 +31,14 @@
 // any app or nothing (theme `remote.appKeys`, read by LumaHome). While LumaHome answers, the TV is on and nothing of LG's is on top of the
 // app, LumaHome says whether it took the key; if it did, the press, its repeats and its release end here, and if not (the key is
 // LG's default and that app is installed) LG's chain handles it as it always did.
+//
+// LumaTV's quick panel and input picker take the gear's tap and the Input key over LG's Quick Settings and input picker, on Home and over
+// an app (`handleLumaQuick`, the second entry of this file in configd's list, placed just before LG's own `handleHotkeys`, the handler
+// that opens those windows). By then everything earlier in the chain has had its say: LG's long-press replay of a tap has come back round
+// to it, the three-tap AV reset has counted it, a hold this file took never gets there, and the key blocks and the screensaver's wake have
+// run. It takes a key only where LG would have opened its window and something of ours can show the panel now; the gear is acted on at
+// the release and the Input key at the press, as LG's are, and a second press closes the panel or goes to the next input. Anything else
+// (the layer not answering, LG's own window on top, the first-use setup, a panel still being built) is LG's, whose window opens as it did.
 
 var bridge = null;
 var taken = {};          // key code -> "home", "overlay" or "appkey" while that holds the key's press
@@ -41,6 +49,8 @@ var GEAR_KEY = null;     // WebOS.Key_webOS_Settings, read at init: a scope with
 var GEAR_WATCH_MS = 30000; // a release that never arrives must not hold the gear's state for good (a hold without repeat events is not cut short either)
 var gear = { down: false, fired: false, hold: -1, watch: -1, option: false };
 var APP_KEYS = {};       // key code -> "netflix" | "amazon" | "disneyplus" | "lgchannels", read at init
+var INPUT_KEYS = {};     // key code -> true: Key_webOS_InputSource and Key_webOS_LocalInputSource, read at init
+var late = {};           // key code -> "quick" | "picker" while handleLumaQuick holds that key's press
 
 function fault(where, e) {
     // one line per 5 s: a handler that throws on every key repeat must not flood the log
@@ -75,6 +85,8 @@ function init() {
                 GEAR_KEY = typeof webos.Key_webOS_Settings === "number" ? webos.Key_webOS_Settings : null;
                 var names = { netflix: "Key_webOS_Netflix", amazon: "Key_webOS_Amazon", disneyplus: "Key_webOS_Disneyplus", lgchannels: "Key_webOS_LGChannels" };
                 for (var id in names) if (typeof webos[names[id]] === "number") APP_KEYS[webos[names[id]]] = id;
+                if (typeof webos.Key_webOS_InputSource === "number") INPUT_KEYS[webos.Key_webOS_InputSource] = true;
+                if (typeof webos.Key_webOS_LocalInputSource === "number") INPUT_KEYS[webos.Key_webOS_LocalInputSource] = true;
             }
             console.info("[LumaKeys] bridge ready");
         } else {
@@ -253,6 +265,62 @@ function handleLumaHome(key, pressed, autoRepeat, deviceId) {
         return KeyPolicy.NextPolicy;
     } catch (e) {
         fault("the filter", e);
+        return KeyPolicy.NextPolicy;
+    }
+}
+
+// ---- LumaTV's quick panel and input picker (the second entry)
+
+function panelKind(key) {
+    if (GEAR_KEY !== null && key === GEAR_KEY) return "quick";
+    if (INPUT_KEYS[key] === true) return "picker";
+    return "";
+}
+
+// LG's own conditions for opening these windows (KeyFilters/appLaunch.js, handleHotkeys): launches allowed, not the first-use setup, and
+// the input picker is not opened over the partial view. A condition this scope cannot read throws, which leaves the key to LG.
+function lgWouldOpen(kind) {
+    if (access.keyAction.launchApp !== true) return false;
+    if (bootManager.bootFirstUse === true && systemPropertyService.powerOnlyMode !== true) return false;
+    if (kind === "picker" && global.isForegroundApp("com.webos.app.partialview")) return false;
+    return true;
+}
+
+// The TV is on, Home or an app has the screen and the keys (no LG overlay, popup or alert on top), the layer answers and has the panel built.
+function panelWanted(kind) {
+    if (global.powerState !== "active") return false;
+    if (!homeInFront() && !appInFront()) return false;
+    return lgWouldOpen(kind) && bridge.answering() && bridge.panelReady(kind);
+}
+
+// true: the event ends here.
+function panelKey(key, kind, pressed, autoRepeat) {
+    if (pressed) {
+        // a repeat follows its press, and a key that was never ours has nothing to hold
+        if (autoRepeat) return late[key] === kind;
+        delete late[key];
+        if (!panelWanted(kind)) return false;
+        // the Input key acts on the press, as LG's does; the gear on its release
+        if (kind === "picker" && !bridge.panel(kind)) return false;
+        late[key] = kind;
+        return true;
+    }
+    if (late[key] !== kind) return false;
+    delete late[key];
+    if (kind === "picker") return true;
+    // the press was ours; if the panel cannot open after all, LG sees the release and opens its window
+    return bridge.panel(kind) === true;
+}
+
+function handleLumaQuick(key, pressed, autoRepeat, deviceId) {
+    try {
+        if (!bridge) return KeyPolicy.NextPolicy;
+        var kind = panelKind(key);
+        if (kind === "") return KeyPolicy.NextPolicy;
+        return panelKey(key, kind, pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+    } catch (e) {
+        delete late[key];
+        fault("the quick panel key", e);
         return KeyPolicy.NextPolicy;
     }
 }

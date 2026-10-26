@@ -13,13 +13,18 @@ const KeyPolicy = { Accepted: 1, NextPolicy: 2, NotAccepted: 3 };
 const OK = 0x01000005, RIGHT = 0x01000014, HOME = 0x01000022;
 const GEAR = 0x01000070, OPTION = 0x01000100;
 const NETFLIX = 0x01000071, AMAZON = 0x01000072, DISNEY = 0x01000073, LGCH = 0x01000074;
-const WEBOS = { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX, Key_webOS_Amazon: AMAZON, Key_webOS_Disneyplus: DISNEY, Key_webOS_LGChannels: LGCH };
+const INPUT = 0x01000075, LOCAL_INPUT = 0x01000076;
+const WEBOS = { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX, Key_webOS_Amazon: AMAZON, Key_webOS_Disneyplus: DISNEY, Key_webOS_LGChannels: LGCH,
+                Key_webOS_InputSource: INPUT, Key_webOS_LocalInputSource: LOCAL_INPUT };
 
 let calls, front, bridgeAnswers, warnings, now, answering;
 // The gear and the overlay: what the bridge says, the timers the filter asked LG's `genericTimer` for (advanced by hand) and what it did to LG's long press.
 let gearReady, gearOpens, overlayWanted, overlayTakes, timers, nextTimer, lgCalls, timerBroken;
 // The remote's app keys: whether the TV is on and what LumaHome says to a key; what the filter sent through LG's key filters' luna client
 let power, appKeyTakes, lunaSent;
+// The quick panel and the input picker (the filter's second entry): whether the bridge can show one, what it answers to the key, and LG's own
+// conditions for opening its windows (what `access`, `bootManager` and the foreground app say).
+let panelReady, panelOpens, lgLaunchAllowed, firstUse, partialView;
 
 function advance(ms) {
   const end = now + ms;
@@ -48,6 +53,8 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
     gearReady() { return gearReady; },
     gearHold() { calls.push(["gearHold"]); return gearOpens; },
     appKey(id, frontApp) { calls.push(["appKey", id, frontApp]); return appKeyTakes(id, frontApp); },
+    panelReady(kind) { return panelReady(kind); },
+    panel(kind) { calls.push(["panel", kind]); return panelOpens(kind); },
   } : bridge;
   const genericTimer = {
     set(ms, fn) { if (timerBroken) return -1; const id = ++nextTimer; timers.push({ id, at: now + ms, fn }); return id; },
@@ -56,7 +63,10 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
   };
   const env = {
     Qt, KeyPolicy, Component: { Ready: 1 },
-    global: { get activeSurfaceAppId() { return front.app; }, get powerState() { return power; } },
+    global: { get activeSurfaceAppId() { return front.app; }, get powerState() { return power; }, isForegroundApp: (id) => partialView && id === "com.webos.app.partialview" },
+    access: { keyAction: { get launchApp() { return lgLaunchAllowed; } } },
+    bootManager: { get bootFirstUse() { return firstUse; } },
+    systemPropertyService: { powerOnlyMode: false },
     fullscreenView: { get activeFocus() { return front.focus; } },
     longPressTimer: { setBlockCancel(v) { lgCalls.push(["block", v]); }, cancel() { lgCalls.push(["cancel"]); }, setDeviceId(d) { lgCalls.push(["device", d]); } },
     lunaCall: { send(...a) { lunaSent.push(a); } },
@@ -65,7 +75,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
     genericTimer,
   };
   if (webos) env.WebOS = webos;
-  const f = new Function(...Object.keys(env), SRC + "\nreturn { init, handleLumaHome };");
+  const f = new Function(...Object.keys(env), SRC + "\nreturn { init, handleLumaHome, handleLumaQuick };");
   const filter = f(...Object.values(env));
   filter.init();
   filter.theBridge = theBridge;
@@ -90,6 +100,11 @@ beforeEach(() => {
   power = "active";
   appKeyTakes = () => true;
   lunaSent = [];
+  panelReady = () => true;
+  panelOpens = () => true;
+  lgLaunchAllowed = true;
+  firstUse = false;
+  partialView = false;
 });
 
 test("a press LumaHome takes ends there, and so does its release", () => {
@@ -623,4 +638,165 @@ test("the filter gives the bridge LG's key filters' own luna client to open syst
     ["com.webos.service.systemUIManager", "/launch", '{"appId":"com.webos.app.quicksettings"}'],
     ["com.webos.service.systemUIManager", "/launch", '{"appId":"com.webos.app.quickinputpicker","params":{"page":"picture"}}'],
   ]);
+});
+
+// ---- LumaTV's quick panel and input picker in place of LG's (the second entry, handleLumaQuick)
+//
+// A tap on the remote's gear reaches the chain as a press LG's long-press handler swallows and a release it answers with a replay of both
+// (preProcess.js). Each event goes down the whole chain, so the first entry (handleLumaHome) sees all four and the second (handleLumaQuick,
+// just before LG's handleHotkeys) the replayed pair only. `tapGear` walks the chain the way LG's does for an RCU remote.
+
+// LumaHome's key handler declines the gear and the Input keys (they reach LG's chain), as it does for any key it has no use for.
+const homeDeclines = (key) => key !== GEAR && key !== INPUT && key !== LOCAL_INPUT;
+
+function tapGear(f, deviceId = 1) {
+  bridgeAnswers = homeDeclines;
+  const seen = [];
+  // the physical press and release: the first entry only; LG's long press takes them
+  seen.push(f.handleLumaHome(GEAR, true, false, deviceId), f.handleLumaHome(GEAR, false, false, deviceId));
+  // the replay, through the whole chain
+  const replay = [];
+  for (const pressed of [true, false]) {
+    const first = f.handleLumaHome(GEAR, pressed, false, deviceId);
+    replay.push(first === KeyPolicy.NextPolicy ? f.handleLumaQuick(GEAR, pressed, false, deviceId) : first);
+  }
+  return { physical: seen, replay };
+}
+
+test("a gear tap is LumaTV's quick panel: it opens at the release of LG's replay, and LG's Quick Settings never sees the pair", () => {
+  const f = makeFilter();
+  const r = tapGear(f);
+  expect(r.physical).toEqual([KeyPolicy.NextPolicy, KeyPolicy.NextPolicy]);
+  expect(r.replay).toEqual([KeyPolicy.Accepted, KeyPolicy.Accepted]);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([["panel", "quick"]]);
+  // the panel opened at the release: the press alone opens nothing
+  calls = [];
+  f.handleLumaQuick(GEAR, true, false, 1);
+  expect(calls).toEqual([]);
+});
+
+test("a second tap asks again, which closes the panel", () => {
+  const f = makeFilter();
+  tapGear(f);
+  tapGear(f);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([["panel", "quick"], ["panel", "quick"]]);
+});
+
+test("the gear's tap over an app is the overlay's panel too", () => {
+  const f = makeFilter();
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  expect(tapGear(f).replay).toEqual([KeyPolicy.Accepted, KeyPolicy.Accepted]);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([["panel", "quick"]]);
+});
+
+test("a key from a device LG does not replay (a keyboard, a pad) reaches the late entry as it was pressed", () => {
+  const f = makeFilter();
+  bridgeAnswers = homeDeclines;
+  expect(f.handleLumaHome(GEAR, true, false, 7)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaQuick(GEAR, true, false, 7)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(GEAR, true, true, 7)).toBe(KeyPolicy.Accepted);      // its repeats end here, and open nothing more
+  expect(f.handleLumaQuick(GEAR, false, false, 7)).toBe(KeyPolicy.Accepted);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([["panel", "quick"]]);
+});
+
+function resetState() {
+  calls = []; warnings = []; now = 1_000_000; front = { app: "com.webos.app.home", focus: true }; bridgeAnswers = () => true; answering = true;
+  gearReady = true; gearOpens = true; overlayWanted = false; overlayTakes = () => true; timers = []; nextTimer = 0; lgCalls = []; timerBroken = false;
+  power = "active"; appKeyTakes = () => true; lunaSent = []; panelReady = () => true; panelOpens = () => true; lgLaunchAllowed = true; firstUse = false;
+  partialView = false;
+}
+
+test("LG's Quick Settings opens when nothing of ours can show the panel", () => {
+  for (const setup of [
+    () => { panelReady = () => false; },                            // not built yet, or the layer cannot show it
+    () => { answering = false; },                                   // the layer is not answering
+    () => { power = "Screen Off"; },                                // the TV is not on
+    () => { front = { app: "com.webos.app.home", focus: false }; }, // LG's own window has the focus (its Quick Settings toggles itself)
+    () => { lgLaunchAllowed = false; },                             // LG would not open it either (hotel mode, a key lock)
+    () => { firstUse = true; },                                     // the first-use setup
+  ]) {
+    resetState();
+    setup();
+    const f = makeFilter();
+    expect(tapGear(f).replay).toEqual([KeyPolicy.NextPolicy, KeyPolicy.NextPolicy]);
+    expect(calls.filter((c) => c[0] === "panel")).toEqual([]);
+  }
+});
+
+test("a panel that cannot open at the release leaves the release to LG, whose Quick Settings opens on it", () => {
+  const f = makeFilter();
+  panelOpens = () => false;
+  expect(f.handleLumaQuick(GEAR, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(GEAR, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+});
+
+test("a release whose press was never taken here is LG's, and an old press does not make the next release ours", () => {
+  const f = makeFilter();
+  expect(f.handleLumaQuick(GEAR, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+  panelReady = () => false;
+  expect(f.handleLumaQuick(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  panelReady = () => true;
+  expect(f.handleLumaQuick(GEAR, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([]);
+});
+
+test("the Input key opens the picker on its press; the press again goes on to the next input; repeats and the release end here", () => {
+  const f = makeFilter();
+  bridgeAnswers = homeDeclines;
+  expect(f.handleLumaHome(INPUT, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(INPUT, true, true, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(INPUT, false, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(INPUT, false, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([["panel", "picker"], ["panel", "picker"]]);
+  // the TV's own button does the same
+  expect(f.handleLumaQuick(LOCAL_INPUT, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(calls.filter((c) => c[0] === "panel").length).toBe(3);
+});
+
+test("the Input key is LG's over the partial view, when the picker cannot open, and with the layer not answering", () => {
+  const f = makeFilter();
+  partialView = true;
+  expect(f.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaQuick(INPUT, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+  partialView = false;
+  panelOpens = () => false;
+  expect(f.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaQuick(INPUT, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+  panelOpens = () => true;
+  answering = false;
+  expect(f.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+});
+
+test("the late entry leaves every other key alone, and a scope without the Input key names leaves it to LG", () => {
+  const f = makeFilter();
+  for (const k of [OK, RIGHT, HOME, NETFLIX, OPTION]) {
+    expect(f.handleLumaQuick(k, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+    expect(f.handleLumaQuick(k, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+  }
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([]);
+  const bare = makeFilter({ webos: { Key_webOS_Settings: GEAR } });
+  expect(bare.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  const none = makeFilter({ webos: null });
+  expect(none.handleLumaQuick(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+});
+
+test("a bridge that throws leaves the key to LG and logs once", () => {
+  const f = makeFilter();
+  panelReady = () => { throw new Error("boom"); };
+  expect(f.handleLumaQuick(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaQuick(GEAR, false, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(warnings.filter((w) => w.includes("the quick panel key")).length).toBe(1);
+});
+
+test("the gear's hold is still the drawer's: the late entry never sees a hold that opened it", () => {
+  const f = makeFilter();
+  bridgeAnswers = homeDeclines;
+  expect(f.handleLumaHome(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  advance(650);
+  expect(calls).toContainEqual(["gearHold"]);
+  // LG's long press was cancelled and the release is ours: no replay comes, so the late entry has nothing to take
+  expect(f.handleLumaHome(GEAR, false, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(calls.filter((c) => c[0] === "panel")).toEqual([]);
 });

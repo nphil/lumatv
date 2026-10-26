@@ -11,11 +11,17 @@
 // fullscreen container) while an app is: each says whether it can show the notification drawer now
 // (`ready`) and opens it (`hold`). The overlay also takes keys while it has a surface that wants them
 // (`wants`), as Home does.
+//
+// The quick panel and the input picker (`panels`, the filter's second entry) are answered the same way: Home while it is in front
+// (`setPanels`), the overlay while an app is (`panelReady(kind)` and `panel(kind)` in the object it registers). `ready(kind)` says the
+// panel is built and may be shown or hidden now; `open(kind)` shows it, hides it when the same key is pressed again, or for the picker
+// moves on to the next input, and answers true when it did one of those.
 var handler = null
 var escapeHandler = null
 var gearHome = null                     // { ready(): bool, hold(): bool }
 var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(): bool, hold(): bool }
 var appKeyHandler = null                // (id, frontAppId) -> true when LumaHome took the remote's app key (launched an app, or does nothing)
+var homePanels = null                   // { ready(kind): bool, open(kind): bool }, kind "quick" | "picker"
 var systemLauncher = null               // (appId, params) -> true when LG's system window was asked for: the key filter's own luna client (see systemLaunch)
 var lastFaultMs = 0
 var beatMs = 0
@@ -24,6 +30,7 @@ function setHandler(h) { handler = h }
 function setEscapeHandler(h) { escapeHandler = h }
 function setGear(g) { gearHome = g }
 function setOverlay(o) { overlay = o }
+function setPanels(p) { homePanels = p }
 function setAppKey(h) { appKeyHandler = h }
 function setSystemLauncher(l) { systemLauncher = l }
 
@@ -96,6 +103,35 @@ function systemLaunch(appId, params) {
     if (!systemLauncher) return false
     try { return systemLauncher(appId, params) === true }
     catch (e) { fault("system launch", e); return false }
+}
+
+// The gear's tap or the Input key, over Home or an app: true when LumaTV's panel of that kind can be shown or hidden now.
+function panelReady(kind) {
+    if (!answering()) return false
+    try {
+        if (homePanels && homePanels.ready(kind) === true) return true
+        return !!overlay && typeof overlay.panelReady === "function" && overlay.panelReady(kind) === true
+    } catch (e) { fault("panel ready", e); return false }
+}
+
+// Shows the panel, hides it when it is the one in front, or (the picker) moves to the next input. True when one of these was done;
+// false leaves the key to LG, whose own Quick Settings or input picker then opens.
+function panel(kind) {
+    try {
+        if (homePanels && homePanels.ready(kind) === true) return homePanels.open(kind) === true
+        if (overlay && typeof overlay.panelReady === "function" && overlay.panelReady(kind) === true) return overlay.panel(kind) === true
+    } catch (e) { fault("panel", e) }
+    return false
+}
+
+// "All settings" and the panel's rows that open a Settings page, pressed over an app: Settings is a layer of Home, so the request waits
+// here until Home is in front and LumaHome opens it then (`takeSettings`). A request nobody took within 15 s is dropped.
+var settingsRequest = null
+function wantSettings(page) { settingsRequest = { page: String(page || ""), at: Date.now() } }
+function takeSettings() {
+    var r = settingsRequest
+    settingsRequest = null
+    return r && Date.now() - r.at < 15000 ? r.page : null
 }
 
 // Home held 650 ms (LumaKeyBridge.qml has written its request): LumaHome starts following

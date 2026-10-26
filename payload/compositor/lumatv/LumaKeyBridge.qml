@@ -43,6 +43,10 @@ QtObject {
     function overlayWants() { return Bus.overlayWants() }
     function gearReady() { return Bus.gearReady() }
     function gearHold() { return Bus.gearHold() }
+    // LumaTV's quick panel (the gear's tap) and input picker (the Input key), on Home or over an app: whether one can be shown or hidden now,
+    // and the doing of it. False leaves the key to LG's own window.
+    function panelReady(kind) { return Bus.panelReady(kind) }
+    function panel(kind) { return Bus.panel(kind) }
     // One of the remote's app keys, pressed over whatever is in front: true when LumaHome took it (theme `remote.appKeys`).
     function appKey(id, frontAppId) { return Bus.appKey(id, frontAppId) }
     Component.onCompleted: Bus.setSystemLauncher(function(appId, params) { return bridge.launchHook ? bridge.launchHook(appId, params) === true : false })

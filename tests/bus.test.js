@@ -10,13 +10,13 @@ const BUS_SRC = read("../payload/compositor/lumatv/LumaBus.js").replace(".pragma
 const FILTER_SRC = read("../payload/keyfilter/lumatv.js").replace(/{{dataDir}}/g, "/var/lib/lumatv").replace(/{{qmlModule}}/g, "lumatv");
 
 const KeyPolicy = { Accepted: 1, NextPolicy: 2, NotAccepted: 3 };
-const RIGHT = 0x01000014, OK = 0x01000005, GEAR = 0x01000070, HOME_APP = "com.webos.app.home", APP = "com.webos.app.hdmi2";
+const RIGHT = 0x01000014, OK = 0x01000005, GEAR = 0x01000070, INPUT = 0x01000075, HOME_APP = "com.webos.app.home", APP = "com.webos.app.hdmi2";
 
 let now, warnings, front, timers, nextTimer, lgCalls, log, Bus;
 
 function makeBus() {
   const env = { console: { warn: (m) => warnings.push(m), info() {} }, Date: { now: () => now } };
-  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "setSystemLauncher", "systemLaunch", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold"];
+  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "setSystemLauncher", "systemLaunch", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold", "setPanels", "panelReady", "panel", "wantSettings", "takeSettings"];
   return new Function(...Object.keys(env), BUS_SRC + "\nreturn { " + names.join(", ") + " };")(...Object.values(env));
 }
 
@@ -26,6 +26,7 @@ function makeFilter(bus) {
     dispatch: (...a) => bus.dispatch(...a), answering: () => bus.answering(), homeKey: () => false,
     dispatchOverlay: (...a) => bus.dispatchOverlay(...a), overlayWants: () => bus.overlayWants(),
     gearReady: () => bus.gearReady(), gearHold: () => bus.gearHold(),
+    panelReady: (k) => bus.panelReady(k), panel: (k) => bus.panel(k),
   };
   const genericTimer = {
     set(ms, fn) { const id = ++nextTimer; timers.push({ id, at: now + ms, fn }); return id; },
@@ -33,15 +34,16 @@ function makeFilter(bus) {
   };
   const env = {
     Qt: { Key_Super_L: 0x01000022, Key_Option: 0x01000100, createComponent: () => ({ status: 1, errorString: () => "", createObject: () => bridge }) },
-    KeyPolicy, Component: { Ready: 1 }, WebOS: { Key_webOS_Settings: GEAR },
-    global: { get activeSurfaceAppId() { return front.app; } },
+    KeyPolicy, Component: { Ready: 1 }, WebOS: { Key_webOS_Settings: GEAR, Key_webOS_InputSource: INPUT },
+    access: { keyAction: { launchApp: true } }, bootManager: { bootFirstUse: false }, systemPropertyService: { powerOnlyMode: false },
+    global: { get activeSurfaceAppId() { return front.app; }, powerState: "active", isForegroundApp: () => false },
     fullscreenView: { get activeFocus() { return front.focus; } },
     longPressTimer: { setBlockCancel() {}, cancel() { lgCalls.push("cancel"); }, setDeviceId() {} },
     console: { info() {}, warn: (m) => warnings.push(m) },
     Date: { now: () => now },
     genericTimer,
   };
-  const f = new Function(...Object.keys(env), FILTER_SRC + "\nreturn { init, handleLumaHome };")(...Object.values(env));
+  const f = new Function(...Object.keys(env), FILTER_SRC + "\nreturn { init, handleLumaHome, handleLumaQuick };")(...Object.values(env));
   f.init();
   return f;
 }
@@ -221,4 +223,99 @@ test("a system window is asked for through the launcher the key filter registere
   expect(warnings.length).toBe(1);
   Bus.setSystemLauncher(null);
   expect(Bus.systemLaunch("x")).toBe(false);
+});
+
+// ---- the quick panel and the input picker (the filter's second entry)
+
+function registerPanels(bus, state) {
+  bus.setPanels({
+    ready: (k) => state.home, open: (k) => { log.push(["home panel", k]); return state.opens; },
+  });
+}
+function registerOverlayPanels(bus, state) {
+  bus.setOverlay({
+    wants: () => false, ready: () => true, key: () => false, hold: () => true,
+    panelReady: (k) => state.ready, panel: (k) => { log.push(["overlay panel", k]); return state.opens; },
+  });
+}
+
+test("a panel is shown by Home while Home can, else by the overlay, else by nobody", () => {
+  const home = { home: true, opens: true }, over = { ready: true, opens: true };
+  registerHome(Bus);
+  registerPanels(Bus, home);
+  registerOverlayPanels(Bus, over);
+  expect(Bus.panelReady("quick")).toBe(true);
+  expect(Bus.panel("quick")).toBe(true);
+  expect(log).toEqual([["home panel", "quick"]]);
+  // an app is in front: Home's layer says it cannot, the overlay shows the same panel
+  log = [];
+  home.home = false;
+  expect(Bus.panelReady("picker")).toBe(true);
+  expect(Bus.panel("picker")).toBe(true);
+  expect(log).toEqual([["overlay panel", "picker"]]);
+  // neither can: the key is LG's
+  over.ready = false;
+  expect(Bus.panelReady("quick")).toBe(false);
+  expect(Bus.panel("quick")).toBe(false);
+  // a panel that is asked and does nothing is not an answer
+  home.home = true; home.opens = false;
+  expect(Bus.panel("quick")).toBe(false);
+});
+
+test("a panel is not asked for while the layer is not answering, and a registry that throws answers no and logs once", () => {
+  const home = { home: true, opens: true };
+  registerHome(Bus);
+  registerPanels(Bus, home);
+  now += 3001;
+  expect(Bus.panelReady("quick")).toBe(false);
+  Bus.beat();
+  Bus.setPanels({ ready: () => { throw new Error("boom"); }, open: () => true });
+  expect(Bus.panelReady("quick")).toBe(false);
+  expect(Bus.panel("quick")).toBe(false);
+  expect(warnings.length).toBe(1);
+  Bus.setPanels(null);
+  expect(Bus.panelReady("quick")).toBe(false);
+});
+
+test("an overlay registered before panels existed is not asked for them", () => {
+  registerHome(Bus);
+  Bus.setOverlay({ wants: () => false, ready: () => true, key: () => false, hold: () => true });
+  expect(Bus.panelReady("quick")).toBe(false);
+  expect(Bus.panel("quick")).toBe(false);
+  expect(warnings).toEqual([]);
+});
+
+test("a gear tap and the Input key reach the panels through the real filter and the bus", () => {
+  const home = { home: true, opens: true }, over = { ready: true, opens: true };
+  registerHome(Bus);
+  registerPanels(Bus, home);
+  registerOverlayPanels(Bus, over);
+  const f = makeFilter(Bus);
+  // LG's replay of a tap: the first entry lets it through, the late one takes it
+  const tap = () => [true, false].map((p) => { const a = f.handleLumaHome(GEAR, p, false, 1); return a === KeyPolicy.NextPolicy ? f.handleLumaQuick(GEAR, p, false, 1) : a; });
+  expect(tap()).toEqual([KeyPolicy.Accepted, KeyPolicy.Accepted]);
+  expect(log.filter((l) => l[0].endsWith("panel"))).toEqual([["home panel", "quick"]]);
+  log = [];
+  front = { app: APP, focus: true };
+  home.home = false;
+  expect(tap()).toEqual([KeyPolicy.Accepted, KeyPolicy.Accepted]);
+  expect(f.handleLumaQuick(INPUT, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(log.filter((l) => l[0].endsWith("panel"))).toEqual([["overlay panel", "quick"], ["overlay panel", "picker"]]);
+  // LG's own window is on top of the app: the late entry has no key to take
+  log = [];
+  front = { app: APP, focus: false };
+  expect(tap()).toEqual([KeyPolicy.NextPolicy, KeyPolicy.NextPolicy]);
+  expect(log).toEqual([]);
+});
+
+test("a Settings page asked for over an app waits for Home, once, and is dropped after fifteen seconds", () => {
+  expect(Bus.takeSettings()).toBe(null);
+  Bus.wantSettings("network");
+  expect(Bus.takeSettings()).toBe("network");
+  expect(Bus.takeSettings()).toBe(null);
+  Bus.wantSettings("");
+  expect(Bus.takeSettings()).toBe("");
+  Bus.wantSettings("receiver");
+  now += 15_001;
+  expect(Bus.takeSettings()).toBe(null);
 });
