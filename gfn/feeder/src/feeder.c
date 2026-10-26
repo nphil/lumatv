@@ -11,6 +11,7 @@
  *
  *   lumatv-gfn-feeder --probe [-L LIB]
  *   lumatv-gfn-feeder --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr] [--audio PKTS]
+ *                     [--audio-mode auto|opus|pcm]
  *                     [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [-w TYPE] [--window-id ID] [-a APPID]
  *   lumatv-gfn-feeder --serve SOCKET [--once] [-w TYPE] [--window-id ID] [-a APPID] [-L LIB]
  */
@@ -34,6 +35,7 @@
 #include "gf_log.h"
 #include "gf_ndl.h"
 #include "gf_proto.h"
+#include "gf_opus.h"
 #include "vpl_wl.h"
 
 #define SCREEN_W 1920
@@ -42,6 +44,9 @@
 #define DEFAULT_APP_ID "org.nphil.lumatv.gfn"
 #define DEFAULT_SOCKET "/tmp/lumatv-gfn/feed.sock"
 #define DEFAULT_WINDOW_ID_FILE "/tmp/lumatv-gfn/window-id"
+
+/* --audio-mode: Opus goes to NDL as it is and, if the library refuses that load, is decoded here (auto); only the first; only the second. */
+enum { AUDIO_AUTO = 0, AUDIO_OPUS, AUDIO_PCM };
 
 /* The app id for NDL_DirectMediaInit: SAM passes no environment, so an installed app reads it off its own directory
  * (/media/developer/apps/usr/palm/applications/<id>/lumatv-gfn-feeder), as jellyfin-webos-native's ndlplay does. */
@@ -94,6 +99,13 @@ struct feeder {
     int64_t first_loaded_ns, first_playing_ns, t0_ns;
     unsigned ev_count[64];
     char last_video_info[200];
+    /* audio: Opus packets pass to NDL as they are (audio_mode auto or opus). When NDL refuses that load, or --audio-mode pcm asks, they
+     * are decoded here (gf_opus.c) and fed as PCM; pcm_sticky keeps a refusal in mind for the loads after it. */
+    int audio_mode, pcm, pcm_sticky, audio_streak, audio_channels;
+    const char *audio_route;    /* none, opus, pcm (decoded here), pcm-in (the engine sent PCM) */
+    gf_opus *opus;
+    uint64_t decode_errors;
+    int16_t pcm_buf[GF_OPUS_MAX_FRAMES * 2];
 };
 
 /* ---- stats ------------------------------------------------------------------------------------------------------------------ */
@@ -262,12 +274,27 @@ static int feed_audio(struct feeder *f, const uint8_t *d, size_t n, int64_t pts_
         return 0;
     }
     if (!f->ndl_ready) return -1;
-    int rc = gf_ndl_feed_audio(f->ndl, d, (unsigned)n, pts_ns / f->pts_unit);
+    const void *data = d;
+    size_t size = n;
+    if (f->pcm) {
+        int frames = f->opus ? gf_opus_decode(f->opus, d, n, f->pcm_buf, GF_OPUS_MAX_FRAMES) : -1;
+        if (frames <= 0) {
+            if (!f->decode_errors++) gf_say("opus: a %zu byte packet did not decode (%d); further ones are only counted", n, frames);
+            f->sec.adropped++;
+            f->total_adropped++;
+            return 1;
+        }
+        data = f->pcm_buf;
+        size = (size_t)frames * (size_t)f->audio_channels * sizeof(int16_t);
+    }
+    int rc = gf_ndl_feed_audio(f->ndl, data, (unsigned)size, pts_ns / f->pts_unit);
     if (rc == 0) {
+        f->audio_streak = 0;
         f->sec.afed++;
         f->total_afed++;
         return 0;
     }
+    if (++f->audio_streak == 100) gf_say("ndl: 100 audio units in a row were refused (%s audio); the pipeline is not taking them", f->audio_route);
     f->sec.adropped++;
     f->total_adropped++;
     return 1;
@@ -317,21 +344,62 @@ static void place_video(struct feeder *f, int w, int h) {
     if (f->wl) vpl_wl_video(f->wl, 0, 0, w, h, 0, 0, SCREEN_W, SCREEN_H);
 }
 
+static int open_decoder(struct feeder *f, const gf_load *l, char *err, size_t cap) {
+    if (f->opus) return 0;
+    f->opus = gf_opus_open(l->sample_rate, l->channels, err, cap);
+    if (!f->opus) return -1;
+    f->audio_channels = (int)l->channels;
+    return 0;
+}
+
+static void close_decoder(struct feeder *f) {
+    gf_opus_close(f->opus);
+    f->opus = NULL;
+    f->pcm = 0;
+}
+
 static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t cap) {
     if (f->window_id_file && read_window_id_file(f) != 0) {
         snprintf(err, cap, "no window id in %s yet (the UI has not exported its video element)", f->window_id_file);
         return -1;
     }
+    f->audio_route = l->audio == GF_AUDIO_OPUS ? "opus" : l->audio == GF_AUDIO_PCM_S16LE ? "pcm-in" : "none";
     if (f->no_ndl) {
         f->loaded = f->playing = 1;
         return 0;
     }
     if (!f->ndl && gf_ndl_open_lib(&f->ndl, f->lib, err, cap) != 0) return -1;
     place_video(f, (int)l->width, (int)l->height);
-    if (gf_ndl_start(f->ndl, f->app_id, f->window_id, l, err, cap) != 0) {
+    int pcm = l->audio == GF_AUDIO_OPUS && (f->audio_mode == AUDIO_PCM || (f->audio_mode == AUDIO_AUTO && f->pcm_sticky));
+    char refused[300] = "";
+    for (;;) {
+        gf_load use = *l;
+        if (pcm) {
+            if (open_decoder(f, l, err, cap) != 0) return -1;
+            use.audio = GF_AUDIO_PCM_S16LE;
+        }
+        int rc = gf_ndl_start(f->ndl, f->app_id, f->window_id, &use, err, cap);
+        if (rc == 0) break;
         gf_ndl_stop(f->ndl);
-        return -1;
+        if (rc != GF_NDL_LOAD_FAILED || pcm || l->audio != GF_AUDIO_OPUS || f->audio_mode != AUDIO_AUTO) {
+            close_decoder(f);
+            if (refused[0]) {
+                char second[300];
+                snprintf(second, sizeof second, "%s", err);
+                snprintf(err, cap, "%s; PCM instead: %s", refused, second);
+            }
+            return -1;
+        }
+        snprintf(refused, sizeof refused, "%s", err);
+        gf_say("ndl: %s: the library refused the Opus load; decoding Opus here and loading PCM", err);
+        pcm = 1;
+        f->pcm_sticky = 1;
     }
+    if (pcm) {
+        f->pcm = 1;
+        f->audio_route = "pcm";
+    }
+    f->audio_streak = 0;
     f->ndl_ready = 1;
     f->loaded = f->playing = f->error = 0;
     f->first_loaded_ns = f->first_playing_ns = 0;
@@ -344,6 +412,7 @@ static void stop_pipeline(struct feeder *f) {
         gf_ndl_stop(f->ndl);
         alarm(0);
     }
+    close_decoder(f);
     f->ndl_ready = 0;
     f->loaded = f->playing = 0;
 }
@@ -482,8 +551,8 @@ static int run_play(struct feeder *f) {
     gf_say("playing %s: %zu units, %dx%d at %d fps, codec %d, window %s, audio %zu packets, hdr %d, pts unit %d", f->play_path, count, f->width,
            f->height, f->fps, f->codec, f->window_id, audio.count, f->hdr, f->pts_unit);
     fprintf(f->stats, "{\"start\":true,\"file\":\"%s\",\"units\":%zu,\"width\":%d,\"height\":%d,\"fps\":%d,\"codec\":%d,\"window\":\"%s\",\"audio\":%zu,"
-                      "\"hdr\":%d,\"pts_unit\":%d,\"library\":\"%s\",\"features\":%u}\n",
-            f->play_path, count, f->width, f->height, f->fps, f->codec, f->window_id, audio.count, f->hdr, f->pts_unit,
+                      "\"audio_route\":\"%s\",\"hdr\":%d,\"pts_unit\":%d,\"library\":\"%s\",\"features\":%u}\n",
+            f->play_path, count, f->width, f->height, f->fps, f->codec, f->window_id, audio.count, audio.count ? f->audio_route : "none", f->hdr, f->pts_unit,
             f->ndl ? gf_ndl_lib_name(f->ndl) : "none", f->ndl ? gf_ndl_features(f->ndl) : 0);
     fflush(f->stats);
 
@@ -556,11 +625,12 @@ static int run_play(struct feeder *f) {
     write_second(f, sec_no);
     int64_t total_ns = gf_ns() - t0;
     fprintf(f->stats, "{\"summary\":true,\"units\":%zu,\"fed\":%llu,\"dropped\":%llu,\"afed\":%llu,\"adropped\":%llu,\"retries\":%llu,\"seconds\":%.2f,"
-                      "\"loaded_ms\":%lld,\"playing_ms\":%lld,\"loaded\":%d,\"playing\":%d,\"error\":%d,\"events\":{",
+                      "\"loaded_ms\":%lld,\"playing_ms\":%lld,\"loaded\":%d,\"playing\":%d,\"error\":%d,\"audio_route\":\"%s\",\"adecode_errors\":%llu,\"events\":{",
             count, (unsigned long long)f->total_fed, (unsigned long long)f->total_dropped, (unsigned long long)f->total_afed,
             (unsigned long long)f->total_adropped, (unsigned long long)f->total_retries, total_ns / 1e9,
             f->first_loaded_ns ? (long long)((f->first_loaded_ns - open_ns) / 1000000) : -1LL,
-            f->first_playing_ns ? (long long)((f->first_playing_ns - open_ns) / 1000000) : -1LL, f->loaded, f->playing, f->error);
+            f->first_playing_ns ? (long long)((f->first_playing_ns - open_ns) / 1000000) : -1LL, f->loaded, f->playing, f->error,
+            audio.count ? f->audio_route : "none", (unsigned long long)f->decode_errors);
     int first = 1;
     for (int i = 0; i < 64; i++)
         if (f->ev_count[i]) {
@@ -702,8 +772,8 @@ static void handle_message(struct feeder *f, struct client *c, uint8_t type, con
             send_text(c, GF_LOADED, 0, err);
             return;
         }
-        gf_say("loaded: codec %u %ux%u at %u fps, audio %u (%u ch, %u Hz), hdr %u, drop threshold %d, pts unit %d", l.codec, l.width, l.height, l.fps,
-               l.audio, l.channels, l.sample_rate, l.hdr, l.drop_threshold, l.pts_unit);
+        gf_say("loaded: codec %u %ux%u at %u fps, audio %u (%u ch, %u Hz) as %s, hdr %u, drop threshold %d, pts unit %d", l.codec, l.width, l.height, l.fps,
+               l.audio, l.channels, l.sample_rate, f->audio_route, l.hdr, l.drop_threshold, l.pts_unit);
         f->total_fed = f->total_dropped = f->total_afed = f->total_adropped = f->total_retries = 0;
         memset(&f->sec, 0, sizeof f->sec);
         f->sec.start_ns = gf_ns();
@@ -939,7 +1009,7 @@ static int run_probe(struct feeder *f) {
 static void usage(void) {
     fprintf(stderr,
             "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
-            "         [--audio PKTS] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
+            "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
             "       | --serve SOCKET [--once]\n"
             "  common: [-w card|overlay|default|screensaver] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n"
             "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory)\n");
@@ -983,6 +1053,14 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--loop")) f.loop = 1;
         else if (!strcmp(a, "--hdr")) f.hdr = 1;
         else if (!strcmp(a, "--audio") && v) f.audio_path = argv[++i];
+        else if (!strcmp(a, "--audio-mode") && v) {
+            i++;
+            f.audio_mode = !strcmp(argv[i], "auto") ? AUDIO_AUTO : !strcmp(argv[i], "opus") ? AUDIO_OPUS : !strcmp(argv[i], "pcm") ? AUDIO_PCM : -1;
+            if (f.audio_mode < 0) {
+                usage();
+                return 2;
+            }
+        }
         else if (!strcmp(a, "--drop-threshold") && v) f.drop_threshold = atoi(argv[++i]);
         else if (!strcmp(a, "--pts-unit") && v) {
             i++;

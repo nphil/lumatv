@@ -193,7 +193,7 @@ int gf_ndl_start(gf_ndl *n, const char *app_id, const char *window_id, const gf_
     }
     if (n->load(&info, on_event) != 0) {
         snprintf(err, cap, "NDL_DirectMediaLoad: %s", gf_ndl_error(n));
-        return -1;
+        return GF_NDL_LOAD_FAILED;
     }
     n->loaded = 1;
     if (n->set_state(0) != 0) {

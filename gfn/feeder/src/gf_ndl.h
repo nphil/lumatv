@@ -30,7 +30,9 @@ const char *gf_ndl_lib_name(const gf_ndl *n);
 unsigned gf_ndl_features(const gf_ndl *n);
 enum { GF_NDL_HAS_HDR = 1, GF_NDL_HAS_DROP_THRESHOLD = 2, GF_NDL_HAS_FLUSH = 4, GF_NDL_HAS_AUDIO_AVAIL = 8, GF_NDL_HAS_SET_AREA = 16 };
 
-/* SetWindowId, Init, Load, SetAppState(FOREGROUND), then the HDR info and the drop threshold when asked. `l` names the stream. */
+/* SetWindowId, Init, Load, SetAppState(FOREGROUND), then the HDR info and the drop threshold when asked. `l` names the stream. 0 started,
+ * GF_NDL_LOAD_FAILED when the library refused the load itself (the one failure a different audio type can cure), -1 any other step. */
+#define GF_NDL_LOAD_FAILED (-3)
 int gf_ndl_start(gf_ndl *n, const char *app_id, const char *window_id, const gf_load *l, char *err, size_t cap);
 
 /* NDL_DirectVideoPlay: 0 taken, 1 the pipeline's buffer is full, -1 refused with an error. */

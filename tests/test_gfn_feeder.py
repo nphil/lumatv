@@ -7,7 +7,11 @@ pictures and fed at its rate with a rising PTS, the HDR and game-mode calls, Opu
 engine's socket protocol end to end, and the facts of the ARM binary. What this cannot show is that LG's pipeline agrees: the TV steps in
 docs/research/gfn-app-result.md measure that.
 """
+import array
+import ctypes
+import ctypes.util
 import json
+import math
 import os
 import shutil
 import socket
@@ -77,6 +81,71 @@ def opus_file(path, packets=50):
     with open(path, "wb") as f:
         for i in range(packets):
             p = bytes([0xfc, i & 255]) + bytes(100 + i % 7)
+            f.write(struct.pack("<H", len(p)) + p)
+
+
+def libopus():
+    """The host's libopus through ctypes: the encoder that makes real packets and the reference decoder the feeder's is compared with."""
+    name = ctypes.util.find_library("opus")
+    if not name:
+        return None
+    lib = ctypes.CDLL(name)
+    lib.opus_encoder_create.restype = ctypes.c_void_p
+    lib.opus_encoder_create.argtypes = [ctypes.c_int32, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+    lib.opus_encode.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int32]
+    lib.opus_decoder_create.restype = ctypes.c_void_p
+    lib.opus_decoder_create.argtypes = [ctypes.c_int32, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+    lib.opus_decode.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    return lib
+
+
+OPUS = libopus()
+
+
+def tone_packets(count, freq=440.0, rate=48000, channels=2, frame=960):
+    """`count` real 20 ms Opus packets of a sine tone (left at full level, right at half), encoded by libopus."""
+    err = ctypes.c_int(0)
+    enc = OPUS.opus_encoder_create(rate, channels, 2049, ctypes.byref(err))
+    assert err.value == 0
+    packets = []
+    for k in range(count):
+        pcm = array.array("h")
+        for i in range(frame):
+            v = math.sin(2 * math.pi * freq * (k * frame + i) / rate)
+            pcm.append(int(v * 12000))
+            if channels == 2:
+                pcm.append(int(v * 6000))
+        out = ctypes.create_string_buffer(1500)
+        n = OPUS.opus_encode(enc, pcm.tobytes(), frame, out, 1500)
+        assert n > 0, n
+        packets.append(out.raw[:n])
+    return packets
+
+
+def reference_pcm(packets, rate=48000, channels=2):
+    """What libopus itself decodes the packets to, as S16 samples."""
+    err = ctypes.c_int(0)
+    dec = OPUS.opus_decoder_create(rate, channels, ctypes.byref(err))
+    out = array.array("h")
+    for p in packets:
+        buf = ctypes.create_string_buffer(5760 * channels * 2)
+        n = OPUS.opus_decode(dec, p, len(p), buf, 5760, 0)
+        assert n > 0, n
+        out.frombytes(buf.raw[:n * channels * 2])
+    return out
+
+
+def snr_db(reference, got):
+    """Signal to error ratio of two S16 sample arrays of the same length."""
+    assert len(reference) == len(got), (len(reference), len(got))
+    sig = sum(float(a) * a for a in reference)
+    err = sum(float(a - b) ** 2 for a, b in zip(reference, got))
+    return 200.0 if err == 0 else 10 * math.log10(sig / err)
+
+
+def write_packets(path, packets):
+    with open(path, "wb") as f:
+        for p in packets:
             f.write(struct.pack("<H", len(p)) + p)
 
 
@@ -468,6 +537,149 @@ class Serve(unittest.TestCase):
             if proc.poll() is None:
                 proc.kill()
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+@unittest.skipUnless(HAVE and OPUS, "zig (the host build) and the host's libopus (the encoder and the reference decoder) are needed")
+class PcmFallback(unittest.TestCase):
+    """NDL refusing the Opus load: the feeder decodes the packets itself (libopus 1.5.2, fixed point, build/opus) and loads PCM."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gfn-feeder-pcm-")
+        self.clip = os.path.join(self.tmp, "clip.hevc")
+        with open(self.clip, "wb") as f:
+            f.write(hevc_stream(120))
+        self.packets = tone_packets(50)
+        self.pk = os.path.join(self.tmp, "tone.opuspkts")
+        write_packets(self.pk, self.packets)
+        self.dump = os.path.join(self.tmp, "audio.pcm")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_play(self, extra=(), fail=None):
+        env = {"FAKE_NDL_AUDIO_DUMP": self.dump}
+        if fail:
+            env["FAKE_NDL_FAIL"] = fail
+        return Run(["--play", self.clip, "--size", "320x240", "--fps", "60", "--audio", self.pk, *extra], env=env).go()
+
+    def played_pcm(self):
+        pcm = array.array("h")
+        with open(self.dump, "rb") as f:
+            pcm.frombytes(f.read())
+        return pcm
+
+    def test_a_refused_opus_load_becomes_pcm_decoded_here_and_matches_libopus(self):
+        r = self.run_play(fail="opus")
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            log = r.ndl()
+            loads = [l for l in log if " Load " in l]
+            self.assertEqual(len(loads), 2, loads)
+            self.assertIn("audio OPUS 2 ch 48.0 kHz", loads[0])
+            self.assertIn("audio PCM S16LE interleaved stereo rate 1", loads[1])
+            self.assertIn("refused the Opus load", r.err())
+            plays = [int(l.split(" size ")[1].split()[0]) for l in log if "AudioPlay #" in l]
+            self.assertTrue(plays and all(n == 960 * 2 * 2 for n in plays), plays[:5])
+            s = r.summary()
+            self.assertEqual((s["afed"], s["adropped"], s["adecode_errors"], s["audio_route"]), (50, 0, 0, "pcm"))
+            self.assertNotIn("VIOLATION", "\n".join(log))
+            got = self.played_pcm()
+            self.assertEqual(len(got), 50 * 960 * 2)
+            snr = snr_db(reference_pcm(self.packets), got)
+            self.assertGreater(snr, 40.0, "the fixed-point decode differs from libopus by more than rounding: %.1f dB" % snr)
+            self.assertGreater(max(abs(v) for v in got), 8000, "the tone is there")
+        finally:
+            r.close()
+
+    def test_pcm_mode_decodes_without_trying_opus_and_opus_mode_does_not_fall_back(self):
+        r = self.run_play(extra=["--audio-mode", "pcm"])
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            loads = [l for l in r.ndl() if " Load " in l]
+            self.assertEqual(len(loads), 1)
+            self.assertIn("audio PCM S16LE", loads[0])
+            self.assertEqual(r.summary()["audio_route"], "pcm")
+            self.assertEqual(len(self.played_pcm()), 50 * 960 * 2)
+        finally:
+            r.close()
+        os.remove(self.dump)
+        r = self.run_play(extra=["--audio-mode", "opus"], fail="opus")
+        try:
+            self.assertEqual(r.proc.returncode, 4)
+            self.assertIn("audio type 3 (Opus) is not supported", r.err())
+            self.assertFalse(os.path.exists(self.dump))
+        finally:
+            r.close()
+
+    def test_auto_keeps_opus_when_the_library_takes_it(self):
+        r = self.run_play()
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            loads = [l for l in r.ndl() if " Load " in l]
+            self.assertEqual(len(loads), 1)
+            self.assertIn("audio OPUS", loads[0])
+            self.assertEqual(r.summary()["audio_route"], "opus")
+            self.assertNotIn("refused the Opus load", r.err())
+        finally:
+            r.close()
+
+    @unittest.skipUnless(shutil.which("qemu-arm"), "qemu-arm runs the ARM build of the decoder")
+    def test_the_arm_build_of_the_decoder_gives_the_hosts_samples(self):
+        """The decoder compiled for 32-bit ARM (the archive the set's feeder links) and run under qemu-arm, against libopus on the host."""
+        src = os.path.join(FEEDER, "build", "opus", "src", "include")
+        exe = os.path.join(self.tmp, "opus_decode")
+        build = subprocess.run(["zig", "cc", "-target", "arm-linux-musleabi", "-O2", "-static", "-I" + os.path.join(FEEDER, "src"), "-I" + src,
+                                os.path.join(FEEDER, "tests", "opus_decode.c"), os.path.join(FEEDER, "src", "gf_opus.c"),
+                                os.path.join(FEEDER, "build", "opus", "arm", "libopus-dec.a"), "-o", exe], capture_output=True, text=True)
+        self.assertEqual(build.returncode, 0, build.stderr)
+        run = subprocess.run(["qemu-arm", exe, self.pk], capture_output=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        got = array.array("h")
+        got.frombytes(run.stdout)
+        self.assertGreater(snr_db(reference_pcm(self.packets), got), 40.0)
+
+    def test_a_packet_that_is_not_opus_is_counted_not_fed(self):
+        bad = [self.packets[0], b"\xff" * 5, self.packets[1]]
+        write_packets(self.pk, bad)
+        r = self.run_play(extra=["--audio-mode", "pcm"])
+        try:
+            self.assertEqual(r.proc.returncode, 0, r.err())
+            s = r.summary()
+            self.assertEqual((s["afed"], s["adropped"], s["adecode_errors"]), (2, 1, 1))
+            self.assertIn("did not decode", r.err())
+        finally:
+            r.close()
+
+    def test_the_engine_socket_gets_the_fallback_and_later_loads_go_straight_to_pcm(self):
+        sock = os.path.join(self.tmp, "feed.sock")
+        env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(self.tmp, "ndl.log"), FAKE_NDL_FAIL="opus",
+                   FAKE_NDL_AUDIO_DUMP=self.dump)
+        proc = subprocess.Popen([BIN, "--serve", sock, "--once", "--window-id", "_Window_Id_7", "-L", NDL], env=env, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
+        try:
+            c = Client(sock)
+            self.assertEqual(c.recv()[0], GF["HELLO"])
+            for round_ in range(2):
+                c.load()
+                (t, p), _ = c.until(GF["LOADED"])
+                self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+                for i, pk in enumerate(self.packets[:10]):
+                    c.send(GF["AUDIO"], MEDIA_HEAD.pack(1_000_000_000 + (round_ * 100 + i) * 20_000_000, 0) + pk)
+                c.send(GF["PING"], struct.pack("<q", round_))
+                c.until(GF["PONG"])
+                c.send(GF["UNLOAD"])
+                time.sleep(0.1)
+            c.close()
+            proc.wait(timeout=10)
+            self.assertEqual(proc.returncode, 0)
+            log = open(os.path.join(self.tmp, "ndl.log")).read()
+            self.assertEqual(log.count("audio OPUS"), 1, "the second load does not ask for Opus again")
+            self.assertEqual(log.count("audio PCM S16LE"), 2)
+            self.assertNotIn("VIOLATION", log)
+            self.assertEqual(len(self.played_pcm()), 20 * 960 * 2)
+            self.assertEqual(proc.stderr.read().count("refused the Opus load"), 1)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
 
 
 @unittest.skipUnless(HAVE, "zig is needed to build the feeder")

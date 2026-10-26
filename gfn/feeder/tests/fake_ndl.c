@@ -4,6 +4,8 @@
  * also has the audio feed, the HDR info, the drop threshold and the flush the stream uses.
  *
  * FAKE_NDL_FAIL=dlinit|init|load|state     that step fails
+ * FAKE_NDL_FAIL=opus                       a load that asks for Opus audio fails (the library on the set may refuse it); PCM loads
+ * FAKE_NDL_AUDIO_DUMP=FILE                 the bytes of every NDL_DirectAudioPlay are appended to FILE (the PCM the feeder decoded)
  * FAKE_NDL_NO_PLAYING=1                    the pipeline loads but never says it is playing
  * FAKE_NDL_ERROR_AFTER=N                   an error event after N video units
  * FAKE_NDL_FULL_EVERY=N                    every Nth NDL_DirectVideoPlay says the buffer is full (once; the retry is taken)
@@ -38,7 +40,7 @@ static FILE *logf;
 static int dl_inited, window_set, inited, loaded, foreground;
 static char window_id[64], err[160] = "";
 static load_cb cb;
-static int played, shown, dropped, full_n, audio_played, offered;
+static int played, shown, dropped, full_n, audio_played, offered, audio_channels, audio_type;
 static long long offered_pts = -1;
 static long long last_pts = -1, last_apts = -1;
 static long long recent_ns[64];
@@ -138,6 +140,13 @@ int NDL_DirectMediaLoad(struct data_info *info, load_cb callback) {
         snprintf(err, sizeof err, "load refused");
         return -1;
     }
+    if (env_is("FAKE_NDL_FAIL", "opus") && info->audio.type == 3) {
+        snprintf(err, sizeof err, "audio type 3 (Opus) is not supported");
+        return -1;
+    }
+    audio_type = info->audio.type;
+    audio_channels = info->audio.type == 1 ? (!strcmp(info->audio.pcm.channelMode, "mono") ? 1 : !strcmp(info->audio.pcm.channelMode, "6-channel") ? 6 : 2)
+                                           : info->audio.type == 3 ? info->audio.opus.channels : 0;
     cb = callback;
     loaded = 1;
     last_pts = last_apts = -1;
@@ -243,9 +252,17 @@ int NDL_DirectAudioPlay(void *buf, unsigned size, long long pts) {
     if (!loaded) return bad("AudioPlay before Load");
     if (pts <= last_apts) bad("an audio PTS that does not rise");
     last_apts = pts;
+    if (audio_type == 1 && (size == 0 || size % (unsigned)(2 * audio_channels))) bad("a PCM unit that is not whole S16 frames");
+    if (audio_type == 3 && size > 1275 * 3) bad("an Opus unit larger than any packet");
     audio_played++;
+    if (getenv("FAKE_NDL_AUDIO_DUMP")) {
+        FILE *d = fopen(getenv("FAKE_NDL_AUDIO_DUMP"), "ab");
+        if (d) {
+            fwrite(buf, 1, size, d);
+            fclose(d);
+        }
+    }
     if (audio_played <= 2 || audio_played % 50 == 0 || env_is("FAKE_NDL_VERBOSE", "1")) say("AudioPlay #%d size %u pts %lld", audio_played, size, pts);
-    (void)buf;
     return 0;
 }
 
