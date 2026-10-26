@@ -48,6 +48,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # The tool is not on the set's PATH.
 TOOL = '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv'
 
+# What puts a film or an input in front of the surfaces over playback. The set's commands: luna-send on the set, kb.py as the gate copied it.
+SAM = 'luna://com.webos.applicationManager'
+NETFLIX_FILM = '{"id":"netflix","params":{"contentTarget":"m=https://www.netflix.com/watch/80141336&source_type=4"}}'
+NETFLIX_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"netflix\"}}'", 'sleep 3',      # a fresh start: the deep link plays only into a launch
+                 f"luna-send -n 1 {SAM}/launch '{NETFLIX_FILM}'", 'sleep 12',
+                 'python3 /tmp/kb.py OK', 'sleep 25']                                           # ENTER plays it; 25 s later it is in the middle of the film
+NETFLIX_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"netflix\"}}'", 'sleep 2',
+                    f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+HDMI_SETUP = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'", 'sleep 8']
+HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+
 # ------------------------------------------------------------------ surfaces
 #
 # name          unique; also the marker prefix: windows are "<name>-open" and "<name>-close"
@@ -85,6 +96,26 @@ SURFACES = [
      'thresholds': {'burst_end_ms': None}},
     {'name': 'quick-settings', 'act': 'release',
      'open': '@quick-settings-open MENU', 'close': '@quick-settings-close BACK', 'settle_s': 2.5},
+    # LumaTV's quick panel (the gear's tap) and input picker (the Input key), which replace LG's Quick Settings and picker on the gear and Input
+    # keys (the second key-filter entry, payload/keyfilter/lumatv.js). Both are acted on at the key's release: LG swallows the press of these keys
+    # and replays a short press when the key comes up. Run on request (`--surfaces quick,picker`) with Home in front; `quick-settings` above is the
+    # same gear tap, so it now measures the same panel. The picker's key is not on record (the gear is MENU, evdev 139): find the Input key's code
+    # with `python3 /tmp/kb.py --learn 15` on the set while the remote's Input key is pressed, and pass it as `--input-key CODE`.
+    # The surfaces over playback have the film or the input in front first (`setup`), outside the measured windows: `-netflix` is the 4K Dolby
+    # Vision test film (HANDOFF: mute the receiver first and restore it after), `-hdmi` is HDMI input N (`--hdmi N`, default 3, the game console).
+    # The panel slides in 150 ms and the gate's burst end is 180 ms, so the slide is what the burst-end check measures.
+    {'name': 'quick', 'default': False, 'act': 'release',
+     'open': '@quick-open MENU', 'close': '@quick-close BACK', 'settle_s': 1.5},
+    {'name': 'picker', 'default': False, 'act': 'release',
+     'open': '@picker-open {INPUT}', 'close': '@picker-close BACK', 'settle_s': 1.5},
+    {'name': 'quick-netflix', 'default': False, 'act': 'release', 'setup': NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN,
+     'open': '@quick-netflix-open MENU', 'close': '@quick-netflix-close BACK', 'settle_s': 1.5},
+    {'name': 'picker-netflix', 'default': False, 'act': 'release', 'setup': NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN,
+     'open': '@picker-netflix-open {INPUT}', 'close': '@picker-netflix-close BACK', 'settle_s': 1.5},
+    {'name': 'quick-hdmi', 'default': False, 'act': 'release', 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
+     'open': '@quick-hdmi-open MENU', 'close': '@quick-hdmi-close BACK', 'settle_s': 1.5},
+    {'name': 'picker-hdmi', 'default': False, 'act': 'release', 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
+     'open': '@picker-hdmi-open {INPUT}', 'close': '@picker-hdmi-close BACK', 'settle_s': 1.5},
     # The library behind the Apps tile, on request (`--surfaces apps`, with LumaTV's Home in front and at rest, its Apps tile focused:
     # OK on LG's own Home would launch what it has focused). OK, decided on its release, opens it and BACK closes it. Search, the
     # drawer and the voice bar sit behind longer key paths (the bar's icons, the library's search button) that a surface here
@@ -205,13 +236,35 @@ def validate(entries):
     return True
 
 
-def find(names, entries=None):
+# What the surfaces take from the command line: the Input key's evdev code ({INPUT}) and the HDMI input of the surfaces over an input ({HDMI}).
+PLACEHOLDERS = {'INPUT': 'an evdev code: find the remote\'s Input key with `python3 /tmp/kb.py --learn 15` on the set and pass --input-key CODE',
+                'HDMI': 'an input number: pass --hdmi N'}
+
+
+def fill(s, values):
+    """The surface with its {NAME} placeholders replaced from `values`; ValueError, naming what to pass, for one that has no value."""
+    def sub(text):
+        for name in PLACEHOLDERS:
+            if '{%s}' % name in text:
+                if values.get(name) in (None, ''):
+                    raise ValueError(f"surface {s['name']} needs {PLACEHOLDERS[name]}")
+                text = text.replace('{%s}' % name, str(values[name]))
+        return text
+    out = dict(s)
+    for field in ('open', 'close'):
+        out[field] = sub(s[field])
+    for field in ('setup', 'teardown', 'reopen'):
+        out[field] = [sub(c) for c in s[field]]
+    return out
+
+
+def find(names, entries=None, values=None):
     table = {e['name']: e for e in (SURFACES if entries is None else entries)}
     out = []
     for n in names:
         if n not in table:
             raise ValueError(f'unknown surface {n!r}; known: {", ".join(table)}')
-        out.append(surface(table[n]))
+        out.append(fill(surface(table[n]), values or {}))
     return out
 
 
@@ -785,6 +838,8 @@ def main(argv=None):
                     f'{SOAK_RELEASE_CYCLES} with --soak; at least {RSS_SKIP_CYCLES + 1})')
     ap.add_argument('--soak', action='store_true', help=f'release run: {SOAK_RELEASE_CYCLES} cycles, traces of at most {SOAK_TRACE_MAX}')
     ap.add_argument('--json', help='write every number to this file')
+    ap.add_argument('--input-key', help='the evdev code of the remote\'s Input key, for the picker surfaces (see kb.py --learn)')
+    ap.add_argument('--hdmi', default='3', help='the HDMI input the -hdmi surfaces put in front (default 3, the game console)')
     ap.add_argument('--tag', default=time.strftime('%m%d-%H%M'), help='prefix of the trace names in /tmp/perf')
     a = ap.parse_args(argv)
     cycles = a.cycles if a.cycles is not None else (SOAK_RELEASE_CYCLES if a.soak else SOAK_DEFAULT_CYCLES)
@@ -792,7 +847,8 @@ def main(argv=None):
         ap.error(f'--cycles must be at least {RSS_SKIP_CYCLES + 1}: the first {RSS_SKIP_CYCLES} are warm-up')
     validate(SURFACES)
     try:
-        chosen = find(a.surfaces.split(',') if a.surfaces else [e['name'] for e in SURFACES if surface(e)['default']])
+        chosen = find(a.surfaces.split(',') if a.surfaces else [e['name'] for e in SURFACES if surface(e)['default']],
+                      values={'INPUT': a.input_key, 'HDMI': a.hdmi})
     except ValueError as e:
         ap.error(str(e))
     tag = re.sub(r'[^\w.-]', '_', a.tag)

@@ -393,5 +393,79 @@ class Edges(unittest.TestCase):
         self.assertEqual(rig.calls, [False, True])
 
 
+class QuickAndPicker(unittest.TestCase):
+    """LumaTV's quick panel and input picker, over Home and over playback: what the gate presses and measures, and what it needs to be told."""
+
+    NAMES = ['quick', 'picker', 'quick-netflix', 'picker-netflix', 'quick-hdmi', 'picker-hdmi']
+    VALUES = {'INPUT': '227', 'HDMI': '3'}
+
+    def test_they_run_when_named_and_not_in_the_default_gate(self):
+        defaults = [e['name'] for e in gate.SURFACES if gate.surface(e)['default']]
+        for n in self.NAMES:
+            self.assertNotIn(n, defaults)
+        self.assertEqual([s['name'] for s in gate.find(self.NAMES, values=self.VALUES)], self.NAMES)
+        self.assertTrue(gate.validate(gate.SURFACES))
+
+    def test_the_bar_is_the_plans_and_nothing_is_switched_off(self):
+        for s in gate.find(self.NAMES, values=self.VALUES):
+            self.assertEqual(s['thresholds'], gate.THRESHOLDS, s['name'])
+            self.assertEqual((s['thresholds']['first_frame_ms'], s['thresholds']['burst_end_ms'], s['thresholds']['burst_over20'],
+                              s['thresholds']['p90_render_ms'], s['thresholds']['dropped']), (50.0, 180.0, 0, 3.0, 0), s['name'])
+            self.assertTrue(s['transition'] and s['soak'] and s['still'], s['name'])      # the close is measured too, the RSS is watched, the tick is off
+
+    def test_both_keys_are_timed_from_their_release(self):
+        # LG swallows the press of the gear and of the Input key and replays a short press when the key comes up
+        quick = gate.find(['quick'], values=self.VALUES)[0]
+        self.assertEqual(gate.cycle_tokens(quick)[:4], ['MENU+', 's0.05', '@quick-open', 'MENU-'])
+        picker = gate.find(['picker'], values=self.VALUES)[0]
+        self.assertEqual(gate.cycle_tokens(picker)[:4], ['227+', 's0.05', '@picker-open', '227-'])
+        self.assertEqual(gate.token_seconds('227+'), 0.0)
+
+    def test_the_picker_needs_the_input_keys_code_and_says_how_to_find_it(self):
+        with self.assertRaisesRegex(ValueError, r'picker needs .*kb\.py --learn.*--input-key'):
+            gate.find(['picker'])
+        with self.assertRaises(ValueError):
+            gate.find(['picker-netflix'], values={'INPUT': ''})
+        # the gear needs nothing
+        self.assertEqual(gate.find(['quick', 'quick-netflix'], values={})[0]['open'], '@quick-open MENU')
+
+    def test_the_hdmi_surfaces_name_the_input_they_put_in_front(self):
+        s = gate.find(['quick-hdmi'], values={'HDMI': '2'})[0]
+        self.assertIn('"id":"com.webos.app.hdmi2"', s['setup'][0])
+        self.assertIn('/launch', s['setup'][0])
+        with self.assertRaisesRegex(ValueError, 'hdmi'):
+            gate.find(['picker-hdmi'], values={'INPUT': '227'})
+
+    def test_the_film_is_launched_by_its_deep_link_and_played_with_ok_and_the_set_is_left_on_home(self):
+        s = gate.find(['quick-netflix'], values={})[0]
+        setup = '\n'.join(s['setup'])
+        self.assertIn('closeByAppId', s['setup'][0])
+        self.assertIn('m=https://www.netflix.com/watch/80141336&source_type=4', setup)
+        self.assertIn('python3 /tmp/kb.py OK', setup)
+        self.assertEqual(gate.KB, '/tmp/kb.py')
+        teardown = '\n'.join(s['teardown'])
+        self.assertIn('closeByAppId', teardown)
+        self.assertIn('com.webos.app.home', teardown)
+        for e in (s, gate.find(['quick-hdmi'], values={'HDMI': '3'})[0]):
+            for cmd in e['setup'] + e['teardown']:
+                self.assertFalse(cmd.startswith('lumatv '), cmd)
+
+    def test_the_gate_stops_with_a_message_before_touching_the_set(self):
+        # an unfilled placeholder is an argument error, not a run that presses a key that is not there
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            gate.main(['--surfaces', 'picker'])
+        self.assertIn('--input-key', err.getvalue())
+
+    def test_kb_can_learn_a_key_without_a_device_to_inject_into(self):
+        import subprocess
+        kb = os.path.join(os.path.dirname(HERE), 'docs', 'research', 'perf', 'kb.py')
+        r = subprocess.run([sys.executable, kb, '--learn', '0'], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, '')
+
+
 if __name__ == '__main__':
     unittest.main()

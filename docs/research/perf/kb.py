@@ -21,6 +21,11 @@ Tokens:
             "P:" marker to it is luna-send's start, the hub and the service; what the compositor
             then does is what the surface costs. analyse.py ignores "Q:" markers.
 KEY is UP DOWN LEFT RIGHT OK BACK HOME MENU or an evdev code.
+
+    python3 /tmp/kb.py --learn SECONDS
+            prints the evdev code and the device of every key pressed on the set's input devices in that time, so the code of a
+            key that has none above (the remote's Input key) is read off while someone presses it; it is what gate.py's
+            --input-key takes. Nothing is injected.
 """
 import os
 import struct
@@ -39,6 +44,38 @@ def device():
                 if word.startswith('event'):
                     return '/dev/input/' + word
     raise SystemExit('no SSAP key device')
+
+
+def learn(seconds):
+    import glob
+    import select
+    names = {}
+    for block in open('/proc/bus/input/devices').read().split('\n\n'):
+        name = next((l.split('"')[1] for l in block.splitlines() if l.startswith('N: Name=')), '')
+        for word in block.split():
+            if word.startswith('event'):
+                names['/dev/input/' + word] = name
+    fds = {}
+    for path in glob.glob('/dev/input/event*'):
+        try:
+            fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = names.get(path, path)
+        except OSError:
+            pass
+    size = struct.calcsize('llHHi')           # 32-bit userland on a 64-bit kernel: see event()
+    end = time.time() + seconds
+    while time.time() < end:
+        ready, _, _ = select.select(list(fds), [], [], 0.2)
+        for fd in ready:
+            data = os.read(fd, size * 64)
+            for i in range(0, len(data) - size + 1, size):
+                _, _, kind, code, value = struct.unpack('llHHi', data[i:i + size])
+                if kind == 1 and value == 1:
+                    print(f'{code} {fds[fd]}', flush=True)
+
+
+if sys.argv[1:2] == ['--learn']:
+    learn(float(sys.argv[2]) if len(sys.argv) > 2 else 15.0)
+    sys.exit(0)
 
 
 fd = os.open(device(), os.O_WRONLY)
