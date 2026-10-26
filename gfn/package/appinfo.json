@@ -1,0 +1,18 @@
+{
+  "id": "org.nphil.lumatv.gfn",
+  "version": "0.1.0",
+  "vendor": "nphil",
+  "type": "native",
+  "main": "lumatv-gfn-feeder",
+  "title": "GeForce NOW",
+  "appDescription": "GeForce NOW on the video plane: OpenNOW's engine with LG's decoder and the controller read directly",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#1a1a1a",
+  "splashBackground": "splash.png",
+  "nativeLifeCycleInterfaceVersion": 2,
+  "handlesRelaunch": true,
+  "requiredMemory": 320,
+  "transparent": false,
+  "visible": true
+}

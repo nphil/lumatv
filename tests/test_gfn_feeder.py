@@ -435,6 +435,34 @@ class Binary(unittest.TestCase):
         self.assertEqual(sorted(needed), ["libc.so.6", "libdl.so.2"])
         self.assertIn("Flags:                             0x5000200", out)
 
+    def test_the_app_id_comes_from_the_installed_directory_and_no_arguments_means_serve(self):
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-app-")
+        try:
+            appdir = os.path.join(tmp, "org.test.gfn")
+            os.makedirs(appdir)
+            exe = os.path.join(appdir, "lumatv-gfn-feeder")
+            shutil.copy(BIN, exe)
+            env = dict(os.environ, FAKE_NDL_LOG=os.devnull)
+            env.pop("APPID", None)
+            r = subprocess.run([exe, "--probe", "-L", NDL], capture_output=True, text=True, env=env)
+            self.assertEqual(json.loads(r.stdout)["app_id"], "org.test.gfn")
+            r = subprocess.run([exe, "--probe", "-L", NDL], capture_output=True, text=True, env=dict(env, APPID="com.other.app"))
+            self.assertEqual(json.loads(r.stdout)["app_id"], "com.other.app")
+            # SAM starts `main` with no arguments: the feeder serves the engine on the default socket from its own window
+            fc = FakeCompositor()
+            try:
+                e = dict(env, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL))
+                p = subprocess.Popen([exe, "-L", NDL], env=e, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                line = p.stdout.readline()
+                self.assertIn('"serving":"/tmp/lumatv-gfn/feed.sock"', line)
+                self.assertIn('"window":"_Window_Id_', line)
+                p.terminate()
+                p.wait(timeout=10)
+            finally:
+                fc.close()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_probe_reports_the_library_and_the_protocol_sizes(self):
         r = subprocess.run([BIN, "--probe", "-L", NDL], capture_output=True, text=True, env=dict(os.environ, FAKE_NDL_LOG=os.devnull))
         self.assertEqual(r.returncode, 0, r.stderr)

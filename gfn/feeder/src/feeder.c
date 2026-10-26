@@ -38,6 +38,28 @@
 #define SCREEN_H 1080
 #define SAMPLES 4096
 #define DEFAULT_APP_ID "org.nphil.lumatv.gfn"
+#define DEFAULT_SOCKET "/tmp/lumatv-gfn/feed.sock"
+
+/* The app id for NDL_DirectMediaInit: SAM passes no environment, so an installed app reads it off its own directory
+ * (/media/developer/apps/usr/palm/applications/<id>/lumatv-gfn-feeder), as jellyfin-webos-native's ndlplay does. */
+static const char *app_id_from_exe(char *buf, size_t cap) {
+    char exe[512];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (n > 0) {
+        exe[n] = 0;
+        char *slash = strrchr(exe, '/');
+        if (slash) {
+            *slash = 0;
+            const char *dir = strrchr(exe, '/');
+            dir = dir ? dir + 1 : exe;
+            if (strchr(dir, '.') && strlen(dir) < cap) {
+                snprintf(buf, cap, "%s", dir);
+                return buf;
+            }
+        }
+    }
+    return DEFAULT_APP_ID;
+}
 
 static volatile sig_atomic_t g_term;
 static void on_term(int sig) { (void)sig; g_term = 1; }
@@ -838,7 +860,8 @@ static void usage(void) {
 int main(int argc, char **argv) {
     struct feeder f;
     memset(&f, 0, sizeof f);
-    f.app_id = getenv("APPID") ? getenv("APPID") : DEFAULT_APP_ID;
+    static char app_id_buf[128];
+    f.app_id = getenv("APPID") ? getenv("APPID") : app_id_from_exe(app_id_buf, sizeof app_id_buf);
     f.window_type = "card";
     f.width = 3840;
     f.height = 2160;
@@ -896,7 +919,13 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
-    if (!mode || f.fps <= 0 || f.width <= 0 || f.height <= 0) {
+    if (!mode) {
+        /* SAM starts the app's `main` with no arguments: serve the engine from the app's own window */
+        mode = 3;
+        f.sock_path = DEFAULT_SOCKET;
+        mkdir("/tmp/lumatv-gfn", 0770);
+    }
+    if (f.fps <= 0 || f.width <= 0 || f.height <= 0) {
         usage();
         return 2;
     }

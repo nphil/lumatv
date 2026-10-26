@@ -28,13 +28,14 @@ keyring = { path = "crates/keyring" }
 [patch."https://github.com/OpenCloudGaming/OpenNOW"]
 opennow-streamer-platform = { path = "crates/opennow-streamer-platform" }
 
+# Stripped: a panic still names its file and line, and 60 MB of line tables would be most of the package.
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
 panic = "unwind"
-strip = false
-debug = "line-tables-only"
+strip = true
+debug = false
 
 [profile.dev]
 debug = "line-tables-only"
