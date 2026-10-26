@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `plugin-enable`, `ha-link`). Its cards fill the At-home lane, its tiles the quick panel,
   its notices the drawer, and its page is Settings > Home & look > Home Assistant. Locks,
   alarms and cameras are never touched from the TV; the placeholder chips are gone.
+- Settings: minimal text on every page. A row shows its name and value; explanations sit
+  behind one info mark, opened by holding OK. The rail shows one short fact per section,
+  Remote & pointer has tabs, the Settings bar shows the link that is really up, and held
+  Left/Right speeds up long sliders.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
