@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
+  proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
+  `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
+  5-30 s with an equal or longer rest, and never while the panel is dark, Bluetooth audio
+  is up or the adapter is off.
+- Declutter group `autoinstall`: LG's silent app installs stopped (`option.appUpdateMode`
+  manual, `support.automaticUpdate` off), the factory stubs LG's updater turns into full
+  apps removed, and LG's not-installed country apps kept on the deleted list. Store
+  installs and updates stay.
 - Voice search: the mic key listens, Home Assistant's Assist pipeline turns the speech
   into text, and the text fills Search. Off until the owner links Home Assistant, chooses a
   microphone and switches it on; the helper's `voice-link` saves the address and token, and

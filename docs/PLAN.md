@@ -727,7 +727,7 @@ slot, and ranks 1 and 3 first need their call signatures recovered offline.
 | 2 | The TV's own audio mix (ALSA card 1: `MixerCapture`, `SoundEngineCapture`) | Audio-reactive lights and a loudness meter with no microphone | Five seconds from `hw:1,2` and `hw:1,3` while LG plays a tone, receiver muted; the DSP reset count checked |
 | 3 | Hardware JPEG (`/dev/lg/mjpeg0`) | Poster and wallpaper decode off the CPU, a 4K still on a video window with no GPU, cheap screenshots for the gated view | A 1080p and a 4K JPEG through `DILE_JPEG_Decode`: ms and CPU against libjpeg-turbo |
 | 4 | Hardware video decode (`video21`, `/dev/lg/vdec0-7`) | A looping 1080p wallpaper or screensaver on a video plane; LG's Screen Saver costs 54.5 % Mali and 60 flips a second, Home 10 % and 12.4 | 60 s of a looping 1080p HEVC clip through LG's pipeline in a test web app |
-| 5 | Bluetooth LE through LG's `bluetooth2` service | Presence and BLE sensors for Home Assistant (raw HCI does not exist on this set) | `adapter/getStatus`, then one 15 s passive scan, with Main's OK first |
+| 5 | Bluetooth LE through LG's `bluetooth2` service | Presence and BLE sensors for Home Assistant (raw HCI does not exist on this set) | Built as an ESPHome proxy in the helper (`docs/research/ble-result.md`); first on-set scan with Main's OK |
 
 The NPU (0.4 TOPS, programs compiled offline into LG's own format, no public
 compiler) is parked at rank 6; video encode, the 2D blitter, the TrustZone group and
