@@ -9,6 +9,7 @@ Done (host-tested; counts under "Checks run"):
 - `vplane/`: the 32-bit player service `lumatv-vplane` (C, ARM and host builds), its decoder-library and compositor stand-ins and the sampler for the TV steps (`vplane/tools/measure.py`).
 - `tools/vplane_clips.py` and `payload/vplane/clips/`: the six prints as looped HEVC stills (2.07 MB), caption bitmaps and the clock's glyph atlas.
 - `panels/SaverVideo.qml` (the saver's end of the mailbox), the video branch of `panels/Screensaver.qml`, `payload/vplane/{vplane.sh,role.json}` (install, supervisor, LS2 role), `lumatv vplane ...` (CutoverWatchdog).
+- The player's window is double-buffered (`vpl_wl.c`): one pool of two 1920x1080 ARGB buffers (2 x 8,294,400 = 16,588,800 bytes), each frame painted whole into the buffer the compositor has released and committed; a buffer is never written between its commit and its `wl_buffer.release`. Before, one shared buffer was repainted in place and a compositor that read it late could take a half-painted frame (veil filled, caption not yet laid: CaptionFlake). With both buffers held the frame waits for a release and is painted from the state as it is then, and the print is not switched under the black until the black frame has been committed. Host-tested with a stand-in compositor that reads late, holds a buffer until the next commit replaces it and flags every write to a held buffer; the TV check is step 16 of "TV steps".
 - The art saver's shuffle bag is kept across restarts (`ArtDeck.js`, `/var/lib/lumatv/theme/saver-deck.json`), on by default, off with `theme.screensaver.art.keepOrder: false`.
 - After the set's run: the role carries every name LG's library registers (the hub refused its nameless handle), the player sets `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` itself (LG's AV connector needs them), the window is opaque black around the picture (the margins showed Home's wallpaper), and the twelve hour clock is twelve hours in both savers (Qt's `h:mm` alone is 0-23).
 
@@ -90,7 +91,7 @@ The saver and the player talk through two files in `/tmp/lumatv-vplane/` (`file:
 
 | Item | Size | Basis |
 |---|---|---|
-| Window buffer | 8.3 MB shared memory, resident once the veil, caption or clock is drawn | 1920x1080x4 |
+| Window buffers | 2 x 8.3 MB shared memory (16,588,800 bytes, one memfd pool), resident once the veil, caption or clock is drawn | 1920x1080x4, two for the double buffering |
 | Decoder | about 8-20 MB CMA while playing, released at unload | [INFERENCE] one reference frame, no B-frames (2.85 MB per NV12 frame); 4K Dolby Vision holds 137 MB on the display engine's windows (opennow-result.md) |
 | Clips | 2.07 MB in the ipk and `STATE/vplane/clips`; one key unit (250-400 KB) is read to feed | `payload/vplane/clips` |
 | Floor | the player will not start under 100 MB `MemAvailable` (`-m`) | `MemAvailable` 684-735 MB at Home (TV: hardware-census.md) |
@@ -123,7 +124,7 @@ The way back is `lumatv vplane remove` (the role, the manifest, the binary and t
 
 ## Checks run (offline)
 
-- `tests/test_vplane_player.py` (59): the real player on the host against a stand-in decoder library and a stand-in compositor (call order, feed rate, loop, window types, veil, black around the picture, caption, clock and drift pixel for pixel, page turns, wake, ttl, refusals, teardown, the runtime dir).
+- `tests/test_vplane_player.py` (62): the real player on the host against a stand-in decoder library and a stand-in compositor (call order, feed rate, loop, window types, veil, black around the picture, caption, clock and drift pixel for pixel, page turns, wake, ttl, refusals, teardown, the runtime dir).
 - `tests/test_vplane_clips.py` (24) and `tools/vplane_clips.py check --deep`: formats, geometry, QML numbers, contrast.
 - `tests/test_vplane_saver.py`, `tests/test_saver_deck.py`, `tests/artdeck.test.js`: the saver against a stand-in player on the QML host, and against the real player (the request the QML writes is the one the C reads); the shuffle bag across restarts.
 - `tests/test_vplane_install.py` (12), `tests/test_vplane_measure.py` (9).
@@ -162,6 +163,7 @@ Steps 1-7 of "Tonight's check" ran once (Resume here has the figures). What foll
 13. Wake: a remote key and a pointer move end it; latency from key to Home; the player's wake command and LG's own `cancel()` do not fight.
 14. Home still ticking under the saver: Mali and CPU with the saver up and Home foreground-gated or not.
 15. The three side by side: as found, LumaTV's GPU saver, the video saver: `measure.py table`.
+16. Whole frames: with the saver up on the video, run `--once great-wave 40 -w screensaver` (or leave the saver through three print changes) with `measure.py run buffers 30 --proc lumatv-vplane`. Pass: no frame in a screen capture shows the print's dim without its caption or the clock, the compositor log has no `wl_buffer`/`wl_shm` error and no "holds both buffers" line in the player's stderr (that line is the wait for a release, harmless once, a fault if it repeats every step), and the player's RSS is about 8 MB above the single-buffer run's 25 MB (both buffers resident, about 33 MB).
 
 ## Not verified on the TV
 

@@ -1,6 +1,6 @@
 /* A Wayland client for LG's compositor (and LumaTV's, which speaks the same tables), written against the wire so the player needs no
- * libwayland: it makes one window, exports one video element on it, and keeps a transparent ARGB buffer on it that the player may
- * draw into.
+ * libwayland: it makes one window, exports one video element on it, and keeps two transparent ARGB buffers on it that the player may
+ * draw into in turn.
  *
  * What LG's side expects (docs/research/videoplane-saver-result.md has the sources): `wl_webos_shell.get_shell_surface` for the window,
  * `set_property("appId", ...)` because LG's compositor only composites windows it can attribute to an app (the id need not be an
@@ -44,10 +44,14 @@ int vpl_wl_dispatch(vpl_wl *w, char *err, size_t cap);
 /* The element's id, "_Window_Id_N", what NDL is given before it initialises. */
 const char *vpl_wl_window_id(const vpl_wl *w);
 
-/* The window's buffer: width x height ARGB8888 premultiplied, transparent until drawn on. */
-uint32_t *vpl_wl_pixels(vpl_wl *w);
+/* The buffer to paint next: width x height ARGB8888 premultiplied, with whatever it held when it was last committed (transparent at
+ * first), so a frame is painted in full. The window has two, because the compositor reads a committed buffer whenever it gets round to
+ * it, until it releases it; painting a buffer it still holds shows it half a frame. NULL while neither is released: try again after
+ * vpl_wl_dispatch has handled a release. */
+uint32_t *vpl_wl_back(vpl_wl *w);
 
-/* Tells the compositor the box changed: damage, attach, commit. */
+/* Tells the compositor the box of the buffer vpl_wl_back returned changed: damage, attach, commit. The buffer is then the compositor's
+ * until its release arrives, and the other one is the next back buffer. */
 int vpl_wl_commit(vpl_wl *w, int x, int y, int bw, int bh);
 
 /* Key presses, pointer buttons and pointer motion on any of the compositor's seats since the last call: the viewer wants the screen back. */

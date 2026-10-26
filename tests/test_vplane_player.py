@@ -65,7 +65,7 @@ def synthetic_clip(path, units=30, key=3000, other=150, fps=60, w=W, h=H, codec=
 class Rig:
     """A player, a compositor and a library stand-in, each in its own temporary place."""
 
-    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False, mailbox=None):
+    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False, mailbox=None, release="immediate", lag=0.0):
         self.tmp = tempfile.mkdtemp(prefix="vplane-test-")
         self.mb = mailbox or os.path.join(self.tmp, "mb")      # (the saver's own tests put it where the saver looks)
         self.clipdir = os.path.join(self.tmp, "clips")
@@ -84,7 +84,7 @@ class Rig:
                 self.captions.append(clips.read_vpt(os.path.join(self.clipdir, "clip%d.vpt" % i)))
         self.ndl_log = os.path.join(self.tmp, "ndl.log")
         open(self.ndl_log, "w").close()
-        self.fc = FakeCompositor(hold_window_id)
+        self.fc = FakeCompositor(hold_window_id, release, lag)
         e = dict(os.environ, **self.fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=self.ndl_log, FAKE_NDL_VERBOSE="1")
         e.update({k: v.replace("{sock}", self.fc.path) for k, v in (env or {}).items()})        # `{sock}` is the stand-in compositor's own socket
         self.err_path = os.path.join(self.tmp, "player.log")
@@ -887,10 +887,6 @@ class Player(unittest.TestCase):
         self.assertTrue(r.wait_state("idle"))
         series = [(argb(g[2], g[0], 200, 200)[0], argb(g[2], g[0], *probe)[1]) for t, s, g in r.fc.commits if g]
         series = series[next(i for i, (v, c) in enumerate(series) if c > 0):]          # from the first picture that carries the caption
-        # The player has one shm buffer and the stand-in compositor reads it when it gets round to the commit, so under load it can read a
-        # frame the player is already repainting (veil filled, ink not yet laid). The caption's opacity is 0 only at the veil's peak: a
-        # frame without ink below it is such a read, not a picture.
-        series = [(v, c) for v, c in series if c > 0 or v == 255]
         veils = [v for v, _ in series]
         peak = veils.index(255)
         at_black = [(v, c) for v, c in series if v == 255]
@@ -899,6 +895,84 @@ class Player(unittest.TestCase):
         self.assertTrue(all(b[1] <= a[1] for a, b in zip(rising, rising[1:])), "the caption fades out as the veil rises: %s" % rising)
         self.assertGreater(series[0][1], 0, "it was there before")
         self.assertTrue(any(c > 0 for v, c in series[peak:]), "the next print's caption comes back as the veil falls")
+
+    # ---- the buffers
+
+    def attaches(self, r):
+        return [a[0] for w, a in r.fc.requests() if w == "wl_surface.attach"]
+
+    def test_the_window_has_two_buffers_of_one_pool_and_commits_them_in_turn(self):
+        r = self.rig()
+        r.send("start", clockAt="10:42", moveMs=60, periodX=1, periodY=2, ampX=30, ampY=20, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(0.8)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        pools = [a for w, a in r.fc.requests() if w == "wl_shm.create_pool"]
+        self.assertEqual([p[2] for p in pools], [2 * 1920 * 1080 * 4], "one pool of two buffers at the window's size: 16588800 bytes")
+        buffers = [a for w, a in r.fc.requests() if w == "wl_shm_pool.create_buffer"]
+        self.assertEqual([b[1] for b in buffers], [0, 1920 * 1080 * 4])
+        ids = self.attaches(r)
+        self.assertGreater(len(ids), 6)
+        self.assertEqual(set(ids), {b[0] for b in buffers})
+        self.assertTrue(all(a != b for a, b in zip(ids, ids[1:])), "every commit is the other buffer: %s" % ids)
+        self.assertEqual(r.fc.violations, [])
+
+    def test_a_frame_is_never_seen_half_painted(self):
+        # The compositor reads a committed buffer a while after the commit and keeps it until the next commit replaces it, while the player
+        # goes on painting: fades, the drift and the clock repaint the window all the time.
+        r = self.rig(clip_keys=(3000, 4000), units=20, captions=True, release="held", lag=0.02)
+        ink2 = 0xF2EFF6
+        r.send("start", clockAt="10:42", ink2="#F2EFF6", ink2Alpha=118, everyMs=500, fadeMs=300, moveMs=40, periodX=1, periodY=2, ampX=30, ampY=20, shuffle=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(3.5)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        self.assertEqual(r.fc.violations, [], "a buffer was written or committed while the compositor held it")
+        cap = r.captions[0]
+        want, _ = expected_text_pixels("10:42", ink2, 118, 0, g_right(), g_base())
+        # the clock and the caption move with the picture (30 and 20 pixels): each is looked for in its box, a margin wider than the drift
+        clock_box = (min(x for x, _ in want) - 34, min(y for _, y in want) - 24, max(x for x, _ in want) + 34, max(y for _, y in want) + 24)
+        cap_box = (cap["x"] - 34, cap["y"] - 24, cap["x"] + cap["width"] + 34, cap["y"] + cap["height"] + 24)
+
+        def inked(frame, box):
+            w, h, data = frame
+            px = memoryview(data).cast("I")
+            x0, y0, x1, y1 = box
+            return any((px[y * w + x] >> 16) & 255 for y in range(max(y0, 0), min(y1, h), 2) for x in range(max(x0, 0), min(x1, w), 2))
+        grid = [(x, y) for x in range(150, 1500, 149) for y in range(200, 800, 97)]
+        frames = [g for t, s, g in r.fc.commits if g and inked(g, clock_box)]        # from the first painted frame
+        self.assertGreater(len(frames), 20)
+        veils = set()
+        for frame in frames:
+            w, h, data = frame
+            v = {argb(data, w, *xy)[0] for xy in grid}
+            self.assertEqual(len(v), 1, "the veil is half filled: %s" % sorted(v))
+            veil = v.pop()
+            veils.add(veil)
+            self.assertEqual(argb(data, w, 0, 0)[0], 255, "the margin is black in every frame")
+            has_ink = inked(frame, cap_box)
+            if veil <= 128:
+                self.assertTrue(has_ink, "the caption is on every frame that is not nearly black (veil %d)" % veil)
+            if veil == 255:
+                self.assertFalse(has_ink, "no caption on a black frame")
+        self.assertIn(255, veils, "the fade reached black")
+        self.assertIn(0, veils)
+        self.assertGreater(len(veils), 5, "and was seen on the way")
+
+    def test_a_frame_waits_for_a_release_and_is_painted_when_it_comes(self):
+        r = self.rig(release="never")
+        r.send("start", clock=False, ttlMs=60000, since=int(time.time() * 1000) - 30 * 60000)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertTrue(r.wait(lambda: len(self.attaches(r)) >= 2, 3), "the window's open commit and the first frame")
+        time.sleep(1.5)                        # the veil step that is due in a second wants a third frame
+        self.assertEqual(len(self.attaches(r)), 2, "both buffers are held: nothing is painted over either")
+        self.assertEqual(r.fc.violations, [])
+        self.assertEqual(r.fresh()["state"], "playing", "and the player carries on")
+        r.fc.release_replaced()
+        self.assertTrue(r.wait(lambda: len(self.attaches(r)) > 2, 3), "the frame owed is painted once a buffer is free")
+        self.assertEqual(r.fc.violations, [])
+        self.assertEqual(self.veil_at(r, 960, 540), (51, 0, 0, 0), "and it is the state as it is then")
 
     def test_a_caption_that_is_switched_off_is_not_drawn(self):
         r = self.rig(captions=True)

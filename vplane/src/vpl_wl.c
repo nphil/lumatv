@@ -42,7 +42,7 @@ struct vpl_wl {
     unsigned sent, received;
 
     uint32_t registry, compositor, shm, shell, foreign;
-    uint32_t surface, shell_surface, exported, pool, buffer, sync_cb;
+    uint32_t surface, shell_surface, exported, pool, sync_cb;
     struct { uint32_t name, version; } g_compositor, g_shm, g_shell, g_foreign;
 
     /* every wl_seat the compositor offers (LG's has one per input device), with the keyboard and pointer taken from it: a key or a pointer
@@ -55,10 +55,16 @@ struct vpl_wl {
     int have_id, sync_done, closed, failed;
     char err[240];
 
+    /* Two buffers of one pool, side by side in one mapping. The compositor reads a committed buffer when it likes, until it sends that
+     * buffer's release, so a buffer is painted only while it is not `busy` (committed and not yet released). `back` is the one the next
+     * commit attaches. */
     int w, h;
     int shm_fd;
-    uint32_t *px;
-    size_t px_len;
+    uint32_t buffer[2];
+    uint32_t *px[2];
+    int busy[2], back;
+    size_t px_len;                 /* one buffer's bytes */
+    void *map;
 };
 
 static void set_err(vpl_wl *w, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
@@ -210,6 +216,12 @@ static void on_event(vpl_wl *w, uint32_t id, uint32_t op, const uint8_t *a, size
         else if (!strcmp(iface, "wl_seat")) bind_seat(w, name, ver);
         return;
     }
+    for (int i = 0; i < 2; i++) {
+        if (w->buffer[i] && id == w->buffer[i]) {
+            if (op == 0) w->busy[i] = 0;                       /* wl_buffer.release */
+            return;
+        }
+    }
     if (w->sync_cb && id == w->sync_cb && op == 0) {
         w->sync_done = 1;
         return;
@@ -355,23 +367,26 @@ static void set_prop(vpl_wl *w, const char *k, const char *v) {
 static int make_buffer(vpl_wl *w) {
     size_t stride = (size_t)w->w * 4;
     w->px_len = stride * (size_t)w->h;
+    size_t pool_len = w->px_len * 2;
     w->shm_fd = (int)syscall(SYS_memfd_create, "lumatv-vplane", 1u /* MFD_CLOEXEC */);
-    if (w->shm_fd < 0 || ftruncate(w->shm_fd, (off_t)w->px_len) != 0) {
+    if (w->shm_fd < 0 || ftruncate(w->shm_fd, (off_t)pool_len) != 0) {
         set_err(w, "no shared memory for the window's buffer: %s", strerror(errno));
         return -1;
     }
-    void *m = mmap(NULL, w->px_len, PROT_READ | PROT_WRITE, MAP_SHARED, w->shm_fd, 0);
+    void *m = mmap(NULL, pool_len, PROT_READ | PROT_WRITE, MAP_SHARED, w->shm_fd, 0);
     if (m == MAP_FAILED) {
         set_err(w, "mmap of the window's buffer: %s", strerror(errno));
         return -1;
     }
-    w->px = m;
+    w->map = m;
+    w->px[0] = m;
+    w->px[1] = (uint32_t *)((uint8_t *)m + w->px_len);
     /* wl_shm.create_pool carries the descriptor out of band, so what is queued goes first and this message goes alone */
     if (flush_out(w) != 0) return -1;
     w->pool = w->next++;
     size_t at = msg_begin(w, w->shm, SHM_CREATE_POOL);
     put_u32(w, w->pool);
-    put_u32(w, (uint32_t)w->px_len);
+    put_u32(w, (uint32_t)pool_len);
     msg_end(w, at);
     union { struct cmsghdr h; char buf[CMSG_SPACE(sizeof(int))]; } u;
     memset(&u, 0, sizeof u);
@@ -390,29 +405,34 @@ static int make_buffer(vpl_wl *w) {
         return -1;
     }
     w->out_len = 0;
-    w->buffer = w->next++;
-    at = msg_begin(w, w->pool, POOL_CREATE_BUFFER);
-    put_u32(w, w->buffer);
-    put_u32(w, 0);
-    put_u32(w, (uint32_t)w->w);
-    put_u32(w, (uint32_t)w->h);
-    put_u32(w, (uint32_t)stride);
-    put_u32(w, WL_SHM_FORMAT_ARGB8888);
-    msg_end(w, at);
+    for (int i = 0; i < 2; i++) {
+        w->buffer[i] = w->next++;
+        at = msg_begin(w, w->pool, POOL_CREATE_BUFFER);
+        put_u32(w, w->buffer[i]);
+        put_u32(w, (uint32_t)(w->px_len * (size_t)i));
+        put_u32(w, (uint32_t)w->w);
+        put_u32(w, (uint32_t)w->h);
+        put_u32(w, (uint32_t)stride);
+        put_u32(w, WL_SHM_FORMAT_ARGB8888);
+        msg_end(w, at);
+    }
     return 0;
 }
 
 int vpl_wl_commit(vpl_wl *w, int x, int y, int bw, int bh) {
     if (w->closed) return -1;
+    if (w->busy[w->back]) return -1;          /* the caller painted a buffer it had no right to */
     if (x < 0) x = 0;
     if (y < 0) y = 0;
     if (x + bw > w->w) bw = w->w - x;
     if (y + bh > w->h) bh = w->h - y;
     size_t at = msg_begin(w, w->surface, SURFACE_ATTACH);
-    put_u32(w, w->buffer);
+    put_u32(w, w->buffer[w->back]);
     put_u32(w, 0);
     put_u32(w, 0);
     msg_end(w, at);
+    w->busy[w->back] = 1;
+    w->back ^= 1;
     if (bw > 0 && bh > 0) {
         at = msg_begin(w, w->surface, SURFACE_DAMAGE);
         put_u32(w, (uint32_t)x);
@@ -487,7 +507,7 @@ static void teardown(vpl_wl *w) {
         }
         close(w->fd);
     }
-    if (w->px) munmap(w->px, w->px_len);
+    if (w->map) munmap(w->map, w->px_len * 2);
     if (w->shm_fd > 0) close(w->shm_fd);
 }
 
@@ -571,7 +591,7 @@ unsigned vpl_wl_activity(vpl_wl *w) {
     return a;
 }
 const char *vpl_wl_window_id(const vpl_wl *w) { return w->window_id; }
-uint32_t *vpl_wl_pixels(vpl_wl *w) { return w->px; }
+uint32_t *vpl_wl_back(vpl_wl *w) { return w->busy[w->back] ? NULL : w->px[w->back]; }
 int vpl_wl_flush(vpl_wl *w) { return flush_out(w); }
 
 void vpl_wl_counts(const vpl_wl *w, unsigned *sent, unsigned *received) {

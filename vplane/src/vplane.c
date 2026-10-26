@@ -196,6 +196,8 @@ struct player {
     int change_now;                /* a `next` request: turn the page at the next step */
     int want_clip;                 /* ... to this clip (an index), or -1 for the next in the order */
     int veil;                      /* the veil's alpha now */
+    int shown_veil;                /* the veil of the last frame committed */
+    int repaint;                   /* a frame is owed: no buffer was free when it was due */
     int dx, dy;
     char clock_text[16];
     vui_rect clock_rect;
@@ -346,6 +348,8 @@ static void drop_everything(struct player *p) {
     p->window_id[0] = 0;
     p->phase = 0;
     p->veil = 0;
+    p->shown_veil = 0;
+    p->repaint = 0;
     p->dx = p->dy = 0;
     p->clock_text[0] = 0;
     p->clock_rect = (vui_rect){0, 0, 0, 0};
@@ -424,7 +428,7 @@ static void begin(struct player *p, const char *req, size_t n) {
         return;
     }
     snprintf(p->window_id, sizeof p->window_id, "%s", vpl_wl_window_id(p->wl));
-    p->cv = (vui_canvas){vpl_wl_pixels(p->wl), SCREEN_W, SCREEN_H, SCREEN_W};
+    p->cv = (vui_canvas){NULL, SCREEN_W, SCREEN_H, SCREEN_W};      /* the pixels are the back buffer's, taken at each paint */
     p->mx = (SCREEN_W - (int)p->clip.width) / 2;
     p->my = (SCREEN_H - (int)p->clip.height) / 2;
     p->dx = p->dy = 0;
@@ -454,6 +458,8 @@ static void begin(struct player *p, const char *req, size_t n) {
     p->next_clock_ms = now;
     p->phase = 0;
     p->veil = 0;
+    p->shown_veil = 0;
+    p->repaint = 0;
     p->change_now = 0;
     p->want_clip = -1;
     p->clock_text[0] = 0;
@@ -484,37 +490,25 @@ static int caption_opacity(struct player *p) {
     return 255 - ((p->veil - base) * 255 + (255 - base) / 2) / (255 - base);
 }
 
-static void commit_rect(struct player *p, vui_rect r) {
-    r = vui_clip(r, &p->cv);
-    if (vui_empty(r)) return;
-    vpl_wl_commit(p->wl, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
-}
-
-/* The corner clock at its place plus the drift: drawn into the buffer (the box it covered is made the veil first), not committed. Returns the
- * damage, or an empty box when nothing changed and `force` is not set. */
-static vui_rect paint_clock(struct player *p, int force) {
-    vui_rect none = {0, 0, 0, 0};
-    if (!p->wl || !p->prm.overlay || !p->prm.clock || !p->have_glyphs) return none;
-    char text[16];
+/* The corner clock's text and the box it covers at its place plus the drift; 0 when the window carries no clock. */
+static int clock_now(struct player *p, char *text, size_t cap, vui_rect *box) {
+    if (!p->wl || !p->prm.overlay || !p->prm.clock || !p->have_glyphs) return 0;
     time_t t = time(NULL);
     struct tm tm;
     localtime_r(&t, &tm);
-    if (p->prm.clockAt[0]) snprintf(text, sizeof text, "%s", p->prm.clockAt);
-    else vpl_clock_text(text, sizeof text, tm.tm_hour, tm.tm_min, p->prm.twelveHour);
-    int right = (int)p->glyphs.right + p->dx, base = (int)p->glyphs.baseline + p->dy;
-    vui_rect want = vui_text_rect(&p->glyphs, text, right, base);
-    if (!force && strcmp(text, p->clock_text) == 0 && !memcmp(&want, &p->clock_rect, sizeof want)) return none;
-    vui_rect damage = vui_union(p->clock_rect, want);
-    vui_fill(&p->cv, p->clock_rect, (uint8_t)p->veil);
-    vui_draw_text(&p->cv, &p->glyphs, text, right, base, p->prm.ink2, p->prm.ink2Alpha, (uint8_t)p->veil);
-    snprintf(p->clock_text, sizeof p->clock_text, "%s", text);
-    p->clock_rect = want;
-    return damage;
+    if (p->prm.clockAt[0]) snprintf(text, cap, "%s", p->prm.clockAt);
+    else vpl_clock_text(text, cap, tm.tm_hour, tm.tm_min, p->prm.twelveHour);
+    *box = vui_text_rect(&p->glyphs, text, (int)p->glyphs.right + p->dx, (int)p->glyphs.baseline + p->dy);
+    return 1;
 }
 
-static void draw_clock(struct player *p, int force) {
-    vui_rect damage = paint_clock(p, force);
-    if (!vui_empty(damage)) commit_rect(p, damage);
+static void paint_clock(struct player *p) {
+    char text[16];
+    vui_rect box;
+    if (!clock_now(p, text, sizeof text, &box)) return;
+    vui_draw_text(&p->cv, &p->glyphs, text, (int)p->glyphs.right + p->dx, (int)p->glyphs.baseline + p->dy, p->prm.ink2, p->prm.ink2Alpha, (uint8_t)p->veil);
+    snprintf(p->clock_text, sizeof p->clock_text, "%s", text);
+    p->clock_rect = box;
 }
 
 /* The picture covers 1856 x 1024 of the 1920 x 1080 screen, shifted by the drift. What the window covers around it is black: the margin would show
@@ -528,17 +522,41 @@ static void paint_margins(struct player *p) {
     vui_fill(&p->cv, (vui_rect){x1, y0, SCREEN_W, y1}, 255);
 }
 
-/* Everything the window carries, from the state: the veil, the caption above it, the clock above that; one commit. */
-static void paint_all(struct player *p) {
+/* One whole frame from the state (the veil, the caption above it, the clock above that) into the back buffer, then one commit; `damage` is
+ * what differs from the frame the compositor holds now. The buffer is painted in full because it holds the frame before the last one. With
+ * no buffer released the frame waits (`repaint`) and is painted from the state as it is then, with everything as damage. */
+static void paint_frame(struct player *p, vui_rect damage) {
     if (!p->wl || !p->prm.overlay) return;
+    uint32_t *px = vpl_wl_back(p->wl);
+    if (!px) {
+        if (!p->repaint) vpl_say("the compositor holds both buffers: the frame waits for a release");
+        p->repaint = 1;
+        return;
+    }
+    if (p->repaint) damage = (vui_rect){0, 0, SCREEN_W, SCREEN_H};
+    p->repaint = 0;
+    p->cv.px = px;
     vui_fill(&p->cv, (vui_rect){0, 0, SCREEN_W, SCREEN_H}, (uint8_t)p->veil);
     paint_margins(p);
     if (p->prm.caption && p->have_cap)
         vui_draw_caption(&p->cv, &p->cap, p->dx, p->dy, p->prm.ink, p->prm.inkAlpha, p->prm.ink2, p->prm.ink2Alpha, caption_opacity(p), (uint8_t)p->veil);
-    p->clock_text[0] = 0;               /* the fill wiped the clock: draw it again */
+    p->clock_text[0] = 0;
     p->clock_rect = (vui_rect){0, 0, 0, 0};
-    paint_clock(p, 1);
-    commit_rect(p, (vui_rect){0, 0, SCREEN_W, SCREEN_H});
+    paint_clock(p);
+    damage = vui_clip(damage, &p->cv);
+    if (!vui_empty(damage)) vpl_wl_commit(p->wl, damage.x0, damage.y0, damage.x1 - damage.x0, damage.y1 - damage.y0);
+    p->shown_veil = p->veil;
+}
+
+static void paint_all(struct player *p) { paint_frame(p, (vui_rect){0, 0, SCREEN_W, SCREEN_H}); }
+
+/* The minute turned, or the clock moved: a new frame that differs from the last only in the clock's old and new box. */
+static void draw_clock(struct player *p) {
+    char text[16];
+    vui_rect box;
+    if (!clock_now(p, text, sizeof text, &box)) return;
+    if (strcmp(text, p->clock_text) == 0 && !memcmp(&box, &p->clock_rect, sizeof box)) return;
+    paint_frame(p, vui_union(p->clock_rect, box));
 }
 
 static void set_veil(struct player *p, int alpha) {
@@ -637,7 +655,7 @@ static void step_change(struct player *p, int64_t now) {
     int64_t into = now - p->phase_ms;
     if (p->phase == 1 && into >= p->prm.fadeMs) to_phase(p, 2, now);
     else if (p->phase == 2) {
-        if (!p->switched && into >= HOLD_MS / 2) {
+        if (!p->switched && into >= HOLD_MS / 2 && p->shown_veil == 255) {      /* never before the black frame is the compositor's */
             switch_print(p);
             p->switched = 1;
         }
@@ -807,6 +825,7 @@ static int run(struct player *p) {
                 continue;
             }
         }
+        if (p->wl && p->repaint) paint_all(p);                   /* a release may have come in */
         if (p->ndl_ready) {
             drain_events(p);
             if (p->ev_error && (p->st == ST_OPENING || p->st == ST_PLAYING)) {
@@ -838,7 +857,7 @@ static int run(struct player *p) {
                 }
                 step_drift(p, now);
                 if (now >= p->next_clock_ms) {
-                    draw_clock(p, 0);
+                    draw_clock(p);
                     p->next_clock_ms = now + 60000 - (vpl_wall_ms() % 60000) + 20;
                 }
             }

@@ -2,6 +2,12 @@
 compositor/protocol/lg-tables.txt) to take one window with an exported video element, to keep every request in order, and to let a
 test read the window's pixels, move the window, close it or break the connection.
 
+Buffers follow the protocol's contract: a committed buffer is the compositor's until it sends wl_buffer.release, and the client must not
+write it or attach it again before that. `release` says when the release comes: "immediate" (right after the pixels are read: the default,
+what a compositor that copies at commit does), "held" (when the next commit replaces the buffer: a compositor that scans out from the
+client's memory) or "never" (until a test calls release_replaced()). `lag` is how long the compositor takes to read the pixels after it has
+the commit, during which the client goes on painting. Every breach of the contract is in `violations`.
+
 It is a second reading of the wire by the same author as the client, so it proves the player's behaviour (what it asks for and in what
 order, what it draws, what it does when the compositor closes the window), not that LG's compositor agrees. The Rust compositor's own
 harness runs the same client against the real server library (compositor/crates/lumatv-compositor/tests/vplane_host.rs).
@@ -51,6 +57,8 @@ class Conn:
         self.pools = {}                    # id -> (mmap, size)
         self.buffers = {}                  # id -> (pool id, offset, w, h, stride)
         self.surfaces = {}                 # id -> {"buffer": id, "committed": id}
+        self.held = {}                     # buffer id -> pixels as committed, from the commit until its release
+        self.attached = None               # the buffer the compositor is showing now
         self.window_id = None
         self.exported_surface = {}
         self.keyboards, self.pointers = [], []
@@ -60,7 +68,7 @@ class Conn:
         try:
             self.sock.sendall(struct.pack("<II", obj, (8 + len(payload)) << 16 | op) + payload)
         except OSError:
-            self.alive = False              # the client has gone: a reply to it has nowhere to land
+            pass                            # the client has gone: a reply to it has nowhere to land (the read side notes the disconnect)
 
     @staticmethod
     def string(s):
@@ -138,10 +146,11 @@ class Conn:
             self.buffers[nid] = (obj, off, w, h, stride)
         elif iface == "wl_surface" and name == "attach":
             self.surfaces[obj]["buffer"] = args[0]
+            self.surfaces[obj]["fresh"] = True
         elif iface == "wl_surface" and name == "commit":
             s = self.surfaces[obj]
             s["committed"] = s["buffer"]
-            self.server.commit(self, obj)
+            self.server.commit(self, obj, s.pop("fresh", False))
         elif iface == "wl_webos_shell" and name == "get_shell_surface":
             self.objects[args[0]] = "wl_webos_shell_surface"
             self.server.shell_surface = (self, args[0], args[1])
@@ -192,6 +201,11 @@ class Conn:
                 self.server.note("server-error", repr(e))
         return True
 
+    def buffer_bytes(self, bid):
+        pool, off, w, h, stride = self.buffers[bid]
+        m, _ = self.pools[pool]
+        return bytes(m[off:off + stride * h])
+
     def pixels(self, surface_id):
         """The committed buffer of a surface as bytes (width, height, data)."""
         s = self.surfaces.get(surface_id)
@@ -203,7 +217,10 @@ class Conn:
 
 
 class FakeCompositor:
-    def __init__(self, hold_window_id=False):
+    def __init__(self, hold_window_id=False, release="immediate", lag=0.0):
+        self.release_mode = release
+        self.lag = lag
+        self.violations = []
         self.dir = tempfile.mkdtemp(prefix="vplane-wl-")
         self.path = os.path.join(self.dir, "wayland-test")
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -230,10 +247,40 @@ class FakeCompositor:
         with self.lock:
             self.events.append((time.monotonic(), what, args))
 
-    def commit(self, conn, surface):
+    def commit(self, conn, surface, fresh):
+        """`commits` are the frames: a commit that only carries the video's rectangle attaches nothing and is not one."""
+        if not fresh:
+            return
+        if self.lag:
+            time.sleep(self.lag)
         got = conn.pixels(surface)
         with self.lock:
             self.commits.append((time.monotonic(), surface, got))
+        if got is None:
+            return
+        bid = conn.surfaces[surface]["committed"]
+        if bid in conn.held:
+            self.violations.append(("committed again before its release", bid))
+            return
+        if self.release_mode == "immediate":
+            conn.send(bid, 0)
+            return
+        prev = conn.attached
+        if prev is not None and prev in conn.held:                 # the compositor has been reading it until now
+            if conn.buffer_bytes(prev) != conn.held[prev]:
+                self.violations.append(("written while the compositor held it", prev))
+            if self.release_mode == "held":
+                del conn.held[prev]
+                conn.send(prev, 0)
+        conn.held[bid] = got[2]
+        conn.attached = bid
+
+    def release_replaced(self):
+        """Releases every buffer that is held but no longer the one on show (the "never" mode's way out)."""
+        for c in self.conns:
+            for bid in [b for b in c.held if b != c.attached]:
+                del c.held[bid]
+                c.send(bid, 0)
 
     def env(self):
         return {"XDG_RUNTIME_DIR": self.dir, "WAYLAND_DISPLAY": "wayland-test"}
