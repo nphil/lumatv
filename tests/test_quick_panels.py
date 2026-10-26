@@ -156,6 +156,21 @@ class HomePanels(HostCase):
                 self.assertTrue(m["full"], "the %s has no full-screen scrim" % kind)
                 self.assertEqual(set(m["full"]), {1}, "a full-screen item of the %s faded at progress %s" % (kind, m["progress"]))
 
+    def test_each_reading_of_the_inputs_lets_the_last_subscription_go(self):
+        # LG's Service keeps a subscription open until it is cancelled; the picker and the quick panel read the inputs at every opening
+        live = ("JSON.stringify(['luna://com.webos.service.eim', 'luna://com.webos.service.applicationmanager'].map(function(u) { "
+                "var mine = root.lunaCalls.filter(function(c) { return c.uri === u }); "
+                "return [mine.filter(function(c) { return c.method !== 'cancel' }).length, mine.filter(function(c) { return c.method === 'cancel' }).length] }))")
+        steps = []
+        for k, kind in enumerate(("picker", "quick", "picker")):
+            steps += probe(READY + 300 + 700 * k, "open%d" % k, "return bus().open('%s');" % kind)
+            steps += probe(READY + 700 + 700 * k, "close%d" % k, "return bus().open('%s');" % kind)
+        rc, out = self.host(*steps, "--eval", "%d:%s" % (READY + 2600, live), "--wait", str(READY + 2900))
+        self.assertEqual(rc, 0, out[-2500:])
+        for (asked, cancelled), what in zip(json.loads(self.values(out)[-1]), ("input status", "foreground app")):
+            self.assertGreaterEqual(asked, 4, "the %s was not read at each opening" % what)
+            self.assertEqual(asked - cancelled, 1, "%d subscriptions to the %s left open" % (asked - cancelled, what))
+
     def test_a_panel_is_not_shown_when_the_owner_turned_it_off_or_Home_is_not_in_front(self):
         rc, out = self.host(
             "--theme", OFF,

@@ -90,9 +90,19 @@ QtObject {
         } catch (e) { }
     }
 
+    // Each ask is a new subscription: LG's `Service.callService` returns the call's token and keeps the call open until it is cancelled
+    // (libwebosserviceplugin.so), so the one before is let go first. Without that every panel opening, every Settings page and every 30 s
+    // watch left one more open call per service, each answering every input change and every app switch again.
+    property double eimToken: 0                // LSMessageToken is an unsigned long: an int could turn it negative
+    property double fgToken: 0
+    function resubscribe(svc, token) {
+        if (token > 0) svc.cancel(token)
+        var t = svc.callService({ subscribe: true })
+        return typeof t === "number" && t > 0 ? t : 0
+    }
     function refresh() {
-        eim.callService({ subscribe: true })
-        fg.callService({ subscribe: true })
+        eimToken = resubscribe(eim, eimToken)
+        fgToken = resubscribe(fg, fgToken)
     }
     function watch(on) { watchers = Math.max(0, watchers + (on ? 1 : -1)) }
 

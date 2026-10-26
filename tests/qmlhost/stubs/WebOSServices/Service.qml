@@ -3,9 +3,10 @@ import WebOSCompositorBase 1.0
 import "FakeSettings.js" as Fake
 
 // Offline stand-in for LG's `Service` type: `call(uri, method, payload)` records and returns a token (> 0, as the real one does; `cancel(token)`
-// records too), and `callService(params)` answers getSystemSettings from the fake settings service (FakeSettings.js) one
-// event-loop turn later, as the real one answers by signal, so a page sees the same asynchrony. A test makes a service answer by calling
-// the signal itself: `svc.response(method, payload, token)` (a subscription's later answers are the same).
+// records too, under the object's service), and `callService(params)` answers getSystemSettings from the fake settings service (FakeSettings.js)
+// one event-loop turn later, as the real one answers by signal, so a page sees the same asynchrony; it returns a token as well (LG's
+// `Service::callService` returns the one its `call` made, libwebosserviceplugin.so). A test makes a service answer by calling the signal
+// itself: `svc.response(method, payload, token)` (a subscription's later answers are the same).
 QtObject {
     id: svc
     property string appId: ""
@@ -14,7 +15,7 @@ QtObject {
     property int issued: 0
     signal response(string method, string payload, int token)
     function call(uri, method, payload) { LS.record(uri, method, payload); issued++; return issued }
-    function cancel(token) { LS.record("", "cancel", JSON.stringify({ token: token })) }
+    function cancel(token) { LS.record(svc.service, "cancel", JSON.stringify({ token: token })) }
     function callService(params) {
         var m = svc.method
         var p = params || {}
@@ -22,6 +23,8 @@ QtObject {
         LS.record(svc.service, "/" + m, JSON.stringify(p))
         replyTimer.pending = { m: m, payload: payload }
         replyTimer.restart()
+        issued++
+        return issued
     }
     property Timer replyTimer: Timer {
         property var pending: null

@@ -257,6 +257,13 @@ read from the `full` captures (`/tmp/perf/gate-r11-qp-*`):
   settings read) and stayed flat on the set. Left for the set: the door (`/tmp/lumatv-layer` = `picker`, then empty) opens the same
   picker without the Input key; if 12 door cycles grow the compositor's RSS as the key's did, the cause is in the picker's QML or its
   readings, if not it is the key's path through LG's chain.
+- **Input subscriptions left open, fixed**: `Inputs.refresh()` (each panel opening, each Settings page that shows inputs, the 30 s watch) asked
+  `eim/getAllInputStatus` and `getForegroundAppInfo` with `subscribe: true` again each time. LG's `Service.callService` returns the
+  call's token and keeps the call open until it is cancelled (`libwebosserviceplugin.so`: `callService` returns what its `call` made;
+  `cancel(LSMessageToken)` is on the type), so every ask left one more open subscription per service, each answering every input change
+  and app switch again. The offline host counted 8 left open on the input status after start-up and three openings. Each ask now cancels
+  the one before (`kit/Inputs.qml`); test: `test_quick_panels.HomePanels.test_each_reading_of_the_inputs_lets_the_last_subscription_go`.
+  It is the same for the quick panel, so it does not explain the picker's stair alone.
 
 Next on the set (TvRound11): after the deploy and `lumatv apply`, `python3 docs/research/perf/gate.py --surfaces
 quick,picker,quick-hdmi,picker-hdmi,quick-netflix,picker-netflix,lgqs-netflix --input-key 241 --hdmi 3 --tag r12-qp --json <out>`, the toast
