@@ -35,6 +35,7 @@
 #include "gf_log.h"
 #include "gf_ndl.h"
 #include "gf_proto.h"
+#include "gf_sam.h"
 #include "gf_opus.h"
 #include "vpl_wl.h"
 
@@ -86,6 +87,13 @@ struct feeder {
     const char *lib, *app_id, *window_type, *window_id_opt, *window_id_file, *play_path, *audio_path, *sock_path;
     const char *ui_home;        /* the installed app's directory: the 64-bit UI is started from it and owns the window */
     pid_t ui_pid;
+    /* SAM's side (gf_sam.c): started when SAM launched the app (no arguments, or its launch object) or with --sam. `chan` is this end of
+     * the socket pair whose other end is the UI's descriptor 3 (rustui/app/src/lifecycle.rs): SAM's lines go down it, the UI's come back. */
+    int sam_mode, preload, chan;
+    gf_sam *sam;
+    int64_t close_at;           /* SAM asked the app to end: when the feeder ends it if the UI has not */
+    char chan_in[1024];
+    size_t chan_len;
     const char *stats_path;
     int codec, width, height, fps, seconds, loop, hdr, drop_threshold, pts_unit, full_wait_ms, burst, no_ndl, no_window, once, export_first;
     /* state */
@@ -652,8 +660,9 @@ static int run_play(struct feeder *f) {
 
 /* Starts the 64-bit UI the way the card app's launcher does (rustui/app/stub/lumatv-card.c): through gfx64/launch.sh with the
  * package's own loader, heap shim and Mali driver, in its own process group, gone with this process. What SAM gave this 32-bit
- * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. */
-static pid_t start_ui(const char *home, const char *app_id) {
+ * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. `channel` is the UI's end of the socket pair (its
+ * descriptor 3), -1 for none; `hidden` is a preload. */
+static pid_t start_ui(const char *home, const char *app_id, int channel, int hidden) {
     char launch[600], bundle[600], shim[600], app[600], assets[600];
     snprintf(launch, sizeof launch, "%s/gfx64/launch.sh", home);
     snprintf(bundle, sizeof bundle, "%s/gfx64/bundle", home);
@@ -675,13 +684,123 @@ static pid_t start_ui(const char *home, const char *app_id) {
         unsetenv("LD_PRELOAD");
         unsetenv("LD_LIBRARY_PATH");
         setenv("PATH", "/usr/sbin:/usr/bin:/sbin:/bin", 0);
-        for (int fd = 3; fd < 256; fd++) close(fd);
-        execl("/bin/sh", "sh", launch, "--bundle", bundle, "--shim", shim, "--", app, "--app-id", app_id, "--assets", assets, "--shm", "/tmp/lumatv-gfn-shm", (char *)NULL);
+        if (channel >= 0) {
+            if (channel != 3) dup2(channel, 3);
+            else fcntl(3, F_SETFD, 0);
+        }
+        for (int fd = channel >= 0 ? 4 : 3; fd < 256; fd++) close(fd);
+        const char *argv[24];
+        int n = 0;
+        argv[n++] = "sh";
+        argv[n++] = launch;
+        argv[n++] = "--bundle";
+        argv[n++] = bundle;
+        argv[n++] = "--shim";
+        argv[n++] = shim;
+        argv[n++] = "--";
+        argv[n++] = app;
+        argv[n++] = "--app-id";
+        argv[n++] = app_id;
+        argv[n++] = "--assets";
+        argv[n++] = assets;
+        argv[n++] = "--shm";
+        argv[n++] = "/tmp/lumatv-gfn-shm";
+        if (channel >= 0) {
+            argv[n++] = "--channel-fd";
+            argv[n++] = "3";
+        }
+        if (hidden) argv[n++] = "--hidden";
+        argv[n] = NULL;
+        execv("/bin/sh", (char *const *)argv);
         _exit(127);
     }
     setpgid(pid, pid);
-    gf_say("the UI started: pid %d", (int)pid);
+    gf_say("the UI started: pid %d%s", (int)pid, hidden ? " (hidden: a preload)" : "");
     return pid;
+}
+
+/* The UI's process group is asked to end and, if it has not in two seconds, killed: an app that ignores SAM's close is not left behind. */
+static void stop_ui(struct feeder *f) {
+    if (f->ui_pid <= 0) return;
+    kill(-f->ui_pid, SIGTERM);
+    for (int i = 0; i < 40; i++) {
+        if (waitpid(f->ui_pid, NULL, WNOHANG) == f->ui_pid) {
+            f->ui_pid = 0;
+            return;
+        }
+        usleep(50000);
+    }
+    gf_say("the UI ignored SIGTERM: killed");
+    kill(-f->ui_pid, SIGKILL);
+    waitpid(f->ui_pid, NULL, 0);
+    f->ui_pid = 0;
+}
+
+/* ---- SAM's events, and the UI's channel -------------------------------------------------------------------------------------------- */
+
+/* How long a UI that was asked to close has before the feeder ends it (the card launcher's 4 s). */
+#define CLOSE_GRACE_NS 4000000000LL
+
+static void chan_close(struct feeder *f) {
+    if (f->chan >= 0) close(f->chan);
+    f->chan = -1;
+}
+
+/* SAM's lines to the UI. A `close` also starts the clock on the UI's end: with no UI (or none that listens) the feeder is the app. */
+static void sam_pump(struct feeder *f) {
+    char line[2048];
+    while (gf_sam_next(f->sam, line, sizeof line)) {
+        size_t n = strlen(line);
+        if (strstr(line, "\"kind\":\"close\"")) {
+            f->close_at = gf_ns() + (f->ui_pid > 0 && f->chan >= 0 ? CLOSE_GRACE_NS : 0);
+            gf_say("SAM asks the app to close");
+        }
+        if (f->chan < 0) continue;
+        line[n++] = '\n';
+        if (send(f->chan, line, n, MSG_NOSIGNAL | MSG_DONTWAIT) != (ssize_t)n) gf_say("the UI's channel took no line (%s)", strerror(errno));
+    }
+}
+
+/* What the UI says on the channel (ready, state, page, exit): the log has it. */
+static void chan_pump(struct feeder *f) {
+    for (;;) {
+        ssize_t r = recv(f->chan, f->chan_in + f->chan_len, sizeof f->chan_in - f->chan_len - 1, MSG_DONTWAIT);
+        if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+            chan_close(f);
+            return;
+        }
+        if (r < 0) break;
+        f->chan_len += (size_t)r;
+        f->chan_in[f->chan_len] = 0;
+        char *nl;
+        while ((nl = memchr(f->chan_in, '\n', f->chan_len))) {
+            *nl = 0;
+            gf_say("UI: %s", f->chan_in);
+            f->chan_len -= (size_t)(nl + 1 - f->chan_in);
+            memmove(f->chan_in, nl + 1, f->chan_len);
+        }
+        if (f->chan_len >= sizeof f->chan_in - 1) f->chan_len = 0;
+    }
+}
+
+/* Adds SAM's descriptor and the channel to `fds` (at most two) and returns how many; `serve_extras` handles what came back. */
+static int extras_add(struct feeder *f, struct pollfd *fds) {
+    int n = 0;
+    if (f->sam) fds[n++] = (struct pollfd){gf_sam_fd(f->sam), POLLIN, 0};
+    if (f->chan >= 0) fds[n++] = (struct pollfd){f->chan, POLLIN, 0};
+    return n;
+}
+
+static void extras_serve(struct feeder *f, const struct pollfd *fds, int n) {
+    for (int i = 0; i < n; i++) {
+        if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+        if (f->sam && fds[i].fd == gf_sam_fd(f->sam)) sam_pump(f);
+        else if (fds[i].fd == f->chan) chan_pump(f);
+    }
+    if (f->close_at && gf_ns() >= f->close_at) {
+        gf_say("the UI did not end in time after SAM's close: ending");
+        g_term = 1;
+    }
 }
 
 /* 1 when the UI process has ended (the app is over: SAM sees this process end with it). */
@@ -893,7 +1012,22 @@ static int run_serve(struct feeder *f) {
         return 3;
     }
     chmod(f->sock_path, 0660);
-    if (f->ui_home) f->ui_pid = start_ui(f->ui_home, f->app_id);
+    int ui_end = -1;
+    if (f->sam_mode && f->ui_home) {
+        int sv[2];
+        if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) == 0) {
+            f->chan = sv[0];
+            ui_end = sv[1];
+        } else {
+            gf_say("socketpair: %s (the UI gets no SAM events)", strerror(errno));
+        }
+    }
+    if (f->sam_mode) {
+        f->sam = gf_sam_start(f->app_id, err, sizeof err);
+        if (!f->sam) gf_say("SAM: %s (the app runs without SAM's events)", err);
+    }
+    if (f->ui_home) f->ui_pid = start_ui(f->ui_home, f->app_id, ui_end, f->preload);
+    if (ui_end >= 0) close(ui_end);
     gf_say("serving %s, window %s, library %s", f->sock_path, f->window_id, f->ndl ? gf_ndl_lib_name(f->ndl) : "none");
     fprintf(f->stats, "{\"serving\":\"%s\",\"window\":\"%s\",\"library\":\"%s\",\"features\":%u,\"pid\":%d}\n", f->sock_path, f->window_id,
             f->ndl ? gf_ndl_lib_name(f->ndl) : "none", f->ndl ? gf_ndl_features(f->ndl) : 0, (int)getpid());
@@ -904,11 +1038,14 @@ static int run_serve(struct feeder *f) {
         memset(&c, 0, sizeof c);
         c.fd = -1;
         while (!g_term && c.fd < 0) {
-            struct pollfd fds[2];
+            struct pollfd fds[4];
             int nf = 0;
             fds[nf++] = (struct pollfd){ls, POLLIN, 0};
             if (f->wl) fds[nf++] = (struct pollfd){vpl_wl_fd(f->wl), POLLIN, 0};
-            int r = poll(fds, (nfds_t)nf, 1000);
+            int nx = extras_add(f, fds + nf);
+            int r = poll(fds, (nfds_t)(nf + nx), 1000);
+            if (r > 0) extras_serve(f, fds + nf, nx);
+            else if (f->close_at) extras_serve(f, fds + nf, 0);
             if (r < 0 && errno != EINTR) {
                 rc = 3;
                 goto out;
@@ -935,13 +1072,16 @@ static int run_serve(struct feeder *f) {
         flush_out(&c);
         int64_t next_status = gf_ns() + 1000000000LL;
         while (!g_term && !c.broken) {
-            struct pollfd fds[3];
+            struct pollfd fds[5];
             int nf = 0;
             fds[nf++] = (struct pollfd){c.fd, POLLIN | (c.out_len ? POLLOUT : 0), 0};
             if (f->wl) fds[nf++] = (struct pollfd){vpl_wl_fd(f->wl), POLLIN, 0};
             if (f->ndl_ready) fds[nf++] = (struct pollfd){gf_ndl_event_fd(f->ndl), POLLIN, 0};
             int64_t left = (next_status - gf_ns()) / 1000000;
-            int r = poll(fds, (nfds_t)nf, left < 0 ? 0 : (int)left);
+            int nx = extras_add(f, fds + nf);
+            int r = poll(fds, (nfds_t)(nf + nx), left < 0 ? 0 : (int)left);
+            if (r > 0) extras_serve(f, fds + nf, nx);
+            else if (f->close_at) extras_serve(f, fds + nf, 0);
             if (r < 0 && errno != EINTR) break;
             if (ui_gone(f)) {
                 g_term = 1;
@@ -986,10 +1126,9 @@ out:
     close(ls);
     unlink(f->sock_path);
     close_all(f);
-    if (f->ui_pid > 0) {
-        kill(-f->ui_pid, SIGTERM);
-        waitpid(f->ui_pid, NULL, 0);
-    }
+    stop_ui(f);
+    if (f->sam) gf_sam_stop(f->sam);
+    chan_close(f);
     return rc;
 }
 
@@ -1012,12 +1151,15 @@ static void usage(void) {
             "         [--audio PKTS] [--audio-mode auto|opus|pcm] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
             "       | --serve SOCKET [--once]\n"
             "  common: [-w card|overlay|default|screensaver] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n"
-            "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory)\n");
+            "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory);\n"
+            "         [--sam] registers with SAM (no arguments, or SAM's launch object as the one argument, means serve with --sam)\n");
 }
 
 int main(int argc, char **argv) {
     struct feeder f;
     memset(&f, 0, sizeof f);
+    f.chan = -1;
+    static char launch_id[128];
     static char app_id_buf[128];
     f.app_id = getenv("APPID") ? getenv("APPID") : app_id_from_exe(app_id_buf, sizeof app_id_buf);
     f.window_type = "card";
@@ -1082,7 +1224,23 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-a") && v) f.app_id = argv[++i];
         else if (!strcmp(a, "-L") && v) f.lib = argv[++i];
         else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
-        else {
+        else if (!strcmp(a, "--sam")) f.sam_mode = 1;
+        else if (a[0] == '{') {
+            /* SAM starts a version 2 native app as `<main> '<json>'` (gf_sam.h) */
+            struct gf_launch l;
+            if (gf_sam_parse_launch(a, &l) != 0) {
+                gf_say("not a launch object: %.120s", a);
+                usage();
+                return 2;
+            }
+            f.sam_mode = 1;
+            f.preload = l.preload;
+            if (l.app_id[0]) {
+                snprintf(launch_id, sizeof launch_id, "%s", l.app_id);
+                f.app_id = launch_id;
+            }
+            gf_say("launched by SAM: reason %s%s", l.reason, l.preload ? " (a preload)" : "");
+        } else {
             usage();
             return 2;
         }
@@ -1091,6 +1249,7 @@ int main(int argc, char **argv) {
         /* SAM starts the app's `main` with no arguments: start the 64-bit UI from the app's directory and serve the engine on the
          * default socket; the UI owns the card window and writes the id of its video element to the window-id file. */
         mode = 3;
+        f.sam_mode = 1;
         f.sock_path = DEFAULT_SOCKET;
         mkdir("/tmp/lumatv-gfn", 0770);
         static char home[512];

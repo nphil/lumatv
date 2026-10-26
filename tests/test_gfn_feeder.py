@@ -689,7 +689,7 @@ class Binary(unittest.TestCase):
         self.assertIn("ELF32", out)
         self.assertIn("Machine:                           ARM", out)
         needed = [l.split("[")[1].rstrip("]") for l in out.splitlines() if "NEEDED" in l]
-        self.assertEqual(sorted(needed), ["libc.so.6", "libdl.so.2"])
+        self.assertEqual(sorted(needed), ["libc.so.6", "libdl.so.2", "libpthread.so.0"])
         self.assertIn("Flags:                             0x5000200", out)
 
     def test_the_app_id_comes_from_the_installed_directory_and_no_arguments_means_serve(self):
@@ -747,6 +747,145 @@ class GeneratedStreams(unittest.TestCase):
                     self.assertEqual(s["fed"], s["units"])
                 finally:
                     r.close()
+
+
+SAM_APP = "org.test.sam"
+HUB = os.path.join(os.path.dirname(NDL), "libluna-service2.so.3")
+REGISTERED = '{"event":"registered","returnValue":true}'
+RELAUNCH = '{"event":"relaunch","reason":"undefined","appId":"%s","parameters":{"launchType":"homeKey"},"returnValue":true}' % SAM_APP
+CLOSE = '{"event":"close","reason":"memoryReclaim","returnValue":true}'
+
+
+def launch_object(reason="undefined", params=None):
+    return json.dumps({"@system_native_app": True, "reason": reason, "interfaceVersion": 2, "event": "launch",
+                       "interfaceMethod": "registerApp", "appId": SAM_APP, "parameters": params or {}})
+
+
+@unittest.skipUnless(HAVE and os.path.exists(HUB), "needs the feeder build and the stand-in hub (zig, the host's libglib-2.0.so.0)")
+class Sam(unittest.TestCase):
+    """The app's life with SAM (gf_sam.c): the launch argument, the registration with the hub, relaunch and close handed to the UI on its
+    descriptor 3 (rustui/app/src/lifecycle.rs), the UI's end ending the app. The hub is the card launcher's stand-in (fakels2.c) playing
+    a script; whether the set's hub accepts the registration from this executable is the TV's to say."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gfn-feeder-sam-")
+        self.home = os.path.join(self.tmp, SAM_APP)
+        os.makedirs(os.path.join(self.home, "bin64"))
+        os.makedirs(os.path.join(self.home, "gfx64"))
+        self.exe = os.path.join(self.home, "lumatv-gfn-feeder")
+        shutil.copy(BIN, self.exe)
+        self.ui_log = os.path.join(self.tmp, "ui.log")
+        self.hub_log = os.path.join(self.tmp, "hub.log")
+        self.script = os.path.join(self.tmp, "script")
+        with open(os.path.join(self.home, "gfx64", "launch.sh"), "w") as f:
+            f.write("#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def ui(self, body):
+        """The stand-in UI: logs its arguments, then `body`; descriptor 3 is the channel."""
+        path = os.path.join(self.home, "bin64", "lumatv-gfn-app")
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\necho \"args: $*\" >> %s\n%s\n" % (self.ui_log, body))
+        os.chmod(path, 0o755)
+
+    READ_UNTIL_CLOSE = 'while read -r line <&3; do echo "got: $line" >> %s; case "$line" in *\\"close\\"*) exit 0;; esac; done'
+
+    def start(self, events=(), launch=None, env=None, extra=()):
+        with open(self.script, "w") as f:
+            for ms, payload in events:
+                f.write("%d %s\n" % (ms, payload))
+        e = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.devnull, FAKE_LS_LOG=self.hub_log, FAKE_SAM_EVENTS=self.script)
+        e.pop("APPID", None)
+        e.update(env or {})
+        args = [self.exe, "--serve", os.path.join(self.tmp, "feed.sock"), "--ui-home", self.home, "--window-id-file", os.path.join(self.tmp, "window-id"),
+                "-L", NDL, *extra]
+        if launch is not None:
+            args.append(launch)
+        return subprocess.Popen(args, env=e, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+
+    def text(self, path):
+        try:
+            with open(path) as f:
+                return f.read()
+        except FileNotFoundError:
+            return ""
+
+    def finish(self, proc, timeout=15):
+        try:
+            _, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            _, err = proc.communicate()
+            self.fail("the feeder did not end\n" + err + self.text(self.hub_log) + self.text(self.ui_log))
+        return err
+
+    def test_registers_under_the_launch_objects_id_and_hands_registered_relaunch_and_close_to_the_ui(self):
+        self.ui(self.READ_UNTIL_CLOSE % self.ui_log)
+        proc = self.start(events=[(50, REGISTERED), (300, RELAUNCH), (700, CLOSE)], launch=launch_object())
+        err = self.finish(proc)
+        self.assertEqual(proc.returncode, 0, err)
+        hub = self.text(self.hub_log)
+        self.assertIn("register %s" % SAM_APP, hub)
+        self.assertIn('call luna://com.webos.applicationManager/registerApp {"appId":"%s","subscribe":true}' % SAM_APP, hub)
+        self.assertIn("cancel", hub)
+        self.assertIn("unregister", hub)
+        ui = self.text(self.ui_log).splitlines()
+        self.assertIn("--channel-fd 3", ui[0])
+        self.assertNotIn("--hidden", ui[0])
+        self.assertIn("--app-id %s" % SAM_APP, ui[0])
+        got = [json.loads(l[5:]) for l in ui[1:] if l.startswith("got: ")]
+        self.assertEqual(got, [{"kind": "sam", "registered": True},
+                               {"kind": "relaunch", "reason": "undefined", "parameters": {"launchType": "homeKey"}},
+                               {"kind": "close", "reason": "memoryReclaim"}])
+        self.assertIn("the UI ended", err)
+
+    def test_a_preload_starts_the_ui_hidden(self):
+        self.ui(self.READ_UNTIL_CLOSE % self.ui_log)
+        for launch in (launch_object("preload"), launch_object(params={"snapshot": True})):
+            self.finish(self.start(events=[(300, CLOSE)], launch=launch))
+        started = [l for l in self.text(self.ui_log).splitlines() if l.startswith("args: ")]
+        self.assertEqual(len(started), 2)
+        for l in started:
+            self.assertIn("--hidden", l)
+
+    def test_a_name_the_hub_refuses_is_told_to_the_ui_and_the_app_goes_on(self):
+        self.ui('echo "got: $(head -n 1 <&3)" >> %s; sleep 30' % self.ui_log)
+        proc = self.start(env={"FAKE_LS_REFUSE": "1"}, launch=launch_object())
+        end = time.time() + 10
+        while time.time() < end and '"registered":false' not in self.text(self.ui_log):
+            time.sleep(0.05)
+        self.assertIn('got: {"kind":"sam","registered":false}', self.text(self.ui_log))
+        self.assertIsNone(proc.poll())
+        proc.terminate()
+        err = self.finish(proc)
+        self.assertIn("LSRegister", err)
+
+    def test_a_ui_that_ignores_close_is_ended_after_the_grace_and_the_feeder_follows(self):
+        self.ui("trap '' TERM; sleep 60 <&3 & wait")
+        proc = self.start(events=[(100, REGISTERED), (200, CLOSE)], launch=launch_object())
+        began = time.time()
+        err = self.finish(proc, timeout=20)
+        self.assertGreater(time.time() - began, 3.5, err)
+        self.assertLess(time.time() - began, 12, err)
+        self.assertIn("did not end in time after SAM's close", err)
+
+    def test_without_the_hubs_libraries_the_app_runs_without_sam(self):
+        self.ui('sleep 30 <&3')
+        proc = self.start(env={"LD_LIBRARY_PATH": ""}, launch=launch_object())
+        time.sleep(1.0)
+        self.assertIsNone(proc.poll())
+        proc.terminate()
+        err = self.finish(proc)
+        self.assertIn("without SAM's events", err)
+
+    def test_a_json_argument_that_is_not_a_launch_object_is_refused(self):
+        self.ui("exit 0")
+        proc = self.start(launch="{}")
+        err = self.finish(proc)
+        self.assertEqual(proc.returncode, 2, err)
+        self.assertIn("not a launch object", err)
 
 
 if __name__ == "__main__":

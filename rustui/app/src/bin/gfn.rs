@@ -4,18 +4,22 @@
 //! app's `main`, starts this through `gfx64/launch.sh`. `docs/research/gfn-app-result.md` has the account.
 //!
 //!   lumatv-gfn-app [--app-id ID] [--assets DIR] [--shm DIR] [--libmali PATH] [--core RUNNER] [--core-arg ARG]... [--engine PATH]
-//!                  [--data DIR] [--pad-side PATH] [--feeder-socket PATH]
+//!                  [--data DIR] [--pad-side PATH] [--feeder-socket PATH] [--channel-fd N] [--hidden]
+//!
+//! `--channel-fd` is the feeder's socket pair (`lifecycle.rs`): SAM's relaunch and close arrive on it, the window's state and the end go
+//! back. `--hidden` is a preload: nothing is drawn until the compositor brings the window forward.
 //!
 //! The pad's side channel (`--pad-side`, a datagram socket the engine writes to while the stream's input is paused) drives the
 //! overlay with the same controller as the game.
 use lumatv_render::host::{Engine, HostConfig};
 use lumatv_render::{Demand, Gles, now_ns};
-use lumatv_rustui::card::{FULLSCREEN, key_of};
+use lumatv_rustui::card::{FULLSCREEN, MINIMIZED, key_of};
 use lumatv_rustui::gfn::app::{Action, App, Input, PadKey};
 use lumatv_rustui::gfn::core::{CoreClient, CoreMsg};
 use lumatv_rustui::gfn::layout::{H, W};
 use lumatv_rustui::gfn::prefs::Prefs;
 use lumatv_rustui::gfn::ui::GfnUi;
+use lumatv_rustui::lifecycle::{Channel, FromApp, ToApp};
 use lumatv_rustui::look::Mode;
 use lumatv_rustui::window::{self, Event, Spec};
 use serde_json::Value;
@@ -43,6 +47,9 @@ struct Options {
     text_scale: f32,
     mode: Option<Mode>,
     prefs: Option<PathBuf>,
+    /// The feeder's channel (descriptor number) for SAM's relaunch and close, and whether SAM started the app as a preload.
+    channel_fd: Option<i32>,
+    hidden: bool,
 }
 
 fn parse() -> Result<Options, String> {
@@ -62,6 +69,8 @@ fn parse() -> Result<Options, String> {
         text_scale: 1.0,
         mode: None,
         prefs: None,
+        channel_fd: None,
+        hidden: false,
     };
     let mut args = std::env::args().skip(1);
     let mut core_args_given = false;
@@ -95,6 +104,8 @@ fn parse() -> Result<Options, String> {
                 }
             }
             "--prefs" => o.prefs = Some(PathBuf::from(value("--prefs")?)),
+            "--channel-fd" => o.channel_fd = Some(value("--channel-fd")?.parse().map_err(|e| format!("--channel-fd: {e}"))?),
+            "--hidden" => o.hidden = true,
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -247,7 +258,7 @@ fn run(o: Options) -> io::Result<i32> {
     let _ = std::fs::remove_dir_all(&o.shm);
     std::fs::create_dir_all(&o.shm)?;
     let libmali = o.libmali.as_deref().ok_or_else(|| io::Error::other("--libmali (or LUMATV_GFX_LIB) names the GL driver"))?;
-    let spec = Spec { app_id: o.app_id.clone(), title: "GeForce NOW".into(), window_type: "_WEBOS_WINDOW_TYPE_CARD".into(), keys_back: true, state: Some(FULLSCREEN), keys: true, video: true };
+    let spec = Spec { app_id: o.app_id.clone(), title: "GeForce NOW".into(), window_type: "_WEBOS_WINDOW_TYPE_CARD".into(), keys_back: true, state: if o.hidden { None } else { Some(FULLSCREEN) }, keys: true, video: true };
     let (gles, mut win) = window::open(W as u32, H as u32, libmali, &spec)?;
     log(&format!("GL: {}", graphics(&gles)));
     let (seats, keyboards) = win.seats();
@@ -315,9 +326,18 @@ fn run(o: Options) -> io::Result<i32> {
     let mut core = CoreClient::spawn(&o.core, &o.core_args, &data, &env)?;
     log(&format!("core started, pid {:?}, data {}", core.child_pid(), data.display()));
     let mut pad = PadSide::open(&o.pad_side);
+    // SAFETY: the feeder made the descriptor and gave it to this process alone.
+    let mut channel = match o.channel_fd {
+        Some(fd) => Some(unsafe { Channel::from_fd(fd)? }),
+        None => None,
+    };
+    let mut window_state = if o.hidden { MINIMIZED } else { FULLSCREEN };
     let mut app = App::with_prefs(Prefs::load(&prefs_path));
     let started = Instant::now();
     let mut actions = app.start();
+    if o.hidden {
+        actions.extend(app.handle(Input::State(MINIMIZED)));
+    }
     // The engine's path goes into the core's settings once the handshake answered; the first settings.set the rules send carries
     // everything else, so the path is added to it here.
     let engine_path = o.engine.to_string_lossy().into_owned();
@@ -349,6 +369,9 @@ fn run(o: Options) -> io::Result<i32> {
                 Action::PauseInput(_) => {}
                 Action::Exit(why) => {
                     log(&format!("exit: {why}"));
+                    if let Some(ch) = channel.as_mut() {
+                        ch.send(&FromApp::Exit(why));
+                    }
                     core.shutdown();
                     return Ok(0);
                 }
@@ -357,7 +380,13 @@ fn run(o: Options) -> io::Result<i32> {
         let mut inputs: Vec<Input> = Vec::new();
         for e in win.events() {
             match e {
-                Event::State(s) => inputs.push(Input::State(s)),
+                Event::State(s) => {
+                    window_state = s;
+                    if let Some(ch) = channel.as_mut() {
+                        ch.send(&FromApp::State(s));
+                    }
+                    inputs.push(Input::State(s));
+                }
                 Event::Close => inputs.push(Input::Close),
                 Event::Key { code, pressed } => {
                     if key_of(code).is_some() {
@@ -365,6 +394,37 @@ fn run(o: Options) -> io::Result<i32> {
                     } else if pressed {
                         log(&format!("key {code}"));
                     }
+                }
+            }
+        }
+        if let Some(ch) = channel.as_mut() {
+            match ch.read() {
+                Ok(messages) => {
+                    for m in messages {
+                        match m {
+                            ToApp::Close { reason } => {
+                                log(&format!("SAM asks the app to close ({reason})"));
+                                inputs.push(Input::Close);
+                            }
+                            ToApp::Relaunch { reason, parameters } => {
+                                log(&format!("SAM launched the app again ({reason}) {parameters}"));
+                                // A relaunch is the user asking for the app: a covered window is brought forward (the compositor's
+                                // word follows and corrects this).
+                                if window_state == MINIMIZED {
+                                    win.request_state(FULLSCREEN);
+                                    window_state = FULLSCREEN;
+                                    inputs.push(Input::State(FULLSCREEN));
+                                }
+                            }
+                            ToApp::Sam { registered } => log(&format!("SAM registration: {}", if registered { "accepted" } else { "not accepted: the app runs without SAM's events" })),
+                        }
+                    }
+                }
+                // the feeder is the app SAM knows: without it nothing is left to answer to
+                Err(_) => {
+                    log("the feeder closed the channel");
+                    inputs.push(Input::Close);
+                    channel = None;
                 }
             }
         }
@@ -421,6 +481,9 @@ fn run(o: Options) -> io::Result<i32> {
                 if !ready {
                     ready = true;
                     log("first frame presented");
+                    if let Some(ch) = channel.as_mut() {
+                        ch.send(&FromApp::Ready);
+                    }
                 }
                 continue;
             }
@@ -450,8 +513,14 @@ fn run(o: Options) -> io::Result<i32> {
                 wait_ms = wait_ms.min((wake.saturating_sub(now_ns()) / 1_000_000) as i64);
             }
         }
-        let extra = pad.as_ref().map(|p| p.sock.as_raw_fd());
-        win.wait(wait_ms.max(0) as i32, extra)?;
+        let mut extra = [-1; 2];
+        if let Some(p) = pad.as_ref() {
+            extra[0] = p.sock.as_raw_fd();
+        }
+        if let Some(ch) = channel.as_ref() {
+            extra[1] = ch.fd();
+        }
+        win.wait_fds(wait_ms.max(0) as i32, &extra)?;
     }
 }
 

@@ -9,12 +9,18 @@ out=$here/build
 mkdir -p "$out/arm" "$out/host"
 sh "$here/third_party/build-opus.sh"
 opus_src=$("$here/third_party/fetch-opus.sh")
-src="$here/src/feeder.c $here/src/gf_annexb.c $here/src/gf_ndl.c $here/src/gf_log.c $here/src/gf_opus.c $here/../../vplane/src/vpl_wl.c"
+src="$here/src/feeder.c $here/src/gf_annexb.c $here/src/gf_ndl.c $here/src/gf_log.c $here/src/gf_opus.c $here/src/gf_sam.c $here/../../vplane/src/vpl_wl.c"
 inc="-I$here/src -I$here/../../vplane/src -I$opus_src/include"
-zig cc -target arm-linux-gnueabi.2.28 -O2 -s -Wall -Wextra -Werror $inc -o "$out/arm/lumatv-gfn-feeder" $src "$out/opus/arm/libopus-dec.a" -ldl -Wl,--gc-sections
-zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined $inc -o "$out/host/lumatv-gfn-feeder" $src "$out/opus/host/libopus-dec.a" -ldl
+zig cc -target arm-linux-gnueabi.2.28 -O2 -s -Wall -Wextra -Werror $inc -o "$out/arm/lumatv-gfn-feeder" $src "$out/opus/arm/libopus-dec.a" -ldl -lpthread -Wl,--gc-sections
+zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined $inc -o "$out/host/lumatv-gfn-feeder" $src "$out/opus/host/libopus-dec.a" -ldl -lpthread
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -shared -fPIC -o "$out/host/libNDL_directmedia.so.1" "$here/tests/fake_ndl.c" -lpthread -Wl,-soname,libNDL_directmedia.so.1
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -I$here/src -o "$out/host/split_test" "$here/tests/split_test.c" "$here/src/gf_annexb.c"
+# SAM's registration (gf_sam.c) dlopens LG's luna-service2 and glib: the host test runs it against the card launcher's stand-in hub
+# (rustui/app/stub/fakels2.c) on the workstation's own glib; without that glib the SAM tests are skipped.
+glib=$(ls /usr/lib/x86_64-linux-gnu/libglib-2.0.so.0 /usr/lib64/libglib-2.0.so.0 2>/dev/null | head -n 1 || true)
+if [ -n "$glib" ]; then
+  zig cc -target x86_64-linux-gnu.2.36 -O1 -g -shared -fPIC -Wall -Wextra -o "$out/host/libluna-service2.so.3" "$here/../../rustui/app/stub/fakels2.c" "$glib" -Wl,-soname,libluna-service2.so.3
+fi
 echo "built $out/arm/lumatv-gfn-feeder:"
 readelf -h "$out/arm/lumatv-gfn-feeder" | grep -E 'Class|Machine'
 readelf -d "$out/arm/lumatv-gfn-feeder" | grep NEEDED

@@ -359,22 +359,29 @@ impl Window {
     /// Reads what the connection has (waiting at most `timeout_ms`; -1 for ever, 0 for none) and dispatches it. `extra` is another
     /// descriptor to wake for; the answer says whether it is readable.
     pub fn wait(&mut self, timeout_ms: i32, extra: Option<RawFd>) -> io::Result<bool> {
+        self.wait_fds(timeout_ms, extra.as_slice())
+    }
+
+    /// `wait` for up to three other descriptors; the answer says whether any of them is readable.
+    pub fn wait_fds(&mut self, timeout_ms: i32, extra: &[RawFd]) -> io::Result<bool> {
         self.queue.dispatch_pending(&mut self.state).map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
         let _ = self.conn.flush();
         let mut extra_ready = false;
         if let Some(guard) = self.conn.prepare_read() {
-            let mut fds = [
-                libc::pollfd { fd: guard.connection_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: extra.unwrap_or(-1), events: libc::POLLIN, revents: 0 },
-            ];
-            // SAFETY: a poll of two descriptors (a negative one is skipped).
-            let n = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout_ms) };
+            let mut fds = [libc::pollfd { fd: -1, events: libc::POLLIN, revents: 0 }; 4];
+            fds[0].fd = guard.connection_fd().as_raw_fd();
+            let extra = &extra[..extra.len().min(3)];
+            for (slot, &fd) in fds[1..].iter_mut().zip(extra) {
+                slot.fd = fd;
+            }
+            // SAFETY: a poll of the connection and at most three more descriptors (a negative one is skipped).
+            let n = unsafe { libc::poll(fds.as_mut_ptr(), 1 + extra.len() as libc::nfds_t, timeout_ms) };
             if n > 0 && fds[0].revents != 0 {
                 let _ = guard.read();
             } else {
                 drop(guard);
             }
-            extra_ready = n > 0 && fds[1].revents != 0;
+            extra_ready = n > 0 && fds[1..=extra.len()].iter().any(|p| p.revents != 0);
         }
         // Without a read guard another reader (EGL's own dispatch) has events for this queue already: dispatch them below.
         self.queue.dispatch_pending(&mut self.state).map_err(|e| io::Error::other(format!("dispatch: {e}")))?;
