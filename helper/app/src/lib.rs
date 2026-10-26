@@ -19,6 +19,7 @@
 //! | [`ambient_z2m`], [`ambient_z2m_frame`], [`ambient_z2m_mqtt`], [`ambient_z2m_store`] | ambient light's Zigbee2MQTT output: Hue entertainment frames over MQTT, no bridge |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
+//! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
 pub mod ai;
@@ -30,6 +31,12 @@ pub mod ambient_z2m_frame;
 pub mod ambient_z2m_mqtt;
 pub mod ambient_z2m_store;
 pub mod api;
+pub mod ble;
+pub mod ble_cli;
+pub mod ble_duty;
+pub mod ble_proxy;
+pub mod ble_scan;
+pub mod ble_store;
 pub mod cli;
 pub mod config;
 pub mod control;

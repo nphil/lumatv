@@ -196,7 +196,7 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-fn write_private(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
     let written = (|| {
         let mut file = std::fs::OpenOptions::new()

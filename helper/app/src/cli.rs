@@ -17,6 +17,9 @@
 //! lumatv-helper z2m-link --brand ... --host <MQTT broker> [--port <n>] [--user <name>] [--base-topic <t>] [--fps <n>] --light <name>=<place> ...
 //!                                                            the password on standard input when --user is given
 //! lumatv-helper z2m-unlink --brand ...
+//! lumatv-helper ble-link --brand ... [--port <n>] [--name <node>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby] [--rotate-key]
+//!                                                            the Bluetooth proxy for Home Assistant: prints the key it asks for
+//! lumatv-helper ble-unlink --brand ...
 //! ```
 //!
 //! `voice-link` is how voice search is pointed at Home Assistant: the address is an argument and the token comes on standard input,
@@ -30,6 +33,7 @@
 
 use crate::ambient_z2m;
 use crate::ambient_z2m_store::{self, Z2mLight, Z2mLink};
+use crate::ble_cli;
 use crate::config::{Config, Paths, data_dir_from_brand, find_ca_bundle};
 use crate::hue_rest::{self, Area, Bridge, HueError, Tls};
 use crate::hue_store::{self, HueLink};
@@ -64,6 +68,7 @@ struct Args {
     user: Option<String>,
     base_topic: Option<String>,
     lights: Vec<String>,
+    ble: ble_cli::BleArgs,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -96,6 +101,10 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             "--light" => out
                 .lights
                 .push(it.next().ok_or("--light needs <name>=<place>")?.clone()),
+            "--name" | "--friendly-name" | "--scan-seconds" | "--rest-seconds" | "--standby"
+            | "--no-standby" | "--always" | "--no-always" | "--rotate-key" => {
+                ble_cli::flag(&mut out.ble, arg, &mut it)?
+            }
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -130,7 +139,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...] [ble-link: [--port <n>] [--name <node>] [--friendly-name <text>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby|--no-standby] [--always|--no-always] [--rotate-key]]",
     })
 }
 
@@ -192,6 +201,10 @@ pub fn main(args: Vec<String>) -> i32 {
         "hue-unlink" => with_config(&args, hue_unlink),
         "z2m-link" => with_config(&args, |paths, config| z2m_link(&paths, &config, &args)),
         "z2m-unlink" => with_config(&args, z2m_unlink),
+        "ble-link" => with_config(&args, |paths, _| {
+            ble_cli::link(&paths, &args.ble, args.port)
+        }),
+        "ble-unlink" => with_config(&args, |paths, config| ble_cli::unlink(&paths, &config)),
         other => fail(2, &format!("unknown command {other}")),
     }
 }

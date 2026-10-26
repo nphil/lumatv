@@ -18,6 +18,8 @@ plugin-api = { path = "../../LumaShow/lumashow/crates/plugin-api" }
 service-api = { path = "../../LumaShow/lumashow/crates/service-api" }
 lumashow-sdk = { path = "../../LumaShow/lumashow/crates/lumashow-sdk" }
 ha-link = { path = "../../LumaShow/lumashow/crates/ha-link" }
+esphome-api = { path = "../../LumaShow/lumashow/crates/esphome-api" }
+mdns = { path = "../../LumaShow/lumashow/crates/mdns" }
 
 libc = "0.2"
 parking_lot = "0.12"

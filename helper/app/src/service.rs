@@ -171,6 +171,11 @@ impl Service {
             crate::plugins::firstparty::spawn(&ctx, plugins.shared().clone(), feeds_tx.clone())?,
         ));
         threads.push(("preload", preload::spawn(&ctx)?));
+        // The Bluetooth proxy: nothing but one idle thread until the owner has linked it (`ble-link`).
+        threads.push((
+            "ble",
+            crate::ble::spawn(&ctx, crate::ble::Deps::real(&config.luna.send))?,
+        ));
 
         let ip: IpAddr = config
             .listen
