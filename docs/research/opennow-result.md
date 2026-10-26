@@ -102,9 +102,9 @@ UI choice, Qt 6 against a LumaTV-native UI over the unchanged core: **LumaTV-nat
 
 - Evidence on webOS: `/dev/input/js0-5` are mode 0664 root:input (world readable); `/dev/input/event0-31` are 0660 root:composit; three `wl_seat`s, remote keys on seat 1; Bluetooth pairing is LG's `bthidmanager` (PUB jellyfin-webos-native `docs/input.md`; SURFACES.md row on pairing prompts, which LumaTV replaces with its own alert).
 - Moonlight TV (SDL-webOS, up to four pads): USB works for LG's listed pads (Logitech F310/F510/F710, Xbox 360 wired, PS3); Bluetooth works on webOS 5+ for Xbox One, DualShock 4 and Switch Pro on one tested model, Xbox Series and Stadia not; adapters (Mayflash Magic NS 2, Magic-S Pro 2) are the safe route (PUB https://github.com/mariotaku/moonlight-tv/wiki/Gamepad-Setup).
-- This set: a `LiteEMF Hid Vendor` dongle on `hidraw0` and a Sony `054c:09cc` (DS4 v2) on OHCI bus 8 were enumerated (TV: census). Held by nobody: `hidraw0`.
-- OpenNOW's side is a 38-byte XInput-style event inside a 54-byte NVST envelope (`docs/native-gamepad-input.md`), built from SDL3 snapshots. The port replaces SDL3 with the Linux joystick or evdev API in the 64-bit engine: map to the XInput layout, 4 slots, hotplug, send neutral state on disconnect. Rumble back to the pad is unverified (SDL-webOS behaviour not documented).
-- Which pads enumerate under which node is a probe (Phase 1), not a given. The set's pad keys are also meaningful to LG's key chain (gamepad Menu/Settings/Xbox, SURFACES.md line 343); the in-stream app must own them while in front.
+- This set, measured (`gfn-input-result.md`): the 2.4 GHz receiver is a GameSir `054c:09cc` (DS4 v2 id) on OHCI bus 8, 1 ms USB poll, 500 reports/s, `hid-sony`, `event15`/`js6`, FF_RUMBLE exposed; LG's compositor reads it without a grab; a native app in SAM's jail (groups `input`, `compositor`) can open, grab and rumble it with no extra permission. The `LiteEMF Hid Vendor` dongle on the xHCI port is a second device, identity unconfirmed.
+- OpenNOW's side is a 38-byte XInput-style event inside a 54-byte NVST envelope (`docs/native-gamepad-input.md`), built from SDL3 snapshots. The port replaces SDL3 with evdev in the 64-bit engine: a blocking reader thread per pad, one packet per changed report, `EVIOCGRAB` while the stream is in front, rumble through `EV_FF`; design and latency budget in `gfn-input-result.md`.
+- The set's pad keys are also meaningful to LG's key chain (gamepad Menu/Settings/Xbox, SURFACES.md line 343); the grab is what keeps them from it while the stream is in front.
 
 ## Risks
 

@@ -1,0 +1,52 @@
+# dmesg lines read 20:02-20:11 (the ring buffer had rotated past 7900 by 20:25; the first block is from the 20:02 read)
+[ 6999.431230] usb 3-1: USB disconnect, device number 7
+[ 6999.636136] usb 8-1: USB disconnect, device number 7
+[ 7900.893196] usb 3-1: new full-speed USB device number 8 using xhci-hcd
+[ 7900.953216] usb 8-1: new full-speed USB device number 8 using ohci-platform
+[ 7901.069331] usb 3-1: unable to read config index 0 descriptor/start: -71
+[ 7901.191715] usb 8-1: unable to read config index 0 descriptor/all
+[ 7901.473178] usb 3-1: new full-speed USB device number 9 using xhci-hcd
+[ 7901.653328] usb 3-1: New USB device found, idVendor=4131, idProduct=8008, bcdDevice= 1.00
+[ 7901.653335] usb 3-1: Product: Hid Vendor
+[ 7901.653337] usb 3-1: Manufacturer: LiteEMF
+[ 7901.653338] usb 3-1: SerialNumber: 123456789012
+[ 7901.676003] hid-generic 0003:4131:8008.0007: hiddev96,hidraw0: USB HID v1.11 Device [LiteEMF Hid Vendor] on usb-xhci-hcd.1-1/input0
+[ 7902.081179] usb 8-1: new full-speed USB device number 9 using ohci-platform
+[ 7902.325725] usb 8-1: New USB device found, idVendor=054c, idProduct=09cc, bcdDevice= 1.21
+[ 7902.325731] usb 8-1: Product: Wireless Controller
+[ 7902.325733] usb 8-1: Manufacturer: Guangzhou Chicken Run Network Technology Co., Ltd.
+[ 7902.337970] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Touchpad as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.0008/input/input32
+[ 7902.338424] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Motion Sensors as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.0008/input/input33
+[ 7902.401335] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.0008/input/input31
+[ 7902.402230] sony 0003:054C:09CC.0008: input,hidraw1: USB HID v81.11 Gamepad [Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller] on usb-generic-ohci.0-1/input0
+# 20:11 read (replugs)
+[ 8311.115147] usb 8-1: USB disconnect, device number 9
+[ 8311.191612] usb 3-1: USB disconnect, device number 9
+[ 8329.185234] usb 8-1: new full-speed USB device number 10 using ohci-platform
+[ 8329.415718] usb 8-1: unable to read config index 0 descriptor/all
+[ 8329.415724] usb 8-1: can't read configurations, error -62
+[ 8330.305236] usb 8-1: new full-speed USB device number 11 using ohci-platform
+[ 8330.541725] usb 8-1: New USB device found, idVendor=054c, idProduct=09cc, bcdDevice= 1.21
+[ 8330.541729] usb 8-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[ 8330.541731] usb 8-1: Product: Wireless Controller
+[ 8330.541733] usb 8-1: Manufacturer: Guangzhou Chicken Run Network Technology Co., Ltd.
+[ 8330.553837] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Touchpad as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.0009/input/input35
+[ 8330.553964] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Motion Sensors as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.0009/input/input36
+[ 8330.617282] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.0009/input/input34
+[ 8330.617492] sony 0003:054C:09CC.0009: input,hidraw0: USB HID v81.11 Gamepad [Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller] on usb-generic-ohci.0-1/input0
+[ 8336.767063] usb 8-1: USB disconnect, device number 11
+[ 8338.860659] usb 8-1: new full-speed USB device number 12 using ohci-platform
+[ 8339.097718] usb 8-1: unable to read config index 0 descriptor/all
+[ 8339.097724] usb 8-1: can't read configurations, error -62
+[ 8339.997179] usb 8-1: new full-speed USB device number 13 using ohci-platform
+[ 8340.245732] usb 8-1: New USB device found, idVendor=054c, idProduct=09cc, bcdDevice= 1.21
+[ 8340.245737] usb 8-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[ 8340.245739] usb 8-1: Product: Wireless Controller
+[ 8340.245741] usb 8-1: Manufacturer: Guangzhou Chicken Run Network Technology Co., Ltd.
+[ 8340.261306] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Touchpad as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.000A/input/input38
+[ 8340.261456] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Motion Sensors as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.000A/input/input39
+[ 8340.327450] input: Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller as /devices/platform/generic-ohci.0/usb8/8-1/8-1:1.0/0003:054C:09CC.000A/input/input37
+[ 8340.327854] sony 0003:054C:09CC.000A: input,hidraw0: USB HID v81.11 Gamepad [Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller] on usb-generic-ohci.0-1/input0
+[ 8341.006247] LOGM_Close.657: closed daemon, do force printk
+[ 8341.006251] LOGM_Close.667: device closed (1810:0)
+ 

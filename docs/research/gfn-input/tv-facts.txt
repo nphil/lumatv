@@ -1,0 +1,70 @@
+== usbhid params
+ignoreled=0
+jspoll=0
+kbpoll=0
+mousepoll=0
+quirks=(null),(null),(null),(null)
+== xpad params
+auto_poweroff=Y
+dpad_to_buttons=N
+sticks_to_null=N
+triggers_to_buttons=N
+== 8-1 endpoints
+ep_02 dir=out type=Interrupt bInterval=05 interval=5ms wMaxPacketSize=0040
+ep_82 dir=in type=Interrupt bInterval=01 interval=1ms wMaxPacketSize=0040
+speed=12 bcdDevice=0121 product=Wireless Controller manufacturer=Guangzhou Chicken Run Network Technology Co., Ltd. power/control=on
+== hid dev
+cat: can't open '/sys/bus/hid/devices/0003:054C:09CC.000B/firmware_version': No such file or directory
+cat: can't open '/sys/bus/hid/devices/0003:054C:09CC.000B/hardware_version': No such file or directory
+== whitelist
+{					"version":"1.006",					"doNotDiscoveryTbl":[											],					"supportGamePadTbl":[						{"name":"Xbox Wireless Controller", "vid":1118, "pid":765},						{"name":"Xbox Wireless Controller", "vid":1118, "pid":2835},						{"name":"Wireless Controller", "vid":1356, "pid":1476},						{"name":"Wireless Controller", "vid":1356, "pid":2508},						{"name":"NVIDIA Controller v01.04", "vid":2389, "pid":29204},						{"name":"Bluetooth Game Controller", "vid":1118, "pid":765},						{"name":"Bluetooth Game Controller", "vid":1118, "pid":2835},						{"name":"Bluetooth Game Controller", "vid":1356, "pid":1476},						{"name":"Bluetooth Game Controller", "vid":1356, "pid":2508},						{"name":"Bluetooth Game Controller", "vid":2389, "pid":29204}					],					"guaranteeDeviceTbl":[						"Xbox Wireless Controller", "Wireless Controller", "NVIDIA Controller v01.04"					]	}
+
+== padblock
+#!/bin/sh
+# webosbrew boot hook: keep a USB-wired game controller invisible to apps.
+#
+# Netflix opens gamepad evdev nodes, and this pad (054c:09cc, a DualShock 4
+# clone) never sends reports when it is wired only for charging, so its
+# uninitialised axes read as a stick held full up-left. Unbinding it from its
+# HID driver removes the input nodes; USB power is unaffected, so it still
+# charges. Only HID bus 0003 (USB) is matched - the same pad over Bluetooth
+# is bus 0005 and keeps working.
+#
+# usbhid's quirks parameter is read-only on this kernel, so a watcher covers
+# re-plugs. Remove this file to uninstall.
+
+IDS="054C:09CC"
+
+detach() {
+  for d in /sys/bus/hid/devices/0003:*; do
+    [ -e "$d/driver" ] || continue
+    id=${d##*/}; id=${id#0003:}; id=${id%.*}
+    case " $IDS " in *" $id "*)
+      echo "${d##*/}" > "$d/driver/unbind" 2>/dev/null ;;
+    esac
+  done
+}
+
+(
+  while :; do
+    detach
+    sleep 3
+  done
+) &
+
+exit 0
+== permissions.rules
+9:KERNEL=="hidraw*", MODE="660", GROUP="compositor"
+10:KERNEL=="event*", MODE="660", GROUP="compositor"
+== jail groups
+# commands:
+
+# add jail user to the right groups:
+groups kmem,input,video,audio,luna,kadaptor,compositor,crashd,se
+# setup mount points
+13:input:x:19:
+31:compositor:x:505:wam
+49:jailer:x:5000:wam
+== fd holders of event15
+7846 surface-manager /dev/input/event15 
+ cat: can't open '/sys/bus/hid/devices/0003:054C:09CC.000B/uevent': No such file or directory

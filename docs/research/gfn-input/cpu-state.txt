@@ -1,0 +1,22 @@
+cpu0 online= gov=performance cur=1400000 min=1400000 max=1400000
+cpu1 online=1 gov=performance cur=1400000 min=1400000 max=1400000
+cpu2 online=1 gov=performance cur=1400000 min=1400000 max=1400000
+cpu3 online=0 gov=performance cur=1400000 min=1400000 max=1400000
+avail govs: conservative ondemand userspace powersave performance  freqs: 1400000 
+cpuidle:  states: 
+  state*  latency=us residency=us disable=
+irq128 affinity=0-3 default=f
+950000
+0
+      1 RTPRIO CLS COMMAND
+      1     99  FF wdt-detect
+      1     99  FF watchdogd
+      1     99  FF migration/3
+      1     99  FF migration/2
+      1     99  FF migration/1
+      1     99  FF migration/0
+      1     50  FF irq/93-HDMI20_A
+ cat: can't open '/sys/devices/system/cpu/cpu0/cpuidle/state*/name': No such file or directory
+cat: can't open '/sys/devices/system/cpu/cpu0/cpuidle/state*/latency': No such file or directory
+cat: can't open '/sys/devices/system/cpu/cpu0/cpuidle/state*/residency': No such file or directory
+cat: can't open '/sys/devices/system/cpu/cpu0/cpuidle/state*/disable': No such file or directory

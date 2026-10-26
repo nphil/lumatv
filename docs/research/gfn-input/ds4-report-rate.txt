@@ -1,0 +1,35 @@
+reports in 2s: 1000
+sizes:       1 report (size 64) (numbered) =  01 83 80 7e 80 0f 00 00 00 00 00 30 00 e2 ff 00 00 15 00 1b 00 4e 17 06 e4 01 00 00 00 00 00 00 00 00 00 80 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+      1 report (size 64) (numbered) =  01 83 80 7e 80 0f 00 00 00 00 00 52 00 e1 ff 00 00 17 00 24 00 57 17 f6 e3 01 00 00 00 00 00 00 00 00 00 80 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+      1 report (size 64) (numbered) =  01 83 80 7e 80 0f 00 00 00 00 00 97 00 e2 ff 00 00 16 00 25 00 4b 17 04 e4 01 00 00 00 00 00 00 00 00 00 80 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+events: 0
+
+report (size 64) (numbered) =  01 83 80 7e 80 0f 00 00 00 00 1f ec 00 e3 ff 00 00 16 00 25 00 4f 17 f6 e3 01 00 00 00 00 00 00 00 00 00 80 00 00 00 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+GenericDesktop.X = 131
+GenericDesktop.Y = 128
+GenericDesktop.Z = 126
+GenericDesktop.Rz = 128
+GenericDesktop.HatSwitch = 15
+Button.0001 = 0
+Button.0002 = 0
+Button.0003 = 0
+Button.0004 = 0
+Button.0005 = 0
+Button.0006 = 0
+Button.0007 = 0
+Button.0008 = 0
+Button.0009 = 0
+Button.000a = 0
+Button.000b = 0
+Button.000c = 0
+Button.000d = 0
+Button.000e = 0
+ff00.0020 = 0
+GenericDesktop.
+IRQ before: 128: 264660 0 0 0 GICv2 128 Level ohci_hcd:usb8
+129: 34 0 0 0 GICv2 129 Level ehci_hcd:usb7
+130: 5739 0 0 0 GICv2 130 Level xhci-hcd:usb1
+IRQ after:  128: 265667 0 0 GICv2 128 Level ohci_hcd:usb8
+129: 34 0 0 GICv2 129 Level ehci_hcd:usb7
+130: 5739 0 0 GICv2 130 Level xhci-hcd:usb1
+ Terminated

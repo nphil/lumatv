@@ -1,0 +1,49 @@
+== input46 name=Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller ev=event15 js6  handlers: event15 js6 uevent 
+   caps/ev=20001b ff=1 7030000 0 0 abs=3003f key=7fdb0000 0 0 0 0 0 0 0 0 0
+   props=0 uniq=1c:a0:b8:4c:7a:99
+== input47 name=Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Touchpad ev=event12  handlers: event12 uevent 
+   caps/ev=b ff=0 abs=2608000 3 key=2420 0 10000 0 0 0 0 0 0 0 0
+   props=5 uniq=1c:a0:b8:4c:7a:99
+== input48 name=Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Motion Sensors ev=event14  handlers: event14 uevent 
+   caps/ev=19 ff=0 abs=3f key=0
+   props=40 uniq=1c:a0:b8:4c:7a:99
+N: Name="Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Touchpad"
+H: Handlers=event12 
+B: EV=b
+N: Name="Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller Motion Sensors"
+H: Handlers=event14 
+B: EV=19
+N: Name="Guangzhou Chicken Run Network Technology Co., Ltd. Wireless Controller"
+H: Handlers=js6 event15 
+B: EV=20001b
+crw-rw----    1 root     composit  244,   0 Oct 25 20:13 /dev/hidraw0
+crw-rw----    1 root     composit  244,   1 Oct 25 20:15 /dev/hidraw1
+crw-rw-r--    1 root     input      13,   0 Oct 25 17:50 /dev/input/js0
+crw-rw-r--    1 root     input      13,   1 Oct 25 17:50 /dev/input/js1
+crw-rw-r--    1 root     input      13,   2 Oct 25 17:50 /dev/input/js2
+crw-rw-r--    1 root     input      13,   3 Oct 25 17:50 /dev/input/js3
+crw-rw-r--    1 root     input      13,   4 Oct 25 17:50 /dev/input/js4
+crw-rw-r--    1 root     input      13,   5 Oct 25 17:50 /dev/input/js5
+crw-rw-r--    1 root     input      13,   6 Oct 25 20:13 /dev/input/js6
+country
+driver
+firmware_version
+hardware_version
+hidraw
+input
+leds
+modalias
+power
+power_supply
+report_descriptor
+subsystem
+uevent
+0003:054C:09CC.000B:blue
+0003:054C:09CC.000B:global
+0003:054C:09CC.000B:green
+0003:054C:09CC.000B:red
+sony_controller_battery_1c:a0:b8:4c:7a:99
+auto
+on
+-1000
+ 

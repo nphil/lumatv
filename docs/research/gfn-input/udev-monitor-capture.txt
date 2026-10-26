@@ -1,0 +1,18 @@
+KERNEL - the kernel uevent	KERNEL[8621.143412] add      /devices/virtual/misc/uhid/0005:005D:8762.000D (hid)	ACTION=add
+SEQNUM=2088	KERNEL[8621.145843] add      /devices/virtual/misc/uhid/0005:005D:8762.000D/hidraw/hidraw1 (hidraw)	ACTION=add
+DEVNAME=/dev/hidraw1	SEQNUM=2089	KERNEL[8638.226589] remove   /devices/virtual/misc/uhid/0005:005D:8762.000D/hidraw/hidraw1 (hidraw)
+ACTION=remove	DEVNAME=/dev/hidraw1	SEQNUM=2090
+KERNEL[8638.226744] remove   /devices/virtual/misc/uhid/0005:005D:8762.000D (hid)	ACTION=remove	SEQNUM=2091
+===
+KERNEL - the kernel uevent
+KERNEL[8621.143412] add      /devices/virtual/misc/uhid/0005:005D:8762.000D (hid)
+KERNEL[8621.145843] add      /devices/virtual/misc/uhid/0005:005D:8762.000D/hidraw/hidraw1 (hidraw)
+KERNEL[8638.226589] remove   /devices/virtual/misc/uhid/0005:005D:8762.000D/hidraw/hidraw1 (hidraw)
+KERNEL[8638.226744] remove   /devices/virtual/misc/uhid/0005:005D:8762.000D (hid)
+KERNEL[8668.124919] add      /devices/virtual/misc/uhid/0005:005D:8762.000E (hid)
+KERNEL[8668.127849] add      /devices/virtual/misc/uhid/0005:005D:8762.000E/hidraw/hidraw1 (hidraw)
+KERNEL[8730.741209] remove   /devices/virtual/misc/uhid/0005:005D:8762.000E/hidraw/hidraw1 (hidraw)
+KERNEL[8730.741299] remove   /devices/virtual/misc/uhid/0005:005D:8762.000E (hid)
+
+9
+ 
