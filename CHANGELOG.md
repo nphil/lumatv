@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   brings it back). It answers on the key before the receiver does, shows the Denon's level
   or the TV's own, the receiver's audio format (Dolby, DTS, PCM and the surround mode), and
   a slashed speaker while muted.
+- Home Assistant on the TV: LumaShow's plugin runs through the helper as a user of its
+  own, switched on and linked only by the owner's own commands (`plugin-consent`,
+  `plugin-enable`, `ha-link`). Its cards fill the At-home lane, its tiles the quick panel,
+  its notices the drawer, and its page is Settings > Home & look > Home Assistant. Locks,
+  alarms and cameras are never touched from the TV; the placeholder chips are gone.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
