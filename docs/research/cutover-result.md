@@ -187,9 +187,10 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
   `"on"` in front). The switch is the flag `.inputcommon-on`, off by default and changed only when the tool says ok.
 - The registry (`lumatv surfaces`) has the row `inputcommon` (way back: `inputcommon off`). `apply` mounts when the flag is
   on and the overlay is not in place (the mount does not survive a reboot), beside the other overlays, and leaves one that
-  is: `on` drops inputcommon's process snapshot, which at every launch of the app would cost the next input switch a cold
-  start. After an update of the app, `inputcommon on` stages the new patch. `revert` turns it off. Nothing in it restarts a
-  service.
+  is: `on` sets LG's CRIU dump of the input app aside and ends the idle input apps (the cold start; the first version's
+  `invalid_img` marker did not give one, "Cold start" in `lg-restyles-result.md`), and doing that at every `apply` would end
+  apps for nothing. After an update of the app, `inputcommon on` stages the new patch. `revert` turns it off. Nothing in it
+  restarts a service.
 - `build_shadow` runs `tools/keyboard_patch.py` on the shadow module's copy of `views/StarfishKeyboardView.qml` with the
   shipped theme's motion; a view LG changed (an anchor missing, the theme without usable motion) is left as LG's and the
   refusal is logged. It is not behind a switch (the shadow is LumaTV's own copy of the module), matters only while LG's
@@ -199,8 +200,7 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
 CHANGELOG line: "LumaTV's compositor starts at boot only on a firmware build the gate passed on; a supervisor that falls
 back on a frozen output, an empty panel, a run that never settled and a held Home key."
 
-On the set (2026-10-25 19:43): the ipk does not carry `tools/inputcommon.sh` or `tools/inputcommon_patch.py` (`tools/build-ipk.sh`
-lists neither), so `lumatv inputcommon on|off|status` answers `{"ok":false,"error":"tools/inputcommon.sh did not answer"}` on a set
-installed from it. With the two committed files put in the app's `tools/` by hand the verbs work (`on`: mounted, `snapshotsDropped 1`;
-`off`: unmounted; `status` right); results in `lg-restyles-result.md`. The builder needs both files (and `tools/keyboard_patch.py`,
-which `build_shadow` runs and the ipk does not ship either) in its list.
+On the set (2026-10-25 19:43): the ipk did not carry `tools/inputcommon.sh`, `tools/inputcommon_patch.py` or `tools/keyboard_patch.py`, so
+`lumatv inputcommon on|off|status` answered `{"ok":false,"error":"tools/inputcommon.sh did not answer"}` on a set installed from it. They are
+in `tools/build-ipk.sh` now (copied and listed), and `tests/test_package_tools.py` fails when any script the tool, the boot hook or a
+shipped script calls or imports is not; the cold start that round 7 found missing is in `lg-restyles-result.md`.
