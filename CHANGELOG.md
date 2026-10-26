@@ -231,6 +231,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GeForce NOW app: started by SAM with an empty environment, it now finds the compositor,
+  its core and engine, and logs to `/tmp/lumatv-gfn/feeder.log`; the core is told the
+  engine's path and the settings one at a time, so the streamer is found; its data goes to
+  a directory the TV's jail lets it write.
 - Netflix failed with tvq-pb-101 after a compositor restart taken while an HDMI input was in
   front: the input's audio decoder port stayed open. `lumatv` now ends the input apps through
   SAM before it restarts the compositor, and `lumatv inputs release` frees a port left open.
