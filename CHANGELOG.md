@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Compositor (not live yet): LumaTV's compositor routes the remote's gear, Input, app
+  buttons, Quick Access digits, Mute held and Exit, and brings up the on-screen keyboard for
+  text fields; a test session ends by itself after 15 minutes and LG's comes back.
 - Volume bar: the receiver's level shows as a whole number (no decimals or unit), and its
   audio format as a one-colour logo (Dolby Atmos, Dolby Audio, DTS:X, DTS) in the bar's ink;
   PCM, stereo and unknown formats show nothing.
