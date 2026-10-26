@@ -417,10 +417,34 @@ class Report(unittest.TestCase):
         self.assertIn("with the app's video unmuted", v["words"][0])
 
     def test_verdict_without_a_switch(self):
-        v = probe.verdict(make_samples(secs=6.0, switch_at=99), [], [], [], [])
+        shots = [{"n": i, "up": 27870 + i * 0.25, "bytes": 18000} for i in range(8)]
+        v = probe.verdict(make_samples(secs=6.0, switch_at=99), shots, [], [], [])
         self.assertTrue(v["clean"])
         self.assertIn("no output-rate switch", v["words"][0])
         self.assertIn("120 Hz band", v["words"][0])
+
+    def test_a_run_with_no_samples_or_no_shots_fails_for_want_of_evidence(self):
+        v = probe.verdict([], [], [], [], [])
+        self.assertFalse(v["clean"])
+        self.assertIn("no samples", " ".join(v["words"]))
+        v = probe.verdict(make_samples(secs=6.0, switch_at=99), [], [], [], [])
+        self.assertFalse(v["clean"])
+        self.assertIn("no screen shots", " ".join(v["words"]))
+        d = tempfile.mkdtemp()
+        try:
+            self.assertIn("VERDICT: FAIL: no evidence", probe.report(d))
+        finally:
+            shutil.rmtree(d)
+
+    def test_a_log_with_bytes_that_are_not_utf8_is_read(self):
+        d = tempfile.mkdtemp()
+        try:
+            path = os.path.join(d, "messages")
+            with open(path, "wb") as f:
+                f.write(b"kernel: vsync \xf7 ok\n")
+            self.assertIn("vsync", probe.read(path))
+        finally:
+            shutil.rmtree(d)
 
     def test_report_writes_summary_and_verdict_and_prunes(self):
         d = tempfile.mkdtemp()

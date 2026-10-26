@@ -285,7 +285,8 @@ def kernel_lines(text):
 
 def read(path):
     try:
-        with open(path) as f:
+        # /var/log/messages carries stray non-UTF-8 bytes (0xf7 seen on the set).
+        with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()
     except OSError:
         return ""
@@ -362,7 +363,7 @@ class Stream(threading.Thread):
 
     def run(self):
         try:
-            self.proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            self.proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
         except OSError as e:
             with open(os.path.join(self.out, self.name + ".jsonl"), "a") as log:
                 log.write(json.dumps({"up": uptime(), "error": str(e)}) + "\n")
@@ -422,7 +423,7 @@ def sample(out, secs, period=PERIOD, shots=True, streams=True):
         t.join(5)
     with open(os.path.join(out, "kernel.txt"), "w") as f:
         try:
-            dmesg = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=20).stdout
+            dmesg = subprocess.run(["dmesg"], capture_output=True, text=True, errors="replace", timeout=20).stdout
         except (OSError, subprocess.TimeoutExpired):
             dmesg = ""
         f.write("--- dmesg\n" + "\n".join(kernel_lines(dmesg)) + "\n")
@@ -678,6 +679,12 @@ def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=Fa
             "yes" if muted else "none seen", "yes" if gap else "none",
             "protected (capture black by design)" if protected else "black" if black else "not black"))
     clean = all(not inside(u + first_up, [(x, y) for x, y, _ in fw_mute], 0.3) and not inside(u + first_up, gaps, 0.3) for u, _, _ in out["switches"])
+    if not samples:
+        clean = False
+        words.append("no samples: the sampler recorded nothing, so the run proves nothing")
+    elif not shots and not protected:
+        clean = False
+        words.append("no screen shots: blanking cannot be judged")
     out["clean"] = clean
     out["words"] = words
     return out
@@ -711,7 +718,9 @@ def report(run_dir, protected=None):
              "screen: %d shots; black %s; frozen %s%s" % (v["shots"], v["black"] or "none", v["frozen"] or "none",
                                                           " (protected video: black by design)" if protected else "")]
     lines += v["words"]
-    lines.append("VERDICT: %s" % ("PASS: every switch clean (no firmware mute, no vsync gap)" if v["clean"] else "FAIL: a switch muted or gapped"))
+    lines.append("VERDICT: %s" % ("PASS: every switch clean (no firmware mute, no vsync gap)" if v["clean"]
+                                  else "FAIL: no evidence" if not v["samples"] or (not v["shots"] and not protected)
+                                  else "FAIL: a switch muted or gapped"))
     text = "\n".join(lines) + "\n"
     with open(os.path.join(run_dir, "summary.txt"), "w") as f:
         f.write(text)
