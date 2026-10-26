@@ -45,6 +45,7 @@
 #define DEFAULT_APP_ID "org.nphil.lumatv.gfn"
 #define DEFAULT_SOCKET "/tmp/lumatv-gfn/feed.sock"
 #define DEFAULT_WINDOW_ID_FILE "/tmp/lumatv-gfn/window-id"
+#define DEFAULT_LOG "/tmp/lumatv-gfn/feeder.log"
 
 /* --audio-mode: Opus goes to NDL as it is and, if the library refuses that load, is decoded here (auto); only the first; only the second. */
 enum { AUDIO_AUTO = 0, AUDIO_OPUS, AUDIO_PCM };
@@ -663,7 +664,9 @@ static int run_play(struct feeder *f) {
  * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. `channel` is the UI's end of the socket pair (its
  * descriptor 3), -1 for none; `hidden` is a preload. */
 static pid_t start_ui(const char *home, const char *app_id, int channel, int hidden) {
-    char launch[600], bundle[600], shim[600], app[600], assets[600];
+    char launch[600], bundle[600], shim[600], app[600], assets[600], run64[600], engine[600];
+    snprintf(run64, sizeof run64, "%s/run64.sh", home);
+    snprintf(engine, sizeof engine, "%s/bin64/opennow-streamer", home);
     snprintf(launch, sizeof launch, "%s/gfx64/launch.sh", home);
     snprintf(bundle, sizeof bundle, "%s/gfx64/bundle", home);
     snprintf(shim, sizeof shim, "%s/gfx64/heapshim.so", home);
@@ -705,6 +708,11 @@ static pid_t start_ui(const char *home, const char *app_id, int channel, int hid
         argv[n++] = assets;
         argv[n++] = "--shm";
         argv[n++] = "/tmp/lumatv-gfn-shm";
+        /* The UI finds its neighbours from its own executable's directory, which under launch.sh is the loader's: say where they are. */
+        argv[n++] = "--core";
+        argv[n++] = run64;
+        argv[n++] = "--engine";
+        argv[n++] = engine;
         if (channel >= 0) {
             argv[n++] = "--channel-fd";
             argv[n++] = "3";
@@ -1159,7 +1167,7 @@ int main(int argc, char **argv) {
     struct feeder f;
     memset(&f, 0, sizeof f);
     f.chan = -1;
-    static char launch_id[128];
+    static char launch_id[128], launch_note[96];
     static char app_id_buf[128];
     f.app_id = getenv("APPID") ? getenv("APPID") : app_id_from_exe(app_id_buf, sizeof app_id_buf);
     f.window_type = "card";
@@ -1239,7 +1247,7 @@ int main(int argc, char **argv) {
                 snprintf(launch_id, sizeof launch_id, "%s", l.app_id);
                 f.app_id = launch_id;
             }
-            gf_say("launched by SAM: reason %s%s", l.reason, l.preload ? " (a preload)" : "");
+            snprintf(launch_note, sizeof launch_note, "launched by SAM: reason %s%s", l.reason, l.preload ? " (a preload)" : "");
         } else {
             usage();
             return 2;
@@ -1265,6 +1273,25 @@ int main(int argc, char **argv) {
     if (f.fps <= 0 || f.width <= 0 || f.height <= 0) {
         usage();
         return 2;
+    }
+    if (f.sam_mode) {
+        /* SAM gives the app no environment and no terminal: the compositor's socket and the shell's PATH are the card launcher's defaults
+         * (lumatv-card.c), and what the feeder and the UI say goes to a file, the only way to see it on the set. */
+        setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 0);
+        setenv("WAYLAND_DISPLAY", "wayland-0", 0);
+        setenv("PATH", "/usr/sbin:/usr/bin:/sbin:/bin", 0);
+        const char *log = getenv("LUMATV_GFN_LOG");
+        if (!log) log = DEFAULT_LOG;
+        if (strcmp(log, "-") != 0) {
+            mkdir("/tmp/lumatv-gfn", 0770);
+            int fd = open(log, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+            if (fd >= 0) {
+                dup2(fd, 1);
+                dup2(fd, 2);
+                if (fd > 2) close(fd);
+            }
+        }
+        if (launch_note[0]) gf_say("%s", launch_note);
     }
     if (f.stats_path) {
         f.stats = fopen(f.stats_path, "w");

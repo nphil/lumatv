@@ -708,7 +708,7 @@ class Binary(unittest.TestCase):
             # SAM starts `main` with no arguments: the feeder serves the engine on the default socket from its own window
             fc = FakeCompositor()
             try:
-                e = dict(env, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL))
+                e = dict(env, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), LUMATV_GFN_LOG="-")
                 p = subprocess.Popen([exe, "-L", NDL], env=e, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
                 line = p.stdout.readline()
                 self.assertIn('"serving":"/tmp/lumatv-gfn/feed.sock"', line)
@@ -796,8 +796,9 @@ class Sam(unittest.TestCase):
         with open(self.script, "w") as f:
             for ms, payload in events:
                 f.write("%d %s\n" % (ms, payload))
-        e = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.devnull, FAKE_LS_LOG=self.hub_log, FAKE_SAM_EVENTS=self.script)
-        e.pop("APPID", None)
+        e = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.devnull, FAKE_LS_LOG=self.hub_log, FAKE_SAM_EVENTS=self.script, LUMATV_GFN_LOG="-")
+        for k in ("APPID", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY"):
+            e.pop(k, None)
         e.update(env or {})
         args = [self.exe, "--serve", os.path.join(self.tmp, "feed.sock"), "--ui-home", self.home, "--window-id-file", os.path.join(self.tmp, "window-id"),
                 "-L", NDL, *extra]
@@ -879,6 +880,21 @@ class Sam(unittest.TestCase):
         proc.terminate()
         err = self.finish(proc)
         self.assertIn("without SAM's events", err)
+
+    def test_started_by_sam_with_no_environment_the_ui_gets_the_compositors_socket_and_its_neighbours_by_path_and_the_log_is_a_file(self):
+        """SAM starts `main` with an empty environment (TV round 11: the UI could not find the compositor and the app was over in 200 ms)."""
+        log = os.path.join(self.tmp, "feeder.log")
+        self.ui('echo "env: $XDG_RUNTIME_DIR $WAYLAND_DISPLAY" >> %s; echo "stdout line"; echo "stderr line" >&2; %s' % (self.ui_log, self.READ_UNTIL_CLOSE % self.ui_log))
+        proc = self.start(events=[(300, CLOSE)], launch=launch_object(), env={"LUMATV_GFN_LOG": log})
+        self.finish(proc)
+        ui = self.text(self.ui_log)
+        self.assertIn("env: /tmp/xdg wayland-0", ui)
+        self.assertIn("--core %s/run64.sh --engine %s/bin64/opennow-streamer" % (self.home, self.home), ui)
+        said = self.text(log)
+        self.assertIn("launched by SAM: reason undefined", said)
+        self.assertIn("stdout line", said)
+        self.assertIn("stderr line", said)
+        self.assertIn("the UI ended", said)
 
     def test_a_json_argument_that_is_not_a_launch_object_is_refused(self):
         self.ui("exit 0")
