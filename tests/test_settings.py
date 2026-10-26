@@ -594,12 +594,12 @@ class AiAccess(HostCase):
 
     def test_removing_an_assistant_needs_a_second_press_and_lockout_too(self):
         on = self.ai(listener={"enabled": True, "bound": True, "addr": "x", "port": 1, "since": 1, "error": None})
-        # listener, down to the volume limit, down to Cody, Right to Remove, OK arms it, OK again removes it
-        out, seen = self.run_page(on, [(1600, "keys", ["down", "down", "right", "ok"]), (2400, "eval", REQUESTS), (2600, "keys", ["ok"]), (3400, "eval", REQUESTS)])
+        # listener, down to the volume limit, down to the first level row, Left to Cody (the rows are two columns), Right to Remove, OK arms it, OK again removes it
+        out, seen = self.run_page(on, [(1600, "keys", ["down", "down", "left", "right", "ok"]), (2400, "eval", REQUESTS), (2600, "keys", ["ok"]), (3400, "eval", REQUESTS)])
         self.assertEqual(seen[0], [])
         self.assertEqual(seen[1], [("DELETE", "/v1/ai/assistants/cody", {})])
-        # ... and from Cody down to the pairing row and the lock-out, which asks twice as well
-        out, seen = self.run_page(self.ai(), [(1600, "keys", ["down", "down", "down", "down"]), (2000, "keys", ["ok"]), (2400, "eval", REQUESTS), (2600, "keys", ["ok"]), (3400, "eval", REQUESTS)])
+        # ... and from the listener down the limit and the four level rows to the lock-out, which asks twice as well
+        out, seen = self.run_page(self.ai(), [(1600, "keys", ["down"] * 6), (2000, "keys", ["ok"]), (2400, "eval", REQUESTS), (2600, "keys", ["ok"]), (3400, "eval", REQUESTS)])
         self.assertEqual(seen[0], [])
         self.assertEqual(seen[1], [("POST", "/v1/ai/lockout", {})])
 
