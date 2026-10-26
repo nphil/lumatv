@@ -37,13 +37,13 @@ vplane_install 12, gfn_feeder 28 + 1 skip that needs qemu, ambient_slot 23).
   reading" read another run's weather.
 - `test_settings` AI page: the D-pad path to Cody and to the lock-out follows the two-column layout (it still described the one-column one).
 - `test_quick_panels`: LG's Quick Settings launch is matched by the service's last name (`com.webos.service.systemUIManager`).
+- `test_saver_own` (SaverOwn3, e660403): the vote test counted every `cancel`, and since 2886b62 the Inputs readings cancel their previous subscription too; it counts the vote's own only.
 - `test_vplane_saver` (SaverOwn3): a mailbox of its own per test; the 11 failures seen after the host change were the old shared-path version.
 
 ### Open
 
 | Test | Failure | Owner |
 |---|---|---|
-| `test_saver_own` `test_nothing_is_voted_unless_the_saver_is_wanted_and_the_switch_follows_the_owner` | cancels counted 8, expected 2 (once, 2 jobs at load 6-14) | SaverOwn3 (told) |
 | `test_settings` `test_choosing_writes_one_entry_each_and_leaving_the_default_removes_it` | 1 of 3 runs: `[LumaHome] theme.json missing/invalid` while a choice is being written (a read of `theme.json` during the XHR write) | Settings owner (SettingsRest4) |
 | `test_vplane_player` `test_the_caption_fades_with_its_print_and_not_with_the_dim` | 1 of 3 runs under load: the next print's caption comes back before the veil's peak (commit cadence 600 ms / fade 400 ms is wall-clock) | video-plane owner |
 | `test_quick_panels` slide tests | passed once `b009de3`/`1530582` landed; failed at `7bd4e72` | closed |
