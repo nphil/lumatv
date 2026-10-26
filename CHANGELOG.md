@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Volume bar: the receiver's level shows as a whole number (no decimals or unit), and its
+  audio format as a one-colour logo (Dolby Atmos, Dolby Audio, DTS:X, DTS) in the bar's ink;
+  PCM, stereo and unknown formats show nothing.
 - Frame rate: after 25 or 50 fps video the panel goes back to 120 Hz when Home is in front
   and no video source is connected (LG's kernel otherwise stays at 100 Hz until the next
   video), so Home never runs at 50 fps; `frameRate.returnOnHome` false turns it off.
