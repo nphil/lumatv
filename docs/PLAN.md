@@ -1145,6 +1145,12 @@ what it already does.
   player in Music Assistant, with now-playing, browse, queue and transport on
   the TV, ported from LumaShow's Music Assistant client. Not started before
   the current surfaces are finished and on the set.
+- Overnight 2026-10-25/26 (Nitin, 23:01): LumaTV's compositor stays live if
+  the full gate passes (automatic fallback armed); TV screen tests may run
+  overnight, light-sync tests only dim and brief with the lights put back;
+  LG's Settings app is switched off once LumaTV's pages pass on the set (the
+  emergency "Open LG Settings" row stays); the GeForce NOW app is started on
+  the workstation in parallel with finishing LumaTV.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
