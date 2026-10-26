@@ -101,8 +101,10 @@ closed it. `ime.png` shows the keyboard over the app.
 
 A failure names its reason in the line. Likeliest first: the Search app brings up no keyboard either way (the check then says the
 window never came on the screen, and `ime-journal.txt` shows whether a text model reached the compositor: `ime:` lines); maliit
-not binding (`asked` above 0 and no method: look at `systemctl status maliit-server`); a button code the table does not know (the
-`keys` step that did nothing, and the unnamed-key line above).
+not binding (`asked` above 0 and no method: look at `systemctl status maliit-server`); the keyboard up but nothing typed
+(`ime-typed.json`: `grab` false means maliit never asked for the keys, `grabbedKeys` 0 with `grab` true means they never reached
+it); a button code the table does not know (the `keys` step that did nothing, and the unnamed-key line above). The Netflix step
+follows Settings > Remote: a button the owner pointed at another app is expected to open that app, one set to nothing to open nothing.
 
 ## Safety timer
 

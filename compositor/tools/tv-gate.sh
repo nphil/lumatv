@@ -282,12 +282,20 @@ keys)
     else res no input "foreground $(fg), or no journal line"; fi
     journal_after keys-input > $OUT/keys-input.txt
     close_app com.webos.app.homeconnect; sleep 2; home; sleep 3
-    # The Netflix button: LG's own target, Netflix itself (no Settings > Remote choice is made by the gate).
+    # The Netflix button follows Settings > Remote: no choice is LG's own target (netflix), a choice is that app, "" is nothing.
+    nk=$(ctl keys | grep -o '"netflix":"[^"]*"' | head -n 1)
+    if [ -z "$nk" ]; then napp=netflix; nb=netflix-button
+    else napp=$(echo "$nk" | cut -d'"' -f4); nb="netflix-button(chosen: ${napp:-nothing})"; fi
     ctl note keys-netflix > /dev/null; key_tap 1037
-    if wait_fg netflix 25 && journal_after keys-netflix | grep -q 'input: app button: netflix, launching netflix'; then res ok netflix-button
-    else res no netflix-button "foreground $(fg), or no journal line"; fi
+    if [ -z "$napp" ]; then
+        sleep 3
+        if [ "$(fg)" = com.webos.app.home ] && ! journal_after keys-netflix | grep -q 'input: app button'; then res ok "$nb"
+        else res no "$nb" "it opens nothing, yet foreground $(fg) or an app launch was journalled"; fi
+    elif wait_fg "$napp" 25 && journal_after keys-netflix | grep -q "input: app button: $napp, launching $napp"; then res ok "$nb"
+    else res no "$nb" "foreground $(fg), or no journal line"; fi
     journal_after keys-netflix > $OUT/keys-netflix.txt
-    close_app netflix; sleep 4; home; sleep 4
+    [ -z "$napp" ] || close_app "$napp"
+    sleep 4; home; sleep 4
     # A digit: tapped it is the app's (nothing asks for Quick Access), held a second it asks for it.
     ctl note keys-digit > /dev/null; key_tap 6; sleep 2
     tapped=$(journal_after keys-digit | grep -c 'input: 5 held')

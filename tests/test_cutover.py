@@ -785,8 +785,10 @@ def tap(code):
         say("input: Input tap: the input picker has no window of its own here yet, launching com.webos.app.homeconnect")
         launch("com.webos.app.homeconnect")
     elif code == 1037 and not cfg.get("netflix_dead"):
-        say("input: app button: netflix, launching netflix")
-        launch("netflix")
+        choice = "netflix" if cfg.get("ignore_choice") else cfg.get("app_keys", {}).get("netflix", "netflix")
+        if choice:
+            say("input: app button: %s, launching %s" % (choice, choice))
+            launch(choice)
     elif code == 6 and cfg.get("digit_tap_asks"):
         held()
     elif code == 174 and s["panel"]:
@@ -820,7 +822,7 @@ elif cmd == "remote":
             held()
     out({"ok": True})
 elif cmd == "keys":
-    out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": {},
+    out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": cfg.get("app_keys", {}),
          "unnamed": cfg.get("unnamed", []), "foreground": s["fg"], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
 elif cmd == "ime":
     up = s["panel"] is not None
@@ -901,6 +903,26 @@ class GateKeysAndIme(FakeSet):
         self.configure(netflix_dead=True)
         rc, out = self.gate("keys")
         self.assertIn("GATE keys: FAIL gear ok; input ok; digit-tap ok; digit-hold ok; exit ok; NOT: netflix-button (foreground com.webos.app.home", out)
+
+    def test_the_netflix_button_follows_what_settings_remote_chose(self):
+        self.configure(app_keys={"netflix": "com.webos.app.hdmi2"})
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: PASS", out, out)
+        self.assertIn("netflix-button(chosen: com.webos.app.hdmi2) ok", out)
+        sim = self.sim()
+        self.assertIn("com.webos.app.hdmi2", sim["closed"])
+        self.assertNotIn("netflix", sim["launched"])
+
+    def test_a_button_set_to_nothing_passes_when_it_opens_nothing_and_fails_when_it_does(self):
+        self.configure(app_keys={"netflix": ""})
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: PASS", out, out)
+        self.assertIn("netflix-button(chosen: nothing) ok", out)
+        self.configure(app_keys={"netflix": ""}, ignore_choice=True)
+        os.remove(os.path.join(self.tmp.name, "sim.json"))
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: FAIL", out)
+        self.assertIn("NOT: netflix-button(chosen: nothing) (it opens nothing, yet foreground netflix or an app launch was journalled)", out)
 
     def test_a_digit_tap_that_asks_for_quick_access_fails_it(self):
         self.configure(digit_tap_asks=True)
