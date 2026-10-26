@@ -182,11 +182,12 @@ impl GlobalDispatch<InputMethod, ()> for State {
         state.ime.next += 1;
         let id = state.ime.next;
         let res = data_init.init(resource, MethodData(id));
+        let version = res.version();
         // Version 2 names its display with a request of its own; a client of version 1 has no way to and serves the first.
-        let display = (res.version() < 2).then_some(DISPLAY);
+        let display = (version < 2).then_some(DISPLAY);
         state.ime.methods.push(Method { id, res, display });
         let who = state.client_info(client);
-        state.journal(format!("ime: an input method bound by {who}"));
+        state.journal(format!("ime: an input method (version {version}) bound by {who}"));
         if display.is_some() {
             method_ready(state);
         }

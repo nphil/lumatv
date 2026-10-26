@@ -6,9 +6,12 @@ in its own QML (gear, Input, the app keys, Quick Access digits, Mute held, Exit;
 
 ## Resume here
 
-State (2026-10-26): everything is built, committed and host-tested (safety timer aa3a2eb, key routing 21b6013, the keyboard
-path 83faf05, the gate's `keys` and `ime` checks d2afb2b, then this document). The TV test is the one thing outstanding and is
-Main's (command below). The TV is not touched by this work.
+State (2026-10-26): built, committed and host-tested (safety timer aa3a2eb, key routing 21b6013, keyboard path 83faf05, gate checks
+d2afb2b). First TV run (Main, 15:33): `live` PASS; `keys`: Input, Netflix button, digit tap and hold, Exit OK, gear FAIL; `ime` FAIL.
+Both failures were in the checks, not the routing: LG's Settings and Search are overlay windows, which SAM never names as the
+foreground app, and the checks waited for SAM to name them ("First TV run" below). The checks now look for a mapped window of the
+app in `ctl windows`. Next: re-run `sh compositor/tools/tv-first-light.sh gate --only keys,ime` (deploy and `cutover install`
+first, the bundle changed). The TV is not touched by this work.
 
 ## What was built
 
@@ -60,12 +63,14 @@ Unconfirmed: Netflix and Prime Video are LG's table's values, not yet seen from 
 at all, so those two buttons reach the app until one is taught. Teaching a code needs no build: press the button during a
 session and read `ctl journal` (or `compositor.log`) for `input: key N has no name in the key table`; add `NAME N` to
 `/var/lib/lumatv/compositor/keys.conf` (names: `gear`, `input`, `netflix`, `amazon`, `disneyplus`, `lgchannels`) and start the
-next session. `ctl keys` lists the table. The same LG table lists Home as 773 (`RF_HOME`); this compositor and the supervisor
-treat only 102 and 172 as Home, so a remote that sends 773 would show in the same unnamed-key line.
+next session. `ctl keys` lists the table. Open, not changed here: LG's table has Home as 773 (`RF_HOME`), and `perf/kb.py` injects Home
+as 773 through the SSAP key device (`Smart Remote RCU Input`), which LG's compositor takes as Home; this compositor and the supervisor
+treat only 102 and 172 as Home, so a Home sent as 773 is ignored under LumaTV's compositor. The physical Magic Remote's own Home code
+is not recorded in the repo (a press of it during a session shows in the unnamed-key line if it is 773).
 
 ## The TV test (Main)
 
-One session: the set's own 12-minute safety timer, the checks' waits add up to under 4 minutes, and it ends on LG's compositor
+One session: the set's own 12-minute safety timer, the checks' waits add up to under 5 minutes, and it ends on LG's compositor
 with the flag removed and the receiver unmuted. From `/data/home/lumaglass`, LG's compositor live, nothing of ours running (`cutover status`):
 
     sh compositor/tools/tv-first-light.sh deploy
@@ -79,25 +84,28 @@ driver or the workstation dies, the set ends the session by itself after 12 minu
 `GATE ime:` (also in `docs/research/compositor/gate-<date>.txt`); files in `/tmp/lumatv-tv-out/out/gate/`: `keys-*.txt` (the
 journal after each key), `keys.json`, `ime-*.json`, `ime.png` (the panel with the keyboard up), `compositor-final.log`.
 
-Pass criteria. Home is in front at the start and at the end, and every app a key opened is closed again.
+Pass criteria. Home is in front at the start and at the end, and every app a key opened is closed again. An app counts as up when
+`ctl windows` has a mapped window of it: SAM's foreground names only the front card, and LG's Settings, Search and Quick Access
+(`com.webos.app.magicnum`) are overlay windows it never names.
 
-`GATE keys: PASS` needs all of, each read from the compositor's journal after a `ctl note` and from SAM's foreground:
-gear tap 139: `input: gear tap: Quick Settings ... launching com.palm.app.settings`, Settings in front; Input 241: `input:
-Input tap: ... launching com.webos.app.homeconnect`, the Home Hub in front; Netflix 1037: `input: app button: netflix, launching
-netflix`, Netflix in front; digit 5 (code 6) tapped: no `5 held` line, held 1.4 s: `input: 5 held: Quick Access slot 5 ...
-launching com.webos.app.magicnum`; Exit 174 over Settings: `input: Back or Exit: closing com.palm.app.settings`, Settings gone.
-The detail line names each step `ok` or `NOT: step (why)`, then the key table and the unnamed codes seen. The gear's three taps and
-Mute held are host tests only (the first opens a service menu, the second could unmute the receiver).
+`GATE keys: PASS` needs all of, each read from the compositor's journal after a `ctl note` and from the window list:
+gear tap 139: `input: gear tap: Quick Settings ... launching com.palm.app.settings`, a Settings window (about 8 s to map: 25 s are
+allowed); Input 241: `input: Input tap: ... launching com.webos.app.homeconnect`, a Home Hub window; Netflix 1037: `input: app
+button: netflix, launching netflix`, a Netflix window; digit 5 (code 6) tapped: no `5 held` line, held 1.4 s: `input: 5 held: Quick
+Access slot 5 ... launching com.webos.app.magicnum`; Exit 174 over Settings: `input: Back or Exit: closing com.palm.app.settings`,
+no Settings window left. The detail line names each step `ok` or `NOT: step (why)`, then the key table and the unnamed codes seen.
+The gear's three taps and Mute held are host tests only (the first opens a service menu, the second could unmute the receiver).
 
 `GATE ime: PASS` needs all of: LG's Search app (`com.webos.app.voice`), launched for its on-screen keyboard
 (`{"activateType":"mrcu","launchMode":"vkb"}`, listed as "Virtual keyboard Search" in gist Ircama/1f29c2d2def75da6604756a3c91a8ab4),
-in front; the keyboard up within 28 s (if it does not come up by itself, OK (28) on the field is sent at 10 s and again at 18 s);
-`ctl ime` showing an input method bound with a display, the field's `context` true, and a `panel` whose y plus h is 1080
-(bottom edge); OK (28) on the keyboard, then the arrows and OK if that
-key types nothing, making `commits` plus `preedits` plus `keysyms` rise by at least 1 (the keys reached the field through the
-grab); Back (412), or else Exit (174), taking the panel off the screen. The detail line says whether maliit-server was running
-before, how many times the system was asked for an input method, how many OK presses it took, the panel rect, what typed and what
-closed it. `ime.png` shows the keyboard over the app.
+with a mapped window within 15 s; the keyboard up within 28 s (if it does not come up by itself, OK (28) on the field is sent at 10 s
+and again at 18 s); `ctl ime` showing an input method bound with a display, the field's `context` true, and a `panel` whose y plus h
+is 1080 (bottom edge); OK (28) on the keyboard, then the arrows and OK if that key types nothing, making `commits` plus `preedits`
+plus `keysyms` rise by at least 1 (the keys reached the field through the grab); Back (412), or else Exit (174), taking the panel off
+the screen. The detail line gives `maliit-server.service` and the `MaliitServer` process before and after the keyboard came up, how
+many times the system was asked for an input method, how many OK presses it took, the panel rect, what typed and what closed it.
+`ime.png` shows the keyboard over the app; a check that fails early still leaves `ime-result.txt`, `ime-journal.txt` and
+`ime-windows.json`.
 
 A failure names its reason in the line. Likeliest first: the Search app brings up no keyboard either way (the check then says the
 window never came on the screen, and `ime-journal.txt` shows whether a text model reached the compositor: `ime:` lines); maliit
@@ -105,6 +113,21 @@ not binding (`asked` above 0 and no method: look at `systemctl status maliit-ser
 (`ime-typed.json`: `grab` false means maliit never asked for the keys, `grabbedKeys` 0 with `grab` true means they never reached
 it); a button code the table does not know (the `keys` step that did nothing, and the unnamed-key line above). The Netflix step
 follows Settings > Remote: a button the owner pointed at another app is expected to open that app, one set to nothing to open nothing.
+
+## First TV run (Main, 2026-10-26 15:33)
+
+`live` PASS. `keys`: Input (the Home Hub, a card, mapped 0.5 s after the key), the Netflix button (1.3 s), a digit tapped (nothing)
+and held (Quick Access, `com.webos.app.magicnum`, an overlay, mapped 0.6 s after the hold fired) and Exit (`closing
+com.palm.app.settings`, Home back) passed. The gear's journal line was there and Settings mapped as an overlay 8.1 s after the tap,
+but SAM kept naming Home (the compositor's push listed `['com.webos.app.home', 'com.palm.app.settings']`), so the check that waited
+for SAM to name Settings failed. `ime` failed the same way (Search is an overlay), yet the compositor log has the whole path:
+Search launched with `{"activateType":"mrcu","launchMode":"vkb"}` mapped 1.5 s after the launch and activated a text model 0.5 s later
+with no key pressed; the compositor asked for an input method (`initctl emit ime-activate`) and `/usr/sbin/MaliitServer` (pid 4071)
+connected 185 ms later (`maliit-server.service` was `inactive` before; its state after was not recorded, the detail line now says);
+it bound `input_method`, made three surfaces (two of them the keyboard's by `input_panel`), grabbed the keyboard, and one mapped as
+Keyboard, 1920x438 at (0, 642), y plus h 1080. The compositor offers `text_model_factory` 1, `input_method` 2 and `input_panel` 1 (LG's
+versions) and the journal's bind line names the version the input method took. Typing on the keyboard and closing it were not
+reached in that run.
 
 ## Safety timer
 

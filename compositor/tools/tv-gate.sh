@@ -62,8 +62,14 @@ fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' 
 key_tap() { ctl remote "$1" tap > /dev/null; }
 key_hold() { ctl remote "$1" press > /dev/null; sleep "$2"; ctl remote "$1" release > /dev/null; }
 close_app() { ls1 com.webos.applicationManager/closeByAppId "{\"id\":\"$1\"}" > /dev/null; }
-# Waits, SECS at most, for SAM's foreground to be APP.
-wait_fg() { w=0; while [ "$w" -lt "$2" ]; do [ "$(fg)" = "$1" ] && return 0; sleep 1; w=$((w+1)); done; [ "$(fg)" = "$1" ]; }
+# The app ids of the compositor's mapped windows, one a line. SAM's foreground answer names the front card only: LG's Settings and Search are
+# overlays, which it never names (round 11), so an app a key launched is looked for in the compositor's own window list.
+mapped_apps() { ctl windows | sed 's/{"appId"/\n&/g' | grep '"mapped":true' | sed -n 's/^{"appId":"\([^"]*\)".*/\1/p'; }
+app_mapped() { mapped_apps | grep -qx "$1"; }
+# Waits, SECS at most, for a window of APP to be mapped.
+wait_app() { w=0; while [ "$w" -lt "$2" ]; do app_mapped "$1" && return 0; sleep 1; w=$((w+1)); done; app_mapped "$1"; }
+# Where the screen stands, for a check's failure line.
+where_now() { echo "foreground $(fg), windows mapped: $(mapped_apps | tr '\n' ' ' | sed 's/ $//')"; }
 # The compositor's journal after the line a `ctl note` left (the journal is one JSON array of strings), one entry a line; the quotes
 # inside an entry become '.
 journal_after() {
@@ -270,16 +276,17 @@ keys)
     kd=""; bad=""
     res() { if [ "$1" = ok ]; then kd="$kd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
     home; sleep 3
-    # The gear's tap: Quick Settings has no window under this compositor yet, so LG's Settings stands in for it.
+    # The gear's tap: Quick Settings has no window under this compositor yet, so LG's Settings stands in for it. Settings is an overlay and
+    # slow to map (8.1 s after the tap on the set, window 3 of the first TV run), hence 25 s.
     ctl note keys-gear > /dev/null; key_tap 139
-    if wait_fg com.palm.app.settings 12 && journal_after keys-gear | grep -q 'input: gear tap: Quick Settings .*launching com.palm.app.settings'; then res ok gear
-    else res no gear "foreground $(fg), or no journal line"; fi
+    if wait_app com.palm.app.settings 25 && journal_after keys-gear | grep -q 'input: gear tap: Quick Settings .*launching com.palm.app.settings'; then res ok gear
+    else res no gear "$(where_now); or no journal line"; fi
     journal_after keys-gear > $OUT/keys-gear.txt
     close_app com.palm.app.settings; sleep 2; home; sleep 3
     # Input's tap: the input picker's stand-in is the Home Hub.
     ctl note keys-input > /dev/null; key_tap 241
-    if wait_fg com.webos.app.homeconnect 15 && journal_after keys-input | grep -q 'input: Input tap: .*launching com.webos.app.homeconnect'; then res ok input
-    else res no input "foreground $(fg), or no journal line"; fi
+    if wait_app com.webos.app.homeconnect 15 && journal_after keys-input | grep -q 'input: Input tap: .*launching com.webos.app.homeconnect'; then res ok input
+    else res no input "$(where_now); or no journal line"; fi
     journal_after keys-input > $OUT/keys-input.txt
     close_app com.webos.app.homeconnect; sleep 2; home; sleep 3
     # The Netflix button follows Settings > Remote: no choice is LG's own target (netflix), a choice is that app, "" is nothing.
@@ -291,8 +298,8 @@ keys)
         sleep 3
         if [ "$(fg)" = com.webos.app.home ] && ! journal_after keys-netflix | grep -q 'input: app button'; then res ok "$nb"
         else res no "$nb" "it opens nothing, yet foreground $(fg) or an app launch was journalled"; fi
-    elif wait_fg "$napp" 25 && journal_after keys-netflix | grep -q "input: app button: $napp, launching $napp"; then res ok "$nb"
-    else res no "$nb" "foreground $(fg), or no journal line"; fi
+    elif wait_app "$napp" 25 && journal_after keys-netflix | grep -q "input: app button: $napp, launching $napp"; then res ok "$nb"
+    else res no "$nb" "$(where_now); or no journal line"; fi
     journal_after keys-netflix > $OUT/keys-netflix.txt
     [ -z "$napp" ] || close_app "$napp"
     sleep 4; home; sleep 4
@@ -307,11 +314,11 @@ keys)
     close_app com.webos.app.magicnum; sleep 2; home; sleep 3
     # Exit: the app that does not take it is closed and the TV comes back to Home.
     ls1 com.webos.applicationManager/launch '{"id":"com.palm.app.settings"}' > /dev/null
-    wait_fg com.palm.app.settings 12; sleep 2
+    wait_app com.palm.app.settings 25; sleep 2
     ctl note keys-exit > /dev/null; key_tap 174
-    n=0; while [ "$(fg)" = com.palm.app.settings ] && [ $n -lt 10 ]; do sleep 1; n=$((n+1)); done
-    if [ "$(fg)" != com.palm.app.settings ] && journal_after keys-exit | grep -q 'input: Back or Exit: closing com.palm.app.settings'; then res ok exit
-    else res no exit "foreground $(fg), or no journal line"; fi
+    n=0; while app_mapped com.palm.app.settings && [ $n -lt 10 ]; do sleep 1; n=$((n+1)); done
+    if ! app_mapped com.palm.app.settings && journal_after keys-exit | grep -q 'input: Back or Exit: closing com.palm.app.settings'; then res ok exit
+    else res no exit "$(where_now); or no journal line"; fi
     journal_after keys-exit > $OUT/keys-exit.txt
     close_app com.palm.app.settings; sleep 2; home; sleep 2
     ctl keys > $OUT/keys.json
@@ -327,12 +334,15 @@ ime)
     # 10 s and again at 18 s. The check reads `ctl ime`: an input method bound (maliit-server, started by LG's own request if it was not
     # running: the detail says what it was), a context made for the field, the keyboard's window on the screen at the bottom, a key typed on
     # it (OK presses the key that has its focus) reaching the field, and Back, or else Exit, closing the keyboard.
-    mal0=$(systemctl is-active maliit-server.service)
+    mal0=$(systemctl is-active maliit-server.service); mal1=$(pgrep -x MaliitServer | head -n 1); mal1=${mal1:+pid $mal1}; mal1=${mal1:-not running}
     home; sleep 3
     ctl note ime-open > /dev/null
     ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.voice","params":{"activateType":"mrcu","launchMode":"vkb"}}' > /dev/null
-    if ! wait_fg com.webos.app.voice 15; then
-        fail ime "LG's Search app (com.webos.app.voice) did not come to the front (foreground $(fg), maliit-server was $mal0)"
+    if ! wait_app com.webos.app.voice 15; then
+        journal_after ime-open > $OUT/ime-journal.txt; ctl windows > $OUT/ime-windows.json
+        detail="LG's Search app (com.webos.app.voice) mapped no window within 15 s ($(where_now); before: maliit-server.service $mal0, MaliitServer $mal1)"
+        echo "$detail" > $OUT/ime-result.txt
+        fail ime "$detail"
     else
         up=no; tries=0; n=0
         while [ $n -lt 28 ]; do
@@ -343,6 +353,7 @@ ime)
         done
         sleep 1
         b=$(cap $OUT/ime.png)
+        mal2=$(systemctl is-active maliit-server.service); mal3=$(pgrep -x MaliitServer | head -n 1); mal3=${mal3:+pid $mal3}; mal3=${mal3:-not running}
         ctl ime > $OUT/ime-up.json
         methods=$(grep -o '"display":[0-9]' $OUT/ime-up.json | wc -l)
         ctx=no; grep -q '"context":true' $OUT/ime-up.json && ctx=yes
@@ -369,13 +380,13 @@ ime)
                 [ $closed = yes ] && { by=$([ $k = 412 ] && echo Back || echo Exit); break; }
             done
         fi
-        journal_after ime-open > $OUT/ime-journal.txt
-        close_app com.webos.app.voice; sleep 2
-        detail="maliit-server was $mal0; input methods bound $methods; asked for one $asked time(s); OK pressed $tries time(s); keyboard up $up (panel y $py h $ph, capture ${b:-0} bytes); context $ctx; typed $typed; closed by $by"
+        journal_after ime-open > $OUT/ime-journal.txt; ctl windows > $OUT/ime-windows.json
+        detail="before: maliit-server.service $mal0, MaliitServer $mal1; after the keyboard came up: unit $mal2, MaliitServer $mal3; input methods bound $methods; asked for one $asked time(s); OK pressed $tries time(s); keyboard up $up (panel y $py h $ph, capture ${b:-0} bytes); context $ctx; typed $typed; closed by $by"
         echo "$detail" > $OUT/ime-result.txt
         verdict=$(ime_rule "$methods" "$up" "$ctx" "$typed" "$closed" "$bottom")
         case "$verdict" in PASS*) pass ime "$detail | ${verdict#PASS }" ;; *) fail ime "${verdict#FAIL } | $detail" ;; esac
     fi
+    close_app com.webos.app.voice; sleep 2
     home
     ;;
 evidence)

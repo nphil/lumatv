@@ -719,11 +719,13 @@ class GateFirmwareCheck(FakeSet):
         self.assertIn("GATE firmware: FAIL tools/compositor.sh is not deployed", out)
 
 
-# The compositor's `ctl` and `luna-send` as the keys and ime checks see them: one small model of the journal, the remote's routing, maliit's
-# keyboard and SAM's foreground. Its state is $FAKE/sim.json; $FAKE/sim-config.json says what it should get wrong.
+# The compositor's `ctl` and `luna-send` as the keys and ime checks see them: one small model of the journal, the remote's routing, the windows,
+# maliit's keyboard and SAM's foreground. Its state is $FAKE/sim.json; $FAKE/sim-config.json says what it should get wrong. LG's Settings and
+# Search are overlays here as on the set: their windows are mapped, and SAM never names them as the foreground app.
 SIM_PRELUDE = r'''#!/usr/bin/env python3
 import json, os, sys
 F = os.environ["FAKE"]
+OVERLAYS = ("com.palm.app.settings", "com.webos.app.voice")
 
 
 def load(name, default):
@@ -735,8 +737,8 @@ def load(name, default):
 
 
 cfg = load("sim-config.json", {})
-s = load("sim.json", {"journal": [], "fg": "com.webos.app.home", "down": [], "panel": None, "ctx": False, "moved": False, "oks": 0,
-                      "commits": 0, "launched": [], "closed": [], "keys": []})
+s = load("sim.json", {"journal": [], "windows": [["com.webos.app.home", "Card"]], "down": [], "panel": None, "ctx": False, "moved": False,
+                      "oks": 0, "commits": 0, "launched": [], "closed": [], "keys": []})
 
 
 def save():
@@ -746,6 +748,19 @@ def save():
 
 def out(o):
     print(json.dumps(o, sort_keys=True, separators=(",", ":")))
+
+
+def open_app(app):
+    s["launched"].append(app)
+    s["windows"] = [w for w in s["windows"] if w[0] != app] + [[app, "Overlay" if app in OVERLAYS else "Card"]]
+
+
+def drop_app(app):
+    s["windows"] = [w for w in s["windows"] if w[0] != app]
+
+
+def front():
+    return [a for a, t in s["windows"] if t == "Card"][-1]
 '''
 SIM_LOADER = '#!/bin/sh\nshift 2\nexec "$@"\n'
 SIM_COMPOSITOR = SIM_PRELUDE + r'''
@@ -756,14 +771,9 @@ def say(line):
     s["journal"].append(line)
 
 
-def launch(app):
-    s["launched"].append(app)
-    s["fg"] = app
-
-
 def held():
     say("input: 5 held: Quick Access slot 5 has no window of its own here yet, launching com.webos.app.magicnum")
-    launch("com.webos.app.magicnum")
+    open_app("com.webos.app.magicnum")
 
 
 def ok():
@@ -778,30 +788,34 @@ def ok():
 
 def tap(code):
     s["keys"].append(code)
+    focused = s["windows"][-1][0]
     if code == 139:
         say("input: gear tap: Quick Settings has no window of its own here yet, launching com.palm.app.settings")
-        launch("com.palm.app.settings")
+        open_app("com.palm.app.settings")
     elif code == 241:
         say("input: Input tap: the input picker has no window of its own here yet, launching com.webos.app.homeconnect")
-        launch("com.webos.app.homeconnect")
+        open_app("com.webos.app.homeconnect")
     elif code == 1037 and not cfg.get("netflix_dead"):
         choice = "netflix" if cfg.get("ignore_choice") else cfg.get("app_keys", {}).get("netflix", "netflix")
         if choice:
             say("input: app button: %s, launching %s" % (choice, choice))
-            launch(choice)
+            open_app(choice)
     elif code == 6 and cfg.get("digit_tap_asks"):
         held()
     elif code == 174 and s["panel"]:
         s["panel"] = None
         say("input: Back or Exit: closing the keyboard")
-    elif code == 174 and s["fg"] == "com.palm.app.settings":
-        say("input: Back or Exit: closing com.palm.app.settings")
-        s["fg"] = "com.webos.app.home"
+    elif code == 174 and focused == "com.webos.app.home":
+        say("input: Back or Exit on Home: nothing to close")
+    elif code == 174:
+        say("input: Back or Exit: closing " + focused)
+        if not cfg.get("close_fails"):
+            drop_app(focused)
     elif code == 412 and s["panel"] and cfg.get("back_closes", True):
         s["panel"] = None
     elif code in (106, 108) and s["panel"]:
         s["moved"] = True
-    elif code == 28 and s["fg"] == "com.webos.app.voice":
+    elif code == 28 and focused == "com.webos.app.voice":
         ok()
 
 
@@ -821,14 +835,21 @@ elif cmd == "remote":
         if code == 6:
             held()
     out({"ok": True})
+elif cmd == "windows":
+    ws = [{"appId": a, "id": 2 + i, "keyMask": 4286578682, "mapped": True, "position": [0, 0], "props": {}, "size": [1920, 1080],
+           "state": "Fullscreen", "surface": 103 + i, "title": a, "type": t} for i, (a, t) in enumerate(s["windows"])]
+    if s["panel"]:
+        ws.append({"appId": "", "id": 90, "keyMask": 0, "mapped": True, "position": [0, 720], "props": {}, "size": [1920, 360],
+                   "state": "Default", "surface": 221, "title": "MaliitServer", "type": "Keyboard"})
+    out({"groups": [], "ok": True, "video": [], "windows": ws})
 elif cmd == "keys":
     out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": cfg.get("app_keys", {}),
-         "unnamed": cfg.get("unnamed", []), "foreground": s["fg"], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
+         "unnamed": cfg.get("unnamed", []), "foreground": s["windows"][-1][0], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
 elif cmd == "ime":
     up = s["panel"] is not None
     out({"ok": True, "asked": 1, "methods": [{"id": 5, "display": 0}] * cfg.get("methods", 1), "models": 1, "panel": s["panel"],
          "keyboardUp": up, "grab": up, "grabbing": up,
-         "active": {"app": s["fg"], "context": True, "model": 1, "showWanted": False, "surface": 3} if s["ctx"] else None,
+         "active": {"app": s["windows"][-1][0], "context": True, "model": 1, "showWanted": False, "surface": 3} if s["ctx"] else None,
          "counts": {"activations": 1, "declined": 0, "commits": s["commits"] + cfg.get("commits_before", 0), "preedits": 0, "deletes": 0,
                     "keysyms": 0, "grabbedKeys": s["commits"]}})
 else:
@@ -840,16 +861,16 @@ uri = [a for a in sys.argv[1:] if a.startswith("luna://")][0]
 payload = sys.argv[-1] if not sys.argv[-1].startswith("luna://") else "{}"
 method = uri.rsplit("/", 1)[1]
 if method == "getForegroundAppInfo":
-    out({"returnValue": True, "appId": s["fg"]})
+    out({"returnValue": True, "appId": front()})
 elif method == "launch":
     request = json.loads(payload)
     app = request["id"]
-    s["launched"].append(app)
     s.setdefault("journal_at_launch", {})[app] = len(s["journal"])
     if app in cfg.get("unlaunchable", []):
+        s["launched"].append(app)
         out({"returnValue": False, "errorText": "no such app"})
     else:
-        s["fg"] = app
+        open_app(app)
         if app == "com.webos.app.voice" and request.get("params", {}).get("launchMode") == "vkb" and cfg.get("vkb", True) and cfg.get("keyboard", True):
             s["panel"] = {"x": 0, "y": 720, "w": 1920, "h": 360}
             s["ctx"] = True
@@ -857,8 +878,7 @@ elif method == "launch":
 elif method == "closeByAppId":
     app = json.loads(payload)["id"]
     s["closed"].append(app)
-    if s["fg"] == app:
-        s["fg"] = "com.webos.app.home"
+    drop_app(app)
     if app == "com.webos.app.voice":
         s["panel"] = None
         s["ctx"] = False
@@ -891,7 +911,7 @@ class GateKeysAndIme(FakeSet):
         self.assertIn("GATE keys: PASS gear ok; input ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok;", out)
         self.assertIn("key table: gear=139 input=241 netflix=1037; unnamed keys seen: []", out)
         sim = self.sim()
-        self.assertEqual(sim["fg"], "com.webos.app.home")
+        self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left, every app a key opened is closed")
         self.assertEqual(sim["closed"], ["com.palm.app.settings", "com.webos.app.homeconnect", "netflix", "com.webos.app.magicnum",
                                          "com.palm.app.settings"])
         self.assertEqual(sim["keys"], [139, 241, 1037, 6, 174])
@@ -924,6 +944,12 @@ class GateKeysAndIme(FakeSet):
         self.assertIn("GATE keys: FAIL", out)
         self.assertIn("NOT: netflix-button(chosen: nothing) (it opens nothing, yet foreground netflix or an app launch was journalled)", out)
 
+    def test_an_exit_that_journals_a_close_but_leaves_the_window_fails_the_check(self):
+        self.configure(close_fails=True)
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: FAIL", out)
+        self.assertIn("NOT: exit (foreground com.webos.app.home, windows mapped: com.webos.app.home com.palm.app.settings; or no journal line)", out)
+
     def test_a_digit_tap_that_asks_for_quick_access_fails_it(self):
         self.configure(digit_tap_asks=True)
         rc, out = self.gate("keys")
@@ -938,10 +964,11 @@ class GateKeysAndIme(FakeSet):
     def test_the_search_app_launched_for_its_keyboard_brings_it_up_takes_a_typed_key_and_closes_on_back(self):
         rc, out = self.gate("ime")
         self.assertIn("GATE ime: PASS", out, out)
-        self.assertIn("maliit-server was active; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes "
-                      "(panel y 720 h 360, capture 4321 bytes); context yes; typed 1; closed by Back", out)
+        self.assertIn("before: maliit-server.service active, MaliitServer not running; after the keyboard came up: unit active, MaliitServer not running; "
+                      "input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes (panel y 720 h 360, capture 4321 bytes); "
+                      "context yes; typed 1; closed by Back", out)
         sim = self.sim()
-        self.assertEqual((sim["fg"], sim["closed"]), ("com.webos.app.home", ["com.webos.app.voice"]))
+        self.assertEqual((sim["windows"], sim["closed"]), ([["com.webos.app.home", "Card"]], ["com.webos.app.voice"]))
         self.assertEqual(sim["keys"], [28, 412], "no OK was needed to open it: the launch asked for the keyboard mode")
         self.assertEqual(read(os.path.join(self.out, "ime-result.txt")).count("typed 1"), 1)
         self.assertIn('"panel":{"h":360,"w":1920,"x":0,"y":720}', read(os.path.join(self.out, "ime-up.json")))
@@ -1000,8 +1027,28 @@ class GateKeysAndIme(FakeSet):
     def test_without_the_search_app_it_says_so_and_stops(self):
         self.configure(unlaunchable=["com.webos.app.voice"])
         rc, out = self.gate("ime")
-        self.assertIn("GATE ime: FAIL LG's Search app (com.webos.app.voice) did not come to the front (foreground com.webos.app.home, maliit-server was active)", out)
+        self.assertIn("GATE ime: FAIL LG's Search app (com.webos.app.voice) mapped no window within 15 s (foreground com.webos.app.home, "
+                      "windows mapped: com.webos.app.home; before: maliit-server.service active, MaliitServer not running)", out)
         self.assertNotIn(28, self.sim()["keys"])
+        for name in ("ime-result.txt", "ime-journal.txt", "ime-windows.json"):
+            self.assertTrue(os.path.exists(os.path.join(self.out, name)), "an early failure still leaves its evidence: " + name)
+
+    def test_a_running_maliit_is_named_by_its_pid_before_and_after(self):
+        write(os.path.join(self.fakebin, "pgrep"), '#!/bin/sh\ncase "$*" in *"-x MaliitServer"*) echo 4071 ;; *) exit 1 ;; esac\n', 0o755)
+        rc, out = self.gate("ime")
+        self.assertIn("before: maliit-server.service active, MaliitServer pid 4071; after the keyboard came up: unit active, MaliitServer pid 4071;", out)
+
+    def test_the_windows_the_compositor_reports_say_which_apps_are_up_overlays_included(self):
+        windows = ('{"groups":[],"ok":true,"video":[],"windows":['
+                   '{"appId":"com.webos.app.home","id":2,"keyMask":4286578682,"mapped":true,"position":[0,0],"props":{"_WEBOS_WINDOW_TYPE":"_WEBOS_WINDOW_TYPE_CARD",'
+                   '"appId":"com.webos.app.home","title":"Home"},"size":[1920,1080],"state":"Fullscreen","surface":103,"title":"Home","type":"Card"},'
+                   '{"appId":"com.palm.app.settings","id":3,"keyMask":0,"mapped":true,"position":[0,0],"props":{"_WEBOS_WINDOW_TYPE":"_WEBOS_WINDOW_TYPE_OVERLAY",'
+                   '"appId":"com.palm.app.settings"},"size":[1920,1080],"state":"Default","surface":185,"title":"Settings","type":"Overlay"},'
+                   '{"appId":"com.webos.app.voice","id":9,"keyMask":0,"mapped":false,"position":[0,0],"props":{},"size":[1920,1080],"state":"Default",'
+                   '"surface":206,"title":"x","type":"Overlay"}]}')
+        script = ". %s\nctl() { printf '%%s' \"$WINDOWS\"; }\nmapped_apps; app_mapped com.palm.app.settings && echo settings-up; app_mapped com.webos.app.voice || echo voice-not-up" % GATE
+        r = subprocess.run(["sh", "-c", script], env=dict(self.env, GATE_LIB="1", WINDOWS=windows), capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.stdout.split(), ["com.webos.app.home", "com.palm.app.settings", "settings-up", "voice-not-up"], r.stdout + r.stderr)
 
     def test_the_verdict_names_every_reason_at_once(self):
         r = subprocess.run(["sh", "-c", ". %s\nime_rule 0 no no 0 no no" % GATE], env=dict(self.env, GATE_LIB="1"), capture_output=True, text=True)
