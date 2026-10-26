@@ -36,7 +36,7 @@ class HostCase(unittest.TestCase):
         cmd = [sys.executable, HOST, surface, "--fake-helper", "--prop", "hostActive=true", "--theme", '{"perf":{"syncResidents":true}}', *args]
         if data:
             cmd += ["--data", data]
-        r = subprocess.run(cmd, env=dict(os.environ, DISPLAY=DISPLAY), capture_output=True, text=True, timeout=180)
+        r = subprocess.run(cmd, env=dict(os.environ, DISPLAY=DISPLAY), capture_output=True, text=True, timeout=int(os.environ.get("HOST_TIMEOUT", "180")))
         return r.returncode, r.stdout + r.stderr
 
     def docs(self, out):
@@ -420,8 +420,9 @@ class Settings(HostCase):
         self.assertNotIn("avSync", {k for c in calls for k in c["payload"]["settings"]})
 
     def test_the_aspect_ratio_is_written_for_the_input_in_front(self):
-        # Picture, Mode tab: cards, OLED pixel brightness, Filmmaker ambient light, AI Picture Pro, Aspect ratio (Original now): Left is 16:9
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "down", "down", "left", "ok"),
+        # Picture, Mode tab: cards, OLED pixel brightness, AI Picture Pro (the fake TV has no Filmmaker ambient light, so no row), Aspect ratio
+        # (Original now): Left is 16:9
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "down", "left", "ok"),
                             "--eval", "%d:%s" % (READY + 3600, LUNA), "--wait", str(READY + 4200))
         self.assertEqual(rc, 0, out[-1500:])
         calls = self.docs(out)[-1]
