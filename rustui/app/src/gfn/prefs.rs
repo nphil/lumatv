@@ -280,6 +280,7 @@ mod tests {
     fn the_file_round_trips_and_a_damaged_one_is_read_leniently() {
         let p = Prefs { tier: Tier::Uhd60, hdr: false, bitrate_mbps: 50, deadzone: 12, show_stats: true };
         assert_eq!(Prefs::from_json(&p.to_json()), p);
+        assert_eq!(p.to_json()["deadzone"], 12, "the engine reads this key of the file when a stream starts (gfn/engine, pads.rs)");
         let odd = Prefs::from_json(&json!({"tier": "8k", "hdr": "yes", "bitrateMbps": 77, "deadzone": 99, "showStats": 1}));
         assert_eq!(odd, Prefs { bitrate_mbps: 80, deadzone: 20, ..Prefs::default() });
         assert_eq!(Prefs::from_json(&json!(null)), Prefs::default());

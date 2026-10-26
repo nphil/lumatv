@@ -96,6 +96,25 @@ fn json_str(s: &str) -> String {
     out
 }
 
+/// The dead zone the viewer chose, in percent of stick travel: the `"deadzone"` of the app's preferences file, which the UI's settings
+/// screen writes and `LUMATV_GFN_PREFS` names. It is read when the pads start, once for each stream, so a change made in the settings
+/// is in effect for the next stream. The core's own range is 0-50.
+fn prefs_deadzone(path: &std::path::Path) -> Option<u8> {
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    Some(v["deadzone"].as_u64()?.min(50) as u8)
+}
+
+/// The pad crate's configuration: its environment's, with the viewer's dead zone unless `LUMATV_GFN_PAD_DEADZONE` fixes one.
+fn pad_config() -> PadConfig {
+    let mut c = PadConfig::from_env();
+    if std::env::var_os("LUMATV_GFN_PAD_DEADZONE").is_none() {
+        if let Some(z) = std::env::var_os("LUMATV_GFN_PREFS").and_then(|p| prefs_deadzone(std::path::Path::new(&p))) {
+            c.deadzone_percent = z;
+        }
+    }
+    c
+}
+
 /// The pads as the runtime sees them: started once, told when a session is live and when the overlay has the input.
 pub struct PadBridge {
     bridge: Arc<Bridge>,
@@ -115,7 +134,7 @@ impl PadBridge {
         let mut rt = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
         if rt.is_none() {
             let sink: Arc<dyn PadSink> = Arc::clone(&self.bridge) as Arc<dyn PadSink>;
-            *rt = Some(PadRuntime::start(PadConfig::from_env(), sink));
+            *rt = Some(PadRuntime::start(pad_config(), sink));
         }
     }
 
@@ -179,5 +198,25 @@ mod tests {
         b.pad_event(0x0000, PadEvent::Disconnected { slot: 0 });
         assert!(matches!(queue.take(), Some(CapturedInput::Gamepad { bitmap: 0, buttons: 0, .. })));
         assert_eq!(json_str("a\"b"), "\"a\\\"b\"");
+    }
+
+    #[test]
+    fn the_dead_zone_is_the_one_in_the_apps_preferences_file_clamped_to_the_cores_range() {
+        let dir = std::env::temp_dir().join(format!("gfn-prefs-deadzone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("prefs.json");
+        // what the UI writes (rustui/app/src/gfn/prefs.rs, `Prefs::to_json`)
+        std::fs::write(&file, br#"{"tier":"uhd120","hdr":true,"bitrateMbps":80,"deadzone":12,"showStats":false}"#).unwrap();
+        assert_eq!(prefs_deadzone(&file), Some(12));
+        std::fs::write(&file, br#"{"deadzone":0}"#).unwrap();
+        assert_eq!(prefs_deadzone(&file), Some(0), "no dead zone is a choice");
+        std::fs::write(&file, br#"{"deadzone":90}"#).unwrap();
+        assert_eq!(prefs_deadzone(&file), Some(50));
+        std::fs::write(&file, br#"{"tier":"uhd120"}"#).unwrap();
+        assert_eq!(prefs_deadzone(&file), None);
+        std::fs::write(&file, b"{ not json").unwrap();
+        assert_eq!(prefs_deadzone(&file), None);
+        assert_eq!(prefs_deadzone(&dir.join("missing.json")), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
