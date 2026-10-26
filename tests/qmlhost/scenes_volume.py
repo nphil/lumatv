@@ -135,6 +135,36 @@ def _(out_dir, material):
                   [sound_out(B), receiver_at(B + 200, dict(RX, mute=True)), osd_at(B + 300, "o.holdMs = 300"), key_at(B + 2000, "mute", None, True)], B + 4500)
 
 
+NETFLIX = os.path.join(os.path.dirname(os.path.dirname(HERE)), "docs", "research", "round9", "r11-2026-10-26")
+
+
+def netflix_backdrop(out_dir, shot):
+    """A capture of the TV over Netflix (960x540, from TV round 11) without the old mute bubble the capture caught, for the picture behind the mark.
+    The bubble sat at the lower middle, on the subtitles; its disk is painted over with the black around it."""
+    from PIL import Image, ImageDraw
+    im = Image.open(os.path.join(NETFLIX, shot)).convert("RGB")
+    bubble = {"netflix-mute-hop.png": (525, 492), "netflix-title.png": (527, 492)}[shot]
+    ImageDraw.Draw(im).ellipse((bubble[0] - 22, bubble[1] - 22, bubble[0] + 22, bubble[1] + 22), fill=(0, 0, 0))
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "backdrop-" + shot)
+    im.save(path)
+    return path
+
+
+def netflix_mark(name, shot):
+    """The mute mark over the Netflix capture, at each of its four places (it hops every 1.5 s here, not 10)."""
+    def run(out_dir, material):
+        bg = netflix_backdrop(out_dir, shot)
+        steps = [sound_out(B), receiver_at(B + 200, dict(RX, mute=True)), osd_at(B + 300, "o.holdMs = 300; o.hopMs = 1500"), key_at(B + 2000, "mute", None, True)]
+        snaps = [(B + 4500 + i * 1500, png_path(out_dir, "%s-%d" % (name, i + 2), material)) for i in range(3)]
+        return render(name, out_dir, material, steps, B + 4500, bg=bg, more_snaps=snaps)
+    return run
+
+
+for _name, _shot in (("11-volume-osd-mark-netflix", "netflix-mute-hop.png"), ("11-volume-osd-mark-netflix-title", "netflix-title.png")):
+    scene(_name, runner=True)(netflix_mark(_name, _shot))
+
+
 @scene("11-volume-osd-tv", runner=True)
 def _(out_dir, material):
     """No receiver (it does not answer): the TV's own volume, which is what the keys changed."""

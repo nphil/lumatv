@@ -5,8 +5,9 @@
 //   `MS<text>`       the sound mode ("DOLBY AUDIO-DSUR", "STEREO", "MCH STEREO", ...) -> the mode word after it
 // The helper publishes both, untouched, as `signal` and `soundMode` of the `receiver` topic. This turns them into something fit to read at the
 // TV's distance, and into nothing when they say nothing: no raw code is ever shown. Seen on the set so far: "PCM ZERO" with "DOLBY AUDIO-DSUR"
-// (idle). The Atmos, Digital, Digital+, TrueHD, DTS and Multi Ch In patterns below follow the receiver's published naming and have not been seen
-// on the set yet; a text that matches none of them is not shown.
+// (idle) and, over Netflix (2026-10-26), `signal` "Dolby Atmos - DD+" with `soundMode` "DOLBY ATMOS": the stream's own name is "<format> - <carrier>",
+// and only the format is shown. The Digital, Digital+, TrueHD, DTS and Multi Ch In patterns below follow the receiver's published naming and have
+// not been seen on the set yet; a text that matches none of them is not shown.
 
 // The format of the input signal, or "" when it carries none.
 function stream(signal) {
@@ -14,7 +15,7 @@ function stream(signal) {
     if (t === "" || /ZERO|NO SIGNAL|NONE|NON$/.test(t)) return ""
     if (/ATMOS/.test(t)) return "Dolby Atmos"
     if (/TRUE ?HD/.test(t)) return "Dolby TrueHD"
-    if (/DD\+|D\+|DIGITAL PLUS|E-?AC-?3/.test(t)) return "Dolby Digital+"
+    if (/DD ?\+|D\+|DIGITAL ?(PLUS|\+)|E-?AC-?3/.test(t)) return "Dolby Digital+"
     if (/DOLBY|DD|AC-?3/.test(t)) return "Dolby Digital"
     if (/DTS[ :-]?X/.test(t)) return "DTS:X"
     if (/DTS[ -]?HD/.test(t)) return "DTS-HD"
@@ -44,6 +45,9 @@ function describe(soundMode, signal) {
     var format = stream(signal)
     if (format === "") return ""
     var word = mode(soundMode)
+    // "DOLBY ATMOS" is the receiver decoding Atmos: the Dolby carrier (DD+ or TrueHD) is not what is heard
+    if (/ATMOS/i.test(String(soundMode || "")) && /^Dolby (Digital\+|TrueHD)$/.test(format)) return "Dolby Atmos"
+    if (format === "Dolby Atmos" || format === "DTS:X") return format
     if (word === "Surround" || word === "Direct" || word === "Pure Direct") return format + " \u00b7 " + word
     if (word === "Stereo" && format.indexOf("PCM") !== 0) return format + " \u00b7 Stereo"
     return format

@@ -209,14 +209,21 @@ class VolumeOsd(HostCase):
     def test_the_mute_is_a_word_then_a_mark_that_stays_and_moves_until_the_sound_is_back(self):
         steps = [(300, do("o.holdMs = 1500; o.hopMs = 1500; o.staleMs = 60000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
                  (B + 2000, rx(dict(RX, mute=True)), "mute"), (B + 2900, SHOWN, "pane"), (B + 5000, SHOWN, "mark")]
-        steps += [(B + 5100 + i * 1000, on_osd("o.markPlace"), "place%d" % i) for i in range(6)]
+        steps += [(B + 5100 + i * 1000, on_osd("[o.markPlace, o.markX, o.markY].join('|')"), "place%d" % i) for i in range(6)]
         steps += [(B + 11500, rx(dict(RX, mute=False)), "unmute"), (B + 12800, SHOWN, "back"), (B + 16000, SHOWN, "after")]
         got, _ = self.run_osd(steps, B + 16600)
         self.assertEqual(got["pane"], "true|true|receiver|46|true|false", "a mute from the receiver shows the pane in its muted form")
         self.assertEqual(got["mark"], "false|false|receiver|46|true|true", "after the hold the mark stays")
-        places = [int(got["place%d" % i]) for i in range(6)]
-        self.assertTrue(all(p in (-1, 0, 1) for p in places), places)
+        spots = [tuple(int(v) for v in got["place%d" % i].split("|")) for i in range(6)]
+        places = [s[0] for s in spots]
         self.assertGreaterEqual(len(set(places)), 2, "the mark moves: %s" % places)
+        # the top corners only: inside the 5 % safe area, below Home's status bar, above the lower third and away from the middle
+        layout = json.load(open(os.path.join(os.path.dirname(HERE), "payload", "theme", "layout.json")))
+        bar_bottom = layout["statusBar"]["height"] + layout["safe"]["y"]
+        for _, x, y in spots:
+            self.assertTrue(96 <= x and x + 64 <= 1920 - 96, "inside the safe width: %d" % x)
+            self.assertTrue(y >= bar_bottom and y + 64 <= 1080 // 3, "in the top third and clear of the status bar: %d" % y)
+            self.assertTrue(x + 64 <= 1920 * 0.3 or x >= 1920 * 0.7, "in a corner, not the middle: %d" % x)
         self.assertEqual(got["back"].split("|")[0], "true", "the receiver's unmute shows the pane again")
         self.assertEqual(got["after"], "false|false|receiver|46|false|false", "unmuted: nothing stays")
 

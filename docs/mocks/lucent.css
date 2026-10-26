@@ -443,7 +443,8 @@ body {
 [data-v="muted"] .osd .htrack i { background: var(--lu-ink-3); }
 .osd.offline { justify-content: center; }
 /* the mark that stays while the sound is muted: LG's bubble, moves 94 px sideways every ten seconds between three places */
-.osd-mark { left: 50%; bottom: 64px; transform: translateX(-50%); width: 64px; height: 64px; border-radius: 50%; align-items: center; justify-content: center; }
+/* the top-left of four corners: inside the safe area, below Home's status bar, clear of subtitles */
+.osd-mark { left: 96px; top: 134px; width: 64px; height: 64px; border-radius: 50%; align-items: center; justify-content: center; }
 .osd-mark .ic { width: 32px; height: 32px; }
 
 /* ---- all-apps library ---------------------------------------------------------------------- */

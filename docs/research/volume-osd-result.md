@@ -56,8 +56,10 @@ second one (a test fails if they do). The display takes no key and no focus.
   back, and then the reading is taken. Nothing heavy runs on a press: no blur is rebuilt, hidden text is not laid out (the format text and the glyph are
   `visible` only when used), the fill animates for 100 ms. Offline, from the audio service's report to the next presented frame: see `volume_sheet.py --latency`.
 - **Mute**: the number gives way to a slashed speaker and the bar is dimmed; no word. From the receiver's `MU` push or, with no receiver, the TV's mute
-  (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays at the bottom centre while the sound is
-  muted, moving 94 px sideways between three places every 10 s so no pixel holds a still mark, as LG's bubble did. The receiver's mute is kept while the
+  (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays while the sound is
+  muted, in the top corners (x 96 from either edge, y 134 below the status bar, or 94 px further in and down; never the lower third, where Netflix draws
+  its subtitles, nor the middle), visiting the four places in turn every 10 s so no pixel holds a still mark, as LG's bubble did. TV round 11 showed the
+  first form, at the lower middle, on the subtitles (`round9/r11-2026-10-26/netflix-mute-hop.png`); `11-volume-osd-mark-netflix` renders the four places over that capture. The receiver's mute is kept while the
   helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped 1.5 s after the readings stop.
 - **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format need (the format is cut at 360 px), 56 to 64 px tall (the label type
   and 12 px above and below), 64 px above the bottom edge, centred; at 200 % text it grows in both. The number in the label size, semibold, in a slot as
@@ -80,7 +82,8 @@ status batch (`MV`, `MVMAX 81`, `PS…`, `MU`, `SI`); `SSINFAISSIG ?` gives `SSI
 `SYSMI Dolby Audio - Dolby Surround` (the mode in words); `SSINFAISFSV ?` gives `NON`; `OPINFASP ?` gives a channel map of digits. The HTTP
 `AppCommand` `GetSurroundModeStatus` answers an empty list. `kit/AudioFormat.js` maps `SYSDA` (the format) and `MS` (the mode word) to "Dolby Digital+ ·
 Surround", "Dolby Atmos", "DTS:X", "PCM 2.0", "Multi Ch In" and the like, and to nothing when they say nothing ("PCM ZERO", an unknown text); no raw code is
-shown. Only "PCM ZERO" with "DOLBY AUDIO-DSUR" has been seen on the set: the other patterns follow the receiver's published naming and have to be confirmed
+shown. Seen on the set: "PCM ZERO" with "DOLBY AUDIO-DSUR" (idle) and, over Netflix on 2026-10-26, `signal` "Dolby Atmos - DD+" with `soundMode` "DOLBY ATMOS" (the
+stream's name is `<format> - <carrier>`; the bar reads "Dolby Atmos"). The other patterns follow the receiver's published naming and have to be confirmed
 while something plays (`tests/test_audio_format.py`). The bar shows the text only with the receiver on and fresh, not muted.
 
 Not done: the helper (`helper/app/src/receiver_telnet.rs`) has to carry two more lines into the `receiver` topic: `soundMode` (the last `MS<text>` heard, asked
@@ -98,7 +101,7 @@ and `rc.signal` are absent and the text is hidden.
 3. Hold Volume+ for about a second. Pass: the number climbs with the repeats without a stall; at release it settles on the level the Denon reports
    (`/v1/receiver`) within about a second, with no step back.
 4. Mute at Home (then unmute at Home, with apps closed first). Pass: the number becomes a slashed speaker with a dim bar, no word; after the hold a 64 px
-   bubble stays at the bottom centre and has moved sideways within ten seconds; unmuting removes it; LG's bubble never shows.
+   bubble stays in a top corner and has moved to another place within ten seconds; unmuting removes it; LG's bubble never shows.
 5. Format: with the helper that publishes `soundMode` and `signal`, play something with a known format on the Denon and check the text against the Denon's front display.
 6. Latency: the key injector prints its epoch time (`kb.py`); the compositor log line `[VolumeOsd] cue` carries its own. The difference is key to cue (the TV's
    report adds 44 to 63 ms); the bar is drawn on the frame after the cue. A capture 16 ms after the key cannot be had from the capture service (one grab takes

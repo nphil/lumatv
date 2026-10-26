@@ -35,6 +35,26 @@ class AudioFormat(unittest.TestCase):
         self.assertEqual(got, ["Dolby Digital+ \u00b7 Surround", "Dolby Atmos", "Dolby TrueHD \u00b7 Surround", "DTS:X", "PCM 2.0", "Multi Ch In",
                                "Dolby Digital \u00b7 Direct", "DTS-HD \u00b7 Stereo"])
 
+    def test_what_the_set_said_over_netflix_is_the_format_alone(self):
+        # read on the set 2026-10-26: signal 'Dolby Atmos - DD+', soundMode 'DOLBY ATMOS'
+        got = describe([["DOLBY ATMOS", "Dolby Atmos - DD+"], ["DOLBY ATMOS", "Dolby Atmos - TrueHD"], ["DOLBY ATMOS", "Dolby Atmos - Dolby TrueHD"],
+                        ["DOLBY ATMOS", "DD+"], ["DOLBY ATMOS", "Dolby Digital+"], ["DOLBY ATMOS", "Dolby Atmos - DD+ "]])
+        self.assertEqual(got, ["Dolby Atmos"] * 6)
+
+    def test_other_denon_spellings_of_the_formats(self):
+        got = describe([
+            ["DTS:X", "DTS:X"], ["DTS NEURAL:X", "DTS:X MSTR"], ["STEREO", "DTS:X Master"],
+            ["DOLBY SURROUND", "Dolby Digital+"], ["DOLBY DIGITAL+", "Dolby Digital +"], ["DOLBY SURROUND", "Dolby Digital Plus"],
+            ["STEREO", "PCM 2.0ch"], ["STEREO", "PCM 2ch"], ["STEREO", "PCM 5.1ch"], ["STEREO", "LPCM 2.0ch"], ["DOLBY ATMOS", "PCM 2.0ch"],
+            ["DOLBY SURROUND", "DTS-HD MSTR"], ["DTS SURROUND", "DTS"], ["DOLBY SURROUND", "Dolby TrueHD"],
+        ])
+        self.assertEqual(got, ["DTS:X", "DTS:X", "DTS:X", "Dolby Digital+ \u00b7 Surround", "Dolby Digital+", "Dolby Digital+ \u00b7 Surround",
+                               "PCM 2.0", "PCM 2.0", "PCM 5.1", "PCM 2.0", "PCM 2.0", "DTS-HD \u00b7 Surround", "DTS", "Dolby TrueHD \u00b7 Surround"])
+
+    def test_no_raw_text_of_a_carrier_or_code_shows(self):
+        for out in describe([["DOLBY ATMOS", "Dolby Atmos - DD+"], ["DOLBY ATMOS", "Dolby Atmos - TrueHD"], ["STEREO", "PCM 2.0ch"], ["DTS:X", "DTS:X MSTR"]]):
+            self.assertNotRegex(out, r" - |ch$|MSTR|\+\+")
+
     def test_what_it_cannot_name_is_not_shown_and_a_raw_code_never_is(self):
         self.assertEqual(describe([["DOLBY AUDIO-DD+DSUR", ""], ["", "XYZZY 13"], [None, None], ["STEREO", "13"], ["MS?", "SSINFAISSIG 13"]]), ["", "", "", "", ""])
 
