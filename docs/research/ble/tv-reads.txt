@@ -1,0 +1,20 @@
+Read-only luna calls and file reads on the set (OLED65C4PUA, webOS 10.2.1), 2026-10-25. No scan was started, no state changed.
+Addresses of the owner's paired devices are masked.
+
+$ luna-send -n 1 luna://com.webos.service.bluetooth2/adapter/getStatus '{}'
+$ luna-send -n 1 luna://com.webos.service.bluetooth2/le/getStatus '{}'
+{"adapters":[{"discoveryTimeout":10,"discoverableTimeout":0,"discoverable":true,"pairable":true,"powered":true,"discovering":false,"name":"Living Room TV","pairing":false,"adapterAddress":"84:a3:29:b9:4d:43","pairableTimeout":30}],"returnValue":true,"subscribed":false}
+
+{"adapterAddress":"84:a3:29:b9:4d:43","returnValue":true,"advertising":true}
+
+$ luna-send -n 1 luna://com.webos.service.bluetooth2/device/getStatus '{}'
+$ luna-send -n 1 luna://com.webos.service.bluetooth2/adapter/queryAvailable '{}'
+$ luna-send -n 1 luna://com.webos.service.bluetooth2/gatt/getStatus '{}'
+$ luna-send -n 1 luna://com.webos.service.bluetooth2/a2dp/getStatus '{}'
+{"subscribed":false,"returnValue":true,"devices":[{"classOfDevice":786700,"blocked":false,"connectedProfiles":[],"paired":true,"serviceClasses":[{"mnemonic":"A2DP-source","category":"/a2dp"},{"mnemonic":"A2DP-sink","category":"/a2dp"},{"mnemonic":"AVRCP-remote","category":"/avrcp"}],"name":"steamdeck","pairing":false,"rssi":0,"adapterAddress":"84:a3:29:b9:4d:43","trusted":false,"typeOfDevice":"bredr","address":"2c:3b:70:xx:xx:xx","scanRecord":[],"manufacturerData":{}},{"classOfDevice":7936,"blocked":false,"connectedProfiles":[],"paired":true,"serviceClasses":[],"name":"LGE MR24","pairing":false,"rssi":0,"adapterAddress":"84:a3:29:b9:4d:43","trusted":false,"typeOfDevice":"ble","address":"30:3f:5d:xx:xx:xx","scanRecord":[],"manufacturerData":{}}],"adapterAddress":"84:a3:29:b9:4d:43"}
+
+{"adapters":[{"adapterAddress":"84:a3:29:b9:4d:43","serviceClasses":[{"mnemonic":"AVRCP-target","category":"/avrcp"},{"mnemonic":"AVRCP-remote","category":"/avrcp"},{"mnemonic":"GATT","category":"/gatt"},{"mnemonic":"HID-host","category":"/hid"},{"mnemonic":"A2DP-source","category":"/a2dp"},{"mnemonic":"A2DP-sink","category":"/a2dp"}],"firmwareVersion":"12:11:01:22","default":true,"stackVersion":"","classOfDevice":3941384,"stackName":"Bluedroid"}],"returnValue":true,"subscribed":false}
+
+{"errorCode":105,"returnValue":false,"errorText":"Required 'address' parameter is not supplied"}
+
+{"errorCode":105,"returnValue":false,"errorText":"Required 'address' parameter is not supplied"}

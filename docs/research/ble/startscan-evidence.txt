@@ -1,0 +1,42 @@
+What the set itself says about LE scanning (files and strings of /usr/sbin/webos-bluetooth-service, read-only, 2026-10-25).
+
+1. Luna API permission file /usr/share/luna-service2/api-permissions.d/com.webos.service.bluetooth2.api.json (group: method)
+  devices: com.webos.service.bluetooth2/le/getStatus
+  devices: com.webos.service.bluetooth2/le/startScan
+  devices: com.webos.service.bluetooth2/le/internal/startScan
+  devices: com.webos.service.bluetooth2/adapter/getStatus
+  devices: com.webos.service.bluetooth2/adapter/internal/sendHciCommand
+  devices: com.webos.service.bluetooth2/device/getStatus
+  bluetooth.query: com.webos.service.bluetooth2/le/getStatus
+  bluetooth.query: com.webos.service.bluetooth2/adapter/getStatus
+  bluetooth.query: com.webos.service.bluetooth2/device/getStatus
+  bluetooth.manage: com.webos.service.bluetooth2/le/getStatus
+  bluetooth.manage: com.webos.service.bluetooth2/le/startScan
+  bluetooth.manage: com.webos.service.bluetooth2/le/internal/startScan
+  bluetooth.manage: com.webos.service.bluetooth2/adapter/getStatus
+  bluetooth.manage: com.webos.service.bluetooth2/adapter/internal/sendHciCommand
+  bluetooth.manage: com.webos.service.bluetooth2/device/getStatus
+
+2. Who may call: /usr/share/luna-service2/client-permissions.d/luna-service2.perm.json gives every `com.webos.lunasend-*` client the group `all`;
+   /usr/share/luna-service2/roles.d/com.webos.lunasend.role.json is a privileged role for /usr/bin/luna-send with outbound "*".
+   (adapter/getStatus, le/getStatus and device/getStatus, all `bluetooth.query`, answered to luna-send; see tv-reads.txt.)
+
+3. JSON schemas compiled into the service for `startScan` (the first), `internal/startScan` (the second, adds advertisingType),
+   `startMultiScan` (filters[]) and `setScanParameters` (interval, scanWindow):
+   {"type":"object","properties":{"interval":{"type":"integer"},"scanWindow":{"type":"integer"}},"additionalProperties":false}
+   {"type":"object","properties":{"address":{"type":"string"},"name":{"type":"string"},"subscribe":{"type":"boolean"},"adapterAddress":{"type":"string"},"serviceUuid":{"type":"object","properties":{"uuid":{"type":"string"},"mask":{"type":"string"}}},"serviceData":{"type":"object","properties":{"uuid":{"type":"string"},"data":{"type":"array", "items":{"type":"integer"}}, "mask":{"type":"array", "items":{"type":"integer"}}}},"manufacturerData":{"type":"object","properties":{"id":{"type":"integer"},"data":{"type":"array", "items":{"type":"integer"}}, "mask":{"type":"array", "items":{"type":"integer"}}}},"always":{"type":"boolean"}},"required":["subscribe"],"additionalProperties":false}
+   {"type":"object","properties":{"address":{"type":"string"},"name":{"type":"string"},"subscribe":{"type":"boolean"},"adapterAddress":{"type":"string"},"serviceUuid":{"type":"object","properties":{"uuid":{"type":"string"},"mask":{"type":"string"}}},"serviceData":{"type":"object","properties":{"uuid":{"type":"string"},"data":{"type":"array", "items":{"type":"integer"}}, "mask":{"type":"array", "items":{"type":"integer"}}}},"manufacturerData":{"type":"object","properties":{"id":{"type":"integer"},"data":{"type":"array", "items":{"type":"integer"}}, "mask":{"type":"array", "items":{"type":"integer"}}}},"advertisingType":{"type":"integer"},"always":{"type":"boolean"}},"required":["subscribe"],"additionalProperties":false}
+   {"type":"object","properties":{"filters":{"type":"array", "items": {"type":"object","properties":{"address":{"type":"string"},"name":{"type":"string"}, "adapterAddress":{"type":"string"}, "serviceUuid":{"type":"object","properties":{"uuid":{"type":"string"},"mask":{"type":"string"}}}, "serviceData":{"type":"object","properties":{"uuid":{"type":"string"},"data":{"type":"array", "items":{"type":"integer"}}, "mask":{"type":"array", "items":{"type":"integer"}}}}, "manufacturerData":{"type":"object","properties":{"id":{"type":"integer"},"data":{"type":"array", "items":{"type":"integer"}}, "mask":{"type":"array", "items":{"type":"integer"}}}}, "advertisingType":{"type":"integer"}}}},"subscribe":{"type":"boolean"},"always":{"type":"boolean"}},"required":["subscribe"],"additionalProperties":false}
+
+4. Log and notification strings that show the shape of a scan result and how a scan ends:
+   _ZN23BluetoothManagerService16updatedLeDevicesEv
+   _ZN23BluetoothManagerService23appendLeDevicesByScanIdERN7pbnjson6JValueEj
+   _ZN23BluetoothManagerService32notifySubscriberLeDevicebyScanIdEjSt10shared_ptrI15BluetoothDeviceE
+   updatedLeDevices
+   %s:%s() %s - LE device list is updated
+   notifySubscriberLeDevicebyScanId
+   %s:%s() [%s][%d] -- notifySubscriberLeDevicebyScanId, scanId : %d 
+   %s:%s() [%s][%d] -- notifySubscriberLeDevicebyScanId 
+   appendLeDevicesByScanId
+   %s:%s() [%s][%d] -- appendLeDevicesByScanId 
+   %s:%s() StartScan listener dropped

@@ -22,6 +22,7 @@ use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -334,7 +335,7 @@ impl LunaBluetooth {
 
     /// One `luna-send -n 1` and its reply.
     fn call(&self, uri: &str) -> Result<Value, String> {
-        let mut child = Command::new(&self.program)
+        let mut child = armed(&self.program)
             .args(["-n", "1", uri, "{}"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -379,6 +380,23 @@ impl LunaBluetooth {
     }
 }
 
+/// `luna-send` as a child that dies with the thread that started it: a scan is a subscription that lasts as long as its client, so a
+/// helper that is killed (not stopped) must not leave the radio scanning with nobody to end it. The kernel does it
+/// (`PR_SET_PDEATHSIG`), which is the one thing that holds even for SIGKILL.
+fn armed(program: &str) -> Command {
+    let mut command = Command::new(program);
+    // SAFETY: only `prctl` runs between fork and exec, and it is async-signal-safe.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command
+}
+
 fn end_child(slot: &Slot) {
     if let Some(mut child) = slot.lock().take() {
         let _ = child.kill();
@@ -417,7 +435,7 @@ impl Bluetooth for LunaBluetooth {
             json!({"subscribe": true})
         }
         .to_string();
-        let mut child = Command::new(&self.program)
+        let mut child = armed(&self.program)
             .args(["-n", "1000000", SCAN_URI, &payload])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -981,5 +999,30 @@ esac
         assert!(bt.audio_busy().is_err());
         assert!(bt.start_scan(false, Arc::new(|| {})).is_err());
         assert!(bt.take_events().is_empty());
+    }
+
+    #[test]
+    fn a_scan_does_not_outlive_the_thread_that_started_it_even_when_nothing_ended_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = install(dir.path(), "AUDIO='{}'");
+        // A thread that starts a scan and ends without stopping it (what a killed helper looks like to the kernel).
+        thread::spawn(move || {
+            let mut bt = LunaBluetooth::new(&program);
+            bt.start_scan(false, Arc::new(|| {})).unwrap();
+            wait_for(&mut bt, |e| !e.is_empty());
+            std::mem::forget(bt);
+        })
+        .join()
+        .unwrap();
+        let pid: u32 = std::fs::read_to_string(dir.path().join("pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let end = Instant::now() + Duration::from_secs(5);
+        while alive(pid) && Instant::now() < end {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!alive(pid), "the kernel ended the scan with its starter");
     }
 }

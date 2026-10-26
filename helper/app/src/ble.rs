@@ -55,8 +55,6 @@ pub struct Timing {
     pub address_check: Duration,
     /// How long a scan may take to say it has started.
     pub subscribe_within: Duration,
-    /// How often the counters of the topic are written.
-    pub publish: Duration,
 }
 
 impl Default for Timing {
@@ -66,7 +64,6 @@ impl Default for Timing {
             bind_retry: Duration::from_secs(15),
             address_check: Duration::from_secs(60),
             subscribe_within: Duration::from_secs(5),
-            publish: Duration::from_secs(5),
         }
     }
 }
@@ -266,7 +263,6 @@ struct Runner {
     wake: Arc<WakePipe>,
     active: Option<Active>,
     reload_at: Instant,
-    publish_at: Instant,
     published: Option<Value>,
     /// A test's clock: the time a turn is given is the time it has, before and after waiting.
     virtual_time: bool,
@@ -285,7 +281,6 @@ impl Runner {
             wake,
             active: None,
             reload_at: now,
-            publish_at: now,
             published: None,
             virtual_time: false,
         })
@@ -803,14 +798,11 @@ impl Runner {
         }
     }
 
-    fn publish(&mut self, now: Instant, force: bool) {
+    /// Writes the topic; a change of the counters alone raises no event.
+    fn publish(&mut self) {
         let Some(a) = self.active.as_ref() else {
             return;
         };
-        if !force && now < self.publish_at {
-            return;
-        }
-        self.publish_at = now + self.deps.timing.publish;
         let status = a.proxy.status();
         let value = json!({
             "state": Self::state_of(a),
@@ -869,7 +861,6 @@ impl Runner {
                     consider(Some(now + HOLD_SCREEN));
                 }
             }
-            consider(Some(self.publish_at));
         }
         next
     }
@@ -936,10 +927,7 @@ impl Runner {
         }
         self.drive_radio(now);
         self.service_all();
-        let changed = self.active.is_some();
-        if changed {
-            self.publish(now, false);
-        }
+        self.publish();
     }
 
     fn finish(&mut self) {
@@ -1111,7 +1099,6 @@ mod tests {
                     bind_retry: Duration::from_secs(15),
                     address_check: Duration::from_secs(60),
                     subscribe_within: Duration::from_secs(5),
-                    publish: Duration::from_secs(5),
                 },
             };
             let mut runner = Runner::new(ctx.clone(), deps, now).unwrap();
@@ -1156,7 +1143,7 @@ mod tests {
         }
 
         fn topic(&mut self) -> Value {
-            self.runner.publish(self.now, true);
+            self.runner.publish();
             self.ctx.hub.get(TOPIC).expect("the topic")
         }
 
