@@ -16,13 +16,18 @@ census captures of 02:21-02:58 in `/tmp/lt/dc/` on the workstation, unless marke
   updater** turned into the full app at 02:59:25, two and a half minutes after
   the set went into Active Standby. The same route is open for the four factory
   stubs still on the set (Twitch, Kanto, Highbrow, Tennis TV).
-- Nothing on the set stops that route today: LG's visible switch "Allow
-  Automatic Updates" (`support.automaticUpdate`) was off when it happened, the
-  Home Hub's own "Automatic Update" (`option.appUpdateMode`) is `auto`, the
-  homebrew "LG App Update Blocker" is installed but inactive and aims at the
-  wrong hosts, and the `lean` profile does not touch the updater.
-- The block is in the repository as declutter group `autoinstall` (profile
-  `ads`), **not applied on the set**: the step list is at the end. Host tests:
+- Nothing on the set stopped that route until 21:09: LG's visible switch
+  "Allow Automatic Updates" (`support.automaticUpdate`) was off when it
+  happened, the Home Hub's own "Automatic Update" (`option.appUpdateMode`) was
+  `auto`, the homebrew "LG App Update Blocker" is installed but inactive and
+  aims at the wrong hosts, and the `lean` profile does not touch the updater.
+- The block is declutter group `autoinstall` (profile `ads`), **on the set
+  since 2026-10-25 21:09:57** (Nitin's approval of 21:08; the tool copy in
+  `/var/lib/lumatv/dc-dev/` is 9a8e5e7): `status` reads `autoinstall 8/8`,
+  `option.appUpdateMode` is `manual`, the four stub folders and their opkg
+  entries are gone with no copy kept, the deleted list names them and `dazn`.
+  Still to do, scheduled by Main with Nitin: the standby-and-wake read of the
+  updater (step 5), one reboot (step 6), the store check (step 4). Host tests:
   `python3 -m unittest tests.test_declutter`.
 - Apple TV's 00:46 install time is Nitin's own update (Main, 2026-10-25).
 - Home: a held OK (or the Menu key) on a dock tile already offers Uninstall
@@ -146,12 +151,12 @@ Whether `appUpdateMode: manual` is what the updater obeys is unproven until a
 wake after the group is on shows the check without an `AUTO_APPUPDATE_START`;
 the stub removal and the deleted list do not depend on it.
 
-Removing a dormant stub through the install service is untested on the set
-[INFERENCE: opkg knows the package, so the utility should take it]; if a folder
-stays, the tool logs `apps still installed after 20 s` and `status` counts the
-item as not in target.
+The install service does take a dormant stub (opkg knows the package): seen at
+21:09, with a warning about its rights object; if a folder ever stays, the tool
+logs `apps still installed after 20 s` and `status` counts the item as not in
+target.
 
-## TV step list (next slot, Nitin's approval: it removes four stub folders and sets two LG switches)
+## TV step list (steps 1-3 done 2026-10-25 21:09; 4-6 pending)
 
 1. `python3 /tmp/lt/tv.py put` `tools/declutter.sh`, `payload/declutter/items.txt`,
    `payload/declutter/groups.txt`, `payload/declutter/dc.py` into
@@ -177,8 +182,39 @@ item as not in target.
    for the updater's reaction to the switch (not seen yet).
 6. One reboot: `declutter.sh status` unchanged (settings and removals persist;
    `boot` re-applies the group).
-7. Anything wrong: `declutter.sh off --group autoinstall` (settings, folders
-   and lists back), or `touch /var/lib/lumatv/declutter/skip` and reboot.
+7. Anything wrong: `declutter.sh off --group autoinstall` (settings and lists
+   back; the stubs stay gone), or `touch /var/lib/lumatv/declutter/skip` and
+   reboot.
+
+## Set check 2026-10-25 21:09 (steps 1-3)
+
+- Put: the four files, md5 equal to 9a8e5e7, busybox `sh -n` clean, `list`
+  shows the group. Dry run printed the plan (one setting, the strip of five
+  ids from both lists, the deleted-list additions).
+- `on --group autoinstall` at 21:09:54, done 21:09:58, `{"ok":true}`;
+  `status`: `autoinstall on, 8/8`, every other group as before, profile
+  `lean`, `active` now ten groups.
+- Read-backs: `option.appUpdateMode` `manual` (`SettingsService
+  SYSTEM_SETTING_CHANGED ... "auto" => "manual"`), `support.automaticUpdate`
+  `off`; `/media/cryptofs/apps/usr/palm/applications/` has seven folders
+  (amazon, Apple TV, Crunchyroll, GeForce NOW, Hue Sync, Netflix, YouTube);
+  no opkg `info` or `status` entry for the four; `US7/applist.json` is
+  `["amazon","youtube.leanback.v4"]`, `USA/applist.json` unchanged (it named no
+  stub), both immutable; the deleted list ends with `dazn` and the four, and
+  already held every not-installed id of the USA list.
+- The install service took the dormant stubs: `APP_REMOVE_REQ` → `NL_APP_REMOVED`
+  for each within 1.6 s, with a warning `UNINSTALL_RO_FAIL "Security Manager
+  Internal Error"` (a stub never had rights to uninstall) and SAM's
+  `getAppInfo`/`getPackageInfo` "Invalid appId" (it never listed them). No
+  screen change: SAM had nothing to remove from its lists.
+- No copy kept: `declutter/backup/` holds only what the `apps` group made at
+  05:53 (`app-com.lgtvod.us.app.tgz`, `app-com.miniclip.eightballpool.tgz`,
+  the copies of the two `applist.json` and of the deleted list); `before` has
+  `app|<id>|removed-no-backup` for the four.
+- The updater after the switch: the first removal made it ask `sdx` for its
+  server URL and `pkginstalld` ran its system-package check; no
+  `AUTO_APPUPDATE_CHECK_START` from `appinstalld` (at 20:02 the wake had one
+  3 s in). Whether `manual` stops the check is read at the next wake (step 5).
 
 ## Seen on the way (not this slice's)
 
