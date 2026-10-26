@@ -84,13 +84,19 @@ static void order(void) {
 static void clock_text(void) {
     char t[16];
     vpl_clock_text(t, sizeof t, 5, 7, 1);
-    CHECK(!strcmp(t, "5:07"), "h:mm: %s", t);
+    CHECK(!strcmp(t, "5:07"), "twelve hour, no leading zero: %s", t);
     vpl_clock_text(t, sizeof t, 17, 5, 1);
-    CHECK(!strcmp(t, "17:05"), "Qt's h is 0-23 without AM/PM: %s", t);
+    CHECK(!strcmp(t, "5:05"), "the afternoon folds to 12 hours: %s", t);
     vpl_clock_text(t, sizeof t, 5, 7, 0);
     CHECK(!strcmp(t, "05:07"), "HH:mm: %s", t);
+    vpl_clock_text(t, sizeof t, 17, 5, 0);
+    CHECK(!strcmp(t, "17:05"), "24 hours: %s", t);
     vpl_clock_text(t, sizeof t, 0, 0, 1);
-    CHECK(!strcmp(t, "0:00"), "midnight: %s", t);
+    CHECK(!strcmp(t, "12:00"), "midnight is 12: %s", t);
+    vpl_clock_text(t, sizeof t, 12, 30, 1);
+    CHECK(!strcmp(t, "12:30"), "noon is 12: %s", t);
+    vpl_clock_text(t, sizeof t, 23, 39, 1);
+    CHECK(!strcmp(t, "11:39"), "%s", t);
 }
 
 static void json(void) {

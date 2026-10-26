@@ -89,5 +89,9 @@ int vpl_order_next(vpl_order *o, int shuffle, vpl_rng *r) {
 }
 
 int vpl_clock_text(char *out, size_t cap, int hour, int minute, int twelve_hour_setting) {
-    return snprintf(out, cap, twelve_hour_setting ? "%d:%02d" : "%02d:%02d", hour, minute);
+    if (twelve_hour_setting) {
+        int h = hour % 12;
+        return snprintf(out, cap, "%d:%02d", h == 0 ? 12 : h, minute);
+    }
+    return snprintf(out, cap, "%02d:%02d", hour, minute);
 }

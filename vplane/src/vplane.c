@@ -517,10 +517,22 @@ static void draw_clock(struct player *p, int force) {
     if (!vui_empty(damage)) commit_rect(p, damage);
 }
 
+/* The picture covers 1856 x 1024 of the 1920 x 1080 screen, shifted by the drift. What the window covers around it is black: the margin would show
+ * whatever is behind the saver (Home's wallpaper, at 32 and 28 pixels, seen on the set 2026-10-25). */
+static void paint_margins(struct player *p) {
+    if (!p->clip_open) return;
+    int x0 = p->mx + p->dx, y0 = p->my + p->dy, x1 = x0 + (int)p->clip.width, y1 = y0 + (int)p->clip.height;
+    vui_fill(&p->cv, (vui_rect){0, 0, SCREEN_W, y0}, 255);
+    vui_fill(&p->cv, (vui_rect){0, y1, SCREEN_W, SCREEN_H}, 255);
+    vui_fill(&p->cv, (vui_rect){0, y0, x0, y1}, 255);
+    vui_fill(&p->cv, (vui_rect){x1, y0, SCREEN_W, y1}, 255);
+}
+
 /* Everything the window carries, from the state: the veil, the caption above it, the clock above that; one commit. */
 static void paint_all(struct player *p) {
     if (!p->wl || !p->prm.overlay) return;
     vui_fill(&p->cv, (vui_rect){0, 0, SCREEN_W, SCREEN_H}, (uint8_t)p->veil);
+    paint_margins(p);
     if (p->prm.caption && p->have_cap)
         vui_draw_caption(&p->cv, &p->cap, p->dx, p->dy, p->prm.ink, p->prm.inkAlpha, p->prm.ink2, p->prm.ink2Alpha, caption_opacity(p), (uint8_t)p->veil);
     p->clock_text[0] = 0;               /* the fill wiped the clock: draw it again */
@@ -921,6 +933,13 @@ static int calc(int argc, char **argv) {
     return 0;
 }
 
+/* LG's AV connector opens a Wayland connection of its own to register the window and finds the socket through these two: without XDG_RUNTIME_DIR
+ * `avc.lsm registerId` fails and the pipeline cannot make its AV proxy (seen on the set, 2026-10-25). The compositor's are these. */
+static void default_env(const char *name, const char *value) {
+    const char *have = getenv(name);
+    if (!have || !*have) setenv(name, value, 1);
+}
+
 int main(int argc, char **argv) {
     static struct player p;
     p.o = (struct options){.dir = getenv("LUMATV_VPLANE_DIR") ? getenv("LUMATV_VPLANE_DIR") : "/tmp/lumatv-vplane",
@@ -957,6 +976,8 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (do_probe) return probe(&p);
+    default_env("XDG_RUNTIME_DIR", "/tmp/xdg");
+    default_env("WAYLAND_DISPLAY", "wayland-0");
     signal(SIGPIPE, SIG_IGN);
     signal(SIGCHLD, SIG_IGN);              /* the wake command is not waited for */
     struct sigaction sa = {.sa_handler = on_term};

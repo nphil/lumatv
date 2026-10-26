@@ -98,7 +98,7 @@ int NDL_DirectMediaSetWindowId(const char *id) {
 int NDL_DirectMediaInit(const char *app_id) {
     if (!dl_inited) return bad("Init before DL_Initialize");
     if (!window_set) return bad("Init before SetWindowId (the library would make an SDL window of its own)");
-    say("Init %s", app_id ? app_id : "(null)");
+    say("Init %s xdg=%s", app_id ? app_id : "(null)", getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "-");     /* the real library's AV connector needs it */
     if (env_is("FAKE_NDL_FAIL", "init")) {
         snprintf(err, sizeof err, "init refused");
         return -1;

@@ -10,7 +10,7 @@ import tempfile
 import time
 import unittest
 
-from test_plugins_surfaces import AWAKE, SAVER, Surfaces, build, js, probe, probes, publish, REPO
+from test_plugins_surfaces import AWAKE, BYNAME, Surfaces, build, js, probe, probes, publish, REPO
 from test_settings import READY
 from xdisplay import DISPLAY, HAVE_QT
 
@@ -40,19 +40,22 @@ class SaverDeck(Surfaces):
     THEME = {"screensaver": {"style": "art", "crossfadeMs": 300, "art": {"keepOrder": True}}}
     PROPS = {"z": 95, "objectName": "under-test", "periodMs": 2200, "leadMs": 800}
 
-    def run_saver(self, doc=None, theme=None, props=None, probes_at=(), extra=(), wait=3000):
-        """The saver comes up (with `doc` in the file when given); returns the probes and the file as the run left it."""
+    def run_saver(self, doc=None, theme=None, props=None, probes_at=(), extra=(), wait=3000, allow=()):
+        """The saver comes up (with `doc` in the file when given); returns the probes and the file as the run left it.
+        It is brought up by `forced`, not by the power state: Home's own saver (in Layers) answers the power state, and two savers would
+        share the one file."""
         at = READY - 900
         d = tempfile.mkdtemp(prefix="deck-")
         self.addCleanup(__import__("shutil").rmtree, d, True)
         args = [*publish(300, "screen", AWAKE)]
         if doc is not None:
             args += seed(at - 700, doc if isinstance(doc, str) else json.dumps(doc))
-        args += [*build(at, "Screensaver.qml", dict(self.PROPS, **(props or {}))), *publish(at + 100, "screen", SAVER)]
+        args += [*build(at, "Screensaver.qml", dict(self.PROPS, **(props or {}))),
+                 *js(at + 100, BYNAME + "byName(root, 'under-test').forced = true;")]
         for i, ms in enumerate(probes_at):
             args += probe(at + ms, "p%d" % i, SNAP)
         rc, out = self.run_host(theme or self.THEME, *args, *extra, "--data", os.path.join(d, "data"), "--wait", str(at + wait))
-        self.assertEqual(self.own_warnings(out), [], out[-3000:])
+        self.assertEqual(self.own_warnings(out, allow=allow), [], out[-3000:])
         path = os.path.join(d, "data", FILE)
         text = open(path).read() if os.path.exists(path) else None
         return [probes(out)["p%d" % i] for i in range(len(probes_at))], text
@@ -77,10 +80,14 @@ class SaverDeck(Surfaces):
         self.assertEqual(p["shown"], IDS[0])
         self.assertIsNone(text, "only the shuffle has a bag")
 
-    def test_by_default_the_order_is_not_kept(self):
-        (p,), text = self.run_saver(theme={"screensaver": {"style": "art", "crossfadeMs": 300}}, probes_at=(1200,))
+    def test_by_default_the_order_is_kept(self):
+        (p,), text = self.run_saver(theme={"screensaver": {"style": "art", "crossfadeMs": 300}}, props={"periodMs": 20000}, probes_at=(1200,))
+        self.assertEqual(json.loads(text)["decks"]["art/"]["last"], p["shown"], "kept unless the owner turns `art.keepOrder` off")
+
+    def test_turned_off_nothing_is_written(self):
+        (p,), text = self.run_saver(theme={"screensaver": {"style": "art", "crossfadeMs": 300, "art": {"keepOrder": False}}}, probes_at=(1200,))
         self.assertEqual(len(p["bag"]), len(IDS) - 1, "the shuffle itself is as it was")
-        self.assertIsNone(text, "and nothing is written until the owner turns `art.keepOrder` on")
+        self.assertIsNone(text)
 
     # ---- what a restart does with it
 
@@ -98,7 +105,7 @@ class SaverDeck(Surfaces):
 
     def test_a_print_that_is_no_longer_in_the_index_or_has_no_file_is_dropped(self):
         doc = doc_of(deck(["view-of-delft", "no-longer-there", "starry-night", "great-wave"], last="ghost"))
-        (p,), text = self.run_saver(doc, extra=("--remove", "art/view-of-delft.jpg"), probes_at=(1200,))
+        (p,), text = self.run_saver(doc, extra=("--remove", "art/view-of-delft.jpg"), probes_at=(1200,), allow=("view-of-delft.jpg",))
         self.assertEqual(p["shown"], "starry-night", "the print whose file is gone is passed over: it is not even tried")
         self.assertEqual(p["bag"], ["great-wave"])
         self.assertEqual(p["last"], "starry-night")
@@ -111,7 +118,7 @@ class SaverDeck(Surfaces):
 
     def test_a_file_that_is_not_ours_starts_the_round_over_and_is_replaced(self):
         for junk in ("this is not json", '{"schema":9,"decks":{}}'):
-            (p,), text = self.run_saver(junk, probes_at=(1200,))
+            (p,), text = self.run_saver(junk, props={"periodMs": 20000}, probes_at=(1200,))
             self.assertEqual(len(p["bag"]), len(IDS) - 1, junk)
             self.assertEqual(json.loads(text)["decks"]["art/"]["last"], p["shown"], junk)
 
@@ -130,7 +137,7 @@ class SaverDeck(Surfaces):
                 json.dump({"pictures": [dict(q, licence="Public domain", artist="A", title="T", year="1900", width=64, height=64) for q in pics]}, f)
             mine = deck(["clock"], last="bell", known=["bell", "camera", "clock"])
             (p,), text = self.run_saver({"schema": 1, "decks": {"art/": deck(["great-wave"], "x"), "file://%s/" % tmp: mine}},
-                                        props={"indexUrl": "file://" + index}, probes_at=(1200,))
+                                        props={"indexUrl": "file://" + index, "periodMs": 20000}, probes_at=(1200,))
             self.assertEqual((p["shown"], p["key"]), ("clock", "file://%s/" % tmp))
             decks = json.loads(text)["decks"]
             self.assertEqual(decks["art/"]["bag"], ["great-wave"], "the shipped prints' deck is as it was")

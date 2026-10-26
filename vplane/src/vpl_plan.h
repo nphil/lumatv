@@ -40,9 +40,8 @@ typedef struct {
 void vpl_order_init(vpl_order *o, int n);
 int vpl_order_next(vpl_order *o, int shuffle, vpl_rng *r);   /* the index to show next, -1 without prints; does not move `current` */
 
-/* The corner clock's text as Screensaver.qml's `Qt.formatTime(now, twelveHour ? "h:mm" : "HH:mm")` writes it. Qt reads "h" as 0-23 without a
- * leading zero unless the format has an AM/PM mark, so the "twelve hour" face of the GPU saver shows 17:05 at five past five, not 5:05; the
- * video saver draws the same text so the two look alike, and the defect (if it is one) is the QML's to fix in both. Returns its length. */
+/* The corner clock's text as Screensaver.qml's `clockText()` writes it: `HH:mm` on the 24 hour face, on the twelve hour one the hour folded to
+ * 1-12 without a leading zero (5:05, 12:30), no AM/PM. (Qt's "h:mm" alone is 0-23, so the QML folds the hour itself.) Returns its length. */
 int vpl_clock_text(char *out, size_t cap, int hour, int minute, int twelve_hour_setting);
 
 #endif

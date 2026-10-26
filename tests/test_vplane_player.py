@@ -86,7 +86,7 @@ class Rig:
         open(self.ndl_log, "w").close()
         self.fc = FakeCompositor(hold_window_id)
         e = dict(os.environ, **self.fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=self.ndl_log, FAKE_NDL_VERBOSE="1")
-        e.update(env or {})
+        e.update({k: v.replace("{sock}", self.fc.path) for k, v in (env or {}).items()})        # `{sock}` is the stand-in compositor's own socket
         self.err_path = os.path.join(self.tmp, "player.log")
         self.err = open(self.err_path, "w")
         self.proc = subprocess.Popen([BIN, "-d", self.mb, "-c", self.clipdir, "-L", NDL, "-w", window, "-m", "1", *args], env=e, stderr=self.err)
@@ -238,9 +238,12 @@ class Arithmetic(unittest.TestCase):
         self.assertEqual(self.calc("order", 4, 0, 1, 9), "0 1 2 3 0 1 2 3 0".split())
 
     def test_the_corner_clock_text_is_what_the_gpu_saver_shows(self):
-        self.assertEqual(self.calc("clock", 17, 5, 1), ["17:05"])       # Qt's "h:mm" is 0-23 (see vpl_plan.h)
+        self.assertEqual(self.calc("clock", 17, 5, 1), ["5:05"])        # the twelve hour face folds the hour; Qt's "h:mm" alone would say 17:05
         self.assertEqual(self.calc("clock", 7, 5, 0), ["07:05"])
         self.assertEqual(self.calc("clock", 7, 5, 1), ["7:05"])
+        self.assertEqual(self.calc("clock", 0, 30, 1), ["12:30"])
+        self.assertEqual(self.calc("clock", 23, 39, 1), ["11:39"])
+        self.assertEqual(self.calc("clock", 23, 39, 0), ["23:39"])
 
 
 @unittest.skipUnless(HAVE, "needs zig to build vplane/")
@@ -616,7 +619,7 @@ class Player(unittest.TestCase):
 
     # ---- what is drawn
 
-    def veil_at(self, r, x=5, y=5):
+    def veil_at(self, r, x=200, y=200):
         c = r.fc.last_commit()
         w, h, data = c[2]
         return argb(data, w, x, y)
@@ -628,14 +631,41 @@ class Player(unittest.TestCase):
         time.sleep(0.2)
         w, h, data = r.fc.last_commit()[2]
         self.assertEqual((w, h), (1920, 1080))
-        self.assertEqual(set(data), {0}, "a transparent buffer: the video shows through every pixel")
+        self.assertEqual(argb(data, w, 960, 540), (0, 0, 0, 0), "over the picture a transparent window: the video shows through")
+        self.assertEqual({argb(data, w, x, y) for x in range(100, 1800, 101) for y in range(100, 1000, 97)}, {(0, 0, 0, 0)})
+
+    def test_what_the_window_covers_around_the_picture_is_black_and_follows_it(self):
+        r = self.rig()
+        r.send("start", clock=False, moveMs=60, periodX=1, periodY=2, ampX=30, ampY=20, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(1.2)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        self.assertGreater(len({h["dst"] for h in r.fc.video_history}), 3, "the picture moved")
+        x0, y0, w0, h0 = r.fc.video_history[-1]["dst"]
+        w, h, data = r.fc.last_commit()[2]
+        for xy in ((x0 - 1, 540), (x0 + w0, 540), (960, y0 - 1), (960, y0 + h0), (0, 0), (1919, 1079)):
+            self.assertEqual(argb(data, w, *xy), (255, 0, 0, 0), "black around the picture, or the margin shows what is behind the saver: %s" % (xy,))
+        for xy in ((x0, 540), (x0 + w0 - 1, 540), (960, y0), (960, y0 + h0 - 1)):
+            self.assertEqual(argb(data, w, *xy), (0, 0, 0, 0), "and nothing over the picture's own edge: %s" % (xy,))
+
+    def test_the_decoder_library_is_given_the_compositors_runtime_dir_when_the_player_has_none(self):
+        r = self.rig(env={"XDG_RUNTIME_DIR": "", "WAYLAND_DISPLAY": "{sock}"})
+        r.send("start", clock=False)
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertIn("xdg=/tmp/xdg", [ln for ln in r.ndl() if ln[2] == "Init"][0], "LG's AV connector finds its socket through it")
+        r.close()
+        r = self.rig()
+        r.send("start", clock=False)
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertIn("xdg=%s" % r.fc.dir, [ln for ln in r.ndl() if ln[2] == "Init"][0], "one that is given is kept")
 
     def test_the_dim_is_a_black_veil_of_the_right_alpha(self):
         r = self.rig()
         r.send("start", clock=False, since=int(time.time() * 1000) - 30 * 60000)
         self.assertTrue(r.wait_state("playing"))
         self.assertTrue(r.wait(lambda: self.veil_at(r) == (51, 0, 0, 0), 3), "half an hour into a dim to 0.6 over an hour: level 0.8, veil 51")
-        self.assertEqual(self.veil_at(r, 1900, 1070), (51, 0, 0, 0))
+        self.assertEqual(self.veil_at(r, 1700, 1000), (51, 0, 0, 0))
         r.send("update", dim=False, clock=False)
         self.assertTrue(r.wait(lambda: r.status()["veil"] == 0, 3) or True)
 
@@ -662,7 +692,7 @@ class Player(unittest.TestCase):
         xs = [x for x, _ in want]
         ys = [y for _, y in want]
         # nothing else was drawn on: outside the text's box every pixel is the veil
-        for (x, y) in ((100, 100), (10, 1000), (1000, 500), (min(xs) - 10, min(ys)), (max(xs) + 10, max(ys))):
+        for (x, y) in ((100, 100), (200, 1000), (1000, 500), (min(xs) - 10, min(ys)), (max(xs) + 10, max(ys))):
             self.assertEqual(argb(data, w, x, y), (51, 0, 0, 0), (x, y))
         self.assertGreater(max(xs), 1800)
         self.assertLess(max(xs), 1856 + 4, "right aligned at the screen's edge less the margin")
@@ -707,7 +737,7 @@ class Player(unittest.TestCase):
         self.assertTrue(r.wait(lambda: len({s for s, _ in r.plays() if s in (3000, 4000, 5000)}) >= 3, 9), "all three prints were shown in turn")
         r.send("stop")
         self.assertTrue(r.wait_state("idle"))
-        veils = [argb(g[2], g[0], 5, 5)[0] for t, s, g in r.fc.commits if g]
+        veils = [argb(g[2], g[0], 200, 200)[0] for t, s, g in r.fc.commits if g]
         self.assertEqual(max(veils), 255, "black at the turn")
         peak = veils.index(255)
         back = peak + veils[peak:].index(0)          # the first cycle ends where the picture is clear again
@@ -716,7 +746,7 @@ class Player(unittest.TestCase):
         self.assertTrue(all(b <= a for a, b in zip(fall, fall[1:])), "and the fade in only lightens")
         self.assertGreater(len(rise), 4, "stepped, not a cut")
         # the second clip's key unit (size 4000, in sequence) came after the commit that made the window black
-        black_t = [t for t, s, g in r.fc.commits if g and argb(g[2], g[0], 5, 5)[0] == 255][0]
+        black_t = [t for t, s, g in r.fc.commits if g and argb(g[2], g[0], 200, 200)[0] == 255][0]
         first_new = [int(ln[1]) / 1000.0 for ln in r.ndl() if ln[2] == "Play" and ln[5] == "4000"][0]
         self.assertGreaterEqual(first_new, black_t - 0.002, "a unit of the new print was fed only once the window was black")
         # and every key unit that was fed was the first of its clip: sizes 3000, then 4000, then 5000 in sequence, the loop of each as often as it ran
@@ -730,7 +760,7 @@ class Player(unittest.TestCase):
         self.assertTrue(r.wait_state("playing"))
         time.sleep(1.2)
         self.assertEqual(r.status()["phase"], 0)
-        self.assertEqual({argb(g[2], g[0], 5, 5)[0] for t, s, g in r.fc.commits if g}, {0})
+        self.assertEqual({argb(g[2], g[0], 200, 200)[0] for t, s, g in r.fc.commits if g}, {0})
 
     def test_a_next_request_turns_the_page_now(self):
         r = self.rig(clip_keys=(3000, 4000), units=20)
@@ -776,7 +806,7 @@ class Player(unittest.TestCase):
         r.send("next", clip="clip2")
         self.assertTrue(r.wait(lambda: 5000 in [s for s, _ in r.plays()], 3))
         self.assertEqual(r.fresh()["clip"], "clip2")
-        self.assertEqual({argb(g[2], g[0], 5, 5)[0] for t, s, g in r.fc.commits if g}, {0}, "no veil: the shell has its own")
+        self.assertEqual({argb(g[2], g[0], 200, 200)[0] for t, s, g in r.fc.commits if g}, {0}, "no veil: the shell has its own")
 
     def test_the_corner_clock_is_dropped_quietly_when_there_is_no_atlas(self):
         r = self.rig(glyphs=False)
@@ -827,8 +857,8 @@ class Player(unittest.TestCase):
             if not g:
                 continue
             w, h, data = g
-            xs = [x for x in range(20, 140) for y in range(940, 1060) if argb(data, w, x, y)[0]]
-            ys = [y for x in range(60, 200) for y in range(940, 1060) if argb(data, w, x, y)[0]]
+            xs = [x for x in range(20, 140) for y in range(940, 1060) if argb(data, w, x, y)[1]]        # the ink, not the black around the picture
+            ys = [y for x in range(60, 200) for y in range(940, 1060) if argb(data, w, x, y)[1]]
             if xs and ys:
                 offsets.append((min(xs) - (cap["x"] + left), min(ys) - (cap["y"] + top)))
         self.assertGreater(len(set(offsets)), 4, "the caption was drawn at many places: %s" % sorted(set(offsets))[:8])
@@ -851,11 +881,11 @@ class Player(unittest.TestCase):
             if probe:
                 break
         self.assertIsNotNone(probe)
-        self.assertTrue(r.wait(lambda: any(g and argb(g[2], g[0], 5, 5)[0] == 255 for t, s, g in r.fc.commits), 6), "the screen went black for the change")
-        self.assertTrue(r.wait(lambda: argb(r.fc.last_commit()[2][2], r.fc.last_commit()[2][0], 5, 5)[0] == 0, 6), "and came back")
+        self.assertTrue(r.wait(lambda: any(g and argb(g[2], g[0], 200, 200)[0] == 255 for t, s, g in r.fc.commits), 6), "the screen went black for the change")
+        self.assertTrue(r.wait(lambda: argb(r.fc.last_commit()[2][2], r.fc.last_commit()[2][0], 200, 200)[0] == 0, 6), "and came back")
         r.send("stop")
         self.assertTrue(r.wait_state("idle"))
-        series = [(argb(g[2], g[0], 5, 5)[0], argb(g[2], g[0], *probe)[1]) for t, s, g in r.fc.commits if g]
+        series = [(argb(g[2], g[0], 200, 200)[0], argb(g[2], g[0], *probe)[1]) for t, s, g in r.fc.commits if g]
         series = series[next(i for i, (v, c) in enumerate(series) if c > 0):]          # from the first picture that carries the caption
         veils = [v for v, _ in series]
         peak = veils.index(255)
@@ -874,7 +904,7 @@ class Player(unittest.TestCase):
         w, h, data = r.fc.last_commit()[2]
         cap = r.captions[0]
         self.assertEqual(argb(data, w, cap["x"] + 10, cap["y"] + 20), (51, 0, 0, 0))
-        self.assertEqual({argb(data, w, x, y) for x in range(0, 1920, 97) for y in range(0, 1080, 89)}, {(51, 0, 0, 0)})
+        self.assertEqual({argb(data, w, x, y) for x in range(200, 1700, 97) for y in range(150, 950, 89)}, {(51, 0, 0, 0)})
 
     def test_a_broken_caption_file_is_a_note_and_the_print_plays_without_it(self):
         r = self.rig(captions=True)

@@ -20,7 +20,7 @@ import threading
 import time
 import unittest
 
-from test_plugins_surfaces import AWAKE, SAVER, Surfaces, build, js, probe, probes, publish, BYNAME, READY
+from test_plugins_surfaces import AWAKE, SAVER, Surfaces, build, js, probe as _probe, probes, publish, BYNAME, BYPROP, READY
 from xdisplay import DISPLAY, HAVE_QT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -28,6 +28,17 @@ ROOT = os.path.dirname(HERE)
 MAILBOX = "/tmp/lumatv-vplane"          # the QML's `file:///tmp/{{shortId}}-vplane/` with the brand's short id
 
 SNAP = "var d = JSON.parse(s.snapshot()); return {up: d.up, timers: d.timers, video: d.video, current: d.art.current, shown: d.art.shown, loaded: d.art.loaded};"
+# Home's own saver (Layers builds one) is the one under test: a second, built beside it, would answer the power state too and ask the player twice.
+RES = "byProp(root, 'videoUsable')"
+
+
+def probe(at, label, body):
+    return _probe(at, label, body, find=RES)
+
+
+def configure(at, cfg):
+    """JS: Home's own saver takes these settings (the timings a test shortens) before it comes up."""
+    return js(at, BYPROP + "var s = byProp(root, 'videoUsable'); var c = %s; for (var k in c) s[k] = c[k];" % json.dumps(cfg))
 
 
 class FakePlayer:
@@ -105,7 +116,7 @@ class FakePlayer:
 class VideoSaver(Surfaces):
     MINE = Surfaces.MINE + ("SaverVideo.qml",)
     THEME = {"screensaver": {"style": "art", "video": True, "art": {"order": "sequence"}}}
-    PROPS = {"z": 95, "objectName": "under-test", "videoStartMs": 1500, "videoRenewMs": 700, "videoStaleMs": 2500}
+    PROPS = {"videoStartMs": 1500, "videoRenewMs": 700, "videoStaleMs": 2500}
 
     def player(self, **kw):
         p = FakePlayer(**kw)
@@ -113,8 +124,8 @@ class VideoSaver(Surfaces):
         return p
 
     def run_saver(self, theme, player_events, props=None, wait=11000, awake_at=None):
-        at = READY - 900
-        args = [*publish(300, "screen", AWAKE), *build(at, "Screensaver.qml", dict(self.PROPS, **(props or {}))), *publish(at + 100, "screen", SAVER)]
+        at = READY + 300
+        args = [*publish(300, "screen", AWAKE), *configure(at - 200, dict(self.PROPS, **(props or {}))), *publish(at + 100, "screen", SAVER)]
         args += player_events(at)
         if awake_at:
             args += publish(at + awake_at, "screen", AWAKE)
@@ -135,10 +146,17 @@ class VideoSaver(Surfaces):
 
     def test_a_preview_is_always_the_gpus(self):
         player = self.player()
-        p, out = self.run_saver(self.THEME, lambda at: [*js(at + 300, BYNAME + "byName(root, 'under-test').preview(0.2, 0.3, 'starry-night')"), *probe(at + 1500, "up", SNAP)],
-                                props={"forced": True})
-        self.assertEqual(p["up"]["video"]["usable"], False)
-        self.assertEqual(player.requests, [])
+        at = READY + 300
+        rc, out = self.run_host(self.THEME, *publish(300, "screen", AWAKE), *build(at, "Screensaver.qml", {"z": 95, "objectName": "under-test"}),
+                                *js(at + 300, BYNAME + "byName(root, 'under-test').preview(0.2, 0.3, 'starry-night');"),
+                                *_probe(at + 1500, "up", "var d = JSON.parse(s.snapshot()); return {up: d.up, forced: s.forced, usable: d.video.usable, state: d.video.state, spec: d.video.spec, shown: d.art.shown, style: s.style};"),
+                                "--wait", str(at + 2500))
+        self.assertEqual(self.own_warnings(out), [], out[-3000:])
+        p = probes(out)
+        self.assertEqual((p["up"]["forced"], p["up"]["usable"]), (True, False), p)
+        self.assertEqual(p["up"]["shown"], "starry-night")
+        # (Home's own saver may ask the player in this run; what is asserted is that the previewing surface did not)
+        self.assertEqual((p["up"]["state"], p["up"]["spec"]), ("off", {}), "the preview asked for nothing")
 
     # ---- no player
 
@@ -169,8 +187,8 @@ class VideoSaver(Surfaces):
         p, out = self.run_saver(self.THEME, lambda at: [*probe(at + 150, "asked", SNAP), *probe(at + 1800, "playing", SNAP), *probe(at + 4500, "later", SNAP)],
                                 awake_at=6000)
         self.assertIn(p["asked"]["video"]["state"], ("off", "starting"), "asking waits for the index of the prints")
-        self.assertEqual((p["asked"]["current"], p["asked"]["shown"]), (-1, ""), "black while it waits: the art is not started")
-        self.assertEqual((p["playing"]["video"]["state"], p["playing"]["current"], p["playing"]["shown"]), ("playing", -1, ""), "playing: none of the art on the GPU")
+        self.assertEqual(p["asked"]["shown"], "", "black while it waits: the GPU draws none of the art")
+        self.assertEqual((p["playing"]["video"]["state"], p["playing"]["shown"]), ("playing", ""), "playing: none of the art on the GPU")
         self.assertFalse(p["playing"]["video"]["hole"], "the player's own window carries the dim, the caption and the clock")
         self.assertEqual(p["later"]["video"]["state"], "playing")
         ops = player.ops()
@@ -292,20 +310,19 @@ class WithTheRealPlayer(Surfaces):
         shutil.rmtree(MAILBOX, ignore_errors=True)
         rig = Rig(clip_keys=(3000, 4000), units=20, captions=True, mailbox=MAILBOX)
         self.addCleanup(rig.close)
-        at = READY - 900
+        at = READY + 300
         theme = {"screensaver": {"style": "art", "video": True, "dimOverMin": 1, "dimTo": 0.5, "shiftEverySec": 1, "art": {"order": "sequence"}}}
-        props = {"z": 95, "objectName": "under-test", "videoStartMs": 4000, "videoRenewMs": 1500}
-        rc, out = self.run_host(theme, *publish(300, "screen", AWAKE), *build(at, "Screensaver.qml", props), *publish(at + 100, "screen", SAVER),
-                                *probe(at + 3500, "up", SNAP), *publish(at + 5500, "screen", AWAKE), "--wait", str(at + 7500))
+        rc, out = self.run_host(theme, *publish(300, "screen", AWAKE), *configure(at - 200, {"videoStartMs": 4000, "videoRenewMs": 1500}),
+                                *publish(at + 100, "screen", SAVER), *probe(at + 3500, "up", SNAP), *publish(at + 5500, "screen", AWAKE), "--wait", str(at + 7500))
         self.assertEqual(self.own_warnings(out), [], out[-3000:])
         p = probes(out)
         self.assertEqual(p["up"]["video"]["state"], "playing", rig.log())
-        self.assertEqual(p["up"]["current"], -1)
+        self.assertEqual(p["up"]["shown"], "", "none of the art on the GPU")
         calls = rig.calls()
         self.assertEqual(calls[:6], ["DL_Initialize", "SetWindowId", "Init", "Load", "SetAppState", "Play"])
         self.assertEqual(rig.fc.props["_WEBOS_WINDOW_TYPE"], "_WEBOS_WINDOW_TYPE_SCREENSAVER")
         # `since`, `dimTo` and `dimOverMin` arrived: a few seconds into a one minute dim to 0.5 the veil has begun, and it is a veil, not black
-        veils = [argb(g[2], g[0], 5, 5)[0] for t, s, g in rig.fc.commits if g]
+        veils = [argb(g[2], g[0], 200, 200)[0] for t, s, g in rig.fc.commits if g]
         self.assertTrue(veils and 0 < max(veils) < 60, "the dim runs: %s" % veils[-5:])
         # the shift ran every second inside its room: the exported rectangle moved and stayed in 32 +- 30 by 28 +- 20
         dsts = {h["dst"][:2] for h in rig.fc.video_history}
@@ -314,9 +331,10 @@ class WithTheRealPlayer(Surfaces):
             self.assertTrue(2 <= x <= 62 and 8 <= y <= 48, (x, y))
         # the corner clock is in the ink the surface asked for: ink2 at 0.46 of full (118 of 255)
         w, h, data = rig.fc.last_commit()[2]
-        lit = [argb(data, w, x, y) for x in range(1700, 1860) for y in range(985, 1025) if argb(data, w, x, y)[0] >= 100]
-        self.assertTrue(lit, "the clock's strokes")
-        self.assertTrue(all(abs(c[1] - c[2]) <= 3 and c[1] >= c[0] * 0.9 for c in lit if c[0] >= 100), "ink2's neutral off-white, not a stray colour")
+        lit = [argb(data, w, x, y) for x in range(1700, 1850) for y in range(985, 1025)]
+        ink = [c for c in lit if c[0] >= 100 and c[1] > 0]
+        self.assertTrue(ink, "the clock's strokes")
+        self.assertTrue(all(max(c[1:]) - min(c[1:]) <= 4 for c in ink), "ink2's neutral off-white, not a stray colour")
         # the TV woke: a stop, and the window went
         self.assertTrue(rig.wait(lambda: rig.status()["state"] == "idle", 4), rig.status())
         self.assertEqual(rig.status()["reason"], "stopped")

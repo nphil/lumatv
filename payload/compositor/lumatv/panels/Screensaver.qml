@@ -40,7 +40,7 @@ Item {
     readonly property bool glance: cfg.glance !== false
     readonly property int everyMin: artCfg.everyMin || 15
     readonly property bool shuffle: artCfg.order !== "sequence"
-    readonly property bool keepOrder: artCfg.keepOrder === true         // the shuffle bag is kept across restarts (ArtDeck.js): off until the set shows it works
+    readonly property bool keepOrder: artCfg.keepOrder !== false         // the shuffle bag is kept across restarts (ArtDeck.js); `art.keepOrder: false` turns it off
     readonly property bool caption: artCfg.caption !== false
     readonly property bool twelveHour: !(Lu.theme && Lu.theme.clock && Lu.theme.clock.twelveHour === false)
     // It sits on black, so it takes the dark material's inks whichever material Home is in.
@@ -96,7 +96,12 @@ Item {
         level = dim ? 1 - (1 - cfg.dimTo) * Math.min(1, minutes / cfg.dimOverMin) : 1
     }
     function msToNextMinute() { var d = new Date(); return 60000 - (d.getSeconds() * 1000 + d.getMilliseconds()) + 20 }
-    function clockText() { return Qt.formatTime(now, twelveHour ? "h:mm" : "HH:mm") }
+    // Qt's "h:mm" alone is 0-23 (the twelve hour face showed 23:39), so the twelve hour face folds the hour itself; the player's clock does the same.
+    function clockText() {
+        if (!twelveHour) return Qt.formatTime(now, "HH:mm")
+        var h = now.getHours() % 12
+        return (h === 0 ? 12 : h) + Qt.formatTime(now, ":mm")
+    }
 
     // ---- keys: any key wakes the TV and nothing else happens
     signal woke()

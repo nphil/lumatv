@@ -1,23 +1,30 @@
 # The art saver on the video plane: `lumatv-vplane`
 
-Built and tested offline; nothing has run on the set. The art mode's picture comes from the TV's idle hardware decoder (a still, looped) instead of the GPU, so the GPU draws a black rectangle while the saver is up. The saver keeps its GPU path as the fallback and the owner's switch is off (`theme.screensaver.video`).
+Built, host-tested and run once on the set (TvRound8, 2026-10-25 23:35-23:45; evidence `docs/research/round8/tv-2026-10-25/`). The art mode's picture comes from the TV's idle hardware decoder (a still, looped) instead of the GPU. The player works in the Active power state; in LG's Screen Saver power state the panel stays black, so the video saver is off (`theme.screensaver.video`) until that is solved. The saver keeps its GPU path as the fallback.
 
 ## Resume here
 
-Done (2026-10-25, offline, host-tested; counts under "Checks run"):
+Done (host-tested; counts under "Checks run"):
 
 - `vplane/`: the 32-bit player service `lumatv-vplane` (C, ARM and host builds), its decoder-library and compositor stand-ins and the sampler for the TV steps (`vplane/tools/measure.py`).
 - `tools/vplane_clips.py` and `payload/vplane/clips/`: the six prints as looped HEVC stills (2.07 MB), caption bitmaps and the clock's glyph atlas.
-- `panels/SaverVideo.qml` (the saver's end of the mailbox), the video branch of `panels/Screensaver.qml`, `payload/vplane/{vplane.sh,role.json}` (install, supervisor, LS2 role).
-- The art saver's shuffle bag can be kept across restarts (`ArtDeck.js`, `/var/lib/lumatv/theme/saver-deck.json`), in the GPU and the video path alike, behind `theme.screensaver.art.keepOrder` (off): the library passes its tests; the saver's restore from a seeded file did not pass its host test at the integration cut, so the default is off until it does.
+- `panels/SaverVideo.qml` (the saver's end of the mailbox), the video branch of `panels/Screensaver.qml`, `payload/vplane/{vplane.sh,role.json}` (install, supervisor, LS2 role), `lumatv vplane ...` (CutoverWatchdog).
+- The art saver's shuffle bag is kept across restarts (`ArtDeck.js`, `/var/lib/lumatv/theme/saver-deck.json`), on by default, off with `theme.screensaver.art.keepOrder: false`.
+- After the set's run: the role carries every name LG's library registers (the hub refused its nameless handle), the player sets `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` itself (LG's AV connector needs them), the window is opaque black around the picture (the margins showed Home's wallpaper), and the twelve hour clock is twelve hours in both savers (Qt's `h:mm` alone is 0-23).
 
-Open: the TV steps below. The role file is an LS2 permission grant and the player a new root process, so both need Nitin's OK. Until steps 1-6 pass, `screensaver.video` stays off. Not built: the moving wallpaper (design below), the Home gating hook, the compositor's hole draw order.
+On the set (TV, `--once great-wave 20`, Active state): the print on the video plane (1856x1024, placed by the exported window, drifting), caption and corner clock in the window, Home stays foreground, exit 0. In the Screen Saver state (`power2/turnOnScreenSaver`): the player plays (60 units a second, queue 0-1, nothing skipped) and LG's Flutter saver is evicted by the screensaver-type window, with Mali 1.9 % against LG's saver at 21.9 %, flips 12.3/s, `DE2VSYNC` 121.7/s, the player at 3.6 % of a core and 25 MB RSS, `CmaFree` 149-158 MB; but the display and graphic captures are black while the video capture shows the print and the output is connected and not muted [INFERENCE: LG blanks the output in its Screen Saver power state]. A key wakes to Home in about a second; `MemAvailable` fell 772 to 739 MB (over the 20 MB bar). Also seen: under LG's compositor LumaTV's own GPU saver is not visible in the Screen Saver state, LG's Flutter saver draws its clock over it.
+
+Open, in this order:
+
+1. The black panel in the Screen Saver state. Candidates: LumaTV's own idle timer starts the video saver in the Active state (the saver hosted over Home, not tied to LG's power state; Nitin declined Hearth's quiet mode, so this wants his OK and a Home hook); or find what LG blanks (a capture with the panel watched, `playVideo` as LG's own video saver sets it, `tvpower` and `panelcontroller` logs). Needs the TV.
+2. The `MemAvailable` drop of 34 MB after unload (page cache or the decoder's memory): watch it over three cycles.
+3. Not built: the moving wallpaper (design below), the Home gating hook, the compositor's hole draw order.
 
 Evidence tags: `TV:` measured on this set, `SRC:` LG's firmware tree in the repo, `PUB:` public source, `[INFERENCE]` not run.
 
 ## Verdict
 
-Expected: the saver's GPU cost falls from the as-found Screen Saver's 54.5 % Mali and 60 flips/s (TV: `hardware-census.md`, Live counters) to a static black rectangle plus a veil, caption and clock redrawn about once a minute [INFERENCE]. What can sink it, each a TV step: LG's compositor refusing the player's window (`windowPolicy`), the output rate not staying 60 Hz under a still, and a visible seam where the clip loops.
+Measured in the Screen Saver state with the picture playing: Mali 1.9 % against 21.9 % for LG's saver in the same window (the census read 54.5 % earlier, `hardware-census.md`), the player 3.6 % of a core. The GPU saving is real; the picture is not yet visible in that state. What is still unmeasured: the loop seam, the drift's smoothness, the output rate under a still in the Active state.
 
 ## Decode path
 
@@ -43,7 +50,7 @@ The picture is a still: one IDR and 119 predicted skip units at 60 fps, looped f
 - Not baked: the dim, the caption and the clock. Baked at the deepest dim (`dimTo` 0.6) the caption's contrast falls to 2.1:1; drawn over the dim by the window it measures 4.5:1 for the artist and 3:1 or better for the rest and the clock at levels 1.0 and 0.6 (Lucent: contrast measured on the composited picture; tests in `test_vplane_clips.py`). The rest of the caption (24 px, regular) is large text.
 - Burn-in: the shift is done by window position, not baked: the exported rectangle moves every `moveMs` (4 s) by `round(30 sin(2 pi t / 540))` by `round(20 sin(2 pi t / 380))`, whole pixels, the saver's own formula (`driftAmp*`/`driftPeriod*` in `Screensaver.qml`; `check` reads them). `NDL_DirectVideoSetArea` is the documented alternative if the exported window cannot move; a baked orbit is the contingency. A print change goes out through black: the veil rises over `fadeMs`, holds 400 ms, the clip switches in the dark, the veil falls. The clock stays visible; the caption fades with its print.
 - `HwJpeg2`'s helper (`GET /v1/image/{root}/{file}?w=&h=`, `lumatv-jpeg` NV12) is the other way to put a still on a video plane; not needed while the HEVC loop works.
-- Latent defect, not touched: the saver's clock text is Qt's `"h:mm"`, which is 0-23, so the "twelve hour" face shows 17:05. The player reproduces it so the two savers agree (`vpl_plan.h`).
+- The saver's clock text was Qt's `"h:mm"`, which is 0-23, so the twelve hour face showed 23:39 (seen on the set); both savers now fold the hour (`clockText()` in the QML, `vpl_clock_text` in the player).
 
 ## Who draws the words
 
@@ -94,6 +101,12 @@ The saver and the player talk through two files in `/tmp/lumatv-vplane/` (`file:
 
 No player, an error from the player, no answer in 6 s, a heartbeat gone stale for 12 s, a restart of the shell: the saver draws the art itself and asks the player to stop. The owner's switch is the only way to the video path, and it is off. Turning it off while the picture is up gives the art to the GPU from black.
 
+## The shuffle bag across restarts
+
+`ArtDeck.js` keeps the art saver's bag in `/var/lib/lumatv/theme/saver-deck.json`, one small file with a deck for each collection of prints, keyed by the folder of its index (`art/` for the shipped prints). Eight collections at most, none over 2000 prints. A deck holds the ids still to deal in the round, the ids the collection had when it was saved and the print dealt last. After a restart the rest of the round is dealt on; a print that is no longer in the index, or whose file is gone, is dropped; a print that has come since is dealt in at a random place; a new round does not begin with the last print. A file that cannot be read counts as none. In order mode there is no bag and nothing is written. On by default; `lumatv theme set '{"screensaver":{"art":{"keepOrder":false}}}'` turns it off. Host-tested against a seeded file (a restart goes on with the round, drops what is gone, deals in what is new, leaves other collections alone); the `TextFile` calls on the set (`exists` after a `name` change, `write`) are the one thing not yet seen there.
+
+Home has no wallpaper slideshow, so there is no second bag (planned in PLAN.md, "Wallpaper slideshow"; "not built" in `settings-slice-result.md`). When it is built, `ArtDeck.js` fits as it stands: ids, a key for each folder, a check that the file exists.
+
 ## Moving wallpaper (not built)
 
 Needs files that are not this slice's. Under LG's compositor the Home stub (`payload/homestub/index.html`, a transparent web page) plays an HTML5 `<video loop>` from a variant page that a TV step installs. Under LumaTV's compositor a helper window sits beneath the shell, with a hole contract in `LumaHome.qml` (a transparent wallpaper layer where the video shows). The loop would replicate `liveWall`'s warp (`LumaHome.qml`, 960x540 at 30 fps, 10-20 s, seamless); `vplane_clips.py` writes any such clip. Cost to the GPU is the hole's blend instead of 10 % Mali at 10 fps (hardware-census.md); blur-behind over the video is not possible.
@@ -110,7 +123,7 @@ The way back is `lumatv vplane remove` (the role, the manifest, the binary and t
 
 ## Checks run (offline)
 
-- `tests/test_vplane_player.py` (57): the real player on the host against a stand-in decoder library and a stand-in compositor (call order, feed rate, loop, window types, veil, caption, clock and drift pixel for pixel, page turns, wake, ttl, refusals, teardown).
+- `tests/test_vplane_player.py` (59): the real player on the host against a stand-in decoder library and a stand-in compositor (call order, feed rate, loop, window types, veil, black around the picture, caption, clock and drift pixel for pixel, page turns, wake, ttl, refusals, teardown, the runtime dir).
 - `tests/test_vplane_clips.py` (24) and `tools/vplane_clips.py check --deep`: formats, geometry, QML numbers, contrast.
 - `tests/test_vplane_saver.py`, `tests/test_saver_deck.py`, `tests/artdeck.test.js`: the saver against a stand-in player on the QML host, and against the real player (the request the QML writes is the one the C reads); the shuffle bag across restarts.
 - `tests/test_vplane_install.py` (12), `tests/test_vplane_measure.py` (9).
@@ -128,11 +141,11 @@ Needs `lumatv vplane` (7e36a87) and the saver (d4b7ca7) in the ipk, and `vplane/
 6. The saver: `lumatv vplane start`, `lumatv theme set '{"screensaver":{"style":"art","video":true}}'`, enter the saver. Pass: within 6 s `status.json` says `"state":"playing"` and the print is on the video plane with the dim, caption and corner clock over it; no `SaverVideo` or `saver did not load` line in the log. Then `python3 /tmp/measure.py run video-art 30 --proc lumatv-vplane --out /tmp/vp/video-art.json` and `python3 /tmp/measure.py table /tmp/vp/*.json`. Expected: Mali under Home's 10 %, flips/s under 5, `vsync_per_s` 60 or 120, the player's CPU and RSS small; send the table.
 7. A key press ends it: Home within about a second, `status.json` back to `idle`, no picture left, `MemAvailable` within 20 MB of before step 6.
 8. Way back: `lumatv theme set '{"screensaver":{"video":false}}'`, `lumatv vplane remove`; pass: `installed:false`. Leave it installed only if all passed and Nitin wants it.
-9. Optional, the kept order: `lumatv theme set '{"screensaver":{"art":{"keepOrder":true}}}'`, enter the saver, `cat /var/lib/lumatv/theme/saver-deck.json`: pass when `decks["art/"]` has the six ids in `known`, five in `bag` and the print on the screen as `last`; after `lumatv restart` and the saver again, the first print is the head of that `bag`.
+9. The kept order (on by default): enter the saver, `cat /var/lib/lumatv/theme/saver-deck.json`: pass when `decks["art/"]` has the six ids in `known`, five in `bag` and the print on the screen as `last`; after `lumatv restart` and the saver again, the first print is the head of that `bag`.
 
 ## TV steps
 
-None has run. Receiver muted through Home Assistant before any playback; Filmmaker picture mode; nothing written outside `/tmp` until step 4; abort on a failed unit. The TV is in a slot (Main's release). The sampler: `scp vplane/tools/measure.py` to `/tmp/`, then `python3 /tmp/measure.py run LABEL 30 --proc lumatv-vplane`; `table` puts the runs side by side.
+Steps 1-7 of "Tonight's check" ran once (Resume here has the figures). What follows is the full list and is mostly open: the loop seam, the drift's smoothness, the output rate in the Active state, the memory over three cycles, and the Screen Saver state's black panel. Receiver muted through Home Assistant before any playback; Filmmaker picture mode; nothing written outside `/tmp` until the install; abort on a failed unit. The sampler: `scp vplane/tools/measure.py` to `/tmp/`, then `python3 /tmp/measure.py run LABEL 30 --proc lumatv-vplane`; `table` puts the runs side by side.
 
 1. Baseline, as found: `measure.py run as-found 30` in the Screen Saver state (Mali %, flips/s, vsync/s, CPU, `CmaFree`, temperature); `luna-send` `getForegroundAppInfo`; the window list. Then the same for LumaTV's GPU saver (`screensaver.video` off, art style).
 2. `lumatv-vplane -n -c /var/lib/lumatv/vplane/clips`: the library and the clips are read (prints JSON, exit 0).
@@ -152,7 +165,7 @@ None has run. Receiver muted through Home Assistant before any playback; Filmmak
 
 ## Not verified on the TV
 
-Everything above. In particular: that LG's compositor accepts a screensaver-type window from this app id; the role's names; a still at 60 fps through the pipeline; the loop seam; the exported window moving without a glitch; the output rate; the CMA figures; `TextFile` `exists` read straight after a `name` change (the deck's file check; the host stand-in does it); the key and pointer path to a screensaver window.
+Beyond what the run shows: the loop seam; the exported window moving without a glitch; the output rate in the Active state; the CMA figures over several cycles; `TextFile` `exists` read straight after a `name` change and `write` (the deck's file check; the host stand-in does both); the key and pointer path to a screensaver window in the Screen Saver state.
 
 ## Needs Nitin
 
