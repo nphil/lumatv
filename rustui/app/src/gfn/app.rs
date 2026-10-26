@@ -195,7 +195,7 @@ pub struct App {
     create_id: String,
     hello_done: bool,
     minimized: bool,
-    /// The regions are asked for with the streamer's answer, once.
+    /// The regions are asked for once, when an account is known (the core refuses the question to a signed-out app).
     regions_asked: bool,
     /// The core takes one setting a request, and a few requests at a time (it answers `busy` past that): the settings still to send, one
     /// at a time. `boot_settings` is the handshake's batch; the streamer is asked for once it is through, because the core finds the
@@ -811,8 +811,9 @@ impl App {
                 self.next_poll_ms = self.now_ms + self.sign_in.interval_s.max(1) * 1000;
                 Vec::new()
             }
-            // a setting the core refuses is not the app's end: the rest goes on
+            // a setting the core refuses is not the app's end: the rest goes on; the region is an optimisation, the core picks one without
             "settings.set" => self.after_setting(),
+            "network.regions.list" => Vec::new(),
             "auth.session.get" => {
                 self.signed_in = false;
                 self.screen = Screen::SignIn;
@@ -853,8 +854,7 @@ impl App {
                 caps["nativeHdrSupported"] = json!(true);
                 caps["nativeHdrDisplay"] = json!({"minimumNits": 0, "maximumNits": 1000, "maximumFullFrameNits": 400});
                 self.runtime_capabilities = caps;
-                self.regions_asked = true;
-                vec![Self::req("network.regions.list", json!({}))]
+                Vec::new()
             }
             "settings.set" => self.after_setting(),
             "network.regions.list" => {
@@ -875,7 +875,12 @@ impl App {
                     self.games.clear();
                     self.next_cursor.clear();
                     self.focus = 0;
-                    vec![self.library_request()]
+                    let mut out = vec![self.library_request()];
+                    if !self.regions_asked {
+                        self.regions_asked = true;
+                        out.push(Self::req("network.regions.list", json!({})));
+                    }
+                    out
                 } else {
                     self.signed_in = false;
                     self.screen = Screen::SignIn;
@@ -1168,7 +1173,7 @@ mod tests {
         app.sent("2", "streamer.detect");
         app.sent("3", "auth.session.get");
         let a = app.handle(ok("2", "streamer.detect", json!({"available": true, "capabilities": {"protocolVersion": 7, "videoBackends": [{"backend": "ndl"}]}})));
-        assert_eq!(methods(&a), ["network.regions.list"]);
+        assert!(a.is_empty(), "signed out, the core refuses the regions: they are asked for after the sign-in");
         assert_eq!(app.runtime_capabilities["nativeHdrSupported"], true);
         assert_eq!(app.runtime_capabilities["nativeHdrDisplay"]["maximumNits"], 1000);
         let a = app.handle(ok("3", "auth.session.get", json!({"session": null, "scope": {"generation": 1}})));
@@ -1194,7 +1199,10 @@ mod tests {
         let a = app.handle(ok("7", "auth.device.complete", json!({"session": {"user": {"displayName": "Nitin", "membershipTier": "ULTIMATE"}}, "scope": {"generation": 2, "userId": "u"}})));
         assert_eq!(app.screen, Screen::Library);
         assert_eq!((app.user_name.as_str(), app.tier.as_str()), ("Nitin", "ULTIMATE"));
-        assert_eq!(methods(&a), ["catalog.library.list"]);
+        assert_eq!(methods(&a), ["catalog.library.list", "network.regions.list"]);
+        app.sent("7b", "network.regions.list");
+        assert!(app.handle(err("7b", "network.regions.list", "authentication_required", "Sign in")).is_empty(), "a refused region question is not an error screen");
+        assert_eq!(app.screen, Screen::Library);
         app.sent("8", "catalog.library.list");
         let a = app.handle(ok("8", "catalog.library.list", json!({"games": games(14), "nextCursor": "c2", "hasNextPage": true, "catalogRevision": 3, "catalogContext": "ctx"})));
         // the first pictures are in flight and stay so: the tests below that are not about pictures see no picture requests
@@ -1589,7 +1597,7 @@ mod tests {
         assert_eq!(methods(&a), ["streamer.detect", "auth.session.get"]);
         app.sent("2", "streamer.detect");
         let a = app.handle(ok("2", "streamer.detect", json!({"capabilities": {"protocolVersion": 7}})));
-        assert_eq!(methods(&a), ["network.regions.list"]);
+        assert!(a.is_empty());
         assert_eq!(app.prefs.summary(), "4K · 60 fps");
     }
 }
