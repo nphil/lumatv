@@ -51,7 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   motion (`lumatv keyboard on|off`). Both patches fail loudly when LG changes the code.
   LG's Search app can take the same look (`lumatv voice on|off`, off by default); it is a
   resident process SAM keeps alive through a close, so the switch ends it and the next open
-  shows the chosen look.
+  shows the chosen look. The on-screen keyboard's keys (caps, function keys, focus,
+  candidates, number pad) take it too (`lumatv keys on|off`, off by default), which
+  restarts LG's keyboard service and rolls back on any load error.
 - GeForce NOW app (`org.nphil.lumatv.gfn`, its own ipk): OpenNOW's engine and core on the
   TV with the stream on the video plane through LG's NDL DirectMedia (4K120 HEVC Main10
   HDR10, low-delay game mode), controllers read from evdev with grab and rumble, and a
