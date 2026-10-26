@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import "../kit"
 

@@ -169,6 +169,13 @@ if [ -n "$MISSING" ]; then
     exit 1
 fi
 
+# A QML file that does not compile is a surface that never builds on the TV (Settings once left the panel on a bare wallpaper), and
+# nothing else would say so before the package is on the set. Exit 2 is "PyQt5 missing": that stops the build too, never skips the check.
+python3 tests/qmlhost/compile_all.py || {
+    echo "Error: the compositor QML does not compile (tests/qmlhost/compile_all.py); this package is not built from it." >&2
+    exit 1
+}
+
 # Clean build directory
 BUILD_DIR="./build"
 rm -rf "$BUILD_DIR"

@@ -185,6 +185,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Luna calls from the compositor QML work on the set: `LS` lives in `WebOSCompositorBase`, not
+  `WebOSServices`, and eleven files that imported only the latter failed with "LS is not defined"
+  (the Settings launch, the notification log, the app list). The offline host now exports `LS`
+  from `WebOSCompositorBase` only, and a test fails when a file uses `LS` without the import.
+- `tests/qmlhost/compile_all.py` compiles every QML file of the surface with the set's import
+  layout; `tools/build-ipk.sh` stops on any syntax, type or import error, so a surface that
+  cannot build never reaches the TV.
 - A restart from standby no longer hands LG's Home back. The Home stub guard treats a missing
   heartbeat with the panel off as not yet and checks again from the first screen-on; a stopped
   beat on a set that is on is still a fault. The boot apply no longer waits 140 s on the preload

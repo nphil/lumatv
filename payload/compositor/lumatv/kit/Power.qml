@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 
 // The two power facts Settings and the quick panel show that the settings service does not hold: the sleep timer and

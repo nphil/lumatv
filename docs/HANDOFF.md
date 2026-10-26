@@ -636,6 +636,14 @@ makes stock apps segfault on teardown. `faultmanager`'s policy is in
 `/etc/faultmanager/faultconf.json`; `getFaultStatus` lists what it has seen.
 The mod removes only the reports its own restart produced.
 
+## Before a package or a hand deploy
+
+`python3 tests/qmlhost/compile_all.py` compiles every QML file of the surface with the set's import layout and exits 1 on any syntax,
+type, property or import error (a file that does not compile is a layer that never builds: Settings once left the panel on a bare
+wallpaper). `tools/build-ipk.sh` runs it and stops on a failure or a missing PyQt5. A hand deploy (sftp of `payload/compositor/lumatv`
+into the shadow module) runs it first, then loads each changed surface in the offline host (`tests/qmlhost/qmlhost.py <file>`), which
+compiles and runs it and prints any warning; `LS` must come from `import WebOSCompositorBase 1.0` (`tests/test_ls_import.py`).
+
 ## Measuring again
 
 - Cold boot on demand: `snapshot-boot-manager --remove; reboot` (expect the

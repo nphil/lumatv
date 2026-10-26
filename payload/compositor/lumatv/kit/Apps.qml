@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 
 // What the TV can launch, for the all-apps library behind the Apps tile, the search and the voice bar: the app

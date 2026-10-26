@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import "FakeSettings.js" as Fake
 
 // Offline stand-in for LG's `Service` type: `call(uri, method, payload)` records, and

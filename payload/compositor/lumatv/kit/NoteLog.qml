@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 
 // What the TV itself has told the person since it started: an update that is ready, a backup that finished, what LG's

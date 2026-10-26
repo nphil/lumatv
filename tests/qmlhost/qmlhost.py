@@ -13,7 +13,8 @@ The surface is staged first, as `tools/build-ipk.sh` and `tools/lumatv` stage it
 placeholders are filled, `theme.json` and `layout.json` go beside the QML as `theme.default.json` and
 `layout.default.json`, and a data directory holds the theme, fonts and wallpaper. The compositor-only
 modules (`WebOSCompositorBase`, `WebOSServices`, `WebOS.Global`, `TextFile`) are stand-ins: luna
-calls are recorded in `LS.calls`, `TextFile` reads and writes real files.
+calls are recorded in `LS.calls`, `TextFile` reads and writes real files. `LS` is exported by
+`WebOSCompositorBase` only, as on the set, so a file that uses it without that import warns.
 
 Exit status 0 when the surface loaded and printed no warning from its own files, 1 otherwise.
 """
@@ -188,6 +189,9 @@ def main(argv=None):
                     help='write the data dir\'s cache/NAME.json (the helper\'s saved weather.json or news.json) before the surface loads')
     ap.add_argument('--remove', action='append', default=[], metavar='PATH',
                     help='delete this path (relative to the staged module dir) after staging, to test a surface without it')
+    ap.add_argument('--drop-import', action='append', default=[], metavar='PATH:MODULE',
+                    help='delete the `import MODULE x.y` line from this staged file (relative to the staged module dir), to see what a file '
+                         'that lacks the import does on the set')
     ap.add_argument('--fire', action='append', default=[], metavar='MS:launch|close[:JSON]',
                     help='call the window life cycle of a system-UI surface at MS after start, e.g. 100:launch:{"reason":"x"}')
     ap.add_argument('--overlay', action='store_true',
@@ -215,6 +219,16 @@ def main(argv=None):
     for rel in a.remove:
         target = os.path.join(mod, rel)
         shutil.rmtree(target) if os.path.isdir(target) else os.remove(target)
+    for spec in a.drop_import:
+        rel, _, module = spec.rpartition(':')
+        target = os.path.join(mod, rel)
+        with open(target, encoding='utf-8') as f:
+            text = f.read()
+        kept = re.sub(r'^import %s [\d.]+\n' % re.escape(module), '', text, flags=re.M)
+        if kept == text:
+            raise SystemExit('%s has no import of %s' % (rel, module))
+        with open(target, 'w', encoding='utf-8') as f:
+            f.write(kept)
 
     messages = []
 
