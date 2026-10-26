@@ -14,8 +14,9 @@ const OK = 0x01000005, RIGHT = 0x01000014, HOME = 0x01000022;
 const GEAR = 0x01000070, OPTION = 0x01000100;
 const NETFLIX = 0x01000071, AMAZON = 0x01000072, DISNEY = 0x01000073, LGCH = 0x01000074;
 const INPUT = 0x01000075, LOCAL_INPUT = 0x01000076;
+const CURSOR_SHOW = 0x01000180, CURSOR_HIDE = 0x01000181;      // the pointer showing and hiding (LG's Key_webOS_CursorShow and Hide)
 const WEBOS = { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX, Key_webOS_Amazon: AMAZON, Key_webOS_Disneyplus: DISNEY, Key_webOS_LGChannels: LGCH,
-                Key_webOS_InputSource: INPUT, Key_webOS_LocalInputSource: LOCAL_INPUT };
+                Key_webOS_InputSource: INPUT, Key_webOS_LocalInputSource: LOCAL_INPUT, Key_webOS_CursorShow: CURSOR_SHOW, Key_webOS_CursorHide: CURSOR_HIDE };
 
 let calls, front, bridgeAnswers, warnings, now, answering;
 // The gear and the overlay: what the bridge says, the timers the filter asked LG's `genericTimer` for (advanced by hand) and what it did to LG's long press.
@@ -799,4 +800,55 @@ test("the gear's hold is still the drawer's: the late entry never sees a hold th
   // LG's long press was cancelled and the release is ours: no replay comes, so the late entry has nothing to take
   expect(f.handleLumaHome(GEAR, false, false, 1)).toBe(KeyPolicy.Accepted);
   expect(calls.filter((c) => c[0] === "panel")).toEqual([]);
+});
+
+// ---- the pointer showing and hiding (Key_webOS_CursorShow and Hide: webOS scancodes 484 and 485 on the remote's own side)
+//
+// LG's chain makes a key event of the Magic Remote's pointer appearing and going away. It is not a key anybody pressed: a held Back or OK goes
+// on through it, a gear hold is not cut short by it, the screensaver is woken by the compositor's own signal and not by it, and neither
+// Home nor the overlay is given it (so it is no activity of theirs). Long Back (scancode 505) is LG's own conversion to Exit, made after the
+// filter has let Back through; a Back that a surface of ours took is not held long enough to reach it.
+
+test("the pointer's show and hide keys go to LG and are never given to Home or the overlay", () => {
+  const f = makeFilter();
+  for (const k of [CURSOR_SHOW, CURSOR_HIDE]) {
+    for (const pressed of [true, false]) expect(f.handleLumaHome(k, pressed, false, 1)).toBe(KeyPolicy.NextPolicy);
+  }
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  overlayWanted = true;
+  for (const k of [CURSOR_SHOW, CURSOR_HIDE]) {
+    for (const pressed of [true, false]) expect(f.handleLumaHome(k, pressed, false, 1)).toBe(KeyPolicy.NextPolicy);
+  }
+  expect(calls).toEqual([]);
+});
+
+test("a held key goes on through the pointer's keys: its repeats and its release are still Home's", () => {
+  const f = makeFilter();
+  expect(f.handleLumaHome(OK, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaHome(CURSOR_SHOW, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaHome(OK, true, true, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaHome(CURSOR_HIDE, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(f.handleLumaHome(OK, false, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(calls).toEqual([["dispatch", OK, true, false], ["dispatch", OK, true, true], ["dispatch", OK, false, false]]);
+});
+
+test("a gear hold is not cut short by the pointer", () => {
+  const f = makeFilter();
+  bridgeAnswers = (key) => key !== GEAR;
+  expect(f.handleLumaHome(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  advance(300);
+  expect(f.handleLumaHome(CURSOR_SHOW, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  advance(100);
+  expect(f.handleLumaHome(CURSOR_HIDE, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  advance(300);
+  expect(calls).toContainEqual(["gearHold"]);
+});
+
+test("the late entry never sees the pointer either, and a scope that does not name the keys treats them as any other key", () => {
+  const f = makeFilter();
+  expect(f.handleLumaQuick(CURSOR_SHOW, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  const bare = makeFilter({ webos: { Key_webOS_Settings: GEAR } });
+  bridgeAnswers = () => false;
+  expect(bare.handleLumaHome(CURSOR_SHOW, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(calls).toEqual([["dispatch", CURSOR_SHOW, true, false]]);
 });

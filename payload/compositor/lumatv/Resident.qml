@@ -12,6 +12,9 @@ import "kit"
 //
 // A surface that builds parts of itself in the background (Settings' pages) has a `built` property and
 // is finished when that is true; `done()` is the signal the host waits for.
+//
+// A panel that slides in and out (panels/PanelMotion.qml) is told when it is wanted, in its `presented` property, and says `leaving` while
+// it is on its way out, so `shown` going false does not cut the slide back short: it is drawn until it has gone.
 Loader {
     id: res
     property string name: ""
@@ -25,9 +28,12 @@ Loader {
     // The offline host sets theme `perf.syncResidents` so a render does not wait on software GL frames to incubate a tree.
     asynchronous: !(Lu.theme && Lu.theme.perf && Lu.theme.perf.syncResidents)
     active: wanted
-    visible: ready && shown
+    // a panel that moves keeps itself drawn while it leaves
+    readonly property bool leaving: !!item && item.leaving === true
+    visible: ready && (shown || leaving)
     onBuildChanged: if (build) wanted = true
     onShownChanged: if (shown) wanted = true
+    onItemChanged: { if (item && item.presented !== undefined) item.presented = Qt.binding(function() { return res.shown }) }
     Component.onCompleted: if (build || shown) wanted = true
 
     // `done()` goes out on the next turn of the event loop, not inside the call that built the surface: with a synchronous build

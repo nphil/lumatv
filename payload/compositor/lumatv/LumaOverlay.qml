@@ -26,10 +26,12 @@ import "kit"
 //   banners   `showBanner(spec)` (panels/Banner.qml's specs); the input pill on its own when the owner has turned `banners.own` on
 //   drawer    `gearHold()`, the gear key held (theme `remote.gearHold`, on unless the owner turned it off)
 //   volume    panels/VolumeOsd.qml: up whenever the audio service or the receiver reports a volume or a mute, and while the sound is muted
+//   quick     panels/QuickPanel.qml: the gear's tap (the key filter's second entry), a tall panel docked to the left edge; Back slides it back
+//   picker    panels/InputPicker.qml: the Input key, a sheet along the bottom; the key again goes to the next input
 Item {
     id: ov
     anchors.fill: parent
-    visible: up || osdLive
+    visible: up || osdLive || panelLeaving
 
     // set by the container: an app, not Home, is this container's surface and is on screen
     property bool appFront: false
@@ -38,15 +40,25 @@ Item {
     readonly property bool bannersOn: !!(theme.banners && theme.banners.own === true)
     readonly property bool gearHoldOn: !theme.remote || theme.remote.gearHold !== false
 
-    property string surface: ""                           // the one that has the keys: "drawer", "banner" (one with buttons) or "" for none
+    property string surface: ""                           // the one that has the keys: "drawer", "quick", "picker", "banner" (one with buttons) or "" for none
     readonly property bool bannerUp: !!bannerRes.item && bannerRes.item.kind !== ""
     readonly property bool up: appFront && (surface !== "" || bannerUp)
     readonly property bool wants: appFront && surface !== ""
     // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
     readonly property bool osdLive: !!osdRes.item && osdRes.item.live
+    // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
+    readonly property bool panelLeaving: (!!quickRes.item && quickRes.item.leaving === true) || (!!pickerRes.item && pickerRes.item.leaving === true)
+    // theme `remote.quickPanel` and `remote.inputPicker`: on unless the owner turned them off (the gear's tap and the Input key are then LG's)
+    readonly property bool quickOn: !theme.remote || theme.remote.quickPanel !== false
+    readonly property bool pickerOn: !theme.remote || theme.remote.inputPicker !== false
     // Built a while after the compositor started, never in a frame someone waits for (Layers.qml builds Home's in the same spirit).
     property bool warm: false
     Timer { interval: 8000; running: true; onTriggered: ov.warm = true }
+    // the two larger panels are built a little after the others, one at a time, so no frame carries more than one build
+    property bool warmQuick: false
+    property bool warmPicker: false
+    Timer { interval: 9500; running: true; onTriggered: ov.warmQuick = true }
+    Timer { interval: 11000; running: true; onTriggered: ov.warmPicker = true }
 
     // ---- the flat colour the glass samples
     readonly property color baseColor: {
@@ -83,6 +95,24 @@ Item {
         build: ov.warm
         shown: ov.surface === "drawer"
     }
+    Resident {
+        id: quickRes
+        name: "overlay quick panel"
+        source: "panels/QuickPanel.qml"
+        anchors.fill: parent
+        z: 1
+        build: ov.warmQuick
+        shown: ov.surface === "quick"
+    }
+    Resident {
+        id: pickerRes
+        name: "overlay input picker"
+        source: "panels/InputPicker.qml"
+        anchors.fill: parent
+        z: 1
+        build: ov.warmPicker
+        shown: ov.surface === "picker"
+    }
     // The volume and mute display, drawn whenever it has something to say (its `live`): over an app's picture, where its glass is see-through,
     // and over Home, where it is not. Built with the others, so a first volume key never builds or compiles anything.
     Resident {
@@ -105,6 +135,19 @@ Item {
         target: drawerRes.item
         ignoreUnknownSignals: true
         onCloseRequested: ov.closeDrawer()
+    }
+    Connections {
+        target: quickRes.item
+        ignoreUnknownSignals: true
+        onCloseRequested: ov.closePanel()
+        onOpenSettingsPage: ov.settingsFromPanel(id)
+        onOpenLgQuick: { ov.closePanel(); ov.systemWindow("com.webos.app.quicksettings") }
+    }
+    Connections {
+        target: pickerRes.item
+        ignoreUnknownSignals: true
+        onCloseRequested: ov.closePanel()
+        onActivated: { ov.closePanel(); LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: appId })) }
     }
 
     // A surface that wants the keys and gets none for this long closes: a remote cannot stay behind it for ever.
@@ -193,6 +236,35 @@ Item {
         return openDrawer()
     }
 
+    // ---- the quick panel and the input picker over an app (the gear's tap and the Input key: the key filter's second entry, LumaBus.js).
+    // The same panels as Home's, built here: a press shows one, the gear again hides the quick panel, the Input key again moves the picker on to
+    // the next input. Whatever else was up (a banner, the drawer, the other panel) gives way.
+    function panelReady(kind) {
+        if (!appFront) return false
+        return kind === "quick" ? quickOn && !!quickRes.item : kind === "picker" ? pickerOn && !!pickerRes.item : false
+    }
+    function panel(kind) {
+        if (!panelReady(kind)) return false
+        if (surface === kind) {
+            if (kind === "picker") { pickerRes.item.next(); idle.restart() }
+            else closePanel()
+            return true
+        }
+        if (bannerRes.item) bannerRes.item.hide()
+        if (kind === "picker") pickerRes.item.open({})
+        surface = kind
+        idle.restart()
+        return true
+    }
+    function closePanel() { if (surface === "quick" || surface === "picker") { surface = ""; idle.stop() } }
+    // "All settings" and the rows that open a page: Settings is a layer of Home, so over an app they take the TV to Home, which opens it
+    // (LumaBus.js holds the request until Home is in front)
+    function settingsFromPanel(page) {
+        closePanel()
+        Bus.wantSettings(page)
+        LS.adhoc.call("luna://com.webos.applicationManager", "/launchDefaultApp", JSON.stringify({ category: "home" }))
+    }
+
     // ---- keys: the D-pad goes to the surface that wants them. A press acts (there is no hold here); the release of a press taken is
     // the filter's to pair, whatever this answers to it.
     function directionFor(k) {
@@ -213,6 +285,8 @@ Item {
         idle.restart()
         if (surface === "drawer" && drawerRes.item) drawerRes.item.key(dir)
         else if (surface === "banner" && bannerRes.item) bannerRes.item.key(dir)
+        else if (surface === "quick" && quickRes.item) quickRes.item.key(dir)
+        else if (surface === "picker" && pickerRes.item) pickerRes.item.key(dir)
         return true
     }
 
@@ -228,12 +302,13 @@ Item {
         var d = null
         try { d = JSON.parse(text) } catch (e) { console.warn("[LumaOverlay] the door holds no JSON: " + text.substring(0, 80)); return }
         if (d && d.open === "drawer") openDrawer()
+        else if (d && (d.open === "quick" || d.open === "picker")) panel(d.open)
         else if (d && d.kind) showBanner(d)
     }
     Timer { interval: 1000; running: ov.appFront; repeat: true; onTriggered: ov.readDoor() }
 
     Component.onCompleted: {
-        Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold })
+        Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel })
         console.info("[LumaOverlay] loaded")
     }
     Component.onDestruction: Bus.setOverlay(null)

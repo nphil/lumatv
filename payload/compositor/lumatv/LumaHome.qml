@@ -1357,6 +1357,8 @@ Item {
         onRemoteKey: root.sendRemoteKey(name)
         onBannerPicked: root.bannerPicked(id)
     }
+    // the gear's tap and the Input key: the quick panel and the input picker, from the key filter's second entry (HomePanels.qml)
+    HomePanels { home: root; layers: layers; aiPrompt: aiPrompt }
 
     // ============================================================= what the panels ask Home to do
     // A panel never acts: it says what was chosen and Home does it, with the calls the rest of Home makes (luna through

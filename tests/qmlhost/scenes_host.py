@@ -65,7 +65,8 @@ def render(name, out_dir, material, steps, snap_at, publish=()):
     user = {"perf": {"syncResidents": True}, "material": material, "banners": {"own": True}}
     args = [sys.executable, os.path.join(HERE, "qmlhost.py"), "LumaHome.qml", "--fake-helper", "--overlay", "--bgimage", video_png(),
             "--prop", "hostActive=false", "--theme", json.dumps(user),
-            "--eval", "100:overlay.warm = true", "--eval", "800:overlay.appFront = true"]
+            "--eval", "100:overlay.warm = true", "--eval", "100:overlay.warmQuick = true", "--eval", "100:overlay.warmPicker = true",
+            "--eval", "800:overlay.appFront = true"]
     for ms, topic, doc in publish:
         args += ["--publish", "%d:%s:%s" % (ms, topic, json.dumps(doc))]
     for ms, code in steps:
@@ -115,3 +116,27 @@ def _(out_dir, material):
 @scene("13-overlay-drawer", runner=True)
 def _(out_dir, material):
     return render("13-overlay-drawer", out_dir, material, [(500, POST), (1000, "overlay.gearHold()")], 2400, publish=[(300, "ai", AI), (300, "__audit", AUDIT)])
+
+
+def quick_scene(name, out_dir, material, keys=()):
+    """The quick panel the gear's tap shows over an app: the receiver read just before, an ambient tile from the plugin."""
+    from scenes_panels import AMBIENT_ROSTER, AMBIENT_TILES, again
+    steps = [(900, again(0, controls=True)[2]), (1000, "overlay.panel('quick')")] + [(1500 + 100 * i, "overlay.key(%s, true, false, 0)" % k) for i, k in enumerate(keys)]
+    return render(name, out_dir, material, steps, 2300,
+                  publish=[(300, "ai", AI), (300, "plugins", AMBIENT_ROSTER), (300, "plugin.ambient.tiles", AMBIENT_TILES)])
+
+
+@scene("10-overlay-quick", runner=True)
+def _(out_dir, material):
+    return quick_scene("10-overlay-quick", out_dir, material)
+
+
+@scene("10-overlay-quick-lg", runner=True)
+def _(out_dir, material):
+    # focus on the buttons under the list: Down past the last tile, then Right to LG's own Quick Settings
+    return quick_scene("10-overlay-quick-lg", out_dir, material, keys=["Qt.Key_Down"] * 7 + ["Qt.Key_Right"])
+
+
+@scene("08-overlay-picker", runner=True)
+def _(out_dir, material):
+    return render("08-overlay-picker", out_dir, material, [(1000, "overlay.panel('picker')"), (1500, "overlay.key(Qt.Key_Right, true, false, 0)")], 2300)

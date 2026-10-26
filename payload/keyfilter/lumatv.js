@@ -50,6 +50,7 @@ var GEAR_WATCH_MS = 30000; // a release that never arrives must not hold the gea
 var gear = { down: false, fired: false, hold: -1, watch: -1, option: false };
 var APP_KEYS = {};       // key code -> "netflix" | "amazon" | "disneyplus" | "lgchannels", read at init
 var INPUT_KEYS = {};     // key code -> true: Key_webOS_InputSource and Key_webOS_LocalInputSource, read at init
+var CURSOR_KEYS = {};    // key code -> true: Key_webOS_CursorShow and Key_webOS_CursorHide, which LG's chain makes of the Magic Remote's pointer showing and hiding
 var late = {};           // key code -> "quick" | "picker" while handleLumaQuick holds that key's press
 
 function fault(where, e) {
@@ -87,6 +88,8 @@ function init() {
                 for (var id in names) if (typeof webos[names[id]] === "number") APP_KEYS[webos[names[id]]] = id;
                 if (typeof webos.Key_webOS_InputSource === "number") INPUT_KEYS[webos.Key_webOS_InputSource] = true;
                 if (typeof webos.Key_webOS_LocalInputSource === "number") INPUT_KEYS[webos.Key_webOS_LocalInputSource] = true;
+                if (typeof webos.Key_webOS_CursorShow === "number") CURSOR_KEYS[webos.Key_webOS_CursorShow] = true;
+                if (typeof webos.Key_webOS_CursorHide === "number") CURSOR_KEYS[webos.Key_webOS_CursorHide] = true;
             }
             console.info("[LumaKeys] bridge ready");
         } else {
@@ -255,6 +258,9 @@ function optionKey(pressed) {
 function handleLumaHome(key, pressed, autoRepeat, deviceId) {
     try {
         if (!bridge) return KeyPolicy.NextPolicy;
+        // The pointer showing or hiding is not a key anybody pressed: it ends no hold, wakes nothing and is no activity of ours. LG's chain handles it
+        // as it always did (its screensaver takes it from the compositor's own signal), so it is never given to Home or the overlay.
+        if (CURSOR_KEYS[key] === true) return KeyPolicy.NextPolicy;
         // Home is only watched, so a short press still reaches LG's handler as it always did.
         if (key === Qt.Key_Super_L) return bridge.homeKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         // A surface of ours may take any key first: the saver wakes on the gear like on any other key
