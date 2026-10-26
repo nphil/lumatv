@@ -23,8 +23,9 @@ Not done, in this order for the next slot (each needs the set):
 4. The Dolby format text on the bar (needs the new helper and one muted Netflix stream), the voice-app QML copy LiveTvRestyle
    asked for (`/usr/palm/applications/com.webos.app.voice/qml`, read-only tar to `voice-qml/`), E3 (a static arm64 ffmpeg is at
    `/tmp/r8/e3/ffmpeg-7.0.2-arm64-static/ffmpeg` with `clip_1080p60_444.hevc` beside it), the frame-rate matching table (lowest).
-5. The Python suite of the clean worktree was still running at 23:55 (`/tmp/r8/pytests.log`, five `F` marks seen, no summary yet);
-   the helper's cargo tests queue after it (`/tmp/r8/cargotests.log`).
+5. The Python suite of the clean worktree hit its 3600 s limit without a summary (`/tmp/r8/pytests.log`, at least five `F` marks;
+   the QML-host tests ran serially for the whole hour) and the helper's cargo tests never started: run them in the morning on a quiet
+   workstation (`cd /tmp/lumatv-slot && python3 -m unittest discover -s tests -p 'test_*.py'`; `cd helper && cargo test --workspace`).
 
 ## The slot script (written 2026-10-25 afternoon, offline)
 
