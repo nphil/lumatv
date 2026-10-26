@@ -18,7 +18,7 @@ const CURSOR_SHOW = 0x01000180, CURSOR_HIDE = 0x01000181;      // the pointer sh
 const WEBOS = { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX, Key_webOS_Amazon: AMAZON, Key_webOS_Disneyplus: DISNEY, Key_webOS_LGChannels: LGCH,
                 Key_webOS_InputSource: INPUT, Key_webOS_LocalInputSource: LOCAL_INPUT, Key_webOS_CursorShow: CURSOR_SHOW, Key_webOS_CursorHide: CURSOR_HIDE };
 
-let calls, front, bridgeAnswers, warnings, now, answering;
+let calls, front, bridgeAnswers, warnings, now, answering, infos = [];
 // The gear and the overlay: what the bridge says, the timers the filter asked LG's `genericTimer` for (advanced by hand) and what it did to LG's long press.
 let gearReady, gearOpens, overlayWanted, overlayTakes, timers, nextTimer, lgCalls, timerBroken;
 // The remote's app keys: whether the TV is on and what LumaHome says to a key; what the filter sent through LG's key filters' luna client
@@ -71,7 +71,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
     fullscreenView: { get activeFocus() { return front.focus; } },
     longPressTimer: { setBlockCancel(v) { lgCalls.push(["block", v]); }, cancel() { lgCalls.push(["cancel"]); }, setDeviceId(d) { lgCalls.push(["device", d]); } },
     lunaCall: { send(...a) { lunaSent.push(a); } },
-    console: { info() {}, warn: (m) => warnings.push(m) },
+    console: { info: (m) => infos.push(m), warn: (m) => warnings.push(m) },
     Date: { now: () => now },
     genericTimer,
   };
@@ -851,4 +851,18 @@ test("the late entry never sees the pointer either, and a scope that does not na
   bridgeAnswers = () => false;
   expect(bare.handleLumaHome(CURSOR_SHOW, true, false, 1)).toBe(KeyPolicy.NextPolicy);
   expect(calls).toEqual([["dispatch", CURSOR_SHOW, true, false]]);
+});
+
+test("a gear tap or Input key left to LG says why once per five seconds, so a panel that does not open can be diagnosed from the log", () => {
+  const f = makeFilter();
+  infos = [];
+  power = "screen off";
+  f.handleLumaQuick(GEAR, true, false, 1);
+  f.handleLumaQuick(INPUT, true, false, 1);                  // inside the five seconds: no second line
+  expect(infos.filter((l) => l.includes("is LG's"))).toEqual(["[LumaKeys] the gear's tap is LG's: the TV is not active (screen off)"]);
+  now += 5001;
+  power = "active";
+  panelReady = () => false;
+  f.handleLumaQuick(INPUT, true, false, 1);
+  expect(infos.filter((l) => l.includes("is LG's")).pop()).toBe("[LumaKeys] the Input key is LG's: no panel is ready (not built yet, switched off, or not in front)");
 });

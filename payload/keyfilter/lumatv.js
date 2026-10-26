@@ -43,6 +43,7 @@
 var bridge = null;
 var taken = {};          // key code -> "home", "overlay" or "appkey" while that holds the key's press
 var lastFaultMs = 0;
+var lastWhyMs = 0;      // when the last "left to LG" reason was logged
 
 var GEAR_HOLD_MS = 650;  // PLAN: a hold is one press held 650 ms; the AV reset is three taps
 var GEAR_KEY = null;     // WebOS.Key_webOS_Settings, read at init: a scope without WebOS leaves the gear to LG
@@ -292,11 +293,24 @@ function lgWouldOpen(kind) {
     return true;
 }
 
+// One line per 5 s of why a key was left to LG's window, for whoever finds the panel not opening: a plain "no" leaves no other trace.
+function left(kind, why) {
+    var now = Date.now();
+    if (now - lastWhyMs >= 5000) {
+        lastWhyMs = now;
+        console.info("[LumaKeys] the " + (kind === "quick" ? "gear's tap" : "Input key") + " is LG's: " + why);
+    }
+    return false;
+}
+
 // The TV is on, Home or an app has the screen and the keys (no LG overlay, popup or alert on top), the layer answers and has the panel built.
 function panelWanted(kind) {
-    if (global.powerState !== "active") return false;
-    if (!homeInFront() && !appInFront()) return false;
-    return lgWouldOpen(kind) && bridge.answering() && bridge.panelReady(kind);
+    if (global.powerState !== "active") return left(kind, "the TV is not active (" + global.powerState + ")");
+    if (!homeInFront() && !appInFront()) return left(kind, "neither Home nor an app has the screen and the focus");
+    if (!lgWouldOpen(kind)) return left(kind, "LG would not open its window either");
+    if (!bridge.answering()) return left(kind, "the layer is not answering");
+    if (!bridge.panelReady(kind)) return left(kind, "no panel is ready (not built yet, switched off, or not in front)");
+    return true;
 }
 
 // true: the event ends here.
