@@ -28,8 +28,9 @@ Item {
     readonly property real belowH: belowSlot.childrenRect.height
     readonly property real textW: width - textX - pad - (trailW > 0 ? trailW + gap : 0)
     readonly property real textH: Math.max(words.height, detailLines > 1 && detail !== "" ? labelText.height + detailLines * lineProbe.height : 0)
-    // a second line that does not fit on one breaks at its dots ("Follows the picture" over "70%"), not in the middle of a phrase
-    readonly property string shownDetail: detailProbe.implicitWidth > textW ? detail.replace(/ \u00b7 /g, "\n") : detail
+    // a second line that does not fit on one breaks at its dots ("Follows the picture" over "70%"), not in the middle of a phrase. Measured
+    // with font metrics: a hidden Text would lay itself out again at every answer that changes the line.
+    readonly property string shownDetail: detailWidth.advanceWidth > textW ? detail.replace(/ \u00b7 /g, "\n") : detail
 
     implicitHeight: belowH > 0 ? pad + textH + Lu.space(2) + belowH + pad
                                : Math.max(Lu.row, pad + Math.max(textH, tileSize, trailingSlot.childrenRect.height) + pad)
@@ -76,9 +77,9 @@ Item {
         y: tile.belowH > 0 ? tile.pad : Math.round((tile.height - height) / 2)
         width: tile.textW
         LuText { id: labelText; width: parent.width; role: "label"; text: tile.label; wrapMode: Text.WordWrap }
-        LuText { width: parent.width; role: "caption"; text: tile.shownDetail; color: Lu.ink2; wrapMode: Text.WordWrap; visible: tile.detail !== "" }
+        LuText { id: detailText; width: parent.width; role: "caption"; text: tile.shownDetail; color: Lu.ink2; wrapMode: Text.WordWrap; visible: tile.detail !== "" }
     }
-    LuText { id: detailProbe; visible: false; role: "caption"; text: tile.detail }
+    TextMetrics { id: detailWidth; font: detailText.font; text: tile.detail }
     LuText { id: lineProbe; visible: false; role: "caption"; text: "M" }
     Item {
         id: trailingSlot
