@@ -1,0 +1,390 @@
+{
+ "samples": 1467,
+ "seconds": 74.96,
+ "marks": [
+  [
+   2.9,
+   "launch"
+  ],
+  [
+   62.05,
+   "home"
+  ],
+  [
+   72.17,
+   "end"
+  ]
+ ],
+ "de_hz_first": 150.5,
+ "de_hz_last": 150.5,
+ "osd_hz_last": 119.6,
+ "switches": [],
+ "vsync_gaps": [],
+ "firmware_mute": [
+  [
+   0.0,
+   6.86,
+   777
+  ],
+  [
+   13.92,
+   16.94,
+   777
+  ],
+  [
+   62.35,
+   74.96,
+   34
+  ]
+ ],
+ "app_video_mute": [
+  [
+   6.32,
+   6.46
+  ],
+  [
+   13.9,
+   16.47
+  ],
+  [
+   62.33,
+   null
+  ]
+ ],
+ "source_rate": [
+  [
+   0.0,
+   0
+  ],
+  [
+   6.45,
+   299
+  ],
+  [
+   6.5,
+   239
+  ],
+  [
+   13.92,
+   0
+  ],
+  [
+   16.47,
+   239
+  ],
+  [
+   62.35,
+   0
+  ]
+ ],
+ "decoder_rate": [
+  [
+   6.45,
+   23.97,
+   0
+  ],
+  [
+   13.87,
+   null,
+   null
+  ],
+  [
+   16.42,
+   23.97,
+   0
+  ],
+  [
+   62.4,
+   null,
+   null
+  ]
+ ],
+ "shots": 347,
+ "black": [
+  [
+   3.27,
+   6.74
+  ],
+  [
+   13.83,
+   14.89
+  ]
+ ],
+ "frozen": [
+  [
+   0.0,
+   2.85
+  ],
+  [
+   15.08,
+   16.37
+  ],
+  [
+   17.07,
+   21.23
+  ],
+  [
+   21.46,
+   26.41
+  ],
+  [
+   26.64,
+   29.6
+  ],
+  [
+   30.06,
+   30.29
+  ],
+  [
+   34.4,
+   36.05
+  ],
+  [
+   36.27,
+   37.88
+  ],
+  [
+   38.1,
+   38.33
+  ],
+  [
+   39.25,
+   41.33
+  ],
+  [
+   46.95,
+   49.02
+  ],
+  [
+   52.01,
+   56.2
+  ],
+  [
+   56.43,
+   61.88
+  ],
+  [
+   62.1,
+   74.95
+  ]
+ ],
+ "videooutput": [
+  [
+   0.02,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   6.41,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   6.43,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   6.96,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   13.9,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   16.42,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   16.45,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   16.97,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   62.22,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   62.34,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ]
+ ],
+ "decoder_hfr_fixed": false,
+ "de_hfr": false,
+ "evidence": true,
+ "clean": true,
+ "words": [
+  "no output-rate switch: the DE stayed in the ? Hz band for the whole run"
+ ]
+}

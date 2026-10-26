@@ -1,0 +1,302 @@
+--- /proc/cmdline
+hma=148M@0x069800000;424M@0x077000000;104M@0x096c00000 lg1k.use_vmap=1 hma.use_vmap=1 use_vmap=1 cma_on  ethaddr=74:C1:7E:BD:AE:30 rev=1 console=ttyAMA0,115200n81 chip=O22A3 sver=4.07.45 bver=4.07.45 quiet loglevel=0 snapshot resume=/dev/mmcblk0p54 devtmpfs.mount=1 rootwait emmc_size=0x3a3e00000 sbkey=0xbc4e0000 portProtection mmcoops=dump wdtlog=dump@1M modelopt=11003100100010 hwopt=502210020205102001 ToolOpt=2187537:1310739:1706322:16779329:3728947:1915869955 countryGrp=2 debugMode=5 modelName=OLED65C4PUA.DUSQLJR serialNum=407RMJFBQ468 lg1k.o22_avsinfo=0x24008b lg1k.o22_cpu_avs=0x3 lg1k.o22_core_avs=0x2 lg1k.o22_regul=0x1 criu_enabled pqe.tool=C4 pqe.year=24 usbcore.autosuspend=-1 AR_PWR_DET tvregion=ATSC skew_tick=1 cgroup.memory=nokmem kvm-arm.mode=nvhe  dynamic_partition  dm-mod.waitfor="/dev/mmcblk0p28" dm-mod.create="rootfs-linear,,,ro, 0 3089984 linear /dev/mmcblk0p28 2048;rootfs,,,ro, 0 1 webos-verity /dev/dm-0;fonts-linear,,,ro, 0 144200 linear /dev/mmcblk0p28 3092480;fonts,,,ro, 0 1 webos-verity /dev/dm-2;otncabi-linear,,,ro, 0 22808 linear /dev/mmcblk0p28 3237888;otncabi,,,ro, 0 1 webos-verity /dev/dm-4;otycabi-linear,,,ro, 0 280 linear /dev/mmcblk0p28 3262464;otycabi,,,ro, 0 1 webos-verity /dev/dm-6;bsppart-linear,,,ro, 0 75032 linear /dev/mmcblk0p28 3264512;bsppart,,,ro, 0 1 webos-verity /dev/dm-8" root=/dev/dm-1 ro rootfstype=squashfs  cmdEnd
+
+--- /proc/lg/ovi/status
+ch_power_on_reg1: 0x000ffff0
+output_mode0: output_mode1: output_mode2: te
+output_mode3: ANE 5Byte
+lvds.format: jeida (0x0)
+lvds.bit: 10 bit (0x0)
+lvds.black_out: orignal (0x0)
+
+<dispOption>
+panelBacklight    : 3 (4:OLED)
+panelFramerate    : 3 (0:60,1:120,3:144)
+
+<hwDispOption>
+isDispOutDisabled : 0
+mirrorH           : 0
+mirrorV           : 0
+panelBacklight    : 4 (4:OLED)
+panelFramerate    : 3 (0:60,1:120,3:144)
+dispFramerate     : 3 (0:60,1:120,3:144)
+isVx15Byte        : 0
+year_option       : 0
+
+<info>
+mute              : 0
+
+--- /proc/lg/de/status
+fw_verion: 7356 (2025/4/14)
+socts_option=0
+display_type: LCD (0x0)
+display_mirror: off (0x0)
+frc_type: Internal (0x0)
+trid_type: off (0x0)
+fc_mem: 0x0
+display_size: 3840x2160 (0x4)
+==========================================================
+name                 = base      ,    size
+==========================================================
+g_m0_pqe_svp         = 0x72c00000,   54 MB (  56623104 B)
+----------------------------------------------------------
+g_de_svp_m0          = 0x72c00000,    0 MB (         0 B)
+g_de_svp_m1          = 0x72c00000,   54 MB (  56623104 B)
+g_m0_pqe_svp_end     = 0x76200000,    0 MB (         0 B)
+==========================================================
+g_m0_pqe_nsv         = 0x7ea80000,   35 MB (  37388288 B)
+----------------------------------------------------------
+g_fw_mcu0            = 0x7ea80000,    4 MB (   4194304 B)
+g_fw_mcu3            = 0x7ee80000,    0 MB (         0 B)
+g_fw_mcu4            = 0x7ee80000,    0 MB (         0 B)
+g_de_nsvp_m1         = 0x7ee80000,    3 MB (   3145728 B)
+g_be_fpp             = 0x7f180000,   19 MB (  19922944 B)
+g_de_hdr             = 0x80480000,    3 MB (   3145728 B)
+g_fw_shared          = 0x80780000,    2 MB (   2097152 B)
+g_be_wcg             = 0x80980000,    1 MB (   1572864 B)
+g_be_led             = 0x80b00000,    0 MB (    131072 B)
+g_be_phdr            = 0x80b20000,    0 MB (     32768 B)
+g_pe_db              = 0x80b28000,    2 MB (   2097152 B)
+g_pe_hdr             = 0x80d28000,    1 MB (   1048576 B)
+g_m0_pqe_nsv_end     = 0x80e28000,    0 MB (         0 B)
+==========================================================
+g_m0_pqe_usr         = 0x80e28000,   24 MB (  25165824 B)
+----------------------------------------------------------
+g_de_vt_m1           = 0x80e28000,   24 MB (  25165824 B)
+g_m0_pqe_usr_end     = 0x82628000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_svp         = 0x91800000,   83 MB (  87031808 B)
+----------------------------------------------------------
+g_de_svp_m2          = 0x91800000,   83 MB (  87031808 B)
+g_m1_pqe_svp_end     = 0x96b00000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_nsv         = 0x96e00000,   58 MB (  60817408 B)
+----------------------------------------------------------
+g_fw_mcu1            = 0x96e00000,    4 MB (   4194304 B)
+g_fw_mcu2            = 0x97200000,   13 MB (  13631488 B)
+g_de_nsvp_m2         = 0x97f00000,    0 MB (         0 B)
+g_be_frc0            = 0x97f00000,   33 MB (  34603008 B)
+g_be_frc1            = 0x9a000000,    0 MB (         0 B)
+g_be_frc2            = 0x9a000000,    0 MB (         0 B)
+g_fw_dnn             = 0x9a000000,    8 MB (   8388608 B)
+g_chipinfo           = 0x9a800000,    0 MB (         0 B)
+g_m1_pqe_nsv_end     = 0x9a800000,    0 MB (         0 B)
+==========================================================
+g_m1_pqe_usr         = 0x9a800000,   12 MB (  12582912 B)
+----------------------------------------------------------
+g_de_vt_m2           = 0x9a800000,   12 MB (  12582912 B)
+g_m1_pqe_usr_end     = 0x9b400000,    0 MB (         0 B)
+==========================================================
+dbg                 
+----------------------------------------------------------
+g_de_dbg_m1          = 0x8d0b0000,   64 MB (  67108864 B)
+g_de_dbg_m2          = 0x9b46c000,   31 MB (  33112064 B)
+==========================================================
+fw_shared           
+----------------------------------------------------------
+vtm                  = 0x80780000,   32 KB
+vtv                  = 0x80788000,   32 KB
+gps                  = 0x80790000,   32 KB
+dly                  = 0x80798000,   32 KB
+fpp                  = 0x807a0000, 1024 KB
+mvi                  = 0x808a0000,   32 KB
+==========================================================
+etc                 
+----------------------------------------------------------
+vdec_pool_0          = 0x56c00000,  584 MB ( 612368384 B)
+vdec_pool_1          = 0x00000000,    0 MB (         0 B)
+lne_pool             = 0x96c00000,    2 MB (   2097152 B)
+g_de_vt_m1_cma_size  =    8 MB
+g_de_vt_m2_cma_size  =    4 MB
+g_de_vpb8k_cma_size  =  146 MB
+==========================================================
+check mem           
+----------------------------------------------------------
+de-vrbuf_m0          =   49 MB (vs. 71 MB) (reserved:ok)
+de-vrbuf_m1          =   20 MB (vs. 31 MB) (reserved:ok)
+de-vtvrbuf_m0        =   69 MB (vs. 71 MB) (reserved:ok)
+de-vtvrbuf_m1        =    0 MB (vs. 31 MB) (reserved:ok)
+m0 nsv_s-svp_e diff  =  136 MB (continuity:ng)
+m1 nsv_s-svp_e diff  =    3 MB (continuity:ng)
+m2 nsv_s-svp_e diff  =    0 MB (continuity:ok)
+g_m0_pqe_nsv         = 0x7ea80000 ~ 0x80e28000 (valid:ok)
+g_m0_pqe_usr         = 0x80e28000 ~ 0x82628000 (valid:ok)
+g_m1_pqe_nsv         = 0x96e00000 ~ 0x9a800000 (valid:ok)
+g_m1_pqe_usr         = 0x9a800000 ~ 0x9b400000 (valid:ok)
+vdec                 = 0x77000000 ~ 0x77200000 (valid:ok)
+debug0               = 0x8d0b0000 ~ 0x91800000 (valid:ok)
+debug1               = 0x9b46c000 ~ 0x9d400000 (valid:ok)
+==========================================================
+
+--- /sys/module/lg1k/parameters/fbdev_vsync_cnt_on_flip
+2
+
+--- /proc/lg/fbdev/fb0/status
+ cfg.b_active         = 1
+ cfg.b_cursor         = 0
+ cfg.b_use_afbc       = 1
+ cfg..b_use_bltn_fbmem= 0
+ cfg.max_xres         = 1920
+ cfg.max_yres         = 1080
+ cfg.max_buf_num      = 2
+ linux_fb_mode        = 0
+ users                = 6
+ fb_base_phys         = 0x8c128000
+ fb_base              = 000000006407444e
+ fb_size              = 4096
+ osd_hdr_base_phys    = 0x8c12a000
+ osd_hdr_base         = 00000000b13f8dd7
+ osd_hdr_size         = 0x20
+ osd_plte_base_phys   = 0x8c129000
+ osd_plte_base        = 000000007b0c9442
+ osd_plte_size        = 1024
+ status.b_use_vsync     = 1
+ status.b_sd_hdr_write  = 1
+ status.b_osd_hdr_flush = 1
+ status.fb_pan_disp_cnt = 0
+ status.fb_flip_cnt     = 648891
+ status.total_fb_flip_cnt= 648892
+
+ pixel.fb_dev_id      = 1
+ pixel.fbc_fmtid      = 0
+ pixel.osd_bm_paddr   = 0x87b94000
+ pixel.stride         = 7680
+ pixel.bits_per_pixel = 32 (pxlfmt 0xe, pxldepth 0x6)
+ pixel.input_win.x    = 0
+ pixel.input_win.y    = 0
+ pixel.input_win.w    = 1920
+ pixel.input_win.h    = 1080
+ pixel.output_win.x   = 0
+ pixel.output_win.y   = 0
+ pixel.output_win.w   = 1920
+ pixel.output_win.h   = 1080
+ pixel.test_output_win.x = 0
+ pixel.test_output_win.y = 0
+ pixel.test_output_win.w = 0
+ pixel.test_output_win.h = 0
+ pixel.user_win_ctrl_en= 0
+ pixel.color_key_en   = 0
+ pixel.pixel_order_en = 0
+ pixel.global_alpha_en= 0
+ pixel.color_key      = 0x0
+ pixel.global_alpha   = 0xff
+
+ fbinfo.state           = 0x0
+ fbinfo.flags           = 0x0
+ fbinfo.screen_base     = 000000006407444e
+ fbinfo.screen_size     = 4096
+ fbinfo.fbcon_par       = 0000000000000000
+ fbinfo.par             = 00000000485e5e98
+ fbinfo.fix.id          = osd0_fb
+ fbinfo.fix.smem_start  = 0x8c128000
+ fbinfo.fix.smem_len    = 4096
+ fbinfo.fix.type        = 0x0
+ fbinfo.fix.type_aux    = 0x0
+ fbinfo.fix.visual      = 0x2
+ fbinfo.fix.xpanstep    = 0
+ fbinfo.fix.ypanstep    = 1
+ fbinfo.fix.ywrapstep   = 0
+ fbinfo.fix.line_length = 7680
+ fbinfo.fix.mmio_start  = 0x0
+ fbinfo.fix.mmio_len    = 256
+ fbinfo.fix.accel       = b1
+ fbinfo.fix.reserved[3] 2B
+
+ fbinfo.var.xres        = 1920
+ fbinfo.var.yres        = 1080
+ fbinfo.var.xres_virtual= 1920
+ fbinfo.var.yres_virtual= 2160
+ fbinfo.var.xoffset     = 0
+ fbinfo.var.yoffset     = 0
+ fbinfo.var.bits_per_pxl= 32
+ fbinfo.var.grayscale   = 0
+ fbinfo.var.transp      = (24, 8, 0)
+ fbinfo.var.red         = (16, 8, 0)
+ fbinfo.var.green       = ( 8, 8, 0)
+ fbinfo.var.blue        = ( 0, 8, 0)
+ fbinfo.var.nonstd      = 0
+ fbinfo.var.activate    = 0x80
+ fbinfo.var.width(mm)   = -1
+ fbinfo.var.height(mm)  = -1
+ fbinfo.var.pixclock    = 180000
+ fbinfo.var.left_margin = 40
+ fbinfo.var.right_margin= 4
+ fbinfo.var.upper_margin= 8
+ fbinfo.var.lower_margin= 2
+ fbinfo.var.hsync_len   = 0x0
+ fbinfo.var.vsync_len   = 0x0
+ fbinfo.var.sync        = 0x0
+ fbinfo.var.vmode       = 0x0
+ fbinfo.var.rotate      = 0
+
+
+posd_num: 1
+posd_idx: 0
+ visible: on (osd:1, sync:1)
+ hdr.xpos: 0
+ hdr.ypos: 0
+ hdr.w_mem: 1920
+ hdr.h_mem: 1080
+ hdr.w_out: 3860
+ hdr.h_out: 2170
+ hdr.pixel_order: 0x0
+ hdr.wpl: 960
+ hdr.global_alpha_en: 0
+ hdr.global_alpha: 0xff
+ hdr.color_key_en: 0
+ hdr.color_key: 0x0
+ hdr.ptr_plte: 0x8c129000
+ hdr.ptr_bmp: 0x87b94000
+
+--- raw /proc/lg/de/win0/status
+localmute=777
+lowdelaymode=0
+h/v active : 0 / 0
+scanType   : 0
+vFreq      : 0
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+
+--- raw /proc/lgtv-driver/scaler/main.p0
+[main.p0]
+open=0
+connect_src=NONE
+connect_index=0
+connect_attr=0
+output_mode=NONE
+mute=1
+hdr=0
+source_x=0
+source_y=0
+source_w=0
+source_h=0
+crop_x=0
+crop_y=0
+crop_w=0
+crop_h=0
+out_x=0
+out_y=0
+out_w=0
+out_h=0
+rotation=0
+freeze=0
+rgb444=0
+adaptive=0
+frame_delay=0
+property_window=0
+property_mirror=0
+property_memory=0
+zorder_value=0
+zorder_alpha=255
+pattern=0
+limited_win_ratio_h_scaleup=0
+limited_win_ratio_v_scaleup=0
+limited_win_ratio_h_scaledown=0
+limited_win_ratio_v_scaledown=0
+
+--- raw /proc/lxvo/vdisp/vsync
+#ENDOFREAD_0480
+

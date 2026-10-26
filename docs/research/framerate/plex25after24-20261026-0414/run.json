@@ -1,0 +1,11 @@
+{
+ "run": "plex25after24",
+ "launch": {
+  "id": "com.beb.plxnative"
+ },
+ "keys": "OK s4 OK s5 OK",
+ "secs": 30,
+ "protected": false,
+ "picture_before": "{\"subscribed\":false,\"category\":\"picture\",\"errorKey\":[\"truMotionMode\"],\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"sdr\",\"pictureMode\":\"filmMaker\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"filmMaker\",\"realCinema\":\"on\"},\"returnValue\":false}",
+ "foreground_before": "com.webos.app.home"
+}

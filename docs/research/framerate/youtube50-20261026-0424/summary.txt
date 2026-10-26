@@ -1,0 +1,14 @@
+frame-rate probe: youtube50-20261026-0424
+samples 1466 over 74.95 s; DE vsync 119.6 Hz at the start, 119.6 Hz at the end; OSD vsync 119.6 Hz at the end
+marks: launch at 2.9 s, home at 62.06 s, end at 72.19 s
+source rate seen by the DE (0.1 Hz): 0 at 0.0 s, 599 at 6.71 s, 600 at 6.76 s, 500 at 6.92 s, 0 at 16.8 s, 500 at 19.41 s, 239 at 19.61 s, 0 at 62.38 s
+decoder vsync (hz, fixed): 60.0/0 at 6.76 s, 50.0/0 at 6.87 s, None/None at 16.7 s, 23.97/0 at 19.41 s, None/None at 62.38 s
+decoder HFR fixed: False; vo hfr flag: False
+switches: [(6.87, 120, 100), (19.72, 100, 120)]
+firmware mute (localmute) spans: [(0.0, 6.92, 777), (16.76, 19.97, 34), (62.33, 74.95, 34)]
+app video mute spans (setAvMute): [(6.63, 6.82), (16.76, 19.51), (62.33, None)]
+vsync gaps over 30 ms: none
+screen: 579 shots; black [(3.33, 6.7), (16.44, 17.94)]; frozen [(0.0, 3.18), (10.65, 11.15), (12.9, 13.14), (13.38, 14.63), (14.87, 16.18), (18.02, 19.41), (27.52, 27.75), (28.45, 28.69), (29.21, 31.77), (32.01, 32.24), (32.48, 32.69), (33.16, 39.05), (62.24, 74.96)]
+switch 120 -> 100 Hz at 6.87 s: under the app's own video mute; firmware mute yes; vsync gap none; screen black
+switch 100 -> 120 Hz at 19.72 s: with the app's video unmuted; firmware mute yes; vsync gap none; screen not black
+VERDICT: FAIL: a switch muted or gapped

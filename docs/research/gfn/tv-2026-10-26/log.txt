@@ -741,3 +741,100 @@ drwxr-xr-x    3 root     root          4096 Dec 31  1969 gfx64
 2026-10-26T08:45:37.326952Z [16105.457491260] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(190): ModuleManager:notifyLastAppId org.nphil.lumatv.gfn
 2026-10-26T08:45:37.327059Z [16105.457598380] user.info audiod [] AudioD MASTER_VOLUME_MANAGER {} masterVolumeUtil.cpp(793): updateLastAppVolumeNormalLog Skip NL logging AppId : org.nphil.lumatv.gfn, Volume : 24
 2026-10-26T08:45:37.330245Z [16105.460792020] user.info videooutputd [] videooutputd DEBUG {} setForegroundApps() vssApp ID change! vssMultiviewStatus[0->0], foregroundAppId[org.nphil.lumatv.gfn->com.webos.app.home], mainAppId[org.nphil.lumatv.gfn->com.webos.app.home]subApp0[->],subApp1[->],subApp2[->]
+04:54:23 put org.nphil.lumatv.gfn_0.1.0_all.ipk -> /tmp/lumatv-gfn.ipk
+04:54:23 $ sha256sum /tmp/lumatv-gfn.ipk
+9da8dcab21b1d7f2e3e25f42bee89f7a8a4f193b1606fd5b0a885a0c703cbb1a  /tmp/lumatv-gfn.ipk
+04:54:24 $ luna-send -n 4 -f luna://com.webos.appInstallService/dev/install '{"id":"org.nphil.lumatv.gfn","ipkUrl":"/tmp/lumatv-gfn.ipk","subscribe":true}'
+{
+    "subscribed": true,
+    "returnValue": true
+}
+{
+    "statusValue": 268,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-14896",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+{
+    "statusValue": 269,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-14896",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+{
+    "statusValue": 270,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "none",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-14896",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+04:54:24 $ ls -la /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn; sha256sum /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder
+total 344
+drwxr-xr-x    5 root     root          4096 Oct 26 04:45 .
+drwxrwxrwx   17 root     root          4096 Oct 26 04:25 ..
+-rw-r--r--    1 root     root           528 Oct 26 04:45 appinfo.json
+drwxr-xr-x    3 root     root          4096 Dec 31  1969 assets
+drwxr-xr-x    2 root     root          4096 Oct 26 04:45 bin64
+drwxr-xr-x    3 root     root          4096 Oct 26 04:45 gfx64
+-rw-r--r--    1 root     root          5831 Dec 31  1969 icon.png
+-rw-r--r--    1 root     root         12377 Dec 31  1969 largeIcon.png
+-rwxr-xr-x    1 root     root        170080 Dec 31  1969 lumatv-gfn-feeder
+-rwxr-xr-x    1 root     root           459 Dec 31  1969 run64.sh
+-rw-r--r--    1 root     root        124330 Dec 31  1969 splash.png
+d6e7f9ac8a40d87c66b4e66e485fadb25b32de77bb9e902ec0e554bd136b4157  /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder

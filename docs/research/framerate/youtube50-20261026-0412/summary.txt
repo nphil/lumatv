@@ -1,0 +1,13 @@
+frame-rate probe: youtube50-20261026-0412
+samples 1467 over 74.96 s; DE vsync 150.5 Hz at the start, 150.5 Hz at the end; OSD vsync 119.6 Hz at the end
+marks: launch at 2.9 s, home at 62.05 s, end at 72.17 s
+source rate seen by the DE (0.1 Hz): 0 at 0.0 s, 299 at 6.45 s, 239 at 6.5 s, 0 at 13.92 s, 239 at 16.47 s, 0 at 62.35 s
+decoder vsync (hz, fixed): 23.97/0 at 6.45 s, None/None at 13.87 s, 23.97/0 at 16.42 s, None/None at 62.4 s
+decoder HFR fixed: False; vo hfr flag: False
+switches: none
+firmware mute (localmute) spans: [(0.0, 6.86, 777), (13.92, 16.94, 777), (62.35, 74.96, 34)]
+app video mute spans (setAvMute): [(6.32, 6.46), (13.9, 16.47), (62.33, None)]
+vsync gaps over 30 ms: none
+screen: 347 shots; black [(3.27, 6.74), (13.83, 14.89)]; frozen [(0.0, 2.85), (15.08, 16.37), (17.07, 21.23), (21.46, 26.41), (26.64, 29.6), (30.06, 30.29), (34.4, 36.05), (36.27, 37.88), (38.1, 38.33), (39.25, 41.33), (46.95, 49.02), (52.01, 56.2), (56.43, 61.88), (62.1, 74.95)]
+no output-rate switch: the DE stayed in the ? Hz band for the whole run
+VERDICT: PASS: every switch clean (no firmware mute, no vsync gap)

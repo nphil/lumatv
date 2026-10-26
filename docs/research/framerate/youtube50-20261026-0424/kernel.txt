@@ -1,0 +1,7 @@
+--- dmesg
+[14877.846202] de           NOT (02649:02649) v4l2_vp_thread           2449: mute-on win[0] val[34]
+[14877.846210] de           NOT (02649:02649) v4l2_vp_thread           2449: mute-on win[2] val[34]
+[14877.894190] de           NOT (02649:02649) v4l2_vp_thread           2449: mute-on win[0] val[777]
+[14877.894195] de           NOT (02649:02649) v4l2_vp_thread           2449: mute-on win[2] val[777]
+--- /var/log/messages since the start
+

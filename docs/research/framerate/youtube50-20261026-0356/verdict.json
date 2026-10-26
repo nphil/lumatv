@@ -1,0 +1,41 @@
+{
+ "samples": 0,
+ "seconds": 0,
+ "marks": [
+  [
+   13187.66,
+   "launch"
+  ],
+  [
+   13199.88,
+   "keys"
+  ],
+  [
+   13247.11,
+   "home"
+  ],
+  [
+   13257.23,
+   "end"
+  ]
+ ],
+ "de_hz_first": null,
+ "de_hz_last": null,
+ "osd_hz_last": null,
+ "switches": [],
+ "vsync_gaps": [],
+ "firmware_mute": [],
+ "app_video_mute": [],
+ "source_rate": [],
+ "decoder_rate": [],
+ "shots": 0,
+ "black": [],
+ "frozen": [],
+ "videooutput": [],
+ "decoder_hfr_fixed": false,
+ "de_hfr": false,
+ "clean": true,
+ "words": [
+  "no output-rate switch: the DE stayed in the ? Hz band for the whole run"
+ ]
+}

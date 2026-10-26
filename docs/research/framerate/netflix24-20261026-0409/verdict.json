@@ -1,0 +1,192 @@
+{
+ "samples": 1310,
+ "seconds": 66.99,
+ "marks": [
+  [
+   2.91,
+   "launch"
+  ],
+  [
+   17.06,
+   "keys"
+  ],
+  [
+   64.3,
+   "end"
+  ]
+ ],
+ "de_hz_first": 157.7,
+ "de_hz_last": 232.0,
+ "osd_hz_last": 120.6,
+ "switches": [],
+ "vsync_gaps": [],
+ "firmware_mute": [
+  [
+   0.0,
+   14.38,
+   777
+  ]
+ ],
+ "app_video_mute": [
+  [
+   11.82,
+   13.58
+  ]
+ ],
+ "source_rate": [
+  [
+   0.0,
+   0
+  ],
+  [
+   12.02,
+   599
+  ],
+  [
+   13.55,
+   239
+  ]
+ ],
+ "decoder_rate": [
+  [
+   13.5,
+   23.97,
+   0
+  ]
+ ],
+ "shots": 471,
+ "black": [
+  [
+   3.06,
+   10.65
+  ],
+  [
+   14.62,
+   66.97
+  ]
+ ],
+ "frozen": [
+  [
+   -0.01,
+   2.84
+  ],
+  [
+   13.13,
+   14.33
+  ]
+ ],
+ "videooutput": [
+  [
+   0.02,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   11.99,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": true,
+     "appId": "netflix",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   11.99,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": true,
+     "appId": "netflix",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   13.53,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 23.9760246,
+     "muted": false,
+     "connected": true,
+     "appId": "netflix",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   13.54,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 23.9760246,
+     "muted": false,
+     "connected": true,
+     "appId": "netflix",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ]
+ ],
+ "decoder_hfr_fixed": false,
+ "de_hfr": false,
+ "evidence": true,
+ "clean": true,
+ "words": [
+  "no output-rate switch: the panel stayed in the 120 Hz band for the whole run"
+ ]
+}

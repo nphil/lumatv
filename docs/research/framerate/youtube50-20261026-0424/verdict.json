@@ -1,0 +1,432 @@
+{
+ "samples": 1466,
+ "seconds": 74.95,
+ "marks": [
+  [
+   2.9,
+   "launch"
+  ],
+  [
+   62.06,
+   "home"
+  ],
+  [
+   72.19,
+   "end"
+  ]
+ ],
+ "de_hz_first": 119.6,
+ "de_hz_last": 119.6,
+ "osd_hz_last": 119.6,
+ "switches": [
+  [
+   6.87,
+   120,
+   100
+  ],
+  [
+   19.72,
+   100,
+   120
+  ]
+ ],
+ "vsync_gaps": [],
+ "firmware_mute": [
+  [
+   0.0,
+   6.92,
+   777
+  ],
+  [
+   16.76,
+   19.97,
+   34
+  ],
+  [
+   62.33,
+   74.95,
+   34
+  ]
+ ],
+ "app_video_mute": [
+  [
+   6.63,
+   6.82
+  ],
+  [
+   16.76,
+   19.51
+  ],
+  [
+   62.33,
+   null
+  ]
+ ],
+ "source_rate": [
+  [
+   0.0,
+   0
+  ],
+  [
+   6.71,
+   599
+  ],
+  [
+   6.76,
+   600
+  ],
+  [
+   6.92,
+   500
+  ],
+  [
+   16.8,
+   0
+  ],
+  [
+   19.41,
+   500
+  ],
+  [
+   19.61,
+   239
+  ],
+  [
+   62.38,
+   0
+  ]
+ ],
+ "decoder_rate": [
+  [
+   6.76,
+   60.0,
+   0
+  ],
+  [
+   6.87,
+   50.0,
+   0
+  ],
+  [
+   16.7,
+   null,
+   null
+  ],
+  [
+   19.41,
+   23.97,
+   0
+  ],
+  [
+   62.38,
+   null,
+   null
+  ]
+ ],
+ "shots": 579,
+ "black": [
+  [
+   3.33,
+   6.7
+  ],
+  [
+   16.44,
+   17.94
+  ]
+ ],
+ "frozen": [
+  [
+   0.0,
+   3.18
+  ],
+  [
+   10.65,
+   11.15
+  ],
+  [
+   12.9,
+   13.14
+  ],
+  [
+   13.38,
+   14.63
+  ],
+  [
+   14.87,
+   16.18
+  ],
+  [
+   18.02,
+   19.41
+  ],
+  [
+   27.52,
+   27.75
+  ],
+  [
+   28.45,
+   28.69
+  ],
+  [
+   29.21,
+   31.77
+  ],
+  [
+   32.01,
+   32.24
+  ],
+  [
+   32.48,
+   32.69
+  ],
+  [
+   33.16,
+   39.05
+  ],
+  [
+   62.24,
+   74.96
+  ]
+ ],
+ "videooutput": [
+  [
+   0.05,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   6.71,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   6.77,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 60,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   6.87,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 50,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   7.32,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 50,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   16.76,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   19.37,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   19.43,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   20.01,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   62.25,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 24,
+     "muted": false,
+     "connected": true,
+     "appId": "youtube.leanback.v4",
+     "contentType": "movie"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ],
+  [
+   62.34,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ]
+ ],
+ "decoder_hfr_fixed": false,
+ "de_hfr": false,
+ "evidence": true,
+ "clean": false,
+ "words": [
+  "switch 120 -> 100 Hz at 6.87 s: under the app's own video mute; firmware mute yes; vsync gap none; screen black",
+  "switch 100 -> 120 Hz at 19.72 s: with the app's video unmuted; firmware mute yes; vsync gap none; screen not black"
+ ]
+}

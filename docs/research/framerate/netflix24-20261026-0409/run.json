@@ -1,0 +1,14 @@
+{
+ "run": "netflix24",
+ "launch": {
+  "id": "netflix",
+  "params": {
+   "contentTarget": "m=https://www.netflix.com/watch/80049832&source_type=4"
+  }
+ },
+ "keys": "OK",
+ "secs": 45,
+ "protected": true,
+ "picture_before": "{\"subscribed\":false,\"category\":\"picture\",\"errorKey\":[\"truMotionMode\"],\"method\":\"getSystemSettings\",\"dimension\":{\"dynamicRange\":\"sdr\",\"pictureMode\":\"filmMaker\",\"input\":\"default\"},\"settings\":{\"pictureMode\":\"filmMaker\",\"realCinema\":\"on\"},\"returnValue\":false}",
+ "foreground_before": "com.webos.app.home"
+}

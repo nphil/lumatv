@@ -1,0 +1,16 @@
+04:50:27 before: fg=com.webos.app.home power=Active
+04:50:27 turnOnScreenSaver: {     "returnValue": true }  
+04:50:29 asked lines: 2026-10-26T08:49:43.753455Z [16351.884000740] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:49:43.753609Z [16351.884152080] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:50:26.693069Z [16394.823615240] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1809457310", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (LumaTV's saver draws)
+2026-10-26T08:50:26.701912Z [16394.832452100] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1809457310", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
+04:50:30 power2 state: {     "returnValue": true,     "sub state": "active",     "lifeOnScreenMode": "alwaysReady",     "state": "ACTIVE" }  
+04:50:30 flutter: none
+04:50:30 running: {    "running": [        {            "webprocessid": "8165",            "defaultWindowType": "card",            "id": "com.webos.app.home",            "processid": "8165",            "appType": "web"        }    ],    "returnValue": true} 
+04:50:33 after key: power=Active fg=com.webos.app.home
+04:50:33 saver lines: 2026-10-26T08:49:43.753455Z [16351.884000740] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:49:43.753609Z [16351.884152080] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:50:26.693069Z [16394.823615240] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1809457310", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (LumaTV's sav
+2026-10-26T08:50:26.701912Z [16394.832452100] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1809457310", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
+04:55:42 step4 start: last key before this run at 04:55:00 (GFN check); power Active
+04:55:43 step4: keys RIGHT LEFT at t=0 (Home in front)

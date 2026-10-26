@@ -1,0 +1,13 @@
+frame-rate probe: plex25after24-20261026-0414
+samples 1448 over 73.96 s; DE vsync 156.7 Hz at the start, 152.6 Hz at the end; OSD vsync 119.6 Hz at the end
+marks: launch at 2.9 s, keys at 7.03 s, second at 48.4 s, end at 87.79 s
+source rate seen by the DE (0.1 Hz): 0 at 0.0 s, 239 at 8.42 s, 0 at 48.56 s, 239 at 56.63 s
+decoder vsync (hz, fixed): 23.97/0 at 8.88 s, None/None at 48.62 s, 23.97/0 at 57.09 s
+decoder HFR fixed: False; vo hfr flag: False
+switches: none
+firmware mute (localmute) spans: [(0.0, 9.3, 777), (48.62, 57.5, 777)]
+app video mute spans (setAvMute): [(8.27, 8.91), (48.55, 57.11)]
+vsync gaps over 30 ms: none
+screen: 333 shots; black [(3.11, 4.21), (7.54, 9.09), (21.9, 21.9), (27.76, 29.18), (30.12, 30.59), (32.03, 32.52), (33.23, 33.7), (36.53, 36.77), (48.56, 48.82), (51.93, 51.93), (56.11, 57.37)]; frozen [(-0.02, 2.9), (4.6, 5.73), (5.92, 6.11), (6.91, 7.31), (11.44, 16.46), (16.71, 17.66), (18.14, 19.8), (20.74, 21.44), (22.14, 25.46), (25.91, 26.84), (27.31, 27.54), (29.42, 29.89), (30.83, 31.8), (32.76, 33.0), (33.7, 33.94), (34.4, 35.35), (35.59, 36.29), (36.77, 37.95), (38.19, 39.37), (39.61, 41.98), (42.21, 44.06), (44.3, 45.24), (46.42, 46.92), (48.09, 48.33), (49.21, 50.37), (51.17, 51.74), (52.12, 52.48), (52.88, 55.73), (57.79, 58.76), (58.99, 59.92), (60.39, 60.88), (61.12, 61.36), (61.61, 61.85), (62.31, 62.79), (65.39, 66.34)]
+no output-rate switch: the DE stayed in the ? Hz band for the whole run
+VERDICT: PASS: every switch clean (no firmware mute, no vsync gap)

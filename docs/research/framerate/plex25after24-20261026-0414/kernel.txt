@@ -1,0 +1,4 @@
+--- dmesg
+
+--- /var/log/messages since the start
+

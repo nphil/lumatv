@@ -764,3 +764,358 @@ sndout
     "returnValue": true
 }
 04:07:44 after keyboard check: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+04:26:05 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:26:08 launch org.nphil.lumatv.gfn: {
+    "returnValue": true
+}
+04:26:15 capture gfn-launch: {
+    "capturedHeight": 540,
+    "writtenBytes": 381569,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:26:15 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:26:21 launch org.nphil.lumatv.gfn: {
+    "returnValue": true
+}
+04:26:26 capture gfn-relaunch: {
+    "capturedHeight": 540,
+    "writtenBytes": 380368,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:26:26 close org.nphil.lumatv.gfn: {
+    "errorCode": 1,
+    "returnValue": false,
+    "errorText": "native app is not running"
+}
+04:26:33 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:28:10 capture gfn-1080p60-card: {
+    "capturedHeight": 540,
+    "writtenBytes": 381958,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:43:43 capture gfn-window: {
+    "capturedHeight": 540,
+    "writtenBytes": 8127,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:44:33 capture gfn-window: {
+    "capturedHeight": 540,
+    "writtenBytes": 8159,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:45:15 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:45:18 launch org.nphil.lumatv.gfn: {
+    "returnValue": true
+}
+04:45:25 capture gfn-launch: {
+    "capturedHeight": 540,
+    "writtenBytes": 394924,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:45:25 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:45:31 launch org.nphil.lumatv.gfn: {
+    "returnValue": true
+}
+04:45:36 capture gfn-relaunch: {
+    "capturedHeight": 540,
+    "writtenBytes": 394012,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:45:37 close org.nphil.lumatv.gfn: {
+    "appId": "org.nphil.lumatv.gfn",
+    "returnValue": true
+}
+04:45:43 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:46:15 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:46:18 launch org.nphil.lumatv.gfn: {
+    "returnValue": true
+}
+04:46:26 capture gfn-clean-launch: {
+    "capturedHeight": 540,
+    "writtenBytes": 395102,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:46:26 close org.nphil.lumatv.gfn: {
+    "appId": "org.nphil.lumatv.gfn",
+    "returnValue": true
+}
+04:46:32 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:47:14 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-slot1
+04:47:14 before: {"ok":true,"version":"0.4.0"} | 3407f9186d53b19a60d1ed683d55e86e  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | e5c6e83ca80d9d2c6e5a420943d56f95  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+04:47:15 power Active fg com.webos.app.home picture filmMaker
+04:47:20 ipk put: -rw-r--r--    1 root     root      38971018 Oct 26 04:47 /tmp/lumatv.ipk | 4152e5298f8c8f72728dccf4477ea805a0aff81a5eda8e52463576a52348146e  /tmp/lumatv.ipk
+04:47:21 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+04:47:21 app dir helper sha matches ipk: True after 6 s
+04:47:34 apply (19 s): {"ok":true,"applied":true,"mounts":1,"took":13}
+04:47:42 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+04:47:43 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+04:47:43 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true}}
+04:47:43 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+04:47:43 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+04:47:43 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`;
+04:47:46 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"16/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+04:47:46 helper log tail: 2026-10-26T07:52:30Z INFO  screen: Screen Saver (on)
+2026-10-26T07:52:30Z INFO  listening on 127.0.0.1:18731 (api 1)
+2026-10-26T07:52:30Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T07:52:30Z INFO  preload: 14 apps kept from preloading
+2026-10-26T07:52:35Z INFO  screen: Active (on)
+04:47:47 foreground: com.webos.app.home power Active picture filmMaker
+04:47:47 compositor log since install: 
+04:47:47 end (32 s)
+04:48:10 restart with background hdmi3 holding adec.p1: {"ok":true}
+04:48:26 after restart: fg=com.webos.app.home ports=Open=0 | Connect=UNKNOWN | Open=0 | Connect=UNKNOWN running={    "running": [        {            "webprocessid": "5205",            "defaultWindowType": "card",            "id": "com.webos.app.home",            "processid": "5205",            "appType": "web"        }    ],    "returnValue": true} 
+04:48:26 resident lines: 
+04:48:26 tool log: 2026-10-26 04:47:33 apply: success version=0.4.0 mounts=1 took=13s
+2026-10-26 04:48:04 restart: input app(s) ended through SAM: com.webos.app.hdmi3 (decoder port closed after 1 s)
+2026-10-26 04:48:05 homestub: compositor restarted
+2026-10-26 04:48:09 home on panel after 0 relaunch attempt(s)
+2026-10-26 04:48:09 restart: compositor restarted
+04:49:46 second apply: {"ok":true,"applied":true,"mounts":1,"took":17}
+04:49:58 tool log: 2026-10-26 04:49:36 homestub: stub in place at uptime 16344 s
+2026-10-26 04:49:36 homestub: guard started
+2026-10-26 04:49:38 homestub: compositor restarted
+2026-10-26 04:49:41 apply: compositor restarted to read shadow module
+2026-10-26 04:49:44 home on panel after 0 relaunch attempt(s)
+2026-10-26 04:49:45 apply: success version=0.4.0 mounts=1 took=17s
+04:49:58 shadow vs payload: c81ca221ee384b2ec84ea9b67ecdf737  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/compositor/lumatv/panels/VolumeOsd.qml
+c81ca221ee384b2ec84ea9b67ecdf737  /var/lib/lumatv/qml/WebOSCompositor/lumatv/panels/VolumeOsd.qml
+/var/lib/lumatv/qml/WebOSCompositor/lumatv/panels/SaverVote.qml
+04:49:59 fg com.webos.app.home ports Open=0 | Connect=UNKNOWN | Open=0 | Connect=UNKNOWN
+04:50:27 before: fg=com.webos.app.home power=Active
+04:50:27 turnOnScreenSaver: {     "returnValue": true }  
+04:50:29 asked lines: 2026-10-26T08:49:43.753455Z [16351.884000740] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:49:43.753609Z [16351.884152080] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:50:26.693069Z [16394.823615240] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1809457310", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (LumaTV's saver draws)
+2026-10-26T08:50:26.701912Z [16394.832452100] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1809457310", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
+04:50:30 power2 state: {     "returnValue": true,     "sub state": "active",     "lifeOnScreenMode": "alwaysReady",     "state": "ACTIVE" }  
+04:50:30 flutter: none
+04:50:30 running: {    "running": [        {            "webprocessid": "8165",            "defaultWindowType": "card",            "id": "com.webos.app.home",            "processid": "8165",            "appType": "web"        }    ],    "returnValue": true} 
+04:50:30 capture saver-own-step2: {
+    "capturedHeight": 540,
+    "writtenBytes": 16399,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:50:33 after key: power=Active fg=com.webos.app.home
+04:50:33 saver lines: 2026-10-26T08:49:43.753455Z [16351.884000740] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:49:43.753609Z [16351.884152080] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:50:26.693069Z [16394.823615240] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1809457310", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (LumaTV's sav
+2026-10-26T08:50:26.701912Z [16394.832452100] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1809457310", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
+04:50:50 launch netflix: {
+    "returnValue": true
+}
+04:51:06 capture netflix-title: {
+    "capturedHeight": 540,
+    "writtenBytes": 67919,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:51:12 Netflix +5s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fGzPmY4c3ItmgD",
+            "windowId": "_Window_Id_3"
+        }
+    ]
+}
+04:51:18 Netflix +10s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fGzPmY4c3ItmgD",
+            "windowId": "_Window_Id_3"
+        }
+    ]
+}
+04:51:24 Netflix +15s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fGzPmY4c3ItmgD",
+            "windowId": "_Window_Id_3"
+        }
+    ]
+}
+04:51:30 Netflix +20s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fGzPmY4c3ItmgD",
+            "windowId": "_Window_Id_3"
+        }
+    ]
+}
+04:51:31 capture netflix-playing: {
+    "capturedHeight": 540,
+    "writtenBytes": 10690,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:51:42 capture netflix-mute-hop: {
+    "capturedHeight": 540,
+    "writtenBytes": 20915,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:51:42 close netflix: {
+    "appId": "netflix",
+    "returnValue": true
+}
+04:51:43 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:51:46 Netflix complete: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
+04:52:07 launch netflix: {
+    "returnValue": true
+}
+04:52:35 format check pre-unmute receiver {'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'}
+04:52:36 capture mutefix-format-unmuted-vol0: {
+    "capturedHeight": 540,
+    "writtenBytes": 20036,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:52:37 format check receiver {'mute': False, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'}
+04:52:37 close netflix: {
+    "appId": "netflix",
+    "returnValue": true
+}
+04:52:38 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:52:41 after format check receiver {'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos', 'soundMode': 'DOLBY ATMOS'} ports Open=0 | Open=0
+04:53:02 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:53:06 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:53:11 capture voice-own: {
+    "capturedHeight": 540,
+    "writtenBytes": 195432,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:53:11 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:53:19 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:53:24 capture voice-search: {
+    "capturedHeight": 540,
+    "writtenBytes": 127957,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:53:26 capture voice-down: {
+    "capturedHeight": 540,
+    "writtenBytes": 127797,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:53:26 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:53:28 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:53:30 capture voice-reopen: {
+    "capturedHeight": 540,
+    "writtenBytes": 128010,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:53:31 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:53:37 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:53:42 capture voice-restored: {
+    "capturedHeight": 540,
+    "writtenBytes": 195657,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:53:43 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:53:45 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:54:45 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:54:49 launch org.nphil.lumatv.gfn: {
+    "returnValue": true
+}
+04:54:58 capture gfn-a2124cb: {
+    "capturedHeight": 540,
+    "writtenBytes": 382470,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:55:00 capture gfn-a2124cb-down: {
+    "capturedHeight": 540,
+    "writtenBytes": 382383,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:55:01 close org.nphil.lumatv.gfn: {
+    "appId": "org.nphil.lumatv.gfn",
+    "returnValue": true
+}
+04:55:06 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:55:39 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:55:42 step4 start: last key before this run at 04:55:00 (GFN check); power Active
+04:55:43 step4: keys RIGHT LEFT at t=0 (Home in front)

@@ -1,0 +1,14 @@
+frame-rate probe: youtube50-20261026-0407
+samples 1467 over 74.98 s; DE vsync 185.6 Hz at the start, 149.5 Hz at the end; OSD vsync 119.6 Hz at the end
+marks: launch at 2.89 s, keys at 15.08 s, home at 62.33 s, end at 72.48 s
+source rate seen by the DE (0.1 Hz): 0 at 0.0 s
+decoder vsync (hz, fixed): 
+decoder HFR fixed: False; vo hfr flag: False
+switches: none
+firmware mute (localmute) spans: [(0.0, 74.98, 777)]
+app video mute spans (setAvMute): none seen
+vsync gaps over 30 ms: none
+screen: 388 shots; black [(3.14, 62.24)]; frozen [(-0.01, 2.94), (62.44, 63.73), (64.98, 65.21), (69.13, 69.34), (70.81, 73.95)]
+no output-rate switch: the panel stayed in the 120 Hz band for the whole run
+no video: the DE saw no source rate and no decoder vsync, so nothing played
+VERDICT: FAIL: no evidence

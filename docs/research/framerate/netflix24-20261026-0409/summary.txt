@@ -1,0 +1,13 @@
+frame-rate probe: netflix24-20261026-0409
+samples 1310 over 66.99 s; DE vsync 157.7 Hz at the start, 232.0 Hz at the end; OSD vsync 120.6 Hz at the end
+marks: launch at 2.91 s, keys at 17.06 s, end at 64.3 s
+source rate seen by the DE (0.1 Hz): 0 at 0.0 s, 599 at 12.02 s, 239 at 13.55 s
+decoder vsync (hz, fixed): 23.97/0 at 13.5 s
+decoder HFR fixed: False; vo hfr flag: False
+switches: none
+firmware mute (localmute) spans: [(0.0, 14.38, 777)]
+app video mute spans (setAvMute): [(11.82, 13.58)]
+vsync gaps over 30 ms: none
+screen: 471 shots; black [(3.06, 10.65), (14.62, 66.97)]; frozen [(-0.01, 2.84), (13.13, 14.33)] (protected video: black by design)
+no output-rate switch: the panel stayed in the 120 Hz band for the whole run
+VERDICT: PASS: every switch clean (no firmware mute, no vsync gap)

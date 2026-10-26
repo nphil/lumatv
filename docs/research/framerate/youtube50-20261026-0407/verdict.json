@@ -1,0 +1,102 @@
+{
+ "samples": 1467,
+ "seconds": 74.98,
+ "marks": [
+  [
+   2.89,
+   "launch"
+  ],
+  [
+   15.08,
+   "keys"
+  ],
+  [
+   62.33,
+   "home"
+  ],
+  [
+   72.48,
+   "end"
+  ]
+ ],
+ "de_hz_first": 185.6,
+ "de_hz_last": 149.5,
+ "osd_hz_last": 119.6,
+ "switches": [],
+ "vsync_gaps": [],
+ "firmware_mute": [
+  [
+   0.0,
+   74.98,
+   777
+  ]
+ ],
+ "app_video_mute": [],
+ "source_rate": [
+  [
+   0.0,
+   0
+  ]
+ ],
+ "decoder_rate": [],
+ "shots": 388,
+ "black": [
+  [
+   3.14,
+   62.24
+  ]
+ ],
+ "frozen": [
+  [
+   -0.01,
+   2.94
+  ],
+  [
+   62.44,
+   63.73
+  ],
+  [
+   64.98,
+   65.21
+  ],
+  [
+   69.13,
+   69.34
+  ],
+  [
+   70.81,
+   73.95
+  ]
+ ],
+ "videooutput": [
+  [
+   0.01,
+   [
+    {
+     "sink": "MAIN",
+     "frameRate": 0,
+     "muted": false,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    },
+    {
+     "sink": "SUB0",
+     "frameRate": 0,
+     "muted": true,
+     "connected": false,
+     "appId": "unknown",
+     "contentType": "unknown"
+    }
+   ]
+  ]
+ ],
+ "decoder_hfr_fixed": false,
+ "de_hfr": false,
+ "evidence": false,
+ "clean": false,
+ "words": [
+  "no output-rate switch: the panel stayed in the 120 Hz band for the whole run",
+  "no video: the DE saw no source rate and no decoder vsync, so nothing played"
+ ]
+}
