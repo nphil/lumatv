@@ -261,7 +261,7 @@ def main(argv=None):
     for kind in DEFAULTS:
         for spec in getattr(a, kind):
             ms, _, js = spec.partition(':')
-            QtCore.QTimer.singleShot(int(ms), lambda k=kind, j=js: publish(k, doc(k, j)))
+            QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda k=kind, j=js: publish(k, doc(k, j)))
 
     def press(keys):
         for name in keys.split(','):
@@ -272,7 +272,7 @@ def main(argv=None):
                 app.sendEvent(view, QtGui.QKeyEvent(typ, key, QtCore.Qt.NoModifier))
     for spec in a.press:
         ms, _, keys = spec.partition(':')
-        QtCore.QTimer.singleShot(int(ms), lambda k=keys: press(k))
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda k=keys: press(k))
 
     def probe(name, prop):
         ok = QtCore.QMetaObject.invokeMethod(root, 'probe', QtCore.Qt.DirectConnection, QtCore.Q_RETURN_ARG('QVariant'), QtCore.Q_ARG('QVariant', name), QtCore.Q_ARG('QVariant', prop))
@@ -281,7 +281,7 @@ def main(argv=None):
     for spec in a.probe:
         ms, name, prop = spec.split(':', 2)
         probes.append(int(ms))
-        QtCore.QTimer.singleShot(int(ms), lambda n=name, p=prop: probe(n, p))
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda n=name, p=prop: probe(n, p))
 
     def shot(path):
         img = view.grabWindow()
@@ -296,12 +296,14 @@ def main(argv=None):
         else:
             shots.append((a.wait, spec))
     for ms, path in shots:
-        QtCore.QTimer.singleShot(ms, lambda p=path: shot(p))
+        QtCore.QTimer.singleShot(ms, QtCore.Qt.PreciseTimer, lambda p=path: shot(p))
 
-    QtCore.QTimer.singleShot(max([a.wait] + probes + [m for m, _ in shots]) + 200, app.quit)
-    if a.calls:
-        QtCore.QTimer.singleShot(max([a.wait] + probes + [m for m, _ in shots]) + 100, lambda: print('[calls] %s' % QtCore.QMetaObject.invokeMethod(
-            root, 'calls', QtCore.Qt.DirectConnection, QtCore.Q_RETURN_ARG('QVariant')), flush=True))
+    def finish():
+        # one timer, not two 100 ms apart: Qt's coarse timers may fire in either order within their 5 % slack, and quitting first loses the calls
+        if a.calls:
+            print('[calls] %s' % QtCore.QMetaObject.invokeMethod(root, 'calls', QtCore.Qt.DirectConnection, QtCore.Q_RETURN_ARG('QVariant')), flush=True)
+        app.quit()
+    QtCore.QTimer.singleShot(max([a.wait] + probes + [m for m, _ in shots]) + 200, QtCore.Qt.PreciseTimer, finish)
     app.exec_()
 
     own = [m for m in messages if m[0] in (1, 2, 3) and not IGNORE.search(m[3])]

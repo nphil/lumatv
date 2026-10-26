@@ -151,7 +151,8 @@ class OnTheSet(unittest.TestCase):
         for name in ("home", "hdmi2", "netflix"):
             report = slot.parse_report(load(os.path.join(self.r, name + ".json")))
             self.assertTrue(report["connected"], name)
-            self.assertGreater(report["frames"], 10, name)
+            # a one-second capture at the default rate is about DEFAULT_HZ frames, one more or fewer by where the second starts
+            self.assertGreaterEqual(report["frames"], slot.DEFAULT_HZ // 2, name)
             self.assertEqual(report["closed_by"], "deadline")
             self.assertEqual(len(report["zones"]), 16)
             self.assertIn("frames a second", slot.verdict(report, load(os.path.join(self.r, name + ".service.log")), ""))

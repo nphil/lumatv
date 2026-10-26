@@ -115,6 +115,11 @@ class VoiceSearch(HostCase):
         self.assertEqual(json.loads(got["posts"]), ["/v1/voice/listen"])
 
 
+# Right enters the page on its first stop (pointer); the voice switch (off by default) is nine stops on: pointer, speed, size, number keys,
+# gear hold, the four app keys, then the switch.
+TO_SWITCH = ["down"] * 9
+
+
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
 class VoiceSwitch(HostCase):
     """The Voice row of Settings, Remote & pointer: the helper's `base.voice` switch, and the helper's words for what is missing."""
@@ -131,14 +136,13 @@ class VoiceSwitch(HostCase):
         return self.tagged(out, "posts")[-1]["posts"], self.docs(out)[-1]
 
     def test_the_switch_is_a_helper_setting_and_changes_nothing_else(self):
-        # pointer, speed, size, number keys, then the voice switch (it is off by default)
-        posts, _ = self.page("down", "down", "down", "down", "ok")
+        posts, _ = self.page(*TO_SWITCH, "ok")
         self.assertEqual([p for p in posts if p[0] == "/v1/settings/base.voice"],
                          [["/v1/settings/base.voice", {"changes": [{"key": "enabled", "value": {"type": "bool", "value": True}}]}]])
         self.assertEqual([p[0] for p in posts if "voice" in p[0] and p[0] != "/v1/settings/base.voice"], [], "the page never starts a request")
 
     def test_what_is_missing_is_said_under_the_switch_once_it_is_on(self):
-        posts, note = self.page("down", "down", "down", "down", "ok", publish={"state": "idle", "session": 0, "ready": False, "reason": "voice_unlinked"})
+        posts, note = self.page(*TO_SWITCH, "ok", publish={"state": "idle", "session": 0, "ready": False, "reason": "voice_unlinked"})
         self.assertIn("not linked", note["text"])
         self.assertTrue(note["shown"], "voice search is on and cannot listen: the page says why")
 

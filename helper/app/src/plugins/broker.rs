@@ -99,17 +99,20 @@ impl Outlet for ConnCtl {
             return false;
         };
         let length = frame.len();
+        // Counted before the writer can take the frame: counted after, the writer's subtraction can come first and wrap the count.
+        self.queued.fetch_add(length, Ordering::SeqCst);
         match tx.try_send(frame) {
-            Ok(()) => {
-                self.queued.fetch_add(length, Ordering::SeqCst);
-                true
-            }
+            Ok(()) => true,
             Err(TrySendError::Full(_)) => {
+                self.queued.fetch_sub(length, Ordering::SeqCst);
                 drop(guard);
                 self.close();
                 false
             }
-            Err(TrySendError::Disconnected(_)) => false,
+            Err(TrySendError::Disconnected(_)) => {
+                self.queued.fetch_sub(length, Ordering::SeqCst);
+                false
+            }
         }
     }
 }
@@ -269,6 +272,16 @@ impl Broker {
             });
         }
         if !all.is_empty() {
+            // The writer threads put Shutdown on the wire; closing before they have (a loaded machine can starve one for longer than a
+            // fixed pause) would lose it. Bounded by the grace the plugin was told.
+            let flushed = Instant::now() + Duration::from_millis(300);
+            while Instant::now() < flushed
+                && all.iter().any(|(ctl, _)| {
+                    !ctl.closed.load(Ordering::SeqCst) && ctl.queued.load(Ordering::SeqCst) > 0
+                })
+            {
+                thread::sleep(Duration::from_millis(2));
+            }
             thread::sleep(Duration::from_millis(150));
         }
         for (ctl, _) in &all {
@@ -584,7 +597,9 @@ fn run(
     let mut inbox = Inbox::new();
     let mut bucket = Bucket::new();
     'connection: loop {
-        if ctl.closed.load(Ordering::SeqCst) || inner.stopping.load(Ordering::SeqCst) {
+        // `stopping` is not tested here: the connection ends by `shutdown`, which sends Shutdown and then closes it. Ending on the flag
+        // finishes the writer's queue before Shutdown is on it, and the plugin sees the stream close without being told why.
+        if ctl.closed.load(Ordering::SeqCst) {
             break;
         }
         // Sleep until data, the handshake's end, or the session's next deadline.

@@ -189,6 +189,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tokens.py`, `systemui.py` and `systemui_patch.py`.
 - The "auto" light or dark glass choice read a canvas that stayed empty on
   this firmware, so it always chose dark. It now reads the wallpaper.
+- A plugin could be cut off when the helper stopped without its Shutdown message: the connection
+  ended on the stopping flag before Shutdown was queued, and was closed before the queue was
+  written. The outbox byte count could also wrap when the writer took a frame before it was counted.
 
 ### Added
 
