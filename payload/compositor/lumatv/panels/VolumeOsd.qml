@@ -151,12 +151,13 @@ Item {
     readonly property int glyph: 32
     readonly property int barMin: 140
     readonly property real fmtLimit: 360          // a long format is cut here, not allowed to widen the bar
-    // the widest level it shows, so the bar's start does not move as the digits change
-    readonly property real numW: Math.max(Math.ceil(numMetrics.width), glyph)
-    readonly property real fmtW: format !== "" ? Math.min(Math.ceil(fmtMetrics.width), fmtLimit) : 0
-    readonly property real rowH: Math.max(numMetrics.height, fmtMetrics.height, glyph)
-    TextMetrics { id: numMetrics; font: numText.font; text: "-88.8" }
-    TextMetrics { id: fmtMetrics; font: fmtText.font; text: osd.format !== "" ? osd.format : "Dolby" }
+    // the widest level it shows, so the bar's start does not move as the digits change. Measured by text items of the same role, as
+    // drawn: TextMetrics' bounding width is a few px under the advance a Text needs (140 against 144 for "PCM · Surround" at the
+    // caption size), which elided the format to "PCM · Surrou…" on the set
+    readonly property real numW: Math.max(Math.ceil(numProbe.implicitWidth), glyph)
+    readonly property real fmtW: format !== "" ? Math.min(Math.ceil(fmtText.implicitWidth), fmtLimit) : 0
+    readonly property real rowH: Math.max(numProbe.implicitHeight, fmtText.implicitHeight, glyph)
+    LuText { id: numProbe; visible: false; role: "label"; font.weight: Font.DemiBold; text: "-88.8" }
     LuPane {
         id: card
         width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.fmtW > 0 ? osd.gap + osd.fmtW : 0))
