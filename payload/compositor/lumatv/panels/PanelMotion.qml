@@ -2,8 +2,8 @@ import QtQuick 2.4
 import "../kit"
 
 // How a panel arrives and leaves: one number, `progress`, from 0 (away) to 1 (shown), moved by one animation. The panel draws itself
-// from it with transforms and opacity only (a slide from its edge and a fade), so nothing is laid out while it moves and a panel over
-// video costs the same as one over Home. The host says when the panel is wanted (`presented`, set by Resident); a panel that is no longer
+// from it with a transform only (a slide from its edge; an opacity that changes re-batches what it covers every frame), so nothing is
+// laid out while it moves. The host says when the panel is wanted (`presented`, set by Resident); a panel that is no longer
 // wanted stays drawn until it has gone (`leaving`, which Resident reads to keep it visible). Reduced motion keeps only a short fade.
 //
 // Durations: Lucent's layer motion is 220 ms in and 180 ms out, but the PLAN's gate wants the burst of frames a key starts to be over 180 ms

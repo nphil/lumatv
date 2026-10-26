@@ -135,17 +135,18 @@ class HomePanels(HostCase):
         self.assertEqual(p["b"], ["picker", 0], "the picker replaced the quick panel")
         self.assertEqual(p["c"], ["quick", False, 0], "Settings gave way to the panel")
 
-    def test_nothing_that_covers_the_screen_fades_while_a_panel_slides(self):
-        # Each change of a full-screen item's opacity made Qt's renderer batch the whole scene under it again, every frame of the slide
-        # (round 11 over Home: quick p90 3.70 ms). The scrim is whole from the first frame; only the sheet moves and fades.
-        cover = ("var c = s.children, f = []; for (var i = 0; i < c.length; i++) if (c[i].visible && c[i].width >= root.width "
-                 "&& c[i].height >= root.height) f.push(c[i].opacity); return {drawn: s.visible, progress: s.progress, full: f};")
+    def test_nothing_fades_while_a_panel_slides(self):
+        # Each change of an item's opacity made Qt's renderer batch what it covers again, every frame of the slide: the scrim all of Home
+        # (round 11 over Home: quick p90 3.70 ms), the sheet itself, and the frame where it passed 1 the whole render list (round 12:
+        # 3.1-4.5 ms frames). The scrim is whole from the first frame and the sheet only moves.
+        layers = ("var c = s.children, f = [], full = 0; for (var i = 0; i < c.length; i++) if (c[i].visible) { f.push(c[i].opacity); "
+                  "if (c[i].width >= root.width && c[i].height >= root.height) full++ } return {drawn: s.visible, progress: s.progress, ops: f, full: full};")
         for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
             # The software renderer's first frame of a panel can outlast the slide; a probe before the slide has ended is enough (the faded
             # scrim drew at the opacity of the progress, 0 at the start).
             steps = list(probe(READY + 500, "open", "return bus().open('%s');" % kind))
             for k in range(16):
-                steps += probe(READY + 510 + 25 * k, "mid%d" % k, "var s = find(root, '%s'); " % find + cover)
+                steps += probe(READY + 510 + 25 * k, "mid%d" % k, "var s = find(root, '%s'); " % find + layers)
             rc, out = self.host(*steps, "--wait", str(READY + 1000))
             self.assertEqual(rc, 0, out[-2500:])
             p = probes(out)
@@ -153,8 +154,8 @@ class HomePanels(HostCase):
             drawn = [m for m in (p["mid%d" % k] for k in range(16)) if m["drawn"]]
             self.assertTrue(any(m["progress"] < 1 for m in drawn), "no probe saw the %s before its slide ended: %s" % (kind, drawn))
             for m in drawn:
-                self.assertTrue(m["full"], "the %s has no full-screen scrim" % kind)
-                self.assertEqual(set(m["full"]), {1}, "a full-screen item of the %s faded at progress %s" % (kind, m["progress"]))
+                self.assertEqual(m["full"], 1, "the %s has no full-screen scrim" % kind)
+                self.assertEqual(set(m["ops"]), {1}, "a layer of the %s faded at progress %s: %s" % (kind, m["progress"], m["ops"]))
 
     def test_each_reading_of_the_inputs_lets_the_last_subscription_go(self):
         # LG's Service keeps a subscription open until it is cancelled; the picker and the quick panel read the inputs at every opening
@@ -170,6 +171,24 @@ class HomePanels(HostCase):
         for (asked, cancelled), what in zip(json.loads(self.values(out)[-1]), ("input status", "foreground app")):
             self.assertGreaterEqual(asked, 4, "the %s was not read at each opening" % what)
             self.assertEqual(asked - cancelled, 1, "%d subscriptions to the %s left open" % (asked - cancelled, what))
+
+    def test_the_picker_opening_again_does_not_start_its_tiles_lift_over(self):
+        # pickFront used to pass the focus through the first tile, which restarted the front tile's lift and halo at every opening and again
+        # when the readings came: 180 ms more of frames after the slide, each one re-batching the scene
+        scan = ("var s = find(root, 'soundLine'); var out = []; function walk(p) { for (var i = 0; i < p.children.length; i++) { var c = p.children[i]; "
+                "if (c.scale !== 1) out.push(Math.round(c.scale * 1000) / 1000); walk(c) } } walk(s); return out;")
+        steps = list(probe(READY + 300, "first", "return bus().open('picker');"))
+        steps += probe(READY + 1200, "closed", "root.closeLayer(); return root.layerOpen;")
+        steps += probe(READY + 1700, "again", "return bus().open('picker');")
+        for j, dt in enumerate((5, 60, 120, 200, 300, 450, 700)):
+            steps += probe(READY + 1700 + dt, "s%d" % j, scan)
+        rc, out = self.host(*steps, "--wait", str(READY + 2600))
+        self.assertEqual(rc, 0, out[-2500:])
+        p = probes(out)
+        self.assertEqual((p["first"], p["closed"], p["again"]), (True, "", True))
+        seen = [p["s%d" % j] for j in range(7)]
+        self.assertTrue(all(len(s) == 1 for s in seen), "one lifted plate, the focused tile's: %s" % seen)
+        self.assertEqual(len({s[0] for s in seen}), 1, "the focused tile's lift moved while the picker opened again: %s" % seen)
 
     def test_a_panel_is_not_shown_when_the_owner_turned_it_off_or_Home_is_not_in_front(self):
         rc, out = self.host(
@@ -229,11 +248,12 @@ class OverlayPanels(HostCase):
             (1200, "ready", "return [overlay.panelReady('quick'), overlay.panelReady('picker'), overlay.flatGlass];"),
             (1250, "nodes0", panel + "return nodes(s);"),
             (1300, "open", "return [overlay.panel('quick'), overlay.surface, overlay.wants, overlay.up];"),
-            (2000, "shown", panel + "return {progress: s.progress, x: s.slideX, y: s.slideY, w: s.sheetW, h: s.sheetH, presented: s.presented, nodes: nodes(s)};"),
-            (2100, "down", panel + "overlay.key(Qt.Key_Down, true, false, 0); overlay.key(Qt.Key_Down, false, false, 0); return s.focusId;"),
-            (2200, "back", panel + "overlay.key(Qt.Key_Back, true, false, 0); overlay.key(Qt.Key_Back, false, false, 0); return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
-            (2900, "gone", panel + "return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
-        ], 3300)
+            # the software renderer's first showing of the overlay's panel compiles its programs; the slide counts frames, not time
+            (2400, "shown", panel + "return {progress: s.progress, x: s.slideX, y: s.slideY, w: s.sheetW, h: s.sheetH, presented: s.presented, nodes: nodes(s)};"),
+            (2500, "down", panel + "overlay.key(Qt.Key_Down, true, false, 0); overlay.key(Qt.Key_Down, false, false, 0); return s.focusId;"),
+            (2600, "back", panel + "overlay.key(Qt.Key_Back, true, false, 0); overlay.key(Qt.Key_Back, false, false, 0); return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
+            (3300, "gone", panel + "return [overlay.surface, s.leaving, s.visible, overlay.visible, overlay.panelLeaving];"),
+        ], 3700)
         self.assertEqual(p["idle"], [False, False], "nothing over Home: Home draws its own")
         self.assertEqual(p["ready"], [True, True, True], out[-2000:])
         self.assertEqual(p["open"], [True, "quick", True, True])
@@ -262,11 +282,12 @@ class OverlayPanels(HostCase):
         p, out = self.overlay_host([
             (1000, "front", "overlay.appFront = true; return 1;"),
             (1200, "open", "return [overlay.panel('picker'), overlay.surface];"),
-            (2000, "at", pick + "return {index: s.index, n: s.tiles.length, y: s.sheetY, progress: s.progress};"),
-            (2100, "next", pick + "var i = s.index; overlay.panel('picker'); return [i, s.index, overlay.surface];"),
-            (2200, "ok", pick + "var t = s.tiles[s.index]; overlay.key(Qt.Key_Return, true, false, 0); return [t.appId, overlay.surface];"),
-            (2300, "calls", "return JSON.parse(%s);" % CALLS),
-        ], 3000)
+            # the software renderer's first showing of the overlay's picker compiles its programs; the slide counts frames, not time
+            (2400, "at", pick + "return {index: s.index, n: s.tiles.length, y: s.sheetY, progress: s.progress};"),
+            (2500, "next", pick + "var i = s.index; overlay.panel('picker'); return [i, s.index, overlay.surface];"),
+            (2600, "ok", pick + "var t = s.tiles[s.index]; overlay.key(Qt.Key_Return, true, false, 0); return [t.appId, overlay.surface];"),
+            (2700, "calls", "return JSON.parse(%s);" % CALLS),
+        ], 3400)
         self.assertEqual(p["open"], [True, "picker"])
         self.assertEqual((p["at"]["progress"], p["at"]["y"]), (1, 612))
         self.assertEqual(p["next"][1], (p["next"][0] + 1) % p["at"]["n"])

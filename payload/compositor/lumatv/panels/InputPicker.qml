@@ -23,7 +23,7 @@ Item {
     readonly property bool built: true
 
     // Resident says when the picker is wanted (`presented`) and keeps it drawn while `leaving`; the sheet rises from the bottom edge and
-    // back (PanelMotion: a transform and a fade, no layout while it moves; reduced motion is a fade)
+    // back (PanelMotion: a transform, no layout while it moves; reduced motion is a fade)
     property bool presented: false
     readonly property bool leaving: motion.leaving
     PanelMotion { id: motion; presented: picker.presented }
@@ -41,9 +41,12 @@ Item {
     }
 
     property bool moved: false              // a key has moved the choice since the picker came up
+    // One assignment: a passing `index = 0` took the focus off the front tile and gave it back, which restarted its lift and halo at every
+    // opening and again when the readings came (180 ms of frames that re-batched the scene, after the slide)
     function pickFront() {
-        index = 0
-        for (var i = 0; i < tiles.length; i++) if (tiles[i].front) { index = i; break }
+        var at = 0
+        for (var i = 0; i < tiles.length; i++) if (tiles[i].front) { at = i; break }
+        index = at
     }
     // The open path only picks the tile and starts the slide. The readings (each answer rebinds every tile) are asked for once the slide is
     // over and the burst of frames the key started has ended; until then the tiles say what the last reading did. If the input in front
@@ -80,10 +83,11 @@ Item {
         id: sheet
         x: 64; width: 1792
         height: Math.max(404, tileRow.y + tileRow.childrenRect.height + Lu.space(6))       // the shape of the mock; taller only when the words need it
-        // the one thing that moves: the sheet rises from the bottom edge and fades in (a transform and an opacity; nothing is laid out)
+        // the one thing that moves: the sheet rises from the bottom edge (a transform; nothing is laid out). No fade on the way: an opacity
+        // change re-batches the sheet each frame (QuickPanel.qml has the numbers); reduced motion is the fade alone.
         readonly property real rise: Lu.reduced ? 0 : (height + 64) * (1 - motion.progress)
         y: 1080 - 64 - height + rise
-        opacity: Lu.reduced ? motion.progress : Math.min(1, motion.progress * 2.5)
+        opacity: Lu.reduced ? motion.progress : 1
         onYChanged: if (motion.moving) locate()
         Row {
             id: head

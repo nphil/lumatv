@@ -6,8 +6,8 @@ import "../settings"
 
 // The quick panel (docs/mocks/10-quick-panel, laid out as LG's Quick Settings is): a tall narrow sheet docked to the left edge, 492 by 1008,
 // 24 from the edges (measured on LG's own panel, caps/luma/qs_res_warm.png), with the few things reached for most, one row each (QuickList):
-// Left and Right change a value, OK opens the page that has more. It slides out from the left edge and back (PanelMotion: a transform and
-// a fade, no layout while it moves; reduced motion is a fade). Built once and kept, like Quick Settings after the patch that keeps LG's
+// Left and Right change a value, OK opens the page that has more. It slides out from the left edge and back (PanelMotion: a transform, no
+// layout while it moves; reduced motion is a fade). Built once and kept, like Quick Settings after the patch that keeps LG's
 // panel built: opening it is a visibility flip and the start of the slide.
 //
 // The receiver tile reads the helper's `receiver` topic and moves the volume the way the volume keys do, through the TV (`audio/master/
@@ -113,8 +113,10 @@ Item {
     // 2.31 ms over an input, where little is under it).
     Rectangle { anchors.fill: parent; color: Lu.scrim }
 
-    // The one thing that moves: the sheet slides out of the left edge and fades in. Only x and opacity change per frame, so nothing is
-    // laid out while it moves; the glass finds its place in the wallpaper's blur again as it goes (LuPane.locate).
+    // The one thing that moves: the sheet slides out of the left edge. Only x changes per frame, so nothing is laid out while it moves; the
+    // glass finds its place in the wallpaper's blur again as it goes (LuPane.locate). It does not fade as it travels: the frame where its
+    // opacity passed 1 rebuilt the whole render list and every frame below 1 re-batched the sheet (round 12 over Home: the second frame of
+    // an opening and the fourth and fifth of a closing, 3.1-4.5 ms against about 2 ms for the others). Reduced motion is the fade alone.
     Item {
         id: slide
         readonly property real travel: panel.edge + panel.sheetW
@@ -122,7 +124,7 @@ Item {
         y: panel.edge
         width: panel.sheetW
         height: panel.sheetH
-        opacity: Lu.reduced ? motion.progress : Math.min(1, motion.progress * 2.5)
+        opacity: Lu.reduced ? motion.progress : 1
         onXChanged: if (motion.moving) sheet.locate()
 
         LuPane {
