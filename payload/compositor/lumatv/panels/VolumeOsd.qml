@@ -25,7 +25,7 @@ import "../kit/AudioFormat.js" as AudioFormat
 //
 // When it opens: the audio service reports a change (a volume key, a mute, Home Assistant, an app: the moments LG's popup opened for), or
 // the receiver reports a new level or mute (its own remote too). It goes `holdMs` after the last of either. While the sound is muted a small
-// mark stays in the top corners and moves every ten seconds, as LG's mute bubble did: a still mark is what an OLED panel must not hold.
+// mark stays at the top (the corners over an app, the status bar's row over Home) and moves every ten seconds, as LG's mute bubble did: a still mark is what an OLED panel must not hold.
 // Never in the lower third (subtitles) or the middle of the picture.
 //
 // `enabledHere` is the host's switch. `overVideo` says the bar is over an app's picture (the overlay): its glass then lets the picture through
@@ -252,14 +252,19 @@ Item {
         Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: Lu.restMs } }
         LuPane {
             id: mark
-            // The top corners, inside the 5 % safe area (96 x 54 of 1920 x 1080) and below Home's status bar (layout.json: 54 + 60, then its 20 gap),
-            // so neither the bar's items nor Netflix's subtitles (the lower third) sit under it. It visits the four in turn.
+            // Over an app: the top corners, inside the 5 % safe area (96 x 54 of 1920 x 1080) and below Home's status bar height (layout.json: 54 + 60,
+            // then its 20 gap), clear of subtitles (the lower third) and of the middle of the picture. Over Home (and its saver) the corners are
+            // widgets, so it hops along the status bar's row between its left and right groups, where Home draws nothing: the top edge is the only
+            // part of the screen the widgets and the saver's clock never use.
             readonly property int edgeX: 96
             readonly property int topY: 134
             readonly property int inner: 94       // LG's bubble moves this far
-            readonly property var spots: [
+            readonly property int barY: 52        // the status bar's row (safe y 54, 60 high) centred on the bubble
+            readonly property var spots: osd.overVideo ? [
                 { x: edgeX, y: topY }, { x: osd.width - edgeX - 64, y: topY },
-                { x: osd.width - edgeX - 64 - inner, y: topY + inner }, { x: edgeX + inner, y: topY + inner }]
+                { x: osd.width - edgeX - 64 - inner, y: topY + inner }, { x: edgeX + inner, y: topY + inner }] : [
+                { x: 560, y: barY }, { x: 760, y: barY }, { x: 1160, y: barY }, { x: 1360, y: barY }]
+            onSpotsChanged: Qt.callLater(locate)
             property int place: 0                 // the index into spots
             width: 64; height: 64                 // the TV's smallest target: a speaker with a slash says it all
             x: spots[place].x

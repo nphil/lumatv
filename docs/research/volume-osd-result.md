@@ -57,8 +57,8 @@ second one (a test fails if they do). The display takes no key and no focus.
   `visible` only when used), the fill animates for 100 ms. Offline, from the audio service's report to the next presented frame: see `volume_sheet.py --latency`.
 - **Mute**: the number gives way to a slashed speaker and the bar is dimmed; no word. From the receiver's `MU` push or, with no receiver, the TV's mute
   (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays while the sound is
-  muted, in the top corners (x 96 from either edge, y 134 below the status bar, or 94 px further in and down; never the lower third, where Netflix draws
-  its subtitles, nor the middle), visiting the four places in turn every 10 s so no pixel holds a still mark, as LG's bubble did. TV round 11 showed the
+  muted, over an app in the top corners (x 96 from either edge, y 134 below the status bar, or 94 px further in and down; never the lower third, where Netflix draws
+  its subtitles, nor the middle), over Home and its saver along the status bar's row (y 52, x 560 to 1360: Home's corners are the clock and weather widgets), visiting the four places in turn every 10 s so no pixel holds a still mark, as LG's bubble did. TV round 11 showed the
   first form, at the lower middle, on the subtitles (`round9/r11-2026-10-26/netflix-mute-hop.png`); `11-volume-osd-mark-netflix` renders the four places over that capture. The receiver's mute is kept while the
   helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped 1.5 s after the readings stop.
 - **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format need (the format is cut at 360 px), 56 to 64 px tall (the label type

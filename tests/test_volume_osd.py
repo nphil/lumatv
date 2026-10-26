@@ -227,6 +227,20 @@ class VolumeOsd(HostCase):
         self.assertEqual(got["back"].split("|")[0], "true", "the receiver's unmute shows the pane again")
         self.assertEqual(got["after"], "false|false|receiver|46|false|false", "unmuted: nothing stays")
 
+    def test_over_home_the_mark_hops_along_the_status_bars_row_between_its_groups(self):
+        # Home's corners are widgets (the clock top left, the weather top right) and the saver's clock roams the safe area: only the top edge is free
+        steps = [(300, do("o.holdMs = 1500; o.hopMs = 1500; o.staleMs = 60000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+                 (B + 2000, rx(dict(RX, mute=True)), "mute")]
+        steps += [(B + 5100 + i * 1000, on_osd("[o.markPlace, o.markX, o.markY].join('|')"), "place%d" % i) for i in range(6)]
+        got, _ = self.run_osd(steps, B + 11500, home=True)
+        layout = json.load(open(os.path.join(os.path.dirname(HERE), "payload", "theme", "layout.json")))
+        top, bottom = layout["safe"]["y"], layout["safe"]["y"] + layout["statusBar"]["height"]
+        spots = [tuple(int(v) for v in got["place%d" % i].split("|")) for i in range(6)]
+        self.assertGreaterEqual(len(set(s[0] for s in spots)), 2, "the mark moves: %s" % spots)
+        for _, x, y in spots:
+            self.assertTrue(top - 8 <= y and y + 64 <= bottom + 8, "in the status bar's row: %d" % y)
+            self.assertTrue(400 <= x and x + 64 <= 1500, "between the profile on the left and the three icons on the right: %d" % x)
+
     def test_the_tvs_own_mute_shows_and_stays_when_there_is_no_receiver(self):
         got, _ = self.run_osd([
             (300, do("o.holdMs = 1500"), "hold"), (B, sound_out("tv_speaker", 18, True), "out"), (B + 200, rx(GONE), "rx"),

@@ -165,6 +165,13 @@ for _name, _shot in (("11-volume-osd-mark-netflix", "netflix-mute-hop.png"), ("1
     scene(_name, runner=True)(netflix_mark(_name, _shot))
 
 
+@scene("11-volume-osd-mark-home", runner=True)
+def _(out_dir, material):
+    """Muted over Home: the mark in the status bar's row, between the profile and the icons, clear of the clock and weather widgets."""
+    return render("11-volume-osd-mark-home", out_dir, material,
+                  [sound_out(B), receiver_at(B + 200, dict(RX, mute=True)), osd_at(B + 300, "o.holdMs = 300"), key_at(B + 2000, "mute", None, True)], B + 4500, over="home")
+
+
 @scene("11-volume-osd-tv", runner=True)
 def _(out_dir, material):
     """No receiver (it does not answer): the TV's own volume, which is what the keys changed."""
