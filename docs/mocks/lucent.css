@@ -430,7 +430,7 @@ body {
 
 /* ---- volume and mute display: a slim bar at the bottom centre, 64 px above the edge, clear of subtitles (Lucent catalogue: compact overlay, no focus).
    Over video the glass is painted at the reading alpha (theme.json readingAlpha, .8) so the picture shows through; the ink holds 7:1 against the worst
-   frame (tests/test_osd_contrast.py). The number, a thin bar filled in the ink and, when the receiver says what it plays, the format in small words. ---- */
+   frame (tests/test_osd_contrast.py). The number, a thin bar filled in the ink and, when the receiver says what it plays in a format that has a mark, that mark. ---- */
 :root, [data-theme="dark"] { --osd-glass: rgba(18, 14, 26, .80); }
 [data-theme="light"] { --osd-glass: rgba(255, 255, 255, .80); }
 [data-video] .osd, [data-video] .osd-mark { background: var(--osd-glass); }
@@ -438,6 +438,13 @@ body {
 .osd .num { font-size: 26px; font-weight: 600; line-height: 34px; font-variant-numeric: tabular-nums; white-space: nowrap; width: 70px; text-align: right; flex: none; }
 .osd .ic { width: 32px; height: 32px; flex: none; margin: 0 19px; }
 .osd .cap { font-size: 24px; font-weight: 400; line-height: 32px; white-space: nowrap; flex: none; }
+/* The format marks (payload/.../icons/audio, one-colour masks) painted in the ink. 28 px tall, the label size's 26 x 1.08, and no wider than 7 times that:
+   Dolby Audio, 8.8 times as wide as it is tall, is drawn at 22. Drawing them from the file by mask needs the renderer to allow file access. */
+.osd .logo { flex: none; display: block; background: var(--lu-ink); -webkit-mask: var(--mark) center / contain no-repeat; mask: var(--mark) center / contain no-repeat; }
+.osd .logo.atmos { --mark: url("../../payload/compositor/lumatv/icons/audio/atmos.png"); height: 28px; width: 109px; }
+.osd .logo.dolby { --mark: url("../../payload/compositor/lumatv/icons/audio/dolby.png"); height: 22px; width: 193px; }
+.osd .logo.dts { --mark: url("../../payload/compositor/lumatv/icons/audio/dts.png"); height: 28px; width: 72px; }
+.osd .logo.dtsx { --mark: url("../../payload/compositor/lumatv/icons/audio/dtsx.png"); height: 28px; width: 79px; }
 .osd .htrack { position: relative; flex: 1 0 140px; height: 8px; border-radius: 4px; background: var(--lu-track-off); }
 .osd .htrack i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--lu-ink); }
 [data-v="muted"] .osd .htrack i { background: var(--lu-ink-3); }

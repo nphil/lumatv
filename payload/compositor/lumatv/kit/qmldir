@@ -10,6 +10,7 @@ LuButton 1.0 LuButton.qml
 LuSegmented 1.0 LuSegmented.qml
 LuChip 1.0 LuChip.qml
 LuIcon 1.0 LuIcon.qml
+LuLogo 1.0 LuLogo.qml
 LuTile 1.0 LuTile.qml
 LuPane 1.0 LuPane.qml
 LuCard 1.0 LuCard.qml

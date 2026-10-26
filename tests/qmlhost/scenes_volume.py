@@ -24,6 +24,10 @@ RX_DB = dict(RX, volumeAbs=45.5, volumeDb=-34.5, volumeDisplay="relative", volum
 # the same receiver playing a Dolby Digital+ stream, worded as the receiver words them (`soundMode` is its MS text, `signal` its SYSDA text; on the set
 # only "PCM ZERO" with "DOLBY AUDIO-DSUR" has been read so far, while nothing played)
 RX_FMT = dict(RX, soundMode="DOLBY AUDIO-DD+DSUR", signal="DOLBY D+ 5.1")
+# the same receiver over Netflix (read on the set 2026-10-26), over a DTS:X disc (the receiver's published naming) and playing plain stereo
+RX_ATMOS = dict(RX, soundMode="DOLBY ATMOS", signal="Dolby Atmos - DD+")
+RX_DTSX = dict(RX, soundMode="DTS:X", signal="DTS:X")
+RX_PCM = dict(RX, soundMode="STEREO", signal="PCM 2.0")
 GONE = {"enabled": True, "error": None, "fresh": False, "host": "192.168.1.93", "polling": True, "reachable": False}
 
 

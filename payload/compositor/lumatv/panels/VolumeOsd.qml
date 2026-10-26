@@ -4,10 +4,10 @@ import "../kit/AudioFormat.js" as AudioFormat
 
 // The volume and mute display (docs/mocks/11-volume-osd): the only one on the TV. LG's own, the speaker with a + and a -, the level bar and
 // the mute bubble, is switched off in the shadow module (tools/volume_patch.py). This is a slim bar at the bottom centre, over Home, over
-// every app and every input: the level as a number and a thin bar and, while the receiver says what it is playing, the format in small words
-// at the end of it. It takes no key and no focus. It lives in LumaOverlay, the layer that is always up above whatever the compositor shows,
+// every app and every input: the level as a number and a thin bar and, while the receiver says what it is playing in a format that has one, the
+// format's mark (Dolby Atmos, Dolby Audio, DTS:X, DTS) at the end of it, drawn in the bar's ink. It takes no key and no focus. It lives in LumaOverlay, the layer that is always up above whatever the compositor shows,
 // so a volume key answers the same while Plex, HDMI 2 or Live TV is in front as it does on Home.
-// Little copy: the number and the bar, and the format when it is known. Muted, the number gives way to a slashed speaker; no word is shown.
+// Little copy: the number and the bar, and the mark when the format has one; PCM, stereo and what is not known show nothing there. Muted, the number gives way to a slashed speaker; no word is shown.
 //
 // Whose volume it shows. The keys change one device, and which one depends on where the sound goes:
 //   the receiver  the sound leaves over HDMI ARC (or optical) and the Denon is on and answering: its own level in its own units (the helper's
@@ -109,8 +109,10 @@ Item {
     readonly property real fraction: viaReceiver ? (abs >= 0 ? Math.max(0, Math.min(1, abs / 98)) : 0)
                                      : viaTv ? Math.max(0, Math.min(1, TvVolume.volume / TvVolume.volumeMax)) : 0
     readonly property bool muted: viaReceiver ? (keyed && optMute >= 0 ? optMute === 1 : !!rc.mute) : viaTv ? TvVolume.muted : false
-    // what the receiver is playing, in short words (kit/AudioFormat.js); nothing while it does not say or the TV's own sound is what is read
-    readonly property string format: viaReceiver && !muted ? AudioFormat.describe(rc.soundMode, rc.signal) : ""
+    // what the receiver is playing (kit/AudioFormat.js): the mark to draw, and its words, which name the mark for a reader that cannot see it.
+    // Nothing while it does not say, says a format with no mark, or the TV's own sound is what is read
+    readonly property string logoKey: viaReceiver && !muted ? AudioFormat.logo(rc.soundMode, rc.signal) : ""
+    readonly property string format: logoKey !== "" ? AudioFormat.describe(rc.soundMode, rc.signal) : ""
 
     property bool pill: false
     readonly property real paneAlpha: overVideo ? Lu.readingAlpha : 1     // how much of the glass is painted
@@ -168,24 +170,25 @@ Item {
     onFreshChanged: if (!fresh && mutedRx) graceT.restart()
     Timer { id: graceT; interval: osd.graceMs; onTriggered: if (!osd.fresh) osd.mutedRx = false }
 
-    // ---- the bar: a pill at the bottom centre, as long as its number and its format need, so it holds at 200 % text as well
+    // ---- the bar: a pill at the bottom centre, as long as its number and its mark need, so it holds at 200 % text as well
     readonly property int edgeY: 64               // from the bottom edge: the TV's safe area and clear of subtitles
     readonly property int padX: Lu.space(6)       // 24
     readonly property int padY: Lu.space(3)       // 12
-    readonly property int gap: Lu.space(5)        // 20, between the number, the bar and the format
+    readonly property int gap: Lu.space(5)        // 20, between the number, the bar and the mark
     readonly property int glyph: 32
     readonly property int barMin: 140
-    readonly property real fmtLimit: 360          // a long format is cut here, not allowed to widen the bar
-    // the widest level it shows, so the bar's start does not move as the digits change. Measured by text items of the same role, as
-    // drawn: TextMetrics' bounding width is a few px under the advance a Text needs (140 against 144 for "PCM · Surround" at the
-    // caption size), which elided the format to "PCM · Surrou…" on the set
+    // The mark is as tall as the number's text is large (28 px for the label role's 26), so it follows the text size; one that is wider than 7 times
+    // that (Dolby Audio, nine times as wide as it is tall) is drawn smaller, not allowed to widen the bar
+    readonly property int logoH: Math.round(Lu.type("label").size * 1.08)
+    readonly property real logoMaxW: logoH * 7
+    // the widest level it shows, so the bar's start does not move as the digits change. Measured by a text item of the same role, as drawn
     readonly property real numW: Math.max(Math.ceil(numProbe.implicitWidth), glyph)
-    readonly property real fmtW: format !== "" ? Math.min(Math.ceil(fmtText.implicitWidth), fmtLimit) : 0
-    readonly property real rowH: Math.max(numProbe.implicitHeight, fmtText.implicitHeight, glyph)
+    readonly property real logoW: logoKey !== "" && fmtLogo.ready ? fmtLogo.width : 0
+    readonly property real rowH: Math.max(numProbe.implicitHeight, logoH, glyph)
     LuText { id: numProbe; visible: false; role: "label"; font.weight: Font.DemiBold; text: "100" }
     LuPane {
         id: card
-        width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.fmtW > 0 ? osd.gap + osd.fmtW : 0))
+        width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.logoW > 0 ? osd.gap + osd.logoW : 0))
         height: Math.max(56, Math.ceil(osd.rowH) + 2 * osd.padY)
         x: Math.round((osd.width - width) / 2)
         y: osd.height - osd.edgeY - height
@@ -218,7 +221,7 @@ Item {
             visible: osd.source !== "none"
             x: osd.padX + osd.numW + osd.gap
             y: Math.round((card.height - height) / 2)
-            width: card.width - x - osd.padX - (osd.fmtW > 0 ? osd.gap + osd.fmtW : 0)
+            width: card.width - x - osd.padX - (osd.logoW > 0 ? osd.gap + osd.logoW : 0)
             height: Lu.space(2)
             radius: height / 2
             color: Lu.trackOff
@@ -232,15 +235,14 @@ Item {
                 Behavior on width { enabled: !Lu.reduced; NumberAnimation { duration: Lu.focusMs } }
             }
         }
-        LuText {
-            id: fmtText
-            visible: osd.format !== ""
-            x: card.width - osd.padX - osd.fmtW; y: Math.round((card.height - implicitHeight) / 2)
-            width: osd.fmtW
-            horizontalAlignment: Text.AlignRight
-            role: "caption"
-            elide: Text.ElideRight
-            text: osd.format
+        LuLogo {
+            id: fmtLogo
+            visible: osd.logoKey !== ""
+            name: osd.logoKey
+            label: osd.format
+            px: osd.logoH * 2
+            height: aspect > 0 ? Math.min(osd.logoH, Math.round(osd.logoMaxW / aspect)) : osd.logoH
+            x: card.width - osd.padX - width; y: Math.round((card.height - height) / 2)
         }
         // nothing to read: say so
         LuText {

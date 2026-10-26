@@ -7,8 +7,8 @@ holds that number to the TV's distance contrast (7:1, `contrast.distance`) again
 - the arithmetic: the ink over the glass over a frame that is white under the dark glass and black under the light one, blended in the display's own
   (non-linear) values as the plane's blender does, and the bar against the track it fills;
 - the pixels: the display drawn by the offline host over such a frame, and every run of words and every glyph of it measured on the picture, as
-  the language measures (the background is the median of the box, the ink the pixel farthest from it): the level, the word of the muted pane,
-  the glyph of the mark that stays;
+  the language measures (the background is the median of the box, the ink the pixel farthest from it): the level, the format's mark, the glyph of the
+  muted pane and of the mark that stays;
 - the layout: the host's layout audit on the display over a picture, at the normal type size and doubled.
 """
 import json
@@ -108,6 +108,7 @@ GEOM = ("(function(){ var f=function(p){if(p.staleMs!==undefined)return p;for(va
         "var o=f(overlay); var out=[]; var walk=function(it){ for (var i=0;i<it.children.length;i++){ var c=it.children[i]; var p=c.mapToItem(null,0,0); "
         "var rec={x:p.x,y:p.y,w:c.width,h:c.height,vis:c.visible}; "
         "if (c.text!==undefined) { rec.text=String(c.text) } else if (c.radius!==undefined && c.color!==undefined && c.height===8) { rec.bar=true } "
+        "else if (c.aspect!==undefined) { rec.logo=String(c.label) } "
         "else if (c.name!==undefined && c.size!==undefined) { rec.icon=String(c.name) } else if (c.accent!==undefined && c.icon!==undefined) { rec.tile=String(c.icon) } "
         "out.push(rec); walk(c) } }; walk(o); console.info('[geom:%s] '+JSON.stringify(out)); return out.length })()")
 
@@ -131,13 +132,13 @@ class OnThePicture(unittest.TestCase):
         image.save(path)
         return path
 
-    def run_material(self, material):
+    def run_material(self, material, receiver):
         import scenes_volume as sv
         name = "contrast"
         b = 1500                # the helper is up and has synced from here on (tests/test_volume_osd.py)
-        steps = [sv.sound_out(b), sv.receiver_at(b + 200, sv.RX_FMT), sv.osd_at(b + 300, "o.holdMs = 1500"), sv.key_at(b + 2000, "volumeUp", 32),
+        steps = [sv.sound_out(b), sv.receiver_at(b + 200, receiver), sv.osd_at(b + 300, "o.holdMs = 1500"), sv.key_at(b + 2000, "volumeUp", 32),
                  (b + 2600, GEOM % "a"),
-                 sv.receiver_at(b + 4000, dict(sv.RX_FMT, mute=True)), (b + 4900, GEOM % "b"),
+                 sv.receiver_at(b + 4000, dict(receiver, mute=True)), (b + 4900, GEOM % "b"),
                  (b + 7000, GEOM % "c")]
         shots = {s: os.path.join(self.tmp.name, "%s-%s.png" % (material, s)) for s in "bc"}
         rc, warn, text = sv.render(name, self.tmp.name, material, steps, b + 2700, bg=self.frame(WORST[material]),
@@ -160,11 +161,15 @@ class OnThePicture(unittest.TestCase):
         self.assertEqual(len(found), 1, "%r on screen: %r" % (text, [g.get("text") for g in items if "text" in g]))
         return image, found[0]
 
-    def check(self, material):
-        shown = self.run_material(material)
-        for state, text in (("a", "47"), ("a", "Dolby Digital+ \u00b7 Surround")):
-            image, item = self.words(shown[state], text)
-            self.assertGreaterEqual(self.ink_ratio(image, item), DISTANCE, "%s, %s, %r on the worst frame" % (material, state, text))
+    def check(self, material, receiver, mark):
+        shown = self.run_material(material, receiver)
+        image, item = self.words(shown["a"], "47")
+        self.assertGreaterEqual(self.ink_ratio(image, item), DISTANCE, "%s, the level on the worst frame" % material)
+        # the format's mark, in the bar's ink: its thinnest strokes included
+        image, items = shown["a"]
+        marks = [g for g in items if g.get("logo") == mark and g["w"] > 0]
+        self.assertEqual(len(marks), 1, "%r on screen: %r" % (mark, [g.get("logo") for g in items if "logo" in g]))
+        self.assertGreaterEqual(self.ink_ratio(image, marks[0]), DISTANCE, "%s, the %s mark on the worst frame" % (material, mark))
         # the slashed speaker: where the number was in the muted bar, and alone on the mark that stays
         for state, what in (("b", "the muted bar's"), ("c", "the mark's")):
             image, items = shown[state]
@@ -182,10 +187,20 @@ class OnThePicture(unittest.TestCase):
         self.assertGreaterEqual(ratio(px(along, mid), px(along, fill["y"] - 10)), CONTROL, material + ": the level against the glass")
 
     def test_the_dark_glass_over_a_white_frame(self):
-        self.check("dark")
+        import scenes_volume as sv
+        self.check("dark", sv.RX_FMT, "Dolby Digital+ \u00b7 Surround")
 
     def test_the_light_glass_over_a_black_frame(self):
-        self.check("light")
+        import scenes_volume as sv
+        self.check("light", sv.RX_FMT, "Dolby Digital+ \u00b7 Surround")
+
+    def test_the_atmos_mark_on_the_dark_glass_over_a_white_frame(self):
+        import scenes_volume as sv
+        self.check("dark", sv.RX_ATMOS, "Dolby Atmos")
+
+    def test_the_dtsx_mark_on_the_light_glass_over_a_black_frame(self):
+        import scenes_volume as sv
+        self.check("light", sv.RX_DTSX, "DTS:X")
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")

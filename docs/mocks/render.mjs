@@ -22,6 +22,12 @@ const SHOTS = [
   ['10-quick-panel-video', '10-quick-panel.html?v=video'],
   ['11-volume-osd', '11-volume-osd.html'],
   ['11-volume-osd-light', '11-volume-osd.html?theme=light'],
+  ['11-volume-osd-atmos', '11-volume-osd.html?v=atmos'],
+  ['11-volume-osd-atmos-light', '11-volume-osd.html?v=atmos&theme=light'],
+  ['11-volume-osd-dtsx', '11-volume-osd.html?v=dtsx'],
+  ['11-volume-osd-dtsx-light', '11-volume-osd.html?v=dtsx&theme=light'],
+  ['11-volume-osd-stereo', '11-volume-osd.html?v=stereo'],
+  ['11-volume-osd-stereo-light', '11-volume-osd.html?v=stereo&theme=light'],
   ['11-volume-osd-format', '11-volume-osd.html?v=format'],
   ['11-volume-osd-format-light', '11-volume-osd.html?v=format&theme=light'],
   ['11-volume-osd-db', '11-volume-osd.html?v=db'],
@@ -89,7 +95,7 @@ const SHOTS = [
   ['35-toast-advanced', '35-app-prompts.html?v=toast'],
 ];
 const only = process.argv.slice(2);
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--force-device-scale-factor=1'] });
+const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', args: ['--no-sandbox', '--force-device-scale-factor=1', '--allow-file-access-from-files'] });
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 const problems = [];
 for (const [name, file] of SHOTS) {

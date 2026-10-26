@@ -1,0 +1,18 @@
+{
+ "atmos": {
+  "height": 112,
+  "width": 438
+ },
+ "dolby": {
+  "height": 112,
+  "width": 984
+ },
+ "dts": {
+  "height": 112,
+  "width": 286
+ },
+ "dtsx": {
+  "height": 112,
+  "width": 316
+ }
+}

@@ -6,27 +6,39 @@
 <link rel="stylesheet" href="lucent.css">
 <style>
   .frame { background-image: url("img/still.jpg"); }
-  /* one display, seven states: the Denon on the set (0 to 98, default; its format when it says one: ?v=format), its decibel scale (?v=db), muted (?v=muted),
-     the mark that stays while muted (?v=mark), the TV's own volume where there is no receiver (?v=tv, ?v=arc), and nothing to read (?v=offline).
-     The number and its bar; no words but the format. */
+  /* one display, a dozen states: the Denon on the set (0 to 98, default; the mark of its format when it says one: ?v=atmos, ?v=dtsx, ?v=format for Dolby
+     Audio, and plain stereo with none: ?v=stereo), its decibel scale (?v=db), muted (?v=muted), the mark that stays while muted (?v=mark), the TV's own
+     volume where there is no receiver (?v=tv, ?v=arc), and nothing to read (?v=offline). The number and its bar; no words, and a format with no mark
+     (PCM, stereo, multichannel) shows nothing at the end. DTS:X is shown over a bright frame, the worst one for the dark glass. */
+  [data-v="dtsx"] .frame { background-image: url("img/art-hokusai.jpg"); }
   .st { display: none; }
-  html:not([data-v]) .st.abs, [data-v="format"] .st.format, [data-v="db"] .st.db, [data-v="muted"] .st.muted, [data-v="mark"] .st.mark, [data-v="tv"] .st.tv, [data-v="arc"] .st.arc, [data-v="offline"] .st.offline { display: flex; }
+  html:not([data-v]) .st.abs, [data-v="stereo"] .st.abs, [data-v="atmos"] .st.atmos, [data-v="dtsx"] .st.dtsx, [data-v="format"] .st.format, [data-v="db"] .st.db, [data-v="muted"] .st.muted, [data-v="mark"] .st.mark, [data-v="tv"] .st.tv, [data-v="arc"] .st.arc, [data-v="offline"] .st.offline { display: flex; }
 </style>
 </head>
 <body>
 <div class="frame"></div>
 
-<!-- the receiver: its own level -->
+<!-- the receiver: its own level, a whole number; also what plain stereo (PCM) looks like: no mark -->
 <div class="st abs overlay osd" role="status" aria-live="polite">
-  <span class="num">46</span>
-  <div class="htrack"><i style="width:47%"></i></div>
+  <span class="num">47</span>
+  <div class="htrack"><i style="width:48%"></i></div>
 </div>
 
-<!-- the receiver, and what it is playing -->
+<!-- the receiver, and what it is playing: the mark of the format, in the bar's ink, named in words for a reader that cannot see it -->
+<div class="st atmos overlay osd" role="status" aria-live="polite">
+  <span class="num">47</span>
+  <div class="htrack"><i style="width:48%"></i></div>
+  <i class="logo atmos" role="img" aria-label="Dolby Atmos"></i>
+</div>
+<div class="st dtsx overlay osd" role="status" aria-live="polite">
+  <span class="num">47</span>
+  <div class="htrack"><i style="width:48%"></i></div>
+  <i class="logo dtsx" role="img" aria-label="DTS:X"></i>
+</div>
 <div class="st format overlay osd" role="status" aria-live="polite">
-  <span class="num">46.5</span>
-  <div class="htrack"><i style="width:47%"></i></div>
-  <span class="cap">Dolby Digital+ · Surround</span>
+  <span class="num">47</span>
+  <div class="htrack"><i style="width:48%"></i></div>
+  <i class="logo dolby" role="img" aria-label="Dolby Digital+ · Surround"></i>
 </div>
 
 <!-- the same, counting in decibels: the number, no unit -->

@@ -4,7 +4,8 @@
 //   `SYSDA <text>`   the input signal, in words ("PCM ZERO" while nothing plays)     -> the format
 //   `MS<text>`       the sound mode ("DOLBY AUDIO-DSUR", "STEREO", "MCH STEREO", ...) -> the mode word after it
 // The helper publishes both, untouched, as `signal` and `soundMode` of the `receiver` topic. This turns them into something fit to read at the
-// TV's distance, and into nothing when they say nothing: no raw code is ever shown. Seen on the set so far: "PCM ZERO" with "DOLBY AUDIO-DSUR"
+// TV's distance (`describe`: words, the name of the mark the bar draws) and the mark itself (`logo`), and into nothing when they say nothing: no raw
+// code is ever shown. Seen on the set so far: "PCM ZERO" with "DOLBY AUDIO-DSUR"
 // (idle) and, over Netflix (2026-10-26), `signal` "Dolby Atmos - DD+" with `soundMode` "DOLBY ATMOS": the stream's own name is "<format> - <carrier>",
 // and only the format is shown. The Digital, Digital+, TrueHD, DTS and Multi Ch In patterns below follow the receiver's published naming and have
 // not been seen on the set yet; a text that matches none of them is not shown.
@@ -40,15 +41,34 @@ function mode(soundMode) {
     return ""
 }
 
+// The format, with the receiver's Atmos decoding taken over a Dolby carrier: "DOLBY ATMOS" is the receiver decoding Atmos, and the carrier (DD+ or TrueHD)
+// is not what is heard. "" while the format is not known.
+function played(soundMode, signal) {
+    var format = stream(signal)
+    if (/ATMOS/i.test(String(soundMode || "")) && /^Dolby (Digital\+|TrueHD)$/.test(format)) return "Dolby Atmos"
+    return format
+}
+
 // "Dolby Digital+ · Surround", "DTS:X", "PCM 2.0": or "" while the format is not known.
 function describe(soundMode, signal) {
-    var format = stream(signal)
+    var format = played(soundMode, signal)
     if (format === "") return ""
     var word = mode(soundMode)
-    // "DOLBY ATMOS" is the receiver decoding Atmos: the Dolby carrier (DD+ or TrueHD) is not what is heard
-    if (/ATMOS/i.test(String(soundMode || "")) && /^Dolby (Digital\+|TrueHD)$/.test(format)) return "Dolby Atmos"
     if (format === "Dolby Atmos" || format === "DTS:X") return format
     if (word === "Surround" || word === "Direct" || word === "Pure Direct") return format + " \u00b7 " + word
     if (word === "Stereo" && format.indexOf("PCM") !== 0) return format + " \u00b7 Stereo"
     return format
+}
+
+// The mark the volume bar draws for the format (a file of icons/audio), or "" for a format with no mark: PCM, Multi Ch In, and what is not known.
+// Dolby Audio is the mark of Dolby Digital, Digital+ and TrueHD, DTS that of DTS and DTS-HD (Master Audio too). No IMAX Enhanced mark: the receiver's
+// texts have not been read naming it, so there is nothing to detect it by.
+function logo(soundMode, signal) {
+    switch (played(soundMode, signal)) {
+    case "Dolby Atmos": return "atmos"
+    case "Dolby Digital": case "Dolby Digital+": case "Dolby TrueHD": return "dolby"
+    case "DTS:X": return "dtsx"
+    case "DTS": case "DTS-HD": return "dts"
+    default: return ""
+    }
 }

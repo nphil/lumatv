@@ -20,18 +20,28 @@ import xdisplay
 ROOT = os.path.dirname(os.path.dirname(HERE))
 IMG = os.path.join(ROOT, "docs", "mocks", "img")
 B = sv.B
-PRESS = [sv.sound_out(B), sv.receiver_at(B + 200, sv.RX_FMT), sv.key_at(B + 2000, "volumeUp", 32)]
+
+
+def press(receiver):
+    return [sv.sound_out(B), sv.receiver_at(B + 200, receiver), sv.key_at(B + 2000, "volumeUp", 32)]
+
+
+PRESS = press(sv.RX_FMT)                       # Dolby Audio
+ATMOS, DTSX, STEREO = press(sv.RX_ATMOS), press(sv.RX_DTSX), press(sv.RX_PCM)
 MUTE = [sv.sound_out(B), sv.receiver_at(B + 200, sv.RX_FMT), sv.receiver_at(B + 2000, dict(sv.RX_FMT, mute=True)), sv.key_at(B + 2020, "mute", None, True)]
-# without the helper (no lock to wait for): the TV's own volume, the bar with no format
+# without the helper (no lock to wait for): the TV's own volume, the bar with no mark
 TV = [sv.sound_out(B, "tv_speaker", 46, True), sv.key_at(B + 2000, "volumeUp", 47)]
 TVMUTE = [sv.sound_out(B, "tv_speaker", 46, True), sv.key_at(B + 2000, "mute", None, True)]
 # (name, caption, material, over, picture, steps, grab at)
 SHEET = [
-    ("sheet-home-dark", "Home, dark", "dark", "home", None, PRESS, B + 2700),
-    ("sheet-home-light", "Home, light", "light", "home", None, PRESS, B + 2700),
-    ("sheet-bright", "Bright daytime frame, light glass", "light", "video", os.path.join(IMG, "art-hokusai.jpg"), PRESS, B + 2700),
-    ("sheet-film", "Dark film frame, dark glass", "dark", "video", os.path.join(IMG, "still.jpg"), PRESS, B + 2700),
-    ("sheet-game", "Busy game frame, dark glass", "dark", "video", os.path.join(IMG, "game.jpg"), PRESS, B + 2700),
+    ("sheet-home-dark", "Home, dark, Dolby Audio", "dark", "home", None, PRESS, B + 2700),
+    ("sheet-home-light", "Home, light, Dolby Audio", "light", "home", None, PRESS, B + 2700),
+    ("sheet-bright", "Bright daytime frame, light glass, DTS:X", "light", "video", os.path.join(IMG, "art-hokusai.jpg"), DTSX, B + 2700),
+    ("sheet-bright-dark", "Bright daytime frame, dark glass, DTS:X", "dark", "video", os.path.join(IMG, "art-hokusai.jpg"), DTSX, B + 2700),
+    ("sheet-film", "Dark film frame, dark glass, Dolby Atmos", "dark", "video", os.path.join(IMG, "still.jpg"), ATMOS, B + 2700),
+    ("sheet-film-light", "Dark film frame, light glass, Dolby Atmos", "light", "video", os.path.join(IMG, "still.jpg"), ATMOS, B + 2700),
+    ("sheet-stereo", "Dark film frame, dark glass, plain stereo: no mark", "dark", "video", os.path.join(IMG, "still.jpg"), STEREO, B + 2700),
+    ("sheet-game", "Busy game frame, dark glass, Dolby Audio", "dark", "video", os.path.join(IMG, "game.jpg"), PRESS, B + 2700),
     ("sheet-muted", "Muted, bright frame, light glass", "light", "video", os.path.join(IMG, "art-hokusai.jpg"), MUTE, B + 3300),
 ]
 

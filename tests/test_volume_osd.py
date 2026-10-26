@@ -76,6 +76,9 @@ def press(why="volumeUp", volume=None, muted=None):
 
 
 SHOWN = on_osd("[o.pill, o.paneUp, o.source, o.level, o.muted, o.markUp].join('|')")
+# the mark at the bar's right end: [its key, its words, drawn, its accessible name, its size, the bar's width]
+LOGO = on_osd("(function(){ var g=function(p){if(p.aspect!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=g(p.children[i]);if(r)return r}return null}; "
+              "var l=g(o); return [o.logoKey, o.format, l.visible && l.ready, l.label, l.width + 'x' + l.height, l.parent.width].join('|') })()")
 POSTS = ("(function(){var x=new XMLHttpRequest(); x.onreadystatechange=function(){if(x.readyState===4) console.info('[posts] '+x.responseText)};"
          "x.open('GET','http://127.0.0.1:18731/__posts'); x.send(); return 1})()")
 
@@ -130,6 +133,30 @@ class VolumeOsd(HostCase):
         got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX_DB), "rx"), (B + 2000, press("volumeDown", 30), "key"),
                                (B + 2800, on_osd("o.level"), "db")], B + 3400)
         self.assertEqual(got["db"], "45", "a receiver showing decibels still gives the whole-number level")
+
+    def test_the_format_is_a_mark_at_the_end_of_the_bar_named_in_words_and_a_format_without_one_shows_nothing(self):
+        atmos = dict(RX, soundMode="DOLBY ATMOS", signal="Dolby Atmos - DD+")
+        dolby = dict(RX, soundMode="DOLBY AUDIO-DD+DSUR", signal="DOLBY D+ 5.1")
+        dtsx = dict(RX, soundMode="DTS:X", signal="DTS:X")
+        pcm = dict(RX, soundMode="STEREO", signal="PCM 2.0")
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 30000"), "hold"), (B, sound_out(), "out"),
+            (B + 200, rx(pcm), "rx"), (B + 1800, press("volumeUp", 32), "key"), (B + 2600, LOGO, "pcm"),
+            (B + 3000, rx(atmos), "r2"), (B + 4200, LOGO, "atmos"),
+            (B + 4400, rx(dolby), "r3"), (B + 5600, LOGO, "dolby"),
+            (B + 5800, rx(dtsx), "r4"), (B + 7000, LOGO, "dtsx"),
+            (B + 7200, rx(dict(dtsx, mute=True)), "r5"), (B + 8400, LOGO, "muted"),
+        ], B + 9000)
+        key, words, drawn, label, size, width = got["pcm"].split("|")
+        self.assertEqual((key, words, drawn, label), ("", "", "false", ""), "PCM stereo: no mark and no word")
+        self.assertEqual(width, "440", "the bar is its plain width with nothing at its end")
+        for state, want, name in (("atmos", "atmos", "Dolby Atmos"), ("dolby", "dolby", "Dolby Digital+ \u00b7 Surround"), ("dtsx", "dtsx", "DTS:X")):
+            key, words, drawn, label, size, width = got[state].split("|")
+            self.assertEqual((key, words, drawn, label), (want, name, "true", name), state)
+            w, h = (int(v) for v in size.split("x"))
+            self.assertTrue(20 <= h <= 28 and 0 < w <= 7 * 28, "%s: drawn %s, as tall as the number's text and no wider than 7 times that" % (state, size))
+            self.assertGreaterEqual(int(width), 2 * 24 + 32 + 20 + 140 + 20 + w, state + ": the bar's width counts the mark")
+        self.assertEqual(got["muted"].split("|")[:3], ["", "", "false"], "muted, the slashed speaker is the only mark")
 
     def test_a_key_moves_the_level_at_once_and_an_old_reading_does_not_move_it_back(self):
         got, _ = self.run_osd([

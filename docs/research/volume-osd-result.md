@@ -5,8 +5,8 @@
 State at 2026-10-25 22:35 (the cut for TV round 8): the display is a slim bar at the bottom centre (Nitin, 22:20), in the repo and offline-tested. The set
 still shows the right-edge pane of `ddc293c` until the round's `lumatv apply`. The first deploy took two restarts: the first, with files copied unrendered,
 left Home and the overlay unloaded for about two minutes (see Deploying by hand). `lumatv revert` is the way back and brings LG's popup back with it.
-In: the bar, the key moving the level at once, the format text (display and mapper). Not in: the helper does not publish `soundMode` and `signal` yet, so
-the format text stays hidden on the set (see The format text). Open: frame cost over video on the set; the TV's own volume with the receiver off.
+In: the bar, the key moving the level at once, the format mark (display and mapper). Not in: the helper does not publish `soundMode` and `signal` yet, so
+the mark stays hidden on the set (see The format mark). Open: frame cost over video on the set; the TV's own volume with the receiver off.
 
 ## What LG draws and how it is stopped
 
@@ -53,7 +53,7 @@ second one (a test fails if they do). The display takes no key and no focus.
 - **The key answers first**: the bar appears on the key's own frame (no fade in, 150 ms out) and moves its fill by one receiver step (0.5, as read on the
   set: 42.5 to 43 to 42.5) per key and per repeat of a held key, from the direction the TV reports, before the Denon says anything (its push follows
   some 0.4 s later). What the keys made it say stays 900 ms after the last key (`settleMs`); an older reading that arrives meanwhile does not move it
-  back, and then the reading is taken. Nothing heavy runs on a press: no blur is rebuilt, hidden text is not laid out (the format text and the glyph are
+  back, and then the reading is taken. Nothing heavy runs on a press: no blur is rebuilt, hidden text is not laid out (the format mark and the glyph are
   `visible` only when used), the fill animates for 100 ms. Offline, from the audio service's report to the next presented frame: see `volume_sheet.py --latency`.
 - **Mute**: the number gives way to a slashed speaker and the bar is dimmed; no word. From the receiver's `MU` push or, with no receiver, the TV's mute
   (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays while the sound is
@@ -63,10 +63,11 @@ second one (a test fails if they do). The display takes no key and no focus.
   the display asks the helper for the newest copy when the helper comes up and when a copy arrives aged, and once more 2.5 s later; without it a mute that
   was on before the restart showed no mark until the next change. The receiver's mute is kept while the
   helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped 1.5 s after the readings stop.
-- **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format need (the format is cut at 360 px), 56 to 64 px tall (the label type
+- **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format mark need, 56 to 64 px tall (the label type
   and 12 px above and below), 64 px above the bottom edge, centred; at 200 % text it grows in both. The number in the label size, semibold, in a slot as
-  wide as "100" so the bar does not move with the digits; the bar 8 px thick, filled from the left in the ink; the format in the caption size at the right
-  end, in the ink at full strength (a fainter ink would not hold the contrast floor). No caption, no icon tile (it read as a button), nothing to focus.
+  wide as "100" so the bar does not move with the digits; the bar 8 px thick, filled from the left in the ink; the format's mark at the right
+  end, in the ink at full strength (a fainter ink would not hold the contrast floor), 28 px tall (the label size, 26, times 1.08, so it follows the text size)
+  and no wider than 196 px (7 times that), which draws Dolby Audio, nine times as wide as it is tall, at 22 px; no word, and no mark and no gap for a format that has none. No caption, no icon tile (it read as a button), nothing to focus.
 - **Over video**: the glass is painted at `readingAlpha` (theme.json, 0.8; over Home 1) so the picture shows through the fill; the 1 px edge and the
   shadow keep their weight (`Glass.fillAlpha`). Against the worst frame, white under the dark glass and black under the light, blended in the
   plane's own values, the ink is 9.2:1 (dark) and 11.4:1 (light), the bar 5.7:1 and 9.0:1 against its track; 7:1 (Lucent's distance contrast)
@@ -77,16 +78,24 @@ second one (a test fails if they do). The display takes no key and no focus.
   `panels/QuickPanel.qml` (its volume nudge), `panels/Screensaver.qml`, `kit/Sio.qml`, `kit/Power.qml`, `kit/PluginHub.qml`, `kit/NoteLog.qml`,
   `kit/Apps.qml`.
 
-## The format text
+## The format mark
 
 The Denon says what it plays in words. Read-only queries answered by the S760H on 2026-10-25 (nothing was playing): `MS?` gives `MSDOLBY AUDIO-DSUR` and a
 status batch (`MV`, `MVMAX 81`, `PS…`, `MU`, `SI`); `SSINFAISSIG ?` gives `SSINFAISSIG 13` and `SYSDA PCM ZERO` (the input signal in words); `PW?` adds
 `SYSMI Dolby Audio - Dolby Surround` (the mode in words); `SSINFAISFSV ?` gives `NON`; `OPINFASP ?` gives a channel map of digits. The HTTP
 `AppCommand` `GetSurroundModeStatus` answers an empty list. `kit/AudioFormat.js` maps `SYSDA` (the format) and `MS` (the mode word) to "Dolby Digital+ ·
 Surround", "Dolby Atmos", "DTS:X", "PCM 2.0", "Multi Ch In" and the like, and to nothing when they say nothing ("PCM ZERO", an unknown text); no raw code is
-shown. Seen on the set: "PCM ZERO" with "DOLBY AUDIO-DSUR" (idle) and, over Netflix on 2026-10-26, `signal` "Dolby Atmos - DD+" with `soundMode` "DOLBY ATMOS" (the
-stream's name is `<format> - <carrier>`; the bar reads "Dolby Atmos"). The other patterns follow the receiver's published naming and have to be confirmed
-while something plays (`tests/test_audio_format.py`). The bar shows the text only with the receiver on and fresh, not muted.
+shown; `logo` maps the same two texts to the mark the bar draws, or to nothing. Seen on the set: "PCM ZERO" with "DOLBY AUDIO-DSUR" (idle) and, over Netflix on 2026-10-26, `signal` "Dolby Atmos - DD+" with `soundMode` "DOLBY ATMOS" (the
+stream's name is `<format> - <carrier>`; the bar draws the Dolby Atmos mark). The other patterns follow the receiver's published naming and have to be confirmed
+while something plays (`tests/test_audio_format.py`). The bar shows the mark only with the receiver on and fresh, not muted.
+
+Why marks and not words: the words ("Dolby Digital+ · Surround", "DTS-HD · Stereo") made the bar busy (Nitin, 2026-10-26); the recognisable marks say the same in
+less. Four marks cover what the receiver names: Dolby Atmos; Dolby Audio, for Dolby Digital, Digital+ and TrueHD; DTS:X; DTS, for DTS and DTS-HD (Master
+Audio too). PCM, plain stereo, Multi Ch In and what is not known show nothing at the end of the bar. No IMAX Enhanced mark: no text the receiver has been read
+saying names it, so `AudioFormat.js` has nothing to detect it by; it joins when one is read. The words stay as the mark's accessible name (`LuLogo.label`).
+The files are `icons/audio/<key>.png` (`atmos`, `dolby`, `dtsx`, `dts`), white on transparent like the Lucide icons, drawn by `kit/LuLogo.qml` in the bar's ink so
+they follow the dark and light glass and the contrast; `generators/gen-audio-logos.py` makes them from the Wikimedia Commons sources kept in
+`generators/audio-logos/` (a private build: the marks are their owners' trademarks), 112 px tall, 4 times the 28 px drawn, for a 4K panel and 200 % text.
 
 Not done: the helper (`helper/app/src/receiver_telnet.rs`) has to carry two more lines into the `receiver` topic: `soundMode` (the last `MS<text>` heard, asked
 with `MS?` on connect) and `signal` (the `SYSDA` text, asked with `SSINFAISSIG ?` on connect and on a mode or input change). Until it does, `rc.soundMode`
@@ -104,7 +113,7 @@ and `rc.signal` are absent and the text is hidden.
    (`/v1/receiver`) within about a second, with no step back.
 4. Mute at Home (then unmute at Home, with apps closed first). Pass: the number becomes a slashed speaker with a dim bar, no word; after the hold a 64 px
    bubble stays in a top corner and has moved to another place within ten seconds; unmuting removes it; LG's bubble never shows.
-5. Format: with the helper that publishes `soundMode` and `signal`, play something with a known format on the Denon and check the text against the Denon's front display.
+5. Format: with the helper that publishes `soundMode` and `signal`, play something with a known format on the Denon and check the mark against the Denon's front display.
 6. Latency: the key injector prints its epoch time (`kb.py`); the compositor log line `[VolumeOsd] cue` carries its own. The difference is key to cue (the TV's
    report adds 44 to 63 ms); the bar is drawn on the frame after the cue. A capture 16 ms after the key cannot be had from the capture service (one grab takes
    about 0.9 s), so the frame time comes from `lumatv fps on` (`[FPSJANK]` lines must not appear around a press).
@@ -115,9 +124,13 @@ and `rc.signal` are absent and the text is hidden.
   change, stock, and never does, patched, for every sound output and for the country path.
 - `tests/test_volume_osd.py`: sources, the wait, the TV's own volume, the mute and its mark, readings that age out, over video and over Home, no
   key, no focus, no second display.
-- `tests/test_osd_contrast.py`: the arithmetic and the pixels, both materials, on a white and a black frame.
+- `tests/test_osd_contrast.py`: the arithmetic and the pixels, both materials, on a white and a black frame; the level and the Dolby Audio, Dolby Atmos and
+  DTS:X marks each at 7:1.
+- `tests/test_audio_format.py`: the words and the marks, and the mark files against `icons/audio/index.json`.
 - `python3 tests/qmlhost/scenes.py --only 11-volume-osd,11-volume-osd-db,11-volume-osd-muted,11-volume-osd-mark,11-volume-osd-tv,11-volume-osd-tv-arc,11-volume-osd-offline,11-volume-osd-home`
-  renders dark and light; mock 11 (`docs/mocks/11-volume-osd.html`, shots in `docs/mocks/shots`) is the design.
+  renders dark and light; mock 11 (`docs/mocks/11-volume-osd.html`, shots in `docs/mocks/shots`: `-atmos` over a dark film frame, `-dtsx` over a bright one,
+  `-format` for Dolby Audio, `-stereo` with no mark, each with `-light`) is the design. `python3 tests/qmlhost/volume_sheet.py` renders the host's own
+  contact sheet over Home and over film, bright and game frames (`volume-osd/renders/`).
 
 ## On the set (2026-10-25, 21:36 to 21:45)
 

@@ -96,7 +96,7 @@ Nitin chose; `nested-cards` is Lucent's sheet → well → raised-control stacki
 | Screen | File (variants) | Shots |
 |---|---|---|
 | Quick panel | `10-quick-panel.html` (`?theme=light`, `?v=video`) | 10-quick-panel, -light, -video |
-| Volume OSD | `11-volume-osd.html` (`?theme=light`, `?v=db`, `?v=muted`, `?v=mark`, `?v=tv`, `?v=arc`, `?v=offline`) | 11-volume-osd, -light, -db, -muted, -muted-light, -mark, -mark-light, -tv, -arc, -offline |
+| Volume OSD | `11-volume-osd.html` (`?theme=light`, `?v=atmos`, `?v=dtsx`, `?v=format`, `?v=stereo`, `?v=db`, `?v=muted`, `?v=mark`, `?v=tv`, `?v=arc`, `?v=offline`) | 11-volume-osd, -light, -atmos, -atmos-light, -dtsx, -dtsx-light, -format, -format-light, -stereo, -stereo-light, -db, -muted, -muted-light, -mark, -mark-light, -tv, -arc, -offline |
 | All-apps library | `12-all-apps.html` (`?theme=light`, `?v=menu`) | 12-all-apps, -light, -menu |
 | Notification drawer | `13-notifications.html` | 13-notifications |
 | App switcher | `14-recents.html` | 14-recents |

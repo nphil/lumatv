@@ -18,6 +18,7 @@ QtObject {
     property Item backdrop: null                  // ShaderEffectSource of the blurred wallpaper, for Glass
     property string baseUrl: ""                   // the module directory as a file URL: where icons/ lives
     function iconUrl(name) { return baseUrl + "icons/lucide/" + name + ".png" }
+    function logoUrl(name) { return baseUrl + "icons/audio/" + name + ".png" }
 
     // ---- colour roles of the material in force ----
     readonly property var material: (isLight ? theme.light : theme.dark) || ({})
