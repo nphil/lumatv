@@ -1214,10 +1214,10 @@ class GateDriver(unittest.TestCase):
                          ["cutover enable --session --max-minutes 12", "live", "keys", "evidence", "cutover disable"])
 
     def test_the_keys_ime_and_home_checks_in_one_run_each_session_ends_with_the_check_that_ends_it(self):
-        calls, code, _ = self.run_main(argv=["--only", "keys,ime,homekey,escape"])
+        calls, code, _ = self.run_main(argv=["--only", "homeheld,keys,ime,homekey,escape"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence",
+                         ["homeheld", "cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence",
                           "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "escape", "cutover disable"])
 
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):

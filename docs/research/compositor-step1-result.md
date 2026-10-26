@@ -11,8 +11,8 @@ d2afb2b, overlay-aware checks 840a0c0). First TV run (Main, 15:33): `live` PASS;
 Exit OK, gear FAIL; `ime` FAIL. Both failures were in the checks, not the routing: LG's Settings and Search are overlay windows, which
 SAM never names as the foreground app, and the checks waited for SAM to name them ("First TV run" below); they now look for a mapped
 window of the app in `ctl windows`. Home as LG's `RF_HOME` 773 is now Home in the compositor and in the supervisor's hold-Home escape
-(Main's decision; "Key codes"), and the `escape` and `homekey` checks hold 773. Next: re-run
-`sh compositor/tools/tv-first-light.sh gate --only keys,ime,homekey,escape` (deploy and `cutover install` first: the bundle changed).
+(05f572e; Main's decision, "Key codes"), and the `escape`, `homeheld` and `homekey` checks hold 773. Next: re-run
+`sh compositor/tools/tv-first-light.sh gate --only homeheld,keys,ime,homekey,escape` (deploy and `cutover install` first: the bundle changed).
 The TV is not touched by this work.
 
 ## What was built
@@ -78,16 +78,18 @@ and the receiver unmuted. From `/data/home/lumaglass`, LG's compositor live, not
 
     sh compositor/tools/tv-first-light.sh deploy
     sh compositor/tools/tv-first-light.sh cutover install
-    sh compositor/tools/tv-first-light.sh gate --only keys,ime,homekey,escape
+    sh compositor/tools/tv-first-light.sh gate --only homeheld,keys,ime,homekey,escape
 
 `deploy` builds and copies the bundle, `install` records the firmware and the bundle the session starts from, the gate
-(`tv_gate.py --only`) wakes the set, mutes the receiver, runs `enable --session --max-minutes 12`, `live`, `keys`, `ime`, `evidence`;
+(`tv_gate.py --only`) wakes the set, mutes the receiver, runs `homeheld` (not live: a virtual remote holds Home as 773 and the
+supervisor's `--home-held` must see it through the key-state bitmap, then stop seeing it), `enable --session --max-minutes 12`, `live`,
+`keys`, `ime`, `evidence`;
 `homekey` ends that session, so a fresh one follows (`--max-minutes 6`, `live after-homekey`), `escape` ends the second, and
 `disable` ends the run. Skip a check with `--skip NAME`; `keys` and `ime` are in a full gate after `hdmi`. If the driver or the
-workstation dies, the set ends the session by itself when its timer runs out. Result lines: `GATE keys:`, `GATE ime:`,
+workstation dies, the set ends the session by itself when its timer runs out. Result lines: `GATE homeheld:`, `GATE keys:`, `GATE ime:`,
 `GATE homekey:`, `GATE escape:` (also in `docs/research/compositor/gate-<date>.txt`); files in `/tmp/lumatv-tv-out/out/gate/`:
 `keys-*.txt` (the journal after each key), `keys.json`, `ime-*.json`, `ime.png` (the panel with the keyboard up),
-`homekey-result.txt`, `escape-result.txt`, `compositor-final.log`.
+`homeheld-result.txt`, `homekey-result.txt`, `escape-result.txt`, `compositor-final.log`.
 
 Pass criteria. Home is in front at the start and at the end, and every app a key opened is closed again. An app counts as up when
 `ctl windows` has a mapped window of it: SAM's foreground names only the front card, and LG's Settings, Search and Quick Access
@@ -112,7 +114,9 @@ many times the system was asked for an input method, how many OK presses it took
 `ime.png` shows the keyboard over the app; a check that fails early still leaves `ime-result.txt`, `ime-journal.txt` and
 `ime-windows.json`.
 
-`GATE homekey: PASS` (the supervisor's own reader): a virtual remote made after the compositor started holds Home as 773 for 1.5 s; the
+`GATE homeheld: PASS` (the supervisor's `--home-held`, the one check of its key-state bitmap on the real kernel): while a virtual
+remote holds Home as 773 the answer is exit 0, after the release exit 1, and the injector exits 0. `GATE homekey: PASS` (the
+supervisor's own reader): a virtual remote made after the compositor started holds Home as 773 for 1.5 s; the
 session ends as an escape (`hold Home 650 ms (supervisor)` in the supervisor's log, `escaped` recorded, failures unchanged, SAM
 untouched, LG's Home on the panel). `GATE escape: PASS` (the compositor's own route): `ctl remote 773` held 1 s; `fallback: hold Home`,
 `escaped` recorded, LG's Home back, SAM untouched. Host tests: the compositor's, 773, 172 and 102 each as a tap (launches Home, never
