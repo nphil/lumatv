@@ -601,8 +601,8 @@ static int bench(const char *file, int count, unsigned shift, int fmt, const cha
         say("%s: not a JPEG file (status %d)", file, rc);
         return 1;
     }
-    printf("file=%s bytes=%ld width=%u height=%u block_takes_it=%d shift=%u count=%d path=%s\n", file, n, ji.width, ji.height, ji.hw == 0,
-           shift, count, (flags & JP_FLAG_CPU) ? "cpu" : (flags & JP_FLAG_HW_ONLY) ? "hardware" : "hardware, then cpu");
+    printf("file=%s bytes=%ld width=%u height=%u block_takes_it=%d shift=%u count=%d convert=%s path=%s\n", file, n, ji.width, ji.height, ji.hw == 0,
+           shift, count, convert_impl(), (flags & JP_FLAG_CPU) ? "cpu" : (flags & JP_FLAG_HW_ONLY) ? "hardware" : "hardware, then cpu");
     uint32_t *dec = calloc((size_t)count, 4), *conv = calloc((size_t)count, 4), *wall = calloc((size_t)count, 4);
     long irq0 = jpg_irqs(), cma0 = read_kv("/proc/meminfo", "CmaFree:"), cma_min = cma0;
     uint64_t cpu0 = cpu_us(), wall0 = mono_us();

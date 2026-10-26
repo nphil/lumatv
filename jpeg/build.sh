@@ -13,6 +13,8 @@ src="$here/service.c $here/convert.c $here/cpu.c"
 zig cc -target arm-linux-gnueabi.2.28 -O2 -s -Wall -Wextra -DLUMATV_NEON -o "$out/arm/lumatv-jpeg" $src "$out/arm/convert_neon.o" -ldl
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -o "$out/host/lumatv-jpeg" $src -ldl
 zig cc -target x86_64-linux-gnu.2.36 -O1 -shared -fPIC -Wall -Wextra -o "$out/host/libdile_photo.so.1" "$here/fake_dilephoto.c" -Wl,-soname,libdile_photo.so.1
+# the set's own binary against the fake library, under qemu-arm (tests/test_jpeg_service.py): the 32-bit layout of the library's buffer
+zig cc -target arm-linux-gnueabi.2.28 -O1 -shared -fPIC -Wall -Wextra -o "$out/arm/libdile_photo.so.1" "$here/fake_dilephoto.c" -Wl,-soname,libdile_photo.so.1
 # the converters against double precision, and the NEON ones against the scalar ones: host (scalar only), and the set's CPU under qemu-arm
 zig cc -target x86_64-linux-gnu.2.36 -O1 -g -Wall -Wextra -o "$out/host/convert_test" "$here/convert_test.c" "$here/convert.c" -lm
 zig cc -target arm-linux-gnueabi.2.28 -O2 -Wall -Wextra -DLUMATV_NEON -o "$out/arm/convert_test" "$here/convert_test.c" "$here/convert.c" "$out/arm/convert_neon.o" -lm

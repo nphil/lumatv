@@ -523,6 +523,24 @@ class Service(unittest.TestCase):
         self.assertEqual(self.request(s, data, RGBA, 0, 0, 640 * 480 - 1, hw_only=False)["status"], E_TOO_BIG)
         self.assertEqual(self.request(s, data, RGBA, 1, 0, 320 * 240, hw_only=False)["status"], OK)
 
+    def test_the_sets_own_binary_runs_the_same_decode_under_qemu_with_the_32_bit_layout(self):
+        arm = os.path.join(os.path.dirname(BUILD), "arm")
+        if not (shutil.which("qemu-arm") and os.path.isdir("/usr/arm-linux-gnueabi") and os.path.exists(os.path.join(arm, "libdile_photo.so.1"))):
+            self.skipTest("needs qemu-arm, /usr/arm-linux-gnueabi and jpeg/build.sh")
+        mine, theirs = socket.socketpair()
+        p = subprocess.Popen(["qemu-arm", "-L", "/usr/arm-linux-gnueabi", "-cpu", "max", "-E", "LD_LIBRARY_PATH=" + arm, os.path.join(arm, "lumatv-jpeg"),
+                              "-f", str(theirs.fileno())], pass_fds=[theirs.fileno()], stderr=subprocess.PIPE, text=True)
+        theirs.close()
+        mine.settimeout(30)
+        self.procs.append(p)
+        self.socks.append(mine)
+        for kind in ("420", "444", "gray"):
+            r = self.request(mine, sample_file(97, 61, kind), RGBA, 1)
+            self.check_rgba(r, 97, 61, 1, kind)
+        self.check_nv12(self.request(mine, sample_file(97, 61, "420"), NV12, 0), 97, 61, 0, "420")
+        mine.close()
+        self.assertEqual(p.wait(30), 0)
+
     def test_the_converters_agree_with_double_precision_and_the_neon_ones_with_the_scalar_ones(self):
         out = subprocess.run([os.path.join(BUILD, "convert_test"), "-n", "1500"], capture_output=True, text=True, timeout=120)
         self.assertEqual(out.returncode, 0, out.stdout)
