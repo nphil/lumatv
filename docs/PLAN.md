@@ -1177,6 +1177,15 @@ what it already does.
   TV is to be retired or kept only as an Apple Home hub (HA shows it off for
   the past 10 days). Frame-rate matching therefore targets the TV's own
   decoder paths; HDMI 2 is secondary.
+  Read from LG's kernel source (`docs/research/framerate-result.md`,
+  2026-10-26): on this set the output is 120 Hz for the 24, 30, 60 and 120
+  fps families (5:5, 4:4, 2:2, 1:1, phase-locked to the decoder's clock) and
+  100 Hz for the 25/50/100 family, switched within 40 ms of the first frame,
+  normally under the app's own video mute; the 48 Hz case is compiled out.
+  Nothing to build for LG's apps; LumaTV's own players pre-switch through
+  `/proc/lg/de/fr_rate` for 25/50 items, and the shell puts 120 Hz back when
+  a 25/50 playback ends. The probe `docs/research/framerate/probe.py` (next
+  TV round) measures the one real switch and the hold-over.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the

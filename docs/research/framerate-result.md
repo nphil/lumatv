@@ -220,19 +220,26 @@ LG's pipeline does for 1080p120 without `hfrEnabled`. All four runs of the probe
 
 ## TV probe steps
 
-One slot, about 12 minutes, from the repository root, the receiver muted through Home Assistant before anything plays and put
-back only after Home is in front again (`probe.py --go` does both, as the other slots do). Default `--go` is read-only on the set
-apart from the app launch, the key presses and files under `/tmp/fr-probe-<stamp>/`; the `fr_rate` write is behind
-`--allow-fr-rate-write` and off.
+One slot of about 12 minutes, from the repository root, each run on its own: `probe.py --go` mutes the receiver through Home
+Assistant before anything plays and puts it back only after Home is in front again, as the other slots do. `--go` is read-only on
+the set apart from the app launch, the key presses (kb.py) and the files under `/tmp/fr-probe-<stamp>/`; the `fr_rate` write is a
+separate experiment and the script refuses `--allow-fr-rate-write`. Each run ends with the app closed, Home in front and seen,
+the receiver put back, the set in Active Standby (`--no-standby` leaves it on); its files land in
+`docs/research/framerate/<run>-<stamp>/` with `summary.txt` and `verdict.json` written, and the screenshots pruned to every
+20th plus those within 1.5 s of a switch, a mute or a mark.
 
-1. `python3 docs/research/framerate/probe.py --plan` (nothing touched; prints the steps).
-2. `python3 docs/research/framerate/probe.py --go --run netflix24` : Netflix, the 23.976 title, 45 s from the launch.
-3. `python3 docs/research/framerate/probe.py --go --run youtube50` : a 50 fps YouTube clip, 45 s, then Home for 10 s with
-   the sampler still running (the hold-over).
-4. `python3 docs/research/framerate/probe.py --go --run plex25after24` : Plex, a 24 fps item then a 25 fps item (the ids in
-   `RUNS`; `--launch` overrides).
-5. `python3 docs/research/framerate/probe.py --go --run gfn120` : the GFN app at 4K120 (skip if the app is not installed).
-6. `python3 docs/research/framerate/probe.py --report docs/research/framerate/<dir>` for each: the switch timeline, the
-   rates, the blank verdict (`summary.txt`). Paste the table into "Verdicts".
-
-Each run ends with Home in front, the receiver unmuted, the set in Active Standby (`--no-standby` leaves it on).
+1. `python3 docs/research/framerate/probe.py --plan --run youtube50` (nothing touched; prints the steps).
+2. `python3 docs/research/framerate/probe.py --go --run youtube50`: a 50 fps YouTube clip (the default launch is a search for
+   "4k 50fps test" and OK on the first result; `--launch '{"id":"youtube.leanback.v4","params":{"contentTarget":"https://www.youtube.com/watch?v=..."}}'`
+   names a known clip), 45 s, then Home for 10 s with the sampler running: the 120 -> 100 Hz switch and the hold-over.
+3. `python3 docs/research/framerate/probe.py --go --run netflix24`: Netflix, a 23.976 title (the id in `RUNS` is a guess; `vFreq`
+   in the summary says what played; `netflix60` is Meridian at 59.94): the no-switch case and the DCO slew.
+4. `python3 docs/research/framerate/probe.py --go --run plex25after24 [--keys ... --second-keys ...]`: Plex, a 24 fps item then
+   a 25 fps item without Home in between; the key paths depend on the library's order (`OK s4 OK s5 OK` then
+   `BACK s2 DOWN s1 OK s4 OK` by default): the mid-play switch.
+5. `python3 docs/research/framerate/probe.py --go --run gfn120`: the GFN app at 4K120, a session started by hand once the app is up
+   (skip when no session is possible): both HFR switches on, 120 Hz 1:1.
+6. Read each `summary.txt` (`--report DIR` recomputes it): the DE rate at start and end, the switch moments against the app's
+   own video mute, the firmware mute spans, the vsync gaps, the black and frozen screen spans, `VERDICT`. Put the measured rows
+   into "Verdicts" and settle the `[INFERENCE]` marks; the `kernel.txt` lines (`set_frate`, `timing_changed`, `4k HFR mode`,
+   `mute-on/off`) date the switch to the 40 ms poll.
