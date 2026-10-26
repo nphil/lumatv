@@ -2,15 +2,18 @@
 //! the lights they go to.
 //!
 //! ```text
-//!   Settings page ──► base.ambient ──► plan (lumatv-ambient: engine config + the strip's lights + the Hue area's lights)
+//!   Settings page ──► base.ambient ──► plan (lumatv-ambient: engine config + the strip's lights + the entertainment lights)
 //!   capture helper ──► unix socket ──► Engine ──┬─► DDP over UDP ──► the WLED strip named in helper.json
-//!                                               └─► hue::Output ──► the Hue bridge: HTTPS start/stop, DTLS HueStream
+//!                                               ├─► hue::Output ──► the Hue bridge (or Bifrost): HTTPS start/stop, DTLS HueStream
+//!                                               └─► ambient_z2m::Output ──► MQTT ──► Zigbee2MQTT ──► the Hue bulbs, entertainment frames
 //! ```
 //!
 //! - **Nothing is sent to a device nobody named.** The strip's address is `ambient.wled` in `helper.json` (a private IPv4
 //!   address: the picture's colours never leave the home network); the Hue bridge is the one `lumatv-helper hue-link` saved
-//!   (`hue_store`, also a private address, with the keys and the certificate the bridge must present). With neither, ambient light
-//!   has nothing to drive, says so in the `ambient` topic's `problem`, and the test pattern is refused.
+//!   (`hue_store`, also a private address, with the keys and the certificate the bridge must present); the Zigbee2MQTT broker and
+//!   the bulbs are what `lumatv-helper z2m-link` saved (`ambient_z2m_store`). One entertainment output runs at a time: Zigbee2MQTT
+//!   when it is linked, else the bridge. With no light at all, ambient light has nothing to drive, says so in the `ambient` topic's
+//!   `problem`, and the test pattern is refused.
 //! - **Nothing runs while it is not wanted.** The thread sleeps until the settings, the screen, the context or a frame change what
 //!   is wanted; it ticks at 30 Hz (the reader polls at 10 a second by default) only while the picture is moving the lights, sends a still colour once a second (WLED leaves
 //!   realtime mode 2.5 s after the last packet), and after the lights have faded to black it sends one black frame and goes quiet.
@@ -25,16 +28,19 @@
 //!   service unless `/var/luna/preferences/vt_devmode` exists; creating it is the owner's decision, made for short supervised probe
 //!   slots (`ambient/capture/tv_probe_slot.py`), and no code of the helper creates it.
 //!
-//! The topic `ambient`: `{enabled, mode, brightness, sections, available, strip, hue, hueState, state, problem, covered}`. `state` is
-//! `off` (not enabled), `idle` (enabled, but nothing to do now: the screen is off, or Home covers the picture in the mode that goes
-//! dark there), `waiting` (enabled, no picture frames yet), `running` or `testing`. `available` says there is a light to drive;
-//! `strip` and `hue` say which (`hue`: a bridge is linked with an area); `hueState` is the Hue output's own: `idle`, `connecting`,
-//! `streaming` or `error` (its words are in `problem`).
+//! The topic `ambient`: `{enabled, mode, brightness, sections, available, strip, hue, hueState, z2m, z2mState, state, problem,
+//! covered}`. `state` is `off` (not enabled), `idle` (enabled, but nothing to do now: the screen is off, or Home covers the picture
+//! in the mode that goes dark there), `waiting` (enabled, no picture frames yet), `running` or `testing`. `available` says there is
+//! a light to drive; `strip`, `hue` and `z2m` say which (`hue`: a bridge is linked with an area and is the output; `z2m`:
+//! Zigbee2MQTT is linked and is the output); `hueState` and `z2mState` are that output's own: `idle`, `connecting`, `streaming` or
+//! `error` (its words are in `problem`), and `off` for the one that is not running.
 
+use crate::ambient_z2m;
+use crate::ambient_z2m_store;
 use crate::config::WledConfig;
 use crate::control::Stop;
 use crate::ctx::Ctx;
-use crate::hue::{self, Demand, Event, Frame};
+use crate::hue::{self, Demand, Event, Frame, Status};
 use crate::hue_rest::Tls;
 use crate::hue_store;
 use crate::screen;
@@ -75,6 +81,45 @@ const TEST_PASSES: u32 = 2;
 const FADE_GRACE: Duration = Duration::from_millis(400);
 /// After a failed send the strip is tried again no sooner than this.
 const RETRY: Duration = Duration::from_secs(2);
+
+/// The entertainment output: the Hue bridge (or Bifrost) over HueStream, or Zigbee2MQTT straight. One or the other; both take
+/// the same demand and frames (one 16-bit RGB per channel) and report the same status.
+#[derive(Clone)]
+enum Ent {
+    Hue(Arc<hue::Output>),
+    Z2m(Arc<ambient_z2m::Output>),
+}
+
+impl Ent {
+    fn set(&self, demand: Demand, frame: Option<Frame>) {
+        match self {
+            Ent::Hue(o) => o.set(demand, frame),
+            Ent::Z2m(o) => o.set(demand, frame),
+        }
+    }
+
+    fn status(&self) -> Status {
+        match self {
+            Ent::Hue(o) => o.status(),
+            Ent::Z2m(o) => o.status(),
+        }
+    }
+
+    fn shutdown(&self) {
+        match self {
+            Ent::Hue(o) => o.shutdown(),
+            Ent::Z2m(o) => o.shutdown(),
+        }
+    }
+
+    /// The word the topic and the `problem` use for it.
+    fn word(&self) -> &'static str {
+        match self {
+            Ent::Hue(_) => "Hue",
+            Ent::Z2m(_) => "Zigbee2MQTT",
+        }
+    }
+}
 
 /// The settings as the person left them (the schema's defaults for what is missing or unusable).
 pub fn read_settings(values: &Values) -> Settings {
@@ -153,15 +198,16 @@ struct Inner {
     /// The thread is waiting with no deadline: a frame or a change must wake it.
     sleeping: bool,
     dirty: bool,
-    /// The Hue output, when a bridge is linked with an area.
-    hue: Option<Arc<hue::Output>>,
-    /// Why Hue is not driven although a bridge was linked: no area chosen, or a link that cannot be read.
-    hue_note: Option<String>,
-    /// The area's channels as lights, once the area has been read (nothing until then).
+    /// The entertainment output, when Zigbee2MQTT is linked or a bridge is linked with an area.
+    ent: Option<Ent>,
+    /// Why no entertainment output runs although a link was saved: no area chosen, a link that cannot be read, or a second link
+    /// that is set aside.
+    ent_note: Option<String>,
+    /// The output's channels as lights (the area's channels, or the linked bulbs), once known (nothing until then).
     hue_lights: Vec<Light>,
-    /// What the Hue output is sent after this step.
+    /// What the entertainment output is sent after this step.
     hue_frame: Option<Frame>,
-    /// The last Hue frame had a lit channel.
+    /// The last entertainment frame had a lit channel.
     hue_lit: bool,
 }
 
@@ -207,8 +253,8 @@ impl Ambient {
                 state: "off",
                 sleeping: false,
                 dirty: true,
-                hue: None,
-                hue_note: None,
+                ent: None,
+                ent_note: None,
                 hue_lights: Vec::new(),
                 hue_frame: None,
                 hue_lit: false,
@@ -223,7 +269,7 @@ impl Ambient {
                 }
             });
         }
-        ambient.reload_hue();
+        ambient.reload_links();
         {
             let mut g = ambient.inner.lock();
             ambient.rebuild(&mut g);
@@ -371,18 +417,18 @@ impl Ambient {
         }
     }
 
-    /// Whether the plan has a light something of this helper can show: a strip's LED when there is a strip to send to, a Hue channel
-    /// when there is a bridge.
-    fn drives(&self, hue: bool, plan: &Plan) -> bool {
-        (self.target.is_some() && plan.sections > 0) || (hue && plan.lights.len() > plan.sections)
+    /// Whether the plan has a light something of this helper can show: a strip's LED when there is a strip to send to, an
+    /// entertainment channel when there is an output for it.
+    fn drives(&self, ent: bool, plan: &Plan) -> bool {
+        (self.target.is_some() && plan.sections > 0) || (ent && plan.lights.len() > plan.sections)
     }
 
-    /// What the Hue output is asked for after a step: the stream while the lights are lit; a look at the area (without starting it)
-    /// while its lights are not known and ambient light is on; nothing otherwise, which ends a stream that is open (the screen went
-    /// off, ambient light was switched off, the lights have faded).
-    fn offer_hue(&self, g: &mut Inner, want: Want, screen_on: bool) {
+    /// What the entertainment output is asked for after a step: the stream while the lights are lit; a look at its lights (without
+    /// starting anything) while they are not known and ambient light is on; nothing otherwise, which ends a stream that is open (the
+    /// screen went off, ambient light was switched off, the lights have faded).
+    fn offer_ent(&self, g: &mut Inner, want: Want, screen_on: bool) {
         let frame = g.hue_frame.take();
-        let Some(output) = g.hue.clone() else {
+        let Some(output) = g.ent.clone() else {
             return;
         };
         let known = !g.hue_lights.is_empty();
@@ -396,40 +442,53 @@ impl Ambient {
         output.set(demand, frame);
     }
 
-    /// Reads the saved Hue link again and starts the Hue output for it (a running one is ended first). The command line asks for
-    /// this after it changes the link (`POST /v1/ambient/refresh`).
-    pub fn reload_hue(self: &Arc<Self>) {
-        let (output, note) = match hue_store::load(&self.ctx.paths.data_dir) {
-            Ok(Some(link)) if link.area.is_some() => {
-                let weak = Arc::downgrade(self);
-                let events: Arc<dyn Fn(Event) + Send + Sync> = Arc::new(move |event| {
-                    if let Some(ambient) = weak.upgrade() {
-                        ambient.hue_event(event);
-                    }
-                });
+    /// Reads the saved links again and starts the entertainment output for them (a running one is ended first): Zigbee2MQTT
+    /// when it is linked, else the Hue bridge. The command line asks for this after it changes a link (`POST /v1/ambient/refresh`).
+    pub fn reload_links(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        let events: Arc<dyn Fn(Event) + Send + Sync> = Arc::new(move |event| {
+            if let Some(ambient) = weak.upgrade() {
+                ambient.ent_event(event);
+            }
+        });
+        let data_dir = &self.ctx.paths.data_dir;
+        let z2m = ambient_z2m_store::load(data_dir);
+        let hue = hue_store::load(data_dir);
+        let (output, note) = match (z2m, hue) {
+            (Ok(Some(link)), hue) => match ambient_z2m::Output::spawn(link, events) {
+                Ok(output) => (
+                    Some(Ent::Z2m(Arc::new(output))),
+                    matches!(hue, Ok(Some(_))).then(|| {
+                        "Zigbee2MQTT drives the lights; the Hue link is set aside (z2m-unlink to use it)".to_owned()
+                    }),
+                ),
+                Err(e) => (None, Some(format!("the Zigbee2MQTT output cannot start: {e}"))),
+            },
+            (Err(e), _) => (None, Some(format!("the Zigbee2MQTT link cannot be used: {e}"))),
+            (Ok(None), Ok(Some(link))) if link.area.is_some() => {
                 let tls = Tls::from_config(&self.ctx.config.fetch);
-                match hue::Output::spawn(link, &self.ctx.paths.data_dir, tls, events) {
-                    Ok(output) => (Some(Arc::new(output)), None),
+                match hue::Output::spawn(link, data_dir, tls, events) {
+                    Ok(output) => (Some(Ent::Hue(Arc::new(output))), None),
                     Err(e) => (None, Some(format!("the Hue output cannot start: {e}"))),
                 }
             }
-            Ok(Some(_)) => (
+            (Ok(None), Ok(Some(_))) => (
                 None,
                 Some(
                     "Hue is linked but no entertainment area is chosen: run lumatv-helper hue-area"
                         .to_owned(),
                 ),
             ),
-            Ok(None) => (None, None),
-            Err(e) => (None, Some(format!("the Hue link cannot be used: {e}"))),
+            (Ok(None), Ok(None)) => (None, None),
+            (Ok(None), Err(e)) => (None, Some(format!("the Hue link cannot be used: {e}"))),
         };
         if let Some(note) = &note {
             crate::log_warn!("ambient: {note}");
         }
         let old = {
             let mut g = self.inner.lock();
-            let old = std::mem::replace(&mut g.hue, output);
-            g.hue_note = note;
+            let old = std::mem::replace(&mut g.ent, output);
+            g.ent_note = note;
             g.hue_lights.clear();
             g.hue_frame = None;
             g.hue_lit = false;
@@ -437,13 +496,15 @@ impl Ambient {
             self.publish(&g);
             old
         };
-        // Ending a stream takes a moment (the bridge is told): not with the lock held.
-        drop(old);
+        // Ending a stream takes a moment (the bridge or the bulbs are told): not with the lock held.
+        if let Some(old) = old {
+            old.shutdown();
+        }
         self.wake.notify_all();
     }
 
-    /// What the Hue output says, from its own thread.
-    fn hue_event(&self, event: Event) {
+    /// What the entertainment output says, from its own thread.
+    fn ent_event(&self, event: Event) {
         let mut g = self.inner.lock();
         if let Event::Lights(lights) = event
             && g.hue_lights != lights
@@ -461,30 +522,37 @@ impl Ambient {
 
     /// The topic's value.
     fn topic_json(&self, g: &Inner) -> Json {
-        let hue = g.hue.as_ref().map(|o| o.status());
-        let hue_words = hue
+        let status = g.ent.as_ref().map(|o| (o.word(), o.status()));
+        let ent_words = status
             .as_ref()
-            .and_then(|s| s.problem.as_deref())
-            .map(|p| format!("Hue: {p}"));
+            .and_then(|(word, s)| s.problem.as_deref().map(|p| format!("{word}: {p}")));
         let problem = g
             .problem
             .clone()
-            .or(hue_words)
-            .or_else(|| g.hue_note.clone())
+            .or(ent_words)
+            .or_else(|| g.ent_note.clone())
             .or_else(|| {
-                (self.target.is_none() && g.hue.is_none()).then(|| {
-                    "No light is set up: helper.json needs ambient.wled.host, or run lumatv-helper hue-link".to_owned()
+                (self.target.is_none() && g.ent.is_none()).then(|| {
+                    "No light is set up: helper.json needs ambient.wled.host, or run lumatv-helper z2m-link or hue-link".to_owned()
                 })
             });
+        let state_of = |kind: &str| -> &'static str {
+            match &status {
+                Some((word, s)) if *word == kind => s.state,
+                _ => "off",
+            }
+        };
         json!({
             "enabled": g.settings.enabled,
             "mode": g.settings.mode.word(),
             "brightness": g.settings.brightness,
             "sections": g.settings.edges.sum(),
-            "available": self.target.is_some() || g.hue.is_some(),
+            "available": self.target.is_some() || g.ent.is_some(),
             "strip": self.target.is_some(),
-            "hue": g.hue.is_some(),
-            "hueState": hue.map_or("off", |s| s.state),
+            "hue": matches!(g.ent, Some(Ent::Hue(_))),
+            "hueState": state_of("Hue"),
+            "z2m": matches!(g.ent, Some(Ent::Z2m(_))),
+            "z2mState": state_of("Zigbee2MQTT"),
             "state": g.state,
             "problem": problem,
             "covered": g.covered,
@@ -512,8 +580,8 @@ impl Ambient {
             }
             g.test = None;
         }
-        let hue = g.hue.is_some();
-        let Some(plan) = g.plan.as_ref().filter(|p| self.drives(hue, p)) else {
+        let ent = g.ent.is_some();
+        let Some(plan) = g.plan.as_ref().filter(|p| self.drives(ent, p)) else {
             return Want::Idle;
         };
         if !plan.enabled || !screen_on {
@@ -591,7 +659,7 @@ impl Ambient {
         // The state may have moved while stepping (a test ended, the lights went dark).
         let screen_now = screen_on;
         let _ = self.refresh_state(&mut g, screen_now, now);
-        self.offer_hue(&mut g, want, screen_on);
+        self.offer_ent(&mut g, want, screen_on);
         self.publish(&g);
         step
     }
@@ -723,12 +791,12 @@ impl Ambient {
     /// Whether the capture socket should exist: a picture is wanted and something can show it.
     pub fn wants_capture(&self) -> bool {
         let g = self.inner.lock();
-        let hue = g.hue.is_some();
-        (self.target.is_some() || hue)
+        let ent = g.ent.is_some();
+        (self.target.is_some() || ent)
             && screen::is_on(&self.ctx.hub)
             && g.plan
                 .as_ref()
-                .is_some_and(|p| p.enabled && self.drives(hue, p) && p.mode.follows_picture())
+                .is_some_and(|p| p.enabled && self.drives(ent, p) && p.mode.follows_picture())
     }
 
     /// Starts the thread that drives the strip.
@@ -777,8 +845,8 @@ impl Ambient {
             }
         }
         drop(link);
-        // The stream to the bridge ends with the helper: black, closed, and the area handed back.
-        let output = self.inner.lock().hue.take();
+        // The stream ends with the helper: black, closed, and the bridge's area handed back or the bulbs put back.
+        let output = self.inner.lock().ent.take();
         if let Some(output) = output {
             output.shutdown();
         }

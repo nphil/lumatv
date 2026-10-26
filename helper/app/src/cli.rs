@@ -14,16 +14,22 @@
 //! lumatv-helper hue-link --brand ... --host <bridge or Bifrost> (--pair | keys on standard input) [--area <id>] [--fps <n>]
 //! lumatv-helper hue-area --brand ... [--area <id>]         list the bridge's entertainment areas, or choose one
 //! lumatv-helper hue-unlink --brand ...
+//! lumatv-helper z2m-link --brand ... --host <MQTT broker> [--port <n>] [--user <name>] [--base-topic <t>] [--fps <n>] --light <name>=<place> ...
+//!                                                            the password on standard input when --user is given
+//! lumatv-helper z2m-unlink --brand ...
 //! ```
 //!
 //! `voice-link` is how voice search is pointed at Home Assistant: the address is an argument and the token comes on standard input,
 //! so it is in no process list and no shell history that the owner does not choose, and neither is ever printed. It is the only
 //! way to set either (see `voice_store`); a helper that is running is told to read the link again. `hue-link` does the same for
-//! the Hue bridge (see `hue_store`): the keys never appear in an argument or in any output.
+//! the Hue bridge (see `hue_store`): the keys never appear in an argument or in any output. `z2m-link` does the same for the MQTT
+//! broker Zigbee2MQTT uses (see `ambient_z2m_store`): the password comes on standard input and is never printed.
 //!
 //! `--data-dir <dir>` replaces `--brand` for tests and development. The data dir from `brand.json` is checked by the tool's own
 //! rule (a directory directly under `/var/lib`).
 
+use crate::ambient_z2m;
+use crate::ambient_z2m_store::{self, Z2mLight, Z2mLink};
 use crate::config::{Config, Paths, data_dir_from_brand, find_ca_bundle};
 use crate::hue_rest::{self, Area, Bridge, HueError, Tls};
 use crate::hue_store::{self, HueLink};
@@ -55,6 +61,9 @@ struct Args {
     area: Option<String>,
     pair: bool,
     fps: Option<u8>,
+    user: Option<String>,
+    base_topic: Option<String>,
+    lights: Vec<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -80,6 +89,13 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 );
             }
             "--pair" => out.pair = true,
+            "--user" => out.user = Some(it.next().ok_or("--user needs a name")?.clone()),
+            "--base-topic" => {
+                out.base_topic = Some(it.next().ok_or("--base-topic needs a topic")?.clone())
+            }
+            "--light" => out
+                .lights
+                .push(it.next().ok_or("--light needs <name>=<place>")?.clone()),
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -114,7 +130,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge or Bifrost> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>]]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...]",
     })
 }
 
@@ -171,6 +187,8 @@ pub fn main(args: Vec<String>) -> i32 {
         "hue-link" => with_config(&args, |paths, config| hue_link(&paths, &config, &args)),
         "hue-area" => with_config(&args, |paths, config| hue_area(&paths, &config, &args)),
         "hue-unlink" => with_config(&args, hue_unlink),
+        "z2m-link" => with_config(&args, |paths, config| z2m_link(&paths, &config, &args)),
+        "z2m-unlink" => with_config(&args, z2m_unlink),
         other => fail(2, &format!("unknown command {other}")),
     }
 }
@@ -727,6 +745,97 @@ fn hue_area(paths: &Paths, config: &Config, args: &Args) -> i32 {
 /// Removes the saved bridge, its keys and its certificate.
 fn hue_unlink(paths: Paths, config: Config) -> i32 {
     let removed = hue_store::clear(&paths.data_dir);
+    let told = tell_helper(&paths, &config, "/v1/ambient/refresh");
+    emit(&json!({"ok": true, "linked": false, "removed": removed, "helperTold": told}));
+    0
+}
+
+// ------------------------------------------------------------------------------------------------- Zigbee2MQTT
+
+fn found_json(f: &ambient_z2m::Found, light: Option<&Z2mLight>) -> Value {
+    json!({
+        "name": f.name,
+        "networkAddress": format!("0x{:04x}", f.network_address),
+        "model": f.model,
+        "segments": f.segments,
+        "x": light.map(|l| l.x),
+        "y": light.map(|l| l.y),
+    })
+}
+
+/// Links Zigbee2MQTT's MQTT broker: the lights named by `--light` are looked up in Zigbee2MQTT's device list (nothing is sent to
+/// any light), then the link is saved with the password that came on standard input.
+fn z2m_link(paths: &Paths, config: &Config, args: &Args) -> i32 {
+    let Some(host) = args.host.as_deref() else {
+        return fail(2, "z2m-link needs --host <the MQTT broker's address>");
+    };
+    if args.lights.is_empty() {
+        return fail(
+            2,
+            &format!(
+                "z2m-link needs at least one --light <Zigbee2MQTT name>=<place>, the place one of {} or x,y (a strip: <place>:<segments>)",
+                ambient_z2m_store::PLACES.map(|p| p.0).join(", ")
+            ),
+        );
+    }
+    let mut lights = Vec::new();
+    for spec in &args.lights {
+        match Z2mLight::parse(spec) {
+            Ok(l) => lights.push(l),
+            Err(e) => return fail(2, &e.to_string()),
+        }
+    }
+    // The password: on standard input, only when there is a user; a line's end is not part of it.
+    let mut password = String::new();
+    if args.user.is_some()
+        && let Err(e) = std::io::stdin().take(4096).read_to_string(&mut password)
+    {
+        return fail(
+            1,
+            &format!("could not read the password from standard input: {e}"),
+        );
+    }
+    let password = password.trim_end_matches(['\r', '\n']);
+    let link = match Z2mLink::new(
+        host,
+        args.port.unwrap_or(ambient_z2m_store::DEFAULT_PORT),
+        args.user.as_deref(),
+        (!password.is_empty()).then_some(password),
+        args.base_topic
+            .as_deref()
+            .unwrap_or(ambient_z2m_store::DEFAULT_BASE_TOPIC),
+        args.fps.unwrap_or(ambient_z2m_store::DEFAULT_FPS),
+        lights,
+    ) {
+        Ok(link) => link,
+        Err(e) => return fail(2, &e.to_string()),
+    };
+    let found = match ambient_z2m::probe(&link) {
+        Ok(found) => found,
+        Err(why) => return fail(1, &why),
+    };
+    if let Err(e) = ambient_z2m_store::save(&paths.data_dir, &link) {
+        return fail(1, &e.to_string());
+    }
+    let told = tell_helper(paths, config, "/v1/ambient/refresh");
+    emit(&json!({
+        "ok": true,
+        "linked": true,
+        "broker": format!("{}:{}", link.host, link.port),
+        "user": link.username,
+        "baseTopic": link.base_topic,
+        "fps": link.fps,
+        "lights": found.iter().map(|f| found_json(f, link.lights.iter().find(|l| l.name == f.name))).collect::<Vec<_>>(),
+        "framesTo": found.first().map(|f| f.name.clone()),
+        "helperTold": told,
+        "next": "switch ambient light on in Settings, Ambient light",
+    }));
+    0
+}
+
+/// Removes the saved broker, its password and the lights.
+fn z2m_unlink(paths: Paths, config: Config) -> i32 {
+    let removed = ambient_z2m_store::clear(&paths.data_dir);
     let told = tell_helper(&paths, &config, "/v1/ambient/refresh");
     emit(&json!({"ok": true, "linked": false, "removed": removed, "helperTold": told}));
     0

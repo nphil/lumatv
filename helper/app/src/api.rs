@@ -260,9 +260,9 @@ impl Api {
         }
     }
 
-    /// Reads the saved Hue link again (the command line asks after it changes the link).
+    /// Reads the saved Zigbee2MQTT and Hue links again (the command line asks after it changes one).
     fn ambient_refresh(&self) -> Response {
-        self.ambient.reload_hue();
+        self.ambient.reload_links();
         self.ok(json!({"ambient": self.ambient.status()}))
     }
 
