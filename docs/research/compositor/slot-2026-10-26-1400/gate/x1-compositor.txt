@@ -1,0 +1,10 @@
+[srv   6986.032] info tick: frame held while a driver buffer warms
+[srv   6986.036] info tick: warm done, drawing again
+[srv   6986.054] info tick: frame held while a driver buffer warms
+[srv   6986.055] info tick: warm done, drawing again
+[srv   6986.072] info tick: frame held while a driver buffer warms
+[srv   6986.084] info tick: warm done, drawing again
+[srv   6986.098] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+[srv   7031.059] info kms: flip reached 3.4 ms after it landed
+[srv   7031.060] warn frame gap 20.1 ms on surface 185 (org.nphil.lumatv.x1) after 2694 steady frames
+[srv   7046.065] info client disconnected: pid 27154 uid 0 after 60065 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"

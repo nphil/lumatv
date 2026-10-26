@@ -14,9 +14,10 @@ live with the owner.
 - Helpers: at most 10 at once including nested ones; briefs forbid spawning. One
   TV owner at a time, deploying from a clean worktree; the compile gate
   (`tests/qmlhost/compile_all.py`) runs before every package or hand deploy.
-- On the set at 06:45: package of 3c8857a, LG's compositor, Active Standby, keyboard
-  keys restyle on, Search and Live TV restyles off, LumaTV's saver owns the idle
-  state on Home, GFN app installed (signed out), receiver 65.5 unmuted.
+- On the set at 14:11 (2026-10-26): package of 87e0fa5, LG's compositor (gate 9 failed on
+  frame timing only, `compositor-gate9-result.md`), Active Standby, keyboard keys restyle on,
+  Search and Live TV restyles off, LumaTV's saver owns the idle state on Home, GFN app
+  installed (signed out), receiver off at 65.5 unmuted.
 - Results of the night: `docs/research/round9-result.md` (rounds 9-11, table and
   evidence), `round8-result.md`, `test-health-result.md` (every cargo suite green,
   Python green bar one load flake in test_vplane_player).

@@ -91,3 +91,11 @@ Evidence lands in `docs/research/compositor/slot-<date>-<HHMM>/`. Pass for this 
 3. `GATE wd-crash: PASS` with `reason: compositor killed by signal 9`.
 4. Nothing else regresses: `live`, `volume`, `hdmi`, `standby`, `homekey`, `wd-hang` and `escape` pass as on the eighth
    gate. `netflix` is outside this note.
+
+## On the set, 2026-10-26 14:00 (`compositor/slot-2026-10-26-1400/`)
+
+Gate FAIL on frame timing only; LG's compositor left live. Fixed: the first-commit stall is gone and `wd-crash` passes
+with `reason: compositor killed by signal 9`. Every other check passes (firmware, homeheld, live, volume, netflix, hdmi,
+standby, homekey, wd-hang, wd-crash, escape). Still failing: the trial has a `page-flip stamp 33.36 ms` (one missed
+refresh) and x1 has 3 client swap gaps of 20-28.1 ms in 3598 frames (59.95 fps), one `frame gap 20.1 ms` after 2694
+steady frames, with its `flip reached 3.4 ms after it landed` line beside it.

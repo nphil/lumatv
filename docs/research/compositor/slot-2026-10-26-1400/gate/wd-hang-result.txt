@@ -1,0 +1,1 @@
+unmounted after 3.0 s; reason: heartbeat: two beats missed; failures 0 -> 1; escaped no; compositor left: none; panel 380743 bytes; wam active; sam unchanged

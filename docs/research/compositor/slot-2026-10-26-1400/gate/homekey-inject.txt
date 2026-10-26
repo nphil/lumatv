@@ -1,0 +1,2 @@
+device made; pressing key 172 in 9.0 s for 1.5 s
+released and destroyed

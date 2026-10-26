@@ -352,6 +352,13 @@ Only the first opening joins: the panel had left the scene before it. The tests 
 
 If p90 stays over the bar the frames left are not the panel's structure (a longer `lingerMs` would only keep the nodes in every frame of Home for longer): the windows' `burst_first_render_ms` say which frame of the burst they are.
 
+**On the set, 2026-10-26 13:52** (ipk of `87e0fa5`, LG's compositor, receiver muted; log `/tmp/r8/qp-r15.log`): VERDICT FAIL.
+Over Home, quick p90 3.12 ms (r14 3.43) and burst end 180.76 ms (bar 180); picker p90 2.97 ms with one burst interval over
+20 ms. Over HDMI 3 both panels pass every bar (quick p90 2.58, burst end 138 ms; picker burst end 142 ms). Over Netflix the
+quick panel's burst ends at 370 ms with two intervals over 20 ms, the picker's p90 is 3.55 ms. Memory passes on all six.
+The HDMI surfaces leave `com.webos.app.hdmi3` running behind Home with audio port 1 open (`lumatv inputs status`); it was
+closed through SAM before the compositor gate. `home-idle` not run.
+
 ## Under LumaTV's own compositor
 
 The key filter, the overlay and the container patch run only inside LG's compositor. At the cutover LG's key filters go away (`compositor-c2-result.md`, "Surfaces under LumaTV's compositor") and the QML shell with them; the rules here then belong to the compositor's evdev key routing and the Rust UI: a gear that is LG's on a tap and ours at 650 ms (the three-tap AV reset stays three taps), the app keys with their owner's choice and LG's own where installed, the number keys on Home, and a layer over an app that takes keys only while it has a surface that wants them. `tests/keyfilter.test.js` and `tests/bus.test.js` are written as that rule set.
