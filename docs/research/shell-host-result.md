@@ -294,7 +294,9 @@ chained by something else drawing). The OSD was on at every key this time (`osd_
   key-driven rate (+1.85 MB over 8). So part of it is the picker's own path (its readings: the open subscriptions above are fixed in
   `2886b62`, which this round did not run) and the larger part comes with the key.
 
-Next on the set: the re-gate on the newest `main`, the same command with `--tag r13-qp`.
+Next on the set: the re-gate on the newest `main`, the same command with `--tag r13-qp`. If the picker's RSS still climbs, `gate.py
+--surfaces picker --input-key 241 --soak` (500 cycles, about 26 min) tells a heap that grows to its collection threshold and stays
+(steps that stop) from a leak (steps that go on); the steps of about 236 KB look like the former [INFERENCE].
 
 ## Under LumaTV's own compositor
 
