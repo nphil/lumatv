@@ -82,6 +82,10 @@ static int g_lib_failed;
 static int load_library(void) {
     if (p_decode) return JP_OK;
     if (g_lib_failed) return JP_E_NO_LIBRARY; /* said once; the library does not appear while the program runs */
+    /* libdile_photo calls PmLog (_PmLogMsgKV) without linking it: on the set it fails to load unless the logging library is already
+     * in the process, global (2026-10-25). Its absence is not an error here: the library's own load says what is missing. */
+    void *pmlog = dlopen("libPmLogLib.so.3", RTLD_NOW | RTLD_GLOBAL);
+    (void)pmlog;
     g_lib = dlopen("libdile_photo.so.1", RTLD_NOW | RTLD_LOCAL);
     if (!g_lib) {
         say("libdile_photo.so.1 did not load: %s", dlerror());
