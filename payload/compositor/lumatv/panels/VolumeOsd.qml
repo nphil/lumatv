@@ -221,21 +221,12 @@ Item {
             readonly property int step: 94        // LG's bubble moves this far, between three places
             property int place: 0                 // -1, 0 or 1 steps from the middle
             property int way: 1
-            width: Math.max(128, Math.ceil(markText.implicitWidth) + 2 * Lu.space(3))
-            height: Lu.space(5) + 48 + Lu.space(1) + markText.implicitHeight + Lu.space(5)
+            width: 96; height: 96                 // LG's bubble's size: a speaker with a slash says it all
             x: osd.width - osd.edgeX - width
             y: Math.round((osd.height - height) / 2) + place * step
-            cardRadius: Lu.radius("card")
+            cardRadius: width / 2
             fillAlpha: osd.paneAlpha
-            LuIcon { x: Math.round((parent.width - width) / 2); y: Lu.space(5); size: 48; name: "volume-x" }
-            LuText {
-                id: markText
-                x: Lu.space(3); y: Lu.space(5) + 48 + Lu.space(1)
-                width: parent.width - 2 * Lu.space(3)
-                horizontalAlignment: Text.AlignHCenter
-                role: "caption"
-                text: "Muted"
-            }
+            LuIcon { anchors.centerIn: parent; size: 48; name: "volume-x" }
             // out, to the next place (the glass samples the backdrop where the pane is, so it is told where that is now), and back in
             function hop() {
                 if (place + way > 1 || place + way < -1) way = -way

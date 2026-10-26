@@ -724,7 +724,8 @@ Item {
     property int holdMs: motion.holdMs || 700
     property bool okDown: false
     property bool okHeld: false
-    // A held OK has a meaning on a dock tile and on a library icon: the options of that app.
+    // A held OK has a meaning on a dock tile and on a library icon (the options of that app) and, in Settings, on a row with
+    // an info mark (its help); anywhere else a long press is an ordinary one.
     function holdAvailable() {
         if (layers.open === "apps") return true
         var d = dockLoader.item
@@ -736,7 +737,9 @@ Item {
         onTriggered: {
             if (!root.okDown || !root.holdAvailable()) return
             root.okHeld = true
-            if (layers.open === "apps") layers.hold(); else root.openTileMenu()
+            if (layers.open === "apps" || layers.open === "settings") layers.hold()
+            else if (root.focusLayer === "widgets") root.editHome(root.widgetFocusId)
+            else root.openTileMenu()
         }
     }
     // ---- the number keys open the dock's tiles (Settings, Remote & pointer, "Number keys open dock tiles": theme `remote.numberKeys`,
@@ -754,6 +757,7 @@ Item {
             return true
         }
         if (!pressed || autoRepeat) return false
+        if (layers.open === "settings") return layers.holdReady()
         if (!hostActive || !numberKeysOn || aiPrompt.up || trialOn || layers.open !== "" || focusLayer === "popover") return false
         var d = dockLoader.item
         if (!d || !d.openTile(tile)) return false
@@ -1226,6 +1230,7 @@ Item {
     }
     function closeAllLayers() { layerStack = []; layerOpen = "" }
     // What the rest of Home asks of the small panels: a menu next to something, a question, the on-screen remote, the
+    readonly property bool settingsHelpOpen: layers.settingsHelpOpen
     // launch splash, a spinner, the ring around a tile that is being held. Each is a call on a built item.
     property string menuKind: ""
     function showMenu(spec) { menuKind = spec.kind || ""; layers.openMenu(spec); openLayer("menu") }
@@ -1287,7 +1292,7 @@ Item {
 
     property var appTarget: null            // what the open menu or dialog is about: { app, source: "dock" | "library" }
     function menuKey() {
-        if (layers.open === "apps") { layers.hold(); return }
+        if (layers.open === "apps" || layers.open === "settings") { layers.hold(); return }
         if (layers.open === "quick") { closeLayer(); return }
         if (layers.open !== "") return
         var d = dockLoader.item

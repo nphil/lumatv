@@ -3,8 +3,10 @@
 ## Resume here
 
 State at 2026-10-25 21:45: on the set (build `ddc293c`) and checked on Home, Plex and HDMI 2. The offline tests pass (`tests/test_volume_osd.py`,
-`tests/test_osd_contrast.py`, `tests/test_volume_patch.py`). The deploy took one `lumatv apply` restart for the shadow patch. `lumatv revert` is the
-way back and brings LG's popup back with it. Open: frame cost over video, and the TV's own volume with the receiver off (offline only so far).
+`tests/test_osd_contrast.py`, `tests/test_volume_patch.py`). The deploy took two `lumatv apply` restarts: the first with files copied unrendered, which
+left Home and the overlay unloaded for about two minutes (see Deploying by hand), the second with them rendered. `lumatv revert` is the way back and
+brings LG's popup back with it. Open: frame cost over video, the TV's own volume with the receiver off (offline only so far), and the icon-only mute
+mark, which is in the repo and not yet on the set (the next `lumatv apply` restarts the compositor).
 
 ## What LG draws and how it is stopped
 
@@ -49,7 +51,8 @@ second one (a test fails if they do). The display takes no key and no focus.
   TV's own volume (`LS.audioService.volume` of 100), captioned with the output (TV, ARC, Headphones, Bluetooth). A receiver that may answer and has
   not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not.
 - **Mute**: the word and what it was ("was 46"), the level dimmed, from the receiver's `MU` push or, with no receiver, the TV's mute. Then a mark
-  stays at the right edge while the sound is muted (LG's bubble did), moving 94 px between three places every 10 s so no pixel holds a still mark.
+  stays at the right edge while the sound is muted: a 96 px bubble with a slashed speaker, no words, as LG's was, moving 94 px between three places
+  every 10 s so no pixel holds a still mark.
   The receiver's mute is kept while the helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped
   1.5 s after the readings stop.
 - **Shape**: a pane 176 px wide (wider when the words need it, at 200 % text too), 64 px from the right edge, vertically centred, 28 px radius;
@@ -82,7 +85,9 @@ second one (a test fails if they do). The display takes no key and no focus.
   through it over Plex and HDMI 2; LG's popup never showed, and the log has `onVolumeUpdated, volume view is not available` once per press. The
   receiver read 42.5, not muted, before and after each pair (Home Assistant: 0.425).
 - Mute at Home (`after-home-muted.png`, `after-home-mark.png`): the pane says "Muted" and "was 42.5", then the mark stays at the right edge and has
-  moved to another place 14 s later; the unmute (also at Home) took the mark away and the receiver read unmuted. LG's bubble never showed.
+  moved to another place 14 s later; the unmute (also at Home) took the mark away and the receiver read unmuted. LG's bubble never showed. The
+  mark on the set is the first form, a speaker over the word "Muted" in a 128 px chip; the layout audit flags that stack (the words sit 26 px below
+  the middle of the box), so the repo's mark is the icon-only bubble, which shows after the next restart.
 - Contrast on the captures (ink against its own background, 7:1 is the distance floor): the level number 9.6:1 over Home, 12.4:1 over a bright Plex
   picture, 17.4:1 over HDMI 2; the line under it 10.5:1, 12.7:1, 17.4:1.
 - On HDMI 2 the Denon draws its own volume bar into the picture (the level, a bar, "ECO : OFF" at the bottom). It is in the receiver's video, not LG's,

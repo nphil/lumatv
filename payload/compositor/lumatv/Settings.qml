@@ -135,6 +135,7 @@ Item {
                     zone = "page"
                     var p = pageItem(current)
                     if (p && p.reset) p.reset()
+    readonly property string helpText: helpSheet.shown ? helpSheet.title + "\n" + helpSheet.text : ""
                 }
                 return true
             }
@@ -161,8 +162,9 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             x: parent.width - width - Lu.space(6)
             spacing: Lu.space(5)
-            LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "wifi"; size: 28; color: Lu.ink2 }
-            LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "mouse-pointer-2"; size: 28; color: Lu.ink2 }
+            // what is true now: the cable, the Wi-Fi (quiet when there is no link), the pointer only while it is on
+            LuIcon { anchors.verticalCenter: parent.verticalCenter; name: Net.wired ? "ethernet-port" : "wifi"; size: 28; color: Net.wired || Net.wifi ? Lu.ink2 : Lu.ink3 }
+            LuIcon { anchors.verticalCenter: parent.verticalCenter; visible: String(Sio.get("general.remotePointer")) === "on"; name: "mouse-pointer-2"; size: 28; color: Lu.ink2 }
             LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; color: Lu.ink2; text: Qt.formatTime(settings.clock, "h:mm AP") }
         }
         Timer { interval: 15000; running: settings.visible; repeat: true; onTriggered: settings.clock = new Date() }
@@ -196,8 +198,9 @@ Item {
                 width: parent.width
                 height: Lu.row
                 icon: "square-arrow-out-up-right"
+        MouseArea { x: 0; width: 360; height: parent.height; onClicked: settings.key("back") }      // the pointer's way back, as the Back key
                 label: "More in LG settings"
-                detail: "Everything else, themed"
+                // label only: nothing here is a state
                 focused: settings.zone === "rail" && settings.lgRow
                 rested: settings.rested
                 onActivated: { settings.launchApp("com.palm.app.settings", {}); settings.closeRequested() }

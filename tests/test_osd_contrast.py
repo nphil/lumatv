@@ -8,7 +8,8 @@ holds that number to the TV's distance contrast (7:1, `contrast.distance`) again
   (non-linear) values as the plane's blender does, and the bar against the track it fills;
 - the pixels: the display drawn by the offline host over such a frame, and every run of words and every glyph of it measured on the picture, as
   the language measures (the background is the median of the box, the ink the pixel farthest from it): the level, the line under it, the muted
-  pane, the mark that stays, the speaker in its tile.
+  pane, the mark that stays, the speaker in its tile;
+- the layout: the host's layout audit on the display over a picture, at the normal type size and doubled.
 """
 import json
 import os
@@ -165,7 +166,7 @@ class OnThePicture(unittest.TestCase):
 
     def check(self, material):
         shown = self.run_material(material)
-        for state, text in (("a", "46"), ("a", "TV"), ("b", "Muted"), ("b", "was 46"), ("c", "Muted")):
+        for state, text in (("a", "46"), ("a", "TV"), ("b", "Muted"), ("b", "was 46")):
             image, item = self.words(shown[state], text)
             self.assertGreaterEqual(self.ink_ratio(image, item), DISTANCE, "%s, %s, %r on the worst frame" % (material, state, text))
         # the speaker in its tile (the accent when the sound is on, the quiet wash when muted) and the mark's glyph
@@ -191,6 +192,43 @@ class OnThePicture(unittest.TestCase):
 
     def test_the_light_glass_over_a_black_frame(self):
         self.check("light")
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
+class Layout(unittest.TestCase):
+    """The layout audit (tests/qmlhost/layoutaudit.py) on the display over a picture: no words cut, crowded against the pane's edge or on top of each other
+    at the normal type size, none overlapping when the type is doubled, and the ink reading on what is behind it."""
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def audit(self, name, material, steps, snap_at):
+        import scenes_volume as sv
+        rc, warn, text = sv.render(name, self.tmp.name, material, steps, snap_at, audit=True)
+        found = [w for w in warn if w.startswith("[layout") or w.startswith("[audit]")]
+        self.assertEqual(rc, 0, text[-1500:])
+        self.assertEqual(found, [], text[-1500:])
+
+    def test_the_widest_number_and_its_unit_in_the_dark_pane(self):
+        import scenes_volume as sv
+        b = sv.B
+        self.audit("audit-db", "dark", [sv.sound_out(b), sv.receiver_at(b + 200, sv.RX_DB), sv.key_at(b + 2000, "volumeUp", 32)], b + 2700)
+
+    def test_the_muted_pane_in_the_light_material(self):
+        import scenes_volume as sv
+        b = sv.B
+        self.audit("audit-muted", "light", [sv.sound_out(b), sv.receiver_at(b + 200, sv.RX), sv.receiver_at(b + 2000, dict(sv.RX, mute=True)),
+                                            sv.key_at(b + 2020, "mute", None, True)], b + 3000)
+
+    def test_the_mark_that_stays_while_muted(self):
+        import scenes_volume as sv
+        b = sv.B
+        self.audit("audit-mark", "dark", [sv.sound_out(b), sv.receiver_at(b + 200, dict(sv.RX, mute=True)), sv.osd_at(b + 300, "o.holdMs = 300"),
+                                          sv.key_at(b + 2000, "mute", None, True)], b + 4500)
 
 
 if __name__ == "__main__":

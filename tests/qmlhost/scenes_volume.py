@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 
-from scenes import HERE, NOW, js, png_path, scene
+from scenes import HERE, NOW, audit_path, doubled_type, js, png_path, scene
 import scenes_host
 import xdisplay
 
@@ -51,9 +51,11 @@ def key_at(at, why="volumeUp", volume=None, muted=None):
     return audio_at(at, "LS.audioService.report(%s, %s, %s)" % (json.dumps(why), "null" if volume is None else volume, "null" if muted is None else ("true" if muted else "false")))
 
 
-def render(name, out_dir, material, steps, snap_at, over="video", bg=None, more_snaps=()):
+def render(name, out_dir, material, steps, snap_at, over="video", bg=None, more_snaps=(), audit=False):
     """steps: [(ms, js)] run in the host. `over` is "video" (an app in front, from 800 ms, `bg` the picture behind: a stand-in by default) or "home"
-    (Home in front); one grab at `snap_at`, and `more_snaps` [(ms, path)] besides. Returns (exit code, warnings, the host's whole output)."""
+    (Home in front); one grab at `snap_at`, and `more_snaps` [(ms, path)] besides. With `audit`, the layout audit (layoutaudit.py) runs on the grab and
+    again with the type doubled (the 200 % text pass, overlap only), and its findings come back as `[layout]` warnings. Returns (exit code,
+    warnings, the host's whole output)."""
     path = png_path(out_dir, name, material)
     if os.path.exists(path):
         os.remove(path)
@@ -68,12 +70,33 @@ def render(name, out_dir, material, steps, snap_at, over="video", bg=None, more_
         args += ["--eval", "%d:%s" % (ms, code)]
     for ms, other in more_snaps:
         args += ["--snap", "%d:%s" % (ms, other)]
-    args += ["--snap", "%d:%s" % (snap_at, path), "--wait", str(max([snap_at] + [ms for ms, _ in more_snaps]) + 600)]
+    last = max([snap_at] + [ms for ms, _ in more_snaps])
+    audits = []
+    if audit:
+        small, big = audit_path(out_dir, name, material), audit_path(out_dir, name, material, 200)
+        for p in (small, big):
+            if os.path.exists(p):
+                os.remove(p)
+        # the pane is still up (2.5 s from the key) when the type has doubled and the second audit runs
+        args += ["--audit", "%d:%s" % (snap_at, small),
+                 "--eval", "%d:(function(){root.theme = root.mergeDeep(root.theme, %s); return 1})()" % (snap_at + 100, json.dumps(doubled_type())),
+                 "--audit", "%d:%s:overlap" % (snap_at + 700, big)]
+        audits = [small, big]
+        last = max(last, snap_at + 700)
+    args += ["--snap", "%d:%s" % (snap_at, path), "--wait", str(last + 600)]
     r = subprocess.run(args, env=dict(os.environ, DISPLAY=xdisplay.DISPLAY), capture_output=True, text=True, timeout=240)
     text = r.stdout + r.stderr
     warn = [ln for ln in text.splitlines() if ln.startswith("[warning]") and "Implicitly defined onFoo" not in ln]
     if not os.path.exists(path):
         warn.append("[snap] not written: %s" % path)
+    if audits:
+        import layoutaudit      # needs PyQt5, like the host itself
+    for jpath in audits:
+        if not os.path.exists(jpath):
+            warn.append("[audit] not written: %s" % jpath)
+            continue
+        with open(jpath) as f:
+            warn += layoutaudit.lines(json.load(f), "layout 200%" if jpath.endswith("-200.json") else "layout")
     return (r.returncode or (1 if not os.path.exists(path) else 0)), warn, text
 
 
