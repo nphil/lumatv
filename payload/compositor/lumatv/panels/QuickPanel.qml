@@ -108,8 +108,10 @@ Item {
     readonly property var modeValues: ["filmMaker", "cinema", "normal", "vivid", "game", "sports", "eco"]
     readonly property var modeNames: ({ filmMaker: "Filmmaker", cinema: "Cinema", normal: "Standard", vivid: "Vivid", game: "Game", sports: "Sports", eco: "Eco" })
 
-    // behind the sheet: the page dims as the panel arrives
-    Rectangle { anchors.fill: parent; color: Lu.scrim; opacity: motion.progress }
+    // Behind the sheet the page dims for as long as the panel is drawn. The dim is not faded: the scrim covers the whole screen, and every
+    // change of its opacity made Qt's renderer batch the scene under it again, each frame of the slide (round 11: p90 3.70 ms over Home,
+    // 2.31 ms over an input, where little is under it).
+    Rectangle { anchors.fill: parent; color: Lu.scrim }
 
     // The one thing that moves: the sheet slides out of the left edge and fades in. Only x and opacity change per frame, so nothing is
     // laid out while it moves; the glass finds its place in the wallpaper's blur again as it goes (LuPane.locate).

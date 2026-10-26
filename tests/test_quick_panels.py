@@ -135,6 +135,27 @@ class HomePanels(HostCase):
         self.assertEqual(p["b"], ["picker", 0], "the picker replaced the quick panel")
         self.assertEqual(p["c"], ["quick", False, 0], "Settings gave way to the panel")
 
+    def test_nothing_that_covers_the_screen_fades_while_a_panel_slides(self):
+        # Each change of a full-screen item's opacity made Qt's renderer batch the whole scene under it again, every frame of the slide
+        # (round 11 over Home: quick p90 3.70 ms). The scrim is whole from the first frame; only the sheet moves and fades.
+        cover = ("var c = s.children, f = []; for (var i = 0; i < c.length; i++) if (c[i].visible && c[i].width >= root.width "
+                 "&& c[i].height >= root.height) f.push(c[i].opacity); return {drawn: s.visible, progress: s.progress, full: f};")
+        for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
+            # The software renderer's first frame of a panel can outlast the slide; a probe before the slide has ended is enough (the faded
+            # scrim drew at the opacity of the progress, 0 at the start).
+            steps = list(probe(READY + 500, "open", "return bus().open('%s');" % kind))
+            for k in range(16):
+                steps += probe(READY + 510 + 25 * k, "mid%d" % k, "var s = find(root, '%s'); " % find + cover)
+            rc, out = self.host(*steps, "--wait", str(READY + 1000))
+            self.assertEqual(rc, 0, out[-2500:])
+            p = probes(out)
+            self.assertTrue(p["open"])
+            drawn = [m for m in (p["mid%d" % k] for k in range(16)) if m["drawn"]]
+            self.assertTrue(any(m["progress"] < 1 for m in drawn), "no probe saw the %s before its slide ended: %s" % (kind, drawn))
+            for m in drawn:
+                self.assertTrue(m["full"], "the %s has no full-screen scrim" % kind)
+                self.assertEqual(set(m["full"]), {1}, "a full-screen item of the %s faded at progress %s" % (kind, m["progress"]))
+
     def test_a_panel_is_not_shown_when_the_owner_turned_it_off_or_Home_is_not_in_front(self):
         rc, out = self.host(
             "--theme", OFF,

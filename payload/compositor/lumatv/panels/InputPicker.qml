@@ -73,7 +73,9 @@ Item {
     }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: picker.rested = true }
 
-    Rectangle { anchors.fill: parent; color: Lu.scrim; opacity: motion.progress }
+    // the page dims for as long as the picker is drawn, not faded: a full-screen opacity change re-batches the scene under it each frame
+    // (QuickPanel.qml has the numbers)
+    Rectangle { anchors.fill: parent; color: Lu.scrim }
     LuPane {
         id: sheet
         x: 64; width: 1792
