@@ -237,7 +237,7 @@ Item {
             }
         }
     }
-}
 
     // ---- the help sheet: above both panes, so no row's words read through it
     LuHelp { id: helpSheet; z: 5 }
+}
