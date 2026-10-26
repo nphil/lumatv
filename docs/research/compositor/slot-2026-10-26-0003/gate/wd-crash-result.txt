@@ -1,0 +1,1 @@
+unmounted after 0.5 s; reason: compositor closed the bridge socket; failures 0 -> 1; escaped no; compositor left: none; panel 381683 bytes; wam active; sam unchanged

@@ -1,0 +1,16 @@
+# The webOS builds LumaTV's compositor has passed the C4 gate on. A persistent enable (`cutover.sh enable`,
+# `lumatv compositor on`, and the boot hook that follows it) is allowed only on a build listed here, by the SHA-256 of
+# LG's compositor binary and the libraries it was built against (tools/compositor.sh, the firmware check); any other
+# build, an update included, starts on LG's compositor until the gate has passed on it. A session (`cutover.sh trial`,
+# `enable --session`: what the gate itself runs) is allowed on any build and ends at the next reboot.
+#
+# An entry is written by `compositor/tools/tv_gate.py --enable-after` once every check passed on the set (or by hand
+# from `cutover.sh firmware record`) and committed. One entry per build:
+#
+#   build <release number> <date>
+#   release <the first line of /etc/starfish-release>
+#   fingerprint <16 hex digits, lumatv-sm --print-fingerprint: the supervisor checks the same build by it>
+#   file <sha256> <size> <path>        one line for each of the files the check covers
+#   end
+#
+# Nothing is listed yet: the gate has not passed (docs/research/cutover-result.md).

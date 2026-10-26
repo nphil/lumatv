@@ -1,0 +1,1 @@
+[x1] RESULT frames=3599 in 60.02 s = 59.97 fps; gaps: <=17.5 ms 3528, 17.5-20 70, 20-33.5 0, >33.5 0; worst 19.7 ms; ended at monotonic 22644.998 | pacer before: flips 23 late 0 lost 329 after: flips 3623 late 0 lost 2117 | compositor: loop stalls 0, frame gaps 1, clients connected 0, over 20 ms 2
