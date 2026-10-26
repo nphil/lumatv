@@ -163,7 +163,7 @@ def resolve(shipped_path, user_path):
 
 
 # Lucent's names for the colour roles, in the order of its tokens.css.
-ROLES = [("canvas", "canvas"), ("sheet", "sheet"), ("scrim", "scrim"), ("glass", "glass"),
+ROLES = [("canvas", "canvas"), ("sheet", "sheet"), ("scrim", "scrim"), ("scrim-hide", "scrimHide"), ("glass", "glass"),
          ("glass-raised", "glassFocus"), ("edge", "glassEdge"), ("edge-raised", "glassFocusEdge"),
          ("ink", "ink"), ("ink-2", "ink2"), ("ink-3", "ink3"), ("focus", "focus"), ("focus-ink", "focusInk"),
          ("track-off", "trackOff"), ("positive", "positive"), ("warning", "warning"), ("danger", "danger"),

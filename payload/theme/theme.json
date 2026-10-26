@@ -6,8 +6,9 @@
   "materialThreshold": 0.55,
   "dark": {
     "canvas": "#191724",
-    "sheet": "#E81F1D2E",
+    "sheet": "#F51F1D2E",
     "scrim": "#6B120E1A",
+    "scrimHide": "#F8120E1A",
     "wallScrim": [0.1, 0.18, 0.46],
     "ink": "#F2EFF6",
     "ink2": "#A8F2EFF6",
@@ -29,8 +30,9 @@
   },
   "light": {
     "canvas": "#FAF4ED",
-    "sheet": "#EBFFFAF3",
+    "sheet": "#F5FFFAF3",
     "scrim": "#4DFAF4ED",
+    "scrimHide": "#F8FAF4ED",
     "wallScrim": [0.06, 0.1, -0.1],
     "ink": "#17131F",
     "ink2": "#A817131F",

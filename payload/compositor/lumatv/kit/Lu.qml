@@ -28,6 +28,7 @@ QtObject {
     readonly property color canvas: role("canvas")
     readonly property color sheet: role("sheet")
     readonly property color scrim: role("scrim")
+    readonly property color scrimHide: role("scrimHide")     // a backdrop that hides the page (Lucent scrim.hidesMin 0.97); sheet is the overlay fill (min 0.96)
     readonly property color glass: role("glass")
     readonly property color glassRaised: role("glassFocus")
     readonly property color edge: role("glassEdge")

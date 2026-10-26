@@ -58,6 +58,14 @@ class Tokens(unittest.TestCase):
             for user in (os.path.join(d, "absent.json"), broken):
                 self.assertEqual(json.loads(run(TOKENS, SHIPPED, user, "qml"))["accent"], "#FFA79BF5")
 
+    def test_the_overlay_fill_and_the_hiding_scrim_meet_lucents_minimum_opacities(self):
+        with open(SHIPPED) as f:
+            theme = json.load(f)
+        for material in ("dark", "light"):
+            alpha = lambda role: int(theme[material][role][1:3], 16) / 255
+            self.assertGreaterEqual(alpha("sheet"), 0.96)        # overlay.minimumOpacity
+            self.assertGreaterEqual(alpha("scrimHide"), 0.97)    # scrim.hidesMin
+
     def test_accent_modes(self):
         with tempfile.TemporaryDirectory() as d:
             fixed = self.write(d, "fixed.json", {"accent": "#334455"})

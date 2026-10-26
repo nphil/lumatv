@@ -30,9 +30,10 @@ Item {
     }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: dialog.rested = true }
 
-    Rectangle { anchors.fill: parent; color: Lu.scrim }
-    LuPane {
+    Rectangle { anchors.fill: parent; color: Lu.scrimHide }     // a confirmation hides the page behind it
+    Rectangle {
         id: card
+        color: Lu.sheet; radius: Lu.radius("sheet"); border.width: 1; border.color: Lu.edge      // the overlay surface, not glass
         width: 760
         height: body.height + 2 * Lu.space(6)
         x: Math.round((1920 - width) / 2); y: Math.round((1080 - height) / 2)
