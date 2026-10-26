@@ -1,17 +1,18 @@
 import QtQuick 2.4
 import "../kit"
 
-// The At-home card. Two things can be in it:
+// The At-home card: what plugins put on Home, as the chips of the mock, and nothing invented.
 //
-// - What plugins put on Home: their cards (PluginHub.homeCards), as the chips of the mock, each with its icon disc, a title and what
-//   it says first. A `size: "full"` card takes a whole row, a half card one of its two places; more than fit are reached by moving
-//   down (the card scrolls a row at a time). OK on the card enters it (the widget's inner layer: `key()` exists only while there
-//   are cards), the D-pad moves between chips and OK runs the focused card's first action, if it has one; Back leaves. The cards the
-//   helper's own weather, news and clock plugins publish are not here: Home draws those in full in their own cards.
-// - Until a plugin has a card, the placeholder chips of the approved mock (the Home Assistant integration is not built yet).
+// - Plugin cards (PluginHub.homeCards), each a chip with its icon disc, a title and what it says first. A `size: "full"` card
+//   takes a whole row, a half card one of its two places; more than fit are reached by moving down (the card scrolls a row at
+//   a time). OK on the card enters it (the widget's inner layer: `key()` exists only while there are cards), the D-pad moves
+//   between chips and OK runs the focused card's first action, if it has one; Back leaves. The cards the helper's own weather,
+//   news and clock plugins publish are not here: Home draws those in full in their own cards.
+// - With no card, one chip that says why: Home Assistant is not linked yet, and where to link it. OK opens Settings at that page
+//   (`openSettingsPage`). Never a made-up house: a chip is a plugin's, or this one.
 //
-// Chips follow the mock's grid (2 columns, 12px gap, 16px under the title) with the icon slot the mock left empty filled in: a 36px
-// tinted disc, 22px glyph, text 14px to its right and centred as a block.
+// Chips follow the mock's grid (2 columns, 12px gap, 16px under the title) with the icon slot the mock left empty filled in: a
+// 36px tinted disc, 22px glyph, text 14px to its right and centred as a block.
 Item {
     id: root
     property var theme: ({})
@@ -21,17 +22,14 @@ Item {
     property var settings: ({})
     property bool focused: false
     property bool inner: false
-    readonly property string iconDir: "file://{{dataDir}}/qml/WebOSCompositor/{{qmlModule}}/icons/"
+    signal openSettingsPage(string id)
 
-    function activate() {}
+    // OK on the card while it has no chips (with chips it has an inner layer instead, see `key`).
+    function activate() { if (!pluginMode) openSettingsPage("homeassistant") }
 
-    // ---- the placeholders
-    readonly property var placeholders: [
-        { icon: "ha-bulb",   tint: "#38ffc45c", title: "Living room",  sub: "3 lights on" },
-        { icon: "ha-thermo", tint: "#3378beff", title: "72\u00b0 cooling", sub: "Set to 70\u00b0" },
-        { icon: "ha-lock",   tint: "#2e78f0aa", title: "Front door",   sub: "Locked" },
-        { icon: "ha-music",  tint: "#2eff78c8", title: "Kitchen",      sub: "Playing \u00b7 Sonos" }
-    ]
+    // ---- what the chip says when no plugin has a card
+    readonly property string noneTitle: "Home Assistant isn't linked yet"
+    readonly property string noneSub: "Link it in Settings \u203a Home Assistant"
 
     // ---- the plugins' cards, laid out in rows of two places
     readonly property var cards: PluginHub.homeCards
@@ -125,59 +123,55 @@ Item {
     property int chipGap: 12
     property int chipW: Math.floor((width - chipGap) / 2)
     property int chipH: Math.floor((height - chipTop - chipGap) / 2)
+    readonly property color chipFill: isLight ? "#8cffffff" : "#12ffffff"
+    readonly property color chipEdge: isLight ? "#e6ffffff" : "#14ffffff"
 
-    // the placeholders
-    Repeater {
-        model: root.pluginMode ? [] : root.placeholders
-        delegate: Item {
-            x: (index % 2) * (root.chipW + root.chipGap)
-            y: root.chipTop + Math.floor(index / 2) * (root.chipH + root.chipGap)
-            width: root.chipW
-            height: root.chipH
-            Rectangle {
-                anchors.fill: parent
-                radius: 18
-                antialiasing: true
-                color: root.isLight ? "#8cffffff" : "#12ffffff"
-                border.width: 1
-                border.color: root.isLight ? "#e6ffffff" : "#14ffffff"
+    // no card: one chip, the width of the lane
+    Item {
+        id: none
+        visible: !root.pluginMode
+        x: 0; y: root.chipTop
+        width: root.width; height: root.chipH
+        Rectangle {
+            anchors.fill: parent
+            radius: 18
+            antialiasing: true
+            color: root.chipFill
+            border.width: 1
+            border.color: root.chipEdge
+        }
+        Rectangle {
+            x: 16; y: Math.round((parent.height - 36) / 2)
+            width: 36; height: 36; radius: 18
+            antialiasing: true
+            color: Qt.rgba(Lu.ink2.r, Lu.ink2.g, Lu.ink2.b, 0.2)
+            LuIcon { anchors.centerIn: parent; size: 22; name: "house-wifi"; color: Lu.ink2 }
+        }
+        Item {
+            x: 66
+            y: Math.round((parent.height - 58) / 2)
+            width: parent.width - 66 - 12 - 34
+            height: 58
+            Text {
+                x: 0; y: 0
+                width: parent.width
+                text: root.noneTitle
+                elide: Text.ElideRight
+                color: root.mat.ink
+                font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 24
+                renderType: Text.NativeRendering
             }
-            Rectangle {
-                x: 16; y: Math.round((parent.height - 36) / 2)
-                width: 36; height: 36; radius: 18
-                antialiasing: true
-                color: modelData.tint
-                Image {
-                    x: 7; y: 7
-                    width: 22; height: 22
-                    source: root.iconDir + modelData.icon + ".png"
-                }
-            }
-            Item {
-                x: 66
-                y: Math.round((parent.height - 58) / 2)
-                width: parent.width - 66 - 12
-                height: 58
-                Text {
-                    x: 0; y: 0
-                    width: parent.width
-                    text: modelData.title
-                    elide: Text.ElideRight
-                    color: root.mat.ink
-                    font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 24
-                    renderType: Text.NativeRendering
-                }
-                Text {
-                    x: 0; y: 30
-                    width: parent.width
-                    text: modelData.sub
-                    elide: Text.ElideRight
-                    color: root.mat.ink2
-                    font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
-                    renderType: Text.NativeRendering
-                }
+            Text {
+                x: 0; y: 30
+                width: parent.width
+                text: root.noneSub
+                elide: Text.ElideRight
+                color: root.focused ? Lu.accent : root.mat.ink2
+                font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
+                renderType: Text.NativeRendering
             }
         }
+        LuIcon { x: parent.width - 16 - 22; y: Math.round((parent.height - 22) / 2); size: 22; name: "chevron-right"; color: root.mat.ink2 }
     }
 
     // the plugins' cards
@@ -205,9 +199,9 @@ Item {
                     anchors.fill: parent
                     radius: 18
                     antialiasing: true
-                    color: chip.on ? Lu.wash("focus") : (root.isLight ? "#8cffffff" : "#12ffffff")
+                    color: chip.on ? Lu.wash("focus") : root.chipFill
                     border.width: 1
-                    border.color: chip.on ? Lu.edgeRaised : (root.isLight ? "#e6ffffff" : "#14ffffff")
+                    border.color: chip.on ? Lu.edgeRaised : root.chipEdge
                 }
                 Rectangle {
                     x: 16; y: Math.round((parent.height - 36) / 2)

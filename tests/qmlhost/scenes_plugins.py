@@ -149,3 +149,17 @@ def _():
 @scene("36-home-plugin-cards-focus")
 def _():
     return home_at_home([("keys", READY, "ok right down"), ("snap", READY + 1400, "36-home-plugin-cards-focus")])
+
+
+# With no plugin card the lane says so: Home Assistant is not linked yet, and where to link it.
+FOCUS_HOME = ("eval", READY - 600, "root.widgetFocusId = 'home'; root.focusLayer = 'widgets'")
+
+
+@scene("36-home-empty")
+def _():
+    return [("snap", READY + 800, "36-home-empty")]
+
+
+@scene("36-home-empty-focus")
+def _():
+    return [FOCUS_HOME, ("snap", READY + 1400, "36-home-empty-focus")]

@@ -1027,6 +1027,7 @@ Item {
                 focused: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId === modelData.id
                 dimmed: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId !== modelData.id
                 onOpenMini: root.openMini(spec, root.cellRect(modelData))
+                onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
                 backdrop: blurTex
                 cardMs: root.cardMs
                 cardEasing: root.cardEasing

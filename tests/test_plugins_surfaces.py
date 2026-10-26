@@ -4,7 +4,7 @@ The Notification Centre, the plugin cards on Home and the screensaver through th
 The drawer: what the helper's audit, a plugin's notifications and the TV's own log put in it, grouped; the D-pad moves down it, OK
 runs a button or clears an item, Resume asks the helper (which asks on the TV), Clear all empties it, Back closes, and opening it
 is what makes the bell's count zero. Home's At-home lane: plugin cards are chips, OK enters, OK on a chip runs its first action,
-and a Home without plugin cards has nothing to enter. The saver: it comes up on the TV's `Screen Saver` state and only while shown,
+and a Home without plugin cards says Home Assistant is not linked yet (nothing invented), OK on it opens Settings. The saver: it comes up on the TV's `Screen Saver` state and only while shown,
 no timer runs while it is not, the clock block moves only while it is faded out, any key turns the screen on, the art swaps on its
 timetable and skips a print that cannot be loaded. The art on the set is public domain and complete (tools/screensaver_art.py).
 Timings are the set's to say (docs/research/plugins-slice-result.md).
@@ -102,7 +102,7 @@ class Surfaces(HostCase):
         r = subprocess.run(cmd, env=dict(os.environ, DISPLAY=DISPLAY), capture_output=True, text=True, timeout=240)
         return r.returncode, r.stdout + r.stderr
 
-    MINE = ("Drawer.qml", "Screensaver.qml", "ArtPiece.qml", "PluginHub.qml", "NoteLog.qml", "HomeAssistantWidget.qml", "LuButton.qml")
+    MINE = ("Drawer.qml", "Screensaver.qml", "ArtPiece.qml", "PluginHub.qml", "NoteLog.qml", "HomeAssistantWidget.qml", "Widget.qml", "LuButton.qml")
 
     def own_warnings(self, out, allow=()):
         """The host fails a run for a warning of any file in the tree; what a run of these surfaces decides on is their own."""
@@ -194,6 +194,39 @@ class Lane(Surfaces):
         self.assertFalse(p["left"]["inner"], "Back leaves them")
         sent = [(path, body) for path, body in self.posts(out) if path.startswith("/v1/plugins/")]
         self.assertEqual(sent, [("/v1/plugins/lock/actions/off", {}), ("/v1/plugins/lock/actions/close", {})], str(sent))
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
+class LaneEmpty(Surfaces):
+    STATE = ("var w = byProp(root, 'noneTitle'); var st = byProp(root, 'railIndex');"
+             "return {title: w.noneTitle, sub: w.noneSub, mode: w.pluginMode, focused: w.focused, inner: w.inner, has_key: typeof w.key === 'function',"
+             " focus: root.widgetFocusId, layer: root.focusLayer, settings: root.settingsOpen, zone: st.zone, current: st.current};")
+
+    def test_it_says_home_assistant_is_not_linked_and_ok_opens_settings(self):
+        # from the clock card down to the At-home card, the way the remote does it, then OK, then Back
+        rc, out = self.run_host(
+            {}, *js(READY - 600, "root.widgetFocusId = 'clock'; root.focusLayer = 'widgets';"),
+            *probe(READY - 100, "before", self.STATE, find="root"),
+            *self.keys(READY, "down"), *probe(READY + 300, "arrived", self.STATE, find="root"),
+            *self.keys(READY + 400, "ok"), *probe(READY + 900, "opened", self.STATE, find="root"),
+            *self.keys(READY + 1000, "back"), *probe(READY + 1500, "closed", self.STATE, find="root"),
+            *js(READY + 1800, GET % ("posts", "__posts")),
+            "--wait", str(READY + 2400))
+        self.assertEqual(self.own_warnings(out), [], out[-3000:])
+        p = probes(out)
+        self.assertEqual(p["before"]["title"], "Home Assistant isn't linked yet", "no card, no made-up house")
+        self.assertEqual(p["before"]["sub"], "Link it in Settings \u203a Home Assistant", "and where to link it")
+        self.assertFalse(p["before"]["mode"])
+        self.assertFalse(p["before"]["has_key"], "no chips: OK does not enter an inner layer")
+        self.assertEqual(p["before"]["focus"], "clock")
+        self.assertEqual((p["arrived"]["focus"], p["arrived"]["layer"]), ("home", "widgets"), "the lane can be reached with Down from the clock")
+        self.assertTrue(p["arrived"]["focused"])
+        self.assertFalse(p["arrived"]["settings"])
+        self.assertTrue(p["opened"]["settings"], "OK on it opens Settings")
+        self.assertFalse(p["opened"]["inner"])
+        self.assertFalse(p["closed"]["settings"], "Back closes Settings and is Home again")
+        sent = [path for path, _ in self.posts(out) if path.startswith("/v1/plugins/")]
+        self.assertEqual(sent, [], "nothing is asked of a plugin when there is none")
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")

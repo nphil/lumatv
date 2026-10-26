@@ -79,8 +79,12 @@ Item {
         if (p && arg !== undefined) p.arg = arg
         if (p && p.reset) p.reset()
     }
-    // Come to a page from outside (a tile of the quick panel): its section is the one on the rail and the page has the focus.
+    // Come to a page from outside (a tile of the quick panel, a Home card): its section is the one on the rail and the page has
+    // the focus. An id this Settings has no page for leaves it where it was.
     function goTo(id) {
+        var known = false
+        for (var k = 0; k < pages.length; k++) if (pages[k].id === id) known = true
+        if (!known) return
         var parentId = id === "receiver" ? "sound" : id === "appkey" ? "remote" : id
         for (var i = 0; i < sections.length; i++) if (sections[i].id === parentId) { railIndex = i; break }
         current = id

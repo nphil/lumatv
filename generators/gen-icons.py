@@ -4,8 +4,7 @@
 The compositor's Qt has no SVG plugin, so every glyph ships as a PNG rendered
 once here, at its display size, so it is never resampled on the set. Stroke
 icons come in two inks (dark material = light ink, light material = dark ink);
-weather "now" glyphs and the Home Assistant chip glyphs are coloured and
-material-independent. Output: payload/compositor/lumatv/icons/.
+weather "now" glyphs are coloured and material-independent. Output: payload/compositor/lumatv/icons/.
 """
 import os
 import cairosvg
@@ -34,11 +33,6 @@ STROKE = {
     "wx-drizzle": '<path d="M17.5 17a4.5 4.5 0 0 0 .5-9 7 7 0 0 0-13.5 2A4 4 0 0 0 6 17z"/><path d="M8 19v1M12 19v1M16 19v1"/>',
     "wx-snow": '<path d="M17.5 17a4.5 4.5 0 0 0 .5-9 7 7 0 0 0-13.5 2A4 4 0 0 0 6 17z"/><path d="M8 19h.01M12 21h.01M16 19h.01M10 22h.01M14 22h.01"/>',
     "wx-storm": '<path d="M17.5 16a4.5 4.5 0 0 0 .5-9 7 7 0 0 0-13.5 2A4 4 0 0 0 6 16z"/><path d="M13 13l-2 4h3l-2 4"/>',
-    # Home Assistant chips
-    "ha-bulb": '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
-    "ha-thermo": '<path d="M14 14.8V4a2 2 0 1 0-4 0v10.8a4 4 0 1 0 4 0z"/>',
-    "ha-lock": '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
-    "ha-music": '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
 }
 
 
@@ -58,10 +52,6 @@ for ink in ("d", "l"):
         render(stroke_svg(STROKE[key], INK_FULL[ink], w), 26, "%s_%s_on.png" % (key, ink))
     for key in [k for k in STROKE if k.startswith("wx-")]:
         render(stroke_svg(STROKE[key], INK[ink]), 26, "%s_%s.png" % (key, ink))
-
-# Home Assistant chips: 22px, coloured
-for key, colour in (("ha-bulb", "#ffd08a"), ("ha-thermo", "#a8d4ff"), ("ha-lock", "#9ef0c0"), ("ha-music", "#ffb0e0")):
-    render(stroke_svg(STROKE[key], colour), 22, key + ".png")
 
 # weather "now": 96px, coloured flat glyphs in the mock's style
 SUN = "#FFD166"

@@ -38,8 +38,9 @@ State at 2026-10-25, offline only.
   key (press and release) while it is up, calls `item.key()` once per press (asks `tvpower/power/turnOnScreen`), never while the AI
   prompt is up. Settings has the row for it: "Then go to standby" 0|2|4|8 h writes `screensaver.standbyHours`.
 - **Plugin cards on Home**: the At-home lane draws `PluginHub.homeCards` as chips (icon disc, title, first fact) when there are
-  any, the mock's placeholder chips otherwise; the weather, news and clock plugins are Home's own widgets and are left out of the
-  lane. D-pad moves between chips, OK enters, OK on a chip runs its first action (`POST /v1/plugins/<id>/actions/<action>`).
+  any, and one chip saying Home Assistant isn't linked yet (OK opens Settings at its page) when there are none: no invented house.
+  The weather, news and clock plugins are Home's own widgets and are left out of the lane. D-pad moves between chips, OK enters,
+  OK on a chip runs its first action (`POST /v1/plugins/<id>/actions/<action>`).
 - **The helper's own plugins** (weather, news, clock, ambient light): `plugins/local.rs` runs them through the real broker session
   in-process (no socket; validation, limits, expiry and the action route are the same as any plugin's), listed in the `plugins`
   topic under `firstParty`. `plugins/firstparty.rs`: cards derived from the `weather`/`news` topics (so the saved-first cache

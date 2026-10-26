@@ -40,6 +40,7 @@ Item {
 
     signal hoverFocus()
     signal openMini(var spec)
+    signal openSettingsPage(string id)
 
     x: gridX
     y: gridY - cardLift * lift.value
@@ -124,7 +125,11 @@ Item {
             if (comp.status === Component.Ready) {
                 if (card.content) { card.content.destroy(); card.content = null }
                 var obj = comp.createObject(contentArea, card.contentProps(settings))
-                if (obj) { card.content = obj; if (obj.openMini) obj.openMini.connect(function(spec) { card.openMini(spec) }) }
+                if (obj) {
+                    card.content = obj
+                    if (obj.openMini) obj.openMini.connect(function(spec) { card.openMini(spec) })
+                    if (obj.openSettingsPage) obj.openSettingsPage.connect(function(id) { card.openSettingsPage(id) })
+                }
                 else card.showUnknown(card.layoutEntry.type, "failed to instantiate")
             } else if (comp.status === Component.Error) {
                 card.showUnknown(card.layoutEntry.type, comp.errorString())
