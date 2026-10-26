@@ -23,7 +23,8 @@ PageList {
         Sio.read("", ["localeInfo"])
         Sio.read("time", ["timeZone", "noOperationAutoOff", "autoOff15Min", "autoOff2HourOnTimer", "automaticStandBy", "onTimerEnable", "onTimerHour", "onTimerMinute",
                           "offTimerEnable", "offTimerHour", "offTimerMinute"])
-        Sio.read("option", ["quickStartMode", "audioGuidance", "highContrast", "focusEmphasis", "screenMagnification", "adjustments"])
+        Sio.read("option", ["quickStartMode", "audioGuidance", "highContrast", "focusEmphasis", "screenMagnification", "adjustments", "emergencyInformationAtsc30",
+                            "emergencyInformationLanguageAtsc30"])
         Sio.read("picture", ["screenShift", "logoLuminanceAdjust", "scheduledPixelCleaning"])
         Sio.read("other", ["oledCareMode", "oledCareRecommendation"])
         Sio.read("caption", ["captionEnable"])
@@ -31,9 +32,21 @@ PageList {
         Sio.read("network", ["deviceName"])
         Power.readSleep()
         Power.readPanel()
+        cfg.call("atsc3", "luna://com.webos.service.config", "getConfigs", { configNames: ["system.supportATSC3tuner"] })
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
+
+    // LG shows Emergency Information only on a TV with an ATSC 3.0 tuner: the TV's config `system.supportATSC3tuner`
+    property bool atsc3: false
+    LunaCall {
+        id: cfg
+        onAnswered: {
+            if (tag !== "atsc3" || !doc || doc.returnValue === false || !doc.configs) return
+            var v = doc.configs["system.supportATSC3tuner"]
+            page.atsc3 = !(v === "false" || v === false || v === 0 || v === null || v === undefined)
+        }
+    }
 
     function launch(target) { if (host) { host.launchApp("com.palm.app.settings", { target: target }); host.closeRequested() } }
 
@@ -107,6 +120,9 @@ PageList {
                  value: function() { return N.name("onoff", Sio.get("caption.captionEnable"), "") }, go: function() { page.host.openPage("captions") } }),
         C.lgShown(Sio, "sound.audioDescription", R.toggle(Sio, { ds: "sound.audioDescription", tab: 3, icon: "audio-lines", label: "Audio Description" })),
         R.link({ tab: 3, id: "audiooptions", icon: "headphones", label: "Audio options", go: function() { page.host.openPage("audiooptions") } }),
+        R.over(R.link({ tab: 3, id: "emergency", icon: "octagon-alert", label: "Emergency Information", help: "The emergency alert of NEXTGEN TV, and the language it is spoken in.",
+                       go: function() { page.host.openPage("emergency") } }),
+               { visible: function() { return page.atsc3 && (C.shown(Sio, "option.emergencyInformationAtsc30") || C.shown(Sio, "option.emergencyInformationLanguageAtsc30")) } }),
 
         { kind: "value", tab: 4, icon: "tv", label: function() { return Sio.has("network.deviceName") ? Sio.get("network.deviceName") : "This TV" },
           help: "The name on the network and in Home Assistant.", value: "", chevron: false, info: true },

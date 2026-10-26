@@ -38,7 +38,8 @@ function options(sio, o) {
 }
 
 // A row that shows the value in force and opens the chooser (PageChoice) on the TV's list. o: ds, label, icon, tab, help, names
-// (a table name of Names.js), values, appId, page (the PageList that holds the row: its host opens the chooser), id.
+// (a table name of Names.js), values, appId, page (the PageList that holds the row: its host opens the chooser), id, write (a function
+// that takes the chosen value, for a row whose change LG writes with other keys; the default writes `ds`).
 function choice(sio, o) {
     var row = {
         kind: "value", tab: o.tab, id: o.id || o.ds, icon: o.icon, label: o.label, help: o.help, chevron: true,
@@ -47,7 +48,7 @@ function choice(sio, o) {
         value: function() { return sio.has(o.ds) ? N.name(o.names, sio.get(o.ds)) : "" },
         options: function() { return options(sio, o) },
         current: function() { return String(sio.get(o.ds)) },
-        pick: function(i) { var c = options(sio, o)[i]; if (c && c.enabled) sio.write(o.ds, c.value, R.app(o)) },
+        pick: function(i) { var c = options(sio, o)[i]; if (c && c.enabled) { if (o.write) o.write(c.value); else sio.write(o.ds, c.value, R.app(o)) } },
         act: function() { o.page.host.openPage("choice", { row: row, back: o.page.title, backId: o.page.host.current }) }
     }
     return row

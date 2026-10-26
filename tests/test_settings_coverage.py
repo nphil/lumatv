@@ -29,7 +29,7 @@ FIND = "var p=root.pageItem('%s');function R(l){for(var i=0;i<p.rows.length;i++)
 # or left out is skipped, as a person could not press it. A switch ends on, so the rows that wait for it (Audio Guidance's speed) are walked too.
 # the pages of this slice and the one it extends (others' pages are walked by their own tests)
 OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs", "picture",
-       "equalizer", "sound", "hdmiaudio", "language", "support", "channels", "whitebalance", "finetune"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
+       "equalizer", "sound", "hdmiaudio", "language", "support", "channels", "whitebalance", "finetune", "signalling", "emergency", "permissions"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
 WALK = ("var n=0;var ids=" + json.dumps(OWN) + ";for(var ii=0;ii<ids.length;ii++){var p=root.pageItem(ids[ii]);if(!p||!p.rows)continue;"
         "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(!row.act||row.info===true)continue;"
         "if(p.ev(row.enabled)===false||p.ev(row.visible)===false)continue;var k=row.kind;"
@@ -110,9 +110,12 @@ ROWS = ("var p=root.pageItem('%s');var out=[];for(var i=0;i<p.rows.length;i++){v
         "out.push([p.ev(r.label)||p.ev(r.text)||'',String(p.ev(r.value)||'')])}")
 probe("bt_audio_open", "root.openPage('btaudio');return 1", wait=400)
 probe("bt_audio_rows", (ROWS % "btaudio") + "return out")
+probe("bt_playback_locked", FIND % "btaudio" + "var o=R('Playback Option');return {enabled:p.ev(o.enabled)!==false,detail:p.ev(o.detail),value:p.ev(o.value),volume:!!R('Bluetooth Speaker Volume')}")
 probe("bt_audio_search", FIND % "btaudio" + "R('Search').act();return 1", wait=400)
 probe("bt_audio_found", FIND % "btaudio" + (ROWS % "btaudio").replace("var p=root.pageItem('btaudio');", "") + "R('Kitchen Speaker').act();return out", wait=400)
 probe("bt_audio_paired", (ROWS % "btaudio") + "return out")
+probe("bt_playback", FIND % "btaudio" + "var o=R('Playback Option');var en=p.ev(o.enabled)!==false;var opts=o.options().map(function(x){return x.value+':'+x.label});o.pick(0);"
+      "var v=R('Bluetooth Speaker Volume');var before=p.ev(v.valueText);v.act(7);return {enabled:en,opts:opts,mode:p.ev(o.value),before:before,after:p.ev(v.valueText)}", wait=300)
 probe("bt_hid_open", "root.openPage('bthid');return 1", wait=400)
 probe("bt_hid_rows", (ROWS % "bthid") + "return out")
 probe("bt_hid_search", FIND % "bthid" + "R('Search').act();return 1", wait=400)
@@ -227,7 +230,7 @@ probe("support_auto_state", FIND % "support" + "var r=R('Auto Update');return {o
 probe("support_auto_on", FIND % "support" + "R('Auto Update').act(true);return p.ev(R('Auto Update').on)", wait=250)
 probe("support_no_terms", SET + "s.set('', {eulaStatus: {generalTermsAllowed: false}});s.set('support', {automaticUpdate: 'off'});root.pageItem('support').refresh();return 1", wait=500)
 probe("support_auto_locked", FIND % "support" + "var r=R('Auto Update');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
-probe("support_terms_back", SET + "s.set('', {eulaStatus: {generalTermsAllowed: true}});root.pageItem('support').refresh();return 1", wait=500)
+probe("support_terms_back", SET + "s.set('', {eulaStatus: {generalTermsAllowed: true, voiceAllowed: true}});root.pageItem('support').refresh();return 1", wait=500)
 probe("support_dns_ask", FIND % "support" + "R('Do Not Sell My Personal Information').act(true);return {asked:root.confirmOpen,on:p.ev(R('Do Not Sell My Personal Information').on)}", wait=250)
 probe("support_dns_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
 probe("support_dns_yes", FIND % "support" + "R('Do Not Sell My Personal Information').act(true);root.key('right');root.key('ok');return 1", wait=1200)
@@ -303,8 +306,8 @@ probe("picture_min_brightness", FIND % "picture" + "var mb=R('Minimum Brightness
 probe("picture_video_range", FIND % "picture" + "var vr=R('Video Range');vr.act(2);return 1", wait=300)
 probe("picture_energy_back", SET + "s.set('picture', {energySaving: 'off'});return 1")
 
-# ---- the one-off rows: Always Ready, AI recommendations, extended press time, OLED care
-probe("look_tv_rows", "var p=root.pageItem('look');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false||(r.tab!==1&&r.tab!==3))continue;"
+# ---- the one-off rows: Always Ready, AI recommendations, extended press time, OLED care, Home Settings, LG's screen saver, Live Plus, Emergency Information
+probe("look_tv_rows", "var p=root.pageItem('look');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false||r.tab<1)continue;"
       "out.push([r.tab,String(p.ev(r.label)),p.ev(r.enabled)===false?'dim':'',String(p.ev(r.detail)||'')])}return out")
 probe("ready_on", FIND % "look" + "R('Always Ready').act(true);return {on:p.ev(R('Always Ready').on),sub:p.ev(R('Always Ready motion sensor').enabled)!==false}", wait=300)
 probe("ready_subs", FIND % "look" + "R('Always Ready energy saving').act(1);R('Always Ready notifications').act(false);R('Always Ready motion sensor').act(true);"
@@ -325,6 +328,73 @@ probe("pixel_ask", FIND % "system" + "R('Pixel Cleaning').act(true);return {aske
 probe("pixel_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
 probe("pixel_yes", FIND % "system" + "R('Pixel Cleaning').act(true);root.key('right');root.key('ok');return 1", wait=400)
 probe("pixel_off", FIND % "system" + "R('Pixel Cleaning').act(false);return p.ev(R('Pixel Cleaning').on)===false", wait=250)
+probe("home_power_on", FIND % "look" + "var row=R('Power On Screen');var now=p.ev(row.index);row.act(1);var a=p.ev(row.index);row.act(0);return {now:now,a:a,b:p.ev(row.index),options:row.options}", wait=300)
+probe("home_switches", FIND % "look" + "R('Home Promotion').act(false);R('Content Recommendation').act(false);return {a:p.ev(R('Home Promotion').on),b:p.ev(R('Content Recommendation').on)}", wait=250)
+probe("saver_lg", FIND % "look" + "var row=R('Screen Saver Standby Time');var o=row.options();var now=p.ev(row.value);row.pick(o.map(function(x){return x.value}).indexOf('30'));"
+      "R('Screen Saver Promotion').act(false);return {now:now,options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value),ad:p.ev(R('Screen Saver Promotion').on)}", wait=300)
+probe("live_locked", FIND % "support" + "var a=R('Live Plus'),b=R('Live Promotion');return {on:p.ev(a.on),sub:p.ev(b.enabled)!==false,detail:p.ev(b.detail)}")
+probe("live_ask", FIND % "support" + "R('Live Plus').act(true);return {asked:root.confirmOpen,on:p.ev(R('Live Plus').on)}", wait=250)
+probe("live_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("live_yes", FIND % "support" + "R('Live Plus').act(true);root.key('right');root.key('ok');return 1", wait=400)
+probe("live_after", FIND % "support" + "var b=R('Live Promotion');b.act(true);return {on:p.ev(R('Live Plus').on),sub:p.ev(b.enabled)!==false,promo:p.ev(b.on)}", wait=300)
+probe("live_off", FIND % "support" + "R('Live Plus').act(false);return {asked:root.confirmOpen,on:p.ev(R('Live Plus').on)}", wait=300)
+probe("emergency_row", FIND % "system" + "var r=R('Emergency Information');return {shown:!!r&&p.ev(r.visible)!==false,atsc3:p.atsc3}", wait=300)
+probe("emergency_none", FIND % "system" + "p.atsc3=false;var r=R('Emergency Information');var hidden=p.ev(r.visible)===false;p.atsc3=true;return {hidden:hidden}")
+probe("emergency_page", FIND % "emergency" + "R('Enable the function').act(true);var row=R('Audio Language');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('spa'));"
+      "return {title:p.title,options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value),on:p.ev(R('Enable the function').on)}", wait=300)
+
+# ---- HDMI Signalling Override
+probe("sig_link", FIND % "picture" + "var r=R('HDMI Signalling');return {shown:!!r&&p.ev(r.visible)!==false,tab:r&&r.tab}")
+probe("sig_open", "root.openPage('signalling');return 1", wait=500)
+probe("sig_rows", (ROWS % "signalling") + "return out")
+probe("sig_set", FIND % "signalling" + "var a=R('Colorimetry'),b=R('EOTF'),c=R('Mastering Peak'),d=R('Dolby VSVDB');var oa=a.options(),oc=c.options();"
+      "function at(o,v){return o.map(function(x){return x.value}).indexOf(v)}a.pick(at(oa,'bt2020'));b.pick(at(b.options(),'hlg'));c.pick(at(oc,'1000'));d.pick(at(d.options(),'v2'));"
+      "return {colorimetry:oa.map(function(x){return x.value+':'+x.label}),peak:oc.map(function(x){return x.value+':'+x.label}),values:[a,b,c,d].map(function(r){return p.ev(r.value)})}", wait=300)
+probe("sig_reset_ask", FIND % "signalling" + "R('Reset').act();return {asked:root.confirmOpen}", wait=250)
+probe("sig_reset_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("sig_reset_yes", FIND % "signalling" + "R('Reset').act();root.key('right');root.key('ok');return 1", wait=900)
+probe("sig_after_reset", (ROWS % "signalling") + "return out")
+
+# ---- Delete Connection History
+probe("history_ask", FIND % "inputs" + "R('Delete Connection History').act();return {asked:root.confirmOpen,button:p.ev(R('Delete Connection History').button)}", wait=250)
+probe("history_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("history_yes", FIND % "inputs" + "R('Delete Connection History').act();root.key('right');root.key('ok');return 1", wait=500)
+probe("history_after", FIND % "inputs" + "return {button:p.ev(R('Delete Connection History').button)}")
+
+# ---- App Permissions
+PERM = ("var p=root.pageItem('permissions');function RT(t,l){for(var i=0;i<p.rows.length;i++)if(p.rows[i].tab===t&&p.ev(p.rows[i].label)===l)return p.rows[i]};")
+probe("perm_open", "root.openPage('permissions');return 1", wait=700)
+probe("perm_rows", PERM + "var out=[[],[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+      "out[r.tab].push([String(p.ev(r.label)||p.ev(r.text)),p.ev(r.on)===true])}return out")
+probe("perm_camera_ask", PERM + "var r=RT(0,'Netflix');r.act(true);return {asked:root.confirmOpen,on:p.ev(r.on)}", wait=250)
+probe("perm_camera_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("perm_camera_yes", PERM + "RT(0,'Netflix').act(true);root.key('right');root.key('ok');return 1", wait=400)
+probe("perm_camera_off", PERM + "RT(0,'Camera').act(false);return {camera:p.ev(RT(0,'Camera').on),netflix:p.ev(RT(0,'Netflix').on)}", wait=300)
+probe("perm_mic_on", PERM + "RT(1,'Camera').act(true);root.key('right');root.key('ok');return 1", wait=1300)
+probe("perm_mic_after", PERM + "return {on:p.ev(RT(1,'Camera').on)}")
+probe("perm_ble_off", PERM + "RT(2,'Hue Sync').act(false);return p.ev(RT(2,'Hue Sync').on)", wait=300)
+probe("perm_file_off", PERM + "RT(3,'Netflix').act(false);return 1", wait=1300)
+probe("perm_file_after", PERM + "return {on:p.ev(RT(3,'Netflix').on)}")
+
+# ---- Delete My Personal Information
+probe("del_open", "root.openPage('deletedata');return 1", wait=700)
+probe("del_state", FIND % "deletedata" + "var a=R('Delete Viewing Information'),b=R('Delete Voice Information');return {a:p.ev(a.enabled)!==false,da:p.ev(a.detail)||'',b:p.ev(b.enabled)!==false,db:p.ev(b.detail)||''}")
+probe("del_view_ask", FIND % "deletedata" + "R('Delete Viewing Information').act();return {asked:root.confirmOpen}", wait=250)
+probe("del_view_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("del_view_yes", FIND % "deletedata" + "R('Delete Viewing Information').act();root.key('right');root.key('ok');return 1", wait=900)
+probe("del_view_sent", "return L.calls.filter(function(x){return x.method==='/reset'}).map(function(x){return JSON.parse(x.payload)})")
+probe("del_voice_yes", FIND % "deletedata" + "R('Delete Voice Information').act();root.key('right');root.key('ok');return 1", wait=500)
+probe("del_after", FIND % "deletedata" + "return {a:p.ev(R('Delete Viewing Information').button),b:p.ev(R('Delete Voice Information').button)}")
+probe("del_no_voice_terms", SET + "s.set('', {eulaStatus: {generalTermsAllowed: true, voiceAllowed: false}});root.pageItem('deletedata').refresh();return 1", wait=600)
+probe("del_voice_locked", FIND % "deletedata" + "var a=R('Delete Viewing Information'),b=R('Delete Voice Information');return {a:p.ev(a.enabled)!==false,b:p.ev(b.enabled)!==false,db:p.ev(b.detail)}")
+
+# ---- USB Device (the way to it is on the Sound page's Output tab; the pick changes the sound out, which the last probe puts back)
+probe("usb_link", FIND % "sound" + "var r=R('USB Device');return {shown:!!r&&p.ev(r.visible)!==false,value:r?p.ev(r.value):null}")
+probe("usb_open", "root.openPage('usbsound');return 1", wait=600)
+probe("usb_rows", (ROWS % "usbsound") + "return out")
+probe("usb_pick", FIND % "usbsound" + "R('USB Audio Device').act();return 1", wait=1200)
+probe("usb_after", (ROWS % "usbsound") + "return out")
+probe("usb_restore", SET + "s.set('sound', {soundOutput: 'tv_speaker'});root.pageItem('sound').refresh();return 1", wait=500)
 
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
@@ -388,7 +458,8 @@ class Coverage(unittest.TestCase):
                 "dynamicColor", "superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "motionPro", "filmMakerMode", "justScan",
                 "truMotionMode", "truMotionJudder", "soundOutput", "avSyncBypassInput", "supportATMOS", "audioBalance", "autoVolume", "tvSetupConfiguration",
                 "magicSpaceSound", "tvOnSound", "digitalAudioPriority", "inputAudioFormatHDMI1", "soundOutputDigital", "userEqualizerValues", "soundModeModified", "localeInfo", "automaticUpdate", "lmt", "interactive-service", "interactive-service-hdmi",
-                "autoscanChannelGroup"}
+                "autoscanChannelGroup", "colorimetry", "eotf", "masteringPeak", "masteringColor", "maxCLL", "maxFALL", "dolbyVSVDBVer", "emergencyInformationAtsc30",
+                "emergencyInformationLanguageAtsc30", "bluetoothMode", "cameraResourcePermission", "nearbyDevicePermission"}
         self.assertEqual(want - written, set())
         self.assertEqual(written & {"nearBlackDetail", "expressionEnhancer", "dolbyPrecisionDetail", "hdrDynamicToneMapping"}, set())       # the TV hides them
 
@@ -483,13 +554,20 @@ class Coverage(unittest.TestCase):
 
     # ---- Bluetooth
     def test_the_speakers_page_lists_what_is_paired_and_finds_more(self):
-        self.assertEqual(self.probe("bt_audio_rows")["res"], [["Speaker Connection", "1 device"], ["Registered Devices (1)", ""], ["Living Room Headphones", ""],
-                                                              ["Connectable Devices (0)", ""], ["Search", ""]])
+        self.assertEqual(self.probe("bt_audio_rows")["res"], [["Speaker Connection", "1 device"], ["Playback Option", "Simultaneous Sound Out"], ["Registered Devices (1)", ""],
+                                                              ["Living Room Headphones", ""], ["Connectable Devices (0)", ""], ["Search", ""]])
         found = self.probe("bt_audio_found")
         self.assertEqual(found["res"][-3:], [["Connectable Devices (1)", ""], ["Kitchen Speaker", ""], ["Searching", ""]])
         self.assertEqual([(c["method"], c["payload"]) for c in found["calls"] if c["method"] == "/connect"], [("/connect", {"address": "AA:BB:CC:00:00:02"})])
         self.assertIn(["Kitchen Speaker", "Connected"], self.probe("bt_audio_paired")["res"])                    # read again after the connection
         self.assertIn(["Connectable Devices (0)", ""], self.probe("bt_audio_paired")["res"])
+
+    def test_the_playback_option_waits_for_a_connected_speaker_and_the_volume_is_the_services_own(self):
+        self.assertEqual(self.probe("bt_playback_locked")["res"], {"enabled": False, "detail": "No speaker connected", "value": "Simultaneous Sound Out", "volume": False})
+        d = self.probe("bt_playback")
+        self.assertEqual(d["res"], {"enabled": True, "opts": ["surroundMode:Surround Effect", "speakerMode:Simultaneous Sound Out"], "mode": "Surround Effect", "before": "5", "after": "7"})
+        self.assertEqual([c["payload"]["settings"] for c in d["calls"] if c["method"] == "/setSystemSettings"], [{"bluetoothMode": "surroundMode"}])
+        self.assertEqual([(c["method"], c["payload"]) for c in d["calls"] if c["method"] == "/setVolumeBalancing"], [("/setVolumeBalancing", {"tvspeaker_bluetooth": 7})])
 
     def test_the_controller_page_pairs_with_the_name_and_address_LG_sends(self):
         self.assertEqual(self.probe("bt_hid_rows")["res"], [["Registered Devices (1)", ""], ["Wireless Controller", ""], ["Connectable Devices (0)", ""], ["Search", ""]])
@@ -548,7 +626,7 @@ class Coverage(unittest.TestCase):
             ["Colour", "Tint", "Color Temperature", "Color Gamut", "Color Adjustment", "Fine Tune", "White Balance"],
             ["Sharpness", "Super Resolution", "Noise Reduction", "MPEG Noise Reduction", "Smooth Gradation", "Real Cinema"],
             ["TruMotion", "OLED Motion Pro"],
-            ["Filmmaker Auto Start", "AI genre selection", "AI brightness", "Apply to All Inputs", "Reset"]])
+            ["Filmmaker Auto Start", "AI genre selection", "AI brightness", "HDMI Signalling", "Apply to All Inputs", "Reset"]])
 
     def test_de_judder_and_de_blur_wait_for_the_user_motion_mode(self):
         self.assertEqual(self.probe("picture_user_motion")["res"]["options"], ["off", "natural", "smooth", "clear", "user"])
@@ -578,7 +656,7 @@ class Coverage(unittest.TestCase):
 
     def test_the_sound_tabs_list_what_LG_lists_for_the_sound_out_in_force(self):
         self.assertEqual(self.probe("sound_tabs")["res"], [
-            ["Sound out", "Receiver", "Receiver volume", "Sound mode", "Match screen and sound", "Delay bypass", "Digital sound output", "TV speakers too", "Bluetooth Speakers"], [],
+            ["Sound out", "Receiver", "Receiver volume", "Sound mode", "Match screen and sound", "Delay bypass", "Digital sound output", "TV speakers too", "Bluetooth Speakers", "USB Device"], [],
             ["Dolby Atmos", "Balance", "Equalizer", "Automatic volume", "Installation Type", "AI Acoustic Tuning Options", "TV Power Sound Volume", "Apply to All Inputs", "Reset"],
             ["Select HDMI Input Audio Format", "LG Sound Sync", "TV Sound Mode Share", "DTV Audio Setting"]])         # the TV hides eARC Support
         self.assertEqual(self.probe("sound_tabs_tv")["res"][0][:2], ["Sound out", "Receiver volume"])                # no receiver, no row for it
@@ -687,7 +765,7 @@ class Coverage(unittest.TestCase):
             ["Device Name", "Model", "Model Code", "Serial Number", "webOS TV Version", "Total Power On Time", "Available Internal Storage", "MAC Address (Wired)",
              "MAC Address (Wireless)", "ESN", "Widevine", "Dolby Vision"],                                   # VSN is hidden by the TV
             ["Software Version", "Update status", "Auto Update", "Check for Updates"],
-            ["Do Not Sell My Personal Information", "Limit AD Tracking", "AD ID", "Reset AD ID"],
+            ["Do Not Sell My Personal Information", "Limit AD Tracking", "AD ID", "Reset AD ID", "Live Plus", "Live Promotion", "App Permissions", "Delete My Personal Information"],
             ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
             ["Reset All", "Reset All Except Network Settings"]])
 
@@ -861,6 +939,120 @@ class Coverage(unittest.TestCase):
         self.assertEqual([c for c in self.probe("pixel_no")["calls"] if c["method"] == "/setSystemSettings"], [])
         self.assertEqual(self.written("pixel_yes"), [{"scheduledPixelCleaning": "on"}])
         self.assertEqual(self.written("pixel_off"), [{"scheduledPixelCleaning": "off"}])                                      # off needs no question
+
+    def test_home_settings_are_LGs_power_on_screen_and_its_two_switches(self):
+        rows = [r for r in self.probe("look_tv_rows")["res"] if r[0] == 1]
+        self.assertEqual([r[1] for r in rows][-5:], ["Power On Screen", "Home Promotion", "Content Recommendation", "Smart Tips", "Smart Tips in Settings"])
+        self.assertEqual([r[2:] for r in rows][-5:], [["", ""]] * 5)
+        d = self.probe("home_power_on")["res"]
+        self.assertEqual((d["now"], d["a"], d["b"], d["options"]), (0, 1, 0, ["Home", "Recent Input"]))               # the TV starts on Home
+        self.assertEqual(self.written("home_power_on"), [{"homeAutoLaunch": "off", "selectedInputApp": "off", "checkHomeAutoLaunchValue": "user"},
+                                                           {"homeAutoLaunch": "on", "selectedInputApp": "off", "checkHomeAutoLaunchValue": "user"}])      # as LG's row writes it
+        self.assertEqual(self.probe("home_switches")["res"], {"a": False, "b": False})
+        self.assertEqual(self.written("home_switches"), [{"homePromotion": "off"}, {"contentRecommendation": "off"}])
+        for name in ("home_power_on", "home_switches"):
+            self.assertEqual([c for c in self.probe(name)["calls"] if c["error"]], [])
+
+    def test_the_screen_savers_standby_time_is_LGs_four_choices_and_its_promotion_a_switch(self):
+        rows = [r[1] for r in self.probe("look_tv_rows")["res"] if r[0] == 2]
+        self.assertEqual(rows[-2:], ["Screen Saver Standby Time", "Screen Saver Promotion"])
+        d = self.probe("saver_lg")["res"]
+        self.assertEqual((d["now"], d["value"], d["ad"]), ("10 minutes", "30 minutes", False))
+        self.assertEqual(d["options"], ["3:3 minutes", "10:10 minutes", "20:20 minutes", "30:30 minutes"])
+        self.assertEqual(self.written("saver_lg"), [{"screenSaverTimer": "30", "checkChangedScreenSaverTimerByUser": "user"}, {"screenSaverAd": "off"}])
+        self.assertEqual([c for c in self.probe("saver_lg")["calls"] if c["error"]], [])
+
+    def test_live_plus_asks_to_turn_on_and_live_promotion_waits_for_it(self):
+        self.assertEqual(self.probe("live_locked")["res"], {"on": False, "sub": False, "detail": "Turn Live Plus on"})
+        d = self.probe("live_ask")["res"]
+        self.assertEqual((d["asked"], d["on"]), (True, False))
+        self.assertEqual([c for c in self.probe("live_no")["calls"] if c["method"] == "/setSystemSettings"], [])
+        self.assertEqual(self.written("live_yes"), [{"livePlus": "on"}])
+        self.assertEqual(self.probe("live_after")["res"], {"on": True, "sub": True, "promo": True})
+        self.assertEqual(self.written("live_after"), [{"livePromotion": "on"}])
+        d = self.probe("live_off")
+        self.assertEqual(d["res"], {"asked": False, "on": False})                                                            # off needs no question
+        self.assertEqual([c["payload"]["settings"] for c in d["calls"] if c["method"] == "/setSystemSettings"], [{"livePlus": "off"}])
+
+    def test_emergency_information_waits_for_an_atsc3_tuner_and_is_LGs_switch_and_language(self):
+        self.assertEqual(self.probe("emergency_row")["res"], {"shown": True, "atsc3": True})
+        self.assertEqual(self.probe("emergency_none")["res"], {"hidden": True})                                              # no tuner, no row
+        d = self.probe("emergency_page")
+        self.assertEqual(d["res"], {"title": "Emergency Information", "options": ["eng:English", "spa:Spanish", "fre:French"], "value": "Spanish", "on": True})
+        self.assertEqual([c["payload"]["settings"] for c in d["calls"] if c["method"] == "/setSystemSettings"],
+                         [{"emergencyInformationAtsc30": "on"}, {"emergencyInformationLanguageAtsc30": "spa"}])
+
+    SIGNALS = ["Colorimetry", "EOTF", "Mastering Peak", "Mastering Color", "MaxCLL", "MaxFALL", "Dolby VSVDB", "Reset"]
+
+    def test_hdmi_signalling_is_LGs_seven_overrides_on_the_tvs_lists_and_a_reset_that_asks(self):
+        self.assertEqual(self.probe("sig_link")["res"], {"shown": True, "tab": 5})
+        rows = self.probe("sig_rows")["res"]
+        self.assertEqual([r[0] for r in rows], self.SIGNALS)
+        self.assertEqual([r[1] for r in rows][:7], ["AUTO", "AUTO", "AUTO", "AUTO", "AUTO", "AUTO", "V1"])                    # LG's names, the TV starts on its own
+        d = self.probe("sig_set")["res"]
+        self.assertEqual(d["colorimetry"], ["auto:AUTO", "bt709:BT709", "bt601:BT601", "bt2020:BT2020", "p3D65:P3 D65"])
+        self.assertEqual(d["peak"], ["auto:AUTO", "0:0", "400:400", "540:540", "700:700", "1000:1000", "2000:2000", "3000:3000", "4000:4000", "10000:10000"])
+        self.assertEqual(d["values"], ["BT2020", "HLG", "1000", "V2"])
+        self.assertEqual(self.written("sig_set"), [{"colorimetry": "bt2020"}, {"eotf": "hlg"}, {"masteringPeak": "1000"}, {"dolbyVSVDBVer": "v2"}])
+        self.assertEqual([c for c in self.probe("sig_set")["calls"] if c["error"]], [])
+        self.assertTrue(self.probe("sig_reset_ask")["res"]["asked"])
+        self.assertEqual([c for c in self.probe("sig_reset_no")["calls"] if c["method"] == "/resetSystemSettings"], [])
+        done = [c for c in self.probe("sig_reset_yes")["calls"] if c["method"] == "/resetSystemSettings"]
+        self.assertEqual([c["payload"] for c in done], [{"category": "other", "keys": ["colorimetry", "eotf", "masteringPeak", "masteringColor", "maxCLL", "maxFALL", "dolbyVSVDBVer"]}])
+        self.assertEqual([r[1] for r in self.probe("sig_after_reset")["res"]][:7], ["AUTO", "AUTO", "AUTO", "AUTO", "AUTO", "AUTO", "V1"])
+
+    def test_delete_connection_history_asks_then_tells_the_five_services_LGs_row_tells(self):
+        d = self.probe("history_ask")["res"]
+        self.assertEqual((d["asked"], d["button"]), (True, "Delete"))
+        self.assertEqual([c["method"] for c in self.probe("history_no")["calls"]], [])                                       # Cancel forgets nothing
+        done = self.probe("history_yes")["calls"]
+        self.assertEqual([c["method"] for c in done], ["/resetWoBLE", "/deletePairedDeviceList", "/removePairedDevices", "/deleteIPConnectionHistory", "/removeBlockedDeviceList"])
+        self.assertEqual([c["payload"] for c in done], [{}] * 5)
+        self.assertEqual([c["error"] for c in done], [""] * 5)
+        self.assertEqual(self.probe("history_after")["res"], {"button": "Done"})
+
+    def test_app_permissions_are_LGs_four_lists_and_an_app_is_allowed_only_after_the_question(self):
+        rows = self.probe("perm_rows")["res"]
+        self.assertEqual(rows, [[["Camera", True], ["Netflix", False]], [["Camera", False], ["Netflix", True], ["Hue Sync", False]], [["Hue Sync", True]], [["Netflix", True]]])
+        d = self.probe("perm_camera_ask")["res"]
+        self.assertEqual((d["asked"], d["on"]), (True, False))
+        self.assertEqual([c for c in self.probe("perm_camera_no")["calls"] if c["method"] == "/setSystemSettings"], [])           # Block leaves it blocked
+        cam = {"cameraResourcePermission": [{"appId": "com.webos.app.camera", "permissions": [{"resource": "camera", "permission": True}]},
+                                             {"appId": "netflix", "permissions": [{"resource": "camera", "permission": True}]}]}
+        self.assertEqual(self.written("perm_camera_yes"), [cam])                                                              # the whole table, one flag changed
+        self.assertEqual(self.probe("perm_camera_off")["res"], {"camera": False, "netflix": True})
+        cam["cameraResourcePermission"][0]["permissions"][0]["permission"] = False
+        self.assertEqual(self.written("perm_camera_off"), [cam])
+        self.assertEqual(self.written("perm_ble_off"), [{"nearbyDevicePermission": [{"appId": "com.lighting.huesync", "permissions": [{"resource": "ble", "permission": False}]}]}])
+        self.assertEqual([c["payload"] for c in self.probe("perm_mic_on")["calls"] if c["method"] == "/setPermission"],
+                         [{"appId": "com.webos.app.camera", "privacyGroup": "microphone.privacy", "status": "allow"}])
+        self.assertEqual(self.probe("perm_mic_after")["res"], {"on": True})                                                   # read back from the service
+        self.assertEqual([c["payload"] for c in self.probe("perm_file_off")["calls"] if c["method"] == "/setPermission"],
+                         [{"appId": "netflix", "privacyGroup": "usbFileAccess.privacy", "status": "deny"}])
+        self.assertEqual(self.probe("perm_file_after")["res"], {"on": False})
+        for name in ("perm_camera_yes", "perm_camera_off", "perm_mic_on", "perm_ble_off", "perm_file_off"):
+            self.assertEqual([c for c in self.probe(name)["calls"] if c["error"]], [])
+
+    def test_delete_my_personal_information_waits_for_the_terms_and_the_network_and_asks_before_it_tells_LGs_services(self):
+        self.assertEqual(self.probe("del_state")["res"], {"a": True, "da": "", "b": True, "db": ""})
+        self.assertTrue(self.probe("del_view_ask")["res"]["asked"])
+        self.assertEqual([c for c in self.probe("del_view_no")["calls"] if c["method"] in ("/reset", "/deletePrivacyData")], [])
+        done = self.probe("del_view_yes")["calls"]
+        self.assertEqual([(c["method"], c["payload"]) for c in done], [("/getIDs", {"idType": ["LGUDID"]}), ("/reset", {"target": "viewingInfo", "toast": False})])
+        self.assertEqual(self.probe("del_view_sent")["res"], [{"target": "viewingInfo", "toast": False},
+                                                                {"toast": True, "bodyData": {"isDeleteAccountAllData": True, "lgudid": "FAKE-LGUDID-0001"}}])      # after the id came back
+        done = self.probe("del_voice_yes")["calls"]
+        self.assertEqual([(c["method"], c["payload"]) for c in done], [("/deletePrivacyData", {}), ("/reset", {"target": "voiceInfo", "toast": False})])
+        self.assertEqual(self.probe("del_after")["res"], {"a": "Done", "b": "Done"})
+        self.assertEqual(self.probe("del_voice_locked")["res"], {"a": True, "b": False, "db": "Needs LG's terms"})        # the voice also needs the voice terms
+
+    def test_usb_device_lists_the_sound_cards_and_picks_one_the_way_LGs_list_does(self):
+        self.assertEqual(self.probe("usb_link")["res"], {"shown": True, "value": ""})
+        self.assertEqual(self.probe("usb_rows")["res"], [["Device List", ""], ["USB Audio Device", ""], ["Gaming Headset", "In use"]])
+        d = self.probe("usb_pick")
+        self.assertEqual([(c["method"], c["payload"]) for c in d["calls"] if c["method"] == "/setSoundOutput"], [("/setSoundOutput", {"soundOutput": "usb_speaker", "cardNumber": 1})])
+        self.assertEqual([c for c in d["calls"] if c["error"]], [])
+        self.assertEqual(self.probe("usb_after")["res"], [["Device List", ""], ["USB Audio Device", "In use"], ["Gaming Headset", ""]])
 
 
 if __name__ == "__main__":

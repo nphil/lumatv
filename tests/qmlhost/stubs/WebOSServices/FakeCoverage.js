@@ -171,7 +171,7 @@ var services = {
     "luna://com.palm.systemservice/getPreferenceValues": function() { return { returnValue: true, timeZone: zones }; },
     "luna://com.webos.service.wifi/findnetworks": function() { return { returnValue: true, foundNetworks: networks }; },
     "luna://com.webos.service.connectionmanager/getStatus": function() {
-        return { returnValue: true, wifi: { state: "connected", ssid: link.ssid, signalBars: 4, signalLevel: -52, channelFrequency: 5180, ipAddress: link.address,
+        return { returnValue: true, isInternetConnectionAvailable: true, wifi: { state: "connected", ssid: link.ssid, signalBars: 4, signalLevel: -52, channelFrequency: 5180, ipAddress: link.address,
                                             netmask: link.netmask, gateway: link.gateway, dns1: link.dns1, method: link.method }, wired: { state: "disconnected" } };
     },
     "luna://com.webos.service.btaudiosrc/getPairedDevices": function() { return { returnValue: true, subscribed: true, devices: bt.audio.paired }; },

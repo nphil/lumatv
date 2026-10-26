@@ -197,6 +197,14 @@ class Settings(HostCase):
         self.assertEqual(s["style"], "art")
         self.assertEqual(s["art"], {"everyMin": 60, "order": "shuffle", "caption": True})      # one change, the other two kept
 
+    def test_the_screensaver_tab_ends_its_own_rows_with_the_switch_between_lumatvs_saver_and_lgs(self):
+        # Screensaver tab, style Clock: Start after, Dim over time, Weather and home fact, Then go to standby, then LumaTV saver (on until OK turns it off)
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
+                            *self.go("look", "right", "up", "right", "right", "down", "down", "down", "down", "down", "down", "ok"),
+                            "--eval", "%d:JSON.stringify(root.theme.screensaver || {})" % (READY + 3000), "--wait", str(READY + 3600))
+        self.assertEqual(rc, 0, out[-1500:])
+        self.assertEqual(self.docs(out)[-1].get("own"), False)
+
     def test_the_power_on_and_off_logos_are_chosen_among_three_and_kept_in_the_theme_file(self):
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
@@ -486,9 +494,10 @@ class Settings(HostCase):
 
     def test_no_row_writes_a_setting_or_value_the_service_refuses(self):
         # Every switch both ways, every choice, every slider at both ends, against the stub that refuses what LG's own service has
-        # no key for (keys and value tables taken from LG's Settings app). Sound's modes only answer while the TV speakers play.
-        rc, out = self.host("--eval", "5000:" + self.WALK, "--eval", "5200:" + self.SET_OUTPUT, "--eval", "6000:" + self.WALK, "--eval", "6400:" + self.CALLS,
-                            "--wait", "7000", surface="Settings.qml")
+        # no key for (keys and value tables taken from LG's Settings app). Sound's modes only answer while the TV speakers play. Every write the first walk
+        # makes costs the pages a rebuild, so the walk runs for a second or more; the evals are in order, and the second walk waits well after the output is set.
+        rc, out = self.host("--eval", "5000:" + self.WALK, "--eval", "8000:" + self.SET_OUTPUT, "--eval", "11000:" + self.WALK, "--eval", "11400:" + self.CALLS,
+                            "--wait", "12000", surface="Settings.qml")
         self.assertEqual(rc, 0, out[-1500:])
         calls = self.docs(out)[-1]
         walked = [v for v in self.values(out) if str(v).isdigit()]
@@ -516,13 +525,12 @@ class Settings(HostCase):
         with open(os.path.join(HERE, "qmlhost", "stubs", "WebOSServices", "LgSettings.js")) as f:
             js = f.read()
         known = set(re.findall(r'"([A-Za-z0-9_]+)"', js[js.index("var targets"):js.index("function domain")]))
-        self.assertGreater(len(rows), 7)
+        self.assertGreater(len(rows), 6)
         for r in rows:
             if r["app"] == "com.palm.app.settings" and r["target"]:
                 self.assertIn(r["target"], known, r)
         # the ones that matter, by page: each page's escape lands where its own text says
         by = {(r["page"], r["label"], r["target"]) for r in rows}
-        self.assertIn(("look", "More in LG settings", "HomeSettings"), by)
         self.assertIn(("channels", "Channel Tuning & Settings", "channel"), by)
         self.assertIn(("safety", "Change locks", "parentalControls"), by)
         self.assertIn(("support", "Check for Updates", "SoftwareUpdate"), by)

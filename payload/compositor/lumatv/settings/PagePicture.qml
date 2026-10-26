@@ -37,6 +37,7 @@ PageList {
         Sio.read("picture", ["superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "dolbyPrecisionDetail"])
         Sio.read("picture", ["truMotionJudder", "truMotionBlur", "motionPro", "filmMakerMode", "hdrDynamicToneMapping", "expressionEnhancer", "applyToAllInput"])
         Sio.read("aiPicture", ["ai_Picture", "ai_Genre", "ai_Brightness"])
+        Sio.read("other", ["colorimetry"])
         Sio.read("aspectRatio", ["justScan"])
         readPerApp()
     }
@@ -136,6 +137,9 @@ PageList {
         C.seg(Sio, { ds: "picture.expressionEnhancer", tab: 5, icon: "sparkles", label: "Expression Enhancer", names: "expression" }),
         R.toggle(Sio, { ds: "aiPicture.ai_Genre", tab: 5, icon: "wand-sparkles", label: "AI genre selection", help: "Picks a look for sport, film or news by what is playing." }),
         R.toggle(Sio, { ds: "aiPicture.ai_Brightness", tab: 5, icon: "sun-medium", label: "AI brightness", help: "Follows the room light and the scene." }),
+        R.over(R.link({ tab: 5, id: "signalling", icon: "cable", label: "HDMI Signalling", help: "What the TV is told an HDMI picture is: colorimetry, EOTF and the HDR values. AUTO is the source's own.",
+                       go: function() { page.host.openPage("signalling") } }),
+               { visible: function() { return C.shown(Sio, "other.colorimetry") } }),
         C.action({ id: "applyall", tab: 5, icon: "list-checks", label: "Apply to All Inputs", button: "Apply",
                    enabled: function() { return Sio.usable("picture.applyToAllInput") },
                    help: "Gives every input this mode's settings.",

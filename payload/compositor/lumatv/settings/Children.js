@@ -24,5 +24,10 @@ var pages = [
     { id: "safety", title: "Safety", icon: "shield", page: "settings/PageSafety.qml", rail: false, parent: "system" },
     { id: "channels", title: "Channels", icon: "antenna", page: "settings/PageChannels.qml", rail: false, parent: "inputs" },
     { id: "finetune", title: "Fine Tune", icon: "sliders-horizontal", page: "settings/PageFineTune.qml", rail: false, parent: "picture" },
-    { id: "whitebalance", title: "White balance", icon: "sun-medium", page: "settings/PageWhiteBalance.qml", rail: false, parent: "picture" }
+    { id: "whitebalance", title: "White balance", icon: "sun-medium", page: "settings/PageWhiteBalance.qml", rail: false, parent: "picture" },
+    { id: "emergency", title: "Emergency Information", icon: "octagon-alert", page: "settings/PageEmergency.qml", rail: false, parent: "system" },
+    { id: "signalling", title: "HDMI Signalling", icon: "cable", page: "settings/PageSignalling.qml", rail: false, parent: "picture" },
+    { id: "permissions", title: "App Permissions", icon: "shield-check", page: "settings/PagePermissions.qml", rail: false, parent: "system" },
+    { id: "deletedata", title: "Delete My Personal Information", icon: "eye-off", page: "settings/PageDeleteData.qml", rail: false, parent: "system" },
+    { id: "usbsound", title: "USB Device", icon: "usb", page: "settings/PageUsbSound.qml", rail: false, parent: "sound" }
 ];

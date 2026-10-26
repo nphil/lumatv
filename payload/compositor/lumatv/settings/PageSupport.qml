@@ -10,7 +10,8 @@ import "."
 // version; checking for an update sends the TV's identity to LG and installing it restarts the TV, which a person does in LG's own screen.
 // Auto Update writes `support.automaticUpdate`; turning it on needs LG's terms (`eulaStatus.generalTermsAllowed`), which LG's own flow asks for in
 // its sign-off app, so here it only turns off, or on once the terms were accepted. Privacy: Do Not Sell goes through the ad service as LG's row does,
-// the AD ID is shown and reset, Limit AD Tracking is a switch. The self-diagnosis is LG's Customer Support app at its test (the app, not Settings).
+// the AD ID is shown and reset, Limit AD Tracking is a switch; Live Plus (LG keeps it under Additional Settings, but it is consent) asks before it turns on and
+// holds Live Promotion; App Permissions and Delete My Personal Information are pages of their own. The self-diagnosis is LG's Customer Support app at its test (the app, not Settings).
 // Reset is last and asks twice, with LG's own PIN prompt between (`createPincodePrompt`; this page acts on its yes or no and never sees the digits);
 // the call is LG's `devicereset doReset {resetType}`. Nothing on this page is offered to an assistant: it is a Settings page, and Settings has no
 // AI access tool.
@@ -40,6 +41,7 @@ PageList {
     readonly property string webos: osVersion === "" ? "" : "webOS" + (Number(osVersion.split(".")[0]) + 15) + " / " + osVersion
     readonly property string storage: storeTotal < 0 ? "" : (storeFree / 1024).toFixed(2) + "/" + (storeTotal / 1024).toFixed(2) + "GB"
     readonly property bool termsOk: { var e = Sio.get("eulaStatus"); return !!(e && e.generalTermsAllowed) }
+    readonly property bool livePlusOn: String(Sio.get("option.livePlus")) === "on"
     readonly property var updateNames: ({ "in progress": "Update in progress", "ExternalChipInstall": "Installing", "check update": "Checking for updates", "pending": "Update paused",
                                           "paused": "Update paused", "warm reserved": "Update paused", "schedule detected": "Update reserved", "failed": "Update failed",
                                           "canceled": "Update canceled", "completed": "Installed; applies when the TV restarts" })
@@ -76,7 +78,7 @@ PageList {
         Sio.read("support", ["automaticUpdate"])
         Sio.read("general", ["doNotSellMyPersonalInformation", "lmt"])
         Sio.read("network", ["deviceName"])
-        Sio.read("option", ["vsn"])
+        Sio.read("option", ["vsn", "livePlus", "livePromotion"])
         Power.readPanel()
         luna.call("device", "luna://com.palm.systemservice/deviceInfo", "query", { parameters: ["product_id", "serial_number"] })
         luna.call("os", "luna://com.palm.systemservice/osInfo", "query", { parameters: ["core_os_release", "core_os_release_codename"] })
@@ -153,6 +155,23 @@ PageList {
         C.action({ id: "resetad", tab: 2, icon: "rotate-ccw", label: "Reset AD ID", button: "Reset", help: "Gives the TV a new advertising ID, and ads are tracked from the new one.",
                    act: C.ask(page, { icon: "rotate-ccw", title: "Reset the AD ID?", body: "The TV gets a new advertising ID.", yes: "Reset", no: "Cancel" },
                               function() { luna.act("luna://com.webos.service.admanager", "resetIFA", {}); page.adId = ""; reread.restart() }) }),
+
+        // LG keeps these two under System › Additional Settings; they are consent, so they sit with the privacy rows. Live Promotion follows Live Plus.
+        C.lgShown(Sio, "option.livePlus", R.over(R.toggle(Sio, { ds: "option.livePlus", tab: 2, icon: "scan-eye", label: "Live Plus",
+                                                                 help: "LG recognises what the TV shows and uses it for recommendations and ads." }),
+                { act: function(v) {
+                      if (!v) { Sio.write("option.livePlus", "off"); return }
+                      C.ask(page, { icon: "scan-eye", title: "Turn Live Plus on?", body: "LG recognises what the TV shows and may use it for recommendations and ads.", yes: "Turn on", no: "Cancel" },
+                            function() { Sio.write("option.livePlus", "on") })()
+                  } })),
+        C.lgShown(Sio, "option.livePromotion", R.over(R.toggle(Sio, { ds: "option.livePromotion", tab: 2, icon: "star", label: "Live Promotion",
+                                                                      help: "Turns custom ads and services on or off while watching. Needs Live Plus." }),
+                { enabled: function() { return page.livePlusOn && Sio.usable("option.livePromotion") },
+                  detail: function() { return !Sio.has("option.livePromotion") ? "TV not answering" : page.livePlusOn ? "" : "Turn Live Plus on" } })),
+        R.link({ tab: 2, id: "permissions", icon: "shield-check", label: "App Permissions", help: "Which apps may use the camera, the microphone, nearby devices and files.",
+                 go: function() { page.host.openPage("permissions") } }),
+        R.link({ tab: 2, id: "deletedata", icon: "eye-off", label: "Delete My Personal Information", help: "Deletes the viewing and voice information LG collected from this TV.",
+                 go: function() { page.host.openPage("deletedata") } }),
 
         R.lg(page, { tab: 3, id: "screentest", app: "com.webos.app.customersupport", target: "pictureTest", label: "Screen Self-diagnosis", help: "LG's picture test, in LG's Customer Support app." }),
         R.lg(page, { tab: 3, id: "soundtest", app: "com.webos.app.customersupport", target: "soundTest", label: "Sound Self-diagnosis", help: "LG's test tone, in LG's Customer Support app. The TV speaker must be the sound out." }),

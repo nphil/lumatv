@@ -1,6 +1,7 @@
 import QtQuick 2.4
 import "../kit"
 import "Rows.js" as R
+import "Choice.js" as C
 import "."
 
 // Inputs & devices (docs/mocks/30-settings-inputs). Each input shows the name its device gave itself over
@@ -30,9 +31,37 @@ PageList {
     }
     summary: Inputs.current ? Inputs.current.port : ""
 
-    function refresh() { Inputs.refresh(); Sio.read("other", ["simplinkEnable", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"]) }
+    function refresh() {
+        Inputs.refresh()
+        Sio.read("other", ["simplinkEnable", "qmsVrr", "uhdDeepColor", "444BypassHDMI1", "444BypassHDMI2", "444BypassHDMI3", "444BypassHDMI4", "enableDolbyVisionPC"])
+        luna.call("bt", "luna://com.webos.service.config", "getConfigs", { configNames: ["system.supportBluetoothFeatures"] })
+    }
     Component.onCompleted: refresh()
     onOpened: refresh()
+
+    // Delete Connection History (LG: External Devices): the services that keep a phone's, a cast's or a remote app's pairing are told to forget
+    // them, as LG's row does after its question. Two of the five calls are LG's only where the TV's config (`system.supportBluetoothFeatures`)
+    // lists the feature: the remote app's Bluetooth link ("remoteapp") and the TV as a Bluetooth speaker ("btsoundsink").
+    property bool remoteApp: false
+    property bool btSink: false
+    property bool historyDone: false
+    LunaCall {
+        id: luna
+        onAnswered: {
+            if (tag !== "bt" || !doc || !doc.configs) return
+            var f = doc.configs["system.supportBluetoothFeatures"] || []
+            page.remoteApp = f.indexOf("remoteapp") >= 0
+            page.btSink = f.indexOf("btsoundsink") >= 0
+        }
+    }
+    function forgetHistory() {
+        if (remoteApp) luna.act("luna://com.webos.service.asc", "resetWoBLE", {})
+        luna.act("luna://com.webos.service.miracast", "deletePairedDeviceList", {})
+        if (btSink) luna.act("luna://com.webos.service.btaudiosnk", "removePairedDevices", {})
+        luna.act("luna://com.webos.service.ics/blaster", "deleteIPConnectionHistory", {})
+        luna.act("luna://com.webos.service.ftms", "removeBlockedDeviceList", {})
+        historyDone = true
+    }
 
     rows: [
         { kind: "seg", tab: 0, icon: "antenna", label: "Live TV", help: page.choiceHelp, options: ["Auto", "Always", "Hidden"],
@@ -59,6 +88,10 @@ PageList {
 
         R.link({ tab: 2, id: "channels", icon: "antenna", label: "Channels", help: "Channel scrolling, system colour and the interactive service.", go: function() { page.host.openPage("channels") } }),
         R.link({ tab: 2, id: "bt", icon: "gamepad-2", label: "Bluetooth Devices", go: function() { page.host.openPage("bthid") } }),
+        C.action({ id: "history", tab: 2, icon: "history", label: "Delete Connection History", button: function() { return page.historyDone ? "Done" : "Delete" }, danger: true,
+                   help: "Makes the TV forget the phones, casts and remote apps that connected to it wirelessly.",
+                   act: C.ask(page, { icon: "history", title: "Delete the connection history?", body: "All history of wireless connection of this TV is deleted.", yes: "Delete", no: "Cancel", danger: true },
+                              function() { page.forgetHistory() }) }),
         R.lg(page, { tab: 2, id: "game", app: "com.webos.app.gameoptimizer", label: "Game Optimizer", help: "VRR, ALLM and latency per input, in LG's own screen." })
     ]
 }

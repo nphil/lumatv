@@ -18,6 +18,10 @@ PageList {
     property var found: []                 // [{address, name}]
     property bool searching: false
     property string busy: ""               // the address being connected
+    property real btVolume: -1             // LG's Bluetooth Speaker Volume, 0 to 10 (`tvspeaker_bluetooth` of btaudiosrc/surround); -1 until the service says
+    readonly property string surround: "luna://com.webos.service.btaudiosrc/surround"
+    readonly property bool anyConnected: { for (var c = 0; c < paired.length; c++) if (paired[c].connected) return true; return false }
+    readonly property bool hearingAidBt: String(Sio.get("sound.hearingAid")) === "bluetooth"
     title: audio ? "Bluetooth Speakers" : "Bluetooth Devices"
     back: audio ? "Sound" : "Inputs & devices"
     readonly property string svc: audio ? "luna://com.webos.service.btaudiosrc" : "luna://com.webos.service.bthidmanager"
@@ -33,6 +37,7 @@ PageList {
                 if (tag === "status" && (doc.status === "fail" || doc.status === "disconnected")) page.busy = ""
                 luna.call("list", page.svc, page.audio ? "getPairedDevices" : "getPairedDeviceLists", {})
             } else if (tag === "list") page.readPaired(doc)
+            else if (tag === "balance" && doc.tvspeaker_bluetooth !== undefined) page.btVolume = Number(doc.tvspeaker_bluetooth)
         }
     }
     function readPaired(doc) {
@@ -65,12 +70,13 @@ PageList {
     }
 
     function refresh() {
-        Sio.read("sound", ["deviceCntOfBtGeneral"])
+        Sio.read("sound", ["deviceCntOfBtGeneral", "bluetoothMode", "hearingAid"])
         found = []
         searching = false
         if (audio) {
             luna.subscribe("paired", svc, "getPairedDevices", {})
             luna.subscribe("status", svc, "getDeviceStatus", {})
+            luna.subscribe("balance", surround, "getVolumeBalancing", {})
         } else {
             luna.call("list", svc, "getPairedDeviceLists", {})
             luna.subscribe("status", svc, "subscribeDevicesStatus", {})
@@ -95,7 +101,7 @@ PageList {
         found = found.filter(function(x) { return x.address !== d.address })
     }
     onOpened: refresh()                     // a search and a subscription are for the page that is up, not for one built in the background
-    onVisibleChanged: if (!visible) { stopSearch(); luna.close("paired"); luna.close("status") }
+    onVisibleChanged: if (!visible) { stopSearch(); luna.close("paired"); luna.close("status"); luna.close("balance") }
 
     function stateText(d) {
         return busy === d.address ? "Connecting" : d.state === "connected" ? "Connected" : d.state === "connecting" ? "Connecting" : d.state === "disconnecting" ? "Disconnecting" : ""
@@ -110,7 +116,19 @@ PageList {
     }
     function build() {
         var out = []
-        if (audio) out.push(C.choice(Sio, { ds: "sound.deviceCntOfBtGeneral", icon: "headphones", label: "Speaker Connection", names: "deviceCnt", page: page }))
+        if (audio) {
+            out.push(C.choice(Sio, { ds: "sound.deviceCntOfBtGeneral", icon: "headphones", label: "Speaker Connection", names: "deviceCnt", page: page }))
+            // LG's Bluetooth + TV Speaker rows: the playback option waits for a connected speaker (and is not for a hearing aid), the volume is for a connected one
+            out.push(R.over(C.choice(Sio, { ds: "sound.bluetoothMode", icon: "speaker", label: "Playback Option", names: { surroundMode: "Surround Effect", speakerMode: "Simultaneous Sound Out" },
+                                            page: page, help: "How the TV's speakers and the Bluetooth speaker play together." }),
+                            { enabled: function() { return Sio.usable("sound.bluetoothMode") && page.anyConnected && !page.hearingAidBt },
+                              detail: function() { return !Sio.has("sound.bluetoothMode") ? "TV not answering" : !page.anyConnected ? "No speaker connected" : page.hearingAidBt ? "Hearing aid in use" : "" } }))
+            if (anyConnected && !hearingAidBt)
+                out.push({ kind: "slider", id: "btvolume", icon: "volume-2", label: "Bluetooth Speaker Volume", min: 0, max: 10, step: 1, help: "How loud the Bluetooth speaker plays next to the TV's speakers.",
+                           num: function() { return page.btVolume < 0 ? 0 : page.btVolume }, valueText: function() { return page.btVolume < 0 ? "\u2013" : String(page.btVolume) },
+                           enabled: function() { return page.btVolume >= 0 },
+                           act: function(v) { page.btVolume = v; luna.act(page.surround, "setVolumeBalancing", { tvspeaker_bluetooth: v }) } })
+        }
         out.push(R.head("Registered Devices (" + paired.length + ")"))
         if (!paired.length) out.push(R.note("There are no paired devices."))
         for (var i = 0; i < paired.length; i++) out.push(deviceRow(paired[i]))

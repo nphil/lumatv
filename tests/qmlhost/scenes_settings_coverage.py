@@ -80,3 +80,11 @@ direct("30-settings-channels", "channels", at=4500)
 # Picture › Colour: White balance (22 points, at the 100 % level) and Fine Tune (user mode, so its rows answer)
 direct("30-settings-white-balance", "whitebalance", at=4500)
 direct("30-settings-fine-tune", "finetune", at=4500, before=[tv_setting("picture", '{dynamicColor: "user"}')])
+
+# Picture › Expert: HDMI Signalling; System › Accessibility: Emergency Information; Support › Privacy: App Permissions (the camera, then the microphone tab) and
+# Delete My Personal Information
+direct("30-settings-signalling", "signalling", at=4500)
+direct("30-settings-emergency", "emergency", at=4500)
+direct("30-settings-permissions", "permissions", at=4500)
+direct("30-settings-permissions-microphone", "permissions", "up", "right", DOWN, at=4500)
+direct("30-settings-delete-data", "deletedata", at=4500)

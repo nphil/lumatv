@@ -7,7 +7,7 @@ import "."
 // Home & look (docs/mocks/30-settings-home): the theme's few knobs a person changes from the sofa
 // (theme.json, the same file `lumatv theme set` and the Home popovers write), in four tabs. A row reads
 // the live theme through Lu and writes through the host's patch, which applies it at once and saves it. The few rows that are the TV's own
-// settings (AI Recommendation on Home, Always Ready on Standby) go through Sio, on LG's keys.
+// settings (Home Settings and AI Recommendation on Home, LG's screen saver time and promotion on Screensaver, Always Ready on Standby) go through Sio, on LG's keys.
 PageList {
     id: page
     title: "Home & look"
@@ -28,10 +28,11 @@ PageList {
     readonly property var depthLevels: ["flat", "normal", "deep"]      // the steps of theme.depth.steps
     summary: ""                                         // nothing here is a state to glance at from the rail
 
-    // the TV's own settings this page also holds: AI Recommendation (Home) and Always Ready (Standby)
+    // the TV's own settings this page also holds: Home Settings and AI Recommendation (Home), the screen saver's two (Screensaver), Always Ready (Standby)
     function refreshTv() {
-        Sio.read("general", ["aiNudge", "aiSettingsNudge", "lifeOnScreenMode"])
-        Sio.read("option", ["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor"])
+        Sio.read("general", ["aiNudge", "aiSettingsNudge", "lifeOnScreenMode", "homeAutoLaunch", "homePromotion", "screenSaverAd"])
+        Sio.read("option", ["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor", "screenSaverTimer"])
+        Sio.read("other", ["contentRecommendation"])
     }
     Component.onCompleted: refreshTv()
     onOpened: refreshTv()
@@ -67,7 +68,6 @@ PageList {
         { kind: "seg", tab: 0, icon: "blend", label: "Glass depth",
           options: ["Flat", "Normal", "Deep"], index: function() { var i = page.depthLevels.indexOf(Lu.depthLevel); return i < 0 ? undefined : i },
           act: function(i) { page.patch({ depth: { level: page.depthLevels[i] } }) } },
-        R.lg(page, { tab: 0, target: "HomeSettings" }),
 
         R.link({ tab: 1, id: "widgets", icon: "layout-grid", label: "Home widgets",
                  value: function() { return ((HomeLayout.layout.widgets || []).filter(function(e) { return e.type !== "dock" && !e.hidden }).length) + " shown" },
@@ -81,6 +81,17 @@ PageList {
         { kind: "seg", tab: 1, icon: "sun-medium", label: "Temperature", help: function() { return "Weather for " + (page.theme.weather && page.theme.weather.zip ? page.theme.weather.zip : "your zip code") + "." },
           options: ["\u00b0F", "\u00b0C"], index: function() { return page.theme.weather && page.theme.weather.units === "celsius" ? 1 : 0 },
           act: function(i) { page.patch({ weather: { units: i === 1 ? "celsius" : "fahrenheit" } }) } },
+        // LG's Home Settings. Power On Screen writes what LG's row writes with it: the input app stays off and the choice is marked as the owner's.
+        C.lgShown(Sio, "general.homeAutoLaunch", {
+            kind: "seg", tab: 1, id: "poweronscreen", icon: "power", label: "Power On Screen", help: "What the TV shows when it is turned on: Home, or the input it was last on.",
+            detail: R.unavailable(Sio, "general.homeAutoLaunch"), enabled: function() { return Sio.usable("general.homeAutoLaunch") },
+            options: ["Home", "Recent Input"],
+            index: function() { return !Sio.has("general.homeAutoLaunch") ? undefined : String(Sio.get("general.homeAutoLaunch")) === "on" ? 0 : 1 },
+            act: function(i) { Sio.writeMany("general", { homeAutoLaunch: i === 0 ? "on" : "off", selectedInputApp: "off", checkHomeAutoLaunchValue: "user" }) } }),
+        C.lgShown(Sio, "general.homePromotion", R.toggle(Sio, { ds: "general.homePromotion", tab: 1, icon: "star", label: "Home Promotion",
+                                                               help: "Shows or hides the sponsored ads in LG's own Home menu." })),
+        C.lgShown(Sio, "other.contentRecommendation", R.toggle(Sio, { ds: "other.contentRecommendation", tab: 1, icon: "list-video", label: "Content Recommendation",
+                                                                      help: "Shows or hides the content recommendations in LG's own Home menu. Not available in every country." })),
         C.lgShown(Sio, "option.broadcastInfoNoti", R.toggle(Sio, { ds: "option.broadcastInfoNoti", tab: 1, icon: "sparkles", label: "Who.Where.What?",
                                                                   help: "LG's suggestions about the people, places and things in what Live TV is showing." })),
         C.lgShown(Sio, "general.aiNudge", R.toggle(Sio, { ds: "general.aiNudge", tab: 1, icon: "sparkles", label: "Smart Tips",
@@ -112,6 +123,15 @@ PageList {
         { kind: "seg", tab: 2, icon: "power", label: "Then go to standby", help: "The panel turns off after this long in the screensaver.",
           options: ["Never", "2 h", "4 h", "8 h"], index: function() { var h = page.saver.standbyHours; return h === undefined ? 2 : h === 0 ? 0 : h <= 2 ? 1 : h <= 4 ? 2 : 3 },
           enabled: function() { return page.saverStyle !== "off" }, act: function(i) { page.patch({ screensaver: { standbyHours: [0, 2, 4, 8][i] } }) } },
+        { kind: "toggle", tab: 2, icon: "moon-star", label: "LumaTV saver", help: "LumaTV's clock or art shows when the TV is idle on Home.",
+          enabled: function() { return page.saverStyle !== "off" }, on: function() { return page.saver.own !== false },
+          act: function(v) { page.patch({ screensaver: { own: v } }) } },
+        // LG's own screen saver: its standby time (LG marks the choice as the owner's with the second key) and its ads
+        C.choice(Sio, { ds: "option.screenSaverTimer", tab: 2, icon: "timer", label: "Screen Saver Standby Time", page: page,
+                        names: { "3": "3 minutes", "10": "10 minutes", "20": "20 minutes", "30": "30 minutes" }, help: "How long without a key before LG's screen saver starts.",
+                        write: function(v) { Sio.writeMany("option", { screenSaverTimer: v, checkChangedScreenSaverTimerByUser: "user" }) } }),
+        C.lgShown(Sio, "general.screenSaverAd", R.toggle(Sio, { ds: "general.screenSaverAd", tab: 2, icon: "star", label: "Screen Saver Promotion",
+                                                                help: "Shows or hides the ads some apps, such as LG Channels, put on LG's screen saver." })),
 
         { kind: "seg", tab: 3, icon: "power", label: "Power-on logo",
           options: ["Panes", "Arc", "Name only"], index: function() { return Math.max(0, Math.min(2, (page.logo.on || 1) - 1)) },

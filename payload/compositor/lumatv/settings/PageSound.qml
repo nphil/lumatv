@@ -53,7 +53,16 @@ PageList {
     readonly property var resetKeys: mode === "game" ? ["audioBalance", "gameTVEqualizer", "gameTVEqualizer10band", "soundModeModified"]
                                    : mode === "standard" ? ["audioBalance", "userEqualizerValues", "soundModeModified"] : ["audioBalance", "soundModeModified"]
 
-    LunaCall { id: luna }
+    // USB Device is LG's row only where the TV's config `profile.list` lists "usbSoundOutput"
+    property bool usbSound: false
+    LunaCall {
+        id: luna
+        onAnswered: {
+            if (tag !== "profile" || !doc || doc.returnValue === false || !doc.configs) return
+            var l = doc.configs["profile.list"] || []
+            page.usbSound = l.indexOf("usbSoundOutput") >= 0
+        }
+    }
 
     // the keys that do not depend on the sound out first, then the ones that do: the last answer's dimension (the sound out and the input the
     // mode belongs to) is what a write carries, so the mode and the output go last
@@ -64,6 +73,7 @@ PageList {
                            "inputAudioFormatDP2", "inputAudioFormatUSBC1", "inputAudioFormatUSBC2", "lgSoundSync", "soundAlive", "eArcSupport", "digitalAudioPriority"])
         Sio.read("general", ["tvOnSound"])
         Sio.read("sound", ["audioBalance", "soundOutput", "soundMode"])
+        luna.call("profile", "luna://com.webos.service.config", "getConfigs", { configNames: ["profile.list"] })
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
@@ -110,6 +120,9 @@ PageList {
           on: function() { return page.output === "tv_speaker_external_arc" },
           act: function(v) { Sio.write("sound.soundOutput", v ? "tv_speaker_external_arc" : "external_arc") } },
         R.link({ tab: 0, id: "btaudio", icon: "headphones", label: "Bluetooth Speakers", go: function() { page.host.openPage("btaudio") } }),
+        R.over(R.link({ tab: 0, id: "usbsound", icon: "usb", label: "USB Device", value: function() { return page.output === "usb_speaker" ? "In use" : "" },
+                       go: function() { page.host.openPage("usbsound") } }),
+               { visible: function() { return page.usbSound } }),
 
         R.over(R.cards(Sio, { ds: "sound.soundMode", tab: 1, cols: 3, values: ["aiSoundPlus", "standard", "movie", "news", "sports", "music", "game"], options: [
             { title: "AI Sound Pro", icon: "sparkles" }, { title: "Standard", icon: "tv" }, { title: "Cinema", icon: "film" }, { title: "Clear voice", icon: "mic" },
