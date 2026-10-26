@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state; on the set it cut Mali from 21.9 % to 1.9 %). The player is `lumatv-vplane`
   (`lumatv vplane install|start|stop|remove|status`). The shuffle order is kept across
   restarts, and the twelve-hour clock shows 12-hour time.
+- Restyles of LG's own processes in the Lucent look: the input banners, Live TV's channel
+  banner and INFO card, the no-signal screen, the banner position editor and the set-top
+  box and input lock prompts (`lumatv inputcommon on|off`, which also sets LG's CRIU dump
+  of the input app aside so it starts cold), and the on-screen keyboard's open and close
+  motion (`lumatv keyboard on|off`). Both patches fail loudly when LG changes the code.
 - Settings and every custom screen: words are never cut, crammed, moved by focus or
   unreadable. The settings service's partial answers are read (OLED pixel brightness and
   Energy saving are live again; a key the TV lacks hides its row), focus lifts the plate
