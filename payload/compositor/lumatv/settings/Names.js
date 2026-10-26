@@ -41,7 +41,11 @@ var tables = {
     dtvAudio: { mpeg: "MPEG", dra: "DRA", dolbyDigital: "Dolby Digital", dobyDigitalPlus: "Dolby Digital Plus", heAaC: "HE-AAC", auto: "Auto" },
     hdmiAudio: { bitstream: "Bitstream", pcm: "PCM" },
     magicSound: { off: "Off", standard: "Standard", bass: "Bass Boost", treble: "Treble Boost", flat: "Flat Mode" },
-    movieRating: { off: "Off", g: "G", pg: "PG", pg13: "PG-13", r: "R", "nc-17": "NC-17", x: "X" }
+    movieRating: { off: "Off", g: "G", pg: "PG", pg13: "PG-13", r: "R", "nc-17": "NC-17", x: "X" },
+    blackLevel: { low: "Limited", high: "Full", auto: "Auto", medium: "Medium", limited: "Limited", full: "Full" },
+    wbMethod: { "2": "2 Points", "10": "10 Points Signal Level(%)", "22": "22 Points Signal Level(%)" },
+    wbPoint: { low: "Low", high: "High" },
+    colorSystem: { red: "Red", green: "Green", blue: "Blue", cyan: "Cyan", magenta: "Magenta", yellow: "Yellow" }
 };
 
 // The name for `value` in `table` (a table name or an object); `fallback` (default: the value itself) when it has none.

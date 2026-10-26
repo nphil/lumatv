@@ -10,7 +10,7 @@ import "."
 // describes as not visible (HDR-only rows while an SDR picture plays, the ones this set never shows) is left out as LG leaves it out.
 // A row the service has no key for is left out, one it has not answered is dimmed; the aspect ratio and TruMotion are per-input settings
 // (the service answers them only for an app), so they are offered while an input is in front, and the head's chip names that input.
-// The rail shows the mode in force. White balance and Fine Tune stay LG's behind "More in LG settings" until they have pages of their own.
+// The rail shows the mode in force. Fine Tune and White Balance (Colour tab) are pages of their own.
 // Text: a row is its name and its value; what is not obvious is `help`, behind the row's info mark.
 PageList {
     id: page
@@ -33,7 +33,7 @@ PageList {
         Inputs.refresh()
         Sio.read("picture", ["pictureMode", "backlight", "energySaving", "eyeComfortMode", "filmmakerAmbientLight", "contrast", "brightness", "color",
                              "tint", "sharpness"])
-        Sio.read("picture", ["dynamicContrast", "peakBrightness", "gamma", "nearBlackDetail", "motionEyeCare", "colorTemperature", "colorGamut", "dynamicColor"])
+        Sio.read("picture", ["dynamicContrast", "peakBrightness", "gamma", "nearBlackDetail", "motionEyeCare", "colorTemperature", "colorGamut", "dynamicColor", "blackLevel", "energySavingAutoMin"])
         Sio.read("picture", ["superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "dolbyPrecisionDetail"])
         Sio.read("picture", ["truMotionJudder", "truMotionBlur", "motionPro", "filmMakerMode", "hdrDynamicToneMapping", "expressionEnhancer", "applyToAllInput"])
         Sio.read("aiPicture", ["ai_Picture", "ai_Genre", "ai_Brightness"])
@@ -75,9 +75,12 @@ PageList {
                             options: ["16:9", "Original", "4:3"], values: ["16x9", "original", "4x3"] })),
         R.seg(Sio, { ds: "picture.energySaving", tab: 0, icon: "leaf", label: "Energy saving",
                      options: ["Auto", "Off", "Minimum", "Medium", "Maximum"], values: ["auto", "off", "min", "med", "max"] }),
+        R.over(C.range(Sio, { ds: "picture.energySavingAutoMin", tab: 0, icon: "leaf", label: "Minimum Brightness", min: 0, max: 10, step: 1,
+                              help: "How dark Auto energy saving may make the picture." }),
+               { enabled: function() { return String(Sio.get("picture.energySaving")) === "auto" && Sio.usable("picture.energySavingAutoMin") },
+                 detail: function() { return !Sio.has("picture.energySavingAutoMin") ? "TV not answering" : String(Sio.get("picture.energySaving")) === "auto" ? "" : "Energy saving is not Auto" } }),
         R.toggle(Sio, { ds: "aspectRatio.justScan", tab: 0, icon: "monitor", label: "Just Scan",
                         help: "Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge." }),
-        R.lg(page, { tab: 0, target: "AddOptions" }),
 
         R.slider(Sio, { ds: "picture.contrast", tab: 1, min: 0, max: 100, step: 1, icon: "contrast", label: "Contrast" }),
         R.slider(Sio, { ds: "picture.brightness", tab: 1, min: 0, max: 100, step: 1, icon: "sun-dim", label: "Brightness",
@@ -90,9 +93,10 @@ PageList {
         C.seg(Sio, { ds: "picture.gamma", tab: 1, icon: "gauge", label: "Gamma", names: "gamma",
                      help: "The lower the number, the brighter the middle tones." }),
         C.lgShown(Sio, "picture.nearBlackDetail", R.slider(Sio, { ds: "picture.nearBlackDetail", tab: 1, min: -3, max: 3, step: 1, icon: "moon", label: "Near Black Detail" })),
+        C.seg(Sio, { ds: "picture.blackLevel", tab: 1, icon: "contrast", label: "Video Range", names: "blackLevel",
+                     help: "Limited for video from a player, Full for a PC or console. Auto lets the signal decide." }),
         C.seg(Sio, { ds: "picture.motionEyeCare", tab: 1, icon: "eye", label: "Motion Eye Care", names: "lmha",
                      help: "Dims the picture a little in fast scenes to ease glare." }),
-        R.lg(page, { tab: 1, target: "Brightness" }),
 
         R.slider(Sio, { ds: "picture.color", tab: 2, min: 0, max: 100, step: 1, icon: "palette", label: "Colour" }),
         R.slider(Sio, { ds: "picture.tint", tab: 2, min: -50, max: 50, step: 1, icon: "blend", label: "Tint", help: "Shifts skin tones between green and red." }),
@@ -100,7 +104,8 @@ PageList {
                         help: "Below zero is cooler (bluer), above zero is warmer (redder)." }),
         C.seg(Sio, { ds: "picture.colorGamut", tab: 2, icon: "palette", label: "Color Gamut", names: "colorGamut" }),
         C.seg(Sio, { ds: "picture.dynamicColor", tab: 2, icon: "sliders-horizontal", label: "Color Adjustment", names: "lmha" }),
-        R.lg(page, { tab: 2, target: "Color" }),
+        R.link({ tab: 2, id: "finetune", icon: "sliders-horizontal", label: "Fine Tune", help: "Saturation, tint and luminance of each of the six colours.", go: function() { page.host.openPage("finetune") } }),
+        R.link({ tab: 2, id: "whitebalance", icon: "sun-medium", label: "White Balance", help: "The grey scale's red, green and blue, at 2, 10 or 22 points.", go: function() { page.host.openPage("whitebalance") } }),
 
         R.slider(Sio, { ds: "picture.sharpness", tab: 3, min: 0, max: 50, step: 1, icon: "aperture", label: "Sharpness",
                         help: "Filmmaker keeps the picture as made. More adds edges." }),

@@ -76,3 +76,7 @@ direct("30-settings-support-reset", "support", "up", "right", "right", "right", 
 direct("30-settings-support-reset-ask", "support", "up", "right", "right", "right", "right", DOWN, "ok", at=4500)
 direct("30-settings-safety", "safety", at=4500)
 direct("30-settings-channels", "channels", at=4500)
+
+# Picture › Colour: White balance (22 points, at the 100 % level) and Fine Tune (user mode, so its rows answer)
+direct("30-settings-white-balance", "whitebalance", at=4500)
+direct("30-settings-fine-tune", "finetune", at=4500, before=[tv_setting("picture", '{dynamicColor: "user"}')])

@@ -22,5 +22,7 @@ var pages = [
     { id: "language", title: "Language & location", icon: "languages", page: "settings/PageLanguage.qml", rail: false, parent: "system" },
     { id: "support", title: "Support", icon: "circle-help", page: "settings/PageSupport.qml", rail: false, parent: "system" },
     { id: "safety", title: "Safety", icon: "shield", page: "settings/PageSafety.qml", rail: false, parent: "system" },
-    { id: "channels", title: "Channels", icon: "antenna", page: "settings/PageChannels.qml", rail: false, parent: "inputs" }
+    { id: "channels", title: "Channels", icon: "antenna", page: "settings/PageChannels.qml", rail: false, parent: "inputs" },
+    { id: "finetune", title: "Fine Tune", icon: "sliders-horizontal", page: "settings/PageFineTune.qml", rail: false, parent: "picture" },
+    { id: "whitebalance", title: "White balance", icon: "sun-medium", page: "settings/PageWhiteBalance.qml", rail: false, parent: "picture" }
 ];

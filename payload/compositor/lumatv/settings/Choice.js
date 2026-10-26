@@ -87,6 +87,18 @@ function range(sio, o) {
     return lgShown(sio, o.ds, row)
 }
 
+// The `pictureSettingModified` LG sends along with a white balance or Fine Tune change (its `wG`): the table of picture modes the owner has
+// changed, with the mode in force added. null when the mode is already marked, so nothing extra is written.
+function modified(sio) {
+    var mode = String(sio.get("picture.pictureMode"))
+    var cur = sio.get("picture.pictureSettingModified")
+    if (!sio.has("picture.pictureSettingModified") || mode === "" || mode === "undefined" || (cur && cur[mode])) return null
+    var out = {}
+    for (var k in (cur || {})) out[k] = cur[k]
+    out[mode] = true
+    return out
+}
+
 // The five display switches of LG's Accessibility that exclude each other: Text with High Contrast (`highContrast`), Focus with High
 // Contrast (`focusEmphasis`), Screen Zoom (`screenMagnification`), Grayscale (`blackAndWhite`) and Invert Colors (`colorInversion`).
 // A switch writes the keys LG's own row writes with it: the first three switch the pair `option.adjustments` off, the last two first

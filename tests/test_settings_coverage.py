@@ -29,7 +29,7 @@ FIND = "var p=root.pageItem('%s');function R(l){for(var i=0;i<p.rows.length;i++)
 # or left out is skipped, as a person could not press it. A switch ends on, so the rows that wait for it (Audio Guidance's speed) are walked too.
 # the pages of this slice and the one it extends (others' pages are walked by their own tests)
 OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs", "picture",
-       "equalizer", "sound", "hdmiaudio", "language", "support", "channels"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
+       "equalizer", "sound", "hdmiaudio", "language", "support", "channels", "whitebalance", "finetune"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
 WALK = ("var n=0;var ids=" + json.dumps(OWN) + ";for(var ii=0;ii<ids.length;ii++){var p=root.pageItem(ids[ii]);if(!p||!p.rows)continue;"
         "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(!row.act||row.info===true)continue;"
         "if(p.ev(row.enabled)===false||p.ev(row.visible)===false)continue;var k=row.kind;"
@@ -263,6 +263,46 @@ probe("channels_rows", "var p=root.pageItem('channels');var out=[];for(var i=0;i
 probe("channels_interactive", FIND % "channels" + "var a=R('Interactive Service'),b=R('Interactive Service (HDMI)');var was=[p.ev(a.on),p.ev(b.on)];a.act(true);b.act(false);return {was:was,now:[p.ev(a.on),p.ev(b.on)]}", wait=300)
 probe("channels_scroll", FIND % "channels" + "var row=R('Channel Scrolling Options');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('all_channel'));return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=300)
 
+# ---- Picture: White balance, Fine Tune, Video Range and Minimum Brightness
+WB = "function S(l){var r=R(l);return {on:p.ev(r.enabled)!==false,v:String(p.ev(r.valueText)!==undefined?p.ev(r.valueText):p.ev(r.value)),detail:String(p.ev(r.detail)||'')}}"
+WB_ROWS = ("var p=root.pageItem('whitebalance');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+           "out.push(String(p.ev(r.label)))}return out")
+probe("wb_open", "root.openPage('whitebalance');return 1", wait=900)
+probe("wb_rows_22", WB_ROWS)
+probe("wb_level_state", FIND % "whitebalance" + WB + "return {level:S('Signal Level(%)').v,red:S('Red').v,lum:S('Brightness at 100%')}")
+probe("wb_set_22", FIND % "whitebalance" + "R('Red').act(7);R('Signal Level(%)').act(-1);var lv=p.ev(R('Signal Level(%)').value);return {level:lv,red:p.ev(R('Red').valueText)}", wait=400)
+probe("wb_after_level", FIND % "whitebalance" + WB + "R('Luminance').act(-4);return {lum:S('Brightness at 100%'),lumv:S('Luminance').v}", wait=300)
+probe("wb_method_10", SET + "s.set('picture', {whiteBalanceMethod: '10'});root.pageItem('whitebalance').refresh();return 1", wait=500)
+probe("wb_rows_10", WB_ROWS)
+probe("wb_set_10", FIND % "whitebalance" + "R('Green').act(-9);return {v:p.ev(R('Green').valueText)}", wait=300)
+probe("wb_method_2", SET + "s.set('picture', {whiteBalanceMethod: '2', whiteBalancePoint: 'low'});root.pageItem('whitebalance').refresh();return 1", wait=500)
+probe("wb_rows_2", WB_ROWS)
+probe("wb_set_2", FIND % "whitebalance" + "R('Blue').act(12);return {v:p.ev(R('Blue').valueText)}", wait=300)
+probe("wb_point_high", FIND % "whitebalance" + "R('Point').act(1);return 1", wait=300)
+probe("wb_set_2_high", FIND % "whitebalance" + "R('Red').act(-2);return {v:p.ev(R('Red').valueText)}", wait=300)
+probe("wb_reset", FIND % "whitebalance" + "R('Reset').act();return {asked:root.confirmOpen,danger:!!p.ev(R('Reset').danger)}", wait=250)
+probe("wb_reset_no", "root.key('ok');return 1", wait=250)
+probe("wb_reset_yes", FIND % "whitebalance" + "R('Reset').act();root.key('right');root.key('ok');return 1", wait=500)
+probe("wb_back_22", SET + "s.set('picture', {whiteBalanceMethod: '22'});root.pageItem('whitebalance').refresh();return 1", wait=500)
+probe("wb_after_reset", FIND % "whitebalance" + "return {red:p.ev(R('Red').valueText),method:p.ev(R('Method').value)}")
+FT = "function S(l){var r=R(l);return {on:p.ev(r.enabled)!==false,v:String(p.ev(r.valueText)!==undefined?p.ev(r.valueText):p.ev(r.value)),detail:String(p.ev(r.detail)||'')}}"
+probe("ft_open", "root.openPage('finetune');return 1", wait=900)
+probe("ft_locked", FIND % "finetune" + FT + "return {sel:S('Select Color'),sat:S('Adjust Saturation')}")
+probe("ft_user", SET + "s.set('picture', {dynamicColor: 'user'});root.pageItem('finetune').refresh();return 1", wait=500)
+probe("ft_unlocked", FIND % "finetune" + FT + "return {sel:S('Select Color'),sat:S('Adjust Saturation')}")
+probe("ft_set_red", FIND % "finetune" + "R('Adjust Saturation').act(10);R('Adjust Luminance').act(-3);return {sat:p.ev(R('Adjust Saturation').valueText),min:p.ev(R('Adjust Tint').min),max:p.ev(R('Adjust Tint').max)}", wait=300)
+probe("ft_choose_cyan", FIND % "finetune" + "var row=R('Select Color');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('cyan'));return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=400)
+probe("ft_set_cyan", FIND % "finetune" + FT + "R('Adjust Tint').act(-8);return {tint:S('Adjust Tint').v,sat:S('Adjust Saturation').v}", wait=300)
+probe("ft_reset", FIND % "finetune" + "R('Reset').act();return {asked:root.confirmOpen}", wait=250)
+probe("ft_reset_yes", "root.key('right');root.key('ok');return 1", wait=500)
+probe("ft_after_reset", FIND % "finetune" + FT + "return {sat:S('Adjust Saturation').v,tint:S('Adjust Tint').v}")
+probe("ft_off", SET + "s.set('picture', {dynamicColor: 'off'});return 1")
+probe("picture_range", FIND % "picture" + "var vr=R('Video Range');var mb=R('Minimum Brightness');return {vr:vr.options(),mbOn:p.ev(mb.enabled)!==false,mbDetail:p.ev(mb.detail)}")
+probe("picture_range_auto", SET + "s.set('picture', {energySaving: 'auto'});root.pageItem('picture').refresh();return 1", wait=500)
+probe("picture_min_brightness", FIND % "picture" + "var mb=R('Minimum Brightness');var on=p.ev(mb.enabled)!==false;mb.act(4);return {on:on,min:p.ev(mb.min),max:p.ev(mb.max),text:p.ev(mb.valueText)}", wait=300)
+probe("picture_video_range", FIND % "picture" + "var vr=R('Video Range');vr.act(2);return 1", wait=300)
+probe("picture_energy_back", SET + "s.set('picture', {energySaving: 'off'});return 1")
+
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
       "\"/setSystemSettings\", JSON.stringify({category: c, settings: v})) } }', root);s.set('caption', {captionStyle: 'manual'});root.pageItem('captions').refresh();"
@@ -480,9 +520,9 @@ class Coverage(unittest.TestCase):
     # ---- Picture
     def test_the_picture_tabs_list_what_LG_lists_and_leave_out_what_the_tv_hides(self):
         self.assertEqual(self.probe("picture_tabs")["res"], [
-            ["OLED pixel brightness", "AI Picture Pro", "Aspect ratio", "Energy saving", "Just Scan", "More in LG settings"],
-            ["Contrast", "Brightness", "Eye comfort", "Auto Dynamic Contrast", "Peak Brightness", "Gamma", "Motion Eye Care", "More in LG settings"],
-            ["Colour", "Tint", "Color Temperature", "Color Gamut", "Color Adjustment", "More in LG settings"],
+            ["OLED pixel brightness", "AI Picture Pro", "Aspect ratio", "Energy saving", "Minimum Brightness", "Just Scan"],
+            ["Contrast", "Brightness", "Eye comfort", "Auto Dynamic Contrast", "Peak Brightness", "Gamma", "Video Range", "Motion Eye Care"],
+            ["Colour", "Tint", "Color Temperature", "Color Gamut", "Color Adjustment", "Fine Tune", "White Balance"],
             ["Sharpness", "Super Resolution", "Noise Reduction", "MPEG Noise Reduction", "Smooth Gradation", "Real Cinema"],
             ["TruMotion", "OLED Motion Pro"],
             ["Filmmaker Auto Start", "AI genre selection", "AI brightness", "Apply to All Inputs", "Reset"]])
@@ -698,6 +738,64 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.written("channels_interactive"), [{"interactive-service": "onByUser"}, {"interactive-service-hdmi": "offByUser"}])      # LG's own switch values
         s = self.probe("channels_scroll")["res"]
         self.assertEqual((s["options"], s["value"]), (["primary_channel:Primary Channels", "all_channel:All Channels"], "All Channels"))
+
+    # ---- Picture: White balance, Fine Tune, Video Range, Minimum Brightness
+    def test_white_balance_offers_the_rows_of_the_method_in_force_and_writes_LGs_keys(self):
+        full = ["Method", "Signal Level(%)", "Luminance", "Red", "Green", "Blue", "Brightness at 100%", "Reset"]
+        self.assertEqual(self.probe("wb_rows_22")["res"], full)
+        self.assertEqual(self.probe("wb_rows_10")["res"], full)
+        self.assertEqual(self.probe("wb_rows_2")["res"], ["Method", "Point", "Red", "Green", "Blue", "Reset"])
+        d = self.probe("wb_level_state")["res"]
+        self.assertEqual((d["level"], d["red"], d["lum"]), ("100%", "0", {"on": True, "v": "100", "detail": ""}))
+        d = self.probe("wb_set_22")
+        self.assertEqual(d["res"], {"level": "95%", "red": "0"})
+        sent = self.written("wb_set_22")
+        self.assertEqual(sent[0], {"whiteBalanceRed": [0] * 21 + [7], "pictureSettingModified": {"filmMaker": True}})      # the whole list, the level's number changed, the mode marked
+        self.assertEqual(sent[1], {"whiteBalanceIre": "95"})
+        self.assertEqual([c["error"] for c in d["calls"]], [""] * len(d["calls"]))
+        d = self.probe("wb_after_level")["res"]
+        self.assertEqual((d["lum"], d["lumv"]), ({"on": False, "v": "100", "detail": "Only at 100%"}, "-4"))
+        self.assertEqual(self.written("wb_after_level"), [{"adjustingLuminance": [0] * 20 + [-4, 0]}])
+        self.assertEqual(self.written("wb_set_10"), [{"whiteBalanceGreen10pt": [0] * 9 + [-9]}])
+        self.assertEqual(self.probe("wb_set_10")["res"], {"v": "-9"})
+        self.assertEqual(self.written("wb_set_2"), [{"whiteBalanceBlueOffset": "12"}])                                      # two points: low is the offset, high the gain
+        self.assertEqual(self.written("wb_point_high"), [{"whiteBalancePoint": "high"}])
+        self.assertEqual(self.written("wb_set_2_high"), [{"whiteBalanceRedGain": "-2"}])
+
+    def test_the_white_balance_reset_asks_and_sends_the_keys_the_tv_lists(self):
+        d = self.probe("wb_reset")["res"]
+        self.assertEqual((d["asked"], d["danger"]), (True, True))
+        self.assertEqual([c for c in self.probe("wb_reset_no")["calls"] if c["method"] == "/resetSystemSettings"], [])
+        done = [c for c in self.probe("wb_reset_yes")["calls"] if c["method"] == "/resetSystemSettings"]
+        self.assertEqual(len(done), 1)
+        self.assertEqual((done[0]["payload"]["category"], "whiteBalanceRedGain" in done[0]["payload"]["keys"], done[0]["error"]), ("picture", True, ""))
+        self.assertEqual(self.probe("wb_after_reset")["res"], {"red": "0", "method": "22 Points Signal Level(%)"})
+
+    def test_fine_tune_answers_only_in_user_mode_and_writes_the_chosen_colours_keys(self):
+        d = self.probe("ft_locked")["res"]
+        self.assertEqual((d["sel"]["on"], d["sel"]["detail"], d["sat"]["on"]), (False, "Set Color Adjustment to User", False))
+        d = self.probe("ft_unlocked")["res"]
+        self.assertEqual((d["sel"]["on"], d["sat"]["on"], d["sat"]["detail"]), (True, True, ""))
+        d = self.probe("ft_set_red")["res"]
+        self.assertEqual((d["sat"], d["min"], d["max"]), ("10", -30, 30))
+        self.assertEqual(self.written("ft_set_red"), [{"colorManagementSaturationRed": "10"}, {"colorManagementLuminanceRed": "-3"}])
+        d = self.probe("ft_choose_cyan")["res"]
+        self.assertEqual((d["options"], d["value"]), (["red:Red", "green:Green", "blue:Blue", "cyan:Cyan", "magenta:Magenta", "yellow:Yellow"], "Cyan"))
+        self.assertEqual(self.written("ft_choose_cyan"), [{"colorManagementColorSystem": "cyan"}])
+        self.assertEqual(self.probe("ft_set_cyan")["res"], {"tint": "-8", "sat": "0"})                                          # the rows follow the colour: Cyan's own keys
+        self.assertEqual(self.written("ft_set_cyan"), [{"colorManagementHueCyan": "-8"}])
+        self.assertTrue(self.probe("ft_reset")["res"]["asked"])
+        done = [c for c in self.probe("ft_reset_yes")["calls"] if c["method"] == "/resetSystemSettings"]
+        self.assertEqual((len(done), len(done[0]["payload"]["keys"]), done[0]["error"]), (1, 18, ""))                           # LG's reset names the 18 keys the TV lists
+        self.assertEqual(self.probe("ft_after_reset")["res"], {"sat": "0", "tint": "0"})
+
+    def test_video_range_is_LGs_three_and_minimum_brightness_waits_for_auto_energy_saving(self):
+        d = self.probe("picture_range")["res"]
+        self.assertEqual((d["vr"], d["mbOn"], d["mbDetail"]), (["Auto", "Limited", "Full"], False, "Energy saving is not Auto"))
+        d = self.probe("picture_min_brightness")["res"]
+        self.assertEqual(d, {"on": True, "min": 0, "max": 10, "text": "4"})
+        self.assertEqual(self.written("picture_min_brightness"), [{"energySavingAutoMin": "4"}])
+        self.assertEqual(self.written("picture_video_range"), [{"blackLevel": "high"}])
 
 
 if __name__ == "__main__":

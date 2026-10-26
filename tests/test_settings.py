@@ -516,14 +516,13 @@ class Settings(HostCase):
         with open(os.path.join(HERE, "qmlhost", "stubs", "WebOSServices", "LgSettings.js")) as f:
             js = f.read()
         known = set(re.findall(r'"([A-Za-z0-9_]+)"', js[js.index("var targets"):js.index("function domain")]))
-        self.assertGreater(len(rows), 12)
+        self.assertGreater(len(rows), 10)
         for r in rows:
             if r["app"] == "com.palm.app.settings" and r["target"]:
                 self.assertIn(r["target"], known, r)
         # the ones that matter, by page: each page's escape lands where its own text says
         by = {(r["page"], r["label"], r["target"]) for r in rows}
         self.assertIn(("look", "More in LG settings", "HomeSettings"), by)
-        self.assertIn(("picture", "More in LG settings", "Brightness"), by)
         self.assertIn(("channels", "Channel Tuning & Settings", "channel"), by)
         self.assertIn(("safety", "Change locks", "parentalControls"), by)
         self.assertIn(("support", "Check for Updates", "SoftwareUpdate"), by)
