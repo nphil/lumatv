@@ -107,6 +107,20 @@ class Commands(unittest.TestCase):
         for n in plan:
             self.assertTrue(n == 1 or n * gate.cycle_seconds(s) <= gate.FULL_TRACE_BUDGET_S)
 
+    def test_surfaces_over_the_film_get_one_cycle_per_full_capture(self):
+        # round 11: three cycles over the film overflowed CPU 0's ring and lost the first cycle's markers
+        for name in ('quick-netflix', 'picker-netflix', 'lgqs-netflix'):
+            s = gate.find([name], values={'INPUT': '241'})[0]
+            self.assertEqual(gate.plan_full(s, 3), [1, 1, 1], name)
+        quick = gate.find(['quick'])[0]
+        self.assertEqual(gate.plan_full(quick, 3), [3])
+
+    def test_the_lg_baseline_over_the_film_hands_the_gear_back_and_returns_it(self):
+        s = gate.find(['lgqs-netflix'])[0]
+        self.assertIn('"quickPanel":false', s['setup'][0])
+        self.assertIn('"quickPanel":true', s['teardown'][-1])
+        self.assertEqual(s['setup'][2:], gate.NETFLIX_SETUP)
+
 
 class Parsing(unittest.TestCase):
     TRACE = '\n'.join([
@@ -133,6 +147,26 @@ class Parsing(unittest.TestCase):
     def test_rss_series_skips_lines_without_rss(self):
         text = '1.0|x rss=1000\n2.0|compositor gone\n3.0|x rss=1100\nnot a number|rss=5\n'
         self.assertEqual(gate.parse_rss(text), [(1.0, 1000), (3.0, 1100)])
+
+    def test_a_key_that_finds_the_osd_off_says_when_it_came_back(self):
+        import tempfile
+        import analyse
+
+        def osd(t):
+            return [f'  <idle>-0  [000] d.h1 {t:.6f}: irq_handler_entry: irq=104 name=osd_irq',
+                    f'  <idle>-0  [000] d.h1 {t + 0.00001:.6f}: irq_handler_exit: irq=104 ret=handled']
+        lines = ['  kb.py-100  [001] ....  10.000000: tracing_mark_write: P:x-open']
+        for k in range(60):                     # off at the open, back 1.2 s later and running at 120 Hz through the close
+            lines += osd(11.2 + k / 120.0)
+        lines += ['  kb.py-100  [001] ....  11.600000: tracing_mark_write: P:x-close',
+                  '  sh-101  [001] ....  12.000000: tracing_mark_write: stop 1']
+        with tempfile.NamedTemporaryFile('w', suffix='.trace', delete=False) as f:
+            f.write('\n'.join(sorted(lines, key=lambda ln: float(ln.split(': ')[0].split()[-1]))) + '\n')
+        try:
+            ws = {w['name']: w['osd_wake_ms'] for w in analyse.analyse(f.name, 1)['windows']}
+        finally:
+            os.unlink(f.name)
+        self.assertEqual(ws, {'x-open': 1200.0, 'x-close': None})
 
 
 class Rss(unittest.TestCase):
@@ -186,6 +220,12 @@ class Log(unittest.TestCase):
         self.assertFalse(gate.log_check(bad, ignored)['ok'])
         self.assertTrue(gate.log_check([], 0)['ok'])
 
+    def test_netflix_reporting_the_instance_the_setup_closed_is_noise(self):
+        kill = ('netflix.appmgr INFO {} [CrashReporter] Previous CrashReport : {"shutdown_reason":"normal","reason":"REASON_USER_KILL",'
+                '"appStatus":"Terminate","log":"Terminated by User","crashReportClient":"Netflix App"}')
+        crash = 'netflix.appmgr INFO {} [CrashReporter] Previous CrashReport : {"reason":"SIGSEGV","crashReportClient":"Netflix App"}'
+        self.assertEqual(gate.log_failures([kill, crash]), ([crash], 1))
+
 
 class Windows(unittest.TestCase):
     def evaluate(self, surface='quick-settings', cycles=3, **kw):
@@ -228,6 +268,15 @@ class Windows(unittest.TestCase):
         self.assertEqual(failed(self.evaluate(first=51.0)), ['first_frame_ms'])
         self.assertEqual(failed(self.evaluate(end=181.0)), ['burst_end_ms'])
         self.assertEqual(failed(self.evaluate(first=50.0, end=180.0)), [])
+
+    def test_a_late_first_frame_names_a_key_that_found_the_osd_off(self):
+        s = gate.find(['quick-netflix'])[0]
+        r = report('quick-netflix', 3)
+        r['windows'][0].update(first_frame_ms=1479.4, osd_wake_ms=1171.0)
+        c = {x['name']: x for x in gate.evaluate_windows(s, r, 3)}
+        self.assertFalse(c['first_frame_ms']['ok'])
+        self.assertEqual(c['first_frame_ms']['detail'], 'the OSD was off at 1 key(s), on after 1171 ms at worst')
+        self.assertEqual(c['burst_end_ms']['detail'], '')
 
     def test_a_frame_over_20_ms_fails(self):
         self.assertEqual(failed(self.evaluate(over20=1)), ['burst_over20'])
@@ -413,13 +462,14 @@ class QuickAndPicker(unittest.TestCase):
                               s['thresholds']['p90_render_ms'], s['thresholds']['dropped']), (50.0, 180.0, 0, 3.0, 0), s['name'])
             self.assertTrue(s['transition'] and s['soak'] and s['still'], s['name'])      # the close is measured too, the RSS is watched, the tick is off
 
-    def test_both_keys_are_timed_from_their_release(self):
-        # LG swallows the press of the gear and of the Input key and replays a short press when the key comes up
+    def test_the_gear_is_timed_from_its_release_and_the_input_key_from_its_press(self):
+        # LG swallows the gear's press and replays a short press when the key comes up; the Input key opens on its press, LG's picker and ours
         quick = gate.find(['quick'], values=self.VALUES)[0]
         self.assertEqual(gate.cycle_tokens(quick)[:4], ['MENU+', 's0.05', '@quick-open', 'MENU-'])
-        picker = gate.find(['picker'], values=self.VALUES)[0]
-        self.assertEqual(gate.cycle_tokens(picker)[:4], ['227+', 's0.05', '@picker-open', '227-'])
         self.assertEqual(gate.token_seconds('227+'), 0.0)
+        for name in ('picker', 'picker-netflix', 'picker-hdmi'):
+            picker = gate.find([name], values=self.VALUES)[0]
+            self.assertEqual(gate.cycle_tokens(picker)[:2], ['@%s-open' % name, '227'], name)
 
     def test_the_picker_needs_the_input_keys_code_and_says_how_to_find_it(self):
         with self.assertRaisesRegex(ValueError, r'picker needs .*kb\.py --learn.*--input-key'):

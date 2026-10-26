@@ -244,6 +244,9 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     gpu_starts = [g[0] for g in gpu_jobs]
     irqs.sort()
     irq_starts = [i[0] for i in irqs]
+    # The display's OSD interrupt: on this set it stops while Dolby Vision playback has nothing drawn over it, and the first
+    # frame after a key then waits for it to come back (round 11: 1171 ms, the first flip at 1479 ms).
+    osd = [i[0] for i in irqs if i[4] == 'osd_irq']
     wake.sort()
     wake_ts = [w[0] for w in wake]
     sm_wake.sort()
@@ -330,6 +333,12 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         w['block_rq'] = sum(1 for r in block if a <= r[0] <= b)
         ic = collections.Counter(nm_ for t0, t1, cpu, irq, nm_ in in_range(irqs, irq_starts, a, b))
         w['irq_counts'] = dict(ic.most_common(8))
+        # ms from the marker until the OSD interrupt resumed, when it was silent for the 100 ms before the marker (None: it was
+        # running, or the capture has no interrupts); the window's length when it never resumed inside it
+        w['osd_wake_ms'] = None
+        if osd and not in_range(osd, osd, a - 0.1, a):
+            nxt = in_range(osd, osd, a, b)
+            w['osd_wake_ms'] = round(((nxt[0] if nxt else b) - a) * 1000.0, 1)
 
         # Per-frame chain: which frames were requested by the animation driver
         # (the GUI thread's render burst follows the previous commit after
@@ -445,7 +454,8 @@ def fmt(report, top=10):
     for w in report['windows']:
         out.append(f"\n== {w['name']}: {w['dur_s']} s, {w['frames']} frames ({w['fps']} fps), >17 {w['over17']}, >20 {w['over20']}, >33 {w['over33']}, >50 {w['over50']}, worst {w['worst_ms']} ms; vblanks/present {w['vblanks_between_presents']}")
         out.append(f"   animation-driven frames {w['anim_frames']}, dropped {w['dropped']} ({w['dropped_pct']} %), render ms {w['anim_render_ms']}, dropped-frame render {w['dropped_render_ms']}; timer-driven frames {w['timer_frames']}")
-        out.append(f"   burst from marker: first frame {w['first_frame_ms']} ms, ends {w['burst_end_ms']} ms, intervals >20 ms {w['burst_over20']}, animated render p90 {w['burst_anim_p90_ms']} ms")
+        out.append(f"   burst from marker: first frame {w['first_frame_ms']} ms, ends {w['burst_end_ms']} ms, intervals >20 ms {w['burst_over20']}, animated render p90 {w['burst_anim_p90_ms']} ms"
+                   + (f"; the OSD was off at the marker, on after {w['osd_wake_ms']} ms" if w.get('osd_wake_ms') is not None else ''))
         out.append(f"   compositor: run {w['sm_run_ms']} ms, runnable {w['sm_runnable_ms']} ms, max sched latency {w['sm_max_sched_latency_ms']} ms, migrations {w['sm_migrations']}; gpu jobs {w['gpu_jobs']} busy {w['gpu_busy_ms']} ms, pm transitions {w['gpu_pm_transitions']}; cpuhp {w['cpuhp']} reclaim {w['reclaim_events']} cma {w['cma_events']} block {w['block_rq']}")
         out.append(f"   top cpu: {w['top_cpu_ms']}")
         out.append(f"   irqs: {w['irq_counts']}")

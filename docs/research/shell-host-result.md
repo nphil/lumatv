@@ -11,6 +11,8 @@ Everything is fail-open: with the files missing, a handler absent or an error an
 
 **Round 8 (2026-10-25 evening, offline only, not run on the TV):** the gear's tap and the Input key show LumaTV's quick panel (left-docked, 492 x 1008 where LG's sat, sliding out of the left edge) and input picker on Home and over apps, in place of LG's Quick Settings and picker (section 6). LG's own stay reachable (the panel's "LG" button, the fail-open, the switches). Needs the compositor restarted (`lumatv apply`: a changed key-filter script is read once, and the QML is in the shadow module). The next TV slot runs steps 3a and 3b of "Set steps" and reports the gate's numbers.
 
+**Round 11 (2026-10-26, gate FAIL; "Over video, round 11"):** over the Dolby Vision film the first frame waits about 1.5 s for the display's OSD path, which is off until something draws (not the panel's doing; LG's own Quick Settings there is the new baseline surface). Fixed offline: the scrim no longer fades (its opacity re-batched Home's scene every frame of the slide), the picker is timed from the Input key's press, the film's captures hold one cycle each. Open: the picker's RSS stair over Home, not reproduced offline. Next: TvRound11's re-gate.
+
 | What | Where | Switch (owner's, `theme.json`, defaults in code) |
 |---|---|---|
 | A layer of LumaTV's over an app: banners and the notification drawer | `payload/compositor/lumatv/LumaOverlay.qml`, loaded by `payload/compositor/StarfishFullscreenContainer.qml` beside LumaHome | gear hold: `remote.gearHold` (on); own banners: `banners.own` (off) |
@@ -118,7 +120,7 @@ What cannot be done from here: a beat written by anything inside the compositor 
 
 **Speed.** Built once and kept: Home's residents at step 2 (quick) and 1 (picker) of `Layers`, the overlay's at 9.5 s and 11 s; `tests/test_quick_panels.py` counts the items under the panel before and after it opens (equal: nothing is built on open). Text styles and icons are in the start-up warm-up already (every theme role, every shipped icon, the Glass, LuIcon and LuHalo programs), and no new shader exists. Not measured on the TV.
 
-**Gate** (`docs/research/perf/gate.py`, bar = the PLAN's: first frame 50 ms, burst end 180 ms, no frame over 20 ms, p90 render under 3 ms, RSS flat, no `ShaderEffectSource` in the log): `quick`, `picker` over Home; `quick-netflix`, `picker-netflix` over the 4K Dolby Vision test film; `quick-hdmi`, `picker-hdmi` over HDMI input `--hdmi N` (default 3, the game console). All start on the key's release (LG replays on release) and none is in the default run. The Input key's evdev code is not on record (the gear is 139): `python3 /tmp/kb.py --learn 15` on the set while the key is pressed prints it, and `--input-key CODE` passes it on.
+**Gate** (`docs/research/perf/gate.py`, bar = the PLAN's: first frame 50 ms, burst end 180 ms, no frame over 20 ms, p90 render under 3 ms, RSS flat, no `ShaderEffectSource` in the log): `quick`, `picker` over Home; `quick-netflix`, `picker-netflix` over the 4K Dolby Vision test film, with LG's own Quick Settings there as `lgqs-netflix`; `quick-hdmi`, `picker-hdmi` over HDMI input `--hdmi N` (default 3, the game console). The gear's surfaces start on the key's release (LG replays on release), the picker's on the press (the Input key opens on it); none is in the default run. The Input key is evdev 241 (`Key_webOS_InputSource`, round 8); `python3 /tmp/kb.py --learn 15` on the set reads another remote's, and `--input-key CODE` passes it on.
 
 ## Tests
 
@@ -211,6 +213,54 @@ banners are hidden.
 - A test of mine was flaky under load and is fixed: with `banners.own` on, the host's make-believe TV answers `Inputs` when Home's build
   first reaches a page that uses it, which can be mid-test and puts a pill over the banner a step is about to key. The overlay tests run
   with the banners of their own off, and the one that needs them primes `Inputs` first.
+
+## Over video, round 11 (the quick and picker gate, 2026-10-26 04:15-04:23, `round9/r11-2026-10-26/quick-picker-gate.json`)
+
+The gate failed on four counts: quick p90 render 3.70 ms over Home, picker RSS +1.67 MB over 8 cycles over Home, the quick panel's first
+frame over the film 1479 ms (no burst at the key, one interval over 20 ms), and two of six picker markers lost over the film. What each was,
+read from the `full` captures (`/tmp/perf/gate-r11-qp-*`):
+
+- **The first frame over the film is the display's, not the panel's.** The OSD interrupt (`osd_irq`, and `DE2VSYNC` with it) was silent
+  from the capture's start, 1.1 s before the gear tap, until 1171 ms after it. The compositor drew the panel's slide all the same: GPU jobs
+  every 16.7 ms from 7 to 397 ms after the tap, 25 frames, none of them presented (no page-flip event); the first flip landed at 1479 ms.
+  Over Home and HDMI 3 the interrupt ran at 120 Hz through every capture. The picker over the film found it on: in that capture the
+  compositor had drawn something 1583 ms before the key and the interrupt came back 1154 ms after that, before the key. Once on it stayed
+  on (the next opens took 10-27 ms, and the soak 11 s later 6-40 ms). So Dolby Vision playback with nothing drawn over it keeps the OSD
+  path off, and the first frame drawn over it waits about 1.16 s for it, then about 0.3 s for the first flip. The key reached the panel at
+  once and LG's handler was not first. Whether LG's own Quick Settings waits the same is the new baseline surface `lgqs-netflix` (the
+  same film, `remote.quickPanel` off for the run). The gate reports it now: `osd_wake_ms` per window (`analyse.py`: the interrupt silent
+  for the 100 ms before the marker, then the time to its return) and the first-frame check names it. Nothing in the overlay can turn the
+  path on ahead of the key short of drawing over the picture all the time, which would change what Dolby Vision does with the picture
+  [INFERENCE] and is the owner's call; not done.
+- **Services.qml:513** (`SystemUI/Notification/Services.qml`, LG's toast model reading `userData.id` of a toast that has no `userData`)
+  fired at each `-netflix` setup's OK, when playback starts, 25 s before the first measured window. Which toast it was is not known: the
+  set's log had rotated before it was read. The re-gate tails the toast lines. The Netflix `[CrashReporter] Previous CrashReport ...
+  REASON_USER_KILL` line in the same run is the setup's own `closeByAppId` and is stock noise for the gate now.
+- **Two picker markers lost over the film**: the ring overflowed (832993 events written, 660544 kept; CPU 0 lost its oldest 172k, with
+  the first cycle's markers). Over the film the trace takes about 79k events/s against the 44k the 11 s budget was set for; the
+  `-netflix` surfaces now take one cycle per full capture (`full_budget_s`).
+- **The picker was timed from the wrong edge.** The Input key opens the picker on its press (LG's and ours, `lumatv.js` `panelKey`); the
+  gate pressed it 50 ms before its marker and timed from the release, so round 11's picker windows hold the slide's tail (first frame
+  9-16 ms, burst end 76-99 ms after the release, no animated frame in most over HDMI). The picker surfaces are timed from the press now;
+  round 11's picker numbers do not count.
+- **Quick p90 over Home.** The scrim, a full-screen rectangle, faded with the slide. In the offline host with Qt's renderer statistics
+  (`QSG_RENDERER_DEBUG=render`, LumaHome, four opens and closes) every frame of the slide after the third rebuilt either the batches or
+  the whole render list of the scene (153 nodes in 98 batches): a change of a full-screen item's opacity invalidates every batch it
+  overlaps, which is all of Home's. With the scrim whole from the first frame the same frames rebuilt nothing; taking away the list's clip,
+  the glass's per-frame `locate()` or the sheet's own fade did not change the count. Over an input little is under the scrim, which is
+  why the same panel measured 2.31 ms there. Both panels now dim the page at once and slide the sheet alone; the first three frames still
+  rebuild (the panel's nodes appear, the focused row's halo, the sheet's fade passing 1). Test:
+  `test_quick_panels.HomePanels.test_nothing_that_covers_the_screen_fades_while_a_panel_slides`.
+- **Picker RSS over Home**: 45 pages a cycle, a steady stair in the 1 s samples, flat over HDMI 3 (0.25 MB over 8 cycles) and the film
+  (0.08 MB), where the overlay's picker opens the same file. Not reproduced offline: 20 picker cycles over Home kept the item count
+  (19571) and the host's RSS flat, as did 20 quick-panel cycles. The quick panel over Home makes the same readings (`Inputs.refresh`, a
+  settings read) and stayed flat on the set. Left for the set: the door (`/tmp/lumatv-layer` = `picker`, then empty) opens the same
+  picker without the Input key; if 12 door cycles grow the compositor's RSS as the key's did, the cause is in the picker's QML or its
+  readings, if not it is the key's path through LG's chain.
+
+Next on the set (TvRound11): after the deploy and `lumatv apply`, `python3 docs/research/perf/gate.py --surfaces
+quick,picker,quick-hdmi,picker-hdmi,quick-netflix,picker-netflix,lgqs-netflix --input-key 241 --hdmi 3 --tag r12-qp --json <out>`, the toast
+lines after the `-netflix` surfaces, and the door bisect above.
 
 ## Under LumaTV's own compositor
 

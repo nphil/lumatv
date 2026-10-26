@@ -56,6 +56,7 @@ NETFLIX_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"netflix\"}}'", 
                  'python3 /tmp/kb.py OK', 'sleep 25']                                           # ENTER plays it; 25 s later it is in the middle of the film
 NETFLIX_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"netflix\"}}'", 'sleep 2',
                     f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+NETFLIX_FULL_BUDGET_S = 5.0     # seconds of one full capture over the film (the ring holds about 7 s there)
 HDMI_SETUP = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'", 'sleep 8']
 HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 
@@ -79,6 +80,7 @@ HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}
 # still         True (default): the wallpaper's tick is off while the surface is measured
 # delivery      True: a luna call opens it; the first frame is timed from luna-send's return
 # default       False: part of the gate only when named with --surfaces
+# full_budget_s seconds one full capture may hold (default FULL_TRACE_BUDGET_S): less over playback, where the ring fills faster
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
 SURFACES = [
     {'name': 'home-idle', 'still': False,
@@ -97,24 +99,33 @@ SURFACES = [
     {'name': 'quick-settings', 'act': 'release',
      'open': '@quick-settings-open MENU', 'close': '@quick-settings-close BACK', 'settle_s': 2.5},
     # LumaTV's quick panel (the gear's tap) and input picker (the Input key), which replace LG's Quick Settings and picker on the gear and Input
-    # keys (the second key-filter entry, payload/keyfilter/lumatv.js). Both are acted on at the key's release: LG swallows the press of these keys
-    # and replays a short press when the key comes up. Run on request (`--surfaces quick,picker`) with Home in front; `quick-settings` above is the
-    # same gear tap, so it now measures the same panel. The picker's key is not on record (the gear is MENU, evdev 139): find the Input key's code
-    # with `python3 /tmp/kb.py --learn 15` on the set while the remote's Input key is pressed, and pass it as `--input-key CODE`.
+    # keys (the second key-filter entry, payload/keyfilter/lumatv.js). The gear is acted on at its release: LG swallows its press and replays a
+    # short press when the key comes up. The Input key is acted on at its press, LG's and ours alike, so the picker surfaces are timed from the
+    # press (round 11 timed them from the release and saw only the slide's tail). Run on request (`--surfaces quick,picker`) with Home in front;
+    # `quick-settings` above is the same gear tap, so it now measures the same panel. The Input key is evdev 241 (`Key_webOS_InputSource`,
+    # round 8); pass it as `--input-key 241` (`python3 /tmp/kb.py --learn 15` on the set reads another remote's).
     # The surfaces over playback have the film or the input in front first (`setup`), outside the measured windows: `-netflix` is the 4K Dolby
     # Vision test film (HANDOFF: mute the receiver first and restore it after), `-hdmi` is HDMI input N (`--hdmi N`, default 3, the game console).
-    # The panel slides in 150 ms and the gate's burst end is 180 ms, so the slide is what the burst-end check measures.
+    # The panel slides in 110 ms and the gate's burst end is 180 ms, so the slide is what the burst-end check measures.
+    # Over the film the trace takes about 79k events/s (round 11: 832993 written in 10.5 s, the first cycle's markers lost with 172k
+    # events of CPU 0's ring), so the `-netflix` surfaces get one cycle per full capture.
     {'name': 'quick', 'default': False, 'act': 'release',
      'open': '@quick-open MENU', 'close': '@quick-close BACK', 'settle_s': 1.5},
-    {'name': 'picker', 'default': False, 'act': 'release',
+    {'name': 'picker', 'default': False,
      'open': '@picker-open {INPUT}', 'close': '@picker-close BACK', 'settle_s': 1.5},
     {'name': 'quick-netflix', 'default': False, 'act': 'release', 'setup': NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN,
-     'open': '@quick-netflix-open MENU', 'close': '@quick-netflix-close BACK', 'settle_s': 1.5},
-    {'name': 'picker-netflix', 'default': False, 'act': 'release', 'setup': NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN,
-     'open': '@picker-netflix-open {INPUT}', 'close': '@picker-netflix-close BACK', 'settle_s': 1.5},
+     'open': '@quick-netflix-open MENU', 'close': '@quick-netflix-close BACK', 'settle_s': 1.5, 'full_budget_s': NETFLIX_FULL_BUDGET_S},
+    {'name': 'picker-netflix', 'default': False, 'setup': NETFLIX_SETUP, 'teardown': NETFLIX_TEARDOWN,
+     'open': '@picker-netflix-open {INPUT}', 'close': '@picker-netflix-close BACK', 'settle_s': 1.5, 'full_budget_s': NETFLIX_FULL_BUDGET_S},
+    # LG's own Quick Settings over the same film, the panel switched off for the run: the baseline for the first frame over Dolby Vision
+    # playback, where the display's OSD path is off until something draws (round 11: its interrupt resumed 1171 ms after the gear tap).
+    {'name': 'lgqs-netflix', 'default': False, 'act': 'release',
+     'setup': [TOOL + " theme set '{\"remote\":{\"quickPanel\":false}}'", 'sleep 3'] + NETFLIX_SETUP,
+     'teardown': NETFLIX_TEARDOWN + [TOOL + " theme set '{\"remote\":{\"quickPanel\":true}}'"],
+     'open': '@lgqs-netflix-open MENU', 'close': '@lgqs-netflix-close BACK', 'settle_s': 2.5, 'full_budget_s': NETFLIX_FULL_BUDGET_S},
     {'name': 'quick-hdmi', 'default': False, 'act': 'release', 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
      'open': '@quick-hdmi-open MENU', 'close': '@quick-hdmi-close BACK', 'settle_s': 1.5},
-    {'name': 'picker-hdmi', 'default': False, 'act': 'release', 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
+    {'name': 'picker-hdmi', 'default': False, 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
      'open': '@picker-hdmi-open {INPUT}', 'close': '@picker-hdmi-close BACK', 'settle_s': 1.5},
     # The library behind the Apps tile, on request (`--surfaces apps`, with LumaTV's Home in front and at rest, its Apps tile focused:
     # OK on LG's own Home would launch what it has focused). OK, decided on its release, opens it and BACK closes it. Search, the
@@ -142,7 +153,7 @@ SURFACES = [
 
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0,
                     'transition': True, 'soak': True, 'default': True, 'thresholds': {},
-                    'act': 'press', 'still': True, 'delivery': False}
+                    'act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None}
 
 # The PLAN gate. An override in a surface may set any of these to None to turn the check off.
 THRESHOLDS = {
@@ -186,8 +197,10 @@ LOG_FAIL_PATTERNS = [
     r'crash', r'segfault', r'ShaderEffectSource',
 ]
 # Known stock-LG noise that the patterns would otherwise flag on every run: Quick Settings' own
-# response callback throws when the foreground-app array changes (surfaces-p1-result.md).
-LOG_IGNORE_PATTERNS = [r'Controllers/ScreenOffInterfaces/Interfaces\.qml:52']
+# response callback throws when the foreground-app array changes (surfaces-p1-result.md); Netflix
+# reports the instance the `-netflix` setup closed (closeByAppId) as a crash report of a user kill.
+LOG_IGNORE_PATTERNS = [r'Controllers/ScreenOffInterfaces/Interfaces\.qml:52',
+                       r'\[CrashReporter\] Previous CrashReport.*REASON_USER_KILL']
 LOG_FAIL_RE = re.compile('|'.join(LOG_FAIL_PATTERNS))
 LOG_IGNORE_RE = re.compile('|'.join(LOG_IGNORE_PATTERNS))
 LOG_FILE = '/var/log/messages'
@@ -336,8 +349,8 @@ def split_cycles(n, max_per):
 
 
 def plan_full(s, cycles):
-    """Cycles per full capture: as many as fit FULL_TRACE_BUDGET_S, at least one."""
-    per = max(1, int(FULL_TRACE_BUDGET_S // cycle_seconds(s)))
+    """Cycles per full capture: as many as fit the surface's budget (FULL_TRACE_BUDGET_S unless it says), at least one."""
+    per = max(1, int((s.get('full_budget_s') or FULL_TRACE_BUDGET_S) // cycle_seconds(s)))
     return split_cycles(cycles, per)
 
 
@@ -484,7 +497,10 @@ def evaluate_windows(s, report, cycles, lg_compositor=False):
 
     if th['first_frame_ms'] is not None:
         v = _worst([w['first_frame_ms'] for w in keyed]) if not dead else None
-        out.append(check('first_frame_ms', v is not None and v <= th['first_frame_ms'], v, f"<= {th['first_frame_ms']:g}"))
+        # a key that found the display's OSD path off waits for it, whatever the surface does (analyse.py `osd_wake_ms`)
+        off = [w['osd_wake_ms'] for w in keyed if w.get('osd_wake_ms') is not None]
+        out.append(check('first_frame_ms', v is not None and v <= th['first_frame_ms'], v, f"<= {th['first_frame_ms']:g}",
+                         f'the OSD was off at {len(off)} key(s), on after {max(off):g} ms at worst' if off else ''))
     if th['burst_end_ms'] is not None:
         ends = [w['burst_end_ms'] for w in keyed]
         v = None if any(e is None for e in ends) or not ends else max(ends)
@@ -579,7 +595,7 @@ def jsonable(v):
 
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
-               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms')
+               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'osd_wake_ms')
 
 
 # ------------------------------------------------------------------- the set
