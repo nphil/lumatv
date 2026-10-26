@@ -575,6 +575,10 @@ panel care and stored values are unchanged; only the screens are new.
   and take memory (Nitin, 2026-10-25; inventory in
   `docs/research/settings-coverage.md`); one emergency "Open LG Settings" row
   stays in System.
+- Minimal text on every screen (Nitin, 2026-10-25): a row shows its name and
+  current value, a second line only for state the person needs; no
+  explanatory sentences. What is not obvious sits behind one consistent help
+  affordance on the row. Labels are short and use LG's names.
 - Mockups: `docs/mocks/` (gallery `index.html`, mapping of LG's items to the
   sections in `settings-map.md`).
 
