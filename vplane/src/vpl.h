@@ -35,8 +35,11 @@ typedef struct {
     int twelveHour;      /* 12 hour face, no leading zero */
     int drift;           /* the picture drifts (the window moves) */
     int overlay;         /* 1 the window carries the veil and the clock, 0 it carries nothing */
-    uint32_t ink;        /* the clock's colour, 0xRRGGBB */
-    int inkAlpha;        /* and its alpha, 0..255 */
+    int caption;         /* the print's caption is drawn (the art mode's `caption` switch) */
+    uint32_t ink;        /* the caption's artist name, 0xRRGGBB, and its alpha 0..255 (the QML's ink at 0.7) */
+    int inkAlpha;
+    uint32_t ink2;       /* the rest of the caption and the corner clock (the QML's ink2 at 0.7), and its alpha */
+    int ink2Alpha;
     int64_t sinceMs;     /* wall time the saver came up (0: now) */
     int ttlMs;           /* the player stops by itself this long after the last request */
     char clip[64];       /* start with this print (empty: the next in the order) */

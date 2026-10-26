@@ -35,6 +35,11 @@ SHIPPED = os.path.join(ROOT, "payload", "vplane", "clips")
 W, H = 1856, 1024
 
 
+def put(path, blob):
+    with open(path, "wb") as f:
+        f.write(blob)
+
+
 def build():
     if os.path.exists(BIN) and os.path.exists(NDL) and os.path.exists(PLAN):
         newest = max(os.path.getmtime(os.path.join(VPLANE, d, f)) for d in ("src", "tests") for f in os.listdir(os.path.join(VPLANE, d)))
@@ -60,7 +65,7 @@ def synthetic_clip(path, units=30, key=3000, other=150, fps=60, w=W, h=H, codec=
 class Rig:
     """A player, a compositor and a library stand-in, each in its own temporary place."""
 
-    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False):
+    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False):
         self.tmp = tempfile.mkdtemp(prefix="vplane-test-")
         self.mb = os.path.join(self.tmp, "mb")
         self.clipdir = os.path.join(self.tmp, "clips")
@@ -70,6 +75,13 @@ class Rig:
             self.units.append(synthetic_clip(os.path.join(self.clipdir, "clip%d.vpc" % i), units=units, key=k))
         if glyphs:
             shutil.copy(os.path.join(SHIPPED, "clock.vpg"), self.clipdir)
+        self.captions = []
+        if captions:
+            geo = clips.geometry()
+            for i, entry in enumerate(clips.pictures()[:len(clip_keys)]):
+                bm = clips.caption_bitmap(entry, geo)
+                clips.write_vpt(os.path.join(self.clipdir, "clip%d.vpt" % i), bm)
+                self.captions.append(clips.read_vpt(os.path.join(self.clipdir, "clip%d.vpt" % i)))
         self.ndl_log = os.path.join(self.tmp, "ndl.log")
         open(self.ndl_log, "w").close()
         self.fc = FakeCompositor(hold_window_id)
@@ -174,6 +186,27 @@ def expected_text_pixels(text, ink, alpha, veil, right, baseline):
     return out, g
 
 
+def expected_caption_pixels(cap, ink, a1, ink2, a2, opacity, veil, dx=0, dy=0):
+    """The caption as the player must have drawn it over a veil: (x, y) -> premultiplied (a, r, g, b)."""
+    def m(a, b):
+        t = a * b + 128
+        return (t + (t >> 8)) >> 8
+
+    out = {}
+    for gy in range(cap["height"]):
+        for gx in range(cap["width"]):
+            cover = cap["alpha"][gy * cap["width"] + gx]
+            if not cover:
+                continue
+            first = gx < cap["split"]
+            rgb, al = (ink, a1) if first else (ink2, a2)
+            a = m(m(cover, al), opacity)
+            d = (veil, 0, 0, 0)
+            inv = 255 - a
+            out[(cap["x"] + dx + gx, cap["y"] + dy + gy)] = (a + m(d[0], inv), m((rgb >> 16) & 255, a), m((rgb >> 8) & 255, a), m(rgb & 255, a))
+    return out
+
+
 @unittest.skipUnless(HAVE, "needs zig to build vplane/")
 class Arithmetic(unittest.TestCase):
     def test_the_c_unit_tests_pass(self):
@@ -230,11 +263,12 @@ class Clips(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             good = os.path.join(d, "g.vpc")
             synthetic_clip(good, units=8)
-            data = open(good, "rb").read()
+            with open(good, "rb") as f:
+                data = f.read()
 
             def damaged(name, blob):
                 p = os.path.join(d, name)
-                open(p, "wb").write(blob)
+                put(p, blob)
                 return self.info(p)
 
             for name, blob, why in (
@@ -278,7 +312,7 @@ class Clips(unittest.TestCase):
         self.assertIn("no NDL library", j["ndlError"])
         with tempfile.TemporaryDirectory() as d:
             shutil.copy(os.path.join(SHIPPED, os.listdir(SHIPPED)[0]), d)
-            open(os.path.join(d, "broken.vpc"), "wb").write(b"junk" * 20)
+            put(os.path.join(d, "broken.vpc"), b"junk" * 20)
             r = subprocess.run([BIN, "-n", "-c", d, "-L", NDL], capture_output=True, text=True, env=dict(os.environ, FAKE_NDL_LOG=os.devnull))
             j = json.loads(r.stdout)
             self.assertEqual(r.returncode, 2)
@@ -318,7 +352,7 @@ class Player(unittest.TestCase):
             self.assertLess(names.index(a), names.index(b), (a, b))
         self.assertLess(names.index("wl_webos_foreign.export_element"), names.index("wl_surface.commit"), "export before the first commit")
         binds = [a for w, a in r.fc.requests() if w == "bind"]
-        self.assertEqual(sorted(b.split()[0] for b in binds), ["wl_compositor", "wl_shm", "wl_webos_foreign", "wl_webos_shell"])
+        self.assertEqual(sorted(b.split()[0] for b in binds), ["wl_compositor", "wl_seat", "wl_seat", "wl_shm", "wl_webos_foreign", "wl_webos_shell"])
         self.assertTrue(any(b.startswith("wl_compositor v3 ") for b in binds), "wl_compositor at version 3, LG's")
         self.assertEqual(r.fc.props["appId"], "org.nphil.lumatv.vplane")
         self.assertEqual(r.fc.state, 3)
@@ -507,12 +541,13 @@ class Player(unittest.TestCase):
         log = os.path.join(tmp, "ndl.log")
         p = subprocess.Popen([BIN, "-d", mb, "-c", clipdir, "-L", NDL, "-m", "1"], env=dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=log),
                              stderr=subprocess.DEVNULL)
-        self.addCleanup(p.kill)
+        self.addCleanup(lambda: (p.kill(), p.wait()))
         end = time.monotonic() + 5
         state = ""
         while time.monotonic() < end and state != "playing":
             try:
-                state = json.load(open(os.path.join(mb, "status.json")))["state"]
+                with open(os.path.join(mb, "status.json")) as f:
+                    state = json.load(f)["state"]
             except (OSError, ValueError):
                 pass
             time.sleep(0.02)
@@ -614,8 +649,8 @@ class Player(unittest.TestCase):
 
     def test_the_corner_clock_is_the_glyph_atlas_laid_on_the_veil_pixel_for_pixel(self):
         r = self.rig()
-        ink, alpha = 0xA8A4B0, 178
-        r.send("start", clockAt="10:42", ink="#A8A4B0", inkAlpha=alpha, since=int(time.time() * 1000) - 30 * 60000)
+        ink, alpha = 0xF2EFF6, 118
+        r.send("start", clockAt="10:42", ink2="#F2EFF6", ink2Alpha=alpha, since=int(time.time() * 1000) - 30 * 60000)
         self.assertTrue(r.wait_state("playing"))
         self.assertTrue(r.wait(lambda: r.fc.last_commit() and self.veil_at(r)[0] == 51, 3))
         time.sleep(0.2)
@@ -717,6 +752,151 @@ class Player(unittest.TestCase):
         r.send("start", clockAt="10:42")
         self.assertTrue(r.wait_state("playing"))
         self.assertIn("no corner clock", r.log())
+
+
+    # ---- the caption
+
+    def test_the_caption_is_laid_over_the_veil_not_under_it(self):
+        r = self.rig(captions=True)
+        r.send("start", clock=False, since=int(time.time() * 1000) - 60 * 60000, ink="#F2EFF6", inkAlpha=178, ink2="#F2EFF6", ink2Alpha=118)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertTrue(r.wait(lambda: r.fc.last_commit() and self.veil_at(r)[0] == 102, 3), "an hour in, level 0.6: a veil of 102")
+        time.sleep(0.2)
+        w, h, data = r.fc.last_commit()[2]
+        cap = r.captions[0]
+        want = expected_caption_pixels(cap, 0xF2EFF6, 178, 0xF2EFF6, 118, 255, 102)
+        self.assertGreater(len(want), 1500)
+        wrong = [(xy, v, argb(data, w, *xy)) for xy, v in want.items() if argb(data, w, *xy) != v]
+        self.assertEqual(wrong[:3], [], "%d of %d caption pixels differ" % (len(wrong), len(want)))
+        # a pixel the face covers fully, in the artist's ink: its colour is the ink at 0.7, whatever the veil: the dim does not reach it
+        full = [xy for xy, (a, rr, g, b) in want.items() if cap["alpha"][(xy[1] - cap["y"]) * cap["width"] + xy[0] - cap["x"]] == 255 and xy[0] - cap["x"] < cap["split"]]
+        self.assertTrue(full)
+        self.assertEqual(argb(data, w, *full[0])[1], (0xF2 * 178 + 127) // 255, "the ink's own brightness, not 0.6 of it")
+        # it sits where the QML puts it: left edge at edgeX (64), the line ending 54 above the bottom of the screen
+        xs = [x for x, _ in want]
+        ys = [y for _, y in want]
+        self.assertGreaterEqual(min(xs), 62)
+        self.assertLessEqual(min(xs), 70)
+        self.assertLessEqual(max(ys), 1080 - 54)
+        self.assertGreater(max(ys), 1080 - 54 - 12)
+
+    def test_the_caption_moves_with_the_picture(self):
+        r = self.rig(captions=True)
+        r.send("start", clock=False, moveMs=60, periodX=1, periodY=2, ampX=30, ampY=20, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(1.5)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        cap = r.captions[0]
+        covered = [(gx, gy) for gy in range(cap["height"]) for gx in range(cap["width"]) if cap["alpha"][gy * cap["width"] + gx]]
+        left = min(gx for gx, _ in covered)
+        top = min(gy for _, gy in covered)
+        offsets = []
+        for t, s, g in r.fc.commits:
+            if not g:
+                continue
+            w, h, data = g
+            xs = [x for x in range(20, 140) for y in range(940, 1060) if argb(data, w, x, y)[0]]
+            ys = [y for x in range(60, 200) for y in range(940, 1060) if argb(data, w, x, y)[0]]
+            if xs and ys:
+                offsets.append((min(xs) - (cap["x"] + left), min(ys) - (cap["y"] + top)))
+        self.assertGreater(len(set(offsets)), 4, "the caption was drawn at many places: %s" % sorted(set(offsets))[:8])
+        for dx, dy in offsets:
+            self.assertTrue(-30 <= dx <= 30 and -20 <= dy <= 20, (dx, dy))
+        last = r.fc.video_history[-1]["dst"]
+        self.assertEqual(offsets[-1], (last[0] - 32, last[1] - 28), "the caption sits at the picture's own offset")
+
+    def test_the_caption_fades_with_its_print_and_not_with_the_dim(self):
+        r = self.rig(clip_keys=(3000, 4000), units=20, captions=True)
+        r.send("start", clock=False, everyMs=600, fadeMs=400, shuffle=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        cap = r.captions[0]
+        probe = None
+        for gy in range(cap["height"]):
+            for gx in range(cap["split"]):
+                if cap["alpha"][gy * cap["width"] + gx] == 255:
+                    probe = (cap["x"] + gx, cap["y"] + gy)
+                    break
+            if probe:
+                break
+        self.assertIsNotNone(probe)
+        self.assertTrue(r.wait(lambda: any(g and argb(g[2], g[0], 5, 5)[0] == 255 for t, s, g in r.fc.commits), 6), "the screen went black for the change")
+        self.assertTrue(r.wait(lambda: argb(r.fc.last_commit()[2][2], r.fc.last_commit()[2][0], 5, 5)[0] == 0, 6), "and came back")
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        series = [(argb(g[2], g[0], 5, 5)[0], argb(g[2], g[0], *probe)[1]) for t, s, g in r.fc.commits if g]
+        series = series[next(i for i, (v, c) in enumerate(series) if c > 0):]          # from the first picture that carries the caption
+        veils = [v for v, _ in series]
+        peak = veils.index(255)
+        at_black = [(v, c) for v, c in series if v == 255]
+        self.assertTrue(all(c == 0 for _, c in at_black), "no caption pixel on the black screen of the change: %s" % at_black[:3])
+        rising = [(v, c) for v, c in series[:peak + 1]]
+        self.assertTrue(all(b[1] <= a[1] for a, b in zip(rising, rising[1:])), "the caption fades out as the veil rises: %s" % rising)
+        self.assertGreater(series[0][1], 0, "it was there before")
+        self.assertTrue(any(c > 0 for v, c in series[peak:]), "the next print's caption comes back as the veil falls")
+
+    def test_a_caption_that_is_switched_off_is_not_drawn(self):
+        r = self.rig(captions=True)
+        r.send("start", clock=False, caption=False, since=int(time.time() * 1000) - 30 * 60000)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertTrue(r.wait(lambda: r.fc.last_commit() and self.veil_at(r)[0] == 51, 3))
+        w, h, data = r.fc.last_commit()[2]
+        cap = r.captions[0]
+        self.assertEqual(argb(data, w, cap["x"] + 10, cap["y"] + 20), (51, 0, 0, 0))
+        self.assertEqual({argb(data, w, x, y) for x in range(0, 1920, 97) for y in range(0, 1080, 89)}, {(51, 0, 0, 0)})
+
+    def test_a_broken_caption_file_is_a_note_and_the_print_plays_without_it(self):
+        r = self.rig(captions=True)
+        with open(os.path.join(r.clipdir, "clip0.vpt"), "wb") as f:
+            f.write(b"VPT1" + b"junk")
+        r.send("start", clock=False)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertIn("no caption", r.log())
+
+    # ---- the way out
+
+    def test_a_key_asks_for_the_screen_and_takes_the_window_away(self):
+        marker = os.path.join(tempfile.gettempdir(), "vplane-woke-%d" % os.getpid())
+        self.addCleanup(lambda: os.path.exists(marker) and os.unlink(marker))
+        r = self.rig(args=("-W", "echo woke > %s" % marker))
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        r.fc.settle()
+        self.assertEqual(r.fc.count("wl_seat.get_keyboard"), 2, "a keyboard from every seat")
+        self.assertEqual(r.fc.count("wl_seat.get_pointer"), 2)
+        r.fc.send_key(False)                          # a release alone is not a key press
+        r.fc.send_pointer("enter")                    # nor is the pointer arriving
+        time.sleep(0.3)
+        self.assertEqual(r.status()["state"], "playing")
+        self.assertFalse(os.path.exists(marker))
+        r.fc.send_key(True, seat=1)                   # a press on the second device's seat
+        self.assertTrue(r.wait_state("idle", 3), r.log())
+        self.assertIn("a key or the pointer", r.status()["reason"])
+        self.assertTrue(r.wait(lambda: os.path.exists(marker), 2), "the wake command ran")
+        self.assertTrue(r.wait(lambda: not r.fc.alive(), 2), "and the window is gone")
+        self.assertIn("Quit", r.calls() + [ln[2] for ln in r.ndl()])
+
+    def test_the_pointer_moving_or_pressing_is_a_way_out_too(self):
+        for kind in ("motion", "button"):
+            marker = os.path.join(tempfile.gettempdir(), "vplane-woke-%s-%d" % (kind, os.getpid()))
+            self.addCleanup(lambda m=marker: os.path.exists(m) and os.unlink(m))
+            r = self.rig(args=("-W", "echo woke > %s" % marker))
+            r.send("start")
+            self.assertTrue(r.wait_state("playing"))
+            r.fc.settle()
+            r.fc.send_pointer(kind)
+            self.assertTrue(r.wait_state("idle", 3), (kind, r.log()))
+            self.assertTrue(r.wait(lambda: os.path.exists(marker), 2), kind)
+            r.close()
+
+    def test_a_compositor_with_no_input_devices_still_plays(self):
+        r = self.rig()
+        r.fc.seat_caps = 0
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(0.2)
+        self.assertEqual(r.fc.count("wl_seat.get_keyboard"), 0)
+        self.assertEqual(r.status()["state"], "playing")
 
     def test_the_status_carries_what_the_requester_and_the_steps_need(self):
         r = self.rig()

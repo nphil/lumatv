@@ -29,9 +29,7 @@
     "safeX": 96,
     "safeY": 54,
     "edgeX": 64,
-    "artLevel": 0.78,
-    "ink": "#F2EFF6",
-    "ink2": "#A8F2EFF6"
+    "artLevel": 0.78
   },
   "drift": {
     "ampX": 30,
@@ -48,16 +46,27 @@
       "height": 1024,
       "fps": 60,
       "units": 120,
-      "keyBytes": 404229,
-      "bytes": 420414,
-      "sha256": "feb2f5b29969f8cb558a0fbdf47f416ac97e85181c1e2895cabafd6ba1b455ee",
+      "keyBytes": 396967,
+      "bytes": 413528,
+      "sha256": "880e9ee503ccbbf905e548c09ccf03fe01f8e33ff3f5e9511cad2d2a78d6c351",
       "opts": {
         "codec": "hevc",
         "crf": 16,
         "frames": 120,
         "fps": 60
       },
-      "inputs": "053fce98c0cceecc"
+      "inputs": "60bcecb3360e5728",
+      "caption": {
+        "file": "great-wave.vpt",
+        "bytes": 28312,
+        "sha256": "97907d680f3461fe592969e9906937d8ebda24095b058f63e232527f6982c532",
+        "width": 884,
+        "height": 32,
+        "split": 228,
+        "x": 64,
+        "y": 994,
+        "inputs": "1bb11855b269f2f4"
+      }
     },
     {
       "id": "starry-night",
@@ -67,16 +76,27 @@
       "height": 1024,
       "fps": 60,
       "units": 120,
-      "keyBytes": 412977,
-      "bytes": 428209,
-      "sha256": "ce0f523b9be88792a8a5f8fd330de349f8219c2767e057bd180c2215725e3c94",
+      "keyBytes": 407858,
+      "bytes": 422210,
+      "sha256": "797803b4b7b93d8e9414f40a2f3f56423aabd15884cd3181bc4d704cc6764bdf",
       "opts": {
         "codec": "hevc",
         "crf": 16,
         "frames": 120,
         "fps": 60
       },
-      "inputs": "298a5543c30132e8"
+      "inputs": "27e5a151a86c5c25",
+      "caption": {
+        "file": "starry-night.vpt",
+        "bytes": 20600,
+        "sha256": "6c0b09c7b50540605da938630849f35b590fe28b063294d31fafea0c1abb4190",
+        "width": 643,
+        "height": 32,
+        "split": 203,
+        "x": 64,
+        "y": 994,
+        "inputs": "bf026af543bfd488"
+      }
     },
     {
       "id": "impression-sunrise",
@@ -86,16 +106,27 @@
       "height": 1024,
       "fps": 60,
       "units": 120,
-      "keyBytes": 351173,
-      "bytes": 361621,
-      "sha256": "23e7d4d70e266900a92e90a22ca66a7a2a8d99161c258458f9fe409036f28267",
+      "keyBytes": 345152,
+      "bytes": 355500,
+      "sha256": "3584c80fd006d501f460c29176e75ed5d70048dbe05725e63d4246267c5bbc57",
       "opts": {
         "codec": "hevc",
         "crf": 16,
         "frames": 120,
         "fps": 60
       },
-      "inputs": "7471bf1c5f50555b"
+      "inputs": "37ecc38b72a4e7d4",
+      "caption": {
+        "file": "impression-sunrise.vpt",
+        "bytes": 20408,
+        "sha256": "651274c590e70ca2a7008e6e170dda0437287820f0d9ff762538c86171eb7406",
+        "width": 637,
+        "height": 32,
+        "split": 162,
+        "x": 64,
+        "y": 994,
+        "inputs": "4df79900ba69e71a"
+      }
     },
     {
       "id": "fighting-temeraire",
@@ -105,16 +136,27 @@
       "height": 1024,
       "fps": 60,
       "units": 120,
-      "keyBytes": 253474,
-      "bytes": 262609,
-      "sha256": "360ad7127785938a2b67254b1db2a42ad7733cba2c130082eb5d95003bfd8261",
+      "keyBytes": 249040,
+      "bytes": 258498,
+      "sha256": "bf42f8091fe4895bf415730c0ab264133107195d6a7c7f4c7edf940c20e393c1",
       "opts": {
         "codec": "hevc",
         "crf": 16,
         "frames": 120,
         "fps": 60
       },
-      "inputs": "ef1bca8445eca77c"
+      "inputs": "ecbaa9c81f947d1d",
+      "caption": {
+        "file": "fighting-temeraire.vpt",
+        "bytes": 21720,
+        "sha256": "f50d0aeac1f9c3ff8b418ec2a8b8f992aa09633e81eb6e2ac6df9e15be63c7b4",
+        "width": 678,
+        "height": 32,
+        "split": 166,
+        "x": 64,
+        "y": 994,
+        "inputs": "df28b065cadf297a"
+      }
     },
     {
       "id": "view-of-delft",
@@ -124,16 +166,27 @@
       "height": 1024,
       "fps": 60,
       "units": 120,
-      "keyBytes": 274137,
-      "bytes": 288058,
-      "sha256": "5e0fb1c0ae91864398438ea2a86ff4415d2e64620e06ef4ce6023e8dddf639e4",
+      "keyBytes": 268213,
+      "bytes": 281307,
+      "sha256": "ac00b957c6d562fa2bf0b671607201dbd13d46b8b1b4373e584158510ec5af52",
       "opts": {
         "codec": "hevc",
         "crf": 16,
         "frames": 120,
         "fps": 60
       },
-      "inputs": "b11dfb2999d2c31b"
+      "inputs": "a707817668251815",
+      "caption": {
+        "file": "view-of-delft.vpt",
+        "bytes": 21976,
+        "sha256": "065725395e32a99b06d02a9374ffe0311812df1daa2b6cdfe26cfc4054d4a900",
+        "width": 686,
+        "height": 32,
+        "split": 216,
+        "x": 64,
+        "y": 994,
+        "inputs": "4524b513fb2df032"
+      }
     },
     {
       "id": "sierra-nevada",
@@ -143,16 +196,27 @@
       "height": 1024,
       "fps": 60,
       "units": 120,
-      "keyBytes": 271996,
-      "bytes": 282806,
-      "sha256": "7faf049858965c2f51aa42953ffbe8a756627e1406607daaa27ccfade0aa7950",
+      "keyBytes": 264836,
+      "bytes": 273674,
+      "sha256": "10e682b33a151c2ca765369d9ead47d3d00d587e51f6780b41d3b236922cbcfe",
       "opts": {
         "codec": "hevc",
         "crf": 16,
         "frames": 120,
         "fps": 60
       },
-      "inputs": "c9a5c3ce43e8ac6f"
+      "inputs": "169e45e2bf949679",
+      "caption": {
+        "file": "sierra-nevada.vpt",
+        "bytes": 27032,
+        "sha256": "17b0ff3d67165b312a975241ab78a82521c52ab2d67707ce1239d824aebfd05e",
+        "width": 844,
+        "height": 32,
+        "split": 185,
+        "x": 64,
+        "y": 994,
+        "inputs": "eb6b411907d4ac5e"
+      }
     }
   ],
   "glyphs": {

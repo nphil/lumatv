@@ -33,9 +33,12 @@ REQUESTS = {
     ("wl_webos_foreign", 0): ("destroy", ""), ("wl_webos_foreign", 1): ("export_element", "nou"), ("wl_webos_foreign", 2): ("import_element", "nsu"),
     ("wl_webos_exported", 0): ("destroy", ""), ("wl_webos_exported", 1): ("set_exported_window", "oo"),
     ("wl_webos_exported", 2): ("set_crop_region", "ooo"), ("wl_webos_exported", 3): ("set_property", "ss"),
+    ("wl_seat", 0): ("get_pointer", "n"), ("wl_seat", 1): ("get_keyboard", "n"), ("wl_seat", 2): ("get_touch", "n"), ("wl_seat", 3): ("release", ""),
+    ("wl_keyboard", 0): ("release", ""), ("wl_pointer", 0): ("set_cursor", "uoii"), ("wl_pointer", 1): ("release", ""),
 }
 
-GLOBALS = [("wl_compositor", 3), ("wl_shm", 1), ("wl_webos_shell", 1), ("wl_webos_foreign", 1), ("wl_subcompositor", 1)]
+# LG's compositor offers one wl_seat per input device: two here, so that "every seat" is tested
+GLOBALS = [("wl_compositor", 3), ("wl_shm", 1), ("wl_webos_shell", 1), ("wl_webos_foreign", 1), ("wl_subcompositor", 1), ("wl_seat", 4), ("wl_seat", 4)]
 
 
 class Conn:
@@ -50,6 +53,7 @@ class Conn:
         self.surfaces = {}                 # id -> {"buffer": id, "committed": id}
         self.window_id = None
         self.exported_surface = {}
+        self.keyboards, self.pointers = [], []
         self.alive = True
 
     def send(self, obj, op, payload=b""):
@@ -102,6 +106,8 @@ class Conn:
             ver, nid = struct.unpack_from("<II", data, pos)
             self.objects[nid] = s
             self.server.note("bind", f"{s} v{ver} as {nid}")
+            if s == "wl_seat":
+                self.send(nid, 0, struct.pack("<I", self.server.seat_caps))      # capabilities
             return
         args = self.parse(iface, letters, data)
         self.server.note(f"{iface}.{name}", args)
@@ -152,6 +158,12 @@ class Conn:
             self.exported_surface[nid] = surface
             if not self.server.hold_window_id:
                 self.send(nid, 0, self.string(wid) + struct.pack("<I", etype))
+        elif iface == "wl_seat" and name == "get_keyboard":
+            self.objects[args[0]] = "wl_keyboard"
+            self.keyboards.append(args[0])
+        elif iface == "wl_seat" and name == "get_pointer":
+            self.objects[args[0]] = "wl_pointer"
+            self.pointers.append(args[0])
         elif iface == "wl_webos_exported" and name == "set_exported_window":
             src = self.regions.get(args[0], [])
             dst = self.regions.get(args[1], [])
@@ -207,6 +219,7 @@ class FakeCompositor:
         self.video = None
         self.video_history = []
         self.hold_window_id = hold_window_id
+        self.seat_caps = 3                  # pointer and keyboard
         self.conns = []
         self.commits = []
         self.running = True
@@ -233,7 +246,7 @@ class FakeCompositor:
                 self.conns.append(Conn(self, s))
             except (socket.timeout, OSError):
                 pass
-            socks = [c.sock for c in self.conns if c.alive]
+            socks = [c.sock for c in self.conns if c.alive and c.sock.fileno() >= 0]
             if not socks:
                 continue
             r, _, _ = select.select(socks, [], [], 0.02)
@@ -296,6 +309,22 @@ class FakeCompositor:
                 c.sock.close()
             except OSError:
                 pass
+
+    def send_key(self, pressed=True, key=28, seat=0):
+        """A key on the `seat`th keyboard the client asked for."""
+        for c in self.conns:
+            if c.keyboards:
+                c.send(c.keyboards[min(seat, len(c.keyboards) - 1)], 3, struct.pack("<IIII", 1, 0, key, 1 if pressed else 0))
+
+    def send_pointer(self, kind="motion"):
+        for c in self.conns:
+            for ptr in c.pointers:
+                if kind == "motion":
+                    c.send(ptr, 2, struct.pack("<Iii", 0, 100 * 256, 100 * 256))
+                elif kind == "button":
+                    c.send(ptr, 3, struct.pack("<IIII", 1, 0, 272, 1))
+                elif kind == "enter":
+                    c.send(ptr, 0, struct.pack("<IIii", 1, 0, 0, 0))
 
     def release_window_id(self):
         for c in self.conns:

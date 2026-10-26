@@ -87,3 +87,35 @@ void vui_draw_text(vui_canvas *c, const vpg_t *g, const char *text, int right, i
         pen += gl->advance;
     }
 }
+
+vui_rect vui_caption_rect(const vpt_t *t, int dx, int dy) {
+    vui_rect r = {t->x + dx, t->y + dy, t->x + dx + (int)t->w, t->y + dy + (int)t->h};
+    return r;
+}
+
+void vui_draw_caption(vui_canvas *c, const vpt_t *t, int dx, int dy, uint32_t ink, int ink_alpha, uint32_t ink2, int ink2_alpha, int opacity, uint8_t veil) {
+    vui_rect box = vui_caption_rect(t, dx, dy);
+    vui_fill(c, box, veil);
+    if (opacity <= 0) return;
+    for (uint32_t gy = 0; gy < t->h; gy++) {
+        int y = t->y + dy + (int)gy;
+        if (y < 0 || y >= c->h) continue;
+        uint32_t *row = c->px + (size_t)y * (size_t)c->stride;
+        for (uint32_t gx = 0; gx < t->w; gx++) {
+            int x = t->x + dx + (int)gx;
+            if (x < 0 || x >= c->w) continue;
+            uint32_t cover = t->alpha[gy * t->w + gx];
+            if (!cover) continue;
+            int first = gx < t->split;
+            uint32_t rgb = first ? ink : ink2;
+            uint32_t a = mul255(mul255(cover, (uint32_t)(first ? ink_alpha : ink2_alpha)), (uint32_t)opacity);
+            uint32_t d = row[x];
+            uint32_t inv = 255 - a;
+            uint32_t oa = a + mul255(d >> 24, inv);
+            uint32_t or_ = mul255((rgb >> 16) & 0xFF, a) + mul255((d >> 16) & 0xFF, inv);
+            uint32_t og = mul255((rgb >> 8) & 0xFF, a) + mul255((d >> 8) & 0xFF, inv);
+            uint32_t ob = mul255(rgb & 0xFF, a) + mul255(d & 0xFF, inv);
+            row[x] = oa << 24 | or_ << 16 | og << 8 | ob;
+        }
+    }
+}

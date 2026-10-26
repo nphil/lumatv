@@ -177,3 +177,35 @@ const vpg_glyph *vpg_find(const vpg_t *g, uint32_t cp) {
         if (g->glyph[i].cp == cp) return &g->glyph[i];
     return NULL;
 }
+
+int vpt_open(vpt_t *t, const char *path, char *err, size_t cap) {
+    memset(t, 0, sizeof *t);
+    size_t len;
+    uint8_t *m = map_file(path, &len, err, cap);
+    if (!m) return -1;
+    if (len < 24 || memcmp(m, "VPT1", 4) != 0) {
+        munmap(m, len);
+        fail(err, cap, "not a VPT1 file", path);
+        return -1;
+    }
+    uint32_t w = rd32(m + 4), h = rd32(m + 8), split = rd32(m + 20);
+    if (w == 0 || h == 0 || w > 4096 || h > 256 || split > w || len != 24 + (size_t)w * h) {
+        munmap(m, len);
+        fail(err, cap, "bad caption size", path);
+        return -1;
+    }
+    t->map = m;
+    t->map_len = len;
+    t->w = w;
+    t->h = h;
+    t->split = split;
+    t->x = (int32_t)rd32(m + 12);
+    t->y = (int32_t)rd32(m + 16);
+    t->alpha = m + 24;
+    return 0;
+}
+
+void vpt_close(vpt_t *t) {
+    if (t->map) munmap(t->map, t->map_len);
+    memset(t, 0, sizeof *t);
+}

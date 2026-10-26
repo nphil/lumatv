@@ -48,4 +48,17 @@ int vpg_open(vpg_t *g, const char *path, char *err, size_t cap);
 void vpg_close(vpg_t *g);
 const vpg_glyph *vpg_find(const vpg_t *g, uint32_t cp);
 
+/* A print's caption: coverage of its words as bitmap, placed on the screen where the QML puts the text; `split` columns of it are the artist's
+ * name (drawn in the first ink), the rest is the other ink's. */
+typedef struct {
+    void *map;
+    size_t map_len;
+    uint32_t w, h, split;
+    int32_t x, y;               /* the bitmap's top left, in screen pixels */
+    const uint8_t *alpha;       /* w x h */
+} vpt_t;
+
+int vpt_open(vpt_t *t, const char *path, char *err, size_t cap);
+void vpt_close(vpt_t *t);
+
 #endif

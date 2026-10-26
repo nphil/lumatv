@@ -29,6 +29,8 @@ enum { SHELL_SURFACE_SET_STATE = 1, SHELL_SURFACE_SET_PROPERTY = 2 };
 enum { FOREIGN_EXPORT_ELEMENT = 1 };
 enum { EXPORTED_DESTROY = 0, EXPORTED_SET_EXPORTED_WINDOW = 1 };
 enum { WL_SHM_FORMAT_ARGB8888 = 0 };
+enum { SEAT_GET_POINTER = 0, SEAT_GET_KEYBOARD = 1 };
+#define MAX_SEATS 8
 
 struct vpl_wl {
     int fd;
@@ -42,6 +44,12 @@ struct vpl_wl {
     uint32_t registry, compositor, shm, shell, foreign;
     uint32_t surface, shell_surface, exported, pool, buffer, sync_cb;
     struct { uint32_t name, version; } g_compositor, g_shm, g_shell, g_foreign;
+
+    /* every wl_seat the compositor offers (LG's has one per input device), with the keyboard and pointer taken from it: a key or a pointer
+     * press on any of them is the viewer asking for the screen back */
+    struct { uint32_t id, keyboard, pointer; } seats[MAX_SEATS];
+    int nseats;
+    unsigned activity;
 
     char window_id[64];
     int have_id, sync_done, closed, failed;
@@ -138,6 +146,45 @@ static int get_str(const uint8_t *p, size_t n, size_t *pos, char *out, size_t ca
     return 0;
 }
 
+static void bind_global(vpl_wl *w, uint32_t name, const char *iface, uint32_t ver, uint32_t id);
+
+static void bind_seat(vpl_wl *w, uint32_t name, uint32_t version) {
+    if (w->nseats >= MAX_SEATS) return;
+    uint32_t id = w->next++;
+    bind_global(w, name, "wl_seat", version < 4 ? version : 4, id);
+    w->seats[w->nseats].id = id;
+    w->nseats++;
+}
+
+static void on_seat_event(vpl_wl *w, uint32_t id, uint32_t op, const uint8_t *a, size_t n) {
+    for (int i = 0; i < w->nseats; i++) {
+        if (w->seats[i].id == id && op == 0 && n >= 4) {           /* capabilities: 1 pointer, 2 keyboard */
+            uint32_t caps = rd32(a);
+            if ((caps & 2) && !w->seats[i].keyboard) {
+                w->seats[i].keyboard = w->next++;
+                size_t at = msg_begin(w, id, SEAT_GET_KEYBOARD);
+                put_u32(w, w->seats[i].keyboard);
+                msg_end(w, at);
+            }
+            if ((caps & 1) && !w->seats[i].pointer) {
+                w->seats[i].pointer = w->next++;
+                size_t at = msg_begin(w, id, SEAT_GET_POINTER);
+                put_u32(w, w->seats[i].pointer);
+                msg_end(w, at);
+            }
+            return;
+        }
+        if (w->seats[i].keyboard == id && op == 3 && n >= 16 && rd32(a + 12) == 1) {   /* key(serial, time, key, state): pressed */
+            w->activity++;
+            return;
+        }
+        if (w->seats[i].pointer == id) {
+            if ((op == 2 && n >= 12) || (op == 3 && n >= 16 && rd32(a + 12) == 1)) w->activity++;   /* motion, button pressed */
+            return;
+        }
+    }
+}
+
 static void on_event(vpl_wl *w, uint32_t id, uint32_t op, const uint8_t *a, size_t n) {
     w->received++;
     if (id == DISPLAY) {
@@ -160,6 +207,7 @@ static void on_event(vpl_wl *w, uint32_t id, uint32_t op, const uint8_t *a, size
         else if (!strcmp(iface, "wl_shm")) w->g_shm.name = name, w->g_shm.version = ver;
         else if (!strcmp(iface, "wl_webos_shell")) w->g_shell.name = name, w->g_shell.version = ver;
         else if (!strcmp(iface, "wl_webos_foreign")) w->g_foreign.name = name, w->g_foreign.version = ver;
+        else if (!strcmp(iface, "wl_seat")) bind_seat(w, name, ver);
         return;
     }
     if (w->sync_cb && id == w->sync_cb && op == 0) {
@@ -175,6 +223,7 @@ static void on_event(vpl_wl *w, uint32_t id, uint32_t op, const uint8_t *a, size
         if (get_str(a, n, &pos, w->window_id, sizeof w->window_id) == 0) w->have_id = 1;
         return;
     }
+    on_seat_event(w, id, op, a, n);
 }
 
 static int parse_in(vpl_wl *w) {
@@ -220,6 +269,7 @@ static int pump(vpl_wl *w, int timeout_ms) {
                 w->closed = 1;
                 return 1;
             }
+            if (w->out_len && flush_out(w) != 0) return 1;           /* what the events asked for (a seat's keyboard) */
             continue;
         }
         if (n == 0) {
@@ -514,6 +564,12 @@ void vpl_wl_close(vpl_wl *w) {
 }
 
 int vpl_wl_fd(const vpl_wl *w) { return w->fd; }
+
+unsigned vpl_wl_activity(vpl_wl *w) {
+    unsigned a = w->activity;
+    w->activity = 0;
+    return a;
+}
 const char *vpl_wl_window_id(const vpl_wl *w) { return w->window_id; }
 uint32_t *vpl_wl_pixels(vpl_wl *w) { return w->px; }
 int vpl_wl_flush(vpl_wl *w) { return flush_out(w); }

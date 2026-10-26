@@ -30,4 +30,11 @@ vui_rect vui_text_rect(const vpg_t *g, const char *text, int right, int baseline
 /* `text` in colour `rgb` (0xRRGGBB) at `alpha` over a veil: the box is reset to the veil first, then the glyphs are laid on it. */
 void vui_draw_text(vui_canvas *c, const vpg_t *g, const char *text, int right, int baseline, uint32_t rgb, int alpha, uint8_t veil);
 
+/* The box a caption covers when it is drawn `dx`, `dy` from its place. */
+vui_rect vui_caption_rect(const vpt_t *t, int dx, int dy);
+
+/* The caption over a veil: the box is reset to the veil, then the coverage is laid on in the artist's ink for the first `split` columns
+ * and the other ink for the rest; `opacity` (0..255) scales both alphas (the caption fades with its print). */
+void vui_draw_caption(vui_canvas *c, const vpt_t *t, int dx, int dy, uint32_t ink, int ink_alpha, uint32_t ink2, int ink2_alpha, int opacity, uint8_t veil);
+
 #endif

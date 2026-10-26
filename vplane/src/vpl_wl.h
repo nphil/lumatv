@@ -50,6 +50,9 @@ uint32_t *vpl_wl_pixels(vpl_wl *w);
 /* Tells the compositor the box changed: damage, attach, commit. */
 int vpl_wl_commit(vpl_wl *w, int x, int y, int bw, int bh);
 
+/* Key presses, pointer buttons and pointer motion on any of the compositor's seats since the last call: the viewer wants the screen back. */
+unsigned vpl_wl_activity(vpl_wl *w);
+
 /* Where the video is: the source rectangle of the picture and the rectangle of the screen it fills. Commits. */
 int vpl_wl_video(vpl_wl *w, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh);
 

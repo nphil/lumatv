@@ -16,8 +16,10 @@ plane's refresh follows the video pipeline's rate (docs/research/perf-tweaks.md:
 
 The composition is the art mode's own: the numbers (print box, matte, frame, colours, wall gradient, safe margins, brightness) are
 read from ArtPiece.qml, Screensaver.qml and theme.json, never typed here, and `check` fails when one of them has moved since the
-clips were written. The caption is baked in (it is the same for the whole life of a print); the time in the corner is not: the
-player draws it from the glyph atlas (`glyphs`) because it changes every minute.
+clips were written. The caption and the time in the corner are not in the picture: the dim is a black veil over the picture, and
+text under it would dim with it (the caption's contrast against the wall would fall below Lucent's 3:1 for large text at the deepest
+dim; the GPU saver keeps its caption above the dimming layer). The player draws the caption from a coverage bitmap per print
+(`<id>.vpt`) and the time from the glyph atlas (`glyphs`), both above the veil, in the colours the request gives them.
 
 The container (`.vpc`, read by vplane/src/vpl_vpc.c): little endian,
     0   "VPC1"
@@ -28,6 +30,8 @@ The container (`.vpc`, read by vplane/src/vpl_vpc.c): little endian,
         then every access unit, Annex B, the parameter sets in front of each key one.
 The glyph atlas (`.vpg`): "VPG1", u32 count, u32 right edge, u32 baseline (screen pixels of the corner clock), u32 line height, then per glyph u32 codepoint,
 i32 advance, i32 left, i32 top, u32 width, u32 height, u32 offset into the alpha plane that follows.
+The caption (`.vpt`): "VPT1", u32 width, u32 height, i32 x, i32 y (screen pixels of its top left), u32 split (columns left of it are the artist's name,
+in the first ink, the rest in the second), then width x height bytes of coverage.
 """
 import argparse
 import hashlib
@@ -69,7 +73,7 @@ def _int(src, name):
 
 
 def geometry():
-    """What the composition is made of, read from the QML and the theme."""
+    """What the composition is made of, read from the QML and the theme. (The ink colours are the player's request's, not the clip's.)"""
     with open(os.path.join(QML, "panels", "ArtPiece.qml")) as f:
         piece = f.read()
     with open(os.path.join(QML, "panels", "Screensaver.qml")) as f:
@@ -82,14 +86,13 @@ def geometry():
     stops = re.findall(r'GradientStop\s*\{\s*position:\s*([0-9.]+);\s*color:\s*"(#[0-9A-Fa-f]{6})"', saver)
     if len(stops) != 3:
         raise SystemExit("Screensaver.qml: the wall's three gradient stops were not found")
-    dark = theme["dark"]
     ss = theme["screensaver"]
     return {
         "maxW": _int(piece, "maxW"), "maxH": _int(piece, "maxH"), "matte": _int(piece, "matte"), "frame": _int(piece, "frame"),
         "frameColor": colors[0], "matteColor": colors[1],
         "wall": [[float(p), c] for p, c in stops],
         "safeX": _int(saver, "safeX"), "safeY": _int(saver, "safeY"), "edgeX": _int(saver, "edgeX"),
-        "artLevel": ss["artLevel"], "ink": dark["ink"], "ink2": dark["ink2"],
+        "artLevel": ss["artLevel"],
     }
 
 
@@ -137,7 +140,7 @@ def wall_color(geo, y):
 
 
 def compose(entry, geo):
-    """The art mode's picture for one print: wall, framed print at the art level, caption, black edges. A PIL RGB image of CANVAS."""
+    """The art mode's picture for one print: wall, framed print at the art level, black edges. A PIL RGB image of CANVAS."""
     from PIL import Image, ImageChops, ImageDraw
     sw, sh = SCREEN
     img = Image.new("RGB", SCREEN)
@@ -156,19 +159,6 @@ def compose(entry, geo):
     img.paste(print_, (fx + fr + m, fy + fr + m))
     level = geo["artLevel"]
     img = img.point([round(v * level) for v in range(256)] * 3)      # the QML's black layer over the pieces: the art level
-    # the caption sits above that layer in the QML: not dimmed by the level, at 0.7 of the ink's own alpha
-    ink, _ = hexrgb(geo["ink"])
-    ink2, a2 = hexrgb(geo["ink2"])
-    layer = Image.new("RGBA", SCREEN, (0, 0, 0, 0))
-    ld = ImageDraw.Draw(layer)
-    bold, plain = font("Bold", CAPTION_PX), font("Medium", CAPTION_PX)
-    base = SCREEN[1] - geo["safeY"] - 8
-    x = geo["edgeX"]
-    for text, f, color, alpha in ((entry["artist"], bold, ink, 0.7),
-                                  (" \u00b7 %s, %s \u00b7 %s" % (entry["title"], entry["year"], entry["licence"]), plain, ink2, 0.7 * a2)):
-        ld.text((x, base), text, font=f, fill=color + (round(255 * alpha),), anchor="ls")
-        x += round(f.getlength(text))
-    img = Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB")
     cw, ch = CANVAS
     mx, my = (sw - cw) // 2, (sh - ch) // 2
     img = img.crop((mx, my, mx + cw, my + ch))
@@ -178,6 +168,45 @@ def compose(entry, geo):
     ramp_y.putdata([round(255 * smoothstep(0, FADE, min(j, ch - 1 - j))) for j in range(ch)])
     mask = ImageChops.multiply(ramp_x.resize((cw, ch)), ramp_y.resize((cw, ch)))
     return ImageChops.multiply(img, Image.merge("RGB", (mask, mask, mask)))
+
+
+def caption_text(entry):
+    """The art mode's caption, as Screensaver.qml writes it: the artist in bold, then the title, the year and the licence."""
+    return entry["artist"], " \u00b7 %s, %s \u00b7 %s" % (entry["title"], entry["year"], entry["licence"])
+
+
+def caption_bitmap(entry, geo):
+    """The caption as coverage: (PIL 'L' image, split, x, y) with the bitmap's top left in screen pixels. The box is the QML's: left at
+    edgeX, the line ending safeY above the bottom of the screen (the baseline 8 pixels above that, a 24 px face)."""
+    from PIL import Image, ImageDraw
+    bold, plain = font("Bold", CAPTION_PX), font("Medium", CAPTION_PX)
+    artist, rest = caption_text(entry)
+    split = round(bold.getlength(artist))
+    width = split + round(plain.getlength(rest)) + 4
+    asc, desc = CAPTION_PX, 8                      # room above and below the baseline for the face's ascenders and descenders
+    im = Image.new("L", (width, asc + desc), 0)
+    d = ImageDraw.Draw(im)
+    d.text((0, asc), artist, font=bold, fill=255, anchor="ls")
+    d.text((split, asc), rest, font=plain, fill=255, anchor="ls")
+    base = SCREEN[1] - geo["safeY"] - 8
+    return im, split, geo["edgeX"], base - asc
+
+
+def write_vpt(path, bitmap):
+    im, split, x, y = bitmap
+    with open(path, "wb") as f:
+        f.write(b"VPT1" + struct.pack("<IIiiI", im.width, im.height, x, y, split) + im.tobytes())
+
+
+def read_vpt(path):
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:4] != b"VPT1":
+        raise ValueError("not a VPT1 file")
+    w, h, x, y, split = struct.unpack_from("<IIiiI", data, 4)
+    if len(data) != 24 + w * h or split > w:
+        raise ValueError("bad VPT1 size")
+    return {"width": w, "height": h, "x": x, "y": y, "split": split, "alpha": data[24:]}
 
 
 # ---- the stream ---------------------------------------------------------------------------------------------------------------
@@ -320,6 +349,12 @@ def inputs_hash(entry, geo, opts):
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
+def caption_inputs(entry, geo):
+    """What a caption bitmap was made from: its words, the face and size, and where the QML puts it."""
+    blob = json.dumps({"words": caption_text(entry), "px": CAPTION_PX, "edgeX": geo["edgeX"], "safeY": geo["safeY"], "screen": SCREEN, "v": VERSION}, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 def pictures():
     with open(os.path.join(ART, "index.json")) as f:
         doc = json.load(f)
@@ -354,10 +389,15 @@ def cmd_art(a):
             raise SystemExit("%s: expected one key unit then %d others, got %d units" % (entry["id"], frames - 1, len(units)))
         path = os.path.join(a.out, entry["id"] + ".vpc")
         write_vpc(path, a.codec, CANVAS, a.fps, units)
+        cap_path = os.path.join(a.out, entry["id"] + ".vpt")
+        bm = caption_bitmap(entry, geo)
+        write_vpt(cap_path, bm)
         clips.append({"id": entry["id"], "file": entry["id"] + ".vpc", "codec": a.codec, "width": CANVAS[0], "height": CANVAS[1],
                       "fps": a.fps, "units": len(units), "keyBytes": len(units[0][0]), "bytes": os.path.getsize(path), "sha256": sha(path),
-                      "opts": opts, "inputs": inputs_hash(entry, geo, opts)})
-        print("%-20s %6d bytes, key unit %6d, %d units" % (entry["id"], clips[-1]["bytes"], clips[-1]["keyBytes"], len(units)))
+                      "opts": opts, "inputs": inputs_hash(entry, geo, opts),
+                      "caption": {"file": entry["id"] + ".vpt", "bytes": os.path.getsize(cap_path), "sha256": sha(cap_path), "width": bm[0].width,
+                                  "height": bm[0].height, "split": bm[1], "x": bm[2], "y": bm[3], "inputs": caption_inputs(entry, geo)}})
+        print("%-20s %6d bytes, key unit %6d, %d units, caption %dx%d" % (entry["id"], clips[-1]["bytes"], clips[-1]["keyBytes"], len(units), bm[0].width, bm[0].height))
     glyphs = os.path.join(a.out, "clock.vpg")
     write_glyphs(glyphs, geo)
     with open(os.path.join(a.out, "index.json"), "w") as f:
@@ -421,6 +461,24 @@ def check(directory, deep=False):
             bad.append("%s: the print, the composition or the encoder settings changed since this clip was written" % c["id"])
         if deep:
             bad += deep_check(c["id"], v)
+        cap = c.get("caption")
+        if not cap:
+            bad.append("%s: no caption in the index" % c["id"])
+            continue
+        cpath = os.path.join(directory, cap["file"])
+        if not os.path.exists(cpath):
+            bad.append("%s: caption file missing" % c["id"])
+        elif sha(cpath) != cap["sha256"]:
+            bad.append("%s: the caption is not the file the index was written for" % c["id"])
+        else:
+            try:
+                got = read_vpt(cpath)
+                if (got["width"], got["height"], got["x"], got["y"], got["split"]) != (cap["width"], cap["height"], cap["x"], cap["y"], cap["split"]):
+                    bad.append("%s: the caption's size or place differs from the index" % c["id"])
+            except ValueError as e:
+                bad.append("%s: caption: %s" % (c["id"], e))
+        if c["id"] in ids and cap["inputs"] != caption_inputs(ids[c["id"]], geo):
+            bad.append("%s: the caption's words or place changed since it was written" % c["id"])
     try:
         g = read_glyphs(os.path.join(directory, doc["glyphs"]["file"]))
         if sha(os.path.join(directory, doc["glyphs"]["file"])) != doc["glyphs"]["sha256"]:

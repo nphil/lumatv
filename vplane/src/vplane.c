@@ -12,7 +12,7 @@
  *     window is destroyed first, so the screen is the shell's again at once.
  * Nothing here decides anything about the TV beyond that window. docs/research/videoplane-saver-result.md has the design and the TV steps.
  *
- *   lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-m KB]
+ *   lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-m KB] [-W WAKE_CMD]
  *   lumatv-vplane -n [-c CLIPS] [-L NDL_LIB]        probe: resolve the library, read the clips, print one JSON line, exit
  *   lumatv-vplane --once CLIP SECONDS [options]      play one clip for SECONDS with no mailbox (a TV step), then exit
  *   lumatv-vplane --vpc-info FILE                    print a clip's header as JSON
@@ -102,8 +102,11 @@ void vpl_params_default(vpl_params *p) {
     p->twelveHour = 1;
     p->drift = 1;
     p->overlay = 1;
-    p->ink = 0xA8A4B0;
+    p->caption = 1;
+    p->ink = 0xF2EFF6;                    /* theme.json dark.ink and ink2 at the QML's 0.7 opacity: ink2 itself is at alpha A8 */
     p->inkAlpha = 178;
+    p->ink2 = 0xF2EFF6;
+    p->ink2Alpha = 118;
     p->ttlMs = 30000;
 }
 
@@ -126,9 +129,12 @@ static void params_from(vpl_params *p, const char *j, size_t n) {
     p->twelveHour = vj_bool(j, n, "twelveHour", p->twelveHour);
     p->drift = vj_bool(j, n, "drift", p->drift);
     p->overlay = vj_bool(j, n, "overlay", p->overlay);
+    p->caption = vj_bool(j, n, "caption", p->caption);
     char ink[16];
     if (vj_str(j, n, "ink", ink, sizeof ink) == 7 && ink[0] == '#') p->ink = (uint32_t)strtoul(ink + 1, NULL, 16) & 0xFFFFFF;
     p->inkAlpha = clampi(vj_int(j, n, "inkAlpha", p->inkAlpha), 0, 255);
+    if (vj_str(j, n, "ink2", ink, sizeof ink) == 7 && ink[0] == '#') p->ink2 = (uint32_t)strtoul(ink + 1, NULL, 16) & 0xFFFFFF;
+    p->ink2Alpha = clampi(vj_int(j, n, "ink2Alpha", p->ink2Alpha), 0, 255);
     int64_t since = vj_int(j, n, "since", 0);
     if (since > 0) p->sinceMs = since;
     p->ttlMs = clampi(vj_int(j, n, "ttlMs", p->ttlMs), 1000, EVENT_TTL_MAX);
@@ -145,7 +151,7 @@ enum state { ST_IDLE, ST_OPENING, ST_PLAYING, ST_ERROR };
 static const char *const STATE_NAME[] = {"idle", "opening", "playing", "error"};
 
 struct options {
-    const char *dir, *clips, *ndl_lib, *app_id, *window;
+    const char *dir, *clips, *ndl_lib, *app_id, *window, *wake_cmd;
     int export_first, mem_floor_kb, open_timeout_ms;
     const char *once_clip;
     int once_seconds;
@@ -166,6 +172,8 @@ struct player {
     vpl_rng rng;
     vpg_t glyphs;
     int have_glyphs;
+    vpt_t cap;                     /* the caption of the print playing */
+    int have_cap;
 
     /* window and decoder */
     vpl_wl *wl;
@@ -192,6 +200,18 @@ struct player {
     int64_t last_seq;
     char window_id[64];
 };
+
+/* A key or the pointer while the picture is up is the viewer asking for the screen back. The way out is never blocked by this window: it asks
+ * the TV to turn the screen on (what the QML's `Screensaver.key()` does, `tvpower/power/turnOnScreen`; the CLI is the helper's own route to
+ * tvpower) and takes itself away without waiting for the state to change. The command runs detached; its end is not waited for. */
+static void wake(struct player *p) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl("/bin/sh", "sh", "-c", p->o.wake_cmd, (char *)NULL);
+        _exit(127);
+    }
+    if (pid < 0) vpl_say("could not run the wake command: %s", strerror(errno));
+}
 
 static volatile sig_atomic_t g_term;
 static void on_term(int sig) { (void)sig; g_term = 1; }
@@ -280,6 +300,16 @@ static int open_clip(struct player *p, int idx, char *err, size_t cap) {
     p->clip_open = 1;
     p->cur = idx;
     p->unit = 0;
+    if (p->have_cap) {
+        vpt_close(&p->cap);
+        p->have_cap = 0;
+    }
+    snprintf(path, sizeof path, "%s/%s.vpt", p->o.clips, p->names[idx]);
+    char cerr[200];
+    if (access(path, R_OK) == 0) {
+        if (vpt_open(&p->cap, path, cerr, sizeof cerr) == 0) p->have_cap = 1;
+        else vpl_say("no caption: %s", cerr);
+    }
     return 0;
 }
 
@@ -303,6 +333,10 @@ static void drop_everything(struct player *p) {
     if (p->have_glyphs) {
         vpg_close(&p->glyphs);
         p->have_glyphs = 0;
+    }
+    if (p->have_cap) {
+        vpt_close(&p->cap);
+        p->have_cap = 0;
     }
     memset(&p->cv, 0, sizeof p->cv);
     p->window_id[0] = 0;
@@ -337,8 +371,6 @@ static void place_video(struct player *p) {
     if (!p->wl || !p->clip_open) return;
     vpl_wl_video(p->wl, 0, 0, (int)p->clip.width, (int)p->clip.height, p->mx + p->dx, p->my + p->dy, (int)p->clip.width, (int)p->clip.height);
 }
-
-static void draw_clock(struct player *p, int force);
 
 static void begin(struct player *p, const char *req, size_t n) {
     char err[300];
@@ -434,15 +466,29 @@ static int veil_now(struct player *p, int64_t now) {
     return vpl_veil(level_now(p), p->phase, p->phase ? now - p->phase_ms : 0, p->prm.fadeMs);
 }
 
+/* The dim's own veil, without a change of print in it. */
+static int veil_base(struct player *p) { return (int)floor((1.0 - level_now(p)) * 255 + 0.5); }
+
+/* The caption belongs to its print: it fades out as the veil rises to black for a change and in again with the next one. The dim does not
+ * touch it: it stays above the veil, as the QML's caption is above the dimming layer, so its contrast does not fall as the hour goes. */
+static int caption_opacity(struct player *p) {
+    int base = veil_base(p);
+    if (p->veil <= base) return 255;
+    if (base >= 255) return 0;
+    return 255 - ((p->veil - base) * 255 + (255 - base) / 2) / (255 - base);
+}
+
 static void commit_rect(struct player *p, vui_rect r) {
     r = vui_clip(r, &p->cv);
     if (vui_empty(r)) return;
     vpl_wl_commit(p->wl, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
 }
 
-/* The corner clock at its place plus the drift; redrawn when the minute or the drift changed (or `force`). */
-static void draw_clock(struct player *p, int force) {
-    if (!p->wl || !p->prm.overlay || !p->prm.clock || !p->have_glyphs) return;
+/* The corner clock at its place plus the drift: drawn into the buffer (the box it covered is made the veil first), not committed. Returns the
+ * damage, or an empty box when nothing changed and `force` is not set. */
+static vui_rect paint_clock(struct player *p, int force) {
+    vui_rect none = {0, 0, 0, 0};
+    if (!p->wl || !p->prm.overlay || !p->prm.clock || !p->have_glyphs) return none;
     char text[16];
     time_t t = time(NULL);
     struct tm tm;
@@ -451,26 +497,35 @@ static void draw_clock(struct player *p, int force) {
     else vpl_clock_text(text, sizeof text, tm.tm_hour, tm.tm_min, p->prm.twelveHour);
     int right = (int)p->glyphs.right + p->dx, base = (int)p->glyphs.baseline + p->dy;
     vui_rect want = vui_text_rect(&p->glyphs, text, right, base);
-    if (!force && strcmp(text, p->clock_text) == 0 && !memcmp(&want, &p->clock_rect, sizeof want)) return;
+    if (!force && strcmp(text, p->clock_text) == 0 && !memcmp(&want, &p->clock_rect, sizeof want)) return none;
     vui_rect damage = vui_union(p->clock_rect, want);
     vui_fill(&p->cv, p->clock_rect, (uint8_t)p->veil);
-    vui_draw_text(&p->cv, &p->glyphs, text, right, base, p->prm.ink, p->prm.inkAlpha, (uint8_t)p->veil);
+    vui_draw_text(&p->cv, &p->glyphs, text, right, base, p->prm.ink2, p->prm.ink2Alpha, (uint8_t)p->veil);
     snprintf(p->clock_text, sizeof p->clock_text, "%s", text);
     p->clock_rect = want;
-    commit_rect(p, damage);
+    return damage;
+}
+
+static void draw_clock(struct player *p, int force) {
+    vui_rect damage = paint_clock(p, force);
+    if (!vui_empty(damage)) commit_rect(p, damage);
+}
+
+/* Everything the window carries, from the state: the veil, the caption above it, the clock above that; one commit. */
+static void paint_all(struct player *p) {
+    if (!p->wl || !p->prm.overlay) return;
+    vui_fill(&p->cv, (vui_rect){0, 0, SCREEN_W, SCREEN_H}, (uint8_t)p->veil);
+    if (p->prm.caption && p->have_cap)
+        vui_draw_caption(&p->cv, &p->cap, p->dx, p->dy, p->prm.ink, p->prm.inkAlpha, p->prm.ink2, p->prm.ink2Alpha, caption_opacity(p), (uint8_t)p->veil);
+    p->clock_text[0] = 0;               /* the fill wiped the clock: draw it again */
+    p->clock_rect = (vui_rect){0, 0, 0, 0};
+    paint_clock(p, 1);
+    commit_rect(p, (vui_rect){0, 0, SCREEN_W, SCREEN_H});
 }
 
 static void set_veil(struct player *p, int alpha) {
-    if (alpha == p->veil || !p->wl || !p->prm.overlay) {
-        p->veil = alpha;
-        return;
-    }
     p->veil = alpha;
-    vui_fill(&p->cv, (vui_rect){0, 0, SCREEN_W, SCREEN_H}, (uint8_t)alpha);
-    p->clock_text[0] = 0;               /* the fill wiped it: draw it again */
-    p->clock_rect = (vui_rect){0, 0, 0, 0};
-    draw_clock(p, 1);
-    commit_rect(p, (vui_rect){0, 0, SCREEN_W, SCREEN_H});
+    paint_all(p);
 }
 
 /* ---- the main loop's steps ----------------------------------------------------------------------------------------------- */
@@ -540,6 +595,7 @@ static void switch_print(struct player *p) {
     if (next >= 0 && open_clip(p, next, err, sizeof err) == 0) {
         p->order.current = next;
         vpl_say("print: %s", p->names[next]);
+        paint_all(p);                                             /* the new print's caption */
     } else {
         vpl_say("the next print was not taken, the same one stays: %s", err);
     }
@@ -583,7 +639,7 @@ static void step_drift(struct player *p, int64_t now) {
     p->dx = dx;
     p->dy = dy;
     place_video(p);
-    draw_clock(p, 0);
+    paint_all(p);                                                 /* the caption and the clock move with the picture */
 }
 
 static void handle_request(struct player *p, const char *req, size_t n) {
@@ -611,7 +667,7 @@ static void handle_request(struct player *p, const char *req, size_t n) {
         if (p->st == ST_PLAYING || p->st == ST_OPENING) {
             params_from(&p->prm, req, n);
             p->ttl_ms = vpl_ms() + p->prm.ttlMs;
-            draw_clock(p, 1);
+            paint_all(p);
         }
     } else if (!strcmp(op, "renew")) {
         if (p->st == ST_PLAYING || p->st == ST_OPENING) p->ttl_ms = vpl_ms() + ttl;
@@ -717,6 +773,12 @@ static int run(struct player *p) {
                 if (p->once_end_ms) break;
                 continue;
             }
+            if (p->wl && vpl_wl_activity(p->wl)) {
+                wake(p);
+                to_idle(p, "a key or the pointer: the screen was asked for");
+                if (p->once_end_ms) break;
+                continue;
+            }
         }
         if (p->ndl_ready) {
             drain_events(p);
@@ -733,7 +795,7 @@ static int run(struct player *p) {
                 p->playing_ms = now;
                 p->reason[0] = 0;
                 vpl_say("playing: %s", p->names[p->cur]);
-                draw_clock(p, 1);
+                paint_all(p);
                 write_status(p);
             } else if (p->st == ST_OPENING && now - p->open_ms > p->o.open_timeout_ms) {
                 to_error(p, p->ev_loaded ? "no playing event after the load" : "the pipeline did not load");
@@ -848,7 +910,8 @@ int main(int argc, char **argv) {
     static struct player p;
     p.o = (struct options){.dir = getenv("LUMATV_VPLANE_DIR") ? getenv("LUMATV_VPLANE_DIR") : "/tmp/lumatv-vplane",
                            .clips = getenv("LUMATV_VPLANE_CLIPS") ? getenv("LUMATV_VPLANE_CLIPS") : "/var/lib/lumatv/vplane/clips",
-                           .app_id = "org.nphil.lumatv.vplane", .window = "screensaver", .export_first = 1, .mem_floor_kb = 100 * 1024, .open_timeout_ms = 8000};
+                           .app_id = "org.nphil.lumatv.vplane", .window = "screensaver", .export_first = 1, .mem_floor_kb = 100 * 1024, .open_timeout_ms = 8000,
+                           .wake_cmd = "luna-send -n 1 luna://com.webos.service.tvpower/power/turnOnScreen '{}'"};
     int do_probe = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -860,6 +923,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-m") && i + 1 < argc) p.o.mem_floor_kb = atoi(argv[++i]);
         else if (!strcmp(a, "-e") && i + 1 < argc) p.o.export_first = !strcmp(argv[++i], "first");
         else if (!strcmp(a, "-o") && i + 1 < argc) p.o.open_timeout_ms = atoi(argv[++i]);
+        else if (!strcmp(a, "-W") && i + 1 < argc) p.o.wake_cmd = argv[++i];
         else if (!strcmp(a, "-n")) do_probe = 1;
         else if (!strcmp(a, "--vpc-info") && i + 1 < argc) return vpc_info(argv[i + 1]);
         else if (!strcmp(a, "--calc")) return calc(argc - i - 1, argv + i + 1);
@@ -868,7 +932,7 @@ int main(int argc, char **argv) {
             p.o.once_seconds = atoi(argv[i + 2]);
             i += 2;
         } else {
-            fprintf(stderr, "usage: lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-m MEMFLOOR_KB] [-e first|after]\n"
+            fprintf(stderr, "usage: lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-m MEMFLOOR_KB] [-e first|after] [-o OPEN_MS] [-W WAKE_CMD]\n"
                             "       lumatv-vplane -n | --once CLIP SECONDS | --vpc-info FILE | --calc WHAT ARGS...\n");
             return 2;
         }
@@ -879,6 +943,7 @@ int main(int argc, char **argv) {
     }
     if (do_probe) return probe(&p);
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGCHLD, SIG_IGN);              /* the wake command is not waited for */
     struct sigaction sa = {.sa_handler = on_term};
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);

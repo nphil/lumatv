@@ -60,7 +60,7 @@ class Numbers(unittest.TestCase):
         self.assertEqual((geo["safeX"], geo["safeY"], geo["edgeX"]), (96, 54, 64))
         theme = load(os.path.join(ROOT, "payload", "theme", "theme.json"))
         self.assertEqual(geo["artLevel"], theme["screensaver"]["artLevel"])
-        self.assertEqual(geo["ink"], theme["dark"]["ink"])
+        self.assertNotIn("ink", geo, "the inks are the request's, so a change of palette does not ask for new clips")
 
     def test_the_picture_has_room_for_the_shift_the_qml_makes(self):
         d = vc.drift_numbers()
@@ -118,22 +118,117 @@ class Picture(unittest.TestCase):
         # the print itself is not the matte
         self.assertNotEqual(self.img.getpixel((cx, cy)), self.img.getpixel((mx, cy)))
 
-    def test_the_caption_is_baked_in_at_the_corner_inside_the_safe_margin(self):
+    def test_there_is_no_text_in_the_picture(self):
+        # the dim is a veil over the picture, and text under a veil would dim with it: the caption and the clock are the player's, above it
         g = self.geo
         mx, my = (vc.SCREEN[0] - vc.CANVAS[0]) // 2, (vc.SCREEN[1] - vc.CANVAS[1]) // 2
         x0, x1 = g["edgeX"] - mx, g["edgeX"] - mx + 300
         y1 = vc.SCREEN[1] - g["safeY"] - my
-        lit = [(x, y) for x in range(x0, x1) for y in range(y1 - 40, y1) if max(self.img.getpixel((x, y))) > 60]
-        self.assertGreater(len(lit), 300, "text pixels at the bottom left")
-        self.assertTrue(all(y <= y1 for _, y in lit))
-        right = [(x, y) for x in range(vc.CANVAS[0] - 300, vc.CANVAS[0] - 60) for y in range(y1 - 40, y1) if max(self.img.getpixel((x, y))) > 60]
-        self.assertEqual(right, [], "the clock is not baked in: it changes every minute, the player draws it")
+        brightest = max(max(self.img.getpixel((x, y))) for x in range(x0, x1) for y in range(y1 - 40, y1))
+        self.assertLess(brightest, 30, "the corner is the dark wall")
+        right = max(max(self.img.getpixel((x, y))) for x in range(vc.CANVAS[0] - 300, vc.CANVAS[0] - 60) for y in range(y1 - 40, y1))
+        self.assertLess(right, 30)
 
-    def test_the_art_level_is_applied_to_the_pieces_and_not_to_the_caption(self):
-        # the brightest point of the matte is the art level of its colour; the caption's ink is brighter than that colour's dimmed ink would be
+    def test_the_art_level_is_applied_to_the_pieces(self):
         g = self.geo
         matte = max(vc.hexrgb(g["matteColor"])[0])
         self.assertLessEqual(max(self.img.getpixel((vc.CANVAS[0] // 2 - 440, vc.CANVAS[1] // 2))), round(matte * g["artLevel"]) + 1)
+
+
+@unittest.skipUnless(HAVE_PIL, "needs Pillow")
+class Caption(unittest.TestCase):
+    """The caption as a coverage bitmap, and what it reads against once it is on the screen."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.geo = vc.geometry()
+        cls.prints = vc.pictures()
+
+    def test_the_words_are_the_qmls(self):
+        e = next(p for p in self.prints if p["id"] == "great-wave")
+        artist, rest = vc.caption_text(e)
+        self.assertEqual(artist, "Katsushika Hokusai")
+        self.assertEqual(rest, " \u00b7 Under the Wave off Kanagawa, about 1831 \u00b7 Public domain")
+        src = read(os.path.join(QML, "panels", "Screensaver.qml")).decode()
+        self.assertIn("meta.artist", src)
+        self.assertRegex(src, r"meta\.title \+ \", \" \+ saver\.art\.shown\.meta\.year|meta\.title \+ \", \" \+ art\.shown\.meta\.year")
+
+    def test_the_bitmap_sits_where_the_qml_puts_the_text(self):
+        for e in self.prints:
+            im, split, x, y = vc.caption_bitmap(e, self.geo)
+            self.assertEqual(x, self.geo["edgeX"])
+            self.assertLessEqual(y + im.height, vc.SCREEN[1] - self.geo["safeY"] + 1, e["id"])
+            self.assertGreater(y + im.height, vc.SCREEN[1] - self.geo["safeY"] - 6, e["id"])
+            self.assertTrue(0 < split < im.width)
+            self.assertLess(x + im.width, 1100, "%s: far from the clock at the other corner (%d px)" % (e["id"], x + im.width))
+            self.assertGreater(sum(im.tobytes()), 255 * 400)
+
+    def test_the_file_reads_back(self):
+        e = next(p for p in self.prints if p["id"] == "starry-night")
+        bm = vc.caption_bitmap(e, self.geo)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "a.vpt")
+            vc.write_vpt(path, bm)
+            got = vc.read_vpt(path)
+            self.assertEqual((got["width"], got["height"], got["x"], got["y"], got["split"]), (bm[0].width, bm[0].height, bm[2], bm[3], bm[1]))
+            self.assertEqual(got["alpha"], bm[0].tobytes())
+            write(path, read(path)[:-3])
+            with self.assertRaises(ValueError):
+                vc.read_vpt(path)
+
+    def test_the_caption_reads_against_the_wall_at_the_deepest_dim_at_the_contrast_lucent_asks(self):
+        """Lucent: contrast is measured on the composited picture, 4.5:1 for text and 3:1 for large text (24 px at weight 500 is large). The caption
+        sits above the dimming veil, so the dim does not reach it; the wall under it is dimmed, which only helps. The ink and alpha are the QML's."""
+        theme = load(os.path.join(ROOT, "payload", "theme", "theme.json"))
+        ink, a1 = vc.hexrgb(theme["dark"]["ink"])
+        ink2, a2 = vc.hexrgb(theme["dark"]["ink2"])
+        wall = tuple(round(v * self.geo["artLevel"]) for v in vc.wall_color(self.geo, 1000))
+
+        def lin(c):
+            c /= 255.0
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        def lum(rgb):
+            r, g, b = (lin(c) for c in rgb)
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+        def contrast(a, b):
+            la, lb = sorted((lum(a), lum(b)), reverse=True)
+            return (la + 0.05) / (lb + 0.05)
+
+        def over(fg, alpha, bg):
+            return tuple(round(fg[i] * alpha + bg[i] * (1 - alpha)) for i in range(3))
+
+        for level in (1.0, 0.6):
+            veiled = tuple(round(v * level) for v in wall)          # the veil darkens the picture, not the text
+            artist = over(ink, 0.7 * a1, veiled)
+            rest = over(ink2, 0.7 * a2, veiled)
+            clock = over(ink2, 0.7 * a2, veiled)
+            self.assertGreaterEqual(contrast(artist, veiled), 4.5, "the artist's name at level %s" % level)
+            self.assertGreaterEqual(contrast(rest, veiled), 3.0, "the rest of the caption, large text, at level %s" % level)
+            self.assertGreaterEqual(contrast(clock, veiled), 3.0, "the clock (32 px) at level %s" % level)
+        # the number the QML's own caption has (it too is above the dim): the same ink over the same wall
+        self.assertGreater(contrast(over(ink2, 0.7 * a2, wall), wall), 4.0)
+
+    def test_baked_text_would_not_have_read_at_the_deepest_dim(self):
+        """Why the caption is not in the picture: under the veil at level 0.6 the rest of the caption falls below 3:1."""
+        theme = load(os.path.join(ROOT, "payload", "theme", "theme.json"))
+        ink2, a2 = vc.hexrgb(theme["dark"]["ink2"])
+        wall = tuple(round(v * self.geo["artLevel"]) for v in vc.wall_color(self.geo, 1000))
+
+        def lin(c):
+            c /= 255.0
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        def lum(rgb):
+            r, g, b = (lin(c) for c in rgb)
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+        level = theme["screensaver"]["dimTo"]
+        text = tuple(round((ink2[i] * 0.7 * a2 + wall[i] * (1 - 0.7 * a2)) * level) for i in range(3))
+        veiled = tuple(round(v * level) for v in wall)
+        la, lb = sorted((lum(text), lum(veiled)), reverse=True)
+        self.assertLess((la + 0.05) / (lb + 0.05), 3.0)
 
 
 class Container(unittest.TestCase):
@@ -210,10 +305,12 @@ class Shipped(unittest.TestCase):
         prints = {p["id"] for p in vc.pictures()}
         self.assertEqual({c["id"] for c in doc["clips"]}, prints)
         self.assertEqual(len(prints), 6)
-        total = sum(c["bytes"] for c in doc["clips"])
+        total = sum(c["bytes"] + c["caption"]["bytes"] for c in doc["clips"])
         self.assertLess(total, 3_000_000, "the clips add under 3 MB to the package: %d" % total)
         for c in doc["clips"]:
             self.assertLess(c["bytes"], 600_000, c["id"])
+            self.assertTrue(os.path.exists(os.path.join(SHIPPED, c["caption"]["file"])), c["id"])
+            self.assertLess(c["caption"]["bytes"], 60_000, c["id"])
             self.assertEqual(c["fps"], 60)
             self.assertEqual(c["units"], 120)
             self.assertEqual(c["sha256"], hashlib.sha256(read(os.path.join(SHIPPED, c["file"]))).hexdigest())
@@ -250,6 +347,11 @@ class Shipped(unittest.TestCase):
             self.assertTrue(any("great-wave: not the file" in b for b in vc.check(d)))
             os.unlink(path)
             self.assertTrue(any("great-wave: file missing" in b for b in vc.check(d)))
+            cap = os.path.join(d, "starry-night.vpt")
+            write(cap, read(cap)[:-5])
+            self.assertTrue(any("starry-night: the caption is not the file" in b for b in vc.check(d)))
+            os.unlink(cap)
+            self.assertTrue(any("starry-night: caption file missing" in b for b in vc.check(d)))
             os.unlink(os.path.join(d, "index.json"))
             self.assertEqual(len(vc.check(d)), 1)
 
