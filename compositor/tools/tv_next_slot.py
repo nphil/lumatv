@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(repo, "docs", "research", "arch"))
 import tv
 import tv_gate
 
-TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv"
+TOOL = tv_gate.LUMATV_TOOL
 F = os.path.join(here, "tv-first-light.sh")
 # The frame rule (PLAN, C4): nothing the compositor logs over this many milliseconds, which is a frame the panel missed.
 GAP_LIMIT_MS = 20.0
@@ -185,9 +185,11 @@ def main():
     finally:
         # 5. End state.
         print(tv_gate.pty("sh /tmp/lumatv/cutover.sh status", 60))
-        if stub_off_for_session:
+        if stub_on:
+            # What the slot did to the stub (off for the session, or its own hold-Home fallback tripped by the gate's Home holds) is undone:
+            # it goes back to what the preflight found.
             print(tv_gate.pty(TOOL + " homestub on", 120))
-            note("home stub back on")
+            note("home stub back on: " + tv_gate.homestub_status())
         tv_gate.avr_mute(False)
         if not a.no_standby:
             tv_gate.pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/powerOff '{\"reason\":\"remoteKey\"}'", 20)

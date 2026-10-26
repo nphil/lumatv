@@ -6,14 +6,15 @@ in its own QML (gear, Input, the app keys, Quick Access digits, Mute held, Exit;
 
 ## Resume here
 
-State (2026-10-26): built, committed and host-tested (safety timer aa3a2eb, key routing 21b6013, keyboard path 83faf05, gate checks
-d2afb2b, overlay-aware checks 840a0c0). First TV run (Main, 15:33): `live` PASS; `keys`: Input, Netflix button, digit tap and hold,
-Exit OK, gear FAIL; `ime` FAIL. Both failures were in the checks, not the routing: LG's Settings and Search are overlay windows, which
-SAM never names as the foreground app, and the checks waited for SAM to name them ("First TV run" below); they now look for a mapped
-window of the app in `ctl windows`. Home as LG's `RF_HOME` 773 is now Home in the compositor and in the supervisor's hold-Home escape
-(05f572e; Main's decision, "Key codes"), and the `escape`, `homeheld` and `homekey` checks hold 773. Next: re-run
-`sh compositor/tools/tv-first-light.sh gate --only homeheld,keys,ime,homekey,escape` (deploy and `cutover install` first: the bundle changed).
-The TV is not touched by this work.
+State (2026-10-26): step 1 is done: built, committed, host-tested and passed on the TV (safety timer aa3a2eb, key routing 21b6013,
+keyboard path 83faf05, gate checks d2afb2b, overlay-aware checks 840a0c0, Home 773 05f572e, Home stub put back, the commit after
+33196a8). Second TV run (Main, 16:00-16:05): `homeheld`, `live`, `keys`, `ime`, `homekey` and `escape` all PASS ("Second TV run"
+below). The first run (15:33) had failed `keys` (gear) and `ime` in the checks, not the routing: LG's Settings and Search are overlay
+windows, which SAM never names as the foreground app. One end-state gap of the second run: the Home holds of `homekey` and `escape`
+also trip the Home stub's own hold-Home fallback, which left the stub at state `lg` (one fault, not mounted) where the run had found
+`stub`; `tv_gate.py` and `tv_next_slot.py` now read `homestub status` first and, after `cutover.sh disable`, run `lumatv homestub on`
+when it was `stub` and print the status. Open: the codes of the Disney+ and LG Channels buttons, and Netflix 1037 and Prime Video 1038
+from the physical remote ("Key codes"). The TV is not touched by this work.
 
 ## What was built
 
@@ -147,6 +148,16 @@ it bound `input_method`, made three surfaces (two of them the keyboard's by `inp
 Keyboard, 1920x438 at (0, 642), y plus h 1080. The compositor offers `text_model_factory` 1, `input_method` 2 and `input_panel` 1 (LG's
 versions) and the journal's bind line names the version the input method took. Typing on the keyboard and closing it were not
 reached in that run.
+
+## Second TV run (Main, 2026-10-26 16:00-16:05)
+
+All PASS. `homeheld`: exit 0 while the virtual remote held 773, exit 1 after the release. `keys`: all six steps ok (key table gear=139,
+input=241, netflix=1037, amazon=1038; no unnamed key). `ime`: Search's keyboard came up by itself (0 OK presses) and MaliitServer, not
+running before, bound `input_method` as version 1; `typed 3` (1 commit, 2 preedits) with 4 keys through the grab, and Back took the
+panel off the screen (`grabbing` false after). The panel was 1920x1080 at (0, 0): the Search app's keyboard is drawn at the top of a
+full-screen maliit window (`ime.png`), where the first run's was 1920x438 at (0, 642). `homekey`: unmounted after 10 s with `fallback:
+hold Home 650 ms (supervisor)`, failures 0 to 0, SAM untouched. `escape`: `fallback: hold Home 650 ms`, LG's Home back after 15 s, SAM
+untouched. End state: the Home stub was at `lg` (faults 1, not mounted) instead of `stub`; Main restored it with `lumatv homestub on`.
 
 ## Safety timer
 

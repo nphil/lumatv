@@ -1123,18 +1123,23 @@ class GateDriver(unittest.TestCase):
         text = read(os.path.join(ROOT, "compositor", "firmware", "verified.list"))
         self.assertEqual([l for l in text.splitlines() if l and not l.startswith("#")], [])
 
-    def run_main(self, pty_answers=None, argv=(), passed=True):
+    def run_main(self, pty_answers=None, argv=(), passed=True, stub_status="", crash_on=None):
         """main() with every call to the set recorded and answered: returns (calls, exit code, the repo list's text)."""
         g = self.gate
         calls = []
-        repo = os.path.join(self.tmp.name, "repo", "compositor", "tools")
-        os.makedirs(os.path.join(self.tmp.name, "repo", "docs", "research", "compositor"))
+        base = tempfile.mkdtemp(dir=self.tmp.name)
+        repo = os.path.join(base, "repo", "compositor", "tools")
+        os.makedirs(os.path.join(base, "repo", "docs", "research", "compositor"))
         os.makedirs(repo)
-        lst = os.path.join(self.tmp.name, "repo", "compositor", "firmware", "verified.list")
+        lst = os.path.join(base, "repo", "compositor", "firmware", "verified.list")
         write(lst, "# list\n")
 
         def pty(cmd, timeout=600):
             calls.append(cmd)
+            if crash_on and crash_on in cmd:
+                raise RuntimeError("the connection to the set dropped")
+            if "homestub status" in cmd:
+                return stub_status
             if (pty_answers or {}).get(cmd.split("/tmp/lumatv/")[-1]) is not None:
                 return pty_answers[cmd.split("/tmp/lumatv/")[-1]]
             parts = cmd.split()
@@ -1156,9 +1161,9 @@ class GateDriver(unittest.TestCase):
         g.here = repo
         with mock.patch.object(sys, "argv", ["tv_gate.py", *argv]), mock.patch.object(g.time, "sleep"), mock.patch.object(g.os, "system"), \
                 mock.patch("builtins.print"):
-            with self.assertRaises(SystemExit) as ex:
+            with self.assertRaises((SystemExit, RuntimeError)) as ex:
                 g.main()
-        return calls, ex.exception.code, read(lst)
+        return calls, getattr(ex.exception, "code", None), read(lst)
 
     def checks(self, calls):
         out = []
@@ -1219,6 +1224,38 @@ class GateDriver(unittest.TestCase):
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["homeheld", "cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence",
                           "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "escape", "cutover disable"])
+
+    STUB_ON = '{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}'
+
+    def stub_calls(self, calls):
+        tool = self.gate.LUMATV_TOOL
+        status = [i for i, c in enumerate(calls) if c.startswith(tool + " homestub status")]
+        on = [i for i, c in enumerate(calls) if c == tool + " homestub on"]
+        sessions = [i for i, c in enumerate(calls) if "cutover.sh enable" in c]
+        disables = [i for i, c in enumerate(calls) if c.endswith("cutover.sh disable")]
+        return status, on, sessions, disables
+
+    def test_a_home_stub_that_was_on_is_put_back_after_the_last_disable_and_its_status_printed(self):
+        calls, code, _ = self.run_main(argv=["--only", "homekey,escape"], stub_status=self.STUB_ON)
+        status, on, sessions, disables = self.stub_calls(calls)
+        self.assertEqual((len(status), len(on), len(disables)), (2, 1, 1), calls)
+        self.assertLess(status[0], sessions[0], "the stub's state is read before the first session")
+        self.assertLess(disables[0], on[0], "LG's compositor is back before the stub is")
+        self.assertLess(on[0], status[1], "its status is read after it is put back")
+        self.assertEqual(calls[-2:], [self.gate.LUMATV_TOOL + " homestub on", self.gate.LUMATV_TOOL + " homestub status 2>&1 | head -3"])
+
+    def test_the_stub_is_put_back_when_a_check_dies_too(self):
+        calls, code, _ = self.run_main(argv=["--only", "keys"], stub_status=self.STUB_ON, crash_on="gate.sh keys")
+        status, on, sessions, disables = self.stub_calls(calls)
+        self.assertEqual((len(on), len(disables)), (1, 1), calls)
+        self.assertLess(disables[0], on[0])
+
+    def test_a_stub_that_was_off_or_had_already_given_lgs_home_back_is_left_as_found(self):
+        for status_text in ('{"config":true,"state":"lg","mounted":false,"faults":1}', '{"config":false,"state":"off"}', ""):
+            with self.subTest(status_text):
+                calls, code, _ = self.run_main(argv=["--only", "keys"], stub_status=status_text)
+                status, on, sessions, disables = self.stub_calls(calls)
+                self.assertEqual((len(status), len(on)), (1, 0), calls)
 
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
@@ -1313,6 +1350,39 @@ class Slot(unittest.TestCase):
         self.assertEqual(self.slot.over_limit("[srv 1.0] info kms: page-flip stamp 16.70 ms after the last (one refresh is 16.67)"), [])
         idle = "[srv 1.0] info kms: page-flip interval 33.37 ms, nothing due at the refresh between (one refresh is 16.67)"
         self.assertEqual(self.slot.over_limit(idle), [], "a refresh with nothing new to show is no frame missed")
+
+    def run_slot(self, stub, guard="1"):
+        """main() of the slot with the set answered: the commands it sent through pty, in order, and the summary it wrote."""
+        slot, calls, tmp = self.slot, [], tempfile.mkdtemp()
+        slot.repo = tmp
+        slot.TOOL = "TOOL"
+        slot.tv_gate.wake.return_value = True
+        slot.tv.tv.return_value = "none\n0\n/usr/bin/surface-manager\n%s\n%s" % (guard, stub)
+        slot.tv_gate.pty = lambda cmd, timeout=600: calls.append(cmd) or ""
+        slot.tv_gate.homestub_status = lambda: "STATUS-AFTER"
+        slot.sh = lambda *args, timeout=900: (0, "firmware: verified\nprobe: 12 allowed, 0 refused\ntrial evidence: ok\n")
+        slot.fetch = lambda *args: None
+        with mock.patch.object(sys, "argv", ["tv_next_slot.py", "--skip-gate", "--no-standby"]), mock.patch("builtins.print"):
+            slot.main()
+        root = os.path.join(tmp, "docs", "research", "compositor")
+        summary = read(os.path.join(root, os.listdir(root)[0], "summary.txt"))
+        shutil.rmtree(tmp)
+        return calls, summary
+
+    def test_a_home_stub_that_was_on_is_put_back_after_the_slot_whatever_the_gate_did_to_it(self):
+        calls, summary = self.run_slot(GateDriver.STUB_ON)
+        self.assertEqual([c for c in calls if "homestub" in c], ["TOOL homestub on"])
+        self.assertLess(calls.index("sh /tmp/lumatv/cutover.sh status"), calls.index("TOOL homestub on"))
+        self.assertIn("home stub back on: STATUS-AFTER", summary)
+
+    def test_a_stub_the_slot_turned_off_for_the_session_is_turned_on_again_at_the_end(self):
+        calls, summary = self.run_slot(GateDriver.STUB_ON, guard="0")
+        self.assertEqual([c for c in calls if "homestub" in c], ["TOOL homestub off", "TOOL homestub on"])
+
+    def test_a_stub_that_was_not_on_is_not_touched(self):
+        calls, summary = self.run_slot('{"config":true,"state":"lg","mounted":false,"faults":1}')
+        self.assertEqual([c for c in calls if "homestub" in c], [])
+        self.assertNotIn("home stub back on", summary)
 
 
 class VirtualRemote(unittest.TestCase):

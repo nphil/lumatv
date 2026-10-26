@@ -29,6 +29,8 @@ HA = "http://192.168.1.146"
 AVR = "media_player.living_room_avr"
 VERIFIED_LIST = os.path.join(here, "..", "firmware", "verified.list")
 LIBRARY = os.path.join(here, "..", "..", "tools", "compositor.sh")
+# lumatv's own tool on the set (`homestub on|off|status`).
+LUMATV_TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv"
 
 # Minutes a session may live before the set ends it (--max-minutes). The first session (live, volume, x1's 60 s, netflix,
 # hdmi, standby and wake, then the key and keyboard checks) ran 4 minutes in the gate of 2026-10-26 (supervisor starts
@@ -69,6 +71,14 @@ def avr_mute(on):
         print("avr: %s" % ("muted" if on else "unmuted"))
     except Exception as e:
         print("avr mute %s failed: %s" % (on, e))
+
+def homestub_status():
+    """What `lumatv homestub status` prints: `"state":"stub"` while the Home stub is mounted and guarding Home, `"state":"lg"` after a
+    fault gave LG's Home back."""
+    return pty("%s homestub status 2>&1 | head -3" % LUMATV_TOOL, 60).strip()
+
+def homestub_is_on(status):
+    return '"state":"stub"' in status
 
 def avr_volume():
     try:
@@ -224,6 +234,11 @@ def main():
         step("live", "sh /tmp/lumatv/gate.sh live%s" % (" " + label if label else ""))
     if not wake():
         sys.exit("the set does not answer; nothing was changed")
+    # The Home stub as the run finds it. The Home holds of the escape checks are also what LG's compositor's stub watches for: its own
+    # hold-Home fallback gives LG's Home back (state lg, one fault), so the run puts the stub back at its end.
+    stub_before = homestub_status()
+    stub_was_on = homestub_is_on(stub_before)
+    print("home stub before the run: %s" % stub_before)
     avr_mute(True)
     try:
         # Not live yet: the firmware check on the set's own files, and the supervisor's question about a held Home key.
@@ -276,6 +291,12 @@ def main():
         # start of LumaTV's compositor truncates it.
         tv.tv("cp /var/lib/lumatv/compositor/compositor.log /tmp/lumatv/out/gate/compositor-final.log; cp /var/lib/lumatv/compositor/sm.log /tmp/lumatv/out/gate/sm-final.log")
         avr_mute(False)
+        if stub_was_on:
+            try:
+                print(pty("%s homestub on" % LUMATV_TOOL, 120))
+                print("home stub after the run: %s" % homestub_status())
+            except Exception as e:
+                print("home stub on failed: %s" % e)
     ok = all_passed(lines)
     print("\n".join(lines))
     print("GATE: %s" % ("PASS" if ok else "FAIL"))
