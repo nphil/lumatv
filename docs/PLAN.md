@@ -1157,6 +1157,14 @@ what it already does.
   LG's Settings app is switched off once LumaTV's pages pass on the set (the
   emergency "Open LG Settings" row stays); the GeForce NOW app is started on
   the workstation in parallel with finishing LumaTV.
+- Frame-rate matching (Nitin, 2026-10-25): every video plays at its own rate
+  with no judder. Measure first: LG's display engine already picks its output
+  rate for decoded video (50, 60 or 48, and 120 Hz HFR; `_vsc_check_fr`,
+  `docs/research/gfn-444-vrr-result.md`), so apps on LG's decoder may match
+  already [INFERENCE]. The check plays 23.976 to 59.94 fps clips in Plex,
+  YouTube, Netflix and HDMI 2 on both compositors and reads the panel rate;
+  LumaTV's compositor must keep whatever LG's does. HDMI sources match only
+  if the source sends the native rate (Apple TV: Match Frame Rate).
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
