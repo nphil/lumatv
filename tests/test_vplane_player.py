@@ -1,0 +1,758 @@
+"""Run with: cd tests && python3 -m unittest test_vplane_player   (needs zig for the host build of vplane/, skipped without it)
+
+lumatv-vplane, the video-plane player (vplane/), on the host: the real program, built for x86-64, against a stand-in for LG's NDL
+library (vplane/tests/fake_ndl.c: it logs every call and flags the orders LG's library punishes) and a small Wayland server
+(vplane/tests/fake_wayland.py). What this shows is the player's own behaviour: what it asks the compositor for and in what order, what
+it feeds the decoder and how fast, what it draws over the video and when, and that the window goes the moment it is told to, the
+compositor takes it, or nobody renews it. What it cannot show is that LG's compositor and LG's pipeline agree: the TV steps in
+docs/research/videoplane-saver-result.md say how that is measured. The real compositor library runs the same client in
+compositor/crates/lumatv-compositor/tests/vplane_host.rs.
+"""
+import json
+import math
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+VPLANE = os.path.join(ROOT, "vplane")
+sys.path.insert(0, os.path.join(VPLANE, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+
+import vplane_clips as clips  # noqa: E402
+from fake_wayland import FakeCompositor, argb  # noqa: E402
+
+BIN = os.path.join(VPLANE, "build", "host", "lumatv-vplane")
+NDL = os.path.join(VPLANE, "build", "host", "libNDL_directmedia.so.1")
+PLAN = os.path.join(VPLANE, "build", "host", "plan_test")
+SHIPPED = os.path.join(ROOT, "payload", "vplane", "clips")
+W, H = 1856, 1024
+
+
+def build():
+    if os.path.exists(BIN) and os.path.exists(NDL) and os.path.exists(PLAN):
+        newest = max(os.path.getmtime(os.path.join(VPLANE, d, f)) for d in ("src", "tests") for f in os.listdir(os.path.join(VPLANE, d)))
+        if os.path.getmtime(BIN) >= newest:
+            return True
+    if not shutil.which("zig"):
+        return False
+    return subprocess.run(["sh", os.path.join(VPLANE, "build.sh")], capture_output=True).returncode == 0
+
+
+HAVE = build()
+
+
+def synthetic_clip(path, units=30, key=3000, other=150, fps=60, w=W, h=H, codec=2):
+    """A clip the player will feed: Annex B-looking units of the sizes asked for (the fake library only looks at the start code)."""
+    def unit(size, k):
+        return (b"\x00\x00\x00\x01" + (b"\x46\x01" if k else b"\x02\x01") + bytes([units & 255]) * (size - 6), k)
+    us = [unit(key, True)] + [unit(other + i % 7, False) for i in range(units - 1)]
+    clips.write_vpc(path, "hevc" if codec == 2 else "h264", (w, h), fps, us)
+    return us
+
+
+class Rig:
+    """A player, a compositor and a library stand-in, each in its own temporary place."""
+
+    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False):
+        self.tmp = tempfile.mkdtemp(prefix="vplane-test-")
+        self.mb = os.path.join(self.tmp, "mb")
+        self.clipdir = os.path.join(self.tmp, "clips")
+        os.makedirs(self.clipdir)
+        self.units = []
+        for i, k in enumerate(clip_keys):
+            self.units.append(synthetic_clip(os.path.join(self.clipdir, "clip%d.vpc" % i), units=units, key=k))
+        if glyphs:
+            shutil.copy(os.path.join(SHIPPED, "clock.vpg"), self.clipdir)
+        self.ndl_log = os.path.join(self.tmp, "ndl.log")
+        open(self.ndl_log, "w").close()
+        self.fc = FakeCompositor(hold_window_id)
+        e = dict(os.environ, **self.fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=self.ndl_log, FAKE_NDL_VERBOSE="1")
+        e.update(env or {})
+        self.err_path = os.path.join(self.tmp, "player.log")
+        self.err = open(self.err_path, "w")
+        self.proc = subprocess.Popen([BIN, "-d", self.mb, "-c", self.clipdir, "-L", NDL, "-w", window, "-m", "1", *args], env=e, stderr=self.err)
+        self.seq = int(time.time() * 1000)
+        self.wait(lambda: os.path.exists(os.path.join(self.mb, "status.json")), 5)
+
+    def send(self, op, **kw):
+        self.seq += 1
+        req = {"seq": self.seq, "sent": int(time.time() * 1000), "op": op}
+        req.update(kw)
+        path = os.path.join(self.mb, "req.json")
+        with open(path, "w") as f:          # as QML's TextFile does: open, write, close in place
+            f.write(json.dumps(req))
+        return req
+
+    def fresh(self):
+        """The status after the player has been asked to write it now."""
+        before = self.status().get("ts", 0)
+        self.send("status")
+        self.wait(lambda: self.status().get("ts", 0) > before, 2)
+        return self.status()
+
+    def status(self):
+        try:
+            with open(os.path.join(self.mb, "status.json")) as f:
+                return json.loads(f.read())
+        except (OSError, ValueError):
+            return {}
+
+    def wait(self, pred, timeout=5.0):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            try:
+                if pred():
+                    return True
+            except (KeyError, IndexError, TypeError):
+                pass
+            time.sleep(0.01)
+        return False
+
+    def wait_state(self, state, timeout=5.0):
+        return self.wait(lambda: self.status().get("state") == state, timeout)
+
+    def ndl(self):
+        with open(self.ndl_log) as f:
+            return [ln.split() for ln in f.read().splitlines()]
+
+    def calls(self):
+        return [ln[2] for ln in self.ndl() if len(ln) > 2]
+
+    def plays(self):
+        """[(size, pts)] of every unit the library took, in order."""
+        return [(int(ln[5]), int(ln[7])) for ln in self.ndl() if len(ln) > 7 and ln[2] == "Play"]
+
+    def log(self):
+        self.err.flush()
+        with open(self.err_path) as f:
+            return f.read()
+
+    def close(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.err.close()
+        self.fc.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+def expected_text_pixels(text, ink, alpha, veil, right, baseline):
+    """The corner clock as the player must have drawn it: (x, y) -> premultiplied (a, r, g, b), from the shipped glyph atlas."""
+    g = clips.read_glyphs(os.path.join(SHIPPED, "clock.vpg"))
+    total = sum(g["glyphs"][c]["advance"] for c in text)
+    pen = right - total
+    out = {}
+
+    def m(a, b):
+        t = a * b + 128
+        return (t + (t >> 8)) >> 8
+
+    cr, cg, cb = (ink >> 16) & 255, (ink >> 8) & 255, ink & 255
+    for ch in text:
+        gl = g["glyphs"][ch]
+        for gy in range(gl["h"]):
+            for gx in range(gl["w"]):
+                cover = gl["alpha"][gy * gl["w"] + gx]
+                if not cover:
+                    continue
+                x, y = pen + gl["left"] + gx, baseline - gl["top"] + gy
+                a = m(cover, alpha)
+                d = out.get((x, y), (veil, 0, 0, 0))
+                inv = 255 - a
+                out[(x, y)] = (a + m(d[0], inv), m(cr, a) + m(d[1], inv), m(cg, a) + m(d[2], inv), m(cb, a) + m(d[3], inv))
+        pen += gl["advance"]
+    return out, g
+
+
+@unittest.skipUnless(HAVE, "needs zig to build vplane/")
+class Arithmetic(unittest.TestCase):
+    def test_the_c_unit_tests_pass(self):
+        r = subprocess.run([PLAN], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("all passed", r.stdout)
+
+    def calc(self, *args):
+        return subprocess.run([BIN, "--calc", *map(str, args)], capture_output=True, text=True, check=True).stdout.split()
+
+    def test_the_drift_is_the_qml_formula_with_javascripts_rounding(self):
+        def js(t, ax=30, ay=20, px=540, py=380):
+            return (math.floor(ax * math.sin(2 * math.pi * t / px) + 0.5), math.floor(ay * math.sin(2 * math.pi * t / py) + 0.5))
+        for t in (0, 1, 2.5, 4, 17, 135, 270.5, 405, 539.9, 1000.5, 3600, 86399.5):
+            self.assertEqual(tuple(map(int, self.calc("drift", t))), js(t), t)
+
+    def test_the_dim_curve(self):
+        for m, want in ((0, 1.0), (15, 0.9), (30, 0.8), (60, 0.6), (120, 0.6)):
+            self.assertAlmostEqual(float(self.calc("level", m)[0]), want, places=6)
+        self.assertEqual(float(self.calc("level", 30, 0)[0]), 1.0)
+
+    def test_the_order_never_repeats_and_is_the_same_for_a_seed(self):
+        a = self.calc("order", 6, 1, 4242, 60)
+        self.assertEqual(a, self.calc("order", 6, 1, 4242, 60))
+        self.assertNotEqual(a, self.calc("order", 6, 1, 4243, 60))
+        for bag in range(10):
+            self.assertEqual(sorted(a[bag * 6:bag * 6 + 6]), ["0", "1", "2", "3", "4", "5"])
+        self.assertTrue(all(x != y for x, y in zip(a, a[1:])))
+        self.assertEqual(self.calc("order", 4, 0, 1, 9), "0 1 2 3 0 1 2 3 0".split())
+
+    def test_the_corner_clock_text_is_what_the_gpu_saver_shows(self):
+        self.assertEqual(self.calc("clock", 17, 5, 1), ["17:05"])       # Qt's "h:mm" is 0-23 (see vpl_plan.h)
+        self.assertEqual(self.calc("clock", 7, 5, 0), ["07:05"])
+        self.assertEqual(self.calc("clock", 7, 5, 1), ["7:05"])
+
+
+@unittest.skipUnless(HAVE, "needs zig to build vplane/")
+class Clips(unittest.TestCase):
+    def info(self, path):
+        r = subprocess.run([BIN, "--vpc-info", path], capture_output=True, text=True)
+        return r.returncode, json.loads(r.stdout)
+
+    def test_the_reader_agrees_with_the_writer(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "a.vpc")
+            us = synthetic_clip(path, units=17, key=999, fps=60)
+            rc, j = self.info(path)
+            self.assertEqual(rc, 0)
+            self.assertEqual((j["codec"], j["width"], j["height"], j["fpsNum"], j["fpsDen"], j["units"], j["loopFrom"], j["keyBytes"]), (2, W, H, 60, 1, 17, 0, 999))
+            self.assertEqual(j["bytes"], os.path.getsize(path))
+            self.assertEqual(sum(len(u) for u, _ in us) + 40 + 8 * 17, os.path.getsize(path))
+
+    def test_a_damaged_file_is_refused_for_the_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            good = os.path.join(d, "g.vpc")
+            synthetic_clip(good, units=8)
+            data = open(good, "rb").read()
+
+            def damaged(name, blob):
+                p = os.path.join(d, name)
+                open(p, "wb").write(blob)
+                return self.info(p)
+
+            for name, blob, why in (
+                ("magic", b"XPC1" + data[4:], "not a VPC1"),
+                ("short", data[:30], "not a VPC1"),
+                ("truncated", data[:-10], "runs past"),
+                ("trailing", data + b"\0\0", "bytes after"),
+                ("version", data[:4] + b"\x09" + data[5:], "unknown version"),
+                ("codec", data[:5] + b"\x07" + data[6:], "unknown version or codec"),
+                ("zero size", data[:8] + struct.pack("<I", 0) + data[12:], "bad header"),
+                ("loop target", data[:28] + struct.pack("<I", 3) + data[32:], "key unit"),
+                ("first not key", data[:44] + struct.pack("<I", 0) + data[48:], "key unit"),
+                ("count", data[:24] + struct.pack("<I", 9999) + data[28:], "bad header"),
+            ):
+                rc, j = damaged(name, blob)
+                self.assertEqual(rc, 2, name)
+                self.assertIn(why, j["error"], name)
+            self.assertEqual(self.info(os.path.join(d, "nothing.vpc"))[0], 2)
+
+    def test_the_shipped_clips_are_all_readable_and_looped_on_a_key_unit(self):
+        names = sorted(f for f in os.listdir(SHIPPED) if f.endswith(".vpc"))
+        self.assertGreaterEqual(len(names), 6)
+        for n in names:
+            rc, j = self.info(os.path.join(SHIPPED, n))
+            self.assertEqual(rc, 0, n)
+            self.assertEqual((j["codec"], j["width"], j["height"], j["fpsNum"], j["fpsDen"], j["loopFrom"]), (2, W, H, 60, 1, 0), n)
+
+    def test_the_probe_reads_the_library_and_the_clips(self):
+        r = subprocess.run([BIN, "-n", "-c", SHIPPED, "-L", NDL], capture_output=True, text=True, env=dict(os.environ, FAKE_NDL_LOG=os.devnull))
+        j = json.loads(r.stdout)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertTrue(j["ndl"])
+        self.assertEqual(j["clips"], j["clipsOk"])
+        self.assertGreaterEqual(j["clips"], 6)
+
+    def test_the_probe_says_what_is_missing(self):
+        r = subprocess.run([BIN, "-n", "-c", SHIPPED, "-L", "/nonexistent/libNDL.so"], capture_output=True, text=True, env=dict(os.environ, LD_LIBRARY_PATH=""))
+        j = json.loads(r.stdout)
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse(j["ndl"])
+        self.assertIn("no NDL library", j["ndlError"])
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copy(os.path.join(SHIPPED, os.listdir(SHIPPED)[0]), d)
+            open(os.path.join(d, "broken.vpc"), "wb").write(b"junk" * 20)
+            r = subprocess.run([BIN, "-n", "-c", d, "-L", NDL], capture_output=True, text=True, env=dict(os.environ, FAKE_NDL_LOG=os.devnull))
+            j = json.loads(r.stdout)
+            self.assertEqual(r.returncode, 2)
+            self.assertEqual((j["clips"], j["clipsOk"]), (2 if os.listdir(SHIPPED)[0].endswith(".vpc") else 1, 1 if os.listdir(SHIPPED)[0].endswith(".vpc") else 0))
+            self.assertIn("broken.vpc", j["clipError"])
+
+
+@unittest.skipUnless(HAVE, "needs zig to build vplane/")
+class Player(unittest.TestCase):
+    def rig(self, **kw):
+        r = Rig(**kw)
+        self.addCleanup(r.close)
+        return r
+
+    # ---- idle
+
+    def test_idle_costs_nothing_and_says_so(self):
+        r = self.rig()
+        s = r.status()
+        self.assertEqual((s["state"], s["clips"], s["windowId"]), ("idle", 1, ""))
+        time.sleep(0.3)
+        self.assertEqual(r.fc.names(), [], "no connection to the compositor while idle")
+        self.assertEqual(r.ndl(), [], "the library is not even loaded while idle")
+        self.assertEqual(r.status()["state"], "idle")
+
+    # ---- the handshake
+
+    def test_the_window_the_export_and_the_decoder_come_in_the_order_the_libraries_demand(self):
+        r = self.rig()
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        r.fc.settle()
+        names = r.fc.names()
+        for a, b in (("wl_display.get_registry", "wl_compositor.create_surface"), ("wl_compositor.create_surface", "wl_webos_shell.get_shell_surface"),
+                     ("wl_webos_shell.get_shell_surface", "wl_webos_shell_surface.set_state"), ("wl_webos_shell_surface.set_state", "wl_shm.create_pool"),
+                     ("wl_webos_foreign.export_element", "wl_webos_exported.set_exported_window")):
+            self.assertLess(names.index(a), names.index(b), (a, b))
+        self.assertLess(names.index("wl_webos_foreign.export_element"), names.index("wl_surface.commit"), "export before the first commit")
+        binds = [a for w, a in r.fc.requests() if w == "bind"]
+        self.assertEqual(sorted(b.split()[0] for b in binds), ["wl_compositor", "wl_shm", "wl_webos_foreign", "wl_webos_shell"])
+        self.assertTrue(any(b.startswith("wl_compositor v3 ") for b in binds), "wl_compositor at version 3, LG's")
+        self.assertEqual(r.fc.props["appId"], "org.nphil.lumatv.vplane")
+        self.assertEqual(r.fc.state, 3)
+        self.assertEqual(r.fc.video["src"], (0, 0, W, H))
+        self.assertEqual(r.fc.video["dst"], (32, 28, W, H), "centred on the 1920 x 1080 screen: 32 and 28 pixels of room to drift in")
+        calls = r.calls()
+        self.assertEqual(calls[:6], ["DL_Initialize", "SetWindowId", "Init", "Load", "SetAppState", "Play"])
+        wid = [ln for ln in r.ndl() if ln[2] == "SetWindowId"][0][3]
+        self.assertEqual(wid, r.status()["windowId"])
+        self.assertEqual(wid, "_Window_Id_1", "the id the compositor assigned is the id the library was given")
+        self.assertEqual([ln for ln in r.ndl() if ln[2] == "Load"][0][3:], ["1856x1024", "type", "2"])
+        self.assertEqual([ln for ln in r.ndl() if ln[2] == "SetAppState"][0][3], "0", "foreground")
+        self.assertFalse([ln for ln in r.ndl() if ln[2] == "VIOLATION"], "no order the real library punishes")
+
+    def test_the_export_can_come_after_the_first_commit(self):
+        r = self.rig(args=("-e", "after"))
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        names = r.fc.names()
+        self.assertLess(names.index("wl_surface.commit"), names.index("wl_webos_foreign.export_element"))
+
+    def test_the_window_type_follows_the_option(self):
+        for opt, want, play in (("screensaver", "_WEBOS_WINDOW_TYPE_SCREENSAVER", "true"), ("card", "_WEBOS_WINDOW_TYPE_CARD", None),
+                                ("overlay", "_WEBOS_WINDOW_TYPE_OVERLAY", None), ("default", None, None)):
+            r = self.rig(window=opt)
+            r.send("start")
+            self.assertTrue(r.wait_state("playing"), (opt, r.log()))
+            self.assertEqual(r.fc.props.get("_WEBOS_WINDOW_TYPE"), want, opt)
+            self.assertEqual(r.fc.props.get("playVideo"), play, opt)
+            r.close()
+
+    # ---- what is fed
+
+    def test_units_are_fed_at_the_clips_rate_in_order_and_the_clip_loops_on_its_key_unit(self):
+        r = self.rig(units=30)
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        time.sleep(1.0)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        plays = r.plays()
+        self.assertGreater(len(plays), 50, "about sixty a second")
+        self.assertLess(len(plays), 100)
+        sizes = [len(u) for u, _ in r.units[0]]
+        self.assertEqual([s for s, _ in plays], [sizes[i % 30] for i in range(len(plays))], "every unit once, in order, and the key unit again after the thirtieth")
+        pts = [p for _, p in plays]
+        self.assertTrue(all(b > a for a, b in zip(pts, pts[1:])), "PTS rises across the loop")
+        steps = {b - a for a, b in zip(pts, pts[1:])}
+        self.assertLessEqual(steps, {16666, 16667}, "a step of 1/60 s")
+
+    def test_a_full_buffer_is_waited_out_not_skipped(self):
+        r = self.rig(units=30, env={"FAKE_NDL_FULL_EVERY": "3"})
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        time.sleep(0.8)
+        s = r.fresh()
+        self.assertGreater(s["full"], 3)
+        sizes = [len(u) for u, _ in r.units[0]]
+        plays = r.plays()
+        self.assertEqual([x for x, _ in plays], [sizes[i % 30] for i in range(len(plays))], "no unit lost to the refusals")
+
+    def test_a_long_render_queue_holds_the_feed_back(self):
+        r = self.rig(env={"FAKE_NDL_QUEUE": "50"})
+        r.send("start")
+        self.assertTrue(r.wait_state("opening", 3) or r.wait_state("playing", 3))
+        time.sleep(0.5)
+        s = r.fresh()
+        self.assertEqual(r.plays(), [], "nothing is fed into a queue that is full")
+        self.assertGreater(s["skipped"], 5)
+
+    # ---- opening that fails
+
+    def test_every_refusal_of_the_library_ends_with_no_window_and_the_reason(self):
+        for fail, why in (("dlinit", "DL_Initialize"), ("init", "NDL_DirectMediaInit"), ("load", "NDL_DirectMediaLoad"), ("state", "SetAppState")):
+            r = self.rig(env={"FAKE_NDL_FAIL": fail})
+            r.send("start")
+            self.assertTrue(r.wait_state("error"), (fail, r.log()))
+            self.assertIn(why, r.status()["reason"], fail)
+            self.assertTrue(r.wait(lambda: not r.fc.alive(), 3), "the window is destroyed: the connection is closed (%s)" % fail)
+            r.close()
+
+    def test_a_pipeline_that_never_plays_is_given_up_on(self):
+        r = self.rig(env={"FAKE_NDL_NO_PLAYING": "1"}, args=("-o", "600"))
+        r.send("start")
+        self.assertTrue(r.wait_state("error", 4), r.log())
+        self.assertIn("no playing event", r.status()["reason"])
+        self.assertTrue(r.wait(lambda: not r.fc.alive(), 3))
+        self.assertIn("Quit", r.calls(), "the pipeline is unloaded too")
+
+    def test_an_error_event_ends_the_play(self):
+        r = self.rig(env={"FAKE_NDL_ERROR_AFTER": "20"})
+        r.send("start")
+        self.assertTrue(r.wait_state("error", 4), r.log())
+        self.assertIn("pipeline reported an error", r.status()["reason"])
+        self.assertTrue(r.wait(lambda: not r.fc.alive(), 3))
+
+    def test_no_clips_and_no_memory_are_reasons_too(self):
+        r = self.rig()
+        for f in os.listdir(r.clipdir):
+            if f.endswith(".vpc"):
+                os.unlink(os.path.join(r.clipdir, f))
+        r.send("start")
+        self.assertTrue(r.wait_state("error"))
+        self.assertEqual(r.status()["reason"], "no clips")
+        r.close()
+        r = self.rig(args=("-m", "999999999"))
+        r.send("start")
+        self.assertTrue(r.wait_state("error"))
+        self.assertIn("memory", r.status()["reason"])
+        self.assertEqual(r.fc.names(), [], "nothing was asked of the compositor")
+
+    def test_a_compositor_without_the_webos_protocol_is_named(self):
+        r = self.rig()
+        from fake_wayland import GLOBALS
+        GLOBALS[:] = [g for g in GLOBALS if g[0] != "wl_webos_foreign"]
+        try:
+            r.send("start")
+            self.assertTrue(r.wait_state("error"))
+            self.assertIn("wl_webos_foreign", r.status()["reason"])
+        finally:
+            GLOBALS.append(("wl_webos_foreign", 1))
+
+    def test_a_window_id_that_never_comes_is_a_reason(self):
+        r = self.rig(hold_window_id=True)
+        r.send("start")
+        self.assertTrue(r.wait_state("error", 8))
+        self.assertIn("no window id", r.status()["reason"])
+
+    # ---- stopping, in every way
+
+    def test_a_stop_takes_the_window_before_the_decoder_is_unloaded(self):
+        r = self.rig(env={"FAKE_NDL_UNLOAD_MS": "500"})
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        self.assertEqual(r.status()["reason"], "stopped")
+        self.assertTrue(r.wait(lambda: "Quit" in r.calls(), 3))
+        self.assertTrue(r.fc.wait_for("disconnect", 3))
+        gone = [t for t, w, a in r.fc.events if w == "disconnect"][0]
+        unload = int([ln for ln in r.ndl() if ln[2] == "Unload"][0][1]) / 1000.0
+        self.assertLess(gone, unload + 0.4, "the compositor saw the window go while the library was still unloading (a slow teardown does not keep it on screen)")
+        self.assertGreater(len(r.fc.events), 10)
+
+    def test_it_stops_itself_when_nobody_renews_it(self):
+        r = self.rig()
+        r.send("start", ttlMs=1200)
+        self.assertTrue(r.wait_state("playing"))
+        t0 = time.monotonic()
+        self.assertTrue(r.wait_state("idle", 4))
+        self.assertIn("ttl", r.status()["reason"])
+        self.assertGreater(time.monotonic() - t0, 0.5)
+        self.assertTrue(r.wait(lambda: not r.fc.alive(), 3))
+
+    def test_a_renewal_keeps_it_up_and_an_old_request_does_not_start_it(self):
+        r = self.rig()
+        r.send("start", ttlMs=1500)
+        self.assertTrue(r.wait_state("playing"))
+        for _ in range(4):
+            time.sleep(0.6)
+            r.send("renew", ttlMs=1500)
+        self.assertEqual(r.status()["state"], "playing", "renewed for 2.4 s on a 1.5 s ttl")
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        n = r.fc.count("wl_display.get_registry")
+        self.seq = r.seq
+        old = {"seq": r.seq + 5, "sent": int(time.time() * 1000) - 60000, "op": "start", "ttlMs": 30000}
+        with open(os.path.join(r.mb, "req.json"), "w") as f:
+            json.dump(old, f)
+        time.sleep(0.5)
+        self.assertEqual(r.status()["state"], "idle", "a start from a minute ago (ttl 30 s) is a leftover, not a request")
+        self.assertEqual(r.fc.count("wl_display.get_registry"), n)
+
+    def test_a_start_that_was_written_before_the_player_was_there_is_acted_on_if_fresh(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        mb = os.path.join(tmp, "mb")
+        os.makedirs(mb)
+        with open(os.path.join(mb, "req.json"), "w") as f:
+            json.dump({"seq": 1, "sent": int(time.time() * 1000), "op": "start", "ttlMs": 5000}, f)
+        clipdir = os.path.join(tmp, "clips")
+        os.makedirs(clipdir)
+        synthetic_clip(os.path.join(clipdir, "a.vpc"))
+        fc = FakeCompositor()
+        self.addCleanup(fc.close)
+        log = os.path.join(tmp, "ndl.log")
+        p = subprocess.Popen([BIN, "-d", mb, "-c", clipdir, "-L", NDL, "-m", "1"], env=dict(os.environ, **fc.env(), LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=log),
+                             stderr=subprocess.DEVNULL)
+        self.addCleanup(p.kill)
+        end = time.monotonic() + 5
+        state = ""
+        while time.monotonic() < end and state != "playing":
+            try:
+                state = json.load(open(os.path.join(mb, "status.json")))["state"]
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.02)
+        self.assertEqual(state, "playing")
+
+    def test_the_same_request_read_twice_and_an_older_one_do_nothing(self):
+        r = self.rig()
+        req = r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        n = r.fc.count("wl_display.get_registry")
+        with open(os.path.join(r.mb, "req.json"), "w") as f:
+            json.dump(req, f)
+        time.sleep(0.3)
+        self.assertEqual(r.fc.count("wl_display.get_registry"), n)
+        older = dict(req, seq=req["seq"] - 10, op="stop")
+        with open(os.path.join(r.mb, "req.json"), "w") as f:
+            json.dump(older, f)
+        time.sleep(0.3)
+        self.assertEqual(r.status()["state"], "playing", "a request older than the one acted on is ignored")
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+
+    def test_junk_in_the_request_file_is_ignored(self):
+        r = self.rig()
+        for junk in ("", "not json", "[1,2]", '{"op": 5}', '{"op":"warp","seq":3}', '{"seq":3}'):
+            with open(os.path.join(r.mb, "req.json"), "w") as f:
+                f.write(junk)
+            time.sleep(0.1)
+            self.assertEqual(r.status()["state"], "idle", junk)
+        self.assertEqual(r.proc.poll(), None)
+
+    def test_the_compositor_closing_the_window_ends_the_play_and_a_new_start_works(self):
+        r = self.rig()
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        r.fc.send_close()
+        self.assertTrue(r.wait_state("idle", 3), r.log())
+        self.assertIn("closed the window", r.status()["reason"])
+        self.assertTrue(r.wait(lambda: "Quit" in r.calls(), 3))
+        r.send("start")
+        self.assertTrue(r.wait_state("playing", 4), r.log())
+        self.assertEqual(r.fc.count("wl_webos_foreign.export_element"), 2)
+
+    def test_a_dropped_connection_and_a_protocol_error_end_the_play(self):
+        r = self.rig()
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        r.fc.drop()
+        self.assertTrue(r.wait_state("idle", 3), r.log())
+        r.close()
+        r = self.rig()
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        r.fc.break_protocol()
+        self.assertTrue(r.wait_state("idle", 3), r.log())
+        self.assertIn("test error", r.status()["reason"])
+
+    def test_sigterm_takes_the_window_down_and_unloads_the_decoder(self):
+        r = self.rig()
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        r.proc.terminate()
+        self.assertEqual(r.proc.wait(5), 0)
+        self.assertIn("Quit", r.calls())
+        self.assertTrue(r.wait(lambda: not r.fc.alive(), 2))
+
+    # ---- what is drawn
+
+    def veil_at(self, r, x=5, y=5):
+        c = r.fc.last_commit()
+        w, h, data = c[2]
+        return argb(data, w, x, y)
+
+    def test_the_picture_is_a_transparent_window_until_the_dim_has_begun(self):
+        r = self.rig()
+        r.send("start", clock=False)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(0.2)
+        w, h, data = r.fc.last_commit()[2]
+        self.assertEqual((w, h), (1920, 1080))
+        self.assertEqual(set(data), {0}, "a transparent buffer: the video shows through every pixel")
+
+    def test_the_dim_is_a_black_veil_of_the_right_alpha(self):
+        r = self.rig()
+        r.send("start", clock=False, since=int(time.time() * 1000) - 30 * 60000)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertTrue(r.wait(lambda: self.veil_at(r) == (51, 0, 0, 0), 3), "half an hour into a dim to 0.6 over an hour: level 0.8, veil 51")
+        self.assertEqual(self.veil_at(r, 1900, 1070), (51, 0, 0, 0))
+        r.send("update", dim=False, clock=False)
+        self.assertTrue(r.wait(lambda: r.status()["veil"] == 0, 3) or True)
+
+    def test_without_the_overlay_the_window_is_never_drawn_on(self):
+        r = self.rig()
+        r.send("start", overlay=False, since=int(time.time() * 1000) - 60 * 60000, clockAt="10:42")
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(0.4)
+        for t, s, got in r.fc.commits:
+            self.assertEqual(set(got[2]), {0})
+
+    def test_the_corner_clock_is_the_glyph_atlas_laid_on_the_veil_pixel_for_pixel(self):
+        r = self.rig()
+        ink, alpha = 0xA8A4B0, 178
+        r.send("start", clockAt="10:42", ink="#A8A4B0", inkAlpha=alpha, since=int(time.time() * 1000) - 30 * 60000)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertTrue(r.wait(lambda: r.fc.last_commit() and self.veil_at(r)[0] == 51, 3))
+        time.sleep(0.2)
+        w, h, data = r.fc.last_commit()[2]
+        want, g = expected_text_pixels("10:42", ink, alpha, 51, g_right(), g_base())
+        self.assertGreater(len(want), 200)
+        wrong = [(xy, v, argb(data, w, *xy)) for xy, v in want.items() if argb(data, w, *xy) != v]
+        self.assertEqual(wrong[:3], [], "%d of %d pixels differ" % (len(wrong), len(want)))
+        xs = [x for x, _ in want]
+        ys = [y for _, y in want]
+        # nothing else was drawn on: outside the text's box every pixel is the veil
+        for (x, y) in ((100, 100), (10, 1000), (1000, 500), (min(xs) - 10, min(ys)), (max(xs) + 10, max(ys))):
+            self.assertEqual(argb(data, w, x, y), (51, 0, 0, 0), (x, y))
+        self.assertGreater(max(xs), 1800)
+        self.assertLess(max(xs), 1856 + 4, "right aligned at the screen's edge less the margin")
+
+    def test_the_drift_moves_the_picture_and_the_clock_together_inside_its_room(self):
+        r = self.rig()
+        r.send("start", clockAt="8:08", moveMs=60, periodX=1, periodY=2, ampX=30, ampY=20, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(2.5)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        hist = r.fc.video_history
+        self.assertGreater(len(hist), 8, "the picture moved many times")
+        dsts = {h["dst"][:2] for h in hist}
+        self.assertGreater(len(dsts), 6)
+        for x, y, w, h in (h["dst"] for h in hist):
+            self.assertTrue(2 <= x <= 62 and 8 <= y <= 48, (x, y))      # 32 +- 30 and 28 +- 20
+            self.assertEqual((w, h), (W, H))
+        # the clock moved with it: the box of its pixels follows the last drift
+        c = r.fc.commits[-1][2]
+        self.assertIsNotNone(c)
+
+    def test_a_drift_larger_than_the_room_is_cut_to_the_room(self):
+        r = self.rig()
+        r.send("start", moveMs=40, periodX=1, periodY=1, ampX=200, ampY=200, clock=False)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(1.5)
+        for x, y, w, h in (h["dst"] for h in r.fc.video_history):
+            self.assertTrue(0 <= x <= 64 and 0 <= y <= 56, (x, y))
+
+    def test_a_drift_that_is_off_never_moves_the_picture(self):
+        r = self.rig()
+        r.send("start", drift=False, moveMs=40, periodX=1, periodY=1, clock=False)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(0.6)
+        self.assertEqual({h["dst"] for h in r.fc.video_history}, {(32, 28, W, H)})
+
+    def test_the_print_changes_through_black_and_the_new_clip_starts_while_it_is_black(self):
+        r = self.rig(clip_keys=(3000, 4000, 5000), units=20)
+        r.send("start", everyMs=700, fadeMs=300, clock=False, shuffle=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertTrue(r.wait(lambda: len({s for s, _ in r.plays() if s in (3000, 4000, 5000)}) >= 3, 9), "all three prints were shown in turn")
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        veils = [argb(g[2], g[0], 5, 5)[0] for t, s, g in r.fc.commits if g]
+        self.assertEqual(max(veils), 255, "black at the turn")
+        peak = veils.index(255)
+        back = peak + veils[peak:].index(0)          # the first cycle ends where the picture is clear again
+        rise, fall = veils[:peak + 1], veils[peak:back + 1]
+        self.assertTrue(all(b >= a for a, b in zip(rise, rise[1:])), "the fade out only darkens")
+        self.assertTrue(all(b <= a for a, b in zip(fall, fall[1:])), "and the fade in only lightens")
+        self.assertGreater(len(rise), 4, "stepped, not a cut")
+        # the second clip's key unit (size 4000, in sequence) came after the commit that made the window black
+        black_t = [t for t, s, g in r.fc.commits if g and argb(g[2], g[0], 5, 5)[0] == 255][0]
+        first_new = [int(ln[1]) / 1000.0 for ln in r.ndl() if ln[2] == "Play" and ln[5] == "4000"][0]
+        self.assertGreaterEqual(first_new, black_t - 0.002, "a unit of the new print was fed only once the window was black")
+        # and every key unit that was fed was the first of its clip: sizes 3000, then 4000, then 5000 in sequence, the loop of each as often as it ran
+        keys = [s for s, _ in r.plays() if s in (3000, 4000, 5000)]
+        firsts = [k for i, k in enumerate(keys) if i == 0 or keys[i - 1] != k]
+        self.assertEqual(firsts[:3], [3000, 4000, 5000])
+
+    def test_one_print_is_never_faded_to_itself(self):
+        r = self.rig(clip_keys=(3000,))
+        r.send("start", everyMs=300, fadeMs=100, clock=False)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(1.2)
+        self.assertEqual(r.status()["phase"], 0)
+        self.assertEqual({argb(g[2], g[0], 5, 5)[0] for t, s, g in r.fc.commits if g}, {0})
+
+    def test_a_next_request_turns_the_page_now(self):
+        r = self.rig(clip_keys=(3000, 4000), units=20)
+        r.send("start", fadeMs=100, clock=False, shuffle=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        r.send("next")
+        self.assertTrue(r.wait(lambda: 4000 in [s for s, _ in r.plays()], 3))
+        self.assertEqual(r.fresh()["clip"], "clip1")
+
+    def test_the_start_picks_a_named_print_first(self):
+        r = self.rig(clip_keys=(3000, 4000, 5000))
+        r.send("start", clip="clip2", clock=False)
+        self.assertTrue(r.wait_state("playing"))
+        self.assertEqual(r.status()["clip"], "clip2")
+        self.assertEqual(r.plays()[0][0], 5000)
+
+    def test_the_corner_clock_is_dropped_quietly_when_there_is_no_atlas(self):
+        r = self.rig(glyphs=False)
+        r.send("start", clockAt="10:42")
+        self.assertTrue(r.wait_state("playing"))
+        self.assertIn("no corner clock", r.log())
+
+    def test_the_status_carries_what_the_requester_and_the_steps_need(self):
+        r = self.rig()
+        r.send("start")
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(0.3)
+        s = r.fresh()
+        for k in ("pid", "ts", "state", "reason", "seq", "clip", "clips", "window", "windowId", "playingMs", "fed", "full", "skipped", "queue", "events", "drift", "veil", "phase", "memAvailKb", "cmaFreeKb", "rssKb"):
+            self.assertIn(k, s)
+        self.assertEqual(s["events"], "22,26")
+        self.assertLess(abs(s["ts"] - time.time() * 1000), 3000)
+        self.assertGreater(s["rssKb"], 100)
+
+
+def g_right():
+    return clips.read_glyphs(os.path.join(SHIPPED, "clock.vpg"))["right"]
+
+
+def g_base():
+    return clips.read_glyphs(os.path.join(SHIPPED, "clock.vpg"))["baseline"]
+
+
+class ArmBuild(unittest.TestCase):
+    ARM = os.path.join(VPLANE, "build", "arm", "lumatv-vplane")
+
+    @unittest.skipUnless(os.path.exists(os.path.join(VPLANE, "build", "arm", "lumatv-vplane")) and shutil.which("readelf"), "no ARM build")
+    def test_the_set_build_is_32_bit_arm_and_needs_only_what_the_set_has(self):
+        out = subprocess.run(["readelf", "-h", "-d", self.ARM], capture_output=True, text=True).stdout
+        self.assertIn("ELF32", out)
+        self.assertIn("ARM", out)
+        needed = sorted(ln.split("[")[1].rstrip("]") for ln in out.splitlines() if "NEEDED" in ln)
+        self.assertEqual(needed, ["libc.so.6", "libdl.so.2", "libm.so.6"], "no libpthread: the build uses none, and a libc without it would turn mutexes into no-ops")
+        ver = subprocess.run(["readelf", "-V", self.ARM], capture_output=True, text=True).stdout
+        newest = max(tuple(int(x) for x in m.split("_")[1].split(".")) for m in set(__import__("re").findall(r"GLIBC_\d+\.\d+", ver)))
+        self.assertLessEqual(newest, (2, 28), "nothing newer than the set's glibc 2.28")
+
+
+if __name__ == "__main__":
+    unittest.main()

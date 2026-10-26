@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "generator": 1,
+  "canvas": [
+    1856,
+    1024
+  ],
+  "geometry": {
+    "maxW": 1040,
+    "maxH": 700,
+    "matte": 64,
+    "frame": 18,
+    "frameColor": "#1F1A1B",
+    "matteColor": "#E9E2D3",
+    "wall": [
+      [
+        0.0,
+        "#100d12"
+      ],
+      [
+        0.7,
+        "#060507"
+      ],
+      [
+        1.0,
+        "#030203"
+      ]
+    ],
+    "safeX": 96,
+    "safeY": 54,
+    "edgeX": 64,
+    "artLevel": 0.78,
+    "ink": "#F2EFF6",
+    "ink2": "#A8F2EFF6"
+  },
+  "drift": {
+    "ampX": 30,
+    "periodX": 540,
+    "ampY": 20,
+    "periodY": 380
+  },
+  "clips": [
+    {
+      "id": "great-wave",
+      "file": "great-wave.vpc",
+      "codec": "hevc",
+      "width": 1856,
+      "height": 1024,
+      "fps": 60,
+      "units": 120,
+      "keyBytes": 404229,
+      "bytes": 420414,
+      "sha256": "feb2f5b29969f8cb558a0fbdf47f416ac97e85181c1e2895cabafd6ba1b455ee",
+      "opts": {
+        "codec": "hevc",
+        "crf": 16,
+        "frames": 120,
+        "fps": 60
+      },
+      "inputs": "053fce98c0cceecc"
+    },
+    {
+      "id": "starry-night",
+      "file": "starry-night.vpc",
+      "codec": "hevc",
+      "width": 1856,
+      "height": 1024,
+      "fps": 60,
+      "units": 120,
+      "keyBytes": 412977,
+      "bytes": 428209,
+      "sha256": "ce0f523b9be88792a8a5f8fd330de349f8219c2767e057bd180c2215725e3c94",
+      "opts": {
+        "codec": "hevc",
+        "crf": 16,
+        "frames": 120,
+        "fps": 60
+      },
+      "inputs": "298a5543c30132e8"
+    },
+    {
+      "id": "impression-sunrise",
+      "file": "impression-sunrise.vpc",
+      "codec": "hevc",
+      "width": 1856,
+      "height": 1024,
+      "fps": 60,
+      "units": 120,
+      "keyBytes": 351173,
+      "bytes": 361621,
+      "sha256": "23e7d4d70e266900a92e90a22ca66a7a2a8d99161c258458f9fe409036f28267",
+      "opts": {
+        "codec": "hevc",
+        "crf": 16,
+        "frames": 120,
+        "fps": 60
+      },
+      "inputs": "7471bf1c5f50555b"
+    },
+    {
+      "id": "fighting-temeraire",
+      "file": "fighting-temeraire.vpc",
+      "codec": "hevc",
+      "width": 1856,
+      "height": 1024,
+      "fps": 60,
+      "units": 120,
+      "keyBytes": 253474,
+      "bytes": 262609,
+      "sha256": "360ad7127785938a2b67254b1db2a42ad7733cba2c130082eb5d95003bfd8261",
+      "opts": {
+        "codec": "hevc",
+        "crf": 16,
+        "frames": 120,
+        "fps": 60
+      },
+      "inputs": "ef1bca8445eca77c"
+    },
+    {
+      "id": "view-of-delft",
+      "file": "view-of-delft.vpc",
+      "codec": "hevc",
+      "width": 1856,
+      "height": 1024,
+      "fps": 60,
+      "units": 120,
+      "keyBytes": 274137,
+      "bytes": 288058,
+      "sha256": "5e0fb1c0ae91864398438ea2a86ff4415d2e64620e06ef4ce6023e8dddf639e4",
+      "opts": {
+        "codec": "hevc",
+        "crf": 16,
+        "frames": 120,
+        "fps": 60
+      },
+      "inputs": "b11dfb2999d2c31b"
+    },
+    {
+      "id": "sierra-nevada",
+      "file": "sierra-nevada.vpc",
+      "codec": "hevc",
+      "width": 1856,
+      "height": 1024,
+      "fps": 60,
+      "units": 120,
+      "keyBytes": 271996,
+      "bytes": 282806,
+      "sha256": "7faf049858965c2f51aa42953ffbe8a756627e1406607daaa27ccfade0aa7950",
+      "opts": {
+        "codec": "hevc",
+        "crf": 16,
+        "frames": 120,
+        "fps": 60
+      },
+      "inputs": "c9a5c3ce43e8ac6f"
+    }
+  ],
+  "glyphs": {
+    "file": "clock.vpg",
+    "sha256": "ae6eb8fcb06bb658541f6aff242be5d2ad5abca9f2d3cefb1dccee7aa1d1b6aa"
+  }
+}
