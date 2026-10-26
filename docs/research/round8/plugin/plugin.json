@@ -1,0 +1,1 @@
+{"schema":1,"id":"round8","name":"Round 8 check","version":"1","api":{"min":1,"target":1},"run":{"exe":"bin/round8"},"class":"S","requires":[],"permissions":["cards","tiles","notify","background"]}
