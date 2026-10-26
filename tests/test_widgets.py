@@ -73,7 +73,7 @@ class Widgets(HostCase):
             if not m:
                 continue
             v = ast.literal_eval(m.group(1))
-            lab = re.match(r"^([a-z0-9_]+)=(.*)$", v, re.S) if isinstance(v, str) else None
+            lab = re.match(r"^([A-Za-z0-9_]+)=(.*)$", v, re.S) if isinstance(v, str) else None
             if lab:
                 got[lab.group(1)] = lab.group(2)
         return got

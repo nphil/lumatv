@@ -343,7 +343,7 @@ Item {
                     y: 0
                     horizontalAlignment: Text.AlignHCenter
                     text: modelData.initial
-                    color: modelData.today ? root.inkC : root.ink3C
+                    color: modelData.today ? root.inkC : root.ink2C
                     font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: Math.round(14 * strip.k)
                     renderType: Text.NativeRendering
                 }
@@ -401,7 +401,7 @@ Item {
                         width: monthsBlock.cell
                         horizontalAlignment: Text.AlignHCenter
                         text: modelData
-                        color: root.ink3C
+                        color: root.ink2C
                         font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: Math.max(14, monthsBlock.fs - 4)
                         renderType: Text.NativeRendering
                     }

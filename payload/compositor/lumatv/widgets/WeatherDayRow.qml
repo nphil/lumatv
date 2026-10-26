@@ -12,6 +12,8 @@ Item {
     property string iconDir: ""
     property real weekMin: 0
     property real weekMax: 1
+    property color inkBase: mat.ink || "#F2EFF6"
+    readonly property color soft: Qt.rgba(inkBase.r, inkBase.g, inkBase.b, 0.8)
 
     readonly property int dayW: compact ? 70 : 84
     readonly property int numW: compact ? 56 : 60
@@ -36,7 +38,7 @@ Item {
         y: Math.round((parent.height - implicitHeight) / 2)
         horizontalAlignment: Text.AlignRight
         text: dr.day.lo || ""
-        color: dr.mat.ink2
+        color: dr.soft
         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 23
         renderType: Text.NativeRendering
     }

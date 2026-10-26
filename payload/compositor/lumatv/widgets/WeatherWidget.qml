@@ -23,6 +23,9 @@ Item {
     property bool isLight: false
     property var settings: ({})
     property bool focused: false
+    // The muted ink of this card: the material's ink at 0.8. Its own second ink (0.57) read 2.6 to 2.9:1 over the picture; 3:1 is the floor.
+    property color inkBase: mat.ink || "#F2EFF6"
+    readonly property color soft: Qt.rgba(inkBase.r, inkBase.g, inkBase.b, 0.8)
     property bool inner: false
     property bool live: true            // set by the host; the helper decides when to fetch
     property double fetchedAt: 0        // when the reading on screen was fetched
@@ -94,7 +97,7 @@ Item {
         width: root.mode === "stack" ? parent.width : root.nowWidth
         text: root.place
         elide: Text.ElideRight
-        color: root.mat.ink2
+        color: root.soft
         font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: 24
         renderType: Text.NativeRendering
     }
@@ -122,7 +125,7 @@ Item {
         width: Math.max(0, root.nowWidth - x)
         text: root.cond
         elide: Text.ElideRight
-        color: root.mat.ink2
+        color: root.soft
         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: root.condSize
         renderType: Text.NativeRendering
     }
@@ -133,7 +136,7 @@ Item {
         width: parent.width
         text: root.stats
         elide: Text.ElideRight
-        color: root.mat.ink2
+        color: root.soft
         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
         renderType: Text.NativeRendering
     }
@@ -145,7 +148,7 @@ Item {
             width: root.nowWidth
             text: root.statParts[index]
             elide: Text.ElideRight
-            color: root.mat.ink2
+            color: root.soft
             font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 22
             renderType: Text.NativeRendering
         }
@@ -157,7 +160,7 @@ Item {
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
         text: "No weather reading yet"
-        color: root.mat.ink2
+        color: root.soft
         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 24
         renderType: Text.NativeRendering
     }
@@ -225,7 +228,7 @@ Item {
                 x: 0; y: 0; width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 text: modelData.day
-                color: root.mat.ink2
+                color: root.soft
                 font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 22
                 renderType: Text.NativeRendering
             }
@@ -255,7 +258,7 @@ Item {
                 y: parent.tall && parent.barH >= 40 ? parent.head + 4 + 34 + parent.barH + 6 : parent.head + 4 + 32
                 horizontalAlignment: Text.AlignHCenter
                 text: modelData.lo
-                color: root.mat.ink2
+                color: root.soft
                 font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 24
                 renderType: Text.NativeRendering
             }

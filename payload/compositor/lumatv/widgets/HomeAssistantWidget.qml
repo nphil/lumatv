@@ -134,6 +134,8 @@ Item {
     readonly property color noneTone: toneOf(none.role)
     readonly property color chipFill: isLight ? "#8cffffff" : "#12ffffff"
     readonly property color chipEdge: isLight ? "#e6ffffff" : "#14ffffff"
+    // the state line: the ink, and the accent when the card is focused (OK opens the page) lifted a step toward the ink so it reads on the lit chip
+    readonly property color stateTone: focused ? (isLight ? Qt.darker(Lu.accent, 1.3) : Qt.lighter(Lu.accent, 1.35)) : mat.ink
 
     // no card: one chip, the width of the lane; on a card tall enough, the same words in the middle of the lane
     readonly property bool emptyFills: height - chipTop >= 180
@@ -159,10 +161,11 @@ Item {
         }
         Item {
             x: 66
-            y: Math.round((parent.height - 58) / 2)
+            y: Math.round((parent.height - height) / 2)
             width: parent.width - 66 - 12 - 34
-            height: 58
+            height: noneT.height + 1 + noneS.height
             Text {
+                id: noneT
                 x: 0; y: 0
                 width: parent.width
                 text: root.noneTitle
@@ -172,11 +175,12 @@ Item {
                 renderType: Text.NativeRendering
             }
             Text {
-                x: 0; y: 30
+                id: noneS
+                x: 0; y: noneT.height + 1
                 width: parent.width
                 text: root.noneSub
                 elide: Text.ElideRight
-                color: root.focused ? Lu.accent : root.mat.ink2
+                color: root.stateTone
                 font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
                 renderType: Text.NativeRendering
             }
@@ -197,6 +201,7 @@ Item {
             LuIcon { anchors.centerIn: parent; size: 32; name: "house-wifi"; color: root.noneTone }
         }
         Text {
+            id: fillT
             x: 0; y: emptyDisc.y + 64 + 16
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
@@ -207,12 +212,12 @@ Item {
             renderType: Text.NativeRendering
         }
         Text {
-            x: 0; y: emptyDisc.y + 64 + 16 + 38
+            x: 0; y: fillT.y + fillT.height + 2
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: root.noneSub
             elide: Text.ElideRight
-            color: root.focused ? Lu.accent : root.mat.ink2
+            color: root.stateTone
             font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 22
             renderType: Text.NativeRendering
         }
