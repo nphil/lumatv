@@ -183,6 +183,27 @@ class Parsing(unittest.TestCase):
             os.unlink(f.name)
         self.assertEqual(ws, {'x-open': 1200.0, 'x-close': None})
 
+    def test_an_apps_drawing_inside_a_burst_is_counted(self):
+        import tempfile
+        import analyse
+        lines = ['  kb.py-100  [001] ....  10.000000: tracing_mark_write: P:x-open',
+                 '  <idle>-0  [002] d...  10.001000: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=netflix next_pid=500 next_prio=120',
+                 '  <idle>-0  [003] d...  10.001500: sched_switch: prev_comm=swapper prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=surface-manager next_pid=7 next_prio=120',
+                 '  netflix-500  [002] ....  10.150000: mali_job_slots_event: gpu=0 event=16842752 tgid=500 pid=500 job_id=1',
+                 '  netflix-500  [002] ....  10.200000: mali_job_slots_event: gpu=0 event=33619968 tgid=500 pid=500 job_id=1',
+                 '  surface-manager-7  [003] ....  10.210000: mali_job_slots_event: gpu=0 event=16842752 tgid=7 pid=7 job_id=2',
+                 '  surface-manager-7  [003] ....  10.212000: mali_job_slots_event: gpu=0 event=33619968 tgid=7 pid=7 job_id=2',
+                 '  kb.py-100  [001] ....  10.600000: tracing_mark_write: P:x-close',
+                 '  sh-101  [001] ....  11.000000: tracing_mark_write: stop 1']
+        lines += ['  <idle>-0  [000] d.h1  %.6f: drm_vblank_event_delivered: file=0, crtc=0, seq=%d' % (10.0167 + 0.0167 * k, k) for k in range(18)]
+        with tempfile.NamedTemporaryFile('w', suffix='.trace', delete=False) as f:
+            f.write('\n'.join(sorted(lines, key=lambda ln: float(ln.split(': ')[0].split()[-1]))) + '\n')
+        try:
+            ws = {w['name']: w['burst_app_jobs'] for w in analyse.analyse(f.name, 7)['windows']}
+        finally:
+            os.unlink(f.name)
+        self.assertEqual(ws, {'x-open': 1, 'x-close': 0})          # the app's job, not the compositor's
+
 
 class Rss(unittest.TestCase):
     def series(self, pages):
@@ -412,8 +433,11 @@ class Edges(unittest.TestCase):
         self.assertIn('windows', failed(gate.evaluate_windows(s, r, 3)))
 
     class FakeRig:
-        def __init__(self, motion):
-            self.motion, self.calls = motion, []
+        def __init__(self, motion, age=None):
+            self.motion, self.calls, self.age = motion, [], age
+
+        def compositor_age_s(self):
+            return self.age
 
         def push_tools(self):
             pass
@@ -461,6 +485,36 @@ class Edges(unittest.TestCase):
         finally:
             gate.run_surface = orig
         self.assertEqual(rig.calls, [False, True])
+
+    def test_the_gate_waits_for_a_freshly_started_compositor(self):
+        orig = gate.run_surface
+        gate.run_surface = lambda rig_, s, tag, soak, log: {'name': s['name'], 'checks': [], 'log_lines': []}
+        try:
+            for age, slept in ((30.0, [60.0]), (200.0, []), (None, [])):
+                with patch.object(gate.time, 'sleep') as sleep:
+                    gate.run_gate(self.FakeRig(False, age), gate.find(['home-idle']), 3, 't', log=object())
+                self.assertEqual([c.args[0] for c in sleep.call_args_list], slept, age)
+        finally:
+            gate.run_surface = orig
+
+    def test_a_capture_where_the_app_drew_is_measured_again(self):
+        s = gate.find(['picker-netflix'], values={'INPUT': '241'})[0]
+        clean = {'trace': 't', 'windows': [window('picker-netflix-open') | {'burst_app_jobs': 0}, window('picker-netflix-close') | {'burst_app_jobs': 0}]}
+        dirty = {'trace': 't', 'windows': [window('picker-netflix-open') | {'burst_app_jobs': 0},
+                                           window('picker-netflix-close', end=944.0) | {'burst_app_jobs': 123}]}
+        # one dirty capture is measured again; three in a row keep the last, which then fails on its own numbers
+        for answers, discarded, traces, ends in (([dirty, clean, clean, clean], 1, 4, [120.0] * 6),
+                                                 ([dirty, dirty, dirty, clean, clean], 2, 5, [120.0, 944.0] + [120.0] * 4)):
+            rig = Mock()
+            rig.compositor_pid.return_value = 17
+            rig.sh.return_value = (0, '', '')
+            rig.lg_compositor.return_value = True
+            rig.stop.return_value = ('/dev/null', '/dev/null')
+            rig.analyse.side_effect = answers
+            res = gate.run_surface(rig, dict(s, setup=[], teardown=[], soak=False), 't', 0, Mock(since=Mock(return_value=([], True))))
+            self.assertEqual((len(res['discarded']), len(res['traces'])), (discarded, traces))
+            self.assertEqual(res['discarded'][0]['windows'], [{'name': 'picker-netflix-close', 'burst_end_ms': 944.0, 'burst_app_jobs': 123}])
+            self.assertEqual([w['burst_end_ms'] for w in res['windows']], ends)
 
 
 class QuickAndPicker(unittest.TestCase):

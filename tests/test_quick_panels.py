@@ -129,10 +129,11 @@ class HomePanels(HostCase):
     def test_the_open_path_asks_for_no_reading_until_the_slide_is_over_and_the_slide_is_short(self):
         # The set's gate wants the frame burst a key starts to end within 180 ms of it, and the first frame comes about 41 ms after the gear:
         # the slide is at most 110 ms, and nothing that rebinds the rows is asked for while it runs (the answers came mid-slide). The gate counts
-        # a frame within 50 ms of the burst's last as part of it and the burst can last to 177 ms, so the picker's readings, whose answers rebind
-        # every tile, wait for 310 ms (r14 over HDMI and the film: burst ends of 206 and 301 ms at the 170 ms they were asked for before).
+        # a frame within 50 ms of the burst's last as part of it and the burst can last to 177 ms, so the readings, whose answers rebind
+        # the rows and tiles, wait for 310 ms (r14 over HDMI and the film: picker burst ends of 206 and 301 ms at the 170 ms they were asked
+        # for before; r15 over the film: a quick burst to 370 ms).
         asked = "root.lunaCalls.filter(function(c) { return c.method === '/getAllInputStatus' }).length"
-        for kind, find, quiet in (("quick", "footFocus", 0), ("picker", "soundLine", 230)):
+        for kind, find, quiet in (("quick", "footFocus", 230), ("picker", "soundLine", 230)):
             rc, out = self.host(
                 *probe(READY + 500, "before", "var b = bus(); var n = %s; b.open('%s'); return n;" % (asked, kind)),
                 *probe(READY + 560, "during", "return %s;" % asked),
@@ -307,10 +308,31 @@ class HomePanels(HostCase):
             self.assertEqual(renderstats.whole(seg["close1"]), 0, "%s: the closing of a panel that stays in the scene rebuilt it\n%s" % (kind, report))
             self.assertEqual(renderstats.whole(seg["open2"][:5]), 0, "%s: an opening of a parked panel rebuilt the scene\n%s" % (kind, report))
             self.assertEqual(renderstats.whole(seg["close2"]), 0, "%s: the closing after it rebuilt the scene\n%s" % (kind, report))
-            # and what it left behind when it went is Home's own scene again: the panel's nodes are no longer drawn in every frame
+            # and what it left behind when it went is Home's own scene again: the panel's nodes (the scrim, the glass and the sheet's cached
+            # texture) are no longer drawn in every frame
             shown = max(f["nodes"] for f in seg["parked"])
             home = max(f["nodes"] for f in seg["gone"])
-            self.assertGreaterEqual(shown - home, 20, "%s: the scene still drew %d nodes after the linger (%d while parked)\n%s" % (kind, home, shown, report))
+            self.assertGreaterEqual(shown - home, 3, "%s: the scene still drew %d nodes after the linger (%d while parked)\n%s" % (kind, home, shown, report))
+
+    def test_a_panel_sheet_is_one_cached_texture_and_takes_a_focus_change_at_once_while_it_moves(self):
+        # The sheet's content is drawn once into a texture (LuPane.cacheContent): the scene with the quick panel up drew 101 batches, with
+        # the texture 72. A halo or a lift animating inside it draws the texture again in every frame, so while the panel moves a focus
+        # change lands at once; once it is up a focus change animates as everywhere else.
+        halos = ("function halos(p) { var out = []; (function walk(n) { for (var i = 0; i < n.children.length; i++) { var c = n.children[i]; "
+                 "if (c.strength !== undefined && c.tint !== undefined && c.on) out.push(Math.round(c.opacity * 100) / 100); walk(c) } })(p); return out }")
+        for kind, find, steps in (("quick", "footFocus", ("down", "down")), ("picker", "soundLine", ("right", "left"))):
+            act = lambda step: ("var p = find(root, '%s'); %s p.key('%s'); return [find(p, 'cacheContent').cacheContent, p.progress < 1, halos(p)];"
+                                % (find, halos, step))
+            rc, out = self.host(
+                *probe(READY + 400, "open", "return bus().open('%s');" % kind),
+                *probe(READY + 430, "moving", act(steps[0])),
+                *probe(READY + 1400, "up", act(steps[1])),
+                "--wait", str(READY + 1800))
+            self.assertEqual(rc, 0, out[-2500:])
+            p = probes(out)
+            self.assertEqual(p["moving"], [True, True, [0.3]], "%s: the halo of the tile focused while the panel slid did not land at once" % kind)
+            self.assertEqual(p["up"][:2], [True, False])
+            self.assertLess(p["up"][2][0], 0.3, "%s: a focus change on a panel at rest did not animate" % kind)
 
     def test_each_reading_of_the_inputs_lets_the_last_subscription_go(self):
         # LG's Service keeps a subscription open until it is cancelled; the picker and the quick panel read the inputs at every opening

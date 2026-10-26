@@ -13,6 +13,7 @@ Item {
     property bool danger: false             // the answer that destroys something: the label in the danger colour
     property bool focused: false
     property bool rested: true
+    property bool instant: false            // the surface is moving or out of sight: focus takes its new state at once (LuHalo)
     signal activated()
     signal hoverFocus()
 
@@ -28,7 +29,7 @@ Item {
         id: lift
         focused: button.focused
         rested: button.rested
-        reduced: Lu.reduced
+        reduced: Lu.reduced || button.instant
         duration: Lu.cardMs
         easing: Lu.cardEasing
     }
@@ -39,6 +40,7 @@ Item {
         height: parent.height * 3
         z: -1
         on: button.focused
+        instant: button.instant
     }
     Rectangle {
         anchors.fill: parent

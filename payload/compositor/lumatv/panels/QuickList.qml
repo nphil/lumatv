@@ -19,6 +19,7 @@ Item {
     property int stop: -2                               // a row index, -2 not yet placed
     property int seg: 0                                 // the focused stepper's own position
     property bool rested: true
+    property bool instant: false                        // the panel is moving or parked (QuickTile)
     readonly property bool active: host ? host.zone === "page" : false
     property real offset: 0
 
@@ -153,7 +154,7 @@ Item {
                             icon: list.ev(cell.r.icon) || ""
                             label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
-                            focused: cell.isFocus; rested: list.rested
+                            focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onHoverFocus: list.pointAt(cell.ri)
                             below: QuickStep {
                                 focused: cell.isFocus
@@ -167,7 +168,7 @@ Item {
                             icon: list.ev(cell.r.icon) || ""
                             label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
-                            focused: cell.isFocus; rested: list.rested
+                            focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
                             onHoverFocus: list.pointAt(cell.ri)
                             below: QuickStep { focused: cell.isFocus; text: list.ev(cell.r.value) || "" }
@@ -179,7 +180,7 @@ Item {
                             icon: list.ev(cell.r.icon) || ""
                             label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
-                            focused: cell.isFocus; rested: list.rested
+                            focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
                             onHoverFocus: list.pointAt(cell.ri)
                             trailing: LuToggle { checked: !!list.ev(cell.r.on) }
@@ -191,7 +192,7 @@ Item {
                             icon: list.ev(cell.r.icon) || ""
                             label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
-                            focused: cell.isFocus; rested: list.rested
+                            focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
                             onHoverFocus: list.pointAt(cell.ri)
                             trailing: Row {
@@ -222,7 +223,7 @@ Item {
                             icon: list.ev(cell.r.icon) || ""
                             label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
-                            focused: cell.isFocus; rested: list.rested
+                            focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
                             onHoverFocus: list.pointAt(cell.ri)
                             trailing: LuChip { text: list.ev(cell.r.button) || "Run" }

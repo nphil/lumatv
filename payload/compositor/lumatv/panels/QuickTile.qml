@@ -15,6 +15,7 @@ Item {
     property bool tileAccent: false
     property bool focused: false
     property bool rested: true
+    property bool instant: false            // the panel is moving or parked: focus takes its new state at once (no frames of a lift)
     property alias trailing: trailingSlot.data
     property alias below: belowSlot.data
     signal activated()
@@ -42,7 +43,7 @@ Item {
         id: lift
         focused: tile.focused
         rested: tile.rested
-        reduced: Lu.reduced
+        reduced: Lu.reduced || tile.instant
         duration: Lu.cardMs
         easing: Lu.cardEasing
     }
@@ -52,6 +53,7 @@ Item {
         height: parent.height * 2.2
         z: -1
         on: tile.focused
+        instant: tile.instant
     }
     Rectangle {
         anchors.fill: parent

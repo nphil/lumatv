@@ -83,6 +83,10 @@ class Runs:
 
 
 BURST_GAP_MS = 50.0
+# Processes whose GPU work is the composition itself, not an app's own drawing.
+COMPOSITION_COMMS = ('surface-manager', 'gal_renderd')
+# An app's buffer reaches the screen up to three frames after its GPU job ends.
+APP_QUEUE_S = 0.050
 
 
 def burst(times, start, gap_ms=BURST_GAP_MS):
@@ -154,6 +158,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
     wq = []           # (t0, t1, cpu, fn)
     wq_open = {}
     migr = []         # (t, pid, from, to)
+    comms = {}        # pid -> comm, from sched_switch
 
     for t, cpu, name, pid, comm, args in ev:
         if name == 'drm_vblank_event_delivered':
@@ -168,6 +173,7 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             pc, pp, _, pstate, nc, np_, _ = m.groups()
             pp, np_ = int(pp), int(np_)
             runs.switch(t, cpu, pp, pc, np_, nc)
+            comms[np_] = nc
             if pp == sm_pid and cpu in sm_state:
                 sm_run.append((sm_state.pop(cpu), t, cpu, pstate))
             if np_ == sm_pid:
@@ -408,6 +414,11 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
         w['first_frame_ms'] = bu['first_frame_ms']
         w['burst_end_ms'] = bu['burst_end_ms']
         w['burst_over20'] = bu['over20']
+        # GPU jobs of an app (a film's player redrawing its own controls) that ended while the burst ran: its frames chain into the
+        # burst, which then measures the app as well as the surface (round 16: Netflix at 60 Hz for 2.4 s kept a picker closing's
+        # burst going to 944 ms)
+        w['burst_app_jobs'] = sum(1 for t0, t1, slot, tg in gpu_jobs
+                                  if bu['frames'] and a - APP_QUEUE_S <= t1 <= bu['last_t'] and comms.get(tg, '') not in COMPOSITION_COMMS)
         b_rends = sorted(r for (iv, r), t in zip(anim, anim_t) if bu['frames'] and bu['first_t'] < t <= bu['last_t'])
         w['burst_anim_p90_ms'] = round(b_rends[int(0.9 * (len(b_rends) - 1))], 2) if b_rends else None
         w['burst_anim_samples'] = [round(r, 2) for r in b_rends]

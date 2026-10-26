@@ -12,6 +12,10 @@ Item {
     property real focusMix: 0
     property real liftMix: 0
     property real fillAlpha: 1                // Glass.fillAlpha: below 1 the pane is see-through (over video)
+    // The content drawn once into a texture the size of the pane and kept, so a pane that slides draws one quad for it instead of
+    // a batch for every text, icon and plate (the quick panel: 101 batches in the scene with it, 72 with the texture). Anything in the
+    // content that changes draws the texture again, so a pane that caches keeps its content still while it moves (PanelMotion.settled).
+    property bool cacheContent: false
     property real sx: 0
     property real sy: 0
     default property alias content: slot.data
@@ -39,5 +43,5 @@ Item {
         screenW: pane.width
         screenH: pane.height
     }
-    Item { id: slot; anchors.fill: parent }
+    Item { id: slot; anchors.fill: parent; layer.enabled: pane.cacheContent }
 }

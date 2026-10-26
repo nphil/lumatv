@@ -8,12 +8,13 @@ import "."
 ShaderEffect {
     id: halo
     property bool on: false
+    property bool instant: false            // a surface that is moving or out of sight: the halo takes its new state at once
     property color tint: Lu.accent
     property real strength: Lu.focus.ambient || 0
 
     opacity: on ? strength : 0
     visible: opacity > 0.01
-    Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: Lu.cardMs } }
+    Behavior on opacity { enabled: !Lu.reduced && !halo.instant; NumberAnimation { duration: Lu.cardMs } }
 
     property vector4d tintC: Qt.vector4d(tint.r, tint.g, tint.b, 0.5)
     fragmentShader: "

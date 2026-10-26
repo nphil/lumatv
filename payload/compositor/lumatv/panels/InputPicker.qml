@@ -89,6 +89,7 @@ Item {
     LuPane {
         id: sheet
         x: 64; width: 1792
+        cacheContent: true
         height: Math.max(404, tileRow.y + tileRow.childrenRect.height + Lu.space(6))       // the shape of the mock; taller only when the words need it
         // the one thing that moves: the sheet rises from the bottom edge (a transform; nothing is laid out). No fade on the way: an opacity
         // change re-batches the sheet each frame (QuickPanel.qml has the numbers); reduced motion is the fade alone.
@@ -124,9 +125,9 @@ Item {
                     // the mock's 264, or what its words need (a name that wraps, a larger text size): nothing is drawn over anything
                     readonly property real need: Lu.space(4) + Math.max(48, portText.height + Lu.space(1)) + (portText.lineCount > 1 ? 44 : 56) + Lu.space(3) + words.height + Lu.space(4)
                     height: Math.max(264, need)
-                    FocusLift { id: lift; focused: tile.focused; rested: picker.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
+                    FocusLift { id: lift; focused: tile.focused; rested: picker.rested; reduced: Lu.reduced || !motion.settled; duration: Lu.cardMs; easing: Lu.cardEasing }
                     z: focused ? 1 : 0
-                    LuHalo { anchors.centerIn: parent; width: parent.width * 1.5; height: parent.height * 1.7; z: -1; on: tile.focused }
+                    LuHalo { anchors.centerIn: parent; width: parent.width * 1.5; height: parent.height * 1.7; z: -1; on: tile.focused; instant: !motion.settled }
                     Rectangle {
                         anchors.fill: parent; radius: Lu.radius("card")
                         color: tile.focused ? Lu.wash("focus") : tile.t.front ? Lu.wash("selected") : Lu.wash("hover")

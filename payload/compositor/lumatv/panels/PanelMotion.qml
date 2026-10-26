@@ -26,6 +26,9 @@ QtObject {
     // not wanted and the slide is over: nothing of the panel is on the screen. `held` starts when the panel is told to go (Resident's `visible`
     // has no gap where the slide ends) and runs out `lingerMs` later; the gate opens a panel again 1.5 s after it closed it
     readonly property bool parked: !presented && !leaving
+    // presented and at rest. A panel that is not settled takes a focus change at once: its sheet is one cached texture (LuPane
+    // `cacheContent`), and a lift or a halo fading in while it slides would draw that texture again in every frame of the slide
+    readonly property bool settled: presented && progress >= 1
     property int lingerMs: 4000
     property bool held: false
     function release() { held = false; linger.stop() }

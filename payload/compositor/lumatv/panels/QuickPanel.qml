@@ -38,7 +38,8 @@ Item {
     readonly property bool up: presented || leaving
     property alias lingerMs: motion.lingerMs
     function release() { motion.release() }
-    function warm() { motion.warm() }
+    // the clock is brought up to date with the press, so the opening does not draw the cached sheet again for a new minute
+    function warm() { clock = new Date(); motion.warm() }
     PanelMotion { id: motion; presented: panel.presented }
     readonly property real progress: motion.progress     // 0 away, 1 shown
     readonly property real slideX: slide.x               // where the sheet is (24 at rest), for the tests and the gate's step list
@@ -51,8 +52,9 @@ Item {
     readonly property int pad: Lu.space(6)
     readonly property int inner: sheetW - 2 * pad
 
-    // the receiver's reading, only while it is in date (kit/ReceiverGate)
-    ReceiverGate { id: gate; active: panel.up }
+    // the receiver's reading, only while it is in date (kit/ReceiverGate). Kept while the panel is parked as well: the gate letting go
+    // hides the receiver's numbers, which drew the cached sheet again as the closing ended and again at the next opening
+    ReceiverGate { id: gate; active: panel.up || panel.held }
     readonly property var rc: gate.doc || Helper.receiver || ({})
     readonly property bool rcAnswers: gate.fresh
     property bool footFocus: false                      // a button under the list has the focus, not a tile
@@ -62,7 +64,9 @@ Item {
     onPresentedChanged: { if (presented) refresh(); else readTimer.stop() }
     // What the open path does is only what the first frame needs. The readings (each an answer that rebinds the rows and can change a
     // line's wrapping) are asked for once the slide is over and the frame burst the key started has ended: the rows show what the
-    // last reading said for the first 170 ms, and a reading that differs redraws them after.
+    // last reading said for the first 310 ms, and a reading that differs redraws them after. Asked for at 170 ms, the answers' frames
+    // chained onto the slide's (r15 over the film: a burst to 370 ms with two intervals over 20 ms, compositor frames only), as the
+    // picker's did (InputPicker.qml).
     function refresh() {
         clock = new Date(); footFocus = false; footIndex = 0; touched = false
         list.reset()
@@ -70,7 +74,7 @@ Item {
     }
     Timer {
         id: readTimer
-        interval: motion.enterMs + 60
+        interval: motion.enterMs + 200
         onTriggered: { Sio.read("picture", ["pictureMode"]); Inputs.refresh(); Power.readSleep() }
     }
     onFootFocusChanged: zone = footFocus ? "foot" : "page"
@@ -138,6 +142,7 @@ Item {
         LuPane {
             id: sheet
             anchors.fill: parent
+            cacheContent: true
             Item {
                 id: head
                 x: panel.pad; y: panel.pad
@@ -162,6 +167,7 @@ Item {
                 height: foot.y - Lu.space(4) - y
                 host: panel
                 rested: panel.rested
+                instant: !motion.settled
                 rows: panel.tiles()
             }
             Item {
@@ -176,7 +182,7 @@ Item {
                     id: allSettings
                     width: foot.stacked ? foot.width : foot.width - lgButton.width - Lu.space(3)
                     text: "All settings"; icon: "settings"
-                    focused: panel.footFocus && panel.footIndex === 0; rested: panel.rested
+                    focused: panel.footFocus && panel.footIndex === 0; rested: panel.rested; instant: !motion.settled
                     onActivated: { panel.footIndex = 0; panel.footFocus = true; panel.openSettingsPage("") }
                     onHoverFocus: { panel.footIndex = 0; panel.footFocus = true }
                 }
@@ -186,7 +192,7 @@ Item {
                     y: foot.stacked ? allSettings.height + Lu.space(2) : 0
                     width: foot.stacked ? foot.width : implicitWidth
                     text: "LG"; icon: "tv"
-                    focused: panel.footFocus && panel.footIndex === 1; rested: panel.rested
+                    focused: panel.footFocus && panel.footIndex === 1; rested: panel.rested; instant: !motion.settled
                     onActivated: { panel.footIndex = 1; panel.footFocus = true; panel.openLgQuick() }
                     onHoverFocus: { panel.footIndex = 1; panel.footFocus = true }
                 }

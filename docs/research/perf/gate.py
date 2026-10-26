@@ -181,6 +181,12 @@ SOAK_TRACE_MAX = 60       # cycles per basic trace in a soak
 # under this many seconds, so a long surface gets one cycle per capture.
 FULL_TRACE_BUDGET_S = 11.0
 GAP_MS = 17.5             # analyse.py's gap listing threshold, as run.py uses
+# A capture whose burst held an app's own drawing (analyse.py `burst_app_jobs`: a film's player redrawing its controls at 60 Hz) measures
+# the app as well as the surface; it is kept under `discarded` and measured again, at most this many more times.
+APP_RETRIES = 2
+# Home builds and warms its surfaces for about a minute after the compositor starts (round 16: idle measured 40 s after a restart
+# read p90 12.88 ms, 0.46 later); the gate waits until the compositor is this old.
+COMPOSITOR_SETTLE_S = 90
 
 # RSS rule: the first RSS_SKIP_CYCLES cycles warm the compositor and are ignored. After them the
 # resident set may grow by RSS_PER_100_CYCLES_MB per 100 cycles, plus RSS_NOISE_MB for the
@@ -616,7 +622,13 @@ def jsonable(v):
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
                'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'osd_wake_ms',
-               'burst_first_render_ms', 'burst_anim_samples', 'irq_counts', 'gaps')
+               'burst_first_render_ms', 'burst_anim_samples', 'burst_app_jobs', 'irq_counts', 'gaps')
+
+
+def app_drawn(report, name):
+    """The windows of surface `name` whose burst held an app's own drawing."""
+    return [{'name': w['name'], 'burst_end_ms': w.get('burst_end_ms'), 'burst_app_jobs': w['burst_app_jobs']} for w in report['windows']
+            if w['name'] in (f'{name}-open', f'{name}-close') and w.get('burst_app_jobs')]
 
 
 # ------------------------------------------------------------------- the set
@@ -672,6 +684,16 @@ class Rig:
     def compositor_pid(self):
         rc, out, _ = self.sh('pidof surface-manager')
         return int(out.split()[0]) if rc == 0 and out.split() else None
+
+    def compositor_age_s(self):
+        """Seconds since the compositor started, None when it cannot be read."""
+        rc, out, _ = self.sh("p=$(pidof surface-manager | cut -d' ' -f1); "
+                             "echo $(cut -d' ' -f1 /proc/uptime) $(cut -d' ' -f22 /proc/$p/stat) $(getconf CLK_TCK)")
+        try:
+            up, start, hz = (float(x) for x in out.split())
+            return up - start / hz
+        except ValueError:
+            return None
 
     def capture(self, name, mode):
         self.set.capture(name, mode)
@@ -767,7 +789,7 @@ def apply_delivery(report, text, name, window_s=2.0):
 def run_surface(rig, s, tag, soak_cycles, log):
     base = f'gate-{tag}-{s["name"]}'
     res = {'name': s['name'], 'checks': [], 'traces': [], 'windows': [], 'log_lines': [], 'log_ignored': 0,
-           'log_unfiltered': False, 'rss': None}
+           'log_unfiltered': False, 'rss': None, 'discarded': []}
     checks = res['checks']
     pid0 = rig.compositor_pid()
 
@@ -787,19 +809,24 @@ def run_surface(rig, s, tag, soak_cycles, log):
 
         reports = []
         for i, n in enumerate(plan_full(s, MEASURE_CYCLES)):
-            name = f'{base}-m{i}'
-            res['traces'].append(name)
-            rig.capture(name, 'full')
-            trace = None
-            try:
-                rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
-            finally:
-                trace, _sysfile = rig.stop(name)
-            if rc != 0:
-                checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
-            one = rig.analyse(name)
-            if s['delivery']:
-                apply_delivery(one, read(trace), s['name'])
+            for attempt in range(APP_RETRIES + 1):
+                name = f'{base}-m{i}' + (f'-r{attempt}' if attempt else '')
+                res['traces'].append(name)
+                rig.capture(name, 'full')
+                trace = None
+                try:
+                    rc, _, err = rig.sh(cycle_command(s, n), timeout=3600)
+                finally:
+                    trace, _sysfile = rig.stop(name)
+                if rc != 0:
+                    checks.append(check('keys', False, rc, '== 0', f'kb.py exited {rc}: {err.strip()}'))
+                one = rig.analyse(name)
+                if s['delivery']:
+                    apply_delivery(one, read(trace), s['name'])
+                drawn = app_drawn(one, s['name'])
+                if not drawn or attempt == APP_RETRIES:
+                    break
+                res['discarded'].append({'trace': name, 'windows': drawn})
             reports.append(one)
         report = merge_reports(reports)
         checks += evaluate_windows(s, report, MEASURE_CYCLES, rig.lg_compositor())
@@ -854,6 +881,9 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None):
     rig.push_tools()
     log = log or LogWatch(rig)
     results = []
+    age = rig.compositor_age_s()
+    if age is not None and age < COMPOSITOR_SETTLE_S:
+        time.sleep(COMPOSITOR_SETTLE_S - age)
     original = rig.motion_enabled()       # None: the file says nothing, the shipped default (on) applies
     now = original is not False
     try:
