@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Volume and mute: LumaTV's own display is the only one, over Home, every app and every
-  input; LG's popup is patched out of the shadow module (`lumatv revert` brings it back).
-  It sits at the right edge, vertical and see-through over video, shows the receiver's
-  level, or the TV's own volume when the receiver is off, and a small moving mark while
-  muted.
+- Volume and mute: a slim bar at the bottom centre is the only volume display, over Home,
+  every app and every input; LG's popup is patched out of the shadow module (`lumatv revert`
+  brings it back). It answers on the key before the receiver does, shows the Denon's level
+  or the TV's own, the receiver's audio format (Dolby, DTS, PCM and the surround mode), and
+  a slashed speaker while muted.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
