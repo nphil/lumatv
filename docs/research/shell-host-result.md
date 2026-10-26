@@ -11,7 +11,7 @@ Everything is fail-open: with the files missing, a handler absent or an error an
 
 **Round 8 (2026-10-25 evening, offline only, not run on the TV):** the gear's tap and the Input key show LumaTV's quick panel (left-docked, 492 x 1008 where LG's sat, sliding out of the left edge) and input picker on Home and over apps, in place of LG's Quick Settings and picker (section 6). LG's own stay reachable (the panel's "LG" button, the fail-open, the switches). Needs the compositor restarted (`lumatv apply`: a changed key-filter script is read once, and the QML is in the shadow module). The next TV slot runs steps 3a and 3b of "Set steps" and reports the gate's numbers.
 
-**Round 11 (2026-10-26, gate FAIL; "Over video, round 11"):** over the Dolby Vision film the first frame waits about 1.5 s for the display's OSD path, which is off until something draws (not the panel's doing; LG's own Quick Settings there is the new baseline surface). Fixed offline: the scrim no longer fades (its opacity re-batched Home's scene every frame of the slide), the picker is timed from the Input key's press, the film's captures hold one cycle each. Open: the picker's RSS stair over Home, not reproduced offline. Next: TvRound11's re-gate.
+**Rounds 11 and 12 (2026-10-26, gate FAIL; "Over video, round 11"):** over the Dolby Vision film the first frame can wait about 1.5 s for the display's OSD path, which is off until something draws (round 11 only; not the panel's doing; LG's own Quick Settings there is the new baseline surface and misses the bar too). Fixed offline: neither the scrim nor the sheet fades (each opacity change re-batched the scene), the picker no longer restarts its tile's lift at each opening, the inputs' luna subscriptions no longer pile up, the gate times the picker from the Input key's press and keeps the film's markers. Open: the picker's RSS stair (part with the door, most with the key). Next: the re-gate on the newest `main`.
 
 | What | Where | Switch (owner's, `theme.json`, defaults in code) |
 |---|---|---|
@@ -265,9 +265,36 @@ read from the `full` captures (`/tmp/perf/gate-r11-qp-*`):
   the one before (`kit/Inputs.qml`); test: `test_quick_panels.HomePanels.test_each_reading_of_the_inputs_lets_the_last_subscription_go`.
   It is the same for the quick panel, so it does not explain the picker's stair alone.
 
-Next on the set (TvRound11): after the deploy and `lumatv apply`, `python3 docs/research/perf/gate.py --surfaces
-quick,picker,quick-hdmi,picker-hdmi,quick-netflix,picker-netflix,lgqs-netflix --input-key 241 --hdmi 3 --tag r12-qp --json <out>`, the toast
-lines after the `-netflix` surfaces, and the door bisect above.
+### Round 12 (TvRound11, on `4ab9243`: the scrim fix and the gate's changes; `round9/r11-2026-10-26/quick-picker-gate-r12.json`, `overlay-toast-rss.txt`)
+
+VERDICT FAIL. First frames 33-42 ms and burst ends 142-174 ms everywhere but one picker opening over the film (a 1.5 s burst, frames
+chained by something else drawing). The OSD was on at every key this time (`osd_wake_ms` none): the round 11 wait did not recur.
+
+| Surface | p90 render | Other misses |
+|---|---|---|
+| quick (Home) | 4.23 ms | one interval over 20 ms |
+| picker (Home, timed from the press now) | 3.13 ms | RSS +1.85 MB |
+| quick-hdmi | pass | |
+| picker-hdmi | pass | RSS +1.82 MB |
+| quick-netflix | 3.10 ms | the toast line below |
+| picker-netflix | 3.11 ms (one window 4.27) | burst end 1541 ms, one interval over 20 ms |
+| lgqs-netflix (LG's own Quick Settings) | 2.69 ms (one window 4.77) | first frame 81 ms, no burst at the key, 4 log lines of LG's panel |
+
+- **The slow frames left** over Home were the first two of an opening (3.1-4.5 ms) and the first and the fourth and fifth of a closing
+  (3.7-5.5 ms), about 2 ms for the rest. The second of an opening and the fourth and fifth of a closing are where the sheet's own fade
+  passed 1 (`min(1, progress * 2.5)`: 17 ms into the OutCubic opening, 92 ms into the InCubic closing), a whole render-list rebuild
+  there and a re-batch of the sheet on every frame below 1. The sheet now slides without a fade (both panels; reduced motion is the fade
+  alone). Test: `test_nothing_fades_while_a_panel_slides` (the scrim and the sheet at opacity 1 whenever the panel is drawn).
+- **The picker restarted its own lift**: `pickFront` set `index = 0` and then the front tile's, so every opening, and again the readings'
+  answer 170 ms later, took the focus off the front tile and gave it back; its lift and halo ran again, 180 ms of frames after the slide,
+  each re-batching the tiles. It assigns once now. Test: `test_the_picker_opening_again_does_not_start_its_tiles_lift_over`.
+- **The toast**: at each film's OK `com.webos.service.audio` shows its "Dolby Vision / Dolby Atmos via Audio Device" toast, and LG's
+  toast model throws reading its `userData.id` 20-30 ms later (all three setups). LG's own; the gate counts it as stock noise.
+- **The picker's RSS over the door** (Home, 12 cycles, no key): +624 KB, in steps of about 236 KB every third cycle, a quarter of the
+  key-driven rate (+1.85 MB over 8). So part of it is the picker's own path (its readings: the open subscriptions above are fixed in
+  `2886b62`, which this round did not run) and the larger part comes with the key.
+
+Next on the set: the re-gate on the newest `main`, the same command with `--tag r13-qp`.
 
 ## Under LumaTV's own compositor
 

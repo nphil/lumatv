@@ -198,9 +198,12 @@ LOG_FAIL_PATTERNS = [
 ]
 # Known stock-LG noise that the patterns would otherwise flag on every run: Quick Settings' own
 # response callback throws when the foreground-app array changes (surfaces-p1-result.md); Netflix
-# reports the instance the `-netflix` setup closed (closeByAppId) as a crash report of a user kill.
+# reports the instance the `-netflix` setup closed (closeByAppId) as a crash report of a user kill;
+# LG's toast model reads `userData.id` of the audio service's "Dolby Vision / Dolby Atmos" toast,
+# which has none, 20-30 ms after it is shown at the film's start (round 12, all three setups).
 LOG_IGNORE_PATTERNS = [r'Controllers/ScreenOffInterfaces/Interfaces\.qml:52',
-                       r'\[CrashReporter\] Previous CrashReport.*REASON_USER_KILL']
+                       r'\[CrashReporter\] Previous CrashReport.*REASON_USER_KILL',
+                       r"SystemUI/Notification/Services\.qml:513: TypeError: Cannot read property 'id' of undefined"]
 LOG_FAIL_RE = re.compile('|'.join(LOG_FAIL_PATTERNS))
 LOG_IGNORE_RE = re.compile('|'.join(LOG_IGNORE_PATTERNS))
 LOG_FILE = '/var/log/messages'

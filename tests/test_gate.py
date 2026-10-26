@@ -226,6 +226,12 @@ class Log(unittest.TestCase):
         crash = 'netflix.appmgr INFO {} [CrashReporter] Previous CrashReport : {"reason":"SIGSEGV","crashReportClient":"Netflix App"}'
         self.assertEqual(gate.log_failures([kill, crash]), ([crash], 1))
 
+    def test_lgs_toast_model_on_the_dolby_toast_is_noise_and_other_type_errors_are_not(self):
+        toast = ("surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Cannot read property "
+                 "'id' of undefined")
+        ours = "surface-manager LSM {} file:///x/panels/QuickPanel.qml:513: TypeError: Cannot read property 'id' of undefined"
+        self.assertEqual(gate.log_failures([toast, ours]), ([ours], 1))
+
 
 class Windows(unittest.TestCase):
     def evaluate(self, surface='quick-settings', cycles=3, **kw):
