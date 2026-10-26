@@ -2,17 +2,22 @@
 
 ## Resume here
 
-Status: in progress (written while the work runs; the last section "Done / not done" is the truth).
+Status: done and pushed; checked in the offline host only (renders, the unit tests and the layout audit). Nothing was run on the set.
 
-Done so far (offline host only; nothing was run on the set, which was in another worker's slot):
+What exists:
 
-- Minimal text (Nitin, 21:13) on every Settings page: a row is its name and its value; the second line is state only; every explanation sits
-  behind one help pattern (below). The rail's second line is one short fact.
-- Help pattern: `kit/LuInfo.qml` (the mark), `kit/LuHelp.qml` (the sheet), `LuRow.help`, `help:` on a row descriptor, held OK or the Menu key.
-- IA: Remote & pointer has tabs, the input banner moved to Inputs & devices, duplicate switches and per-tab "More in LG settings" lists removed.
-- Honest states: the Settings bar shows the link that is up, not a fixed Wi-Fi glyph; an unanswered level shows an en dash, not 0.
+- **The rule** (Nitin, 21:13): a row is its name and its value. A second line only for state the person needs, at most four words. Anything else sits behind
+  one info mark, opened by holding OK (or Menu). Spec and copy rules below.
+- **The code**: `kit/LuInfo.qml` (the mark), `kit/LuHelp.qml` (the sheet), `LuRow.help`, `help:` on a Rows.js or PageList row; Home's key path routes the held OK
+  to Settings (`Layers.hold()` and `holdReady()`).
+- **The pages**: every Settings page follows the rule, the ones SettingsCoverage added too. Remote & pointer is tabs Pointer | Keys | Voice; the input banner
+  lives on Inputs & devices; the rail's second line is one short fact or nothing.
+- **The guard**: `tests.test_settings.Help` (held OK opens help, Back closes it before leaving, the Menu key, and a text lint: a second line over 32 characters or
+  with a sentence, a help over 170, a note over 45 fails).
+- **The mocks**: the ten settings mocks follow the rule, `docs/mocks/36-settings-help` draws the pattern, `docs/mocks/help.css` styles it.
 
-Next: see the last section.
+Next, in this order: (1) on the set, the items under "Needs the TV" below; (2) `/impeccable init` so PRODUCT.md and DESIGN.md exist for the next critique;
+(3) the follow-ups under "Not done".
 
 ## Critique (impeccable `critique`, Operate mode: a settings surface used from a sofa with a D-pad or the Magic Remote's pointer)
 
@@ -122,4 +127,49 @@ eARC outside a help sheet, "themed", "everything else".
 
 ## Done / not done
 
-(filled in at the end)
+### Done
+
+- **Minimal text on every Settings page.** Counted from what each page hands to its rows: before, 12 pages and 134 rows carried 1230 words in a second line
+  (9.2 per row) and 103 in notes; now 23 pages (the ones Settings coverage added follow the same rule) and 291 rows carry 126 words in a second line (0.4
+  per row) and 21 in notes. The sentences did not go: 1024 words in 91 help sheets, one gesture away.
+- **The help pattern** (above), in code and in the mocks (`36-settings-help`), with a lint test so a new page cannot bring the sentences back.
+- **The rail**: one short fact each, or nothing. Picture "Filmmaker", Sound "Receiver", Inputs & devices "HDMI 2", Network "Nate's Home · Strong" or "Wired",
+  Ambient light "On" or "Off", Remote & pointer "Pointer on", AI access "On", "Off" or "Not running", System the sleep timer while one runs; Home & look and "More
+  in LG settings" none.
+- **Information architecture**: Remote & pointer is tabs (Pointer | Keys | Voice); the input banner switch is on Inputs & devices ("Input banner"); one CEC switch;
+  "More in LG settings" is a label only. The sections stay at nine (agreed with Settings coverage): rare LG items go into tabs or child pages, at most six
+  tabs and nine rows a tab.
+- **Honest states**: the bar shows the link that is up (Ethernet or Wi-Fi) and the pointer only when it is on; an unanswered level shows an en dash; a dimmed row
+  says "TV not answering" or "Not available now".
+- **Pointer and keys**: the row's click area sits under its controls (a click on a segment or on the mark lands); the bar's chevron and the child page's back pill
+  act as Back; a held Left or Right accelerates on ranges over 40 steps.
+- **Tests**: `tests.test_settings.Help` (held OK, no help on an ordinary row, Back closes the sheet first, Menu key, the sheet names its row, the text lint), the
+  held-key slider test, the rail-summary test; the others in that file follow the new tab and row counts.
+- **Mocks**: the ten settings mocks, `help.css`, `36-settings-help`, the rail in `mock.js`, `settings-map.md`.
+
+Before (left) and after (right), from the offline host (`tests/qmlhost/scenes.py`), in `docs/research/settings-ux/`:
+[Picture](settings-ux/picture.jpg) ([light](settings-ux/picture-light.jpg)), [Sound](settings-ux/sound.jpg), [Ambient light](settings-ux/ambient.jpg)
+([light](settings-ux/ambient-light.jpg)), [Home & look](settings-ux/home.jpg), [Network](settings-ux/network.jpg) ([light](settings-ux/network-light.jpg)),
+[AI access](settings-ux/ai.jpg). The help sheet is new, so it has no before: [dark](settings-ux/help.jpg), [light](settings-ux/help-light.jpg). The after renders
+come from a copy of the tree in which the host picks another wallpaper file, so only the Settings surface compares; Inputs & devices, Remote & pointer, Receiver
+and System have no montage yet.
+
+### Needs the TV (nothing here ran on the set)
+
+1. Held OK on the Magic Remote: the 700 ms threshold, and that the key filter lets the release through (the offline host sends the key events itself).
+2. The Menu key does not exist on the Magic Remote; the plain IR remote and the gamepad send it.
+3. Pointer clicks: on the mark, on a segment, the bar's chevron, the child page's back pill, and a click anywhere closing the sheet.
+4. Why three Picture rows were dimmed in `docs/research/visual-qa/tv-settings-picture-2018.png` ("not available" rows on Filmmaker): LG's own description marks
+   them unavailable, or the service did not answer; the wording is honest either way ("Not available now") but the cause is not known.
+5. Write failure: a refused write is corrected on the next read, silently.
+
+### Not done
+
+- **Write verification and a failure toast.** Needs the TV to tell a refusal from a slow answer; a false alarm on every slider would be worse than silence.
+- **The picture-mode strip as a 3 x 3 grid** (it shows four of nine; VisualQA owns it).
+- **Rail group titles** (LG's and LumaTV's own); the rail is full at nine rows.
+- **PRODUCT.md and DESIGN.md** (`/impeccable init`): the next critique should read them instead of inferring the audience.
+- **The help pattern in the Lucent catalogue** (`languages/lucent`): the mark, the pill and the sheet belong there as one element.
+- **Other surfaces** (quick panel, input picker, prompts, toasts, banners): other workers own them and have the rule; check each for a sentence under a name.
+- **Contrast the layout audit found before this pass** (not from the help mark or sheet, which passed): unselected tab labels read 2.4:1 and 2.6:1 on the
+  segmented track, and at 200 % text the rail rows overlap. Reported to VisualQA.
