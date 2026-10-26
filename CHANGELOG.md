@@ -23,10 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behind one info mark, opened by holding OK. The rail shows one short fact per section,
   Remote & pointer has tabs, the Settings bar shows the link that is really up, and held
   Left/Right speeds up long sliders.
-- Settings: native pages for LG's Accessibility (Closed Caption, Audio Guidance, audio
-  options), Time & power (clock, power timers, auto-off, Screen Off), Bluetooth speakers
-  and controllers, Wi-Fi join and IP settings, the HDMI rows and every Picture tab, on LG's
-  own keys and value lists. The remaining LG menus open from a "More in LG settings" row.
+- Settings: native pages for nearly all of LG's Settings, on LG's own keys and value lists:
+  Picture (every tab, White Balance, Fine Tune, Video Range, HDMI Signalling), Sound (Sound
+  Out, Dolby Atmos, Equalizer, Bluetooth speakers, USB devices), Accessibility, Time & power,
+  Wi-Fi and IP settings, the HDMI rows, Home Settings and screen saver rows, Support and
+  privacy, Safety, Channels, Always Ready and OLED care. Live Plus asks before it turns on.
+  What remains of LG's menus opens from a "More in LG settings" row.
 - The gear tap and the Input key open LumaTV's quick panel (tall, docked at the left where
   LG's sat, sliding out of the edge) and input picker, on Home and over apps; LG's own
   stay one button away and take over whenever LumaTV cannot show its own. Both slide in
