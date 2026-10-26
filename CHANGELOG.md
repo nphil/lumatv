@@ -132,7 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   burn-in) instead of the lower middle, clear of subtitles and the status bar. The
   receiver's "Dolby Atmos - DD+" reads as "Dolby Atmos", and "Dolby Digital+" no longer
   reads as "Dolby Digital". Over Home and its saver the mark hops along the status bar's
-  row instead, clear of the clock and weather cards.
+  row instead, clear of the clock and weather cards. A mute that was on before a
+  compositor restart shows its mark at once.
 - `lumatv preload on` keeps only Netflix, the Home stub and the HDMI input apps
   on LG's preload list: LG loads every enabled entry whenever memory allows, so
   Live TV, LG Channels, the voice app, Miracast, YouTube, the browser and Prime
