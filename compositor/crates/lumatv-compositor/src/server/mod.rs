@@ -4,6 +4,7 @@ pub mod compositor;
 pub mod dmabuf;
 pub mod foreign;
 pub mod group;
+pub mod ime;
 pub mod input_manager;
 pub mod mali;
 pub mod misc;

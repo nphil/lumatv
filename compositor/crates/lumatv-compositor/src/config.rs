@@ -50,6 +50,9 @@ pub struct Config {
     pub input: bool,
     /// Exercise the optional system-layer renderer without replacing any TV surfaces.
     pub ui_demo: bool,
+    /// LumaTV's data directory (`/var/lib/lumatv` on the set): the theme the remote's app buttons are read from (`theme/theme.json`) and
+    /// the key codes taught to the routing (`compositor/keys.conf`).
+    pub data_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -77,6 +80,7 @@ impl Default for Config {
             exit_on_disconnect: false,
             input: false,
             ui_demo: false,
+            data_dir: PathBuf::from("/var/lib/lumatv"),
         }
     }
 }
@@ -102,6 +106,8 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --tick-hz HZ           frame tick (default 60)
   --no-control           no control socket
   --input                read /dev/input/event* and route keys to the focused window (C4)
+  --data-dir DIR         LumaTV's data directory (default /var/lib/lumatv): theme/theme.json holds Settings > Remote's app buttons,
+                         compositor/keys.conf the key codes the routing was taught (`NAME CODE` per line)
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
@@ -173,6 +179,7 @@ impl Config {
                 }
                 "--no-control" => c.control = false,
                 "--input" => c.input = true,
+                "--data-dir" => c.data_dir = PathBuf::from(value()?),
                 "--ui-demo" => c.ui_demo = true,
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),

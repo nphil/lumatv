@@ -28,7 +28,7 @@ use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::protocol::wl_subcompositor::WlSubcompositor;
 use wayland_client::protocol::wl_subsurface::WlSubsurface;
 use wayland_client::protocol::wl_surface::WlSurface;
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
+use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop, event_created_child};
 use wayland_server::Display;
 
 use lumatv_compositor::config::Config;
@@ -46,6 +46,12 @@ use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::{self, WlW
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group::WlWebosSurfaceGroup;
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group_compositor::WlWebosSurfaceGroupCompositor;
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group_layer::WlWebosSurfaceGroupLayer;
+use lumatv_wl_protocols::input_method::client::input_method::{self, InputMethod};
+use lumatv_wl_protocols::input_method::client::input_method_context::{self, InputMethodContext};
+use lumatv_wl_protocols::input_method::client::input_panel::InputPanel;
+use lumatv_wl_protocols::input_method::client::input_panel_surface::InputPanelSurface;
+use lumatv_wl_protocols::text::client::text_model::{self, TextModel};
+use lumatv_wl_protocols::text::client::text_model_factory::TextModelFactory;
 
 type Job = Box<dyn FnOnce(&mut State) + Send>;
 
@@ -183,6 +189,29 @@ pub struct ClientState {
     pub motions: Vec<(f64, f64)>,
     pub buttons: Vec<(u32, u32)>,
     pub cursor_visibility: Vec<u32>,
+    /// What the text model and the input method were told (`ime.rs`).
+    pub ime: ImeLog,
+}
+
+/// The keyboard path as a client sees it: an app's text model and an input method's objects both log here.
+#[derive(Default)]
+pub struct ImeLog {
+    pub model_enters: u32,
+    pub model_leaves: u32,
+    pub commits: Vec<String>,
+    pub preedits: Vec<String>,
+    pub deletes: Vec<(i32, u32)>,
+    pub keysyms: Vec<(u32, u32)>,
+    pub panel_states: Vec<u32>,
+    pub panel_rects: Vec<(i32, i32, u32, u32)>,
+    /// The input method side: the contexts it was given, how often it was told to show or hide the panel, and which were deactivated.
+    pub contexts: Vec<InputMethodContext>,
+    pub activations: u32,
+    pub deactivated: Vec<u32>,
+    pub shows: u32,
+    pub hides: u32,
+    /// What a context was told, one word per event with its arguments.
+    pub context_events: Vec<String>,
 }
 
 pub struct Client {
@@ -261,6 +290,18 @@ impl Client {
             self.queue.dispatch_pending(&mut self.state).unwrap();
         }
         pred(&self.state)
+    }
+
+    pub fn text_model_factory(&mut self) -> TextModelFactory {
+        self.globals.bind(&self.qh, 1..=1, ()).unwrap()
+    }
+
+    pub fn input_method(&mut self) -> InputMethod {
+        self.globals.bind(&self.qh, 2..=2, ()).unwrap()
+    }
+
+    pub fn input_panel(&mut self) -> InputPanel {
+        self.globals.bind(&self.qh, 1..=1, ()).unwrap()
     }
 
     pub fn global_names(&self) -> Vec<String> {
@@ -456,6 +497,59 @@ delegate_noop!(ClientState: ignore WlWebosForeign);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroupCompositor);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroup);
 delegate_noop!(ClientState: ignore WlWebosSurfaceGroupLayer);
+delegate_noop!(ClientState: ignore TextModelFactory);
+delegate_noop!(ClientState: ignore InputPanel);
+delegate_noop!(ClientState: ignore InputPanelSurface);
+
+impl Dispatch<TextModel, ()> for ClientState {
+    fn event(state: &mut Self, _: &TextModel, event: text_model::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            text_model::Event::CommitString { text, .. } => state.ime.commits.push(text),
+            text_model::Event::PreeditString { text, .. } => state.ime.preedits.push(text),
+            text_model::Event::DeleteSurroundingText { index, length, .. } => state.ime.deletes.push((index, length)),
+            text_model::Event::Keysym { sym, state: st, .. } => state.ime.keysyms.push((sym, st)),
+            text_model::Event::Enter { .. } => state.ime.model_enters += 1,
+            text_model::Event::Leave => state.ime.model_leaves += 1,
+            text_model::Event::InputPanelState { state: s } => state.ime.panel_states.push(s),
+            text_model::Event::InputPanelRect { x, y, width, height } => state.ime.panel_rects.push((x, y, width, height)),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<InputMethod, ()> for ClientState {
+    fn event(state: &mut Self, _: &InputMethod, event: input_method::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            input_method::Event::Activate { id, .. } => {
+                state.ime.activations += 1;
+                state.ime.contexts.push(id);
+            }
+            input_method::Event::Deactivate { context } => state.ime.deactivated.push(context.id().protocol_id()),
+            input_method::Event::ShowInputPanel { .. } => state.ime.shows += 1,
+            input_method::Event::HideInputPanel { .. } => state.ime.hides += 1,
+            _ => {}
+        }
+    }
+
+    event_created_child!(ClientState, InputMethod, [0 => (InputMethodContext, ())]);
+}
+
+impl Dispatch<InputMethodContext, ()> for ClientState {
+    fn event(state: &mut Self, _: &InputMethodContext, event: input_method_context::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        let line = match event {
+            input_method_context::Event::SurroundingText { text, cursor, anchor } => format!("surrounding_text {text:?} {cursor} {anchor}"),
+            input_method_context::Event::Reset { serial } => format!("reset {serial}"),
+            input_method_context::Event::ContentType { hint, purpose } => format!("content_type {hint} {purpose}"),
+            input_method_context::Event::EnterKeyType { enter_key_type } => format!("enter_key_type {enter_key_type}"),
+            input_method_context::Event::InvokeAction { button, index } => format!("invoke_action {button} {index}"),
+            input_method_context::Event::Commit => "commit".to_string(),
+            input_method_context::Event::MaxTextLength { length } => format!("max_text_length {length}"),
+            input_method_context::Event::PlatformData { text } => format!("platform_data {text:?}"),
+            _ => return,
+        };
+        state.ime.context_events.push(line);
+    }
+}
 
 // --- Allocation counting on the server thread (the pattern of LumaShow's alloc_tests) ---
 

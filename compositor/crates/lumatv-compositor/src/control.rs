@@ -43,6 +43,17 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             json!({"ok": true, "windows": state.windows_report(), "groups": state.scene.groups.iter().map(|g| json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>()})).collect::<Vec<_>>(), "video": state.foreign.video_windows()})
         }
         "journal" => json!({"ok": true, "lines": state.journal}),
+        "ime" => state.ime_report(),
+        "keys" => json!({
+            "ok": true,
+            "table": state.keys.router.table.named().into_iter().map(|(name, code)| json!({"name": name, "code": code})).collect::<Vec<_>>(),
+            "appKeys": state.keys.app_keys.chosen().into_iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
+            "unnamed": state.keys.unnamed,
+            "foreground": state.foreground_app(),
+            "keyboardUp": state.keyboard_up(),
+            "delivered": state.keys.delivered,
+            "dropped": state.keys.dropped,
+        }),
         "luna" => json!({
             "ok": true,
             "bridge": state.luna.is_connected(),
@@ -138,7 +149,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, ime, keys, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

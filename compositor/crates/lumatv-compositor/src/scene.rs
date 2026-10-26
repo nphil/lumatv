@@ -119,6 +119,8 @@ pub struct Scene {
     /// The pointer's sprite rectangle while the cursor shows (set by the state before each plan).
     pub cursor: Option<Rect>,
     last_cursor: Option<Rect>,
+    /// Where the field that holds the text-input activation wants the keyboard (`text_model.set_input_panel_rect`), in output pixels.
+    pub keyboard_pref: Option<Rect>,
     /// The next plan damages everything it covers whatever changed ([`Scene::redraw_all`]).
     redraw_all: bool,
     /// What the last plan drew and where, to damage what moved, appeared, restacked or vanished.
@@ -238,10 +240,11 @@ impl Scene {
         self.windows.values().filter(|w| Self::in_front(w, surfaces) && Some(w.id) != except).max_by_key(|w| w.front).map(|w| w.id)
     }
 
-    /// The window that should hold keyboard focus: the topmost mapped window that wants focus.
+    /// The window that should hold keyboard focus: the topmost mapped window that takes it (the on-screen keyboard, over the app
+    /// whose field it types into, does not).
     pub fn focus(&mut self, surfaces: &Surfaces) -> Option<WindowId> {
         self.build_stack(surfaces);
-        self.stack.last().map(|(_, _, id)| *id)
+        self.stack.iter().rev().map(|(_, _, id)| *id).find(|id| self.windows.get(id).is_some_and(|w| w.needs_focus()))
     }
 
     /// Mapped windows in draw order, bottom to top, into `self.stack`.
@@ -307,7 +310,19 @@ impl Scene {
         for i in 0..n {
             let wid = self.stack[i].2;
             let Some(w) = self.windows.get(&wid) else { continue };
-            let origin = if w.kind.is_card() { (0, 0) } else { w.position };
+            let origin = if w.kind.is_card() {
+                (0, 0)
+            } else if w.kind == WindowType::Keyboard {
+                // LG's KeyboardView: anchored at the bottom of the output, as high as the window, the window centred in that width; the
+                // rectangle the app asked for when it asked for one.
+                let (sw, sh) = surfaces.get(w.surface).map(|s| s.size()).unwrap_or((0, 0));
+                match self.keyboard_pref {
+                    Some(r) => (r.x, r.y),
+                    None => ((OUTPUT_WIDTH as i32 - sw) / 2, OUTPUT_HEIGHT as i32 - sh),
+                }
+            } else {
+                w.position
+            };
             let owner = w.surface;
             self.build_members(owner);
             let m = self.members.len();

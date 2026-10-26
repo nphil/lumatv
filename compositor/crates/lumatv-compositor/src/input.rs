@@ -13,9 +13,10 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::time::{Duration, Instant};
 
 use crate::State;
+use crate::keys::{self, Action, Ctx};
 use crate::luna::ToBridge;
 use crate::server::seat;
-use crate::window::key_mask;
+use crate::window::{WindowType, key_mask};
 
 /// Linux input event codes the routing knows by name (`linux/input-event-codes.h`).
 pub mod code {
@@ -41,6 +42,13 @@ pub mod code {
     pub const KEY_MUTE: u32 = 113;
     pub const KEY_VOLUMEDOWN: u32 = 114;
     pub const KEY_VOLUMEUP: u32 = 115;
+    /// The gear, `IR_KEY_MENU`: the gate's quick-settings step injects it, and LG's own key chain hands this very code to YouTube.
+    pub const KEY_MENU: u32 = 139;
+    /// The Input key (`TV_VIDEO`, `Key_webOS_InputSource`): read off this set's remote in round 8.
+    pub const KEY_VIDEO_NEXT: u32 = 241;
+    /// The Netflix and Prime Video buttons, from LG's network-input-service key table (`NETFLIX`, `AMAZON`); not yet read on this set.
+    pub const KEY_NETFLIX: u32 = 1037;
+    pub const KEY_AMAZON: u32 = 1038;
 }
 
 /// How long Home is held for the escape to LG's compositor (PLAN: 650 ms).
@@ -275,18 +283,71 @@ pub fn open_all() -> Vec<Device> {
     out
 }
 
-/// The compositor's key state: the Home hold and what was delivered.
+/// The compositor's key state: the Home hold, the remote's own keys (`keys.rs`) and what was delivered.
 #[derive(Default)]
 pub struct Keys {
     home_down_since: Option<Instant>,
     home_escape_sent: bool,
     pub delivered: u64,
     pub dropped: u64,
+    pub router: keys::Router,
+    /// Settings > Remote's app buttons, re-read when the theme file changes.
+    pub app_keys: keys::AppKeyConfig,
+    theme: ThemeFile,
+    /// Codes in LG's own range that the key table has no name for, once each: a button of this remote it lacks.
+    pub unnamed: Vec<u32>,
+}
+
+/// The theme file the app buttons are read from, and what it was when last read.
+#[derive(Default)]
+struct ThemeFile {
+    path: std::path::PathBuf,
+    stamp: Option<(std::time::SystemTime, u64)>,
+}
+
+impl Keys {
+    /// The keys of a compositor whose data directory is `config.data_dir`: the codes taught in `compositor/keys.conf`, and the theme.
+    pub fn new(config: &crate::config::Config) -> Keys {
+        let conf = config.data_dir.join("compositor/keys.conf");
+        let table = match std::fs::read_to_string(&conf) {
+            Ok(text) => {
+                let (table, bad) = keys::KeyTable::parse(&text);
+                for line in bad {
+                    log::warn!("{}: {line}", conf.display());
+                }
+                table
+            }
+            Err(_) => keys::KeyTable::default(),
+        };
+        Keys { router: keys::Router::new(table), theme: ThemeFile { path: config.data_dir.join("theme/theme.json"), stamp: None }, ..Keys::default() }
+    }
+
+    /// Reads the theme again when the file is not the one last read. A file that is gone is no choice at all (LG's own targets); one
+    /// that cannot be read or parsed now (the theme is written in place, not atomically) leaves what was read and is tried again at
+    /// the next press.
+    pub fn refresh_app_keys(&mut self) {
+        let stamp = std::fs::metadata(&self.theme.path).ok().map(|m| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len()));
+        if stamp == self.theme.stamp {
+            return;
+        }
+        if stamp.is_none() {
+            self.app_keys = keys::AppKeyConfig::default();
+            self.theme.stamp = None;
+        } else if let Some(theme) = std::fs::read_to_string(&self.theme.path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+            self.app_keys = keys::AppKeyConfig::from_theme(&theme);
+            self.theme.stamp = stamp;
+        }
+    }
 }
 
 impl State {
     /// One key from a device, delivered on `seat` (the device's own; seat 0 for the control socket and the tests).
     pub fn key_event(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool) {
+        self.key_event_at(seat, code, pressed, from_network, Instant::now());
+    }
+
+    /// [`State::key_event`] at a given time, which is what the holds are measured against (the host tests move it by hand).
+    pub fn key_event_at(&mut self, seat: seat::SeatId, code: u32, pressed: bool, from_network: bool, now: Instant) {
         // While the Magic Remote's cursor shows, OK is a click on what it points at (LG's behaviour); an arrow or
         // Back hides the cursor and goes on as a key.
         if matches!(code, code::KEY_ENTER | code::KEY_OK) && self.seat.cursor_visible && self.seat.pointer_focus.is_some() {
@@ -296,6 +357,22 @@ impl State {
             }
         } else if pressed && matches!(code, code::KEY_UP | code::KEY_DOWN | code::KEY_LEFT | code::KEY_RIGHT | code::KEY_BACK | code::KEY_PREVIOUS) {
             seat::hide_cursor(self);
+        }
+        self.note_unnamed_key(code, pressed);
+        // The remote's own keys (gear, Input, the app buttons, the holds) are decided before any app sees one.
+        if pressed && matches!(self.keys.router.table.classify(code), keys::Logical::App(_)) {
+            self.keys.refresh_app_keys();
+        }
+        let foreground = self.foreground_app();
+        let keyboard_up = self.keyboard_up();
+        let out = {
+            let Keys { router, app_keys, .. } = &mut self.keys;
+            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, app_keys })
+        };
+        self.run_actions(out.actions);
+        if out.swallow {
+            self.seat.last_input = "key";
+            return;
         }
         let (mask, back, home) = self
             .seat
@@ -308,17 +385,21 @@ impl State {
         if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE) {
             if pressed {
                 if self.keys.home_down_since.is_none() {
-                    self.keys.home_down_since = Some(Instant::now());
+                    self.keys.home_down_since = Some(now);
                     self.keys.home_escape_sent = false;
                 }
             } else {
-                let held = self.keys.home_down_since.take().map(|t| t.elapsed()).unwrap_or_default();
+                let held = self.keys.home_down_since.take().map(|t| now.saturating_duration_since(t)).unwrap_or_default();
                 if !self.keys.home_escape_sent && r == Route::Home && held < HOLD_HOME {
                     self.home_pressed(from_network);
                 }
             }
         }
+        // An input method that holds the keyboard grab (the on-screen keyboard) is given every key the app would have got, Back
+        // and the arrows included; Home, Volume and Mute stay the compositor's.
+        let grabbing = self.ime_grabbing();
         match r {
+            Route::Client | Route::Dropped | Route::Back if grabbing => self.grab_key(code, pressed),
             Route::Client => {
                 if seat::send_key(self, seat, code, pressed) {
                     self.keys.delivered += 1;
@@ -338,16 +419,29 @@ impl State {
         self.seat.last_input = "key";
     }
 
-    /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN); a cursor still for
-    /// [`seat::CURSOR_TIMEOUT`] hides.
+    /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN); the holds of the remote's own keys come
+    /// due; a cursor still for [`seat::CURSOR_TIMEOUT`] hides.
     pub fn poll_holds(&mut self) {
+        self.poll_holds_at(Instant::now());
+    }
+
+    pub fn poll_holds_at(&mut self, now: Instant) {
         if let Some(t) = self.keys.home_down_since
             && !self.keys.home_escape_sent
-            && t.elapsed() >= HOLD_HOME
+            && now.saturating_duration_since(t) >= HOLD_HOME
         {
             self.keys.home_escape_sent = true;
             self.journal("input: Home held 650 ms: asking the supervisor to fall back to LG's compositor".into());
             self.luna.send(ToBridge::Fallback { reason: "hold Home 650 ms".into() });
+        }
+        if self.keys.router.waiting() {
+            let foreground = self.foreground_app();
+            let keyboard_up = self.keyboard_up();
+            let actions = {
+                let Keys { router, app_keys, .. } = &mut self.keys;
+                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, app_keys })
+            };
+            self.run_actions(actions);
         }
         if self.seat.cursor_visible
             && let Some(t) = self.seat.cursor_shown_at
@@ -355,6 +449,46 @@ impl State {
         {
             seat::hide_cursor(self);
         }
+    }
+
+    fn run_actions(&mut self, actions: Vec<Action>) {
+        for a in actions {
+            match a {
+                Action::Request(r) => self.system_request(r),
+                Action::ClientRelease(code) => self.release_held(code),
+            }
+        }
+    }
+
+    /// A hold's action ran after the app (or the keyboard) was given the press: it gets the release now, so that no key stays down
+    /// in its state while the real release is swallowed.
+    fn release_held(&mut self, code: u32) {
+        let seats: Vec<seat::SeatId> = self.seat.pressed.iter().filter(|(_, c)| *c == code).map(|(s, _)| *s).collect();
+        for s in seats {
+            seat::send_key(self, s, code, false);
+        }
+        if self.ime.grab_down.contains(&code) {
+            self.grab_key(code, false);
+        }
+    }
+
+    /// A code in LG's own range (768 and up) that the key table has no name for, noted once with how to teach it: the buttons this set's
+    /// remote has that the table was built without (Disney+, LG Channels) are read from the journal after a press.
+    fn note_unnamed_key(&mut self, code: u32, pressed: bool) {
+        if pressed && code >= 768 && self.keys.unnamed.len() < 32 && !self.keys.router.table.knows(code) && !self.keys.unnamed.contains(&code) {
+            self.keys.unnamed.push(code);
+            self.journal(format!("input: key {code} has no name in the key table; for a button the routing should know, add `NAME {code}` to compositor/keys.conf"));
+        }
+    }
+
+    /// The app id of the foreground card, empty when there is none.
+    pub fn foreground_app(&self) -> String {
+        self.scene.foreground(&self.surfaces).map(|w| w.app_id().to_string()).unwrap_or_default()
+    }
+
+    /// Whether a keyboard window is on the screen.
+    pub fn keyboard_up(&self) -> bool {
+        self.scene.windows().any(|w| w.kind == WindowType::Keyboard && w.map_serial > 0)
     }
 
     fn home_pressed(&mut self, from_network: bool) {
@@ -365,15 +499,21 @@ impl State {
         );
     }
 
-    /// Back on a window that does not take it: LG's compositor closes the window (`_WEBOS_LAUNCH_PREV_APP_AFTER_CLOSING`
-    /// decides what shows next); here the window gets `close` and the app manager is told.
-    fn back_pressed(&mut self) {
+    /// Back on a window that does not take it, Exit, Back held: LG's compositor closes the window
+    /// (`_WEBOS_LAUNCH_PREV_APP_AFTER_CLOSING` decides what shows next); here the window gets `close` and the app manager is told. The
+    /// Home app is not closed by either (LG closes its Home view and nothing else): a Home that closed would leave a black screen.
+    pub(crate) fn back_pressed(&mut self) {
         let Some(wid) = self.seat.focus.and_then(|s| self.scene.window_of(s)) else { return };
         let app = self.scene.window(wid).map(|w| w.app_id().to_string()).unwrap_or_default();
+        if app == "com.webos.app.home" {
+            self.journal("input: Back or Exit on Home: nothing to close".into());
+            return;
+        }
         if let Some(res) = self.webos_shell_resource(wid) {
             res.close();
         }
         if !app.is_empty() {
+            self.journal(format!("input: Back or Exit: closing {app}"));
             self.luna_call("luna://com.webos.applicationManager/closeByAppId".into(), serde_json::json!({"id": app, "reason": "windowPolicy"}));
         }
     }

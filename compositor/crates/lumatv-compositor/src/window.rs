@@ -220,7 +220,9 @@ impl Window {
         self.props.get(name).map(|v| v == "true").unwrap_or(false)
     }
 
+    /// Whether the window takes the keyboard focus when it is on top. The on-screen keyboard never does by default: the field it types
+    /// into stays focused (LG's input panel surface refuses the focus on a click as well).
     pub fn needs_focus(&self) -> bool {
-        self.props.get("needFocus").map(|v| v != "false").unwrap_or(true)
+        self.props.get("needFocus").map(|v| v != "false").unwrap_or(self.kind != WindowType::Keyboard)
     }
 }

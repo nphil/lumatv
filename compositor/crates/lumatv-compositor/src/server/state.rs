@@ -114,6 +114,7 @@ pub struct State {
     pub luna: Box<dyn luna::Bridge>,
     pub luna_state: crate::luna_methods::LunaState,
     pub keys: crate::input::Keys,
+    pub ime: super::ime::ImeState,
     pub stats: Stats,
     pub check: CheckState,
     pub clients: HashMap<ClientId, ClientInfo>,
@@ -142,6 +143,7 @@ pub struct State {
 
 impl State {
     pub fn new(dh: DisplayHandle, config: Config, output: Box<dyn Output>, luna: Box<dyn luna::Bridge>) -> State {
+        let keys = crate::input::Keys::new(&config);
         State {
             dh,
             config,
@@ -152,7 +154,8 @@ impl State {
             foreign: ForeignState::default(),
             luna,
             luna_state: crate::luna_methods::LunaState::default(),
-            keys: crate::input::Keys::default(),
+            keys,
+            ime: super::ime::ImeState::default(),
             stats: Stats::default(),
             check: CheckState::default(),
             clients: HashMap::new(),
@@ -274,6 +277,12 @@ impl State {
                     super::seat::refocus(self);
                 }
             }
+            // The keyboard's window came, went or changed size: the field that holds the activation is told.
+            if (eff.new_buffer || eff.mapped_changed.is_some())
+                && self.scene.window_of(sid).and_then(|w| self.scene.window(w)).is_some_and(|w| w.kind == crate::window::WindowType::Keyboard)
+            {
+                super::ime::refresh_panel(self);
+            }
             if eff.new_buffer {
                 self.note_cadence(sid);
                 // The buffer's first-use costs are paid here, in the clients' pass, not in the frame that first
@@ -335,6 +344,7 @@ impl State {
         }
         let was_card = self.scene.window_of(id).and_then(|wid| self.scene.window(wid)).is_some_and(|w| w.kind.is_card());
         self.scene.remove_surface(id);
+        super::ime::surface_gone(self, id);
         self.cadence.remove(&id);
         self.foreign.surface_destroyed(id);
         if was_card {

@@ -17,6 +17,7 @@ pub mod config;
 pub mod control;
 pub mod damage;
 pub mod input;
+pub mod keys;
 pub mod kms;
 pub mod luna;
 pub mod luna_methods;
@@ -28,6 +29,7 @@ pub mod render;
 pub mod scene;
 pub mod server;
 pub mod surface;
+pub mod system_ui;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).
 #[cfg(feature = "ui")]
 pub mod ui;

@@ -131,7 +131,7 @@ impl Dispatch<WlSeat, SeatId> for State {
     }
 }
 
-fn send_keymap(kb: &WlKeyboard) {
+pub(crate) fn send_keymap(kb: &WlKeyboard) {
     match memfd_with(KEYMAP.as_bytes()) {
         Ok(fd) => kb.keymap(KeymapFormat::XkbV1, fd.as_fd(), KEYMAP.len() as u32 + 1),
         Err(e) => {
@@ -241,6 +241,8 @@ pub fn refocus(state: &mut State) {
     if let Some(n) = new {
         state.journal(format!("focus -> surface {}", n.0));
     }
+    // A text field on the surface that lost the focus leaves.
+    super::ime::focus_changed(state);
 }
 
 /// A keyboard made after focus settled on its client's surface gets `enter` now, as Qt's compositor sends it at
@@ -268,7 +270,7 @@ fn enter(seat: &SeatState, kb: &WlKeyboard, serial: u32, surface: &WlSurface) {
 /// data. A client in the middle of disconnecting has objects that are alive but whose client is gone, and the
 /// backend's same-client check on an event with an object argument unwraps that lookup: the seventh gate's
 /// session panicked (`InvalidId`) in `refocus` while WebAppMgr's first connection closed 1.2 s in.
-fn live<R: Resource>(r: &R) -> bool {
+pub(crate) fn live<R: Resource>(r: &R) -> bool {
     r.is_alive() && r.client().is_some()
 }
 
