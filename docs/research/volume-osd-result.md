@@ -2,9 +2,9 @@
 
 ## Resume here
 
-State at 2026-10-25: built and tested offline (`tests/test_volume_osd.py`, `tests/test_osd_contrast.py`, `tests/test_volume_patch.py`); not
-yet on the set. It takes one compositor restart (`lumatv apply` rebuilds the shadow module and restarts the compositor once); `lumatv revert` is
-the way back and brings LG's popup back with it. Checks to run on the set after the restart are at the end.
+State at 2026-10-25 21:45: on the set (build `ddc293c`) and checked on Home, Plex and HDMI 2. The offline tests pass (`tests/test_volume_osd.py`,
+`tests/test_osd_contrast.py`, `tests/test_volume_patch.py`). The deploy took one `lumatv apply` restart for the shadow patch. `lumatv revert` is the
+way back and brings LG's popup back with it. Open: frame cost over video, and the TV's own volume with the receiver off (offline only so far).
 
 ## What LG draws and how it is stopped
 
@@ -75,15 +75,27 @@ second one (a test fails if they do). The display takes no key and no focus.
 - `python3 tests/qmlhost/scenes.py --only 11-volume-osd,11-volume-osd-db,11-volume-osd-muted,11-volume-osd-mark,11-volume-osd-tv,11-volume-osd-tv-arc,11-volume-osd-offline,11-volume-osd-home`
   renders dark and light; mock 11 (`docs/mocks/11-volume-osd.html`, shots in `docs/mocks/shots`) is the design.
 
-## On the set after the restart (not yet run)
+## On the set (2026-10-25, 21:36 to 21:45)
 
-1. `lumatv apply`; `/var/log/messages` shows no `LumaOverlay failed` and no `[Resident] overlay volume did not load`.
-2. Home, Plex and HDMI 2, Volume+ then Volume- on each: LumaTV's pane only, at the right edge; `volume view is not available` twice in the log; the
-   receiver ends where it began (`curl http://127.0.0.1:18731/v1/receiver`).
-3. Mute: the pane says Muted, the mark stays after it, moves in ten seconds, goes with the unmute; LG's bubble never shows.
-4. The glass over a bright and a dark picture on HDMI 2 (`luna-send ... capture/executeOneShot`): the numbers above should hold on the plane.
-5. Frame cost of the pane over video (`lumatv fps on`, `[FPSJANK]` lines) and the first press after boot.
-6. Receiver off (or `base.receiver` switched off in Settings): the TV's own volume shows.
+- Home, Plex (its menu, nothing playing) and HDMI 2 (the Apple TV's profile screen through the Denon), Volume+ then Volume- on each
+  (`volume-osd/after-home.png`, `after-plex.png`, `after-hdmi2.png`): LumaTV's pane only, at the right edge, vertical, the picture showing
+  through it over Plex and HDMI 2; LG's popup never showed, and the log has `onVolumeUpdated, volume view is not available` once per press. The
+  receiver read 42.5, not muted, before and after each pair (Home Assistant: 0.425).
+- Mute at Home (`after-home-muted.png`, `after-home-mark.png`): the pane says "Muted" and "was 42.5", then the mark stays at the right edge and has
+  moved to another place 14 s later; the unmute (also at Home) took the mark away and the receiver read unmuted. LG's bubble never showed.
+- Contrast on the captures (ink against its own background, 7:1 is the distance floor): the level number 9.6:1 over Home, 12.4:1 over a bright Plex
+  picture, 17.4:1 over HDMI 2; the line under it 10.5:1, 12.7:1, 17.4:1.
+- On HDMI 2 the Denon draws its own volume bar into the picture (the level, a bar, "ECO : OFF" at the bottom). It is in the receiver's video, not LG's,
+  and only the receiver's own setup menu can switch it off.
+- The log shows `LS is not defined` at `kit/NoteLog.qml:57` and `kit/Apps.qml:32` at start (the defect above); nothing from the display's files.
+- Not checked on the set: frame cost of the pane over video (`lumatv fps on`, `[FPSJANK]`), the first press after a boot, and the TV's own volume with
+  the receiver off (the offline scenes `11-volume-osd-tv*` cover it).
+
+## Deploying by hand
+
+The package build fills the brand placeholders (`{{qmlModule}}`, `{{dataDir}}`, `{{appId}}`, `{{shortId}}`, `{{displayName}}`) in every `.qml`, `.js`,
+`.json`, `.css`, `.html`, `.sed` and `.md` file (`render` in `tools/build-ipk.sh`). A file copied from a worktree to the set unrendered leaves Home and the
+overlay unloaded (the log shows a `%7B%7BqmlModule%7D%7D` path); run the same substitution on the copies, then `lumatv apply`.
 
 ## Not done
 

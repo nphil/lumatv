@@ -163,7 +163,7 @@ into the compositor's pages on the host (41c6e83); not on the TV.
 |---|---|---|
 | System UI redirect | configd `com.webos.surfacemanager.systemUIManager` `appinfo[].main` | Quick panel, input picker, context menu, on-screen remote, boot and power-off logos, nudges |
 | View swap | `sysuicompmgr/changeSystemUIView {viewName, viewSource}`; falls back to LG's on load error | Toasts, alerts, PIN prompt, input popups (`notificationView`) |
-| Shadow module | `QML2_IMPORT_PATH=/var/lib/lumaglass/qml` first | Volume OSD, launch splash, spinners, recents, window decorations |
+| Shadow module | `QML2_IMPORT_PATH=/var/lib/lumaglass/qml` first | LG's volume popup (kept from opening), launch splash, spinners, recents, window decorations |
 | Overlay mount | lowerdir = LG's app dir, upperdir under `/var/lib/lumaglass` | Live TV banners (`inputcommon`, 273 QML), keyboard (maliit, 85 QML), voice/search (203 QML), web apps |
 | Key filter and launch redirect | configd `keyFilters`, ours first | Apps tile, notification drawer, entry points |
 
@@ -179,7 +179,7 @@ set). The table below is the summary; SURFACES.md is the source.
 | Apps tile | LG Store (`com.webos.app.discovery`) | Own all-apps grid | Launch redirect |
 | Quick panel | 165-file QML, rebuilt per open | Rebuilt resident | System UI redirect |
 | Input picker | 51-file QML, rebuilt per open | Rebuilt resident, own inputs only | System UI redirect |
-| Volume and mute OSD | Compositor QML; shows webOS's own counter | Rebuilt, fed by the receiver (below) | Shadow module |
+| Volume and mute OSD | Compositor QML (`views/StarfishVolumeView.qml`); shows webOS's own counter | Rebuilt in the overlay layer, over Home, every app and every input; fed by the receiver, else the TV's own volume (below); LG's view patched out of the shadow module (`tools/volume_patch.py`) | Shadow module |
 | Toasts, alerts, PIN, input popups | `SystemUI/Notification`, 38 files | LG's view kept for its contract and data layer, patched into the Luma look with no shadow layers (`lumatv notifications on`, `tools/notification_patch.py`); own visuals later | View swap |
 | Launch splash, spinner, long-press ring | Compositor QML | Rebuilt | Shadow module |
 | Live TV banner, info, no-signal | `inputcommon` QML | Restyled | Overlay mount |
@@ -254,7 +254,8 @@ the receiver pushes every master-volume and mute change (`MV`, `MU` events),
 so the OSD matches the front panel in the receiver's own units (dB or 0-98),
 including changes made on the receiver. The connection lives in the native
 helper (below) and is held open; the OSD only renders the last value. It can
-also show input and sound mode (e.g. DTS Surround) on change.
+also show input and sound mode (e.g. DTS Surround) on change. With the TV's own speakers, headphones or Bluetooth as the
+output, or with the receiver off or not answering, it shows the TV's own volume and mute (`LS.audioService`) instead.
 
 Before building:
 
@@ -274,8 +275,8 @@ Before building:
    HA's entity unaffected; `docs/research/native-helper-result.md`,
    "Receiver"), so the helper takes events over its own connection and
    commands can go over HTTP or that connection.
-3. Volume keys still go to the receiver through HDMI-CEC as today; LG's own
-   volume popup is suppressed only once the OSD has passed the gate.
+3. Volume keys still go to the receiver through HDMI-CEC as today. LG's own volume and mute popup never opens: `build_shadow`
+   patches it out of the shadow module in the same restart that brings the display (`docs/research/volume-osd-result.md`).
 
 Receiver controls in Settings › Sound › Receiver, shown only while the AVR is
 reachable, with the same reach as Home Assistant's Denon integration: power,
