@@ -1141,6 +1141,10 @@ what it already does.
   Assistant's.
 - No PIN checks: Nitin uses no PIN (no app, channel or purchase locks), so the
   PIN prompt is left out of TV checks and the cutover gate (Nitin, 2026-10-25).
+- Music Assistant plugin, later (Nitin, 2026-10-25): the TV as a Sendspin
+  player in Music Assistant, with now-playing, browse, queue and transport on
+  the TV, ported from LumaShow's Music Assistant client. Not started before
+  the current surfaces are finished and on the set.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
