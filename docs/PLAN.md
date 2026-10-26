@@ -1111,6 +1111,9 @@ what it already does.
   passes every safety check but draws a black Home and none of the QML surfaces yet;
   its frame timing, those surfaces and the quick panel's lag over Netflix are parked
   for later.
+- Volume display: a slim bar at the bottom centre (Nitin, 2026-10-25 22:20, mockup
+  `docs/research/volume-osd/renders/volume-sheet.png`). It shows only while the volume
+  changes; the mute mark sits in the top corners over apps, clear of subtitles.
 - Focus cue: no line under the focused item (Nitin, 2026-10-23, replacing
   the earlier "keep the bright lower edge"). The focused item lifts, its
   glass brightens and a soft accent halo spreads under it; tabs and
