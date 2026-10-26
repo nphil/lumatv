@@ -39,7 +39,7 @@ Item {
     property int decideMs: 250                    // how long a key waits for a receiver that may answer before the TV's own volume is shown
     property int hopMs: 10000                     // LG's mute bubble moves this often
     property int graceMs: 1500                    // a mute that was in date stays shown this long after its reading ages out and before the next one
-    property int settleMs: 900                    // what the keys made the receiver say stays this long after the last key, then the reading is taken
+    property int settleMs: 1500                   // what the keys made the receiver say stays this long after the last key, then the reading is taken (its push comes 0.4 to 1 s after a key)
 
     // The age gate every receiver surface shares (kit/ReceiverGate). It asks the helper to confirm an aged reading when a key is pressed
     // (`cue`) and, while a mute is on screen, each time the reading ages out: the helper moves a reading's stamp quietly, and a mute that is
@@ -68,10 +68,20 @@ Item {
     function readAbs() { return rc && rc.volumeAbs !== undefined && rc.volumeAbs !== null ? rc.volumeAbs : -1 }
     function key() {
         var cause = String(TvVolume.cause)
+        var up = /up/i.test(cause), down = /down/i.test(cause)
         var base = keyed && optAbs >= 0 ? optAbs : readAbs()
-        if (base >= 0) optAbs = /down/i.test(cause) ? Math.max(0, base - receiverStep) : /up/i.test(cause) ? Math.min(98, base + receiverStep) : base
+        if (base >= 0) optAbs = down ? Math.max(0, base - receiverStep) : up ? Math.min(98, base + receiverStep) : base
+        // the Denon cancels its mute on a volume key (read on the set: muted, Volume+, unmuted); a report with no direction keeps what is believed
         var was = keyed && optMute >= 0 ? optMute === 1 : !!(rc && rc.mute)
-        optMute = /mute/i.test(cause) ? (was ? 0 : 1) : (was ? 1 : 0)
+        optMute = up || down ? 0 : (was ? 1 : 0)
+        keyed = true
+        settleT.restart()
+    }
+    // The mute key's report has no direction (the TV's muteStatus alone, read on the set) but the TV's own mute flag moves with it: when that flag
+    // differs from what the receiver last said, the key was the mute key and the receiver follows in 0.5 to 1 s, so the bar shows it now.
+    function muteKey() {
+        if (!viaReceiver || !rc || TvVolume.muted === !!rc.mute) return
+        optMute = TvVolume.muted ? 1 : 0
         keyed = true
         settleT.restart()
     }
@@ -129,6 +139,7 @@ Item {
     Timer { id: hide; interval: osd.holdMs; onTriggered: osd.pill = false }
     Timer { id: decide; interval: osd.decideMs; onTriggered: osd.deciding = false }
     Connections { target: TvVolume; onCue: osd.cue() }
+    Connections { target: TvVolume; onMutedChanged: osd.muteKey() }
 
     // A reading that is in date: a change of level or of mute, against the last one, shows the bar (while it is the receiver that is read).
     function read(r) {

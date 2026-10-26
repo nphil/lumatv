@@ -149,6 +149,23 @@ class VolumeOsd(HostCase):
         self.assertEqual(got["kept"], "48.5", "an old reading does not move it back")
         self.assertEqual(got["reconciled"], "48.5|false", "then the reading is taken")
 
+    def test_a_volume_key_over_a_muted_receiver_shows_it_unmuted_at_once_as_the_denon_cancels_its_mute(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 4000; o.staleMs = 60000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(dict(RX, mute=True)), "muted"),
+            (B + 2000, press("volumeUp", 32), "key"), (B + 2300, SHOWN, "after_key"),
+        ], B + 2900)
+        self.assertEqual(got["after_key"], "true|true|receiver|46.5|false|false", "Volume+ over a muted Denon: the number, not the muted form")
+
+    def test_the_mute_key_has_no_direction_but_the_tvs_mute_flag_moves_and_the_bar_shows_it_at_once(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 4000; o.staleMs = 60000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+            (B + 2000, press("", None, True), "key"), (B + 2300, SHOWN, "after_key"),
+            # the Denon's own push arrives later and agrees: nothing changes
+            (B + 2600, rx(dict(RX, mute=True)), "push"), (B + 3000, SHOWN, "after_push"),
+        ], B + 3600)
+        self.assertEqual(got["after_key"], "true|true|receiver|46|true|false", "the mute key: the muted form before the receiver says anything")
+        self.assertEqual(got["after_push"], "true|true|receiver|46|true|false")
+
     def test_without_a_receiver_it_is_the_tvs_own_volume(self):
         cases = [("unreachable", GONE), ("switched off in Settings", OFF), ("in standby", dict(RX, power="standby"))]
         steps = []
