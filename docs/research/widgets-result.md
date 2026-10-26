@@ -72,12 +72,31 @@ A card drops the lines that would not fit (the title, the summary, the stats); n
 - **The simulator's groups and second dock** are not supported on the TV: the editor is single-dock, as Home is.
 - **Not measured on the set**: the 3 ms p90 gate (the editor surface is hidden when not editing, the grid is one ShaderEffect over its own rectangle, no
   ShaderEffectSource is built on show, widgets are built once per card id), the text at 200 %, the pointer drag (written, not exercised in the host).
-- **Fixed pixel sizes in the cards**: no text-scale hook exists for the 200 % check; the audit runs the doubled pass on the scenes.
+- **Fixed pixel sizes in the cards**: the 200 % check doubles the theme's type tokens, and the Weather card follows the temperature token; the other cards use literal sizes.
 
 ## Evidence
 
-- `tests/layoutgrid.test.js` (bun: 22 tests, including parity with the simulator's functions), `tests/test_layout_tool.py` (the tool's check/put/set/get/reset),
-  `tests/test_widgets.py` (host: the shipped layout drawn where it was, a hidden card not drawn and not focused, Up from a card with nothing over it reaches the
-  bar, Settings page choices and refusals, the editor's pick-up, move, size, Save and what it writes, Back asking and Discard, hold of OK).
-- Scenes (`tests/qmlhost/scenes_widgets.py`, dark and light): `37-home-*` the cards at each size and the Home arrangements, `38-settings-home-widgets*`,
-  `38-home-edit*`. Renders in `docs/research/widgets/`; `before-halves-on-the-set.png` is the set before this work (the empty clock and weather cards).
+Run in the offline host (Qt 5.15; the set has 5.12), not on the set:
+
+- `bun test tests/layoutgrid.test.js`: 22 pass (parity with the simulator's own functions). `python3 -m unittest tests.test_layout_tool tests.test_package_tools`: 23 pass.
+- `tests/test_widgets.py`, 6 host tests, all pass (each passed in a run of the final test file; the full file was not run in one go because the host lock queue made
+  one run take over 15 minutes): the shipped layout drawn where it was, a hidden card not drawn or focused and Up from a card with nothing over it reaching the bar,
+  the Settings page (a card Off, Small, Half or Wide, a size that does not fit refused and said, Reset writing an empty file), the editor (pick up, move, size, Save
+  and what it writes), Back asking, Discard, Remove, Undo and Add, and the hold of OK opening the editor with its release not an OK.
+- `tests/test_ha_plugin_surfaces.py` 2 of 2 pass against the At-home card. Regression, from the same tree: `test_shell_surfaces` hold, Menu key and hide/rename pass;
+  `test_settings` lint, page build and Home opens Settings pass; `test_no_row_writes_a_setting_or_value_the_service_refuses` fails on `ReferenceError: LS is not defined`
+  in its own helper snippet (the LS import another slice is fixing), not in a page.
+- The commit gate: every commit's tree was loaded in the offline host before it went on main (no warning that HEAD did not already have).
+- Scenes (`tests/qmlhost/scenes_widgets.py`), dark and light: `37-home-weather-sizes`, `-clock-sizes`, `-at-home-sizes`, `-news-sizes`, `-halves`, `38-settings-home-widgets`,
+  `38-home-edit-move` are in `docs/research/widgets/` (the others render the same way). `before-halves-on-the-set.png` is the set before this work (the empty clock and
+  weather cards). These renders were taken before the last text-colour commits (e2b444b to f61c922).
+- Layout audit at the last full run (100 %): clean for the cards except what the commits above then changed (Weather and Clock muted text, At-home count and chip lines,
+  the editor's Remove) and the status bar's "?" mark (not this slice). At 200 %: Weather overlaps fixed in 379b56b, the editor bar's legend overlap in f61c922; neither was re-rendered.
+
+## Open findings from that audit (not fixed)
+
+- News, a card under 160 high with no hero: the words sit 8 to 13 px above the middle of the card.
+- At-home, a focused chip: the title reads 4.0:1 where 4.5:1 is asked; the lit chip's fill is the kit's.
+- Settings page: the unselected segment labels read 3.1 to 3.9:1 (kit `LuSegmented`, VisualQA's file).
+- Re-render and re-audit from HEAD: `DISPLAY=:77 python3 tests/qmlhost/scenes.py --audit --theme both --only 37-home-weather-sizes,37-home-weather-wide,37-home-clock-sizes,37-home-clock-digital-sizes,37-home-at-home-sizes,37-home-news-sizes,37-home-halves,37-home-thirds,38-settings-home-widgets,38-settings-home-widgets-order,38-home-edit,38-home-edit-move,38-home-edit-resize,38-home-edit-add,38-home-edit-free,38-home-edit-added,38-home-edit-sure`
+  (about a minute a scene while the host lock is free).
