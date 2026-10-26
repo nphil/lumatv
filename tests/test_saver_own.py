@@ -26,8 +26,11 @@ from xdisplay import DISPLAY, HAVE_QT
 
 APP = "org.nphil.lumatv"                 # brand.json's appId: the vote's clientName
 RES = "byProp(root, 'videoUsable')"      # Home's own saver (Layers builds one)
+# The calls the stand-in recorded that are the vote's: tvpower's, and its cancels. A cancel is recorded under the uri of the service its Service
+# was made for; the vote's names none (it calls tvpower by uri), so its cancels have an empty uri, while the Inputs readings cancel the reading
+# before each new one (kit/Inputs.qml: eim and applicationmanager, once for each time a panel, a page or the 30 s watch asks) under theirs.
 LUNA = ("var L = Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { property var calls: LS.calls }', root);"
-        "var calls = L.calls.filter(function(c) { return c.uri.indexOf('tvpower') > 0 || c.method === 'cancel' }).map(function(c) { var p = {}; try { p = JSON.parse(c.payload) } catch (e) {} return {m: c.method, p: p} });")
+        "var calls = L.calls.filter(function(c) { return c.uri.indexOf('tvpower') > 0 || (c.method === 'cancel' && c.uri === '') }).map(function(c) { var p = {}; try { p = JSON.parse(c.payload) } catch (e) {} return {m: c.method, p: p} });")
 SNAP = LUNA + ("var d = JSON.parse(s.snapshot()); return {up: d.up, owned: d.owned, active: d.active, timers: d.timers, vote: d.vote, calls: calls, shown: d.art.shown, video: d.video.state, reason: d.video.reason};")
 
 
@@ -58,6 +61,7 @@ def answers(calls):
 
 
 def cancels(calls):
+    """The vote's own cancels (see LUNA): the call each one lets go is named by its token, which the stand-in hands out 1, 2, 3... in order."""
     return [c for c in calls if c["m"] == "cancel"]
 
 
@@ -230,7 +234,8 @@ class OwnSaver(Surfaces):
         self.assertEqual(len(registers(p["own_on"]["calls"])), 2, "turned on at run time: on the list")
         self.assertTrue(p["own_on"]["vote"]["want"])
         o = p["style_off"]
-        self.assertEqual((o["vote"]["want"], len(cancels(o["calls"]))), (False, 2), "a saver the owner turned off leaves the list")
+        self.assertEqual((o["vote"]["want"], o["vote"]["timers"]), (False, False), "a saver the owner turned off leaves the list, and nothing of the vote runs")
+        self.assertEqual(sorted(c["p"]["token"] for c in cancels(o["calls"])), list(range(1, len(registers(o["calls"])) + 1)), "each subscription it had made is let go, once")
         self.assertEqual(answers(p["asked_off"]["calls"])[-1], ("/power2/responseScreenSaverRequest", "444", True), "and a question that is still answered is yes")
         self.assertFalse(p["asked_off"]["owned"])
         g = p["lg_state"]
