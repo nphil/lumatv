@@ -80,7 +80,14 @@ QtObject {
             out.push({ id: d.id || appId, appId: appId, port: port, label: label, name: up ? (label || "") : "", connected: up,
                        icon: iconFor(up ? label : "", port) })
         }
-        list = out
+        // A refresh usually repeats the subscription's last answer; replacing it would rebind every picker tile.
+        var changed = out.length !== list.length
+        for (var j = 0; !changed && j < out.length; j++) {
+            var a = list[j], b = out[j]
+            changed = a.id !== b.id || a.appId !== b.appId || a.port !== b.port || a.label !== b.label
+                   || a.name !== b.name || a.connected !== b.connected || a.icon !== b.icon
+        }
+        if (changed) list = out
     }
     function parseForeground(payload) {
         try {

@@ -59,6 +59,11 @@ def launches(out_value):
 class HomePanels(HostCase):
     """Home in front: the key filter's second entry asks the bus, the bus asks HomePanels."""
 
+    def test_repeated_input_answers_preserve_the_tiles_and_real_changes_still_update(self):
+        rc, out = self.host(*probe(READY + 400, 'inputs', "var api = Qt.createQmlObject('import QtQuick 2.4\\nimport \"' + root.moduleDirUrl + 'kit\" as Kit\\nQtObject { function run() { var i = Kit.Inputs; var d = {devices:[{appId:\"com.webos.app.hdmi1\",label:\"Apple TV\",connected:true}]}; i.parse(JSON.stringify(d)); var before = i.list; i.parse(JSON.stringify(d)); var same = before === i.list; d.devices[0].label = \"PlayStation\"; i.parse(JSON.stringify(d)); var renamed = i.list !== before && i.list[0].icon === \"gamepad-2\"; before = i.list; d.devices[0].connected = false; i.parse(JSON.stringify(d)); return [same, renamed, i.list !== before, i.list[0].icon] } }', root); return api.run();"), '--wait', str(READY + 900))
+        self.assertEqual(rc, 0, out[-2500:])
+        self.assertEqual(probes(out)['inputs'], [True, True, True, 'unplug'])
+
     def test_the_gear_shows_the_quick_panel_where_LGs_was_and_the_gear_again_slides_it_away(self):
         panel = "var s = find(root, 'footFocus');"
         rc, out = self.host(
@@ -506,6 +511,15 @@ class OverlayPanels(HostCase):
         ], 1900)
         self.assertEqual(p["open"], "")
         self.assertEqual(p["waiting"], "network")
+
+    def test_a_home_return_cancelled_by_an_app_keeps_the_pending_settings_request(self):
+        p, out = self.overlay_host([
+            (1000, 'front', 'overlay.appFront = true; return 1;'),
+            (1200, 'request', 'root.hostActive = true; bus().want("network"); root.hostActive = false; return root.hostActive;'),
+            (2200, 'waiting', 'return bus().take();'),
+        ], 2600)
+        self.assertFalse(p['request'])
+        self.assertEqual(p['waiting'], 'network', out[-2000:])
 
     def test_LGs_own_quick_settings_is_one_button_away_and_opens_over_the_app(self):
         p, out = self.overlay_host([

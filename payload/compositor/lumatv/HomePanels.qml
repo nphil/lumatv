@@ -74,14 +74,15 @@ Item {
     // A panel over an app asked for a Settings page and took the TV to Home: open it once Home is in front (and has finished its own return)
     Connections {
         target: panels.home
-        onHostActiveChanged: if (panels.home.hostActive) takeTimer.restart()
+        onHostActiveChanged: { if (panels.home.hostActive) takeTimer.restart(); else takeTimer.stop() }
     }
     Timer {
         id: takeTimer
         interval: 80
         onTriggered: {
+            if (!panels.home.hostActive) return
             var page = Bus.takeSettings()
-            if (page === null || !panels.home.hostActive) return
+            if (page === null) return
             panels.home.closeAllLayers()
             panels.home.openSettings()
             if (page !== "") panels.layers.settingsGoTo(page)

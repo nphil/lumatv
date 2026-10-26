@@ -615,7 +615,8 @@ def jsonable(v):
 
 
 WINDOW_KEYS = ('name', 'dur_s', 'frames', 'fps', 'over20', 'worst_ms', 'anim_frames', 'dropped', 'dropped_in_motion', 'anim_render_ms',
-               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'osd_wake_ms')
+               'first_frame_ms', 'burst_end_ms', 'burst_over20', 'burst_anim_p90_ms', 'sent_ms', 'osd_wake_ms',
+               'burst_first_render_ms', 'burst_anim_samples', 'irq_counts', 'gaps')
 
 
 # ------------------------------------------------------------------- the set

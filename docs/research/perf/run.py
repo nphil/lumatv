@@ -37,12 +37,7 @@ class Set:
     def __init__(self):
         self.cli = None
         self.mk = None
-        # only Set.key (Home Assistant) needs the token; gate.py injects keys on the set instead
-        try:
-            with open('/data/home/tmp/ha-token') as f:
-                self.tok = f.read().strip()
-        except FileNotFoundError:
-            self.tok = None
+        self.tok = None
         self.connect()
         self.sm_pid = int(self.sh('pidof surface-manager')[1].strip())
 
@@ -82,7 +77,11 @@ class Set:
 
     def key(self, button):
         if self.tok is None:
-            raise RuntimeError('Set.key needs the Home Assistant token in /data/home/tmp/ha-token')
+            try:
+                with open('/data/home/tmp/ha-token') as f:
+                    self.tok = f.read().strip()
+            except FileNotFoundError:
+                raise RuntimeError('Set.key needs the Home Assistant token in /data/home/tmp/ha-token') from None
         req = urllib.request.Request(f'{HA}/api/services/webostv/button',
                                      data=json.dumps({'entity_id': 'media_player.living_room_tv', 'button': button}).encode(),
                                      headers={'Authorization': f'Bearer {self.tok}', 'Content-Type': 'application/json'}, method='POST')

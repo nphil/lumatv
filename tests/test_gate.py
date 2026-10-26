@@ -7,7 +7,7 @@ import math
 import os
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "docs", "research", "perf"))
@@ -121,6 +121,20 @@ class Commands(unittest.TestCase):
         self.assertIn('"quickPanel":false', s['setup'][0])
         self.assertIn('"quickPanel":true', s['teardown'][-1])
         self.assertEqual(s['setup'][2:], gate.NETFLIX_SETUP)
+
+
+class CaptureAccess(unittest.TestCase):
+    def test_evdev_measurements_never_read_the_ha_token(self):
+        import run
+        with patch.object(run.Set, 'connect'), patch.object(run.Set, 'sh', return_value=(0, '17', '')):
+            with patch('builtins.open', side_effect=AssertionError('unexpected file read')):
+                rig = run.Set()
+                rig.kbkey('MENU')
+        self.assertIsNone(rig.tok)
+
+    def test_gate_json_keeps_the_frame_and_osd_evidence(self):
+        for key in ('burst_first_render_ms', 'burst_anim_samples', 'irq_counts', 'gaps'):
+            self.assertIn(key, gate.WINDOW_KEYS)
 
 
 class Parsing(unittest.TestCase):
