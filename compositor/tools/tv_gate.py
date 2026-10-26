@@ -5,11 +5,12 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,...] [--x1-seconds N] [--enable-after]
+    tv_gate.py [--skip netflix,hdmi,...] [--only keys,ime] [--x1-seconds N] [--enable-after]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
-can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, standby, homekey, wd-hang,
-wd-crash, escape.
+can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, keys, ime, standby, homekey,
+wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
+step-1 test of the remote's keys and the keyboard is `--only keys,ime`.
 
 Every session carries the set's own safety timer (cutover.sh enable --session --max-minutes): if this driver or the
 workstation dies in the middle of the gate, the set ends the session by itself and LG's compositor and Home come back.
@@ -35,6 +36,8 @@ LIBRARY = os.path.join(here, "..", "..", "tools", "compositor.sh")
 # healthy run never meets its own timer, which would end it under the checks.
 FIRST_SESSION_MINUTES = 12
 LATER_SESSION_MINUTES = 6
+# Every check that can be skipped or picked with --only, in the order the gate runs them.
+CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "keys", "ime", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
 
 def pty(cmd, timeout=600):
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -186,10 +189,16 @@ def all_passed(lines):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip", default="")
+    ap.add_argument("--only", default="")
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--enable-after", action="store_true")
     a = ap.parse_args()
     skip = set(a.skip.split(",")) - {""}
+    only = set(a.only.split(",")) - {""}
+    if only:
+        if only - set(CHECKS):
+            ap.error("--only: unknown check(s) %s; the checks are %s" % (",".join(sorted(only - set(CHECKS))), ",".join(CHECKS)))
+        skip |= set(CHECKS) - only
     tv.put(os.path.join(here, "tv-gate.sh"), "/tmp/lumatv/gate.sh")
     tv.put(os.path.join(here, "tv-cutover.sh"), "/tmp/lumatv/cutover.sh")
     tv.put(os.path.join(here, "tv-recover-home.sh"), "/tmp/lumatv/recover-home.sh")
@@ -234,6 +243,11 @@ def main():
             step("netflix", "sh /tmp/lumatv/gate.sh netflix")
         if "hdmi" not in skip:
             step("hdmi", "sh /tmp/lumatv/gate.sh hdmi")
+        if "keys" not in skip:
+            step("keys", "sh /tmp/lumatv/gate.sh keys", 300)
+            avr_mute(True)   # an app a key opened may have made a sound
+        if "ime" not in skip:
+            step("ime", "sh /tmp/lumatv/gate.sh ime", 180)
         step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)

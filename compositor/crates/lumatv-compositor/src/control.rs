@@ -43,6 +43,12 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             json!({"ok": true, "windows": state.windows_report(), "groups": state.scene.groups.iter().map(|g| json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>()})).collect::<Vec<_>>(), "video": state.foreign.video_windows()})
         }
         "journal" => json!({"ok": true, "lines": state.journal}),
+        "note" => {
+            // note TEXT: a marker in the journal, which is how a TV check reads only what happened after it.
+            let text = words.collect::<Vec<_>>().join(" ");
+            state.journal(format!("note: {text}"));
+            json!({"ok": true})
+        }
         "ime" => state.ime_report(),
         "keys" => json!({
             "ok": true,
@@ -149,7 +155,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, ime, keys, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

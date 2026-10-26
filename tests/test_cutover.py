@@ -719,6 +719,259 @@ class GateFirmwareCheck(FakeSet):
         self.assertIn("GATE firmware: FAIL tools/compositor.sh is not deployed", out)
 
 
+# The compositor's `ctl` and `luna-send` as the keys and ime checks see them: one small model of the journal, the remote's routing, maliit's
+# keyboard and SAM's foreground. Its state is $FAKE/sim.json; $FAKE/sim-config.json says what it should get wrong.
+SIM_PRELUDE = r'''#!/usr/bin/env python3
+import json, os, sys
+F = os.environ["FAKE"]
+
+
+def load(name, default):
+    try:
+        with open(os.path.join(F, name)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+cfg = load("sim-config.json", {})
+s = load("sim.json", {"journal": [], "fg": "com.webos.app.home", "down": [], "panel": None, "ctx": False, "moved": False, "oks": 0,
+                      "commits": 0, "launched": [], "closed": [], "keys": []})
+
+
+def save():
+    with open(os.path.join(F, "sim.json"), "w") as f:
+        json.dump(s, f)
+
+
+def out(o):
+    print(json.dumps(o, sort_keys=True, separators=(",", ":")))
+'''
+SIM_LOADER = '#!/bin/sh\nshift 2\nexec "$@"\n'
+SIM_COMPOSITOR = SIM_PRELUDE + r'''
+cmd, rest = sys.argv[4], sys.argv[5:]
+
+
+def say(line):
+    s["journal"].append(line)
+
+
+def launch(app):
+    s["launched"].append(app)
+    s["fg"] = app
+
+
+def held():
+    say("input: 5 held: Quick Access slot 5 has no window of its own here yet, launching com.webos.app.magicnum")
+    launch("com.webos.app.magicnum")
+
+
+def ok():
+    if s["panel"] is None:
+        s["oks"] += 1
+        if cfg.get("keyboard", True) and s["oks"] >= cfg.get("oks_needed", 1):
+            s["panel"] = {"x": 0, "y": 720, "w": 1920, "h": 360}
+            s["ctx"] = True
+    elif not cfg.get("typing_dead") and (cfg.get("first_key_types", True) or s["moved"]):
+        s["commits"] += 1
+
+
+def tap(code):
+    s["keys"].append(code)
+    if code == 139:
+        say("input: gear tap: Quick Settings has no window of its own here yet, launching com.palm.app.settings")
+        launch("com.palm.app.settings")
+    elif code == 241:
+        say("input: Input tap: the input picker has no window of its own here yet, launching com.webos.app.homeconnect")
+        launch("com.webos.app.homeconnect")
+    elif code == 1037 and not cfg.get("netflix_dead"):
+        say("input: app button: netflix, launching netflix")
+        launch("netflix")
+    elif code == 6 and cfg.get("digit_tap_asks"):
+        held()
+    elif code == 174 and s["panel"]:
+        s["panel"] = None
+        say("input: Back or Exit: closing the keyboard")
+    elif code == 174 and s["fg"] == "com.palm.app.settings":
+        say("input: Back or Exit: closing com.palm.app.settings")
+        s["fg"] = "com.webos.app.home"
+    elif code == 412 and s["panel"] and cfg.get("back_closes", True):
+        s["panel"] = None
+    elif code in (106, 108) and s["panel"]:
+        s["moved"] = True
+    elif code == 28 and s["fg"] == "com.webos.app.voice":
+        ok()
+
+
+if cmd == "journal":
+    out({"ok": True, "lines": s["journal"]})
+elif cmd == "note":
+    say("note: " + " ".join(rest))
+    out({"ok": True})
+elif cmd == "remote":
+    code, how = int(rest[0]), rest[1]
+    if how == "tap":
+        tap(code)
+    elif how == "press":
+        s["down"].append(code)
+    elif code in s["down"]:
+        s["down"].remove(code)
+        if code == 6:
+            held()
+    out({"ok": True})
+elif cmd == "keys":
+    out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": {},
+         "unnamed": cfg.get("unnamed", []), "foreground": s["fg"], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
+elif cmd == "ime":
+    up = s["panel"] is not None
+    out({"ok": True, "asked": 1, "methods": [{"id": 5, "display": 0}] * cfg.get("methods", 1), "models": 1, "panel": s["panel"],
+         "keyboardUp": up, "grab": up, "grabbing": up,
+         "active": {"app": s["fg"], "context": True, "model": 1, "showWanted": False, "surface": 3} if s["ctx"] else None,
+         "counts": {"activations": 1, "declined": 0, "commits": s["commits"] + cfg.get("commits_before", 0), "preedits": 0, "deletes": 0,
+                    "keysyms": 0, "grabbedKeys": s["commits"]}})
+else:
+    out({"ok": False, "error": "the model knows no " + cmd})
+save()
+'''
+SIM_LUNA = SIM_PRELUDE + r'''
+uri = [a for a in sys.argv[1:] if a.startswith("luna://")][0]
+payload = sys.argv[-1] if not sys.argv[-1].startswith("luna://") else "{}"
+method = uri.rsplit("/", 1)[1]
+if method == "getForegroundAppInfo":
+    out({"returnValue": True, "appId": s["fg"]})
+elif method == "launch":
+    app = json.loads(payload)["id"]
+    s["launched"].append(app)
+    if app in cfg.get("unlaunchable", []):
+        out({"returnValue": False, "errorText": "no such app"})
+    else:
+        s["fg"] = app
+        out({"returnValue": True})
+elif method == "closeByAppId":
+    app = json.loads(payload)["id"]
+    s["closed"].append(app)
+    if s["fg"] == app:
+        s["fg"] = "com.webos.app.home"
+    if app == "com.webos.app.voice":
+        s["panel"] = None
+        s["ctx"] = False
+    out({"returnValue": True})
+elif method == "executeOneShot":
+    out({"returnValue": True, "writtenBytes": 4321})
+else:
+    out({"returnValue": True})
+save()
+'''
+
+
+class GateKeysAndIme(FakeSet):
+    """tv-gate.sh keys and ime against a small model of the compositor's journal and routing, maliit's keyboard and SAM's foreground."""
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.dep, "lib", "ld-linux-aarch64.so.1"), SIM_LOADER, 0o755)
+        write(os.path.join(self.dep, "bin", "lumatv-compositor"), SIM_COMPOSITOR, 0o755)
+        write(os.path.join(self.fakebin, "luna-send"), SIM_LUNA, 0o755)
+
+    def configure(self, **cfg):
+        write(os.path.join(self.tmp.name, "sim-config.json"), json.dumps(cfg))
+
+    def sim(self):
+        return json.loads(read(os.path.join(self.tmp.name, "sim.json")))
+
+    def test_keys_that_do_what_the_journal_says_pass_and_leave_home_in_front(self):
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: PASS gear ok; input ok; netflix-button ok; digit-tap ok; digit-hold ok; exit ok;", out)
+        self.assertIn("key table: gear=139 input=241 netflix=1037; unnamed keys seen: []", out)
+        sim = self.sim()
+        self.assertEqual(sim["fg"], "com.webos.app.home")
+        self.assertEqual(sim["closed"], ["com.palm.app.settings", "com.webos.app.homeconnect", "netflix", "com.webos.app.magicnum",
+                                         "com.palm.app.settings"])
+        self.assertEqual(sim["keys"], [139, 241, 1037, 6, 174])
+        self.assertIn("gear tap", read(os.path.join(self.out, "keys-gear.txt")))
+        self.assertIn("Quick Access slot 5", read(os.path.join(self.out, "keys-digit.txt")))
+        self.assertEqual(read(os.path.join(self.out, "keys-exit.txt")).strip(), "input: Back or Exit: closing com.palm.app.settings")
+
+    def test_a_key_that_did_nothing_fails_the_check_by_name_and_the_others_still_run(self):
+        self.configure(netflix_dead=True)
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: FAIL gear ok; input ok; digit-tap ok; digit-hold ok; exit ok; NOT: netflix-button (foreground com.webos.app.home", out)
+
+    def test_a_digit_tap_that_asks_for_quick_access_fails_it(self):
+        self.configure(digit_tap_asks=True)
+        rc, out = self.gate("keys")
+        self.assertIn("GATE keys: FAIL", out)
+        self.assertIn("NOT: digit-tap (the tap asked for Quick Access)", out)
+
+    def test_keys_the_table_could_not_name_are_listed(self):
+        self.configure(unnamed=[1040])
+        rc, out = self.gate("keys")
+        self.assertIn("unnamed keys seen: [1040]", out)
+
+    def test_the_keyboard_comes_up_takes_a_typed_key_and_closes_on_back(self):
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: PASS", out, out)
+        self.assertIn("maliit-server was active; input methods bound 1; asked for one 1 time(s); OK pressed 1 time(s); keyboard up yes "
+                      "(panel y 720 h 360, capture 4321 bytes); context yes; typed 1; closed by Back", out)
+        sim = self.sim()
+        self.assertEqual((sim["fg"], sim["closed"]), ("com.webos.app.home", ["com.webos.app.voice"]))
+        self.assertEqual(sim["keys"], [28, 28, 412])
+        self.assertEqual(read(os.path.join(self.out, "ime-result.txt")).count("typed 1"), 1)
+        self.assertIn('"panel":{"h":360,"w":1920,"x":0,"y":720}', read(os.path.join(self.out, "ime-up.json")))
+
+    def test_a_field_that_needs_the_second_ok_gets_it_at_the_retry(self):
+        self.configure(oks_needed=2)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: PASS", out, out)
+        self.assertIn("OK pressed 2 time(s)", out)
+
+    def test_a_first_key_that_types_nothing_is_followed_by_the_arrows(self):
+        self.configure(first_key_types=False)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: PASS", out, out)
+        self.assertIn("typed 1", out)
+        self.assertEqual(self.sim()["keys"], [28, 28, 106, 28, 412])
+
+    def test_a_back_the_keyboard_ignores_is_followed_by_exit_which_closes_it(self):
+        self.configure(back_closes=False)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: PASS", out, out)
+        self.assertIn("closed by Exit", out)
+
+    def test_no_keyboard_fails_naming_the_window_and_the_context(self):
+        self.configure(keyboard=False)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: FAIL", out)
+        self.assertIn("the keyboard's window never came on the screen", out)
+        self.assertIn("nothing typed on the keyboard reached the field", out)
+        self.assertIn("OK pressed 2 time(s)", out)
+
+    def test_commits_from_before_the_keyboard_came_up_are_not_typing(self):
+        self.configure(typing_dead=True, commits_before=3)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: FAIL nothing typed on the keyboard reached the field", out)
+        self.assertIn("typed 0", out)
+
+    def test_no_input_method_fails_it_even_with_a_keyboard(self):
+        self.configure(methods=0)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: FAIL no input method was bound", out)
+
+    def test_without_the_search_app_it_says_so_and_stops(self):
+        self.configure(unlaunchable=["com.webos.app.voice"])
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: FAIL LG's Search app (com.webos.app.voice) did not come to the front (foreground com.webos.app.home, maliit-server was active)", out)
+        self.assertNotIn(28, self.sim()["keys"])
+
+    def test_the_verdict_names_every_reason_at_once(self):
+        r = subprocess.run(["sh", "-c", ". %s\nime_rule 0 no no 0 no no" % GATE], env=dict(self.env, GATE_LIB="1"), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        for part in ("no input method was bound", "window never came on the screen", "no context", "nothing typed", "did not close", "not at the bottom"):
+            self.assertIn(part, r.stdout)
+        r = subprocess.run(["sh", "-c", ". %s\nime_rule 1 yes yes 3 yes yes" % GATE], env=dict(self.env, GATE_LIB="1"), capture_output=True, text=True)
+        self.assertEqual((r.returncode, r.stdout[:4]), (0, "PASS"))
+
+
 def load(name, extra_modules=()):
     mocks = {"tv": mock.MagicMock(), "paramiko": mock.MagicMock()}
     mocks.update({m: mock.MagicMock() for m in extra_modules})
@@ -834,9 +1087,9 @@ class GateDriver(unittest.TestCase):
     def test_the_order_of_a_full_gate_with_a_fresh_session_after_every_check_that_ends_one(self):
         calls, code, _ = self.run_main()
         self.assertEqual(code, 0)
-        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key")], [
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
-            "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "evidence", "standby", "woke",
+            "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "evidence", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
@@ -844,9 +1097,34 @@ class GateDriver(unittest.TestCase):
             "cutover disable"])
 
     def test_skips_leave_out_their_checks_and_their_sessions(self):
-        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,standby,homekey,wd-hang,wd-crash"])
-        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key")],
+        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,keys,ime,standby,homekey,wd-hang,wd-crash"])
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 12", "live", "x1 60", "evidence", "escape", "cutover disable"])
+
+    def test_the_keys_and_the_keyboard_are_checks_of_their_own_in_the_first_session(self):
+        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,x1,netflix,hdmi,standby,homekey,wd-hang,wd-crash,escape"])
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence", "cutover disable"])
+        sent = [c for c in calls if "gate.sh keys" in c or "gate.sh ime" in c]
+        self.assertEqual(len(sent), 2)
+
+    def test_only_runs_the_named_checks_in_one_session_and_ends_on_lgs_compositor(self):
+        calls, code, _ = self.run_main(argv=["--only", "keys,ime"])
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence", "cutover disable"])
+        self.assertEqual([c for c in calls if "cutover.sh enable" in c], ["sh /tmp/lumatv/cutover.sh enable --session --max-minutes 12"])
+
+    def test_only_with_a_check_that_does_not_exist_changes_nothing_on_the_set(self):
+        calls, code, _ = self.run_main(argv=["--only", "keys,bogus"])
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.gate.tv.put.call_args_list, [])
+
+    def test_only_and_skip_together_leave_what_both_allow(self):
+        calls, code, _ = self.run_main(argv=["--only", "keys,ime", "--skip", "ime"])
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 12", "live", "keys", "evidence", "cutover disable"])
 
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])

@@ -294,8 +294,8 @@ fn the_release_of_the_key_that_opened_the_keyboard_goes_back_to_the_app() {
     assert!(k.client.wait_until(WAIT, |s| s.ime.activations == 1));
     let ctx = k.client.state.ime.contexts[0].clone();
     let grabbed = ctx.grab_keyboard(&k.client.qh, ());
-    k.client.conn.flush().unwrap();
-    assert!(k.client.wait_until(WAIT, |_| server.eval(|s| s.ime_grabbing())));
+    let (_surface, _ps, _buf) = k.show(1920, 360);
+    assert!(k.client.wait_until(WAIT, |_| server.eval(|s| s.ime_grabbing())), "the grab is in force once the keyboard is on the screen");
     server.eval(|s| s.key_event(SeatId(0), KEY_ENTER, false, false));
     a.client.roundtrip();
     assert_eq!(a.client.state.keys, vec![(KEY_ENTER, 1), (KEY_ENTER, 0)], "the app gets the release of the press it got");
@@ -324,4 +324,46 @@ fn a_keyboard_window_nobody_asked_for_does_not_stop_exit_from_closing_the_app() 
     });
     assert_eq!(calls, 1);
     a.client.roundtrip();
+}
+
+#[test]
+fn a_keyboard_that_is_off_the_screen_gives_the_keys_back_to_the_app() {
+    let mut server = Server::start();
+    let mut a = app(&mut server, "Search");
+    let mut k = keyboard(&mut server);
+    a.activate();
+    assert!(k.client.wait_until(WAIT, |s| s.ime.activations == 1));
+    let ctx = k.client.state.ime.contexts[0].clone();
+    let _grabbed = ctx.grab_keyboard(&k.client.qh, ());
+    k.client.conn.flush().unwrap();
+    // Grabbed, but not on the screen yet: the arrows are the app's.
+    server.eval(|s| {
+        s.key_event(SeatId(0), KEY_RIGHT, true, false);
+        s.key_event(SeatId(0), KEY_RIGHT, false, false);
+    });
+    a.client.roundtrip();
+    assert_eq!(a.client.state.keys, vec![(KEY_RIGHT, 1), (KEY_RIGHT, 0)]);
+    a.client.state.keys.clear();
+    // On the screen: the keyboard's.
+    let (surface, _ps, _buf) = k.show(1920, 360);
+    assert!(a.client.wait_until(WAIT, |s| s.ime.panel_states == vec![1]));
+    server.eval(|s| {
+        s.key_event(SeatId(0), KEY_RIGHT, true, false);
+        s.key_event(SeatId(0), KEY_RIGHT, false, false);
+    });
+    assert!(k.client.wait_until(WAIT, |s| s.keys_by_keyboard.len() >= 2));
+    a.client.roundtrip();
+    assert!(a.client.state.keys.is_empty());
+    // The keyboard hides itself (Back): the app steers again at once, with the activation still the field's.
+    surface.attach(None, 0, 0);
+    surface.commit();
+    k.client.conn.flush().unwrap();
+    assert!(a.client.wait_until(WAIT, |s| s.ime.panel_states == vec![1, 0]));
+    server.eval(|s| {
+        s.key_event(SeatId(0), KEY_RIGHT, true, false);
+        s.key_event(SeatId(0), KEY_RIGHT, false, false);
+    });
+    a.client.roundtrip();
+    assert_eq!(a.client.state.keys, vec![(KEY_RIGHT, 1), (KEY_RIGHT, 0)], "{:?}", a.client.state.keys);
+    assert!(server.eval(|s| s.ime.active_model().is_some()), "the field is still active: the keyboard can come back");
 }

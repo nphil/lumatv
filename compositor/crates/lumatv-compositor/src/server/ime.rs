@@ -156,8 +156,11 @@ impl ImeState {
         self.active.and_then(|id| self.model(id)).map(|m| (m.id, m.surface_id))
     }
 
+    /// The input method holds the keyboard grab and its keyboard is on the screen: the keys go to it. A keyboard that is off the screen
+    /// (the input method hid it on Back) is given none, so that the remote steers the app again at once; its grab is back in force when
+    /// the keyboard's window is.
     pub fn grabbing(&self) -> bool {
-        self.grab.as_ref().is_some_and(live)
+        self.panel.is_some() && self.grab.as_ref().is_some_and(live)
     }
 
     pub fn methods_bound(&self) -> usize {
@@ -737,7 +740,8 @@ impl State {
             "active": active,
             "panel": ime.panel.map(|r| serde_json::json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h})),
             "keyboardUp": self.keyboard_up(),
-            "grab": ime.grabbing(),
+            "grab": ime.grab.as_ref().is_some_and(live),
+            "grabbing": ime.grabbing(),
             "asked": ime.asked,
             "counts": {
                 "activations": ime.counts.activations, "declined": ime.counts.declined, "commits": ime.counts.commits, "preedits": ime.counts.preedits,

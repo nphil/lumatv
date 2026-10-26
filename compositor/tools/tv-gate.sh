@@ -10,6 +10,10 @@
 #                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
 #                     playing, filmMaker back on Home
 #   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home and HDMI 2 ended through SAM
+#   gate.sh keys      the remote's own keys through the compositor's routing (keys.rs): a gear tap, Input, the Netflix button, a digit tapped
+#                     and held, Exit; each judged by the compositor's journal and by what SAM then has in front
+#   gate.sh ime       a text field in LG's Search app brings up maliit's keyboard: an input method bound, a context made for the field,
+#                     the keyboard's window on the screen at the bottom, a key typed on it reaching the field, the keyboard closing
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
@@ -54,6 +58,21 @@ fail() { echo "GATE $1: FAIL $2"; }
 picture_mode() { ls1 com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' | tr -d ' \n' | sed -n 's/.*"pictureMode":"\([^"]*\)".*/\1/p'; }
 home() { ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.home"}' > /dev/null; }
 fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' | sed -n 's/.*"appId":"\([^"]*\)".*/\1/p'; }
+# The remote's keys as the compositor's own routing takes them (`ctl remote`): a tap, or a hold of the given seconds.
+key_tap() { ctl remote "$1" tap > /dev/null; }
+key_hold() { ctl remote "$1" press > /dev/null; sleep "$2"; ctl remote "$1" release > /dev/null; }
+close_app() { ls1 com.webos.applicationManager/closeByAppId "{\"id\":\"$1\"}" > /dev/null; }
+# Waits, SECS at most, for SAM's foreground to be APP.
+wait_fg() { w=0; while [ "$w" -lt "$2" ]; do [ "$(fg)" = "$1" ] && return 0; sleep 1; w=$((w+1)); done; [ "$(fg)" = "$1" ]; }
+# The compositor's journal after the line a `ctl note` left (the journal is one JSON array of strings), one entry a line; the quotes
+# inside an entry become '.
+journal_after() {
+    ctl journal | sed -e "s/\\\\\"/'/g" -e 's/","/\n/g' -e 's/^{"lines":\["//' -e 's/"\],"ok":true}$//' | awk -v m="note: $1" 'f { print } index($0, m) { f = 1 }'
+}
+# The first number of that name in the JSON on stdin.
+jnum() { grep -o "\"$1\":-\{0,1\}[0-9]*" | head -n 1 | cut -d: -f2; }
+# What the input method has sent to the fields so far (commits, preedits and keysyms), from the `ctl ime` JSON in file $1.
+ime_typed() { c=$(jnum commits < "$1"); p=$(jnum preedits < "$1"); k=$(jnum keysyms < "$1"); echo $(( ${c:-0} + ${p:-0} + ${k:-0} )); }
 # With the Home stub mounted (tools/lumatv homestub) Home is a transparent page by design and LumaHome lives in
 # LG's compositor's QML, so a Home on the panel under LumaTV's compositor is black: the panel test then passes on
 # the mapped window alone and the detail line carries home-stub 1.
@@ -126,6 +145,21 @@ x1_rule() {
     esac
     if [ -n "$r_why" ]; then echo "FAIL ${r_why#; }"; return 1; fi
     echo "PASS $r_fps fps over $r_secs s, no gap over ${GAP_LIMIT_MS} ms, pacer late unchanged, nothing over ${GAP_LIMIT_MS} ms in the compositor's log"
+    return 0
+}
+
+# ime_rule METHODS UP CONTEXT TYPED CLOSED BOTTOM: "PASS what held" or "FAIL why" (returns 0 or 1). METHODS is how many input methods were
+# bound, UP, CONTEXT, CLOSED and BOTTOM are yes or no, TYPED is how many commits, preedits and keysyms came out at the field.
+ime_rule() {
+    i_why=""
+    [ "${1:-0}" -ge 1 ] 2> /dev/null || i_why="$i_why; no input method was bound"
+    [ "${2:-no}" = yes ] || i_why="$i_why; the keyboard's window never came on the screen"
+    [ "${3:-no}" = yes ] || i_why="$i_why; the field had no context at the input method"
+    [ "${4:-0}" -ge 1 ] 2> /dev/null || i_why="$i_why; nothing typed on the keyboard reached the field"
+    [ "${5:-no}" = yes ] || i_why="$i_why; the keyboard did not close"
+    [ "${6:-no}" = yes ] || i_why="$i_why; the keyboard's window is not at the bottom of the screen"
+    if [ -n "$i_why" ]; then echo "FAIL ${i_why#; }"; return 1; fi
+    echo "PASS an input method bound, the field's context made, the keyboard's window at the bottom, a key typed on it reached the field, the keyboard closed"
     return 0
 }
 
@@ -227,6 +261,114 @@ hdmi)
     detail="hdmi2 windows $card mapped $mapped bufferless commits $bare fg while open $f now $(fg) panel ${b:-0} bytes audio-port-held-after-close ${held:-none}"
     echo "$detail" > $OUT/hdmi-result.txt
     if [ "$mapped" -ge 1 ] && [ "$f" = com.webos.app.hdmi2 ]; then pass hdmi "$detail"; else fail hdmi "$detail"; fi
+    ;;
+keys)
+    # The remote's own keys under LumaTV's compositor, each injected through `ctl remote` (the path a key from the remote's device takes)
+    # and judged by what the compositor's journal says it decided and what SAM then has in front. Home is in front at the start and at the
+    # end, and every app a key opened is closed again. The gear's three taps and Mute held are left to the host tests: the first opens a
+    # service menu, the second would unmute the receiver the gate holds muted if it went wrong.
+    kd=""; bad=""
+    res() { if [ "$1" = ok ]; then kd="$kd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
+    home; sleep 3
+    # The gear's tap: Quick Settings has no window under this compositor yet, so LG's Settings stands in for it.
+    ctl note keys-gear > /dev/null; key_tap 139
+    if wait_fg com.palm.app.settings 12 && journal_after keys-gear | grep -q 'input: gear tap: Quick Settings .*launching com.palm.app.settings'; then res ok gear
+    else res no gear "foreground $(fg), or no journal line"; fi
+    journal_after keys-gear > $OUT/keys-gear.txt
+    close_app com.palm.app.settings; sleep 2; home; sleep 3
+    # Input's tap: the input picker's stand-in is the Home Hub.
+    ctl note keys-input > /dev/null; key_tap 241
+    if wait_fg com.webos.app.homeconnect 15 && journal_after keys-input | grep -q 'input: Input tap: .*launching com.webos.app.homeconnect'; then res ok input
+    else res no input "foreground $(fg), or no journal line"; fi
+    journal_after keys-input > $OUT/keys-input.txt
+    close_app com.webos.app.homeconnect; sleep 2; home; sleep 3
+    # The Netflix button: LG's own target, Netflix itself (no Settings > Remote choice is made by the gate).
+    ctl note keys-netflix > /dev/null; key_tap 1037
+    if wait_fg netflix 25 && journal_after keys-netflix | grep -q 'input: app button: netflix, launching netflix'; then res ok netflix-button
+    else res no netflix-button "foreground $(fg), or no journal line"; fi
+    journal_after keys-netflix > $OUT/keys-netflix.txt
+    close_app netflix; sleep 4; home; sleep 4
+    # A digit: tapped it is the app's (nothing asks for Quick Access), held a second it asks for it.
+    ctl note keys-digit > /dev/null; key_tap 6; sleep 2
+    tapped=$(journal_after keys-digit | grep -c 'input: 5 held')
+    ctl note keys-digit-hold > /dev/null; key_hold 6 1.4; sleep 3
+    if [ "$tapped" = 0 ]; then res ok digit-tap; else res no digit-tap "the tap asked for Quick Access"; fi
+    if journal_after keys-digit-hold | grep -q 'input: 5 held: Quick Access slot 5 .*launching com.webos.app.magicnum'; then res ok digit-hold
+    else res no digit-hold "no journal line"; fi
+    journal_after keys-digit-hold > $OUT/keys-digit.txt
+    close_app com.webos.app.magicnum; sleep 2; home; sleep 3
+    # Exit: the app that does not take it is closed and the TV comes back to Home.
+    ls1 com.webos.applicationManager/launch '{"id":"com.palm.app.settings"}' > /dev/null
+    wait_fg com.palm.app.settings 12; sleep 2
+    ctl note keys-exit > /dev/null; key_tap 174
+    n=0; while [ "$(fg)" = com.palm.app.settings ] && [ $n -lt 10 ]; do sleep 1; n=$((n+1)); done
+    if [ "$(fg)" != com.palm.app.settings ] && journal_after keys-exit | grep -q 'input: Back or Exit: closing com.palm.app.settings'; then res ok exit
+    else res no exit "foreground $(fg), or no journal line"; fi
+    journal_after keys-exit > $OUT/keys-exit.txt
+    close_app com.palm.app.settings; sleep 2; home; sleep 2
+    ctl keys > $OUT/keys.json
+    names=$(grep -o '"code":[0-9]*,"name":"[^"]*"' $OUT/keys.json | sed 's/"code":\([0-9]*\),"name":"\([^"]*\)"/\2=\1/' | tr '\n' ' ')
+    unnamed=$(grep -o '"unnamed":\[[^]]*\]' $OUT/keys.json | sed 's/"unnamed"://')
+    detail="${kd# }${bad:+ NOT:$bad} (key table: ${names% }; unnamed keys seen: ${unnamed:-none})"
+    echo "$detail" > $OUT/keys-result.txt
+    if [ -z "$bad" ]; then pass keys "$detail"; else fail keys "$detail"; fi
+    ;;
+ime)
+    # A text field brings up maliit's keyboard under LumaTV's compositor. LG's Search app (a Qt app, com.webos.app.voice) has the field: OK
+    # on it asks for a text model. The check reads `ctl ime`: an input method bound (maliit-server, started by LG's own request if it was
+    # not running: the detail says what it was), a context made for the field, the keyboard's window on the screen at the bottom, a key
+    # typed on it (OK presses the key that has its focus) reaching the field, and Back, or else Exit, closing the keyboard.
+    mal0=$(systemctl is-active maliit-server.service)
+    home; sleep 3
+    ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.voice"}' > /dev/null
+    if ! wait_fg com.webos.app.voice 15; then
+        fail ime "LG's Search app (com.webos.app.voice) did not come to the front (foreground $(fg), maliit-server was $mal0)"
+    else
+        sleep 4
+        ctl note ime-open > /dev/null
+        up=no; tries=1; key_tap 28; n=0
+        while [ $n -lt 16 ]; do
+            sleep 1; n=$((n+1))
+            ctl ime > $OUT/ime-state.json
+            if grep -q '"panel":{' $OUT/ime-state.json; then up=yes; break; fi
+            if [ $n = 8 ] && [ $tries = 1 ]; then key_tap 28; tries=2; fi
+        done
+        sleep 1
+        b=$(cap $OUT/ime.png)
+        ctl ime > $OUT/ime-up.json
+        methods=$(grep -o '"display":[0-9]' $OUT/ime-up.json | wc -l)
+        ctx=no; grep -q '"context":true' $OUT/ime-up.json && ctx=yes
+        ph=$(jnum h < $OUT/ime-up.json); py=$(jnum y < $OUT/ime-up.json); asked=$(jnum asked < $OUT/ime-up.json)
+        bottom=no; if [ -n "$ph" ] && [ -n "$py" ] && [ $((py + ph)) -eq 1080 ]; then bottom=yes; fi
+        typed=0; closed=no; by=none
+        if [ $up = yes ]; then
+            before=$(ime_typed $OUT/ime-up.json)
+            # OK presses the key that has the keyboard's focus; if that key types nothing, the arrows move to the next one
+            for steps in "28" "106 28" "108 28"; do
+                for k in $steps; do key_tap $k; sleep 1; done
+                sleep 2
+                ctl ime > $OUT/ime-typed.json
+                typed=$(( $(ime_typed $OUT/ime-typed.json) - before ))
+                [ $typed -ge 1 ] && break
+            done
+            for k in 412 174; do
+                key_tap $k; n=0
+                while [ $n -lt 6 ]; do
+                    sleep 1; n=$((n+1))
+                    ctl ime > $OUT/ime-closed.json
+                    if grep -q '"panel":null' $OUT/ime-closed.json; then closed=yes; break; fi
+                done
+                [ $closed = yes ] && { by=$([ $k = 412 ] && echo Back || echo Exit); break; }
+            done
+        fi
+        journal_after ime-open > $OUT/ime-journal.txt
+        close_app com.webos.app.voice; sleep 2
+        detail="maliit-server was $mal0; input methods bound $methods; asked for one $asked time(s); OK pressed $tries time(s); keyboard up $up (panel y $py h $ph, capture ${b:-0} bytes); context $ctx; typed $typed; closed by $by"
+        echo "$detail" > $OUT/ime-result.txt
+        verdict=$(ime_rule "$methods" "$up" "$ctx" "$typed" "$closed" "$bottom")
+        case "$verdict" in PASS*) pass ime "$detail | ${verdict#PASS }" ;; *) fail ime "${verdict#FAIL } | $detail" ;; esac
+    fi
+    home
     ;;
 evidence)
     # While LumaTV's compositor is live: who subscribed to what (SAM's foreground subscription first), the clients

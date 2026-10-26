@@ -346,3 +346,12 @@ fn the_remote_command_and_a_tick_drive_the_same_holds() {
     let keys = server.eval(|s| lumatv_compositor::control::handle(s, "keys").text());
     assert!(keys.contains("{\"code\":139,\"name\":\"gear\"}") && keys.contains("\"foreground\":\"org.test.player\""), "{keys}");
 }
+
+#[test]
+fn a_note_is_a_journal_line_the_gate_reads_what_followed_from() {
+    let mut server = Server::start();
+    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "note keys-gear").text());
+    assert!(reply.contains("\"ok\":true"), "{reply}");
+    let journal = server.eval(|s| lumatv_compositor::control::handle(s, "journal").text());
+    assert!(journal.contains("\"note: keys-gear\""), "{journal}");
+}
