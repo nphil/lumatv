@@ -6,7 +6,7 @@ drawn over on the set. Names follow the mocks they answer (`25-input-*`) with `l
 patch with the light material as its palette: on the set the sheet is always the dark material's (tools/tokens.py), so this shows
 the same files in a theme whose sheet is light.
 
-    python3 tests/qmlhost/scenes.py --only 25-lg-input-pill,25-lg-input-ok,25-lg-input-info,25-lg-input-update --out /tmp/ic-shots
+    python3 tests/qmlhost/scenes.py --only 25-lg-input-pill,25-lg-input-ok,25-lg-input-info,25-lg-input-update,20-lg-channel-banner,18-lg-no-signal --out /tmp/ic-shots
 """
 import os
 import subprocess
@@ -60,3 +60,45 @@ def _(out_dir, material):
 @scene("25-lg-input-update", runner=True)
 def _(out_dir, material):
     return render("25-lg-input-update", out_dir, material, "update")
+
+
+# Live TV's channel banner (mock 20), the no-signal screen (mock 18), the place the banner goes and the question over the picture.
+# The no-signal scenes are black: the photo mode shows LG's setting over a still.
+@scene("20-lg-channel-banner", runner=True)
+def _(out_dir, material):
+    return render("20-lg-channel-banner", out_dir, material, "channel")
+
+
+@scene("20-lg-channel-ok", runner=True)
+def _(out_dir, material):
+    return render("20-lg-channel-ok", out_dir, material, "channel-ok")
+
+
+@scene("20-lg-channel-options", runner=True)
+def _(out_dir, material):
+    return render("20-lg-channel-options", out_dir, material, "channel-ok", press=[(600, "RIGHT")])
+
+
+@scene("20-lg-channel-info", runner=True)
+def _(out_dir, material):
+    return render("20-lg-channel-info", out_dir, material, "channel-detail")
+
+
+@scene("18-lg-no-signal", runner=True)
+def _(out_dir, material):
+    return render("18-lg-no-signal", out_dir, material, "nosignal")
+
+
+@scene("18-lg-no-signal-photo", runner=True)
+def _(out_dir, material):
+    return render("18-lg-no-signal-photo", out_dir, material, "nosignal-photo")
+
+
+@scene("25-lg-banner-position", runner=True)
+def _(out_dir, material):
+    return render("25-lg-banner-position", out_dir, material, "banner-edit")
+
+
+@scene("35-lg-prompt", runner=True)
+def _(out_dir, material):
+    return render("35-lg-prompt", out_dir, material, "alert")

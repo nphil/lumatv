@@ -55,7 +55,7 @@ FONT_RE = re.compile(r'"family": fontProp\("(?:smart|cond|number)_\w+", "family"
 MIN_FONT_SITES = 6
 
 # Palette names the edits draw on.
-NEEDED = ("sheetBottom", "focus", "focusEdge", "hairline", "ink", "inkDim", "focusInk", "accent", "radius", "rowRadius")
+NEEDED = ("sheetBottom", "row", "focus", "focusEdge", "hairline", "ink", "inkDim", "focusInk", "accent", "radius", "rowRadius")
 
 # Geometry of the input banners, in the 1080-line units LG's style sheet counts in. The banner's height is the
 # pill's; a two-line label (kicker over title) needs 22 + 28 plus air.
@@ -65,6 +65,8 @@ INSET = 64                 # off the screen edge, the Home margin
 DETAIL_WIDTH = 1100
 DETAIL_HEIGHT = 184
 FOCUS_INSET = 8            # the lit inset inside the pill when the input name has the focus
+NOSIGNAL_INK = 0.66       # the no-signal screen's words on black: alpha of the ink (7:1 on black), and the dimmer line below
+NOSIGNAL_DIM = 0.55
 STYLE = "property var banner: QtObject {"
 NEW_STYLE_AT = "        property int inputInfoTopHeight: 181\n"
 
@@ -78,15 +80,26 @@ def banner_edits(pal):
          "        property int inputSideMargin: %d\n"
          "        property int inputSideInset: %d\n"
          "        property int inputInfoWidth: %d\n"
-         "        property int inputInfoHeight: %d\n"
+         "        property int inputInfoHeight: Math.max(%d, Math.round(clockTopMargin + 2.7 * clockTextFont.pixelSize + 76))\n"
          "        property int inputFocusInset: %d\n"
          "        property string inputBannerColor: \"%s\"\n"
          "        property string inputBannerEdge: \"%s\"\n"
          "        property string inputFocusColor: \"%s\"\n"
          "        property string inputFocusEdge: \"%s\"\n"
          "        property string inputKickerColor: \"%s\"\n"
+         "        property int lumaSheetRadius: %d\n"
+         "        property int lumaRowRadius: %d\n"
+         "        property string lumaSheetColor: \"%s\"\n"
+         "        property string lumaRowColor: \"%s\"\n"
+         "        property string lumaEdge: \"%s\"\n"
+         "        property string lumaInk: \"%s\"\n"
+         "        property string lumaInkDim: \"%s\"\n"
+         "        property string noSignalColor: \"%s\"\n"
+         "        property string noSignalDimColor: \"%s\"\n"
          % (PILL_HEIGHT, SIDE_MARGIN, INSET, DETAIL_WIDTH, DETAIL_HEIGHT, FOCUS_INSET,
-            pal["sheetBottom"], pal["hairline"], pal["focus"], pal["focusEdge"], pal["inkDim"])),
+            pal["sheetBottom"], pal["hairline"], pal["focus"], pal["focusEdge"], pal["inkDim"],
+            pal["radius"], pal["rowRadius"], pal["sheetBottom"], pal["row"], pal["hairline"], pal["ink"], pal["inkDim"],
+            on_black(pal, NOSIGNAL_INK), on_black(pal, NOSIGNAL_DIM))),
         ("property int inputSimpleMinWidth: 582", "property int inputSimpleMinWidth: 320"),
         ('property string inputColor: "#E6E6E6"', 'property string inputColor: "%s"' % pal["ink"]),
         ('property string inputFocusedColor: "#4C5059"', 'property string inputFocusedColor: "%s"' % pal["focusInk"]),
@@ -118,6 +131,56 @@ def banner_edits(pal):
         ('property string progressBarTextColor: "#E6E6E6"', 'property string progressBarTextColor: "%s"' % pal["ink"]),
         ('property string clockTextColor: "#E6E6E6"', 'property string clockTextColor: "%s"' % pal["ink"]),
         ("property font clockTextFont: regularFont(30)", "property font clockTextFont: regularFont(26)"),
+    ] + channel_edits(pal)
+
+
+def on_black(pal, alpha):
+    """The ink for words drawn on black (the no-signal screen is black on every theme: the panel is dark and still): the palette's ink
+    when that is a light colour, the sheet's colour when the theme is a light one, at `alpha`."""
+    base = pal["ink"] if luminance(*parse(pal["ink"])[:3]) >= 0.5 else pal["sheetBottom"]
+    r, g, b, _ = parse(base)
+    return "#%02X%02X%02X%02X" % (round(alpha * 255), r, g, b)
+
+
+def channel_edits(pal):
+    """The Live TV channel banner, the channel detail card, the banner position editor and the REC chip: same sheet, same inks.
+    The number is smaller than LG's 105 (a 156 high banner reads a name and a programme next to it)."""
+    ink, dim = pal["ink"], pal["inkDim"]
+    return [
+        ("property int tZappingBannerTopMargin: 0", "property int tZappingBannerTopMargin: %d" % INSET),
+        # The strip grows with its type, so that the name above the programme above the bar do not meet when the type is larger (the
+        # strip is 156 high at LG's size: 22 above the name, 35 under the programme, the bar 25 off the bottom).
+        ("property int zappingBannerHeight: 156", "property int zappingBannerHeight: Math.max(156, majorNumHeight + 32, Math.ceil(61 + 1.4 * (channelNameFont.pixelSize + programNameFont.pixelSize)))"),
+        # The channel INFO card follows the same type: the programme under the strip, the description lines, the time row.
+        ("property int infoTopMargin: 146", "property int infoTopMargin: Math.max(146, zappingBannerHeight - 10)"),
+        ("property int infoBannerHeight: 447", "property int infoBannerHeight: 447 + (zappingBannerHeight - 156) + (infoDescHeight - 162) + (progressBarTextHeight - 29)"),
+        ("property int infoBannerContentsHeight: 291", "property int infoBannerContentsHeight: 291 + (zappingBannerHeight - 156) + (infoDescHeight - 162) + (progressBarTextHeight - 29)"),
+        ("property int infoDescHeight: 162", "property int infoDescHeight: infoDescLineHeight * 5 + 2"),
+        ("property int infoDescLineHeight: 32", "property int infoDescLineHeight: Math.max(32, Math.round(infoDescFont.pixelSize * 1.34))"),
+        ("property int progressBarTextHeight: 29", "property int progressBarTextHeight: Math.max(29, Math.round(progressBarTextFont.pixelSize * 1.2))"),
+        ("property int majorNumHeight: 140", "property int majorNumHeight: Math.round(marjorNumFont.pixelSize * 1.48)"),
+        ("property int minorNumHeight: 84", "property int minorNumHeight: Math.round(minorNumFont.pixelSize * 1.4)"),
+        ("property int minorNumTopMargin: 16", "property int minorNumTopMargin: 14"),
+        ("property font ipStringFont: regularFont(105)", "property font ipStringFont: regularFont(64)"),
+        ("property font marjorNumFont: numberFont(105)", "property font marjorNumFont: numberFont(84)"),
+        ("property font minorNumFont: numberFont(63)", "property font minorNumFont: numberFont(50)"),
+        ('property var channelColor: channelColorObj("#E6E6E6", "#4C5059", 1.0)', 'property var channelColor: channelColorObj("%s", "%s", 1.0)' % (ink, ink)),
+        ('property var skippedChannelColor: channelColorObj("#E6E6E6", "#4C5059", 0.3)', 'property var skippedChannelColor: channelColorObj("%s", "%s", 0.3)' % (ink, ink)),
+        ('property var scrambledChannelColor: channelColorObj("#E6E6E6", "#4C5059", 0.3)', 'property var scrambledChannelColor: channelColorObj("%s", "%s", 0.3)' % (ink, ink)),
+        ("property font channelNameFont: semiBoldFont(33)", "property font channelNameFont: regularFont(28)"),
+        ('property string dingbatColor: "#ABAEB3"', 'property string dingbatColor: "%s"' % dim),
+        ('property string dingbatFocusedColor: "#4C5059"', 'property string dingbatFocusedColor: "%s"' % dim),
+        ("property font programNameFont: regularFont(33)", "property font programNameFont: semiBoldFont(34)"),
+        ('property string programNameColor: "#E6E6E6"', 'property string programNameColor: "%s"' % ink),
+        ('property string programNameFocusedColor: "#4C5059"', 'property string programNameFocusedColor: "%s"' % ink),
+        ('property color infoGradientEndColor: "#515860"', 'property color infoGradientEndColor: "%s"' % pal["sheetBottom"]),
+        ('property string infoDescColor: "#FFFFFF"', 'property string infoDescColor: "%s"' % ink),
+        ('property string infoGuideColor: "#E6E6E6"', 'property string infoGuideColor: "%s"' % ink),
+        ('property string infoGuideDingbatColor: "#CCCCCC"', 'property string infoGuideDingbatColor: "%s"' % dim),
+        ('property string movingBannerColor: "#E6E6E6"', 'property string movingBannerColor: "%s"' % ink),
+        ('property string movingBannerFocusedColor: "#4C5059"', 'property string movingBannerFocusedColor: "%s"' % ink),
+        ('property string recBgColor: "#575E66"', 'property string recBgColor: "%s"' % pal["hairline"]),
+        ('property string recInfoColor: "#FFFFFF"', 'property string recInfoColor: "%s"' % ink),
     ]
 
 
@@ -153,6 +216,21 @@ def patch_style(text, pal, fonts):
                "    property list<QtObject> lumaFonts: [%s]\n" % loaders)
     text = edit_blocks(name, text, STYLE, [0], banner_edits(pal))
     text = edit_blocks(name, text, "property var bannerIcon: ({", [0], chip_edits(pal))
+    text = edit_blocks(name, text, "property var bannerTextIcon: ({", [0], [
+        ('TEXT_COLOR: "#CCCCCC"', 'TEXT_COLOR: "%s"' % pal["inkDim"]),
+        ('TEXT_F_COLOR: "#FFFFFF"', 'TEXT_F_COLOR: "%s"' % pal["ink"]),
+    ])
+    # The prompts inputcommon opens over the picture ("Input Locked", the set-top box question): the sheet, ink on it.
+    text = edit_blocks(name, text, "property var alertPopup: ({", [0], [
+        ('backgroundColor: "#CACBCC"', 'backgroundColor: "%s"' % pal["sheetBottom"]),
+        ("backgroundOpacity: 0.95", "backgroundOpacity: 1"),
+        ('borderColor: "#bbbbbb"', 'borderColor: "%s"' % pal["hairline"]),
+        ("radius: 12,\n                                  minHeight: 183,", "radius: %d,\n                                  minHeight: 183," % pal["radius"]),
+        ('bodyTextColor: "#000000"', 'bodyTextColor: "%s"' % pal["ink"]),
+    ])
+    text = edit_blocks(name, text, "property var screensaver: ({", [0], [
+        ('TEXT_KEYHELP_TEXT_COLOR: "#E6E6E6"', 'TEXT_KEYHELP_TEXT_COLOR: "%s"' % pal["inkDim"]),
+    ])
     return text
 
 
@@ -238,6 +316,15 @@ def patch_detail(text):
     return sub(name, text, "                topMargin: styleSheet.banner.infoTopMargin\n", "                topMargin: 0\n")
 
 
+def patch_channeldetail(text):
+    """The channel's INFO card: LG's size and layout, the input card's edge and its place off the screen edge."""
+    name = "DetailInfoBanner.qml"
+    text = sub(name, text, "        leftMargin: styleSheet.banner.infoBannerOutSideMargin\n", "        leftMargin: styleSheet.banner.inputSideInset\n")
+    return sub(name, text, "        radius: styleSheet.banner.infoBannerRadius\n        color: styleSheet.banner.infoBannerColor\n",
+               "        radius: styleSheet.banner.infoBannerRadius\n        color: styleSheet.banner.infoBannerColor\n"
+               "        border.width: 1\n        border.color: styleSheet.banner.inputBannerEdge\n")
+
+
 def patch_optionbutton(text, pal):
     name = "OptionButton.qml"
     text = sub(name, text, "    bClickEffect: true\n    buttonType: s_type\n",
@@ -268,6 +355,125 @@ def patch_nsu(text):
     return sub(name, text, "    CommonBoxShadow {\n        target: bg\n    }\n", "    CommonBoxShadow {\n        target: bg\n        active: false\n    }\n")
 
 
+def pill(visible, radius="styleSheet.banner.lumaSheetRadius", indent="        "):
+    """A sheet filling its parent, drawn where LG's background pictures were."""
+    lines = ["Rectangle {", "", "    id: lumaPill", "", "    anchors.fill: parent", "    radius: " + radius, "    color: styleSheet.banner.lumaSheetColor",
+             "    border.width: 1", "    border.color: styleSheet.banner.lumaEdge", "    visible: " + visible, "}", ""]
+    return "".join((indent + ln if ln else "") + "\n" for ln in lines)
+
+
+def lit(visible, radius, indent="        "):
+    """The lit inset a focused strip carries: the focus wash and its ring."""
+    lines = ["Rectangle {", "", "    id: lumaFocus", "", "    anchors {", "        fill: parent", "        margins: styleSheet.banner.inputFocusInset", "    }",
+             "    radius: " + radius, "    color: styleSheet.banner.inputFocusColor", "    border.width: 2", "    border.color: styleSheet.banner.inputFocusEdge",
+             "    visible: " + visible, "}", ""]
+    return "".join((indent + ln if ln else "") + "\n" for ln in lines)
+
+
+def patch_zapping(text):
+    """The channel banner's strip, drawn the way the input pill is: LG's four pictures stay with no source, a sheet takes their
+    visibility rules and the lit inset marks the focus."""
+    name = "ZappingBanner.qml"
+    text = sub(name, text, 'source: root.visible ? (hasFocusImage ? styleSheet.banner.middleFocusedBg : styleSheet.banner.middleBg) : ""', 'source: ""')
+    text = sub(name, text, 'source: root.visible ? (hasFocusImage ? styleSheet.banner.rightFocusedBg : styleSheet.banner.rightBg) : ""', 'source: ""')
+    return sub(name, text,
+               "        anchors.left: parent.left\n\n        Image {\n\n            id: bgMiddle\n",
+               "        anchors.left: parent.left\n\n" +
+               pill("root.displayOnlyZapping") +
+               lit("root.hasFocusImage", "styleSheet.banner.lumaSheetRadius - styleSheet.banner.inputFocusInset") +
+               "        Image {\n\n            id: bgMiddle\n")
+
+
+def patch_channelbanner(text):
+    """The OK banner's strip behind the channel and its options key, and its place: the input pill's inset off the edge."""
+    name = "ChannelBanner.qml"
+    text = sub(name, text, 'source: root.visible ? styleSheet.banner.middleBg : ""', 'source: ""')
+    text = sub(name, text, 'source: root.visible ? styleSheet.banner.rightBg : ""', 'source: ""')
+    text = sub(name, text, "        height: styleSheet.banner.zappingBannerHeight\n        anchors {\n            left: parent.left\n            top: parent.top\n        }\n",
+               "        height: styleSheet.banner.zappingBannerHeight\n        anchors {\n            left: parent.left\n"
+               "            leftMargin: styleSheet.banner.inputSideInset\n            top: parent.top\n        }\n")
+    return sub(name, text,
+               "        anchors.fill: bannerRow\n\n        Image {\n\n            id: bgMiddle\n",
+               "        anchors.fill: bannerRow\n\n" + pill("true") + "        Image {\n\n            id: bgMiddle\n")
+
+
+def patch_bannereditem(text):
+    """One of the four places the banner can be put: the same pill, lit when it has the focus; its words are centred on the item."""
+    name = "BannerEditItem.qml"
+    text = sub(name, text, "    height: bgRight.height\n", "    height: styleSheet.banner.inputBannerHeight\n")
+    text = sub(name, text, "    anchors.left: parent.left\n    LayoutMirroring.enabled: useMirroring\n",
+               "    anchors.left: parent.left\n    anchors.leftMargin: styleSheet.banner.inputSideInset\n    LayoutMirroring.enabled: useMirroring\n")
+    text = sub(name, text, "source: hasFocus? bannerStyle.middleFocusedBg : bannerStyle.middleBg", 'source: ""')
+    text = sub(name, text, "source: hasFocus? bannerStyle.rightFocusedBg : bannerStyle.rightBg", 'source: ""')
+    text = sub(name, text, "        verticalCenter: bgMiddle.verticalCenter\n", "        verticalCenter: parent.verticalCenter\n")
+    return sub(name, text, "    Image {\n\n        id: bgMiddle\n",
+               pill("true", "height / 2", "    ") + lit("hasFocus", "height / 2 - styleSheet.banner.inputFocusInset", "    ") + "    Image {\n\n        id: bgMiddle\n")
+
+
+def patch_bannereditview(text):
+    """The two upper places sit where the banner list puts a banner placed at the top (off the edge by the Home margin)."""
+    name = "BannerEditView.qml"
+    for mirrored in ("false", "true"):
+        text = sub(name, text, "        x: 0\n        y: 0\n        useMirroring: %s\n" % mirrored,
+                   "        x: 0\n        y: styleSheet.banner.tZappingBannerTopMargin\n        useMirroring: %s\n" % mirrored)
+    return text
+
+
+def patch_simplebutton(text, pal):
+    """LG's buttons in the prompts: a row on the sheet, lit with a ring when focused, the corner of a row."""
+    name = "SimpleButton.qml"
+    for old, new in (("bgDisabledColor: \"#7d848c\"", "bgDisabledColor: styleSheet.banner.lumaRowColor"),
+                     ("bgFocusedColor: \"#e6e6e6\"", "bgFocusedColor: styleSheet.banner.inputFocusColor"),
+                     ("bgNormalColor: \"#7d848c\"", "bgNormalColor: styleSheet.banner.lumaRowColor"),
+                     ("textDisabledColor: \"#e6e6e6\"", "textDisabledColor: styleSheet.banner.lumaInkDim"),
+                     ("textFocusedColor: \"#4c5059\"", "textFocusedColor: styleSheet.banner.lumaInk"),
+                     ("textNormalColor: \"#e6e6e6\"", "textNormalColor: styleSheet.banner.lumaInk")):
+        text = sub(name, text, old, new)
+    text = sub(name, text, "        radius: 6\n        border.width: useStroke ? 1 : 0\n        border.color: \"#616161\"\n",
+               "        radius: styleSheet.banner.lumaRowRadius\n        border.width: useStroke ? 1 : (hasFocus ? 2 : 0)\n"
+               "        border.color: hasFocus ? styleSheet.banner.inputFocusEdge : styleSheet.banner.lumaEdge\n")
+    return sub(name, text, "        style: styleSheet.defaultItemShadow\n        target: background\n",
+               "        style: styleSheet.defaultItemShadow\n        target: background\n        active: false\n")
+
+
+def patch_alertpopup(text):
+    name = "AlertPopupView.qml"
+    return sub(name, text, "    ImageShadow {\n        target: alertBackground\n    }\n", "    ImageShadow {\n        target: alertBackground\n        visible: false\n    }\n")
+
+
+def patch_screensaver(text):
+    """The no-signal screen: the moving block of words on black, with no animation and no box of its own, and the sheet under
+    the words of the photo mode. The mover (the burn-in guard) and its ten second hop are LG's, unchanged."""
+    name = "Screensaver.qml"
+    text = sub(name, text, 'source: visible && !systemProperties.isBNOTV? "../../Images/screensaver/screensaver12frame.gif":""', 'source: ""')
+    text = sub(name, text, "return Math.max(styleSheet.guiSize(340), (bodyText.contentHeight + styleSheet.guiSize(180)))",
+               "return bodyText.contentHeight + styleSheet.guiSize(180)")
+    text = sub(name, text, '        color: "#575E66"\n', "        color: styleSheet.banner.lumaSheetColor\n        border.width: 1\n        border.color: styleSheet.banner.lumaEdge\n")
+    text = sub(name, text, "        radius: styleSheet.guiSize(12)\n        visible: guideAreaVisible && textBoxOverPhotoVisibleCondition\n",
+               "        radius: styleSheet.banner.lumaSheetRadius\n        visible: guideAreaVisible && textBoxOverPhotoVisibleCondition\n")
+    # The static (text only) box: a hairline, not LG's grey four-pixel rim.
+    text = sub(name, text, 'border.color: isDynamic? "transparent":"#404040"\n        border.width: styleSheet.guiSize(4)\n        radius: styleSheet.guiSize(10)\n',
+               'border.color: isDynamic? "transparent":styleSheet.banner.lumaEdge\n        border.width: 1\n        radius: styleSheet.banner.lumaRowRadius\n')
+    return text
+
+
+def patch_ssmain(text):
+    name = "ScreensaverMainText.qml"
+    ink = 'color: state === "OverPhoto" ? styleSheet.banner.lumaInk : styleSheet.banner.noSignalColor\n'
+    text = sub(name, text, '    color: "#E6E6E6"\n', "    " + ink)
+    text = sub(name, text, "font.pixelSize: styleSheet.fontSize(48)", "font.pixelSize: styleSheet.fontSize(40)")
+    text = sub(name, text, "font.pixelSize: styleSheet.fontSize(35);", "font.pixelSize: styleSheet.fontSize(32)")
+    return sub(name, text, "font.pixelSize: styleSheet.fontSize(54)", "font.pixelSize: styleSheet.fontSize(44)")
+
+
+def patch_sssub(text):
+    name = "ScreensaverSubText.qml"
+    ink = 'color: state === "OverPhoto" ? styleSheet.banner.lumaInkDim : styleSheet.banner.noSignalDimColor\n'
+    text = sub(name, text, '    color: "#E6E6E6"\n', "    " + ink)
+    text = sub(name, text, "font.pixelSize: styleSheet.fontSize(30)", "font.pixelSize: styleSheet.fontSize(26)", count=2)
+    return sub(name, text, "font.pixelSize: styleSheet.fontSize(35)", "font.pixelSize: styleSheet.fontSize(28)")
+
+
 # file under the staged tree -> edit
 BANNER = "UserInterfaceLayer/Containers/MainViewLayer/"
 FILES = (
@@ -277,6 +483,16 @@ FILES = (
     (BANNER + "BannerItems/OptionButton.qml", patch_optionbutton),
     (BANNER + "BannerItems/BannerIcon.qml", lambda t, pal: patch_bannericon(t)),
     (BANNER + "BannerItems/NsuProgressBar.qml", lambda t, pal: patch_nsu(t)),
+    (BANNER + "ChannelBanner/ZappingBanner.qml", lambda t, pal: patch_zapping(t)),
+    (BANNER + "ChannelBanner/ChannelBanner.qml", lambda t, pal: patch_channelbanner(t)),
+    (BANNER + "ChannelBanner/DetailInfoBanner.qml", lambda t, pal: patch_channeldetail(t)),
+    (BANNER + "BannerItems/BannerEditItem.qml", lambda t, pal: patch_bannereditem(t)),
+    (BANNER + "BannerEditView.qml", lambda t, pal: patch_bannereditview(t)),
+    ("UserInterfaceLayer/Components/SimpleButton.qml", patch_simplebutton),
+    ("UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml", lambda t, pal: patch_alertpopup(t)),
+    ("UserInterfaceLayer/Containers/BgViewLayer/Screensaver.qml", lambda t, pal: patch_screensaver(t)),
+    ("UserInterfaceLayer/Containers/BgViewLayer/ScreensaverMainText.qml", lambda t, pal: patch_ssmain(t)),
+    ("UserInterfaceLayer/Containers/BgViewLayer/ScreensaverSubText.qml", lambda t, pal: patch_sssub(t)),
 )
 STYLE_FILE = "UserInterfaceLayer/GlobalStyle.qml"
 

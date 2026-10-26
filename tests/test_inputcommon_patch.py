@@ -30,8 +30,13 @@ from xdisplay import DISPLAY, HAVE_QT  # noqa: E402
 
 BANNER = "UserInterfaceLayer/Containers/MainViewLayer/"
 STYLE = "UserInterfaceLayer/GlobalStyle.qml"
+BG = "UserInterfaceLayer/Containers/BgViewLayer/"
 TOUCHED = [STYLE, BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner/InputBanner.qml", BANNER + "InputBanner/DetailInfoBanner.qml",
-           BANNER + "BannerItems/OptionButton.qml", BANNER + "BannerItems/BannerIcon.qml", BANNER + "BannerItems/NsuProgressBar.qml"]
+           BANNER + "BannerItems/OptionButton.qml", BANNER + "BannerItems/BannerIcon.qml", BANNER + "BannerItems/NsuProgressBar.qml",
+           BANNER + "ChannelBanner/ZappingBanner.qml", BANNER + "ChannelBanner/ChannelBanner.qml", BANNER + "ChannelBanner/DetailInfoBanner.qml",
+           BANNER + "BannerItems/BannerEditItem.qml", BANNER + "BannerEditView.qml",
+           "UserInterfaceLayer/Components/SimpleButton.qml", "UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml",
+           BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml"]
 
 # What LG's code does, as opposed to how it looks: handlers, keys, interface reads and calls, focus. A patch that is only
 # style leaves every such line exactly as it was.
@@ -115,7 +120,7 @@ class InputcommonPatch(unittest.TestCase):
         self.assertNotIn('infoBannerColor: "#575E66"', style)
         self.assertNotIn('nsuBgColor: "#575E66"', style)
 
-    def test_it_changes_the_seven_files_it_names_and_no_other_and_prints_them(self):
+    def test_it_changes_the_files_it_names_and_no_other_and_prints_them(self):
         self.run_tool()
         self.assertEqual(self.differing(), sorted(TOUCHED))
         self.assertEqual(self.stdout.split("\n")[:-1], sorted(TOUCHED))
@@ -131,7 +136,8 @@ class InputcommonPatch(unittest.TestCase):
 
     def test_the_pictures_stay_and_only_lose_their_source(self):
         self.run_tool()
-        for rel in (BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner/InputBanner.qml"):
+        for rel in (BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner/InputBanner.qml", BANNER + "ChannelBanner/ZappingBanner.qml",
+                    BANNER + "ChannelBanner/ChannelBanner.qml", BANNER + "BannerItems/BannerEditItem.qml"):
             text = self.read(rel)
             self.assertEqual(text.count("id: bgMiddle"), 1)
             self.assertEqual(text.count("id: bgRight"), 1)
@@ -139,9 +145,23 @@ class InputcommonPatch(unittest.TestCase):
         # LG's own rule for when its background shows is the rule the new one follows: the pill where it showed alone, the
         # lit inset where it showed focused
         self.assertIn("visible: root.needFocusHandle || root.displayOnlyZapping", self.stock(BANNER + "InputBanner/SimpleBanner.qml"))
-        patched = self.read(BANNER + "InputBanner/SimpleBanner.qml")
-        self.assertIn("visible: root.displayOnlyZapping", patched)
-        self.assertIn("visible: root.needFocusHandle", patched)
+        for rel in ("InputBanner/SimpleBanner.qml", "ChannelBanner/ZappingBanner.qml"):
+            patched = self.read(BANNER + rel)
+            self.assertIn("visible: root.displayOnlyZapping", patched, rel)
+        self.assertIn("visible: root.needFocusHandle", self.read(BANNER + "InputBanner/SimpleBanner.qml"))
+        self.assertIn("visible: root.hasFocusImage", self.read(BANNER + "ChannelBanner/ZappingBanner.qml"))
+
+    def test_the_no_signal_screen_keeps_its_mover_and_its_off_timer_and_loses_the_animation(self):
+        self.run_tool()
+        text = self.read(BG + "Screensaver.qml")
+        self.assertNotIn("screensaver12frame.gif", text)
+        # LG's burn-in guard: the block hops to a new place on a timer, the ten seconds LG chose
+        self.assertIn("moveDelay: isPhotoRunning ? 50 : 10000", text)
+        self.assertIn("isRepeatedMoving: !isPhotoRunning", text)
+        self.assertIn("isMoving: isDynamic && systemProperties.isAppActivated", text)
+        # one ink for words on the black, one on the sheet of the photo mode
+        self.assertIn("styleSheet.banner.noSignalColor", self.read(BG + "ScreensaverMainText.qml"))
+        self.assertIn("styleSheet.banner.noSignalDimColor", self.read(BG + "ScreensaverSubText.qml"))
 
     def test_no_live_shadow_comes_in_and_the_two_that_were_there_are_off(self):
         self.run_tool()
@@ -169,12 +189,25 @@ class InputcommonPatch(unittest.TestCase):
     ANCHORS = [
         (STYLE, "property int inputSimpleMinWidth: 582"),
         (STYLE, 'BG_COLOR: "#CCCCCC"'),
+        (STYLE, 'TEXT_KEYHELP_TEXT_COLOR: "#E6E6E6"'),
+        (STYLE, 'bodyTextColor: "#000000"'),
+        (STYLE, "property int zappingBannerHeight: 156"),
         (BANNER + "InputBanner/SimpleBanner.qml", "property int sideMargin: styleSheet.banner.zappingBannerSideMargin"),
         (BANNER + "InputBanner/InputBanner.qml", 'source: root.visible ? styleSheet.banner.rightBg : ""'),
         (BANNER + "InputBanner/DetailInfoBanner.qml", "leftMargin: styleSheet.banner.infoBannerOutSideMargin"),
         (BANNER + "BannerItems/OptionButton.qml", "buttonType: s_type"),
         (BANNER + "BannerItems/BannerIcon.qml", 'text: iconVisible && dingbatEnable ? dingbat : ""'),
         (BANNER + "BannerItems/NsuProgressBar.qml", "        target: bg\n"),
+        (BANNER + "ChannelBanner/ZappingBanner.qml", 'source: root.visible ? (hasFocusImage ? styleSheet.banner.rightFocusedBg : styleSheet.banner.rightBg) : ""'),
+        (BANNER + "ChannelBanner/ChannelBanner.qml", 'source: root.visible ? styleSheet.banner.middleBg : ""'),
+        (BANNER + "ChannelBanner/DetailInfoBanner.qml", "leftMargin: styleSheet.banner.infoBannerOutSideMargin"),
+        (BANNER + "BannerItems/BannerEditItem.qml", "    height: bgRight.height\n"),
+        (BANNER + "BannerEditView.qml", "        x: 0\n        y: 0\n        useMirroring: true\n"),
+        ("UserInterfaceLayer/Components/SimpleButton.qml", 'bgFocusedColor: "#e6e6e6"'),
+        ("UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml", "    ImageShadow {\n        target: alertBackground\n    }\n"),
+        (BG + "Screensaver.qml", 'source: visible && !systemProperties.isBNOTV? "../../Images/screensaver/screensaver12frame.gif":""'),
+        (BG + "ScreensaverMainText.qml", '    color: "#E6E6E6"\n'),
+        (BG + "ScreensaverSubText.qml", "font.pixelSize: styleSheet.fontSize(35)"),
     ]
 
     def test_a_missing_anchor_is_fatal_says_which_file_and_leaves_LGs_tree_as_it_was(self):
@@ -217,7 +250,7 @@ class InputcommonPatch(unittest.TestCase):
         self.assertIn("already patched", err)
 
     def test_a_palette_without_what_it_needs_is_refused(self):
-        for key in ("sheetBottom", "focus", "focusEdge", "hairline", "ink", "inkDim", "focusInk", "accent", "radius", "rowRadius"):
+        for key in ("sheetBottom", "row", "focus", "focusEdge", "hairline", "ink", "inkDim", "focusInk", "accent", "radius", "rowRadius"):
             pal = dict(self.pal)
             del pal[key]
             rc, err = self.run_tool(pal)
@@ -236,6 +269,23 @@ class InputcommonPatch(unittest.TestCase):
     def test_usage(self):
         r = subprocess.run([sys.executable, TOOL, self.dir], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
+
+    def test_the_no_signal_words_read_on_black_in_both_materials(self):
+        """4.5:1 for the line and its dimmer partner, composited on black (the panel's dark; the burn-in guard is why they are not brighter)."""
+        for light in (False, True):
+            pal = palette(light)
+            self.assertEqual(self.run_tool(pal)[0], 0)
+            style = self.read(STYLE)
+            for name in ("noSignalColor", "noSignalDimColor"):
+                m = re.search(r'property string %s: "#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})"' % name, style)
+                self.assertIsNotNone(m, name)
+                a, r, g, b = (int(v, 16) for v in m.groups())
+                # alpha over black, in the colour space the panel is driven in, then the relative luminance
+                lin = [((c * a / 255 / 255) / 12.92 if (c * a / 255 / 255) <= 0.04045 else (((c * a / 255 / 255) + 0.055) / 1.055) ** 2.4) for c in (r, g, b)]
+                over_black = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+                self.assertGreaterEqual((over_black + 0.05) / 0.05, 4.5, "%s in the %s material" % (name, "light" if light else "dark"))
+            shutil.rmtree(self.dir)
+            shutil.copytree(CENSUS, self.dir)
 
 
 @unittest.skipUnless(os.path.isdir(CENSUS) and DISPLAY and HAVE_QT, "needs the census copy of LG's tree, Xvfb and PyQt5")
@@ -304,6 +354,91 @@ class PatchedBannersInTheHost(unittest.TestCase):
         self.assertEqual((self.probe(out, "option", "hasFocus"), self.probe(out, "simpleBanner", "hasFocus")), ("true", "false"))
         rc, out = self.run_host("--scene", "ok", "--wait", "1500", "--probe", "1200:option:hasFocus", "--probe", "1200:simpleBanner:hasFocus")
         self.assertEqual((self.probe(out, "option", "hasFocus"), self.probe(out, "simpleBanner", "hasFocus")), ("false", "true"))
+
+    LIVE_TV_SCENES = ("channel", "channel-ok", "channel-detail", "nosignal", "nosignal-photo", "banner-edit", "alert")
+
+    def test_the_live_tv_the_no_signal_and_the_prompt_scenes_load_clean_stock_and_patched(self):
+        for scene in self.LIVE_TV_SCENES:
+            for patched in (False, True):
+                rc, out = self.run_host("--scene", scene, "--wait", "900", patched=patched)
+                self.assertEqual(rc, 0, "%s patched=%s: %s" % (scene, patched, out[-1200:]))
+
+    def test_no_text_overlaps_at_100_and_200_percent_text_dark_and_light(self):
+        """Lucent's universal rule, run on every restyled screen: no two runs of words on top of each other, at the size LG draws
+        and at twice it (the TV has no text-size setting; this is the layout's own margin)."""
+        for scene in ("pill", "ok", "detail", "update") + self.LIVE_TV_SCENES:
+            for text in ("100", "200"):
+                for extra in ([], ["--light"]):
+                    rc, out = self.run_host("--scene", scene, "--wait", "900", "--text", text, "--audit", "overlap", *extra)
+                    self.assertEqual(rc, 0, "%s at %s%% %s: %s" % (scene, text, extra, "\n".join(l for l in out.splitlines() if "layout" in l or "warning" in l)[-1500:]))
+
+    def test_the_channel_strip_is_156_high_and_grows_with_the_type(self):
+        heights = {}
+        for text in ("100", "200"):
+            rc, out = self.run_host("--scene", "channel", "--wait", "900", "--text", text, "--probe", "700:zappingBanner:height")
+            self.assertEqual(rc, 0, out[-800:])
+            heights[text] = int(self.probe(out, "zappingBanner", "height"))
+        self.assertEqual(heights["100"], 156)
+        self.assertGreater(heights["200"], 200)
+        rc, out = self.run_host("--scene", "channel", "--wait", "900", "--probe", "700:zappingBanner:height", patched=False)
+        self.assertEqual(int(self.probe(out, "zappingBanner", "height")), 156)
+
+    def test_the_channel_banner_takes_the_keys_as_LGs_does(self):
+        seen = {}
+        for patched in (False, True):
+            seen[patched] = {}
+            for label, keys in (("name", "OK"), ("options", "RIGHT,OK"), ("there and back", "RIGHT,LEFT,OK")):
+                rc, out = self.run_host("--scene", "channel-ok", "--wait", "1800", "--press", "600:" + keys, "--probe", "1500:option:activeFocus", patched=patched)
+                self.assertEqual(rc, 0, out[-800:])
+                seen[patched][label] = (self.luna(out), self.probe(out, "option", "activeFocus"))
+        self.assertEqual(seen[False], seen[True])
+        self.assertEqual(seen[True]["name"], (["handleBannerPressed"], "false"))
+        self.assertEqual(seen[True]["options"], (["launchMoreActions"], "true"))
+
+    def test_the_prompt_answers_what_LGs_does_for_the_same_keys(self):
+        seen = {}
+        for patched in (False, True):
+            seen[patched] = {}
+            for label, keys in (("first", "OK"), ("second", "DOWN,OK")):
+                rc, out = self.run_host("--scene", "alert", "--wait", "1800", "--press", "600:" + keys, patched=patched)
+                self.assertEqual(rc, 0, out[-800:])
+                seen[patched][label] = self.luna(out)
+        self.assertEqual(seen[False], seen[True])
+        self.assertEqual(seen[True], {"first": ["yes"], "second": ["no"]})
+
+    def test_the_banner_position_is_saved_as_LGs_does(self):
+        seen = {}
+        for patched in (False, True):
+            seen[patched] = {}
+            for label, keys in (("here", "OK"), ("right", "RIGHT,OK"), ("up", "UP,OK")):
+                rc, out = self.run_host("--scene", "banner-edit", "--wait", "1800", "--press", "600:" + keys, patched=patched)
+                self.assertEqual(rc, 0, out[-800:])
+                seen[patched][label] = re.findall(r"\[luna\] (setSystemSettings .*)", out)
+        self.assertEqual(seen[False], seen[True])
+        self.assertEqual(seen[True]["right"], ['setSystemSettings {"bannerPosition":"rightbottom"}'])
+        self.assertEqual(seen[True]["up"], ['setSystemSettings {"bannerPosition":"lefttop"}'])
+
+    def test_the_no_signal_block_still_hops_every_ten_seconds_and_the_animation_is_gone(self):
+        rc, out = self.run_host("--scene", "nosignal", "--wait", "12000", "--probe", "800:randomMoveItem:isMoving", "--probe", "800:animation:source",
+                                "--probe", "800:randomMoveItem:x", "--probe", "800:randomMoveItem:y", "--probe", "11800:randomMoveItem:x", "--probe", "11800:randomMoveItem:y")
+        self.assertEqual(rc, 0, out[-800:])
+        self.assertEqual(self.probe(out, "randomMoveItem", "isMoving"), "true")
+        self.assertEqual(self.probe(out, "animation", "source"), "")
+        before, after = re.findall(r"\[probe\] randomMoveItem\.([xy])=(\S+)", out)[:2], re.findall(r"\[probe\] randomMoveItem\.([xy])=(\S+)", out)[2:]
+        self.assertEqual(len(before), 2)
+        self.assertNotEqual(before, after, "the block did not move in eleven seconds")
+
+    def test_light_and_dark_agree_on_what_the_no_signal_words_sit_on(self):
+        """The screen is black on every theme, so its words are the theme's light colour: dark text on black would not read."""
+        for extra in ([], ["--light"]):
+            with tempfile.TemporaryDirectory() as tmp:
+                png = os.path.join(tmp, "nosignal.png")
+                rc, out = self.run_host("--scene", "nosignal", "--wait", "900", "--shot", "800:" + png, *extra)
+                self.assertEqual(rc, 0, out[-800:])
+                from PyQt5.QtGui import QImage
+                img = QImage(png)
+                lit = max(img.pixelColor(x, y).lightness() for x in range(0, 1920, 3) for y in range(300, 700, 3))
+            self.assertGreater(lit, 140, "the words are not light on black: %s" % extra)
 
 
 if __name__ == "__main__":

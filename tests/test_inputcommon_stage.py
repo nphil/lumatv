@@ -27,9 +27,13 @@ SCRIPT = os.path.join(ROOT, "tools", "inputcommon.sh")
 CENSUS = next((p for p in ("/data/home/lgtv/uiinv/inputcommon/qml", "/tmp/tvsrc/inputcommon/qml") if os.path.isdir(p)), "/data/home/lgtv/uiinv/inputcommon/qml")
 BANNER = "UserInterfaceLayer/Containers/MainViewLayer/"
 STYLE = "UserInterfaceLayer/GlobalStyle.qml"
+BG = "UserInterfaceLayer/Containers/BgViewLayer/"
 TOUCHED = sorted(["UserInterfaceLayer/GlobalStyle.qml", BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner/InputBanner.qml",
                   BANNER + "InputBanner/DetailInfoBanner.qml", BANNER + "BannerItems/OptionButton.qml", BANNER + "BannerItems/BannerIcon.qml",
-                  BANNER + "BannerItems/NsuProgressBar.qml"])
+                  BANNER + "BannerItems/NsuProgressBar.qml", BANNER + "ChannelBanner/ZappingBanner.qml", BANNER + "ChannelBanner/ChannelBanner.qml",
+                  BANNER + "ChannelBanner/DetailInfoBanner.qml", BANNER + "BannerItems/BannerEditItem.qml", BANNER + "BannerEditView.qml",
+                  "UserInterfaceLayer/Components/SimpleButton.qml", "UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml",
+                  BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml"])
 DUMP = "com.webos.app.inputcommon"
 ASIDE = ".lumatv-aside." + DUMP
 

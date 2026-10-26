@@ -62,6 +62,18 @@ QtObject {
     property bool isTvInput: false
     property string country: "USA"
     property string bannerInterfaceName: "inputBanner"
+    property bool isAppActivated: true
+    property bool isAirtelOperator: false
+    property bool isBNOTV: false
+    property bool noSignalGuideAreaVisible: true
+    property bool audioGuidanceOn: false
+    property bool isChannelZappingStatus: false
+    property bool isISDB: false
+    property bool isATSC: true
+    property bool isFreesatChannel: false
+    property bool isSmartCityChannel: false
+    property bool isLivePip: false
+    property string currentChannelId: "0_11_1"
 }
 '''
 
@@ -76,6 +88,8 @@ QtObject {
         property bool isDetailBanner: %(detail)s
         property bool isPlacedTop: false
         property bool isViewVisible: true
+        property int bannerPosState: 2
+        function showZappingBanner() {}
         property real nsuProgressBarValue: %(nsu)s
         property var detailInfoListModel: ({
             threed:     JSON.stringify({dingbatText: "", dingbat: "", iconVisible: false, dingbatEnable: false, guideText: ""}),
@@ -102,12 +116,113 @@ QtObject {
         property string _inputLabel: "AVR-S760H"
         function getDeviceName() { return "HDMI 2" }
     }
-    property var hotelMode: QtObject { property bool isHotelModeReady: false }
+    property var hotelMode: QtObject { property bool isHotelModeReady: false; property bool isHidePopup: false }
     property var audioGuide: QtObject { function readButtonText() {} function readText() {} }
-    property var cursor: QtObject { function requestPreventCursorHide() {} }
+    property var cursor: QtObject { function requestPreventCursorHide() {} function releaseOkButton() {} }
     property var dvr: QtObject { property var recInfoModel: null }
+    property var common: QtObject { function setSystemSettings(kind, what) { console.log("[luna] setSystemSettings " + JSON.stringify(what)) } }
+    %(extra)s
 }
 '''
+
+# What the Live TV channel banner's controller reports: the OK banner and the zapping strip of the local station Nitin's antenna would get.
+EXTRA_CHANNEL = '''property var channelBanner: QtObject {
+        property bool isOkBanner: %(ok)s
+        property bool isRightSide: false
+        property bool isZappingBanner: %(zap)s
+        property bool isLaunchingBanner: false
+        property bool isDetailBanner: %(detail)s
+        property bool isPlacedTop: false
+        property bool isViewVisible: true
+        property bool isLive: true
+        property bool rfIpChannel: false
+        property bool isBannerRequestByVideoStart: false
+        property bool isUpdatedChannelByTimeshift: false
+        property string channelNumber: "11.1"
+        property string channelMajorNumber: "11"
+        property string channelMinorNumber: ".1"
+        property string channelName: "WXIA"
+        property string programName: "Antiques Roadshow: Atlanta, Hour 2"
+        property string channelIconUrl: ""
+        property var channelColorType: ({})
+        property string channelFavorite: ""
+        property int channelSignalLevel: 4
+        property int channelSourceType: 2
+        property int shortCut: -1
+        property bool voiceSelectResult: false
+        property var progressBar: ({visible: true, barVisible: true, startEndTime: "", progressRate: 0.42, isFocused: false})
+        property real nsuProgressBarValue: 0
+        property bool isPrevExist: true
+        property bool isNextExist: true
+        property bool isAvailableNavigation: true
+        property bool isAvailableWatch: true
+        property var detailInfoListModel: %(model)s
+        signal changeCurrentIndex(int index)
+        signal positionViewAtIndex(int index)
+        function navigationChannelUpDown(up) {}
+        function navigationChannelChange() {}
+        function changePrevProgram() {}
+        function changeNextProgram() {}
+        function handleDetailInfoBannerPressed() {}
+        function checkIsAvailableNextProgram() { return true }
+        property int more: 0
+        function isInternetChannel() { return false }
+        function handleBannerPressed() { console.log("[luna] handleBannerPressed") }
+        function launchMoreActions() { more++; console.log("[luna] launchMoreActions") }
+        function restartHideTimer() {}
+        function hide() {}
+    }'''
+
+# The no-signal screen's controller: no photo setting, the block of words moving on black.
+EXTRA_SCREENSAVER = '''property var screensaver: QtObject {
+        id: ss
+        property var noSignalPhotoModel: QtObject {
+            property bool enabled: %(photo)s
+            property bool opened: %(photo)s
+            property bool opend: %(photo)s
+            property bool isBlockGuide: false
+            property bool hasChangedPhoto: false
+            property int currentIdx: 0
+            property int numOfFileNotFoundError: 0
+            property int numOfTryCountInError: 3
+            property var imgArray: ["%(still)s"]
+            signal showScreenSaverGuide()
+            function initImgPathToDefault() {}
+            function updateFile() {}
+        }
+        property string currentSignalState: "bad"
+        property string currentScreensaver: ""
+        property bool isStaticScreensaver: false
+        property bool isSupportGuideAreaToggle: true
+        property bool visibleScreensaver: true
+        property bool isVideoValid: false
+        property string currentViewType: ""
+        property Timer arm: Timer { interval: 150; running: true; onTriggered: ss.currentScreensaver = "NO_SIGNAL" }
+        signal toggleGuideKeyAreaByClick()
+        function getDynamicMessage(key) { return "No Signal" }
+        function getDynamicSubMessage(key) { return "Check the device on this input, or switch to another input." }
+        function getStaticHeaderMessage(key) { return "No Signal" }
+        function getStaticBodyMessage(key) { return "Check the device on this input, or switch to another input." }
+        function getAvailViewTypes(key) { return ["WITH_IMAGE", "TEXT_ONLY"] }
+        function setScreensaverVisible(v) {}
+        function showHidePincodePrompt(v) {}
+        function audioGuideForNosignal() {}
+    }'''
+
+# The prompt inputcommon opens over the picture: LG's "Input Locked"-style question with two answers.
+EXTRA_POPUP = '''property var popup: QtObject {
+        property bool isModal: false
+        property bool isSecondFocus: false
+        property string titleText: ""
+        property string messageText: "Do you want to turn on your set-top box?"
+        property string audioGuideMessageText: ""
+        property string firstBtnText: "Yes"
+        property string secondBtnText: "No"
+        property bool alertPopupVisible: false
+        function yesFeedBackFromAlertPopup() { console.log("[luna] yes") }
+        function noFeedBackFromAlertPopup() { console.log("[luna] no") }
+        function alertPopupHide() {}
+    }'''
 
 STRING_SHEET = '''import QtQuick 2.12
 QtObject {
@@ -120,12 +235,26 @@ QtObject {
     property string ch_banner_24: "Input Information"
     property string ch_banner_25: "Universal Remote"
     property string ch_banner_39: "REC"
+    property string ch_banner_12: "Move the banner here"
+    property string ch_banner_13: "Upper left"
+    property string ch_banner_14: "Upper right"
+    property string ch_banner_15: "Lower left"
+    property string ch_banner_16: "Lower right"
+    property string banner_41: "Scroll down"
+    property string banner_42: "Scroll up"
+    property string banner_30: "Channel"
+    property string banner_12: "Watch"
+    property string banner_2: "Selected"
+    property string banner_3: "Not selected"
+    property string ch_banner_23: "Channel information"
+    property string internetChannelPrefix: "IP"
+    property var screensaver: QtObject { property string live_tv_235: "Show or hide"; property string live_tv_235_tts: "Press red to show or hide" }
 }
 '''
 
 TIME_MANAGER = 'import QtQuick 2.12\nQtObject { property string currentTime: "9:58 PM"; property string currentDate: "Sun, Oct 25" }\n'
 WEBOS = {'Key_webOS_CursorShow': 16777600, 'Key_webOS_CursorHide': 16777601}
-LOGGER = 'import QtQuick 2.12\nQtObject { function i() {} function w() {} function e() {} function d() {} }\n'
+LOGGER = 'import QtQuick 2.12\nQtObject { function i() {} function w() {} function e() {} function d() {} function normal() {} }\n'
 
 # LG's font manager hands the style sheet font descriptions; its own families are not on this machine.
 FONT_MANAGER = '''import QtQuick 2.12
@@ -143,13 +272,49 @@ QtObject {
 # The banner list's job for one item: put it where the list does.
 SCENES = {
     # `size`: the banner list gives an item its parent's width; the detail card has a size of its own, which a sized loader would override.
-    'pill':    {'file': 'InputBanner/InputBanner.qml', 'ok': False, 'zap': True, 'detail': False, 'size': 'width: 1920', 'focused': False},
-    'focused-pill': {'file': 'InputBanner/InputBanner.qml', 'ok': False, 'zap': True, 'detail': False, 'size': 'width: 1920', 'focused': True},
-    'ok':      {'file': 'InputBanner/InputBanner.qml', 'ok': True, 'zap': False, 'detail': False, 'size': 'width: 1920', 'focused': True},
-    'detail':  {'file': 'InputBanner/DetailInfoBanner.qml', 'ok': False, 'zap': False, 'detail': True, 'size': '', 'focused': False},
+    'pill':    {'file': 'MainViewLayer/InputBanner/InputBanner.qml', 'ok': False, 'zap': True, 'detail': False, 'size': 'width: 1920', 'focused': False},
+    'focused-pill': {'file': 'MainViewLayer/InputBanner/InputBanner.qml', 'ok': False, 'zap': True, 'detail': False, 'size': 'width: 1920', 'focused': True},
+    'ok':      {'file': 'MainViewLayer/InputBanner/InputBanner.qml', 'ok': True, 'zap': False, 'detail': False, 'size': 'width: 1920', 'focused': True},
+    'detail':  {'file': 'MainViewLayer/InputBanner/DetailInfoBanner.qml', 'ok': False, 'zap': False, 'detail': True, 'size': '', 'focused': False},
     # the TV's software update, in the detail card's header (`NsuProgressBar`)
-    'update':  {'file': 'InputBanner/DetailInfoBanner.qml', 'ok': False, 'zap': False, 'detail': True, 'size': '', 'focused': False, 'nsu': 64},
+    'update':  {'file': 'MainViewLayer/InputBanner/DetailInfoBanner.qml', 'ok': False, 'zap': False, 'detail': True, 'size': '', 'focused': False, 'nsu': 64},
+    # Live TV's channel banner, the same two states as the input's (the strip alone; OK with the options key)
+    'channel': {'file': 'MainViewLayer/ChannelBanner/ChannelBanner.qml', 'ok': False, 'zap': True, 'detail': False, 'size': 'width: 1920', 'focused': False, 'tv': True, 'extra': ('channel',)},
+    'channel-ok': {'file': 'MainViewLayer/ChannelBanner/ChannelBanner.qml', 'ok': True, 'zap': False, 'detail': False, 'size': 'width: 1920', 'focused': True, 'tv': True, 'extra': ('channel',)},
+    # the no-signal screen over black, and over LG's photo setting (the text box on a still)
+    'channel-detail': {'file': 'MainViewLayer/ChannelBanner/DetailInfoBanner.qml', 'ok': False, 'zap': False, 'detail': True, 'size': '', 'focused': False, 'tv': True,
+                       'extra': ('channel',), 'model': True},
+    'nosignal': {'file': 'BgViewLayer/Screensaver.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': False,
+                 'top': 0, 'backdrop': False, 'extra': ('screensaver',), 'photo': False},
+    'nosignal-photo': {'file': 'BgViewLayer/Screensaver.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': False,
+                       'top': 0, 'backdrop': False, 'extra': ('screensaver',), 'photo': True},
+    # where the banner goes: four places, one with the focus
+    'banner-edit': {'file': 'MainViewLayer/BannerEditView.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': True, 'top': 0},
+    # the question over the picture (set-top box, input lock)
+    'alert': {'file': 'PopupLayer/AlertPopupView.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': True, 'top': 0, 'extra': ('popup',)},
 }
+# The programme under the channel banner's INFO card: one entry of LG's list model (every field is a JSON string, as the controller hands them over).
+DETAIL_FIELDS = ('additionalGenre atmos atvAudio audioDescription audioLanguage bmlChannelJP bt2020 ccText closedCaption closedCaptionJP copyRightJP desc dolby '
+                 'dolbyAudio dtvAudio freesatSt genre ginga hbbtv hdr hdsd mailJP mainLanguage mheg mono monoForced multiAudio programImage rating ratio '
+                 'recordSchedule resolution rfIpChannel sap satellite scramble signLanguage spokenSubtitle stereo stereoForced storeMode subLanguage '
+                 'subtitle teletext threed linkage watchSchedule').split()
+DETAIL_ICONS = {'ratio': '16:9', 'resolution': '1080i', 'dolbyAudio': 'DD', 'stereo': 'Stereo', 'closedCaption': 'CC', 'rating': 'TV-PG'}
+DETAIL_TEXT = ('Appraisers travel to Atlanta to value family heirlooms, from a Civil War sword to a mid-century glass collection. '
+               'A rare find draws the biggest crowd of the day, and one guest learns what a grandmother\'s trunk was worth.')
+
+
+def detail_model():
+    def icon(name):
+        text = DETAIL_ICONS.get(name, '')
+        return json.dumps(json.dumps({'dingbatText': text, 'dingbat': '', 'iconVisible': bool(text), 'dingbatEnable': False, 'guideText': text, 'valueText': '', 'valueImage': ''}))
+    fields = ['%s: %s' % (n, icon(n)) for n in DETAIL_FIELDS]
+    fields.append('title: ' + json.dumps(json.dumps({'valueText': 'Antiques Roadshow: Atlanta, Hour 2'})))
+    fields.append('description: ' + json.dumps(json.dumps({'valueText': DETAIL_TEXT})))
+    fields.append('progressBar: ' + json.dumps(json.dumps({'visible': True, 'barVisible': True, 'startEndTime': '8:00 - 9:00 PM', 'progressRate': 0.42, 'isFocused': False})))
+    return 'ListModel { ListElement { %s } }' % '; '.join(fields)
+
+
+EXTRAS = {'channel': EXTRA_CHANNEL, 'screensaver': EXTRA_SCREENSAVER, 'popup': EXTRA_POPUP}
 
 HOST_QML = '''import QtQuick 2.12
 
@@ -160,11 +325,11 @@ Item {
     property url banner: ""
     property int bannerTop: %(top)d
     property bool focused: %(focused)s
-    Rectangle { anchors.fill: parent; color: "#0d1020" }
+    Rectangle { anchors.fill: parent; color: "%(base)s" }
     Image { anchors.fill: parent; source: screen.backdrop; fillMode: Image.PreserveAspectCrop; asynchronous: false }
     Item {
         id: slot
-        x: 0; y: screen.bannerTop; width: parent.width; height: 600
+        x: 0; y: screen.bannerTop; width: parent.width; height: %(slotH)d
         Loader {
             id: loader
             objectName: "loader"
@@ -214,7 +379,22 @@ def palette(light):
             os.unlink(tmp.name)
 
 
-def stage(dest, patched, light=False):
+def scale_text(qml, percent):
+    """Every size LG's style sheet hands out multiplied by `percent` / 100: the 200 % text pass the Lucent rules ask of a screen
+    (the TV has no text-size setting, so this only shows what a larger face would do to the layout)."""
+    path = os.path.join(qml, 'UserInterfaceLayer', 'GlobalStyle.qml')
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    k = percent / 100.0
+    text, n = re.subn(r'"pixelSize": size,', '"pixelSize": size * %s,' % k, text)
+    text, m = re.subn(r'Math\.round\(pixelSize \* _fontRatio\)', 'Math.round(pixelSize * _fontRatio * %s)' % k, text)
+    if n < 6 or m != 1:
+        raise SystemExit('text scale: %d font functions and %d fontSize found in the style sheet' % (n, m))
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(text)
+
+
+def stage(dest, patched, light=False, text=100):
     """A copy of LG's tree under `dest/qml`, patched the way the set's staging does when asked."""
     qml = os.path.join(dest, 'qml')
     shutil.copytree(STOCK, qml)
@@ -223,6 +403,8 @@ def stage(dest, patched, light=False):
                            capture_output=True, text=True)
         if r.returncode != 0:
             raise SystemExit('patch failed: ' + r.stderr)
+    if text != 100:
+        scale_text(qml, text)
     return qml
 
 
@@ -237,6 +419,8 @@ def main(argv=None):
     ap.add_argument('--press', action='append', default=[], metavar='MS:KEYS', help='keys sent at MS, comma separated')
     ap.add_argument('--probe', action='append', default=[], metavar='MS:OBJECT:PROP', help='print a property of the item with this objectName at MS, as `[probe] OBJECT.PROP=value`')
     ap.add_argument('--keep', help='keep the staged tree in this directory')
+    ap.add_argument('--text', type=int, default=100, help='text size in percent (200 doubles every size of the style sheet)')
+    ap.add_argument('--audit', metavar='KINDS', nargs='?', const='overlap', help='run the layout audit of the finished picture (tests/qmlhost/layoutaudit.py) for these kinds, comma separated; `all` for every kind; findings are warnings')
     a = ap.parse_args(argv)
     if not os.path.isdir(STOCK):
         print("needs the census copy of LG's inputcommon QML at", STOCK)
@@ -247,11 +431,12 @@ def main(argv=None):
     if a.keep and os.path.exists(work):
         shutil.rmtree(work)
     os.makedirs(work, exist_ok=True)
-    qml = stage(work, a.patched, a.light)
+    qml = stage(work, a.patched, a.light, a.text)
     spec = SCENES[a.scene]
     host = os.path.join(work, 'Host.qml')
     with open(host, 'w') as f:
-        f.write(HOST_QML % {'top': BANNER_TOP, 'size': spec['size'], 'focused': str(spec['focused']).lower()})
+        f.write(HOST_QML % {'top': spec.get('top', BANNER_TOP), 'size': spec['size'], 'focused': str(spec['focused']).lower(),
+                            'slotH': 1080 if 'top' in spec else 600, 'base': '#0d1020' if spec.get('backdrop', True) else '#000000'})
 
     messages = []
 
@@ -287,13 +472,22 @@ def main(argv=None):
         return obj
 
     keep = []
-    make('systemProperties', SYSTEM_PROPERTIES)
+    sysprops = SYSTEM_PROPERTIES
+    if spec.get('tv'):
+        # Live TV: the tuner is the input and the channel banner is the banner interface
+        sysprops = (sysprops.replace('isExternalInput: true', 'isExternalInput: false').replace('isTvInput: false', 'isTvInput: true')
+                    .replace('bannerInterfaceName: "inputBanner"', 'bannerInterfaceName: "channelBanner"'))
+    make('systemProperties', sysprops)
+    make('windowHandler', 'import QtQuick 2.12\nQtObject { property bool isFocusableViewExist: false; signal hideAllViews(var sender) }\n')
     make('stringSheet', STRING_SHEET)
     make('timeManager', TIME_MANAGER)
     ctx.setContextProperty('webOS', WEBOS)
     ctx.setContextProperty('isDevice', True)
     make('logger', LOGGER)
-    make('interfaces', INTERFACES, dict({k: str(spec[k]).lower() for k in ('ok', 'zap', 'detail')}, nsu=spec.get('nsu', 0)))
+    flags = dict({k: str(spec[k]).lower() for k in ('ok', 'zap', 'detail')}, nsu=spec.get('nsu', 0), photo=str(spec.get('photo', False)).lower(),
+                 still=os.path.join(ROOT, 'docs', 'mocks', 'img', 'still.jpg'), model=detail_model() if spec.get('model') else 'null')
+    extra = ''.join(EXTRAS[n] % flags + '\n    ' for n in spec.get('extra', ()))
+    make('interfaces', INTERFACES, dict(flags, extra=extra))
     fonts = make('fontManager', FONT_MANAGER)
     # LG's own style sheet, instantiated the way UIController does (a window size and the font manager).
     sheet_comp = QtQml.QQmlComponent(eng, QtCore.QUrl.fromLocalFile(os.path.join(qml, 'UserInterfaceLayer', 'GlobalStyle.qml')))
@@ -316,8 +510,8 @@ def main(argv=None):
             print('ERROR', e.toString())
         return 1
     root = view.rootObject()
-    root.setProperty('banner', QtCore.QUrl.fromLocalFile(os.path.join(qml, 'UserInterfaceLayer', 'Containers', 'MainViewLayer', spec['file'])))
-    if a.backdrop:
+    root.setProperty('banner', QtCore.QUrl.fromLocalFile(os.path.join(qml, 'UserInterfaceLayer', 'Containers', spec['file'])))
+    if a.backdrop and spec.get('backdrop', True):
         root.setProperty('backdrop', QtCore.QUrl.fromLocalFile(os.path.abspath(a.backdrop)))
     view.show()
 
@@ -342,10 +536,18 @@ def main(argv=None):
         probes.append(int(ms))
         QtCore.QTimer.singleShot(int(ms), lambda n=name, p=prop: probe(n, p))
 
+    found_layout = []
+
     def shot(path):
         img = view.grabWindow()
         img.save(path)
         print('shot %s %dx%d' % (path, img.width(), img.height()), flush=True)
+        if a.audit:
+            import layoutaudit
+            kinds = None if a.audit == 'all' else [k for k in a.audit.split(',') if k]
+            for line in layoutaudit.lines(layoutaudit.audit(root, 1920, 1080, img, kinds), 'layout %d%%' % a.text):
+                found_layout.append(line)
+                print(line, flush=True)
 
     shots = []
     for s in a.shot:
@@ -361,9 +563,11 @@ def main(argv=None):
 
     own = [m for m in messages if m[0] in (1, 2, 3) and not IGNORE.search(m[3])]
     print('%d warning(s) from the tree' % len(own))
+    if found_layout:
+        print('%d layout finding(s)' % len(found_layout))
     if not a.keep:
         shutil.rmtree(work, ignore_errors=True)
-    return 1 if own else 0
+    return 1 if own or found_layout else 0
 
 
 if __name__ == '__main__':

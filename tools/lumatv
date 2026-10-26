@@ -29,6 +29,8 @@
 #   webglass on|off|status -> glass stylesheet in the settings web apps
 #   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
 #                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
+#   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
+#                            off by default; a change is one rebuild and, under LG's compositor, one restart
 #   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
 #   version                -> version string from appinfo.json
 #
@@ -204,8 +206,10 @@ WEBGLASS_ON="$STATE/.webglass-on"
 INPUTCOMMON_TOOL="$APPDIR/tools/inputcommon.sh"
 INPUTCOMMON_ON="$STATE/.inputcommon-on"
 # The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
-# views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one.
+# views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one. Off by
+# default like every other restyle of an LG process: `keyboard on` leaves the flag that build_shadow reads and the rebuild makes the patch.
 KEYBOARD_TOOL="$APPDIR/tools/keyboard_patch.py"
+KEYBOARD_ON="$STATE/.keyboard-on"
 # What build_shadow's patches are made of: each patch script, the modules it imports and the files it reads. shadow_patch_fp
 # fingerprints them, so that an update that changes only one of them (a patch, or the theme's motion) rebuilds the shadow and
 # restarts the compositor once; without it a set that already has a shadow keeps the old one. A patch added to build_shadow
@@ -995,6 +999,43 @@ verb_inputcommon() {
   return 0
 }
 
+keyboard_patched() {
+  # Whether the shadow module's copy of LG's keyboard view carries the patch (true or false).
+  if grep -q 'Luma: patched' "$SHADOW_ROOT/WebOSCompositor/views/StarfishKeyboardView.qml" 2>/dev/null; then printf true; else printf false; fi
+}
+
+verb_keyboard() {
+  # The on-screen keyboard's window in the theme's layer motion (tools/keyboard_patch.py). The patch is made when the shadow module is
+  # built, so a change of the switch is a rebuild: apply does it, once, and restarts LG's compositor if that is the live one. A set that
+  # was never applied has no module yet: the flag is all there is to change and the first apply reads it. The keys themselves
+  # (maliit's) are not restyled yet (docs/research/lg-restyles-result.md).
+  case "${1:-status}" in
+    on|off)
+      kb_was=off; [ -f "$KEYBOARD_ON" ] && kb_was=on
+      mkdir -p "$STATE" 2>/dev/null
+      if [ "$1" = on ]; then : > "$KEYBOARD_ON" || { emit_error "could not write $KEYBOARD_ON"; return 1; }; else rm -f "$KEYBOARD_ON"; fi
+      kb_applied=false
+      if [ -d "$SHADOW_ROOT" ]; then
+        kb_out=$(sh "$APPDIR/tools/lumatv" apply < /dev/null 2>>"$LOGFILE")
+        case "$kb_out" in
+          '{"ok":true'*) kb_applied=true ;;
+          *)
+            # the set is as it was: the flag goes back with it
+            if [ "$kb_was" = on ]; then : > "$KEYBOARD_ON"; else rm -f "$KEYBOARD_ON"; fi
+            case "$kb_out" in '{'*'"ok":false'*) printf '%s\n' "$kb_out" ;; *) emit_error "apply did not answer" ;; esac
+            return 1 ;;
+        esac
+      fi
+      log_line "keyboard $1 (applied: $kb_applied)"
+      printf '{"ok":true,"keyboard":"%s","applied":%s,"patched":%s}\n' "$1" "$kb_applied" "$(keyboard_patched)" ;;
+    status)
+      kb_now=false; [ -f "$KEYBOARD_ON" ] && kb_now=true
+      printf '{"ok":true,"on":%s,"patched":%s}\n' "$kb_now" "$(keyboard_patched)" ;;
+    *) emit_error "usage: keyboard on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
 logo_set() {
   # $1 = on|off. The staged windows are laid down first, so a redirect never points at a file that
   # is not there. The windows are preloaded surfaces: closed after the redirect, the next launch
@@ -1168,12 +1209,15 @@ shadow_self_fp() {
 }
 
 shadow_patch_fp() {
-  # Identity of what the shadow's patches were made from (SHADOW_PATCH_FILES, in that order). A file that is not there counts as
-  # different from one that is.
-  for sp_f in $SHADOW_PATCH_FILES; do
-    printf '%s\n' "$sp_f"
-    cat "$sp_f" 2>/dev/null
-  done | md5sum | cut -c1-32
+  # Identity of what the shadow's patches were made from (SHADOW_PATCH_FILES, in that order) and of the switches that decide whether a
+  # patch is made. A file that is not there counts as different from one that is.
+  {
+    for sp_f in $SHADOW_PATCH_FILES; do
+      printf '%s\n' "$sp_f"
+      cat "$sp_f" 2>/dev/null
+    done
+    if [ -f "${KEYBOARD_ON:-}" ]; then printf 'keyboard on\n'; else printf 'keyboard off\n'; fi
+  } | md5sum | cut -c1-32
 }
 
 shadow_patch_current() {
@@ -1197,7 +1241,7 @@ build_shadow() {
   # The on-screen keyboard's window comes and goes in the theme's layer motion (tools/keyboard_patch.py). The tool writes nothing
   # when an anchor of LG's view is missing (a firmware update changed it): the shadow then keeps LG's file.
   kb="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishKeyboardView.qml"
-  if [ -f "$kb" ] && [ -f "$KEYBOARD_TOOL" ]; then
+  if [ -f "${KEYBOARD_ON:-}" ] && [ -f "$kb" ] && [ -f "$KEYBOARD_TOOL" ]; then
     python3 "$KEYBOARD_TOOL" "$kb" "$THEME_SRC/theme.json" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the keyboard patch was refused, LG's keyboard view stays"
   fi
 
@@ -2107,6 +2151,7 @@ do_revert_internal() {
   keyfilter_set remove
   [ -f "$LOGO_ON" ] && logo_set off
   [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
+  rm -f "$KEYBOARD_ON"
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
@@ -2640,6 +2685,7 @@ surfaces_json() {
   printf '{"id":"quicksettings","on":%s,"fallback":"`systemui off` puts the stock entry back in configd"},' "$(b test -f "$SYSTEMUI_ON")"
   printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
   printf '{"id":"inputcommon","on":%s,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s input banners return"},' "$(b test -f "$INPUTCOMMON_ON")"
+  printf '{"id":"keyboard","on":%s,"fallback":"`keyboard off` rebuilds the shadow module with LG'"'"'s own keyboard view; revert drops the module"},' "$(b test -f "$KEYBOARD_ON")"
   printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
   printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
   printf '{"id":"helper","on":%s,"fallback":"Home draws the last saved weather and news; `helper stop`"},' "$hp_on"
@@ -3083,7 +3129,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|keyboard|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -3171,6 +3217,7 @@ case "$VERB" in
   systemui) verb_systemui "${2:-status}"; exit $? ;;
   webglass) verb_webglass "${2:-status}"; exit $? ;;
   inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
+  keyboard) verb_keyboard "${2:-status}"; exit $? ;;
   homestub) verb_homestub "${2:-status}"; exit $? ;;
   homestub-boot) verb_homestub_boot; exit $? ;;
   homestub-watch) verb_homestub_watch; exit $? ;;

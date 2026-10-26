@@ -249,9 +249,14 @@ class ShadowKeyboard(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def build(self, tool=KEYBOARD_TOOL, theme=THEME_SRC):
+    def build(self, tool=KEYBOARD_TOOL, theme=THEME_SRC, on=True):
         d = self.tmp.name
-        script = (f'STOCK_QML_MODULE="{self.stock}"\nCOMPOSITOR_STAGE="{self.comp_stage}"\nLUMA_STAGE="{d}/luma"\nQML_MODULE=LumaHome\n'
+        flag = os.path.join(d, ".keyboard-on")
+        if on:
+            open(flag, "w").close()
+        elif os.path.exists(flag):
+            os.remove(flag)
+        script = (f'KEYBOARD_ON="{flag}"\n' + f'STOCK_QML_MODULE="{self.stock}"\nCOMPOSITOR_STAGE="{self.comp_stage}"\nLUMA_STAGE="{d}/luma"\nQML_MODULE=LumaHome\n'
                   f'SHADOW_ROOT="{self.shadow}"\nMODULE_RELPATH=views/fullscreen/StarfishFullscreenContainer.qml\n'
                   f'SHADOW_STOCK_FP="{d}/stock.fp"\nSHADOW_SELF_FP="{d}/self.fp"\nSHADOW_PATCH_FP="{d}/patch.fp"\nKEYBOARD_TOOL="{tool}"\nTHEME_SRC="{theme}"\nLOGFILE="{self.log}"\n'
                   'SHADOW_PATCH_FILES="$KEYBOARD_TOOL $THEME_SRC/theme.json"\n'
@@ -305,6 +310,126 @@ class ShadowKeyboard(unittest.TestCase):
         self.assertFalse(os.path.exists(self.shadow + ".next"))
         self.assertTrue(re.fullmatch(r"[0-9a-f]{32}", self.read(os.path.join(self.tmp.name, "self.fp")).strip()))
 
+    def test_with_the_switch_off_lgs_own_view_stays_and_the_build_says_nothing(self):
+        log = self.build(on=False)
+        self.assertEqual(self.read(self.shadow_view), self.read(VIEW))
+        self.assertNotIn("keyboard patch", log)
+        self.build(on=True)
+        self.assertTrue(self.read(self.shadow_view).startswith("// Luma: patched"))
+
+
+KEYBOARD_APPLY = """#!/bin/sh
+echo "$*" >> "$FAKE/apply-calls"
+[ -e "$FAKE/silent" ] && exit 0
+if [ -e "$FAKE/apply-fails" ]; then echo '{"ok":false,"error":"shadow module build failed"}'; exit 1; fi
+echo '{"ok":true,"applied":true,"mounts":3,"took":4}'
+"""
+
+
+class KeyboardVerb(unittest.TestCase):
+    """`keyboard on|off|status`: the flag build_shadow reads, and the one apply that makes the change reach the set."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+        os.makedirs(os.path.join(self.d, "app", "tools"))
+        with open(os.path.join(self.d, "app", "tools", "lumatv"), "w") as f:
+            f.write(KEYBOARD_APPLY)
+        self.flag = os.path.join(self.d, ".keyboard-on")
+        self.shadow = os.path.join(self.d, "qml")
+        self.view = os.path.join(self.shadow, "WebOSCompositor", "views", "StarfishKeyboardView.qml")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_verb(self, arg, module=True):
+        if module:
+            os.makedirs(os.path.dirname(self.view), exist_ok=True)
+        script = (f'FAKE="{self.d}"; export FAKE\nAPPDIR="{self.d}/app"\nSTATE="{self.d}"\nKEYBOARD_ON="{self.flag}"\nSHADOW_ROOT="{self.shadow}"\nLOGFILE="{self.d}/log"\n'
+                  f'log_line() {{ echo "$1" >> "{self.d}/loglines"; }}\n'
+                  + function("json_escape") + function("emit_error") + function("keyboard_patched") + function("verb_keyboard") + f'verb_keyboard "{arg}"\n')
+        r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30)
+        return r.returncode, r.stdout.strip()
+
+    def applies(self):
+        p = os.path.join(self.d, "apply-calls")
+        return open(p).read().split("\n")[:-1] if os.path.exists(p) else []
+
+    def mark(self, name):
+        open(os.path.join(self.d, name), "w").close()
+
+    def test_on_leaves_the_flag_and_applies_once(self):
+        rc, out = self.run_verb("on")
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "keyboard": "on", "applied": True, "patched": False}))
+        self.assertTrue(os.path.exists(self.flag))
+        self.assertEqual(self.applies(), ["apply"])
+
+    def test_off_takes_the_flag_away_and_applies_once(self):
+        open(self.flag, "w").close()
+        rc, out = self.run_verb("off")
+        self.assertEqual((rc, json.loads(out)["keyboard"], json.loads(out)["applied"]), (0, "off", True))
+        self.assertFalse(os.path.exists(self.flag))
+        self.assertEqual(self.applies(), ["apply"])
+
+    def test_a_set_that_was_never_applied_has_no_module_so_only_the_flag_changes(self):
+        rc, out = self.run_verb("on", module=False)
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "keyboard": "on", "applied": False, "patched": False}))
+        self.assertTrue(os.path.exists(self.flag))
+        self.assertEqual(self.applies(), [])
+
+    def test_an_apply_that_fails_puts_the_flag_back_and_says_why(self):
+        self.mark("apply-fails")
+        rc, out = self.run_verb("on")
+        self.assertEqual((rc, json.loads(out)), (1, {"ok": False, "error": "shadow module build failed"}))
+        self.assertFalse(os.path.exists(self.flag))
+        open(self.flag, "w").close()
+        self.assertEqual(self.run_verb("off")[0], 1)
+        self.assertTrue(os.path.exists(self.flag))
+
+    def test_an_apply_that_says_nothing_is_an_error_and_changes_no_flag(self):
+        self.mark("silent")
+        rc, out = self.run_verb("on")
+        self.assertEqual((rc, json.loads(out)), (1, {"ok": False, "error": "apply did not answer"}))
+        self.assertFalse(os.path.exists(self.flag))
+
+    def test_status_reads_the_flag_and_the_module(self):
+        self.assertEqual(json.loads(self.run_verb("status")[1]), {"ok": True, "on": False, "patched": False})
+        with open(self.view, "w") as f:
+            f.write("// Luma: patched, see tools/keyboard_patch.py\n")
+        self.assertEqual(json.loads(self.run_verb("status")[1]), {"ok": True, "on": False, "patched": True})
+        open(self.flag, "w").close()
+        self.assertTrue(json.loads(self.run_verb("status")[1])["on"])
+        self.assertEqual(self.applies(), [])
+
+    def test_a_wrong_word_is_an_error_that_touches_nothing(self):
+        rc, out = self.run_verb("sideways")
+        self.assertEqual((rc, json.loads(out)["error"]), (1, "usage: keyboard on|off|status"))
+        self.assertFalse(os.path.exists(self.flag))
+        self.assertEqual(self.applies(), [])
+
+    def test_the_fingerprint_names_the_switch_so_that_flipping_it_rebuilds_the_shadow(self):
+        import hashlib
+        a, b = os.path.join(self.d, "a.py"), os.path.join(self.d, "b.json")
+        open(a, "w").write("print(1)\n")
+        open(b, "w").write("{}\n")
+        body = f"{a}\nprint(1)\n{b}\n{{}}\n"
+
+        def fp(flag):
+            script = f'SHADOW_PATCH_FILES="{a} {b}"\nKEYBOARD_ON="{flag}"\n' + function("shadow_patch_fp") + "shadow_patch_fp\n"
+            return subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30).stdout.strip()
+        self.assertEqual(fp(self.flag), hashlib.md5((body + "keyboard off\n").encode()).hexdigest())
+        open(self.flag, "w").close()
+        self.assertEqual(fp(self.flag), hashlib.md5((body + "keyboard on\n").encode()).hexdigest())
+
+    def test_the_verb_is_dispatched_documented_and_in_the_registry(self):
+        t = text()
+        self.assertRegex(t, r"\n  status\|apply\|[^\n]*\|inputcommon\|keyboard\|[^\n]*\)\n")
+        self.assertIn('keyboard) verb_keyboard "${2:-status}"; exit $? ;;', t)
+        self.assertRegex(t, r"\n#   keyboard on\|off\|status ->")
+        self.assertIn('{"id":"keyboard","on":%s', t)
+        self.assertIn('KEYBOARD_ON="$STATE/.keyboard-on"', t)
+        self.assertIn('rm -f "$KEYBOARD_ON"', function("do_revert_internal"))
+
 
 def tool_lines(pattern):
     """The lines of tools/lumatv that match pattern at their start, in file order."""
@@ -341,6 +466,7 @@ class ShadowPatches(unittest.TestCase):
         }
         for rel, body in self.files.items():
             self.put(rel, body)
+        self.put(".keyboard-on", "")                                # the switch on: the patch is made
         self.shadow = os.path.join(d, "qml")
 
     def tearDown(self):
@@ -358,7 +484,7 @@ class ShadowPatches(unittest.TestCase):
 
     def sh(self, command, extra=""):
         d = self.d
-        script = (f'APPDIR="{self.app}"\nSTATE="{d}/state"\nTHEME_SRC="{self.app}/theme"\n' + "\n".join(TOOL_CONSTANTS) + "\n" + "\n".join(PATCH_LIST) + "\n"
+        script = (f'APPDIR="{self.app}"\nSTATE="{d}/state"\nKEYBOARD_ON="{d}/.keyboard-on"\nTHEME_SRC="{self.app}/theme"\n' + "\n".join(TOOL_CONSTANTS) + "\n" + "\n".join(PATCH_LIST) + "\n"
                   f'STOCK_QML_MODULE="{d}/stock/WebOSCompositor"\nCOMPOSITOR_STAGE="{d}/compositor.qml"\nLUMA_STAGE="{d}/luma"\nQML_MODULE=LumaHome\n'
                   f'SHADOW_ROOT="{self.shadow}"\nMODULE_RELPATH=views/fullscreen/StarfishFullscreenContainer.qml\n'
                   'SHADOW_QML="$SHADOW_ROOT/WebOSCompositor/$MODULE_RELPATH"\n'
@@ -414,6 +540,15 @@ class ShadowPatches(unittest.TestCase):
         os.remove(os.path.join(self.app, "tools", "keyboard_patch.py"))
         self.assertEqual(self.sh("shadow_current")[0], 1)
         self.build()                                                 # LG's view stays, the build goes on, and that is what was recorded
+        self.assertEqual(self.sh("shadow_current")[0], 0)
+        with open(os.path.join(self.shadow, STOCK_MODULE, "views", "StarfishKeyboardView.qml")) as f:
+            self.assertEqual(f.read(), "// LG's keyboard view\n")
+
+    def test_flipping_the_keyboard_switch_makes_the_shadow_not_current_until_it_is_rebuilt(self):
+        self.build()
+        os.remove(os.path.join(self.d, ".keyboard-on"))
+        self.assertEqual(self.sh("shadow_current")[0], 1)
+        self.build()
         self.assertEqual(self.sh("shadow_current")[0], 0)
         with open(os.path.join(self.shadow, STOCK_MODULE, "views", "StarfishKeyboardView.qml")) as f:
             self.assertEqual(f.read(), "// LG's keyboard view\n")
