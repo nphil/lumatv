@@ -72,6 +72,9 @@ struct Poller<'a> {
     failures: u32,
     /// The scale the receiver's panel shows, as last read over HTTP.
     display: VolumeDisplay,
+    /// The sound mode and the input signal's words as the telnet link last heard them, raw (`DOLBY AUDIO-DSUR`, `PCM ZERO`).
+    mode: Option<String>,
+    signal: Option<String>,
 }
 
 impl Poller<'_> {
@@ -116,6 +119,9 @@ impl Poller<'_> {
         );
         doc.insert("volumeText".into(), json!(shown.and_then(volume_text)));
         doc.insert("mute".into(), json!(shown.and_then(|s| s.mute)));
+        // what the receiver says it plays, raw; the screen turns them into words (kit/AudioFormat.js). Like the rest, only while the reading is fresh.
+        doc.insert("soundMode".into(), json!(self.mode.as_deref().filter(|_| fresh)));
+        doc.insert("signal".into(), json!(self.signal.as_deref().filter(|_| fresh)));
         Value::Object(doc)
     }
 
@@ -159,11 +165,13 @@ impl Poller<'_> {
 
     /// Takes a reading from the telnet link in: it counts as a successful attempt and moves the stamp, whether or not the
     /// receiver said anything new.
-    fn accept(&mut self, mut status: Status, at: Instant, at_ms: u64) {
+    fn accept(&mut self, mut status: Status, at: Instant, at_ms: u64, mode: Option<String>, signal: Option<String>) {
         status.volume_display = self.display.clone();
         self.failures = 0;
         self.last_attempt = Some(None);
         self.last_ok = Some(Reading { status, at, at_ms });
+        self.mode = mode;
+        self.signal = signal;
     }
 }
 
@@ -228,6 +236,8 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
         last_attempt: None,
         failures: 0,
         display: VolumeDisplay::Unknown,
+        mode: None,
+        signal: None,
     };
     let mut burst_until: Option<Instant> = None;
     let mut next_poll = Instant::now();
@@ -377,7 +387,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             Ok(Cmd::Link) => {
                 for event in link.iter().flat_map(Link::drain) {
                     match event {
-                        Event::Reading { status, at, at_ms } => {
+                        Event::Reading { status, at, at_ms, mode, signal } => {
                             if link_state != LinkState::Up {
                                 link_state = LinkState::Up;
                                 probe_at = Some(Instant::now());
@@ -387,7 +397,7 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
                                     tuning.telnet_port
                                 );
                             }
-                            poller.accept(status, at, at_ms);
+                            poller.accept(status, at, at_ms, mode, signal);
                         }
                         Event::Down(e) => {
                             if link_state != LinkState::Down {

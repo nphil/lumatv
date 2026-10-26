@@ -14,7 +14,7 @@
 //! Only queries are ever sent (`Session::query` refuses everything else); the existing commands stay on HTTP.
 
 use crate::timeutil::now_ms;
-use lumatv_denon::telnet::{self, QUERIES, Session, Snapshot, parse_line};
+use lumatv_denon::telnet::{self, FORMAT_QUERIES, QUERIES, Session, Snapshot, parse_line};
 use lumatv_denon::{Client, ClientError, Status};
 use parking_lot::{Condvar, Mutex};
 use std::collections::VecDeque;
@@ -49,11 +49,14 @@ pub struct Tuning {
 
 #[derive(Debug)]
 pub enum Event {
-    /// The receiver's state, heard at `at` (`at_ms` on the wall clock). Its display mode is unknown: the link cannot learn it.
+    /// The receiver's state, heard at `at` (`at_ms` on the wall clock). Its display mode is unknown: the link cannot learn it. `mode` and `signal` are
+    /// the sound mode and the input signal's words as last heard, raw, `None` until the receiver has said them.
     Reading {
         status: Status,
         at: Instant,
         at_ms: u64,
+        mode: Option<String>,
+        signal: Option<String>,
     },
     /// The connection failed or was lost; the link is already waiting to try again.
     Down(ClientError),
@@ -259,7 +262,8 @@ fn converse(
     let started = Instant::now();
     let mut snapshot = Snapshot::default();
     let mut last_heard = started;
-    let mut queue: VecDeque<&str> = QUERIES.into();
+    let mut queue: VecDeque<&str> = QUERIES.into_iter().chain(FORMAT_QUERIES).collect();
+    let mut asked_format = started;
     let mut next_query = started;
     let mut next_round = started + tuning.heartbeat;
     let mut lines = Vec::new();
@@ -276,6 +280,7 @@ fn converse(
         }
         if queue.is_empty() && now >= next_round {
             queue.extend(QUERIES);
+            queue.extend(FORMAT_QUERIES);
             next_round = now + tuning.heartbeat;
         }
         if let Some(query) = queue.front()
@@ -300,11 +305,19 @@ fn converse(
             last_heard = Instant::now();
         }
         let mut heard_state = false;
+        let mut volume_moved = false;
         for line in &lines {
             if let Some(heard) = parse_line(line) {
+                volume_moved |= matches!(heard, telnet::Push::Volume(_));
                 snapshot.apply(heard);
                 heard_state = true;
             }
+        }
+        // The signal and the mode can change with what plays, and the receiver does not say so on its own: one more pair of questions per burst of
+        // volume changes (a held key is one burst), never faster than every 800 ms.
+        if volume_moved && queue.is_empty() && now.duration_since(asked_format) > Duration::from_millis(800) {
+            queue.extend(FORMAT_QUERIES);
+            asked_format = now;
         }
         if heard_state && let Some(status) = snapshot.status() {
             *ready = true;
@@ -312,6 +325,8 @@ fn converse(
                 status,
                 at: Instant::now(),
                 at_ms: now_ms(),
+                mode: snapshot.mode().map(str::to_owned),
+                signal: snapshot.signal().map(str::to_owned),
             };
             push(shared, generation, event, wake);
         }

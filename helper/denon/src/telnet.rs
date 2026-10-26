@@ -20,6 +20,10 @@ pub const DEFAULT_TELNET_PORT: u16 = 23;
 /// The four queries that together say everything a [`Status`] holds.
 pub const QUERIES: [&str; 4] = ["PW?", "MV?", "MU?", "SI?"];
 
+/// Two more read-only questions: the sound mode (`MSDOLBY AUDIO-DSUR`) and the input signal in words (`SSINFAISSIG 13` and `SYSDA PCM ZERO`). They are
+/// not part of a [`Status`]; the caller keeps what they answer beside it and publishes it raw.
+pub const FORMAT_QUERIES: [&str; 2] = ["MS?", "SSINFAISSIG ?"];
+
 /// The longest line kept while waiting for its end; the receiver's lines are a dozen characters.
 const MAX_LINE: usize = 4096;
 
@@ -32,6 +36,10 @@ pub enum Push {
     Mute(bool),
     /// The input as the receiver names it (`TV`, `SAT/CBL`, ...), the same text as `InputFuncSelect`.
     Input(String),
+    /// The sound mode as the receiver names it (`MSDOLBY AUDIO-DSUR`, `MSSTEREO`), without the `MS`.
+    Mode(String),
+    /// The input signal in the receiver's words (`SYSDA PCM ZERO`), without the `SYSDA` and the padding after it.
+    Signal(String),
 }
 
 /// What a line means, or `None` for the many lines that are not main-zone state (`MVMAX 665`, `SVOFF`, `SYSDA PCM`, other
@@ -68,6 +76,15 @@ pub fn parse_line(line: &str) -> Option<Push> {
     if let Some(rest) = line.strip_prefix("SI") {
         return (!rest.is_empty()).then(|| Push::Input(rest.to_owned()));
     }
+    if let Some(rest) = line.strip_prefix("MS") {
+        // `MSQUICK1` and `MSSMART1` are quick-select slots, not a sound mode
+        let mode = rest.trim();
+        return (!mode.is_empty() && !mode.starts_with("QUICK") && !mode.starts_with("SMART")).then(|| Push::Mode(mode.to_owned()));
+    }
+    if let Some(rest) = line.strip_prefix("SYSDA") {
+        let text = rest.trim();
+        return (!text.is_empty()).then(|| Push::Signal(text.to_owned()));
+    }
     None
 }
 
@@ -78,6 +95,8 @@ pub struct Snapshot {
     volume_db: Option<f64>,
     mute: Option<bool>,
     input: Option<String>,
+    mode: Option<String>,
+    signal: Option<String>,
 }
 
 impl Snapshot {
@@ -88,6 +107,8 @@ impl Snapshot {
             Push::Volume(db) => self.volume_db = Some(db),
             Push::Mute(m) => self.mute = Some(m),
             Push::Input(i) => self.input = Some(i),
+            Push::Mode(m) => self.mode = Some(m),
+            Push::Signal(s) => self.signal = Some(s),
         }
     }
 
@@ -101,6 +122,16 @@ impl Snapshot {
             volume_db: Some(self.volume_db?),
             mute: Some(self.mute?),
         })
+    }
+
+    /// The sound mode last heard, if any.
+    pub fn mode(&self) -> Option<&str> {
+        self.mode.as_deref()
+    }
+
+    /// The input signal's words last heard, if any.
+    pub fn signal(&self) -> Option<&str> {
+        self.signal.as_deref()
     }
 }
 
@@ -136,7 +167,7 @@ impl Session {
             && query.ends_with('?')
             && query[..query.len() - 1]
                 .bytes()
-                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b' ');
         if !valid {
             return Err(ClientError::InvalidCommand);
         }
@@ -215,7 +246,7 @@ mod tests {
         for line in [
             "MVMAX 665",
             "SVOFF",
-            "SYSDA PCM",
+            "SYSMI Dolby Audio - Dolby Surround",
             "Z2ON",
             "Z2MUON",
             "MV",
@@ -225,7 +256,7 @@ mod tests {
             "MU",
             "MUMAYBE",
             "SI",
-            "MSDIRECT",
+            "SSINFAISSIG 13",
             "PSTONE CTRL OFF",
             "",
         ] {
@@ -335,5 +366,47 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         close(&closer);
         assert!(waiter.join().unwrap().is_err());
+    }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn the_sound_mode_and_the_signal_words_are_heard_as_the_receiver_says_them() {
+        assert_eq!(parse_line("MSDOLBY AUDIO-DSUR"), Some(Push::Mode("DOLBY AUDIO-DSUR".into())));
+        assert_eq!(parse_line("MSSTEREO"), Some(Push::Mode("STEREO".into())));
+        assert_eq!(parse_line("SYSDA PCM ZERO             "), Some(Push::Signal("PCM ZERO".into())));
+        assert_eq!(parse_line("SYSMI Dolby Audio - Dolby Surround"), None);
+        assert_eq!(parse_line("SSINFAISSIG 13"), None);
+    }
+
+    #[test]
+    fn quick_select_slots_and_empty_lines_are_not_a_sound_mode() {
+        assert_eq!(parse_line("MSQUICK1"), None);
+        assert_eq!(parse_line("MSSMART2"), None);
+        assert_eq!(parse_line("MS"), None);
+        assert_eq!(parse_line("SYSDA"), None);
+    }
+
+    #[test]
+    fn the_snapshot_keeps_them_beside_the_four_parts_and_is_ready_without_them() {
+        let mut s = Snapshot::default();
+        for push in [Push::Power(Power::On), Push::Volume(-37.5), Push::Mute(false), Push::Input("TV".into())] {
+            s.apply(push);
+        }
+        assert!(s.status().is_some() && s.mode().is_none() && s.signal().is_none());
+        s.apply(Push::Mode("STEREO".into()));
+        s.apply(Push::Signal("PCM ZERO".into()));
+        assert_eq!((s.mode(), s.signal()), (Some("STEREO"), Some("PCM ZERO")));
+    }
+
+    #[test]
+    fn the_format_queries_are_queries_a_space_is_allowed_inside_and_a_command_still_is_not() {
+        for q in FORMAT_QUERIES {
+            assert!(q.ends_with('?') && (2..=16).contains(&q.len()));
+        }
+        assert!("SSINFAISSIG ?".bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b' ' || b == b'?'));
     }
 }
