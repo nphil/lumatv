@@ -45,8 +45,8 @@ second one (a test fails if they do). The display takes no key and no focus.
 - **When**: the audio service reports a change (`kit/TvVolume.qml`, LG's own `volumeUpdated`: a volume key, a mute, Home Assistant, an app), or the
   receiver topic reports a new level or mute (the Denon's own remote too). On the set the report comes 44 to 63 ms after the key, with `cause`
   `volumeUp` or `volumeDown`, whatever is in front, so no key plumbing is needed over an app. It goes 2.5 s after the last of them.
-- **Whose volume**: with the sound over ARC or optical and the receiver on and answering, the receiver's own level in its units (0 to 98, or
-  decibels, shown as the number without "dB": the minus sign says it), not webOS's counter, which moves by one per key (31, 32, 31 on Volume+,
+- **Whose volume**: with the sound over ARC or optical and the receiver on and answering, the receiver's own level (0 to 98 in steps of 0.5,
+  rounded to a whole number whatever the Denon's display is set to: no decimals, no unit), not webOS's counter, which moves by one per key (31, 32, 31 on Volume+,
   Volume-) and says nothing of the Denon. With the TV's speakers, headphones or Bluetooth as the output, or with the receiver off, unreachable or
   switched off in Settings, the TV's own volume (`LS.audioService.volume` of 100). Nothing on the bar says which of the two it is. A receiver that
   may answer and has not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not.
@@ -65,7 +65,7 @@ second one (a test fails if they do). The display takes no key and no focus.
   helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped 1.5 s after the readings stop.
 - **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format need (the format is cut at 360 px), 56 to 64 px tall (the label type
   and 12 px above and below), 64 px above the bottom edge, centred; at 200 % text it grows in both. The number in the label size, semibold, in a slot as
-  wide as "-88.8" so the bar does not move with the digits; the bar 8 px thick, filled from the left in the ink; the format in the caption size at the right
+  wide as "100" so the bar does not move with the digits; the bar 8 px thick, filled from the left in the ink; the format in the caption size at the right
   end, in the ink at full strength (a fainter ink would not hold the contrast floor). No caption, no icon tile (it read as a button), nothing to focus.
 - **Over video**: the glass is painted at `readingAlpha` (theme.json, 0.8; over Home 1) so the picture shows through the fill; the 1 px edge and the
   shadow keep their weight (`Glass.fillAlpha`). Against the worst frame, white under the dark glass and black under the light, blended in the

@@ -99,15 +99,13 @@ Item {
         keyed = true
         settleT.restart()
     }
-    function num(x) { return String(Math.round(x * 2) / 2) }
 
     // ---- what is read
     readonly property bool useKey: keyed && viaReceiver && optAbs >= 0
     readonly property real abs: viaReceiver ? (useKey ? optAbs : readAbs()) : -1
-    readonly property bool relative: viaReceiver && rc.volumeDisplay === "relative"
-    readonly property string rawLevel: viaReceiver ? (useKey ? (relative ? num(abs - 80) : num(abs)) : (rc.volumeText ? String(rc.volumeText) : ""))
-                                       : viaTv ? String(TvVolume.volume) : ""
-    readonly property string level: rawLevel.replace(/\s*dB$/, "")       // the decibel scale's unit is left out: the minus sign says it
+    // The receiver's 0-98 scale in its 0.5 steps, rounded to a whole number (Nitin: no decimals); the TV's own scale is 0-100 already.
+    // Whatever the Denon's own display is set to (dB or absolute), the number is the same, the one Home Assistant shows as a percentage.
+    readonly property string level: viaReceiver ? (abs >= 0 ? String(Math.round(abs)) : "") : viaTv ? String(TvVolume.volume) : ""
     readonly property real fraction: viaReceiver ? (abs >= 0 ? Math.max(0, Math.min(1, abs / 98)) : 0)
                                      : viaTv ? Math.max(0, Math.min(1, TvVolume.volume / TvVolume.volumeMax)) : 0
     readonly property bool muted: viaReceiver ? (keyed && optMute >= 0 ? optMute === 1 : !!rc.mute) : viaTv ? TvVolume.muted : false
@@ -160,7 +158,7 @@ Item {
     // A reading that is in date: a change of level or of mute, against the last one, shows the bar (while it is the receiver that is read).
     function read(r) {
         deciding = false
-        var nextKey = r.volumeText + "|" + r.mute
+        var nextKey = r.volumeAbs + "|" + r.mute
         if (levelKey !== nextKey && levelKey !== "" && !tvOutput) show()
         levelKey = nextKey
         mutedRx = !!r.mute
@@ -184,7 +182,7 @@ Item {
     readonly property real numW: Math.max(Math.ceil(numProbe.implicitWidth), glyph)
     readonly property real fmtW: format !== "" ? Math.min(Math.ceil(fmtText.implicitWidth), fmtLimit) : 0
     readonly property real rowH: Math.max(numProbe.implicitHeight, fmtText.implicitHeight, glyph)
-    LuText { id: numProbe; visible: false; role: "label"; font.weight: Font.DemiBold; text: "-88.8" }
+    LuText { id: numProbe; visible: false; role: "label"; font.weight: Font.DemiBold; text: "100" }
     LuPane {
         id: card
         width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.fmtW > 0 ? osd.gap + osd.fmtW : 0))

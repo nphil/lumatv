@@ -162,7 +162,7 @@ class OnThePicture(unittest.TestCase):
 
     def check(self, material):
         shown = self.run_material(material)
-        for state, text in (("a", "46.5"), ("a", "Dolby Digital+ \u00b7 Surround")):
+        for state, text in (("a", "47"), ("a", "Dolby Digital+ \u00b7 Surround")):
             image, item = self.words(shown[state], text)
             self.assertGreaterEqual(self.ink_ratio(image, item), DISTANCE, "%s, %s, %r on the worst frame" % (material, state, text))
         # the slashed speaker: where the number was in the muted bar, and alone on the mark that stays

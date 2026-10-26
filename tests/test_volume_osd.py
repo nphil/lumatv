@@ -119,17 +119,17 @@ class VolumeOsd(HostCase):
             (B + 8000, SHOWN, "later"),
         ], B + 8600)
         self.assertEqual(got["idle"], "false|false|receiver|46|false|false", "nothing is on screen before a key, the receiver is the source")
-        self.assertEqual(got["key_state"], "true|true|receiver|46.5|false|false", "a key moves the receiver's own level at once, one step, before it says anything")
-        self.assertEqual(got["pushed"], "true|true|receiver|46.5|false|false", "the receiver's push changes the number in place")
+        self.assertEqual(got["key_state"], "true|true|receiver|47|false|false", "a key moves the receiver's own level at once, one step, before it says anything")
+        self.assertEqual(got["pushed"], "true|true|receiver|47|false|false", "the receiver's push changes the number in place")
         self.assertAlmostEqual(float(got["fraction"]), 46.5 / 98, places=3)
-        self.assertEqual(got["later"], "false|false|receiver|46.5|false|false", "gone after the hold")
+        self.assertEqual(got["later"], "false|false|receiver|47|false|false", "gone after the hold")
         posts = json.loads(re.findall(r"\[posts\] (.*)", out)[-1])["posts"]
         self.assertIn(["/v1/receiver/nudge", {}], posts, "a key asks the helper to read the receiver now")
 
-    def test_the_decibel_scale_shows_the_number_without_its_unit(self):
+    def test_a_receiver_set_to_decibels_still_shows_the_whole_number_level(self):
         got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX_DB), "rx"), (B + 2000, press("volumeDown", 30), "key"),
                                (B + 2800, on_osd("o.level"), "db")], B + 3400)
-        self.assertEqual(got["db"], "-35", "the key's step on the decibel scale, without the unit")
+        self.assertEqual(got["db"], "45", "a receiver showing decibels still gives the whole-number level")
 
     def test_a_key_moves_the_level_at_once_and_an_old_reading_does_not_move_it_back(self):
         got, _ = self.run_osd([
@@ -144,17 +144,17 @@ class VolumeOsd(HostCase):
             (B + 3100, rx(dict(RX, volumeAbs=48.5, volumeDb=-31.5, volumeText="48.5")), "reported"),
             (B + 5000, on_osd("[o.level, o.keyed].join('|')"), "reconciled"),
         ], B + 5600)
-        self.assertEqual(got["keyed"].split("|")[0], "48.5", "five keys, five steps of 0.5, before the receiver says anything")
+        self.assertEqual(got["keyed"].split("|")[0], "49", "five keys, five steps of 0.5, before the receiver says anything")
         self.assertAlmostEqual(float(got["keyed"].split("|")[1]), 48.5 / 98, places=3)
-        self.assertEqual(got["kept"], "48.5", "an old reading does not move it back")
-        self.assertEqual(got["reconciled"], "48.5|false", "then the reading is taken")
+        self.assertEqual(got["kept"], "49", "an old reading does not move it back")
+        self.assertEqual(got["reconciled"], "49|false", "then the reading is taken")
 
     def test_a_volume_key_over_a_muted_receiver_shows_it_unmuted_at_once_as_the_denon_cancels_its_mute(self):
         got, _ = self.run_osd([
             (300, do("o.holdMs = 4000; o.staleMs = 60000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(dict(RX, mute=True)), "muted"),
             (B + 2000, press("volumeUp", 32), "key"), (B + 2300, SHOWN, "after_key"),
         ], B + 2900)
-        self.assertEqual(got["after_key"], "true|true|receiver|46.5|false|false", "Volume+ over a muted Denon: the number, not the muted form")
+        self.assertEqual(got["after_key"], "true|true|receiver|47|false|false", "Volume+ over a muted Denon: the number, not the muted form")
 
     def test_the_mute_key_has_no_direction_but_the_tvs_mute_flag_moves_and_the_bar_shows_it_at_once(self):
         got, _ = self.run_osd([
