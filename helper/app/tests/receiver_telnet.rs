@@ -360,11 +360,9 @@ fn the_link_only_asks_questions() {
     thread::sleep(Duration::from_millis(500));
     let received = telnet.received();
     assert!(received.len() >= 8, "heartbeats: {received:?}");
+    // The receiver's read form ends in `?`; anything else would change its state.
     for line in &received {
-        assert!(
-            ["PW?", "MV?", "MU?", "SI?"].contains(&line.as_str()),
-            "sent {line:?}"
-        );
+        assert!(line.ends_with('?'), "sent {line:?}");
     }
 }
 

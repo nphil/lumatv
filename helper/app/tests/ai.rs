@@ -456,7 +456,7 @@ fn turning_it_off_is_immediate_and_closes_the_socket() {
         wait_until(WAIT, || !port_open(lan)),
         "the port stayed open after turning it off"
     );
-    assert_eq!(ai.doc()["listener"]["bound"], false);
+    ai.wait_doc(|d| d["listener"]["bound"] == false);
     assert_eq!(
         ai.api("POST", "/v1/ai/listener", r#"{"enabled":false}"#)
             .json()["changed"],
@@ -983,10 +983,10 @@ fn a_lock_out_takes_everything_away_at_once() {
         wait_until(WAIT, || !port_open(lan)),
         "the AI port stayed open after a lock-out"
     );
-    let doc = ai.doc();
+    // The listener's own thread closes the port first and publishes the state a moment later.
+    let doc = ai.wait_doc(|d| d["listener"]["bound"] == false);
     assert_eq!(doc["assistants"], json!([]));
     assert_eq!(doc["pairing"], Value::Null);
-    assert_eq!(doc["listener"]["bound"], false);
     // The permissions pages are gone from the settings layer, and from disk.
     assert_eq!(
         ai.api("GET", &format!("/v1/settings/ai.{id}"), "").status,
