@@ -4,31 +4,40 @@
 
 ### Resume here
 
-Round 11 resumed at 03:47 EDT after the host restart. Round 10 evidence is
-`round9/r10-2026-10-26/log.txt`. The input-decoder fix is committed as `5d3267c`;
-the installed package still needs a clean-HEAD redeploy and the HDMI 2 → restart →
-Netflix regression check. The temporary `lumatv-r10` tool was removed at 02:13.
+Round 11 resumed at 03:47 EDT. Clean package `3b7cceb` (includes `5d3267c`) is on
+the set: 120 QML files compiled, 0 failed; package SHA-256
+`da345b3bc410320d02768ae5ac4f13e984ed7b56d1e3ec94565d27996e9af59d`. Install
+and apply completed at 03:52. Evidence: `round9/r11-2026-10-26/`; historical
+diagnosis: `round9/r10-2026-10-26/log.txt`. The old scratch worktree is preserved
+at `/tmp/lumatv-slot-r9`; the clean deployment worktree is `/tmp/lumatv-slot`.
 
 Receiver read-back at 03:47: on, 65.5, unmuted, DOLBY DIGITAL, TV Audio. Round 10
 restored the TV-speaker profile to 24 and selected external ARC again. Mute before
 playback; close the playback app and bring Home forward before restoring unmute.
 HDMI switching can change the receiver input and cancel mute.
 
-Next: clean compile/package; approved package deployment; decoder regression;
-Dolby/mute display; frame-rate probes; Live TV and Search checks; quick/picker
-gate; GFN checks; peer checks. App installation remains subject to the human-only
-approval gate. No SAM restart, rootfs writes, DRM or PIN probes, or light streams.
-Keep the existing layout. Finish with Home, Active Standby, LG’s compositor, free
-decoder ports, and the receiver restored to the values above.
+Next: finish frame-rate probes, Live TV and Search checks, quick/picker gate,
+GFN checks, and peer checks. Main confirmed the existing direct TV deployment
+authorization; no infrastructure host changes are involved. No SAM restart,
+rootfs writes, DRM or PIN probes, or light streams. Layout hash before deployment:
+`e194fda89ba7219fb08c389b1c92573db64de9178272cd948c3a41ada336a6a2`. Finish with
+Home, Active Standby, LG’s compositor, free decoder ports, and the receiver restored.
+
+HDMI switching cancels mute: volume 0 was used during the HDMI regression. HA’s
+`volume_set(0.655)` restored only 65; one TV Volume+ key on Home restored exactly
+65.5. The receiver was unmuted on Home, then muted again for the next probes.
 
 | Slice | Result | Evidence |
 |---|---|---|
 | TV-speaker profile | PASS, Round 10 | 01:39: volume 0 → 24 on `tv_speaker`; output restored to `external_arc`; receiver remained 65.5. |
 | Netflix failure diagnosis | CONFIRMED, Round 10 | Old restart with HDMI 2 foreground left `adec.p1 Open=1`, `HDMI_PORT2`, while Home was foreground. Netflix reported `tvq-pb-101`; the decoder was not released with the input app. |
 | Input release recovery | PASS, Round 10 | 01:58: `inputs release` launched and closed HDMI 2 through SAM; both decoder ports became `Open=0` in 3 s. |
-| Fixed restart | PASS, Round 10; packaged regression pending | 01:59: HDMI 2 foreground → temporary fixed tool restart in 5 s → Home and both decoder ports free. Commit `5d3267c` contains the fix. |
-| Netflix playback after release | PASS, Round 10; packaged regression pending | 01:44–01:45: muted Netflix replay recorded `played=True`; Home restored afterward. |
+| Fixed restart | PASS, packaged Round 11 | 03:53: HDMI 2 foreground, `adec.p1 Open=1 Start=1` → restart in 5 s → Home, both ports `Open=0`, no running input app. |
+| Netflix after fixed restart | PASS, packaged Round 11 | 03:54–03:55: media service reported `playState=playing` for 20 s, Dolby Vision cinema mode, receiver muted throughout. Netflix closed, Home restored, both ports free. |
 | Receiver restoration | PASS, Round 10 and Round 11 read-back | 02:11 restore and 03:47 HA read-back: on, 65.5, unmuted, DOLBY DIGITAL, TV Audio. The two 06:11 log timestamps are UTC and corrected immediately afterward. |
+| Dolby signal | PASS telemetry; audible display check deferred | Actual receiver data: `signal=Dolby Atmos - DD+`, `soundMode=DOLBY ATMOS`; saved as `netflix-receiver.json`. The format text is deliberately hidden while muted. |
+| Persistent mute mark | FAIL subtitle clearance; motion works | `netflix-playing.png` and `netflix-mute-hop.png`: the mark moves horizontally after 10 s but covers the Netflix subtitle rows. Reported to Main for the volume owner. |
+| Clean package | PASS | 120 QML, 0 failed; installer matched the helper hash after 8 s; apply took 18 s. LG compositor, Home stub, helper and lean profile intact; helper reports 14 apps kept from preloading. |
 
 ## Round 9 handoff (historical)
 
