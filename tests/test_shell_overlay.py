@@ -197,7 +197,9 @@ class Overlay(HostCase):
         with open(DOOR, "w") as f:
             json.dump(dict(PILL, name="HDMI 4 \u00b7 door"), f)
         try:
-            got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (2600, "overlay.bannerUp", "banner")], 3000)
+            # The door's own timer ticks once a second from the moment an app is in front; where that tick falls among the residents' builds
+            # depends on the machine, so the step reads the door itself.
+            got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, do("overlay.readDoor()"), "read"), (1300, "overlay.bannerUp", "banner")], 1700)
         finally:
             os.remove(DOOR)
         self.assertEqual(got["banner"], "true")
