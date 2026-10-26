@@ -346,12 +346,21 @@ dependencies = [
  "mdns",
  "parking_lot",
  "plugin-api",
+ "plugin-home-assistant",
  "serde",
  "serde_json",
  "service-api",
  "settings-schema",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "lumatv-plugin-home-assistant"
+version = "0.1.0"
+dependencies = [
+ "lumashow-sdk",
+ "plugin-home-assistant",
 ]
 
 [[package]]
@@ -410,6 +419,16 @@ dependencies = [
  "serde",
  "serde_json",
  "service-api",
+ "settings-schema",
+]
+
+[[package]]
+name = "plugin-home-assistant"
+version = "0.1.0"
+dependencies = [
+ "lumashow-sdk",
+ "plugin-api",
+ "serde_json",
  "settings-schema",
 ]
 

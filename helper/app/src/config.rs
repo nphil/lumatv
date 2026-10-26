@@ -61,6 +61,11 @@ impl Paths {
     pub fn plugins_dir(&self) -> PathBuf {
         self.data_dir.join("plugins")
     }
+
+    /// `ha/link.json`: the address and token of the Home Assistant the plugins' lease dials (`ha_store`; written by `ha-link`).
+    pub fn ha_link_file(&self) -> PathBuf {
+        self.data_dir.join("ha").join("link.json")
+    }
 }
 
 /// A config problem, in words.

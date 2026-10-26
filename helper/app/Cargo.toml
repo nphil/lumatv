@@ -35,4 +35,6 @@ serde_json.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 lumashow-sdk.workspace = true
+plugin-home-assistant.workspace = true
+ha-link = { workspace = true, features = ["testing"] }
 fetch = { workspace = true, features = ["testing"] }

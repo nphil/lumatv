@@ -605,7 +605,7 @@ fn words_of(value: &Value) -> String {
 }
 
 /// The TLS child a secure Home Assistant address is dialled through: the system's `openssl s_client`, as the weather's HTTPS is.
-fn tls_for(config: &FetchConfig) -> Option<TlsFetch> {
+pub(crate) fn tls_for(config: &FetchConfig) -> Option<TlsFetch> {
     let bundle = find_ca_bundle(config)?;
     let program =
         crate::sys::which(&config.openssl).unwrap_or_else(|| config.openssl.clone().into());

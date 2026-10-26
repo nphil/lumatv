@@ -17,6 +17,7 @@
 //! | [`ambient_audio`], [`ambient_audio_capture`] | ambient light's sound mode: the TV's own sound mix reduced to loudness, bass and beats, and what they do to the colours |
 //! | [`hue`], [`hue_rest`], [`hue_store`] | ambient light's Hue Entertainment output: the stream thread, the bridge's HTTPS, the saved link |
 //! | [`ambient_z2m`], [`ambient_z2m_frame`], [`ambient_z2m_mqtt`], [`ambient_z2m_store`] | ambient light's Zigbee2MQTT output: Hue entertainment frames over MQTT, no bridge |
+//! | [`ha_store`] | the saved address and token of a Home Assistant link, one private file (voice search's and the plugin lease's) |
 //! | [`voice`] | voice search: the mic key's words as text for the search box, through Home Assistant's Assist pipeline |
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
@@ -43,6 +44,7 @@ pub mod control;
 pub mod ctx;
 pub mod device;
 pub mod fetcher;
+pub mod ha_store;
 pub mod homefeeds;
 pub mod http;
 pub mod hub;

@@ -39,8 +39,8 @@ pub struct StartOptions {
     /// What the AI-access module acts through. `None` builds the real ones (the TV's input devices, `luna-send`, the receiver);
     /// a test gives its own so nothing touches a TV.
     pub ai: Option<crate::ai::Deps>,
-    /// Which addresses voice search may dial Home Assistant at. `None` is the home network and nothing else; a test that runs a
-    /// fake Home Assistant on the loopback says so.
+    /// Which addresses voice search and the plugins' Home Assistant lease may dial Home Assistant at. `None` is the home network
+    /// and nothing else; a test that runs a fake Home Assistant on the loopback says so.
     pub voice_policy: Option<ha_link::AddressPolicy>,
 }
 
@@ -164,7 +164,10 @@ impl Service {
         let ai = crate::ai::Ai::start(&ctx, ai_deps, nudge)?;
 
         // Plugins: the manager reads the roster and keeps the broker's socket only while a plugin is switched on.
-        let plugins = crate::plugins::Plugins::new(&ctx);
+        let plugins = crate::plugins::Plugins::with_policy(
+            &ctx,
+            voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
+        );
         threads.push(("plugins", plugins.spawn(&ctx)?));
         threads.push((
             "plugins-1p",

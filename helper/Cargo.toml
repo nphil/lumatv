@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["app", "feeds", "denon"]
+members = ["app", "feeds", "denon", "plugins/home-assistant"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,6 +20,8 @@ lumashow-sdk = { path = "../../LumaShow/lumashow/crates/lumashow-sdk" }
 ha-link = { path = "../../LumaShow/lumashow/crates/ha-link" }
 esphome-api = { path = "../../LumaShow/lumashow/crates/esphome-api" }
 mdns = { path = "../../LumaShow/lumashow/crates/mdns" }
+# The Home Assistant plugin itself, as a library: the host tests run the real plugin against the broker.
+plugin-home-assistant = { path = "../../LumaShow/lumashow/plugins/home-assistant" }
 
 libc = "0.2"
 parking_lot = "0.12"

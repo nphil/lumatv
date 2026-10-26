@@ -89,6 +89,7 @@ impl Local {
             id: spec.id.to_owned(),
             uid: u32::MAX,
             manifest: spec.manifest()?,
+            program: None,
         };
         let register: Register = serde_json::from_value(register)
             .map_err(|e| format!("{}: its register message is not valid: {e}", spec.id))?;

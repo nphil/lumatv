@@ -1,0 +1,18 @@
+[package]
+name = "lumatv-plugin-home-assistant"
+description = "LumaShow's Home Assistant plugin, built for the TV: the program the ipk carries beside LumaShow's own plugin.json"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# The program is LumaShow's `plugins/home-assistant/src/main.rs`, which is twelve lines around the plugin's library: the library is
+# what is built here, unchanged, by path. Nothing of LumaShow is copied or edited.
+[[bin]]
+name = "home-assistant"
+path = "src/main.rs"
+
+[dependencies]
+lumashow-sdk.workspace = true
+plugin-home-assistant.workspace = true

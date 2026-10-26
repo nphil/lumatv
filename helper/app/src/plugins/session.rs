@@ -12,24 +12,31 @@
 //! | `plugin.<id>.notifications` | `{"items": [{id, channel, channelTitle, channelIcon, revision, receivedAt, expiresAt, post}]}`; events `posted` and `ended` |
 //! | `plugin.<id>.facts` | `{"facts": {key: line}}` |
 //! | `plugin.<id>` | events only: `settings_rejected`, `action_result` |
+//! | `signal.occupancy` | `{"state": "present" \| "in_bed" \| "away" \| "unknown", "sources": [{plugin, state, lastMotionS, expiresAt}]}` |
 //!
 //! A plugin's settings page is registered in the settings store under its id, so `/v1/settings/<id>` serves it and a change of the
-//! person's reaches the plugin as `settings.apply`. What this TV does not serve at level 1 (timeline sources, choice providers,
-//! secrets, images, surfaces, Home Assistant, network, signals) is refused in words (`not_served`); a plugin that asks for it in its
-//! manifest does not get to connect (`roster`).
+//! person's reaches the plugin as `settings.apply`. A page's choice providers are served (`Shared::choices`: the helper asks the
+//! plugin a page at a time for whoever asks the API). A plugin that holds the Home Assistant lease (`ha.rs`) has the lease's
+//! three keys of its page (`lease.ha.url`, `lease.ha.token`, `lease.ha.forget`) taken off the page the store serves: the address
+//! and the token are the owner's command line's alone. What this TV does not serve at level 1 (timeline sources, secrets of a
+//! plugin's own, images, surfaces, network, Bluetooth) is refused in words (`not_served`); a plugin that asks for it in its manifest
+//! does not get to connect (`roster`).
 
+use super::ha::{HaLease, Hold, Scope};
 use super::roster::{Member, Roster};
 use crate::hub::Hub;
 use crate::settings::SettingsStore;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use plugin_api::MAX_FRAME;
 use plugin_api::convert::{Context, Plan};
+use plugin_api::ha as ha_keys;
 use plugin_api::level::{self, LevelRefusal};
 use plugin_api::limits::MESSAGES_PER_S;
-use plugin_api::permission::Permission;
+use plugin_api::permission::{Lease, Permission, SignalKind};
 use plugin_api::wire::{
-    ActionOutcome, Authority, CardPut, Hello, Importance, NotifyPost, Priority, Register,
-    SettingsOutcome, TileWire, ToBase, ToPlugin, Welcome, WelcomeLimits,
+    ActionOutcome, Authority, CardPut, ChoicePage, ChoicesBatch, Hello, Importance, NotifyPost,
+    PresenceWire, Priority, Register, SettingsOutcome, SignalPut, TileWire, ToBase, ToPlugin,
+    Welcome, WelcomeLimits,
 };
 use serde_json::{Value as Json, json};
 use service_api::UtcInstant;
@@ -126,6 +133,18 @@ pub struct Shared {
     counter: AtomicU64,
     roster: Mutex<RosterView>,
     device: Mutex<Option<DeviceSource>>,
+    /// The Home Assistant lease, for the plugins that require it (`set_lease`); none: they are refused in words.
+    lease: Mutex<Option<Arc<HaLease>>>,
+    /// What plugins last said of the room's occupancy, by plugin (see `Session::signal_put`).
+    signals: Mutex<BTreeMap<String, Occupancy>>,
+}
+
+/// One plugin's statement about whether somebody is in the room, and when it stops holding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Occupancy {
+    state: PresenceWire,
+    last_motion_s: Option<u32>,
+    expires: i64,
 }
 
 #[derive(Default)]
@@ -135,6 +154,8 @@ struct RosterView {
     problem: Option<String>,
     /// The helper's own plugins (`local.rs`): id, name, version. Listed apart, in the `plugins` topic's `firstParty`.
     first_party: Vec<(String, String, String)>,
+    /// Why a plugin that is switched on is not running (`runner.rs`), by plugin: what its entry says while it is waiting.
+    notes: BTreeMap<String, String>,
 }
 
 /// What other threads need of a registered connection: where to speak to the plugin, and what waits for an answer.
@@ -145,6 +166,41 @@ pub struct Live {
     /// op -> (action, deadline in ms)
     ops: Mutex<BTreeMap<u64, (String, u64)>>,
     txns: Mutex<VecDeque<u64>>,
+    /// Whether the plugin holds the Home Assistant lease (its `lease.ha.forget` is the base's action).
+    holds: bool,
+    /// The choice providers its page names.
+    providers: Vec<String>,
+    /// Questions asked of its providers that wait for an answer: query -> where the answer goes.
+    queries: Mutex<BTreeMap<u64, Arc<Query>>>,
+}
+
+/// A page of a provider's choices that somebody waits for.
+struct Query {
+    page: Mutex<Option<ChoicePage>>,
+    ready: Condvar,
+}
+
+/// Why a provider's page could not be had.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ChoicesError {
+    NoSuchPlugin,
+    NoSuchProvider,
+    TooMany,
+    Unreachable,
+    /// The plugin did not answer in time.
+    Timeout,
+}
+
+impl ChoicesError {
+    pub fn words(&self) -> &'static str {
+        match self {
+            Self::NoSuchPlugin => "that plugin is not connected",
+            Self::NoSuchProvider => "that plugin's page names no such provider",
+            Self::TooMany => "that plugin has too many questions waiting",
+            Self::Unreachable => "that plugin cannot be reached",
+            Self::Timeout => "that plugin did not answer in time",
+        }
+    }
 }
 
 /// Why an action could not be sent to a plugin.
@@ -192,6 +248,8 @@ impl Shared {
             counter: AtomicU64::new(1),
             roster: Mutex::new(RosterView::default()),
             device: Mutex::new(None),
+            lease: Mutex::new(None),
+            signals: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -210,8 +268,120 @@ impl Shared {
         Some(source())
     }
 
+    /// Gives the plugins that require `lease:ha` the lease to hold.
+    pub fn set_lease(&self, lease: Arc<HaLease>) {
+        *self.lease.lock() = Some(lease);
+    }
+
+    /// The Home Assistant lease, if this helper has one.
+    pub fn lease(&self) -> Option<Arc<HaLease>> {
+        self.lease.lock().clone()
+    }
+
     fn next(&self) -> u64 {
         self.counter.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Asks a connected plugin for a page of the choices of one of the providers its settings page names, and waits for the answer
+    /// (at most the time a question to a plugin has). The caller is a thread of the API, never the plugin's own connection.
+    pub fn choices(
+        &self,
+        plugin: &str,
+        provider: &str,
+        offset: u32,
+        limit: u16,
+    ) -> Result<ChoicePage, ChoicesError> {
+        let live = self
+            .live
+            .lock()
+            .get(plugin)
+            .cloned()
+            .ok_or(ChoicesError::NoSuchPlugin)?;
+        if !live.providers.iter().any(|p| p == provider) {
+            return Err(ChoicesError::NoSuchProvider);
+        }
+        let query = self.next();
+        let waiting = Arc::new(Query {
+            page: Mutex::new(None),
+            ready: Condvar::new(),
+        });
+        {
+            let mut queries = live.queries.lock();
+            if queries.len() >= MAX_OUTSTANDING {
+                return Err(ChoicesError::TooMany);
+            }
+            queries.insert(query, waiting.clone());
+        }
+        let sent = live.outlet.send(ToPlugin::ChoicesQuery {
+            query,
+            generation: 1,
+            provider: provider.to_owned(),
+            offset,
+            limit: limit.clamp(1, ha_keys::MAX_PAGE_ROWS),
+        });
+        if !sent {
+            live.queries.lock().remove(&query);
+            return Err(ChoicesError::Unreachable);
+        }
+        live.outlet.poke();
+        let deadline = std::time::Instant::now() + self.answer;
+        let mut page = waiting.page.lock();
+        while page.is_none() {
+            if waiting.ready.wait_until(&mut page, deadline).timed_out() {
+                break;
+            }
+        }
+        let answer = page.take();
+        drop(page);
+        live.queries.lock().remove(&query);
+        match answer {
+            Some(answer) => Ok(answer),
+            None => {
+                let _ = live.outlet.send(ToPlugin::ChoicesCancel { query });
+                live.outlet.poke();
+                Err(ChoicesError::Timeout)
+            }
+        }
+    }
+
+    /// Records (or, with `None`, withdraws) what `plugin` says of the room's occupancy and publishes the merged answer: somebody is
+    /// near if any source says so, nobody is only if every source that holds says so.
+    fn set_occupancy(&self, plugin: &str, said: Option<Occupancy>) {
+        let now = secs(self.now_ms());
+        let mut signals = self.signals.lock();
+        match said {
+            Some(said) => {
+                signals.insert(plugin.to_owned(), said);
+            }
+            None => {
+                signals.remove(plugin);
+            }
+        }
+        let valid: Vec<(&String, &Occupancy)> =
+            signals.iter().filter(|(_, o)| o.expires > now).collect();
+        let state = if valid.iter().any(|(_, o)| o.state == PresenceWire::Present) {
+            "present"
+        } else if valid.iter().any(|(_, o)| o.state == PresenceWire::InBed) {
+            "in_bed"
+        } else if valid.is_empty() {
+            "unknown"
+        } else {
+            "away"
+        };
+        let sources: Vec<Json> = valid
+            .iter()
+            .map(|(plugin, o)| {
+                json!({"plugin": plugin, "state": match o.state {
+                    PresenceWire::Away => "away",
+                    PresenceWire::Present => "present",
+                    PresenceWire::InBed => "in_bed",
+                }, "lastMotionS": o.last_motion_s, "expiresAt": o.expires})
+            })
+            .collect();
+        self.hub.set(
+            "signal.occupancy",
+            json!({"state": state, "sources": sources}),
+        );
     }
 
     /// A connection number nobody else has: what a plugin of the helper's own (`local.rs`) connects as.
@@ -226,6 +396,26 @@ impl Shared {
             view.first_party.retain(|(known, _, _)| known != id);
             view.first_party
                 .push((id.to_owned(), name.to_owned(), version.to_owned()));
+        }
+        self.publish_plugins();
+    }
+
+    /// Says why a plugin that is switched on has no program running (or, with `None`, that nothing is wrong), and publishes it.
+    pub fn set_run_note(&self, plugin: &str, note: Option<String>) {
+        {
+            let mut view = self.roster.lock();
+            match note {
+                Some(note) => {
+                    if view.notes.insert(plugin.to_owned(), note.clone()) == Some(note) {
+                        return;
+                    }
+                }
+                None => {
+                    if view.notes.remove(plugin).is_none() {
+                        return;
+                    }
+                }
+            }
         }
         self.publish_plugins();
     }
@@ -266,8 +456,12 @@ impl Shared {
             .map(|(id, name, version, class)| {
                 let connected = live.contains(id);
                 let state = if connected { "connected" } else { "waiting" };
-                json!({"id": id, "name": name, "version": version, "class": class, "state": state,
-                       "registered": connected})
+                let mut entry = json!({"id": id, "name": name, "version": version, "class": class, "state": state,
+                                       "registered": connected});
+                if !connected && let Some(note) = view.notes.get(id) {
+                    entry["reason"] = json!(note);
+                }
+                entry
             })
             .collect();
         plugins.extend(view.inert.iter().map(|(id, reason)| {
@@ -307,6 +501,19 @@ impl Shared {
             return Err(InvokeError::NoSuchAction);
         }
         let op = self.next();
+        if live.holds
+            && action == ha_keys::ACTION_FORGET
+            && let Some(lease) = self.lease()
+        {
+            // The base's own action: the plugin only has the button. It narrows what the TV may do, so the TV's Settings may ask.
+            lease.forget();
+            self.hub.emit(
+                &topic(plugin, ""),
+                "action_result",
+                json!({"op": op, "action": action, "outcome": {"type": "ok"}}),
+            );
+            return Ok(op);
+        }
         {
             let mut ops = live.ops.lock();
             if ops.len() >= MAX_OUTSTANDING {
@@ -400,26 +607,47 @@ pub struct Session {
     declared_actions: Vec<String>,
     /// The channels the plugin declared (id, title, icon): a notification is drawn with its channel's icon.
     channels: Vec<(String, String, String)>,
+    /// The Home Assistant lease, while the plugin holds it (it requires `lease:ha`): dropping it lets go.
+    hold: Option<Hold>,
+    /// What the plugin last said of the room's occupancy (`signal.put`).
+    occupancy: Option<Occupancy>,
 }
 
 fn secs(ms: u64) -> i64 {
     (ms / 1000) as i64
 }
 
-/// What a plugin's page may not use on this TV, in words (or nothing).
-fn page_problem(schema: &SettingsSchema, declared_actions: Option<&[String]>) -> Option<String> {
+/// Whether `key` is one of the Home Assistant lease's, which a plugin that holds the lease puts on its page for the Show's sake and
+/// this TV does not draw from the plugin's page (the address and the token are the owner's command line's: `ha.rs`).
+fn lease_key(key: &str) -> bool {
+    ha_keys::LEASE_FIELDS.contains(&key) || key == ha_keys::ACTION_FORGET
+}
+
+/// What a plugin's page may not use on this TV, in words (or nothing). `holds`: the plugin holds the Home Assistant lease, so the
+/// lease's own fields are allowed (and are not served, see [`served`]).
+fn page_problem(
+    schema: &SettingsSchema,
+    declared_actions: Option<&[String]>,
+    holds: bool,
+) -> Option<String> {
     for field in schema.fields() {
-        if field.key.as_str().starts_with("lease.") {
-            return Some(format!(
-                "{}: leases are not served by this TV",
-                field.key.as_str()
-            ));
+        let key = field.key.as_str();
+        let action_key = match &field.kind {
+            FieldKind::Action { action, .. } => Some(action.as_str()),
+            _ => None,
+        };
+        let is_lease = ha_keys::LEASE_FIELDS.contains(&key)
+            || action_key.is_some_and(|a| a == ha_keys::ACTION_FORGET);
+        if key.starts_with("lease.") && !(holds && is_lease) {
+            return Some(format!("{key}: leases are not served by this TV"));
+        }
+        if is_lease && holds {
+            continue;
         }
         match &field.kind {
             FieldKind::Text { secret: true, .. } => {
                 return Some(format!(
-                    "{}: secret fields are not served by this TV yet",
-                    field.key.as_str()
+                    "{key}: secret fields are not served by this TV yet"
                 ));
             }
             FieldKind::Action { action, .. } => {
@@ -427,8 +655,7 @@ fn page_problem(schema: &SettingsSchema, declared_actions: Option<&[String]>) ->
                     && !declared.iter().any(|d| d == action.as_str())
                 {
                     return Some(format!(
-                        "{}: the action {} was not declared at registration",
-                        field.key.as_str(),
+                        "{key}: the action {} was not declared at registration",
                         action.as_str()
                     ));
                 }
@@ -437,6 +664,23 @@ fn page_problem(schema: &SettingsSchema, declared_actions: Option<&[String]>) ->
         }
     }
     None
+}
+
+/// The page as this TV serves it: a plugin that holds the Home Assistant lease has its lease's fields and button taken off.
+fn served(mut schema: SettingsSchema, holds: bool) -> SettingsSchema {
+    if holds {
+        for section in &mut schema.sections {
+            section.fields.retain(|field| {
+                let action = match &field.kind {
+                    FieldKind::Action { action, .. } => Some(action.as_str()),
+                    _ => None,
+                };
+                !(ha_keys::LEASE_FIELDS.contains(&field.key.as_str())
+                    || action.is_some_and(lease_key))
+            });
+        }
+    }
+    schema
 }
 
 impl Session {
@@ -456,6 +700,8 @@ impl Session {
             facts: BTreeMap::new(),
             declared_actions: Vec::new(),
             channels: Vec::new(),
+            hold: None,
+            occupancy: None,
         }
     }
 
@@ -507,6 +753,15 @@ impl Session {
         .filter(|(p, _)| manifest.permissions.contains(p))
         .map(|(_, word)| (*word).to_owned())
         .collect();
+        if manifest.requires.contains(&Lease::Ha) {
+            features.push("ha:1".to_owned());
+        }
+        if manifest
+            .permissions
+            .contains(&Permission::SignalProvide(SignalKind::Occupancy))
+        {
+            features.push("signal:1".to_owned());
+        }
         if manifest.permissions.contains(&Permission::Settings) {
             features.push("facts:1".to_owned());
         }
@@ -585,12 +840,19 @@ impl Session {
                 Reply::nothing()
             }
             ToBase::FactsPut { facts } => self.facts_put(facts),
+            ToBase::ChoicesBatch(batch) => self.choices_batch(batch),
+            // A provider's rows changed: the next page asked for is the new one, and nothing is kept between pages.
+            ToBase::ChoicesChanged { .. } => Reply::nothing(),
+            ToBase::HaWatch(watch) => self.lease_call("ha.watch", |hold| hold.watch(&watch)),
+            ToBase::HaCall(call) => self.lease_call("ha.call", |hold| hold.call(&call)),
+            ToBase::HaList(list) => self.lease_call("ha.list", |hold| hold.list(&list)),
+            ToBase::SignalPut(put) => self.signal_put(put),
             ToBase::Hello(_) | ToBase::Register(_) | ToBase::Bye { .. } => Reply::nothing(),
             // Everything else belongs to a surface this TV does not serve at level 1.
             other => Reply::refused(
                 other.name(),
                 "not_served",
-                "this TV does not serve that at plugin API level 1 (it serves settings, cards, tiles, notifications and facts)",
+                "this TV does not serve that at plugin API level 1 (it serves settings, cards, tiles, notifications, facts, the Home Assistant lease and the occupancy signal)",
             ),
         }
     }
@@ -610,6 +872,20 @@ impl Session {
                 "timeline sources are not served by this TV",
             );
         }
+        let holds = self.member.manifest.requires.contains(&Lease::Ha);
+        let lease = self.shared.lease();
+        if holds && lease.is_none() {
+            return Reply::refused(
+                "register",
+                "not_served",
+                "this TV has no Home Assistant lease to give",
+            );
+        }
+        // The lease's three keys are the base's: what the store serves is the page without them.
+        let register = Register {
+            settings: register.settings.map(|schema| served(schema, holds)),
+            ..register
+        };
         let needs = [
             (register.settings.is_some(), Permission::Settings),
             (!register.channels.is_empty(), Permission::Notify),
@@ -647,7 +923,7 @@ impl Session {
             )
             .collect();
         if let Some(schema) = &register.settings
-            && let Some(why) = page_problem(schema, None)
+            && let Some(why) = page_problem(schema, None, holds)
         {
             return Reply::refused("register", "not_served", why);
         }
@@ -664,13 +940,12 @@ impl Session {
             Ok(plan) => plan,
             Err(e) => return Reply::refused("register", "invalid", e),
         };
-        if !plan.declared().providers.is_empty() {
-            return Reply::refused(
-                "register",
-                "not_served",
-                "choice providers are not served by this TV",
-            );
-        }
+        let providers: Vec<String> = plan
+            .declared()
+            .providers
+            .iter()
+            .map(ToString::to_string)
+            .collect();
         let owner = match service_api::OwnerTable::new().register(key.clone()) {
             Ok(owner) => owner,
             Err(e) => return Reply::refused("register", "refused", e),
@@ -691,6 +966,9 @@ impl Session {
             actions: Mutex::new(declared_actions.clone()),
             ops: Mutex::new(BTreeMap::new()),
             txns: Mutex::new(VecDeque::new()),
+            holds,
+            providers,
+            queries: Mutex::new(BTreeMap::new()),
         });
         {
             // Taking over from an earlier connection of the same plugin and publishing happen together, so that the earlier one's
@@ -726,6 +1004,10 @@ impl Session {
         self.page = has_page;
         self.declared_actions = declared_actions;
         self.channels = channels;
+        if holds && let Some(lease) = lease {
+            // The plugin is told where the lease is once its `registered` has gone (`tick`).
+            self.hold = Some(lease.acquire(self.outlet.clone(), Scope::of(&self.member.manifest)));
+        }
         self.phase = Phase::Registered;
         for tile in tiles {
             self.tiles.insert(tile.id.clone(), tile);
@@ -768,10 +1050,11 @@ impl Session {
                 "the page's owner is not this plugin",
             );
         }
-        if let Some(why) = page_problem(&schema, Some(&self.declared_actions)) {
+        let holds = self.hold.is_some();
+        if let Some(why) = page_problem(&schema, Some(&self.declared_actions), holds) {
             return Reply::refused("settings.page", "not_served", why);
         }
-        match self.shared.settings.register(schema, None) {
+        match self.shared.settings.register(served(schema, holds), None) {
             Ok(()) => Reply::nothing(),
             Err(e) => Reply::refused("settings.page", "refused", e.0),
         }
@@ -990,6 +1273,65 @@ impl Session {
         Reply::nothing()
     }
 
+    /// A page of a provider's choices, answered: whoever asked for it through the API (`Shared::choices`) is waiting. An answer to a
+    /// question that was given up on is dropped unseen.
+    fn choices_batch(&mut self, batch: ChoicesBatch) -> Reply {
+        let waiting = self
+            .live
+            .as_ref()
+            .and_then(|live| live.queries.lock().remove(&batch.query));
+        if let Some(waiting) = waiting {
+            *waiting.page.lock() = Some(batch.page);
+            waiting.ready.notify_all();
+        }
+        Reply::nothing()
+    }
+
+    /// A request of the Home Assistant lease, which the plugin holds only if its manifest says so (`lease:ha`).
+    fn lease_call(
+        &mut self,
+        what: &str,
+        ask: impl FnOnce(&Hold) -> Result<(), super::ha::Refusal>,
+    ) -> Reply {
+        let Some(hold) = &self.hold else {
+            return Reply::refused(
+                what,
+                "not_permitted",
+                "this plugin did not ask for the Home Assistant lease (lease:ha), so it was not approved",
+            );
+        };
+        match ask(hold) {
+            Ok(()) => Reply::nothing(),
+            Err(refusal) => Reply::refused(what, refusal.code, refusal.reason),
+        }
+    }
+
+    /// What the plugin believes of the room's occupancy, for as long as it says (5 to 900 seconds): it runs out by itself, so a plugin
+    /// that dies cannot hold the room occupied or empty. Published as `signal.occupancy`; this TV has nothing that reads it yet.
+    fn signal_put(&mut self, put: SignalPut) -> Reply {
+        if let Err(reply) = self.needs(
+            Permission::SignalProvide(SignalKind::Occupancy),
+            "signal.put",
+        ) {
+            return reply;
+        }
+        if !(5..=900).contains(&put.ttl_s) {
+            return Reply::refused(
+                "signal.put",
+                "invalid",
+                "a signal holds for 5 to 900 seconds",
+            );
+        }
+        let said = Occupancy {
+            state: put.state,
+            last_motion_s: put.last_motion_s,
+            expires: secs(self.shared.now_ms()) + i64::from(put.ttl_s),
+        };
+        self.occupancy = Some(said);
+        self.shared.set_occupancy(self.id(), Some(said));
+        Reply::nothing()
+    }
+
     // -- topics -----------------------------------------------------------------------------------------------------------------
 
     fn publish_all(&self) {
@@ -1047,6 +1389,7 @@ impl Session {
             .values()
             .filter_map(|c| c.expires)
             .chain(self.notes.values().filter_map(|n| n.expires))
+            .chain(self.occupancy.map(|o| o.expires))
             .map(|s| (s.max(0) as u64) * 1000);
         let asks = self.live.iter().flat_map(|live| {
             live.ops
@@ -1062,6 +1405,14 @@ impl Session {
     pub fn tick(&mut self) {
         let now_ms = self.shared.now_ms();
         let now = secs(now_ms);
+        // The broker ticks right after it has sent a reply: the plugin has its `registered`, and is told where the lease is.
+        if let Some(hold) = &self.hold {
+            hold.ready();
+        }
+        if self.occupancy.is_some_and(|o| o.expires <= now) {
+            self.occupancy = None;
+            self.shared.set_occupancy(self.id(), None);
+        }
         let before = (self.cards.len(), self.notes.len());
         self.cards.retain(|_, c| c.expires.is_none_or(|e| e > now));
         self.notes.retain(|_, n| n.expires.is_none_or(|e| e > now));
@@ -1121,6 +1472,11 @@ impl Drop for Session {
             if self.page {
                 self.shared.settings.retire(&id);
             }
+            // The lease is let go (the link ends if this was the last holder) and what the plugin said of the room is withdrawn.
+            self.hold = None;
+            if self.occupancy.take().is_some() {
+                self.shared.set_occupancy(&id, None);
+            }
             let hub = &self.shared.hub;
             hub.set(&topic(&id, "cards"), json!({"items": []}));
             hub.set(&topic(&id, "tiles"), json!({"items": []}));
@@ -1155,6 +1511,7 @@ mod tests {
             id: "hello".into(),
             uid: 1,
             manifest,
+            program: None,
         }
     }
 
@@ -1293,5 +1650,398 @@ mod tests {
             wire_body(&welcome, None),
             serde_json::to_vec(&welcome).unwrap()
         );
+    }
+
+    /// The plugin's whole conversation as the tests see it: what the base said to it.
+    #[derive(Default)]
+    struct Said(Mutex<Vec<ToPlugin>>);
+
+    impl Outlet for Said {
+        fn send(&self, message: ToPlugin) -> bool {
+            self.0.lock().push(message);
+            true
+        }
+
+        fn poke(&self) {}
+    }
+
+    fn holder(permissions: &str, requires: &str) -> Member {
+        let text = format!(
+            r#"{{"schema":1,"id":"ha-test","name":"HA","version":"1","api":{{"min":1,"target":1}},"run":{{"exe":"bin/x"}},"class":"S","requires":[{requires}],"permissions":[{permissions}]}}"#
+        );
+        Member {
+            id: "ha-test".into(),
+            uid: 1,
+            manifest: plugin_api::Manifest::parse(text.as_bytes()).unwrap(),
+            program: None,
+        }
+    }
+
+    struct Rig {
+        hub: Arc<Hub>,
+        shared: Arc<Shared>,
+        now: Arc<AtomicU64>,
+        _dir: tempfile::TempDir,
+        link: std::path::PathBuf,
+    }
+
+    fn rig(with_lease: bool) -> Rig {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Arc::new(Hub::new(1));
+        let settings = Arc::new(SettingsStore::new(dir.path().join("settings"), hub.clone()));
+        let now = Arc::new(AtomicU64::new(1_800_000_000_000));
+        let clock = now.clone();
+        let shared = Shared::new(
+            hub.clone(),
+            settings,
+            Duration::from_secs(2),
+            Arc::new(move || clock.load(Ordering::SeqCst)),
+        );
+        let link = dir.path().join("ha").join("link.json");
+        if with_lease {
+            shared.set_lease(Arc::new(HaLease::new(super::super::ha::LeaseSettings {
+                link_file: link.clone(),
+                policy: ha_link::AddressPolicy::TESTING,
+                timing: link_timing(),
+                tls: None,
+                log: Arc::new(|_| {}),
+            })));
+        }
+        Rig {
+            hub,
+            shared,
+            now,
+            _dir: dir,
+            link,
+        }
+    }
+
+    fn link_timing() -> ha_link::Timing {
+        ha_link::Timing::default()
+    }
+
+    /// The Home Assistant plugin's page, as LumaShow writes it, with a picker served by the plugin and the lease's three keys.
+    fn page() -> serde_json::Value {
+        json!({"format": 1, "owner": "ha-test", "revision": 1, "title": "HA", "sections": [
+            {"id": "connection", "title": "Connection", "fields": [
+                {"key": "state", "label": "Connection", "kind": {"type": "read-only", "value": {"capability": "plugin.ha-test.link"}}, "apply": "on-commit"},
+                {"key": "lease.ha.url", "label": "Address", "kind": {"type": "text", "max_chars": 200, "secret": false},
+                 "default": {"type": "text", "value": ""}, "apply": "on-commit"},
+                {"key": "lease.ha.token", "label": "Access token", "kind": {"type": "text", "max_chars": 1024, "secret": true}, "apply": "on-commit"},
+                {"key": "forget", "label": "Forget", "kind": {"type": "action", "action": "lease.ha.forget", "confirmation": "destructive"}, "apply": "on-commit"}]},
+            {"id": "room", "title": "Room", "fields": [
+                {"key": "room", "label": "Room", "kind": {"type": "choice", "options": {"provider": "rooms"}}, "apply": "on-commit"}]}]})
+    }
+
+    fn register(page: serde_json::Value) -> serde_json::Value {
+        json!({"t": "register", "title": "HA", "settings": page,
+               "actions": [{"key": "lease.ha.forget", "label": "Forget", "confirmation": "destructive",
+                            "confirm_text": {"title": "Forget?", "confirm_label": "Forget"}}]})
+    }
+
+    const HA_PERMISSIONS: &str =
+        r#""settings","cards","ha.read:areas,light","ha.call:light","signal.provide:occupancy""#;
+
+    #[test]
+    fn a_plugin_that_holds_the_lease_has_the_leases_keys_taken_off_the_page_the_tv_serves() {
+        let rig = rig(true);
+        let said = Arc::new(Said::default());
+        let mut session = Session::new(
+            holder(HA_PERMISSIONS, r#""lease:ha""#),
+            rig.shared.clone(),
+            1,
+            said.clone(),
+        );
+        let welcome = say(&mut session, json!({"t": "hello", "min": 1, "target": 1}));
+        let ToPlugin::Welcome(welcome) = &welcome.messages[0] else {
+            panic!("{welcome:?}")
+        };
+        assert!(
+            welcome.features.contains(&"ha:1".to_owned())
+                && welcome.features.contains(&"signal:1".to_owned())
+        );
+        let registered = say(&mut session, register(page()));
+        assert!(
+            matches!(registered.messages[0], ToPlugin::Registered { .. }),
+            "{registered:?}"
+        );
+        let doc = rig.shared.settings.describe("ha-test").unwrap();
+        let keys: Vec<String> = doc["schema"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|s| s["fields"].as_array().unwrap().iter())
+            .map(|f| f["key"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            keys,
+            vec!["state", "room"],
+            "no address, no token, no forget on the TV's page"
+        );
+        assert!(!doc.to_string().contains("lease."), "{doc}");
+        // Told where the lease is only after its `registered` has been sent: the broker ticks right after a reply.
+        assert!(said.0.lock().is_empty());
+        session.tick();
+        assert!(
+            matches!(said.0.lock().as_slice(), [ToPlugin::HaLink(l)] if l.state == plugin_api::wire::HaLinkKind::Unconfigured)
+        );
+        assert_eq!(rig.shared.lease().unwrap().info().holders, 1);
+        drop(session);
+        assert_eq!(
+            rig.shared.lease().unwrap().info().holders,
+            0,
+            "the lease is let go with the connection"
+        );
+    }
+
+    #[test]
+    fn the_lease_forgets_when_the_base_is_asked_to_run_its_action_and_not_the_plugin() {
+        let rig = rig(true);
+        let said = Arc::new(Said::default());
+        let mut session = Session::new(
+            holder(HA_PERMISSIONS, r#""lease:ha""#),
+            rig.shared.clone(),
+            1,
+            said.clone(),
+        );
+        say(&mut session, json!({"t": "hello", "min": 1, "target": 1}));
+        say(&mut session, register(page()));
+        super::super::super::ha_store::save(&rig.link, "http://192.168.1.50:8123", "tkn-forget")
+            .unwrap();
+        rig.shared.lease().unwrap().refresh();
+        assert!(rig.link.exists());
+        let op = rig
+            .shared
+            .invoke_action("ha-test", "lease.ha.forget", None)
+            .unwrap();
+        assert!(op > 0);
+        assert!(!rig.link.exists(), "the saved link is deleted");
+        assert!(
+            said.0
+                .lock()
+                .iter()
+                .all(|m| !matches!(m, ToPlugin::ActionInvoke { .. })),
+            "the plugin was not asked: it only has the button"
+        );
+    }
+
+    #[test]
+    fn a_plugin_that_does_not_hold_the_lease_cannot_use_its_keys_or_its_messages_and_one_needs_a_lease_to_be_given()
+     {
+        let rig = rig(true);
+        // lease keys on the page of a plugin that has no `lease:ha`
+        let mut session = Session::new(
+            holder(r#""settings""#, ""),
+            rig.shared.clone(),
+            1,
+            Arc::new(Quiet),
+        );
+        say(&mut session, json!({"t": "hello", "min": 1, "target": 1}));
+        let reply = say(&mut session, register(page()));
+        assert!(
+            matches!(&reply.messages[0], ToPlugin::Refused { code, reason, .. } if code == "not_served" && reason.contains("lease.ha.url")),
+            "{reply:?}"
+        );
+        // messages of the lease from a plugin that does not hold it
+        let mut plain = Session::new(
+            holder(r#""cards""#, ""),
+            rig.shared.clone(),
+            2,
+            Arc::new(Quiet),
+        );
+        say(&mut plain, json!({"t": "hello", "min": 1, "target": 1}));
+        say(&mut plain, json!({"t": "register", "title": "P"}));
+        for message in [
+            json!({"t": "ha.watch", "entities": ["light.a"]}),
+            json!({"t": "ha.call", "op": 1, "domain": "light", "service": "turn_on", "entity_ids": ["light.a"]}),
+            json!({"t": "ha.list", "query": 1, "what": "areas"}),
+            json!({"t": "signal.put", "kind": "occupancy", "state": "present", "ttl_s": 60}),
+        ] {
+            let reply = say(&mut plain, message.clone());
+            assert!(
+                matches!(&reply.messages[0], ToPlugin::Refused { code, .. } if code == "not_permitted"),
+                "{message}: {reply:?}"
+            );
+        }
+        // a plugin that holds the lease where the helper has none to give
+        let bare = self::rig(false);
+        let mut holder_session = Session::new(
+            holder(HA_PERMISSIONS, r#""lease:ha""#),
+            bare.shared.clone(),
+            3,
+            Arc::new(Quiet),
+        );
+        say(
+            &mut holder_session,
+            json!({"t": "hello", "min": 1, "target": 1}),
+        );
+        let reply = say(&mut holder_session, register(page()));
+        assert!(
+            matches!(&reply.messages[0], ToPlugin::Refused { code, .. } if code == "not_served"),
+            "{reply:?}"
+        );
+    }
+
+    #[test]
+    fn the_occupancy_signal_runs_out_by_itself_merges_and_goes_with_the_plugin() {
+        let rig = rig(true);
+        let mut session = Session::new(
+            holder(HA_PERMISSIONS, r#""lease:ha""#),
+            rig.shared.clone(),
+            1,
+            Arc::new(Quiet),
+        );
+        say(&mut session, json!({"t": "hello", "min": 1, "target": 1}));
+        say(&mut session, register(page()));
+        let state = || {
+            rig.hub
+                .get("signal.occupancy")
+                .map(|v| v["state"].as_str().unwrap().to_owned())
+        };
+        for bad in [4, 901, 0] {
+            let r = say(
+                &mut session,
+                json!({"t": "signal.put", "kind": "occupancy", "state": "present", "ttl_s": bad}),
+            );
+            assert!(
+                matches!(&r.messages[0], ToPlugin::Refused { code, .. } if code == "invalid"),
+                "{bad}: {r:?}"
+            );
+        }
+        assert_eq!(state(), None);
+        say(
+            &mut session,
+            json!({"t": "signal.put", "kind": "occupancy", "state": "present", "last_motion_s": 12, "ttl_s": 120}),
+        );
+        assert_eq!(state().as_deref(), Some("present"));
+        assert_eq!(
+            rig.hub.get("signal.occupancy").unwrap()["sources"][0]["lastMotionS"],
+            12
+        );
+        assert_eq!(session.next_deadline_ms(), Some(1_800_000_120_000));
+        say(
+            &mut session,
+            json!({"t": "signal.put", "kind": "occupancy", "state": "away", "ttl_s": 60}),
+        );
+        assert_eq!(state().as_deref(), Some("away"));
+        // Said again before it ran out is said; not said again, it runs out and nobody is known to be there or not.
+        rig.now.store(1_800_000_061_000, Ordering::SeqCst);
+        session.tick();
+        assert_eq!(
+            state().as_deref(),
+            Some("unknown"),
+            "a plugin that dies cannot hold the room occupied or empty"
+        );
+        assert_eq!(session.next_deadline_ms(), None);
+        say(
+            &mut session,
+            json!({"t": "signal.put", "kind": "occupancy", "state": "in_bed", "ttl_s": 600}),
+        );
+        assert_eq!(state().as_deref(), Some("in_bed"));
+        drop(session);
+        assert_eq!(
+            state().as_deref(),
+            Some("unknown"),
+            "withdrawn when the plugin goes"
+        );
+        // A plugin that did not ask to provide it is refused.
+        let mut other = Session::new(
+            holder(r#""cards""#, ""),
+            rig.shared.clone(),
+            2,
+            Arc::new(Quiet),
+        );
+        say(&mut other, json!({"t": "hello", "min": 1, "target": 1}));
+        say(&mut other, json!({"t": "register", "title": "P"}));
+        let r = say(
+            &mut other,
+            json!({"t": "signal.put", "kind": "occupancy", "state": "present", "ttl_s": 60}),
+        );
+        assert!(
+            matches!(&r.messages[0], ToPlugin::Refused { code, .. } if code == "not_permitted"),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn a_page_of_choices_is_asked_of_the_plugin_answered_by_it_and_given_up_on_in_time() {
+        let rig = rig(true);
+        let said = Arc::new(Said::default());
+        let mut session = Session::new(
+            holder(HA_PERMISSIONS, r#""lease:ha""#),
+            rig.shared.clone(),
+            1,
+            said.clone(),
+        );
+        say(&mut session, json!({"t": "hello", "min": 1, "target": 1}));
+        say(&mut session, register(page()));
+        // The plugin answers from its own thread, as the broker's connection does.
+        let session = Arc::new(Mutex::new(session));
+        let answering = {
+            let (session, said) = (session.clone(), said.clone());
+            std::thread::spawn(move || {
+                let end = std::time::Instant::now() + Duration::from_secs(5);
+                loop {
+                    let asked = said.0.lock().iter().find_map(|m| match m {
+                        ToPlugin::ChoicesQuery {
+                            query,
+                            generation,
+                            provider,
+                            offset,
+                            limit,
+                        } => Some((*query, *generation, provider.clone(), *offset, *limit)),
+                        _ => None,
+                    });
+                    if let Some((query, generation, provider, offset, limit)) = asked {
+                        assert_eq!((provider.as_str(), offset, limit), ("rooms", 0, 24));
+                        say(
+                            &mut session.lock(),
+                            json!({"t": "choices.batch", "query": query, "generation": generation,
+                            "page": {"offset": 0, "rows": [{"id": "kitchen", "label": "Kitchen"}], "more": false, "state": "ready"}}),
+                        );
+                        return;
+                    }
+                    assert!(std::time::Instant::now() < end);
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            })
+        };
+        let page = rig.shared.choices("ha-test", "rooms", 0, 24).unwrap();
+        answering.join().unwrap();
+        assert_eq!(page.rows[0].id, "kitchen");
+        assert_eq!(page.state, plugin_api::wire::ChoiceState::Ready);
+        // A provider the page does not name, a plugin that is not there, and one that does not answer.
+        assert_eq!(
+            rig.shared.choices("ha-test", "secrets", 0, 24).unwrap_err(),
+            ChoicesError::NoSuchProvider
+        );
+        assert_eq!(
+            rig.shared.choices("nobody", "rooms", 0, 24).unwrap_err(),
+            ChoicesError::NoSuchPlugin
+        );
+        said.0.lock().clear();
+        let started = std::time::Instant::now();
+        assert_eq!(
+            rig.shared.choices("ha-test", "rooms", 0, 24).unwrap_err(),
+            ChoicesError::Timeout
+        );
+        assert!(
+            started.elapsed() >= Duration::from_secs(2)
+                && started.elapsed() < Duration::from_secs(6)
+        );
+        assert!(
+            said.0
+                .lock()
+                .iter()
+                .any(|m| matches!(m, ToPlugin::ChoicesCancel { .. })),
+            "the plugin is told it need not answer"
+        );
+        // The answer that comes after is dropped unseen.
+        let late = say(
+            &mut session.lock(),
+            json!({"t": "choices.batch", "query": 99, "generation": 1,
+            "page": {"offset": 0, "rows": [], "more": false, "state": "ready"}}),
+        );
+        assert!(late.messages.is_empty());
     }
 }

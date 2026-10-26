@@ -10,9 +10,11 @@
 //! | `GET /v1/plugins` | the `plugins` topic |
 //! | `POST /v1/plugins/rescan` | the roster is read again now |
 //! | `POST /v1/plugins/{id}/actions/{action}` `{"target"?: "..."}` | `202 {"op": n}`; the plugin's answer is an `action_result` event on `plugin.<id>` |
+//! | `GET /v1/plugins/{id}/choices/{provider}?offset=&limit=` | a page of the choices one of the plugin's settings fields offers (its room, its lights): `{"state", "rows": [{id, label, detail?}], "more"}`; the helper asks the plugin and waits for its answer |
+//! | `POST /v1/plugins/lease/ha/refresh` | reads the saved Home Assistant link again (`lumatv-helper ha-link` says so after it saves one) |
 
 use super::Plugins;
-use super::session::InvokeError;
+use super::session::{ChoicesError, InvokeError};
 use crate::API_VERSION;
 use crate::http::{Request, Response, error_response};
 use crate::timeutil::now_ms;
@@ -29,6 +31,16 @@ pub const ROUTES: &[(&str, &str, &str)] = &[
         "POST",
         "/v1/plugins/{id}/actions/{action}",
         "asks a connected plugin to run one of its declared actions: {\"target\"?: text}",
+    ),
+    (
+        "GET",
+        "/v1/plugins/{id}/choices/{provider}",
+        "a page of the choices a field of the plugin's settings page offers: ?offset=&limit=",
+    ),
+    (
+        "POST",
+        "/v1/plugins/lease/ha/refresh",
+        "reads the saved Home Assistant link again",
     ),
 ];
 
@@ -109,9 +121,51 @@ pub fn handle(plugins: &Plugins, request: &Request, rest: &[&str]) -> Response {
                 Err(e) => error_response(409, "unavailable", e.words()),
             }
         }
-        _ if matches!(rest, [] | ["rescan"] | [_, "actions", _]) => {
+        ["lease", "ha", "refresh"] if post => {
+            plugins.lease().refresh();
+            ok(202, Map::new())
+        }
+        [id, "choices", provider] if get => {
+            if plugin_api::check_id(id).is_err() || !plain_key(provider) {
+                return error_response(404, "no_such_provider", "no such provider");
+            }
+            let number = |name: &str, fallback: u32, most: u32| {
+                request
+                    .param(name)
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(fallback)
+                    .min(most)
+            };
+            let (offset, limit) = (number("offset", 0, 1_000_000), number("limit", 24, 64));
+            match plugins.shared().choices(id, provider, offset, limit as u16) {
+                Ok(page) => {
+                    let mut body = Map::new();
+                    body.insert("plugin".into(), json!(id));
+                    body.insert("provider".into(), json!(provider));
+                    body.insert(
+                        "page".into(),
+                        serde_json::to_value(&page).unwrap_or(Value::Null),
+                    );
+                    ok(200, body)
+                }
+                Err(e @ (ChoicesError::NoSuchPlugin | ChoicesError::NoSuchProvider)) => {
+                    error_response(404, "no_such_provider", e.words())
+                }
+                Err(e @ ChoicesError::Timeout) => error_response(504, "timeout", e.words()),
+                Err(e) => error_response(409, "unavailable", e.words()),
+            }
+        }
+        _ if matches!(
+            rest,
+            [] | ["rescan"] | [_, "actions", _] | ["lease", "ha", "refresh"]
+        ) =>
+        {
             error_response(405, "method_not_allowed", "that method is not served here")
                 .with_header("Allow", if rest.is_empty() { "GET" } else { "POST" })
+        }
+        _ if matches!(rest, [_, "choices", _]) => {
+            error_response(405, "method_not_allowed", "that method is not served here")
+                .with_header("Allow", "GET")
         }
         _ => error_response(404, "not_found", "no such endpoint"),
     }

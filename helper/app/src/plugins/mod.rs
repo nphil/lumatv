@@ -11,31 +11,39 @@
 //! | [`broker`] | the socket, one reader and one writer thread per connection, rate and size limits |
 //! | [`local`] | a plugin of the helper's own, in the same conversation with no socket (the TV's first-party plugins) |
 //! | [`firstparty`] | the helper's first-party plugins: Home's weather, news and clock, and the ambient light tile |
-//! | [`routes`] | `/v1/plugins`: ask a plugin to run an action |
+//! | [`ha`] | the Home Assistant lease: the one connection, held by the plugins that require it, and what each may watch and call |
+//! | [`install`] | switching a plugin on and off and linking Home Assistant: the owner's command line (`plugin-enable`, `ha-link`) |
+//! | [`runner`] | starts the programs of the plugins that are on, as their own users, and again when they stop |
+//! | [`routes`] | `/v1/plugins`: ask a plugin to run an action, page through the choices of its settings, refresh the lease's link |
 //!
 //! [`Plugins`] is the helper's component: a manager thread that reads the roster every `plugins.rescanSeconds` and keeps the
 //! broker (and its socket) only while a plugin is on. With none on, the cost is that sleeping thread.
 //!
-//! Served at level 1: settings page and values, cards, tiles, notifications, facts. Not served (refused in words, and a plugin that
-//! asks for them in its manifest stays inert): timeline sources, choice providers, secrets, images and surfaces, Home Assistant,
-//! network and Bluetooth brokering, signals. Plugins run as their own users, but this TV's kernel has no user or network
-//! namespaces and no seccomp, so the Show's sandbox is not reproduced: only reviewed plugins belong in `enabled.json`.
+//! Served at level 1: settings page and values (with choice providers), cards, tiles, notifications, facts, the Home Assistant lease
+//! (`lease:ha`, `ha.read`, `ha.call`) and the occupancy signal. Not served (refused in words, and a plugin that asks for them in its
+//! manifest stays inert): timeline sources, secrets of a plugin's own, images and surfaces, network and Bluetooth brokering, and
+//! any call on a lock, an alarm, a camera, a cover or a valve. Plugins run as their own users, but this TV's kernel has no user or
+//! network namespaces and no seccomp, so the Show's sandbox is not reproduced: only reviewed plugins belong in `enabled.json`.
 
 pub mod broker;
 pub mod firstparty;
+pub mod ha;
+pub mod install;
 pub mod local;
 pub mod roster;
 pub mod routes;
+pub mod runner;
 pub mod session;
 
 use crate::ctx::Ctx;
+use ha::{HaLease, LeaseSettings};
 use parking_lot::{Condvar, Mutex};
 use roster::Roster;
 use session::Shared;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct Wake {
     pending: Mutex<bool>,
@@ -48,18 +56,20 @@ impl Wake {
         self.changed.notify_all();
     }
 
-    /// Sleeps up to `duration` or until notified; returns at once if a notification came since the last wait.
-    fn wait(&self, duration: Duration) {
+    /// Sleeps up to `duration` or until notified; returns at once if a notification came since the last wait. True when it was
+    /// notified.
+    fn wait(&self, duration: Duration) -> bool {
         let mut pending = self.pending.lock();
         if !*pending {
             self.changed.wait_for(&mut pending, duration);
         }
-        *pending = false;
+        std::mem::take(&mut *pending)
     }
 }
 
 pub struct Plugins {
     shared: Arc<Shared>,
+    lease: Arc<HaLease>,
     wake: Arc<Wake>,
     dir: PathBuf,
     socket: PathBuf,
@@ -69,8 +79,14 @@ pub struct Plugins {
 }
 
 impl Plugins {
-    /// The component, not yet running: its routes and topics work, no thread exists.
+    /// The component, not yet running: its routes and topics work, no thread exists. Home Assistant is dialled only on the home
+    /// network.
     pub fn new(ctx: &Ctx) -> Arc<Self> {
+        Self::with_policy(ctx, ha_link::AddressPolicy::HOME)
+    }
+
+    /// [`Plugins::new`] with the addresses the Home Assistant lease may dial (a test's fake Home Assistant is on the loopback).
+    pub fn with_policy(ctx: &Ctx, policy: ha_link::AddressPolicy) -> Arc<Self> {
         let cfg = &ctx.config.plugins;
         let shared = Shared::new(
             ctx.hub.clone(),
@@ -88,6 +104,24 @@ impl Plugins {
                 .to_json()
             }));
         }
+        let lease = Arc::new(HaLease::new(LeaseSettings::system(
+            ctx.paths.ha_link_file(),
+            policy,
+            crate::voice::tls_for(&ctx.config.fetch),
+            Arc::new(|line| crate::log_info!("{line}")),
+        )));
+        {
+            // Where the lease is, for the TV's Settings and Home: the saved address and whether a token is kept, never the token.
+            let hub = ctx.hub.clone();
+            lease.on_info(Arc::new(move |info| {
+                hub.set(
+                    "ha.link",
+                    serde_json::json!({"state": info.state, "detail": info.detail, "address": info.address,
+                                       "token": info.token, "holders": info.holders}),
+                );
+            }));
+        }
+        shared.set_lease(lease.clone());
         let wake = Arc::new(Wake {
             pending: Mutex::new(false),
             changed: Condvar::new(),
@@ -98,6 +132,7 @@ impl Plugins {
         }
         Arc::new(Self {
             shared,
+            lease,
             wake,
             dir: ctx.paths.plugins_dir(),
             socket: PathBuf::from(&cfg.socket),
@@ -109,6 +144,10 @@ impl Plugins {
 
     pub fn shared(&self) -> &Arc<Shared> {
         &self.shared
+    }
+
+    pub fn lease(&self) -> &Arc<HaLease> {
+        &self.lease
     }
 
     /// Reads the roster again now (the settings flow calls this after it writes `enabled.json`).
@@ -126,9 +165,23 @@ impl Plugins {
 
     fn manage(&self, stop: &crate::control::Stop) {
         let mut broker: Option<broker::Broker> = None;
+        let mut runner = runner::Runner::new(self.dir.clone(), self.shared.clone());
         let mut last_note = String::new();
+        let mut scanned: Option<Instant> = None;
+        let mut woken = false;
         while !stop.is_set() {
+            // The roster is read again when asked and every `rescan`; between, the runner only looks at its programs.
+            if !woken && scanned.is_some_and(|at| at.elapsed() < self.rescan) {
+                runner.tick();
+                let left = self
+                    .rescan
+                    .saturating_sub(scanned.map_or(Duration::ZERO, |at| at.elapsed()));
+                woken = self.wake.wait(runner.wait_hint(left));
+                continue;
+            }
+            scanned = Some(Instant::now());
             let (roster, problem) = Roster::load(&self.dir, self.first_uid);
+            let members = roster.clone();
             self.shared.set_roster(&roster, problem.clone());
             let note = format!(
                 "{} on, inert: {:?}, problem: {:?}",
@@ -180,10 +233,18 @@ impl Plugins {
                 }
                 (true, None) => {}
             }
-            self.wake.wait(self.rescan);
+            // The programs follow the roster once the broker's socket is there for them to connect to (none is started for a
+            // broker that could not listen: they would only wait at a door that is not there).
+            runner.sync(&if broker.is_some() {
+                members
+            } else {
+                Roster::default()
+            });
+            woken = self.wake.wait(runner.wait_hint(self.rescan));
         }
         if let Some(b) = broker {
             b.stop("stopping");
         }
+        runner.stop_all(Duration::from_secs(2));
     }
 }

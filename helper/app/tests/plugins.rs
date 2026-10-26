@@ -513,7 +513,8 @@ fn a_plugin_cannot_take_more_than_a_plugin_may() {
             json!({"t": "ha.watch", "entities": ["light.kitchen"]}),
         ))
         .unwrap();
-    assert_eq!(refusal(&mut plugin, "ha.watch").0, "not_served");
+    // Served, for a plugin that asked for the lease; this one did not.
+    assert_eq!(refusal(&mut plugin, "ha.watch").0, "not_permitted");
     plugin
         .send(&message(json!({"t": "net.listen", "op": 1, "port": 6053})))
         .unwrap();
@@ -523,7 +524,7 @@ fn a_plugin_cannot_take_more_than_a_plugin_may() {
             json!({"t": "signal.put", "kind": "occupancy", "state": "present", "ttl_s": 60}),
         ))
         .unwrap();
-    assert_eq!(refusal(&mut plugin, "signal.put").0, "not_served");
+    assert_eq!(refusal(&mut plugin, "signal.put").0, "not_permitted");
 
     // Only so many cards at once.
     for n in 0..9 {

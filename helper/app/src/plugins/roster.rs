@@ -5,16 +5,18 @@
 //! the TV, so no route of the helper does it (the settings app will, behind the physical remote); the same goes for the manifests.
 //!
 //! ```json
-//! {"plugins": [{"id": "hello", "uid": 20000, "approve": "<sha-256 of the manifest's consent document>"}]}
+//! {"plugins": [{"id": "hello", "uid": 20000, "approve": "<sha-256 of the manifest's consent document>", "program": "<sha-256 of the program>"}]}
 //! ```
 //!
 //! `approve` is what the owner approved: the hash of `Manifest::consent_document` (id, levels, program, arguments, class, leases,
 //! permissions, limits). A manifest changed since then no longer matches and the plugin stays inert; a new display name or version
-//! does not change the document and asks nothing new.
+//! does not change the document and asks nothing new. `program` (optional) is the hash of the program file that was installed
+//! beside it (`install::enable` writes it): the manifest names a program by path and not by content, so the runner starts only a
+//! file that is that one.
 
-use plugin_api::permission::Permission;
+use plugin_api::permission::{Lease, Permission, SignalKind};
 use plugin_api::{Manifest, check_id};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -27,6 +29,8 @@ pub struct Member {
     pub id: String,
     pub uid: u32,
     pub manifest: Manifest,
+    /// The hash of the program file the owner installed, when the entry says (see the module's header).
+    pub program: Option<String>,
 }
 
 /// A plugin the file lists but that stays inert, and why in words.
@@ -42,18 +46,42 @@ pub struct Roster {
     pub inert: Vec<Inert>,
 }
 
-#[derive(Deserialize)]
+/// `enabled.json`: the plugins that are switched on.
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EnabledFile {
-    plugins: Vec<Enabled>,
+pub struct EnabledFile {
+    pub plugins: Vec<Enabled>,
 }
 
-#[derive(Deserialize)]
+/// One plugin that is switched on.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Enabled {
-    id: String,
-    uid: u32,
-    approve: String,
+pub struct Enabled {
+    pub id: String,
+    pub uid: u32,
+    pub approve: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+}
+
+/// Why this TV will not run a plugin with this manifest, in words, or `None`: a level it does not speak, a permission it does not
+/// grant, something it does not serve (see [`unserved`]).
+pub fn refusal(manifest: &Manifest) -> Option<String> {
+    if let Err(refusal) = manifest.check_level() {
+        return Some(refusal.to_string());
+    }
+    let unsupported = manifest.unsupported();
+    if !unsupported.is_empty() {
+        return Some(format!("needs a newer LumaTV ({})", unsupported.join(", ")));
+    }
+    let not_served = unserved(manifest);
+    if !not_served.is_empty() {
+        return Some(format!(
+            "asks for what this TV does not serve yet ({})",
+            not_served.join(", ")
+        ));
+    }
+    None
 }
 
 /// The approval of a manifest: what `approve` in `enabled.json` must be.
@@ -63,31 +91,40 @@ pub fn approval(manifest: &Manifest) -> String {
 }
 
 /// What LumaTV does not serve at level 1. A plugin that asks for any of it is inert, and says so, instead of connecting to be
-/// refused message by message: the TV has no timeline, no pane host, no network brokering and no lease holder yet.
+/// refused message by message: the TV has no timeline, no pane host and no network or Bluetooth brokering. It does serve the Home
+/// Assistant lease (`ha.rs`) with `ha.read` and `ha.call`, and the occupancy signal, but never a call on what is the owner's to
+/// operate ([`super::ha::NEVER_CALLED`]).
 fn unserved(manifest: &Manifest) -> Vec<String> {
     let mut found: Vec<String> = manifest
         .requires
         .iter()
+        .filter(|l| **l != Lease::Ha)
         .map(|l| l.name().to_owned())
         .collect();
-    found.extend(
-        manifest
-            .permissions
-            .iter()
-            .filter(|p| {
-                !matches!(
-                    p,
-                    Permission::Settings
-                        | Permission::Cards
-                        | Permission::Tiles
-                        | Permission::Notify
-                        | Permission::Background
-                        | Permission::ProcessSpawn
-                        | Permission::UiView
-                )
-            })
-            .map(Permission::to_string),
-    );
+    for permission in &manifest.permissions {
+        match permission {
+            Permission::Settings
+            | Permission::Cards
+            | Permission::Tiles
+            | Permission::Notify
+            | Permission::Background
+            | Permission::ProcessSpawn
+            | Permission::UiView
+            | Permission::SignalProvide(SignalKind::Occupancy) => {}
+            // The permissions of the lease need `lease:ha`, which the manifest's own parse holds to.
+            Permission::HaRead(_) => {}
+            Permission::HaCall(domains) => {
+                for domain in domains {
+                    if super::ha::NEVER_CALLED.contains(&domain.as_str()) {
+                        found.push(format!(
+                            "ha.call:{domain} (this TV never lets a plugin call those)"
+                        ));
+                    }
+                }
+            }
+            other => found.push(other.to_string()),
+        }
+    }
     found
 }
 
@@ -170,21 +207,8 @@ impl Roster {
                     continue;
                 }
             };
-            if let Err(refusal) = manifest.check_level() {
-                inert(refusal.to_string());
-                continue;
-            }
-            let unsupported = manifest.unsupported();
-            if !unsupported.is_empty() {
-                inert(format!("needs a newer LumaTV ({})", unsupported.join(", ")));
-                continue;
-            }
-            let not_served = unserved(&manifest);
-            if !not_served.is_empty() {
-                inert(format!(
-                    "asks for what this TV does not serve yet ({})",
-                    not_served.join(", ")
-                ));
+            if let Some(why) = refusal(&manifest) {
+                inert(why);
                 continue;
             }
             if !entry.approve.eq_ignore_ascii_case(&approval(&manifest)) {
@@ -195,6 +219,7 @@ impl Roster {
                 id: entry.id.clone(),
                 uid: entry.uid,
                 manifest,
+                program: entry.program.clone(),
             });
         }
         (roster, None)
@@ -240,6 +265,60 @@ mod tests {
     }
 
     #[test]
+    fn the_home_assistant_lease_is_served_but_never_a_call_on_what_is_the_owners_to_operate() {
+        let ha = r#""settings","cards","ha.read:areas,light,lock""#;
+        let on = |permissions: &str, requires: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            let text = manifest_text("a-one", permissions, requires);
+            let approve = install(dir.path(), "a-one", &text);
+            enable(
+                dir.path(),
+                &[("a-one", plugin_api::PLUGIN_UID_BASE, &approve)],
+            );
+            Roster::load(dir.path(), plugin_api::PLUGIN_UID_BASE).0
+        };
+        // Reading a lock's state is allowed; the lease and the occupancy signal are served.
+        let roster = on(
+            &format!("{ha},\"ha.call:light,scene\",\"signal.provide:occupancy\""),
+            "\"lease:ha\"",
+        );
+        assert_eq!(roster.members.len(), 1, "{:?}", roster.inert);
+        // The permissions of the lease need the lease: the plugin API holds that at the manifest.
+        assert!(
+            Manifest::parse(manifest_text("a-one", ha, "").as_bytes()).is_err(),
+            "ha.read without lease:ha"
+        );
+        // Calls on a door, an alarm, a camera, a garage or water are never served, whatever the plugin asks.
+        for domain in ["cover", "camera", "valve"] {
+            let roster = on(&format!("{ha},\"ha.call:light,{domain}\""), "\"lease:ha\"");
+            let why = &roster.inert[0].reason;
+            assert!(
+                why.contains(&format!("ha.call:{domain}"))
+                    && why.contains("never lets a plugin call"),
+                "{why}"
+            );
+        }
+        // A lock is refused by the plugin API itself, before this TV is asked.
+        assert!(
+            Manifest::parse(manifest_text("a-one", "\"ha.call:lock\"", "\"lease:ha\"").as_bytes())
+                .is_err()
+        );
+        // Other leases and the network are still not served.
+        let roster = on(r#""settings","net.lan""#, "");
+        assert!(
+            roster.inert[0].reason.contains("net.lan"),
+            "{:?}",
+            roster.inert
+        );
+        let roster = on(r#""settings""#, r#""lease:camera""#);
+        assert!(
+            roster.inert[0].reason.contains("lease:camera"),
+            "{:?}",
+            roster.inert
+        );
+    }
+
+    #[test]
     fn a_missing_file_is_an_empty_roster_and_a_damaged_one_switches_nothing_on() {
         let dir = tempfile::tempdir().unwrap();
         let (roster, problem) = Roster::load(dir.path(), plugin_api::PLUGIN_UID_BASE);
@@ -282,7 +361,7 @@ mod tests {
         let lease = install(
             dir.path(),
             "d-four",
-            &manifest_text("d-four", r#""cards""#, r#""lease:ha""#),
+            &manifest_text("d-four", r#""cards""#, r#""lease:camera""#),
         );
         let other = install(
             dir.path(),
@@ -348,7 +427,7 @@ mod tests {
             why("b-two")
         );
         assert!(why("c-three").contains("does not serve") && why("c-three").contains("net.mdns"));
-        assert!(why("d-four").contains("lease:ha"));
+        assert!(why("d-four").contains("lease:camera"));
         assert!(why("e-five").contains("another plugin"));
         assert!(why("f-six").contains("outside the plugin range"));
         assert!(roster.inert.iter().any(|i| i.reason == "listed twice"));

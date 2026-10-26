@@ -25,7 +25,9 @@
 //! `voice-link` is how voice search is pointed at Home Assistant: the address is an argument and the token comes on standard input,
 //! so it is in no process list and no shell history that the owner does not choose, and neither is ever printed. It is the only
 //! way to set either (see `voice_store`); a helper that is running is told to read the link again. `hue-link` does the same for
-//! the Hue bridge (see `hue_store`): the keys never appear in an argument or in any output. `z2m-link` does the same for the MQTT
+//! the Hue bridge (see `hue_store`): the keys never appear in an argument or in any output. `ha-link` does the same for the Home
+//! Assistant the plugins' lease dials (see `ha_store`, `plugins::ha`), and `plugin-consent`, `plugin-enable`, `plugin-disable` and
+//! `plugin-status` are how the owner switches a plugin on and off (see `plugins::install`). `z2m-link` does the same for the MQTT
 //! broker Zigbee2MQTT uses (see `ambient_z2m_store`): the password comes on standard input and is never printed.
 //!
 //! `--data-dir <dir>` replaces `--brand` for tests and development. The data dir from `brand.json` is checked by the tool's own
@@ -38,6 +40,7 @@ use crate::config::{Config, Paths, data_dir_from_brand, find_ca_bundle};
 use crate::hue_rest::{self, Area, Bridge, HueError, Tls};
 use crate::hue_store::{self, HueLink};
 use crate::log::{self, Level, Logger};
+use crate::plugins::install;
 use crate::service::{Service, StartOptions};
 use crate::sys::{self, Forked};
 use serde_json::{Value, json};
@@ -69,6 +72,9 @@ struct Args {
     base_topic: Option<String>,
     lights: Vec<String>,
     ble: ble_cli::BleArgs,
+    id: Option<String>,
+    approve: Option<String>,
+    from: Option<PathBuf>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {
@@ -105,6 +111,15 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
             | "--no-standby" | "--always" | "--no-always" | "--rotate-key" => {
                 ble_cli::flag(&mut out.ble, arg, &mut it)?
             }
+            "--id" => out.id = Some(it.next().ok_or("--id needs a plugin id")?.clone()),
+            "--approve" => {
+                out.approve = Some(
+                    it.next()
+                        .ok_or("--approve needs the approval code")?
+                        .clone(),
+                )
+            }
+            "--from" => out.from = Some(it.next().ok_or("--from needs a directory")?.into()),
             "--stderr" => out.stderr = true,
             "-h" | "--help" | "help" if out.command.is_empty() => out.command = "help".to_owned(),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
@@ -139,7 +154,7 @@ fn fail(code: i32, message: &str) -> i32 {
 fn usage() -> Value {
     json!({
         "ok": true,
-        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...] [ble-link: [--port <n>] [--name <node>] [--friendly-name <text>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby|--no-standby] [--always|--no-always] [--rotate-key]]",
+        "usage": "lumatv-helper <run|start|stop|status|check-config|voice-link|voice-unlink|ha-link|ha-unlink|plugin-consent|plugin-enable|plugin-disable|plugin-status|hue-link|hue-area|hue-unlink|z2m-link|z2m-unlink|ble-link|ble-unlink|version> (--brand <brand.json> | --data-dir <dir>) [--stderr] [--url <Home Assistant address>] [--id <plugin> [--approve <code>] [--from <package dir>]] [--host <Hue bridge, Bifrost or MQTT broker> [--port <n>] [--stream-port <n>] [--fps <n>] [--pair] [--area <id>] [--user <name>] [--base-topic <topic>] [--light <name>=<place>]...] [ble-link: [--port <n>] [--name <node>] [--friendly-name <text>] [--scan-seconds <5-30>] [--rest-seconds <window-600>] [--standby|--no-standby] [--always|--no-always] [--rotate-key]]",
     })
 }
 
@@ -196,6 +211,48 @@ pub fn main(args: Vec<String>) -> i32 {
             voice_link(&paths, &config, args.url.as_deref())
         }),
         "voice-unlink" => with_config(&args, voice_unlink),
+        "ha-link" => with_config(&args, |paths, config| {
+            let mut token = String::new();
+            // A token is about 180 characters: a longer input is not one, and is never read whole.
+            if let Err(e) = std::io::stdin().take(4096).read_to_string(&mut token) {
+                return fail(
+                    1,
+                    &format!("could not read the token from standard input: {e}"),
+                );
+            }
+            finish(install::run_ha_link(
+                &paths,
+                &config,
+                args.url.as_deref(),
+                &token,
+            ))
+        }),
+        "ha-unlink" => with_config(&args, |paths, config| {
+            finish(install::run_ha_unlink(&paths, &config))
+        }),
+        "plugin-consent" => with_config(&args, |_, _| match package_dir(&args) {
+            Ok(from) => finish(install::run_consent(&from)),
+            Err(why) => fail(2, &why),
+        }),
+        "plugin-enable" => with_config(&args, |paths, config| {
+            match (package_dir(&args), args.approve.as_deref()) {
+                (Ok(from), Some(approve)) => {
+                    finish(install::run_enable(&paths, &config, &from, approve))
+                }
+                (Ok(_), None) => fail(
+                    2,
+                    "plugin-enable needs --approve <code>: run plugin-consent first and read what the plugin may do",
+                ),
+                (Err(why), _) => fail(2, &why),
+            }
+        }),
+        "plugin-disable" => with_config(&args, |paths, config| match args.id.as_deref() {
+            Some(id) => finish(install::run_disable(&paths, &config, id)),
+            None => fail(2, "plugin-disable needs --id <plugin id>"),
+        }),
+        "plugin-status" => with_config(&args, |paths, config| {
+            finish(install::run_status(&paths, &config))
+        }),
         "hue-link" => with_config(&args, |paths, config| hue_link(&paths, &config, &args)),
         "hue-area" => with_config(&args, |paths, config| hue_area(&paths, &config, &args)),
         "hue-unlink" => with_config(&args, hue_unlink),
@@ -207,6 +264,27 @@ pub fn main(args: Vec<String>) -> i32 {
         "ble-unlink" => with_config(&args, |paths, config| ble_cli::unlink(&paths, &config)),
         other => fail(2, &format!("unknown command {other}")),
     }
+}
+
+/// Prints a command's one JSON object and gives its exit code.
+fn finish((code, doc): install::Outcome) -> i32 {
+    emit(&doc);
+    code
+}
+
+/// The plugin package a command is about: `--from`, else the one the ipk carries (`<app dir>/payload/plugins/<id>`).
+fn package_dir(args: &Args) -> Result<PathBuf, String> {
+    if let Some(from) = &args.from {
+        return Ok(from.clone());
+    }
+    let id = args
+        .id
+        .as_deref()
+        .ok_or("give --id <plugin id> (or --from <package directory>)")?;
+    let brand = args.brand.as_ref().ok_or(
+        "give --brand <brand.json> (the package is in the app) or --from <package directory>",
+    )?;
+    Ok(install::packaged(brand, id))
 }
 
 fn with_config(args: &Args, run: impl FnOnce(Paths, Config) -> i32) -> i32 {
@@ -922,6 +1000,36 @@ mod tests {
         assert_eq!((a.command.as_str(), a.stderr), ("run", true));
         assert_eq!(a.data_dir, Some(PathBuf::from("/tmp/x")));
         assert_eq!(parse_args(&args(&["--help"])).unwrap().command, "help");
+    }
+
+    #[test]
+    fn the_plugin_commands_take_an_id_a_code_and_a_package() {
+        let a = parse_args(&args(&[
+            "plugin-enable",
+            "--brand",
+            "/var/palm/apps/x/brand.json",
+            "--id",
+            "home-assistant",
+            "--approve",
+            "abc123",
+        ]))
+        .unwrap();
+        assert_eq!(
+            (a.id.as_deref(), a.approve.as_deref()),
+            (Some("home-assistant"), Some("abc123"))
+        );
+        assert_eq!(
+            package_dir(&a).unwrap(),
+            PathBuf::from("/var/palm/apps/x/payload/plugins/home-assistant"),
+            "the package the ipk carries"
+        );
+        let a = parse_args(&args(&["plugin-consent", "--from", "/tmp/pkg"])).unwrap();
+        assert_eq!(package_dir(&a).unwrap(), PathBuf::from("/tmp/pkg"));
+        let a = parse_args(&args(&["plugin-consent", "--id", "x"])).unwrap();
+        assert!(package_dir(&a).unwrap_err().contains("--brand"));
+        assert!(parse_args(&args(&["plugin-enable", "--approve"])).is_err());
+        // The token is never an argument: the owner's command has no flag for it.
+        assert!(parse_args(&args(&["ha-link", "--token", "x"])).is_err());
     }
 
     #[test]
