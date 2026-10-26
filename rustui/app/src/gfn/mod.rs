@@ -6,3 +6,9 @@ pub mod core;
 pub mod layout;
 pub mod prefs;
 pub mod ui;
+
+// What the layout checks and the renders go through (tests only).
+#[cfg(test)]
+mod fixtures;
+#[cfg(test)]
+mod shots;

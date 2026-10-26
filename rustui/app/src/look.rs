@@ -64,7 +64,8 @@ pub struct Palette {
     pub accent: Rgba,
     pub second: Rgba,
     pub ink_on_accent: Rgba,
-    /// The backdrop that hides what is under a confirmation or an explanation (`scrimHide`, at least .97 opaque).
+    /// The backdrop that hides what is under a confirmation or an explanation. theme.json's `scrimHide` is .97 opaque; on these cards
+    /// it is fully opaque, so that the rows an explanation covers do not show through it as a ghost.
     pub scrim_hide: Rgba,
     /// Text over a picture's darkened strip: light in both modes, since the strip is dark in both.
     pub on_art: Rgba,
@@ -92,7 +93,7 @@ pub fn palette_for(mode: Mode) -> Palette {
             accent: hex("#A79BF5"),
             second: hex("#ff3b5c"),
             ink_on_accent: hex("#17131F"),
-            scrim_hide: hex("#F8120E1A"),
+            scrim_hide: hex("#FF120E1A"),
             on_art: hex("#F2EFF6"),
             rule: white(0.10),
             wash: white(0.10),
@@ -108,7 +109,7 @@ pub fn palette_for(mode: Mode) -> Palette {
             accent: hex("#907AA9"),
             second: hex("#9E3A57"),
             ink_on_accent: hex("#FFFFFF"),
-            scrim_hide: hex("#F8FAF4ED"),
+            scrim_hide: hex("#FFFAF4ED"),
             on_art: hex("#F2EFF6"),
             rule: black(0.10),
             wash: black(0.08),

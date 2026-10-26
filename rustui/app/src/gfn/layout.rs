@@ -201,6 +201,35 @@ pub fn lines(f: &mut Fonts, text: &str, ty: Type, w: f32, max: usize) -> Vec<Str
     broken.into_iter().map(|l| if f.measure(&l, ty).width > w { ellipsise(f, &l, ty, w) } else { l }).collect()
 }
 
+/// A web address as at most `max` lines of at most `w` pixels, broken after a slash so that each line reads whole; only an address
+/// that cannot fit in `max` lines ends in an ellipsis.
+pub fn url_lines(f: &mut Fonts, url: &str, ty: Type, w: f32, max: usize) -> Vec<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0;
+    for (i, c) in url.char_indices() {
+        if c == '/' {
+            parts.push(&url[start..=i]);
+            start = i + 1;
+        }
+    }
+    if start < url.len() {
+        parts.push(&url[start..]);
+    }
+    let mut out: Vec<String> = vec![String::new()];
+    for p in parts {
+        let candidate = format!("{}{p}", out.last().map_or("", String::as_str));
+        if out.last().is_some_and(String::is_empty) || width(f, &candidate, ty) <= w {
+            if let Some(last) = out.last_mut() {
+                *last = candidate;
+            }
+        } else {
+            out.push(p.to_owned());
+        }
+    }
+    out.truncate(max.max(1));
+    out.into_iter().map(|l| if width(f, &l, ty) > w { ellipsise(f, &l, ty, w) } else { l }).collect()
+}
+
 fn width(f: &mut Fonts, text: &str, ty: Type) -> f32 {
     f.measure(text, ty).width
 }
@@ -423,7 +452,7 @@ fn plan_panel(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
             let mut y = body_y;
             p.text(Lay::Body, app.sign_in.user_code.clone(), t.code, Ink::Ink, panel.x + PAD, panel.y + y, col, Align::Left, Some(ps));
             y += line_height(t.code) + 16.0;
-            for l in lines(f, &app.sign_in.url, t.label, col, 2) {
+            for l in url_lines(f, &app.sign_in.url, t.label, col, 2) {
                 p.text(Lay::Body, l, t.label, Ink::Ink2, panel.x + PAD, panel.y + y, col, Align::Left, Some(ps));
                 y += line_height(t.label);
             }
@@ -486,17 +515,53 @@ pub fn settings_body_y(m: &Metrics) -> f32 {
 
 const ROW_INSET: f32 = 28.0;
 
-/// The help card of row `i`: its frame and its lines (the card's width is the card's inner width at most 840, widening with the text).
+/// The help card of row `i`: its frame and its lines. It is as wide as the rows, so that it hides the rows it lies over whole and no
+/// value is left without its name. It goes under the row if it fits there, else over it, and where the text is too large for either
+/// (200 %) it covers the list from its top, with the row's name as its title.
 pub fn help_card(f: &mut Fonts, m: &Metrics, i: usize) -> (Frame, Vec<String>) {
     let panel = panel_frame(m);
     let t = &m.ty;
-    let cw = ((840.0 * (1.0 + (m.s - 1.0) * 0.6)).round()).min(inner_w(m));
+    let cw = inner_w(m);
     let body = lines(f, Row::ALL[i].help(), t.label, cw - 2.0 * ROW_INSET, 0);
     let ch = ROW_INSET + line_height(t.label) + 10.0 + body.len() as f32 * line_height(t.label) + ROW_INSET;
-    let row = settings_row_frame(m, settings_body_y(m), i);
+    let body_y = settings_body_y(m);
+    let row = settings_row_frame(m, body_y, i);
     let below = row.bottom() + 12.0;
-    let y = if below + ch <= panel.bottom() - PAD + 8.0 { below } else { (row.y - 12.0 - ch).max(panel.y + settings_body_y(m) - 46.0 + 8.0) };
-    (Frame::new(panel.x + PAD, y.round(), cw, ch), body)
+    // the card stays between the head's rule and the hint line, which it never covers half
+    let (limit_top, limit_bottom) = (panel.y + body_y - 46.0 + 8.0, panel.bottom() - PAD - hint_height(f, m, Screen::Settings) - 12.0);
+    let (top, bottom) = if below + ch <= limit_bottom {
+        // under the row, down to the end of the last row it reaches into: no row is left half covered
+        let mut end = below + ch;
+        for j in i + 1..Row::ALL.len() {
+            let r = settings_row_frame(m, body_y, j);
+            if end <= r.y {
+                break;
+            }
+            if end <= r.bottom() {
+                end = r.bottom();
+                break;
+            }
+        }
+        (below, end)
+    } else if row.y - 12.0 - ch >= limit_top {
+        // over the row, up to the start of the first row it reaches into
+        let mut start = row.y - 12.0 - ch;
+        for j in (0..i).rev() {
+            let r = settings_row_frame(m, body_y, j);
+            if start >= r.bottom() {
+                break;
+            }
+            if start >= r.y {
+                start = r.y;
+                break;
+            }
+        }
+        (start, row.y - 12.0)
+    } else {
+        let last = settings_row_frame(m, body_y, Row::ALL.len() - 1).bottom();
+        (limit_top, (limit_top + ch).max(last).min(limit_bottom))
+    };
+    (Frame::new(panel.x + PAD, top.round(), cw, (bottom - top).round()), body)
 }
 
 fn plan_settings(app: &App, m: &Metrics, f: &mut Fonts) -> Plan {
@@ -816,102 +881,8 @@ pub fn over(fg: compositor_protocol::Rgba, bg: [f32; 3]) -> [f32; 3] {
 mod tests {
     use super::*;
     use crate::gfn::app::{Game, Stats};
+    use crate::gfn::fixtures::every_screen;
     use crate::look::{Mode, palette_for};
-    use serde_json::json;
-
-    fn games(n: usize) -> Vec<Game> {
-        (0..n)
-            .map(|i| Game {
-                id: format!("g{i}"),
-                variant_id: format!("v{i}"),
-                title: ["Portal 2", "The Witcher 3: Wild Hunt - Complete Edition", "Counter-Strike 2", "Cyberpunk 2077", "Supercalifragilisticexpialidocious Adventures", "Hades"][i % 6].into(),
-                image_url: format!("https://x/{i}.jpg"),
-                store: "STEAM".into(),
-                in_library: true,
-            })
-            .collect()
-    }
-
-    /// Every screen the app has, in a state that fills it: the longest words the rules produce.
-    pub fn every_screen() -> Vec<(&'static str, App)> {
-        let mut out = Vec::new();
-        let base = || {
-            let mut a = App::new();
-            a.signed_in = true;
-            a.user_name = "Nitin Phil".into();
-            a.tier = "ULTIMATE".into();
-            a.games = games(40);
-            a.runtime_capabilities = json!({"nativeHdrSupported": true});
-            a
-        };
-        let mut a = App::new();
-        a.screen = Screen::Starting;
-        out.push(("starting", a));
-        let mut a = base();
-        a.screen = Screen::SignIn;
-        a.sign_in.user_code = "ABCD-EFGH".into();
-        a.sign_in.url = "https://www.nvidia.com/en-us/geforce-now/activate".into();
-        a.sign_in.status = "pending".into();
-        out.push(("signin", a));
-        let mut a = base();
-        a.screen = Screen::Library;
-        out.push(("library", a));
-        let mut a = base();
-        a.screen = Screen::Library;
-        a.focus = 17;
-        a.first_row = 2;
-        out.push(("library-scrolled", a));
-        let mut a = base();
-        a.screen = Screen::Library;
-        a.header_focus = true;
-        out.push(("library-header", a));
-        let mut a = base();
-        a.screen = Screen::Library;
-        a.games.clear();
-        out.push(("library-empty", a));
-        for (i, name) in ["settings", "settings-hdr", "settings-bitrate", "settings-deadzone", "settings-stats"].into_iter().enumerate() {
-            let mut a = base();
-            a.screen = Screen::Settings;
-            a.settings_row = i;
-            out.push((name, a));
-        }
-        for i in [0usize, 2, 4] {
-            let mut a = base();
-            a.screen = Screen::Settings;
-            a.settings_row = i;
-            a.help_open = true;
-            out.push((["settings-help-stream", "", "settings-help-bitrate", "", "settings-help-stats"][i], a));
-        }
-        let mut a = base();
-        a.screen = Screen::Detail;
-        a.detail = Some(games(2)[1].clone());
-        a.decision = "ownership_required".into();
-        out.push(("detail-blocked", a));
-        let mut a = base();
-        a.screen = Screen::Detail;
-        a.detail = Some(games(2)[1].clone());
-        a.decision = "ready".into();
-        out.push(("detail-ready", a));
-        let mut a = base();
-        a.screen = Screen::Launching;
-        a.detail = Some(games(2)[1].clone());
-        out.push(("launching", a));
-        let mut a = base();
-        a.screen = Screen::Stream;
-        a.now_ms = 1000;
-        a.chrome_until_ms = 5000;
-        a.stats = Stats { status: "streaming".into(), fps: 119.6, bitrate_mbps: 78.4, input_ready: false, queue_drops: 12345, ..Default::default() };
-        out.push(("stream", a));
-        let mut a = base();
-        a.screen = Screen::Overlay;
-        a.prefs.show_stats = true;
-        out.push(("overlay", a));
-        let mut a = base();
-        a.screen = Screen::Error;
-        a.error = "The session could not be started because the service says there is no seat for this game right now (upstream)".into();
-        out.push(("error", a));
-        out
-    }
 
     #[test]
     fn at_100_percent_the_numbers_are_the_ones_the_screens_always_had() {
@@ -1070,9 +1041,9 @@ mod tests {
     }
 
     #[test]
-    fn the_scrims_that_hide_the_page_are_at_least_97_percent() {
+    fn the_scrims_that_hide_the_page_are_opaque() {
         for mode in [Mode::Dark, Mode::Light] {
-            assert!(palette_for(mode).scrim_hide.3 >= 247, "{mode:?}");
+            assert_eq!(palette_for(mode).scrim_hide.3, 255, "{mode:?}");
         }
     }
 

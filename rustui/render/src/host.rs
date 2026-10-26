@@ -142,6 +142,8 @@ pub struct Engine {
     window: (u32, u32),
     direct: bool,
     gpu_sync: bool,
+    /// Frames are cleared to nothing, not to opaque black ([`Engine::set_transparent`]).
+    transparent: bool,
     highest_tag: u64,
     taken_tag: u64,
     /// Ops taken in since the last frame, applied with the frame (as the render thread applies a wake's batches).
@@ -334,6 +336,7 @@ impl Engine {
                 direct: config.direct,
                 copy: config.blit,
                 gpu_sync: config.gpu_sync,
+                transparent: false,
                 highest_tag: 0,
                 taken_tag: 0,
                 waiting: Vec::new(),
@@ -579,6 +582,12 @@ impl Engine {
         self.forward_events();
     }
 
+    /// Clears each frame to nothing instead of opaque black, so that the window shows what is under it wherever no layer is drawn:
+    /// an app over a video plane (the GeForce NOW app over its stream). A scene whose layers cover the whole window looks the same.
+    pub fn set_transparent(&mut self, on: bool) {
+        self.transparent = on;
+    }
+
     /// Takes in the waiting commits, draws the scene as it is at `now_ns` and leaves it in the window's framebuffer, ready for
     /// the swap.
     pub fn draw(&mut self, now_ns: u64) -> FrameCost {
@@ -594,7 +603,7 @@ impl Engine {
         }
         let target = if self.direct { 0 } else { self.pages[page].framebuffer };
         let slot = ring.then_some(page);
-        let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: false };
+        let surface = Surface { stack: 0, from: 0, to: self.drawn.len(), transparent: self.transparent };
         let own = Draw { surface, slot, target, areas: None, clear: true };
         let whole = self.reference.map(|r| Draw { surface, slot: None, target: r.framebuffer, areas: None, clear: true });
         let draws = [own, whole.unwrap_or(own)];

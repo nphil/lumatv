@@ -269,6 +269,8 @@ fn run(o: Options) -> io::Result<i32> {
         gles,
         HostConfig { width: W as u32, height: H as u32, refresh_hz: 60.0, shm_dir: o.shm.clone(), direct: false, gpu_sync: false, idle_trim: true, pages: 0, reference: false, blit: true, external: false, system_z: i32::MAX },
     )?;
+    // Over the stream the window is clear but for the status line and the overlay: the video plane shows through everywhere else.
+    engine.set_transparent(true);
     let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
     engine.finish_handshake()?;
     let mut ui = Ui::new(scene);
