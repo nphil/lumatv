@@ -23,12 +23,16 @@
 #   setting  hold a value in LG's settings service
 #   app      remove a server-pushed stub app, take its entries out of the
 #            customization lists SAM syncs from, and mark it deleted
+#   sync     mark every id of LG's country lists that is not installed as
+#            deleted, so the wake-time customization sync adds nothing
 # Nothing under /usr, /etc or the rootfs is written. SAM, WebAppMgr, the
 # compositor and tvpowerd are never touched: names on the deny list below make
 # the tool refuse to start. The state before the first change is kept in
 # $STATE/declutter/before and `off` puts exactly that back.
 #
 # DECLUTTER_DRY=1 prints every change instead of making it.
+# DECLUTTER_ROOT=DIR prefixes every path the tool reads or writes on the set
+# (the host tests run it against a made-up set; empty on the TV).
 
 set -u
 
@@ -48,11 +52,12 @@ brand_load "$APPDIR/brand.json" 2>/dev/null || {
   exit 1
 }
 
+ROOT="${DECLUTTER_ROOT:-}"
 SRC="$APPDIR/payload/declutter"
 ITEMS="$SRC/items.txt"
 GROUPS_FILE="$SRC/groups.txt"
 PY="$SRC/dc.py"
-DCS="$BRAND_DATA_DIR/declutter"
+DCS="$ROOT$BRAND_DATA_DIR/declutter"
 BEFORE="$DCS/before"
 ACTIVE="$DCS/active"
 PROFILE_FILE="$DCS/profile"
@@ -64,9 +69,9 @@ BOOT_PENDING="$DCS/.boot-pending"
 SKIP="$DCS/skip"
 # Searched before /etc/systemd/system. RUNSYS_OLD is where earlier versions put
 # their masks, which have no effect on units defined in /etc; removed on contact.
-RUNSYS=/run/systemd/system.control
-RUNSYS_OLD=/run/systemd/system
-INIT_LINK=/var/lib/webosbrew/init.d/52-declutter
+RUNSYS=$ROOT/run/systemd/system.control
+RUNSYS_OLD=$ROOT/run/systemd/system
+INIT_LINK=$ROOT/var/lib/webosbrew/init.d/52-declutter
 DRY="${DECLUTTER_DRY:-0}"
 
 # Units this tool must never stop, whatever items.txt says.
@@ -197,7 +202,7 @@ refuse_denied() {
 # ---------------------------------------------------------------- units
 
 unit_exists() {
-  [ -e "/etc/systemd/system/$1" ] || [ -e "/lib/systemd/system/$1" ] || [ -e "/usr/lib/systemd/system/$1" ]
+  [ -e "$ROOT/etc/systemd/system/$1" ] || [ -e "$ROOT/lib/systemd/system/$1" ] || [ -e "$ROOT/usr/lib/systemd/system/$1" ]
 }
 
 unit_state() {
@@ -358,19 +363,31 @@ setting_off() {
 }
 
 # ---------------------------------------------------------------- apps
-# The sync that pushed them: at every boot SAM waits for network, the install
-# service and sdx_auth, then asks contentminer for the server's country app list
-# (RequestServerInfo), writes it to the customization lists and has the install
-# service add every id that is missing and not on the deleted list. sdx and
-# contentminer are in the push and ads groups; this group removes what the sync
-# already brought and what it would bring back.
+# The sync that pushed them: at every boot and every wake SAM waits for network,
+# the install service and sdx_auth, homelaunchpoints asks sdx for the server's
+# country app list (RequestServerInfo), SAM writes it to the customization lists
+# and has the install service add every id that is missing and not on the
+# deleted list. sdx stays (the store needs it), so the sync runs at every wake;
+# the immutable lists and the deleted list are what keep it from adding apps.
+# The `app` items remove what the sync (or the app updater) already brought and
+# what it would bring back; a `sync` item marks every id of the lists that is
+# not installed as deleted, so the sync has nothing left to add.
 
-APP_ROOT=/media/cryptofs/apps
-CUSTOM_DIR=/var/palm/customization/launchpoints
-DELETED_LIST=/var/preferences/com.webos.applicationManager/deletedSystemAppList.json
+APP_ROOT=$ROOT/media/cryptofs/apps
+CUSTOM_DIR=$ROOT/var/palm/customization/launchpoints
+DELETED_LIST=$ROOT/var/preferences/com.webos.applicationManager/deletedSystemAppList.json
 
 app_ids() {
   group_items "$1" | awk -F'|' '$1=="app" {print $3}'
+}
+
+group_syncs() {
+  group_items "$1" | grep -q "^sync|"
+}
+
+# A group that edits the customization lists: app items, a sync item, or both.
+group_has_apps() {
+  [ -n "$(app_ids "$1")" ] || group_syncs "$1"
 }
 
 app_installed() {
@@ -392,10 +409,32 @@ backup_file() {
   record file "$1" "$BACKUP/$key"
 }
 
+# The list edits of one group, on files that are writable: its ids out of every
+# customization list and onto the deleted list; with a sync item, every id of the
+# lists that is not installed onto the deleted list too. Its variables are its
+# own (eg, eids): apps_off calls it for other groups while it still needs g and ids.
+apps_edit_lists() {
+  eg=$1
+  eids=$(app_ids "$eg")
+  if [ -n "$eids" ]; then
+    # shellcheck disable=SC2086
+    for f in $(custom_files); do
+      if [ "$DRY" = 1 ]; then printf '+ strip %s from %s\n' "$eids" "$f" >&2; else py strip "$f" $eids >/dev/null; fi
+    done
+    if [ -f "$DELETED_LIST" ]; then
+      if [ "$DRY" = 1 ]; then printf '+ deleted-list add %s\n' "$eids" >&2; else py deleted "$DELETED_LIST" $eids >/dev/null; fi
+    fi
+  fi
+  if group_syncs "$eg" && [ -f "$DELETED_LIST" ]; then
+    if [ "$DRY" = 1 ]; then printf '+ deleted-list add every id of the lists that is not installed\n' >&2
+    else py deleted-missing "$DELETED_LIST" $(custom_files) >/dev/null; fi
+  fi
+}
+
 apps_on() {
   g=$1
+  group_has_apps "$g" || return 0
   ids=$(app_ids "$g")
-  [ -n "$ids" ] || return 0
   mkdir -p "$BACKUP" 2>/dev/null
   # shellcheck disable=SC2086
   for f in $(custom_files) "$DELETED_LIST"; do
@@ -405,27 +444,19 @@ apps_on() {
   done
   for id in $ids; do
     if app_installed "$id" && ! grep -q "^app|$id|" "$BEFORE" 2>/dev/null; then
-      tar czf "$BACKUP/app-$id.tgz" -C / \
-        "${APP_ROOT#/}/usr/palm/applications/$id" \
-        "${APP_ROOT#/}/usr/palm/packages/$id" \
-        "${APP_ROOT#/}/var/lib/opkg/info/$id.control" \
-        "${APP_ROOT#/}/var/lib/opkg/info/$id.list" 2>/dev/null
+      # only what the app has: a factory stub has no packages dir, and a missing member must not cost the archive
+      parts=""
+      for p in "usr/palm/applications/$id" "usr/palm/packages/$id" "var/lib/opkg/info/$id.control" "var/lib/opkg/info/$id.list"; do
+        [ -e "$APP_ROOT/$p" ] && parts="$parts ${APP_ROOT#"$ROOT"/}/$p"
+      done
+      # shellcheck disable=SC2086
+      tar czf "$BACKUP/app-$id.tgz" -C "${ROOT:-/}" $parts 2>/dev/null
       record app "$id" installed
     fi
   done
+  apps_edit_lists "$g"
   # shellcheck disable=SC2086
-  for f in $(custom_files); do
-    [ "$DRY" = 1 ] && { printf '+ strip %s from %s\n' "$ids" "$f" >&2; continue; }
-    py strip "$f" $ids >/dev/null
-    chattr +i "$f" 2>/dev/null
-  done
-  if [ -f "$DELETED_LIST" ]; then
-    if [ "$DRY" = 1 ]; then
-      printf '+ deleted-list add %s\n' "$ids" >&2
-    else
-      py deleted "$DELETED_LIST" $ids >/dev/null
-    fi
-  fi
+  for f in $(custom_files); do mut chattr +i "$f" 2>/dev/null; done
   for id in $ids; do
     app_installed "$id" || continue
     mut luna-send -n 1 luna://com.webos.appInstallService/remove "{\"id\":\"$id\",\"subscribe\":false}" >/dev/null 2>&1
@@ -443,10 +474,13 @@ apps_on() {
   return 0
 }
 
+# The lists go back to what they were before the first group touched them, then
+# every other group that is still on edits them again, so switching one group
+# off does not undo another's.
 apps_off() {
   g=$1
+  group_has_apps "$g" || return 0
   ids=$(app_ids "$g")
-  [ -n "$ids" ] || return 0
   grep -h "^file|" "$BEFORE" 2>/dev/null | while IFS='|' read -r k f b; do
     [ -f "$b" ] || continue
     mut chattr -i "$f" 2>/dev/null
@@ -455,9 +489,17 @@ apps_off() {
   for id in $ids; do
     [ -f "$BACKUP/app-$id.tgz" ] || continue
     app_installed "$id" && continue
-    mut tar xzf "$BACKUP/app-$id.tgz" -C /
+    mut tar xzf "$BACKUP/app-$id.tgz" -C "${ROOT:-/}"
   done
-  log_line "apps restored from backup; SAM sees them at the next start (reboot)"
+  for o in $(cat "$ACTIVE" 2>/dev/null); do
+    [ "$o" = "$g" ] && continue
+    group_has_apps "$o" || continue
+    apps_edit_lists "$o"
+    # shellcheck disable=SC2086
+    for f in $(custom_files); do mut chattr +i "$f" 2>/dev/null; done
+  done
+  [ -n "$ids" ] && log_line "apps restored from backup; SAM sees them at the next start (reboot)"
+  return 0
 }
 
 # ---------------------------------------------------------------- groups
@@ -510,7 +552,7 @@ $items
 EOF
     kill_exes "$pats"
   fi
-  case "$g" in apps) apps_on "$g" ;; esac
+  apps_on "$g"
   mark_active "$g"
   log_line "group $g on"
 }
@@ -550,7 +592,7 @@ group_off() {
 $items
 EOF
   units_restore
-  case "$g" in apps) apps_off "$g" ;; esac
+  apps_off "$g"
   unmark_active "$g"
   log_line "group $g off"
   return 0
@@ -568,7 +610,7 @@ state_json() {
   total=0
   done_=0
   apps=""
-  [ "$g" = apps ] && apps=$(py apps 2>/dev/null)
+  group_has_apps "$g" && apps=$(py apps 2>/dev/null)
   items=$(group_items "$g")
   while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -583,7 +625,8 @@ state_json() {
           exe_running "$N" || done_=$((done_ + 1))
         fi ;;
       setting) [ "$(py get "$N")" = "$A" ] && done_=$((done_ + 1)) ;;
-      app) printf '%s\n' "$apps" | grep -qxF "$N" || done_=$((done_ + 1)) ;;
+      app) printf '%s\n' "$apps" | grep -qxF "$N" || app_installed "$N" || done_=$((done_ + 1)) ;;
+      sync) [ "$(py deleted-missing --check "$DELETED_LIST" $(custom_files) 2>/dev/null)" = 0 ] && done_=$((done_ + 1)) ;;
     esac
   done <<EOF
 $items

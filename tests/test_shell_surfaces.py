@@ -132,6 +132,39 @@ class Shell(HostCase):
         self.assertEqual(got["done"], "apps/dock/0/0/")
         self.assertEqual(calls("/remove")(got["done_calls"]), [{"id": "com.crunchyroll.webapp", "subscribe": False}])
 
+    def test_a_held_ok_on_a_dock_tile_offers_uninstall_asks_first_and_a_system_tile_or_an_input_has_no_uninstall(self):
+        items = probe("bodyH", "s.items.map(function(i) { return i.id })")
+        press = "(function(){ root.key(Qt.Key_Return, true, false, 0); return root.layerOpen })()"
+        release = "(function(){ root.key(Qt.Key_Return, false, false, 0); return root.layerOpen })()"
+
+        def focus(app_id):
+            # the dock's focus straight onto one tile, wherever its row is (the Home Hub and the HDMI bookmark sit past the first row's end)
+            return ("(function(){ " + FIND + "var d = find(root, 'appsTileId', false); var i = d.points.map(function(p) { return p.id }).indexOf('%s'); "
+                    "if (i < 0) return 'absent'; d.row = Math.floor(i / d.cols); d.col = i %% d.cols; root.focusLayer = 'dock'; return d.focusedTile().id })()" % app_id)
+        got = self.run_host([(0, "keys", "right"), (100, "eval", press, "pressed"), (1000, "eval", release, "released"),             # Netflix: OK held
+                             (1300, "eval", STATE, "held"), (1300, "eval", items, "netflix_items"),
+                             (1400, "keys", "down down down down ok"), (2400, "eval", STATE, "asked"),                              # Uninstall: the question
+                             (2500, "keys", "ok"), (3400, "eval", STATE, "kept"), (3400, "eval", CALLS, "kept_calls"),                # Keep it
+                             (3500, "keys", "menu"), (4400, "keys", "down down down down ok"), (5400, "keys", "right ok"),            # again, now Uninstall
+                             (6400, "eval", STATE, "done"), (6400, "eval", CALLS, "done_calls"),
+                             (6500, "eval", focus("com.webos.app.homeconnect"), "hub"), (6600, "keys", "menu"), (7500, "eval", items, "hub_items"),
+                             (7600, "keys", "back"), (8300, "eval", focus("com.webos.app.hdmi2"), "hdmi"), (8400, "keys", "menu"), (9300, "eval", items, "hdmi_items"),
+                             (9400, "keys", "back"), (10300, "eval", STATE, "after")], 10800)
+        self.assertEqual(got["pressed"], "", "the press alone opens nothing: OK is decided on release, a hold by its timer")
+        self.assertEqual(got["released"], "menu", "OK held on Netflix did not open its options")
+        self.assertEqual(got["held"], "menu/dock/0/1/", "the release of a held OK must not act on the menu")
+        self.assertEqual(json.loads(got["netflix_items"]), ["open", "move", "unpin", "rename", "uninstall"])
+        self.assertEqual(got["asked"], "confirm/dock/0/1/", "Uninstall must ask first")
+        self.assertEqual(got["kept"], "/dock/0/1/", "Keep it goes back to Home with the tile still focused")
+        self.assertEqual(calls("/remove")(got["kept_calls"]), [], "Keep it uninstalled something")
+        self.assertEqual(got["done"], "/dock/0/1/")
+        self.assertEqual(calls("/remove")(got["done_calls"]), [{"id": "netflix", "subscribe": False}], "the dock's Uninstall goes through the install service")
+        self.assertEqual(got["hub"], "com.webos.app.homeconnect")
+        self.assertEqual(json.loads(got["hub_items"]), ["open", "move", "unpin", "rename"], "LG's Home Hub is a system app: no Uninstall")
+        self.assertEqual(got["hdmi"], "com.webos.app.hdmi2")
+        self.assertEqual(json.loads(got["hdmi_items"]), ["open", "move", "unpin", "rename"], "an HDMI bookmark is an input, not an app: no Uninstall")
+        self.assertTrue(got["after"].startswith("/dock/"), got["after"])
+
     def test_search_opens_from_the_status_bar_types_picks_and_back_returns_to_the_bar(self):
         bar = "(function(){ root.focusLayer = 'statusbar'; root.statusFocusIndex = root.statusItems.length - 1; return root.statusItems[root.statusFocusIndex].type })()"
         got = self.run_host([(-300, "eval", bar, "item"), (0, "keys", "ok"), (900, "eval", STATE, "opened"), (1000, "keys", "back"), (1900, "eval", STATE, "closed"),

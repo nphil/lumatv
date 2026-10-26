@@ -7,6 +7,7 @@
 #         shared interpreters, where a bind mount cannot or must not reach)
 # setting name = category.key in LG's settings service; arg = JSON value to hold
 # app     name = app id removed through appInstallService
+# sync    every id of LG's country lists that is not installed goes on SAM's deleted list
 # Every name here was seen running or enabled on the set (docs/research/declutter-result.md).
 
 unit|uploaders|rdxd.service||diagnostics collector; rdx.lgtvcommon.com in the boot log
@@ -52,6 +53,21 @@ setting|settings|other.contentRecommendation|"off"|content recommendation
 
 app|apps|com.miniclip.eightballpool||stub installed 2026-10-13 03:47 by the boot-time app sync
 app|apps|com.lgtvod.us.app||LG Movies & TV, installed 2026-09-22 by the same sync
+
+# LG's silent installs (docs/research/autoinstall-result.md): the app updater (appinstalld under its
+# second name com.webos.appUpdateService; activity .check daily at 02:49 local, .power at every power
+# change) installs what LG's app/update list names, the full app behind a factory stub included: that is
+# how DAZN appeared on 2026-10-25 02:59, with the set in Active Standby and LG's "Allow Automatic Updates"
+# off. The wake-time customization sync adds every id of LG's country list that is neither installed nor
+# on SAM's deleted list. The store's own installs and updates (by hand) are untouched.
+setting|autoinstall|option.appUpdateMode|"manual"|LG's automatic app update switch (Home Hub reads it as "Automatic Update"); auto on the set
+setting|autoinstall|support.automaticUpdate|"off"|LG's "Allow Automatic Updates" (Support > Software Update), subscribed by the updater; off on the set, held
+app|autoinstall|dazn||factory stub (US7 list, 2024-10-12), replaced by the full app on 2026-10-25 02:59 by the updater; removed by hand at 20:20
+app|autoinstall|tv.twitch.tv.starshot.lg||factory stub, dormant (a folder and an opkg entry, not in SAM's lists); the same route open
+app|autoinstall|karaokesmart||factory stub (Kanto), dormant
+app|autoinstall|com.joinhighbrow.highbrow||factory stub, dormant
+app|autoinstall|com.deltatre.tennistv.lgapp||factory stub, dormant
+sync|autoinstall|lists||every id of LG's country lists that is not installed goes on the deleted list: the wake-time sync adds nothing
 
 unit|voice|voiceconductor.service||voice assistant conductor; spawns performer, ThinQ AI, Alexa adapters
 unit|voice|voiceinput.service||voice input

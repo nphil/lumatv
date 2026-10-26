@@ -58,6 +58,13 @@ def _():
     return apps_open() + [("keys", READY + 700, "down menu"), ("keys", READY + 1800, "down down down down ok"), ("snap", READY + 3000, "06-confirm-uninstall")]
 
 
+@scene("06-confirm-uninstall-dock")
+def _():
+    # Home's dock: Right to Netflix, OK held (700 ms) opens its options; Down to Uninstall, OK: the question over Home
+    return [("keys", READY, "right"), ("eval", READY + 100, "root.key(Qt.Key_Return, true, false, 0)"), ("eval", READY + 1000, "root.key(Qt.Key_Return, false, false, 0)"),
+            ("keys", READY + 1400, "down down down down ok"), ("snap", READY + 2800, "06-confirm-uninstall-dock")]
+
+
 @scene("09-search-keyboard")
 def _():
     # the mic hint shows when the helper says voice search is ready

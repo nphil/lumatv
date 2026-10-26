@@ -6,6 +6,9 @@
     dc.py apps                        installed app ids, one per line (SAM's listApps)
     dc.py strip <file> <id>...        drop app ids from every list in a JSON file; prints how many
     dc.py deleted <file> <id>...      add app ids to a deletedList JSON file; prints how many
+    dc.py deleted-missing [--check] <deleted-file> <applist>...
+                                      add every id of the customization lists that SAM does not list as
+                                      installed to the deleted list; prints how many (--check: only counts)
     dc.py measure [seconds]           one JSON object: memory, resident sizes, CPU over the interval
 """
 import json
@@ -73,19 +76,65 @@ def cmd_strip(path, ids):
     print(n)
 
 
-def cmd_deleted(path, ids):
+def read_deleted(path):
     try:
         with open(path) as f:
             d = json.load(f)
     except (OSError, ValueError):
         d = {}
-    lst = d.setdefault('deletedList', [])
+    return d, d.setdefault('deletedList', [])
+
+
+def cmd_deleted(path, ids):
+    d, lst = read_deleted(path)
     add = [i for i in ids if i not in lst]
     if add:
         lst.extend(add)
         with open(path, 'w') as f:
             json.dump(d, f, separators=(',', ':'))
     print(len(add))
+
+
+def list_ids(node, out):
+    """Every string in every list of a customization file (applications_dosci and the rest)."""
+    if isinstance(node, dict):
+        for v in node.values():
+            list_ids(v, out)
+    elif isinstance(node, list):
+        for x in node:
+            if isinstance(x, str):
+                out.append(x)
+            else:
+                list_ids(x, out)
+    return out
+
+
+def cmd_deleted_missing(path, lists, check):
+    """Every id of the customization lists that SAM does not list as installed goes on the deleted list,
+    so the wake-time sync has nothing to add. With check, only prints how many are not there yet."""
+    r = luna('luna://com.webos.applicationManager/listApps', {})
+    installed = {a.get('id', '') for a in r.get('apps') or []}
+    if not r.get('returnValue'):
+        print('error: ' + str(r.get('errorText') or r))
+        return 1
+    ids = []
+    for p in lists:
+        try:
+            with open(p) as f:
+                list_ids(json.load(f), ids)
+        except (OSError, ValueError):
+            pass
+    d, lst = read_deleted(path)
+    add = sorted({i for i in ids if i and i not in installed and i not in lst})
+    if check:
+        print(len(add))
+        return 0
+    if add:
+        lst.extend(add)
+        with open(path, 'w') as f:
+            json.dump(d, f, separators=(',', ':'))
+    print(len(add))
+    return 0
 
 
 def rd(path):
@@ -189,6 +238,15 @@ def main(argv):
         cmd_strip(argv[2], argv[3:])
     elif c == 'deleted' and len(argv) >= 4:
         cmd_deleted(argv[2], argv[3:])
+    elif c == 'deleted-missing' and len(argv) >= 3:
+        args = argv[2:]
+        check = args[0] == '--check'
+        if check:
+            args = args[1:]
+        if not args:
+            print(__doc__)
+            return 2
+        return cmd_deleted_missing(args[0], args[1:], check)
     elif c == 'measure':
         cmd_measure(int(argv[2]) if len(argv) > 2 else 30)
     else:

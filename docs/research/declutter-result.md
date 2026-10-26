@@ -24,6 +24,9 @@ Raw census and measurements: workstation `/tmp/lt/dc/` (`census*.tgz`, `live/`,
 - Open: the hook in `tools/lumatv` (request at the end; SurfacesP2c wires it);
   the clean off/on A/B (needs a reboot for the stock side, no slot was left);
   group `ai` never switched on.
+- LG's silent app installs (DAZN, 2026-10-25 02:59, the app updater turning a
+  factory stub into the full app in standby) and the `autoinstall` group that
+  blocks them, not yet on the set: `autoinstall-result.md`.
 
 ## Decision
 
