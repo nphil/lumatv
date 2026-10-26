@@ -1701,10 +1701,11 @@ Started: Volume and Mute (step 1). The engine host is built and host-tested
 context, the two stacks drawn round the windows on the live tick path, the
 receipts carried through the KMS flips; `docs/research/rustui-result.md`,
 "Engine in the compositor"), not run on the set; the UI channel and Home
-on stack 0 are not started. The other key filters wait on the remote's
-codes for the gear, Input and app keys (an evdev tap on the set while
-Nitin presses them, or LG's keymap, which the read-only probe now looks
-for).
+on stack 0 are not started. The other key filters (gear, Input, the app
+keys, Quick Access digits, Mute held, Exit) and IME routing are built and
+host-tested, not run on the set: `compositor-step1-result.md` (codes, the
+interim targets of the windows that live only in LG's compositor, the TV
+test `tv_gate.py --only keys,ime`).
 
 ## Enable path and the hook request for tools/lumatv
 

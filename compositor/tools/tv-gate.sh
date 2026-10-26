@@ -314,24 +314,24 @@ keys)
     if [ -z "$bad" ]; then pass keys "$detail"; else fail keys "$detail"; fi
     ;;
 ime)
-    # A text field brings up maliit's keyboard under LumaTV's compositor. LG's Search app (a Qt app, com.webos.app.voice) has the field: OK
-    # on it asks for a text model. The check reads `ctl ime`: an input method bound (maliit-server, started by LG's own request if it was
-    # not running: the detail says what it was), a context made for the field, the keyboard's window on the screen at the bottom, a key
-    # typed on it (OK presses the key that has its focus) reaching the field, and Back, or else Exit, closing the keyboard.
+    # A text field brings up maliit's keyboard under LumaTV's compositor. LG's Search app (a Qt app, com.webos.app.voice) is launched in its
+    # keyboard mode (launchMode vkb: the field focused, the keyboard asked for); if no keyboard comes up by itself, OK on the field asks, at
+    # 10 s and again at 18 s. The check reads `ctl ime`: an input method bound (maliit-server, started by LG's own request if it was not
+    # running: the detail says what it was), a context made for the field, the keyboard's window on the screen at the bottom, a key typed on
+    # it (OK presses the key that has its focus) reaching the field, and Back, or else Exit, closing the keyboard.
     mal0=$(systemctl is-active maliit-server.service)
     home; sleep 3
-    ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.voice"}' > /dev/null
+    ctl note ime-open > /dev/null
+    ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.voice","params":{"activateType":"mrcu","launchMode":"vkb"}}' > /dev/null
     if ! wait_fg com.webos.app.voice 15; then
         fail ime "LG's Search app (com.webos.app.voice) did not come to the front (foreground $(fg), maliit-server was $mal0)"
     else
-        sleep 4
-        ctl note ime-open > /dev/null
-        up=no; tries=1; key_tap 28; n=0
-        while [ $n -lt 16 ]; do
+        up=no; tries=0; n=0
+        while [ $n -lt 28 ]; do
             sleep 1; n=$((n+1))
             ctl ime > $OUT/ime-state.json
             if grep -q '"panel":{' $OUT/ime-state.json; then up=yes; break; fi
-            if [ $n = 8 ] && [ $tries = 1 ]; then key_tap 28; tries=2; fi
+            if [ $n = 10 ] || [ $n = 18 ]; then key_tap 28; tries=$((tries+1)); fi
         done
         sleep 1
         b=$(cap $OUT/ime.png)

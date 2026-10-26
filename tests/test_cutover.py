@@ -840,12 +840,17 @@ method = uri.rsplit("/", 1)[1]
 if method == "getForegroundAppInfo":
     out({"returnValue": True, "appId": s["fg"]})
 elif method == "launch":
-    app = json.loads(payload)["id"]
+    request = json.loads(payload)
+    app = request["id"]
     s["launched"].append(app)
+    s.setdefault("journal_at_launch", {})[app] = len(s["journal"])
     if app in cfg.get("unlaunchable", []):
         out({"returnValue": False, "errorText": "no such app"})
     else:
         s["fg"] = app
+        if app == "com.webos.app.voice" and request.get("params", {}).get("launchMode") == "vkb" and cfg.get("vkb", True) and cfg.get("keyboard", True):
+            s["panel"] = {"x": 0, "y": 720, "w": 1920, "h": 360}
+            s["ctx"] = True
         out({"returnValue": True})
 elif method == "closeByAppId":
     app = json.loads(payload)["id"]
@@ -908,19 +913,32 @@ class GateKeysAndIme(FakeSet):
         rc, out = self.gate("keys")
         self.assertIn("unnamed keys seen: [1040]", out)
 
-    def test_the_keyboard_comes_up_takes_a_typed_key_and_closes_on_back(self):
+    def test_the_search_app_launched_for_its_keyboard_brings_it_up_takes_a_typed_key_and_closes_on_back(self):
         rc, out = self.gate("ime")
         self.assertIn("GATE ime: PASS", out, out)
-        self.assertIn("maliit-server was active; input methods bound 1; asked for one 1 time(s); OK pressed 1 time(s); keyboard up yes "
+        self.assertIn("maliit-server was active; input methods bound 1; asked for one 1 time(s); OK pressed 0 time(s); keyboard up yes "
                       "(panel y 720 h 360, capture 4321 bytes); context yes; typed 1; closed by Back", out)
         sim = self.sim()
         self.assertEqual((sim["fg"], sim["closed"]), ("com.webos.app.home", ["com.webos.app.voice"]))
-        self.assertEqual(sim["keys"], [28, 28, 412])
+        self.assertEqual(sim["keys"], [28, 412], "no OK was needed to open it: the launch asked for the keyboard mode")
         self.assertEqual(read(os.path.join(self.out, "ime-result.txt")).count("typed 1"), 1)
         self.assertIn('"panel":{"h":360,"w":1920,"x":0,"y":720}', read(os.path.join(self.out, "ime-up.json")))
 
+    def test_the_marker_is_in_the_journal_before_the_app_is_launched(self):
+        self.gate("ime")
+        sim = self.sim()
+        self.assertEqual(sim["journal"][0], "note: ime-open")
+        self.assertEqual(sim["journal_at_launch"]["com.webos.app.voice"], 1)
+
+    def test_a_search_app_that_ignores_the_keyboard_mode_gets_ok_on_its_field(self):
+        self.configure(vkb=False)
+        rc, out = self.gate("ime")
+        self.assertIn("GATE ime: PASS", out, out)
+        self.assertIn("OK pressed 1 time(s)", out)
+        self.assertEqual(self.sim()["keys"], [28, 28, 412])
+
     def test_a_field_that_needs_the_second_ok_gets_it_at_the_retry(self):
-        self.configure(oks_needed=2)
+        self.configure(vkb=False, oks_needed=2)
         rc, out = self.gate("ime")
         self.assertIn("GATE ime: PASS", out, out)
         self.assertIn("OK pressed 2 time(s)", out)
@@ -930,7 +948,7 @@ class GateKeysAndIme(FakeSet):
         rc, out = self.gate("ime")
         self.assertIn("GATE ime: PASS", out, out)
         self.assertIn("typed 1", out)
-        self.assertEqual(self.sim()["keys"], [28, 28, 106, 28, 412])
+        self.assertEqual(self.sim()["keys"], [28, 106, 28, 412])
 
     def test_a_back_the_keyboard_ignores_is_followed_by_exit_which_closes_it(self):
         self.configure(back_closes=False)

@@ -13,9 +13,10 @@
 #   tv-first-light.sh cutover ARGS  /tmp/lumatv/cutover.sh ARGS on the set under a PTY (install | probe | trial SECS |
 #                                 enable [--session [--max-minutes N]] | disable | status | revert | firmware check|record | boot-check)
 #   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): firmware, homeheld, then a session of enable --session with live,
-#                                 volume, x1 (zero gaps over 20 ms in 60 s), netflix, hdmi, standby/wake, homekey, wd-hang,
-#                                 wd-crash, escape; --enable-after lists the build the gate passed on and makes LumaTV's
-#                                 compositor live for good when every check passed
+#                                 volume, x1 (zero gaps over 20 ms in 60 s), netflix, hdmi, keys, ime, standby/wake, homekey,
+#                                 wd-hang, wd-crash, escape; --only keys,ime runs just those (the remote's keys and the keyboard);
+#                                 --enable-after lists the build the gate passed on and makes LumaTV's compositor live for good
+#                                 when every check passed
 #   tv-first-light.sh clean       kill everything of ours on the set
 #   tv-first-light.sh probe       read-only (tools/tv-readonly-probe.sh): LG's wl_webos_* tables in every copy on the set
 #                                 and the Wayland clients of LG's compositor; written to
