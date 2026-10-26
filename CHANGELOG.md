@@ -48,7 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GeForce NOW app (`org.nphil.lumatv.gfn`, its own ipk): OpenNOW's engine and core on the
   TV with the stream on the video plane through LG's NDL DirectMedia (4K120 HEVC Main10
   HDR10, low-delay game mode), controllers read from evdev with grab and rumble, and a
-  Lucent UI (sign-in by device code, library, launch, in-stream overlay).
+  Lucent UI (sign-in by device code, library with box art, launch, in-stream overlay, a
+  Settings screen for tier, HDR, bitrate and stick dead zone). When NDL refuses Opus the
+  feeder decodes the sound itself, and it registers with SAM so relaunch and close reach it.
 - Settings and every custom screen: words are never cut, crammed, moved by focus or
   unreadable. The settings service's partial answers are read (OLED pixel brightness and
   Energy saving are live again; a key the TV lacks hides its row), focus lifts the plate
