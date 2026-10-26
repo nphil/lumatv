@@ -96,7 +96,7 @@ Nitin chose; `nested-cards` is Lucent's sheet → well → raised-control stacki
 | Screen | File (variants) | Shots |
 |---|---|---|
 | Quick panel | `10-quick-panel.html` (`?theme=light`, `?v=video`) | 10-quick-panel, -light, -video |
-| Volume OSD | `11-volume-osd.html` (`?v=abs`, `?v=muted`, `?v=offline`) | 11-volume-osd, -abs, -muted, -offline |
+| Volume OSD | `11-volume-osd.html` (`?theme=light`, `?v=db`, `?v=muted`, `?v=mark`, `?v=tv`, `?v=arc`, `?v=offline`) | 11-volume-osd, -light, -db, -muted, -muted-light, -mark, -mark-light, -tv, -arc, -offline |
 | All-apps library | `12-all-apps.html` (`?theme=light`, `?v=menu`) | 12-all-apps, -light, -menu |
 | Notification drawer | `13-notifications.html` | 13-notifications |
 | App switcher | `14-recents.html` | 14-recents |
@@ -121,10 +121,10 @@ Batch-1 edits: `02-settings-sound.html` Sound out row now says it opens the rece
 - **10 Quick panel**: one right-edge pane as tall as its tiles (no empty slab), steppers so left/right
   changes picture mode and receiver volume in place; the receiver tile shows input · sound mode with
   the volume in the Denon's own dB. Over video the pane is tinted, not blurred.
-- **11 Volume OSD**: lower-left safe corner away from subtitles, 640×132, the receiver's number large
-  with its unit, one meta line (input · sound mode), a short track; muted swaps the number for the
-  word and keeps the last level readable; "Receiver not answering" hides the value instead of showing a
-  stale one (PLAN: reads older than 6 s are hidden).
+- **11 Volume OSD**: the right edge, where LG's popup was; vertical, 176 px wide, centred. The receiver's number with its unit or
+  input under it, a level track and the speaker on an accent tile; see-through over video (`readingAlpha`); muted swaps the number
+  for the word and what it was, and a small mark that moves between three places stays while the sound is muted; the TV's own volume
+  where there is no receiver; "Receiver not answering" when nothing can be read, never a stale number.
 - **12 Library**: the Settings rail pattern re-used for categories with live lines (counts, the apps
   inside), Hidden pinned at the bottom; 168 px tiles with names; key hints replace a toolbar; the hold-OK
   menu opens under its tile with the rest dimmed and the tile kept raised as the menu's source.
