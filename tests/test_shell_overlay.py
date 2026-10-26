@@ -16,11 +16,17 @@ from xdisplay import DISPLAY, HAVE_QT
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SHORT_ID = json.load(open(os.path.join(ROOT, "brand.json")))["shortId"]
 DOOR = "/tmp/%s-overlay" % SHORT_ID
+PLAIN = '{"perf":{"syncResidents":true}}'
 OWN = '{"perf":{"syncResidents":true},"banners":{"own":true}}'
 CALLS = "JSON.stringify(root.lunaCalls.map(function(c) { var p; try { p = JSON.parse(c.payload) } catch (e) { p = c.payload } return { u: c.uri, m: c.method, p: p } }))"
 STATUS = "[overlay.up, overlay.wants, overlay.surface].join('/')"
 PILL = {"kind": "input", "icon": "gamepad-2", "name": "HDMI 3 \u00b7 PlayStation 5", "facts": "4K", "holdMs": 60000}
 BAR = dict(PILL, buttons=True, actions=["inputs", "picture"])
+
+
+# The make-believe TV answers `Inputs` when its singleton first lives, which is when Home's build first reaches a page that uses it; a test that
+# needs the answer to be in before it starts asks at once.
+PRIME_INPUTS = "Qt.createQmlObject('import QtQuick 2.4\\nimport \"' + root.moduleDirUrl + 'kit\"\\nItem { Component.onCompleted: Inputs.refresh() }', overlay, 'prime')"
 
 
 def js(v):
@@ -42,8 +48,10 @@ def sysui_calls(got):
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
 class Overlay(HostCase):
-    def run_overlay(self, steps, wait, theme=OWN, *args):
-        """steps: (ms, js, label), Home hidden and the overlay built at once. Returns ({label: value}, the host's whole output)."""
+    def run_overlay(self, steps, wait, theme=PLAIN, *args):
+        """steps: (ms, js, label), Home hidden and the overlay built at once; `theme` is the owner's theme.json (the banners of their own are off
+        unless OWN: with them on, the host's make-believe TV, whose foreground arrives whenever Home's build reaches its Inputs, can put a pill
+        over a banner a step is about to key). Returns ({label: value}, the host's whole output)."""
         argv = ["--eval", "100:" + do("overlay.warm = true")]
         for ms, expr, label in steps:
             argv += ["--eval", "%d:(function(){ return %s + (%s) })()" % (ms, json.dumps(label + "="), expr)]
@@ -106,6 +114,21 @@ class Overlay(HostCase):
         self.assertEqual(got["nosignal_state"], "true/true/banner")
         self.assertEqual(got["volume"], "false", "the volume keys are the app's")
 
+    def test_with_the_key_filters_client_the_buttons_open_the_system_windows_through_it_and_not_through_ls_adhoc(self):
+        # the filter registers a launcher on the bus (LumaKeyBridge.qml does, with LG's key filters' own luna client); a probe stands in for it
+        probe = ("Qt.createQmlObject('import QtQuick 2.4\\nimport \"' + root.moduleDirUrl + 'LumaBus.js\" as Bus\\n"
+                 "Item { objectName: \"launcherProbe\"; property var seen: []; Component.onCompleted: Bus.setSystemLauncher(function(a, p) { seen.push(a); return true }) }', overlay, 'probe')")
+        seen = "(function(){ for (var i = 0; i < overlay.children.length; i++) if (overlay.children[i].objectName === 'launcherProbe') return JSON.stringify(overlay.children[i].seen); return 'no probe' })()"
+        got, out = self.run_overlay([
+            (900, "(function(){ " + probe + "; return 1 })()", "probe"), (1000, do("overlay.appFront = true"), "front"),
+            (1100, "overlay.showBanner(%s)" % js(BAR), "bar"), (1200, key("Qt.Key_Right"), "right"), (1210, key("Qt.Key_Return"), "picture"),
+            (1500, "overlay.showBanner(%s)" % js(BAR), "again"), (1600, key("Qt.Key_Return"), "inputs"), (1900, seen, "seen"), (1900, CALLS, "calls"),
+        ], 2300)
+        self.assertEqual((got["picture"], got["inputs"]), ("true", "true"))
+        self.assertEqual(json.loads(got["seen"]), ["com.webos.app.quicksettings", "com.webos.app.quickinputpicker"])
+        self.assertEqual(sysui_calls(got["calls"]), [], "a system window asked for twice (Quick Settings toggles) or through a client that may not be allowed")
+        self.assertIn("[LumaOverlay] com.webos.app.quicksettings asked for through the key filter's client", out)
+
     def test_the_gear_hold_opens_the_drawer_over_an_app_and_a_second_hold_or_back_closes_it(self):
         got, _ = self.run_overlay([
             (1000, "overlay.gearHold()", "no_app"), (1100, do("overlay.appFront = true"), "front"),
@@ -125,6 +148,18 @@ class Overlay(HostCase):
         self.assertEqual((got["toggled"], got["after_toggle"]), ("true", "false/false/"))
         self.assertEqual(got["over_bar_state"], "true/true/drawer")
 
+    def test_the_drawer_with_nothing_in_it_is_as_tall_as_its_words(self):
+        # round 7 (docs/research/round7-2026-10-25/slot7/door-drawer.png): the card stayed 240 high and the caption under "Nothing new" ran out of it
+        by_name = "function byName(p, n) { if (p.objectName === n) return p; var c = p.children; for (var i = 0; i < c.length; i++) { var f = byName(c[i], n); if (f) return f } return null } "
+        geometry = ("(function(){ " + by_name + "var s = byName(overlay, 'drawerSheet'), e = byName(overlay, 'drawerEmpty'); "
+                    "return JSON.stringify({ sheet: s.height, count: s.bodyHeight, emptyY: e.y, emptyBottom: e.y + e.height, visible: e.visible }) })()")
+        got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, "overlay.gearHold()", "held"), (1900, geometry, "geometry")], 2300)
+        g = json.loads(got["geometry"])
+        self.assertTrue(g["visible"], "the drawer has something in it: the host's helper has no audit and the log is empty")
+        self.assertGreater(g["emptyBottom"], 240 - 16, "the words fit in the old 240: this test no longer covers the overflow")
+        self.assertGreaterEqual(g["sheet"], g["emptyBottom"] + 16 - 0.5, "the words run out of the card: %r" % g)
+        self.assertLessEqual(g["sheet"], 1080 - 2 * 56)
+
     def test_the_owner_hands_the_gear_hold_back_to_LG(self):
         got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, "overlay.gearReady()", "ready"), (1150, "overlay.gearHold()", "held"),
                                    (1300, STATUS, "state")], 1700, '{"perf":{"syncResidents":true},"remote":{"gearHold":false}}')
@@ -133,8 +168,8 @@ class Overlay(HostCase):
 
     def test_an_input_coming_to_the_front_shows_its_pill_when_the_owner_asked_for_banners(self):
         got, _ = self.run_overlay([
-            # the fake TV has HDMI 2 in front from the start, so its pill is waiting for the app to be on screen: it shows, and is cleared
-            (1000, do("overlay.appFront = true"), "front"), (1050, "overlay.bannerUp", "waiting_pill"), (1060, do("overlay.hideBanner()"), "clear"),
+            # the fake TV has HDMI 2 in front from the start, so a pill for it is waiting from load: it is cleared, so what follows is what each step asks for
+            (200, do(PRIME_INPUTS), "prime"), (900, do("overlay.pending = null"), "clear_pending"), (1000, do("overlay.appFront = true"), "front"), (1060, do("overlay.hideBanner()"), "clear"),
             (1100, do("overlay.inputSwitched('netflix')"), "app"), (1200, "overlay.bannerUp", "app_banner"),
             (1300, do("overlay.inputSwitched('com.webos.app.hdmi2')"), "hdmi2"), (1400, "overlay.bannerUp", "hdmi2_banner"),
             (1450, "JSON.stringify(overlay.inputSpec('com.webos.app.hdmi2'))", "spec"), (1500, STATUS, "pill_state"), (1550, do("overlay.hideBanner()"), "hide"),
@@ -142,8 +177,7 @@ class Overlay(HostCase):
             (1600, do("overlay.appFront = false"), "away"), (1700, do("overlay.inputSwitched('com.webos.app.hdmi3')"), "hdmi3"), (1800, "overlay.bannerUp", "hdmi3_early"),
             (1900, do("overlay.appFront = true"), "mapped"), (2000, "overlay.bannerUp", "hdmi3_banner"), (2050, do("overlay.hideBanner()"), "hide3"),
             (2100, do("overlay.inputSwitched('com.webos.app.livetv')"), "tv"), (2200, "JSON.stringify(overlay.inputSpec('com.webos.app.livetv'))", "tv_spec"),
-        ], 2600)
-        self.assertEqual(got["waiting_pill"], "true", "the pill that waited for the app to be on screen is shown when it is")
+        ], 2600, OWN)
         self.assertEqual(got["app_banner"], "false", "an app that is not an input has no pill")
         self.assertEqual(got["hdmi2_banner"], "true")
         spec = json.loads(got["spec"])
@@ -155,7 +189,7 @@ class Overlay(HostCase):
     def test_banners_are_the_owners_choice_and_off_unless_asked_for(self):
         got, _ = self.run_overlay([(1000, do("overlay.appFront = true"), "front"), (1100, do("overlay.inputSwitched('com.webos.app.hdmi2')"), "hdmi2"),
                                    (1200, "overlay.bannerUp", "banner"), (1300, "overlay.showBanner(%s)" % js(PILL), "api"), (1400, "overlay.bannerUp", "api_banner")],
-                                  1800, '{"perf":{"syncResidents":true}}')
+                                  1800, PLAIN)
         self.assertEqual(got["banner"], "false", "LG's own banners are the default; banners.own is the owner's switch")
         self.assertEqual((got["api"], got["api_banner"]), ("true", "true"), "a surface that asks for a banner is not the owner's switch")
 

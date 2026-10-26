@@ -143,9 +143,13 @@ Item {
     MouseArea { anchors.fill: parent; onClicked: drawer.closeRequested() }
     LuPane {
         id: sheet
+        objectName: "drawerSheet"
         x: 1920 - 64 - width; y: drawer.sheetTop
         width: drawer.sheetWidth
-        height: Math.max(240, Math.min(1080 - 2 * drawer.sheetTop, head.y + head.height + Lu.space(2) + flick.contentHeight + Lu.space(4)))
+        // The sheet is as tall as what it holds: the list, or, with nothing to list, the empty state (its words wrap to two lines, so its height is
+        // the column's and not a number). Never under 240, and never over the screen less the bar's margin at the top and bottom.
+        readonly property real bodyHeight: drawer.count === 0 ? emptyCol.y - (head.y + head.height) + emptyCol.height : Lu.space(2) + flick.contentHeight
+        height: Math.max(240, Math.min(1080 - 2 * drawer.sheetTop, head.y + head.height + bodyHeight + Lu.space(4)))
         // a click on the sheet is not a click on the scrim behind it
         MouseArea { anchors.fill: parent }
         Item {
@@ -228,6 +232,7 @@ Item {
         }
         Column {
             id: emptyCol
+            objectName: "drawerEmpty"
             visible: drawer.count === 0
             x: Lu.space(7); y: head.y + head.height + Lu.space(7); width: sheet.width - 2 * Lu.space(7)
             spacing: Lu.space(3)

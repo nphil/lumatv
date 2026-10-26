@@ -3,8 +3,10 @@
 ## Resume here
 
 Built and tested offline; on the TV on 2026-10-25 19:44 ("On the TV" below): the gear hold opens the drawer on Home and over HDMI 2
-with a tap still LG's, the layer draws banners and the drawer over an input's video, `banners.own` works as a live switch; the
-drawer's footer text overflows its card. Number keys, app keys, the frame cost and the standby heartbeat are not yet run on the set.
+with a tap still LG's, the layer draws banners and the drawer over an input's video, `banners.own` works as a live switch. Two defects
+came out of it, both fixed offline and **not yet re-run on the set** ("After round 7"): the drawer's footer text overflowed its
+card, and OK on a banner's button opened nothing (the system window is now asked for through the key filter's own luna client).
+Number keys, app keys, the frame cost and the standby heartbeat are not yet run on the set.
 Everything is fail-open: with the files missing, a handler absent or an error anywhere, LG's chain gets the key as before.
 
 | What | Where | Switch (owner's, `theme.json`, defaults in code) |
@@ -157,6 +159,35 @@ and 7 (the heartbeat in standby) were not run in this round.
 
 The one defect found is the drawer's overflowing footer. The question for Nitin stands: `banners.own` stays off until LG's own
 banners are hidden.
+
+## After round 7 (offline, 2026-10-25, not run on the set)
+
+- **The drawer's footer.** With nothing to list the sheet stayed at its 240 px minimum while the empty state (the bell, "Nothing new" and a
+  caption that wraps to two lines) needs 318: the caption ran out of the card, over the picture (`slot7/door-drawer.png`, `gear-hold-hdmi.png`).
+  `panels/Drawer.qml` now sizes the sheet to what it holds, the list or the empty column's own height, under the same floor and the screen
+  as ceiling. Reproduced in the host first (`13-notifications-empty`), then rendered dark and light after (the caption sits inside, 16 px
+  from the bottom). `test_the_drawer_with_nothing_in_it_is_as_tall_as_its_words` reads the geometry (the words must end inside the
+  card, and must be taller than the old 240, so the test fails if the sheet goes back to a fixed height).
+- **OK on a banner's button.** The overlay asked for Quick Settings and the input picker with `LS.adhoc.call("luna://com.webos.service.systemUIManager",
+  "/launch", ...)`. The capture shows the key reached the banner (Right moved the focus, OK closed it) and no window opened. The
+  compositor hosts `systemUIManager` itself, and every call LG's own QML makes through `LS.adhoc` is to a service another process hosts
+  (applicationManager, notification, videooutput, avmutemanager: `grep -rn "LS.adhoc.call"` over the firmware's QML); LG's key filters,
+  which do open Quick Settings (the gear tap in the same slot), use a luna client of their own, `lunaCall` (appId
+  `com.webos.starfish.keyfilters`). Whether the hub refused the `LS.adhoc` client or the call went wrong some other way is not readable
+  offline; the next step is to take the path that is known to work. The filter now gives the bridge a `launchHook` that calls
+  `lunaCall.send("com.webos.service.systemUIManager", "/launch", {appId, params?})`, the bridge registers it on the bus
+  (`Bus.systemLaunch`), and the overlay's Inputs and Picture buttons use it; `LS.adhoc` is used only where the bus has no launcher (the
+  offline host). Never both: a second launch of an open Quick Settings closes it. The log says which way each button took:
+  `[LumaOverlay] com.webos.app.quicksettings asked for through the key filter's client` and `[LumaKeys] system window asked for: ...`.
+  Tests: `keyfilter.test.js` (the hook sends LG's call), `bus.test.js` (the launcher, none, false, throwing), and
+  `test_shell_overlay.py` (with a launcher registered the buttons use it and make no `LS.adhoc` call).
+- **Next on the set** (round 8, one step): the door banner again (`/tmp/<shortId>-overlay` with `actions: ["inputs","picture"]`) over HDMI 2, Right, OK:
+  Quick Settings opens over the picture, Back closes it, and `/var/log/messages` shows both lines above. With the physical remote as
+  well as the injected key. If it still opens nothing, the next reading is `luna-send -n 1 luna://com.webos.service.systemUIManager/launch
+  '{"appId":"com.webos.app.quicksettings"}'` from a shell during the same state, then the log line of LG's `LAUNCH_SYSTEMUI`.
+- A test of mine was flaky under load and is fixed: with `banners.own` on, the host's make-believe TV answers `Inputs` when Home's build
+  first reaches a page that uses it, which can be mid-test and puts a pill over the banner a step is about to key. The overlay tests run
+  with the banners of their own off, and the one that needs them primes `Inputs` first.
 
 ## Under LumaTV's own compositor
 

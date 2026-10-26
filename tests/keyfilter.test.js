@@ -18,8 +18,8 @@ const WEBOS = { Key_webOS_Settings: GEAR, Key_webOS_Netflix: NETFLIX, Key_webOS_
 let calls, front, bridgeAnswers, warnings, now, answering;
 // The gear and the overlay: what the bridge says, the timers the filter asked LG's `genericTimer` for (advanced by hand) and what it did to LG's long press.
 let gearReady, gearOpens, overlayWanted, overlayTakes, timers, nextTimer, lgCalls, timerBroken;
-// The remote's app keys: whether the TV is on and what LumaHome says to a key
-let power, appKeyTakes;
+// The remote's app keys: whether the TV is on and what LumaHome says to a key; what the filter sent through LG's key filters' luna client
+let power, appKeyTakes, lunaSent;
 
 function advance(ms) {
   const end = now + ms;
@@ -59,6 +59,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
     global: { get activeSurfaceAppId() { return front.app; }, get powerState() { return power; } },
     fullscreenView: { get activeFocus() { return front.focus; } },
     longPressTimer: { setBlockCancel(v) { lgCalls.push(["block", v]); }, cancel() { lgCalls.push(["cancel"]); }, setDeviceId(d) { lgCalls.push(["device", d]); } },
+    lunaCall: { send(...a) { lunaSent.push(a); } },
     console: { info() {}, warn: (m) => warnings.push(m) },
     Date: { now: () => now },
     genericTimer,
@@ -67,6 +68,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
   const f = new Function(...Object.keys(env), SRC + "\nreturn { init, handleLumaHome };");
   const filter = f(...Object.values(env));
   filter.init();
+  filter.theBridge = theBridge;
   return filter;
 }
 
@@ -87,6 +89,7 @@ beforeEach(() => {
   timerBroken = false;
   power = "active";
   appKeyTakes = () => true;
+  lunaSent = [];
 });
 
 test("a press LumaHome takes ends there, and so does its release", () => {
@@ -608,4 +611,16 @@ test("an error in LumaHome's answer leaves the key to LG and logs once", () => {
   expect(down(f, NETFLIX)).toBe(N);
   expect(up(f, NETFLIX)).toBe(N);
   expect(warnings.length).toBe(1);
+});
+
+// ---- LG's system windows (Quick Settings, the input picker) for the overlay's buttons
+
+test("the filter gives the bridge LG's key filters' own luna client to open system windows with", () => {
+  const f = makeFilter();
+  expect(f.theBridge.launchHook("com.webos.app.quicksettings")).toBe(true);
+  expect(f.theBridge.launchHook("com.webos.app.quickinputpicker", { page: "picture" })).toBe(true);
+  expect(lunaSent).toEqual([
+    ["com.webos.service.systemUIManager", "/launch", '{"appId":"com.webos.app.quicksettings"}'],
+    ["com.webos.service.systemUIManager", "/launch", '{"appId":"com.webos.app.quickinputpicker","params":{"page":"picture"}}'],
+  ]);
 });

@@ -61,6 +61,14 @@ function init() {
                 try { longPressTimer.setBlockCancel(false); longPressTimer.cancel(); }
                 catch (e) { console.warn("[LumaKeys] could not stop the stock Home hold: " + e); }
             };
+            // LG's system windows (Quick Settings, the input picker) are opened with the same client LG's own key filters open them with
+            bridge.launchHook = function(appId, params) {
+                var body = { appId: appId };
+                if (params !== undefined && params !== null) body.params = params;
+                lunaCall.send("com.webos.service.systemUIManager", "/launch", JSON.stringify(body));
+                console.info("[LumaKeys] system window asked for: " + appId);
+                return true;
+            };
             var webos = null;
             try { webos = WebOS; } catch (e0) { console.warn("[LumaKeys] no WebOS in scope: the gear and the app keys stay LG's"); }
             if (webos) {

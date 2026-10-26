@@ -16,6 +16,7 @@ var escapeHandler = null
 var gearHome = null                     // { ready(): bool, hold(): bool }
 var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(): bool, hold(): bool }
 var appKeyHandler = null                // (id, frontAppId) -> true when LumaHome took the remote's app key (launched an app, or does nothing)
+var systemLauncher = null               // (appId, params) -> true when LG's system window was asked for: the key filter's own luna client (see systemLaunch)
 var lastFaultMs = 0
 var beatMs = 0
 
@@ -24,6 +25,7 @@ function setEscapeHandler(h) { escapeHandler = h }
 function setGear(g) { gearHome = g }
 function setOverlay(o) { overlay = o }
 function setAppKey(h) { appKeyHandler = h }
+function setSystemLauncher(l) { systemLauncher = l }
 
 // LumaHome's once-a-second timer calls this. The filter takes a key only while it has been
 // called within the last 3 s: a layer whose timers have stopped is not answering, and the
@@ -84,6 +86,16 @@ function appKey(id, frontAppId) {
     if (!appKeyHandler || !answering()) return false
     try { return appKeyHandler(id, frontAppId) === true }
     catch (e) { fault("app key", e); return false }
+}
+
+// Opens one of LG's system windows (Quick Settings, the input picker: systemUIManager/launch) through the key filter's own luna client,
+// the one LG's key filters launch them with. The compositor hosts that service itself, and the plain `LS.adhoc` client is not known to be
+// allowed to call it: over HDMI 2 an overlay button that used it opened nothing (docs/research/round7-2026-10-25/slot7). False when the
+// filter has no client to give (the offline host, a filter that failed to start): the caller then falls back to LS.adhoc.
+function systemLaunch(appId, params) {
+    if (!systemLauncher) return false
+    try { return systemLauncher(appId, params) === true }
+    catch (e) { fault("system launch", e); return false }
 }
 
 // Home held 650 ms (LumaKeyBridge.qml has written its request): LumaHome starts following

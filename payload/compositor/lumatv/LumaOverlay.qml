@@ -112,12 +112,19 @@ Item {
         return true
     }
     function hideBanner() { if (bannerRes.item) bannerRes.item.hide() }
-    // What the buttons of a banner do over an app: the picker and Quick Settings are LG's system windows, which open over anything.
+    // What the buttons of a banner do over an app: the picker and Quick Settings are LG's system windows, which open over anything. They are
+    // opened with the key filter's own luna client (Bus.systemLaunch), the client LG's key filters open them with; `LS.adhoc` is the way only
+    // where the filter has none to give (the offline host), since the compositor hosts systemUIManager itself and the first TV run (round 7)
+    // showed an overlay button that called it through LS.adhoc opening nothing.
+    function systemWindow(appId) {
+        var through = Bus.systemLaunch(appId) ? "the key filter's client" : "LS.adhoc"
+        if (through === "LS.adhoc") LS.adhoc.call("luna://com.webos.service.systemUIManager", "/launch", JSON.stringify({ appId: appId }))
+        console.info("[LumaOverlay] " + appId + " asked for through " + through)
+    }
     function bannerPicked(id) {
         closeAll()
-        var sysui = "luna://com.webos.service.systemUIManager"
-        if (id === "inputs") LS.adhoc.call(sysui, "/launch", JSON.stringify({ appId: "com.webos.app.quickinputpicker" }))
-        else if (id === "picture") LS.adhoc.call(sysui, "/launch", JSON.stringify({ appId: "com.webos.app.quicksettings" }))
+        if (id === "inputs") systemWindow("com.webos.app.quickinputpicker")
+        else if (id === "picture") systemWindow("com.webos.app.quicksettings")
         else if (id === "home") LS.adhoc.call("luna://com.webos.applicationManager", "/launchDefaultApp", JSON.stringify({ category: "home" }))
     }
 

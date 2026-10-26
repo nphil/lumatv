@@ -16,7 +16,7 @@ let now, warnings, front, timers, nextTimer, lgCalls, log, Bus;
 
 function makeBus() {
   const env = { console: { warn: (m) => warnings.push(m), info() {} }, Date: { now: () => now } };
-  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold"];
+  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "setSystemLauncher", "systemLaunch", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold"];
   return new Function(...Object.keys(env), BUS_SRC + "\nreturn { " + names.join(", ") + " };")(...Object.values(env));
 }
 
@@ -203,4 +203,22 @@ test("the remote's app keys are LumaHome's to decide while the layer answers, an
   expect(warnings.length).toBe(1);
   Bus.setAppKey(null);
   expect(Bus.appKey("netflix", APP)).toBe(false);
+});
+
+test("a system window is asked for through the launcher the key filter registered, and false says there is none", () => {
+  expect(Bus.systemLaunch("com.webos.app.quicksettings")).toBe(false);          // nothing registered: the caller falls back
+  Bus.setSystemLauncher((appId, params) => { log.push(["launch", appId, params]); return true; });
+  expect(Bus.systemLaunch("com.webos.app.quicksettings")).toBe(true);
+  expect(Bus.systemLaunch("com.webos.app.quickinputpicker", { a: 1 })).toBe(true);
+  expect(log).toEqual([["launch", "com.webos.app.quicksettings", undefined], ["launch", "com.webos.app.quickinputpicker", { a: 1 }]]);
+  // it does not depend on Home answering: the launcher is the filter's, which is up for as long as the compositor is
+  now += 60_000;
+  expect(Bus.systemLaunch("com.webos.app.quicksettings")).toBe(true);
+  Bus.setSystemLauncher(() => false);
+  expect(Bus.systemLaunch("x")).toBe(false);
+  Bus.setSystemLauncher(() => { throw new Error("no client"); });
+  expect(Bus.systemLaunch("x")).toBe(false);
+  expect(warnings.length).toBe(1);
+  Bus.setSystemLauncher(null);
+  expect(Bus.systemLaunch("x")).toBe(false);
 });
