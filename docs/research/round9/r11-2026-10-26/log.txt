@@ -189,3 +189,578 @@ Overflow=0
 }
 03:55:23 Netflix complete: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
 03:56:10 receiver restore via half-step: {'mute': False, 'volumeText': '65.5', 'input': 'TV', 'signal': 'Dolby Atmos', 'soundMode': 'DOLBY ATMOS'}
+03:59:44 launch com.webos.app.home: {
+    "returnValue": true
+}
+03:59:47 speaker-check output before: {
+    "errorCode": -1,
+    "returnValue": false,
+    "errorText": "Unknown method \"getSoundOutput\" for category \"/\""
+}
+03:59:47 speaker-select: {
+    "returnValue": true,
+    "method": "setSystemSettings"
+}
+03:59:51 speaker-profile: {'returnValue': True, 'muteStatus': False, 'volume': 24, 'scenario': 'mastervolume_tv_speaker'}
+03:59:51 ARC restore: {
+    "returnValue": true,
+    "method": "setSystemSettings"
+}
+03:59:54 output after: {
+    "errorCode": -1,
+    "returnValue": false,
+    "errorText": "Unknown method \"getSoundOutput\" for category \"/\""
+}
+03:59:57 restyle-before units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+03:59:57 restyle-before reports: 
+03:59:57 restyle-before audio state: adec.p0
+adec.p1
+aenc
+amixer
+atv
+hdmi
+lgse
+sndout
+03:59:58 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv inputcommon status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false,"checkpoint":"present","criuEnabled":true}
+03:59:58 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv keyboard status: {"ok":true,"on":false,"patched":false}
+03:59:58 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":false,"mounted":false,"checkpoint":"none","criuEnabled":true}
+03:59:58 md5sum /usr/palm/applications/com.webos.app.inputcommon/qml/UserInterfaceLayer/GlobalStyle.qml; find /usr/palm/applications/com.webos.app.inputcommon/qml -name "*.qml" | wc -l; ls -la /mnt/lg/cmn_data/checkpoint/com.webos.app.inputcommon; ls -la /tmp/checkpoint: d34b51f5cc71621b2cae13a635469a8b  /usr/palm/applications/com.webos.app.inputcommon/qml/UserInterfaceLayer/GlobalStyle.qml
+273
+total 29124
+drwxr-xr-x    2 root     root          4096 Oct 25 19:43 .
+drwxr-xr-x    3 root     root          4096 Sep 14 18:26 ..
+-rw-r--r--    1 root     root           807 Sep 14 18:26 MD5SUM
+-rw-r--r--    1 root     root           572 Sep 14 18:26 core-2513.img
+-rw-r--r--    1 root     root           374 Sep 14 18:26 core-2515.img
+-rw-r--r--    1 root     root           383 Sep 14 18:26 core-2516.img
+-rw-r--r--    1 root     root           317 Sep 14 18:26 core-2524.img
+-rw-r--r--    1 root     root            62 Sep 14 18:26 creds-2513.img
+-rw-r--r--    1 root     root            56 Sep 14 18:26 eventfd.img
+-rw-r--r--    1 root     root          5806 Sep 14 18:26 fault_pages.dat
+-rw-r--r--    1 root     root           140 Sep 14 18:26 fdinfo-2.img
+-rw-r--r--    1 root     root             0 Sep 14 18:26 flock
+-rw-r--r--    1 root     root            18 Sep 14 18:26 fs-2513.img
+-rw-r--r--    1 root     root            32 Sep 14 18:26 ids-2513.img
+-rw-r--r--    1 root     root             5 Sep 14 18:26 img_size
+-rw-r--r--    1 root     root             0 Oct 25 19:46 invalid_img
+-rw-r--r--    1 root     root            36 Sep 14 18:26 inventory.img
+-rw-r--r--    1 root     root         10791 Sep 14 18:26 mm-2513.img
+-rw-r--r--    1 root     root          2616 Sep 14 18:26 pagemap-2513.img
+lrwxr-xr-x    1 root     root            69 Sep 14 18:26 pages-1.img -> /mnt/lg/cmn_data/checkpoint/com.webos.app.inputcommon/pages-1.img.ori
+-rw-r--r--    1 root     root      29704192 Sep 14 18:26 pages-1.img.ori
+-rw-r--r--    1 root     root            10 Sep 14 18:26 pgid
+-rw-r--r--    1 root     root            35 Sep 14 18:26 pstree.img
+-rw-r--r--    1 root     root          4084 Sep 14 18:26 reg-files.img
+-rw-r--r--    1 root     root           862 Sep 14 18:26 sigacts-2513.img
+-rw-r--r--    1 root     root            50 Sep 14 18:26 starfish-release
+-rw-r--r--    1 root     root            40 Sep 14 18:26 stats-dump
+-rw-r--r--    1 root     root            78 Sep 14 18:26 unixsk.img
+total 8
+drwxr-xr-x    4 root     root           120 Oct 26 01:44 .
+drwxrwxrwt   47 root     root          3200 Oct 26 03:56 ..
+drwxr--r--    2 root     root           580 Oct 26 03:53 com.webos.app.inputcommon
+drwxr-xr-x    2 root     root            40 Dec 31  2022 error
+-rw-r--r--    1 root     root             2 Oct 26 03:53 hash_check_com.webos.app.inputcommon
+-rw-r--r--    1 root     root             5 Dec 31  2022 manager_pid
+03:59:59 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:00:03 launch com.webos.app.hdmi2: {
+    "returnValue": true
+}
+04:00:06 capture restyle-own-pill: {
+    "capturedHeight": 540,
+    "writtenBytes": 11668,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:00:10 python3 /tmp/kb.py OK: 
+04:00:11 capture restyle-own-ok: {
+    "capturedHeight": 540,
+    "writtenBytes": 235633,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:00:11 close com.webos.app.hdmi2: {
+    "appId": "com.webos.app.hdmi2",
+    "returnValue": true
+}
+04:00:12 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:00:34 sound output read-back: {
+    "returnValue": true,
+    "lastSoundOutput": "tv_speaker",
+    "soundOutput": "external_arc",
+    "settingsSoundOutputs": [
+        "external_arc"
+    ]
+}
+04:00:35 DSP reset path: /sys/module/ipc/parameters/reset_count
+/sys/module/aud/parameters/aud_dsp_reset_count
+04:00:35 launch com.webos.app.hdmi4: {
+    "returnValue": true
+}
+04:00:39 capture restyle-own-nosignal: {
+    "capturedHeight": 540,
+    "writtenBytes": 10411,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:00:39 close com.webos.app.hdmi4: {
+    "appId": "com.webos.app.hdmi4",
+    "returnValue": true
+}
+04:00:39 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:00:43 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:00:48 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv inputcommon on: {"ok":true,"inputcommon":"on","checkpointAside":1,"closed":[],"onScreen":""}
+04:00:58 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv inputcommon status: {"ok":true,"on":true,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":true,"checkpoint":"aside","criuEnabled":true}
+04:00:58 find /var/lib/lumatv/inputcommon/upper -name "*.qml" | wc -l: 17
+04:00:58 luna-send -n 1 luna://com.webos.applicationManager/running "{}": {"running":[{"webprocessid":"3597","defaultWindowType":"card","id":"com.webos.app.home","processid":"3597","appType":"web"}],"returnValue":true}
+04:00:59 restyle-on units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+04:00:59 restyle-on reports: 
+04:00:59 restyle-on audio state: adec.p0
+adec.p1
+aenc
+amixer
+atv
+hdmi
+lgse
+sndout
+04:01:22 restyle DSP baseline: 0
+04:01:23 restyle FPSJANK before: 0
+04:01:40 fps on: {"ok":true,"fps":true}
+04:01:43 launch com.webos.app.hdmi2: {
+    "returnValue": true
+}
+04:01:45 capture restyle-pill: {
+    "capturedHeight": 540,
+    "writtenBytes": 17122,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:01:50 python3 /tmp/kb.py OK: 
+04:01:50 capture restyle-ok: {
+    "capturedHeight": 540,
+    "writtenBytes": 916074,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:01:51 python3 /tmp/kb.py RIGHT: 
+04:01:51 capture restyle-options: {
+    "capturedHeight": 540,
+    "writtenBytes": 8763,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:01:51 python3 /tmp/kb.py BACK: 
+04:01:52 python3 /tmp/kb.py 358: 
+04:01:52 capture restyle-info: {
+    "capturedHeight": 540,
+    "writtenBytes": 261212,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:01:53 python3 /tmp/kb.py BACK: 
+04:01:53 close com.webos.app.hdmi2: {
+    "appId": "com.webos.app.hdmi2",
+    "returnValue": true
+}
+04:01:53 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:02:19 luna-send -n 1 luna://com.webos.service.settings/getSystemSettings '{"category":"general","keys":["noSignalScreenSaver","noSignalGuideArea"]}': {"subscribed":false,"category":"general","method":"getSystemSettings","returnValue":true,"settings":{"noSignalGuideArea":"on","noSignalScreenSaver":"on"}}
+04:02:20 launch com.webos.app.hdmi4: {
+    "returnValue": true
+}
+04:02:23 capture restyle-nosignal-3: {
+    "capturedHeight": 540,
+    "writtenBytes": 10450,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:02:36 capture restyle-nosignal-15: {
+    "capturedHeight": 540,
+    "writtenBytes": 471740,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:02:36 close com.webos.app.hdmi4: {
+    "appId": "com.webos.app.hdmi4",
+    "returnValue": true
+}
+04:02:36 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:03:06 maliit QML files: 85
+04:03:06 maliit copied read-only to /data/home/lgtv/uiinv/maliit
+04:03:24 fps off: {"ok":true,"fps":false}
+04:03:24 restyle FPSJANK after: 67
+04:03:25 DSP after inputs: 0
+04:03:29 launch com.webos.app.livetv: {
+    "returnValue": true
+}
+04:03:33 capture restyle-livetv: {
+    "capturedHeight": 540,
+    "writtenBytes": 446800,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:03:58 capture restyle-channel-ok: {
+    "capturedHeight": 540,
+    "writtenBytes": 638929,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:03:59 capture restyle-channel-options: {
+    "capturedHeight": 540,
+    "writtenBytes": 617964,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:04:01 capture restyle-channel-info: {
+    "capturedHeight": 540,
+    "writtenBytes": 404194,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:04:01 live instances: {
+    "running": [
+        {
+            "webprocessid": "10478",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.home",
+            "processid": "10478",
+            "appType": "web"
+        },
+        {
+            "webprocessid": "",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.livetv",
+            "processid": "7205",
+            "appType": "native"
+        },
+        {
+            "webprocessid": "7266",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.livedmost",
+            "processid": "7266",
+            "appType": "web"
+        }
+    ],
+    "returnValue": true
+}
+04:04:10 banner position before: {
+    "subscribed": false,
+    "category": "option",
+    "method": "getSystemSettings",
+    "returnValue": true,
+    "settings": {
+        "bannerPosition": "none"
+    }
+}
+04:04:10 launch com.webos.app.livetv: {
+    "returnValue": true
+}
+04:04:13 capture restyle-banner-edit: {
+    "capturedHeight": 540,
+    "writtenBytes": 438330,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:04:14 banner position after: {
+    "subscribed": false,
+    "category": "option",
+    "method": "getSystemSettings",
+    "returnValue": true,
+    "settings": {
+        "bannerPosition": "none"
+    }
+}
+04:04:21 close com.webos.app.livetv: {
+    "appId": "com.webos.app.livetv",
+    "returnValue": true
+}
+04:04:21 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:04:25 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv inputcommon off: {"ok":true,"inputcommon":"off","checkpointBack":1,"closed":[],"onScreen":""}
+04:04:25 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv inputcommon status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false,"checkpoint":"present","criuEnabled":true}
+04:04:26 ls -A /tmp/checkpoint: com.webos.app.inputcommon
+error
+hash_check_com.webos.app.inputcommon
+manager_pid
+04:04:26 launch com.webos.app.hdmi2: {
+    "returnValue": true
+}
+04:04:28 capture restyle-restored-pill: {
+    "capturedHeight": 540,
+    "writtenBytes": 17122,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:04:33 python3 /tmp/kb.py OK: 
+04:04:33 capture restyle-restored-ok: {
+    "capturedHeight": 540,
+    "writtenBytes": 417128,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:04:33 close com.webos.app.hdmi2: {
+    "appId": "com.webos.app.hdmi2",
+    "returnValue": true
+}
+04:04:34 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:04:37 restyle-off units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+04:04:37 restyle-off reports: 
+04:04:37 restyle-off audio state: adec.p0
+adec.p1
+aenc
+amixer
+atv
+hdmi
+lgse
+sndout
+04:04:58 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:05:02 find /usr/palm/applications/com.webos.app.voice/qml -name "*.qml" | wc -l; md5sum /usr/palm/applications/com.webos.app.voice/qml/Style.qml /usr/palm/applications/com.webos.app.voice/qml/Main.qml: 203
+9319a9d40bde81ea919d713f3fdd9e50  /usr/palm/applications/com.webos.app.voice/qml/Style.qml
+5b49a4d9e6f1309799814623ee3c09dd  /usr/palm/applications/com.webos.app.voice/qml/Main.qml
+04:05:02 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":false,"mounted":false,"checkpoint":"none","criuEnabled":true}
+04:05:03 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:05:06 capture search-own: {
+    "capturedHeight": 540,
+    "writtenBytes": 247713,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:05:07 python3 /tmp/kb.py OK: 
+04:05:08 capture keyboard-own: {
+    "capturedHeight": 540,
+    "writtenBytes": 152590,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:05:09 python3 /tmp/kb.py BACK BACK: 
+04:05:09 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:05:09 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:05:18 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:05:22 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice on: {"ok":true,"voice":"on","checkpointAside":0,"closed":["com.webos.app.voice"],"onScreen":""}
+04:05:22 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:05:26 capture search-on: {
+    "capturedHeight": 540,
+    "writtenBytes": 381790,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:05:26 python3 /tmp/kb.py DOWN: 
+04:05:27 capture search-down: {
+    "capturedHeight": 540,
+    "writtenBytes": 381065,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:05:37 Search after voice-on: fg=com.webos.app.home running={
+    "running": [
+        {
+            "webprocessid": "10478",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.home",
+            "processid": "10478",
+            "appType": "web"
+        },
+        {
+            "webprocessid": "",
+            "defaultWindowType": "overlay",
+            "id": "com.webos.app.voice",
+            "processid": "8321",
+            "appType": "native"
+        }
+    ],
+    "returnValue": true
+}
+04:05:37 Search mount/log: voice /usr/palm/applications/com.webos.app.voice/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.voice/qml,upperdir=/var/lib/lumatv/voice/upper,workdir=/var/lib/lumatv/voice/work 0 0
+2026-10-26 04:03:20 apply: compositor restarted to read shadow module
+2026-10-26 04:03:22 home on panel after 0 relaunch attempt(s)
+2026-10-26 04:03:23 apply: success version=0.4.0 mounts=1 took=17s
+2026-10-26 04:03:23 fps: set to false
+2026-10-26 04:04:24 inputcommon: off: unmounted from /usr/palm/applications/com.webos.app.inputcommon/qml, dumps put back 1, ended: none, on screen: none
+2026-10-26 04:04:24 inputcommon off: {"ok":true,"inputcommon":"off","checkpointBack":1,"closed":[],"onScreen":""}
+2026-10-26 04:05:21 voice: on: mounted over /usr/palm/applications/com.webos.app.voice/qml, dumps set aside 0, ended: com.webos.app.voice, on screen: none
+2026-10-26 04:05:21 voice on: {"ok":true,"voice":"on","checkpointAside":0,"closed":["com.webos.app.voice"],"onScreen":""}
+2026-10-26T08:05:21.878899Z [13690.009440560] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","status":"start_memory_setting"} payload: {"defaultWindowType":"overlay","appId":"com.webos.app.voice","requiredMemory":0,"containerBasedApp":false,"appType":"native","relaunch":true,"windowGroup":false}
+2026-10-26T08:05:21.879093Z [13690.009634020] user.info memchute [] MM MEMMGR_SERVICE {"Launch":"com.webos.app.voice","Required":120,"AppType":"native","WinType":"overlay","WinGroup":"F","Preload":"F","Container":"F","Relaunch":"T"} 
+2026-10-26T08:05:21.879204Z [13690.009744460] user.info memchute [] MM MEMMGR_MEMMGR {"appId":"com.webos.app.voice","free":918} comment : launch without memory check
+2026-10-26T08:05:21.880506Z [13690.011045620] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","uid":"50655e1a-6983-445e-a8af-fc6e8109a198"} removed from checking queue
+2026-10-26T08:05:21.880540Z [13690.011080060] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","uid":"50655e1a-6983-445e-a8af-fc6e8109a198","status":"memory_checking_done","launching_stage_in_detail":25} 
+2026-10-26T08:05:21.880563Z [13690.011102740] user.info sam [] SAM APP_LAUNCH {"CLOCK":13690.011,"app_id":"com.webos.app.voice","status":"start_launching","PerfType":"AppLaunch","PerfGroup":"com.webos.app.voice"} 
+2026-10-26T08:05:21.880584Z [13690.011123520] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","status":"start_launch_handler"} life_status: 4
+2026-10-26T08:05:21.880604Z [13690.011143880] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"com.webos.app.voice","start_native_handler":"RelaunchAsCommon"} ver: 2
+2026-10-26T08:05:21.880639Z [13690.011179300] user.info sam [] SAM RUNTIME_STATUS {"app_id":"com.webos.app.voice","current":4} skip set runtime status (1)
+2026-10-26T08:05:21.880662Z [13690.011201740] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"launch","appId":"com.webos.app.voice","returnValue":true,"reason":"undefined"}} 
+2026-10-26T08:05:21.880737Z [13690.011276600] user.info sam [] SAM LOADING_LIST {"app_id":"com.webos.app.voice"} added
+2026-10-26T08:05:21.880761Z [13690.011301060] user.info sam [] SAM LIFE_STATUS {"app_id":"com.webos.app.voice","uid":"50655e1a-6983-445e-a8af-fc6e8109a198","current":5,"new":3} life_status_changed
+2026-10-26T08:05:21.880804Z [13690.011343600] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"relaunching","appId":"com.webos.app.voice","appCategory":[],"processId":"8321","type":"native"}} 
+2026-10-26T08:05:21.880923Z [13690.011462360] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","uid":"50655e1a-6983-445e-a8af-fc6e8109a198","status":"launching_done"} 
+2026-10-26T08:05:21.880945Z [13690.011484900] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","status":"finish_launching","is_last_fullscreen_app":"false","mode":"normal"} 
+2026-10-26T08:05:21.880997Z [13690.011536320] user.info sam [] SAM APP_LAUNCH {"app_id":"com.webos.app.voice","uid":"50655e1a-6983-445e-a8af-fc6e8109a198","action":"removed_launching_item"} 
+2026-10-26T08:05:21.881436Z [13690.011978800] user.info umediaserver [] ums.default APP_STATUS_UPDATE {"TIMESTAMP":13690.011864720,"CODE_POINT":"<AppObserver.cpp:appLifeStatusCallback(128)>"} appLifeStatusEvt: {"reason":"undefined","status":"relaunching","appId":"com.webos.app.voice","appCategory":[],"processId":"8321","type":"native"}
+2026-10-26T08:05:21.881970Z [13690.012512220] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"relaunching","app_id":"com.webos.app.voice"} 
+2026-10-26T08:05:21.882458Z [13690.013000680] user.info com.webos.app.voice [] voice voice_app_registerApp {"appId":"com.webos.app.voice","event":"relaunch","parameters":{},"reason":"undefined","returnValue":true} 
+2026-10-26T08:05:21.882773Z [13690.013314160] user.info com.webos.app.voice [] voice voice_app_registerApp {"key interval":266}
+04:05:45 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:05:45 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:05:49 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv voice off: {"ok":true,"voice":"off","checkpointBack":0,"closed":["com.webos.app.voice"],"onScreen":""}
+04:05:49 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:05:53 capture search-restored: {
+    "capturedHeight": 540,
+    "writtenBytes": 382435,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:05:53 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:05:53 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:05:56 search-off units: ● broadcast-configd.service loaded failed failed default - "broadcast-configd.service"
+● f2io-on.service           loaded failed failed default - "f2io-on.service"
+● faultmanager.service      masked failed failed faultmanager.service
+● gibbs.service             loaded failed failed default - "gibbs.service"
+● nudge.service             masked failed failed nudge.service
+● service-logger.service    masked failed failed service-logger.service
+● voiceinput.service        masked failed failed voiceinput.service
+04:05:57 search-off reports: 
+04:05:57 search-off audio state: adec.p0
+adec.p1
+aenc
+amixer
+atv
+hdmi
+lgse
+sndout
+04:06:05 Search recovery before: {
+    "running": [
+        {
+            "webprocessid": "10478",
+            "defaultWindowType": "card",
+            "id": "com.webos.app.home",
+            "processid": "10478",
+            "appType": "web"
+        },
+        {
+            "webprocessid": "",
+            "defaultWindowType": "overlay",
+            "id": "com.webos.app.voice",
+            "processid": "8321",
+            "appType": "native"
+        }
+    ],
+    "returnValue": true
+} | 8321 com.webos.app.v
+04:06:05 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:06:11 Search after close wait: 8321 com.webos.app.v
+04:06:11 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:06:17 Search recovery fg: com.webos.app.home
+04:06:17 capture search-recovery: {
+    "capturedHeight": 540,
+    "writtenBytes": 193176,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:06:35 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:06:36 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:06:58 keyboard on: {"ok":true,"keyboard":"on","applied":true,"patched":true}
+04:06:58 keyboard status: {"ok":true,"on":true,"patched":true} | patched markers: 1
+04:07:03 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:07:07 launch com.webos.app.voice: {
+    "returnValue": true
+}
+04:07:12 capture keyboard-patched-0: {
+    "capturedHeight": 540,
+    "writtenBytes": 193816,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:07:13 capture keyboard-patched-03: {
+    "capturedHeight": 540,
+    "writtenBytes": 193047,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:07:14 capture keyboard-patched-closing: {
+    "capturedHeight": 540,
+    "writtenBytes": 247510,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+04:07:15 close com.webos.app.voice: {
+    "appId": "com.webos.app.voice",
+    "returnValue": true
+}
+04:07:15 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:07:35 keyboard off: {"ok":true,"keyboard":"off","applied":true,"patched":false}
+04:07:36 keyboard final: {"ok":true,"on":false,"patched":false} | patched markers: 0
+04:07:41 launch com.webos.app.home: {
+    "returnValue": true
+}
+04:07:44 after keyboard check: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}

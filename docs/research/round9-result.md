@@ -38,6 +38,11 @@ HDMI switching cancels mute: volume 0 was used during the HDMI regression. HA’
 | Dolby signal and text | PASS telemetry and offline render; audible TV check deferred | Actual receiver data: `signal=Dolby Atmos - DD+`, `soundMode=DOLBY ATMOS`, saved as `netflix-receiver.json`. Dark/light offline renders of that reading (only mute disabled in the host) both show the full `Dolby Atmos` text, no warnings. Actual TV format text stays hidden while muted; unmuted TV check remains for the morning. |
 | Persistent mute mark | FAIL subtitle clearance; motion works | `netflix-playing.png` and `netflix-mute-hop.png`: the mark moves horizontally after 10 s but covers the Netflix subtitle rows. Reported to Main for the volume owner. |
 | Clean package | PASS | 120 QML, 0 failed; installer matched the helper hash after 8 s; apply took 18 s. LG compositor, Home stub, helper and lean profile intact; helper reports 14 apps kept from preloading. |
+| Frame-rate probe, first run | INVALID, fixed by Main in `03b6f31` | The sampler stopped on a non-UTF-8 byte in `/var/log/messages`; the old report still called zero samples a pass. That run is not counted. |
+| Live TV restyle | PARTIAL; left off | Before: GlobalStyle MD5 and 273 QML files matched. `on` mounted 17 files and set one dump aside; no new failed unit, report, or DSP reset. Input pill, no-signal pill, channel OK banner, channel INFO, and banner editor rendered with Lucent styling; banner setting stayed `none` after Back. Fails: input options focus capture was blank after Right, and the restored-input 1.6 s capture did not show the stock pill. `off` restored the dump and mount. |
+| Search restyle | FAIL; left off | `voice on` mounted, but `com.webos.app.voice` pid 8321 survived `closeByAppId`; SAM used `RelaunchAsCommon`, so the patched QML did not load. `voice off` restored the mount. Stock Search reappeared after a later relaunch. |
+| Keyboard animation | PASS by capture; left off | `keyboard on` patched one marker and restarted LG’s compositor. The keyboard stood flush at the bottom; after Back it was gone by the next 0.3 s capture. `keyboard off` returned to unpatched. |
+| LG keyboard source | PASS | `/usr/lib/maliit/plugins/qml` has 85 QML files. A read-only copy is in `/data/home/lgtv/uiinv/maliit/qml`; the archive is `maliit-qml.tgz`. |
 
 ## Round 9 handoff (historical)
 
