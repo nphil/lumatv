@@ -1,9 +1,9 @@
-# Panels slice: quick panel, input picker, receiver OSD and page
+# Panels slice: quick panel, input picker and receiver page
 
-Surfaces: `panels/QuickPanel.qml`, `panels/InputPicker.qml`, `panels/VolumeOsd.qml`, `settings/PageReceiver.qml`,
+Surfaces: `panels/QuickPanel.qml`, `panels/InputPicker.qml`, `settings/PageReceiver.qml`,
 `settings/PluginTiles.qml`, `kit/Inputs.qml`, `kit/ReceiverGate.qml`; helper side `helper/app/src/{receiver,hub}.rs`.
-Scenes: `tests/qmlhost/scenes_panels.py` (08, 10, 11 x4, 24 x5). Tests: `tests/test_panels.py`, `tests/test_volume_osd.py`,
-`helper/app/tests/receiver.rs`. Nothing here has run on the set.
+Scenes: `tests/qmlhost/scenes_panels.py` (08, 10, 24 x5). Tests: `tests/test_panels.py`, `helper/app/tests/receiver.rs`. Nothing here has run on the set.
+The volume and mute display (mock 11, `panels/VolumeOsd.qml`) was this slice's and now lives in the overlay layer: see `volume-osd-result.md`.
 
 ## Resume here
 
@@ -21,8 +21,8 @@ State at 2026-10-25, offline only.
 - Receiver readings (OSD, tile, page): one gate, `kit/ReceiverGate.qml`. A value is shown while `Helper.up`, the topic says
   `fresh` and `reachable`, and its `updatedAt` is under 6 s old. The helper moves that stamp quietly (`Hub::set_ignoring`:
   a poll that changes nothing raises no event), so the copy a surface holds ages out between real changes; a surface that is on
-  screen then asks `GET /v1/state/receiver` and takes the newer stamp, otherwise it shows nothing (the OSD asks only when a
-  volume key is pressed). The helper itself publishes `fresh: false` 6 s after the last good read.
+  screen then asks `GET /v1/state/receiver` and takes the newer stamp, otherwise it shows nothing (the volume display asks when a
+  key is pressed and while a mute is shown). The helper itself publishes `fresh: false` 6 s after the last good read.
 - Receiver page (mock 24): draws only what the topic has. The helper publishes power, input, volume and mute (HTTP 8080
   Lite status; the full status page answers 403) and has no `/v1/receiver/set`, so the page says it cannot send commands and
   dims every control. Scenes `24-settings-receiver*` publish the full contract (sound modes, Audyssey, levels, Quick Select,
@@ -55,10 +55,10 @@ Quick Settings and picker first-frame and p90 numbers (`gate.py --surfaces quick
   and Hidden, launch on OK, the sound line). `cargo test -p lumatv-helper --test receiver` 10 of 10 and `--lib` 283 of 283
   (host linker: `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=compositor/tools/cc-host`).
 - Renders, dark and light, against the mocks: `python3 tests/qmlhost/scenes.py --out /tmp/panels-shots --only
-  08-input-picker,10-quick-panel,11-volume-osd,11-volume-osd-abs,11-volume-osd-muted,11-volume-osd-offline,24-settings-receiver,
+  08-input-picker,10-quick-panel,24-settings-receiver,
   24-settings-receiver-levels,24-settings-receiver-audyssey,24-settings-receiver-zones,24-settings-receiver-today`. 24 (all four
   tabs) matches the mock to the row; 10 matches except the Sleep timer tile (see above) and the toggle thumb colour (LuToggle);
-  08 has the wrapped "HDMI 2 · eARC" caption and the Sound line of the mock; 11 shows the pill over Home (the mocks use a video
-  backdrop). Row dividers of the mocks are LuRow's, not drawn.
+  08 has the wrapped "HDMI 2 · eARC" caption and the Sound line of the mock. Row dividers of the mocks are LuRow's, not drawn. The
+  volume display's scenes (11) are in `scenes_volume.py`.
 - Set measurements still to take (not run): `gate.py --surfaces quick,picker,osd` (first frame under 50 ms, p90 under 3 ms);
   a volume key after minutes idle (the confirmation GET, then the burst read) on the real helper.

@@ -2,7 +2,7 @@ import QtQuick 2.4
 import WebOSServices 1.0
 import "kit"
 
-// The surfaces Home keeps built: Settings, the kit gallery, the input picker, the quick panel, the volume OSD, the
+// The surfaces Home keeps built: Settings, the kit gallery, the input picker, the quick panel, the
 // small panels (menu, confirm, remote, splash), the library, search, voice bar and banner, the notification drawer and the
 // screensaver. LumaHome owns when each is shown (`open`, its key dispatch and the focus it gives back); this file owns that
 // each exists before it is asked for. After Home has presented, each is built in the background, one after the other, so
@@ -24,7 +24,7 @@ Item {
     property string open: ""                            // the modal surface that owns the keys ("" none)
     property var below: []                              // the modal surfaces under it, drawn and without keys
     property int buildStep: -1                          // -1: waiting for Home to present
-    readonly property int steps: 14                     // surfaces in the build chain
+    readonly property int steps: 13                     // surfaces in the build chain
     readonly property bool built: buildStep >= steps
     signal closeRequested(string id)
     signal openSettingsPage(string id)
@@ -44,7 +44,7 @@ Item {
     }
     function advance(step) { if (buildStep <= step) buildStep = step + 1 }
 
-    // The modal surfaces, by the name Home opens them with (the OSD, the splash and the mic indicator are always up and never open).
+    // The modal surfaces, by the name Home opens them with (the splash and the mic indicator are always up and never open).
     function find(id) {
         return id === "settings" ? settingsRes : id === "gallery" ? galleryRes : id === "picker" ? pickerRes : id === "quick" ? quickRes
              : id === "menu" ? menuRes : id === "confirm" ? confirmRes : id === "remote" ? remoteRes
@@ -61,6 +61,7 @@ Item {
         var r = find(open)
         if (r && r.item && r.item.hold) r.item.hold()
     }
+    // Whether a held OK means something on the surface that has the keys now: Settings says yes on a row that has help.
     // The input key pressed again while the picker is up goes on to the next input.
     // Open Settings at a page (the quick panel's tiles do): the page's rail section is selected and the page has the focus.
     function settingsGoTo(id) { if (settingsRes.item && id !== "") settingsRes.item.goTo(id) }
@@ -71,8 +72,6 @@ Item {
         return s.pages.filter(function(p) { return p.search !== false }).map(function(p) { var sum = String(s.summaryFor(p.id)).split(" \u00b7 ")[0]; return { id: p.id, title: p.title, icon: p.icon, sub: "Settings" + (sum ? " \u00b7 " + sum : "") } })
     }
     function pickerNext() { if (pickerRes.item) pickerRes.item.next() }
-    // A volume key was pressed: the OSD asks the helper for a fresh reading and shows the pill.
-    function volumeKey() { if (osdRes.item) osdRes.item.nudge() }
     onOpenChanged: { if (open === "picker" && pickerRes.item) pickerRes.item.open({}); else if (open === "drawer" && drawerRes.item) drawerRes.item.open() }
 
     // What the host asks of the small panels. They are built, so each is a call on an item that is already there.
@@ -158,24 +157,11 @@ Item {
         onCloseRequested: layers.closeRequested("quick")
     }
 
-    // ---- the volume and mute OSD (step 3): always up, draws only when the receiver says something
-    Resident {
-        id: osdRes
-        name: "osd"
-        step: 3
-        source: "panels/VolumeOsd.qml"
-        anchors.fill: parent
-        z: 80
-        build: layers.buildStep >= step
-        shown: layers.hostActive
-        onDone: layers.advance(step)
-    }
-
-    // ---- the context menu, the confirm dialog and the on-screen remote (steps 4 to 6)
+    // ---- the context menu, the confirm dialog and the on-screen remote (steps 3 to 5)
     Resident {
         id: menuRes
         name: "menu"
-        step: 4
+        step: 3
         source: "panels/ContextMenu.qml"
         anchors.fill: parent
         z: 64
@@ -193,7 +179,7 @@ Item {
     Resident {
         id: confirmRes
         name: "confirm"
-        step: 5
+        step: 4
         source: "panels/Confirm.qml"
         anchors.fill: parent
         z: 65
@@ -211,7 +197,7 @@ Item {
     Resident {
         id: remoteRes
         name: "remote"
-        step: 6
+        step: 5
         source: "panels/ScreenRemote.qml"
         anchors.fill: parent
         z: 66
@@ -227,11 +213,11 @@ Item {
     }
     signal remoteKey(string name)
 
-    // ---- the launch splash, the spinner and the hold ring (step 7): above everything but the AI prompt
+    // ---- the launch splash, the spinner and the hold ring (step 6): above everything but the AI prompt
     Resident {
         id: splashRes
         name: "splash"
-        step: 7
+        step: 6
         source: "panels/Splash.qml"
         anchors.fill: parent
         z: 75
@@ -240,11 +226,11 @@ Item {
         onDone: layers.advance(step)
     }
 
-    // ---- the all-apps library (step 8): the Apps tile's own grid, and Search over it (step 9)
+    // ---- the all-apps library (step 7): the Apps tile's own grid, and Search over it (step 8)
     Resident {
         id: appsRes
         name: "apps"
-        step: 8
+        step: 7
         source: "panels/AppsGrid.qml"
         anchors.fill: parent
         z: 61
@@ -266,7 +252,7 @@ Item {
     Resident {
         id: searchRes
         name: "search"
-        step: 9
+        step: 8
         source: "panels/Search.qml"
         anchors.fill: parent
         z: 62
@@ -284,11 +270,11 @@ Item {
         onCloseRequested: layers.closeRequested("search")
     }
 
-    // ---- the voice bar (step 10): above every surface but the AI prompt, and its mic indicator stays up while the mic is open
+    // ---- the voice bar (step 9): above every surface but the AI prompt, and its mic indicator stays up while the mic is open
     Resident {
         id: voiceRes
         name: "voice"
-        step: 10
+        step: 9
         source: "panels/VoiceBar.qml"
         anchors.fill: parent
         z: 91
@@ -302,12 +288,12 @@ Item {
         onCloseRequested: layers.closeRequested("voice")
     }
 
-    // ---- the banner (step 11): the channel banner, the input pill and the no-signal screen. A banner without buttons takes no key
+    // ---- the banner (step 10): the channel banner, the input pill and the no-signal screen. A banner without buttons takes no key
     // and hides itself, so the resident is always up and draws only what it has been given.
     Resident {
         id: bannerRes
         name: "banner"
-        step: 11
+        step: 10
         source: "panels/Banner.qml"
         anchors.fill: parent
         z: 72
@@ -323,12 +309,12 @@ Item {
         onCloseRequested: layers.closeRequested("banner")
     }
 
-    // ---- the notification drawer (step 12): down the right side, from the bell on the status bar. It marks what it shows as seen
+    // ---- the notification drawer (step 11): down the right side, from the bell on the status bar. It marks what it shows as seen
     // when it opens, and it owns its keys (Back asks to close).
     Resident {
         id: drawerRes
         name: "drawer"
-        step: 12
+        step: 11
         source: "panels/Drawer.qml"
         anchors.fill: parent
         z: 67
@@ -342,13 +328,13 @@ Item {
         onCloseRequested: layers.closeRequested("drawer")
     }
 
-    // ---- the screensaver and art mode (step 13): over everything here, under the AI prompt (Home's own, a level above this item),
+    // ---- the screensaver and art mode (step 12): over everything here, under the AI prompt (Home's own, a level above this item),
     // while the TV's power state is Screen Saver. It is not a surface Home opens, so it has no name in find(); Home hands it the
     // key that wakes the TV (saverKey) and the key does nothing else.
     Resident {
         id: saverRes
         name: "saver"
-        step: 13
+        step: 12
         source: "panels/Screensaver.qml"
         anchors.fill: parent
         z: 95

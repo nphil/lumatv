@@ -21,6 +21,30 @@ QtObject {
         property string launchPointsList: JSON.stringify({ launchPoints: FakeApps.launchPoints(Qt.resolvedUrl("../../../../docs/mocks/img/apps/"), Qt.resolvedUrl("../../../../assets/")) })
         property var appInfoList: ({})
     }
+    // The compositor's audio service (AudioService plugin) with LG's property names. `soundOutput` is empty until a test or a scene says where
+    // the sound goes, which is how the real service looks before its first answer: the volume display then knows nothing of the TV's own
+    // volume. `report()` is what a volume key does on the set: the service changes its state and announces it with `volumeUpdated`.
+    property QtObject audioService: QtObject {
+        id: audio
+        property int volume: 12
+        property int volumeMax: 100
+        property bool muted: false
+        property bool disabled: false
+        property bool volumeSyncable: true
+        property bool ossActivate: false
+        property string soundOutput: ""
+        property string mode: "normal"
+        property string cause: ""
+        property int reports: 0
+        signal volumeUpdated()
+        function report(why, level, mute) {
+            if (level !== undefined && level !== null) volume = level
+            if (mute !== undefined && mute !== null) muted = mute
+            cause = why || ""
+            reports++
+            volumeUpdated()
+        }
+    }
     property QtObject adhoc: QtObject {
         function call(uri, method, payload) {
             var error = ""

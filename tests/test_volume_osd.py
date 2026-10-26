@@ -1,45 +1,251 @@
-"""Receiver display freshness through the running offline QML host."""
+"""Run with: python3 -m unittest tests.test_volume_osd   (needs Xvfb and PyQt5; skipped without them)
+
+The volume and mute display (panels/VolumeOsd.qml, held by LumaOverlay.qml) through the offline QML host, the fake helper and the host's stand-in
+audio service (`LS.audioService`, which a test tells where the sound goes and makes announce a change, as a volume key does):
+
+- whose volume it shows: the receiver's own, in its own units, while the sound goes over ARC to a receiver that is on and answering; the TV's
+  own where the TV's speakers are the output or the receiver is off, unreachable or switched off in Settings; a receiver that may answer and has
+  not yet is waited for (`decideMs`), not replaced by the TV's counter and then corrected;
+- that a reading that is not in date is not shown, and that a silent helper loses a mute that stayed;
+- the mute: the word and what it was, then a mark that stays and moves, from the receiver's push or the TV's mute;
+- that it is up over Home as well as over an app, takes no key and no focus, has the glass see-through only over an app's picture, and that
+  Home's own layers no longer hold a second one.
+
+The host runs on a shared, loaded machine in software GL: a reading the fake helper publishes reaches the display after the helper's first sync
+(about a second after the start) and a long poll later, so every check comes a second and more after what it checks, and the display's own
+timers are lengthened where a test has to catch them mid-way.
+"""
+import json
+import os
+import re
+import sys
 import unittest
 
 from test_settings import HostCase
 from xdisplay import DISPLAY, HAVE_QT
 
-FIND = """function find(p) {
-    if (p.staleMs !== undefined) return p;
-    for (var i=0; i<p.children.length; i++) { var found=find(p.children[i]); if(found) return found; }
-    return null;
-} var osd=find(root); if(!osd) throw Error('volume display not built');"""
-PUBLISH = """var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/receiver');
-x.setRequestHeader('Content-Type','application/json'); x.onreadystatechange=function(){if(x.readyState===4) console.info('[receiver-publish] '+x.status)};
-x.send(JSON.stringify(root.theme.testReceiver));"""
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "qmlhost"))
+
+FIND = ("var f=function(p){if(p.staleMs!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=f(p.children[i]);if(r)return r}return null};"
+        "var o=f(overlay); if(!o) throw Error('volume display not built');")
+PLAIN = '{"perf":{"syncResidents":true}}'
+B = 1500                # the helper is up and has synced from here on
+
+# what the helper publishes for the Denon on the set: the absolute scale, input "TV"
+RX = {"enabled": True, "error": None, "fresh": True, "host": "192.168.1.93", "input": "TV", "mute": False, "polling": True, "power": "on",
+      "reachable": True, "volumeAbs": 46.0, "volumeDb": -34.0, "volumeDisplay": "absolute", "volumeText": "46"}
+RX_DB = dict(RX, volumeAbs=45.5, volumeDb=-34.5, volumeDisplay="relative", volumeText="-34.5 dB")
+GONE = {"enabled": True, "error": None, "fresh": False, "host": "192.168.1.93", "polling": True, "reachable": False}
+OFF = {"enabled": False, "error": None, "fresh": False, "host": "192.168.1.93", "polling": False, "reachable": None}
 
 
-def expr(body):
-    return '(function(){' + FIND + body + '})()'
+def on_osd(body):
+    """An expression over `o`, the display, found in the overlay."""
+    return "(function(){ %s return (%s) })()" % (FIND, body)
 
 
-@unittest.skipUnless(DISPLAY and HAVE_QT, 'needs Xvfb and PyQt5')
+def do(body):
+    return "(function(){ %s %s; return 1 })()" % (FIND, body)
+
+
+def rx(doc, age=0):
+    """The receiver published from inside the host with its own clock (a reading's stamp is what ages it); `age` ms old."""
+    return ("(function(){var d=%s; d.updatedAt=Date.now()-%d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/receiver');"
+            "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d)); return 1})()" % (json.dumps(doc), age))
+
+
+def quiet(doc):
+    """A newer stamp the helper holds without an event: what the display gets only by asking."""
+    return ("(function(){var d=%s; d.updatedAt=Date.now(); var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__quiet/receiver');"
+            "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d)); return 1})()" % json.dumps(doc))
+
+
+def audio(body):
+    assert "'" not in body
+    return ("(function(){ Qt.createQmlObject('import QtQuick 2.4\\nimport WebOSServices 1.0\\nQtObject { Component.onCompleted: { %s } }', overlay, 'audio'); return 1 })()" % body)
+
+
+def sound_out(output="external_arc", volume=31, syncable=False):
+    return audio('LS.audioService.soundOutput = "%s"; LS.audioService.volume = %d; LS.audioService.volumeSyncable = %s' % (output, volume, "true" if syncable else "false"))
+
+
+def press(why="volumeUp", volume=None, muted=None):
+    return audio("LS.audioService.report(%s, %s, %s)" % (json.dumps(why), "null" if volume is None else volume, "null" if muted is None else ("true" if muted else "false")))
+
+
+SHOWN = on_osd("[o.pill, o.paneUp, o.source, o.level, o.caption, o.muted, o.markUp].join('|')")
+POSTS = ("(function(){var x=new XMLHttpRequest(); x.onreadystatechange=function(){if(x.readyState===4) console.info('[posts] '+x.responseText)};"
+         "x.open('GET','http://127.0.0.1:18731/__posts'); x.send(); return 1})()")
+
+# A warning from these files is the display's; one from any other surface is work in progress elsewhere in the tree and is not judged here.
+OWN = re.compile(r"VolumeOsd|TvVolume|LumaOverlay|Glass\.qml|LuPane|kit/Lu\.qml|ReceiverGate|StarfishFullscreenContainer|overlay volume")
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
 class VolumeOsd(HostCase):
-    def test_replayed_reading_expires_and_new_reading_recovers(self):
-        rc, out = self.host(
-            '--eval', '6000:' + expr("osd.staleMs=1200; osd.holdMs=6000; root.theme.testReceiver={reachable:true,fresh:true,updatedAt:Date.now(),volumeText:'35.5',volumeAbs:35.5,mute:false};" + PUBLISH + 'osd.show(); return 1;'),
-            '--eval', '6400:' + expr('return osd.fresh && osd.level === "35.5";'),
-            '--eval', '6900:' + expr(PUBLISH + 'return 1;'),
-            '--eval', '8500:' + expr('return osd.stale && osd.level === "" && osd.offline;'),
-            '--eval', '8700:' + expr('root.theme.testReceiver.updatedAt=Date.now();' + PUBLISH + 'return 1;'),
-            '--eval', '9200:' + expr('return osd.fresh && osd.level === "35.5" && !osd.offline;'),
-            '--wait', '9500')
-        self.assertEqual(rc, 0, out[-2500:])
-        self.assertEqual(self.values(out)[1::2], ['true', 'true', 'true'], out[-2500:])
+    def clean(self, rc, out):
+        """The host exits 0 when nothing in the tree warned. Nothing of the display's may have, and with nothing else warned it is 0."""
+        stray = [ln for ln in out.splitlines() if ln.startswith("[warning]") and "Implicitly defined onFoo" not in ln]
+        self.assertEqual([ln for ln in stray if OWN.search(ln)], [], out[-2000:])
+        if not stray:
+            self.assertEqual(rc, 0, out[-2000:])
 
-    def test_old_snapshot_is_hidden_immediately(self):
-        rc, out = self.host(
-            '--eval', '6000:' + expr("osd.holdMs=6000; root.theme.testReceiver={reachable:true,fresh:true,updatedAt:Date.now()-7000,volumeText:'35.5',volumeAbs:35.5,mute:false};" + PUBLISH + 'osd.show(); return 1;'),
-            '--eval', '6400:' + expr('return !osd.fresh && osd.level === "" && osd.offline;'),
-            '--wait', '6800')
-        self.assertEqual(rc, 0, out[-2500:])
-        self.assertEqual(self.values(out)[-1], 'true', out[-2500:])
+    def run_osd(self, steps, wait, home=False, theme=PLAIN):
+        """steps: (ms, js, label); each `label=value` is read back. The overlay is built at once; an app is in front from 800 ms unless `home`.
+        Returns ({label: value}, the host's whole output)."""
+        argv = ["--eval", "100:(function(){ overlay.warm = true; return 1 })()"]
+        if not home:
+            argv += ["--eval", "800:(function(){ overlay.appFront = true; return 1 })()"]
+        for ms, expr, label in steps:
+            argv += ["--eval", "%d:(function(){ return %s + (%s) })()" % (ms, json.dumps(label + "="), expr)]
+        rc, out = self.host(*argv, "--overlay", "--prop", "hostActive=" + ("true" if home else "false"), "--theme", theme, "--wait", str(wait))
+        self.clean(rc, out)
+        got = {}
+        for v in self.values(out):
+            m = re.match(r"^([a-z0-9_]+)=(.*)$", v, re.S)
+            if m:
+                got[m.group(1)] = m.group(2)
+        return got, out
+
+    def test_the_receiver_is_read_while_the_sound_goes_to_it_and_the_keys_are_asked_about(self):
+        got, out = self.run_osd([
+            (300, do("o.holdMs = 3000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"), (B + 1800, SHOWN, "idle"),
+            (B + 2000, press("volumeUp", 32), "key"), (B + 2800, SHOWN, "key_state"),
+            # the receiver's own push, a moment later: the number changes in place and the pane stays
+            (B + 3000, rx(dict(RX, volumeAbs=46.5, volumeDb=-33.5, volumeText="46.5")), "push"), (B + 4000, SHOWN, "pushed"),
+            (B + 4200, POSTS, "posts"), (B + 4300, on_osd("o.fraction"), "fraction"),
+            (B + 8000, SHOWN, "later"),
+        ], B + 8600)
+        self.assertEqual(got["idle"], "false|false|receiver|46|TV|false|false", "nothing is on screen before a key, the receiver is the source")
+        self.assertEqual(got["key_state"], "true|true|receiver|46|TV|false|false", "a key shows the receiver's own level and the input it plays, at once")
+        self.assertEqual(got["pushed"], "true|true|receiver|46.5|TV|false|false", "the receiver's push changes the number in place")
+        self.assertAlmostEqual(float(got["fraction"]), 46.5 / 98, places=3)
+        self.assertEqual(got["later"], "false|false|receiver|46.5|TV|false|false", "gone after the hold")
+        posts = json.loads(re.findall(r"\[posts\] (.*)", out)[-1])["posts"]
+        self.assertIn(["/v1/receiver/nudge", {}], posts, "a key asks the helper to read the receiver now")
+
+    def test_the_decibel_scale_is_split_into_a_number_and_its_unit(self):
+        got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX_DB), "rx"), (B + 2000, press("volumeDown", 30), "key"),
+                               (B + 2800, on_osd("[o.level, o.caption, o.hasUnit].join('|')"), "db")], B + 3400)
+        self.assertEqual(got["db"], "-34.5|dB|true")
+
+    def test_without_a_receiver_it_is_the_tvs_own_volume(self):
+        cases = [("unreachable", GONE), ("switched off in Settings", OFF), ("in standby", dict(RX, power="standby"))]
+        steps = []
+        for i, (_, doc) in enumerate(cases):
+            t = B + i * 3500
+            steps += [(t, rx(doc), "rx%d" % i), (t + 200, sound_out("external_arc", 31 + i), "out%d" % i), (t + 1800, press("volumeUp", 32 + i), "key%d" % i),
+                      (t + 2600, SHOWN, "state%d" % i), (t + 2650, on_osd("o.fraction"), "fraction%d" % i), (t + 2700, do("o.pill = false"), "off%d" % i)]
+        got, _ = self.run_osd(steps, B + 3500 * len(cases) + 500)
+        for i, (name, _) in enumerate(cases):
+            self.assertEqual(got["state%d" % i], "true|true|tv|%d|ARC|false|false" % (32 + i), name)
+            self.assertAlmostEqual(float(got["fraction%d" % i]), (32 + i) / 100, places=3)
+
+    def test_the_tvs_speakers_are_the_tvs_volume_even_with_the_receiver_on_and_a_receiver_change_is_not_shown(self):
+        got, _ = self.run_osd([
+            (B, sound_out("tv_speaker", 18, True), "out"), (B + 200, rx(RX), "rx"), (B + 2000, press("volumeUp", 19), "key"), (B + 2800, SHOWN, "key_state"),
+            (B + 2900, do("o.pill = false"), "off"),
+            (B + 3500, rx(dict(RX, volumeAbs=50.0, volumeText="50")), "push"), (B + 5000, SHOWN, "after_push"),
+            # the headphones, Bluetooth: the same
+            (B + 5200, sound_out("headphone", 7, True), "hp"), (B + 5600, press("volumeDown", 6), "hp_key"), (B + 6400, SHOWN, "hp_state"),
+        ], B + 7000)
+        self.assertEqual(got["key_state"], "true|true|tv|19|TV|false|false")
+        self.assertEqual(got["after_push"], "false|false|tv|19|TV|false|false", "the receiver is not the output: its own level is not what the keys changed")
+        self.assertEqual(got["hp_state"], "true|true|tv|6|Headphones|false|false")
+
+    def test_a_receiver_that_may_answer_is_waited_for_and_the_tvs_counter_is_the_answer_only_when_it_does_not(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 4000; o.decideMs = 1500"), "hold"), (B, sound_out(), "out"),
+            # the reading on the display is 8 s old: the helper still says it is reachable
+            (B + 200, rx(RX, 8000), "old"), (B + 1800, on_osd("[o.fresh, o.stale].join('|')"), "aged"),
+            # nothing answers: held back for the decision window, then the TV's own volume
+            (B + 2000, press("volumeUp", 32), "key"), (B + 2500, SHOWN, "waiting"), (B + 4000, SHOWN, "settled"),
+            (B + 4200, do("o.pill = false"), "off"),
+            # the helper has a newer reading it did not announce: the key's question gets it, and the receiver's level is what shows
+            (B + 5000, quiet(RX), "quiet"), (B + 6000, press("volumeUp", 33), "key2"), (B + 7500, SHOWN, "answered"),
+        ], B + 8200)
+        self.assertEqual(got["aged"], "false|true", "the reading is not in date")
+        self.assertEqual(got["waiting"], "true|false|wait|||false|false", "a key waits for a receiver that may answer: nothing is drawn yet")
+        self.assertEqual(got["settled"], "true|true|tv|32|ARC|false|false", "no answer: the TV's own volume")
+        self.assertEqual(got["answered"], "true|true|receiver|46|TV|false|false", "answered: the receiver's own level, never the counter first")
+
+    def test_the_mute_is_a_word_and_what_it_was_then_a_mark_that_stays_and_moves_until_the_sound_is_back(self):
+        steps = [(300, do("o.holdMs = 1500; o.hopMs = 1500; o.staleMs = 60000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+                 (B + 2000, rx(dict(RX, mute=True)), "mute"), (B + 2900, SHOWN, "pane"), (B + 5000, SHOWN, "mark")]
+        steps += [(B + 5100 + i * 1000, on_osd("o.markPlace"), "place%d" % i) for i in range(6)]
+        steps += [(B + 11500, rx(dict(RX, mute=False)), "unmute"), (B + 12800, SHOWN, "back"), (B + 16000, SHOWN, "after")]
+        got, _ = self.run_osd(steps, B + 16600)
+        self.assertEqual(got["pane"], "true|true|receiver|46|TV|true|false", "a mute from the receiver shows the pane in its muted form")
+        self.assertEqual(got["mark"], "false|false|receiver|46|TV|true|true", "after the hold the mark stays")
+        places = [int(got["place%d" % i]) for i in range(6)]
+        self.assertTrue(all(p in (-1, 0, 1) for p in places), places)
+        self.assertGreaterEqual(len(set(places)), 2, "the mark moves: %s" % places)
+        self.assertEqual(got["back"].split("|")[0], "true", "the receiver's unmute shows the pane again")
+        self.assertEqual(got["after"], "false|false|receiver|46|TV|false|false", "unmuted: nothing stays")
+
+    def test_the_tvs_own_mute_shows_and_stays_when_there_is_no_receiver(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 1500"), "hold"), (B, sound_out("tv_speaker", 18, True), "out"), (B + 200, rx(GONE), "rx"),
+            (B + 2000, press("mute", None, True), "key"), (B + 2800, on_osd("[o.pill, o.source, o.muted, o.caption].join('|') + '|' + o.was"), "pane"),
+            (B + 5000, SHOWN, "mark"), (B + 6000, press("mute", None, False), "unmute"), (B + 7000, on_osd("[o.markUp, o.muted].join('|')"), "after"),
+        ], B + 7600)
+        self.assertEqual(got["pane"], "true|tv|true|TV|18", "the TV's mute: the word and the level it was")
+        self.assertEqual(got["mark"], "false|false|tv|18|TV|true|true")
+        self.assertEqual(got["after"], "false|false")
+
+    def test_a_mute_that_is_in_date_stays_while_the_helper_keeps_reading_and_goes_when_it_stops(self):
+        # the helper moves a reading's stamp quietly: the display asks for it each time the copy it has ages out, as long as the mute is on screen
+        steps = [(300, do("o.holdMs = 300; o.staleMs = 2500; o.graceMs = 1000"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(dict(RX, mute=True)), "mute")]
+        for i in range(9):
+            steps.append((B + 1000 + i * 1000, quiet(dict(RX, mute=True)), "q%d" % i))
+        steps += [(B + 2500, on_osd("o.markUp"), "kept1"), (B + 6000, on_osd("o.markUp"), "kept2"), (B + 9500, on_osd("o.markUp"), "kept3"),
+                  (B + 15500, on_osd("o.markUp"), "lost")]
+        got, _ = self.run_osd(steps, B + 16000)
+        self.assertEqual((got["kept1"], got["kept2"], got["kept3"]), ("true", "true", "true"), "a helper that keeps reading keeps the mark")
+        self.assertEqual(got["lost"], "false", "a helper that has stopped does not leave a mute up that is no longer known")
+
+    def test_a_reading_that_is_not_in_date_is_not_shown_and_the_next_is(self):
+        got, _ = self.run_osd([
+            (300, do("o.staleMs = 4000; o.holdMs = 15000"), "cfg"), (B + 200, rx(RX), "rx"), (B + 1000, do("o.show()"), "show"), (B + 1800, on_osd("[o.fresh, o.level].join('|')"), "fresh"),
+            (B + 6000, on_osd("[o.fresh, o.stale, o.level, o.offline, o.source].join('|')"), "old"),
+            (B + 6200, rx(RX), "again"), (B + 8000, on_osd("[o.fresh, o.level, o.offline].join('|')"), "back"),
+        ], B + 8600)
+        self.assertEqual(got["fresh"], "true|46")
+        self.assertEqual(got["old"], "false|true||true|none", "the number of a reading that has aged out is not drawn: the display says it has nothing")
+        self.assertEqual(got["back"], "true|46|false")
+
+    def test_over_an_apps_picture_the_glass_is_see_through_and_over_home_it_is_not(self):
+        got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX), "rx"), (B + 2000, press("volumeUp", 32), "key"),
+                               (B + 2800, on_osd("[o.overVideo, o.paneAlpha].join('|')"), "app"),
+                               (B + 3000, do("overlay.appFront = false"), "home"), (B + 3800, on_osd("[o.overVideo, o.paneAlpha].join('|')"), "home_state")], B + 4400)
+        theme = json.load(open(os.path.join(os.path.dirname(HERE), "payload", "theme", "theme.json")))
+        alpha = theme["dark"]["readingAlpha"]
+        self.assertEqual(got["app"], "true|%s" % alpha)
+        self.assertLess(alpha, 0.96, "less opaque than Lucent's overlay floor, as asked, with the contrast measured (test_osd_contrast)")
+        self.assertEqual(got["home_state"], "false|1")
+
+    def test_it_is_up_over_home_too_takes_no_key_and_no_focus_and_the_layer_is_drawn_only_while_it_has_something(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 1500"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+            (B + 1800, "[overlay.visible, overlay.up].join('|')", "idle"),
+            (B + 2000, press("volumeUp", 32), "key"), (B + 2700, "[overlay.visible, overlay.up, overlay.appFront].join('|')", "layer"),
+            (B + 2800, on_osd("[o.activeFocus, o.focus].join('|')"), "focus"),
+            (B + 2900, "[overlay.key(Qt.Key_VolumeUp, true, false, 0), overlay.key(Qt.Key_Return, true, false, 0), overlay.wants].join('|')", "keys"),
+            (B + 7000, "overlay.visible", "gone"),
+        ], B + 7600, home=True)
+        self.assertEqual(got["idle"], "false|false", "the layer is not drawn for nothing")
+        self.assertEqual(got["layer"], "true|false|false", "over Home, nothing but the display is up in the layer")
+        self.assertEqual(got["focus"], "false|false")
+        self.assertEqual(got["keys"], "false|false|false", "the volume keys are the app's and OK is nobody's here")
+        self.assertEqual(got["gone"], "false")
+
+    def test_home_holds_no_second_display(self):
+        rc, out = self.host("--eval", "7000:(function(){var f=function(p){if(p.staleMs!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=f(p.children[i]);if(r)return r}return null};"
+                            "return 'osd=' + (f(root) ? 'found' : 'none')})()", "--wait", "7600")
+        self.clean(rc, out)
+        self.assertIn("osd=none", out, "a display in Home's layers as well as in the overlay would answer every key twice")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

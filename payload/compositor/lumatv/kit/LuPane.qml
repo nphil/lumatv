@@ -11,6 +11,7 @@ Item {
     property real cardRadius: Lu.radius("sheet")
     property real focusMix: 0
     property real liftMix: 0
+    property real fillAlpha: 1                // Glass.fillAlpha: below 1 the pane is see-through (over video)
     property real sx: 0
     property real sy: 0
     default property alias content: slot.data
@@ -31,6 +32,7 @@ Item {
         cardRadius: pane.cardRadius
         focusMix: pane.focusMix
         liftMix: pane.liftMix
+        fillAlpha: pane.fillAlpha
         backdrop: Lu.backdrop
         screenX: pane.sx
         screenY: pane.sy

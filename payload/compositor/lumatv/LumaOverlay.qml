@@ -5,11 +5,13 @@ import TextFile 1.0
 import "LumaBus.js" as Bus
 import "kit"
 
-// What Home draws over an app: the banners that say what is on the TV (an input picked, a channel, no signal) and the notification
-// drawer a held gear key opens. The fullscreen container (StarfishFullscreenContainer.qml) loads it beside LumaHome, above the app's surface
-// and below LG's own views (toasts, alerts, the volume, Quick Settings), and tells it `appFront`: an app, not Home, is on screen. Nothing
-// here takes focus from the app and nothing draws until something is shown; the key filter hands it keys only while it has a surface that
-// wants them (a banner with buttons, the drawer) and the app has the keys, so a remote that reaches an app reaches it untouched.
+// What Home draws over an app: the banners that say what is on the TV (an input picked, a channel, no signal), the notification
+// drawer a held gear key opens, and the volume and mute display. The fullscreen container (StarfishFullscreenContainer.qml) loads it beside
+// LumaHome, above the app's surface and below LG's own views (toasts, alerts, Quick Settings), and tells it `appFront`: an app, not Home, is
+// on screen. Nothing here takes focus from the app and nothing draws until something is shown; the key filter hands it keys only while it has
+// a surface that wants them (a banner with buttons, the drawer) and the app has the keys, so a remote that reaches an app reaches it untouched.
+// The volume display wants no key at all: it answers the audio service and the receiver, so it is the one surface here that is up over Home
+// too (the container keeps this layer shown in every state) and over an app that never lets a volume key through.
 //
 // Why a layer of ours and not a system-UI window of LG's (docs/research/shell-host-result.md): LG's compositor ties every system window to
 // its own state machine. An overlay window is closed by the app launches and switches it follows, found by the key filters through
@@ -17,14 +19,16 @@ import "kit"
 // quick access; a layer of ours inside the container is none of that and LG never learns of it.
 //
 // Over video the glass has no wallpaper to sample (PLAN: tinted glass, no blur): the panes sample one flat colour of the material's own,
-// `Lu.backdrop` for as long as an app is in front.
+// `Lu.backdrop` for as long as an app is in front. A pane that sets `fillAlpha` below 1 (the volume display, at Lu.readingAlpha) lets the
+// picture through its fill; the others are opaque.
 //
 //   banners   `showBanner(spec)` (panels/Banner.qml's specs); the input pill on its own when the owner has turned `banners.own` on
 //   drawer    `gearHold()`, the gear key held (theme `remote.gearHold`, on unless the owner turned it off)
+//   volume    panels/VolumeOsd.qml: up whenever the audio service or the receiver reports a volume or a mute, and while the sound is muted
 Item {
     id: ov
     anchors.fill: parent
-    visible: up
+    visible: up || osdLive
 
     // set by the container: an app, not Home, is this container's surface and is on screen
     property bool appFront: false
@@ -37,6 +41,8 @@ Item {
     readonly property bool bannerUp: !!bannerRes.item && bannerRes.item.kind !== ""
     readonly property bool up: appFront && (surface !== "" || bannerUp)
     readonly property bool wants: appFront && surface !== ""
+    // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
+    readonly property bool osdLive: !!osdRes.item && osdRes.item.live
     // Built a while after the compositor started, never in a frame someone waits for (Layers.qml builds Home's in the same spirit).
     property bool warm: false
     Timer { interval: 8000; running: true; onTriggered: ov.warm = true }
@@ -76,6 +82,18 @@ Item {
         build: ov.warm
         shown: ov.surface === "drawer"
     }
+    // The volume and mute display, drawn whenever it has something to say (its `live`): over an app's picture, where its glass is see-through,
+    // and over Home, where it is not. Built with the others, so a first volume key never builds or compiles anything.
+    Resident {
+        id: osdRes
+        name: "overlay volume"
+        source: "panels/VolumeOsd.qml"
+        anchors.fill: parent
+        z: 3
+        build: ov.warm
+        shown: ov.warm
+    }
+    Binding { target: osdRes.item; property: "overVideo"; value: ov.appFront; when: !!osdRes.item }
     Connections {
         target: bannerRes.item
         ignoreUnknownSignals: true

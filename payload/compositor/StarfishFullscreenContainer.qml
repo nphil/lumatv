@@ -256,16 +256,17 @@ FocusScope {
         when: root.lumaHomeCurrent && !!root.__surfaceItem
     }
 
-    // Banners and the notification drawer over an app (payload/compositor/{{qmlModule}}/LumaOverlay.qml). It sits beside LumaHome in the base
-    // container, above the app's surface and below LG's own views (toasts, alerts, the volume, Quick Settings), takes no focus and draws nothing
-    // until something is shown; the key filter hands it keys only while it has a surface that wants them and the app has the keys. It is
-    // never over Home (Home draws its own). A file that does not load leaves no overlay and costs nothing else.
+    // Banners, the notification drawer and the volume and mute display over an app (payload/compositor/{{qmlModule}}/LumaOverlay.qml). It sits
+    // beside LumaHome in the base container, above the app's surface and below LG's own views (toasts, alerts, Quick Settings), takes no focus
+    // and draws nothing until something is shown; the key filter hands it keys only while it has a surface that wants them and the app has the
+    // keys. It is shown in every state, Home's too: over Home `appFront` is false and it draws only the volume and mute display (Home draws its own
+    // banners and drawer), which LG's popup, switched off in the shadow module (tools/volume_patch.py), no longer does. A file that does not load
+    // leaves no overlay and costs nothing else.
     Loader {
         id: lumaOverlay
         anchors.fill: parent
         z: 3
         active: root.objectName === "baseContainer"
-        visible: !root.lumaHomeCurrent
         source: "../../{{qmlModule}}/LumaOverlay.qml"
         onStatusChanged: {
             if (status === Loader.Error)

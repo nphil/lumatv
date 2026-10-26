@@ -42,6 +42,10 @@ QtObject {
     readonly property color danger: role("danger")
     readonly property color info: role("info")
     readonly property color live: role("live")
+    // How much of a pane is painted where it sits over uncontrolled video (an app's picture: the overlay's surfaces). Lucent section 3
+    // step 5 asks for a verified reading surface there, not for the most opaque one: this is the alpha at which `ink` still reads at the
+    // TV's distance contrast (7:1) against the worst frame, which is white under the dark glass and black under the light one.
+    readonly property real readingAlpha: typeof material.readingAlpha === "number" ? material.readingAlpha : 1
 
     // The accent is one colour with one job, action or state. theme.accent says where it comes
     // from: the palette's (the shipped "tile" mode keeps it for controls), the wallpaper's tint, or

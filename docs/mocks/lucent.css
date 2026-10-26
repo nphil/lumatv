@@ -428,20 +428,29 @@ body {
 .qpanel .foot { padding-top: 18px; display: flex; flex-direction: column; gap: 10px; }
 .qpanel .foot .hint { font-size: 22px; color: var(--lu-ink-3); font-weight: 500; text-align: center; }
 
-/* ---- volume OSD: compact overlay at the lower-left safe corner, away from subtitles ------ */
-.osd { left: var(--lu-edge-x); bottom: var(--lu-edge-y); width: 640px; height: 132px; border-radius: 26px; display: flex; align-items: center; gap: 18px; padding: 0 26px 0 18px; }
-.osd .lead { width: 72px; height: 72px; border-radius: 20px; display: grid; place-items: center; background: var(--tile-ink-wash); flex: none; }
-.osd .lead .ic { width: 38px; height: 38px; }
-.osd .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.osd .line1 { display: flex; align-items: baseline; gap: 12px; white-space: nowrap; }
-.osd .db { font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.osd .unit { font-size: 24px; font-weight: 500; color: var(--lu-ink-2); }
-.osd .meta { font-size: 22px; font-weight: 500; color: var(--lu-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: auto; min-width: 0; }
-.osd .track { position: relative; height: 8px; border-radius: 4px; background: var(--well); box-shadow: var(--well-inset); }
-.osd .track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--lu-accent); }
-[data-v="muted"] .osd .lead { color: var(--lu-ink-2); }
-[data-v="muted"] .osd .track i { background: var(--lu-ink-3); }
-[data-v="muted"] .osd .db { color: var(--lu-ink-2); }
+/* ---- volume and mute display: a slim pane at the right edge, where LG's popup was, inside the TV's lateral safe region (Lucent catalogue:
+   compact overlay, no focus). Over video the glass is painted at the reading alpha (theme.json readingAlpha, .8) so the picture shows through;
+   the ink holds 7:1 against the worst frame (tests/test_osd_contrast.py). The level is the ink, the speaker's tile the accent: sound on. ---- */
+:root, [data-theme="dark"] { --osd-glass: rgba(18, 14, 26, .80); }
+[data-theme="light"] { --osd-glass: rgba(255, 255, 255, .80); }
+[data-video] .osd, [data-video] .osd-mark { background: var(--osd-glass); }
+.osd { right: var(--lu-edge-x); top: 50%; transform: translateY(-50%); width: 176px; padding: 32px 0; border-radius: 26px; flex-direction: column; align-items: center; gap: 24px; }
+.osd .head { display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 86px; max-width: 112px; justify-content: flex-start; }
+.osd .num { font-size: 40px; font-weight: 600; letter-spacing: -.01em; line-height: 54px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.osd .word { font-size: 26px; font-weight: 600; line-height: 54px; white-space: nowrap; }
+.osd .cap { font-size: 24px; font-weight: 500; line-height: 32px; white-space: nowrap; }
+.osd .cap.wrap { white-space: normal; text-align: center; line-height: 31px; }
+.osd .vtrack { position: relative; width: 12px; height: 216px; border-radius: 6px; background: var(--lu-track-off); flex: none; }
+.osd .vtrack i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 6px; background: var(--lu-ink); }
+.osd .vtrack.none { visibility: hidden; }
+.osd .tile { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; background: var(--lu-accent); color: var(--lu-accent-ink); flex: none; }
+.osd .tile .ic { width: 35px; height: 35px; }
+.osd .tile.quiet { background: var(--tile-ink-wash); color: var(--lu-ink); border: 1px solid var(--lu-edge); }
+[data-v="muted"] .osd .vtrack i { background: var(--lu-ink-3); }
+/* the mark that stays while the sound is muted: moves 94 px every ten seconds between three places, as LG's bubble did */
+.osd-mark { right: var(--lu-edge-x); top: 50%; transform: translateY(-50%); width: 128px; height: 124px; border-radius: 26px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.osd-mark .ic { width: 48px; height: 48px; }
+.osd-mark .cap { font-size: 24px; font-weight: 500; line-height: 32px; }
 
 /* ---- all-apps library ---------------------------------------------------------------------- */
 .lib-rail { left: var(--lu-edge-x); top: 136px; width: 400px; bottom: var(--lu-edge-y); padding: 20px 16px; display: flex; flex-direction: column; }

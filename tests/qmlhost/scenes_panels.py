@@ -1,4 +1,4 @@
-"""Scenes of PanelsSlice: the input picker (08), the quick panel (10), the volume OSD (11) and the receiver page (24).
+"""Scenes of PanelsSlice: the input picker (08), the quick panel (10) and the receiver page (24). The volume display (11) is in scenes_volume.py.
 
 A receiver reading is old after 6 s (kit/ReceiverGate), so every scene publishes the receiver again just before it
 looks, the way the helper does while the screen is on.
@@ -38,28 +38,6 @@ def _():
     from scenes import AI
     return [("publish", 300, "ai", AI), ("publish", 300, "plugins", AMBIENT_ROSTER), ("publish", 300, "plugin.ambient.tiles", AMBIENT_TILES),
             again(READY - 800, controls=True), ("eval", READY - 500, "root.openLayer('quick')"), ("snap", READY + 1500, "10-quick-panel")]
-
-
-@scene("11-volume-osd")
-def _():
-    return [again(300), again(READY - 800, volume_db=-34.0), ("snap", READY, "11-volume-osd")]
-
-
-@scene("11-volume-osd-abs")
-def _():
-    kw = {"volumeDisplay": "absolute", "volumeText": "45.5", "volumeAbs": 45.5, "volumeDb": -34.5, "input": "Apple TV", "soundMode": "Dolby Surround"}
-    return [again(300), again(READY - 800, **kw), ("snap", READY, "11-volume-osd-abs")]
-
-
-@scene("11-volume-osd-muted")
-def _():
-    return [again(300), again(READY - 1500, volumeText="-34.5 dB"), again(READY - 800, mute=True), ("snap", READY, "11-volume-osd-muted")]
-
-
-@scene("11-volume-osd-offline")
-def _():
-    return [("publish", 300, "receiver", {"enabled": True, "reachable": False, "fresh": False}),
-            ("eval", READY - 800, "root.key(Qt.Key_VolumeUp, true, false, 0)"), ("snap", READY, "11-volume-osd-offline")]
 
 
 # the values of mock 24's other tabs

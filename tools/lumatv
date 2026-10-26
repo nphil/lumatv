@@ -198,6 +198,11 @@ KEYBOARD_TOOL="$APPDIR/tools/keyboard_patch.py"
 # restarts the compositor once; without it a set that already has a shadow keeps the old one. A patch added to build_shadow
 # appends its files to this list on the line after it is defined (tests/test_lumatv_inputcommon.py fails when one is missing).
 SHADOW_PATCH_FILES="$KEYBOARD_TOOL $NOTI_PATCH_TOOL $TOKENS_TOOL $THEME_SRC/theme.json"
+# LG's own volume and mute popup, the shadow module's copy of views/StarfishVolumeView.qml, is never available there (tools/volume_patch.py):
+# LumaTV's display (panels/VolumeOsd.qml, in the overlay layer) is the only one, over Home, every app and every input. LG's popup is back whenever
+# that module is not the one loaded (`revert`, a stock compositor); nothing persistent is written to configd.
+VOLUME_TOOL="$APPDIR/tools/volume_patch.py"
+SHADOW_PATCH_FILES="$SHADOW_PATCH_FILES $VOLUME_TOOL"
 
 # The compositor resolves QML modules through QML2_IMPORT_PATH, and its unit
 # reads an optional environment file from /var - which is writable and
@@ -1181,6 +1186,13 @@ build_shadow() {
   kb="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishKeyboardView.qml"
   if [ -f "$kb" ] && [ -f "$KEYBOARD_TOOL" ]; then
     python3 "$KEYBOARD_TOOL" "$kb" "$THEME_SRC/theme.json" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the keyboard patch was refused, LG's keyboard view stays"
+  fi
+
+  # LG's volume and mute popup never opens (tools/volume_patch.py). The tool writes nothing when an anchor of LG's view is missing (a
+  # firmware update changed it): the shadow then keeps LG's file and the popup shows beside LumaTV's display until the patch is brought up to date.
+  vv="$SHADOW_ROOT.next/WebOSCompositor/views/StarfishVolumeView.qml"
+  if [ -f "$vv" ] && [ -f "$VOLUME_TOOL" ]; then
+    python3 "$VOLUME_TOOL" "$vv" < /dev/null 2>>"$LOGFILE" || log_line "build_shadow: the volume patch was refused, LG's volume popup stays"
   fi
 
   # Get the contents on disk BEFORE the rename publishes them. /var is ext4

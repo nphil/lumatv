@@ -78,6 +78,7 @@ tools/systemui_patch.py
 tools/inputcommon.sh
 tools/inputcommon_patch.py
 tools/keyboard_patch.py
+tools/volume_patch.py
 payload/preload.json
 payload/homestub/appinfo.json
 payload/homestub/index.html
@@ -261,8 +262,8 @@ cp tools/keyfilter.py "$DATA_ROOT/tools/"
 cp tools/theme.py "$DATA_ROOT/tools/"
 cp tools/tokens.py tools/systemui.py tools/systemui_patch.py tools/preload.py tools/compositor.sh tools/notification_patch.py tools/cardapp.sh "$DATA_ROOT/tools/"
 # The input banners' restyle and the keyboard's motion (tools/lumatv inputcommon, build_shadow): the tool calls them, and they import
-# notification_patch and tokens, which are shipped above.
-cp tools/inputcommon.sh tools/inputcommon_patch.py tools/keyboard_patch.py "$DATA_ROOT/tools/"
+# notification_patch and tokens, which are shipped above. The volume popup's patch (build_shadow) imports notification_patch too.
+cp tools/inputcommon.sh tools/inputcommon_patch.py tools/keyboard_patch.py tools/volume_patch.py "$DATA_ROOT/tools/"
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"

@@ -16,6 +16,9 @@ ShaderEffect {
     property real cardRadius: 26
     property real focusMix: 0              // 0..1: tint, edge, rim and sheen, set at once by the owner
     property real liftMix: focusMix        // 0..1: shadow depth, animated by the owner after focus rests
+    // The share of the pane's own pixels that is painted: 1 hides what is behind it (Home, where the backdrop is the blurred wallpaper), less lets
+    // that show through the fill (an app's video under the overlay's panes, Lu.readingAlpha). The 1px outline keeps its own weight.
+    property real fillAlpha: 1.0
     property bool isLight: false
     // Card rect in screen space, unscaled: what the backdrop is sampled from.
     property real screenX: 0
@@ -71,6 +74,7 @@ ShaderEffect {
         uniform mediump float sheen;
         uniform mediump vec4 shadow;    // alpha, y offset, blur, -
         uniform mediump vec4 shadow2;
+        uniform mediump float fillAlpha;
         uniform lowp float qt_Opacity;
         varying highp vec2 qt_TexCoord0;
         highp float sd(highp vec2 p, highp vec2 hs, highp float r) {
@@ -101,9 +105,10 @@ ShaderEffect {
             }
             mediump float band = smoothstep(-1.75, -1.0, d);
             col = mix(col, edge.rgb, band * edge.a);
+            mediump float cover = inside * mix(fillAlpha, 1.0, band * edge.a);
             // the edge pixel band also carries the start of the shadow so the outline never gaps
             mediump float s1 = shadow.x * (1.0 - smoothstep(-shadow.z, shadow.z, sd(p - vec2(0.0, shadow.y), hs, radius)));
-            mediump float a = inside + s1 * (1.0 - inside);
-            gl_FragColor = vec4(col * inside, a) * qt_Opacity;
+            mediump float a = cover + s1 * (1.0 - cover);
+            gl_FragColor = vec4(col * cover, a) * qt_Opacity;
         }"
 }

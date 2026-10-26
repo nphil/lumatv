@@ -107,19 +107,6 @@ class Receiver(HostCase):
         self.assertEqual((p["b"]["answers"], p["b"]["value"]), (True, "-34.5 dB"), out[-2500:])
         self.assertEqual((p["c"]["answers"], p["c"]["value"]), (False, "\u2013"), out[-2500:])
 
-    def test_a_volume_key_after_a_quiet_minute_shows_the_level_the_helper_confirms(self):
-        # the one event is long past (the copy is 8 s old, hidden); the helper's snapshot has a stamp from 1 s ago; the key asks
-        quiet = ["--eval", "%d:(function(){var d=%s; d.updatedAt=Date.now(); var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__quiet/receiver');"
-                 "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d)); return 1})()" % (READY + 7600, json.dumps(RX))]
-        osd = "return {fresh:s.fresh, pill:s.pill, level:s.level, offline:s.offline};"
-        rc, out = self.host(*self.reading(READY + 600), *probe(READY + 7000, "idle", "staleMs", osd), *quiet,
-                            "--eval", "%d:(function(){var f=function(p){if(p.staleMs!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=f(p.children[i]);if(r)return r}return null};f(root).nudge();return 1})()" % (READY + 8000),
-                            *probe(READY + 8600, "key", "staleMs", osd), "--wait", str(READY + 9000))
-        self.assertEqual(rc, 0, out[-2500:])
-        p = probes(out)
-        self.assertEqual(p["idle"]["fresh"], False)
-        self.assertEqual((p["key"]["fresh"], p["key"]["pill"], p["key"]["level"], p["key"]["offline"]), (True, True, "-34.5 dB", False), out[-2500:])
-
     def test_the_tile_moves_the_volume_through_the_tv_and_asks_the_helper_to_read_now(self):
         go = "var n=0; while (s.focusId !== 'receiver' && n++ < 8) s.key('down'); s.key('right'); return s.focusId;"
         rc, out = self.host("--eval", "%d:root.openLayer('quick')" % (READY + 400), *self.reading(READY + 600),
