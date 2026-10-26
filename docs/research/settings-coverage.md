@@ -10,6 +10,8 @@ Built and pushed: Accessibility (Audio Guidance, Closed Caption with its Text, B
 
 Left: Picture (White Balance, Fine Tune, Video Range, the zoom ratios), Sound (Output, Advanced, per-input audio), Language and Location, Support (TV information, update, self-diagnosis, privacy, reset), Safety (lock PIN prompt, locks), Channels, and the one-off rows (Always Ready, extended press time, AI recommendations, OLED care extras). The "More in LG settings" rows stay on the pages not yet built.
 
+Next, in this order: Sound (Sound Out chooser on the TV's own list with LG's names, HDMI input audio per port `sound.inputAudioFormatHDMI1..4` bitstream or pcm, Installation Type, DTV Audio, Dolby Atmos, LG Sound Sync, Apply to All Inputs `sound.applyToAllInputSSM = sound`, Reset `resetSystemSettings {category: sound, keys}` with LG's key list), then Language and Location, Support, Safety, Channels. The scenes of every page built so far are registered in `tests/qmlhost/scenes_settings_coverage.py`; only Time & Date was rendered and viewed in this pass, so render the rest with `python3 tests/qmlhost/scenes.py --only <names> --theme both --audit` before calling them done.
+
 Next: the build order below, one page per commit. Each built row flips its status here from `build` to `built`; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
 
 ## Sources
