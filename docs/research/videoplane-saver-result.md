@@ -116,6 +116,20 @@ The way back is `lumatv vplane remove` (the role, the manifest, the binary and t
 - `tests/test_vplane_install.py` (12), `tests/test_vplane_measure.py` (9).
 - `compositor/crates/lumatv-compositor/tests/vplane_host.rs` (4): the player against the real wayland-server and compositor.
 
+## Tonight's check (TvRound8, Nitin's OK to install)
+
+Needs `lumatv vplane` (7e36a87) and the saver (d4b7ca7) in the ipk, and `vplane/build/arm/lumatv-vplane` built (`sh vplane/build.sh`). Receiver muted through Home Assistant, Filmmaker picture mode. Stop at the first failure, send back what is named, then run step 8. The saver is entered with `luna-send -n 1 luna://com.webos.service.tvpower/power2/turnOnScreenSaver '{}'` (LG's own idle detector calls it after 180 s) and left with a key.
+
+1. Baseline, the GPU art: `lumatv theme set '{"screensaver":{"style":"art","video":false}}'`, enter the saver, `python3 /tmp/measure.py run gpu-art 30 --out /tmp/vp/gpu-art.json` (`scp vplane/tools/measure.py` to `/tmp` first), wake. Pass: prints, caption and corner clock as before; the figures are the baseline.
+2. `lumatv vplane install`. Pass: `{"ok":true,"vplane":{"installed":true,"role":true,"clips":6,...}}`.
+3. `lumatv vplane start`. Pass within 3 s: `/tmp/lumatv-vplane/status.json` says `"state":"idle"` and `"clips":6`; `lumatv vplane status` says running. Send back `grep -E "LSHUB|Invalid permissions" /var/log/messages | tail` if anything is named.
+4. `/var/lib/lumatv/bin/lumatv-vplane -n`. Pass: JSON that names the library and six clips, exit 0.
+5. One print: `lumatv vplane stop`, then `/var/lib/lumatv/bin/lumatv-vplane --once great-wave 20`. Pass: exit 0 after 20 s, the print on the screen (dark wall, matte, frame) within 6 s, Home still the foreground app afterwards (`getForegroundAppInfo`), and note whether LG's own saver is seen over it. Fail: the last 40 lines of stderr and `grep -E "windowPolicy|Invalid permissions|LSHUB|AccessControl" /var/log/messages`; then `echo '-w card' > /var/lib/lumatv/vplane/args`, start again and repeat, then `-w overlay`, `-w default`.
+6. The saver: `lumatv vplane start`, `lumatv theme set '{"screensaver":{"style":"art","video":true}}'`, enter the saver. Pass: within 6 s `status.json` says `"state":"playing"` and the print is on the video plane with the dim, caption and corner clock over it; no `SaverVideo` or `saver did not load` line in the log. Then `python3 /tmp/measure.py run video-art 30 --proc lumatv-vplane --out /tmp/vp/video-art.json` and `python3 /tmp/measure.py table /tmp/vp/*.json`. Expected: Mali under Home's 10 %, flips/s under 5, `vsync_per_s` 60 or 120, the player's CPU and RSS small; send the table.
+7. A key press ends it: Home within about a second, `status.json` back to `idle`, no picture left, `MemAvailable` within 20 MB of before step 6.
+8. Way back: `lumatv theme set '{"screensaver":{"video":false}}'`, `lumatv vplane remove`; pass: `installed:false`. Leave it installed only if all passed and Nitin wants it.
+9. Optional, the kept order: `lumatv theme set '{"screensaver":{"art":{"keepOrder":true}}}'`, enter the saver, `cat /var/lib/lumatv/theme/saver-deck.json`: pass when `decks["art/"]` has the six ids in `known`, five in `bag` and the print on the screen as `last`; after `lumatv restart` and the saver again, the first print is the head of that `bag`.
+
 ## TV steps
 
 None has run. Receiver muted through Home Assistant before any playback; Filmmaker picture mode; nothing written outside `/tmp` until step 4; abort on a failed unit. The TV is in a slot (Main's release). The sampler: `scp vplane/tools/measure.py` to `/tmp/`, then `python3 /tmp/measure.py run LABEL 30 --proc lumatv-vplane`; `table` puts the runs side by side.

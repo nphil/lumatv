@@ -24,6 +24,11 @@ def deck(bag, last="", known=None, at=None):
     return {"at": at or int(time.time() * 1000), "known": IDS if known is None else known, "bag": bag, "last": last}
 
 
+def doc_of(d, key="art/"):
+    """The file's document with `d` as the deck of the collection `key`."""
+    return {"schema": 1, "decks": {key: d}}
+
+
 def seed(at, text):
     """JS: the file as the last run left it (a TextFile, as the saver's own)."""
     return js(at, "var f = Qt.createQmlObject('import QtQuick 2.4\\nimport TextFile 1.0\\nTextFile {}', root); f.name = root.themeDirUrl + 'saver-deck.json'; f.write(%s);" % json.dumps(text))
@@ -81,7 +86,7 @@ class SaverDeck(Surfaces):
 
     def test_a_restart_goes_on_with_the_round_where_it_was(self):
         order = ["view-of-delft", "starry-night", "great-wave"]
-        ps, text = self.run_saver(deck(order, last="sierra-nevada"), probes_at=[900 + 450 * i for i in range(19)], wait=9800)
+        ps, text = self.run_saver(doc_of(deck(order, last="sierra-nevada")), probes_at=[900 + 450 * i for i in range(19)], wait=9800)
         shown = [p["shown"] for p in ps]
         seen = [s for i, s in enumerate(shown) if s and (i == 0 or s != shown[i - 1])]
         self.assertEqual(seen[:3], order, "the round that was left, in its order: %s" % shown)
@@ -92,7 +97,7 @@ class SaverDeck(Surfaces):
         self.assertIn(json.loads(text)["decks"]["art/"]["last"], IDS)
 
     def test_a_print_that_is_no_longer_in_the_index_or_has_no_file_is_dropped(self):
-        doc = deck(["view-of-delft", "no-longer-there", "starry-night", "great-wave"], last="ghost")
+        doc = doc_of(deck(["view-of-delft", "no-longer-there", "starry-night", "great-wave"], last="ghost"))
         (p,), text = self.run_saver(doc, extra=("--remove", "art/view-of-delft.jpg"), probes_at=(1200,))
         self.assertEqual(p["shown"], "starry-night", "the print whose file is gone is passed over: it is not even tried")
         self.assertEqual(p["bag"], ["great-wave"])
@@ -100,7 +105,7 @@ class SaverDeck(Surfaces):
 
     def test_a_print_that_has_come_since_is_dealt_into_the_round(self):
         known = [i for i in IDS if i != "sierra-nevada"]
-        (p,), text = self.run_saver(deck(["starry-night"], last="great-wave", known=known), probes_at=(1200,))
+        (p,), text = self.run_saver(doc_of(deck(["starry-night"], last="great-wave", known=known)), probes_at=(1200,))
         left = set(p["bag"]) | {p["shown"]}
         self.assertEqual(left, {"starry-night", "sierra-nevada"}, "the new print is in this round; the ones already shown are not")
 
@@ -132,7 +137,7 @@ class SaverDeck(Surfaces):
             self.assertEqual(decks["file://%s/" % tmp]["last"], "clock")
 
     def test_nothing_is_read_or_written_while_the_saver_is_down(self):
-        (p,), text = self.run_saver(deck(["great-wave"], last="x"), props={"visible": False}, probes_at=(1200,))
+        (p,), text = self.run_saver(doc_of(deck(["great-wave"], last="x")), props={"visible": False}, probes_at=(1200,))
         self.assertEqual((p["up"], p["shown"], p["bag"], p["timers"]), (False, "", [], False))
         self.assertEqual(json.loads(text)["decks"]["art/"]["bag"], ["great-wave"])
 
