@@ -1107,9 +1107,10 @@ what it already does.
 
 ## Decided
 
-- Installing LumaTV builds on the TV counts as installing an app under Principle 0: only
-  through Nitin's Face ID gate once Cody has it, or Nitin runs the installer himself. A yes
-  in chat does not count (Nitin, 2026-10-26 17:21; work paused until the gate exists).
+- Installing LumaTV builds on the TV counts as installing an app under Principle 0: each
+  install goes through Nitin's Face ID gate (HomeLabber `run_command` on beastnas running the
+  installer in the Cody container, approved on his phone), or Nitin runs it himself. A yes in
+  chat does not count (Nitin, 2026-10-26 17:21; gate in place 18:02).
 - LG's compositor stays live for now (Nitin, 2026-10-26 14:12, after gate 9). LumaTV's
   passes every safety check but draws a black Home and none of the QML surfaces yet;
   its frame timing, those surfaces and the quick panel's lag over Netflix are parked
