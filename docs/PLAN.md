@@ -1165,6 +1165,14 @@ what it already does.
   YouTube, Netflix and HDMI 2 on both compositors and reads the panel rate;
   LumaTV's compositor must keep whatever LG's does. HDMI sources match only
   if the source sends the native rate (Apple TV: Match Frame Rate).
+  Requirement: no flash, black frame or stutter when the rate changes. Design
+  direction, to confirm by measurement: keep the panel at 120 Hz, which shows
+  24, 30, 60 and 120 fps with an even cadence and needs no switch; only the 25
+  and 50 fps family needs 100 Hz, and that switch happens once, before the
+  video's first frame (during the app's launch or loading screen), never in
+  the middle of playback. The check records how long any switch blanks the
+  panel. HDMI sources that change their output rate always resync the link
+  (a short black picture on any TV); that part is the source's.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
