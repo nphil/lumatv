@@ -33,6 +33,8 @@ QtObject {
     property var cards: []
     property var tiles: []
     property var notes: []
+    property var haLink: ({ state: "off" })             // the `ha.link` topic: where the helper's Home Assistant lease is (see `haState`)
+    property var haFacts: ({})                          // what the Home Assistant plugin says of itself (`plugin.home-assistant.facts`)
 
     // What Home's At-home slot draws as chips: every plugin's cards but the helper's own that Home draws in full elsewhere (the
     // weather, news and clock widgets), the most urgent first.
@@ -73,6 +75,10 @@ QtObject {
                      title: n.title || "", body: n.body || "", actions: n.actions || [] }
         })
         if (!same(ns, notes)) notes = ns
+        var link = Helper.topics["ha.link"] || { state: "off" }
+        if (!same(link, haLink)) haLink = link
+        var facts = (Helper.topics["plugin." + haId + ".facts"] || {}).facts || {}
+        if (!same(facts, haFacts)) haFacts = facts
     }
     function gather(kind, shape) {
         var out = []
@@ -84,6 +90,50 @@ QtObject {
         return out
     }
     Component.onCompleted: refresh()
+
+    // ---- Home Assistant: the one plugin the At-home lane and a Settings page of its own are about
+    readonly property string haId: "home-assistant"
+    readonly property var haPlugin: {
+        for (var i = 0; i < list.length; i++) if (list[i].id === haId) return list[i]
+        return null
+    }
+    // Where it stands, in one word: `off` (not switched on), `inert` (switched on but this TV will not run it), `waiting` (its program
+    // is not up), then what the helper's lease says: `unlinked` (no address or token saved), `refused` (Home Assistant did not take
+    // the token), `offline`, `connecting` or `connected`.
+    readonly property string haState: {
+        var p = haPlugin
+        if (!p) return "off"
+        if (p.state === "inert") return "inert"
+        if (p.state !== "connected") return "waiting"
+        var s = haLink.state
+        return s === "auth_failed" ? "refused" : (!s || s === "off" || s === "unconfigured") ? "unlinked" : s
+    }
+    // What the At-home lane says when no plugin has a card: a title, the line under it, and the tone of its glyph.
+    readonly property var laneNone: {
+        var where = "Settings \u203a Home Assistant"
+        switch (haState) {
+        case "inert": return { title: "Home Assistant can't run on this TV", sub: "See " + where, role: "warning" }
+        case "waiting": return { title: haPlugin && haPlugin.reason ? "Home Assistant isn't running" : "Starting Home Assistant", sub: haPlugin && haPlugin.reason ? "See " + where : "", role: haPlugin && haPlugin.reason ? "warning" : "" }
+        case "refused": return { title: "Home Assistant refused the token", sub: "Link it again in " + where, role: "danger" }
+        case "offline": return { title: "Can't reach Home Assistant", sub: "It is tried again. See " + where, role: "warning" }
+        case "connecting": return { title: "Connecting to Home Assistant", sub: "", role: "" }
+        case "connected": return { title: "Nothing to show yet", sub: "Pick a room in " + where, role: "" }
+        default: return { title: "Home Assistant isn't linked yet", sub: "Link it in " + where, role: "" }
+        }
+    }
+    // A short phrase for a row that opens the page.
+    readonly property string haWords: {
+        switch (haState) {
+        case "off": return "Not switched on"
+        case "inert": return "Cannot run"
+        case "waiting": return "Starting"
+        case "unlinked": return "Not linked"
+        case "refused": return "Token refused"
+        case "offline": return "Offline"
+        case "connecting": return "Connecting"
+        default: return "Connected"
+        }
+    }
 
     // The plugin's card, whoever it is.
     function card(pluginId, id) {
@@ -103,6 +153,7 @@ QtObject {
     readonly property var iconMap: ({
         message: "bell", notification: "bell", home: "house", light: "lightbulb", lamp: "lamp", lock: "lock", camera: "camera",
         music: "audio-lines", speaker: "boom-box", tv: "monitor", sensor: "activity", clock: "clock", timer: "hourglass", info: "info",
+        "home-assistant": "house-wifi", doorbell: "bell",
         warning: "circle-alert", check: "circle-check", wifi: "wifi", mic: "mic", heart: "heart-pulse", leaf: "leaf", moon: "moon", sun: "sun",
         newspaper: "scroll-text", news: "scroll-text", cloud: "sun-dim", weather: "sun-dim", bot: "bot", download: "download"
     })
@@ -177,7 +228,7 @@ QtObject {
     property Connections link: Connections {
         target: Helper
         onUpdated: {
-            if (topic === "plugins" || topic.indexOf("plugin.") === 0) hub.refresh()
+            if (topic === "plugins" || topic === "ha.link" || topic.indexOf("plugin.") === 0) hub.refresh()
             if (topic.indexOf("plugin.") === 0 && topic.slice(-14) === ".notifications" && hub.primed) hub.announce()
         }
     }

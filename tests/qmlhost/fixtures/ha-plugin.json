@@ -1,0 +1,486 @@
+{
+  "choices": {
+    "controls": {
+      "more": false,
+      "offset": 0,
+      "rows": [
+        {
+          "detail": "Living room",
+          "enabled": true,
+          "id": "light.lamp",
+          "label": "Lamp"
+        },
+        {
+          "detail": "Living room",
+          "enabled": true,
+          "id": "scene.movie",
+          "label": "Movie night"
+        },
+        {
+          "detail": "Living room",
+          "enabled": true,
+          "id": "light.shelf",
+          "label": "Shelf light"
+        }
+      ],
+      "state": "ready"
+    },
+    "doorbells": {
+      "more": false,
+      "offset": 0,
+      "rows": [
+        {
+          "enabled": true,
+          "id": "event.front_doorbell",
+          "label": "Front doorbell"
+        }
+      ],
+      "state": "ready"
+    },
+    "presence": {
+      "more": false,
+      "offset": 0,
+      "rows": [],
+      "state": "ready"
+    },
+    "rooms": {
+      "more": false,
+      "offset": 0,
+      "rows": [
+        {
+          "enabled": true,
+          "id": "kitchen",
+          "label": "Kitchen"
+        },
+        {
+          "enabled": true,
+          "id": "living_room",
+          "label": "Living room"
+        }
+      ],
+      "state": "ready"
+    }
+  },
+  "settings": {
+    "effective": {
+      "controls": {
+        "type": "ordered",
+        "value": []
+      },
+      "doorbell": {
+        "type": "ordered",
+        "value": [
+          "event.front_doorbell"
+        ]
+      },
+      "hold": {
+        "type": "integer",
+        "value": 60
+      },
+      "notify_doorbell": {
+        "type": "bool",
+        "value": true
+      },
+      "notify_ha": {
+        "type": "bool",
+        "value": true
+      },
+      "presence": {
+        "type": "ordered",
+        "value": []
+      },
+      "room": {
+        "type": "choice",
+        "value": "living_room"
+      }
+    },
+    "owner": "home-assistant",
+    "schema": {
+      "format": 1,
+      "owner": "home-assistant",
+      "revision": 1,
+      "sections": [
+        {
+          "fields": [
+            {
+              "apply": "on-commit",
+              "key": "state",
+              "kind": {
+                "type": "read-only",
+                "value": {
+                  "capability": "plugin.home-assistant.link"
+                }
+              },
+              "label": "Connection"
+            }
+          ],
+          "id": "connection",
+          "title": "Connection"
+        },
+        {
+          "fields": [
+            {
+              "apply": "on-commit",
+              "help": "The lights and scenes of this room are shown here, and its presence sensors are offered below.",
+              "key": "room",
+              "kind": {
+                "options": {
+                  "provider": "rooms"
+                },
+                "type": "choice"
+              },
+              "label": "Room"
+            },
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "ordered",
+                "value": []
+              },
+              "help": "Which of the room's lights and scenes to show, in this order. None chosen shows the first ones.",
+              "key": "controls",
+              "kind": {
+                "max_items": 12,
+                "options": {
+                  "provider": "controls"
+                },
+                "type": "ordered-set"
+              },
+              "label": "Lights and scenes"
+            },
+            {
+              "apply": "on-commit",
+              "key": "summary",
+              "kind": {
+                "type": "read-only",
+                "value": {
+                  "capability": "plugin.home-assistant.summary"
+                }
+              },
+              "label": "Watching",
+              "visible_when": {
+                "capability": "plugin.home-assistant.summary",
+                "type": "capability-present"
+              }
+            }
+          ],
+          "id": "room",
+          "title": "This room"
+        },
+        {
+          "fields": [
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "ordered",
+                "value": []
+              },
+              "help": "What says that somebody rang: an event or a sensor of your doorbell. Two that say the same thing count once.",
+              "key": "doorbell",
+              "kind": {
+                "max_items": 4,
+                "options": {
+                  "provider": "doorbells"
+                },
+                "type": "ordered-set"
+              },
+              "label": "Doorbell"
+            },
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "bool",
+                "value": true
+              },
+              "key": "notify_doorbell",
+              "kind": {
+                "type": "bool"
+              },
+              "label": "Tell me when it rings"
+            }
+          ],
+          "id": "doorbell",
+          "title": "Doorbell"
+        },
+        {
+          "fields": [
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "ordered",
+                "value": []
+              },
+              "help": "A radar or motion sensor of the room. While any of them sees somebody, the Show knows the room is in use; a radar that sees people sitting still is the best.",
+              "key": "presence",
+              "kind": {
+                "max_items": 4,
+                "options": {
+                  "provider": "presence"
+                },
+                "type": "ordered-set"
+              },
+              "label": "Presence sensors"
+            },
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "integer",
+                "value": 60
+              },
+              "help": "How long after the last sign the room still counts as in use.",
+              "key": "hold",
+              "kind": {
+                "max": 600,
+                "min": 10,
+                "step": 10,
+                "type": "integer",
+                "unit": "s"
+              },
+              "label": "Still here for"
+            }
+          ],
+          "id": "presence",
+          "title": "Who is in the room"
+        },
+        {
+          "fields": [
+            {
+              "apply": "on-commit",
+              "default": {
+                "type": "bool",
+                "value": true
+              },
+              "help": "Show what Home Assistant keeps as notifications: a low battery, a leak sensor.",
+              "key": "notify_ha",
+              "kind": {
+                "type": "bool"
+              },
+              "label": "Home Assistant's notifications"
+            }
+          ],
+          "id": "notifications",
+          "title": "Notifications"
+        }
+      ],
+      "title": "Home Assistant"
+    }
+  },
+  "topics": {
+    "ha.link": {
+      "address": "http://192.168.1.146:8123",
+      "detail": "Connected to Home Assistant 2026.9.4",
+      "holders": 1,
+      "state": "connected",
+      "token": true
+    },
+    "plugin.home-assistant.cards": {
+      "items": [
+        {
+          "card": {
+            "actions": [
+              {
+                "action": "clear_doorbell",
+                "label": "Clear",
+                "target": "ring-1"
+              }
+            ],
+            "content": {
+              "at": 0,
+              "detail": "Doorbell",
+              "icon": "base.icons/doorbell",
+              "role": "danger",
+              "title": "Doorbell",
+              "type": "event"
+            },
+            "expires_in_secs": 600,
+            "id": "ring-1",
+            "open": {
+              "view": "home"
+            },
+            "priority": "running",
+            "privacy": "public",
+            "size": "full"
+          },
+          "createdAt": 0,
+          "expiresAt": 0,
+          "id": "ring-1",
+          "revision": 1
+        },
+        {
+          "card": {
+            "actions": [
+              {
+                "action": "all_off",
+                "label": "All off"
+              }
+            ],
+            "content": {
+              "facts": [
+                {
+                  "label": "Lights",
+                  "value": "1 of 2 on"
+                },
+                {
+                  "label": "Scenes",
+                  "value": "1"
+                }
+              ],
+              "icon": "base.icons/home-assistant",
+              "role": "accent",
+              "title": "Living room",
+              "type": "facts"
+            },
+            "id": "room",
+            "open": {
+              "view": "home"
+            },
+            "priority": "new",
+            "privacy": "public",
+            "size": "half"
+          },
+          "createdAt": 0,
+          "expiresAt": null,
+          "id": "room",
+          "revision": 2
+        }
+      ]
+    },
+    "plugin.home-assistant.facts": {
+      "facts": {
+        "link": "Connected to Home Assistant 2026.9.4",
+        "summary": "Living room: 2 lights, 1 scene · doorbell: 1"
+      }
+    },
+    "plugin.home-assistant.notifications": {
+      "items": [
+        {
+          "channel": "ha",
+          "channelIcon": "base.icons/home-assistant",
+          "channelTitle": "Home Assistant",
+          "expiresAt": null,
+          "id": "ha-battery",
+          "post": {
+            "body": "Door sensor is at 5 %",
+            "channel": "ha",
+            "id": "ha-battery",
+            "ongoing": false,
+            "privacy": "private",
+            "title": "Low battery"
+          },
+          "receivedAt": 0,
+          "revision": 1
+        },
+        {
+          "channel": "doorbell",
+          "channelIcon": "base.icons/doorbell",
+          "channelTitle": "Doorbell",
+          "expiresAt": 0,
+          "id": "ring-1",
+          "post": {
+            "actions": [
+              {
+                "action": "clear_doorbell",
+                "label": "Clear",
+                "target": "ring-1"
+              }
+            ],
+            "body": "Doorbell",
+            "channel": "doorbell",
+            "expires_in_secs": 600,
+            "id": "ring-1",
+            "ongoing": false,
+            "privacy": "public",
+            "title": "Doorbell"
+          },
+          "receivedAt": 0,
+          "revision": 1
+        }
+      ]
+    },
+    "plugin.home-assistant.tiles": {
+      "items": [
+        {
+          "action": "toggle",
+          "icon": "base.icons/sun",
+          "id": "light.lamp",
+          "label": "Lamp",
+          "state": {
+            "type": "on"
+          },
+          "target": "light.lamp"
+        },
+        {
+          "action": "toggle",
+          "icon": "base.icons/sun",
+          "id": "light.shelf",
+          "label": "Shelf light",
+          "state": {
+            "type": "off"
+          },
+          "target": "light.shelf"
+        },
+        {
+          "action": "activate",
+          "icon": "base.icons/home-assistant",
+          "id": "scene.movie",
+          "label": "Movie night",
+          "state": {
+            "type": "off"
+          },
+          "target": "scene.movie"
+        }
+      ]
+    },
+    "plugins": {
+      "firstParty": [
+        {
+          "class": "S",
+          "firstParty": true,
+          "id": "weather",
+          "name": "Weather",
+          "registered": true,
+          "state": "connected",
+          "version": "1"
+        },
+        {
+          "class": "S",
+          "firstParty": true,
+          "id": "news",
+          "name": "News",
+          "registered": true,
+          "state": "connected",
+          "version": "1"
+        },
+        {
+          "class": "S",
+          "firstParty": true,
+          "id": "clock",
+          "name": "Clock",
+          "registered": true,
+          "state": "connected",
+          "version": "1"
+        },
+        {
+          "class": "S",
+          "firstParty": true,
+          "id": "ambient",
+          "name": "Ambient light",
+          "registered": true,
+          "state": "connected",
+          "version": "1"
+        }
+      ],
+      "plugins": [
+        {
+          "class": "S",
+          "id": "home-assistant",
+          "name": "Home Assistant",
+          "registered": true,
+          "state": "connected",
+          "version": "0.1.0"
+        }
+      ],
+      "problem": null
+    }
+  }
+}

@@ -8,7 +8,8 @@ import "../kit"
 //   a time). OK on the card enters it (the widget's inner layer: `key()` exists only while there are cards), the D-pad moves
 //   between chips and OK runs the focused card's first action, if it has one; Back leaves. The cards the helper's own weather,
 //   news and clock plugins publish are not here: Home draws those in full in their own cards.
-// - With no card, one chip that says why: Home Assistant is not linked yet, and where to link it. OK opens Settings at that page
+// - With no card, one chip that says why (PluginHub.laneNone): Home Assistant is not linked yet, its token was refused, it cannot be
+//   reached, or it is linked and has nothing to show, and where to look in Settings. OK opens Settings at its page
 //   (`openSettingsPage`). Never a made-up house: a chip is a plugin's, or this one.
 //
 // Chips follow the mock's grid (2 columns, 12px gap, 16px under the title) with the icon slot the mock left empty filled in: a
@@ -28,8 +29,9 @@ Item {
     function activate() { if (!pluginMode) openSettingsPage("homeassistant") }
 
     // ---- what the chip says when no plugin has a card
-    readonly property string noneTitle: "Home Assistant isn't linked yet"
-    readonly property string noneSub: "Link it in Settings \u203a Home Assistant"
+    readonly property var none: PluginHub.laneNone
+    readonly property string noneTitle: none.title
+    readonly property string noneSub: none.sub
 
     // ---- the plugins' cards, laid out in rows of two places
     readonly property var cards: PluginHub.homeCards
@@ -123,12 +125,13 @@ Item {
     property int chipGap: 12
     property int chipW: Math.floor((width - chipGap) / 2)
     property int chipH: Math.floor((height - chipTop - chipGap) / 2)
+    readonly property color noneTone: toneOf(none.role)
     readonly property color chipFill: isLight ? "#8cffffff" : "#12ffffff"
     readonly property color chipEdge: isLight ? "#e6ffffff" : "#14ffffff"
 
     // no card: one chip, the width of the lane
     Item {
-        id: none
+        id: emptyChip
         visible: !root.pluginMode
         x: 0; y: root.chipTop
         width: root.width; height: root.chipH
@@ -144,8 +147,8 @@ Item {
             x: 16; y: Math.round((parent.height - 36) / 2)
             width: 36; height: 36; radius: 18
             antialiasing: true
-            color: Qt.rgba(Lu.ink2.r, Lu.ink2.g, Lu.ink2.b, 0.2)
-            LuIcon { anchors.centerIn: parent; size: 22; name: "house-wifi"; color: Lu.ink2 }
+            color: Qt.rgba(root.noneTone.r, root.noneTone.g, root.noneTone.b, 0.2)
+            LuIcon { anchors.centerIn: parent; size: 22; name: "house-wifi"; color: root.noneTone }
         }
         Item {
             x: 66
