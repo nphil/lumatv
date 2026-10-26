@@ -46,6 +46,19 @@ Item {
     // (`cue`) and, while a mute is on screen, each time the reading ages out: the helper moves a reading's stamp quietly, and a mute that is
     // shown for hours must go on being true.
     ReceiverGate { id: gate; staleMs: osd.staleMs; confirmAged: osd.mutedRx; onReading: osd.read(doc) }
+    // After a restart the copy the helper holds for a receiver that has not changed for a while carries an old stamp (it moves the stamp quietly,
+    // at its next poll, up to 2 s on), so it reads as aged out; and the gate asks for a newer one only for a surface that already shows a mute. A
+    // mute that was on before the restart would then never come back: while the copy is aged, it is confirmed at once and once more 2.5 s later, after
+    // the display starts, the helper comes up or a copy arrives.
+    property int askLeft: 0
+    function askNewest() { askLeft = 1; if (Helper.up && gate.stale) gate.confirm() }
+    Timer {
+        interval: 2500; repeat: true; running: osd.askLeft > 0
+        onTriggered: { osd.askLeft--; if (Helper.up && gate.stale) gate.confirm(); else osd.askLeft = 0 }
+    }
+    Connections { target: gate; onTopicChanged: Qt.callLater(osd.askNewest) }
+    Connections { target: Helper; onUpChanged: Qt.callLater(osd.askNewest) }
+    Component.onCompleted: Qt.callLater(askNewest)
     readonly property var rc: gate.rc
     readonly property bool fresh: gate.fresh
     readonly property bool stale: gate.stale

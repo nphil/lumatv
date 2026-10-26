@@ -262,6 +262,14 @@ class VolumeOsd(HostCase):
         self.assertEqual((got["kept1"], got["kept2"], got["kept3"]), ("true", "true", "true"), "a helper that keeps reading keeps the mark")
         self.assertEqual(got["lost"], "false", "a helper that has stopped does not leave a mute up that is no longer known")
 
+    def test_a_mute_from_before_a_restart_comes_back_when_the_helper_holds_a_newer_stamp(self):
+        # the first copy is old (the helper moved the stamp without an event): the display asks for the newest, with no mute on screen yet, until the helper has moved the stamp
+        steps = [(300, do("o.holdMs = 300; o.staleMs = 6000"), "cfg"), (B, sound_out(), "out"),
+                 (B + 100, rx(dict(RX, mute=True), 60000), "old"), (B + 1000, quiet(dict(RX, mute=True)), "quiet"),
+                 (B + 5000, on_osd("[o.markUp, o.muted].join('|')"), "mark")]
+        got, _ = self.run_osd(steps, B + 5600, home=True)
+        self.assertEqual(got["mark"], "true|true", "the mark is up from the copy the helper holds, not only after the next change")
+
     def test_a_reading_that_is_not_in_date_is_not_shown_and_the_next_is(self):
         got, _ = self.run_osd([
             (300, do("o.staleMs = 4000; o.holdMs = 15000"), "cfg"), (B + 200, rx(RX), "rx"), (B + 1000, do("o.show()"), "show"), (B + 1800, on_osd("[o.fresh, o.level].join('|')"), "fresh"),

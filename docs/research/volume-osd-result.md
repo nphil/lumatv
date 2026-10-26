@@ -59,7 +59,9 @@ second one (a test fails if they do). The display takes no key and no focus.
   (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays while the sound is
   muted, over an app in the top corners (x 96 from either edge, y 134 below the status bar, or 94 px further in and down; never the lower third, where Netflix draws
   its subtitles, nor the middle), over Home and its saver along the status bar's row (y 52, x 560 to 1360: Home's corners are the clock and weather widgets), visiting the four places in turn every 10 s so no pixel holds a still mark, as LG's bubble did. TV round 11 showed the
-  first form, at the lower middle, on the subtitles (`round9/r11-2026-10-26/netflix-mute-hop.png`); `11-volume-osd-mark-netflix` renders the four places over that capture. The receiver's mute is kept while the
+  first form, at the lower middle, on the subtitles (`round9/r11-2026-10-26/netflix-mute-hop.png`); `11-volume-osd-mark-netflix` renders the four places over that capture. After a restart the first copy of the receiver topic can carry a stamp older than the display accepts (the helper moves a stamp quietly), so
+  the display asks the helper for the newest copy when the helper comes up and when a copy arrives aged, and once more 2.5 s later; without it a mute that
+  was on before the restart showed no mark until the next change. The receiver's mute is kept while the
   helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped 1.5 s after the readings stop.
 - **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format need (the format is cut at 360 px), 56 to 64 px tall (the label type
   and 12 px above and below), 64 px above the bottom edge, centred; at 200 % text it grows in both. The number in the label size, semibold, in a slot as
