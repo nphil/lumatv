@@ -150,8 +150,8 @@ class Caption(unittest.TestCase):
         self.assertEqual(artist, "Katsushika Hokusai")
         self.assertEqual(rest, " \u00b7 Under the Wave off Kanagawa, about 1831 \u00b7 Public domain")
         src = read(os.path.join(QML, "panels", "Screensaver.qml")).decode()
-        self.assertIn("meta.artist", src)
-        self.assertRegex(src, r"meta\.title \+ \", \" \+ saver\.art\.shown\.meta\.year|meta\.title \+ \", \" \+ art\.shown\.meta\.year")
+        self.assertIn("captionMeta.artist", src)         # the print the GPU shows, or the one the player shows when the shell draws the words
+        self.assertRegex(src, r"captionMeta\.title \+ \", \" \+ art\.captionMeta\.year \+ \" \\u00b7 \" \+ art\.captionMeta\.licence")
 
     def test_the_bitmap_sits_where_the_qml_puts_the_text(self):
         for e in self.prints:

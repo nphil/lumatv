@@ -2,6 +2,8 @@ import QtQuick 2.4
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import "../kit"
+import TextFile 1.0
+import "../ArtDeck.js" as Deck
 
 // The screensaver and art mode (docs/mocks/21-screensaver-*). Drawn over everything while the TV's power state is `Screen Saver`
 // (`tvpower/power/getPowerState`, which the helper publishes as `screen.state`; LG's own saver is not a window of anything LumaTV
@@ -38,12 +40,28 @@ Item {
     readonly property bool glance: cfg.glance !== false
     readonly property int everyMin: artCfg.everyMin || 15
     readonly property bool shuffle: artCfg.order !== "sequence"
+    readonly property bool keepOrder: artCfg.keepOrder === true         // the shuffle bag is kept across restarts (ArtDeck.js): off until the set shows it works
     readonly property bool caption: artCfg.caption !== false
     readonly property bool twelveHour: !(Lu.theme && Lu.theme.clock && Lu.theme.clock.twelveHour === false)
     // It sits on black, so it takes the dark material's inks whichever material Home is in.
     readonly property var darkRamp: (Lu.theme && Lu.theme.dark) || ({})
     readonly property color ink: Lu.asColor(darkRamp.ink || "white")
     readonly property color ink2: Lu.asColor(darkRamp.ink2 || "white")
+
+    // The art on the TV's video decoder instead of the GPU (docs/research/videoplane-saver-result.md): the owner's switch, off until the TV steps
+    // there have passed; and only where the clips' pixels are what the words would be (they are drawn for the TV's own text size).
+    readonly property bool videoOn: cfg.video === true
+    readonly property bool videoShell: cfg.videoOverlay === "shell"       // this surface draws the dim, the caption and the clock above the picture; else the player's window does
+    readonly property bool videoFits: !(typeof Lu.textScale === "number" && Lu.textScale > 1.001)
+    readonly property bool videoUsable: videoOn && videoFits && !forced && style === "art"
+    // The art's shift, which the player makes too: whole pixels, a step every `shiftMs`.
+    readonly property int driftAmpX: 30
+    readonly property int driftAmpY: 20
+    readonly property int driftPeriodX: 540
+    readonly property int driftPeriodY: 380
+    property int videoStartMs: 6000                                        // the player has this long to say it plays (a test shortens it, as it does the other timings)
+    property int videoRenewMs: 10000
+    property int videoStaleMs: 12000
 
     // ---- when it is up
     property bool forced: false                   // shown without the power state (a preview, a test)
@@ -98,14 +116,60 @@ Item {
             refreshTime()
             minute.interval = msToNextMinute()
             clockBlock.pick()
-            if (style === "art") art.start()
+            if (style === "art") startArt()
         } else {
             art.stop()
+            video.end()
             clockBlock.fade = 1
         }
     }
-    onStyleChanged: if (up) { if (style === "art") art.start(); else art.stop() }
-    onPeriodMsChanged: if (up && style === "art" && art.current >= 0) lead.restart()
+    onStyleChanged: if (up) { if (style === "art") startArt(); else { art.stop(); video.end() } }
+    onPeriodMsChanged: if (up && style === "art" && art.current >= 0 && !video.busy) lead.restart()
+
+    // The art is drawn by the GPU, as it always was, or by the decoder when the owner has asked for that and the player is there and plays:
+    // black between the ask and the answer, the GPU's art if the player says no, does not answer or goes quiet. The order of the prints is
+    // this surface's either way (its bag is kept across restarts), so the player is told the first print and each next one.
+    function startArt() {
+        if (!videoUsable) { art.start(); return }
+        art.began = since
+        art.loadIndex(function() { if (saver.up && saver.style === "art") { art.videoFirst(); saver.askVideo() } })
+    }
+    function askVideo() {
+        if (!up) return
+        video.spec = videoSpec()
+        video.begin()
+        if (!video.busy) { art.leaveVideo(); art.start() }      // no player on this TV
+    }
+    function hexOf(c) {
+        function two(v) { var s = Math.round(v * 255).toString(16); return s.length < 2 ? "0" + s : s }
+        return "#" + two(c.r) + two(c.g) + two(c.b)
+    }
+    // What the player is asked for: this surface's own tokens, so the two savers move alike.
+    function videoSpec() {
+        var s = { style: "art", everyMin: everyMin, shuffle: shuffle, dim: dim, dimTo: cfg.dimTo, dimOverMin: cfg.dimOverMin, moveMs: Math.max(20, shiftMs),
+                  fadeMs: Math.max(20, Math.round(crossfadeMs / 2)), ampX: driftAmpX, ampY: driftAmpY, periodX: driftPeriodX, periodY: driftPeriodY,
+                  drift: !Lu.reduced, clock: true, twelveHour: twelveHour, caption: caption, overlay: !videoShell, auto: art.pictures.length === 0,
+                  ink: hexOf(ink), inkAlpha: Math.round(255 * 0.7 * ink.a), ink2: hexOf(ink2), ink2Alpha: Math.round(255 * 0.7 * ink2.a), since: since }
+        if (art.videoMeta) s.clip = art.videoMeta.id
+        return s
+    }
+    function videoChanged() {
+        if (!up || style !== "art") return
+        if (video.state === "failed") { art.leaveVideo(); art.start() }
+        else if (video.state === "playing") vchange.restart()
+    }
+    // The owner turns the switch off while the picture is up: the player is let go (SaverVideo does it) and the GPU's art takes over, from black.
+    onVideoUsableChanged: if (!videoUsable && up && style === "art" && !art.shown.meta && !art.idle.meta) { art.leaveVideo(); art.start() }
+    SaverVideo {
+        id: video
+        want: saver.up && saver.videoUsable
+        startMs: saver.videoStartMs; renewMs: saver.videoRenewMs; staleMs: saver.videoStaleMs
+        onStateChanged: saver.videoChanged()
+    }
+    readonly property bool holeOpen: video.playing && videoShell      // the picture is on the video plane and this surface is above it: nothing of its own under the dim
+    // The shuffle bag is kept across restarts (ArtDeck.js): a small file in the data directory, and a second handle to ask whether a print's file is there.
+    TextFile { id: deckFile; name: "file://{{dataDir}}/theme/saver-deck.json" }
+    TextFile { id: deckProbe }
 
     // A preview (Settings' button, the scenes): shows it without the power state, optionally at a place and with a picture.
     function preview(x, y, pictureId) {
@@ -115,11 +179,13 @@ Item {
     }
 
     // Whether anything is running: nothing may be while it is hidden.
-    readonly property bool timersRunning: standbyTimer.running || minute.running || move.running || lead.running || turn.running || grace.running || crossfade.running || shift.running || moveClock.running
+    readonly property bool timersRunning: standbyTimer.running || minute.running || move.running || lead.running || turn.running || grace.running || crossfade.running || shift.running || moveClock.running || video.timersRunning || vchange.running || vturn.running
     function snapshot() {
         return JSON.stringify({ up: up, active: active, style: style, level: level, timers: timersRunning, clock: { fx: clockBlock.fx, fy: clockBlock.fy, fade: clockBlock.fade, opacity: clockBlock.opacity },
                                 art: { loaded: art.pictures.length, current: art.current, pending: art.pending, front: art.aFront, skipped: art.skipped, dx: art.dx, dy: art.dy,
-                                       shown: art.shown.meta ? art.shown.meta.id : "", idle: art.idle.meta ? art.idle.meta.id : "", shownOpacity: art.shown.opacity, idleOpacity: art.idle.opacity } })
+                                       bag: art.bag.map(function(i) { return art.pictures[i].id }), last: art.lastId, key: art.deckKey,
+                                       shown: art.shown.meta ? art.shown.meta.id : "", idle: art.idle.meta ? art.idle.meta.id : "", shownOpacity: art.shown.opacity, idleOpacity: art.idle.opacity },
+                                video: { usable: videoUsable, state: video.state, reason: video.reason, hole: holeOpen, vfade: art.vfade, caption: art.captionMeta ? art.captionMeta.id : "", spec: video.spec } })
     }
 
     Timer {
@@ -129,7 +195,7 @@ Item {
         onTriggered: { saver.refreshTime(); interval = saver.msToNextMinute() }
     }
 
-    Rectangle { anchors.fill: parent; color: "#000000" }
+    Rectangle { id: backdrop; anchors.fill: parent; color: "#000000"; visible: !saver.holeOpen }
 
     // ================================================================= clock
     Item {
@@ -174,7 +240,7 @@ Item {
             spacing: 10
             LuText {
                 role: "display"
-                font.pixelSize: 152; font.weight: Font.Medium; font.letterSpacing: -152 * 0.03; lineHeight: 0.95
+                font.pixelSize: 152; font.weight: Font.Medium; font.letterSpacing: -152 * 0.03; line: 0.95
                 color: saver.ink; text: saver.clockText()
             }
             LuText { role: "title"; font.pixelSize: 30; font.weight: Font.Medium; color: saver.ink2; text: Qt.formatDate(saver.now, "dddd, MMMM d") }
@@ -216,7 +282,9 @@ Item {
         id: art
         property var pictures: []                  // art/index.json, public-domain pictures only
         property bool loaded: false
-        property var bag: []
+        property var bag: []                       // the prints still to deal in this round (indices of `pictures`)
+        property string lastId: ""                 // the print dealt last: a new round does not start with it
+        property string deckKey: ""                // the collection the bag belongs to (its folder)
         property int current: -1                   // the picture shown (an index of `pictures`)
         property int pending: -1                   // the one loading into the idle piece
         property bool aFront: true
@@ -224,6 +292,9 @@ Item {
         property int dx: 0                         // the shift, whole pixels
         property int dy: 0
         property double began: 0
+        property var videoMeta: null               // video: the print the player shows (this surface's caption is made from it in shell mode)
+        property real vfade: 0                     // video, shell mode: the page being turned, 0 clear to 1 black
+        readonly property var captionMeta: shown.meta ? shown.meta : (saver.holeOpen ? videoMeta : null)
         readonly property Item shown: aFront ? pieceA : pieceB
         readonly property Item idle: aFront ? pieceB : pieceA
 
@@ -234,6 +305,7 @@ Item {
                 if (x.readyState !== 4) return
                 try { art.pictures = (JSON.parse(x.responseText).pictures || []).filter(function(p) { return p.licence === "Public domain" }) } catch (e) { art.pictures = [] }
                 art.loaded = true
+                art.restoreDeck()
                 done()
             }
             try { x.open("GET", saver.indexUrl); x.send() } catch (e) { loaded = true; pictures = []; done() }
@@ -243,27 +315,55 @@ Item {
             loadIndex(function() { if (saver.up && saver.style === "art" && art.current < 0) art.first() })
         }
         function stop() {
-            lead.stop(); turn.stop(); grace.stop(); crossfade.stop(); shift.stop()
+            lead.stop(); turn.stop(); grace.stop(); crossfade.stop(); shift.stop(); leaveVideo()
             pieceA.clear(); pieceB.clear()
             pieceA.opacity = 0; pieceB.opacity = 0
             current = -1; pending = -1; aFront = true; skipped = 0; dx = 0; dy = 0
         }
+        // Video: the first print and the next in this surface's own order; the player is told which and shows it.
+        function videoFirst() {
+            var i = nextIndex()
+            if (i < 0) return
+            current = i
+            videoMeta = pictures[i]
+        }
+        function videoSwitch() {
+            var i = nextIndex()
+            if (i < 0) return
+            current = i
+            videoMeta = pictures[i]
+            video.next(pictures[i].id)
+        }
+        function leaveVideo() { vchange.stop(); vturn.stop(); vfade = 0; videoMeta = null; current = -1 }
         // The next print in the order the owner chose; the shuffle draws from a bag, so none repeats before all have been shown.
         function nextIndex() {
             var n = pictures.length
             if (n === 0) return -1
             // in order: after the print last tried, which is not the one shown while a broken print is being passed over
             if (!saver.shuffle) return ((pending >= 0 ? pending : current) + 1) % n
-            if (bag.length === 0) {
-                var b = []
-                for (var i = 0; i < n; i++) b.push(i)
-                for (var j = n - 1; j > 0; j--) { var k = Math.floor(Math.random() * (j + 1)); var t = b[j]; b[j] = b[k]; b[k] = t }
-                if (n > 1 && b[0] === current) { var s = b[0]; b[0] = b[1]; b[1] = s }
-                bag = b
-            }
+            if (bag.length === 0) bag = Deck.draw(n, [current, indexOfId(lastId)], Math.random)
             var out = bag[0]
             bag = bag.slice(1)
+            lastId = pictures[out].id
+            saveDeck()
             return out
+        }
+        // The bag across restarts: what was left of the round, less the prints whose file is gone, with the prints that have come since dealt in.
+        function fileThere(p) { deckProbe.name = Lu.baseUrl + "art/" + p.file; return deckProbe.exists }       // where ArtPiece looks for it
+        function readDeck() { return Deck.parse(deckFile.exists ? deckFile.read() : "") }
+        function restoreDeck() {
+            if (!saver.keepOrder) return
+            deckKey = Deck.collectionKey(saver.indexUrl, Lu.baseUrl)
+            try {
+                var r = Deck.restore(readDeck(), deckKey, pictures, fileThere, Math.random)
+                bag = r.bag
+                lastId = r.last >= 0 ? pictures[r.last].id : ""
+            } catch (e) { bag = []; lastId = ""; console.warn("[Screensaver] the saved order could not be read: " + e) }
+        }
+        function saveDeck() {
+            if (!saver.keepOrder) return
+            try { deckFile.write(Deck.stringify(Deck.put(readDeck(), deckKey, Deck.deckOf(pictures, bag, indexOfId(lastId), Date.now())))) }
+            catch (e) { console.warn("[Screensaver] the order could not be saved: " + e) }
         }
         function indexOfId(id) { for (var i = 0; i < pictures.length; i++) if (pictures[i].id === id) return i; return -1 }
         function showIndex(i) {
@@ -316,16 +416,35 @@ Item {
         NumberAnimation { target: art.shown; property: "opacity"; to: 0; duration: saver.crossfadeMs; easing.type: Easing.InOutQuad }
         onStopped: if (art.idle && art.idle.opacity >= 0.99) art.swapped()
     }
+    // Video: the saver names each next print. In shell mode it also turns the page, as the dim is its own: out through black, the player told at
+    // the dark, back in; in the player's own mode the player turns it through the dim it draws.
+    Timer {
+        id: vchange
+        interval: Math.max(200, saver.periodMs)
+        onTriggered: {
+            if (art.pictures.length < 2) vchange.restart()
+            else if (saver.videoShell) vturn.restart()
+            else { art.videoSwitch(); vchange.restart() }
+        }
+    }
+    SequentialAnimation {
+        id: vturn
+        NumberAnimation { target: art; property: "vfade"; to: 1; duration: Math.max(20, saver.crossfadeMs / 2); easing.type: Easing.InOutQuad }
+        ScriptAction { script: art.videoSwitch() }
+        PauseAnimation { duration: 400 }
+        NumberAnimation { target: art; property: "vfade"; to: 0; duration: Math.max(20, saver.crossfadeMs / 2); easing.type: Easing.InOutQuad }
+        ScriptAction { script: vchange.restart() }
+    }
     // The shift: a step of a pixel every few seconds along a slow loop, so the picture is redrawn only when it moves.
     Timer {
         id: shift
         interval: Math.max(1, saver.shiftMs)
-        running: saver.up && saver.style === "art" && !Lu.reduced
+        running: saver.up && saver.style === "art" && !Lu.reduced && !(video.busy && !saver.videoShell)
         repeat: true
         onTriggered: {
             var t = (Date.now() - art.began) / 1000
-            art.dx = Math.round(30 * Math.sin(2 * Math.PI * t / 540))
-            art.dy = Math.round(20 * Math.sin(2 * Math.PI * t / 380))
+            art.dx = Math.round(saver.driftAmpX * Math.sin(2 * Math.PI * t / saver.driftPeriodX))
+            art.dy = Math.round(saver.driftAmpY * Math.sin(2 * Math.PI * t / saver.driftPeriodY))
         }
     }
 
@@ -335,6 +454,7 @@ Item {
         anchors.fill: parent
         Rectangle {
             anchors.fill: parent
+            visible: !saver.holeOpen
             gradient: Gradient {
                 GradientStop { position: 0.0; color: "#100d12" }
                 GradientStop { position: 0.7; color: "#060507" }
@@ -346,18 +466,19 @@ Item {
             width: parent.width; height: parent.height
             ArtPiece { id: pieceA; opacity: 0 }
             ArtPiece { id: pieceB; opacity: 0 }
-            // the pieces are drawn at the print's own brightness: 78 % of the real one, all of it together
-            Rectangle { anchors.fill: parent; color: "#000000"; opacity: 1 - saver.artLevel * saver.level; z: 1 }
+            // the pieces are drawn at the print's own brightness: 78 % of the real one, all of it together; over the video (the clip has the 78 % in it) only the dim
+            Rectangle { anchors.fill: parent; color: "#000000"; opacity: saver.holeOpen ? (1 - saver.level) + saver.level * art.vfade : 1 - saver.artLevel * saver.level; z: 1 }
             LuText {
                 z: 2
-                visible: saver.caption && art.shown.meta !== null
+                visible: saver.caption && art.captionMeta !== null
                 x: saver.edgeX; y: 1080 - saver.safeY - height
-                role: "label"; font.pixelSize: 24; color: saver.ink2; opacity: 0.7
+                role: "label"; font.pixelSize: 24; color: saver.ink2; opacity: saver.holeOpen ? 0.7 * (1 - art.vfade) : 0.7
                 textFormat: Text.StyledText
-                text: art.shown.meta ? "<b><font color=\"" + saver.ink + "\">" + art.shown.meta.artist + "</font></b> \u00b7 " + art.shown.meta.title + ", " + art.shown.meta.year + " \u00b7 " + art.shown.meta.licence : ""
+                text: art.captionMeta ? "<b><font color=\"" + saver.ink + "\">" + art.captionMeta.artist + "</font></b> \u00b7 " + art.captionMeta.title + ", " + art.captionMeta.year + " \u00b7 " + art.captionMeta.licence : ""
             }
             LuText {
                 z: 2
+                visible: !(video.busy && !saver.videoShell)                 // in the player's own mode its window draws the time
                 x: 1920 - saver.edgeX - width; y: 1080 - saver.safeY - height
                 role: "label"; font.pixelSize: 32; font.weight: Font.Medium; color: saver.ink2; opacity: 0.7
                 text: saver.clockText()

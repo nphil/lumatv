@@ -97,15 +97,18 @@ def geometry():
 
 
 def drift_numbers():
-    """The art mode's shift, from Screensaver.qml's shift timer: round(ampX sin(2 pi t / periodX)), round(ampY sin(2 pi t / periodY)).
-    The picture has to have the room to move in: a margin of the screen around it at least as wide as the reach."""
+    """The art mode's shift, from the four properties of Screensaver.qml that both its shift timer and the player's request use:
+    round(ampX sin(2 pi t / periodX)), round(ampY sin(2 pi t / periodY)). The picture has to have the room to move in: a margin of the
+    screen around it at least as wide as the reach."""
     with open(os.path.join(QML, "panels", "Screensaver.qml")) as f:
         saver = f.read()
-    mx = re.search(r"art\.dx\s*=\s*Math\.round\((\d+)\s*\*\s*Math\.sin\(2 \* Math\.PI \* t / (\d+)\)\)", saver)
-    my = re.search(r"art\.dy\s*=\s*Math\.round\((\d+)\s*\*\s*Math\.sin\(2 \* Math\.PI \* t / (\d+)\)\)", saver)
-    if not mx or not my:
-        raise SystemExit("Screensaver.qml: the shift timer's art.dx and art.dy were not found")
-    return {"ampX": int(mx.group(1)), "periodX": int(mx.group(2)), "ampY": int(my.group(1)), "periodY": int(my.group(2))}
+    out = {}
+    for name in ("AmpX", "PeriodX", "AmpY", "PeriodY"):
+        m = re.search(r"readonly property int drift%s:\s*(\d+)" % name, saver)
+        if not m:
+            raise SystemExit("Screensaver.qml: no `readonly property int drift%s`" % name)
+        out[name[0].lower() + name[1:]] = int(m.group(1))
+    return out
 
 
 def hexrgb(c):
