@@ -49,11 +49,10 @@ Item {
     readonly property color ink2: Lu.asColor(darkRamp.ink2 || "white")
 
     // The art on the TV's video decoder instead of the GPU (docs/research/videoplane-saver-result.md): the owner's switch, off until the TV steps
-    // there have passed; and only where the clips' pixels are what the words would be (they are drawn for the TV's own text size).
+    // there have passed. The words are drawn at their one size (there is no text-size setting), so the clips' words and this surface's are the same.
     readonly property bool videoOn: cfg.video === true
     readonly property bool videoShell: cfg.videoOverlay === "shell"       // this surface draws the dim, the caption and the clock above the picture; else the player's window does
-    readonly property bool videoFits: !(typeof Lu.textScale === "number" && Lu.textScale > 1.001)
-    readonly property bool videoUsable: videoOn && videoFits && !forced && style === "art"
+    readonly property bool videoUsable: videoOn && !forced && style === "art"
     // The art's shift, which the player makes too: whole pixels, a step every `shiftMs`.
     readonly property int driftAmpX: 30
     readonly property int driftAmpY: 20

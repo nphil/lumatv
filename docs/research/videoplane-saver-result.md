@@ -77,7 +77,7 @@ The saver and the player talk through two files in `/tmp/lumatv-vplane/` (`file:
 | `playing` | the picture is on the video plane; renewed every 10 s | the player's window, or in shell mode the saver's words |
 | `failed` | the player said no, did not answer, went quiet (12 s) or the owner turned the switch off | the GPU's art; the player is told to stop |
 
-`videoUsable` is false (GPU only) for a preview (`forced`), any style but art, and `Lu.textScale > 1` (the clips' words are drawn for the TV's own text size). Nothing runs while the saver is down.
+`videoUsable` is false (GPU only) for a preview (`forced`) and any style but art. Nothing runs while the saver is down.
 
 ## Memory
 
