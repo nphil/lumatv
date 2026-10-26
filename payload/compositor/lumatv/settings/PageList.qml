@@ -68,7 +68,7 @@ Item {
     }
     // Right and Left on the tab bar change the tab and leave the focus on the bar, so the next press goes to the next tab; a tab picked
     // any other way (the pointer sets the bar's stop first) has its first row focused.
-    onTabChanged: { if (stop !== -1) enter(first()); offset = 0 }
+    onTabChanged: { if (stop !== -1) enter(first()); offset = 0; if (host && host.hideHelp) host.hideHelp() }
     // A pointer that lands on a row takes the focus as the D-pad would.
     function pointAt(i) { if (host) host.zone = "page"; if (focusable(i)) enter(i) }
 
@@ -83,6 +83,23 @@ Item {
         else if (r.kind === "seg" || r.kind === "cards") change(i, seg)
         else if (r.kind === "value" || r.kind === "action") change(i)
         else if (r.kind === "nudge" && r.open) r.open()
+    }
+
+    // ---- help: the explanation behind a row's info mark (kit/LuInfo, kit/LuHelp). A row's `help` is a text or a function. The host
+    // asks `helpReady()` whether a held OK or the Menu key means something now, then `openHelp()`; a click on a mark does the same for
+    // its own row. The sheet is the host's, one for every page, and the focus never leaves the row.
+    function helpFor(i) {
+        var r = rows[i]
+        var h = r ? ev(r.help) : ""
+        return h === undefined || h === null ? "" : String(h)
+    }
+    function helpReady() { return active && !blocked && stop >= 0 && focusable(stop) && helpFor(stop) !== "" }
+    function openHelp() { return showHelp(stop) }
+    function showHelp(i) {
+        var text = i >= 0 ? helpFor(i) : "", it = i >= 0 ? itemFor(i) : null
+        if (text === "" || !it || !host || !host.showHelp) return false
+        host.showHelp(String(ev(rows[i].label) || ""), text, it)
+        return true
     }
 
     function key(dir) {
@@ -148,7 +165,7 @@ Item {
             id: backPill
             visible: page.back !== ""
             height: Math.round(Lu.target * 0.7)
-            width: backText.implicitWidth + Lu.space(5) + Lu.space(6)
+            width: backText.x + backText.implicitWidth + Lu.space(4)
             radius: height / 2
             anchors.verticalCenter: titleText.verticalCenter
             color: Lu.wash("selected")
@@ -183,18 +200,31 @@ Item {
     }
 
     // ---- rows
+    // The list scrolls by whole rows: `offset` is the top of the first row in view, a row that would be cut by the
+    // viewport's edge is not drawn, and a chevron in a small zone at either end says that more rows are that way.
     property real offset: 0
+    readonly property int zone: list.height > viewport.height ? Lu.space(6) : 0      // the chevrons' room, once the rows do not all fit
+    readonly property real usable: viewport.height - 2 * zone
+    readonly property bool moreAbove: offset > 0.5
+    readonly property bool moreBelow: offset + usable < list.height - 0.5
     function itemFor(i) { return rep.itemAt(i) }
-    onStopChanged: scrollTimer.restart()
+    function rowTop(i) { var it = itemFor(i); return it ? it.mapToItem(list, 0, 0).y : 0 }
+    onStopChanged: { scrollTimer.restart(); if (host && host.hideHelp) host.hideHelp() }
     Timer {
         id: scrollTimer
         interval: 1
         onTriggered: {
             var it = page.stop >= 0 ? page.itemFor(page.stop) : null
             if (!it) { if (page.stop === -1) page.offset = 0; return }
-            var top = it.mapToItem(list, 0, 0).y
-            if (top - page.offset < 0) page.offset = top
-            else if (top + it.height - page.offset > viewport.height) page.offset = top + it.height - viewport.height
+            var top = page.rowTop(page.stop)
+            var bottom = top + it.height
+            if (top < page.offset) page.offset = top
+            else if (bottom - page.offset > page.usable) {
+                // scrolling down: the first row in view is the earliest one that still leaves the focused row whole
+                var k = page.stop
+                while (k > 0 && bottom - page.rowTop(k - 1) <= page.usable) k--
+                page.offset = page.rowTop(k)
+            }
         }
     }
     Item {
@@ -203,10 +233,12 @@ Item {
         width: parent.width
         height: parent.height - y
         clip: true
+        LuIcon { visible: page.moreAbove; anchors.horizontalCenter: parent.horizontalCenter; y: Math.round((page.zone - height) / 2); name: "chevron-down"; rotation: 180; size: Lu.space(5); color: Lu.ink3 }
+        LuIcon { visible: page.moreBelow; anchors.horizontalCenter: parent.horizontalCenter; y: viewport.height - page.zone + Math.round((page.zone - height) / 2); name: "chevron-down"; size: Lu.space(5); color: Lu.ink3 }
         Column {
             id: list
             width: parent.width
-            y: -page.offset
+            y: page.zone - page.offset
             Behavior on y { enabled: !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
             Repeater {
                 id: rep
@@ -219,6 +251,8 @@ Item {
                     visible: page.shown(ri)
                     width: list.width
                     height: visible && body.item ? body.item.height : 0
+                    // whole rows only: one the viewport would cut is not drawn (its height still counts, so nothing reflows)
+                    opacity: y >= page.offset - 0.5 && y + height <= page.offset + page.usable + 0.5 ? 1 : 0
                     Loader {
                         id: body
                         width: cell.width
@@ -232,6 +266,7 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
@@ -244,6 +279,7 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onHoverFocus: page.pointAt(cell.ri)
@@ -262,6 +298,7 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onHoverFocus: page.pointAt(cell.ri)
@@ -282,6 +319,7 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
@@ -299,6 +337,7 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: page.rested
                             onHoverFocus: page.pointAt(cell.ri)
@@ -314,7 +353,7 @@ Item {
                                     onMoved: { page.pointAt(cell.ri); page.change(cell.ri, value) }
                                 }
                                 LuText {
-                                    width: Lu.target * 1.5; horizontalAlignment: Text.AlignRight
+                                    width: Math.max(Math.round(Lu.target * 1.5), implicitWidth); horizontalAlignment: Text.AlignRight
                                     anchors.verticalCenter: parent.verticalCenter
                                     role: "label"
                                     text: cell.r.valueText !== undefined ? page.ev(cell.r.valueText) : String(Math.round(page.ev(cell.r.num) || 0)) + (cell.r.unit || "")
@@ -327,6 +366,7 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             value: page.ev(cell.r.value) || ""
                             enabled: page.ev(cell.r.enabled) !== false
                             selected: page.ev(cell.r.selected) === true
@@ -346,7 +386,9 @@ Item {
                         LuRow {
                             icon: page.ev(cell.r.icon) || ""
                             label: page.ev(cell.r.label) || ""; detail: page.ev(cell.r.detail) || ""
+                            help: page.helpFor(cell.ri); onHelpAsked: { page.pointAt(cell.ri); page.showHelp(cell.ri) }
                             enabled: page.ev(cell.r.enabled) !== false
+                            danger: page.ev(cell.r.danger) === true
                             focused: cell.isFocus; rested: page.rested
                             onActivated: { page.pointAt(cell.ri); page.activate(cell.ri) }
                             onHoverFocus: page.pointAt(cell.ri)
@@ -360,28 +402,46 @@ Item {
                             readonly property var opts: page.ev(cell.r.options) || []
                             readonly property bool strip: cell.r.strip === true
                             readonly property int cols: strip ? 1000 : (cell.r.cols || 4)
-                            readonly property real inView: (cell.r.inView || 4) + (strip ? 0.4 : 0)     // a strip shows part of the next card: it scrolls
+                            readonly property int across: strip ? (cell.r.inView || 4) : cols
                             readonly property int gap: Lu.space(3)
-                            readonly property int cw: strip ? Math.floor((cell.width - gap * Math.ceil(inView - 1)) / inView) : Math.floor((cell.width - gap * (cols - 1)) / cols)
-                            // the strip moves just far enough to keep the focused (or chosen) card whole
+                            // the cards keep the rows' own inset, so they line up with the tiles and controls; a strip's chevrons sit in it
+                            readonly property int edge: Lu.space(6)
+                            readonly property int cw: Math.floor((cell.width - 2 * edge - gap * (across - 1)) / across)
+                            readonly property int pitch: cw + gap
+                            readonly property bool twoLines: { for (var i = 0; i < opts.length; i++) if (opts[i].sub) return true; return false }
+                            readonly property int cardH: twoLines ? Lu.row + Lu.space(2) : Lu.row
+                            // a strip shows whole cards only and moves by whole cards, just far enough to bring the focused (or chosen) card in
                             readonly property int at: cell.isFocus ? page.seg : Math.max(0, page.ev(cell.r.index) || 0)
-                            readonly property real scroll: strip ? Math.max(0, Math.min(opts.length * (cw + gap) - gap - cell.width, (at + 1) * (cw + gap) - gap - cell.width)) : 0
+                            property int first: 0
+                            function follow() { if (at < first) first = at; else if (at >= first + across) first = at - across + 1 }
+                            onAtChanged: follow()
+                            Component.onCompleted: follow()
+                            readonly property bool moreLeft: strip && first > 0
+                            readonly property bool moreRight: strip && first + across < opts.length
                             width: cell.width
-                            height: (strip ? 1 : Math.ceil(opts.length / cols)) * (Math.round(Lu.row * 0.95) + gap)
-                            clip: strip
-                            Repeater {
-                                model: grid.opts
-                                delegate: LuCard {
-                                    x: (grid.strip ? index : index % grid.cols) * (grid.cw + grid.gap) - grid.scroll
-                                    y: grid.strip ? 0 : Math.floor(index / grid.cols) * (height + grid.gap)
-                                    Behavior on x { enabled: grid.strip && !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
-                                    width: grid.cw
-                                    icon: modelData.icon || ""; title: modelData.title || ""; sub: modelData.sub || ""
-                                    selected: page.ev(cell.r.index) === index
-                                    focused: cell.isFocus && page.seg === index
-                                    rested: page.rested
-                                    onActivated: { page.pointAt(cell.ri); page.seg = index; page.activate(cell.ri) }
-                                    onHoverFocus: { page.pointAt(cell.ri); page.seg = index }
+                            height: (strip ? 1 : Math.ceil(opts.length / cols)) * (cardH + gap)
+                            LuIcon { visible: grid.moreLeft; x: Math.round((grid.edge - width) / 2); y: Math.round((grid.cardH - height) / 2); name: "chevron-left"; size: Lu.space(5); color: Lu.ink3 }
+                            LuIcon { visible: grid.moreRight; x: grid.width - grid.edge + Math.round((grid.edge - width) / 2); y: Math.round((grid.cardH - height) / 2); name: "chevron-right"; size: Lu.space(5); color: Lu.ink3 }
+                            Item {
+                                x: grid.edge
+                                width: grid.width - 2 * grid.edge
+                                height: grid.height
+                                clip: grid.strip
+                                Repeater {
+                                    model: grid.opts
+                                    delegate: LuCard {
+                                        x: ((grid.strip ? index - grid.first : index % grid.cols)) * grid.pitch
+                                        y: grid.strip ? 0 : Math.floor(index / grid.cols) * (grid.cardH + grid.gap)
+                                        Behavior on x { enabled: grid.strip && !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
+                                        width: grid.cw
+                                        height: grid.cardH
+                                        icon: modelData.icon || ""; title: modelData.title || ""; sub: modelData.sub || ""
+                                        selected: page.ev(cell.r.index) === index
+                                        focused: cell.isFocus && page.seg === index
+                                        rested: page.rested
+                                        onActivated: { page.pointAt(cell.ri); page.seg = index; page.activate(cell.ri) }
+                                        onHoverFocus: { page.pointAt(cell.ri); page.seg = index }
+                                    }
                                 }
                             }
                         }

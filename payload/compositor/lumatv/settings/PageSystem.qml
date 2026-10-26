@@ -14,12 +14,12 @@ PageList {
     subtitle: "webOS"
     summary: "webOS \u00b7 " + (Sio.has("network.deviceName") ? Sio.get("network.deviceName") : "LumaTV")
 
-    readonly property var locales: Sio.get("localeInfo.locales") || ({})
+    readonly property var locales: (Sio.get("localeInfo") || ({})).locales || ({})     // the set keeps localeInfo outside every category
     readonly property var zone: Sio.get("time.timeZone") || ({})
     readonly property string zoneName: typeof zone === "string" ? zone : (zone.City || zone.ZoneID || "")
 
     function refresh() {
-        Sio.read("localeInfo", ["locales"])
+        Sio.read("", ["localeInfo"])
         Sio.read("time", ["timeZone", "noOperationAutoOff", "autoOff15Min"])
         Sio.read("option", ["quickStartMode", "audioGuidance"])
         Sio.read("picture", ["screenShift", "logoLuminanceAdjust"])
@@ -35,7 +35,7 @@ PageList {
 
     rows: [
         { kind: "value", tab: 0, icon: "languages", label: "Language", detail: "Menus, keyboard and audio language. LG's Language screen changes it.", chevron: true,
-          enabled: function() { return Sio.has("localeInfo.locales") },
+          enabled: function() { return Sio.has("localeInfo") },
           value: function() { return R.name({ "en-US": "English (US)", "en-GB": "English (UK)", "es-US": "Spanish (US)", "fr-FR": "French" }, page.locales.UI, "") },
           act: function() { page.launch("Language") } },
         { kind: "value", tab: 0, icon: "clock", label: "Time zone", detail: "Set from the network by default. LG's Date and time screen changes it.", chevron: true,

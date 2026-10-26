@@ -8,7 +8,8 @@ import "../kit"
 // shown after a write is the one the helper answered with; a refused change leaves the row as it was.
 //
 // `known` is false until the helper answers with this owner (it is down, or an older one does not have it): the rows dim as
-// "Not available on this TV", as LG's do for a key its service does not answer.
+// "No answer from the TV", as a row of LG's settings does until its service answers. Nothing is ever `missing`: a field the
+// schema lacks is one an older helper does not have yet, and the row stays dimmed, not hidden.
 QtObject {
     id: hs
 
@@ -17,10 +18,12 @@ QtObject {
     property int version: -1
     property var values: ({})          // key -> the effective value
     property var kinds: ({})           // key -> field kind ("bool", "integer", "choice", ...)
+    property var schema: ({})          // the owner's page as the helper serves it: {title, sections: [{id, title, fields}]}
     property string problem: ""        // the helper's words for the last refused change
 
     function has(key) { return known && values[key] !== undefined }
     function usable(key) { return has(key) }
+    function missing(key) { return false }
     function get(key) { return values[key] }
     function num(key, fallback) { var v = Number(values[key]); return isNaN(v) ? (fallback === undefined ? 0 : fallback) : v }
 
@@ -32,6 +35,7 @@ QtObject {
         for (var i = 0; i < secs.length; i++) for (var j = 0; j < secs[i].fields.length; j++) kinds2[secs[i].fields[j].key] = secs[i].fields[j].kind.type
         values = v
         kinds = kinds2
+        schema = doc.schema || {}
         version = doc.version
         known = true
     }
@@ -47,6 +51,7 @@ QtObject {
         var kind = kinds[key]
         if (kind === "bool") return { type: "bool", value: value === true || String(value) === "true" }
         if (kind === "integer") return { type: "integer", value: Math.round(Number(value)) }
+        if (kind === "ordered-set") return { type: "ordered", value: value }     // a list of ids, in the order they were picked
         return { type: kind, value: String(value) }
     }
     // Changes go one at a time, in the order they were made: two answers racing could leave the older value in force (a

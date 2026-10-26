@@ -85,7 +85,7 @@ Item {
         LuIcon { anchors.horizontalCenter: parent.horizontalCenter; name: banner.spec.icon || "unplug"; size: 64; color: banner.nsInk2 }
         LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.weight: Font.DemiBold; color: banner.nsInk2; text: banner.spec.port || "" }
         LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; color: banner.nsInk; text: banner.spec.title || "" }
-        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; lineHeight: 0.99; color: banner.nsInk2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
+        LuText { width: parent.width; horizontalAlignment: Text.AlignHCenter; role: "label"; line: 0.99; color: banner.nsInk2; wrapMode: Text.WordWrap; text: banner.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
         Item { width: 1; height: Lu.space(1) }
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -114,8 +114,8 @@ Item {
             color: Lu.wash("selected"); border.width: 1; border.color: Lu.edge
             Column {
                 anchors.centerIn: parent; spacing: Lu.space(1)
-                LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; font.pixelSize: 32; font.weight: Font.DemiBold; lineHeight: 1.0; text: banner.spec.number || "" }
-                LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.pixelSize: 20; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.call || "" }
+                LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; font.pixelSize: 32; font.weight: Font.DemiBold; text: banner.spec.number || "" }
+                LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "caption"; font.pixelSize: 20; font.weight: Font.DemiBold; color: Lu.ink2; text: banner.spec.call || "" }
             }
         }
         Row {
@@ -125,17 +125,17 @@ Item {
                 model: banner.kind === "channel" ? (banner.spec.chips || []) : []
                 delegate: Rectangle {                       // the mock's banner chip: 40 high, 21 px, 12 either side (the kit's chip is a size up)
                     width: chipText.implicitWidth + 24; height: 40; radius: 20; antialiasing: true; color: Lu.wash("selected")
-                    LuText { id: chipText; anchors.centerIn: parent; role: "caption"; font.pixelSize: 21; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2; text: modelData }
+                    LuText { id: chipText; anchors.centerIn: parent; role: "caption"; font.pixelSize: 21; font.weight: Font.DemiBold; color: Lu.ink2; text: modelData }
                 }
             }
         }
         Column {
             x: chTile.x + chTile.width + 24; width: tags.x - x - 24; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
-            LuText { width: parent.width; role: "body"; font.pixelSize: 32; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; text: banner.spec.title || "" }
+            LuText { width: parent.width; role: "body"; font.pixelSize: 32; font.weight: Font.DemiBold; elide: Text.ElideRight; text: banner.spec.title || "" }
             Item {
                 width: parent.width; height: subText.implicitHeight
-                LuText { id: subText; role: "caption"; font.pixelSize: 22; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.sub || "" }
-                LuText { x: parent.width - width; width: Math.min(implicitWidth, parent.width - subText.implicitWidth - Lu.space(5)); role: "caption"; font.pixelSize: 22; lineHeight: 1.0; color: Lu.ink2; elide: Text.ElideRight
+                LuText { id: subText; role: "caption"; font.pixelSize: 22; color: Lu.ink2; text: banner.spec.sub || "" }
+                LuText { x: parent.width - width; width: Math.min(implicitWidth, parent.width - subText.implicitWidth - Lu.space(5)); role: "caption"; font.pixelSize: 22; color: Lu.ink2; elide: Text.ElideRight
                          visible: !!banner.spec.next; text: banner.spec.next ? "Next \u00b7 " + banner.spec.next : "" }
             }
             Rectangle {
@@ -158,8 +158,8 @@ Item {
             LuTile { anchors.verticalCenter: parent.verticalCenter; size: 64; radiusScale: 0.5; icon: banner.spec.icon || "cable" }
             Column {
                 anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(1)
-                LuText { role: "body"; font.weight: Font.DemiBold; lineHeight: 1.0; text: banner.spec.name || "" }
-                LuText { role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: banner.spec.facts || "" }
+                LuText { role: "body"; font.weight: Font.DemiBold; text: banner.spec.name || "" }
+                LuText { role: "caption"; color: Lu.ink2; text: banner.spec.facts || "" }
             }
             Rectangle { visible: banner.interactive && banner.kind === "input"; anchors.verticalCenter: parent.verticalCenter; width: 1; height: 40; color: Lu.edge }
             Repeater {

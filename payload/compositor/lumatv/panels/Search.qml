@@ -96,7 +96,7 @@ Item {
             x: 40; y: 28; width: parent.width - 80; height: 84; radius: Lu.radius("tile")
             color: Qt.rgba(Lu.ink.r, Lu.ink.g, Lu.ink.b, 0.06); border.width: 1; border.color: Lu.edge; antialiasing: true
             LuIcon { id: lens; x: 26; anchors.verticalCenter: parent.verticalCenter; name: search.entry ? "keyboard" : "search"; size: 32; color: Lu.ink2 }
-            LuText { id: typed; x: 26 + 32 + 18; anchors.verticalCenter: parent.verticalCenter; role: "title"; font.pixelSize: 32; lineHeight: 1.0; text: search.text }
+            LuText { id: typed; x: 26 + 32 + 18; anchors.verticalCenter: parent.verticalCenter; role: "title"; font.pixelSize: 32; text: search.text }
             Rectangle { x: typed.x + typed.width + 4; anchors.verticalCenter: parent.verticalCenter; width: 3; height: 38; radius: 2; color: Lu.accent }
             Row {
                 x: parent.width - width - 26; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
@@ -121,12 +121,11 @@ Item {
                     width: Math.floor((sheet.width - 80 - 3 * 16) / 4); height: 108
                     z: focused ? 1 : 0
                     FocusLift { id: alift; focused: ans.focused; rested: search.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-                    scale: 1 + (Lu.buttonScale - 1) * alift.value
-                    transformOrigin: Item.Center
                     Rectangle {
                         anchors.fill: parent; radius: Lu.radius("tile"); antialiasing: true
                         color: ans.focused ? Lu.wash("focus") : Qt.rgba(Lu.ink.r, Lu.ink.g, Lu.ink.b, 0.06)
                         border.width: 1; border.color: ans.focused ? Lu.edgeRaised : "transparent"
+                        scale: 1 + (Lu.buttonScale - 1) * alift.value; transformOrigin: Item.Center      // the plate lifts; the words stay put
                     }
                     Rectangle {
                         id: lead
@@ -138,9 +137,9 @@ Item {
                     }
                     Column {
                         x: lead.x + lead.width + 18; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 22; spacing: Lu.space(1)
-                        LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; textFormat: Text.StyledText
+                        LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; elide: Text.ElideRight; textFormat: Text.StyledText
                                  color: ans.a.match ? Lu.ink2 : Lu.ink; text: Match.highlight(ans.a.title, ans.a.match, String(Lu.ink)) }      // the typed part in full ink: the accent is too pale on the light sheet
-                        LuText { width: parent.width; role: "caption"; lineHeight: 1.0; color: Lu.ink2; elide: Text.ElideRight; text: ans.a.sub || "" }
+                        LuText { width: parent.width; role: "caption"; color: Lu.ink2; elide: Text.ElideRight; text: ans.a.sub || "" }
                     }
                     MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: search.index = search.nKeys + index; onClicked: { search.index = search.nKeys + index; search.key("ok") } }
                 }
@@ -153,8 +152,8 @@ Item {
             LuTile { x: 22; anchors.verticalCenter: parent.verticalCenter; size: 60; icon: "keyboard" }
             Column {
                 x: 22 + 60 + 18; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 22; spacing: Lu.space(1)
-                LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; text: search.prompt }
-                LuText { width: parent.width; role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: "Done saves the name here and on the dock. An empty name brings back the one LG gave." }
+                LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; elide: Text.ElideRight; text: search.prompt }
+                LuText { width: parent.width; role: "caption"; color: Lu.ink2; text: "Done saves the name here and on the dock. An empty name brings back the one LG gave." }
             }
         }
 
@@ -174,10 +173,9 @@ Item {
                     width: index < 40 ? 84 : search.lastRow[index - 40].w; height: 72
                     readonly property bool focused: search.index === index
                     FocusLift { id: lift; focused: keyItem.focused; rested: search.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-                    scale: 1 + (Lu.buttonScale - 1) * lift.value
-                    transformOrigin: Item.Center
                     z: focused ? 1 : 0
-                    Rectangle { anchors.fill: parent; radius: Lu.radius("control"); color: parent.focused ? Lu.glassRaised : Lu.glass; border.width: 1; border.color: parent.focused ? Lu.edgeRaised : Lu.edge; antialiasing: true }
+                    Rectangle { anchors.fill: parent; radius: Lu.radius("control"); color: parent.focused ? Lu.glassRaised : Lu.glass; border.width: 1; border.color: parent.focused ? Lu.edgeRaised : Lu.edge; antialiasing: true
+                                scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center }      // the key lifts; its glyph stays put
                     LuText {
                         anchors.centerIn: parent; role: parent.wide ? "label" : "body"; font.weight: parent.wide ? Font.DemiBold : Font.Medium
                         text: parent.label === "\u232b" || parent.label === "\u21e7" ? "" : parent.label === "?123" ? (search.symbols ? "abc" : "?123")

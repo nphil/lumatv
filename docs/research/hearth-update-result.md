@@ -31,9 +31,7 @@ Source: Hearth v1.2.0, released 2026-10-25 (https://github.com/rudra-avatar/Hear
 - Item 2 goes to the screensaver owner: persist the shuffle bag per folder, skip files that no longer exist.
 - Item 3 is checked on the TV in the next slot; changed only if the dip is visible.
 
-### Open
-
-1. Decide whether you want the quiet mode (item 4). It is off by default, so it changes nothing until you choose it.
+- Item 4 (quiet mode) declined by Nitin: Home stays as it is.
 
 ### Not checked
 

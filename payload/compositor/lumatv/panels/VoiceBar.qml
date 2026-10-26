@@ -49,10 +49,10 @@ Item {
         Column {
             x: 18 + 72 + 20; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(1)
             width: parent.width - x - 26 - hint.width - (hint.visible ? Lu.space(4) : 0)
-            LuText { width: parent.width; role: "caption"; font.weight: Font.DemiBold; lineHeight: 1.0; color: Lu.ink2
+            LuText { width: parent.width; role: "caption"; font.weight: Font.DemiBold; color: Lu.ink2
                      text: voice.state === "listening" ? "Listening" : voice.state === "working" ? "Working it out"
                          : "Voice search" }
-            LuText { width: parent.width; role: "title"; font.pixelSize: 30; lineHeight: 1.0; elide: Text.ElideRight
+            LuText { width: parent.width; role: "title"; font.pixelSize: 30; elide: Text.ElideRight
                      text: voice.state === "listening" ? "Speak now\u2026" : voice.state === "working" ? "One moment\u2026"
                          : voice.text }
         }

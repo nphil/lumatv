@@ -98,8 +98,8 @@ Item {
             LuTile { visible: !!menu.spec.icon; x: Lu.space(3); anchors.verticalCenter: parent.verticalCenter; size: 48; icon: menu.spec.icon || "" }
             Column {
                 x: Lu.space(3) + 48 + Lu.space(4); anchors.verticalCenter: parent.verticalCenter; width: parent.width - x
-                LuText { width: parent.width; role: "label"; lineHeight: 1.0; text: menu.spec.title || ""; elide: Text.ElideRight }
-                LuText { width: parent.width; role: "caption"; lineHeight: 1.0; color: Lu.ink2; text: menu.spec.sub || ""; visible: !!menu.spec.sub; elide: Text.ElideRight }
+                LuText { width: parent.width; role: "label"; text: menu.spec.title || ""; elide: Text.ElideRight }
+                LuText { width: parent.width; role: "caption"; color: Lu.ink2; text: menu.spec.sub || ""; visible: !!menu.spec.sub; elide: Text.ElideRight }
             }
         }
         Column {

@@ -23,7 +23,7 @@ var keys = {
     "time": ["autoOff15Min", "autoOff2HourOnTimer", "automaticStandBy", "dpmsAutoOff", "noOperationAutoOff", "noSignalAutoOff", "offTimerEnable", "offTimerHour", "offTimerMinute", "offTimerWeekday", "onTimerAppId", "onTimerChannel", "onTimerEnable", "onTimerHour", "onTimerMinute", "onTimerVolume", "onTimerWeekday", "timeZone", "warmTimerEnable", "warmTimerWeekday1Enable", "warmTimerWeekday2Enable", "warmTimerWeekday3Enable", "warmTimerWeekday4Enable", "warmTimerWeekday5Enable", "warmTimerWeekday6Enable", "warmTimerWeekday7Enable", "warmTimerWeekday8Enable", "warmTimerWeekend1Enable", "warmTimerWeekend2Enable", "warmTimerWeekend3Enable", "warmTimerWeekend4Enable", "warmTimerWeekend5Enable", "warmTimerWeekend6Enable", "warmTimerWeekend7Enable", "warmTimerWeekend8Enable"],
     "timer": ["noMenuAutoOff15Min"],
     "voiceframework": ["thinQtvTTSBlock"],
-    "localeInfo": ["locales"]
+    "": ["localeInfo"]
 };
 
 // A value table is the whole set LG's own labels name; on/off keys are listed in `onoff`, wolwowlOnOff is true/false.

@@ -60,13 +60,12 @@ Item {
                     width: modelData.g === 2 ? 120 : 112
                     height: modelData.g === 1 ? 54 : 88
                     FocusLift { id: lift; focused: key.focused; rested: remote.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-                    scale: 1 + (Lu.buttonScale - 1) * lift.value
-                    transformOrigin: Item.Center
                     z: focused ? 1 : 0
                     Rectangle {
                         anchors.fill: parent; radius: modelData.g === 1 ? Lu.radius("control") : height / 2
                         color: key.focused ? Lu.glassRaised : Lu.glass
                         border.width: 1; border.color: key.focused ? Lu.edgeRaised : Lu.edge; antialiasing: true
+                        scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center      // the key lifts; its glyph stays put
                         Rectangle { visible: !!modelData.color; anchors.centerIn: parent; width: 56; height: 16; radius: 8; color: modelData.color || "transparent" }
                     }
                     LuIcon { visible: !!modelData.icon; anchors.centerIn: parent; name: modelData.icon || ""; size: 36; color: Lu.ink; rotation: modelData.flip ? 180 : 0 }

@@ -197,17 +197,17 @@ Item {
                             width: parent.width
                             height: Lu.space(3) + Math.max(48, titleCol.height) + (it && it.actions.length ? Lu.space(3) + Lu.target : 0) + Lu.space(3)
                             FocusLift { id: lift; focused: itemBox.focused; rested: drawer.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-                            scale: 1 + (Lu.rowScale - 1) * lift.value
                             Rectangle {
                                 anchors.fill: parent; radius: Lu.radius("row")
                                 color: itemBox.focused ? Lu.wash("focus") : "transparent"; border.width: itemBox.focused ? 1 : 0; border.color: Lu.edgeRaised; antialiasing: true
+                                scale: 1 + (Lu.rowScale - 1) * lift.value; transformOrigin: Item.Center       // the plate lifts; the words stay put
                             }
                             LuTile { x: Lu.space(4); y: Lu.space(3); size: 48; icon: itemBox.it ? itemBox.it.icon : "" }
                             Column {
                                 id: titleCol
                                 x: Lu.space(4) + 48 + Lu.space(4); y: Lu.space(3); width: parent.width - x - 96 - Lu.space(4)
-                                LuText { width: parent.width; role: "label"; lineHeight: 1.0; elide: Text.ElideRight; text: itemBox.it ? itemBox.it.title : "" }
-                                LuText { width: parent.width; role: "caption"; lineHeight: 1.0; color: Lu.ink2; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; visible: itemBox.it && itemBox.it.body !== ""; text: itemBox.it ? itemBox.it.body : "" }
+                                LuText { width: parent.width; role: "label"; elide: Text.ElideRight; text: itemBox.it ? itemBox.it.title : "" }
+                                LuText { width: parent.width; role: "caption"; line: 1.0; color: Lu.ink2; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; visible: itemBox.it && itemBox.it.body !== ""; text: itemBox.it ? itemBox.it.body : "" }
                             }
                             LuText { x: parent.width - width - Lu.space(4); y: Lu.space(3); role: "caption"; color: Lu.ink3; text: itemBox.it ? drawer.when(itemBox.it.time) : "" }
                             Row {

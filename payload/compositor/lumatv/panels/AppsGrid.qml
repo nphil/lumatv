@@ -119,13 +119,13 @@ Item {
         Row {
             x: Lu.space(5); anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(3)
             LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: 28; color: Lu.ink2 }
-            LuText { anchors.verticalCenter: parent.verticalCenter; role: "body"; font.weight: Font.DemiBold; lineHeight: 1.0; text: "Apps" }
+            LuText { anchors.verticalCenter: parent.verticalCenter; role: "body"; font.weight: Font.DemiBold; text: "Apps" }
         }
         Row {
             x: parent.width - width - Lu.space(6); anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(5)
             LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "wifi"; size: 28; color: Lu.ink2 }
             LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "mouse-pointer-2"; size: 28; color: Lu.ink2 }
-            LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; lineHeight: 1.0; color: Lu.ink2; text: Qt.formatTime(clock.now, "h:mm AP") }
+            LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; color: Lu.ink2; text: Qt.formatTime(clock.now, "h:mm AP") }
         }
     }
     QtObject { id: clock; property date now: new Date() }
@@ -219,18 +219,19 @@ Item {
                         width: 242; height: 221
                         z: focused ? 1 : 0
                         FocusLift { id: lift; focused: cell.focused; rested: page.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-                        scale: 1 + (Lu.buttonScale - 1) * lift.value
-                        transformOrigin: Item.Center
+                        // the plate and the icon lift; the name stays put and sharp
                         Rectangle {
                             anchors.fill: parent; radius: Lu.radius("tile"); antialiasing: true
                             color: cell.focused ? Lu.wash("focus") : "transparent"; border.width: cell.focused ? 1 : 0; border.color: Lu.edgeRaised
+                            scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center
                         }
                         Image {
                             x: Math.round((parent.width - 152) / 2); y: 14; width: 152; height: 152
                             source: cell.a ? cell.a.iconUrl : ""; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: true; smooth: true
                             opacity: cell.a && cell.a.hidden ? 0.5 : 1
+                            scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center
                         }
-                        LuText { x: 12; y: 14 + 152 + 12; width: parent.width - 24; horizontalAlignment: Text.AlignHCenter; role: "label"; font.weight: Font.DemiBold; lineHeight: 1.0; elide: Text.ElideRight; text: cell.a ? cell.a.title : "" }
+                        LuText { x: 12; y: 14 + 152 + 12; width: parent.width - 24; horizontalAlignment: Text.AlignHCenter; role: "label"; font.weight: Font.DemiBold; elide: Text.ElideRight; text: cell.a ? cell.a.title : "" }
                         MouseArea {
                             anchors.fill: parent; hoverEnabled: true
                             onEntered: { page.inGrid = true; page.searchFocused = false; page.cellIndex = index }

@@ -94,8 +94,27 @@ Item {
     }
     function patch(p) { themePatch(p); themePersist(p) }
 
-    onRailIndexChanged: { rested = false; restTimer.restart(); if (railIndex < sections.length) current = sections[railIndex].id }
-    onZoneChanged: { rested = false; restTimer.restart() }
+    // ---- help (kit/LuInfo, kit/LuHelp): the one explanation behind a row's info mark. The page that has the focus offers it for
+    // its focused row (`helpReady()` and `openHelp()` on the page); the host calls `hold()` for OK held or the Menu key, and any
+    // key closes the sheet before anything else sees it (Back closes the top layer first). Focus never leaves the row.
+    readonly property bool helpOpen: helpSheet.shown
+    function showHelp(title, text, item) {
+        var r = item.mapToItem(settings, 0, 0)
+        helpSheet.show(title, text, Qt.rect(r.x, r.y, item.width, item.height), Qt.rect(pane.x, pane.y, pane.width, pane.height))
+    }
+    function hideHelp() { helpSheet.hide() }
+    function holdReady() {
+        if (zone !== "page" || helpSheet.shown) return false
+        var p = pageItem(current)
+        return !!(p && p.helpReady && p.helpReady())
+    }
+    function hold() {
+        if (!holdReady()) return
+        pageItem(current).openHelp()
+    }
+
+    onRailIndexChanged: { rested = false; restTimer.restart(); hideHelp(); if (railIndex < sections.length) current = sections[railIndex].id }
+    onZoneChanged: { rested = false; restTimer.restart(); hideHelp() }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: settings.rested = true }
     onVisibleChanged: {
         if (!visible) return
@@ -107,6 +126,7 @@ Item {
     function key(dir) {
         if (zone === "rail") {
             if (dir === "up") { railIndex = Math.max(0, railIndex - 1); return true }
+        if (helpSheet.shown) { helpSheet.hide(); return true }
             if (dir === "down") { railIndex = Math.min(railCount - 1, railIndex + 1); return true }
             if (dir === "back") { closeRequested(); return true }
             if (dir === "ok" && lgRow) { launchApp("com.palm.app.settings", {}); closeRequested(); return true }
@@ -133,7 +153,7 @@ Item {
     // ---- bar
     LuPane {
         id: bar
-        x: 64; y: 56; width: 1792; height: 60
+        x: 64; y: 56; width: 1792; height: Lu.target        // the 40 px title with its descenders needs a target's height
         cardRadius: Lu.radius("sheet") / 2
         LuIcon { x: Lu.space(5); anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: 28; color: Lu.ink2 }
         LuText { x: Lu.space(5) + 40; anchors.verticalCenter: parent.verticalCenter; role: "title"; text: "Settings" }
@@ -160,7 +180,7 @@ Item {
                 model: settings.sections
                 delegate: LuRow {
                     width: parent.width
-                    height: Math.round(Lu.row * 0.95)
+                    height: Lu.row
                     icon: modelData.icon
                     label: modelData.title
                     detail: settings.summaryFor(modelData.id)
@@ -174,7 +194,7 @@ Item {
             }
             LuRow {
                 width: parent.width
-                height: Math.round(Lu.row * 0.95)
+                height: Lu.row
                 icon: "square-arrow-out-up-right"
                 label: "More in LG settings"
                 detail: "Everything else, themed"
@@ -218,3 +238,6 @@ Item {
         }
     }
 }
+
+    // ---- the help sheet: above both panes, so no row's words read through it
+    LuHelp { id: helpSheet; z: 5 }

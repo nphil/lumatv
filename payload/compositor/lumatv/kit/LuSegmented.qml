@@ -4,6 +4,8 @@ import "."
 // Two to five exclusive options in a quiet tray. The selected one carries a small accent mark and
 // a light wash; the focused one the focus wash and lit edge, so the two read apart. Segments do
 // not lift (the highlight and the halo are the cue), and the host owns focusedIndex (-1: none).
+// Every segment is as wide as the widest label, measured as drawn, plus the pill's own air on each
+// side, and never narrower than a target: a label is never cut or crammed against its pill.
 Item {
     id: seg
     property var options: []
@@ -13,13 +15,14 @@ Item {
     signal hoverFocus(int index)
 
     property string textRole: "label"        // "caption" for a dense row
-    readonly property int longestChars: {
-        var n = 0
-        for (var i = 0; i < options.length; i++) n = Math.max(n, String(options[i]).length)
-        return n
+    readonly property int pad: Lu.space(4)   // air between a label and its pill's edge
+    property int widest: 0                   // the widest label as drawn; the delegates keep it
+    function measure() {
+        var w = 0
+        for (var i = 0; i < rep.count; i++) { var it = rep.itemAt(i); if (it) w = Math.max(w, it.labelWidth) }
+        widest = w
     }
-    // Wide enough for the longest option at the role's size (Manrope averages 0.56 em a character), never narrower than a target.
-    property int segmentWidth: Math.max(Math.round(Lu.target * 1.4), Math.round(longestChars * Lu.type(textRole).size * 0.56) + Lu.space(7))
+    property int segmentWidth: Math.max(Lu.target, Math.ceil(widest) + 2 * pad + 2 * Lu.space(1))
 
     implicitWidth: options.length * segmentWidth
     implicitHeight: Lu.target
@@ -43,8 +46,12 @@ Item {
         Behavior on x { enabled: !Lu.reduced; NumberAnimation { duration: Lu.focusMs; easing.type: Lu.focusEasing } }
     }
     Repeater {
+        id: rep
         model: seg.options
         delegate: Item {
+            readonly property real labelWidth: label.implicitWidth
+            onLabelWidthChanged: seg.measure()
+            Component.onCompleted: seg.measure()
             x: index * seg.segmentWidth
             width: seg.segmentWidth
             height: seg.height
@@ -58,6 +65,7 @@ Item {
                 antialiasing: true
             }
             LuText {
+                id: label
                 anchors.centerIn: parent
                 role: seg.textRole
                 text: modelData

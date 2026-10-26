@@ -169,6 +169,9 @@ def main(argv=None):
     ap.add_argument('qml', help='file in payload/compositor/lumatv (or a path below it, e.g. logo/LogoOn.qml) to load')
     ap.add_argument('--shot', help='write a PNG of the window here')
     ap.add_argument('--snap', action='append', default=[], metavar='MS:PATH', help='also write a PNG of the window MS after start (repeatable)')
+    ap.add_argument('--audit', action='append', default=[], metavar='MS:PATH[:KINDS]',
+                    help='write the layout audit (tests/qmlhost/layoutaudit.py) of the whole window as JSON at MS after start (repeatable); '
+                         'KINDS limits it to a comma-separated list of finding kinds (the 200 %% text pass asks for overlap)')
     ap.add_argument('--wait', type=int, default=3000, help='ms to run before the screenshot')
     ap.add_argument('--prop', action='append', default=[], help='root property to set, name=value')
     ap.add_argument('--press', help='comma-separated keys sent after --wait/2 (LEFT RIGHT UP DOWN OK BACK MENU)')
@@ -180,6 +183,7 @@ def main(argv=None):
                     help='evaluate a JavaScript expression at MS after start with `root` the surface; prints "[eval] value"')
     ap.add_argument('--fake-helper', action='store_true', help='serve a stand-in for the native helper on 127.0.0.1:18731 while running')
     ap.add_argument('--theme', help='JSON written as the user theme.json in the data dir (what the owner changed)')
+    ap.add_argument('--layout', help='JSON written as the user layout.json in the data dir (the cards the owner arranged)')
     ap.add_argument('--cache', action='append', default=[], metavar='NAME=JSON',
                     help='write the data dir\'s cache/NAME.json (the helper\'s saved weather.json or news.json) before the surface loads')
     ap.add_argument('--remove', action='append', default=[], metavar='PATH',
@@ -205,6 +209,9 @@ def main(argv=None):
     if a.theme:
         with open(os.path.join(data, 'theme', 'theme.json'), 'w') as f:
             f.write(a.theme)
+    if a.layout:
+        with open(os.path.join(data, 'theme', 'layout.json'), 'w') as f:
+            f.write(a.layout)
     for rel in a.remove:
         target = os.path.join(mod, rel)
         shutil.rmtree(target) if os.path.isdir(target) else os.remove(target)
@@ -308,6 +315,18 @@ def main(argv=None):
     def snap(path):
         view.grabWindow().save(path)
         print(f'shot {path}', flush=True)
+
+    def audit(path, kinds):
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        import layoutaudit
+        found = layoutaudit.audit(root, w, h, view.grabWindow(), kinds)
+        layoutaudit.write(path, found)
+        print(f'audit {path} {len(found)} finding(s)', flush=True)
+    for spec in a.audit:
+        ms, path, *rest = spec.split(':')
+        kinds = rest[0].split(',') if rest else None
+        QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda p=path, k=kinds: audit(p, k))
     for spec in a.snap:
         ms, path = spec.split(':', 1)
         QtCore.QTimer.singleShot(int(ms), QtCore.Qt.PreciseTimer, lambda p=path: snap(p))

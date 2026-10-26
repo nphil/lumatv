@@ -4,8 +4,9 @@ import "."
 // A selectable card with an icon, a title and a short line, for a grid of choices (a picture mode, a
 // receiver's sound mode, an input): quiet glass at rest, the focus wash and lit edge when focused, the
 // accent check when it is the current one. The host owns which card is focused; the lift follows the
-// focus rule (after the focus has rested). Cards in a row or grid share one shape, so a longer title
-// is cut with an ellipsis rather than growing the card.
+// focus rule (after the focus has rested) and grows the plate only: the icon and the words stay where
+// they are, as in a row. Cards in a row or grid share one shape, so a longer title is cut with an
+// ellipsis rather than growing the card. With a second line the card is as tall as a two-line row.
 Item {
     id: card
     property string icon: ""
@@ -17,7 +18,7 @@ Item {
     signal activated()
     signal hoverFocus()
     implicitWidth: Lu.target * 4
-    implicitHeight: Math.round(Lu.row * 0.95)
+    implicitHeight: sub !== "" ? Lu.row + Lu.space(2) : Lu.row
     width: implicitWidth
     height: implicitHeight
     opacity: enabled ? 1 : Lu.disabledOpacity
@@ -31,8 +32,6 @@ Item {
         duration: Lu.cardMs
         easing: Lu.cardEasing
     }
-    scale: 1 + (Lu.buttonScale - 1) * lift.value
-    transformOrigin: Item.Center
 
     Rectangle {
         anchors.fill: parent
@@ -41,6 +40,8 @@ Item {
         border.width: 1
         border.color: card.focused ? Lu.edgeRaised : Lu.edge
         antialiasing: true
+        scale: 1 + (Lu.buttonScale - 1) * lift.value
+        transformOrigin: Item.Center
     }
     LuIcon {
         id: glyph
@@ -53,7 +54,7 @@ Item {
     }
     Column {
         x: glyph.visible ? glyph.x + glyph.width + Lu.space(4) : Lu.space(5)
-        width: parent.width - x - Lu.space(5) - (check.visible ? check.width : 0)
+        width: parent.width - x - Lu.space(5) - (check.visible ? check.width + Lu.space(2) : 0)
         anchors.verticalCenter: parent.verticalCenter
         LuText { width: parent.width; role: "label"; text: card.title; elide: Text.ElideRight }
         LuText { width: parent.width; role: "caption"; text: card.sub; color: Lu.ink2; visible: card.sub !== ""; elide: Text.ElideRight }

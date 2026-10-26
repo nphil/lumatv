@@ -7,10 +7,16 @@
 // LG's own Settings app uses (LgSettings.js); a write to any other key or to a value that key does not take is
 // refused and kept in `rejected`, so a test can see that no page wrote one. Whether the real service answers
 // the same keys is the set's to say (tools/settings_check.py, in the slot script).
+//
+// Answers take the set's own shape (OLED65C4, webOS 24, read 2026-10-25): a read answers the keys it has in
+// `settings` and names the rest in `errorKey` with `returnValue: false`; a per-app key (truMotionMode, arcPerApp)
+// answers only when asked with `app_id`, and with `app_id` the other keys of the category are the missing ones;
+// a description comes as `results`, one entry per key the service has. The set has no filmmakerAmbientLight,
+// and `localeInfo` is read with no category.
 var data = {
     picture: { pictureMode: "filmMaker", backlight: "80", contrast: "85", brightness: "50", color: "50", tint: "0", sharpness: "10",
                energySaving: "off", screenShift: "on", logoLuminanceAdjust: "strong", truMotionMode: "off", blackLevel: "auto",
-               filmMakerMode: "on", filmmakerAmbientLight: "on", eyeComfortMode: "off" },
+               filmMakerMode: "on", eyeComfortMode: "off" },
     aiPicture: { ai_Picture: "off", ai_Genre: "off", ai_Brightness: "on" },
     aspectRatio: { arcPerApp: "original", justScan: "on" },
     sound: { soundMode: "standard", soundOutput: "external_arc", audioBalance: "0", soundOutputDigital: "passThrough",
@@ -22,20 +28,31 @@ var data = {
     other: { simplinkEnable: "on", lgLogoDisplay: "on", lightingEnable: "on", oledCareMode: "off" },
     time: { noOperationAutoOff: "3", autoOff15Min: "on", noSignalAutoOff: "on", timeZone: { ZoneID: "America/New_York", City: "New York" } },
     caption: { captionEnable: "off" },
-    localeInfo: { locales: { UI: "en-US", STT: "en-US" } }
+    "": { localeInfo: { keyboards: ["en"], locales: { UI: "en-US", FMT: "en-US", STT: "en-US" }, clock: "locale", timezone: "" } }
 };
+// the keys the service keeps per app: answered only with `app_id`
+var perApp = { picture: ["truMotionMode"], aspectRatio: ["arcPerApp"] };
 
 // What the service refused, as {category, key, value, why}; a test reads it back through LS.
 var rejected = [];
 // "category.key" -> false: the service says the setting exists but cannot be changed now (its description's ui.active).
 var inactive = {};
 
-function read(category, keys) {
+function perAppKey(category, key) { return (perApp[category] || []).indexOf(key) >= 0; }
+
+function read(category, keys, appId) {
     var out = {};
-    var cat = data[category] || {};
+    var missing = [];
+    var cat = data[category || ""] || {};
     var list = keys && keys.length ? keys : Object.keys(cat);
-    for (var i = 0; i < list.length; i++) if (cat[list[i]] !== undefined) out[list[i]] = cat[list[i]];
-    var doc = { returnValue: true, category: category, settings: out };
+    for (var i = 0; i < list.length; i++) {
+        if (cat[list[i]] !== undefined && perAppKey(category, list[i]) === !!appId) out[list[i]] = cat[list[i]];
+        else missing.push(list[i]);
+    }
+    var doc = { returnValue: missing.length === 0, method: "getSystemSettings", settings: out };
+    if (category) doc.category = category;
+    if (appId) doc.app_id = appId;
+    if (missing.length) doc.errorKey = missing;
     if (category === "picture") doc.dimension = { pictureMode: cat.pictureMode || "filmMaker", dynamicRange: "sdr", input: "default" };
     return doc;
 }
@@ -54,18 +71,22 @@ function write(category, settings) {
     return { returnValue: true };
 }
 
-// getSystemSettingDesc: per key, whether the screen may show it and let it change (what LG's app reads as `ui`).
+// getSystemSettingDesc: per key the service has, whether the screen may show it and let it change (what LG's app reads as `ui`).
 function desc(category, keys) {
-    var cat = data[category] || {};
-    var out = {};
+    var cat = data[category || ""] || {};
+    var results = [];
+    var missing = [];
     var list = keys && keys.length ? keys : Object.keys(cat);
     for (var i = 0; i < list.length; i++) {
-        if (cat[list[i]] === undefined) continue;
-        out[list[i]] = { ui: { visible: true, active: inactive[category + "." + list[i]] !== false } };
+        if (cat[list[i]] === undefined) { missing.push(list[i]); continue; }
+        var entry = { key: list[i], category: category || "", ui: { displayName: list[i], visible: true, active: inactive[category + "." + list[i]] !== false, widget: "None" }, values: {} };
         // a delay's limits come in the description, as LG's own app reads them (values.range); these are the fixture's, the TV's own are read
-        if (category === "sound" && /^avSync(Spdif|Speaker|Wisa|BtSurround)$/.test(list[i])) out[list[i]].values = { range: { min: 0, max: 400, interval: 10 } };
+        if (category === "sound" && /^avSync(Spdif|Speaker|Wisa|BtSurround)$/.test(list[i])) entry.values = { range: { min: 0, max: 400, interval: 10 } };
+        results.push(entry);
     }
-    return { returnValue: true, category: category, settings: out };
+    var doc = { returnValue: missing.length === 0, method: "getSystemSettingDesc", results: results };
+    if (missing.length) doc.errorKey = missing;
+    return doc;
 }
 
 // The other services the Settings pages and the input picker read, answered as the host's make-believe TV
@@ -104,7 +125,7 @@ function sleepAdd(params) {
 }
 
 function call(service, method, params) {
-    if (method === "getSystemSettings") return read(params.category, params.keys || (params.key ? [params.key] : null));
+    if (method === "getSystemSettings") return read(params.category, params.keys || (params.key ? [params.key] : null), params.app_id);
     if (method === "getSystemSettingDesc") return desc(params.category, params.keys || (params.key ? [params.key] : null));
     if (service.indexOf("tvReservationAgent") >= 0 && method === "getRemainTime") {
         return sleepSeconds > 0 ? { returnValue: true, sleepTimeMinute: Math.floor(sleepSeconds / 60), sleepTimeSecond: sleepSeconds % 60 } : { returnValue: true, sleepTimeSecond: 0 };

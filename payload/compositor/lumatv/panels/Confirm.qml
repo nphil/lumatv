@@ -46,7 +46,7 @@ Item {
                 LuTile { visible: !dialog.spec.iconUrl; size: 56; icon: dialog.spec.icon || "circle-help"; accent: true }
                 LuText { anchors.verticalCenter: parent.verticalCenter; role: "title"; text: dialog.spec.title || "" }
             }
-            LuText { width: parent.width; role: "body"; lineHeight: 0.99; color: Lu.ink2; wrapMode: Text.WordWrap; text: dialog.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
+            LuText { width: parent.width; role: "body"; line: 0.99; color: Lu.ink2; wrapMode: Text.WordWrap; text: dialog.spec.body || "" }      // 0.99 of Manrope's line is the mock's 1.35
             Row {
                 spacing: Lu.space(4)
                 Repeater {

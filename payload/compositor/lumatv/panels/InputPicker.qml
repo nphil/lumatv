@@ -85,8 +85,6 @@ Item {
                     height: 264
                     opacity: t.on ? 1 : Lu.disabledOpacity
                     FocusLift { id: lift; focused: tile.focused; rested: picker.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-                    scale: 1 + (Lu.rowScale - 1) * 2 * lift.value
-                    transformOrigin: Item.Center
                     z: focused ? 1 : 0
                     LuHalo { anchors.centerIn: parent; width: parent.width * 1.5; height: parent.height * 1.7; z: -1; on: tile.focused }
                     Rectangle {
@@ -94,6 +92,8 @@ Item {
                         color: tile.focused ? Lu.wash("focus") : tile.t.front ? Lu.wash("selected") : Lu.wash("hover")
                         border.width: 1; border.color: tile.focused ? Lu.edgeRaised : Lu.edge
                         antialiasing: true
+                        scale: 1 + (Lu.rowScale - 1) * 2 * lift.value      // the plate lifts; the words and the icon stay put
+                        transformOrigin: Item.Center
                     }
                     LuText { id: portText; x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5) - (soundChip.visible ? soundChip.width + Lu.space(2) : 0); role: "caption"; color: Lu.ink2; text: tile.t.port; wrapMode: Text.WordWrap; maximumLineCount: 2 }
                     LuChip { id: soundChip; visible: !!tile.t.sound; x: parent.width - width - Lu.space(3); y: Lu.space(3); text: "Sound out"; tone: "positive" }

@@ -29,7 +29,7 @@ Item {
     readonly property int nAssist: assistants.length
     readonly property var levelGroups: ai && ai.groups ? ai.groups : []
     readonly property var levelIds: ["always", "ask", "never"]
-    readonly property var levelNames: ["Always", "Ask on TV", "Never"]
+    readonly property var levelNames: ["Always", "Ask", "Never"]            // Ask: the TV asks, the remote answers (the note under the title)
     readonly property int maxVolume: ai && ai.limits && ai.limits.maxVolume !== undefined ? ai.limits.maxVolume : 98
     property int permIndex: 0
     readonly property var chosen: nAssist > 0 ? assistants[Math.min(permIndex, nAssist - 1)] : null
@@ -155,6 +155,8 @@ Item {
         for (var i = 0; i < audit.length; i++) if (audit[i].assistant && audit[i].assistant.id === a.id) return (audit[i].message || audit[i].tool) + " \u00b7 " + ago(audit[i].at)
         return (a.paused ? "Paused" : "Active") + (a.lastSeenAt ? " \u00b7 last seen " + ago(a.lastSeenAt) : "")
     }
+    // the helper's group titles, in the short form the column has room for
+    readonly property var groupLabels: ({ state: "What's playing", playback: "Playback", launch: "Apps and inputs", power: "Power" })
     readonly property var groupNotes: ({ state: "Title, app, input, volume, on or off", playback: "Including mute", launch: "Only apps already installed",
                                          power: "Never turn it on. The receiver stays as it is." })
 
@@ -206,7 +208,6 @@ Item {
             id: rowLimit
             y: rowListener.height
             width: parent.width
-            height: Math.round(Lu.row * 0.85)
             icon: "volume-2"
             label: "Volume limit"
             detail: "The loudest an assistant may set the receiver. Lower is done at once; higher asks on the TV."
@@ -219,14 +220,13 @@ Item {
         Column {
             id: colL
             y: rowListener.height + rowLimit.height + Lu.space(3)
-            width: Math.round(parent.width * 0.42)
+            width: Math.round(parent.width * 0.46)
             LuText { role: "caption"; color: Lu.ink3; text: "Paired assistants" }
             Repeater {
                 id: assistRepeater
                 model: page.assistants
                 delegate: LuRow {
                     width: colL.width
-                    height: Math.round(Lu.row * 0.95)
                     icon: "bot"
                     label: modelData.name
                     detail: page.armed === "remove:" + modelData.id ? "Press OK again to remove it" : page.lastFor(modelData)
@@ -244,7 +244,6 @@ Item {
             LuRow {
                 id: rowPair
                 width: colL.width
-                height: Math.round(Lu.row * 0.85)
                 icon: "plus"
                 label: page.pairing ? "Pairing code " + page.pairing.code : "Pair a new assistant"
                 detail: page.pairing ? "Give it once. " + page.pairing.attemptsLeft + " tries left. OK closes the window."
@@ -296,8 +295,7 @@ Item {
                 model: page.nAssist > 0 ? page.levelGroups : []
                 delegate: LuRow {
                     width: colR.width
-                    height: Math.round(Lu.row * 0.95)
-                    label: modelData.title
+                    label: page.groupLabels[modelData.id] || modelData.title
                     detail: page.groupNotes[modelData.id] || ""
                     focused: page.active && page.fk === "level" && page.fi === index; rested: page.rested
                     onHoverFocus: page.pointAt("level", index)
@@ -316,7 +314,6 @@ Item {
             id: rowLock
             y: parent.height - height
             width: colL.width
-            height: Math.round(Lu.row * 0.95)
             icon: "ban"
             label: page.armed === "lockout" ? "Press OK again" : "Lock out all AI"
             detail: page.armed === "lockout" ? "Every assistant is removed and access goes off." : "Removes every assistant and turns access off. Takes effect at once."

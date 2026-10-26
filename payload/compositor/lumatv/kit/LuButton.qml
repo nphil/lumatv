@@ -3,8 +3,8 @@ import "."
 
 // A pill button. The primary one is the accent with the ink that reads on it; the others are the
 // raised glass wash. Focus is the wash (or a lighter accent), the lit edge and the halo at once,
-// and the lift after the focus has rested; pressed shrinks it for the press duration. One primary
-// button per task.
+// and the lift after the focus has rested; pressed shrinks it for the press duration. Both move
+// the pill only, never the label. One primary button per task.
 Item {
     id: button
     property string text: ""
@@ -32,9 +32,6 @@ Item {
         duration: Lu.cardMs
         easing: Lu.cardEasing
     }
-    scale: (1 + (Lu.buttonScale - 1) * lift.value) * (mouse.pressed ? Lu.pressScale : 1)
-    transformOrigin: Item.Center
-    Behavior on scale { enabled: !Lu.reduced && mouse.pressed; NumberAnimation { duration: Lu.pressMs } }
 
     LuHalo {
         anchors.centerIn: parent
@@ -51,6 +48,9 @@ Item {
         border.width: 1
         border.color: button.focused ? Lu.edgeRaised : Lu.edge
         antialiasing: true
+        scale: (1 + (Lu.buttonScale - 1) * lift.value) * (mouse.pressed ? Lu.pressScale : 1)
+        transformOrigin: Item.Center
+        Behavior on scale { enabled: !Lu.reduced && mouse.pressed; NumberAnimation { duration: Lu.pressMs } }
     }
     LuIcon {
         visible: button.icon !== ""

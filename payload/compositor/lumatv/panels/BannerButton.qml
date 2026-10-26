@@ -25,12 +25,11 @@ Item {
     height: implicitHeight
     z: focused ? 1 : 0
     FocusLift { id: lift; focused: btn.focused; rested: btn.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
-    scale: 1 + (Lu.buttonScale - 1) * lift.value
-    transformOrigin: Item.Center
     Rectangle {
         anchors.fill: parent; radius: Lu.radius("pill"); antialiasing: true
         color: btn.focused ? btn.tone("glassFocus", Lu.glassRaised) : btn.wash
         border.width: btn.focused ? 1 : 0; border.color: btn.tone("glassFocusEdge", Lu.edgeRaised)
+        scale: 1 + (Lu.buttonScale - 1) * lift.value; transformOrigin: Item.Center      // the pill lifts; the label stays put
     }
     Row {
         id: row

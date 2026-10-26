@@ -11,7 +11,8 @@ choose). Qt 5.15 on software GL draws what the set's 5.12 draws up to the look o
 colour, text and states, and measures nothing (the gate on the set is the only timing).
 
 A scene lists steps: ("eval", ms, js), ("keys", ms, "down right ok"), ("publish", ms, topic, doc), ("snap", ms, name)
-and, for what the owner would have set in theme.json, ("theme", 0, {...}) merged over the run's theme.
+and, for what the owner would have set in theme.json, ("theme", 0, {...}) merged over the run's theme, or in layout.json, ("layout", 0, {...})
+written as the run's user layout (the cards the owner arranged, over the shipped layout).
 `READY` is when Home has built its resident surfaces (the build chain starts a second after Home presents).
 
 Another slice adds its scenes without touching this file: every `tests/qmlhost/scenes_<slice>.py` is imported
@@ -232,19 +233,40 @@ def png_path(out_dir, name, material):
     return os.path.join(out_dir, name + ("" if material == "dark" else "-" + material) + ".png")
 
 
-def run_scene(name, out_dir, material="dark", theme=None):
+def audit_path(out_dir, name, material, text=100):
+    """The layout audit of a snap (tests/qmlhost/layoutaudit.py), beside its PNG; `text` 200 is the pass at twice the type size."""
+    return png_path(out_dir, name, material)[:-4] + (".layout.json" if text == 100 else ".layout-%d.json" % text)
+
+
+def doubled_type():
+    """The shipped type tokens at 200 %: every role's size doubled (Lucent asks that no text overlaps at 100 and at 200 % text)."""
+    with open(os.path.join(ROOT, "payload", "theme", "theme.json")) as f:
+        t = json.load(f)["type"]
+    return {"type": {k: ({"size": v["size"] * 2} if isinstance(v, dict) else v * 2) for k, v in t.items()}}
+
+
+def run_scene(name, out_dir, material="dark", theme=None, audit=False):
     """One scene in one material: (exit code, warnings, the host's output). A snap step whose PNG is not there after the
-    run is a failure, so a host that died early cannot pass on the strength of an older file."""
+    run is a failure, so a host that died early cannot pass on the strength of an older file. With `audit`, every snap also
+    runs the layout audit, and after the last one the type is doubled and the overlap check runs again (the 200 % text
+    pass, its PNG beside the others as `-200`); the findings are `[layout]` warnings and fail the scene (not for a runner
+    scene)."""
     if META[name]["runner"]:
         return SCENES[name](out_dir, material)
     steps = SCENES[name]()
     user = merge({"perf": {"syncResidents": True}, "material": material}, theme or {})
+    layout = None
     for st in steps:
         if st[0] == "theme":
             user = merge(user, st[2])
+        elif st[0] == "layout":
+            layout = st[2]
     args = ["LumaHome.qml", "--fake-helper", "--prop", "hostActive=true", "--theme", json.dumps(user)]
+    if layout is not None:
+        args += ["--layout", json.dumps(layout)]
     end = 0
     snaps = []
+    audits = []
     for st in steps:
         kind, ms = st[0], st[1]
         end = max(end, ms)
@@ -264,8 +286,25 @@ def run_scene(name, out_dir, material="dark", theme=None):
                 os.remove(path)
             snaps.append(path)
             args += ["--snap", "%d:%s" % (ms, path)]
-        elif kind != "theme":
+            if audit:
+                jpath = audit_path(out_dir, st[2], material)
+                if os.path.exists(jpath):
+                    os.remove(jpath)
+                audits.append(jpath)
+                args += ["--audit", "%d:%s" % (ms, jpath)]
+        elif kind not in ("theme", "layout"):
             raise ValueError("scene %r: unknown step %r" % (name, kind))
+    if audit and snaps:
+        last = [st[2] for st in steps if st[0] == "snap"][-1]
+        big_png = png_path(out_dir, last + "-200", material)
+        big = audit_path(out_dir, last, material, 200)
+        for p in (big_png, big):
+            if os.path.exists(p):
+                os.remove(p)
+        args += ["--eval", "%d:(function(){root.theme = root.mergeDeep(root.theme, %s); return 1})()" % (end + 200, json.dumps(doubled_type())),
+                 "--snap", "%d:%s" % (end + 1400, big_png), "--audit", "%d:%s:overlap" % (end + 1400, big)]
+        audits.append(big)
+        end += 1400
     args += ["--wait", str(end + 800)]
     import xdisplay      # starts an Xvfb when there is no DISPLAY: not for --list or the loader's tests
     env = dict(os.environ, DISPLAY=xdisplay.DISPLAY)
@@ -274,7 +313,16 @@ def run_scene(name, out_dir, material="dark", theme=None):
     warn = [ln for ln in text.splitlines() if ln.startswith("[warning]") and "Implicitly defined onFoo" not in ln]
     missing = [p for p in snaps if not os.path.exists(p)]
     warn += ["[snap] not written: %s" % p for p in missing]
-    return (r.returncode or (1 if missing else 0)), warn, text
+    if audits:
+        import layoutaudit      # needs PyQt5, like the host itself
+    for jpath in audits:
+        if not os.path.exists(jpath):
+            missing.append(jpath)
+            warn.append("[audit] not written: %s" % jpath)
+            continue
+        with open(jpath) as f:
+            warn += layoutaudit.lines(json.load(f), "layout 200%" if jpath.endswith("-200.json") else "layout")
+    return (r.returncode or (1 if missing or (audits and any(w.startswith("[layout") for w in warn)) else 0)), warn, text
 
 
 def load_modules(directory=HERE):
@@ -301,6 +349,7 @@ def main():
     ap.add_argument("--dark", action="store_true", help="same as --theme dark")
     ap.add_argument("--light", action="store_true", help="same as --theme light")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--audit", action="store_true", help="run the layout audit on every snap and fail a scene that has findings")
     a = ap.parse_args()
     load_modules()
     for e in LOAD_ERRORS:
@@ -318,9 +367,9 @@ def main():
             bad += 1
             continue
         for material in [m for m in materials if m in META[n]["materials"]]:
-            rc, warn, text = run_scene(n, a.out, material)
+            rc, warn, text = run_scene(n, a.out, material, audit=a.audit)
             print("%-34s %-5s %s" % (n, material, "ok" if rc == 0 else "FAILED (%d warnings)" % len(warn)), flush=True)
-            for w in warn[:6]:
+            for w in warn[:40]:
                 print("   " + w[:240])
             bad += rc != 0
     return 1 if bad else 0
