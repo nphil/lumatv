@@ -1415,3 +1415,193 @@ c81ca221ee384b2ec84ea9b67ecdf737  /var/lib/lumatv/qml/WebOSCompositor/lumatv/pan
 05:42:17 ipk put: -rw-r--r--    1 root     root      38990900 Oct 26 05:42 /tmp/lumatv.ipk | 12c7e027739384e24cb98b6edd1e324d2e2d072b307df3676300de1f7942a844  /tmp/lumatv.ipk
 05:42:17 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
 05:42:17 app dir helper sha matches ipk: True after 4 s
+05:42:23 installed compositor tree matches ipk: True after 11 s
+05:42:41 apply (28 s): {"ok":true,"applied":true,"mounts":1,"took":17}
+05:42:50 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:42:50 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+05:42:50 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true}}
+05:42:50 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:42:50 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+05:42:50 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications"
+05:42:54 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+05:42:54 helper log tail: 2026-10-26T09:09:01Z INFO  screen: Active (on)
+2026-10-26T09:09:02Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T09:09:03Z INFO  preload: 14 apps kept from preloading
+2026-10-26T09:09:49Z INFO  screen: Screen Saver (on)
+2026-10-26T09:09:57Z INFO  screen: Active (on)
+05:42:54 foreground: com.webos.app.home power Active picture filmMaker
+05:42:54 compositor log since install: 
+05:42:54 end (41 s)
+05:52:04 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-slot1
+05:52:04 before: {"ok":true,"version":"0.4.0"} | 3407f9186d53b19a60d1ed683d55e86e  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | e81fcc4133a29988f02eabf3e0a2f0e5  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+05:52:05 power Active fg com.webos.app.home picture filmMaker
+05:52:09 ipk put: -rw-r--r--    1 root     root      38990754 Oct 26 05:52 /tmp/lumatv.ipk | 437b63fa6f9b294e51a866b0e932fd5b73bf413634c9705e6e6181c42e767f9c  /tmp/lumatv.ipk
+05:52:09 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+05:52:09 app dir helper sha matches ipk: True after 5 s
+05:52:15 installed compositor tree matches ipk: True after 11 s
+05:52:33 apply (29 s): {"ok":true,"applied":true,"mounts":1,"took":17}
+05:52:42 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:52:42 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+05:52:42 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true}}
+05:52:42 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:52:42 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+05:52:42 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications"
+05:52:46 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+05:52:46 helper log tail: 2026-10-26T09:09:01Z INFO  screen: Active (on)
+2026-10-26T09:09:02Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T09:09:03Z INFO  preload: 14 apps kept from preloading
+2026-10-26T09:09:49Z INFO  screen: Screen Saver (on)
+2026-10-26T09:09:57Z INFO  screen: Active (on)
+05:52:46 foreground: com.webos.app.home power Active picture filmMaker
+05:52:46 compositor log since install: 
+05:52:46 end (41 s)
+05:52:47 capture mutefix3-home-after-restart: {
+    "capturedHeight": 540,
+    "writtenBytes": 382351,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:52:58 capture mutefix3-home-after-restart-b: {
+    "capturedHeight": 540,
+    "writtenBytes": 382564,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:52:58 mutefix3 receiver {'mute': True, 'volumeText': '0', 'input': 'TV', 'signal': 'Dolby Atmos', 'soundMode': 'DOLBY ATMOS'}
+05:53:11 launch com.webos.app.home: {
+    "returnValue": true
+}
+05:53:24 step7b: power key -> Active Standby
+05:53:59 step7b: woken -> power Active fg com.webos.app.home; lists ['ListScreenSaverRequests":[{"clientName":"com.webos.service.screenmanager"},{"clientName":"org.nphil.lumatv"}]', 'ListScreenSaverRequests":[{"clientName":"org.nphil.lumatv"}]']
+05:54:14 step7b +15s SaverVote:
+2026-10-26T09:50:27.004187Z [19995.134733500] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:50:27.004296Z [19995.134837140] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:52:31.868085Z [20119.998634480] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:52:31.868249Z [20119.998791540] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:53:23.684456Z [20171.814995300] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:53:23.684681Z [20171.815220720] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+05:56:33 step7b +150s SaverVote:
+2026-10-26T09:52:31.868085Z [20119.998634480] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:52:31.868249Z [20119.998791540] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:53:23.684456Z [20171.814995300] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:53:23.684681Z [20171.815220720] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:56:20.881369Z [20349.011908660] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1468712322", "sub state": "active", "lifeOnScreenMode": "alwaysReady"
+2026-10-26T09:56:20.883995Z [20349.014534660] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1468712322", "state": "Active", "instantBoot": "on" } -> no (LumaTV's sa
+05:57:34 step7b end: power2 {     "returnValue": true,     "sub state": "active",     "lifeOnScreenMode": "alwaysReady",     "state": "ACTIVE" }  
+05:57:35 capture saver-own-step7b-idle: {
+    "capturedHeight": 540,
+    "writtenBytes": 14141,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:07 launch com.webos.app.home: {
+    "returnValue": true
+}
+05:58:15 capture sw-00-open: {
+    "capturedHeight": 540,
+    "writtenBytes": 360155,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:17 capture sw-01-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 356733,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:19 capture sw-02-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 355745,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:21 capture sw-03-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 339115,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:24 capture sw-04-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 347932,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:26 capture sw-05-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 349095,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:28 capture sw-06-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 342369,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:30 capture sw-07-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 339564,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:32 capture sw-08-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 339579,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:34 capture sw-09-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 323607,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:36 capture sw-10-rail: {
+    "capturedHeight": 540,
+    "writtenBytes": 324302,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+05:58:40 launch com.webos.app.home: {
+    "returnValue": true
+}
+05:59:09 launch com.webos.app.home: {
+    "returnValue": true
+}
+05:59:13 tv /tmp cleanup: lumatv-gfn
+lumatv-gfn-data
+05:59:14 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:59:14 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:59:14 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+05:59:15 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true}}
+05:59:15 inputcommon status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false,"checkpoint":"present","criuEnabled":true}
+05:59:15 voice status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true,"pids":[]}
+05:59:15 keyboard status: {"ok":true,"on":false,"patched":false}
+05:59:16 keys status: {"ok":true,"on":true,"qml":"/usr/lib/maliit/plugins/qml","staged":true,"mounted":true,"unit":"inactive"}
+05:59:16 inputs status: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
+05:59:16 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications"
+05:59:20 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+05:59:20 layout: e194fda89ba7219fb08c389b1c92573db64de9178272cd948c3a41ada336a6a2  /var/lib/lumatv/theme/layout.json
+05:59:20 ports: Open=0 | Connect=UNKNOWN | Open=0 | Connect=UNKNOWN
+05:59:21 fg com.webos.app.home power Active picture {'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'sdr', 'input': 'default'}, 'settings': {'pictureMode': 'filmMaker'}, 'returnValue': True} receiver {'mute': False, 'volumeText': '0', 'input': 'TV', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+05:59:21 speaker: {     "returnValue": true,     "lastSoundOutput": "tv_speaker",     "soundOutput": "external_arc",     "settingsSoundOutputs": [         "external_arc"     ] }   | {     "returnValue": true,     "muteStatus": false,     "volume": 72,     "scenario": "mastervolume_ext_speaker_arc" }  
+06:00:20 receiver after HA 0.655: {'mute': False, 'volumeText': '65', 'input': 'TV', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+06:00:24 receiver restored: {'mute': False, 'volumeText': '65.5', 'input': 'TV', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+06:00:30 launch com.webos.app.home: {
+    "returnValue": true
+}
+06:00:37 powerOff: {     "returnValue": true,     "state": "Active Standby" }
+06:00:47 after powerOff: power Active Standby
+{ "state": "Active Standby", "returnValue": true }
+Open=0
+Connect=UNKNOWN
+Open=0
+Connect=UNKNOWN
+{"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""}
+{"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firm
+2026-10-26T09:53:23Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T09:53:24Z INFO  preload: 14 apps kept from preloading
+2026-10-26T10:00:36Z INFO  screen: Active Standby (off)
+2026-10-26T09:53:24Z INFO  preload: 14 apps kept from preloading
+ 

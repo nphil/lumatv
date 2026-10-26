@@ -56,3 +56,39 @@
 05:09:56 step8: power2 {     "returnValue": true,     "sub state": "screen saver",     "lifeOnScreenMode": "alwaysReady",     "state": "ACTIVE" }   flutter 0
 05:09:57 step8: own true {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 12, "depth": 0.45, "scale": 1.2, "detail": 0.5, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": true, "minutes": 5, "opacity": 0.6}, "kitGallery": false, "banners": {"own": false}, "accent": "wallpaper", "screensaver": {"video": false, "own": true}}}
 05:10:03 step8: after key: power Active fg com.webos.app.home lists ['ListScreenSaverRequests":[{"clientName":"com.webos.service.screenmanager"},{"clientName":"org.nphil.lumatv"}]', 'ListScreenSaverRequests":[{"clientName":"org.nphil.lumatv"}]']
+05:53:24 step7b: power key -> Active Standby
+05:53:59 step7b: woken -> power Active fg com.webos.app.home; lists ['ListScreenSaverRequests":[{"clientName":"com.webos.service.screenmanager"},{"clientName":"org.nphil.lumatv"}]', 'ListScreenSaverRequests":[{"clientName":"org.nphil.lumatv"}]']
+05:54:14 step7b +15s SaverVote:
+2026-10-26T09:50:27.004187Z [19995.134733500] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:50:27.004296Z [19995.134837140] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:52:31.868085Z [20119.998634480] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:52:31.868249Z [20119.998791540] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:53:23.684456Z [20171.814995300] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:53:23.684681Z [20171.815220720] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+05:56:33 step7b +150s SaverVote:
+2026-10-26T09:52:31.868085Z [20119.998634480] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:52:31.868249Z [20119.998791540] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:53:23.684456Z [20171.814995300] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T09:53:23.684681Z [20171.815220720] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T09:56:20.881369Z [20349.011908660] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1468712322", "sub state": "active", "lifeOnScreenMode": "alwaysReady"
+2026-10-26T09:56:20.883995Z [20349.014534660] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1468712322", "state": "Active", "instantBoot": "on" } -> no (LumaTV's sa
+05:57:34 step7b end: power2 {     "returnValue": true,     "sub state": "active",     "lifeOnScreenMode": "alwaysReady",     "state": "ACTIVE" }  
+05:59:13 tv /tmp cleanup: lumatv-gfn
+lumatv-gfn-data
+05:59:14 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:59:14 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+05:59:14 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+05:59:15 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true}}
+05:59:15 inputcommon status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false,"checkpoint":"present","criuEnabled":true}
+05:59:15 voice status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.voice/qml","staged":true,"mounted":false,"checkpoint":"none","criuEnabled":true,"pids":[]}
+05:59:15 keyboard status: {"ok":true,"on":false,"patched":false}
+05:59:16 keys status: {"ok":true,"on":true,"qml":"/usr/lib/maliit/plugins/qml","staged":true,"mounted":true,"unit":"inactive"}
+05:59:16 inputs status: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
+05:59:16 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keys","on":true,"fallback":"`keys off` unmounts the overlay and restarts the keyboard server; a reboot or revert clears it and LG's keys return"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications"
+05:59:20 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+05:59:20 layout: e194fda89ba7219fb08c389b1c92573db64de9178272cd948c3a41ada336a6a2  /var/lib/lumatv/theme/layout.json
+05:59:20 ports: Open=0 | Connect=UNKNOWN | Open=0 | Connect=UNKNOWN
+05:59:21 fg com.webos.app.home power Active picture {'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'sdr', 'input': 'default'}, 'settings': {'pictureMode': 'filmMaker'}, 'returnValue': True} receiver {'mute': False, 'volumeText': '0', 'input': 'TV', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+05:59:21 speaker: {     "returnValue": true,     "lastSoundOutput": "tv_speaker",     "soundOutput": "external_arc",     "settingsSoundOutputs": [         "external_arc"     ] }   | {     "returnValue": true,     "muteStatus": false,     "volume": 72,     "scenario": "mastervolume_ext_speaker_arc" }  
+06:00:37 powerOff: {     "returnValue": true,     "state": "Active Standby" }
+06:00:47 after powerOff: power Active Standby

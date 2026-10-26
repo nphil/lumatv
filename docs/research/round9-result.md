@@ -4,28 +4,36 @@
 
 ### Resume here
 
-Round 11 resumed at 03:47 EDT. Clean package `3b7cceb` (includes `5d3267c`) is on
-the set: 120 QML files compiled, 0 failed; package SHA-256
-`da345b3bc410320d02768ae5ac4f13e984ed7b56d1e3ec94565d27996e9af59d`. Install
-and apply completed at 03:52. Evidence: `round9/r11-2026-10-26/`; historical
-diagnosis: `round9/r10-2026-10-26/log.txt`. The old scratch worktree is preserved
-at `/tmp/lumatv-slot-r9`; the clean deployment worktree is `/tmp/lumatv-slot`.
+Round 11 ended at 06:01 EDT. On the set: the ipk of `3c8857a` (clean worktree
+`/tmp/lumatv-slot`, 131 QML, 0 failed; SHA-256
+`437b63fa6f9b294e51a866b0e932fd5b73bf413634c9705e6e6181c42e767f9c`), applied 05:52,
+LG’s compositor (LumaTV’s flag off), Home stub, helper, lean (all groups in target
+after re-applying the settings group, which Settings reads had woken), preload trim
+(14 apps). Switches: keyboard keys ON (Main authorized; both directions passed);
+inputcommon, Search (`voice`) and the keyboard-view patch OFF. The GFN app
+(`d402b6c`, ipk `fa747ef8`) is installed and stops at its sign-in code.
 
-Receiver read-back at 03:47: on, 65.5, unmuted, DOLBY DIGITAL, TV Audio. Round 10
-restored the TV-speaker profile to 24 and selected external ARC again. Mute before
-playback; close the playback app and bring Home forward before restoring unmute.
-HDMI switching can change the receiver input and cancel mute.
+End state at 06:00:47: Active Standby, both decoder ports `Open=0`, Picture Mode
+`filmMaker`, layout hash unchanged
+(`e194fda89ba7219fb08c389b1c92573db64de9178272cd948c3a41ada336a6a2`). The receiver was
+restored at 06:00:24 to 65.5, unmuted, DOLBY DIGITAL, TV Audio; it then turned off
+with the TV over HDMI-CEC. TV speaker profile: 24 (read 03:59), output
+`external_arc`.
 
-Next: finish frame-rate probes, Live TV and Search checks, quick/picker gate,
-GFN checks, and peer checks. Main confirmed the existing direct TV deployment
-authorization; no infrastructure host changes are involved. No SAM restart,
-rootfs writes, DRM or PIN probes, or light streams. Layout hash before deployment:
-`e194fda89ba7219fb08c389b1c92573db64de9178272cd948c3a41ada336a6a2`. Finish with
-Home, Active Standby, LG’s compositor, free decoder ports, and the receiver restored.
+Deployment rule learned: `apply` must wait until the installed compositor tree
+matches the package. A first `apply` at 04:47 ran during unpacking and kept a stale
+shadow. `/tmp/r8/install.py` now waits for the matching tree.
 
-HDMI switching cancels mute: volume 0 was used during the HDMI regression. HA’s
-`volume_set(0.655)` restored only 65; one TV Volume+ key on Home restored exactly
-65.5. The receiver was unmuted on Home, then muted again for the next probes.
+Nitin’s morning steps: the Netflix format text with sound; the remote pointer
+ending LumaTV’s saver; GFN sign-in and first stream; the 25/50 fps content paths.
+Open owners: the volume bar over subtitles (Main; bottom-centre was Nitin’s 10-25
+choice); panel gate `r14-qp` failures (OverlayPerf); Live TV restyle options focus
+and restore capture (LG-restyle owner); the black cross-process GFN window
+(GfnApp4, informational); `Just Scan` showing “TV not answering” (SettingsRest4);
+the Settings sub-page walk.
+
+Receiver handling: HDMI switching cancels mute, so volume 0 was used for HDMI
+checks. HA `volume_set(0.655)` gives 65; one TV Volume+ key on Home gives 65.5.
 
 | Slice | Result | Evidence |
 |---|---|---|
@@ -60,7 +68,11 @@ HDMI switching cancels mute: volume 0 was used during the HDMI regression. HA’
 | Keyboard keys (`5f4704c`, package `1aaf632`) | PASS; left on | Main authorized the keyboard-service restart. Patched keys rendered; D-pad focus and typing worked; `keys off` restored LG's keys in 0.8 s; `keys on` restyled them again in 7.6 s. The overlay appears in 43 app-jail mount paths and `keys off` removed all. |
 | GFN signed-out start (`d402b6c`) | PASS | Signed-out launch shows the sign-in code, URL and QR, then polls; no regions error. Each reopen issues a new device challenge. Code captures were not committed. Sign-in and the first stream are for Nitin. |
 | Panel re-gate `r12-qp` (`b009de3`) | FAIL | Quick p90 4.23 ms and one >20 ms frame; picker RSS +1.85 MB, HDMI picker RSS +1.82 MB; over Netflix, picker burst end 1541 ms. LG's own Quick Settings over the film: first frame 80.7 ms with no key burst. The film's toast is audio service's Dolby popup; LG's `Services.qml:513` TypeError follows it 20–30 ms later. Picker dev-door RSS rose 624 KB in 12 cycles. |
-| Settings read-only replies | Saved | `settings-rest4-reads.txt`; page walk not run. `ppm/queryPermissions '{}'` returned invalid JSON; Bluetooth balancing reported no device; sound cards list is empty; connection status includes `isInternetConnectionAvailable:true`. |
+| Settings read-only replies and rail walk | Saved; one FAIL | `settings-rest4-reads.txt`: `ppm/queryPermissions '{}'` returned invalid JSON (fixed by SettingsRest4 in `da76d80`); Bluetooth balancing reported no device; sound cards list is empty; connection status includes `isInternetConnectionAvailable:true`. Rail-only walk, 11 captures in `settings-walk/`: Picture's `Just Scan` says “TV not answering”. Sub-pages were not opened. |
+| Panel re-gates `r13-qp`, `r14-qp` | FAIL, improving | `r13` (`2886b62`): picker RSS checks pass; quick-HDMI RSS +1.97 MB. `r14` (`1530582`): all RSS and log checks pass; remaining failures are quick p90 3.43 ms, quick-HDMI first frame 50.5 ms with no burst, picker-HDMI burst end 206 ms, one >20 ms frame over Netflix for quick and picker, picker-Netflix burst end 301 ms. Dev-door picker RSS flat for 9 of 12 cycles (+352 KB total). |
+| Mute after restart (`3c8857a`) | PASS | Receiver muted before `apply`; mark appeared in the status-bar row 19 s after the 05:52:28 restart and hopped 10.5 s later, with no toggle. |
+| Saver after standby and wake (step 7b) | PASS | Power key → Active Standby; wake → Home and both lists; idle question about 140 s after wake answered no on both lists; LumaTV clock drew, state `ACTIVE`. |
+| End state | PASS | 06:00:47 Active Standby, LG’s compositor, ports free, filmMaker, layout unchanged, lean in target, preload trim 14. Receiver 65.5 unmuted DOLBY DIGITAL TV Audio before standby, then off with the TV over CEC. |
 
 ## Round 9 handoff (historical)
 
