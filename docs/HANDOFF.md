@@ -633,8 +633,9 @@ LumaTV's own saver does not replace that app. While Home is in front it is on
 tvpower's screen saver list and answers the idle question with no, so the app
 is never started (`docs/research/saver-own-result.md`; on the set the list, the
 no on both lists, the idle timer's question about 176 s after the last key and
-every 180 s after that, standby and the key that ends it work; the Magic
-Remote's pointer and the video saver are not yet tried).
+every 180 s after that, the key that ends it and a power-key standby (the list
+keeps the client and the question after the wake is answered no) work; the
+Magic Remote's pointer and the video saver are not yet tried).
 
 ## Compositor restart side effects still worth knowing
 
