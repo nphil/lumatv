@@ -1,0 +1,3 @@
+wrote /tmp/gfn/e1-pts-ms.measure.json
+{"label": "e1-pts-ms", "seconds": 17.22, "samples": 18, "mali_pct": 0.6, "flips_per_s": 1.3, "vsync_per_s": 121.0, "osd_irq_per_s": 119.7, "cpu_pct": 2.3, "cma_free_min_mb": 42.3, "mem_avail_min_mb": 420.2, "temp_max": 60.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 6.5, "rss_mb_max": 112.5}}}
+ 

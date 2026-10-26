@@ -1,0 +1,14 @@
+gfn-feeder 14974412: launched by SAM: reason probe
+gfn-feeder 14974499: the UI started: pid 27202
+gfn-feeder 14974499: serving /tmp/lumatv-gfn/feed.sock, window _Window_Id_pending, library libNDL_directmedia.so.1
+{"serving":"/tmp/lumatv-gfn/feed.sock","window":"_Window_Id_pending","library":"libNDL_directmedia.so.1","features":31,"pid":27198}
+gfn-feeder 14974502: sam: registered org.nphil.lumatv.gfn, registerApp sent: {"appId":"org.nphil.lumatv.gfn","subscribe":true}
+gfn-feeder 14974506: sam: registerApp refused: {"errorCode":1,"returnValue":false,"errorText":"invalid status"}
+gfx64: 64-bit path: /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/lib/libmali-bifrost-g52-g24p0-wayland-gbm.so
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+gfn[14974.519]: start: org.nphil.lumatv.gfn core /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/run64.sh engine /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/bin64/opennow-streamer data /var/lib/lumatv-gfn
+gfn[14974.520]: failed: wayland connect: Could not find wayland compositor
+gfx64: 64-bit path unavailable: client failed to start (exit 1 within 5s); no fallback given
+gfn-feeder 14974523: the UI ended (status 1)
+exit=0
+none-running

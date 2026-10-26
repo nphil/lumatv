@@ -1,0 +1,3 @@
+wrote /tmp/gfn/e2-av1.measure.json
+{"label": "e2-av1", "seconds": 7.1, "samples": 8, "mali_pct": 0.2, "flips_per_s": 0.1, "vsync_per_s": 122.6, "osd_irq_per_s": 120.2, "cpu_pct": 8.6, "cma_free_min_mb": 93.1, "mem_avail_min_mb": 518.9, "temp_max": 61.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 5.8, "rss_mb_max": 64.5}}}
+ 

@@ -1,0 +1,3 @@
+wrote /tmp/gfn/4k120-sdr-80m.measure.json
+{"label": "4k120-sdr-80m", "seconds": 17.2, "samples": 18, "mali_pct": 1.1, "flips_per_s": 2.4, "vsync_per_s": 120.7, "osd_irq_per_s": 119.8, "cpu_pct": 0.8, "cma_free_min_mb": 49.5, "mem_avail_min_mb": 426.2, "temp_max": 59.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 6.3, "rss_mb_max": 112.6}}}
+ 

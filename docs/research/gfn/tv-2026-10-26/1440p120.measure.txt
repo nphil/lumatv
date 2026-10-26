@@ -1,0 +1,3 @@
+wrote /tmp/gfn/1440p120.measure.json
+{"label": "1440p120", "seconds": 17.21, "samples": 18, "mali_pct": 1.2, "flips_per_s": 2.5, "vsync_per_s": 121.7, "osd_irq_per_s": 120.2, "cpu_pct": 0.8, "cma_free_min_mb": 85.4, "mem_avail_min_mb": 488.2, "temp_max": 58.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 5.9, "rss_mb_max": 76.7}}}
+ 

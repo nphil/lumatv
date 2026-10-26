@@ -1,0 +1,3 @@
+wrote /tmp/gfn/e2-444.measure.json
+{"label": "e2-444", "seconds": 7.08, "samples": 8, "mali_pct": 1.4, "flips_per_s": 3.0, "vsync_per_s": 120.4, "osd_irq_per_s": 119.6, "cma_free_min_mb": 123.2, "mem_avail_min_mb": 579.8, "temp_max": 59.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 4.2, "rss_mb_max": 35.6}}}
+ 

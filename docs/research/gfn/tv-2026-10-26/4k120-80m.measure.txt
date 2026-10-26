@@ -1,0 +1,3 @@
+wrote /tmp/gfn/4k120-80m.measure.json
+{"label": "4k120-80m", "seconds": 17.2, "samples": 18, "mali_pct": 0.6, "flips_per_s": 1.3, "vsync_per_s": 121.3, "osd_irq_per_s": 119.8, "cpu_pct": 2.4, "cma_free_min_mb": 52.0, "mem_avail_min_mb": 420.9, "temp_max": 59.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 6.4, "rss_mb_max": 112.6}}}
+ 

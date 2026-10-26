@@ -1,0 +1,27 @@
+gfn-feeder 14996169: the UI started: pid 27252
+gfn-feeder 14996170: serving /tmp/lumatv-gfn/feed.sock, window _Window_Id_pending, library libNDL_directmedia.so.1
+{"serving":"/tmp/lumatv-gfn/feed.sock","window":"_Window_Id_pending","library":"libNDL_directmedia.so.1","features":31,"pid":27248}
+gfx64: 64-bit path: /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/lib/libmali-bifrost-g52-g24p0-wayland-gbm.so
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+gfn[14996.187]: start: org.nphil.lumatv.gfn core /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/run64.sh engine /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/bin64/opennow-streamer data /var/lib/lumatv-gfn
+window: wl_seat 11 bound at version 4 (1 seats)
+window: wl_seat 20 bound at version 4 (2 seats)
+window: wl_seat 23 bound at version 4 (3 seats)
+window: wl_seat 24 bound at version 4 (4 seats)
+window: video element exported as _Window_Id_15 (type 0)
+arm_release_ver: g24p0-00eac0, rk_so_ver: 10
+window: seat 11 keymap Value(XkbV1), 66180 bytes
+window: seat 20 keymap Value(XkbV1), 66180 bytes
+window: seat 23 keymap Value(XkbV1), 66180 bytes
+window: seat 24 keymap Value(XkbV1), 66180 bytes
+gfn[14996.214]: GL: 64-bit Mali-G52 | OpenGL ES 3.2 v1.g24p0-00eac0.fe7fa84c52ed3b756cd64cb3246aafd9
+gfn[14996.214]: seats: 4 bound, 4 with a keyboard
+gfn[14996.214]: video element _Window_Id_15 written to /tmp/lumatv-gfn/window-id
+[0.000] compositor: mesh program ready in 8.1 ms, 4x multisampling resolved in the tile
+[0.000] compositor: shader programs compiled and linked in 1293 ms
+[0.048] compositor: GPU warm-up: one frame of every program in 48 ms
+gfn[14997.789]: failed: No such file or directory (os error 2)
+gfx64: 64-bit path unavailable: client failed to start (exit 1 within 5s); no fallback given
+gfn-feeder 14998171: the UI ended (status 1)
+_Window_Id_15
+none-running

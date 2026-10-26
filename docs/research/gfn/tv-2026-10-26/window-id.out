@@ -1,0 +1,48 @@
+[SDL2:ERROR:0] Video subsystem has not been initialized
+[SDL2:SYSTEM:2] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:2] fail set property : no video device
+[SDL2:SYSTEM:2] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:2] fail set property : no video device
+[SDL2:SYSTEM:2] [SDL_webOSSetExportedWindow] called 
+[SDL2:ERROR:2] fail setting region : no video device
+AquireLogContext result = 0
+AquireLogContext result = 0gfn-feeder 16035283: playing /tmp/gfn/1080p60_high_sdr_l41_20m.h264: 600 units, 1920x1080 at 60 fps, codec 1, window _Window_Id_36, audio 0 packets, hdr 0, pts unit 1
+{"start":true,"file":"/tmp/gfn/1080p60_high_sdr_l41_20m.h264","units":600,"width":1920,"height":1080,"fps":60,"codec":1,"window":"_Window_Id_36","audio":0,"audio_route":"none","hdr":0,"pts_unit":1,"library":"libNDL_directmedia.so.1","features":31}
+gfn-feeder 16035284: event 22 0 true
+gfn-feeder 16035285: event 26 0 true
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:28.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":1,"fed":61,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.78,"p99":2,"samples":61},"wait_max_us":3251,"wait_p99_us":3251,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":127452,"mem_avail_kb":587292,"rss_kb":41376,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:29.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":2,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.63,"p99":2,"samples":60},"wait_max_us":417,"wait_p99_us":417,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126156,"mem_avail_kb":586044,"rss_kb":41480,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:30.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":3,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":2,"max":2,"mean":2.00,"p99":2,"samples":60},"wait_max_us":358,"wait_p99_us":358,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":127580,"mem_avail_kb":587700,"rss_kb":41248,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:31.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":4,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.11,"p99":2,"samples":60},"wait_max_us":2852,"wait_p99_us":2852,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":127712,"mem_avail_kb":586804,"rss_kb":41512,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:32.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":5,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.26,"p99":2,"samples":60},"wait_max_us":434,"wait_p99_us":434,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":125592,"mem_avail_kb":585280,"rss_kb":41512,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:33.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":6,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":2,"max":2,"mean":2.00,"p99":2,"samples":60},"wait_max_us":303,"wait_p99_us":303,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":127760,"mem_avail_kb":587220,"rss_kb":41512,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:34.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":7,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.43,"p99":2,"samples":60},"wait_max_us":909,"wait_p99_us":909,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":128412,"mem_avail_kb":588100,"rss_kb":41512,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:35.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":8,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":60},"wait_max_us":271,"wait_p99_us":271,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":128412,"mem_avail_kb":588100,"rss_kb":41512,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:36.153: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":9,"fed":60,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.88,"p99":2,"samples":60},"wait_max_us":354,"wait_p99_us":354,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":127708,"mem_avail_kb":588740,"rss_kb":41512,"audio_avail":0}
+
+(lumatv-gfn-feeder:31579): GLib-GObject-CRITICAL **: 04:44:37.436: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+{"t":10,"fed":59,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.84,"p99":2,"samples":59},"wait_max_us":296,"wait_p99_us":296,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":127760,"mem_avail_kb":588860,"rss_kb":41512,"audio_avail":0}
+{"summary":true,"units":600,"fed":600,"dropped":0,"afed":0,"adropped":0,"retries":0,"seconds":10.28,"loaded_ms":176,"playing_ms":176,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":0}
+[SDL2:SYSTEM:10457] [SDL_webOSDestroyExportedWindow] called 
+[SDL2:SYSTEM:10457] [SDL_webOSDestroyExportedWindow] called 
+gfn-feeder 16031701: serving /tmp/gfn/window.sock, window _Window_Id_36, library libNDL_directmedia.so.1
+{"serving":"/tmp/gfn/window.sock","window":"_Window_Id_36","library":"libNDL_directmedia.so.1","features":31,"pid":31554}
+ 

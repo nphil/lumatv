@@ -1,0 +1,66 @@
+gfn-feeder 16146215: launched by SAM: reason undefined
+gfn-feeder 16146314: the UI started: pid 32122
+gfn-feeder 16146314: serving /tmp/lumatv-gfn/feed.sock, window _Window_Id_pending, library libNDL_directmedia.so.1
+{"serving":"/tmp/lumatv-gfn/feed.sock","window":"_Window_Id_pending","library":"libNDL_directmedia.so.1","features":31,"pid":32115}
+gfn-feeder 16146317: sam: registered org.nphil.lumatv.gfn, registerApp sent: {"appId":"org.nphil.lumatv.gfn","subscribe":true}
+gfn-feeder 16146322: sam: registered
+gfx64: 64-bit path: /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/lib/libmali-bifrost-g52-g24p0-wayland-gbm.so
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+gfn[16146.335]: start: org.nphil.lumatv.gfn core /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/run64.sh engine /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/bin64/opennow-streamer data /var/lib/lumatv-gfn
+window: wl_seat 11 bound at version 4 (1 seats)
+window: wl_seat 20 bound at version 4 (2 seats)
+window: wl_seat 23 bound at version 4 (3 seats)
+window: wl_seat 24 bound at version 4 (4 seats)
+window: video element exported as _Window_Id_38 (type 0)
+window: seat 11 keymap Value(XkbV1), 66180 bytes
+window: seat 20 keymap Value(XkbV1), 66180 bytes
+window: seat 23 keymap Value(XkbV1), 66180 bytes
+window: seat 24 keymap Value(XkbV1), 66180 bytes
+gfn[16146.397]: GL: 64-bit Mali-G52 | OpenGL ES 3.2 v1.g24p0-00eac0.fe7fa84c52ed3b756cd64cb3246aafd9
+gfn[16146.397]: seats: 4 bound, 4 with a keyboard
+gfn[16146.397]: video element _Window_Id_38 written to /tmp/lumatv-gfn/window-id
+[0.000] compositor: mesh program ready in 8.6 ms, 4x multisampling resolved in the tile
+[0.000] compositor: shader programs compiled and linked in 1280 ms
+[0.048] compositor: GPU warm-up: one frame of every program in 48 ms
+gfn[16147.927]: /var/lib/lumatv-gfn is not writable: the account and the preferences go to /tmp/lumatv-gfn-data, which does not survive a restart
+gfn[16147.928]: core started, pid Some(32144), data /tmp/lumatv-gfn-data
+gfn[16147.928]: SAM registration: accepted
+ERROR: ld.so: object '/lib/libSegFault.so' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32): ignored.
+heapshim: alloc 8986624 bytes -> fd 35 via dma_buf_unified in 4.2 ms
+gfn[16147.946]: first frame presented
+gfn-feeder 16147946: UI: {"kind":"ready"}
+gfn[16147.946]: input core.hello: ok
+window: keyboard focus on seat 11
+window: keyboard focus on seat 20
+window: keyboard focus on seat 23
+window: keyboard focus on seat 24
+gfn[16148.074]: input state 3
+gfn[16148.074]: input auth.session.get: ok
+gfn[16148.074]: input streamer.detect: error streamer_not_found
+auth: starting device authorization
+gfn-feeder 16148074: UI: {"kind":"state","state":"fullscreen"}
+heapshim: alloc 8986624 bytes -> fd 35 via dma_buf_unified in 5.3 ms
+provider: DIG discovery endpoint is unreachable; using fallback https://latam-west.dig.geforcenow.nvidiagrid.net/
+auth: device authorization response 200 OK
+auth: prepared device authorization challenge
+gfn[16148.367]: input auth.device.start: ok
+/tmp/lumatv-gfn:
+total 8
+drwxr-x---    2 6170     jailer         120 Oct 26 04:46 .
+drwxrwxrwt   59 root     root          4300 Oct 26 04:46 ..
+srw-rw----    1 6170     jailer           0 Oct 26 04:46 feed.sock
+-rw-r--r--    1 6170     jailer        3190 Oct 26 04:46 feeder.log
+srwxr-xr-x    1 6170     jailer           0 Oct 26 04:46 pad.sock
+-rw-r--r--    1 6170     jailer          14 Oct 26 04:46 window-id
+
+/tmp/lumatv-gfn-data:
+total 0
+drwxr-xr-x    4 6170     jailer          80 Oct 26 04:45 .
+drwxrwxrwt   59 root     root          4300 Oct 26 04:46 ..
+drwxr-xr-x    3 6170     jailer          60 Oct 26 04:45 Pictures
+drwxr-xr-x    3 6170     jailer          60 Oct 26 04:45 config
+ls: /var/lib/lumatv-gfn: No such file or directory
+ 
+--- after close
+none-running
+ 

@@ -1,0 +1,79 @@
+[SDL2:ERROR:0] Video subsystem has not been initialized
+[SDL2:SYSTEM:5] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:6] fail set property : no video device
+[SDL2:SYSTEM:6] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:6] fail set property : no video device
+[SDL2:SYSTEM:6] [SDL_webOSSetExportedWindow] called 
+[SDL2:ERROR:6] fail setting region : no video device
+AquireLogContext result = 0
+AquireLogContext result = 0{"start":true,"file":"/tmp/gfn/4k120_main10_hdr_l52_50m_ref1.hevc","units":1200,"width":3840,"height":2160,"fps":120,"codec":2,"window":"_Window_Id_21","audio":0,"audio_route":"none","hdr":1,"pts_unit":1,"library":"libNDL_directmedia.so.1","features":31}
+{"t":1,"fed":121,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":3,"mean":1.47,"p99":2,"samples":121},"wait_max_us":1017,"wait_p99_us":825,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":86800,"mem_avail_kb":501592,"rss_kb":78592,"audio_avail":0}
+{"t":2,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":3,"mean":1.97,"p99":2,"samples":120},"wait_max_us":741,"wait_p99_us":698,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":86184,"mem_avail_kb":501116,"rss_kb":78028,"audio_avail":0}
+{"t":3,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.10,"p99":2,"samples":120},"wait_max_us":873,"wait_p99_us":757,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88088,"mem_avail_kb":502792,"rss_kb":78556,"audio_avail":0}
+{"t":4,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.00,"p99":2,"samples":120},"wait_max_us":822,"wait_p99_us":595,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87536,"mem_avail_kb":502256,"rss_kb":78584,"audio_avail":0}
+{"t":5,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":0.98,"p99":1,"samples":120},"wait_max_us":622,"wait_p99_us":619,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88400,"mem_avail_kb":502868,"rss_kb":78272,"audio_avail":0}
+{"t":6,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.85,"p99":2,"samples":120},"wait_max_us":584,"wait_p99_us":516,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87828,"mem_avail_kb":503508,"rss_kb":78536,"audio_avail":0}
+{"t":7,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.45,"p99":2,"samples":120},"wait_max_us":519,"wait_p99_us":396,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87816,"mem_avail_kb":503460,"rss_kb":78536,"audio_avail":0}
+{"t":8,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.00,"p99":2,"samples":120},"wait_max_us":1051,"wait_p99_us":420,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87828,"mem_avail_kb":503504,"rss_kb":78536,"audio_avail":0}
+{"t":9,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":0.99,"p99":1,"samples":120},"wait_max_us":666,"wait_p99_us":490,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87964,"mem_avail_kb":503668,"rss_kb":78536,"audio_avail":0}
+{"t":10,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.50,"p99":2,"samples":120},"wait_max_us":756,"wait_p99_us":712,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88600,"mem_avail_kb":504220,"rss_kb":78536,"audio_avail":0}
+{"t":11,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":1,"max":2,"mean":1.63,"p99":2,"samples":120},"wait_max_us":595,"wait_p99_us":497,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87308,"mem_avail_kb":501980,"rss_kb":78536,"audio_avail":0}
+{"t":12,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.00,"p99":2,"samples":120},"wait_max_us":816,"wait_p99_us":347,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":87816,"mem_avail_kb":502504,"rss_kb":78536,"audio_avail":0}
+{"t":13,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.00,"p99":2,"samples":120},"wait_max_us":369,"wait_p99_us":363,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88032,"mem_avail_kb":502660,"rss_kb":78536,"audio_avail":0}
+{"t":14,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.13,"p99":2,"samples":120},"wait_max_us":853,"wait_p99_us":682,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88032,"mem_avail_kb":502908,"rss_kb":78536,"audio_avail":0}
+{"t":15,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":3,"mean":1.97,"p99":2,"samples":120},"wait_max_us":737,"wait_p99_us":571,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88052,"mem_avail_kb":502460,"rss_kb":78536,"audio_avail":0}
+{"t":16,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.25,"p99":2,"samples":120},"wait_max_us":530,"wait_p99_us":367,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88020,"mem_avail_kb":502424,"rss_kb":78536,"audio_avail":0}
+{"t":17,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.00,"p99":2,"samples":120},"wait_max_us":668,"wait_p99_us":357,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88020,"mem_avail_kb":502432,"rss_kb":78536,"audio_avail":0}
+{"t":18,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":0.98,"p99":1,"samples":120},"wait_max_us":931,"wait_p99_us":668,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88736,"mem_avail_kb":504688,"rss_kb":78536,"audio_avail":0}
+{"t":19,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.76,"p99":2,"samples":120},"wait_max_us":718,"wait_p99_us":397,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":88784,"mem_avail_kb":504784,"rss_kb":78536,"audio_avail":0}
+{"t":20,"fed":120,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":1.56,"p99":2,"samples":120},"wait_max_us":1994,"wait_p99_us":474,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":92116,"mem_avail_kb":508116,"rss_kb":78536,"audio_avail":0}
+{"t":21,"fed":0,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":0,"wait_p99_us":0,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":92008,"mem_avail_kb":507984,"rss_kb":78536,"audio_avail":0}
+{"summary":true,"units":1200,"fed":2401,"dropped":0,"afed":0,"adropped":0,"retries":0,"seconds":20.30,"loaded_ms":215,"playing_ms":215,"loaded":1,"playing":1,"error":0,"audio_route":"none","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":0}
+[SDL2:SYSTEM:20431] [SDL_webOSDestroyExportedWindow] called 
+[SDL2:SYSTEM:20431] [SDL_webOSDestroyExportedWindow] called 
+gfn-feeder 15228572: playing /tmp/gfn/4k120_main10_hdr_l52_50m_ref1.hevc: 1200 units, 3840x2160 at 120 fps, codec 2, window _Window_Id_21, audio 0 packets, hdr 1, pts unit 1
+gfn-feeder 15228574: event 22 0 true
+gfn-feeder 15228574: event 26 0 true
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:01.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:02.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:03.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:04.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:05.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:06.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:07.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:08.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:09.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:10.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:11.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:12.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:13.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:14.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:15.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:16.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:17.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:18.442: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:19.443: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:20.442: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+
+(lumatv-gfn-feeder:28327): GLib-GObject-CRITICAL **: 04:31:20.743: g_object_get: assertion 'G_IS_OBJECT (object)' failed
+ 

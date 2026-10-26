@@ -1,0 +1,27 @@
+[SDL2:ERROR:0] Video subsystem has not been initialized
+[SDL2:SYSTEM:9] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:9] fail set property : no video device
+[SDL2:SYSTEM:9] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:9] fail set property : no video device
+[SDL2:SYSTEM:9] [SDL_webOSSetExportedWindow] called 
+[SDL2:ERROR:9] fail setting region : no video device
+AquireLogContext result = 0
+AquireLogContext result = 0{"start":true,"file":"/tmp/gfn/1080p60_high_sdr_l41_20m.h264","units":600,"width":1920,"height":1080,"fps":60,"codec":1,"window":"_Window_Id_34","audio":501,"audio_route":"opus","hdr":0,"pts_unit":1,"library":"libNDL_directmedia.so.1","features":31}
+{"t":1,"fed":61,"dropped":0,"afed":51,"adropped":0,"retries":0,"queue":{"min":0,"max":2,"mean":0.93,"p99":2,"samples":61},"wait_max_us":13052,"wait_p99_us":13052,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126040,"mem_avail_kb":586628,"rss_kb":42264,"audio_avail":768000}
+{"t":2,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":60},"wait_max_us":748,"wait_p99_us":748,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":125592,"mem_avail_kb":586132,"rss_kb":42372,"audio_avail":768000}
+{"t":3,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":60},"wait_max_us":482,"wait_p99_us":482,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126000,"mem_avail_kb":586956,"rss_kb":42404,"audio_avail":768000}
+{"t":4,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":0,"max":1,"mean":0.60,"p99":1,"samples":60},"wait_max_us":354,"wait_p99_us":354,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":125732,"mem_avail_kb":586872,"rss_kb":42404,"audio_avail":768000}
+{"t":5,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":0,"max":1,"mean":0.13,"p99":1,"samples":60},"wait_max_us":330,"wait_p99_us":330,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126048,"mem_avail_kb":586148,"rss_kb":42404,"audio_avail":768000}
+{"t":6,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":60},"wait_max_us":766,"wait_p99_us":766,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":125292,"mem_avail_kb":585416,"rss_kb":42404,"audio_avail":768000}
+{"t":7,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":0,"max":1,"mean":0.95,"p99":1,"samples":60},"wait_max_us":629,"wait_p99_us":629,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":124992,"mem_avail_kb":585160,"rss_kb":42404,"audio_avail":768000}
+{"t":8,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":60},"wait_max_us":403,"wait_p99_us":403,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":125120,"mem_avail_kb":586700,"rss_kb":42404,"audio_avail":768000}
+{"t":9,"fed":60,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":60},"wait_max_us":280,"wait_p99_us":280,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126004,"mem_avail_kb":587864,"rss_kb":42404,"audio_avail":768000}
+{"t":10,"fed":59,"dropped":0,"afed":50,"adropped":0,"retries":0,"queue":{"min":1,"max":1,"mean":1.00,"p99":1,"samples":59},"wait_max_us":366,"wait_p99_us":366,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126064,"mem_avail_kb":587896,"rss_kb":42404,"audio_avail":768000}
+{"t":11,"fed":0,"dropped":0,"afed":0,"adropped":0,"retries":0,"queue":{"min":0,"max":0,"mean":0.00,"p99":0,"samples":0},"wait_max_us":0,"wait_p99_us":0,"buffer_low":0,"buffer_full":0,"errors":0,"loaded":1,"playing":1,"cma_free_kb":126064,"mem_avail_kb":587896,"rss_kb":42404,"audio_avail":768000}
+{"summary":true,"units":600,"fed":600,"dropped":0,"afed":501,"adropped":0,"retries":0,"seconds":10.30,"loaded_ms":255,"playing_ms":255,"loaded":1,"playing":1,"error":0,"audio_route":"opus","adecode_errors":0,"events":{"22":1,"26":1},"video_info":"","exit":0}
+[SDL2:SYSTEM:10474] [SDL_webOSDestroyExportedWindow] called 
+[SDL2:SYSTEM:10474] [SDL_webOSDestroyExportedWindow] called 
+gfn-feeder 15954444: playing /tmp/gfn/1080p60_high_sdr_l41_20m.h264: 600 units, 1920x1080 at 60 fps, codec 1, window _Window_Id_34, audio 501 packets, hdr 0, pts unit 1
+gfn-feeder 15954476: event 22 0 true
+gfn-feeder 15954476: event 26 0 true
+ 

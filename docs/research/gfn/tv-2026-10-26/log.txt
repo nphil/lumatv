@@ -1,0 +1,743 @@
+04:25:44 copied /etc/umediaserver/device_codec_capability_config.json
+04:25:44 copied /etc/umediaserver/umediaserver_resource_config.txt
+04:25:44 $ df -h /tmp /media/developer; awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo; ls -l /dev/input/event* /sys/class/input/event*/device/name; for f in /sys/class/input/event*/device/name; do echo "$f: $(cat $f)"; done
+Filesystem                Size      Used Available Use% Mounted on
+tmpfs                   991.4M    280.6M    710.8M  28% /tmp
+/dev/mmcblk0p59           6.0G      2.1G      3.9G  36% /mnt/lg/appstore
+MemAvailable:     663184 kB
+CmaFree:          165128 kB
+crw-rw----    1 root     composit   13,  64 Dec 31  2022 /dev/input/event0
+crw-rw----    1 root     composit   13,  65 Oct 26 04:07 /dev/input/event1
+crw-rw----    1 root     composit   13,  74 Oct 26 00:18 /dev/input/event10
+crw-rw----    1 root     composit   13,  75 Oct 26 00:18 /dev/input/event11
+crw-rw----    1 root     composit   13,  76 Oct 26 00:18 /dev/input/event12
+crw-rw----    1 root     composit   13,  77 Oct 26 00:18 /dev/input/event13
+crw-rw----    1 root     composit   13,  78 Dec 31  2022 /dev/input/event14
+crw-rw----    1 root     composit   13,  79 Dec 31  2022 /dev/input/event15
+crw-rw----    1 root     composit   13,  80 Dec 31  2022 /dev/input/event16
+crw-rw----    1 root     composit   13,  81 Dec 31  2022 /dev/input/event17
+crw-rw----    1 root     composit   13,  82 Dec 31  2022 /dev/input/event18
+crw-rw----    1 root     composit   13,  83 Dec 31  2022 /dev/input/event19
+crw-rw----    1 root     composit   13,  66 Oct 26 00:17 /dev/input/event2
+crw-rw----    1 root     composit   13,  84 Dec 31  2022 /dev/input/event20
+crw-rw----    1 root     composit   13,  85 Dec 31  2022 /dev/input/event21
+crw-rw----    1 root     composit   13,  86 Dec 31  2022 /dev/input/event22
+crw-rw----    1 root     composit   13,  87 Dec 31  2022 /dev/input/event23
+crw-rw----    1 root     composit   13,  88 Dec 31  2022 /dev/input/event24
+crw-rw----    1 root     composit   13,  89 Dec 31  2022 /dev/input/event25
+crw-rw----    1 root     composit   13,  90 Dec 31  2022 /dev/input/event26
+crw-rw----    1 root     composit   13,  91 Dec 31  2022 /dev/input/event27
+crw-rw----    1 root     composit   13,  92 Dec 31  2022 /dev/input/event28
+crw-rw----    1 root     composit   13,  93 Dec 31  2022 /dev/input/event29
+crw-rw----    1 root     composit   13,  67 Oct 26 00:17 /dev/input/event3
+crw-rw----    1 root     composit   13,  94 Dec 31  2022 /dev/input/event30
+crw-rw----    1 root     composit   13,  95 Dec 31  2022 /dev/input/event31
+crw-rw----    1 root     composit   13,  68 Oct 26 00:17 /dev/input/event4
+crw-rw----    1 root     composit   13,  69 Oct 26 00:17 /dev/input/event5
+crw-rw----    1 root     composit   13,  70 Oct 26 00:17 /dev/input/event6
+crw-rw----    1 root     composit   13,  71 Oct 26 00:17 /dev/input/event7
+crw-rw----    1 root     composit   13,  72 Oct 26 00:17 /dev/input/event8
+crw-rw----    1 root     composit   13,  73 Oct 26 04:24 /dev/input/event9
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event0/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event1/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event10/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event11/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event12/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event2/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event3/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event4/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event5/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event6/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event7/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:25 /sys/class/input/event8/device/name
+-r--r--r--    1 root     root          4096 Oct 26 04:24 /sys/class/input/event9/device/name
+/sys/class/input/event0/device/name: LGE RCU
+/sys/class/input/event1/device/name: CHECK INPUT
+/sys/class/input/event10/device/name: IoT keypad
+/sys/class/input/event11/device/name: Smart Remote RCU Input
+/sys/class/input/event12/device/name: LGE Network Input
+/sys/class/input/event2/device/name: Bluetooth-audio-source
+/sys/class/input/event3/device/name: LGE M-RCU - Builtin [0]
+/sys/class/input/event4/device/name: LGE M-RCU - Builtin [1]
+/sys/class/input/event5/device/name: LGE M-RCU - Builtin [2]
+/sys/class/input/event6/device/name: LGE TONE+ - Builtin [3]
+/sys/class/input/event7/device/name: LGE W-RCU - Builtin [5]
+/sys/class/input/event8/device/name: LGE Simple Premium
+/sys/class/input/event9/device/name: LGE Smart Remote - TouchPad
+04:25:44 put lumatv-gfn-feeder -> /tmp/gfn-probe-feeder
+04:25:44 put measure.py -> /tmp/measure.py
+04:25:44 $ /tmp/gfn-probe-feeder --probe
+{"library":true,"name":"libNDL_directmedia.so.1","features":31,"error":"","app_id":"org.nphil.lumatv.gfn","proto":1,"sizes":{"load":100,"status":104,"hello":112}}
+04:25:52 put org.nphil.lumatv.gfn_0.1.0_all.ipk -> /tmp/lumatv-gfn.ipk
+04:25:53 $ sha256sum /tmp/lumatv-gfn.ipk
+df9c493f25c5022541d9dfe097890980a7783dad7990a7a5b030535e4ae8b480  /tmp/lumatv-gfn.ipk
+04:25:54 $ luna-send -n 4 -f luna://com.webos.appInstallService/dev/install '{"id":"org.nphil.lumatv.gfn","ipkUrl":"/tmp/lumatv-gfn.ipk","subscribe":true}'
+{
+    "subscribed": true,
+    "returnValue": true
+}
+{
+    "statusValue": 268,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-26882",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+{
+    "statusValue": 269,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-26882",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+{
+    "statusValue": 270,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "none",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-26882",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+04:25:54 $ ls -la /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn; sha256sum /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder
+ls: /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn: No such file or directory
+sha256sum: can't open '/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder': No such file or directory
+total 344
+drwxr-xr-x    5 root     root          4096 Dec 31  1969 .
+drwxrwxrwx   17 root     root          4096 Oct 26 04:25 ..
+-rw-r--r--    1 root     root           528 Oct 26 04:25 appinfo.json
+drwxr-xr-x    3 root     root          4096 Dec 31  1969 assets
+drwxr-xr-x    2 root     root          4096 Dec 31  1969 bin64
+drwxr-xr-x    3 root     root          4096 Dec 31  1969 gfx64
+-rw-r--r--    1 root     root          5831 Dec 31  1969 icon.png
+-rw-r--r--    1 root     root         12377 Dec 31  1969 largeIcon.png
+-rwxr-xr-x    1 root     root        169484 Dec 31  1969 lumatv-gfn-feeder
+-rwxr-xr-x    1 root     root           459 Dec 31  1969 run64.sh
+-rw-r--r--    1 root     root        124330 Dec 31  1969 splash.png
+566b3427ae2be2a9027958bc4acc3ec9994ccb96720eb1c492f190446b38ed08  /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder
+{"appId":"org.nphil.lumatv.gfn","returnValue":true,"appInfo":{"closeOnBackground":false,"checkUpdateOnLaunch":true,"title":"GeForce NOW","icon":"icon.png","tileSize":"normal","inAppSetting":false,"closeOnRotation":false,"nativeLifeCycleInterfaceVersion":2,"folderPath":"/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn","transparent":true,"version":"0.1.0","trustLevel":"default","hasPromotion":false,"lockable":true,"enableCBSPolicy":false,"requiredMemory":320,"systemApp":false,"largeIcon":"largeIcon.png","main":"lumatv-gfn-feeder","visible":true,"privilegedJail":false,"inspectable":true,"defaultWindowType":"card","activeFolderPath":"/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn","splashBackground":"splash.png","deeplinkingParams":"","vendor":"nphil","iconColor":"#1a1a1a","accessibility":{"supportsAudioGuidance":false},"type":"native","appDescription":"GeForce NOW on the video plane: OpenNOW's engine with LG's decoder and the controller read directly","spinnerOnLaunch":true,"disableBackHistoryAPI":false,"id":"org.nphil.lumatv.gfn","installTime":0,"handlesRelaunch":true,"noSplashOnLaunch":false,"CPApp":false,"removable":true,"unmovable":false}}
+ 04:26:15 $ pgrep -fl lumatv-gfn; luna-send -n 1 luna://com.webos.applicationManager/running "{}"
+27103 sh
+{"running":[{"webprocessid":"15371","defaultWindowType":"card","id":"com.webos.app.home","processid":"15371","appType":"web"},{"webprocessid":"","defaultWindowType":"card","id":"com.webos.app.hdmi3","processid":"7890","appType":"native"}],"returnValue":true}
+04:26:33 $ pgrep -fl lumatv-gfn || true
+27174 sh
+04:26:33 SAM log:
+2026-10-26T08:26:08.256183Z [14936.386722260] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"stop","app_id":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:26:08.256203Z [14936.386742900] user.info memchute [] MM MEMMGR_MEMUNIT {"appId":"org.nphil.lumatv.gfn"} is closed
+2026-10-26T08:26:08.256415Z [14936.386954860] user.info lginput2 [] lginput2 SENSOR {"TYPE":"INFO"} [mrcu_sensor_cancelSensorEventDataByAppLifeStatus (1408)] #request cancel subscription app/service = (org.nphil.lumatv.gfn)#^M
+2026-10-26T08:26:20.374079Z [14948.504620880] user.info sam [] SAM NL_APP_LAUNCH_BEGIN {"app_id":"org.nphil.lumatv.gfn","caller_id":"com.webos.lunasend-27111","mode":"normal"} 
+2026-10-26T08:26:20.374112Z [14948.504652180] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6","action":"created_launching_item"} 
+2026-10-26T08:26:20.374135Z [14948.504674960] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","is_launch_first_app":"false","auto_installation":"false","is_last_input_app":"false","automatic":"false","screen_type":"","stand_alone_launch":"false"} request-changeRunningAppId: empty
+2026-10-26T08:26:20.374157Z [14948.504696600] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","caller_id":"com.webos.lunasend-27111","launch_reason":"undefined","check_update":"false","check_lock":"true","preload_mode":"empty","keep_alive":"false","show_splash":"true","show_spinner":"true","shared_folder_path":""} 
+2026-10-26T08:26:20.374179Z [14948.504718420] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","params":{}} 
+2026-10-26T08:26:20.374199Z [14948.504738460] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","replace_params":{}} 
+2026-10-26T08:26:20.374220Z [14948.504759160] user.info sam [] SAM APP_LAUNCH {"CLOCK":14948.504,"app_id":"org.nphil.lumatv.gfn","status":"start_prelaunching","PerfType":"AppLaunch","PerfGroup":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:26:20.374240Z [14948.504779120] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","status":"set_prelaunching_stage_for_applock"} uid: c159b9cc-76c6-4960-8a8a-83bcf0493de6
+2026-10-26T08:26:20.379275Z [14948.509820880] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","stage":17,"status":"passed_checking_applock"} 
+2026-10-26T08:26:20.379363Z [14948.509903480] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6","status":"prelaunching_done","launching_stage_in_detail":23} 
+2026-10-26T08:26:20.379392Z [14948.509931740] user.info sam [] SAM APP_LAUNCH {"CLOCK":14948.509,"app_id":"org.nphil.lumatv.gfn","status":"start_memory_checking","PerfType":"AppLaunch","PerfGroup":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:26:20.379414Z [14948.509953580] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","status":"start_memory_setting"} payload: {"defaultWindowType":"card","appId":"org.nphil.lumatv.gfn","requiredMemory":320,"containerBasedApp":false,"appType":"native","relaunch":false,"windowGroup":false}
+2026-10-26T08:26:20.379518Z [14948.510058080] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"splash","appId":"org.nphil.lumatv.gfn","splashBackground":"file:///media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/splash.png","showSpinner":true,"title":"GeForce NOW","showSplash":true,"returnValue":true}} 
+2026-10-26T08:26:20.379621Z [14948.510161000] user.info memchute [] MM MEMMGR_SERVICE {"Launch":"org.nphil.lumatv.gfn","Required":320,"AppType":"native","WinType":"card","WinGroup":"F","Preload":"F","Container":"F","Relaunch":"F"} 
+2026-10-26T08:26:20.380014Z [14948.510558940] user.info memchute [] MM MEMMGR_MEMMGR {"appId":"org.nphil.lumatv.gfn","free":655} comment : launch by required memory(adv)
+2026-10-26T08:26:20.380235Z [14948.510775820] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6"} removed from checking queue
+2026-10-26T08:26:20.380265Z [14948.510805020] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6","status":"memory_checking_done","launching_stage_in_detail":25} 
+2026-10-26T08:26:20.380288Z [14948.510827960] user.info sam [] SAM APP_LAUNCH {"CLOCK":14948.510,"app_id":"org.nphil.lumatv.gfn","status":"start_launching","PerfType":"AppLaunch","PerfGroup":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:26:20.380312Z [14948.510851440] user.info sam [] SAM NATIVE_CLIENT_INFO {"app_id":"org.nphil.lumatv.gfn"} client_info_created
+2026-10-26T08:26:20.380373Z [14948.510912260] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"org.nphil.lumatv.gfn","pid":""} current_client
+2026-10-26T08:26:20.380393Z [14948.510932080] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","status":"start_launch_handler"} life_status: 0
+2026-10-26T08:26:20.380412Z [14948.510951800] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"org.nphil.lumatv.gfn","start_native_handler":"LaunchAsCommon"} ver: 2
+2026-10-26T08:26:20.380434Z [14948.510973680] user.info sam [] SAM APP_LAUNCH {"jailer_path":"/usr/bin/jailer","jailer_type":"native_devmode","app_id":"org.nphil.lumatv.gfn","app_folder_path":"/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn","shared_folder_path":"","app_path":"/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder","params":{"event":"launch","reason":"undefined","appId":"org.nphil.lumatv.gfn","parameters":{},"interfaceVersion":2,"interfaceMethod":"registerApp","@system_native_app":true}} launch with jail
+2026-10-26T08:26:20.380455Z [14948.510994020] user.info sam [] SAM RUNTIME_STATUS {"app_id":"org.nphil.lumatv.gfn","current":0,"new":1} runtime_status_changed
+2026-10-26T08:26:20.380490Z [14948.511029440] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"launch","appId":"org.nphil.lumatv.gfn","returnValue":true,"reason":"undefined"}} 
+2026-10-26T08:26:20.380525Z [14948.511064300] user.info surface-manager [] surface-manager LSM {} applyOrientation, action: apply_orientation, current_orientation: landscape, splash_app_id: org.nphil.lumatv.gfn, is_rotaion_target_app: false
+2026-10-26T08:26:20.380567Z [14948.511107020] user.info sam [] SAM LOADING_LIST {"app_id":"org.nphil.lumatv.gfn"} added
+2026-10-26T08:26:20.380589Z [14948.511128780] user.info sam [] SAM LIFE_STATUS {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6","current":0,"new":2} life_status_changed
+2026-10-26T08:26:20.380625Z [14948.511164480] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"launching","appId":"org.nphil.lumatv.gfn","appCategory":[],"type":"native"}} 
+2026-10-26T08:26:20.382313Z [14948.512858040] user.info surface-manager [] surface-manager LSM {} open, StarfishImageSplash Image path... file:///media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/splash.png
+2026-10-26T08:26:20.386258Z [14948.516805900] user.info sam [] SAM APP_LAUNCHED {"app_id":"org.nphil.lumatv.gfn","type":"native","pid":27112,"start_time":14948504635100.000000,"collapse_time":11995280.000000} 
+2026-10-26T08:26:20.386352Z [14948.516892700] user.info sam [] SAM RUNNING_LIST {"app_id":"org.nphil.lumatv.gfn","pid":"27112","webprocid":"","default_window_type":"card","status":"added"} 
+2026-10-26T08:26:20.386447Z [14948.516987720] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"running","payload":{"running":[{"webprocessid":"15371","defaultWindowType":"card","id":"com.webos.app.home","processid":"15371","appType":"web"},{"webprocessid":"","defaultWindowType":"card","id":"com.webos.app.hdmi3","processid":"7890","appType":"native"},{"webprocessid":"","defaultWindowType":"card","id":"org.nphil.lumatv.gfn","processid":"27112","appType":"native"}],"returnValue":true}} 
+2026-10-26T08:26:20.387315Z [14948.517859020] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"dev_running","payload":{"running":[{"webprocessid":"","defaultWindowType":"card","id":"org.nphil.lumatv.gfn","processid":"27112","appType":"native"}],"returnValue":true}} 
+2026-10-26T08:26:20.387367Z [14948.517907460] user.info sam [] SAM RUNTIME_STATUS {"app_id":"org.nphil.lumatv.gfn","current":1,"new":3} runtime_status_changed
+2026-10-26T08:26:20.387395Z [14948.517934640] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6","status":"launching_done"} 
+2026-10-26T08:26:20.387417Z [14948.517956260] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","status":"finish_launching","is_last_fullscreen_app":"false","mode":"normal"} 
+2026-10-26T08:26:20.387498Z [14948.518039400] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","uid":"c159b9cc-76c6-4960-8a8a-83bcf0493de6","action":"removed_launching_item"} 
+2026-10-26T08:26:20.388965Z [14948.519510760] user.info memchute [] MM MEMMGR_MEMUNIT {"appId":"org.nphil.lumatv.gfn"} is launched
+2026-10-26T08:26:20.389036Z [14948.519576140] user.info memchute [] MM MEMMGR_GROUP {} update cgroup Memory Path(/sys/fs/cgroup/memory/org.nphil.lumatv.gfn)
+2026-10-26T08:26:20.389060Z [14948.519599340] user.info memchute [] MM MEMMGR_GROUP {} update cgroup Freezer Path(/sys/fs/cgroup/freezer/org.nphil.lumatv.gfn)
+2026-10-26T08:26:20.389149Z [14948.519691740] user.info memchute [] MM MEMMGR_GROUP {} create new cgroup dir("/sys/fs/cgroup/memory/org.nphil.lumatv.gfn")
+2026-10-26T08:26:20.389261Z [14948.519800820] user.info memchute [] MM MEMMGR_GROUP {} create new cgroup dir("/sys/fs/cgroup/freezer/org.nphil.lumatv.gfn")
+2026-10-26T08:26:20.389283Z [14948.519822700] user.info memchute [] MM MEMMGR_GROUP {} add group(org.nphil.lumatv.gfn)
+2026-10-26T08:26:20.390940Z [14948.521485400] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"launching","app_id":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:26:20.391863Z [14948.522406680] user.info umediaserver [] ums.default APP_STATUS_UPDATE {"TIMESTAMP":14948.522259780,"CODE_POINT":"<AppObserver.cpp:appLifeStatusCallback(128)>"} appLifeStatusEvt: {"reason":"undefined","status":"launching","appId":"org.nphil.lumatv.gfn","appCategory":[],"type":"native"}
+2026-10-26T08:26:20.393025Z [14948.523570340] user.info asm [] ASM.COMMON API_CALLBACK {} [getRunningAppListCallback] message : {"running":[{"webprocessid":"15371","defaultWindowType":"card","id":"com.webos.app.home","processid":"15371","appType":"web"},{"webprocessid":"","defaultWindowType":"card","id":"com.webos.app.hdmi3","processid":"7890","appType":"native"},{"webprocessid":"","defaultWindowType":"card","id":"org.nphil.lumatv.gfn","processid":"27112","appType":"native"}],"returnValue":true}
+2026-10-26T08:26:20.393512Z [14948.524058400] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} RunningList = [ com.webos.app.home(15371) com.webos.app.hdmi3(7890) org.nphil.lumatv.gfn(27112) ]
+2026-10-26T08:26:20.410963Z [14948.541510940] user.info jailer [] jailer JAILER_INFO {} file lock appid: org.nphil.lumatv.gfn
+2026-10-26T08:26:20.447498Z [14948.578045840] user.info jailer [] jailer JAILER_INFO {} file unlock appid: org.nphil.lumatv.gfn
+2026-10-26T08:26:20.447573Z [14948.578113120] user.warning jailer [] jailer JAILER_INFO {} app launch exec(/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder,  /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder {"event":"launch","reason":"undefined","appId":"org.nphil.lumatv.gfn","parameters":{},"interfaceVersion":2,"interfaceMethod":"registerApp","@system_native_app":true})
+2026-10-26T08:26:20.462534Z [14948.593075000] user.info surface-manager [] surface-manager LSM {} onOpening, isPinnedOverlayView false currentId: org.nphil.lumatv.gfn overlayId: 
+2026-10-26T08:26:20.545166Z [14948.675716600] user.info sam [] SAM API_REQUEST {"category":"/","method":"registerApp","caller":"org.nphil.lumatv.gfn","status":"received_request"} 
+2026-10-26T08:26:20.545408Z [14948.675951180] user.info sam [] SAM APP_LAUNCH {"app_id":"org.nphil.lumatv.gfn","status":"connected"} 
+2026-10-26T08:26:20.545460Z [14948.676000620] user.info sam [] SAM RUNTIME_STATUS {"app_id":"org.nphil.lumatv.gfn","current":3,"new":4} runtime_status_changed
+2026-10-26T08:26:20.650140Z [14948.780680380] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"org.nphil.lumatv.gfn","status":"cancel_kill_timer"} 
+2026-10-26T08:26:20.650163Z [14948.780702420] user.info sam [] SAM APP_CLOSED {"app_id":"org.nphil.lumatv.gfn","type":"native","pid":"27112","exit_status":0} 
+2026-10-26T08:26:20.650184Z [14948.780723420] user.info sam [] SAM RUNTIME_STATUS {"app_id":"org.nphil.lumatv.gfn","current":4,"new":0} runtime_status_changed
+2026-10-26T08:26:20.650205Z [14948.780744260] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"stop","appId":"org.nphil.lumatv.gfn","returnValue":true,"reason":"undefined"}} 
+2026-10-26T08:26:20.650226Z [14948.780765360] user.warning sam [] SAM LIFE_STATUS {"app_id":"org.nphil.lumatv.gfn","current":2,"next":0} handle exception
+2026-10-26T08:26:20.650246Z [14948.780786000] user.info sam [] SAM LOADING_LIST {"app_id":"org.nphil.lumatv.gfn"} removed
+2026-10-26T08:26:20.650267Z [14948.780806340] user.info sam [] SAM LIFE_STATUS {"app_id":"org.nphil.lumatv.gfn","uid":"","current":2,"new":0} life_status_changed
+2026-10-26T08:26:20.650288Z [14948.780827240] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"stop","appId":"org.nphil.lumatv.gfn","appCategory":[],"processId":"27112","type":"native"}} 
+2026-10-26T08:26:20.650656Z [14948.781196840] user.info sam [] SAM RUNNING_LIST {"app_id":"org.nphil.lumatv.gfn","action":"removed"} 
+2026-10-26T08:26:20.650746Z [14948.781285320] user.info sam [] SAM NATIVE_CLIENT_INFO {"app_id":"org.nphil.lumatv.gfn"} client_info_removed
+2026-10-26T08:26:20.652016Z [14948.782564200] user.info memchute [] MM MEMMGR_SERVICE {"appId":"org.nphil.lumatv.gfn","status":"stop"} 
+2026-10-26T08:26:20.652120Z [14948.782660520] user.info memchute [] MM MEMMGR_LAUNCHINFO {"appId":"org.nphil.lumatv.gfn"} reset launching info by stop
+2026-10-26T08:26:20.652172Z [14948.782711440] user.info umediaserver [] ums.default APP_STATUS_UPDATE {"TIMESTAMP":14948.781675160,"CODE_POINT":"<AppObserver.cpp:appLifeStatusCallback(128)>"} appLifeStatusEvt: {"reason":"undefined","status":"stop","appId":"org.nphil.lumatv.gfn","appCategory":[],"processId":"27112","type":"native"}
+2026-10-26T08:26:20.652196Z [14948.782735400] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"stop","app_id":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:26:20.652219Z [14948.782758260] user.info memchute [] MM MEMMGR_MEMUNIT {"appId":"org.nphil.lumatv.gfn"} is closed
+2026-10-26T08:26:20.652241Z [14948.782780160] user.info lginput2 [] lginput2 SENSOR {"TYPE":"INFO"} [mrcu_sensor_cancelSensorEventDataByAppLifeStatus (1408)] #request cancel subscription app/service = (org.nphil.lumatv.gfn)#^M
+2026-10-26T08:26:26.051905Z [14954.182446540] user.info sam [] SAM APP_CLOSE {"app_id":"org.nphil.lumatv.gfn","caller":"com.webos.lunasend-27161"} params: {"id":"org.nphil.lumatv.gfn"}
+2026-10-26T08:26:26.051936Z [14954.182475940] user.info sam [] SAM APP_CLOSE {"app_id":"org.nphil.lumatv.gfn","uid":"d021ccf0-73d9-4e42-a499-29c97d8ca9f0","action":"created_close_item"} 
+2026-10-26T08:26:26.051959Z [14954.182498480] user.info sam [] SAM APP_CLOSE {"app_id":"org.nphil.lumatv.gfn","pid":""} 
+2026-10-26T08:26:26.051980Z [14954.182519520] user.info sam [] SAM APP_CLOSE_ERR {"app_id":"org.nphil.lumatv.gfn","reason":"no_client"} close:897
+2026-10-26T08:26:26.052000Z [14954.182539780] user.info sam [] SAM APP_CLOSE {"app_id":"org.nphil.lumatv.gfn","uid":"d021ccf0-73d9-4e42-a499-29c97d8ca9f0","action":"removed_close_item"} 
+2026-10-26T08:26:26.052021Z [14954.182560200] user.err sam [] SAM APP_CLOSE_ERR {"app_id":"org.nphil.lumatv.gfn"} err_text: native app is not running
+04:27:52 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:27:54 put 1080p60_high_sdr_l41_20m.h264 -> /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+04:27:54 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     624392 kB
+CmaFree:          172752 kB
+04:28:09 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 1080p60-card 20 --proc lumatv-gfn-feeder --out /tmp/gfn/1080p60-card.measure.json > /tmp/gfn/1080p60-card.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/1080p60_high_sdr_l41_20m.h264 --codec h264 --size 1920x1080 --fps 60 --seconds 20  -w card > /tmp/gfn/1080p60-card.out 2>/tmp/gfn/1080p60-card.err &) && sleep 5 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/1080p60-card.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/1080p60-card.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/1080p60-card.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/1080p60-card.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/1080p60-card.picture
+
+04:28:17 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     626328 kB
+CmaFree:          172680 kB
+04:28:19 1080p60-card summary {"end": {"summary": true, "units": 600, "fed": 600, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 10.28, "loaded_ms": 359, "playing_ms": 359, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 11347, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [61, 60, 60, 60, 60, 60, 60, 60]} before=MemAvailable:     624392 kB CmaFree:          172752 kB after=MemAvailable:     626328 kB CmaFree:          172680 kB
+04:28:19 $ rm -f /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+
+04:28:42 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:28:44 put 1080p60_high_sdr_l41_20m.h264 -> /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+04:28:45 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     627436 kB
+CmaFree:          172244 kB
+04:29:00 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 1080p60-card 20 --proc lumatv-gfn-feeder --out /tmp/gfn/1080p60-card.measure.json > /tmp/gfn/1080p60-card.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/1080p60_high_sdr_l41_20m.h264 --codec h264 --size 1920x1080 --fps 60 --seconds 20  -w card > /tmp/gfn/1080p60-card.out 2>/tmp/gfn/1080p60-card.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/1080p60-card.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/1080p60-card.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/1080p60-card.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/1080p60-card.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/1080p60-card.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/1080p60-card.picture
+
+04:29:08 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     626652 kB
+CmaFree:          172292 kB
+04:29:09 1080p60-card summary {"end": {"summary": true, "units": 600, "fed": 600, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 10.28, "loaded_ms": 238, "playing_ms": 238, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 3, "wait_max_us": 6459, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [61, 60, 60, 60, 60, 60, 60, 60]} before=MemAvailable:     627436 kB CmaFree:          172244 kB after=MemAvailable:     626652 kB CmaFree:          172292 kB
+04:29:10 $ rm -f /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+
+04:29:21 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:29:25 put 1080p120_main10_hdr_l51_30m_ref1.hevc -> /tmp/gfn/1080p120_main10_hdr_l51_30m_ref1.hevc
+04:29:25 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     614968 kB
+CmaFree:          172852 kB
+04:29:41 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 1080p120 20 --proc lumatv-gfn-feeder --out /tmp/gfn/1080p120.measure.json > /tmp/gfn/1080p120.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/1080p120_main10_hdr_l51_30m_ref1.hevc --codec h265 --size 1920x1080 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/1080p120.out 2>/tmp/gfn/1080p120.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/1080p120.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/1080p120.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/1080p120.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/1080p120.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/1080p120.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/1080p120.picture
+
+04:29:48 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     615232 kB
+CmaFree:          169096 kB
+04:29:50 1080p120 summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 229, "playing_ms": 229, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 4596, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     614968 kB CmaFree:          172852 kB after=MemAvailable:     615232 kB CmaFree:          169096 kB
+04:29:50 $ rm -f /tmp/gfn/1080p120_main10_hdr_l51_30m_ref1.hevc
+
+04:29:51 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:29:56 put 1440p120_main10_hdr_l51_50m_ref1.hevc -> /tmp/gfn/1440p120_main10_hdr_l51_50m_ref1.hevc
+04:29:57 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     594144 kB
+CmaFree:          170424 kB
+04:30:12 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 1440p120 20 --proc lumatv-gfn-feeder --out /tmp/gfn/1440p120.measure.json > /tmp/gfn/1440p120.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/1440p120_main10_hdr_l51_50m_ref1.hevc --codec h265 --size 2560x1440 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/1440p120.out 2>/tmp/gfn/1440p120.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/1440p120.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/1440p120.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/1440p120.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/1440p120.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/1440p120.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/1440p120.picture
+
+04:30:20 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     592456 kB
+CmaFree:          169192 kB
+04:30:22 1440p120 summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 279, "playing_ms": 279, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 5387, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     594144 kB CmaFree:          170424 kB after=MemAvailable:     592456 kB CmaFree:          169192 kB
+04:30:22 $ rm -f /tmp/gfn/1440p120_main10_hdr_l51_50m_ref1.hevc
+
+04:30:22 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:30:28 put 4k60_main10_hdr_l51_50m_ref1.hevc -> /tmp/gfn/4k60_main10_hdr_l51_50m_ref1.hevc
+04:30:28 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     593624 kB
+CmaFree:          170368 kB
+04:30:44 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k60 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k60.measure.json > /tmp/gfn/4k60.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k60_main10_hdr_l51_50m_ref1.hevc --codec h265 --size 3840x2160 --fps 60 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k60.out 2>/tmp/gfn/4k60.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k60.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k60.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k60.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k60.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k60.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k60.picture
+
+04:30:52 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     589008 kB
+CmaFree:          168196 kB
+04:30:53 4k60 summary {"end": {"summary": true, "units": 600, "fed": 1201, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 303, "playing_ms": 303, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 1, "wait_max_us": 12284, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [61, 60, 60, 60, 60, 60, 60, 60]} before=MemAvailable:     593624 kB CmaFree:          170368 kB after=MemAvailable:     589008 kB CmaFree:          168196 kB
+04:30:53 $ rm -f /tmp/gfn/4k60_main10_hdr_l51_50m_ref1.hevc
+
+04:30:54 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:31:00 put 4k120_main10_hdr_l52_50m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_50m_ref1.hevc
+04:31:00 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     592616 kB
+CmaFree:          168576 kB
+04:31:16 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k120-50m 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k120-50m.measure.json > /tmp/gfn/4k120-50m.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_50m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k120-50m.out 2>/tmp/gfn/4k120-50m.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k120-50m.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k120-50m.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k120-50m.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-50m.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-50m.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k120-50m.picture
+
+04:31:23 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     590368 kB
+CmaFree:          167752 kB
+04:31:25 4k120-50m summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 215, "playing_ms": 215, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 1994, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     592616 kB CmaFree:          168576 kB after=MemAvailable:     590368 kB CmaFree:          167752 kB
+04:31:25 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_50m_ref1.hevc
+
+04:31:25 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:31:34 put 4k120_main10_hdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+04:31:34 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     557472 kB
+CmaFree:          170188 kB
+04:31:50 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k120-80m 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k120-80m.measure.json > /tmp/gfn/4k120-80m.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k120-80m.out 2>/tmp/gfn/4k120-80m.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k120-80m.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k120-80m.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k120-80m.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-80m.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-80m.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k120-80m.picture
+
+04:31:57 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     558332 kB
+CmaFree:          170660 kB
+04:31:59 4k120-80m summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 259, "playing_ms": 259, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 2436, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     557472 kB CmaFree:          170188 kB after=MemAvailable:     558332 kB CmaFree:          170660 kB
+04:31:59 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+
+04:31:59 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:32:11 put 4k120_main10_hdr_l52_100m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_100m_ref1.hevc
+04:32:11 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     544924 kB
+CmaFree:          178184 kB
+04:32:26 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k120-100m 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k120-100m.measure.json > /tmp/gfn/4k120-100m.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_100m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k120-100m.out 2>/tmp/gfn/4k120-100m.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k120-100m.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k120-100m.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k120-100m.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-100m.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-100m.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k120-100m.picture
+
+04:32:34 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     548848 kB
+CmaFree:          179720 kB
+04:32:35 4k120-100m summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 250, "playing_ms": 250, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 3, "wait_max_us": 2744, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     544924 kB CmaFree:          178184 kB after=MemAvailable:     548848 kB CmaFree:          179720 kB
+04:32:36 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_100m_ref1.hevc
+
+04:32:36 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:32:45 put 4k120_main10_hdr_l52_80m_ref4.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref4.hevc
+04:32:45 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     574836 kB
+CmaFree:          180564 kB
+04:33:01 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k120-80m-ref4 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k120-80m-ref4.measure.json > /tmp/gfn/4k120-80m-ref4.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref4.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k120-80m-ref4.out 2>/tmp/gfn/4k120-80m-ref4.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k120-80m-ref4.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k120-80m-ref4.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k120-80m-ref4.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-80m-ref4.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-80m-ref4.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k120-80m-ref4.picture
+
+04:33:08 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     571560 kB
+CmaFree:          179116 kB
+04:33:10 4k120-80m-ref4 summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 229, "playing_ms": 232, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 3797, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     574836 kB CmaFree:          180564 kB after=MemAvailable:     571560 kB CmaFree:          179116 kB
+04:33:10 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref4.hevc
+
+04:33:11 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:33:20 put 4k120_main_sdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main_sdr_l52_80m_ref1.hevc
+04:33:20 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     575148 kB
+CmaFree:          179804 kB
+04:33:36 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k120-sdr-80m 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k120-sdr-80m.measure.json > /tmp/gfn/4k120-sdr-80m.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main_sdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k120-sdr-80m.out 2>/tmp/gfn/4k120-sdr-80m.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k120-sdr-80m.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k120-sdr-80m.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k120-sdr-80m.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-sdr-80m.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-sdr-80m.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k120-sdr-80m.picture
+
+04:33:43 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     562756 kB
+CmaFree:          169116 kB
+04:33:45 4k120-sdr-80m summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 234, "playing_ms": 234, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 5113, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     575148 kB CmaFree:          179804 kB after=MemAvailable:     562756 kB CmaFree:          169116 kB
+04:33:45 $ rm -f /tmp/gfn/4k120_main_sdr_l52_80m_ref1.hevc
+
+04:33:46 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:33:55 put 4k120_main10_hdr_l51_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l51_80m_ref1.hevc
+04:33:55 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     567028 kB
+CmaFree:          170044 kB
+04:34:11 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run 4k120-l51-80m 20 --proc lumatv-gfn-feeder --out /tmp/gfn/4k120-l51-80m.measure.json > /tmp/gfn/4k120-l51-80m.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l51_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr -w card > /tmp/gfn/4k120-l51-80m.out 2>/tmp/gfn/4k120-l51-80m.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/4k120-l51-80m.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/4k120-l51-80m.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/4k120-l51-80m.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-l51-80m.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/4k120-l51-80m.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/4k120-l51-80m.picture
+
+04:34:18 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     563744 kB
+CmaFree:          168516 kB
+04:34:20 4k120-l51-80m summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 216, "playing_ms": 216, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 2871, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     567028 kB CmaFree:          170044 kB after=MemAvailable:     563744 kB CmaFree:          168516 kB
+04:34:20 $ rm -f /tmp/gfn/4k120_main10_hdr_l51_80m_ref1.hevc
+
+04:34:47 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:34:56 put 4k120_main10_hdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+04:34:56 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     566220 kB
+CmaFree:          168848 kB
+04:35:12 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run g1-4k120-80m-300s 300 --proc lumatv-gfn-feeder --out /tmp/gfn/g1-4k120-80m-300s.measure.json > /tmp/gfn/g1-4k120-80m-300s.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 300 --loop --hdr -w card > /tmp/gfn/g1-4k120-80m-300s.out 2>/tmp/gfn/g1-4k120-80m-300s.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/g1-4k120-80m-300s.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/g1-4k120-80m-300s.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/g1-4k120-80m-300s.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/g1-4k120-80m-300s.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/g1-4k120-80m-300s.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/g1-4k120-80m-300s.picture
+
+04:39:59 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     563156 kB
+CmaFree:          167576 kB
+04:40:01 g1-4k120-80m-300s summary {"end": {"summary": true, "units": 1200, "fed": 36001, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 300.3, "loaded_ms": 203, "playing_ms": 203, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 8334, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     566220 kB CmaFree:          168848 kB after=MemAvailable:     563156 kB CmaFree:          167576 kB
+04:40:01 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+
+04:40:02 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:40:11 put 4k120_main10_hdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+04:40:11 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     566212 kB
+CmaFree:          168160 kB
+04:40:27 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run e1-drop0 20 --proc lumatv-gfn-feeder --out /tmp/gfn/e1-drop0.measure.json > /tmp/gfn/e1-drop0.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr --drop-threshold 0 -w card > /tmp/gfn/e1-drop0.out 2>/tmp/gfn/e1-drop0.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/e1-drop0.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/e1-drop0.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/e1-drop0.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/e1-drop0.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/e1-drop0.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/e1-drop0.picture
+
+04:40:34 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     561480 kB
+CmaFree:          166052 kB
+04:40:36 e1-drop0 summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 226, "playing_ms": 226, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 2233, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     566212 kB CmaFree:          168160 kB after=MemAvailable:     561480 kB CmaFree:          166052 kB
+04:40:36 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+
+04:40:37 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:40:46 put 4k120_main10_hdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+04:40:46 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     563872 kB
+CmaFree:          166640 kB
+04:41:02 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run e1-drop2 20 --proc lumatv-gfn-feeder --out /tmp/gfn/e1-drop2.measure.json > /tmp/gfn/e1-drop2.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr --drop-threshold 2 -w card > /tmp/gfn/e1-drop2.out 2>/tmp/gfn/e1-drop2.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/e1-drop2.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/e1-drop2.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/e1-drop2.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/e1-drop2.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/e1-drop2.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/e1-drop2.picture
+
+04:41:09 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     563568 kB
+CmaFree:          166212 kB
+04:41:11 e1-drop2 summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 233, "playing_ms": 235, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 4997, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     563872 kB CmaFree:          166640 kB after=MemAvailable:     563568 kB CmaFree:          166212 kB
+04:41:11 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+
+04:41:11 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:41:20 put 4k120_main10_hdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+04:41:21 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     567112 kB
+CmaFree:          167912 kB
+04:41:36 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run e1-drop4 20 --proc lumatv-gfn-feeder --out /tmp/gfn/e1-drop4.measure.json > /tmp/gfn/e1-drop4.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr --drop-threshold 4 -w card > /tmp/gfn/e1-drop4.out 2>/tmp/gfn/e1-drop4.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/e1-drop4.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/e1-drop4.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/e1-drop4.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/e1-drop4.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/e1-drop4.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/e1-drop4.picture
+
+04:41:44 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     560916 kB
+CmaFree:          165092 kB
+04:41:45 e1-drop4 summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 247, "playing_ms": 247, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 3467, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     567112 kB CmaFree:          167912 kB after=MemAvailable:     560916 kB CmaFree:          165092 kB
+04:41:45 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+
+04:41:46 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:41:54 put 4k120_main10_hdr_l52_80m_ref1.hevc -> /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+04:41:55 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     563852 kB
+CmaFree:          166756 kB
+04:42:10 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run e1-pts-ms 20 --proc lumatv-gfn-feeder --out /tmp/gfn/e1-pts-ms.measure.json > /tmp/gfn/e1-pts-ms.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 20 --loop --hdr --pts-unit ms -w card > /tmp/gfn/e1-pts-ms.out 2>/tmp/gfn/e1-pts-ms.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/e1-pts-ms.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/e1-pts-ms.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/e1-pts-ms.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/e1-pts-ms.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/e1-pts-ms.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/e1-pts-ms.picture
+
+04:42:18 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     559896 kB
+CmaFree:          166004 kB
+04:42:19 e1-pts-ms summary {"end": {"summary": true, "units": 1200, "fed": 2401, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 20.3, "loaded_ms": 223, "playing_ms": 232, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 8317, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     563852 kB CmaFree:          166756 kB after=MemAvailable:     559896 kB CmaFree:          166004 kB
+04:42:19 $ rm -f /tmp/gfn/4k120_main10_hdr_l52_80m_ref1.hevc
+
+04:42:20 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:42:22 put 4k120_main444_10_hdr_l52_80m_negative.hevc -> /tmp/gfn/4k120_main444_10_hdr_l52_80m_negative.hevc
+04:42:22 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     641968 kB
+CmaFree:          165796 kB
+04:42:37 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run e2-444 10 --proc lumatv-gfn-feeder --out /tmp/gfn/e2-444.measure.json > /tmp/gfn/e2-444.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_main444_10_hdr_l52_80m_negative.hevc --codec h265 --size 3840x2160 --fps 120 --seconds 10 --loop --hdr -w card > /tmp/gfn/e2-444.out 2>/tmp/gfn/e2-444.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/e2-444.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/e2-444.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/e2-444.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/e2-444.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/e2-444.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/e2-444.picture
+
+04:42:38 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     641816 kB
+CmaFree:          166976 kB
+04:42:39 e2-444 summary {"end": {"summary": true, "units": 240, "fed": 1201, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 10.3, "loaded_ms": 205, "playing_ms": 205, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 0, "wait_max_us": 1384, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     641968 kB CmaFree:          165796 kB after=MemAvailable:     641816 kB CmaFree:          166976 kB
+04:42:40 $ rm -f /tmp/gfn/4k120_main444_10_hdr_l52_80m_negative.hevc
+
+04:42:40 $ dmesg | tail -80 | grep -ai 'color\|colour\|chroma\|444\|decoder\|vdec\|error' || true
+[15920.675091] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:0, input:0,3840x2160@1200, hdr:0, hdmi444:0
+[15920.677922] vmcu: [15911.615595]     vdec NOT  (059)                   _flush 3696: vdec:506d8000
+[15920.677986] vmcu: [15911.615852]     vdec NOT  (059)                   _flush 3736: done
+[15920.685370] media_event  INF (30873:30873) gst_lx_videodec_change_state 1002: <lxvideodec0> lxvdec_close(): 0xeb905a90
+[15920.685721] vmcu: [15911.623471]     vdec NOT  (059)       destroy_submodules 2830: vdec:506d8000, flush control
+[15920.685780] vmcu: [15911.623666] dpb_cleaner NOT  (059) dpb_cleaner_unregister_decoder  139: unregister 0(506d8000)
+[15920.685821] vmcu: [15911.623705]     vdec NOT  (059) destroy_submodules_locked 2747: vdec:506d8000, close control 506db000
+[15920.686690] media_event  NOT (30873:30873) gst_lx_videodec_change_state 1005: <lxvideodec0> lxvdec_close()
+[15920.716444] LOGM_Close.667: device closed (1810:0)
+04:42:40 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:42:45 put 4k120_av1_main10_hdr_50m.obu -> /tmp/gfn/4k120_av1_main10_hdr_50m.obu
+04:42:45 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     613700 kB
+CmaFree:          167264 kB
+04:43:01 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run e2-av1 10 --proc lumatv-gfn-feeder --out /tmp/gfn/e2-av1.measure.json > /tmp/gfn/e2-av1.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/4k120_av1_main10_hdr_50m.obu --codec av1 --size 3840x2160 --fps 120 --seconds 10 --loop --hdr -w card > /tmp/gfn/e2-av1.out 2>/tmp/gfn/e2-av1.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/e2-av1.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/e2-av1.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/e2-av1.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/e2-av1.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/e2-av1.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/e2-av1.picture
+
+04:43:01 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     611292 kB
+CmaFree:          165832 kB
+04:43:03 e2-av1 summary {"end": {"summary": true, "units": 1200, "fed": 1201, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 10.3, "loaded_ms": 228, "playing_ms": 228, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 5, "wait_max_us": 2460, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [121, 120, 120, 120, 120, 120, 120, 120]} before=MemAvailable:     613700 kB CmaFree:          167264 kB after=MemAvailable:     611292 kB CmaFree:          165832 kB
+04:43:03 $ rm -f /tmp/gfn/4k120_av1_main10_hdr_50m.obu
+
+04:43:03 put tone_48k_stereo_20ms.opuspkts -> /tmp/gfn/tone_48k_stereo_20ms.opuspkts
+04:43:04 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264 /tmp/gfn/*.obu
+
+04:43:06 put 1080p60_high_sdr_l41_20m.h264 -> /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+04:43:06 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     633252 kB
+CmaFree:          165112 kB
+04:43:22 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (python3 /tmp/measure.py run audio-muted 20 --proc lumatv-gfn-feeder --out /tmp/gfn/audio-muted.measure.json > /tmp/gfn/audio-muted.measure.txt 2>&1 &) && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/1080p60_high_sdr_l41_20m.h264 --codec h264 --size 1920x1080 --fps 60 --seconds 20 --audio /tmp/gfn/tone_48k_stereo_20ms.opuspkts -w card > /tmp/gfn/audio-muted.out 2>/tmp/gfn/audio-muted.err &) && sleep 3 && luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/gfn/shot.png","method":"DISPLAY","format":"PNG","width":960,"height":540}' > /tmp/gfn/audio-muted.capture && sleep 2 && awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo > /tmp/gfn/audio-muted.mem-during && cat /proc/lg/de/win0/status > /tmp/gfn/audio-muted.win0 2>/dev/null; grep -i vsync /proc/interrupts > /tmp/gfn/audio-muted.irq1; sleep 10; grep -i vsync /proc/interrupts > /tmp/gfn/audio-muted.irq2; luna-send -n 1 luna://com.webos.settingsservice/getSystemSettings '{"category":"picture","keys":["pictureMode"]}' > /tmp/gfn/audio-muted.picture
+
+04:43:29 $ awk '/CmaFree|MemAvailable/ {print}' /proc/meminfo
+MemAvailable:     636484 kB
+CmaFree:          165216 kB
+04:43:30 audio-muted summary {"end": {"summary": true, "units": 600, "fed": 600, "dropped": 0, "afed": 501, "adropped": 0, "retries": 0, "seconds": 10.3, "loaded_ms": 255, "playing_ms": 255, "loaded": 1, "playing": 1, "error": 0, "audio_route": "opus", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 13052, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [61, 60, 60, 60, 60, 60, 60, 60]} before=MemAvailable:     633252 kB CmaFree:          165112 kB after=MemAvailable:     636484 kB CmaFree:          165216 kB
+04:43:31 $ rm -f /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+
+04:43:31 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264
+
+04:43:34 put 1080p60_high_sdr_l41_20m.h264 -> /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+04:43:37 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (./lumatv-gfn-feeder --serve /tmp/gfn/window.sock --once -w card > /tmp/gfn/window-serve.out 2>&1 &) && sleep 3 && cat /tmp/gfn/window-serve.out
+gfn-feeder 15981805: serving /tmp/gfn/window.sock, window _Window_Id_35, library libNDL_directmedia.so.1
+{"serving":"/tmp/gfn/window.sock","window":"_Window_Id_35","library":"libNDL_directmedia.so.1","features":31,"pid":31394}
+04:43:37 window id _Window_Id_35
+04:43:42 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (./lumatv-gfn-feeder --play /tmp/gfn/1080p60_high_sdr_l41_20m.h264 --codec h264 --size 1920x1080 --fps 60 --seconds 12 --window-id _Window_Id_35 -w card > /tmp/gfn/window-play.out 2>&1 &) && sleep 5
+
+04:43:52 window-id summary {"end": {"summary": true, "units": 600, "fed": 0, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 0.3, "loaded_ms": -1, "playing_ms": -1, "loaded": 0, "playing": 0, "error": 1, "audio_route": "none", "adecode_errors": 0, "events": {"18": 1}, "video_info": "", "exit": 6}, "p99": 0, "wait_max_us": 0, "buffer_full": 0, "first_playing_t": null, "fed_per_s": [0]}
+04:43:52 $ pkill -f "lumatv-gfn-feeder --serve /tmp/gfn/window.sock" || true; rm -f /tmp/gfn/*.h264
+
+04:44:21 $ mkdir -p /tmp/gfn && rm -f /tmp/gfn/*.hevc /tmp/gfn/*.h264
+
+04:44:24 put 1080p60_high_sdr_l41_20m.h264 -> /tmp/gfn/1080p60_high_sdr_l41_20m.h264
+04:44:27 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --serve /tmp/gfn/window.sock --once -w card > /tmp/gfn/window-serve.out 2>&1 &) && sleep 3 && cat /tmp/gfn/window-serve.out
+gfn-feeder 16031701: serving /tmp/gfn/window.sock, window _Window_Id_36, library libNDL_directmedia.so.1
+{"serving":"/tmp/gfn/window.sock","window":"_Window_Id_36","library":"libNDL_directmedia.so.1","features":31,"pid":31554}
+04:44:27 window id _Window_Id_36
+04:44:32 $ cd /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn && (XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 ./lumatv-gfn-feeder --play /tmp/gfn/1080p60_high_sdr_l41_20m.h264 --codec h264 --size 1920x1080 --fps 60 --seconds 12 --window-id _Window_Id_36 -w card > /tmp/gfn/window-play.out 2>&1 &) && sleep 5
+
+04:44:42 window-id summary {"end": {"summary": true, "units": 600, "fed": 600, "dropped": 0, "afed": 0, "adropped": 0, "retries": 0, "seconds": 10.28, "loaded_ms": 176, "playing_ms": 176, "loaded": 1, "playing": 1, "error": 0, "audio_route": "none", "adecode_errors": 0, "events": {"22": 1, "26": 1}, "video_info": "", "exit": 0}, "p99": 2, "wait_max_us": 3251, "buffer_full": 0, "first_playing_t": 1, "fed_per_s": [61, 60, 60, 60, 60, 60, 60, 60]}
+04:44:42 $ pkill -f "lumatv-gfn-feeder --serve /tmp/gfn/window.sock" || true; rm -f /tmp/gfn/*.h264
+
+04:44:58 put org.nphil.lumatv.gfn_0.1.0_all.ipk -> /tmp/lumatv-gfn.ipk
+04:44:58 $ sha256sum /tmp/lumatv-gfn.ipk
+1b388231f1ae46a4bb0742ce9c20138a30bdcab2178c0e37ed55461a39d742a9  /tmp/lumatv-gfn.ipk
+04:44:59 $ luna-send -n 4 -f luna://com.webos.appInstallService/dev/install '{"id":"org.nphil.lumatv.gfn","ipkUrl":"/tmp/lumatv-gfn.ipk","subscribe":true}'
+{
+    "subscribed": true,
+    "returnValue": true
+}
+{
+    "statusValue": 268,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-31715",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+{
+    "statusValue": 269,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-31715",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+{
+    "statusValue": 270,
+    "details": {
+        "unpackFileSize": "0",
+        "modifiedTime": "",
+        "permissionLevel": "none",
+        "installBasePath": "/media/developer",
+        "appType": "",
+        "receivedSize": "0",
+        "updateType": "",
+        "verified": false,
+        "progress": 100,
+        "downgrade": true,
+        "totalSize": "0",
+        "pkgType": "",
+        "packageId": "",
+        "ipkFile": "/tmp/lumatv-gfn.ipk",
+        "paused": false,
+        "simpleStatus": "install",
+        "state": "ipk verifying",
+        "client": "com.webos.lunasend-31715",
+        "update": false
+    },
+    "id": "org.nphil.lumatv.gfn"
+}
+04:44:59 $ ls -la /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn; sha256sum /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder
+total 344
+drwxr-xr-x    5 root     root          4096 Dec 31  1969 .
+drwxrwxrwx   17 root     root          4096 Oct 26 04:25 ..
+-rw-r--r--    1 root     root           528 Oct 26 04:25 appinfo.json
+drwxr-xr-x    3 root     root          4096 Dec 31  1969 assets
+drwxr-xr-x    2 root     root          4096 Dec 31  1969 bin64
+drwxr-xr-x    3 root     root          4096 Dec 31  1969 gfx64
+-rw-r--r--    1 root     root          5831 Dec 31  1969 icon.png
+-rw-r--r--    1 root     root         12377 Dec 31  1969 largeIcon.png
+-rwxr-xr-x    1 root     root        169484 Dec 31  1969 lumatv-gfn-feeder
+-rwxr-xr-x    1 root     root           459 Dec 31  1969 run64.sh
+-rw-r--r--    1 root     root        124330 Dec 31  1969 splash.png
+566b3427ae2be2a9027958bc4acc3ec9994ccb96720eb1c492f190446b38ed08  /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder
+04:45:25 $ pgrep -fl lumatv-gfn; luna-send -n 1 luna://com.webos.applicationManager/running "{}"
+31825 lumatv-gfn-feed
+31832 sh
+31841 ld-linux-aarch6
+31905 sh
+{"running":[{"webprocessid":"15371","defaultWindowType":"card","id":"com.webos.app.home","processid":"15371","appType":"web"},{"webprocessid":"","defaultWindowType":"card","id":"com.webos.app.hdmi3","processid":"7890","appType":"native"},{"webprocessid":"","defaultWindowType":"card","id":"org.nphil.lumatv.gfn","processid":"31825","appType":"native"}],"returnValue":true}
+04:45:43 $ pgrep -fl lumatv-gfn || true
+32045 sh
+04:45:43 SAM log:
+2026-10-26T08:45:36.262778Z [16104.393317540] user.debug webos-preload-manager [] webos-preload-manager DBGMSG {} onGetForegroundApps (org.nphil.lumatv.gfn)
+2026-10-26T08:45:36.262977Z [16104.393516780] user.info blegatt [] blegatt blegattTaskManager.cpp {} setForegrounAppInfo:293] receive app id: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.263018Z [16104.393557600] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1413): QualityManager:setting Foreground AppId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.263039Z [16104.393578640] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(1089): eventForegroundAppId :: appId [org.nphil.lumatv.gfn]
+2026-10-26T08:45:36.263081Z [16104.393620880] user.info audiod [] AudioD FOREGROUND_APP_MANAGER {} foregroundAppManager.cpp(383): Call getSystemSettings with params: {"category":"sound","app_id":"org.nphil.lumatv.gfn","keys":["TTSMixingRatio","forceOutputDDPLUS"]}
+2026-10-26T08:45:36.266755Z [16104.397296960] user.info btaudiosnk [] bluetooth-audio-sink APPMANAGER {} appsArray[0], windowType:[_WEBOS_WINDOW_TYPE_CARD], foregroundAppId:[org.nphil.lumatv.gfn]    [_adapter_appManager_getForegroundAppsCB (174)] 
+2026-10-26T08:45:36.266861Z [16104.397401040] user.info btaudiosnk [] bluetooth-audio-sink APPMANAGER {} gForegroundAppId : [org.nphil.lumatv.gfn]    [_adapter_appManager_getForegroundAppsCB (207)] 
+2026-10-26T08:45:36.266976Z [16104.397515500] user.info legacy-broadcast-atsc [] C_VL_IN_SERVICEINFO ARC {} [n0000020][appinfo_getForegroundAppInfoCallback][START] [_gpszPrevAppId:org.nphil.lumatv.gfn] [pszAppId:] [bFirstCalled:0]
+2026-10-26T08:45:36.267202Z [16104.397741700] user.info pqcontroller [] pqcontroller LS2_SUBSCRIBED {} App ID was changed to org.nphil.lumatv.gfn!!
+2026-10-26T08:45:36.267402Z [16104.397941700] user.info pqcontroller [] pqcontroller PQCONTROLLER_CTRL {} updateForegroundAppInfo_AppId(org.nphil.lumatv.gfn)
+2026-10-26T08:45:36.267548Z [16104.398087340] user.info arccontroller [] arccontroller ARCCONTROLLER_INFO {} [set_foreground_info][3414] foreground info [previous:current]:[org.nphil.lumatv.gfn:],  m_foreground.size[2]
+2026-10-26T08:45:36.267577Z [16104.398116880] user.info arccontroller [] arccontroller ARCCONTROLLER_INFO {} [update_2depth_status] m_foreground.front()[org.nphil.lumatv.gfn], m_foreground.back()[], m_hdmiarc_appname[com.webos.app.hdmi2]
+2026-10-26T08:45:36.267921Z [16104.398461000] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(190): ModuleManager:notifyLastAppId org.nphil.lumatv.gfn
+2026-10-26T08:45:36.268006Z [16104.398545620] user.info audiod [] AudioD NL_SOUND {"tv_speaker_volume":"","foreground_app_id":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:45:36.268027Z [16104.398566180] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(180): ModuleManager:notifyForegroundAppId appId:org.nphil.lumatv.gfn
+2026-10-26T08:45:36.268413Z [16104.398952540] user.info extinput-integration [] extinput-service ExtinputConfig {} [setConfig] :: [applicationmanager // foregroundAppInfo] {"subscribed":true,"returnValue":true,"appId":"org.nphil.lumatv.gfn","appCategory":[],"processId":"","windowId":""} => {"subscribed":true,"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} [dim : N/A]
+2026-10-26T08:45:36.268631Z [16104.399170300] user.info extinput-integration [] extinput-integration EdidControl {} [updateForegroundApp] :: Update foreground app info [org.nphil.lumatv.gfn -> ]
+2026-10-26T08:45:36.268695Z [16104.399234140] user.info audiod [] AudioD DOLBY_MANAGER {} dolbyManager.cpp(339): DolbyManager:setting Foreground AppId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.268778Z [16104.399317120] user.info audiod [] AudioD HEADPHONE_DETECTION_MANAGER {} headPhoneDetectionManager.cpp(363): eventForegroundAppId, appId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.268820Z [16104.399359400] user.info audiod [] AudioD MASTER_VOLUME_MANAGER {} masterVolumeUtil.cpp(461): MasterVolumeManager: setting Foreground AppId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.268840Z [16104.399379980] user.info audiod [] AudioD DOLBY_MANAGER {} tvManager.cpp(2200): TVManager:setting Foreground AppId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.268962Z [16104.399501400] user.info audiod [] AudioD QUALITY_MANAGER {} qualityManager.cpp(1413): QualityManager:setting Foreground AppId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.269003Z [16104.399542940] user.info audiod [] AudioD SETTINGS_SERVICE_MANAGER {} settingsServiceManager.cpp(1089): eventForegroundAppId :: appId [org.nphil.lumatv.gfn]
+2026-10-26T08:45:36.269046Z [16104.399585420] user.info audiod [] AudioD FOREGROUND_APP_MANAGER {} foregroundAppManager.cpp(345): updateLastForegroundAppId Current App[1] [org.nphil.lumatv.gfn]
+2026-10-26T08:45:36.269242Z [16104.399782060] user.warning blegatt [] blegatt MSG_TRUNCATED {"MSGID":"blegattAdapter.cpp","CAUSE":"Log message exceeded 1024 bytes","TRUNCATED_MSG":"getAppInfoCallback:264] receiveMessage: {\"appId\":\"org.nphil.lumatv.gfn\",\"returnValue\":true,\"appInfo\":{\"closeOnBackground\":false ..."}
+2026-10-26T08:45:36.269268Z [16104.399807420] user.info blegatt [] blegatt blegattAdapter.cpp {} getAppInfoCallback:264] receiveMessage: {"appId":"org.nphil.lumatv.gfn","returnValue":true,"appInfo":{"closeOnBackground":false,"checkUpdateOnLaunch":true,"title":"GeForce NOW","icon":"icon.png","tileSize":"normal","inAppSetting":false,"closeOnRotation":false,"nativeLifeCycleInterfaceVersion":2,"folderPath":"/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn","transparent":true,"version":"0.1.0","trustLevel":"default","hasPromotion":false,"lockable":true,"enableCBSPolicy":false,"requiredMemory":320,"systemApp":false,"largeIcon":"largeIcon.png","main":"lumatv-gfn-feeder","visible":true,"privilegedJail":false,"inspectable":true,"defaultWindowType":"card","activeFolderPath":"/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn","splashBackground":"splash.png","deeplinkingParams":"","vendor":"nphil","iconColor":"#1a1a1a","accessibility":{"supportsAudioGuidance":false},"type":"native","appDescription":"GeForce NOW on th
+2026-10-26T08:45:36.272135Z [16104.402675400] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _foregroundAppInputDataCallback: got '{"subscribed":false,"category":"sound","method":"getSystemSettings","app_id":"org.nphil.lumatv.gfn","dimension":{},"settings":{"forceOutputDDPLUS":"false","TTSMixingRatio":"0"},"returnValue":true}'
+2026-10-26T08:45:36.272200Z [16104.402739280] user.info audiod [] AudioD FOREGROUND_APP_MANAGER {} foregroundAppManager.cpp(457): setting Foreground App Input Volume received: 0, mForegroundAppId: org.nphil.lumatv.gfn
+2026-10-26T08:45:36.272635Z [16104.403174820] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"appId -> org.nphil.lumatv.gfn"} 
+2026-10-26T08:45:36.272657Z [16104.403196020] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"org.nphil.lumatv.gfn is foreground app."} 
+2026-10-26T08:45:36.272726Z [16104.403265760] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"appId -> org.nphil.lumatv.gfn"} 
+2026-10-26T08:45:36.272747Z [16104.403286380] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"org.nphil.lumatv.gfn is foreground app."} 
+2026-10-26T08:45:36.286817Z [16104.417362400] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getSystemSettingsResponse:{"subscribed":true,"category":"picture","method":"getSystemSettings","app_id":"org.nphil.lumatv.gfn","dimension":{"pictureMode":"filmMaker","input":"default"},"settings":{"truMotionMode":"off"},"returnValue":true}
+2026-10-26T08:45:36.351863Z [16104.482403500] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"org.nphil.lumatv.gfn","status":"cancel_kill_timer"} 
+2026-10-26T08:45:36.351889Z [16104.482429220] user.info sam [] SAM APP_CLOSED {"app_id":"org.nphil.lumatv.gfn","type":"native","pid":"31825","exit_status":0} 
+2026-10-26T08:45:36.351912Z [16104.482451500] user.info sam [] SAM RUNTIME_STATUS {"app_id":"org.nphil.lumatv.gfn","current":5,"new":0} runtime_status_changed
+2026-10-26T08:45:36.351933Z [16104.482472520] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"stop","appId":"org.nphil.lumatv.gfn","returnValue":true,"reason":"undefined"}} 
+2026-10-26T08:45:36.351958Z [16104.482497520] user.info sam [] SAM LIFE_STATUS {"app_id":"org.nphil.lumatv.gfn","uid":"","current":6,"new":0} life_status_changed
+2026-10-26T08:45:36.351996Z [16104.482535600] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"stop","appId":"org.nphil.lumatv.gfn","appCategory":[],"processId":"31825","type":"native"}} 
+2026-10-26T08:45:36.352117Z [16104.482657000] user.info sam [] SAM RUNNING_LIST {"app_id":"org.nphil.lumatv.gfn","action":"removed"} 
+2026-10-26T08:45:36.352343Z [16104.482883180] user.info sam [] SAM NATIVE_CLIENT_INFO {"app_id":"org.nphil.lumatv.gfn"} client_info_removed
+2026-10-26T08:45:36.353426Z [16104.483972660] user.info memchute [] MM MEMMGR_MEMUNIT {"appId":"org.nphil.lumatv.gfn"} is closed
+2026-10-26T08:45:36.353520Z [16104.484060500] user.info umediaserver [] ums.default APP_STATUS_UPDATE {"TIMESTAMP":16104.483569680,"CODE_POINT":"<AppObserver.cpp:appLifeStatusCallback(128)>"} appLifeStatusEvt: {"reason":"undefined","status":"stop","appId":"org.nphil.lumatv.gfn","appCategory":[],"processId":"31825","type":"native"}
+2026-10-26T08:45:36.353557Z [16104.484097040] user.info lginput2 [] lginput2 SENSOR {"TYPE":"INFO"} [mrcu_sensor_cancelSensorEventDataByAppLifeStatus (1408)] #request cancel subscription app/service = (org.nphil.lumatv.gfn)#^M
+2026-10-26T08:45:36.353871Z [16104.484415860] user.info surface-manager [] surface-manager LSM {} WebOSCoreCompositor::applySurfaceItemClosePolicy, reason set, processing item WebOSSurfaceItem(0x8862378, name="surfaceItem_org.nphil.lumatv.gfn_WEBOS_WINDOW_TYPE_CARD", parent=0x0, geometry=0,0 0x0) WebOSSurfaceItem::ItemStateProxy ""
+2026-10-26T08:45:36.354157Z [16104.484696880] user.warning surface-manager [] surface-manager LSM {} WebOSCoreCompositor::processSurfaceItem, unhandled case of the transition to ItemStateProxy for WebOSSurfaceItem(0x8862378, name="surfaceItem_org.nphil.lumatv.gfn_WEBOS_WINDOW_TYPE_CARD", parent=0x0, geometry=0,0 0x0) WebOSSurfaceItem::ItemStateProxy "undefined"
+2026-10-26T08:45:36.356372Z [16104.486912580] user.info tvrm [] TVRMSRV TVRM_INFOMGR_STATUS {"status":"app_life_status_info_updated","app_status":"stop","app_id":"org.nphil.lumatv.gfn"} 
+2026-10-26T08:45:37.261694Z [16105.392233700] user.info surface-manager [] surface-manager LSM {} [StarfishCompositor:SCREENCAPTURE] check_to_need_screen_capture,  app_id: "org.nphil.lumatv.gfn" ,  app_type: "_WEBOS_WINDOW_TYPE_CARD" ,  is_hidden: N ,  is_part_of_group: N
+2026-10-26T08:45:37.261736Z [16105.392275480] user.info surface-manager [] surface-manager LSM {} [StarfishCompositor:SCREENCAPTURE] prepare_screen_capture app_id: "org.nphil.lumatv.gfn" status:check_to_set_screen_screen_capture screen_capturing: false
+2026-10-26T08:45:37.261757Z [16105.392296460] user.info surface-manager [] surface-manager LSM {} current_screen_capture_path: "/tmp/snapshots/US2403294801981/org.nphil.lumatv.gfn_tmp_screen_snapshot.JPEG"
+2026-10-26T08:45:37.261782Z [16105.392321700] user.info surface-manager [] surface-manager LSM {} tmp_screen_capture_path_by_id: "/tmp/snapshots/US2403294801981/org.nphil.lumatv.gfn_tmp_screen_snapshot.JPEG"
+2026-10-26T08:45:37.261803Z [16105.392342880] user.info surface-manager [] surface-manager LSM {} new_screen_capture_path_by_id: "/tmp/snapshots/US2403294801981/org.nphil.lumatv.gfn_Mon_Oct_26_04_45_37_2026.JPEG"
+2026-10-26T08:45:37.261824Z [16105.392363540] user.warning surface-manager [] surface-manager LSM {} [StarfishCompositor:SCREENCAPTURE] prepare_screen_capture app_id: "org.nphil.lumatv.gfn" status: not_surfaced action: should_reset_screen_capture
+2026-10-26T08:45:37.263997Z [16105.394537100] user.info multiviewcontroller [] MVC MVC {} TID: 4654 [luna_wrapper_subscriptionReply, 158] LSSubscriptionReply called. key : getStatus, payload : {"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}
+2026-10-26T08:45:37.264208Z [16105.394747360] user.info multiviewcontroller [] MVC MVC {} TID: 4654 [luna_wrapper_subscriptionReply, 158] LSSubscriptionReply called. key : getMediaControlStatus, payload : {"returnValue":true,"mediaControlStatus":{"audioOutIndexList":[0],"requestedMode":"","requestedMainAppId":"","requestedSubAppId":"","toolType":"normalTV","inputMode":"none","usageType":"","mediaChangeState":"none","foregroundAppId":"org.nphil.lumatv.gfn","is4KHFRSignal":false,"mainAppId":"","processing":"not_multiview","audioOut":0,"mode":"full","subAppId":"","controlMode":"none"}}
+2026-10-26T08:45:37.264607Z [16105.395146660] user.info eplmanager [] eplmanager LS2_RECEIVED {} getStatus:{"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}
+2026-10-26T08:45:37.265397Z [16105.395936360] user.info starfish-media-pipeline [] smp.api handleMultiViewControllerStatus {"uid":"_fBTd99kgst8jLl", "tid": "2876", "msg":"[] response = {\"returnValue\":true,\"mediaControlStatus\":{\"audioOutIndexList\":[0],\"requestedMode\":\"\",\"requestedMainAppId\":\"\",\"requestedSubAppId\":\"\",\"toolType\":\"normalTV\",\"inputMode\":\"none\",\"usageType\":\"\",\"mediaChangeState\":\"none\",\"foregroundAppId\":\"org.nphil.lumatv.gfn\",\"is4KHFRSignal\":false,\"mainAppId\":\"\",\"processing\":\"not_multiview\",\"audioOut\":0,\"mode\":\"full\",\"subAppId\":\"\",\"controlMode\":\"none\"}}"} 
+2026-10-26T08:45:37.265423Z [16105.395962720] user.info screenmanager [] screenmanager SUBS_VALUE {} callback_getMultiViewControllerStatus={"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}
+2026-10-26T08:45:37.265450Z [16105.395989740] user.info eim [] CEC CEC_INFO {} [INFO] [LunaCallback_Multiviewcontroller_getStatus:4288] [{"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}]
+2026-10-26T08:45:37.266733Z [16105.397272080] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: getMultiviewStatusEvent: got '{"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}'
+2026-10-26T08:45:37.266764Z [16105.397303460] user.info audiod [] AudioD TV_MANAGER {} tvManager.cpp(2353): Sending getMultiviewStatusCallback, payload = {"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"requestedMode":"","releasedAppRole":"","mediaChangeState":"none","apps":[],"is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"audioOut":"main","foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","supportSubHDR":true,"subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""}
+2026-10-26T08:45:37.266832Z [16105.397371220] user.info extinput-integration [] extinput-integration xAdapterMultiviewController {} [getStatusCB] :: msg : {"status":{"processing":"not_multiview","appList":{},"prepareTargetAppId":"","usageType":"","layoutList":{},"orientation":"","requestedControlMode":"","mainAppLayout":{},"releasedAppRole":"","apps":[],"mediaChangeState":"none","requestedMode":"","is4KHFRSignal":false,"mode":"full","mainAppId":"","requestedAppList":{},"audioOutList":[{"index":0,"volume":100}],"suggestionQueryAppId":"","requestedAudioOutList":[],"workingEvent":"none","event":"NOP","inputMode":"none","supportMultiScreen":false,"subAppLayout":{},"supportSubHDR":true,"foregroundAppId":"org.nphil.lumatv.gfn","subAppPosition":"","audioOut":"main","subAppSize":"","subAppId":"","controlMode":"none","toolType":"normalTV","multiviewSuggestionQuery":[],"requestedAudioOut":"","requestedSubAppId":"","requestedMainAppId":""},"returnValue":true}
+2026-10-26T08:45:37.267978Z [16105.398517120] user.info extinput-integration [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: org.nphil.lumatv.gfn, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-26T08:45:37.268039Z [16105.398578460] user.info extinput-integration [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: org.nphil.lumatv.gfn, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-26T08:45:37.268716Z [16105.399255540] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: org.nphil.lumatv.gfn, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-26T08:45:37.268780Z [16105.399319780] user.info eim [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: org.nphil.lumatv.gfn, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-26T08:45:37.269266Z [16105.399806580] user.info extinput-integration [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::770] usage_type: 0, main_app_id: , sub_app_id: , foreground_app_id: org.nphil.lumatv.gfn, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-26T08:45:37.269342Z [16105.399881300] user.info extinput-integration [] multiviewclient DEBUG {} [MultiviewWatcherClientImpl::FillMultiviewInfo::897] usage_type: 0, appList: , foreground_app_id: org.nphil.lumatv.gfn, tool_type: normalTV, view_type: 0, audio_out: 0, control_mode: -1, input_mode: -1, orientation: 0, media_change_state: 0
+2026-10-26T08:45:37.270514Z [16105.401054660] user.info surface-manager [] LSM RECENTS {"app_id":"org.nphil.lumatv.gfn","fullscreen":false,"snapImg":"","status":"db_backup","where":"updateRecentsDb"} 
+2026-10-26T08:45:37.271039Z [16105.401578700] user.info surface-manager [] LSM RECENTS_DB {"appId":"org.nphil.lumatv.gfn","cardSnapShotFilePath":"","where":"addItems"} 
+2026-10-26T08:45:37.315993Z [16105.446532300] user.info legacy-broadcast-atsc [] C_VL_IN_SERVICEINFO ARC {} [n0000020][appinfo_getForegroundAppInfoCallback][START] [_gpszPrevAppId:org.nphil.lumatv.gfn] [pszAppId:com.webos.app.home] [bFirstCalled:0]
+2026-10-26T08:45:37.320011Z [16105.450549980] user.info SettingsService [] SettingsService PrefsPerAppHandler {"m_currAppId":"com.webos.app.home","m_prevAppId":"org.nphil.lumatv.gfn"} handleAppChange
+2026-10-26T08:45:37.320382Z [16105.450921500] user.info blegatt [] blegatt blegattTaskManager.cpp {} setForegrounAppInfo:295] fg app is changed org.nphil.lumatv.gfn -> com.webos.app.home, status: 0
+2026-10-26T08:45:37.322314Z [16105.452853580] user.info videooutputd [] videooutputd DEBUG {} setForegroundApps() vssApp ID change! vssMultiviewStatus[0->0], foregroundAppId[org.nphil.lumatv.gfn->com.webos.app.home], mainAppId[org.nphil.lumatv.gfn->com.webos.app.home]subApp0[->],subApp1[->],subApp2[->]
+2026-10-26T08:45:37.322466Z [16105.453006520] user.info videooutputd [] videooutputd DEBUG {} changedSettingsDimensionInfo() [DimensionInfo] [bChanged:0] inputDim[default->default], resolutionDim[fhd->fhd], timing[none->none], overlapTiming[0->0] clientId[_0mwXFS4z2D2yjC->_0mwXFS4z2D2yjC], content[movie->movie], h[1080->1080], dvrStatus[0->0], dvrInput[dtv->dtv], spCurForegroundAppID[org.nphil.lumatv.gfn->com.webos.app.home] 444Bypass[0->0]
+2026-10-26T08:45:37.322491Z [16105.453030940] user.info videooutputd [] videooutputd DEBUG {} changedSettingsAppId() [DimensionInfo][AppId] [bChanged:1] spCurForegroundAppID [org.nphil.lumatv.gfn->com.webos.app.home]
+2026-10-26T08:45:37.324569Z [16105.455108780] user.info videooutputd [] videooutputd DEBUG {} updateProperty() [Orbit] previous info appId: org.nphil.lumatv.gfn, videoOverscan: 0, pOnly: 0, FullScreen: 0, StoreMode: 0, OLED: 1, ScreenShift: 1, vr360onoff: 0, panelResolution: 0, osdJustScan: 0
+2026-10-26T08:45:37.326952Z [16105.457491260] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(190): ModuleManager:notifyLastAppId org.nphil.lumatv.gfn
+2026-10-26T08:45:37.327059Z [16105.457598380] user.info audiod [] AudioD MASTER_VOLUME_MANAGER {} masterVolumeUtil.cpp(793): updateLastAppVolumeNormalLog Skip NL logging AppId : org.nphil.lumatv.gfn, Volume : 24
+2026-10-26T08:45:37.330245Z [16105.460792020] user.info videooutputd [] videooutputd DEBUG {} setForegroundApps() vssApp ID change! vssMultiviewStatus[0->0], foregroundAppId[org.nphil.lumatv.gfn->com.webos.app.home], mainAppId[org.nphil.lumatv.gfn->com.webos.app.home]subApp0[->],subApp1[->],subApp2[->]

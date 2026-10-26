@@ -1,0 +1,3 @@
+wrote /tmp/gfn/audio-muted.measure.json
+{"label": "audio-muted", "seconds": 17.19, "samples": 18, "mali_pct": 5.3, "flips_per_s": 7.4, "vsync_per_s": 123.2, "osd_irq_per_s": 120.0, "cpu_pct": 2.4, "cma_free_min_mb": 122.2, "mem_avail_min_mb": 571.8, "temp_max": 62.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": -1.6, "rss_mb_max": 41.4}}}
+ 

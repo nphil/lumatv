@@ -1,0 +1,3 @@
+wrote /tmp/gfn/e1-drop4.measure.json
+{"label": "e1-drop4", "seconds": 17.19, "samples": 18, "mali_pct": 1.1, "flips_per_s": 2.4, "vsync_per_s": 120.8, "osd_irq_per_s": 119.7, "cpu_pct": 0.8, "cma_free_min_mb": 46.7, "mem_avail_min_mb": 423.5, "temp_max": 60.0, "procs": {"lumatv-gfn-feeder": {"cpu_pct": 6.4, "rss_mb_max": 112.6}}}
+ 

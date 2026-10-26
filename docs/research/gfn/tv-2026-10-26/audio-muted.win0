@@ -1,0 +1,11 @@
+localmute=0
+lowdelaymode=1
+h/v active : 1920 / 1080
+scanType   : 1
+vFreq      : 600
+svp        : 0
+hdr_type   : 0
+colordomain: 0
+hdmi444mode: 0
+phyMode    : 0
+ 
