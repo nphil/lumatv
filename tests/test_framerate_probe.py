@@ -255,14 +255,14 @@ VIDEOOUTPUT_LINE = json.dumps({"subscribed": True, "returnValue": True, "video":
 
 
 def make_samples(t0=1000.0, period=0.05, secs=12.0, switch_at=5.0, mute_from=None, mute_to=None, gap_from=None, gap_to=None):
-    """A run of ticks: the DE vsync at 120/s, then 100/s from `switch_at`; the OSD at half of it; optional localmute and vsync gap spans."""
+    """A run of ticks: the panel vsync (osd_irq) at 120/s, then 100/s from `switch_at`; DE2VSYNC at twice it; optional localmute and vsync gap spans."""
     rows, de, osd, t = [], 1000, 2000, 0.0
     while t <= secs:
         hz = 120.0 if t < switch_at else 100.0
         in_gap = gap_from is not None and gap_from <= t < gap_to
         if not in_gap:
-            de += int(round(hz * period))
-            osd += int(round(hz * period / 2))
+            de += int(round(hz * period * 2))
+            osd += int(round(hz * period))
         mute = 56 if mute_from is not None and mute_from <= t < mute_to else 0
         rows.append({"t": t0 + t, "up": t0 + t, "irq": {"DE2VSYNC": de, "osd_irq": osd}, "flip": "12",
                      "win0": {"vFreq": 500 if t >= switch_at - 0.04 else 0, "localmute": mute, "lowdelaymode": 0, "hdr_type": 0},
@@ -334,15 +334,15 @@ class Parsers(unittest.TestCase):
 class Report(unittest.TestCase):
     def test_rates_and_bands(self):
         rows = make_samples(secs=3.0, switch_at=99)
-        r = probe.rates(rows)
+        r = probe.rates(rows, probe.OSD_IRQ)
         self.assertIsNone(r[0][1])
         self.assertAlmostEqual(r[-1][1], 120.0, delta=4.0)
         self.assertEqual(probe.rate_band(r[-1][1]), 120)
         self.assertEqual(probe.rate_band(101.2), 100)
         self.assertEqual(probe.rate_band(59.4), 60)
         self.assertIsNone(probe.rate_band(80))
-        osd = probe.rates(rows, "osd_irq")
-        self.assertAlmostEqual(osd[-1][1], 60.0, delta=4.0)
+        de = probe.rates(rows, probe.DE_IRQ)
+        self.assertIsNone(probe.rate_band(de[-1][1]))
 
     def test_switch_is_found_once(self):
         rows = make_samples(secs=12.0, switch_at=5.0)

@@ -59,7 +59,9 @@ SHOT_W, SHOT_H = 320, 180
 BLANK_BYTES = 5000               # a 320x180 PNG of a black screen (perf/startup.py: blank under 5000, a presented frame over 20000)
 BLANK_LUMA = 12.0                # mean luma (0-255) under which a shot is black
 FROZEN_DIFF = 1.5                # mean absolute luma difference under which two consecutive shots are the same picture
-RATE_WINDOW_S = 1.0              # the DE's output rate is the vsync count over this window
+RATE_WINDOW_S = 1.0              # the output rate is the vsync count over this window
+# osd_irq follows the panel's refresh (120 Hz steady on the set through Home and a 23.976 Netflix title, 2026-10-26);
+# DE2VSYNC also counts input-side events (150-245 Hz on the same runs), so it is kept for the record only.
 DE_IRQ, OSD_IRQ = "DE2VSYNC", "osd_irq"
 
 # The runs: the launch, the keys after `settle` seconds (kb.py tokens: KEY, sS), the playback length, what follows.
@@ -471,7 +473,7 @@ def rate_band(hz):
     return None
 
 
-def switches(samples, name=DE_IRQ, short_window=0.25):
+def switches(samples, name=OSD_IRQ, short_window=0.25):
     """Where the DE's output rate band changes: [(up, from_band, to_band)]. The band is read over the 1 s window (robust); the
     moment is the last sample whose `short_window` rate was still in the old band, so the change lies within the next quarter
     second. None bands (a window still filling, or the crossing itself) are skipped."""
@@ -492,7 +494,7 @@ def switches(samples, name=DE_IRQ, short_window=0.25):
     return out
 
 
-def vsync_gaps(samples, name=DE_IRQ, max_gap_s=0.03):
+def vsync_gaps(samples, name=OSD_IRQ, max_gap_s=0.03):
     """Spans where the DE vsync count did not advance between samples for at least `max_gap_s` (no refresh at all): [(up_from, up_to)]."""
     out, start, end = [], None, None
     for a, b in zip(samples, samples[1:]):
@@ -668,7 +670,7 @@ def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=Fa
     out["de_hfr"] = any("hfr" in (vo.get("flags") or []) for s in samples for vo in s.get("vo", []))
     words = []
     if not sw:
-        words.append("no output-rate switch: the DE stayed in the %s Hz band for the whole run" % (rate_band(out["de_hz_last"]) or "?"))
+        words.append("no output-rate switch: the panel stayed in the %s Hz band for the whole run" % (rate_band(out["osd_hz_last"]) or "?"))
     for u, a, b in out["switches"]:
         hidden = inside(u + first_up, app_mute)
         muted = inside(u + first_up, [(x, y) for x, y, _ in fw_mute], 0.3)
