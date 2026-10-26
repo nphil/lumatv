@@ -31,7 +31,8 @@ key opens) is left for the same reason.
 Renders, dark and light, 960x540, in `docs/research/lg-restyles/` (`25-lg-input-*`, `20-lg-channel-*`, `18-lg-no-signal*`, `25-lg-banner-position`,
 `35-lg-prompt`); regenerate with `python3 tests/qmlhost/scenes.py --only <names> --out DIR --theme both`.
 
-Next, in order: (1) "TV check, overnight round" below; (2) "TV check, keyboard and search" below, then "TV check, keyboard keys";
+Next, in order: (1) "TV check, input banners again" below (round 11 ran the overnight round; its steps 4 and 9 failed as captures, not as restyle, and this replaces them);
+(2) "TV check, keyboard and search" below, then "TV check, keyboard keys";
 (3) the owner's pick on the optional items ("Not done").
 
 CHANGELOG line for the main agent: *Restyles of LG's own processes in the Lucent look: the input banners, Live TV's channel banner and INFO card, the
@@ -139,6 +140,8 @@ Run from the repo root:
 
 ## TV check, overnight round (not verified on the TV)
 
+Round 11 ran it: steps 4 and 9 failed as captures, not as restyle ("Round 11 on the TV" below); "TV check, input banners again" replaces them.
+
 One slot of about 25 minutes, code = the ipk of the commit that carries this section, applied (`lumatv apply`). Set on Home, receiver muted through Home Assistant first (unmuted
 only after Home is back and the quiet is confirmed), Active Standby afterwards. Commands as in round 7's `slots.py`: `luna-send` over SSH needs a PTY; `TOOL` is the app's
 `tools/lumatv`, `APP` its directory, `shot NAME` is `luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/x-NAME.png","method":"DISPLAY","format":"PNG","width":960,"height":540}'`
@@ -181,6 +184,46 @@ Renders to compare with are the files named in each step (`docs/research/lg-rest
     `kb BACK`. Then `$TOOL keyboard off`: `"keyboard":"off","patched":false`, the grep is 0, `$TOOL surfaces` has `"id":"keyboard","on":false`. Leave it as found (off).
 11. **The two trees** were copied in round 11 (`/data/home/lgtv/uiinv/voice/`, `/data/home/lgtv/uiinv/maliit/`): nothing to copy.
 12. **End.** Home in front, `$TOOL inputcommon status`, `$TOOL keyboard status`, `$TOOL surfaces` saved in the log, the receiver as found.
+
+## Round 11 on the TV (2026-10-26 04:00-04:05): the two failed checks, and the revised TV check
+
+Evidence: `docs/research/round9/r11-2026-10-26/restyle-*.png` and `log.txt`. Both failures are the check's, not the restyle's.
+
+- **Options focus blank.** `restyle-options.png` is black video with the compositor's own volume pill: the input banner was not on screen. Neither was it in `restyle-ok.png`, and
+  neither in `restyle-own-ok.png` with the switch off (04:00:11), nor in round 7's own-look OK capture (`slot6b/ok-banner-fresh.png`). OK on HDMI 2 behind the Apple TV
+  brings the Apple TV's profile screen, not the OK banner: LG's own look does the same, so the key never reaches `toggleBanner` there, or the banner is gone before the capture.
+  The options key (`OptionButton`, `isOkBanner` only) did render on TV with the restyle on in Live TV (`restyle-channel-ok.png`, `restyle-channel-options.png`: round key, then the lit ring on it). The input banner's
+  options focus renders in the offline host (`--scene ok --press 600:RIGHT`, patched: the ring on the key, no warning from the tree) and `test_focus_is_lit_on_the_item_that_has_it`
+  / `test_the_keys_do_what_LGs_do_and_call_what_LGs_call` hold the focus and the calls equal to LG's.
+- **Restored pill not LG's.** `restyle-restored-pill.png` and `restyle-pill.png` are the same file (md5 `3dcd8849`, 17122 bytes): the launch splash, the HDMI glyph on grey, shown until the app's
+  first frame. With the dump set aside the process starts cold, and after `off` it is a CRIU restore, which took 2.2 s in round 7; the 1.6 s capture lands before the first frame in both cases.
+  Neither capture shows a banner, so the patched input pill has not been seen on the TV yet and the restore was never checked by what is running. `restyle-restored-ok.png` (7 s after the launch)
+  is past the pill's life, as `restyle-own-ok.png` is for the stock one. The INFO card of the patched process did show (`restyle-info.png`).
+- No defect in the 17 files: every scene loads with no warning from the tree, stock and patched, dark and light (`test_every_scene_loads_clean_stock_and_patched_in_both_materials`,
+  `test_the_live_tv_the_no_signal_and_the_prompt_scenes_load_clean_stock_and_patched`). `lumatv inputcommon on` stays off until this check passes.
+
+## TV check, input banners again (replaces steps 4 and 9 of "TV check, overnight round"; not verified on the TV)
+
+One slot of about 10 minutes. Same conventions as the overnight round (set on Home, receiver muted first, `shot`, `kb`, evidence to `docs/research/lg-restyles/tv/` with `log.txt` first). Abort on a new
+`failed` unit, a new file in `/tmp/var/log/reports/librdx/` or a moved `aud_dsp_reset_count`. A **burst** is `shot NAME-01`, `shot NAME-02`, ... back to back for 12 s from the launch call, each line of `log.txt`
+stamped with the time; a capture is the splash while its md5 is `3dcd88495b38ef186f728b4c3d3d2a0c`, anything else is a frame of the app. Pids come from
+`luna-send -n 1 luna://com.webos.applicationManager/running '{}'` and `ps -o pid,ppid,lstart,args -p <pid>`.
+
+1. **Own look first (switch off).** `$TOOL inputcommon status` says `"on":false`,`"checkpoint":"present"`. Launch `com.webos.app.hdmi2`, burst `own-pill`. Record the pid and whether the command line has `"snapshot":true` (expected: pid 2513 or 2517 and yes),
+   and the first and last frame with LG's grey pill. Then the same launch again, and `kb OK` on the first frame that shows the pill, `shot own-ok-0` at once and `own-ok-1` 1 s later, `kb RIGHT`, `shot own-ok-right`. INFO only: whether LG's OK banner with the round
+   options key shows on HDMI 2 (round 11 and 7: it did not). Home.
+2. **On.** `$TOOL inputcommon on`, then the overnight round's step 2 and 3 checks (overlay in `/proc/mounts`, 17 files, no input app at pid 2513/2517 or with `"snapshot":true`).
+3. **Patched pill.** Launch `com.webos.app.hdmi2`, burst `pill`. PASS: at least one frame with the dark glass pill (about 44 px high and 32 px from the left edge in the capture, Manrope, no grey bar); write down the seconds from the launch
+   to the first such frame and to the last. FAIL when the process is the cold one (its pid is neither 2513 nor 2517, no `"snapshot":true`) and **no** frame of the burst shows a pill although step 1's did: then the launch banner is shown before the
+   cold app can draw it, a defect of the cold start (record the pid, the splash's last second, and `shot` after `kb 358` for the card). Then `kb OK` on the first pill frame and `shot ok-0`, `ok-1`, `kb RIGHT`, `shot ok-right`:
+   PASS when step 1 showed LG's OK banner (the lit inset on the name, then the ring on the round key); when step 1 did not, INFO the same. `kb BACK`, `kb 358`, `shot info`, `kb BACK` as in round 11 (PASS there).
+4. **Live TV** as in round 11, which passed: `shot channel-ok` after `kb OK`, `shot channel-options` after `kb RIGHT`; this is the on-TV proof of the options key.
+5. **Off and the restore.** `$TOOL inputcommon off` (PTY): `"checkpointBack":1`. `ls -A /tmp/checkpoint` has `com.webos.app.inputcommon` and no `.lumatv-aside.*`. Launch `com.webos.app.hdmi2`, burst `restored-pill`, then read the pid at once
+   (the burst goes on for 12 s; read it from a second SSH call). PASS: pid 2513 or 2517 with `"snapshot":true` in the command line (a CRIU restore of LG's dump: this is the proof, not the frame), and a frame with LG's grey pill in the burst
+   (expected from about 2.2 s, round 7). FAIL: another pid or no `"snapshot":true`: the restore did not happen; read SAM's lines in `/var/log/messages` and the overnight round's "Cold start" step 6. Close it, Home.
+6. **End.** `$TOOL inputcommon on` only when Nitin wants the banners (then the frame check of step 3 is the one he sees), else leave it off; Home in front, `$TOOL inputcommon status` in the log, the receiver as found.
+
+Offline checks behind the steps: `python3 -m unittest tests.test_inputcommon_patch tests.test_inputcommon_stage tests.test_lumatv_inputcommon`.
 
 ## On the TV (2026-10-25 19:43-19:48)
 
