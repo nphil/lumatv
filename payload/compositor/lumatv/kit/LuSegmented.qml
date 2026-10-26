@@ -69,7 +69,7 @@ Item {
                 anchors.centerIn: parent
                 role: seg.textRole
                 text: modelData
-                color: index === seg.current || index === seg.focusedIndex ? Lu.ink : Lu.ink2
+                color: Lu.ink            // every label in the reading ink: ink2 read under 3:1 on the tray; the wash and the mark say which is chosen
             }
             Rectangle {
                 visible: index === seg.current

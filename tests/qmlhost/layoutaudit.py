@@ -40,6 +40,8 @@ LARGE_PX = 48        # text from this size up may read at 3:1
 CONTRAST = {"text": 4.5, "large": 3.0, "muted": 3.0}
 KINDS = ("elided", "overflow", "clipped", "scaled", "outside", "tight", "overlap", "off-centre", "icon-level", "contrast")
 
+DESCENDERS = set("gjpqy,;()[]{}@\u00e7\u00b5")   # glyphs that reach under the baseline
+
 _LINEAR = [((c / 255.0) / 12.92 if c / 255.0 <= 0.04045 else (((c / 255.0) + 0.055) / 1.055) ** 2.4) for c in range(256)]
 
 
@@ -114,9 +116,12 @@ def text_rects(item):
         glyph_h = ch - natural * (line - 1)
     metrics = QtGui.QFontMetricsF(item.property("font"))
     cap_top = metrics.ascent() - metrics.capHeight()
+    # the ink ends at the last baseline unless a glyph hangs under it (numerals and capitals do not)
+    text = item.property("text") or ""
+    bottom = glyph_h if any(c in DESCENDERS for c in text) else glyph_h - metrics.descent()
     painted = item.mapRectToScene(QtCore.QRectF(x, y, cw, ch))
     glyph = item.mapRectToScene(QtCore.QRectF(x, y, cw, glyph_h))
-    ink = item.mapRectToScene(QtCore.QRectF(x, y + cap_top, cw, max(1.0, glyph_h - cap_top)))
+    ink = item.mapRectToScene(QtCore.QRectF(x, y + cap_top, cw, max(1.0, bottom - cap_top)))
     return painted, glyph, ink
 
 
@@ -176,6 +181,8 @@ def audit(root, width, height, image=None, checks=None):
     texts = []          # (item, ink rect, box item): two runs overlap when their ink does, not their boxes
     boxes = {}          # box item -> {"rect", "texts": [rects], "icons": [rects]}
 
+    owners = []         # the item each finding is about, in step with `findings`
+
     def add(kind, item, detail, rect=None):
         if kind not in checks:
             return
@@ -183,6 +190,19 @@ def audit(root, width, height, image=None, checks=None):
         if rect is not None:
             f["rect"] = [round(rect.x()), round(rect.y()), round(rect.width()), round(rect.height())]
         findings.append(f)
+        owners.append(item)
+
+    def occlude(rect):
+        """A pane or an opaque slab painted over words drawn earlier hides them: they are not on the screen."""
+        hidden = {id(t[0]) for t in texts if rect.contains(t[1])}
+        if not hidden:
+            return
+        texts[:] = [t for t in texts if id(t[0]) not in hidden]
+        keep = [i for i, o in enumerate(owners) if id(o) not in hidden]
+        findings[:] = [findings[i] for i in keep]
+        owners[:] = [owners[i] for i in keep]
+        for info in boxes.values():
+            info["texts"] = [r for r in info["texts"] if not rect.contains(r)]
 
     def note_in_box(box, key, rect):
         if box is None:
@@ -208,7 +228,13 @@ def audit(root, width, height, image=None, checks=None):
             del texts[:]
             boxes.clear()
             del findings[:]
+            del owners[:]
             return
+        if item.isVisible():
+            r = rect_of(item)
+            if r.width() * r.height() >= 10000 and (any(type_name(c) == "Glass" and c.isVisible() for c in item.childItems())
+                                                   or (inherits(item, "QQuickRectangle") and colour_alpha(item.property("color")) * opacity >= 0.8)):
+                occlude(r)
         if item.scale() != 1 and item is not root:
             scaled = item
         if item.clip():

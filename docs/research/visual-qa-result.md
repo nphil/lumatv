@@ -41,8 +41,16 @@ the QML copy and `systemctl restart surface-manager-daemon` as the handoff descr
 mode cards whole with a chevron at the right, OLED pixel brightness and Energy saving live, no Filmmaker ambient light row, and
 the focused row's tile and words where the unfocused rows' are.
 
-Open findings the audit still reports (2026-10-25, see the log in `docs/research/visual-qa/audit.txt`): listed there per scene;
-the ones in files owned by other workers were sent to them (HomeAssistantWidget, WeatherWidget, Screensaver, VolumeOsd).
+Contrast (Lucent 3, measured on the picture): the segmented tray was 16 % white in the dark material and the unselected labels
+(ink2) read 2.4–2.9:1 on it; the tray is 10 % now (`theme.json` dark `trackOff` #1AFFFFFF) and every segment label is in the
+reading ink (the wash and the accent mark say which is chosen).
+
+Open (2026-10-25 22:55, the log of the after run is `docs/research/visual-qa/audit.txt`): at 200 % text the five-tab bar of
+System and the input picker's tiles overlap (a tab bar cannot take doubled type; `tests/test_layout.py` holds the 200 % pass on
+the scenes where it passes, `AT_200`). Findings in files owned by other workers were sent to them: HomeAssistantWidget (state line
+1 px from its box, contrast), Weather and Clock widgets (muted lines under 3:1, since fixed by WidgetEditor), Screensaver (its
+`lineHeight: 0.95` must become `line: 0.95`). The full-run log of every scene before these fixes is `/tmp/vqa/full/audit.log`
+on the workstation (not kept).
 
 ## How to run
 

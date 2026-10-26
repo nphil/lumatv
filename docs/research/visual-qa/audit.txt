@@ -1,0 +1,27 @@
+01-settings-picture                dark  FAILED (2 warnings)
+   [layout] contrast: Loader/PagePicture/LuSegmented/Item/LuText[Colour] (reads at 2.6:1 on its background (needs 3.0; ink alpha 0.66, 26 px))
+   [layout] contrast: Loader/PagePicture/LuSegmented/Item/LuText[Advanced] (reads at 2.7:1 on its background (needs 3.0; ink alpha 0.66, 26 px))
+01-settings-picture                light ok
+02-settings-sound-mode             dark  FAILED (2 warnings)
+   [layout] contrast: Loader/PageSound/LuSegmented/Item/LuText[Mode] (reads at 4.5:1 on its background (needs 4.5; ink alpha 1.00, 26 px))
+   [layout] contrast: Loader/PageSound/LuSegmented/Item/LuText[Advanced] (reads at 2.8:1 on its background (needs 3.0; ink alpha 0.66, 26 px))
+02-settings-sound-mode             light ok
+30-settings-system                 dark  FAILED (5 warnings)
+   [layout] contrast: Loader/PageSystem/LuSegmented/Item/LuText[Accessibility] (reads at 2.9:1 on its background (needs 3.0; ink alpha 0.66, 26 px))
+   [layout] contrast: Loader/PageSystem/LuSegmented/Item/LuText[About] (reads at 2.7:1 on its background (needs 3.0; ink alpha 0.66, 26 px))
+   [layout 200%] overlap: Loader/PageSystem/LuSegmented/Item/LuText[General] (over Loader/PageSystem/LuSegmented/Item/LuText[Time & power])
+   [layout 200%] overlap: Loader/PageSystem/LuSegmented/Item/LuText[Time & power] (over Loader/PageSystem/LuSegmented/Item/LuText[OLED care])
+   [layout 200%] overlap: Loader/PageSystem/LuSegmented/Item/LuText[OLED care] (over Loader/PageSystem/LuSegmented/Item/LuText[Accessibility])
+30-settings-system                 light FAILED (3 warnings)
+   [layout 200%] overlap: Loader/PageSystem/LuSegmented/Item/LuText[General] (over Loader/PageSystem/LuSegmented/Item/LuText[Time & power])
+   [layout 200%] overlap: Loader/PageSystem/LuSegmented/Item/LuText[Time & power] (over Loader/PageSystem/LuSegmented/Item/LuText[OLED care])
+   [layout 200%] overlap: Loader/PageSystem/LuSegmented/Item/LuText[OLED care] (over Loader/PageSystem/LuSegmented/Item/LuText[Accessibility])
+03-settings-remote                 dark  ok
+03-settings-remote                 light ok
+10-quick-panel                     dark  ok
+10-quick-panel                     light ok
+08-input-picker                    dark  FAILED (4 warnings)
+   [layout 200%] overlap: InputPicker/LuPane/Item/Row/LuText[Sound: Denon on HDMI 2] (over Item/Row/Item/Column/LuText[Nothing connected])
+   [layout 200%] overlap: LuPane/Item/Row/Item/LuText[HDMI 2 · eARC] (over Item/Row/Item/Column/LuText[Denon AVR-S760H])
+   [layout 200%] overlap: LuPane/Item/Row/Item/LuText[HDMI 4] (over Row/Item/Column/Row/LuText[Plug in a device to use it])
+   [layout 200%] overlap: LuPane/Item/Row/Item/LuText[HDMI 3] (over Item/Row/Item/Column/LuText[PlayStation 5])
