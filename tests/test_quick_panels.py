@@ -213,7 +213,7 @@ class HomePanels(HostCase):
         p = probes(out)
         self.assertEqual(p["foot"], [[True, 0], [True, 1], 0])
         self.assertEqual(p["lg"], [""], "LG's panel was asked for and ours slid away")
-        got = launches(self.values(out)[-1])
+        got = [(u.rsplit(".", 1)[-1], m, p) for u, m, p in launches(self.values(out)[-1])]
         self.assertIn(("systemUIManager", "/launch", {"appId": "com.webos.app.quicksettings"}), got, out[-2500:])
 
     def test_a_settings_page_asked_for_over_an_app_opens_when_home_is_back(self):
