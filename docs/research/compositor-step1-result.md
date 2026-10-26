@@ -7,8 +7,8 @@ in its own QML (gear, Input, the app keys, Quick Access digits, Mute held, Exit;
 ## Resume here
 
 State (2026-10-26): step 1 is done: built, committed, host-tested and passed on the TV (safety timer aa3a2eb, key routing 21b6013,
-keyboard path 83faf05, gate checks d2afb2b, overlay-aware checks 840a0c0, Home 773 05f572e, Home stub put back, the commit after
-33196a8). Second TV run (Main, 16:00-16:05): `homeheld`, `live`, `keys`, `ime`, `homekey` and `escape` all PASS ("Second TV run"
+keyboard path 83faf05, gate checks d2afb2b, overlay-aware checks 840a0c0, Home 773 05f572e, Home stub put back 9ad0165). Second TV
+run (Main, 16:00-16:05): `homeheld`, `live`, `keys`, `ime`, `homekey` and `escape` all PASS ("Second TV run"
 below). The first run (15:33) had failed `keys` (gear) and `ime` in the checks, not the routing: LG's Settings and Search are overlay
 windows, which SAM never names as the foreground app. One end-state gap of the second run: the Home holds of `homekey` and `escape`
 also trip the Home stub's own hold-Home fallback, which left the stub at state `lg` (one fault, not mounted) where the run had found
