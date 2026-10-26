@@ -58,7 +58,8 @@ NETFLIX_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"netflix\"}}'
                     f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 NETFLIX_FULL_BUDGET_S = 5.0     # seconds of one full capture over the film (the ring holds about 7 s there)
 HDMI_SETUP = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'", 'sleep 8']
-HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'",
+                 f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 
 # ------------------------------------------------------------------ surfaces
 #
@@ -82,6 +83,7 @@ HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}
 # default       False: part of the gate only when named with --surfaces
 # full_budget_s seconds one full capture may hold (default FULL_TRACE_BUDGET_S): less over playback, where the ring fills faster
 # thresholds    per-surface overrides of THRESHOLDS; None switches a check off
+# inputs_free   verify that teardown released every input decoder port and input app
 SURFACES = [
     {'name': 'home-idle', 'still': False,
      'open': '@home-idle-open s3', 'close': '@home-idle-close', 'settle_s': 3,
@@ -124,9 +126,9 @@ SURFACES = [
      'teardown': NETFLIX_TEARDOWN + [TOOL + " theme set '{\"remote\":{\"quickPanel\":true}}'"],
      'open': '@lgqs-netflix-open MENU', 'close': '@lgqs-netflix-close BACK', 'settle_s': 2.5, 'full_budget_s': NETFLIX_FULL_BUDGET_S},
     {'name': 'quick-hdmi', 'default': False, 'act': 'release', 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
-     'open': '@quick-hdmi-open MENU', 'close': '@quick-hdmi-close BACK', 'settle_s': 1.5},
+     'open': '@quick-hdmi-open MENU', 'close': '@quick-hdmi-close BACK', 'settle_s': 1.5, 'inputs_free': True},
     {'name': 'picker-hdmi', 'default': False, 'setup': HDMI_SETUP, 'teardown': HDMI_TEARDOWN,
-     'open': '@picker-hdmi-open {INPUT}', 'close': '@picker-hdmi-close BACK', 'settle_s': 1.5},
+     'open': '@picker-hdmi-open {INPUT}', 'close': '@picker-hdmi-close BACK', 'settle_s': 1.5, 'inputs_free': True},
     # The library behind the Apps tile, on request (`--surfaces apps`, with LumaTV's Home in front and at rest, its Apps tile focused:
     # OK on LG's own Home would launch what it has focused). OK, decided on its release, opens it and BACK closes it. Search, the
     # drawer and the voice bar sit behind longer key paths (the bar's icons, the library's search button) that a surface here
@@ -153,7 +155,7 @@ SURFACES = [
 
 SURFACE_DEFAULTS = {'setup': [], 'teardown': [], 'reopen': [], 'reopen_wait_s': 0, 'settle_s': 1.0,
                     'transition': True, 'soak': True, 'default': True, 'thresholds': {},
-                    'act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None}
+                    'act': 'press', 'still': True, 'delivery': False, 'full_budget_s': None, 'inputs_free': False}
 
 # The PLAN gate. An override in a surface may set any of these to None to turn the check off.
 THRESHOLDS = {
@@ -557,6 +559,21 @@ def log_check(bad, ignored):
     return check('log_errors', not bad, len(bad), '== 0', f'{ignored} known stock lines ignored' if ignored else '')
 
 
+def inputs_free_check(rig):
+    try:
+        rc, out, err = rig.sh(TOOL + ' inputs status')
+        if rc != 0:
+            raise RuntimeError(err.strip() or f'inputs status exited {rc}')
+        status = json.loads(out)
+        inputs = status['inputs']
+        ports = inputs['ports']
+        free = (status.get('ok') is True and isinstance(ports, list) and bool(ports)
+                and all(p.get('open') is False for p in ports) and inputs['running'] == [])
+        return check('inputs_free', free, inputs, 'all ports closed; no input app running')
+    except Exception as e:
+        return check('inputs_free', False, None, 'all ports closed; no input app running', str(e))
+
+
 def verdict(results):
     return 'PASS' if results and all(c['ok'] for r in results for c in r['checks']) else 'FAIL'
 
@@ -814,9 +831,13 @@ def run_surface(rig, s, tag, soak_cycles, log):
     finally:
         for cmd in s['teardown']:
             try:
-                rig.sh(cmd)
+                rc, _, err = rig.sh(cmd)
+                if rc != 0:
+                    raise RuntimeError(f'exited {rc}: {err.strip()}')
             except Exception as e:
                 checks.append(check('teardown', False, None, 'no error', f'{cmd!r}: {e}'))
+        if s['inputs_free']:
+            checks.append(inputs_free_check(rig))
     checks.append(log_check(res['log_lines'], res['log_ignored']))
     if res['log_unfiltered']:
         checks[-1]['detail'] = (checks[-1]['detail'] + '; ' if checks[-1]['detail'] else '') + 'rotated log had no timestamps, whole file scanned'

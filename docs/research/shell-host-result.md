@@ -359,6 +359,12 @@ quick panel's burst ends at 370 ms with two intervals over 20 ms, the picker's p
 The HDMI surfaces leave `com.webos.app.hdmi3` running behind Home with audio port 1 open (`lumatv inputs status`); it was
 closed through SAM before the compositor gate. `home-idle` not run.
 
+### Round 16 (2026-10-26)
+
+**Resume here:** HDMI gate cleanup closes the selected input through SAM before returning Home, then fails unless all decoder ports are closed and no input app remains. The same cleanup runs after a failed measurement. TV baseline and QML changes are not yet run. Receiver initially off; TV initially Active Standby, decoder ports free.
+
+Returning Home alone leaves the HDMI app and audio decoder alive, preventing Netflix playback (tvq-pb-101). The gate now verifies release through `lumatv inputs status` rather than treating a Home launch as release.
+
 ## Under LumaTV's own compositor
 
 The key filter, the overlay and the container patch run only inside LG's compositor. At the cutover LG's key filters go away (`compositor-c2-result.md`, "Surfaces under LumaTV's compositor") and the QML shell with them; the rules here then belong to the compositor's evdev key routing and the Rust UI: a gear that is LG's on a tap and ours at 650 ms (the three-tap AV reset stays three taps), the app keys with their owner's choice and LG's own where installed, the number keys on Home, and a layer over an app that takes keys only while it has a surface that wants them. `tests/keyfilter.test.js` and `tests/bus.test.js` are written as that rule set.

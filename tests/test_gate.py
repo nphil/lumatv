@@ -7,6 +7,7 @@ import math
 import os
 import sys
 import unittest
+from unittest.mock import Mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "docs", "research", "perf"))
@@ -491,6 +492,46 @@ class QuickAndPicker(unittest.TestCase):
         self.assertIn('/launch', s['setup'][0])
         with self.assertRaisesRegex(ValueError, 'hdmi'):
             gate.find(['picker-hdmi'], values={'INPUT': '227'})
+
+    def test_hdmi_teardown_closes_the_selected_app_then_checks_decoders(self):
+        for name in ('quick-hdmi', 'picker-hdmi'):
+            for port in ('2', '3'):
+                s = gate.find([name], values={'HDMI': port, 'INPUT': '241'})[0]
+                self.assertIn('/closeByAppId', s['teardown'][0])
+                self.assertIn('com.webos.app.hdmi' + port, s['teardown'][0])
+                self.assertTrue(s['inputs_free'])
+                rig = Mock()
+                rig.compositor_pid.return_value = 17
+                rig.sh.return_value = (0, gate.json.dumps({'ok': True, 'inputs': {
+                    'ports': [{'port': 0, 'open': False}, {'port': 1, 'open': False}], 'running': []}}), '')
+                rig.capture.side_effect = RuntimeError('capture failed')
+                result = gate.run_surface(rig, s, 'test', 0, Mock())
+                commands = [c.args[0] for c in rig.sh.call_args_list]
+                self.assertEqual(commands, s['setup'] + s['teardown'] + [gate.TOOL + ' inputs status'])
+                self.assertEqual(failed(result['checks']), ['run'])
+
+    def test_input_cleanup_check_rejects_occupied_missing_and_failed_status(self):
+        def status(ports, running=None):
+            return gate.json.dumps({'ok': True, 'inputs': {'ports': ports, 'running': [] if running is None else running}})
+        closed = [{'port': 0, 'open': False}, {'port': 1, 'open': False}]
+        cases = [(0, status(closed), '', True),
+                 (0, status([{'port': 1, 'open': True}]), '', False),
+                 (0, status(closed, ['com.webos.app.hdmi3']), '', False),
+                 (0, status([]), '', False), (0, status([{'port': 1}]), '', False),
+                 (0, '{}', '', False), (0, 'not JSON', '', False),
+                 (1, status(closed), 'status failed', False)]
+        for rc, out, err, expected in cases:
+            rig = Mock()
+            rig.sh.return_value = (rc, out, err)
+            self.assertEqual(gate.inputs_free_check(rig)['ok'], expected, (rc, out))
+
+    def test_failed_teardown_commands_fail_the_surface(self):
+        s = gate.find(['quick-hdmi'], values={'HDMI': '3'})[0]
+        rig = Mock()
+        rig.compositor_pid.return_value = 17
+        rig.sh.return_value = (1, '', 'command failed')
+        result = gate.run_surface(rig, s, 'test', 0, Mock())
+        self.assertEqual(failed(result['checks']), ['inputs_free', 'run'] + ['teardown'] * len(s['teardown']))
 
     def test_the_film_is_launched_by_its_deep_link_and_played_with_ok_and_the_set_is_left_on_home(self):
         s = gate.find(['quick-netflix'], values={})[0]
