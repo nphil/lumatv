@@ -153,7 +153,7 @@ Item {
     // ---- the bar
     readonly property var buttons: [
         { id: "add", label: "Add", icon: "plus", enabled: true },
-        { id: "remove", label: "Remove", icon: "trash-2", enabled: canRemove, danger: true },
+        { id: "remove", label: "Remove", icon: "trash-2", enabled: canRemove },
         { id: "undo", label: "Undo", icon: "undo-2", enabled: history.length > 0 },
         { id: "cancel", label: "Cancel", icon: "x", enabled: true },
         { id: "save", label: "Save", icon: "check", enabled: true, primary: true }
@@ -319,6 +319,9 @@ Item {
         LuText { id: heading; x: Lu.space(6); anchors.verticalCenter: parent.verticalCenter; role: "label"; text: "Edit Home" }
         LuText {
             x: heading.x + heading.width + Lu.space(6); anchors.verticalCenter: parent.verticalCenter
+            width: Math.max(0, barRow.x - x - Lu.space(4))               // up to the buttons, whatever size the type has
+            visible: width > 90
+            elide: Text.ElideRight
             role: "caption"; color: Lu.ink2
             text: edit.mode === "select" ? "OK moves" : (edit.card ? edit.card.span + " \u00d7 " + edit.card.rows + " \u00b7 " : "") + (edit.mode === "move" ? "OK sizes \u00b7 Back undoes" : "OK done \u00b7 Back undoes")
         }

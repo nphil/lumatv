@@ -121,7 +121,7 @@ Item {
         visible: root.showTitle && root.pluginMode && root.rowCount > root.shownRows
         x: parent.width - width; y: 0
         text: String(root.cards.length)
-        color: root.mat.ink3 || root.mat.ink2
+        color: root.soft
         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
         renderType: Text.NativeRendering
     }
@@ -134,8 +134,12 @@ Item {
     readonly property color noneTone: toneOf(none.role)
     readonly property color chipFill: isLight ? "#8cffffff" : "#12ffffff"
     readonly property color chipEdge: isLight ? "#e6ffffff" : "#14ffffff"
-    // the state line: the ink, and the accent when the card is focused (OK opens the page) lifted a step toward the ink so it reads on the lit chip
-    readonly property color stateTone: focused ? (isLight ? Qt.darker(Lu.accent, 1.3) : Qt.lighter(Lu.accent, 1.35)) : mat.ink
+    // the muted ink is the material's ink at 0.82 (its second ink, 0.66, and the third, 0.42, read 2.0 to 2.8:1 on a lit chip); the accent is lifted
+    // a step toward the ink so a state line in it reads on the lit chip (4.1:1 before)
+    property color inkBase: mat.ink || "#F2EFF6"
+    readonly property color soft: Qt.rgba(inkBase.r, inkBase.g, inkBase.b, 0.82)
+    readonly property color accentTone: isLight ? Qt.darker(Lu.accent, 1.3) : Qt.lighter(Lu.accent, 1.35)
+    readonly property color stateTone: focused ? accentTone : mat.ink
 
     // no card: one chip, the width of the lane; on a card tall enough, the same words in the middle of the lane
     readonly property bool emptyFills: height - chipTop >= 180
@@ -278,7 +282,7 @@ Item {
                         width: parent.width
                         text: chip.on && chip.verb !== "" ? chip.verb : chip.words.sub
                         elide: Text.ElideRight
-                        color: chip.on && chip.verb !== "" ? Lu.accent : root.mat.ink2
+                        color: chip.on && chip.verb !== "" ? root.accentTone : root.soft
                         font.family: "Manrope"; font.weight: Font.Medium; font.pixelSize: 20
                         renderType: Text.NativeRendering
                     }
