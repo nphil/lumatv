@@ -23,6 +23,8 @@ Item {
     property string mode: "search"
     property string prompt: ""
     property bool voice: false
+    property bool secret: false             // a password: bullets, the last character apart so a slip is seen
+    readonly property string masked: text.length === 0 ? "" : new Array(text.length).join("\u2022") + text.charAt(text.length - 1)
     property string text: ""
     property int index: 14                  // the focused key (keys come first), then the answers
     property bool shift: false
@@ -61,6 +63,7 @@ Item {
         mode = s.mode || "search"
         prompt = s.prompt || ""
         voice = !!s.voice
+        secret = !!s.secret
         text = s.text || ""
         index = 14; shift = false; symbols = false
     }
@@ -96,7 +99,7 @@ Item {
             x: 40; y: 28; width: parent.width - 80; height: 84; radius: Lu.radius("tile")
             color: Qt.rgba(Lu.ink.r, Lu.ink.g, Lu.ink.b, 0.06); border.width: 1; border.color: Lu.edge; antialiasing: true
             LuIcon { id: lens; x: 26; anchors.verticalCenter: parent.verticalCenter; name: search.entry ? "keyboard" : "search"; size: 32; color: Lu.ink2 }
-            LuText { id: typed; x: 26 + 32 + 18; anchors.verticalCenter: parent.verticalCenter; role: "title"; font.pixelSize: 32; text: search.text }
+            LuText { id: typed; x: 26 + 32 + 18; anchors.verticalCenter: parent.verticalCenter; role: "title"; font.pixelSize: 32; text: search.secret ? search.masked : search.text }
             Rectangle { x: typed.x + typed.width + 4; anchors.verticalCenter: parent.verticalCenter; width: 3; height: 38; radius: 2; color: Lu.accent }
             Row {
                 x: parent.width - width - 26; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)

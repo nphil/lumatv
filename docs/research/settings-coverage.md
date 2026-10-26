@@ -4,7 +4,11 @@ Goal (Nitin, 2026-10-25): every item of LG's Settings app, even the rarely used 
 
 ## Resume here
 
-Inventory done: 287 groups of LG items: 50 covered, 0 built, 154 to build, 83 cannot. Nothing is built yet.
+Inventory done: 287 groups of LG items: 48 covered, 46 built, 110 to build, 83 cannot.
+
+Built and pushed: Accessibility (Audio Guidance, Closed Caption with its Text, Background and Subtitles tabs, the display switches, Audio options), Time & power (clock, Power On and Power Off timers, auto off, Screen Off), Bluetooth speakers and controllers, Join Network and IP Settings, TV Name, IPv6, HDMI settings.
+
+Left: Picture (Brightness, Colour, Clarity, Expert, White Balance, Fine Tune, zoom), Sound (Output, Advanced, per-input audio), Language and Location, Support (TV information, update, self-diagnosis, privacy, reset), Safety (lock PIN prompt, locks), Channels, and the one-off rows (Always Ready, extended press time, AI recommendations, OLED care extras). The "More in LG settings" rows stay on the pages not yet built.
 
 Next: the build order below, one page per commit. Each built row flips its status here from `build` to `built`; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
 
@@ -137,9 +141,9 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Use Wired Speaker: Audio Out Device (line out) | sound.soundOutput lineout | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
 | Use Wired Speaker: Wired Headphones | sound.soundOutput headphone | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
 | Use Wired Speaker: USB Device | sound.soundOutput usb_speaker; luna com.webos.service.audio setSoundOutput, com.webos.service.audio/tv getSoundCardsState | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output | build |
-| Use Wireless Speaker: Bluetooth Device | sound.soundOutput bt_soundbar; luna com.webos.service.btaudiosrc getPairedDevices, getDeviceStatus, startDiscovery, connect, disconnect, removePairedDevice, onDeviceSelectionMenu | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Bluetooth speakers (child of Sound › Devices) | build |
-| Bluetooth: Speaker Connection Settings (1 or 2 devices) | sound.deviceCntOfBtGeneral (singleConnection, multiConnection) | singleConnection, dualConnection | Bluetooth speakers | build |
-| Bluetooth: Bluetooth Speaker Volume | luna com.webos.service.btaudiosrc getDeviceVolume |  | Bluetooth speakers | build — LG's volume keys already drive it |
+| Use Wireless Speaker: Bluetooth Device | sound.soundOutput bt_soundbar; luna com.webos.service.btaudiosrc getPairedDevices, getDeviceStatus, startDiscovery, connect, disconnect, removePairedDevice, onDeviceSelectionMenu | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output › Bluetooth Speakers | built |
+| Bluetooth: Speaker Connection Settings (1 or 2 devices) | sound.deviceCntOfBtGeneral (singleConnection, multiConnection) | singleConnection, dualConnection | Sound › Output › Bluetooth Speakers | built |
+| Bluetooth: Bluetooth Speaker Volume | luna com.webos.service.btaudiosrc getDeviceVolume |  | Sound › Output › Bluetooth Speakers | built — the volume keys move it; LG has no separate row on this set |
 | Use Wireless Speaker: LG WOWCAST Device | sound.soundOutput wow_cast; luna com.webos.service.wowplay startDiscovery, p2pSearch, p2pDisconnect, removePairedDevice | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: LG WOWCAST dongle protocol (Wi-Fi Direct); the TV lists no paired device |
 | Use Wireless Speaker: WiSA Speakers | sound.soundOutput wisa_speaker, sound.wisaSpeakerChannelType; luna com.webos.service.wisa searchSpeaker, setSpeakerType, deleteOneSpeaker, setLogVolumeTrim, soundTestOneSpeaker | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: needs the WiSA dongle the C4 does not have; LG hides it |
 | Use Wireless Speaker: Mobile Device | sound.soundOutput mobile_phone; luna com.webos.service.soundshare getStreamOutStatus | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: LG ThinQ phone link; the TV answers no paired phone |
@@ -181,7 +185,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
 | TV Power Sound Volume | general.tvOnSound | off, veryLow, low, medium, high, veryHigh | Sound › Advanced | build |
-| Device Power Sound (Accessibility) | sound.tvPowerSound | on, off | Sound › Advanced | build |
+| Device Power Sound (Accessibility) | sound.tvPowerSound | on, off | System › Accessibility › Audio options | built |
 | Clear Voice, Game TV Equalizer, Sliding Speaker, Bluetooth Speaker Mode | sound.clearVoice, sound.gameTVEqualizer, sound.slidingSpeaker, sound.btSpeakerMode | off, level1, level2, level3 | - | cannot: not in LG's menu on this model (no description visible or the hardware is absent) |
 
 ## General
@@ -191,33 +195,33 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
 | Audio Guidance (on) | option.audioGuidance | on, off | System › Accessibility | covered |
-| Audio Guidance: Speed, Volume, Pitch | option.audioGuidanceSpeed (verySlow..veryFast), option.audioGuidanceVolume (veryLow..veryHigh), option.audioGuidancePitch | veryFast, fast, medium, slow, verySlow | Audio Guidance (child of Accessibility) | build |
+| Audio Guidance: Speed, Volume, Pitch | option.audioGuidanceSpeed (verySlow..veryFast), option.audioGuidanceVolume (veryLow..veryHigh), option.audioGuidancePitch | veryFast, fast, medium, slow, verySlow | System › Accessibility › Audio Guidance | built |
 | Audio Guidance: High-quality language pack | luna com.webos.service.tts installAdvancedLanguagePack, removeAdvancedLanguagePack, getAdvancedLanguagePackInstallStatus |  | - | cannot: a download of a voice pack through LG's server; no install progress can be shown offline |
-| Audio Description | sound.audioDescription, sound.audioDescriptionVolume | on, off | System › Accessibility | build |
-| Audio Description (ATSC 3.0) | sound.audioDescriptionAtsc30 | on, off | System › Accessibility | build |
-| Video Description | sound.visualImpaired | on, off | System › Accessibility | build |
-| Audio Type, Additional Audio Selection | option.supplementaryAudio, option.additionalAudioSelection | off, audioDescription, spokenSubtitles, allType | Choice list in Accessibility | build |
-| Amplify Dialogue (ATSC 3.0) | sound.dialogEnhancementAtsc30, sound.dialogEnhancementVolumeAtsc30 | on, off | System › Accessibility | build |
+| Audio Description | sound.audioDescription, sound.audioDescriptionVolume | on, off | System › Accessibility | built |
+| Audio Description (ATSC 3.0) | sound.audioDescriptionAtsc30 | on, off | System › Accessibility | built |
+| Video Description | sound.visualImpaired | on, off | System › Accessibility › Audio options | built |
+| Audio Type, Additional Audio Selection | option.supplementaryAudio, option.additionalAudioSelection | off, audioDescription, spokenSubtitles, allType | System › Accessibility › Audio options | built |
+| Amplify Dialogue (ATSC 3.0) | sound.dialogEnhancementAtsc30, sound.dialogEnhancementVolumeAtsc30 | on, off | System › Accessibility › Audio options | built |
 | Learn Remote Control | luna app com.webos.app.remotecontrolguide |  | - | cannot: a spoken button tour in LG's own app |
 | Extend Pressing Time on Remote: Activate time for long press, Interval time for repeated actions | option.remoteSlowInput, option.longPressInterval (basic, 1.5 .. 5), option.repeatInterval (basic, .5 .. 5) | on, off | Remote & pointer | build |
-| Device Power Sound | sound.tvPowerSound | on, off | System › Accessibility | build |
-| Screen Zoom | option.screenMagnification, option.adjustments | on, off | System › Accessibility | build |
-| Listen simultaneously with a hearing aid | sound.hearingAid (off, bluetooth, external_arc) and cochlear implant | off, bluetooth, external_arc | System › Accessibility | build |
-| Sign Language Zoom | other.autoSLZoomWithObjectDetection (manual zoom is a live overlay) | on, off | System › Accessibility | build — the automatic switch only; the manual overlay is a player feature |
+| Device Power Sound | sound.tvPowerSound | on, off | System › Accessibility › Audio options | built |
+| Screen Zoom | option.screenMagnification, option.adjustments | on, off | System › Accessibility | built |
+| Listen simultaneously with a hearing aid | sound.hearingAid (off, bluetooth, external_arc) and cochlear implant | off, bluetooth, external_arc | System › Accessibility › Audio options | built |
+| Sign Language Zoom | other.autoSLZoomWithObjectDetection (manual zoom is a live overlay) | on, off | System › Accessibility › Audio options | built — the automatic switch only; the manual overlay is a player feature |
 | Sign Language Guide: on, Speed, Size, Position, Type, Update | option.signLanguageGuidance, signLanguageGuidanceSpeed, signLanguageGuidanceSize, signLanguageGuidancePosition, signLanguageGuidanceAvatarType; luna com.webos.service.signlanguageavatar setSignLanguageGuidance, setAvatar, requestUpdate | on, off; hidden now | - | cannot: the avatar is a system overlay that LG draws; no setting is visible on this set |
 | Closed Caption (on) | caption.captionEnable | on, off | System › Accessibility | covered |
-| Closed Caption: Analog Mode | caption.captionAnalog | cc1, cc2, cc3, cc4, t1, t2, t3, t4 | Captions (child of Accessibility) | build |
-| Closed Caption: Digital Mode (HD mode) | caption.captionDigital (off, svc1..svc6) | off, svc1, svc2, svc3, svc4, svc5, svc6 | Captions | build |
-| Closed Caption: Digital Mode Option (Style, Size, Font, Text Color, Text Opacity, BG Color, BG Opacity, Edge Type, Edge Color, Window Color, Window Opacity) | caption.captionStyle, captionSize, captionFont, captionTextColor, captionTextOpacity, captionBgColor, captionBgOpacity, captionEdgeType, captionEdgeColor, captionWindowColor, captionWindowOpacity | auto, manual | Captions | build |
-| Closed Caption: NEXTGEN TV Mode | caption.digitalPlusCaptionLanguage | eng, spa, fre | Captions | build |
-| Closed Caption: Position Settings | caption.captionDigitalPosOption, caption608PosOption, luna com.webos.service.utp.subtitle getCaptionPosition | auto, manual, autoAi, splitDown16_9, splitUp16_9 | Captions | build — Set by Program and Automatic; Manual placing needs a live preview and stays to LG |
-| AI Caption (beta) | caption.aiCaptionEnable; luna com.webos.service.nais getQrCodeGenerationUrl | on, off; hidden now | Captions | build — the switch; the phone QR step needs LG's cloud and is not shown |
-| Hard of Hearing | caption.hardOfHearing | on, off | Captions | build |
-| Subtitles (on, first and second language) | caption.captionEnable, option.subtitleLanguageFirst, option.subtitleLanguageSecond | on, off | Captions | build |
+| Closed Caption: Analog Mode | caption.captionAnalog | cc1, cc2, cc3, cc4, t1, t2, t3, t4 | System › Accessibility › Closed Caption | built |
+| Closed Caption: Digital Mode (HD mode) | caption.captionDigital (off, svc1..svc6) | off, svc1, svc2, svc3, svc4, svc5, svc6 | System › Accessibility › Closed Caption | built |
+| Closed Caption: Digital Mode Option (Style, Size, Font, Text Color, Text Opacity, BG Color, BG Opacity, Edge Type, Edge Color, Window Color, Window Opacity) | caption.captionStyle, captionSize, captionFont, captionTextColor, captionTextOpacity, captionBgColor, captionBgOpacity, captionEdgeType, captionEdgeColor, captionWindowColor, captionWindowOpacity | auto, manual | System › Accessibility › Closed Caption (Text, Background tabs) | built |
+| Closed Caption: NEXTGEN TV Mode | caption.digitalPlusCaptionLanguage | eng, spa, fre | System › Accessibility › Closed Caption | built |
+| Closed Caption: Position Settings | caption.captionDigitalPosOption, caption608PosOption, luna com.webos.service.utp.subtitle getCaptionPosition | auto, manual, autoAi, splitDown16_9, splitUp16_9 | System › Accessibility › Closed Caption | built — Set by Program, Automatic and the separated positions; Manual needs LG's live placement tool |
+| AI Caption (beta) | caption.aiCaptionEnable; luna com.webos.service.nais getQrCodeGenerationUrl | on, off; hidden now | System › Accessibility › Closed Caption | built — the switch, which the TV hides on this set; the phone QR step is not shown |
+| Hard of Hearing | caption.hardOfHearing | on, off | System › Accessibility › Closed Caption | built |
+| Subtitles (on, first and second language) | caption.captionEnable, option.subtitleLanguageFirst, option.subtitleLanguageSecond | on, off | System › Accessibility › Closed Caption (Subtitles tab) | built |
 | Closed Caption Settings (Japan, Philippines) | caption.japanCaptionEnable, japanSuperImposeEnable, phlCaptionEnable, phlSuperImposeEnable | off, jpn, eng | - | cannot: broadcast standards of other countries; LG hides them on this set |
-| Text with High Contrast | option.highContrast | on, off | System › Accessibility | covered |
-| Focus with High Contrast | option.focusEmphasis | on, off | System › Accessibility | build |
-| Grayscale, Invert Colors | option.adjustments, option.highContrast, option.screenMagnification |  | System › Accessibility | build — LG's two switches change the same group of keys together; LumaTV writes the same key sets |
+| Text with High Contrast | option.highContrast | on, off | System › Accessibility | built |
+| Focus with High Contrast | option.focusEmphasis | on, off | System › Accessibility | built |
+| Grayscale, Invert Colors | option.adjustments, option.highContrast, option.screenMagnification |  | System › Accessibility | built — LG's two switches change the same group of keys together; LumaTV writes the same key sets |
 
 ### Always Ready (LG: General › Always Ready)
 
@@ -302,17 +306,17 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Connect Bluetooth Controller (keyboard, gamepad, mouse) | luna com.webos.service.bthidmanager requestDiscovery, subscribeDiscovery, requestConnect, getPairedDeviceLists, subscribeDevicesStatus, cancelDiscovery |  | Bluetooth controllers (child of Inputs › Devices) | build |
-| Bluetooth Controller Connection Status, Delete Device | luna com.webos.service.bthidmanager getPairedDeviceLists |  | Bluetooth controllers | build |
-| HDMI Settings: 4:4:4 Pass Through (per HDMI port) | other.444BypassHDMI1..4 (on, off), other.444BypassHDMINone | on, off; hidden now | Inputs › HDMI | build |
-| HDMI Settings: Quick Media Switching | other.qmsVrr | off, on; hidden now | Inputs › HDMI | build |
-| HDMI Settings: HDMI Deep Color | other.uhdDeepColor (off, 4k, 8k, auto; per gameInput) | off, 4k | Inputs › HDMI | build |
+| Connect Bluetooth Controller (keyboard, gamepad, mouse) | luna com.webos.service.bthidmanager requestDiscovery, subscribeDiscovery, requestConnect, getPairedDeviceLists, subscribeDevicesStatus, cancelDiscovery |  | Inputs › Devices › Bluetooth Devices | built |
+| Bluetooth Controller Connection Status, Delete Device | luna com.webos.service.bthidmanager getPairedDeviceLists |  | Inputs › Devices › Bluetooth Devices | built |
+| HDMI Settings: 4:4:4 Pass Through (per HDMI port) | other.444BypassHDMI1..4 (on, off), other.444BypassHDMINone | on, off; hidden now | Inputs › HDMI | built |
+| HDMI Settings: Quick Media Switching | other.qmsVrr | off, on; hidden now | Inputs › HDMI | built |
+| HDMI Settings: HDMI Deep Color | other.uhdDeepColor (off, 4k, 8k, auto; per gameInput) | off, 4k | Inputs › HDMI | built |
 | HDMI Settings: SIMPLINK (HDMI-CEC) | other.simplinkEnable | on, off | Inputs › HDMI | covered |
-| HDMI Settings: Dolby Vision PC | other.enableDolbyVisionPC | off, on | Inputs › HDMI | build |
+| HDMI Settings: Dolby Vision PC | other.enableDolbyVisionPC | off, on | Inputs › HDMI | built |
 | Input Compatibility Mode | other.inputCompatibilityMode | no description | - | cannot: the TV answers no such key |
 | Auto Input Switch | other.autoInputSwitch | no description | - | cannot: the TV answers no such key (monitors only) |
 | Universal Control Settings | luna com.webos.service.ics/blaster ...; option.irBlaster | 0 to 255 | - | cannot: the C4 has no IR blaster; LG hides it |
-| TV On With Mobile: Turn on via Wi-Fi, via Bluetooth | network.wolwowlOnOff, network.bleAdvertisingOnOff | true, false | Inputs › Devices | covered — Wi-Fi switch exists in Network; Bluetooth one to build |
+| TV On With Mobile: Turn on via Wi-Fi, via Bluetooth | network.wolwowlOnOff, network.bleAdvertisingOnOff | true, false | Network › Wi-Fi, Details | built — Wi-Fi switch exists in Network; Bluetooth one to build |
 | Delete Connection History | luna com.webos.notification createToast (after clearing paired wireless devices) |  | Inputs › Devices | build — asks first |
 
 ### System › Language
@@ -337,13 +341,13 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Set Automatically | time.autoClock (luna com.palm.systemservice setPreferences) | on, off | System › Time & power | build |
-| Time, Date | luna com.palm.systemservice/time setSystemTime, getEffectiveBroadcastTime |  | System › Time & power | build — pickers; only while Set Automatically is off |
-| Timezone, Custom Time Zone | time.timeZone, time.timeOffset, time.daylightSaving; luna com.palm.systemservice setPreferences | Offset | System › Time & power | build — list from the TV |
+| Set Automatically | time.autoClock (luna com.palm.systemservice setPreferences) | on, off | System › Time & power | built |
+| Time, Date | luna com.palm.systemservice/time setSystemTime, getEffectiveBroadcastTime |  | System › Time & power › Time & Date | built — pickers; only while Set Automatically is off |
+| Timezone, Custom Time Zone | time.timeZone, time.timeOffset, time.daylightSaving; luna com.palm.systemservice setPreferences | Offset | System › Time & power › Time & Date | built — the TV's own zone list for its country; Custom Time Zone (a UTC offset) is not offered |
 | Sleep Timer | luna com.webos.service.tvReservationAgent/timer/sleep add, getRemainTime |  | System › Time & power | covered |
-| Power On Timer: on, Time, Repeat, Input, Channel, Volume | time.onTimerEnable, onTimerHour, onTimerMinute, onTimerWeekday, onTimerSource, onTimerChannel, onTimerVolume | off, on | Power-on timer (child of Time & power) | build |
-| Power Off Timer: on, Time, Repeat | time.offTimerEnable (offTimerFlag), offTimerHour, offTimerMinute, offTimerWeekday | off, on | Power-off timer (child of Time & power) | build |
-| Auto Power Off after 4 Hours | time.autoOff2HourOnTimer | on, off | System › Time & power | build |
+| Power On Timer: on, Time, Repeat, Input, Channel, Volume | time.onTimerEnable, onTimerHour, onTimerMinute, onTimerWeekday, onTimerSource, onTimerChannel, onTimerVolume | off, on | System › Time & power › Power On Timer | built — Live TV as the input needs a channel pick: the HDMI inputs only |
+| Power Off Timer: on, Time, Repeat | time.offTimerEnable (offTimerFlag), offTimerHour, offTimerMinute, offTimerWeekday | off, on | System › Time & power › Power Off Timer | built |
+| Auto Power Off after 4 Hours | time.autoOff2HourOnTimer | on, off | System › Time & power | built |
 
 ### Energy Saving
 
@@ -351,10 +355,10 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 |---|---|---|---|---|
 | Energy Saving Step | picture.energySaving (auto, off, min, med, max) | auto, off, min, med, max | Picture › Mode | covered |
 | Minimum Brightness (Energy Saving) | picture.energySavingAutoMin | 0 to 10 | Picture › Mode | build |
-| Screen Off (turn off the picture, keep the sound) | option.screenOff |  | System › Time & power | build |
+| Screen Off (turn off the picture, keep the sound) | option.screenOff |  | System › Time & power | built |
 | No Signal Auto Off (15 minutes) | time.autoOff15Min, time.noSignalAutoOff | on, off | System › Time & power | covered |
 | No Operation Auto Off | time.noOperationAutoOff (off, 3, 6, 12, 24) | off, 3, 6, 12, 24; hidden now | System › Time & power | covered — the TV hides it on this set |
-| Auto Power Off | time.automaticStandBy (0, 2, 4, 6, 8) | 0, 2, 4, 6, 8; hidden now | System › Time & power | build |
+| Auto Power Off | time.automaticStandBy (0, 2, 4, 6, 8) | 0, 2, 4, 6, 8; hidden now | System › Time & power | built — the TV hides it on this set, so the row is left out |
 | DPM Auto Off (No Signal Standby) | time.dpmsAutoOff | on, off; hidden now | - | cannot: display-power-management for PC inputs; LG hides it on this set |
 
 ### System › Additional Settings
@@ -463,14 +467,14 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Wi-Fi Connection: list of networks, Join (password, hidden network, WPS) | luna com.webos.service.wifi findnetworks, connect, getprofile, getprofilelist, deleteprofile |  | Join network (child of Network) | build — a network entrance: shown and changed at the remote only |
+| Wi-Fi Connection: list of networks, Join (password, hidden network, WPS) | luna com.webos.service.wifi findnetworks, connect, getprofile, getprofilelist, deleteprofile |  | Network › Wi-Fi › Join Network | built — the list, a password on the keyboard, a hidden network; WPS and the saved-network list are not offered. Method names are webOS's, not run on the set |
 | Wired Connection: connect, status | luna com.webos.service.connectionmanager getStatus, getinfo |  | Network › Wired | covered — read only; the cable has nothing to set |
-| IP settings: Automatic or Manual (IP address, Subnet Mask, Gateway, DNS servers) | luna com.webos.service.connectionmanager setipv4, setdns |  | IP settings (child of Network) | build — a network entrance: at the remote only, behind the confirm question |
+| IP settings: Automatic or Manual (IP address, Subnet Mask, Gateway, DNS servers) | luna com.webos.service.connectionmanager setipv4, setdns |  | Network › Wi-Fi, Wired › IP Settings | built — method names are webOS's, not run on the set |
 | Proxy | luna com.webos.service.connectionmanager |  | - | cannot: LG's menu has no proxy screen on this webOS; nothing to mirror |
-| IPv6 | network.ipv6Enable | true, false | Network › Details | build |
-| TV Name (Device Name) | network.deviceName |  | Network › Details | build — edited with the on-screen keyboard |
+| IPv6 | network.ipv6Enable | true, false | Network › Details | built |
+| TV Name (Device Name) | network.deviceName |  | Network › Details | built — edited with the on-screen keyboard |
 | Wake from the network (TV On With Mobile via Wi-Fi) | network.wolwowlOnOff | true, false | Network › Wi-Fi | covered |
-| Bluetooth advertising (TV On With Mobile via Bluetooth) | network.bleAdvertisingOnOff | on, off | Network › Details | build |
+| Bluetooth advertising (TV On With Mobile via Bluetooth) | network.bleAdvertisingOnOff | on, off | Network › Details | built |
 | Allow mobile device access | network.allowMobileDeviceAccess | True, False | Network › Details | build |
 | Screen Share, AirPlay and HomeKit, Device Connection Settings | luna app com.webos.app.connectionwizard; AirPlay and Miracast services |  | - | cannot: LG's pairing and phone-mirroring set-up, which needs the phone's side |
 | LG Connect Apps, TV On with Mobile pairing | luna com.webos.service.iotclient |  | - | cannot: LG ThinQ cloud pairing |
@@ -494,7 +498,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Energy Saving | picture.energySaving | auto, off, min, med, max | Picture › Mode | covered |
 | Eye Care (Reduce Blue Light) | picture.eyeComfortMode | on, off | Picture › Brightness | covered |
 | Care Picture Settings, OLED Panel Care | other.oledCareMode | off, comfortCare, cinemaCare, kidsCare | System › OLED care | build |
-| Screen Off | option.screenOff |  | System › Time & power | build |
+| Screen Off | option.screenOff |  | System › Time & power | built |
 | Timer (Sleep Timer) | tvReservationAgent timer/sleep |  | Quick panel and System › Time & power | covered |
 | Limit Setting, Volume Limit | hotelMode.maximumVolume, hotelMode.minimumVolume |  | - | cannot: hotel mode only; LG hides it |
 | Game Optimizer | com.webos.app.gameoptimizer |  | Picture › Game | build |
@@ -514,4 +518,3 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Software Update app, Self-diagnosis, Customer Support, User Guide, Remote Control Guide | com.webos.app.softwareupdate, self-diagnosis, customersupport, tvuserguide, remotecontrolguide |  | System › Support | build — the parts that are settings; the guides stay LG's |
 | Accessibility app, Accessibility overlay | com.webos.app.accessibility, com.webos.app.accessibility-overlay |  | System › Accessibility | build |
 | Gallery of LG apps (Discovery, Browser, Weather Location, Installation, First Use) | com.webos.app.discovery, browser, weatherlocation, installation, firstuse-overlay |  | - | cannot: store, browser and installer flows |
-

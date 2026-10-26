@@ -1,5 +1,7 @@
 .pragma library
 .import "LgSettings.js" as Lg
+.import "LgDesc.js" as Desc
+.import "FakeCoverage.js" as Cov
 
 // A stand-in settings service for the offline host: the values the owner's TV answered in the X4 capture
 // (picture mode Filmmaker, OLED pixel brightness 80, sound out the receiver over eARC) and plausible
@@ -30,6 +32,7 @@ var data = {
     caption: { captionEnable: "off" },
     "": { localeInfo: { keyboards: ["en"], locales: { UI: "en-US", FMT: "en-US", STT: "en-US" }, clock: "locale", timezone: "" } }
 };
+Cov.apply(data);
 // the keys the service keeps per app: answered only with `app_id`
 var perApp = { picture: ["truMotionMode"], aspectRatio: ["arcPerApp"] };
 
@@ -79,7 +82,12 @@ function desc(category, keys) {
     var list = keys && keys.length ? keys : Object.keys(cat);
     for (var i = 0; i < list.length; i++) {
         if (cat[list[i]] === undefined) { missing.push(list[i]); continue; }
-        var entry = { key: list[i], category: category || "", ui: { displayName: list[i], visible: true, active: inactive[category + "." + list[i]] !== false, widget: "None" }, values: {} };
+        var entry = { key: list[i], category: category || "", ui: { displayName: list[i], visible: Cov.hidden[category + "." + list[i]] !== true, active: inactive[category + "." + list[i]] !== false, widget: "None" }, values: {} };
+        // the value list or range the TV's own description gives the key (LgDesc.js)
+        var t = Desc.d[category + "." + list[i]];
+        if (t && t[0] === "E") entry.values = { arrayExt: t[1].map(function(v) { return { visible: true, active: true, value: v }; })
+                                                     .concat(t[2].map(function(v) { return { visible: false, active: true, value: v }; })) };
+        else if (t && t[0] === "R") entry.values = { range: { min: t[1], max: t[2], interval: t[3] } };
         // a delay's limits come in the description, as LG's own app reads them (values.range); these are the fixture's, the TV's own are read
         if (category === "sound" && /^avSync(Spdif|Speaker|Wisa|BtSurround)$/.test(list[i])) entry.values = { range: { min: 0, max: 400, interval: 10 } };
         results.push(entry);
@@ -125,11 +133,15 @@ function sleepAdd(params) {
 }
 
 function call(service, method, params) {
+    // a call that changes the TV in a way the coverage pages read back (FakeCoverage.js), or is refused
+    var refused = Cov.act(service + "/" + method, params || {});
+    if (refused) return { returnValue: false, errorText: refused };
     if (method === "getSystemSettings") return read(params.category, params.keys || (params.key ? [params.key] : null), params.app_id);
     if (method === "getSystemSettingDesc") return desc(params.category, params.keys || (params.key ? [params.key] : null));
     if (service.indexOf("tvReservationAgent") >= 0 && method === "getRemainTime") {
         return sleepSeconds > 0 ? { returnValue: true, sleepTimeMinute: Math.floor(sleepSeconds / 60), sleepTimeSecond: sleepSeconds % 60 } : { returnValue: true, sleepTimeSecond: 0 };
     }
-    var doc = services[service + "/" + method];
+    var doc = Cov.services[service + "/" + method] || services[service + "/" + method];
+    if (typeof doc === "function") doc = doc(params);
     return doc || { returnValue: true };
 }

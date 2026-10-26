@@ -1,5 +1,6 @@
 import QtQuick 2.4
 import "kit"
+import "settings/Children.js" as Children
 
 // LumaTV's Settings (docs/mocks/30-settings-home and its sisters): a bar with the way back, the clock
 // and the link state, a rail of nine sections each with an icon tile and a live one-line summary, and
@@ -51,10 +52,10 @@ Item {
         { id: "ai", title: "AI access", icon: "bot", page: "settings/PageAi.qml", rail: true },
         { id: "system", title: "System", icon: "settings", page: "settings/PageSystem.qml", rail: true },
         { id: "receiver", title: "Receiver", icon: "boom-box", page: "settings/PageReceiver.qml", rail: false },
-        { id: "appkey", title: "App key", icon: "layout-grid", page: "settings/PageAppKey.qml", rail: false, search: false },
         { id: "homeassistant", title: "Home Assistant", icon: "house-wifi", page: "settings/PageHomeAssistant.qml", rail: false },
-        { id: "widgets", title: "Home widgets", icon: "layout-grid", page: "settings/PageWidgets.qml", rail: false }
-    ]
+        { id: "widgets", title: "Home widgets", icon: "layout-grid", page: "settings/PageWidgets.qml", rail: false },
+        { id: "appkey", title: "App key", icon: "layout-grid", page: "settings/PageAppKey.qml", rail: false, search: false }
+    ].concat(Children.pages)
     readonly property var sections: pages.filter(function(p) { return p.rail })
     readonly property int railCount: sections.length + 1        // the last row is LG's Settings
     readonly property bool lgRow: railIndex >= sections.length
@@ -74,13 +75,19 @@ Item {
         s[id] = text
         summaries = s
     }
-    // `arg` is what a child page is opened for (the app chooser: which key); the page reads it as `arg`.
+    // The pages a child was opened from, nearest last: Back goes to the one it was opened from, whatever the depth, and `up()` is that
+    // step. `arg` is what a child page is opened for (the app chooser: which key); the page reads it as `arg`.
+    property var trail: []
     function openPage(id, arg) {
+        var at = trail.indexOf(id)
+        if (at >= 0) trail = trail.slice(0, at)
+        else if (current !== id) trail = trail.concat([current])
         current = id
         var p = pageItem(id)
         if (p && arg !== undefined) p.arg = arg
         if (p && p.reset) p.reset()
     }
+    function up() { openPage(trail.length ? trail[trail.length - 1] : sections[railIndex].id) }
     // Come to a page from outside (a tile of the quick panel, a Home card): its section is the one on the rail and the page has
     // the focus. An id this Settings has no page for leaves it where it was.
     function goTo(id) {
@@ -98,6 +105,68 @@ Item {
     }
     function patch(p) { themePatch(p); themePersist(p) }
 
+    // ---- a question over the page (docs/mocks/06-confirm-dialog): panels/Confirm.qml, built when the first question is asked, on the
+    // opaque overlay surface over the whole window. `confirm(spec, then)` shows it and `then(id)` gets the id of the answer (the first
+    // answer is the safe one and Back means it); the keys go to it while it is up. Reset, a software update, the lock PIN and deleting
+    // personal data are asked here and done at the remote only.
+    property var confirmThen: null
+    readonly property bool confirmOpen: confirmLoader.active && confirmLoader.item !== null
+    property int confirmAsked: 0
+    property bool confirmKept: false
+    function confirm(spec, then) {
+        confirmThen = then
+        confirmAsked++
+        confirmLoader.active = true
+        if (confirmLoader.item) confirmLoader.item.ask(spec)
+    }
+    Loader {
+        id: confirmLoader
+        anchors.fill: parent
+        z: 6
+        active: false
+        source: "panels/Confirm.qml"
+        Connections {
+            target: confirmLoader.item
+            ignoreUnknownSignals: true
+            onAnswered: { var t = settings.confirmThen; settings.confirmThen = null; var n = settings.confirmAsked; if (t) t(id); settings.confirmKept = settings.confirmAsked !== n }
+            onCloseRequested: { if (settings.confirmKept) settings.confirmKept = false; else confirmClose.restart() }       // the dialog is still inside its own key() here: it goes when that has returned; one asked for by its own answer stays
+        }
+        Timer { id: confirmClose; interval: 1; onTriggered: confirmLoader.active = false }
+    }
+
+    // ---- text typed at the remote (a Wi-Fi password, the TV's name, an address): panels/Search.qml in its entry mode, the keyboard of Home's
+    // rename, built when the first text is asked for and over everything. `entry({ prompt, text, secret }, then)` opens it and `then(text)`
+    // gets what was typed when Done is pressed (Back leaves without it); `secret` shows bullets, the last character apart. The keys go to it
+    // while it is up. Nothing typed here is kept: the page that asked sends it to the service and drops it.
+    property var entryThen: null
+    readonly property bool entryOpen: entryLoader.active && entryLoader.item !== null
+    readonly property var entryItem: entryLoader.item                // the keyboard while it is up (a test types into it)
+    property int entryAsked: 0
+    property bool entryKept: false
+    function entry(spec, then) {
+        entryThen = then
+        entryAsked++
+        entryLoader.active = true
+        var s = {}
+        for (var k in spec) s[k] = spec[k]
+        s.mode = "entry"
+        if (entryLoader.item) entryLoader.item.open(s)
+    }
+    Loader {
+        id: entryLoader
+        anchors.fill: parent
+        z: 7
+        active: false
+        source: "panels/Search.qml"
+        Connections {
+            target: entryLoader.item
+            ignoreUnknownSignals: true
+            onEntered: { var t = settings.entryThen; settings.entryThen = null; var n = settings.entryAsked; if (t) t(text); settings.entryKept = settings.entryAsked !== n }
+            onCloseRequested: { if (settings.entryKept) settings.entryKept = false; else entryClose.restart() }       // a keyboard asked for by its own answer stays
+        }
+        Timer { id: entryClose; interval: 1; onTriggered: entryLoader.active = false }
+    }
+
     // ---- help (kit/LuInfo, kit/LuHelp): the one explanation behind a row's info mark. The page that has the focus offers it for
     // its focused row (`helpReady()` and `openHelp()` on the page); the host calls `hold()` for OK held or the Menu key, and any
     // key closes the sheet before anything else sees it (Back closes the top layer first). Focus never leaves the row.
@@ -109,7 +178,7 @@ Item {
     }
     function hideHelp() { helpSheet.hide() }
     function holdReady() {
-        if (zone !== "page" || helpSheet.shown) return false
+        if (zone !== "page" || helpSheet.shown || confirmOpen || entryOpen) return false
         var p = pageItem(current)
         return !!(p && p.helpReady && p.helpReady())
     }
@@ -118,18 +187,21 @@ Item {
         pageItem(current).openHelp()
     }
 
-    onRailIndexChanged: { rested = false; restTimer.restart(); hideHelp(); if (railIndex < sections.length) current = sections[railIndex].id }
+    onRailIndexChanged: { rested = false; restTimer.restart(); hideHelp(); trail = []; if (railIndex < sections.length) current = sections[railIndex].id }
     onZoneChanged: { rested = false; restTimer.restart(); hideHelp() }
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: settings.rested = true }
     onVisibleChanged: {
-        if (!visible) return
+        if (!visible) { confirmLoader.active = false; confirmThen = null; entryLoader.active = false; entryThen = null; return }
         zone = "rail"
+        trail = []
         clock = new Date()
         if (railIndex < sections.length) current = sections[railIndex].id
     }
 
     function key(dir) {
         if (helpSheet.shown) { helpSheet.hide(); return true }
+        if (entryOpen) { entryLoader.item.key(dir); return true }
+        if (confirmOpen) { confirmLoader.item.key(dir); return true }
         if (zone === "rail") {
             if (dir === "up") { railIndex = Math.max(0, railIndex - 1); return true }
             if (dir === "down") { railIndex = Math.min(railCount - 1, railIndex + 1); return true }
@@ -147,7 +219,7 @@ Item {
         }
         var page = pageItem(current)
         if (page && page.key(dir)) return true
-        if (dir === "back" && current !== sections[railIndex].id) { openPage(sections[railIndex].id); return true }   // a child page returns to its parent
+        if (dir === "back" && current !== sections[railIndex].id) { up(); return true }   // a child page returns to the page it was opened from
         if (dir === "left" || dir === "back") zone = "rail"
         return true
     }
@@ -187,7 +259,7 @@ Item {
                 model: settings.sections
                 delegate: LuRow {
                     width: parent.width
-                    height: Lu.row
+                    height: Math.max(Lu.row, implicitHeight - Lu.space(2))      // a row with a summary keeps a little less air than a page row, so ten fit the rail; more text grows it
                     icon: modelData.icon
                     label: modelData.title
                     detail: settings.summaryFor(modelData.id)
@@ -201,7 +273,7 @@ Item {
             }
             LuRow {
                 width: parent.width
-                height: Lu.row
+                height: Math.max(Lu.row, implicitHeight - Lu.space(2))
                 icon: "square-arrow-out-up-right"
                 label: "More in LG settings"
                 // label only: nothing here is a state

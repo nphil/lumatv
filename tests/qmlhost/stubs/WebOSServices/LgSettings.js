@@ -3,6 +3,7 @@
 // calls send, and the value tables behind its row labels). The stub service refuses a write to a key outside `keys`
 // or to a value outside `values` or `ranges`, as the real one does, so a page that writes a made-up key fails its test.
 .pragma library
+.import "LgDesc.js" as Desc
 
 var keys = {
     "aiPicture": ["ai_Brightness", "ai_Genre", "ai_Picture", "isAiPictureActing"],
@@ -79,19 +80,25 @@ var targets = [
     "DeletePersonalVoiceDetails", "Advertising", "Camera", "MicroPhone", "NearbyDevice"
 ];
 
+// The TV's own description of a key (LgDesc.js) is the table for every key that has no hand-kept one above: a value LG's screen
+// does not list, or a number outside the key's range, is refused.
 function domain(ds) {
     if (values[ds]) return { kind: "enum", list: values[ds] };
     if (onoff.indexOf(ds) >= 0) return { kind: "enum", list: ["on", "off"] };
     if (truefalse.indexOf(ds) >= 0) return { kind: "enum", list: ["true", "false"] };
     if (ranges[ds]) return { kind: "range", min: ranges[ds][0], max: ranges[ds][1] };
+    var t = Desc.d[ds];
+    if (!t || t[t.length - 1] !== 1) return null;                // a key the TV does not check takes any value
+    if (t[0] === "E" && t[1].length + t[2].length > 0) return { kind: "enum", list: t[1].concat(t[2]) };
+    if (t[0] === "R") return { kind: "range", min: t[1], max: t[2] };
     return null;
 }
 
 // null when the write is accepted, else the reason the service would give.
 function refuse(category, key, value) {
     var ds = category + "." + key;
-    if (!keys[category]) return "unknown category " + category;
-    if (keys[category].indexOf(key) < 0) return "unknown key " + ds;
+    if (!keys[category] && !Desc.d[ds]) return "unknown category " + category;
+    if ((keys[category] || []).indexOf(key) < 0 && !Desc.d[ds]) return "unknown key " + ds;
     var d = domain(ds);
     if (!d) return null;
     var s = String(value);

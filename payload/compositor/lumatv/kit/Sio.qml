@@ -136,6 +136,19 @@ QtObject {
         if (appId) body.app_id = appId
         LS.adhoc.call(service, "/setSystemSettings", JSON.stringify(body))
     }
+    // Several keys of one category in one call, each value as given (a key may hold an object: option.adjustments, LG's colour
+    // inversion and grayscale pair). Shown at once like `write`; `settings` is {key: value}.
+    function writeMany(category, settings, appId) {
+        var v = {}
+        for (var k in values) v[k] = values[k]
+        for (var key in settings) v[dsName(category, key)] = settings[key]
+        values = v
+        var body = { settings: settings }
+        if (category) body.category = category
+        if (dimensions[category]) body.dimension = dimensions[category]
+        if (appId) body.app_id = appId
+        LS.adhoc.call(service, "/setSystemSettings", JSON.stringify(body))
+    }
 
     property Service svc: Service {
         appId: "com.webos.surfacemanager"
