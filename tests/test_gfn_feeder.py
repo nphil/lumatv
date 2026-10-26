@@ -491,7 +491,7 @@ class Serve(unittest.TestCase):
             with open(os.path.join(home, "bin64", "lumatv-gfn-app"), "w") as f:
                 f.write("#!/bin/sh\necho \"ui: $*\" >&2\nsleep 0.3\necho _Window_Id_31 > %s\nwhile [ ! -e %s ]; do sleep 0.05; done\nexit 0\n" % (idfile, done))
             os.chmod(os.path.join(home, "bin64", "lumatv-gfn-app"), 0o755)
-            env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"))
+            env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"), LUMATV_GFN_DATA_BASE=tmp)
             proc = subprocess.Popen([exe, "--serve", sock, "--ui-home", home, "--window-id-file", idfile, "-L", NDL], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             c = Client(sock)
             t, p = c.recv()
@@ -774,6 +774,7 @@ class Sam(unittest.TestCase):
         os.makedirs(os.path.join(self.home, "gfx64"))
         self.exe = os.path.join(self.home, "lumatv-gfn-feeder")
         shutil.copy(BIN, self.exe)
+        os.makedirs(os.path.join(self.tmp, "data-base"))
         self.ui_log = os.path.join(self.tmp, "ui.log")
         self.hub_log = os.path.join(self.tmp, "hub.log")
         self.script = os.path.join(self.tmp, "script")
@@ -796,7 +797,8 @@ class Sam(unittest.TestCase):
         with open(self.script, "w") as f:
             for ms, payload in events:
                 f.write("%d %s\n" % (ms, payload))
-        e = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.devnull, FAKE_LS_LOG=self.hub_log, FAKE_SAM_EVENTS=self.script, LUMATV_GFN_LOG="-")
+        e = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.devnull, FAKE_LS_LOG=self.hub_log, FAKE_SAM_EVENTS=self.script, LUMATV_GFN_LOG="-",
+                 LUMATV_GFN_DATA_BASE=os.path.join(self.tmp, "data-base"))
         for k in ("APPID", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY"):
             e.pop(k, None)
         e.update(env or {})
@@ -885,13 +887,17 @@ class Sam(unittest.TestCase):
         """SAM starts `main` with an empty environment (TV round 11: the UI could not find the compositor and the app was over in 200 ms)."""
         log = os.path.join(self.tmp, "feeder.log")
         self.ui('echo "env: $XDG_RUNTIME_DIR $WAYLAND_DISPLAY" >> %s; echo "stdout line"; echo "stderr line" >&2; %s' % (self.ui_log, self.READ_UNTIL_CLOSE % self.ui_log))
+        base = os.path.join(self.tmp, "data-base")
         proc = self.start(events=[(300, CLOSE)], launch=launch_object(), env={"LUMATV_GFN_LOG": log})
         self.finish(proc)
         ui = self.text(self.ui_log)
         self.assertIn("env: /tmp/xdg wayland-0", ui)
         self.assertIn("--core %s/run64.sh --engine %s/bin64/opennow-streamer" % (self.home, self.home), ui)
+        self.assertIn("--data %s/%s" % (base, SAM_APP), ui)
+        self.assertTrue(os.path.isdir(os.path.join(base, SAM_APP)))
         said = self.text(log)
         self.assertIn("launched by SAM: reason undefined", said)
+        self.assertIn("data directory %s/%s: writable" % (base, SAM_APP), said)
         self.assertIn("stdout line", said)
         self.assertIn("stderr line", said)
         self.assertIn("the UI ended", said)

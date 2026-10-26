@@ -109,7 +109,6 @@ impl Prefs {
             "maxBitrateMbps": self.bitrate_mbps,
             "controllerLeftStickDeadzone": self.deadzone,
             "controllerRightStickDeadzone": self.deadzone,
-            "nativeVideoBackend": "ndl",
         })
     }
 
@@ -222,9 +221,15 @@ impl Row {
         }
     }
 
-    /// Whether the value is one the core needs to hear (the stats line is the UI's own).
-    pub fn is_core_setting(self) -> bool {
-        self != Row::Stats
+    /// The core's setting keys the row decides (the stats line is the UI's own: none). The core takes one key and value a request.
+    pub fn keys(self) -> &'static [&'static str] {
+        match self {
+            Row::Stream => &["resolution", "fps"],
+            Row::Hdr => &["enableHdr", "colorQuality"],
+            Row::Bitrate => &["maxBitrateMbps"],
+            Row::Deadzone => &["controllerLeftStickDeadzone", "controllerRightStickDeadzone"],
+            Row::Stats => &[],
+        }
     }
 }
 
@@ -242,7 +247,7 @@ mod tests {
         assert_eq!((s["resolution"].as_str(), s["fps"].as_u64()), (Some("3840x2160"), Some(120)));
         assert_eq!((s["enableHdr"].as_bool(), s["colorQuality"].as_str()), (Some(true), Some("10bit_420")));
         assert_eq!((s["maxBitrateMbps"].as_u64(), s["controllerLeftStickDeadzone"].as_u64(), s["controllerRightStickDeadzone"].as_u64()), (Some(80), Some(8), Some(8)));
-        assert_eq!((s["codec"].as_str(), s["nativeVideoBackend"].as_str()), (Some("auto"), Some("ndl")));
+        assert_eq!(s["codec"].as_str(), Some("auto"));
     }
 
     #[test]
@@ -301,7 +306,7 @@ mod tests {
         assert_eq!(values, ["4K 120", "On", "80 Mbit/s", "8%", "Off"]);
         for r in Row::ALL {
             assert!(!r.name().is_empty() && r.help().len() > 30 && r.help().len() < 160, "{:?}", r);
-            assert_eq!(r.is_core_setting(), r != Row::Stats);
+            assert_eq!(r.keys().is_empty(), r == Row::Stats);
         }
     }
 }

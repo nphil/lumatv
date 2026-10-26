@@ -10,7 +10,7 @@
 use crate::gfn::prefs::{Prefs, Row};
 use crate::home::Key;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 /// The screens, in the order Back walks them.
@@ -195,8 +195,14 @@ pub struct App {
     create_id: String,
     hello_done: bool,
     minimized: bool,
-    /// The regions are asked for with the first `settings.set` answer (the handshake's), not with the ones the settings screen causes.
+    /// The regions are asked for with the streamer's answer, once.
     regions_asked: bool,
+    /// The core takes one setting a request, and a few requests at a time (it answers `busy` past that): the settings still to send, one
+    /// at a time. `boot_settings` is the handshake's batch; the streamer is asked for once it is through, because the core finds the
+    /// engine by the path in its settings.
+    settings_queue: VecDeque<(String, Value)>,
+    boot_settings: bool,
+    engine_path: String,
     ok_down_ms: Option<u64>,
     ok_held: bool,
     ok_swallow: bool,
@@ -215,6 +221,12 @@ fn key_of(code: u32) -> Option<Key> {
 impl App {
     pub fn new() -> Self {
         Self::with_prefs(Prefs::default())
+    }
+
+    /// Where the streamer engine is: the core is told in the handshake, before it looks for it.
+    pub fn with_engine(mut self, path: &str) -> Self {
+        self.engine_path = path.to_owned();
+        self
     }
 
     pub fn with_prefs(prefs: Prefs) -> Self {
@@ -255,6 +267,9 @@ impl App {
             hello_done: false,
             minimized: false,
             regions_asked: false,
+            settings_queue: VecDeque::new(),
+            boot_settings: false,
+            engine_path: String::new(),
             ok_down_ms: None,
             ok_held: false,
             ok_swallow: false,
@@ -578,10 +593,31 @@ impl App {
             return Vec::new();
         }
         let mut out = vec![Action::SavePrefs(self.prefs)];
-        if row.is_core_setting() {
-            out.push(Self::req("settings.set", self.prefs.settings()));
+        let settings = self.prefs.settings();
+        for key in row.keys() {
+            self.settings_queue.push_back(((*key).to_owned(), settings[*key].clone()));
+        }
+        if !self.has_pending("settings.set") {
+            out.extend(self.next_setting());
         }
         out
+    }
+
+    /// The next setting waiting to go to the core, as a request.
+    fn next_setting(&mut self) -> Option<Action> {
+        self.settings_queue.pop_front().map(|(key, value)| Self::req("settings.set", json!({"key": key, "value": value})))
+    }
+
+    /// A setting was answered (taken or refused): the next goes, and when the handshake's batch is through the streamer is asked for.
+    fn after_setting(&mut self) -> Vec<Action> {
+        if let Some(next) = self.next_setting() {
+            return vec![next];
+        }
+        if self.boot_settings {
+            self.boot_settings = false;
+            return vec![Self::req("streamer.detect", json!({})), Self::req("auth.session.get", json!({}))];
+        }
+        Vec::new()
     }
 
     /// OK on the settings screen is told by how long it is held: pressed and let go it is the row's action, held for `HOLD_MS` it opens the
@@ -775,6 +811,8 @@ impl App {
                 self.next_poll_ms = self.now_ms + self.sign_in.interval_s.max(1) * 1000;
                 Vec::new()
             }
+            // a setting the core refuses is not the app's end: the rest goes on
+            "settings.set" => self.after_setting(),
             "auth.session.get" => {
                 self.signed_in = false;
                 self.screen = Screen::SignIn;
@@ -800,20 +838,25 @@ impl App {
         match method {
             "core.hello" => {
                 self.hello_done = true;
-                vec![Self::req("streamer.detect", json!({})), Self::req("auth.session.get", json!({}))]
+                let settings = self.prefs.settings();
+                if let Some(map) = settings.as_object() {
+                    self.settings_queue.extend(map.iter().map(|(k, v)| (k.clone(), v.clone())));
+                }
+                if !self.engine_path.is_empty() {
+                    self.settings_queue.push_back(("nativeStreamerExecutablePath".to_owned(), json!(self.engine_path)));
+                }
+                self.boot_settings = true;
+                self.after_setting()
             }
             "streamer.detect" => {
                 let mut caps = r["capabilities"].clone();
                 caps["nativeHdrSupported"] = json!(true);
                 caps["nativeHdrDisplay"] = json!({"minimumNits": 0, "maximumNits": 1000, "maximumFullFrameNits": 400});
                 self.runtime_capabilities = caps;
-                vec![Self::req("settings.set", self.prefs.settings())]
-            }
-            "settings.set" if !self.regions_asked => {
                 self.regions_asked = true;
                 vec![Self::req("network.regions.list", json!({}))]
             }
-            "settings.set" => Vec::new(),
+            "settings.set" => self.after_setting(),
             "network.regions.list" => {
                 if let Some(first) = r["regions"].as_array().and_then(|a| a.first()) {
                     if let (Some(n), Some(u)) = (first["name"].as_str(), first["url"].as_str()) {
@@ -1092,26 +1135,42 @@ mod tests {
         json!({"status": "ready", "sourceUrl": url, "artworkUrl": format!("file://{path}"), "filePath": path, "cached": true})
     }
 
+    /// The settings the handshake sends one request at a time (the core takes one key and value, and a few requests at once): each is
+    /// answered, and what comes after the last answer is returned with the settings as the core was told them.
+    fn through_settings(app: &mut App, mut a: Vec<Action>) -> (Vec<Action>, serde_json::Map<String, Value>) {
+        let mut told = serde_json::Map::new();
+        let mut n = 0;
+        while let [Action::Request { method, params }] = a.as_slice() {
+            if method != "settings.set" {
+                break;
+            }
+            assert_eq!(told.insert(params["key"].as_str().unwrap().to_owned(), params["value"].clone()), None, "a key is sent once");
+            n += 1;
+            let id = format!("set{n}");
+            app.sent(&id, "settings.set");
+            a = app.handle(ok(&id, "settings.set", json!({"key": "k", "value": null})));
+        }
+        (a, told)
+    }
+
     /// The handshake through the library, with the sign-in in between: the requests in OpenNOW's order.
     fn signed_in_app() -> App {
-        let mut app = App::new();
+        let mut app = App::new().with_engine("/app/bin64/opennow-streamer");
         assert_eq!(methods(&app.start()), ["core.hello"]);
         app.sent("1", "core.hello");
         let a = app.handle(ok("1", "core.hello", json!({"capabilities": ["nativeStreamer.v7"]})));
-        assert_eq!(methods(&a), ["streamer.detect", "auth.session.get"]);
+        let (a, told) = through_settings(&mut app, a);
+        assert_eq!(told["resolution"], "3840x2160");
+        assert_eq!(told["fps"], 120);
+        assert_eq!(told["enableHdr"], true);
+        assert_eq!(told["nativeStreamerExecutablePath"], "/app/bin64/opennow-streamer");
+        assert_eq!(methods(&a), ["streamer.detect", "auth.session.get"], "the streamer is asked for once the core knows where it is");
         app.sent("2", "streamer.detect");
         app.sent("3", "auth.session.get");
         let a = app.handle(ok("2", "streamer.detect", json!({"available": true, "capabilities": {"protocolVersion": 7, "videoBackends": [{"backend": "ndl"}]}})));
-        assert_eq!(methods(&a), ["settings.set"]);
+        assert_eq!(methods(&a), ["network.regions.list"]);
         assert_eq!(app.runtime_capabilities["nativeHdrSupported"], true);
         assert_eq!(app.runtime_capabilities["nativeHdrDisplay"]["maximumNits"], 1000);
-        if let Action::Request { params, .. } = &a[0] {
-            assert_eq!(params["resolution"], "3840x2160");
-            assert_eq!(params["fps"], 120);
-            assert_eq!(params["enableHdr"], true);
-        }
-        app.sent("2b", "settings.set");
-        assert_eq!(methods(&app.handle(ok("2b", "settings.set", json!({"settings": {}})))), ["network.regions.list"]);
         let a = app.handle(ok("3", "auth.session.get", json!({"session": null, "scope": {"generation": 1}})));
         assert_eq!(app.screen, Screen::SignIn);
         assert_eq!(methods(&a), ["auth.device.start"]);
@@ -1420,30 +1479,33 @@ mod tests {
         app.handle(key(103));
         assert!(app.handle(key(28)).is_empty());
         assert_eq!(app.screen, Screen::Settings);
-        let set = |a: &[Action]| -> Value {
+        // a row's change goes to the core a key at a time, the next after the answer to the one before
+        let set = |app: &mut App, a: Vec<Action>| -> Value {
             assert!(matches!(a[0], Action::SavePrefs(_)), "the change is kept first");
-            match &a[1] {
-                Action::Request { method, params } if method == "settings.set" => params.clone(),
-                other => panic!("{other:?}"),
-            }
+            let (rest, told) = through_settings(app, a[1..].to_vec());
+            assert!(rest.is_empty());
+            Value::Object(told)
         };
         let a = app.handle(key(106));
         assert_eq!(app.prefs.tier, Tier::Qhd120);
         assert!(matches!(a[0], Action::SavePrefs(p) if p.tier == Tier::Qhd120));
-        let p = set(&a);
+        let p = set(&mut app, a);
         assert_eq!((p["resolution"].as_str(), p["fps"].as_u64()), (Some("2560x1440"), Some(120)));
         assert!(!app.handle(key(105)).is_empty());
         assert_eq!(app.prefs.tier, Tier::Uhd120);
         assert!(app.handle(key(105)).is_empty(), "nothing before the first rung: nothing to keep or send");
         app.handle(key(108));
-        let p = set(&app.handle(key(106)));
+        let a = app.handle(key(106));
+        let p = set(&mut app, a);
         assert_eq!((p["enableHdr"].as_bool(), p["colorQuality"].as_str()), (Some(false), Some("8bit_420")));
         app.handle(key(108));
-        let p = set(&app.handle(key(106)));
+        let a = app.handle(key(106));
+        let p = set(&mut app, a);
         assert_eq!(p["maxBitrateMbps"].as_u64(), Some(100));
         assert!(app.handle(key(106)).is_empty(), "the ladder ends at 100");
         app.handle(key(108));
-        let p = set(&app.handle(key(106)));
+        let a = app.handle(key(106));
+        let p = set(&mut app, a);
         assert_eq!((p["controllerLeftStickDeadzone"].as_u64(), p["controllerRightStickDeadzone"].as_u64()), (Some(10), Some(10)));
         app.handle(key(108));
         let a = app.handle(key(106));
@@ -1451,9 +1513,10 @@ mod tests {
         assert!(matches!(a[0], Action::SavePrefs(p) if p.show_stats));
         assert!(app.handle(key(108)).is_empty());
         assert_eq!(app.settings_row, 4);
-        // the answers to these do not ask for the regions again
+        // a setting the core refuses does not end the app
         app.sent("s1", "settings.set");
-        assert!(app.handle(ok("s1", "settings.set", json!({"settings": {}}))).is_empty());
+        assert!(app.handle(err("s1", "settings.set", "invalid_setting", "no")).is_empty());
+        assert_eq!(app.screen, Screen::Settings);
         app.handle(key(412));
         assert_eq!(app.screen, Screen::Library);
         assert!(app.header_focus, "back to the button the screen was opened from");
@@ -1511,22 +1574,22 @@ mod tests {
     }
 
     #[test]
-    fn the_viewers_choices_are_what_the_handshake_sends_the_core_and_the_regions_follow_the_first_answer_only() {
+    fn the_viewers_choices_are_what_the_handshake_sends_the_core_one_key_at_a_time_before_the_streamer_is_asked_for() {
         use crate::gfn::prefs::{Prefs, Tier};
         let mut app = App::with_prefs(Prefs { tier: Tier::Uhd60, hdr: false, bitrate_mbps: 50, deadzone: 12, show_stats: true });
         app.start();
         app.sent("1", "core.hello");
-        app.handle(ok("1", "core.hello", json!({})));
-        app.sent("2", "streamer.detect");
-        let a = app.handle(ok("2", "streamer.detect", json!({"capabilities": {"protocolVersion": 7}})));
-        let Action::Request { params, .. } = &a[0] else { panic!("{a:?}") };
+        let a = app.handle(ok("1", "core.hello", json!({})));
+        assert_eq!(methods(&a), ["settings.set"], "one request, not the whole batch: the core answers busy past a few at a time");
+        let (a, params) = through_settings(&mut app, a);
         assert_eq!((params["resolution"].as_str(), params["fps"].as_u64()), (Some("3840x2160"), Some(60)));
         assert_eq!((params["enableHdr"].as_bool(), params["colorQuality"].as_str(), params["maxBitrateMbps"].as_u64()), (Some(false), Some("8bit_420"), Some(50)));
         assert_eq!(params["controllerLeftStickDeadzone"].as_u64(), Some(12));
-        app.sent("3", "settings.set");
-        assert_eq!(methods(&app.handle(ok("3", "settings.set", json!({})))), ["network.regions.list"]);
-        app.sent("4", "settings.set");
-        assert!(app.handle(ok("4", "settings.set", json!({}))).is_empty());
+        assert!(!params.contains_key("nativeStreamerExecutablePath"), "no engine named, none sent");
+        assert_eq!(methods(&a), ["streamer.detect", "auth.session.get"]);
+        app.sent("2", "streamer.detect");
+        let a = app.handle(ok("2", "streamer.detect", json!({"capabilities": {"protocolVersion": 7}})));
+        assert_eq!(methods(&a), ["network.regions.list"]);
         assert_eq!(app.prefs.summary(), "4K · 60 fps");
     }
 }

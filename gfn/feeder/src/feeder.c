@@ -663,6 +663,33 @@ static int run_play(struct feeder *f) {
  * package's own loader, heap shim and Mali driver, in its own process group, gone with this process. What SAM gave this 32-bit
  * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. `channel` is the UI's end of the socket pair (its
  * descriptor 3), -1 for none; `hidden` is a preload. */
+/* A directory this user can keep files in across a restart of the TV, for the account the core signs in and the app's preferences. SAM's
+ * jail user cannot write /var/lib; the places webOS keeps an app's own data are tried in turn and every answer is logged, so the TV shows
+ * which one the jail allows. Nothing found: an empty string, and the UI keeps its files under /tmp. */
+static const char *persistent_dir(const char *app_id, char *out, size_t cap) {
+    const char *base[] = {"/media/developer/apps/usr/palm/data", "/media/cryptofs/apps/usr/palm/data", "/media/internal", "/var/luna/preferences", "/var/palm/data", "/media/developer/temp"};
+    const char *only = getenv("LUMATV_GFN_DATA_BASE");       /* the host tests name their own */
+    for (size_t i = 0; i < (only ? 1 : sizeof base / sizeof *base); i++) {
+        char dir[400], probe[460];
+        snprintf(dir, sizeof dir, "%s/%s", only ? only : base[i], app_id);
+        int made = mkdir(dir, 0700) == 0 || errno == EEXIST;
+        int made_errno = errno;
+        int ok = 0;
+        if (made) {
+            snprintf(probe, sizeof probe, "%s/.write-test-%d", dir, (int)getpid());
+            int fd = open(probe, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+            if (fd >= 0) {
+                ok = write(fd, "x", 1) == 1;
+                close(fd);
+                unlink(probe);
+            }
+        }
+        gf_say("data directory %s: %s", dir, ok ? "writable" : made ? "not writable" : strerror(made_errno));
+        if (ok && !out[0]) snprintf(out, cap, "%s", dir);
+    }
+    return out;
+}
+
 static pid_t start_ui(const char *home, const char *app_id, int channel, int hidden) {
     char launch[600], bundle[600], shim[600], app[600], assets[600], run64[600], engine[600];
     snprintf(run64, sizeof run64, "%s/run64.sh", home);
@@ -676,6 +703,8 @@ static pid_t start_ui(const char *home, const char *app_id, int channel, int hid
         gf_say("no UI at %s: serving the engine only", app);
         return 0;
     }
+    char data[460] = "";
+    persistent_dir(app_id, data, sizeof data);
     pid_t pid = fork();
     if (pid < 0) {
         gf_say("fork: %s", strerror(errno));
@@ -718,6 +747,10 @@ static pid_t start_ui(const char *home, const char *app_id, int channel, int hid
             argv[n++] = "3";
         }
         if (hidden) argv[n++] = "--hidden";
+        if (data[0]) {
+            argv[n++] = "--data";
+            argv[n++] = data;
+        }
         argv[n] = NULL;
         execv("/bin/sh", (char *const *)argv);
         _exit(127);

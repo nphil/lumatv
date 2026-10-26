@@ -332,26 +332,19 @@ fn run(o: Options) -> io::Result<i32> {
         None => None,
     };
     let mut window_state = if o.hidden { MINIMIZED } else { FULLSCREEN };
-    let mut app = App::with_prefs(Prefs::load(&prefs_path));
+    let mut app = App::with_prefs(Prefs::load(&prefs_path)).with_engine(&o.engine.to_string_lossy());
     let started = Instant::now();
     let mut actions = app.start();
     if o.hidden {
         actions.extend(app.handle(Input::State(MINIMIZED)));
     }
-    // The engine's path goes into the core's settings once the handshake answered; the first settings.set the rules send carries
-    // everything else, so the path is added to it here.
-    let engine_path = o.engine.to_string_lossy().into_owned();
-
     watch_swaps();
     let mut want_frame = true;
     let mut ready = false;
     loop {
         for action in actions.drain(..) {
             match action {
-                Action::Request { method, mut params } => {
-                    if method == "settings.set" {
-                        params["nativeStreamerExecutablePath"] = Value::String(engine_path.clone());
-                    }
+                Action::Request { method, params } => {
                     let shown = params.clone();
                     match core.request(&method, params) {
                         Ok(id) => app.sent_params(&id, &method, &shown),
