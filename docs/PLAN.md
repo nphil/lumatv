@@ -1173,6 +1173,10 @@ what it already does.
   the middle of playback. The check records how long any switch blanks the
   panel. HDMI sources that change their output rate always resync the link
   (a short black picture on any TV); that part is the source's.
+  Nitin (2026-10-25): the TV's own apps are the main way to watch; the Apple
+  TV is to be retired or kept only as an Apple Home hub (HA shows it off for
+  the past 10 days). Frame-rate matching therefore targets the TV's own
+  decoder paths; HDMI 2 is secondary.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
