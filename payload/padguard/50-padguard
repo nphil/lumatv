@@ -1,0 +1,13 @@
+#!/bin/sh
+# webosbrew boot hook: attach a USB game controller (054c:09cc) only while it is
+# sending reports. See padguard.py. Installed as
+# /var/lib/webosbrew/init.d/50-padguard (no dot in the name: run-parts skips those)
+# with the daemon at /var/lib/webosbrew/padguard.py. Replaces 50-padblock.
+# Remove this file to uninstall. Never blocks boot; the daemon is single-instance.
+
+[ -x /usr/bin/python3 ] || exit 0
+[ -f /var/lib/webosbrew/padguard.py ] || exit 0
+
+setsid /usr/bin/python3 /var/lib/webosbrew/padguard.py </dev/null >/dev/null 2>&1 &
+
+exit 0
