@@ -10,6 +10,7 @@ Item {
     id: tile
     property string label: ""
     property string detail: ""
+    property int detailLines: 1             // lines the second line keeps, empty or not, for a row whose answer comes late: the rows below do not move
     property string icon: ""
     property bool tileAccent: false
     property bool focused: false
@@ -26,7 +27,7 @@ Item {
     readonly property real trailW: trailingSlot.childrenRect.width
     readonly property real belowH: belowSlot.childrenRect.height
     readonly property real textW: width - textX - pad - (trailW > 0 ? trailW + gap : 0)
-    readonly property real textH: words.height
+    readonly property real textH: Math.max(words.height, detailLines > 1 && detail !== "" ? labelText.height + detailLines * lineProbe.height : 0)
     // a second line that does not fit on one breaks at its dots ("Follows the picture" over "70%"), not in the middle of a phrase
     readonly property string shownDetail: detailProbe.implicitWidth > textW ? detail.replace(/ \u00b7 /g, "\n") : detail
 
@@ -74,10 +75,11 @@ Item {
         x: tile.textX
         y: tile.belowH > 0 ? tile.pad : Math.round((tile.height - height) / 2)
         width: tile.textW
-        LuText { width: parent.width; role: "label"; text: tile.label; wrapMode: Text.WordWrap }
+        LuText { id: labelText; width: parent.width; role: "label"; text: tile.label; wrapMode: Text.WordWrap }
         LuText { width: parent.width; role: "caption"; text: tile.shownDetail; color: Lu.ink2; wrapMode: Text.WordWrap; visible: tile.detail !== "" }
     }
     LuText { id: detailProbe; visible: false; role: "caption"; text: tile.detail }
+    LuText { id: lineProbe; visible: false; role: "caption"; text: "M" }
     Item {
         id: trailingSlot
         x: tile.width - tile.pad - width

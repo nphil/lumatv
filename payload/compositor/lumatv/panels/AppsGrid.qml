@@ -165,13 +165,14 @@ Item {
         Item {
             visible: page.hiddenApps.length > 0
             x: 16; y: parent.height - 20 - height; width: parent.width - 32; height: Math.max(80, hiddenRow.implicitHeight)
-            readonly property int at: page.rail.length - 1
+            // the rail is not computed yet when the first bindings under it run on the set (the TV's log: Value is undefined), so it is guarded
+            readonly property int at: page.rail ? page.rail.length - 1 : 0
             LuRow {
                 id: hiddenRow
                 anchors.fill: parent
                 icon: "eye-off"
                 label: "Hidden"
-                detail: page.rail[parent.at].sub
+                detail: page.rail && page.rail[parent.at] ? page.rail[parent.at].sub : ""
                 selected: page.section === "hidden"
                 tileAccent: page.section === "hidden"
                 focused: !page.inGrid && !page.searchFocused && page.railIndex === parent.at

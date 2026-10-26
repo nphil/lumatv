@@ -40,19 +40,34 @@ Item {
         return "Sound: receiver on eARC"
     }
 
-    function open(params) {
-        Inputs.refresh()
-        Sio.read("sound", ["soundOutput"])
-        // the tile of the input in front first, so OK on open keeps what is on
+    property bool moved: false              // a key has moved the choice since the picker came up
+    function pickFront() {
         index = 0
         for (var i = 0; i < tiles.length; i++) if (tiles[i].front) { index = i; break }
     }
-    function next() { index = tiles.length ? (index + 1) % tiles.length : 0 }
+    // The open path only picks the tile and starts the slide. The readings (each answer rebinds every tile) are asked for once the slide is
+    // over and the burst of frames the key started has ended; until then the tiles say what the last reading did. If the input in front
+    // turns out to be another and no key has moved the choice, the choice follows it.
+    function open(params) {
+        moved = false
+        pickFront()           // the tile of the input in front first, so OK on open keeps what is on
+        readTimer.restart()
+    }
+    onTilesChanged: if (presented && !moved) pickFront()
+    onPresentedChanged: if (!presented) readTimer.stop()
+    Timer {
+        id: readTimer
+        interval: motion.enterMs + 60
+        onTriggered: { Inputs.refresh(); Sio.read("sound", ["soundOutput"]) }
+    }
+    function next() { moved = true; index = tiles.length ? (index + 1) % tiles.length : 0 }
     function key(dir) {
+        // Back is the picker leaving: nothing under it is to be drawn again by a rest timer on the way out
+        if (dir === "back") { closeRequested(); return }
+        moved = true
         if (dir === "left") index = Math.max(0, index - 1)
         else if (dir === "right") index = Math.min(tiles.length - 1, index + 1)
         else if (dir === "ok") { if (tiles.length) activated(tiles[index].appId) }
-        else if (dir === "back") closeRequested()
         rested = false
         restTimer.restart()
     }

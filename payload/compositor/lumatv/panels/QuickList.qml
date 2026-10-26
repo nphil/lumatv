@@ -6,7 +6,9 @@ import "../kit"
 // a function, which runs inside the binding that draws the row, so what it reads redraws it) and so are the keys: Up and Down move between the
 // rows that can take the focus, Left and Right change a stepper (it wraps) or nudge a nudge, OK flips a toggle and presses a value or an
 // action. The tiles of the plugins come through the same descriptors. What differs is the drawing, for a column about 430 px wide: a row
-// that needs width for its control puts it on a line of its own (QuickTile), so words and values wrap and never lose a letter.
+// that needs width for its control puts it on a line of its own (QuickTile), so words and values wrap and never lose a letter. A row whose
+// second line is an answer that arrives after the panel is up (the receiver's) says `detailLines` and keeps that many lines, so the answer
+// changes no row's height.
 // The rows are built when the panel is; a plugin's tile coming or going changes `rows`, and nothing is created by a key.
 Item {
     id: list
@@ -149,7 +151,7 @@ Item {
                         id: cStepper
                         QuickTile {
                             icon: list.ev(cell.r.icon) || ""
-                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""
+                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested
                             onHoverFocus: list.pointAt(cell.ri)
@@ -163,7 +165,7 @@ Item {
                         id: cNudge
                         QuickTile {
                             icon: list.ev(cell.r.icon) || ""
-                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""
+                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
@@ -175,7 +177,7 @@ Item {
                         id: cToggle
                         QuickTile {
                             icon: list.ev(cell.r.icon) || ""
-                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""
+                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
@@ -187,7 +189,7 @@ Item {
                         id: cValue
                         QuickTile {
                             icon: list.ev(cell.r.icon) || ""
-                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""
+                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
@@ -218,7 +220,7 @@ Item {
                         id: cAction
                         QuickTile {
                             icon: list.ev(cell.r.icon) || ""
-                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""
+                            label: list.ev(cell.r.label) || ""; detail: list.ev(cell.r.detail) || ""; detailLines: list.ev(cell.r.detailLines) || 1
                             enabled: list.ev(cell.r.enabled) !== false
                             focused: cell.isFocus; rested: list.rested
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }

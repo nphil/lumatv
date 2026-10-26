@@ -106,6 +106,23 @@ class HomePanels(HostCase):
         self.assertEqual(p["next"][2], "picker")
         self.assertEqual(p["wrap"], [p["next"][1], "picker"], "going round all the tiles comes back to the same one")
 
+    def test_the_open_path_asks_for_no_reading_until_the_slide_is_over_and_the_slide_is_short(self):
+        # The set's gate wants the frame burst a key starts to end within 180 ms of it, and the first frame comes about 41 ms after the gear:
+        # the slide is at most 110 ms, and nothing that rebinds the rows is asked for while it runs (the answers came mid-slide).
+        asked = "root.lunaCalls.filter(function(c) { return c.method === '/getAllInputStatus' }).length"
+        for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
+            rc, out = self.host(
+                *probe(READY + 500, "before", "var b = bus(); var n = %s; b.open('%s'); return n;" % (asked, kind)),
+                *probe(READY + 560, "during", "return %s;" % asked),
+                *probe(READY + 700, "done", "var s = find(root, '%s'); return {n: %s, progress: s.progress};" % (find, asked)),
+                *probe(READY + 1000, "after", "return %s;" % asked),
+                "--wait", str(READY + 1400))
+            self.assertEqual(rc, 0, out[-2500:])
+            p = probes(out)
+            self.assertEqual(p["during"], p["before"], "the %s asked for a reading while it was sliding in" % kind)
+            self.assertEqual(p["done"]["progress"], 1, "the %s slide was not over 200 ms after it opened" % kind)
+            self.assertGreater(p["after"], p["before"], "the %s never read the TV after it opened" % kind)
+
     def test_one_panel_gives_way_to_the_other_and_to_what_was_up(self):
         rc, out = self.host(
             *probe(READY + 400, "a", "var b = bus(); b.open('quick'); return root.layerOpen;"),

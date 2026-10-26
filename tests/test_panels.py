@@ -107,6 +107,19 @@ class Receiver(HostCase):
         self.assertEqual((p["b"]["answers"], p["b"]["value"]), (True, "-34.5 dB"), out[-2500:])
         self.assertEqual((p["c"]["answers"], p["c"]["value"]), (False, "\u2013"), out[-2500:])
 
+    def test_the_receivers_answer_changes_no_rows_height(self):
+        # the answer arrives after the panel is up (the helper's reading ages out between openings): "Not answering" and the answer each take
+        # the same two lines, so the rows below do not move while the panel is sliding in
+        tall = "var l = find(root, 'itemFor'); return [l.itemFor(1).height, l.itemFor(2).y];"
+        rc, out = self.host("--eval", "%d:root.openLayer('quick')" % (READY + 400),
+                            *probe(READY + 1000, "silent", "itemFor", tall),
+                            *self.reading(READY + 1200),
+                            *probe(READY + 1900, "answered", "itemFor", tall),
+                            "--wait", str(READY + 2200))
+        self.assertEqual(rc, 0, out[-2500:])
+        p = probes(out)
+        self.assertEqual(p["silent"], p["answered"], out[-2500:])
+
     def test_the_tile_moves_the_volume_through_the_tv_and_asks_the_helper_to_read_now(self):
         go = "var n=0; while (s.focusId !== 'receiver' && n++ < 8) s.key('down'); s.key('right'); return s.focusId;"
         rc, out = self.host("--eval", "%d:root.openLayer('quick')" % (READY + 400), *self.reading(READY + 600),

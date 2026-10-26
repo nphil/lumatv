@@ -6,9 +6,10 @@ import "../kit"
 // video costs the same as one over Home. The host says when the panel is wanted (`presented`, set by Resident); a panel that is no longer
 // wanted stays drawn until it has gone (`leaving`, which Resident reads to keep it visible). Reduced motion keeps only a short fade.
 //
-// Durations: Lucent's layer motion is 220 ms in and 180 ms out, but the PLAN's gate wants the surface fully open 180 ms after the key
-// and the key reaches the panel a frame or two late, so the slide takes the shorter of the layer token and 150 ms (LG's own Quick Settings
-// slides in 150 ms, after a 180 ms pause); the slide back takes the shorter of the exit token and 150 ms.
+// Durations: Lucent's layer motion is 220 ms in and 180 ms out, but the PLAN's gate wants the burst of frames a key starts to be over 180 ms
+// after the key. On the set the first frame comes 41-42 ms after the gear tap or Back (the quick panel; the picker's came at 7 and 24 ms) and
+// the last frame of the slide one frame after it ends, so a slide of 150 ms ended at 192-208 ms and 241 ms once. The slide therefore takes the
+// shorter of the layer token and 110 ms in both directions: 41 + 110 + a 17 ms frame is 168 ms, which leaves the gate its margin.
 QtObject {
     id: motion
     property bool presented: false
@@ -16,8 +17,8 @@ QtObject {
     readonly property bool moving: anim.running
     // true while the panel is on its way out: it is drawn until progress reaches 0
     readonly property bool leaving: !presented && progress > 0
-    readonly property int enterMs: Math.min(Lu.layerMs, 150)
-    readonly property int exitMs: Math.min(Lu.layerMs, 150)
+    readonly property int enterMs: Math.min(Lu.layerMs, 110)
+    readonly property int exitMs: Math.min(Lu.layerMs, 110)
     readonly property int fadeMs: Lu.ms("labelMs")           // reduced motion: one short fade, no travel
 
     onPresentedChanged: {

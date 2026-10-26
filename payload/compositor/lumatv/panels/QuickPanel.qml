@@ -51,10 +51,19 @@ Item {
     property int footIndex: 0                           // 0 All settings, 1 LG's Quick Settings
     property var clock: new Date()
     Timer { interval: 15000; running: panel.visible; repeat: true; onTriggered: panel.clock = new Date() }
-    onPresentedChanged: if (presented) refresh()
+    onPresentedChanged: { if (presented) refresh(); else readTimer.stop() }
+    // What the open path does is only what the first frame needs. The readings (each an answer that rebinds the rows and can change a
+    // line's wrapping) are asked for once the slide is over and the frame burst the key started has ended: the rows show what the
+    // last reading said for the first 170 ms, and a reading that differs redraws them after.
     function refresh() {
         clock = new Date(); footFocus = false; footIndex = 0; touched = false
-        Sio.read("picture", ["pictureMode"]); Inputs.refresh(); Power.readSleep(); list.reset()
+        list.reset()
+        readTimer.restart()
+    }
+    Timer {
+        id: readTimer
+        interval: motion.enterMs + 60
+        onTriggered: { Sio.read("picture", ["pictureMode"]); Inputs.refresh(); Power.readSleep() }
     }
     onFootFocusChanged: zone = footFocus ? "foot" : "page"
     onZoneChanged: footFocus = (zone === "foot")
@@ -186,7 +195,7 @@ Item {
               enabled: function() { return Sio.has("picture.pictureMode") },
               index: function() { var i = panel.modeValues.indexOf(String(Sio.get("picture.pictureMode"))); return i < 0 ? undefined : i },
               act: function(i) { Sio.write("picture.pictureMode", panel.modeValues[i]) } },
-            { id: "receiver", kind: "nudge", icon: "boom-box", label: function() { return panel.brand() },
+            { id: "receiver", kind: "nudge", icon: "boom-box", detailLines: 2, label: function() { return panel.brand() },
               detail: function() { return !panel.rcAnswers ? "Not answering" : (panel.rc.input || "Receiver") + (panel.rc.soundMode ? " \u00b7 " + panel.rc.soundMode : "") },
               value: function() { return panel.rcAnswers && panel.rc.volumeText ? String(panel.rc.volumeText) : "\u2013" },
               enabled: function() { return !gate.disabled },
