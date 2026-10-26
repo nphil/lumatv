@@ -38,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stay one button away and take over whenever LumaTV cannot show its own. Both slide in
   110 ms and keep their rows still while sliding. The page dims whole instead of fading,
   the sheet slides without a fade, and each inputs refresh drops the previous subscription
-  (eight were left open before, and the picker grew in memory at every opening).
+  (eight were left open before, and the picker grew in memory at every opening). Closed
+  panels stay in the scene off screen for 4 s and the gear's press joins the quick panel
+  early, so opening and closing no longer rebuild Home's render list.
 - Home widgets: Settings > Home & look > Home widgets (show, hide, size, order, reset), an
   on-TV layout editor (hold OK on a card), and Clock, Weather, News and At-home cards that
   use the room they get; `lumatv layout` writes the owner's layout file.
