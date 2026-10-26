@@ -176,7 +176,6 @@
   },
   "screensaver": {
     "style": "clock",
-    "afterMin": 10,
     "dim": true,
     "glance": true,
     "art": { "everyMin": 15, "order": "shuffle", "caption": true },
