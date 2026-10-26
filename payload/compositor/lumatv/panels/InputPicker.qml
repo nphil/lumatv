@@ -53,9 +53,11 @@ Item {
         for (var i = 0; i < tiles.length; i++) if (tiles[i].front) { at = i; break }
         index = at
     }
-    // The open path only picks the tile and starts the slide. The readings (each answer rebinds every tile) are asked for once the slide is
-    // over and the burst of frames the key started has ended; until then the tiles say what the last reading did. If the input in front
-    // turns out to be another and no key has moved the choice, the choice follows it.
+    // The open path only picks the tile and starts the slide. The readings (each answer rebinds every tile) are asked for after the burst of
+    // frames the key starts; until then the tiles say what the last reading did. If the input in front turns out to be another and no key has
+    // moved the choice, the choice follows it. The gate counts a frame within 50 ms of the burst's last as part of it, and the slide's last frame
+    // is up to 177 ms after the key (a first frame at 50 ms, the 110 ms slide, one frame): a reading asked for at 170 ms put the frames of its
+    // answer there (r14 over HDMI and the film: burst ends 206 and 301 ms), so it is asked for at 310 ms.
     function open(params) {
         moved = false
         pickFront()           // the tile of the input in front first, so OK on open keeps what is on
@@ -65,7 +67,7 @@ Item {
     onPresentedChanged: if (!presented) readTimer.stop()
     Timer {
         id: readTimer
-        interval: motion.enterMs + 60
+        interval: motion.enterMs + 200
         onTriggered: { Inputs.refresh(); Sio.read("sound", ["soundOutput"]) }
     }
     function next() { moved = true; index = tiles.length ? (index + 1) % tiles.length : 0 }

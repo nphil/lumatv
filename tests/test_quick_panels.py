@@ -5,9 +5,7 @@ LumaTV's quick panel (the gear's tap) and input picker (the Input key) in place 
 filter's own side is `tests/keyfilter.test.js` and `tests/bus.test.js`. What these check: the panels open, close and move on when asked,
 that the panel slides from the left edge to where LG's Quick Settings sits (492 x 1008, 24 from the edges, measured on LG's own panel)
 and stays drawn until it has gone, that nothing is built when one opens, what each row and button does, and that a panel LG should
-have is not taken. Nothing here measures time: the set's gate does (docs/research/perf/gate.py, surfaces quick and picker). What the scene graph
-renderer rebuilds in a frame is its own report (tests/qmlhost/renderstats.py), and a closed panel stays in the scene, off the screen, for a few seconds
-so that the next opening and every closing rebuild nothing of it.
+have is not taken. Nothing here measures time: the set's gate does (docs/research/perf/gate.py, surfaces quick and picker).
 """
 import json
 import os
@@ -125,19 +123,24 @@ class HomePanels(HostCase):
 
     def test_the_open_path_asks_for_no_reading_until_the_slide_is_over_and_the_slide_is_short(self):
         # The set's gate wants the frame burst a key starts to end within 180 ms of it, and the first frame comes about 41 ms after the gear:
-        # the slide is at most 110 ms, and nothing that rebinds the rows is asked for while it runs (the answers came mid-slide).
+        # the slide is at most 110 ms, and nothing that rebinds the rows is asked for while it runs (the answers came mid-slide). The gate counts
+        # a frame within 50 ms of the burst's last as part of it and the burst can last to 177 ms, so the picker's readings, whose answers rebind
+        # every tile, wait for 310 ms (r14 over HDMI and the film: burst ends of 206 and 301 ms at the 170 ms they were asked for before).
         asked = "root.lunaCalls.filter(function(c) { return c.method === '/getAllInputStatus' }).length"
-        for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
+        for kind, find, quiet in (("quick", "footFocus", 0), ("picker", "soundLine", 230)):
             rc, out = self.host(
                 *probe(READY + 500, "before", "var b = bus(); var n = %s; b.open('%s'); return n;" % (asked, kind)),
                 *probe(READY + 560, "during", "return %s;" % asked),
                 *probe(READY + 700, "done", "var s = find(root, '%s'); return {n: %s, progress: s.progress};" % (find, asked)),
+                *probe(READY + 500 + max(quiet, 220), "quiet", "return %s;" % asked),
                 *probe(READY + 1000, "after", "return %s;" % asked),
                 "--wait", str(READY + 1400))
             self.assertEqual(rc, 0, out[-2500:])
             p = probes(out)
             self.assertEqual(p["during"], p["before"], "the %s asked for a reading while it was sliding in" % kind)
             self.assertEqual(p["done"]["progress"], 1, "the %s slide was not over 200 ms after it opened" % kind)
+            if quiet:
+                self.assertEqual(p["quiet"], p["before"], "the %s asked for a reading %d ms after it opened, in the burst the key started" % (kind, quiet))
             self.assertGreater(p["after"], p["before"], "the %s never read the TV after it opened" % kind)
 
     def test_one_panel_gives_way_to_the_other_and_to_what_was_up(self):
@@ -240,13 +243,12 @@ class HomePanels(HostCase):
         # Home's own animations (11-12.6 s after the host starts and every 10 s on: a full rebuild of theirs would be counted as the panel's).
         t = READY + 7000
         for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
-            opening = "return bus().open('%s');" % kind
-            closing = opening if kind == "quick" else "root.closeLayer(); return true;"             # the Input key again goes on to the next input
-            linger = lambda at, label, ms: probe(at, label, "find(root, '%s').lingerMs = %d; return %d;" % (find, ms, ms))
+            set_linger = lambda at, label, ms: probe(at, label, "find(root, '%s').lingerMs = %d; return %d;" % (find, ms, ms))
+            go = lambda at, label: probe(at, label, "return bus().open('%s');" % kind if label.startswith("open") or kind == "quick" else "root.closeLayer(); return true;")
             nodes_now = lambda at, label: probe(at, label, "return nodes(find(root, '%s'));" % find)
-            steps = [*linger(t - 300, "none", 0), *probe(t, "open0", opening), *probe(t + 900, "close0", closing), *linger(t + 1600, "some", 1500),
-                     *probe(t + 1800, "open1", opening), *probe(t + 2700, "close1", closing), *probe(t + 3400, "open2", opening),
-                     *probe(t + 4300, "close2", closing), *nodes_now(t + 5000, "parked"), *nodes_now(t + 6500, "gone")]
+            steps = [*set_linger(t - 300, "none", 0), *go(t, "open0"), *go(t + 900, "close0"), *set_linger(t + 1600, "some", 1500),
+                     *go(t + 1800, "open1"), *go(t + 2700, "close1"), *go(t + 3400, "open2"), *go(t + 4300, "close2"),
+                     *nodes_now(t + 5000, "parked"), *nodes_now(t + 6500, "gone")]
             with mock.patch.dict(os.environ, {"QSG_RENDERER_DEBUG": "render"}):
                 rc, out = self.host(*steps, "--wait", str(t + 7000))
             self.assertEqual(rc, 0, out[-1500:])
