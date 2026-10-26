@@ -404,6 +404,51 @@ class Serve(unittest.TestCase):
             fc.close()
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_started_by_sam_the_feeder_starts_the_ui_takes_its_window_id_and_ends_with_it(self):
+        """The installed app: a stand-in UI (a shell script in the app directory's bin64/) writes the window-id file, a load reads it, and
+        the UI's end ends the feeder."""
+        tmp = tempfile.mkdtemp(prefix="gfn-feeder-sam-")
+        try:
+            home = os.path.join(tmp, "org.test.gfn")
+            os.makedirs(os.path.join(home, "bin64"))
+            os.makedirs(os.path.join(home, "gfx64"))
+            exe = os.path.join(home, "lumatv-gfn-feeder")
+            shutil.copy(BIN, exe)
+            idfile = os.path.join(tmp, "window-id")
+            sock = os.path.join(tmp, "feed.sock")
+            done = os.path.join(tmp, "ui-done")
+            with open(os.path.join(home, "gfx64", "launch.sh"), "w") as f:
+                f.write("#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n")
+            with open(os.path.join(home, "bin64", "lumatv-gfn-app"), "w") as f:
+                f.write("#!/bin/sh\necho \"ui: $*\" >&2\nsleep 0.3\necho _Window_Id_31 > %s\nwhile [ ! -e %s ]; do sleep 0.05; done\nexit 0\n" % (idfile, done))
+            os.chmod(os.path.join(home, "bin64", "lumatv-gfn-app"), 0o755)
+            env = dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL), FAKE_NDL_LOG=os.path.join(tmp, "ndl.log"))
+            proc = subprocess.Popen([exe, "--serve", sock, "--ui-home", home, "--window-id-file", idfile, "-L", NDL], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            c = Client(sock)
+            t, p = c.recv()
+            self.assertEqual(t, GF["HELLO"])
+            self.assertEqual(HELLO.unpack(p)[4].rstrip(b"\0"), b"_Window_Id_pending")
+            c.load()
+            (t, p), _ = c.until(GF["LOADED"])
+            if struct.unpack_from("<i", p)[0] == 0:
+                self.assertIn(b"no window id", p)
+                time.sleep(0.5)
+                c.load()
+                (t, p), _ = c.until(GF["LOADED"])
+            self.assertEqual(struct.unpack_from("<i", p)[0], 1, p)
+            self.assertEqual(p[4:], b"_Window_Id_31")
+            self.assertIn("SetWindowId _Window_Id_31", open(os.path.join(tmp, "ndl.log")).read())
+            open(done, "w").close()
+            proc.wait(timeout=10)
+            self.assertEqual(proc.returncode, 0)
+            err = proc.stderr.read()
+            self.assertIn("ui: --app-id org.test.gfn", err)
+            self.assertIn("the UI ended", err)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_a_refused_load_is_answered_not_fatal(self):
         tmp = tempfile.mkdtemp(prefix="gfn-feeder-serve-")
         sock = os.path.join(tmp, "feed.sock")
