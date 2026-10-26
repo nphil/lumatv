@@ -240,12 +240,13 @@ fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_
     assert_eq!(last["displayOutput"]["width"], 0, "hidden: {last}");
 }
 
-/// What a window drawn above a video element looks like in this compositor: its veil shows where the window is not punched, and what it
-/// draws inside the rectangle (the clock) is cleared with the hole. LG's compositor draws the hole under the window (its `PunchThrough`
-/// item is at z -1, `views/punchThrough.js`), so there the clock shows; docs/research/videoplane-saver-result.md, "Two compositors". This is
-/// the test to change when this compositor is changed to LG's order: the clock's pixels are then in the picture.
+/// What a window drawn above a video element looks like in this compositor: the player paints the margins around the picture opaque black
+/// (what is behind the saver does not show), and what it draws inside the rectangle (the veil, the clock) is cleared with the hole. LG's
+/// compositor draws the hole under the window (its `PunchThrough` item is at z -1, `views/punchThrough.js`), so there the clock shows;
+/// docs/research/videoplane-saver-result.md, "Two compositors". This is the test to change when this compositor is changed to LG's order:
+/// the clock's pixels are then in the picture.
 #[test]
-fn the_veil_shows_over_what_is_below_and_the_hole_clears_what_the_window_drew_in_it() {
+fn the_margins_are_opaque_and_the_hole_clears_what_the_window_drew_in_it() {
     if paths().is_none() {
         return;
     }
@@ -267,9 +268,9 @@ fn the_veil_shows_over_what_is_below_and_the_hole_clears_what_the_window_drew_in
     assert!(pipeline.wait_until(Duration::from_secs(3), |s| s.punchthrough_attached.len() == 1));
     std::thread::sleep(Duration::from_millis(150));
     let image = server.eval(|s| s.output.capture().unwrap());
-    // outside the picture's rectangle (32 pixels of room at the left): red under a black veil of 51 of 255
-    let [r, g, b, a] = image.pixel(10, 500);
-    assert!((r as i32 - 204).abs() <= 1 && g == 0 && b == 0 && a == 255, "red dimmed by the veil: {:?}", image.pixel(10, 500));
+    // outside the picture's rectangle (32 pixels of room at the left, 28 above): black, not the red card below
+    assert_eq!(image.pixel(10, 500), [0, 0, 0, 255], "the left margin");
+    assert_eq!(image.pixel(960, 4), [0, 0, 0, 255], "the top margin");
     // inside it: clear, and the clock the player drew at the corner of the window (1856, 1015 less its height) is cleared with it
     assert_eq!(image.pixel(960, 540), [0, 0, 0, 0]);
     let mut lit = 0;
