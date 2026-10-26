@@ -9,7 +9,7 @@
 #   gate.sh netflix   the Dolby Vision test film by deep link, from a fresh Netflix instance (a running one is
 #                     closed first): card mapped, video window exported, Picture Mode dolbyHdrCinema while
 #                     playing, filmMaker back on Home
-#   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home
+#   gate.sh hdmi      HDMI 2 (the receiver) as the foreground app, its card mapped, then Home and HDMI 2 ended through SAM
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
@@ -59,6 +59,13 @@ fg() { ls1 com.webos.applicationManager/getForegroundAppInfo '{}' | tr -d ' \n' 
 # the mapped window alone and the detail line carries home-stub 1.
 stub_mounted() { grep -c ' /usr/palm/applications/com.webos.app.home ' $MOUNTINFO; }
 home_panel_ok() { [ "$(stub_mounted)" -ge 1 ] || [ "${1:-0}" -gt 4096 ]; }
+# The kernel's audio decoder port an input left open (Open=1, Connect=HDMI_PORTn) with no input app running: Netflix's
+# sound then fails with tvq-pb-101 whatever the compositor (lumatv close_input_apps, round 9 result note, Round 10).
+held_port() {
+    for f in /proc/lgtv-driver/audio/adec.p*; do
+        grep -qs '^Open=1' "$f" && sed -n 's/^Connect=\(HDMI_PORT[0-9]*\|ATV\|DTV\).*/\1/p' "$f"
+    done | head -n1
+}
 # sm.log is appended by every supervisor start (trials, earlier gates): the checks read the current run only.
 run_log() { awk '/\] start: /{n=0} {l[n++]=$0} END{for(i=0;i<n;i++) print l[i]}' $STATE/sm.log 2>/dev/null; }
 # SAM (sam.service) is never restarted by anything of LumaTV's: eARC, CEC and the picture mode are lost with it (PLAN,
@@ -161,6 +168,7 @@ netflix)
     # error under LG's compositor after declutter's runtime changes). The check is a fresh start: a running
     # instance is ended and the preload manager loads a new one, which the launch then takes.
     closed=0
+    held=$(held_port)
     if ls1 com.webos.applicationManager/running '{}' | grep -q '"id":"netflix"'; then
         ls1 com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null
         closed=1
@@ -183,7 +191,7 @@ netflix)
     ls1 com.webos.applicationManager/closeByAppId '{"id":"netflix"}' > /dev/null
     sleep 2; home; sleep 6
     pm2=$(picture_mode)
-    detail="netflix windows $card video $video placements $placements protocol errors $drops pictureMode playing $pm after $pm2 fg playing $fgp now $(fg) panel ${b:-0} bytes stale-instance-closed $closed"
+    detail="netflix windows $card video $video placements $placements protocol errors $drops pictureMode playing $pm after $pm2 fg playing $fgp now $(fg) panel ${b:-0} bytes stale-instance-closed $closed audio-port-held-before ${held:-none}"
     echo "$detail" > $OUT/netflix-result.txt
     if [ "$card" -ge 1 ] && [ "$pm" = dolbyHdrCinema ] && [ "$pm2" = filmMaker ]; then pass netflix "$detail"; else fail netflix "$detail"; fi
     ;;
@@ -199,7 +207,12 @@ hdmi)
     f=$(fg)
     b=$(cap $OUT/hdmi.png)
     home; sleep 6
-    detail="hdmi2 windows $card mapped $mapped bufferless commits $bare fg while open $f now $(fg) panel ${b:-0} bytes"
+    # Ended through SAM: left behind Home, the input dies with the compositor in wd-hang, wd-crash or escape and its
+    # audio decoder port stays open for the next gate's Netflix.
+    ls1 com.webos.applicationManager/closeByAppId '{"id":"com.webos.app.hdmi2"}' > /dev/null
+    n=0; while [ $n -lt 10 ] && [ -n "$(held_port)" ]; do sleep 1; n=$((n+1)); done
+    held=$(held_port)
+    detail="hdmi2 windows $card mapped $mapped bufferless commits $bare fg while open $f now $(fg) panel ${b:-0} bytes audio-port-held-after-close ${held:-none}"
     echo "$detail" > $OUT/hdmi-result.txt
     if [ "$mapped" -ge 1 ] && [ "$f" = com.webos.app.hdmi2 ]; then pass hdmi "$detail"; else fail hdmi "$detail"; fi
     ;;
