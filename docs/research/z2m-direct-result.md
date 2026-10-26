@@ -289,6 +289,23 @@ Keys are made and entered by Nitin only; nothing here reads Home Assistant, Zigb
    for the output.
 7. Latency: a flash on the screen to the bulb (phone slow-motion), expected around 100-150 ms with `delay_ms` 0.
 
+## One stream on the set's network (2026-10-25 23:22, TvRound8)
+
+The helper's exact frames (the encoder ported to Python and checked against every vector of `bifrost-vectors.jsonl`) went to
+`zigbee2mqtt/Plant Room Fan Light/set` through Home Assistant's `mqtt.publish` (the broker's credentials are Nitin's, so the
+helper's own link did not run): the light-balance write, command 3, then 500 frames of one dim record at 20.0 frames a second
+(none late), black twice, command 3, and the bulb's stored state back (`OFF`, brightness 1, colour temperature 366, read back
+by `/get`). Zigbee2MQTT publishes no state for a bulb driven by command 1, so Home Assistant could not say whether it lit; nobody
+was in the room.
+
+Finding, a design rule for the output: Zigbee2MQTT was in the middle of an OTA update of another device (a leak sensor, 54 %
+done) and the stream saturated the coordinator: the light-balance write failed 16 s later with `SRSP - AF - dataRequest after
+6000ms`, two of the OTA's `queryNextImageResponse` answers failed the same way, and the OTA ended with `ABORT` at 23:23:11
+(the device keeps its firmware; the update has to be started again). So the stream must not run while Zigbee2MQTT reports an
+OTA update in progress (`bridge/response/device/ota_update`, or a device's `update.state` of `updating` in `bridge/devices`
+and the state topics), and it should back off (a lower rate, then a pause) when the coordinator answers late (a
+`Publish 'set' ... failed` with a dataRequest timeout). Neither exists in `ambient_z2m.rs` yet.
+
 ## Open
 
 - Whether a bulb restores its own state after command 3 (then the helper's restore is redundant but harmless) or keeps
