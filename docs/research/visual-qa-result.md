@@ -42,8 +42,10 @@ mode cards whole with a chevron at the right, OLED pixel brightness and Energy s
 the focused row's tile and words where the unfocused rows' are.
 
 Contrast (Lucent 3, measured on the picture): the segmented tray was 16 % white in the dark material and the unselected labels
-(ink2) read 2.4–2.9:1 on it; the tray is 10 % now (`theme.json` dark `trackOff` #1AFFFFFF) and every segment label is in the
-reading ink (the wash and the accent mark say which is chosen).
+(ink2) read 2.4–2.9:1 on it; the tray is 6 % now (`theme.json` dark `trackOff` #0FFFFFFF), every segment label is in the
+reading ink (the wash and the accent mark say which is chosen), and a tab bar has no tray at all (`LuSegmented.tray`: a tab bar
+is destinations with a current mark, Lucent 9), so its labels read on the pane. The status bar's avatar initial takes the ink
+that reads better on the avatar colour. `tests/test_layout.py` passes: the rules, eight scenes at 100 %, three at 200 %.
 
 Open (2026-10-25 22:55, the log of the after run is `docs/research/visual-qa/audit.txt`): at 200 % text the five-tab bar of
 System and the input picker's tiles overlap (a tab bar cannot take doubled type; `tests/test_layout.py` holds the 200 % pass on
