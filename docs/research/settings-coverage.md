@@ -4,17 +4,19 @@ Goal (Nitin, 2026-10-25): every item of LG's Settings app, even the rarely used 
 
 ## Resume here
 
-Inventory done: 287 groups of LG items: 45 covered, 135 built, 17 to build, 90 cannot (the count is the status column of the tables below).
+Inventory done: 289 groups of LG items: 45 covered, 146 built, 1 to build, 97 cannot (the count is the status column of the tables below).
 
-Built and pushed: every LG menu except the rows under "Left". Accessibility, Time & power, Bluetooth, Join Network and IP Settings, TV Name, IPv6, HDMI settings, Picture (all tabs, Fine Tune, White Balance, Video Range, Minimum Brightness), Sound (Sound out chooser, Equalizer, HDMI input audio, the rest), System › Language & location, Safety (state only), Support (TV info, update state, privacy, self-diagnosis, memory, reset behind LG's PIN prompt), Channels (the keys), Always Ready, AI Recommendation, Extend Pressing Time, OLED care.
+Built and pushed: every LG menu except the rows under "Left". Accessibility, Time & power, Bluetooth (speakers with the playback option and volume, controllers), Join Network and IP Settings, TV Name, IPv6, HDMI settings, Delete Connection History, Picture (all tabs, Fine Tune, White Balance, Video Range, Minimum Brightness, HDMI Signalling), Sound (Sound out chooser, Equalizer, HDMI input audio, the rest), System › Language & location, Safety (state only), Support (TV info, update state, privacy with Live Plus, App Permissions and Delete My Personal Information, self-diagnosis, memory, reset behind LG's PIN prompt), Channels (the keys), Always Ready, AI Recommendation, Extend Pressing Time, OLED care, Home Settings, the screen saver's two rows, Emergency Information.
 
-Left (17 rows; the single "Open LG settings" row on System and the rail's last row stay for these): Colorimetry, EOTF and the other HDMI signalling overrides (Picture › Expert), USB Device as a sound out, the Bluetooth + TV Speaker playback options, Game Optimizer, Channel Tuning (Auto and Manual) and the Channel Manager, Delete Connection History, Home Settings (Power On Screen, Home Promotion, Content Recommendation), Screen Saver Promotion, Live Plus and Live Promotion, Emergency Information, App Permissions, Delete My Personal Information, Allow mobile device access. Each needs a luna reply that was not read, or a list the TV did not give; none was guessed.
+Left (1 row): Bluetooth Sound Balance and the speaker positions. Sound Balance is for two matching connected speakers (`getPairedDevices` avrcpSupported and avrcpConnected, the name's model before "(" or "_") and writes `setVolumeBalancing {bluetooth_left_right}` (0 to 10); a speaker's position (Left, Right, Front, Rear, Center, None) is `btaudiosrc setChannel {address, from, to}` on a page for each device, asking before Left and Right swap. Neither is built: the offline TV has no pair of matching speakers, and the position lists were not read. What LG's Settings opens as apps of their own (Channel Tuning and the Channel Manager, the wizards, the Game Optimizer) stays behind the single "Open LG settings" row on System and the rail's last row.
 
-Not run on the set: nothing on these pages has run on the TV. The offline TV (`tests/qmlhost/stubs/WebOSServices`: `LgDesc.js` the TV's own descriptions, `FakeCoverage.js` and `FakeMore.js` the values and services) answers as LG's own screens read it; the calls that change something (a reset, a PIN prompt, the ad service, the language) are the ones LG's bundle makes, with their names and parameters.
+Not run on the set: nothing on these pages has run on the TV. The offline TV (`tests/qmlhost/stubs/WebOSServices`: `LgDesc.js` the TV's own descriptions, `FakeCoverage.js` and `FakeMore.js` the values and services) answers as LG's own screens read it; the calls that change something (a reset, a PIN prompt, the ad service, the language, a permission, the connection history) are the ones LG's bundle makes, with their names and parameters.
+
+To read on the set first (read-only): `com.webos.service.config getConfigs` for `system.supportATSC3tuner`, `system.supportBluetoothFeatures` and `profile.list`. Emergency Information waits for the first, Delete Connection History's two calls for the second, the USB Device row for the third. The ATSC 3.0 rows built earlier (NEXTGEN TV Description, Amplify Dialogue and its gain, the NEXTGEN TV caption language, the Interactive Service switches) are shown by the TV's description alone, where LG also asks for the first config; if the tuner is absent they are to wait for it too.
 
 How a page is made (read `settings/Choice.js`, `PageSound.qml`, `PageSupport.qml`): a row names LG's key (`C.seg`, `C.choice`, `C.range`, `R.toggle`), its list or range comes from the TV's description; a child page is added to `settings/Children.js`; probes are in `tests/test_settings_coverage.py` (one host run answers them all) and scenes in `tests/qmlhost/scenes_settings_coverage.py` (`python3 tests/qmlhost/scenes.py --only <names> --theme both --audit`).
 
-Next: one row group at a time from "Left", each flipped from `build` to `built` with its commit; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
+Next: the TV check (read-only: the configs above, then each page looked at, none pressed); the row under "Left" when a pair of matching speakers can be tested; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
 
 ## Sources
 
@@ -127,7 +129,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Colorimetry, EOTF, Mastering Color, Mastering Peak, MaxCLL, MaxFALL, Dolby Vision VSVDB version, Reset | other.colorimetry, eotf, masteringColor, masteringPeak, maxCLL, maxFALL, dolbyVSVDBVer | auto, bt709, bt601, bt2020, p3D65 | Picture › Expert | build — LG reaches it by a button sequence; LumaTV shows it as one row group for the signal in front |
+| Colorimetry, EOTF, Mastering Color, Mastering Peak, MaxCLL, MaxFALL, Dolby Vision VSVDB version, Reset | other.colorimetry, eotf, masteringColor, masteringPeak, maxCLL, maxFALL, dolbyVSVDBVer | auto, bt709, bt601, bt2020, p3D65 | Picture › Expert › HDMI Signalling | built — LG's hidden panel as a page of seven choices on the TV's own lists, in LG's names, and a Reset that asks and sends the seven keys to `resetSystemSettings`; the TV answers them only for an HDMI picture; not run on the set |
 | RGBW Dot Pattern (factory) | picture.RGBWDotPatternOnOff, RGBWDotPatternMax, RGBWDotPatternMin | on, off | - | cannot: factory panel test, LG hides it from owners |
 
 ## Sound
@@ -144,7 +146,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Use Wired Speaker: HDMI (ARC) Device | sound.soundOutput external_arc | as above | Sound › Output (Sound out, Receiver) | built |
 | Use Wired Speaker: Audio Out Device (line out) | sound.soundOutput lineout | as above | Sound › Output (Sound out) | built |
 | Use Wired Speaker: Wired Headphones | sound.soundOutput headphone | as above | Sound › Output (Sound out) | built |
-| Use Wired Speaker: USB Device | sound.soundOutput usb_speaker; luna com.webos.service.audio setSoundOutput {soundOutput, cardNumber}, com.webos.service.audio/tv getSoundCardsState | as above | Sound › Output | build — the chooser does not offer it: LG lists the attached sound cards first (`getSoundCardsState`), a reply not read here |
+| Use Wired Speaker: USB Device | sound.soundOutput usb_speaker; luna com.webos.service.audio setSoundOutput {soundOutput, cardNumber}, com.webos.service.audio/tv getSoundCardsState | as above | Sound › Output › USB Device | built — a row on the Output tab where the TV's config `profile.list` has usbSoundOutput, as LG shows it, and a list of the sound cards (`soundCards`: number, name, playbackState) where OK picks one with `setSoundOutput`; not run on the set |
 | Use Wireless Speaker: Bluetooth Device | sound.soundOutput bt_soundbar; luna com.webos.service.btaudiosrc getPairedDevices, getDeviceStatus, startDiscovery, connect, disconnect, removePairedDevice, onDeviceSelectionMenu | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | Sound › Output › Bluetooth Speakers | built |
 | Bluetooth: Speaker Connection Settings (1 or 2 devices) | sound.deviceCntOfBtGeneral (singleConnection, multiConnection) | singleConnection, dualConnection | Sound › Output › Bluetooth Speakers | built |
 | Bluetooth: Bluetooth Speaker Volume | luna com.webos.service.btaudiosrc getDeviceVolume |  | Sound › Output › Bluetooth Speakers | built — the volume keys move it; LG has no separate row on this set |
@@ -152,7 +154,8 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Use Wireless Speaker: WiSA Speakers | sound.soundOutput wisa_speaker, sound.wisaSpeakerChannelType; luna com.webos.service.wisa searchSpeaker, setSpeakerType, deleteOneSpeaker, setLogVolumeTrim, soundTestOneSpeaker | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: needs the WiSA dongle the C4 does not have; LG hides it |
 | Use Wireless Speaker: Mobile Device | sound.soundOutput mobile_phone; luna com.webos.service.soundshare getStreamOutStatus | tv_speaker, tv_speakerbar, external_optical, external_arc, bt_soundbar, wisa_speaker, mobile_phone, lineout, builtin_soundbar, headphone, bt_audio, tv_external_speaker, tv_speaker_headphone, tv_speaker_bluetooth (+6) | - | cannot: LG ThinQ phone link; the TV answers no paired phone |
 | Use External Speakers with TV Speaker | sound.soundOutput tv_speaker_external_arc, tv_external_speaker (optical), tv_speaker_headphone, tv_speaker_bluetooth, tv_speaker_wow_cast | as above | Sound › Output (Sound out, TV speakers too) | built — the HDMI (ARC), optical and headphone pairings; the Bluetooth pairing needs Bluetooth Speakers |
-| Bluetooth Device + TV Speaker: Playback Option, Audio Delay, Sound Balance, Speaker positions | sound.bluetoothMode, sound.avSyncBtSurround, luna com.webos.service.btaudiosrc/surround getVolumeBalancing, notifyEvent, com.webos.service.btaudiosrc setChannel | surroundMode, speakerMode | Bluetooth speakers | build |
+| Bluetooth Device + TV Speaker: Playback Option, Bluetooth Speaker Volume | sound.bluetoothMode (surroundMode, speakerMode), luna com.webos.service.btaudiosrc/surround getVolumeBalancing, setVolumeBalancing {tvspeaker_bluetooth} | surroundMode, speakerMode | Sound › Output › Bluetooth Speakers | built — LG's names (Surround Effect, Simultaneous Sound Out) and 0 to 10; the option is dimmed until a speaker is connected and while a hearing aid uses Bluetooth, the volume shows only then; the delay is Match screen and sound; not run on the set |
+| Bluetooth Device + TV Speaker: Sound Balance, Speaker positions | luna com.webos.service.btaudiosrc/surround setVolumeBalancing {bluetooth_left_right}, com.webos.service.btaudiosrc setChannel |  | - | build — Sound Balance is for two matching speakers (`getPairedDevices`: avrcpSupported, avrcpConnected) and the positions are a page for each device; `setChannel`'s parameters were not read |
 | Bluetooth Surround Setup / Reset Settings | luna app com.webos.app.btsurroundautotuning; luna com.webos.service.btaudiosrc/surround notifyEvent |  | - | cannot: LG's surround auto-tuning app (microphone sweep) |
 | Soundbar App | sound.blegattSoundbar; luna app com.webos.app.soundbar-setting | hidden now | - | cannot: LG soundbar's own app; the Denon is driven by the receiver page |
 
@@ -254,7 +257,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Game Optimizer (genre, black stabilizer, VRR / G-Sync / FreeSync, ALLM, ...) | luna app com.webos.app.gameoptimizer; other.gameMode, other.gameGenre, other.freesyncOLEDHDMI1..4, other.qmsVrr, other.gameOptimizationDP2, other.darkMode |  | Picture › Game | build — LG keeps these per HDMI input |
+| Game Optimizer (genre, black stabilizer, VRR / G-Sync / FreeSync, ALLM, ...) | luna app com.webos.app.gameoptimizer; other.gameMode, other.gameGenre, other.freesyncOLEDHDMI1..4, other.qmsVrr, other.gameOptimizationDP2, other.darkMode |  | - | cannot: an app of LG's own; its names and layout are in that app, not in LG's Settings bundle, and the TV's descriptions give the keys and their values but no names; the Inputs row opens the app |
 
 ### Curvature, Lighting, Zero Connect, Shade, Battery (other LG models)
 
@@ -290,8 +293,8 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
-| Channel Tuning & Settings | luna app com.webos.app.channelsetting; luna com.webos.service.utp.channel/scan ... |  | Inputs › Channels | build — Auto Tuning and Manual Tuning are scans the tuner's service runs; the page's last row opens LG's channel screen |
-| Channel Manager | luna app com.webos.app.channeledit; luna com.webos.service.iepg getChannelList |  | Inputs › Channels | build — the list with hide and favourite; reorder stays to a person's remote |
+| Channel Tuning & Settings (Auto Tuning, Manual Tuning) | luna app com.webos.app.channelsetting (behind LG's PIN prompt) |  | Inputs › Channels (the row that opens LG's channel screen) | cannot: the Settings bundle only launches LG's channel setting app; the scans are that app's, and the bundle has no tuning row or call |
+| Channel Manager | luna app com.webos.app.channeledit |  | Inputs › Channels (the row that opens LG's channel screen) | cannot: the Settings bundle only launches LG's channel edit app; the list and its edits are that app's |
 | Dual Mono | channel.dualMono |  | - | cannot: the key answers a list of the tuner's own audio channels only while a dual-mono program plays; no list to show |
 | Multi Feed | channel.multiFeed |  | - | cannot: the TV answers no such key (broadcast-specific) |
 | CI Information | luna com.webos.service.utp.channel/ci ... |  | - | cannot: needs a CAM card in the slot; none present |
@@ -321,7 +324,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Auto Input Switch | other.autoInputSwitch | no description | - | cannot: the TV answers no such key (monitors only) |
 | Universal Control Settings | luna com.webos.service.ics/blaster ...; option.irBlaster | 0 to 255 | - | cannot: the C4 has no IR blaster; LG hides it |
 | TV On With Mobile: Turn on via Wi-Fi, via Bluetooth | network.wolwowlOnOff, network.bleAdvertisingOnOff | true, false | Network › Wi-Fi, Details | built — Wi-Fi switch exists in Network; Bluetooth one to build |
-| Delete Connection History | luna com.webos.notification createToast (after clearing paired wireless devices) |  | Inputs › Devices | build — asks first |
+| Delete Connection History | luna com.webos.service.asc resetWoBLE, miracast deletePairedDeviceList, btaudiosnk removePairedDevices, ics/blaster deleteIPConnectionHistory, ftms removeBlockedDeviceList |  | Inputs › Devices | built — asks first (danger style), then the five calls LG's row makes; `asc` and `btaudiosnk` only where `system.supportBluetoothFeatures` lists remoteapp and btsoundsink; the button then says Done; not run on the set |
 
 ### System › Language
 
@@ -370,17 +373,17 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
 | Quick Start+ | option.quickStartMode | on, off | System › Time & power | covered |
-| Home Settings: Power On Screen | general.homeAutoLaunch, general.selectedInputApp, general.checkHomeAutoLaunchValue | on, off | Home & look › Home | build |
-| Home Settings: Home Promotion, Content Recommendation | general.homePromotion, other.contentRecommendation | on, off | Home & look › Home | build |
+| Home Settings: Power On Screen | general.homeAutoLaunch, general.selectedInputApp, general.checkHomeAutoLaunchValue | on, off | Home & look › Home | built — Home or Recent Input, written as LG's row writes it (`homeAutoLaunch` on or off, `selectedInputApp` off, `checkHomeAutoLaunchValue` user); not run on the set |
+| Home Settings: Home Promotion, Content Recommendation | general.homePromotion, other.contentRecommendation | on, off | Home & look › Home | built — two switches |
 | Home Settings: Wallpaper | option.homeWallPaper | opt1, opt2, opt3 | - | cannot: LumaTV Home has its own wallpaper (Home & look › Look) |
 | Home Animation | general.homeEffect | on, off; hidden now | - | cannot: LG Home's motion; LumaTV Home has its own motion settings |
 | Standby Light | option.standByLight | on, off | - | cannot: the C4 has no standby light; LG hides it |
-| Screen Saver Settings: Screen Saver Promotion, Standby Time | general.screenSaverAd, option.screenSaverTimer (3, 10, 20, 30 min) | on, off | Home & look › Screensaver | build |
+| Screen Saver Settings: Screen Saver Promotion, Standby Time | general.screenSaverAd, option.screenSaverTimer (3, 10, 20, 30 min) | on, off | Home & look › Screensaver | built — LG's two rows, named as LG names them; the choice of the time is written with `checkChangedScreenSaverTimerByUser` user, as LG's is |
 | Pointer Options: Tracking Speed, Pointer Size | option.pointerSpeed, option.pointerSize | slow, normal, fast | Remote & pointer | covered |
-| Live Plus, Live Promotion | option.livePlus, option.livePromotion | on, off | Home & look › Home | build |
+| Live Plus, Live Promotion | option.livePlus, option.livePromotion | on, off | System › Support › Privacy | built — with the other consent rows; LG writes Live Plus at once, LumaTV asks before it turns on (it is consent); Live Promotion waits for Live Plus, as LG's does |
 | Settings Help | option.helpOnSettings | on, off | - | cannot: LG's help box; LumaTV's own help sheet replaces it |
 | Touch Lock | general.touchLock | on, off | - | cannot: panel buttons only; the C4 has none |
-| Emergency Information | option.emergencyInformationAtsc30, emergencyInformationLanguageAtsc30 | on, off | System › Accessibility | build |
+| Emergency Information | option.emergencyInformationAtsc30, emergencyInformationLanguageAtsc30 | on, off | System › Accessibility › Emergency Information | built — shown only where the TV's config `system.supportATSC3tuner` is true, as LG shows it (the owner's TV has not been read: with no ATSC 3.0 tuner the row is not there) |
 | Screen Off Time (standby screen) | option.screenOffTime | 5, 10, 30, 60, 120 | - | cannot: Always Ready hardware sensor models; LG hides it on this set |
 | Motion Sensor Sensitivity | option.motionSensorSensitivity | low, medium, high | - | cannot: motion-sensor models only |
 | View Transition Sound | general.tvOnSound | off, veryLow, low, medium, high, veryHigh | Sound › Advanced (TV Power Sound Volume) | built |
@@ -447,8 +450,9 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Legal Notice, Open Source Licenses, Content Display Policy | LG's web pages and an in-app licence list |  | - | cannot: long legal documents opened in LG's reader |
 | Do Not Sell My Personal Information | general.doNotSellMyPersonalInformation; luna com.webos.service.admanager updateDNS | on, off | System › Support › Privacy | built — asks first; tells LG's ad service (`admanager updateDNS`), and the setting follows |
 | Advertisement: AD ID, Reset AD ID, Limit AD Tracking | luna com.webos.service.admanager resetIFA, com.webos.service.sm/deviceid getIDs, general.lmt, general.adCookie | on, off | System › Support › Privacy | built — the AD ID shown, Reset AD ID (asks first, `admanager resetIFA`), Limit AD Tracking a switch |
-| App Permissions: Camera, Microphone, Nearby Devices, File Access | luna com.webos.service.ppm queryPermissions |  | System › Support | build — the per-app permission list (`ppm queryPermissions`) and its switches were not read; left in LG's screen |
-| Delete My Personal Information (viewing, voice, voice ID) | luna com.webos.service.sdx send; com.webos.service.accountmanager getLoginID |  | System › Support | build — account-bound deletes (`sdx send`), not offered until their calls are read |
+| App Permissions: Camera, Microphone, Nearby Devices, File Access | luna com.webos.service.ppm queryPermissions, setPermission {appId, privacyGroup, status}; option.cameraResourcePermission, option.nearbyDevicePermission | allow, deny | System › Support › Privacy › App Permissions | built — LG's four lists, a switch for each app; the camera's and the nearby devices' tables are TV settings written whole with one flag changed, the microphone's and the files' go through `ppm`; turning one on asks first; not run on the set |
+| Delete My Personal Information: Delete Viewing Information, Delete Voice Information | luna com.webos.service.sm/deviceid getIDs {idType: LGUDID}, usercontextmanager reset {toast, bodyData: {isDeleteAccountAllData, lgudid}}, userintentmanager reset {target: viewingInfo or voiceInfo, toast}, lg.thinqai.adapter deletePrivacyData |  | System › Support › Privacy › Delete My Personal Information | built — each asks first (danger style) and waits for LG's terms (`eulaStatus`: generalTermsAllowed, voiceAllowed) and the network (`connectionmanager getStatus`: isInternetConnectionAvailable), as LG's; the buttons then say Done; not run on the set |
+| Delete My Personal Information: Delete Voice ID | luna lg.thinqai.adapter/vid isVoiceIdRegistered, deleteVoiceId {accountId} |  | - | cannot: the signed-in user's number (LG's `activeUser`) is the parameter and LumaTV has no LG account; it stays in LG's screen |
 | CMP Settings (consent) | general.nativeConsentAd; luna com.webos.service.admanager launchCMPApp | hidden now | - | cannot: LG's consent screens in the cmp-client app |
 | User Report | option.faultLogUpload | True, False; hidden now | - | cannot: the TV hides it on this set (visible: false) |
 | LG Support Center | LG web link |  | - | cannot: opens LG's support site in a browser |
@@ -479,7 +483,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | TV Name (Device Name) | network.deviceName |  | Network › Details | built — edited with the on-screen keyboard |
 | Wake from the network (TV On With Mobile via Wi-Fi) | network.wolwowlOnOff | true, false | Network › Wi-Fi | covered |
 | Bluetooth advertising (TV On With Mobile via Bluetooth) | network.bleAdvertisingOnOff | on, off | Network › Details | built |
-| Allow mobile device access | network.allowMobileDeviceAccess | True, False | Network › Details | build |
+| Allow mobile device access | network.allowMobileDeviceAccess | True, False | - | cannot: LG's Settings has no row for it (its bundle never reads or writes the key); the phone-connection flow that uses it is LG's connection wizard |
 | Screen Share, AirPlay and HomeKit, Device Connection Settings | luna app com.webos.app.connectionwizard; AirPlay and Miracast services |  | - | cannot: LG's pairing and phone-mirroring set-up, which needs the phone's side |
 | LG Connect Apps, TV On with Mobile pairing | luna com.webos.service.iotclient |  | - | cannot: LG ThinQ cloud pairing |
 
@@ -505,7 +509,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Screen Off | option.screenOff |  | System › Time & power | built |
 | Timer (Sleep Timer) | tvReservationAgent timer/sleep |  | Quick panel and System › Time & power | covered |
 | Limit Setting, Volume Limit | hotelMode.maximumVolume, hotelMode.minimumVolume |  | - | cannot: hotel mode only; LG hides it |
-| Game Optimizer | com.webos.app.gameoptimizer |  | Picture › Game | build |
+| Game Optimizer | com.webos.app.gameoptimizer |  | Inputs › Devices | cannot: LG's own app, see above; the Inputs row opens it |
 | Multi View | luna com.webos.service.multiviewcontroller |  | - | cannot: LG's side-by-side player (not on this set's inputs) |
 | Music Search (hum to search) | luna lg.thinqai.adapter |  | - | cannot: LG ThinQ cloud service |
 | Network | connectionmanager |  | Quick panel (Wi-Fi tile) and Network | covered |
@@ -518,7 +522,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | LG item | Setting or luna method | TV answers | LumaTV | Status |
 |---|---|---|---|---|
 | Picture Wizard, Sound Wizard, One Touch Sound Tuning, Bluetooth Surround Tuning | com.webos.app.picturewizard, soundwizard, onetouchsoundtuning, btsurroundautotuning |  | - | cannot: listening and viewing tests in LG's own apps |
-| Channel Edit, Channel Setting | com.webos.app.channeledit, com.webos.app.channelsetting |  | Inputs › Channels | build — the channel list and tuning stay in LG's channel screen (the page's last row) |
+| Channel Edit, Channel Setting | com.webos.app.channeledit, com.webos.app.channelsetting |  | Inputs › Channels | cannot: LG's own apps, see Channels; the Channels page's last row opens LG's channel screen |
 | Software Update app, Self-diagnosis, Customer Support, User Guide, Remote Control Guide | com.webos.app.softwareupdate, self-diagnosis, customersupport, tvuserguide, remotecontrolguide |  | System › Support | built — the update's state, the self-diagnosis and the information; the guides stay LG's |
 | Accessibility app, Accessibility overlay | com.webos.app.accessibility, com.webos.app.accessibility-overlay |  | System › Accessibility | built — the Accessibility page |
 | Gallery of LG apps (Discovery, Browser, Weather Location, Installation, First Use) | com.webos.app.discovery, browser, weatherlocation, installation, firstuse-overlay |  | - | cannot: store, browser and installer flows |
