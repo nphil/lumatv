@@ -115,9 +115,9 @@ class VoiceSearch(HostCase):
         self.assertEqual(json.loads(got["posts"]), ["/v1/voice/listen"])
 
 
-# Right enters the page on its first stop (pointer); the voice switch (off by default) is nine stops on: pointer, speed, size, number keys,
-# gear hold, the four app keys, then the switch.
-TO_SWITCH = ["down"] * 9
+# Right enters the page on its first stop (the pointer switch of the Pointer tab); Up is the tab bar, two Rights the Voice tab, Down its
+# first row: the voice switch (off by default).
+TO_SWITCH = ["up", "right", "right", "down"]
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")

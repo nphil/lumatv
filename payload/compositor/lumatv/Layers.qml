@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import "kit"
 
@@ -62,6 +63,9 @@ Item {
         if (r && r.item && r.item.hold) r.item.hold()
     }
     // Whether a held OK means something on the surface that has the keys now: Settings says yes on a row that has help.
+    function holdReady() { var r = find(open); return !!(r && r.item && r.item.holdReady && r.item.holdReady()) }
+    // Settings' help sheet is up (what Back closes first).
+    readonly property bool settingsHelpOpen: !!(settingsRes.item && settingsRes.item.helpOpen)
     // The input key pressed again while the picker is up goes on to the next input.
     // Open Settings at a page (the quick panel's tiles do): the page's rail section is selected and the page has the focus.
     function settingsGoTo(id) { if (settingsRes.item && id !== "") settingsRes.item.goTo(id) }

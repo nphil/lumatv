@@ -98,6 +98,7 @@ Item {
     // its focused row (`helpReady()` and `openHelp()` on the page); the host calls `hold()` for OK held or the Menu key, and any
     // key closes the sheet before anything else sees it (Back closes the top layer first). Focus never leaves the row.
     readonly property bool helpOpen: helpSheet.shown
+    readonly property string helpText: helpSheet.shown ? helpSheet.title + "\n" + helpSheet.text : ""
     function showHelp(title, text, item) {
         var r = item.mapToItem(settings, 0, 0)
         helpSheet.show(title, text, Qt.rect(r.x, r.y, item.width, item.height), Qt.rect(pane.x, pane.y, pane.width, pane.height))
@@ -124,9 +125,9 @@ Item {
     }
 
     function key(dir) {
+        if (helpSheet.shown) { helpSheet.hide(); return true }
         if (zone === "rail") {
             if (dir === "up") { railIndex = Math.max(0, railIndex - 1); return true }
-        if (helpSheet.shown) { helpSheet.hide(); return true }
             if (dir === "down") { railIndex = Math.min(railCount - 1, railIndex + 1); return true }
             if (dir === "back") { closeRequested(); return true }
             if (dir === "ok" && lgRow) { launchApp("com.palm.app.settings", {}); closeRequested(); return true }
@@ -135,7 +136,6 @@ Item {
                     zone = "page"
                     var p = pageItem(current)
                     if (p && p.reset) p.reset()
-    readonly property string helpText: helpSheet.shown ? helpSheet.title + "\n" + helpSheet.text : ""
                 }
                 return true
             }
@@ -158,6 +158,7 @@ Item {
         cardRadius: Lu.radius("sheet") / 2
         LuIcon { x: Lu.space(5); anchors.verticalCenter: parent.verticalCenter; name: "chevron-left"; size: 28; color: Lu.ink2 }
         LuText { x: Lu.space(5) + 40; anchors.verticalCenter: parent.verticalCenter; role: "title"; text: "Settings" }
+        MouseArea { x: 0; width: 360; height: parent.height; onClicked: settings.key("back") }      // the pointer's way back, as the Back key
         Row {
             anchors.verticalCenter: parent.verticalCenter
             x: parent.width - width - Lu.space(6)
@@ -198,7 +199,6 @@ Item {
                 width: parent.width
                 height: Lu.row
                 icon: "square-arrow-out-up-right"
-        MouseArea { x: 0; width: 360; height: parent.height; onClicked: settings.key("back") }      // the pointer's way back, as the Back key
                 label: "More in LG settings"
                 // label only: nothing here is a state
                 focused: settings.zone === "rail" && settings.lgRow

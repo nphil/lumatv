@@ -35,8 +35,7 @@ Item {
     readonly property var chosen: nAssist > 0 ? assistants[Math.min(permIndex, nAssist - 1)] : null
     property var audit: []
     property string armed: ""
-    readonly property string summary: !up ? "The helper is not running" : (listenerOn ? "LAN only" : "Off") + " \u00b7 " + nAssist + (nAssist === 1 ? " assistant" : " assistants")
-    readonly property string subtitle: !up ? "" : nAssist + (nAssist === 1 ? " assistant" : " assistants") + " paired" + (audit.length ? " \u00b7 last request " + ago(audit[0].at) : "")
+    readonly property string summary: !up ? "Not running" : listenerOn ? "On" : "Off"
 
     // ---- focus: a list of the controls on screen, and the one the cursor is on
     property string fk: "listener"        // kind of the focused control
@@ -54,10 +53,22 @@ Item {
     function find(k, i) { var l = items(); for (var n = 0; n < l.length; n++) if (l[n].k === k && l[n].i === i) return l[n]; return null }
     function focus(k, i) {
         fk = k; fi = i; armed = ""
+        if (host && host.hideHelp) host.hideHelp()
         seg = k === "listener" ? (listenerOn ? 1 : 0) : k === "chooser" ? permIndex
             : k === "level" ? Math.max(0, levelIds.indexOf(levelOf(levelGroups[i].id))) : 0
     }
     function pointAt(k, i) { if (host) host.zone = "page"; focus(k, i) }
+
+    // ---- help: the explanation behind a row's info mark, as on every page (kit/LuHelp is the host's). The focused control's own row has it;
+    // a control that is not a row (the assistant chooser) has none.
+    function helpRow() { var c = find(fk, fi); return c && c.it && c.it.help !== undefined && c.it.help !== "" ? c.it : null }
+    function helpReady() { return active && !asking && helpRow() !== null }
+    function openHelp() {
+        var r = helpRow()
+        if (!r || !host || !host.showHelp) return false
+        host.showHelp(r.label, r.help, r)
+        return true
+    }
     function reset() { if (!find(fk, fi)) focus("listener", 0); else if (fk === "listener") seg = listenerOn ? 1 : 0; refreshAudit() }
     function levelOf(group) { return chosen && chosen.levels ? chosen.levels[group] : "ask" }
     onNAssistChanged: { if (permIndex >= nAssist) permIndex = Math.max(0, nAssist - 1); if (!find(fk, fi)) focus("listener", 0) }
@@ -164,30 +175,18 @@ Item {
 
     // ---- head
     LuText { id: heading; role: "title"; text: "AI access" }
-    LuText { anchors.baseline: heading.baseline; x: heading.width + Lu.space(4); role: "label"; color: Lu.ink2; text: page.subtitle }
-    Row {
-        id: lockNote
-        y: heading.height + Lu.space(1)
-        spacing: Lu.space(3)
-        LuIcon { name: "lock"; size: 26; color: Lu.ink2; y: 2 }
-        LuText {
-            width: page.width - 26 - Lu.space(3)
-            role: "caption"; color: Lu.ink2; wrapMode: Text.WordWrap
-            text: "AI can never change these settings, pair new assistants or answer its own requests. Only this remote can."
-        }
-    }
     LuText {
         visible: !page.up
-        y: lockNote.y + lockNote.height + Lu.space(6)
+        y: heading.height + Lu.space(6)
         width: parent.width
-        role: "body"; wrapMode: Text.WordWrap
-        text: "The helper that serves AI access is not running, so there is nothing to show or change yet. It starts with Home; try again in a moment."
+        role: "body"; color: Lu.ink2; wrapMode: Text.WordWrap
+        text: "The helper is not running. Try again in a moment."
     }
 
     Item {
         id: body
         visible: page.up
-        y: lockNote.y + lockNote.height + Lu.space(3)
+        y: heading.height + Lu.space(4)
         width: parent.width
         height: parent.height - y
 
@@ -196,10 +195,11 @@ Item {
             width: parent.width
             icon: "bot"
             label: "Allow AI assistants"
-            detail: page.asking && Helper.aiPrompt.kind === "enable_listener" ? "Press OK on the remote to allow it, Back to cancel."
-                  : page.listenerOn ? "Reachable from the home network only." : "Off is the default. Turning it on needs OK on the remote."
+            detail: page.asking && Helper.aiPrompt.kind === "enable_listener" ? "Press OK on the remote" : ""
+            help: "Off by default. Turning it on needs OK on the remote, and it reaches the TV from the home network only. AI can never change these settings."
             focused: page.active && page.fk === "listener"; rested: page.rested
             onHoverFocus: page.pointAt("listener", 0)
+            onHelpAsked: { page.pointAt("listener", 0); page.openHelp() }
             trailing: LuSegmented {
                 options: ["Off", "LAN only"]; current: page.listenerOn ? 1 : 0
                 focusedIndex: page.active && page.fk === "listener" ? page.seg : -1
@@ -212,9 +212,10 @@ Item {
             width: parent.width
             icon: "volume-2"
             label: "Volume limit"
-            detail: "The loudest an assistant may set the receiver. Lower is done at once; higher asks on the TV."
+            help: "The loudest an assistant may set the receiver. Lower is done at once; higher asks on the TV."
             focused: page.active && page.fk === "limit"; rested: page.rested
             onHoverFocus: page.pointAt("limit", 0)
+            onHelpAsked: { page.pointAt("limit", 0); page.openHelp() }
             value: String(page.maxVolume)
         }
 
@@ -231,7 +232,7 @@ Item {
                     width: colL.width
                     icon: "bot"
                     label: modelData.name
-                    detail: page.armed === "remove:" + modelData.id ? "Press OK again to remove it" : page.lastFor(modelData)
+                    detail: page.armed === "remove:" + modelData.id ? "Press OK again" : page.lastFor(modelData)
                     focused: page.active && page.fk === "assistant" && page.fi === index; rested: page.rested
                     onHoverFocus: page.pointAt("assistant", index)
                     trailing: LuSegmented {
@@ -248,13 +249,13 @@ Item {
                 width: colL.width
                 icon: "plus"
                 label: page.pairing ? "Pairing code " + page.pairing.code : "Pair a new assistant"
-                detail: page.pairing ? "Give it once. " + page.pairing.attemptsLeft + " tries left. OK closes the window."
-                      : page.asking && Helper.aiPrompt.kind === "pair" ? "Press OK on the remote to show the code."
-                      : page.listenerOn ? "A code shows here after OK on the remote." : "Turn AI access on first."
+                detail: page.pairing ? page.pairing.attemptsLeft + " tries left" : page.asking && Helper.aiPrompt.kind === "pair" ? "Press OK on the remote" : page.listenerOn ? "" : "Turn access on first"
+                help: "A code shows here after OK on the remote. Give it to the assistant once; OK closes the window."
                 enabled: page.listenerOn
                 focused: page.active && page.fk === "pair"; rested: page.rested
                 onActivated: { page.pointAt("pair", 0); page.act() }
                 onHoverFocus: page.pointAt("pair", 0)
+                onHelpAsked: { page.pointAt("pair", 0); page.openHelp() }
             }
             Item { width: 1; height: Lu.space(2) }
             LuText { visible: page.audit.length > 0; role: "caption"; color: Lu.ink3; text: "Recent activity" }
@@ -301,6 +302,7 @@ Item {
                     help: page.groupNotes[modelData.id] || ""
                     focused: page.active && page.fk === "level" && page.fi === index; rested: page.rested
                     onHoverFocus: page.pointAt("level", index)
+                    onHelpAsked: { page.pointAt("level", index); page.openHelp() }
                     trailing: LuSegmented {
                         textRole: "caption"
                         options: page.levelNames
@@ -323,6 +325,7 @@ Item {
             focused: page.active && page.fk === "lock"; rested: page.rested
             onActivated: { page.pointAt("lock", 0); page.act() }
             onHoverFocus: page.pointAt("lock", 0)
+            onHelpAsked: { page.pointAt("lock", 0); page.openHelp() }
         }
     }
 }

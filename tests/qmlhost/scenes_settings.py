@@ -15,6 +15,7 @@ TABS = {
     "ambient": ["Light", "Layout", "Colour"],
     "look": ["Look", "Home", "Screensaver", "Standby"],
     "system": ["General", "Power", "OLED care", "Accessibility", "About"],
+    "remote": ["Pointer", "Keys", "Voice"],
 }
 
 
@@ -40,7 +41,7 @@ def register(section, tab, name, *after, at=2600):
 
 # the tabs the mocks do not show: <mock name>-<tab>
 for section, mock in (("picture", "01-settings-picture"), ("sound", "02-settings-sound"), ("inputs", "30-settings-inputs"), ("network", "30-settings-network"),
-                      ("look", "30-settings-home"), ("system", "30-settings-system")):
+                      ("look", "30-settings-home"), ("system", "30-settings-system"), ("remote", "03-settings-remote")):
     for i, tab in enumerate(TABS[section]):
         if i:
             register(section, i, "%s-%s" % (mock, tab.lower().replace(" ", "-")))
@@ -59,22 +60,22 @@ def _():
     return page("remote") + [("snap", READY + 2600, "03-settings-remote-focused")]
 
 
-# the remote's app keys: the rows (the fourth stop below the pointer rows is the first key; the focus on the last one scrolls all four in),
+# the remote's app keys: the rows (the first key is the fourth stop of the Keys tab; the focus on the last one scrolls all four in),
 # and the chooser opened for the Netflix key
 @scene("03-settings-remote-appkeys")
 def _():
-    return page("remote", 0, *["down"] * 8) + [("snap", READY + 2600, "03-settings-remote-appkeys")]
+    return page("remote", 1, *["down"] * 9) + [("snap", READY + 2600, "03-settings-remote-appkeys")]
 
 
 @scene("03-settings-appkey-chooser")
 def _():
-    return page("remote", 0, *["down"] * 5, "ok") + [("snap", READY + 2800, "03-settings-appkey-chooser")]
+    return page("remote", 1, *["down"] * 6, "ok") + [("snap", READY + 2800, "03-settings-appkey-chooser")]
 
 
 @scene("03-settings-appkey-chosen")
 def _():
     # the Prime Video key set to "Does nothing": the chooser is left and the row says Nothing
-    return page("remote", 0, *["down"] * 6, "ok", "down", "ok") + [("snap", READY + 3000, "03-settings-appkey-chosen")]
+    return page("remote", 1, *["down"] * 7, "ok", "down", "ok") + [("snap", READY + 3000, "03-settings-appkey-chosen")]
 
 
 # Glass depth (Home & look › Look): the row focused at the shipped step, and the panes at each of the other two

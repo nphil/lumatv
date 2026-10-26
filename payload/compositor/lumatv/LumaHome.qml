@@ -728,6 +728,7 @@ Item {
     // an info mark (its help); anywhere else a long press is an ordinary one.
     function holdAvailable() {
         if (layers.open === "apps") return true
+        if (layers.open === "settings") return layers.holdReady()
         var d = dockLoader.item
         return layers.open === "" && focusLayer === "dock" && !!d && !d.moving
     }
@@ -757,7 +758,6 @@ Item {
             return true
         }
         if (!pressed || autoRepeat) return false
-        if (layers.open === "settings") return layers.holdReady()
         if (!hostActive || !numberKeysOn || aiPrompt.up || trialOn || layers.open !== "" || focusLayer === "popover") return false
         var d = dockLoader.item
         if (!d || !d.openTile(tile)) return false

@@ -22,13 +22,7 @@ PageList {
     readonly property bool testing: !!amb && amb.state === "testing"
     readonly property bool stripKnown: !!amb && amb.strip === true
     readonly property int sections: hs.num("top") + hs.num("right") + hs.num("bottom") + hs.num("left")
-    readonly property int edges: (hs.num("top") > 0 ? 1 : 0) + (hs.num("right") > 0 ? 1 : 0) + (hs.num("bottom") > 0 ? 1 : 0) + (hs.num("left") > 0 ? 1 : 0)
-    readonly property string modeLine: !hs.has("enabled") ? "" : !hs.get("enabled") ? "Off"
-        : hs.get("sound") === "sound" ? "Follows the sound"
-        : R.name({ picture: "Follows the picture", colour: "Still colour", "picture-off-home": "Follows the picture, off on Home" }, hs.get("mode"), "")
-          + (hs.get("sound") === "picture-sound" ? " with sound" : "")
-    subtitle: modeLine === "" ? "" : modeLine + (hs.has("top") ? " \u00b7 " + sections + " sections on " + edges + (edges === 1 ? " edge" : " edges") : "")
-    summary: modeLine === "" ? "Not available" : modeLine
+    summary: !hs.has("enabled") ? "Not available" : hs.get("enabled") ? "On" : "Off"
 
     function refresh() {
         hs.refresh()
@@ -39,20 +33,20 @@ PageList {
     Timer { interval: 1500; repeat: true; running: page.visible && page.active && page.testing; onTriggered: page.refresh() }
 
     rows: [
-        R.toggle(hs, { ds: "enabled", tab: 0, on: "true", off: "false", icon: "lamp", label: "Ambient light", detail: "Lights around the TV follow what is on the screen." }),
-        R.slider(hs, { ds: "brightness", tab: 0, min: 0, max: 100, step: 5, unit: "%", icon: "sun", label: "Brightness", detail: "How bright the strip goes. Dims with the room at night." }),
-        R.seg(hs, { ds: "mode", tab: 0, icon: "sliders-horizontal", label: "Mode", detail: "Follows the picture, a still colour, or off on Home and menus.",
+        R.toggle(hs, { ds: "enabled", tab: 0, on: "true", off: "false", icon: "lamp", label: "Ambient light", help: "Lights around the TV follow what is on the screen." }),
+        R.slider(hs, { ds: "brightness", tab: 0, min: 0, max: 100, step: 5, unit: "%", icon: "sun", label: "Brightness", help: "How bright the strip goes. It dims with the room at night." }),
+        R.seg(hs, { ds: "mode", tab: 0, icon: "sliders-horizontal", label: "Mode", help: "Follows the picture, shows a still colour, or goes off on Home and menus.",
                     options: ["Picture", "Colour", "Off on Home"], values: ["picture", "colour", "picture-off-home"] }),
-        R.seg(hs, { ds: "sound", tab: 0, icon: "audio-waveform", label: "Sound", detail: "Add the TV's own sound: its loudness and its beats. Read before the volume and never saved.",
+        R.seg(hs, { ds: "sound", tab: 0, icon: "audio-waveform", label: "Sound", help: "Adds the TV's own sound: its loudness and its beats. Nothing is saved.",
                     options: ["Picture", "Picture + sound", "Sound"], values: ["picture", "picture-sound", "sound"] }),
         R.note(function() { return page.testProblem !== "" ? page.testProblem : (page.amb && page.amb.problem ? String(page.amb.problem) : "") }, 0,
                function() { return page.testProblem !== "" || !!(page.amb && page.amb.problem) }),
         R.head("Strip", 0),
         { kind: "figure", tab: 0, zones: function() { return { top: hs.num("top"), right: hs.num("right"), bottom: hs.num("bottom"), left: hs.num("left") } },
-          text: function() { return page.sections + " sections. Top " + hs.num("top") + " \u00b7 right " + hs.num("right") + " \u00b7 bottom " + hs.num("bottom") + " \u00b7 left " + hs.num("left")
-                                    + ", clockwise from top-left. Delay " + hs.num("delay_ms") + " ms. More on the Layout tab." } },
+          text: function() { return page.sections + " sections" } },
         { kind: "action", tab: 0, icon: "cable", label: "Test pattern", button: function() { return page.testing ? "Stop" : "Run" },
-          detail: function() { return !page.amb ? "The helper does not answer for the lights." : page.stripKnown ? "Lights each section in turn so the layout can be checked." : "No strip is set up in the helper yet." },
+          detail: function() { return !page.amb ? "Not answering" : page.stripKnown ? "" : "No strip set up" },
+          help: "Lights each section in turn so the layout can be checked.",
           enabled: function() { return page.stripKnown },
           act: function() {
               Helper.post("/v1/ambient/test", { run: !page.testing }, function(status, doc) {
@@ -61,17 +55,17 @@ PageList {
               })
           } },
 
-        R.slider(hs, { ds: "top", tab: 1, min: 0, max: 120, step: 1, icon: "arrow-big-up", label: "Top", detail: "Sections along the top edge, left to right." }),
-        R.slider(hs, { ds: "right", tab: 1, min: 0, max: 120, step: 1, icon: "chevron-right", label: "Right", detail: "Sections down the right edge." }),
-        R.slider(hs, { ds: "bottom", tab: 1, min: 0, max: 120, step: 1, icon: "chevron-down", label: "Bottom", detail: "Sections along the bottom edge, right to left." }),
-        R.slider(hs, { ds: "left", tab: 1, min: 0, max: 120, step: 1, icon: "arrow-left", label: "Left", detail: "Sections up the left edge." }),
-        R.slider(hs, { ds: "delay_ms", tab: 1, min: 0, max: 2000, step: 10, unit: " ms", icon: "timer", label: "Delay", detail: "Lights follow the picture this late, to line up with the sound." }),
+        R.slider(hs, { ds: "top", tab: 1, min: 0, max: 120, step: 1, icon: "arrow-big-up", label: "Top", help: "Sections along the top edge, left to right. The edges run clockwise from the top left." }),
+        R.slider(hs, { ds: "right", tab: 1, min: 0, max: 120, step: 1, icon: "chevron-right", label: "Right" }),
+        R.slider(hs, { ds: "bottom", tab: 1, min: 0, max: 120, step: 1, icon: "chevron-down", label: "Bottom" }),
+        R.slider(hs, { ds: "left", tab: 1, min: 0, max: 120, step: 1, icon: "arrow-left", label: "Left" }),
+        R.slider(hs, { ds: "delay_ms", tab: 1, min: 0, max: 2000, step: 10, unit: " ms", icon: "timer", label: "Delay", help: "The lights follow the picture this late, to line up with the sound." }),
 
-        R.seg(hs, { ds: "still_colour", tab: 2, icon: "palette", label: "Still colour", detail: "The colour in Colour mode.",
+        R.seg(hs, { ds: "still_colour", tab: 2, icon: "palette", label: "Still colour", help: "The colour in Colour mode.",
                     options: ["Warm", "Cool", "Rose", "Iris", "Foam"], values: ["warm", "cool", "rose", "iris", "foam"] }),
-        R.slider(hs, { ds: "saturation", tab: 2, min: 50, max: 150, step: 5, unit: "%", icon: "blend", label: "Saturation", detail: "How strong the colours are next to the picture." }),
-        R.toggle(hs, { ds: "dark_hold", tab: 2, on: "true", off: "false", icon: "moon", label: "Keep a glow in dark scenes", detail: "A very dim glow instead of off, which a lamp can flicker at." }),
-        R.toggle(hs, { ds: "skip_bars", tab: 2, on: "true", off: "false", icon: "film", label: "Skip black bars", detail: "Ignore the bars of letterboxed and pillarboxed films." }),
-        R.toggle(hs, { ds: "game_edges", tab: 2, on: "true", off: "false", icon: "gamepad-2", label: "Weight the edges for games", detail: "Uses the edge-weighted capture on a game input." })
+        R.slider(hs, { ds: "saturation", tab: 2, min: 50, max: 150, step: 5, unit: "%", icon: "blend", label: "Saturation", help: "How strong the colours are next to the picture." }),
+        R.toggle(hs, { ds: "dark_hold", tab: 2, on: "true", off: "false", icon: "moon", label: "Glow in dark scenes", help: "A very dim glow instead of off, which a lamp can flicker at." }),
+        R.toggle(hs, { ds: "skip_bars", tab: 2, on: "true", off: "false", icon: "film", label: "Skip black bars", help: "Ignores the bars of letterboxed and pillarboxed films." }),
+        R.toggle(hs, { ds: "game_edges", tab: 2, on: "true", off: "false", icon: "gamepad-2", label: "Edges for games", help: "Uses the edge-weighted capture on a game input." })
     ]
 }

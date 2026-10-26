@@ -108,9 +108,7 @@ sections.
 
 ## Live lines on the rail
 
-Picture "Filmmaker · Pixel brightness 80" · Sound "Denon AVR-S760H · eARC" ·
-Inputs & devices "HDMI 2 · 3 connected" · Network "Nate's Home · Strong" ·
-Ambient light "Follows the picture" · Home & look "Dynamic tint ·
-Aurora" · Remote & pointer "Pointer on · Normal speed" · AI access "LAN only · 2
-assistants" (or "Off") · System "Up to date · webOS 10.2.1". Each reads the
-owner's current value, as LumaShow's `settings/summary.rs` does.
+One short fact each, read from the owner's current value, and none where there is nothing to glance at (Nitin, 2026-10-25: minimal text):
+Picture "Filmmaker" · Sound "Receiver" · Inputs & devices "HDMI 2" · Network "Nate's Home · Strong" (or "Wired") · Ambient light "On" or
+"Off" · Remote & pointer "Pointer on" · AI access "On" or "Off" · System the sleep timer while one runs ("Off in 23 min"). Home & look and the
+last row have no second line. A row's explanation is not here: it sits behind the row's info mark (docs/research/settings-ux-result.md).

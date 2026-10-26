@@ -579,7 +579,10 @@ panel care and stored values are unchanged; only the screens are new.
 - Minimal text on every screen (Nitin, 2026-10-25): a row shows its name and
   current value, a second line only for state the person needs; no
   explanatory sentences. What is not obvious sits behind one consistent help
-  affordance on the row. Labels are short and use LG's names.
+  affordance on the row. Labels are short and use LG's names. The affordance is
+  the info mark (`kit/LuInfo`) and its sheet (`kit/LuHelp`): a row's `help`
+  opens on OK held or the Menu key; rules and the pattern for other surfaces in
+  `docs/research/settings-ux-result.md`.
 - Mockups: `docs/mocks/` (gallery `index.html`, mapping of LG's items to the
   sections in `settings-map.md`).
 

@@ -17,10 +17,11 @@ import "."
 PageList {
     id: page
     title: "Remote & pointer"
+    tabs: ["Pointer", "Keys", "Voice"]
     HelperSettings { id: voiceSettings; owner: "base.voice" }
     readonly property var voiceTopic: Helper.topics.voice || null
     readonly property bool voiceOn: voiceSettings.known && voiceSettings.get("enabled") === true
-    // What the helper says is missing, in words for the owner; empty when voice search can listen.
+    // What the helper says is missing, in words for the owner (the row's help); empty when voice search can listen.
     readonly property string voiceNeeds: {
         var r = voiceTopic ? voiceTopic.reason : ""
         return r === "voice_unlinked" ? "Home Assistant is not linked yet. Link it from the TV's command line (see the voice notes), then it listens."
@@ -28,11 +29,14 @@ PageList {
              : r === "link_unreadable" ? "The saved Home Assistant link cannot be read. Link it again."
              : !voiceTopic ? "The TV's helper does not answer for voice search." : ""
     }
+    // and in two words (the row's value)
+    readonly property string voiceStatus: {
+        var r = voiceTopic ? voiceTopic.reason : ""
+        return r === "voice_unlinked" ? "Not linked" : r === "no_microphone" ? "No microphone" : r === "link_unreadable" ? "Link unreadable" : !voiceTopic ? "Not answering" : ""
+    }
     readonly property var theme: Lu.theme || ({})
     readonly property bool pointerOn: String(Sio.get("general.remotePointer")) === "on"
-    readonly property string speed: R.name({ slow: "Slow speed", normal: "Normal speed", fast: "Fast speed" }, Sio.get("option.pointerSpeed"), "")
-    subtitle: "Magic Remote \u00b7 pointer " + (Sio.has("general.remotePointer") ? (pointerOn ? "on" : "off") : "unknown")
-    summary: "Pointer " + (Sio.has("general.remotePointer") ? (pointerOn ? "on" : "off") : "unknown") + (pointerOn && speed ? " \u00b7 " + speed : "")
+    summary: Sio.has("general.remotePointer") ? (pointerOn ? "Pointer on" : "Pointer off") : ""
 
     function refresh() {
         voiceSettings.refresh()
@@ -41,48 +45,44 @@ PageList {
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
-    // One row per app key: what it does now, and OK opens the chooser (PageAppKey) for it.
+    // One row per app key: what it opens now, and OK opens the chooser (PageAppKey) for it.
     readonly property var keyCfg: AK.config(theme)
     readonly property var installed: AK.installed(Apps.launchPoints)
     function appKeyRow(k) {
-        return { kind: "value", icon: k.icon, label: k.label + " key",
-                 detail: function() {
-                     var t = AK.target(page.keyCfg, k.id, page.installed)
-                     return t.kind === "nothing" ? "The key does nothing."
-                          : t.kind === "default" ? (t.installed ? "LG's choice." : "LG's app is not installed here, so the key does nothing.")
-                          : t.installed ? "Opens the app chosen here." : "The app chosen here is no longer installed, so the key does nothing."
-                 },
+        return { kind: "value", tab: 1, icon: k.icon, label: k.label + " key",
                  value: function() { var t = AK.target(page.keyCfg, k.id, page.installed); return t.installed ? t.title : "Nothing" },
                  act: function() { if (page.host) page.host.openPage("appkey", { key: k.id }) } }
     }
 
     rows: [
-        R.head("Pointer"),
-        R.toggle(Sio, { ds: "general.remotePointer", icon: "mouse-pointer-2", label: "Magic Remote pointer",
-                        detail: "Use the pointer on screen. Turn off if you only use a button remote." }),
-        R.seg(Sio, { ds: "option.pointerSpeed", icon: "gauge", label: "Pointer speed", detail: "How far the pointer moves for a flick of the wrist.",
+        R.toggle(Sio, { ds: "general.remotePointer", tab: 0, icon: "mouse-pointer-2", label: "Magic Remote pointer",
+                        help: "Use the pointer on screen. Turn off if you only use a button remote." }),
+        R.seg(Sio, { ds: "option.pointerSpeed", tab: 0, icon: "gauge", label: "Pointer speed",
                      options: ["Slow", "Normal", "Fast"], values: ["slow", "normal", "fast"] }),
-        R.seg(Sio, { ds: "option.pointerSize", icon: "scan-eye", label: "Pointer size", detail: "Bigger is easier to find from the sofa.",
+        R.seg(Sio, { ds: "option.pointerSize", tab: 0, icon: "scan-eye", label: "Pointer size",
                      options: ["Small", "Medium", "Large"], values: ["small", "medium", "large"] }),
-        R.head("Buttons"),
-        { kind: "value", icon: "house", label: "Hold Home for LG's Home", info: true, chevron: false, value: "Always on",
-          detail: "Press and hold Home for 650 ms to open LG's own Home if LumaTV misbehaves." },
-        { kind: "toggle", icon: "hash", label: "Number keys open dock tiles", detail: "1 opens the first tile on the dock, 2 the second, and so on.",
+
+        { kind: "value", tab: 1, icon: "house", label: "Hold Home for LG's Home", info: true, chevron: false, value: "Always on",
+          help: "Press and hold Home for 650 ms to open LG's own Home if LumaTV misbehaves." },
+        { kind: "toggle", tab: 1, icon: "hash", label: "Number keys open dock tiles", help: "1 opens the first tile on the dock, 2 the second, and so on.",
           on: function() { return !page.theme.remote || page.theme.remote.numberKeys !== false },
           act: function(v) { if (page.host) page.host.patch({ remote: { numberKeys: v } }) } },
-        { kind: "toggle", icon: "bell", label: "Hold the gear key for notifications", detail: "Hold Settings for a moment to open the notifications. Off gives the hold back to LG's Settings.",
+        { kind: "toggle", tab: 1, icon: "bell", label: "Hold the gear key for notifications", help: "Hold Settings for a moment to open the notifications. Off gives the hold back to LG's Settings.",
           on: function() { return !page.theme.remote || page.theme.remote.gearHold !== false },
           act: function(v) { if (page.host) page.host.patch({ remote: { gearHold: v } }) } },
-        R.head("App keys")
+        { kind: "toggle", tab: 1, icon: "layout-grid", label: "Quick panel on gear",
+          on: function() { return !page.theme.remote || page.theme.remote.quickPanel !== false },
+          act: function(v) { if (page.host) page.host.patch({ remote: { quickPanel: v } }) } },
+        { kind: "toggle", tab: 1, icon: "cable", label: "Input picker on Input key",
+          on: function() { return !page.theme.remote || page.theme.remote.inputPicker !== false },
+          act: function(v) { if (page.host) page.host.patch({ remote: { inputPicker: v } }) } },
+        R.head("App keys", 1)
     ].concat(AK.keys.map(function(k) { return page.appKeyRow(k) }), [
-        R.head("Voice"),
-        R.toggle(voiceSettings, { ds: "enabled", on: "true", off: "false", icon: "mic", label: "Search by voice",
-                                  detail: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),
-        R.note(function() { return page.voiceNeeds }, 0, function() { return page.voiceOn && page.voiceNeeds !== "" }),
-        R.head("On screen"),
-        { kind: "toggle", icon: "tv-minimal-play", label: "Banners over video", detail: "LumaTV draws its own input banner over an input or Live TV, besides LG's. For when LG's is hidden.",
-          on: function() { return !!(page.theme.banners && page.theme.banners.own === true) },
-          act: function(v) { if (page.host) page.host.patch({ banners: { own: v } }) } },
-        R.lg(page, { target: "RemoteSlowInput", detail: "Universal remote control, extended press times, Settings help." })
+        R.lg(page, { tab: 1, target: "RemoteSlowInput" }),
+
+        R.toggle(voiceSettings, { ds: "enabled", tab: 2, on: "true", off: "false", icon: "mic", label: "Search by voice",
+                                  help: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),
+        { kind: "value", tab: 2, icon: "mic", label: "Voice search", info: true, chevron: false, value: function() { return page.voiceStatus },
+          help: function() { return page.voiceNeeds }, visible: function() { return page.voiceOn && page.voiceNeeds !== "" } }
     ])
 }

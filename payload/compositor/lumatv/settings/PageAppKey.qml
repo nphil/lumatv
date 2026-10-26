@@ -17,7 +17,7 @@ PageList {
     readonly property var installed: AK.installed(Apps.launchPoints)
     readonly property var now: AK.target(cfg, keyId, installed)
     title: def ? def.label + " key" : "App key"
-    subtitle: "Opens one app, or nothing"
+    // (no subtitle: the title says which key, the rows say what it can open)
     back: "Remote & pointer"
     backId: "remote"
 
@@ -41,10 +41,10 @@ PageList {
         var lg = page.def ? AK.target({}, page.keyId, page.installed) : null
         var out = [
             { kind: "value", id: "default", icon: "rotate-ccw", label: "LG's default", chevron: false,
-              detail: lg && lg.installed ? "Opens " + lg.title + "." : "LG's app is not installed here, so the key does nothing.",
+              value: lg && lg.installed ? lg.title : "Not installed",
               selected: function() { return page.now.kind === "default" },
               act: function() { page.pick("default") } },
-            { kind: "value", id: "nothing", icon: "ban", label: "Does nothing", chevron: false, detail: "The key is ignored.",
+            { kind: "value", id: "nothing", icon: "ban", label: "Does nothing", chevron: false,
               selected: function() { return page.now.kind === "nothing" },
               act: function() { page.pick("") } },
             R.head("Open an app")

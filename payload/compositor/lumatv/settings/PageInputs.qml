@@ -13,7 +13,7 @@ PageList {
     tabs: ["Inputs", "HDMI", "Devices"]
 
     readonly property var ports: ["hdmi1", "hdmi2", "hdmi3", "hdmi4"]
-    readonly property string choices: "auto"
+    readonly property string choiceHelp: "Auto shows it on Home and in the picker while something is connected. Always keeps it there. Hidden removes it."
     function entry(n) {
         var l = Inputs.list
         for (var i = 0; i < l.length; i++) if (l[i].appId === "com.webos.app." + ports[n]) return l[i]
@@ -25,31 +25,29 @@ PageList {
     function portRow(n) {
         return { kind: "seg", tab: 0, icon: function() { var e = page.entry(n); return e ? e.icon : "unplug" },
                  label: function() { var e = page.entry(n); return "HDMI " + (n + 1) + " \u00b7 " + (e && e.connected ? e.label : "Nothing connected") },
-                 detail: function() { var e = page.entry(n); return e && e.connected ? "Named by the device over HDMI-CEC." : "Plug in a device to use it." },
                  options: ["Auto", "Always", "Hidden"], index: function() { return page.choiceIndex(page.ports[n]) },
                  act: function(i) { page.setChoice(page.ports[n], i) } }
     }
-    readonly property int nConnected: Inputs.connected.length
-    subtitle: (Inputs.current ? Inputs.current.port + " now \u00b7 " : "") + nConnected + (nConnected === 1 ? " device connected" : " devices connected")
-    summary: (Inputs.current ? Inputs.current.port : "No input") + " \u00b7 " + nConnected + " connected"
+    summary: Inputs.current ? Inputs.current.port : ""
 
     function refresh() { Inputs.refresh(); Sio.read("other", ["simplinkEnable"]) }
     Component.onCompleted: refresh()
     onOpened: refresh()
 
     rows: [
-        { kind: "seg", tab: 0, icon: "antenna", label: "Live TV", detail: "Antenna. Shown on Home's Inputs row.", options: ["Auto", "Always", "Hidden"],
+        { kind: "seg", tab: 0, icon: "antenna", label: "Live TV", help: page.choiceHelp, options: ["Auto", "Always", "Hidden"],
           index: function() { return page.choiceIndex("livetv") }, act: function(i) { page.setChoice("livetv", i) } },
         portRow(0), portRow(1), portRow(2), portRow(3),
-        R.toggle(Sio, { ds: "other.simplinkEnable", id: "cec", tab: 0, icon: "cable", label: "HDMI-CEC (SIMPLINK)",
-                        detail: "Devices turn on, switch and name themselves over the cable. More on the HDMI tab." }),
-        R.lg(page, { tab: 0, target: "ExternalDeviceSettings", detail: "Deep Colour per port, 4:4:4, Dolby Vision PC, Quick Media Switching." }),
+        { kind: "toggle", tab: 0, icon: "tv-minimal-play", label: "Input banner",
+          help: "LumaTV draws its own banner over an input or Live TV, besides LG's. For when LG's is hidden.",
+          on: function() { return !!(Lu.theme.banners && Lu.theme.banners.own === true) },
+          act: function(v) { if (page.host) page.host.patch({ banners: { own: v } }) } },
 
         R.toggle(Sio, { ds: "other.simplinkEnable", id: "cec2", tab: 1, icon: "cable", label: "HDMI-CEC (SIMPLINK)",
-                        detail: "Devices turn on, switch and name themselves over the cable." }),
-        R.lg(page, { tab: 1, id: "lghdmi", target: "ExternalDeviceSettings", detail: "Deep Colour per port, 4:4:4, Dolby Vision PC, Quick Media Switching." }),
+                        help: "Devices turn on, switch and name themselves over the cable." }),
+        R.lg(page, { tab: 1, id: "lghdmi", target: "ExternalDeviceSettings" }),
 
-        R.lg(page, { tab: 2, id: "bt", target: "ExternalDevice", label: "Bluetooth devices", detail: "Controllers, headphones and remotes." }),
-        R.lg(page, { tab: 2, id: "game", app: "com.webos.app.gameoptimizer", label: "Game Optimizer", detail: "VRR, ALLM and latency per input, in LG's own screen." })
+        R.link({ tab: 2, id: "bt", icon: "gamepad-2", label: "Bluetooth Devices", go: function() { page.host.openPage("bthid") } }),
+        R.lg(page, { tab: 2, id: "game", app: "com.webos.app.gameoptimizer", label: "Game Optimizer", help: "VRR, ALLM and latency per input, in LG's own screen." })
     ]
 }

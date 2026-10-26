@@ -11,6 +11,7 @@ Item {
     property real step: 0.1
     property real value: 0
     property bool active: false             // the row is in adjustment: the thumb grows
+    property bool readOnly: false           // a level that only shows (the receiver's volume): the fill and no thumb, nothing to adjust
     signal moved(real value)
 
     readonly property real fraction: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
@@ -46,6 +47,7 @@ Item {
         }
     }
     Rectangle {
+        visible: !sl.readOnly
         width: sl.thumbSize
         height: width
         radius: width / 2

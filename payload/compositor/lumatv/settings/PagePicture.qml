@@ -59,8 +59,8 @@ PageList {
         perApp(R.seg(Sio, { ds: "aspectRatio.arcPerApp", tab: 0, icon: "rectangle-horizontal", label: "Aspect ratio", appId: function() { return page.inputApp },
                             help: "Original keeps the film's own shape. It is set for the input in front.",
                             options: ["16:9", "Original", "4:3"], values: ["16x9", "original", "4x3"] })),
-        R.seg(Sio, { ds: "picture.energySaving", tab: 0, icon: "leaf", label: "Energy saving", help: "Dims the picture to save power.",
-                     options: ["Auto", "Off", "Low", "Medium", "High"], values: ["auto", "off", "min", "med", "max"] }),
+        R.seg(Sio, { ds: "picture.energySaving", tab: 0, icon: "leaf", label: "Energy saving",
+                     options: ["Auto", "Off", "Minimum", "Medium", "Maximum"], values: ["auto", "off", "min", "med", "max"] }),
         R.lg(page, { tab: 0, target: "AddOptions" }),
 
         R.slider(Sio, { ds: "picture.contrast", tab: 1, min: 0, max: 100, step: 1, icon: "contrast", label: "Contrast" }),

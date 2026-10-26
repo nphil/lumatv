@@ -24,8 +24,7 @@ PageList {
     readonly property var rc: Helper.receiver
     readonly property bool rcAnswers: !!(rc && rc.reachable && rc.fresh)
     readonly property string outName: R.name(outputNames, Sio.get("sound.soundOutput"), "")
-    subtitle: !Sio.has("sound.soundOutput") ? "" : toReceiver ? "Playing through the receiver" : "Playing through " + outName.toLowerCase()
-    summary: !Sio.has("sound.soundOutput") ? "" : toReceiver ? "Receiver \u00b7 eARC" : outName
+    summary: !Sio.has("sound.soundOutput") ? "" : toReceiver ? "Receiver" : outName
 
     // LG's delay slider is one key per way out of the TV (its `fre` row in main.js), with its limits in the key's description
     // (`values.range`: min, max, interval). `sound.avSync` itself is a switch (the set answers "on").
@@ -39,41 +38,44 @@ PageList {
 
     rows: [
         { kind: "value", tab: 0, icon: "speaker", label: "Sound out", chevron: true,
-          detail: function() { return page.toReceiver ? "eARC on HDMI 2. Opens the receiver's own controls." : "Where the sound goes. LG's Sound settings change it." },
+          help: "Where the sound goes. OK opens the receiver's own controls, or LG's Sound Out screen without one.",
           value: function() { return page.outName },
           act: function() { if (page.toReceiver) page.host.openPage("receiver"); else { page.host.launchApp("com.palm.app.settings", { target: "SoundOut" }); page.host.closeRequested() } } },
         { kind: "slider", tab: 0, icon: "volume-2", label: "Receiver volume", min: 0, max: 98, step: 1,
-          detail: function() { return page.rcAnswers ? "Read live from the receiver. The volume keys move it." : "The receiver is not answering." },
-          info: true, num: function() { return page.rcAnswers && rc.volumeAbs !== undefined ? rc.volumeAbs : 0 } },
+          detail: function() { return page.rcAnswers ? "" : "Receiver not answering" },
+          info: true, num: function() { return page.rcAnswers && rc.volumeAbs !== undefined ? rc.volumeAbs : 0 },
+          valueText: function() { return page.rcAnswers && rc.volumeAbs !== undefined ? String(Math.round(rc.volumeAbs)) : "\u2013" } },
         { kind: "value", tab: 0, icon: "audio-waveform", label: "Sound mode", chevron: false, info: true,
-          detail: function() { return page.toReceiver ? "Not used while sound goes to the receiver. Pick a mode on the Denon." : "The TV's own sound processing. Change it on the Mode tab." },
+          detail: function() { return page.toReceiver ? "Not used with the receiver" : "" },
           value: function() { return R.name(page.modeNames, Sio.get("sound.soundMode"), "") },
           enabled: function() { return !page.toReceiver } },
-        { kind: "slider", tab: 0, icon: "timer", label: "Match screen and sound", unit: " ms",
-          detail: function() { return page.delayRange === null || !Sio.has(page.delayDs) ? "No answer from the TV" : Sio.usable(page.delayDs) ? "Delay the sound if lips move first." : "Not available right now" },
+        { kind: "slider", tab: 0, icon: "timer", label: "Match screen and sound",
+          detail: function() { return page.delayRange === null || !Sio.has(page.delayDs) ? "TV not answering" : Sio.usable(page.delayDs) ? "" : "Not available now" },
+          help: "Delays the sound if lips move before the words.",
           visible: function() { return !Sio.missing(page.delayDs) },
           enabled: function() { return page.delayRange !== null && Sio.usable(page.delayDs) },
           min: function() { return page.delayRange ? page.delayRange.min : 0 }, max: function() { return page.delayRange ? page.delayRange.max : 0 },
           step: function() { return page.delayRange && page.delayRange.interval ? page.delayRange.interval : 1 },
-          num: function() { return Sio.num(page.delayDs, 0) }, act: function(v) { Sio.write(page.delayDs, v) } },
-        R.seg(Sio, { ds: "sound.soundOutputDigital", tab: 0, icon: "cable", label: "Digital sound output", detail: "Pass through hands the original soundtrack to the receiver.",
+          num: function() { return Sio.num(page.delayDs, 0) }, act: function(v) { Sio.write(page.delayDs, v) },
+          valueText: function() { return Sio.has(page.delayDs) ? String(Math.round(Sio.num(page.delayDs, 0))) + " ms" : "\u2013" } },
+        R.seg(Sio, { ds: "sound.soundOutputDigital", tab: 0, icon: "cable", label: "Digital sound output", help: "Pass through hands the original soundtrack to the receiver.",
                      options: ["Auto", "PCM", "Pass through"], values: ["auto", "pcm", "passThrough"] }),
-        { kind: "toggle", tab: 0, icon: "tv", label: "TV speakers too", detail: function() { return page.toReceiver ? "Also play through the TV's own speakers." : "Only while sound goes to the receiver." },
+        { kind: "toggle", tab: 0, icon: "tv", label: "TV speakers too", detail: function() { return page.toReceiver ? "" : "Needs the receiver" },
+          help: "Also plays through the TV's own speakers while sound goes to the receiver.",
           enabled: function() { return Sio.usable("sound.soundOutput") && page.toReceiver },
           on: function() { return page.output === "tv_speaker_external_arc" },
           act: function(v) { Sio.write("sound.soundOutput", v ? "tv_speaker_external_arc" : "external_arc") } },
-        R.lg(page, { tab: 0, target: "AdditionalSound", detail: "Equaliser, LG Sound Sync, installation type, eARC, Dolby Atmos." }),
+        R.link({ tab: 0, id: "btaudio", icon: "headphones", label: "Bluetooth Speakers", go: function() { page.host.openPage("btaudio") } }),
+        R.lg(page, { tab: 0, target: "AdditionalSound" }),
 
         R.over(R.cards(Sio, { ds: "sound.soundMode", tab: 1, cols: 3, values: ["aiSoundPlus", "standard", "movie", "news", "sports", "music", "game"], options: [
-            { title: "AI Sound Pro", sub: "Adapts to the scene", icon: "sparkles" }, { title: "Standard", sub: "Balanced", icon: "tv" },
-            { title: "Cinema", sub: "Wide and warm", icon: "film" }, { title: "Clear voice", sub: "Dialogue forward", icon: "mic" },
-            { title: "Sports", sub: "Crowd and commentary", icon: "activity" }, { title: "Music", sub: "Full range", icon: "music" },
-            { title: "Game", sub: "Positional", icon: "gamepad-2" }] }),
+            { title: "AI Sound Pro", icon: "sparkles" }, { title: "Standard", icon: "tv" }, { title: "Cinema", icon: "film" }, { title: "Clear voice", icon: "mic" },
+            { title: "Sports", icon: "activity" }, { title: "Music", icon: "music" }, { title: "Game", icon: "gamepad-2" }] }),
                { enabled: function() { return Sio.usable("sound.soundMode") && !page.toReceiver } }),
-        R.note("The TV's sound modes are not used while sound goes to the receiver.", 1, function() { return page.toReceiver }),
+        R.note("Sound is on the receiver.", 1, function() { return page.toReceiver }),
 
-        R.slider(Sio, { ds: "sound.audioBalance", tab: 2, min: -10, max: 10, step: 1, icon: "sliders-horizontal", label: "Balance", detail: "Left and right, for the TV's own speakers." }),
-        R.toggle(Sio, { ds: "sound.autoVolume", tab: 2, icon: "volume-1", label: "Automatic volume", detail: "Evens out loud adverts and quiet dialogue on the TV's speakers." }),
-        R.lg(page, { tab: 2, target: "AdditionalSound", detail: "Equaliser, installation type, LG Sound Sync, eARC, Dolby Atmos." })
+        R.slider(Sio, { ds: "sound.audioBalance", tab: 2, min: -10, max: 10, step: 1, icon: "sliders-horizontal", label: "Balance", help: "Left and right, for the TV's own speakers." }),
+        R.toggle(Sio, { ds: "sound.autoVolume", tab: 2, icon: "volume-1", label: "Automatic volume", help: "Evens out loud adverts and quiet dialogue on the TV's speakers." }),
+        R.lg(page, { tab: 2, target: "AdditionalSound" })
     ]
 }

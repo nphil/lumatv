@@ -93,13 +93,14 @@ class Settings(HostCase):
         self.assertTrue(doc["built"])
         self.assertEqual(doc["loaded"], doc["pages"])
         s = doc["summaries"]
-        self.assertEqual(s["picture"], "Filmmaker \u00b7 Brightness 80")                 # the fake TV's picture mode and OLED pixel brightness
-        self.assertEqual(s["sound"], "Receiver \u00b7 eARC")
+        self.assertEqual(s["picture"], "Filmmaker")                                      # the fake TV's picture mode
+        self.assertEqual(s["sound"], "Receiver")
         self.assertEqual(s["network"], "Nate's Home \u00b7 Strong")
         self.assertEqual(s["ambient"], "Off")                                           # the helper's base.ambient default
-        self.assertEqual(s["remote"], "Pointer on \u00b7 Normal speed")
-        self.assertEqual(s["system"], "webOS \u00b7 Living Room TV")
-        for section in ("inputs", "look", "ai"):
+        self.assertEqual(s["remote"], "Pointer on")
+        self.assertEqual(s["system"], "")                                               # no sleep timer runs: nothing to say
+        self.assertEqual(s["look"], "")                                                 # nothing there is a state to glance at
+        for section in ("inputs", "ai"):
             self.assertTrue(s.get(section), section)
 
     def test_a_switch_changes_the_theme_and_is_written_to_the_user_file(self):
@@ -140,6 +141,16 @@ class Settings(HostCase):
         sent = [c for c in calls if c["category"] == "picture" and "backlight" in c["settings"]]
         self.assertEqual([c["settings"]["backlight"] for c in sent], ["81", "82"])
         self.assertEqual(sent[0]["dimension"]["pictureMode"], "filmMaker")
+
+    def test_a_key_held_down_runs_a_long_slider_faster(self):
+        # OLED pixel brightness is 80 of 0..100 in the fake service. Twenty-five Rights in a burst (a held key): one step each for the first ten,
+        # then two at a time, up to the end of the range
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", *["right"] * 25),
+                            "--eval", "%d:%s" % (READY + 3600, LUNA), "--wait", str(READY + 4200))
+        self.assertEqual(rc, 0, out[-1500:])
+        calls = json.loads(re.findall(r"\[eval\] \('(\[.*\])'", out)[-1])
+        sent = [c["settings"]["backlight"] for c in calls if c["category"] == "picture" and "backlight" in c["settings"]]
+        self.assertEqual(sent, [str(v) for v in list(range(81, 91)) + [92, 94, 96, 98, 100]])
 
     def test_a_row_the_service_does_not_answer_is_dimmed_and_does_not_take_focus(self):
         # Sound: Receiver volume and Sound mode only show, so Down from Sound out lands on Match screen and sound, then on Digital
@@ -200,8 +211,9 @@ class Settings(HostCase):
                 self.assertEqual(json.load(f)["logo"], {"on": 2, "off": 3})
 
     def test_number_keys_are_a_theme_switch_and_hold_home_only_shows(self):
-        # Remote & pointer: pointer, speed, size, then "Hold Home" only shows, so the fourth stop is the number keys switch
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "down", "down", "down", "ok"),
+        # Remote & pointer, Keys tab (Up is the tab bar, Right the next tab, Down its first row): "Hold Home" only shows but has help, so it is
+        # the first stop and the number keys switch the second
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", "down", "down", "ok"),
                             "--eval", "%d:JSON.stringify(root.theme.remote)" % (READY + 3200), "--wait", str(READY + 3800))
         self.assertEqual(rc, 0, out[-1500:])
         self.assertEqual(self.docs(out)[-1], {"numberKeys": False})
@@ -225,9 +237,9 @@ class Settings(HostCase):
 
     CHOOSER = ("root.openPage('appkey',{key:'%s'});var p=root.pageItem('appkey');"
                "return JSON.stringify({title:p.title,back:p.back,stop:p.stop,apps:o.apps.list.length,"
-               "rows:p.rows.map(function(r){return {label:p.ev(r.label)||p.ev(r.text)||'',selected:p.ev(r.selected),detail:p.ev(r.detail)||''}})})")
+               "rows:p.rows.map(function(r){return {label:p.ev(r.label)||p.ev(r.text)||'',selected:p.ev(r.selected),value:p.ev(r.value)||''}})})")
     KEY_ROWS = ("var p=root.pageItem('remote');return JSON.stringify(p.rows.filter(function(r){return /key$/.test(p.ev(r.label)||'')&&r.kind==='value'}).map(function(r){"
-                "return {label:p.ev(r.label),value:p.ev(r.value),detail:p.ev(r.detail)}}))")
+                "return {label:p.ev(r.label),value:p.ev(r.value)}}))")
 
     def test_the_app_key_chooser_offers_lgs_default_nothing_and_every_app_and_marks_what_is_in_force(self):
         docs, out = self.run_probe(self.CHOOSER % "amazon")
@@ -239,35 +251,33 @@ class Settings(HostCase):
         self.assertIn("Netflix", labels[3:])
         self.assertEqual([r["selected"] for r in prime["rows"][:2]], [True, False])           # nothing was chosen: LG's default is in force
         self.assertEqual(prime["stop"], 0)                                                 # and the focus starts on it
-        self.assertIn("not installed", prime["rows"][0]["detail"])                         # Prime Video is not on the fake TV: the key would do nothing
+        self.assertEqual(prime["rows"][0]["value"], "Not installed")                      # Prime Video is not on the fake TV: the key would do nothing
         docs, out = self.run_probe(self.CHOOSER % "netflix")
-        self.assertEqual(docs[-1]["rows"][0]["detail"], "Opens Netflix.")
+        self.assertEqual(docs[-1]["rows"][0]["value"], "Netflix")
 
     def test_the_remote_page_says_what_each_app_key_does(self):
         # LG Channels is a hidden system app: the library does not list it, but it is installed, so LG's default holds
         rows = self.run_probe(self.KEY_ROWS)[0][-1]
         self.assertEqual([(r["label"], r["value"]) for r in rows],
                          [("Netflix key", "Netflix"), ("Prime Video key", "Nothing"), ("Disney+ key", "Nothing"), ("LG Channels key", "LG Channels")])
-        self.assertEqual(rows[0]["detail"], "LG's choice.")
-        self.assertIn("not installed", rows[1]["detail"])
+        self.assertTrue(all("detail" not in r for r in rows))                               # a row is its name and its value
 
     def test_a_configured_key_shows_its_app_or_nothing_and_an_app_that_is_gone_does_nothing(self):
         theme = {"remote": {"appKeys": {"netflix": "", "amazon": "youtube.leanback.v4", "disneyplus": "com.gone.app"}}}
         rows = self.run_probe("o.lu.theme = %s;" % json.dumps(theme) + self.KEY_ROWS)[0][-1]
         self.assertEqual([(r["label"], r["value"]) for r in rows],
                          [("Netflix key", "Nothing"), ("Prime Video key", "YouTube"), ("Disney+ key", "Nothing"), ("LG Channels key", "LG Channels")])
-        self.assertEqual(rows[0]["detail"], "The key does nothing.")
-        self.assertEqual(rows[1]["detail"], "Opens the app chosen here.")
-        self.assertIn("no longer installed", rows[2]["detail"])
+        self.assertTrue(all("detail" not in r for r in rows))
 
     def test_choosing_writes_one_entry_each_and_leaving_the_default_removes_it(self):
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            # Remote page: five stops (pointer, speed, size, number keys, gear hold), then Netflix. Right enters, Down x5 lands on Netflix, OK opens the chooser
+            # Remote page, Keys tab: Hold Home (shows its help), number keys, gear hold, quick panel, input picker, then Netflix. Right enters, Up and
+            # Right pick the tab, Down x6 lands on Netflix, OK opens the chooser
             # on LG's default; Down + OK is "Does nothing" and returns to the page; Down is Prime Video, the same; Up and OK reopens Netflix on
             # "Does nothing" (the one in force), Up + OK is LG's default again, which removes the entry. One key every 350 ms: each choice is
             # written to the file before the next, as a person's presses are.
-            steps = ["right"] + ["down"] * 5 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
+            steps = ["right", "up", "right"] + ["down"] * 6 + ["ok", "down", "ok", "down", "ok", "down", "ok", "up", "ok", "up", "ok"]
             presses = [a for i, s in enumerate(steps) for a in self.keys(READY + 1500 + 350 * i, s)]
             end = READY + 1500 + 350 * len(steps)
             rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, *(["down"] * RAIL["remote"])), *presses,
@@ -279,24 +289,41 @@ class Settings(HostCase):
             with open(os.path.join(data, "theme", "theme.json")) as f:
                 self.assertEqual(json.load(f)["remote"]["appKeys"], {"amazon": ""})
 
-    def test_the_gear_hold_and_own_banner_switches_write_the_keys_the_shell_reads(self):
-        # Remote page, Right enters: pointer, speed, size, number keys, gear hold (on by default): OK turns it off. The banners switch is the
-        # last stop but the LG row and the voice switch, off by default: OK turns it on.
+    def test_the_gear_hold_switch_writes_the_key_the_shell_reads(self):
+        # Remote page, Keys tab: Hold Home, number keys, gear hold (on by default): OK turns it off
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", *["down"] * 4, "ok"),
-                                *self.keys(READY + 2400, "down", "down", "down", "down", "down", "down", "ok"),
-                                "--eval", "%d:JSON.stringify({remote: root.theme.remote, banners: root.theme.banners || null})" % (READY + 3800), "--wait", str(READY + 4400), data=data)
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", "down", "down", "down", "ok"),
+                                "--eval", "%d:JSON.stringify({remote: root.theme.remote})" % (READY + 3800), "--wait", str(READY + 4400), data=data)
             self.assertEqual(rc, 0, out[-1500:])
-            doc = self.docs(out)[-1]
-            self.assertEqual(doc["remote"]["gearHold"], False)
-            self.assertEqual(doc["banners"], {"own": True})
+            self.assertEqual(self.docs(out)[-1]["remote"]["gearHold"], False)
+
+    def test_the_quick_panel_and_input_picker_switches_are_on_until_turned_off(self):
+        # Remote page, Keys tab: Hold Home, number keys, gear hold, quick panel on gear, input picker: OK on each turns it off
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
+                                *self.go("remote", "right", "up", "right", "down", "down", "down", "down", "ok", "down", "ok"),
+                                "--eval", "%d:JSON.stringify({remote: root.theme.remote})" % (READY + 4200), "--wait", str(READY + 4800), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            remote = self.docs(out)[-1]["remote"]
+            self.assertEqual((remote["quickPanel"], remote["inputPicker"]), (False, False))
+            self.assertNotIn("gearHold", remote)
+
+    def test_the_own_banner_switch_is_on_the_inputs_page_and_writes_the_key_the_shell_reads(self):
+        # Inputs & devices, Inputs tab: Live TV, HDMI 1 to 4, then the banner switch (off by default): OK turns it on
+        with tempfile.TemporaryDirectory() as d:
+            data = os.path.join(d, "data")
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("inputs", "right", *["down"] * 5, "ok"),
+                                "--eval", "%d:JSON.stringify({banners: root.theme.banners || null})" % (READY + 3800), "--wait", str(READY + 4400), data=data)
+            self.assertEqual(rc, 0, out[-1500:])
+            self.assertEqual(self.docs(out)[-1]["banners"], {"own": True})
 
     def test_an_app_chosen_for_a_key_is_that_apps_id(self):
         # the first app row: Down x2 from LG's default (past Does nothing and the heading), then OK
         with tempfile.TemporaryDirectory() as d:
             data = os.path.join(d, "data")
-            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", *["down"] * 5, "ok", "down", "down", "ok"),
+            rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("remote", "right", "up", "right", *["down"] * 6, "ok", "down", "down", "ok"),
                                 "--eval", "%d:JSON.stringify(root.theme.remote.appKeys)" % (READY + 3200), "--wait", str(READY + 3800), data=data)
             self.assertEqual(rc, 0, out[-1500:])
             self.assertEqual(self.docs(out)[-1], {"netflix": "com.webos.app.discovery"})        # the dock's first tile: the all-apps store
@@ -615,6 +642,84 @@ class Prompt(HostCase):
         self.assertEqual(rc, 0, out[-1500:])
         doc = self.docs(out)[-1]
         self.assertFalse(doc["visible"] or doc["up"])
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
+class Help(HostCase):
+    """The info mark and its sheet (kit/LuInfo, kit/LuHelp): OK held or the Menu key opens the help of the focused row, any key closes it, and
+    every page follows the text rules (Nitin, 2026-10-25): a second line is state in a few words, a help is a sentence or two."""
+    PRESS = "root.key(Qt.Key_Return,true,false,0)"
+    RELEASE = "root.key(Qt.Key_Return,false,false,0)"
+    STATE = "[root.settingsOpen, root.settingsHelpOpen].join('/')"
+
+    def run_keys(self, section, *steps):
+        """Home opens Settings, the rail goes to `section`, Right enters; then `steps`: ("press", ms), ("release", ms), ("keys", ms, names...), ("state", ms, tag)."""
+        args = ["--eval", "%d:root.openSettings()" % OPEN_AT, *self.keys(READY + 600, *(["down"] * RAIL[section])), *self.keys(READY + 1500, "right")]
+        end = READY + 2000
+        for s in steps:
+            end = READY + s[1]
+            if s[0] == "press":
+                args += ["--eval", "%d:%s" % (end, self.PRESS)]
+            elif s[0] == "release":
+                args += ["--eval", "%d:%s" % (end, self.RELEASE)]
+            elif s[0] == "menu":
+                args += ["--eval", "%d:(function(){root.key(Qt.Key_Menu,true,false,0);root.key(Qt.Key_Menu,false,false,0);return 1})()" % end]
+            elif s[0] == "keys":
+                args += self.keys(end, *s[2:])
+            elif s[0] == "state":
+                args += ["--eval", "%d:'[state] ' + %s" % (end, self.STATE)]
+        rc, out = self.host(*args, "--wait", str(end + 600))
+        self.assertEqual(rc, 0, out[-1500:])
+        return [m for m in re.findall(r"\[state\] ([a-z/]+)", out)]
+
+    def test_a_held_ok_on_a_row_with_help_opens_it_and_the_release_does_nothing_more(self):
+        # Sound, Output tab: the first stop is Sound out, which has help
+        st = self.run_keys("sound", ("state", 2300, "before"), ("press", 2400), ("state", 3400, "held"), ("release", 3500), ("state", 3900, "released"))
+        self.assertEqual(st, ["true/false", "true/true", "true/true"])
+
+    def test_any_key_closes_the_help_and_back_closes_it_before_it_leaves_the_page(self):
+        st = self.run_keys("sound", ("press", 2400), ("release", 3300), ("state", 3600, "open"), ("keys", 3800, "back"), ("state", 4200, "closed"),
+                           ("keys", 4400, "back"), ("state", 4800, "railed"))
+        self.assertEqual(st, ["true/true", "true/false", "true/false"])
+
+    def test_the_menu_key_opens_the_help_too(self):
+        st = self.run_keys("sound", ("menu", 2400), ("state", 3000, "open"))
+        self.assertEqual(st, ["true/true"])
+
+    def test_a_held_ok_on_a_row_without_help_is_an_ordinary_press(self):
+        # Picture, Mode tab: the first stop is the mode cards, which have none
+        st = self.run_keys("picture", ("press", 2400), ("state", 3400, "held"), ("release", 3500))
+        self.assertEqual(st, ["true/false"])
+
+    def test_the_sheet_says_which_row_and_what(self):
+        rc, out = self.host("--eval", "5000:root.goTo('sound')", "--eval", "5300:root.hold()",
+                            "--eval", "5600:JSON.stringify({open:root.helpOpen,text:root.helpText,page:root.pageItem('sound').helpFor(0)})", "--wait", "6200", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        doc = self.docs(out)[-1]
+        self.assertTrue(doc["open"])
+        self.assertEqual(doc["text"], "Sound out\n" + doc["page"])
+        self.assertNotEqual(doc["page"], "")
+
+    LINT = ("(function(){var out=[];for(var i=0;i<root.pages.length;i++){var p=root.pageItem(root.pages[i].id);if(!p||!p.rows)continue;"
+            "for(var j=0;j<p.rows.length;j++){var r=p.rows[j];var d,h,n;try{d=p.ev(r.detail);h=p.ev(r.help);n=r.kind==='note'?p.ev(r.text):''}catch(e){continue}"
+            "out.push({page:root.pages[i].id,label:String(p.ev(r.label)||''),detail:d===undefined||d===null?'':String(d),help:h===undefined||h===null?'':String(h),note:n?String(n):''})}}"
+            "return JSON.stringify(out)})()")
+
+    def test_no_page_has_a_sentence_under_a_row_and_every_help_is_short(self):
+        rc, out = self.host("--eval", "5000:" + self.LINT, "--wait", "5600", surface="Settings.qml")
+        self.assertEqual(rc, 0, out[-1500:])
+        rows = self.docs(out)[-1]
+        self.assertGreater(len(rows), 60)
+        bad = []
+        for r in rows:
+            where = "%s/%s" % (r["page"], r["label"])
+            if r["detail"] and (len(r["detail"]) > 32 or ". " in r["detail"] or r["detail"].endswith(".")):
+                bad.append((where, "detail", r["detail"]))
+            if len(r["help"]) > 170 or r["help"].count(". ") > 2:
+                bad.append((where, "help", r["help"]))
+            if len(r["note"]) > 45:
+                bad.append((where, "note", r["note"]))
+        self.assertEqual(bad, [])
 
 
 class Icons(unittest.TestCase):

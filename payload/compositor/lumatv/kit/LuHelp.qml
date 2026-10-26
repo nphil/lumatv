@@ -1,11 +1,11 @@
 import QtQuick 2.4
 import "."
 
-// The help sheet: what a row's info mark (LuInfo) opens. One reading-grade card (the overlay fill, never glass, so
-// the words of the rows under it cannot read through) with the row's name and one or two plain sentences. It sits
-// just under the row it is about, or just above it when there is no room below, inside `bounds`, and it does not move
-// the focus: the row keeps it. Any key closes it (Back and OK included; the host's `key()` sends them here first) and
-// so does a click of the pointer anywhere. Nothing times it out: it is read at the reader's pace.
+// The help sheet: what a row's info mark (LuInfo) opens. One reading-grade card (the overlay fill over a backdrop that
+// hides the rows, never glass, so no word of the page reads through it) with the row's name and one or two plain
+// sentences. It sits just under the row it is about, or just above it when there is no room below, inside `bounds`, and
+// it does not move the focus: the row keeps it. Any key closes it (Back and OK included; the host's `key()` sends them
+// here first) and so does a click of the pointer anywhere. Nothing times it out: it is read at the reader's pace.
 //
 // A host builds ONE of these, above its panes, and shows it with `show(title, text, anchorRect, boundsRect)`, both
 // rectangles in this item's own coordinates. Every surface that has rows with a `help` uses it the same way.
@@ -40,18 +40,16 @@ Item {
 
     MouseArea { anchors.fill: parent; enabled: sheet.shown; hoverEnabled: true; onClicked: sheet.hide() }
 
-    Rectangle {
+    Item {
         id: card
         width: sheet.cardWidth
         height: body.height + 2 * Lu.space(5)
         x: Math.max(sheet.bounds.x + sheet.edge, Math.min(sheet.anchor.x + Lu.space(6), sheet.bounds.x + sheet.bounds.width - width - sheet.edge))
         y: Math.max(sheet.bounds.y + sheet.edge, sheet.fitsBelow ? sheet.below : sheet.anchor.y - height - sheet.gap)
-        radius: Lu.radius("card")
-        color: Lu.sheet                                 // the overlay surface, not glass
-        border.width: 1
-        border.color: Lu.edgeRaised
-        antialiasing: true
         transform: Translate { y: Lu.reduced ? 0 : (1 - sheet.opacity) * (sheet.fitsBelow ? -Lu.space(3) : Lu.space(3)) }
+        // the backdrop that hides the rows under it (Lucent scrim.hidesMin .97), then the overlay fill
+        Rectangle { anchors.fill: parent; radius: Lu.radius("card"); color: Lu.scrimHide; antialiasing: true }
+        Rectangle { anchors.fill: parent; radius: Lu.radius("card"); color: Lu.sheet; border.width: 1; border.color: Lu.edgeRaised; antialiasing: true }
         Column {
             id: body
             x: sheet.pad

@@ -5,8 +5,8 @@ import "."
 // consistent affordance). A small "i" drawn after a row's name on every row that has an explanation: LuRow draws it
 // when its `help` is set, and the host opens the explanation in a LuHelp. At rest it is a quiet glyph. While its row
 // has the focus it grows into a pill that says how to open the help, so nobody has to remember the gesture: OK held
-// (the dock's own "options" gesture), the Menu key, or a click of the pointer on the mark. It never takes the
-// focus: the row keeps it, and only the pointer presses the mark.
+// (the dock's own "options" gesture), the Menu key (the gamepad's, the Magic Remote has none), or a click of the pointer on the
+// mark. It never takes the focus: the row keeps it, and only the pointer presses the mark.
 Item {
     id: mark
     property bool focused: false                // the row it belongs to has the focus
@@ -15,7 +15,7 @@ Item {
 
     readonly property int glyph: Math.round(Lu.target * 0.4)
     implicitWidth: focused ? pill.width : glyph
-    implicitHeight: glyph
+    implicitHeight: focused ? Math.max(glyph, pill.height) : glyph
     width: implicitWidth
     height: implicitHeight
 
@@ -23,9 +23,9 @@ Item {
         id: pill
         visible: mark.focused
         anchors.verticalCenter: parent.verticalCenter
-        height: mark.glyph + Lu.space(2)
+        height: Math.max(mark.glyph + Lu.space(2), pillRow.height + Lu.space(2))
         width: pillRow.width + Lu.space(4)
-        x: -Lu.space(1)
+        x: 0
         radius: height / 2
         color: Lu.wash("selected")
         border.width: 1
