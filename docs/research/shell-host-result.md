@@ -13,6 +13,8 @@ Everything is fail-open: with the files missing, a handler absent or an error an
 
 **Rounds 11-14 (2026-10-26, gate FAIL; "Over video, round 11"):** fixed and measured on the set (r14, `2888577`): neither the scrim nor the sheet fades (each opacity change re-batched the scene), the picker no longer restarts its tile's lift at each opening, the inputs' luna subscriptions no longer pile up (every RSS check passes), LG's Dolby toast line is stock noise, and the gate times the picker from the Input key's press and keeps the film's markers. Left: quick p90 over Home 3.43 ms (the frames where the panel joins and leaves Home's scene, 3.2-4.4 ms), single burst-end and first-frame misses where other frames chained in, and over the Dolby Vision film the first frame can wait about 1.5 s for the display's OSD path (round 11 only; not the panel's doing; LG's own Quick Settings misses the bar there too). Next: the picker soak below.
 
+**Round 15 (2026-10-26, offline only, not run on the set):** a closed panel stays in the scene graph, off the screen, for 4 s (`panels/PanelMotion.qml`: `parked`, `held`; Resident, Layers, LumaOverlay keep it visible), so a closing leaves nothing and an opening again joins nothing: those were the frames that held quick over Home at p90 3.43 ms. The first opening after 4 s still joins. Home idle is unchanged by construction (the scene is Home's own again once the 4 s are over). Next on the set: the re-gate under "Round 15".
+
 | What | Where | Switch (owner's, `theme.json`, defaults in code) |
 |---|---|---|
 | A layer of LumaTV's over an app: banners and the notification drawer | `payload/compositor/lumatv/LumaOverlay.qml`, loaded by `payload/compositor/StarfishFullscreenContainer.qml` beside LumaHome | gear hold: `remote.gearHold` (on); own banners: `banners.own` (off) |
@@ -314,6 +316,35 @@ chained by something else drawing). The OSD was on at every key this time (`osd_
 
 Next on the set: `gate.py --surfaces picker --input-key 241 --soak` (500 cycles, about 26 min) tells a heap that grows to its collection
 threshold and stays (steps that stop) from a leak (steps that go on); the 236 KB steps look like the former [INFERENCE].
+
+### Round 15 (offline, 2026-10-26: a closed panel stays in the scene, off the screen; not run on the set)
+
+**The slow frames.** Quick's p90 over Home (3.43 ms) is the fifth largest of 36 frames, and the frames above it and just under it are where the panel's nodes left Home's scene (3.6-4.4 ms, four frames of the three closings) and joined it (3.2-3.4 ms, one in each of the three openings); the rest are about 2 ms. Qt's batch renderer says which frames rebuilt what (`tests/qmlhost/renderstats.py`: `QSG_RENDERER_DEBUG=render`, the same in the host's Qt 5.15 and in 5.12.10, the set's, run with `PYTHONPATH` at a PyQt5 5.12 install). Every opening is `FF` (the nodes join Home's scene, then the sheet's transform node becomes a batch root at its first move) and every closing `F` (the nodes leave), each a rebuild of the render list and the batches of the whole scene. Home alone is 107 nodes in 69 batches; the quick panel adds 45 nodes in 29-32 batches, the picker 31 in 23.
+
+**Why the nodes do not stay for good.** To the renderer `visible: false` and `opacity: 0` are the same: a blocked subtree is taken out of its lists and put back. Only nodes that are drawn stay in them, and every batch of the scene is drawn in every frame, on the screen or off it (no culling), so a panel kept for good would add its 23-32 batches to every frame of Home, the idle cost to avoid (Home idle p90 0.16 ms).
+
+**What is built.** After its slide a panel is parked: the scrim and the sheet move off the screen (a transform; they stay nodes of the scene) and `Resident` keeps it visible for `lingerMs`, 4 s from the close (`PanelMotion`; the gate opens a panel again 1.5 s after it closed it). An opening in that time joins nothing and the closing leaves nothing. When another surface opens (`Layers.releaseParked`, and the overlay's: also when the app goes) the parked panels go in that frame, whose rebuild the new surface needs anyway. After the 4 s the scene is Home's again, 107 nodes in 69 batches: one full rebuild, in an idle frame. `up` (presented or leaving) replaces `visible` for the clock, the receiver gate and the settings answers. Reduced motion is unchanged: its fade rebuilds the scene on most frames, parked or not.
+
+Frames of three open/close cycles over Home, Qt 5.15 (`python3 tests/qmlhost/renderstats.py quick|picker --cycles 3 --hold 900 --gap 700`; `.` nothing rebuilt, `b` the one batch of the scrim, `F` the whole scene; 5.12.10 reads the same, a frame or two apart):
+
+| Window | Quick before | Quick after | Picker before | Picker after |
+|---|---|---|---|---|
+| open 1 | `FF......pFbbbbbbbbbb` | `F.......pFbbbbbbbbbb` | `FFbbbbbbbbbpb` | `FFbbbbbbbbbp` |
+| close 1 | `......F..b..` | `b....b.....b` | `......F...b..` | `b......b.....` |
+| open 2 | `FF...........b.` | `b..............` | `FF...........b.` | `b..............` |
+| close 2 | `......F.....` | `b....bb......` | `......F.....` | `b.....bb.....` |
+| open 3 | `FF.....b.......` | `b........b.....` | `FF......b.......` | `b.........b....` |
+
+Only the first opening joins: the panel had left the scene before it. The tests are in `tests/test_quick_panels.py`: the parked state and its end (Home, overlay), the release by the surface that opens, and the renderer's own figures above as assertions (`test_the_renderer_builds_nothing_of_the_scene_again_for_a_panel_that_is_parked`).
+
+**On the set** (one slot, Home in front, the receiver muted as for round 14): `gate.py --surfaces quick,picker,quick-hdmi,picker-hdmi,quick-netflix,picker-netflix --input-key 241 --hdmi 3 --tag r15-qp`, then `gate.py --surfaces home-idle` at least 10 s after the last panel was closed (the nodes leave 4 s after a closing). Pass:
+
+- quick over Home: p90 render under 3.0 ms (r14: 3.43), no frame over 3.0 ms in any `quick-close` window or in `quick-open` 2 and 3 (r14: 3.2-4.4 ms there); `quick-open` 1 may hold the join and the batch root.
+- picker over Home: p90 under 3.0 ms (r14: 2.51), RSS passes.
+- `-hdmi` and `-netflix`: first frame within 50 ms, burst end within 180 ms and no interval over 20 ms in every window (r14: 50.51 ms; burst ends 206 and 301 ms; one interval on each film surface), RSS passes.
+- `home-idle`: p90 render 0.16 ms as in round 8; the panels never stay in the scene once their 4 s are over.
+
+If only `quick-open` 1 keeps p90 over the bar, the join is still in the first window's frames: the next step is to join the panel at the gear's press, which the key filter's first entry sees about 50 ms before the tap's release, not a longer `lingerMs` (that keeps the nodes in every frame of Home for longer).
 
 ## Under LumaTV's own compositor
 

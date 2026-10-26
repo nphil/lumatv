@@ -5,14 +5,22 @@ LumaTV's quick panel (the gear's tap) and input picker (the Input key) in place 
 filter's own side is `tests/keyfilter.test.js` and `tests/bus.test.js`. What these check: the panels open, close and move on when asked,
 that the panel slides from the left edge to where LG's Quick Settings sits (492 x 1008, 24 from the edges, measured on LG's own panel)
 and stays drawn until it has gone, that nothing is built when one opens, what each row and button does, and that a panel LG should
-have is not taken. Nothing here measures time: the set's gate does (docs/research/perf/gate.py, surfaces quick and picker).
+have is not taken. Nothing here measures time: the set's gate does (docs/research/perf/gate.py, surfaces quick and picker). What the scene graph
+renderer rebuilds in a frame is its own report (tests/qmlhost/renderstats.py), and a closed panel stays in the scene, off the screen, for a few seconds
+so that the next opening and every closing rebuild nothing of it.
 """
 import json
+import os
 import re
+import sys
 import unittest
+from unittest import mock
 
 from test_settings import HostCase, READY
 from xdisplay import DISPLAY, HAVE_QT, own_tmp
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "qmlhost"))
+import renderstats  # noqa: E402
 
 FIND = """function find(p, name) {
     if (p[name] !== undefined && p.children !== undefined && p.visible !== undefined) return p;
@@ -30,9 +38,14 @@ REDUCED = '{"perf":{"syncResidents":true},"motion":{"reduced":true}}'
 OFF = '{"perf":{"syncResidents":true},"remote":{"quickPanel":false,"inputPicker":false}}'
 
 
+# The panel's drawn parts are its direct children (the scrim and the sheet): how many of them lie on the screen at all
+ONSCREEN = ("function onscreen(p) { var n = 0; for (var i = 0; i < p.children.length; i++) { var c = p.children[i]; "
+            "if (c.visible && c.width > 0 && c.height > 0 && c.x + c.width > 0 && c.x < root.width && c.y + c.height > 0 && c.y < root.height) n++ } return n }")
+
+
 def probe(at, label, body, root="root"):
     """An eval at `at` ms that logs `[P:label] <json>` of what `body` returns; the helper functions above are in scope."""
-    js = "(function(){%s%s var r=(function(){%s})(); console.info('[P:%s] '+JSON.stringify(r)); return 1;})()" % (FIND, BUS, body, label)
+    js = "(function(){%s%s%s var r=(function(){%s})(); console.info('[P:%s] '+JSON.stringify(r)); return 1;})()" % (FIND, ONSCREEN, BUS, body, label)
     return ["--eval", "%d:%s" % (at, js)]
 
 
@@ -52,13 +65,15 @@ class HomePanels(HostCase):
         panel = "var s = find(root, 'footFocus');"
         rc, out = self.host(
             *probe(READY + 300, "ready", "var b = bus(); return [b.ready('quick'), b.ready('picker'), b.ready('nothing')];"),
+            *probe(READY + 350, "linger", panel + "s.lingerMs = 1000; return s.lingerMs;"),
             *probe(READY + 400, "nodes0", panel + "return nodes(s);"),
             *probe(READY + 500, "open", "var b = bus(); var r = b.open('quick'); return [r, root.layerOpen];"),
             *probe(READY + 1300, "shown", panel + "return {open: root.layerOpen, presented: s.presented, progress: s.progress, x: s.slideX, y: s.slideY, w: s.sheetW, h: s.sheetH, "
                    "visible: s.visible, nodes: nodes(s)};"),
             *probe(READY + 1400, "close", "var b = bus(); var r = b.open('quick'); var s = find(root, 'footFocus'); return [r, root.layerOpen, s.leaving, s.visible];"),
-            *probe(READY + 2200, "gone", panel + "return {leaving: s.leaving, progress: s.progress, visible: s.visible, presented: s.presented};"),
-            "--wait", str(READY + 2700))
+            *probe(READY + 1900, "parked", panel + "return {leaving: s.leaving, progress: s.progress, visible: s.visible, presented: s.presented, held: s.held, parked: s.parked};"),
+            *probe(READY + 3000, "gone", panel + "return {leaving: s.leaving, progress: s.progress, visible: s.visible, presented: s.presented, held: s.held};"),
+            "--wait", str(READY + 3400))
         self.assertEqual(rc, 0, out[-2500:])
         p = probes(out)
         self.assertEqual(p["ready"], [True, True, False], out[-2500:])
@@ -72,7 +87,9 @@ class HomePanels(HostCase):
         # shown again, the gear hides it: it is told to go at once and stays drawn while it slides back, then it is away
         self.assertEqual(p["close"][:2], [True, ""])
         self.assertEqual(p["close"][2:], [True, True], "the panel was cut off instead of sliding away")
-        self.assertEqual(p["gone"], {"leaving": False, "progress": 0, "visible": False, "presented": False})
+        # the slide is over: it is parked, off the screen and still in the scene (test_a_closed_panel_stays_in_the_scene...), then it goes
+        self.assertEqual(p["parked"], {"leaving": False, "progress": 0, "visible": True, "presented": False, "held": True, "parked": True})
+        self.assertEqual(p["gone"], {"leaving": False, "progress": 0, "visible": False, "presented": False, "held": False})
 
     def test_reduced_motion_is_a_fade_with_no_travel(self):
         panel = "var s = find(root, 'footFocus');"
@@ -156,6 +173,94 @@ class HomePanels(HostCase):
             for m in drawn:
                 self.assertEqual(m["full"], 1, "the %s has no full-screen scrim" % kind)
                 self.assertEqual(set(m["ops"]), {1}, "a layer of the %s faded at progress %s: %s" % (kind, m["progress"], m["ops"]))
+
+    def test_a_closed_panel_stays_in_the_scene_off_the_screen_for_a_while_and_then_goes(self):
+        # Nodes that join the scene or leave it make Qt's renderer build the render list of the whole scene again: the slow frame of every
+        # opening and closing on the set (round 14: 3.2-3.4 ms where a panel's nodes joined Home's, 4.0-4.4 ms where they left, against about
+        # 2 ms). After its slide a panel is parked: what it draws is moved off the screen, it stays visible (in the scene) for `lingerMs`, and an
+        # opening in that time joins nothing.
+        for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
+            state = ("var s = find(root, '%s'); return {visible: s.visible, held: s.held, parked: s.parked, progress: s.progress, "
+                     "drawn: onscreen(s), nodes: nodes(s)};" % find)
+            shut = "return bus().open('quick');" if kind == "quick" else "root.closeLayer(); return true;"      # the Input key again goes on to the next input
+            rc, out = self.host(
+                *probe(READY + 300, "linger", "var s = find(root, '%s'); s.lingerMs = 1500; return s.lingerMs;" % find),
+                *probe(READY + 400, "built", state),
+                *probe(READY + 500, "open", "return bus().open('%s');" % kind),
+                *probe(READY + 1300, "up", state),
+                *probe(READY + 1400, "close", shut),
+                *probe(READY + 2100, "parked", state),                  # the slide is over, 800 ms of the linger are left
+                *probe(READY + 2200, "again", "return bus().open('%s');" % kind),
+                *probe(READY + 2300, "reopened", state),                # it never stopped being visible: nothing joined
+                *probe(READY + 3000, "up2", state),
+                *probe(READY + 3100, "close2", shut),
+                *probe(READY + 3600, "parked2", state),
+                *probe(READY + 5300, "gone", state),                    # the linger ran out at 4600
+                "--wait", str(READY + 5700))
+            self.assertEqual(rc, 0, out[-2500:])
+            p = probes(out)
+            self.assertEqual((p["linger"], p["open"], p["again"], p["close"], p["close2"]), (1500, True, True, True, True))
+            built, up = p["built"], p["up"]
+            self.assertEqual((built["visible"], built["held"], built["parked"], built["drawn"]), (False, False, True, 0), "%s: built, never shown: %s" % (kind, built))
+            self.assertEqual((up["visible"], up["held"], up["parked"], up["progress"], up["drawn"]), (True, False, False, 1, 2), "%s: shown: %s" % (kind, up))
+            for name in ("parked", "parked2"):
+                parked = p[name]
+                self.assertEqual((parked["visible"], parked["held"], parked["parked"], parked["progress"], parked["drawn"]), (True, True, True, 0, 0),
+                                 "%s %s: the closed panel must be in the scene and off the screen: %s" % (kind, name, parked))
+                self.assertEqual(parked["nodes"], built["nodes"], "the %s built or lost something while parked" % kind)
+            self.assertEqual((p["reopened"]["visible"], p["reopened"]["held"], p["reopened"]["drawn"]), (True, False, 2), "%s: opened again while parked: %s" % (kind, p["reopened"]))
+            self.assertEqual(p["up2"], up)
+            self.assertEqual((p["gone"]["visible"], p["gone"]["held"], p["gone"]["drawn"], p["gone"]["nodes"]), (False, False, 0, built["nodes"]))
+
+    def test_a_surface_that_opens_takes_the_parked_panels_out_of_the_scene_with_it(self):
+        # Whatever opens joins nodes to the scene and rebuilds its render list anyway: the panels parked for their next opening go in that frame,
+        # not in one of their own a few seconds later (the linger here is the default, 4 s: it is still running when the next surface opens)
+        rc, out = self.host(
+            *probe(READY + 400, "open", "return bus().open('quick');"),
+            *probe(READY + 1200, "close", "return bus().open('quick');"),
+            *probe(READY + 1800, "parked", "var s = find(root, 'footFocus'); return [s.held, s.visible];"),
+            *probe(READY + 1900, "picker", "return bus().open('picker');"),
+            *probe(READY + 2300, "after", "var s = find(root, 'footFocus'); var q = find(root, 'soundLine'); return [s.held, s.visible, q.visible, root.layerOpen];"),
+            *probe(READY + 2400, "shut", "root.closeLayer(); return root.layerOpen;"),
+            *probe(READY + 3000, "held", "var q = find(root, 'soundLine'); return [q.held, q.visible];"),
+            *probe(READY + 3100, "settings", "root.openSettings(); return root.settingsOpen;"),
+            *probe(READY + 3700, "later", "var q = find(root, 'soundLine'); return [q.held, q.visible, root.settingsOpen];"),
+            "--wait", str(READY + 4100))
+        self.assertEqual(rc, 0, out[-2500:])
+        p = probes(out)
+        self.assertEqual(p["parked"], [True, True])
+        self.assertEqual(p["after"], [False, False, True, "picker"], "the picker opened and the quick panel stayed parked")
+        self.assertEqual((p["shut"], p["held"]), ("", [True, True]))
+        self.assertEqual(p["later"], [False, False, True], "Settings opened and the picker stayed parked")
+
+    def test_the_renderer_builds_nothing_of_the_scene_again_for_a_panel_that_is_parked(self):
+        # tests/qmlhost/renderstats.py: what Qt's batch renderer says it rebuilt in each frame ("full": the render list and the batches of the whole
+        # scene). With no linger a panel's nodes join the scene at its opening and leave at its closing, and each is a full rebuild. With one the
+        # first opening still joins, and the closing, an opening again and its closing rebuild nothing of the scene. The steps are placed between
+        # Home's own animations (11-12.6 s after the host starts and every 10 s on: a full rebuild of theirs would be counted as the panel's).
+        t = READY + 7000
+        for kind, find in (("quick", "footFocus"), ("picker", "soundLine")):
+            opening = "return bus().open('%s');" % kind
+            closing = opening if kind == "quick" else "root.closeLayer(); return true;"             # the Input key again goes on to the next input
+            linger = lambda at, label, ms: probe(at, label, "find(root, '%s').lingerMs = %d; return %d;" % (find, ms, ms))
+            nodes_now = lambda at, label: probe(at, label, "return nodes(find(root, '%s'));" % find)
+            steps = [*linger(t - 300, "none", 0), *probe(t, "open0", opening), *probe(t + 900, "close0", closing), *linger(t + 1600, "some", 1500),
+                     *probe(t + 1800, "open1", opening), *probe(t + 2700, "close1", closing), *probe(t + 3400, "open2", opening),
+                     *probe(t + 4300, "close2", closing), *nodes_now(t + 5000, "parked"), *nodes_now(t + 6500, "gone")]
+            with mock.patch.dict(os.environ, {"QSG_RENDERER_DEBUG": "render"}):
+                rc, out = self.host(*steps, "--wait", str(t + 7000))
+            self.assertEqual(rc, 0, out[-1500:])
+            seg = {m["marker"]: m["frames"] for m in renderstats.parse(out)}
+            report = "\n".join("%s %s" % (name, renderstats.kinds(seg[name])) for name in ("open0", "close0", "open1", "close1", "open2", "close2", "parked", "gone"))
+            self.assertGreaterEqual(renderstats.whole(seg["open0"][:5]), 1, "%s: without a linger the opening joins the scene, and that is a full rebuild\n%s" % (kind, report))
+            self.assertGreaterEqual(renderstats.whole(seg["close0"]), 1, "%s: without a linger the closing leaves it, and that is another\n%s" % (kind, report))
+            self.assertEqual(renderstats.whole(seg["close1"]), 0, "%s: the closing of a panel that stays in the scene rebuilt it\n%s" % (kind, report))
+            self.assertEqual(renderstats.whole(seg["open2"][:5]), 0, "%s: an opening of a parked panel rebuilt the scene\n%s" % (kind, report))
+            self.assertEqual(renderstats.whole(seg["close2"]), 0, "%s: the closing after it rebuilt the scene\n%s" % (kind, report))
+            # and what it left behind when it went is Home's own scene again: the panel's nodes are no longer drawn in every frame
+            shown = max(f["nodes"] for f in seg["parked"])
+            home = max(f["nodes"] for f in seg["gone"])
+            self.assertGreaterEqual(shown - home, 20, "%s: the scene still drew %d nodes after the linger (%d while parked)\n%s" % (kind, home, shown, report))
 
     def test_each_reading_of_the_inputs_lets_the_last_subscription_go(self):
         # LG's Service keeps a subscription open until it is cancelled; the picker and the quick panel read the inputs at every opening
@@ -247,6 +352,7 @@ class OverlayPanels(HostCase):
             (1000, "front", "overlay.appFront = true; return 1;"),
             (1200, "ready", "return [overlay.panelReady('quick'), overlay.panelReady('picker'), overlay.flatGlass];"),
             (1250, "nodes0", panel + "return nodes(s);"),
+            (1260, "linger", panel + "s.lingerMs = 300; return s.lingerMs;"),
             (1300, "open", "return [overlay.panel('quick'), overlay.surface, overlay.wants, overlay.up];"),
             # the software renderer's first showing of the overlay's panel compiles its programs; the slide counts frames, not time
             (2400, "shown", panel + "return {progress: s.progress, x: s.slideX, y: s.slideY, w: s.sheetW, h: s.sheetH, presented: s.presented, nodes: nodes(s)};"),
@@ -263,6 +369,29 @@ class OverlayPanels(HostCase):
         self.assertNotEqual(p["down"], "", "the D-pad did not reach the panel")
         self.assertEqual(p["back"], ["", True, True, True, True], "Back must start the slide, not cut it")
         self.assertEqual(p["gone"], ["", False, False, False, False])
+
+    def test_a_closed_panel_over_an_app_stays_in_the_scene_for_a_while_and_goes_with_the_app(self):
+        panel = "var s = find(overlay, 'footFocus');"
+        p, out = self.overlay_host([
+            (1000, "front", "overlay.appFront = true; return 1;"),
+            (1200, "linger", panel + "s.lingerMs = 1500; return s.lingerMs;"),
+            (1300, "open", "return [overlay.panel('quick'), overlay.surface];"),
+            # the software renderer's first showing of the overlay's panel compiles its programs; the slide counts frames, not time
+            (2400, "shown", panel + "return [s.progress, onscreen(s), s.held];"),
+            (2500, "close", "return [overlay.panel('quick'), overlay.surface];"),
+            (3100, "parked", panel + "return [s.held, s.visible, onscreen(s), overlay.visible, overlay.panelHeld, overlay.up];"),
+            (3200, "again", "return [overlay.panel('quick'), overlay.surface];"),
+            (3300, "reopened", panel + "return [s.held, s.visible, overlay.visible];"),
+            (3400, "close2", "return [overlay.panel('quick'), overlay.surface];"),
+            (3700, "away", "overlay.appFront = false; return overlay.appFront;"),
+            (4100, "after", panel + "return [s.held, s.visible, overlay.visible];"),
+        ], 4500)
+        self.assertEqual((p["linger"], p["open"], p["shown"]), (1500, [True, "quick"], [1, 2, False]))
+        self.assertEqual(p["close"], [True, ""])
+        self.assertEqual(p["parked"], [True, True, 0, True, True, False], "over an app the closed panel is in the scene, off the screen, and the layer with it")
+        self.assertEqual((p["again"], p["reopened"]), ([True, "quick"], [False, True, True]))
+        self.assertEqual(p["close2"], [True, ""])
+        self.assertEqual((p["away"], p["after"]), (False, [False, False, False]), "the app went and the parked panel stayed")
 
     def test_the_gear_again_hides_it_and_a_gear_hold_replaces_it_with_the_drawer(self):
         p, out = self.overlay_host([

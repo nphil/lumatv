@@ -76,7 +76,16 @@ Item {
         return s.pages.filter(function(p) { return p.search !== false }).map(function(p) { var sum = String(s.summaryFor(p.id)).split(" \u00b7 ")[0]; return { id: p.id, title: p.title, icon: p.icon, sub: "Settings" + (sum ? " \u00b7 " + sum : "") } })
     }
     function pickerNext() { if (pickerRes.item) pickerRes.item.next() }
-    onOpenChanged: { if (open === "picker" && pickerRes.item) pickerRes.item.open({}); else if (open === "drawer" && drawerRes.item) drawerRes.item.open() }
+    onOpenChanged: {
+        if (open === "picker" && pickerRes.item) pickerRes.item.open({}); else if (open === "drawer" && drawerRes.item) drawerRes.item.open()
+        if (open !== "") releaseParked(open)
+    }
+    // The quick panel and the input picker stay in the scene for a while after they are closed (panels/PanelMotion.qml). A surface that opens joins
+    // nodes to the scene and so rebuilds its render list anyway; the parked ones leave with it, not in a frame of their own a few seconds later.
+    function releaseParked(except) {
+        if (except !== "quick" && quickRes.item && quickRes.item.release) quickRes.item.release()
+        if (except !== "picker" && pickerRes.item && pickerRes.item.release) pickerRes.item.release()
+    }
 
     // What the host asks of the small panels. They are built, so each is a call on an item that is already there.
     function openMenu(spec) { if (menuRes.item) menuRes.item.open(spec) }

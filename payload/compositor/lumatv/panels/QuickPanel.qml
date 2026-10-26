@@ -28,9 +28,16 @@ Item {
     signal launchApp(string appId)
     readonly property bool built: true
 
-    // Resident says when the panel is wanted (`presented`) and keeps it drawn while `leaving`
+    // Resident says when the panel is wanted (`presented`), keeps it drawn while `leaving` and keeps it in the scene while `held`: after the slide
+    // the panel is parked, what it draws moved off the screen, so the next opening joins no nodes to the scene (PanelMotion). `up` is what is on
+    // the screen: the clock, the receiver's reading and the answers to the readings only matter then.
     property bool presented: false
     readonly property bool leaving: motion.leaving
+    readonly property bool held: motion.held
+    readonly property bool parked: motion.parked
+    readonly property bool up: presented || leaving
+    property alias lingerMs: motion.lingerMs
+    function release() { motion.release() }
     PanelMotion { id: motion; presented: panel.presented }
     readonly property real progress: motion.progress     // 0 away, 1 shown
     readonly property real slideX: slide.x               // where the sheet is (24 at rest), for the tests and the gate's step list
@@ -44,13 +51,13 @@ Item {
     readonly property int inner: sheetW - 2 * pad
 
     // the receiver's reading, only while it is in date (kit/ReceiverGate)
-    ReceiverGate { id: gate; active: panel.visible }
+    ReceiverGate { id: gate; active: panel.up }
     readonly property var rc: gate.doc || Helper.receiver || ({})
     readonly property bool rcAnswers: gate.fresh
     property bool footFocus: false                      // a button under the list has the focus, not a tile
     property int footIndex: 0                           // 0 All settings, 1 LG's Quick Settings
     property var clock: new Date()
-    Timer { interval: 15000; running: panel.visible; repeat: true; onTriggered: panel.clock = new Date() }
+    Timer { interval: 15000; running: panel.up; repeat: true; onTriggered: panel.clock = new Date() }
     onPresentedChanged: { if (presented) refresh(); else readTimer.stop() }
     // What the open path does is only what the first frame needs. The readings (each an answer that rebinds the rows and can change a
     // line's wrapping) are asked for once the slide is over and the frame burst the key started has ended: the rows show what the
@@ -72,7 +79,7 @@ Item {
     property bool touched: false
     Connections {
         target: Sio
-        onAnswersChanged: if (panel.visible && !panel.touched) list.enter(list.first())
+        onAnswersChanged: if (panel.up && !panel.touched) list.enter(list.first())
     }
 
     function key(dir) {
@@ -110,8 +117,8 @@ Item {
 
     // Behind the sheet the page dims for as long as the panel is drawn. The dim is not faded: the scrim covers the whole screen, and every
     // change of its opacity made Qt's renderer batch the scene under it again, each frame of the slide (round 11: p90 3.70 ms over Home,
-    // 2.31 ms over an input, where little is under it).
-    Rectangle { anchors.fill: parent; color: Lu.scrim }
+    // 2.31 ms over an input, where little is under it). Parked, the scrim is moved off the screen: it stays a node of the scene.
+    Rectangle { x: panel.parked ? -width : 0; width: parent.width; height: parent.height; color: Lu.scrim }
 
     // The one thing that moves: the sheet slides out of the left edge. Only x changes per frame, so nothing is laid out while it moves; the
     // glass finds its place in the wallpaper's blur again as it goes (LuPane.locate). It does not fade as it travels: the frame where its
@@ -120,12 +127,12 @@ Item {
     Item {
         id: slide
         readonly property real travel: panel.edge + panel.sheetW
-        x: panel.edge - (Lu.reduced ? 0 : travel * (1 - motion.progress))
+        x: panel.parked ? -(panel.sheetW + 400) : panel.edge - (Lu.reduced ? 0 : travel * (1 - motion.progress))
         y: panel.edge
         width: panel.sheetW
         height: panel.sheetH
         opacity: Lu.reduced ? motion.progress : 1
-        onXChanged: if (motion.moving) sheet.locate()
+        onXChanged: if (!panel.parked) sheet.locate()
 
         LuPane {
             id: sheet

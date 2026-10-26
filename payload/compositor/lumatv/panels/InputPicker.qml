@@ -22,10 +22,15 @@ Item {
     signal closeRequested()
     readonly property bool built: true
 
-    // Resident says when the picker is wanted (`presented`) and keeps it drawn while `leaving`; the sheet rises from the bottom edge and
-    // back (PanelMotion: a transform, no layout while it moves; reduced motion is a fade)
+    // Resident says when the picker is wanted (`presented`), keeps it drawn while `leaving` and keeps it in the scene while `held`: after the
+    // slide it is parked, what it draws moved off the screen, so the next opening joins no nodes to the scene (PanelMotion). The sheet rises
+    // from the bottom edge and back (PanelMotion: a transform, no layout while it moves; reduced motion is a fade)
     property bool presented: false
     readonly property bool leaving: motion.leaving
+    readonly property bool held: motion.held
+    readonly property bool parked: motion.parked
+    property alias lingerMs: motion.lingerMs
+    function release() { motion.release() }
     PanelMotion { id: motion; presented: picker.presented }
     readonly property real progress: motion.progress     // 0 away, 1 shown
     readonly property real sheetY: sheet.y               // where the sheet is (612 at rest)
@@ -77,8 +82,8 @@ Item {
     Timer { id: restTimer; interval: Lu.restMs; onTriggered: picker.rested = true }
 
     // the page dims for as long as the picker is drawn, not faded: a full-screen opacity change re-batches the scene under it each frame
-    // (QuickPanel.qml has the numbers)
-    Rectangle { anchors.fill: parent; color: Lu.scrim }
+    // (QuickPanel.qml has the numbers); parked, the scrim is moved off the screen
+    Rectangle { x: picker.parked ? -width : 0; width: parent.width; height: parent.height; color: Lu.scrim }
     LuPane {
         id: sheet
         x: 64; width: 1792
@@ -86,9 +91,9 @@ Item {
         // the one thing that moves: the sheet rises from the bottom edge (a transform; nothing is laid out). No fade on the way: an opacity
         // change re-batches the sheet each frame (QuickPanel.qml has the numbers); reduced motion is the fade alone.
         readonly property real rise: Lu.reduced ? 0 : (height + 64) * (1 - motion.progress)
-        y: 1080 - 64 - height + rise
+        y: picker.parked ? 1080 + 300 : 1080 - 64 - height + rise
         opacity: Lu.reduced ? motion.progress : 1
-        onYChanged: if (motion.moving) locate()
+        onYChanged: if (!picker.parked) locate()
         Row {
             id: head
             x: Lu.space(7); y: Lu.space(5)

@@ -31,7 +31,7 @@ import "kit"
 Item {
     id: ov
     anchors.fill: parent
-    visible: up || osdLive || panelLeaving
+    visible: up || osdLive || panelLeaving || panelHeld
 
     // set by the container: an app, not Home, is this container's surface and is on screen
     property bool appFront: false
@@ -48,6 +48,8 @@ Item {
     readonly property bool osdLive: !!osdRes.item && osdRes.item.live
     // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
     readonly property bool panelLeaving: (!!quickRes.item && quickRes.item.leaving === true) || (!!pickerRes.item && pickerRes.item.leaving === true)
+    // and one that has gone is parked in the scene for a few seconds, off the screen (panels/PanelMotion.qml): this layer stays in the scene too
+    readonly property bool panelHeld: (!!quickRes.item && quickRes.item.held === true) || (!!pickerRes.item && pickerRes.item.held === true)
     // theme `remote.quickPanel` and `remote.inputPicker`: on unless the owner turned them off (the gear's tap and the Input key are then LG's)
     readonly property bool quickOn: !theme.remote || theme.remote.quickPanel !== false
     readonly property bool pickerOn: !theme.remote || theme.remote.inputPicker !== false
@@ -160,9 +162,16 @@ Item {
         if (bannerRes.item) bannerRes.item.hide()
         return was !== ""
     }
+    // The panels stay in the scene for a while after they are closed (panels/PanelMotion.qml). Another surface joins nodes to it and rebuilds the
+    // render list anyway, and over Home nothing is left to open them for: they go then, not in a frame of their own later.
+    function releaseParked(except) {
+        if (except !== "quick" && quickRes.item && quickRes.item.release) quickRes.item.release()
+        if (except !== "picker" && pickerRes.item && pickerRes.item.release) pickerRes.item.release()
+    }
+    onSurfaceChanged: if (surface !== "") releaseParked(surface)
     // The backdrop is an assignment on the way in, as Home's is on the way back (LumaHome.onHostActiveChanged): a Binding that switches off
     // behaves differently in Qt 5.12 (the set) and 5.15 (the offline host).
-    onAppFrontChanged: { if (appFront) { Lu.backdrop = flatTex; tryPending() } else { pending = null; closeAll() } }
+    onAppFrontChanged: { if (appFront) { Lu.backdrop = flatTex; tryPending() } else { pending = null; closeAll(); releaseParked("") } }
 
     // ---- banners
     function showBanner(spec) {
