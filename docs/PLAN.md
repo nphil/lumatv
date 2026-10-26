@@ -1147,3 +1147,9 @@ None.
   to play GeForce NOW on it for now; 4:4:4 and VRR are wanted and every route
   to them is being tried (`docs/research/gfn-444-vrr-result.md`), with the
   research in `docs/research/opennow-result.md` (Nitin, 2026-10-25).
+  The app's interface is LumaTV's own, clean and in Lucent like the rest of
+  the shell (not OpenNOW's Qt UI). Controller input latency is a first-class
+  requirement: a USB 2.4 GHz controller receiver is plugged into the TV, and
+  the streamer reads it at the lowest level the set allows (its own device
+  node, highest poll rate the device takes, no LG input service in the path),
+  sending each change to GeForce NOW at once (Nitin, 2026-10-25).
