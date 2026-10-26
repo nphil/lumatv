@@ -2,6 +2,7 @@ import QtQuick 2.4
 import "../kit"
 import "Rows.js" as R
 import "AppKeys.js" as AK
+import "Choice.js" as C
 import "."
 
 // Remote & pointer (docs/mocks/03-settings-remote). The Magic Remote's pointer is the TV's own switch
@@ -41,10 +42,16 @@ PageList {
     function refresh() {
         voiceSettings.refresh()
         Sio.read("general", ["remotePointer"])
-        Sio.read("option", ["pointerSpeed", "pointerSize"])
+        Sio.read("option", ["pointerSpeed", "pointerSize", "remoteSlowInput", "longPressInterval", "repeatInterval"])
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
+    // LG's times for a long press and for the repeat: "Basic", or a number of seconds; both answer only while Extend Pressing Time is on
+    readonly property var seconds: ({ basic: "Basic", "0.5": "0.5 s", "1": "1 s", "1.5": "1.5 s", "2": "2 s", "2.5": "2.5 s", "3": "3 s", "3.5": "3.5 s", "4": "4 s", "4.5": "4.5 s", "5": "5 s" })
+    readonly property bool slowOn: String(Sio.get("option.remoteSlowInput")) === "on"
+    function slow(row) {
+        return R.over(row, { enabled: function() { return page.slowOn && Sio.usable(row.id) }, detail: function() { return !Sio.has(row.id) ? "TV not answering" : page.slowOn ? "" : "Turn Extend Pressing Time on" } })
+    }
     // One row per app key: what it opens now, and OK opens the chooser (PageAppKey) for it.
     readonly property var keyCfg: AK.config(theme)
     readonly property var installed: AK.installed(Apps.launchPoints)
@@ -78,7 +85,12 @@ PageList {
           act: function(v) { if (page.host) page.host.patch({ remote: { inputPicker: v } }) } },
         R.head("App keys", 1)
     ].concat(AK.keys.map(function(k) { return page.appKeyRow(k) }), [
-        R.lg(page, { tab: 1, target: "RemoteSlowInput" }),
+        R.toggle(Sio, { ds: "option.remoteSlowInput", tab: 1, icon: "timer", label: "Extend Pressing Time on Remote",
+                        help: "For a slower hand: a key must be held longer to count as a long press, and repeats come slower." }),
+        page.slow(C.choice(Sio, { ds: "option.longPressInterval", tab: 1, icon: "hourglass", label: "Activate time for long press", names: page.seconds, page: page,
+                                  help: "How long a key is held before it counts as a long press." })),
+        page.slow(C.choice(Sio, { ds: "option.repeatInterval", tab: 1, icon: "fast-forward", label: "Interval time for repeated actions", names: page.seconds, page: page,
+                                  help: "How long between the repeats while a key is held." })),
 
         R.toggle(voiceSettings, { ds: "enabled", tab: 2, on: "true", off: "false", icon: "mic", label: "Search by voice",
                                   help: "Hold the mic key and speak; the words go into search. The mic is open only while held." }),

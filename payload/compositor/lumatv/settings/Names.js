@@ -45,6 +45,7 @@ var tables = {
     blackLevel: { low: "Limited", high: "Full", auto: "Auto", medium: "Medium", limited: "Limited", full: "Full" },
     wbMethod: { "2": "2 Points", "10": "10 Points Signal Level(%)", "22": "22 Points Signal Level(%)" },
     wbPoint: { low: "Low", high: "High" },
+    oledCare: { off: "Off", comfortCare: "Comfort Mode", cinemaCare: "Theater Mode", kidsCare: "Kids Care Mode" },
     colorSystem: { red: "Red", green: "Green", blue: "Blue", cyan: "Cyan", magenta: "Magenta", yellow: "Yellow" }
 };
 

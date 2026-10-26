@@ -303,6 +303,29 @@ probe("picture_min_brightness", FIND % "picture" + "var mb=R('Minimum Brightness
 probe("picture_video_range", FIND % "picture" + "var vr=R('Video Range');vr.act(2);return 1", wait=300)
 probe("picture_energy_back", SET + "s.set('picture', {energySaving: 'off'});return 1")
 
+# ---- the one-off rows: Always Ready, AI recommendations, extended press time, OLED care
+probe("look_tv_rows", "var p=root.pageItem('look');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false||(r.tab!==1&&r.tab!==3))continue;"
+      "out.push([r.tab,String(p.ev(r.label)),p.ev(r.enabled)===false?'dim':'',String(p.ev(r.detail)||'')])}return out")
+probe("ready_on", FIND % "look" + "R('Always Ready').act(true);return {on:p.ev(R('Always Ready').on),sub:p.ev(R('Always Ready motion sensor').enabled)!==false}", wait=300)
+probe("ready_subs", FIND % "look" + "R('Always Ready energy saving').act(1);R('Always Ready notifications').act(false);R('Always Ready motion sensor').act(true);"
+      "return {energy:R('Always Ready energy saving').options()}", wait=300)
+probe("ready_off_ask", FIND % "look" + "R('Always Ready').act(false);return {asked:root.confirmOpen,on:p.ev(R('Always Ready').on)}", wait=250)
+probe("ready_off_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("ready_off_yes", FIND % "look" + "R('Always Ready').act(false);root.key('right');root.key('ok');return 1", wait=400)
+probe("ready_off_after", FIND % "look" + "return {on:p.ev(R('Always Ready').on)}")
+probe("ai_tips", FIND % "look" + "R('Smart Tips').act(false);R('Smart Tips in Settings').act(false);return {w:!!R('Who.Where.What?')}", wait=250)
+probe("remote_slow_locked", FIND % "remote" + "var a=R('Activate time for long press');return {on:p.ev(a.enabled)!==false,detail:p.ev(a.detail),value:p.ev(a.value)}")
+probe("remote_slow_on", FIND % "remote" + "R('Extend Pressing Time on Remote').act(true);return 1", wait=300)
+probe("remote_slow_pick", FIND % "remote" + "var a=R('Activate time for long press'),b=R('Interval time for repeated actions');var oa=a.options(),ob=b.options();"
+      "a.pick(oa.map(function(x){return x.value}).indexOf('1.5'));b.pick(ob.map(function(x){return x.value}).indexOf('0.5'));"
+      "return {on:p.ev(a.enabled)!==false,a:oa.map(function(x){return x.value+':'+x.label}),b:ob.map(function(x){return x.value+':'+x.label}),va:p.ev(a.value),vb:p.ev(b.value)}", wait=300)
+probe("oled_care", FIND % "system" + "var row=R('Care Picture Settings');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('comfortCare'));"
+      "R('Care Recommendations').act(false);return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=300)
+probe("pixel_ask", FIND % "system" + "R('Pixel Cleaning').act(true);return {asked:root.confirmOpen,on:p.ev(R('Pixel Cleaning').on)}", wait=250)
+probe("pixel_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("pixel_yes", FIND % "system" + "R('Pixel Cleaning').act(true);root.key('right');root.key('ok');return 1", wait=400)
+probe("pixel_off", FIND % "system" + "R('Pixel Cleaning').act(false);return p.ev(R('Pixel Cleaning').on)===false", wait=250)
+
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
       "\"/setSystemSettings\", JSON.stringify({category: c, settings: v})) } }', root);s.set('caption', {captionStyle: 'manual'});root.pageItem('captions').refresh();"
@@ -796,6 +819,48 @@ class Coverage(unittest.TestCase):
         self.assertEqual(d, {"on": True, "min": 0, "max": 10, "text": "4"})
         self.assertEqual(self.written("picture_min_brightness"), [{"energySavingAutoMin": "4"}])
         self.assertEqual(self.written("picture_video_range"), [{"blackLevel": "high"}])
+
+    # ---- the one-off rows
+    def test_always_ready_is_LGs_switch_with_its_three_options_and_asks_before_it_goes_off(self):
+        rows = self.probe("look_tv_rows")["res"]
+        self.assertEqual([r[1:] for r in rows if r[0] == 3][-4:], [["Always Ready", "", ""], ["Always Ready energy saving", "dim", "Turn Always Ready on"],
+                                                                    ["Always Ready notifications", "dim", "Turn Always Ready on"], ["Always Ready motion sensor", "dim", "Turn Always Ready on"]])
+        self.assertEqual(self.probe("ready_on")["res"], {"on": True, "sub": True})
+        self.assertEqual(self.written("ready_on"), [{"lifeOnScreenMode": "allEnabled"}])                                      # LG's own value for on
+        self.assertEqual(self.written("ready_subs"), [{"lifeOnScreenEnergySaving": "off"}, {"lifeOnScreenNotification": "false"}, {"lifeOnScreenUsingMotionSensor": "true"}])
+        d = self.probe("ready_off_ask")["res"]
+        self.assertEqual((d["asked"], d["on"]), (True, True))
+        self.assertEqual([c for c in self.probe("ready_off_no")["calls"] if c["method"] == "/setSystemSettings"], [])
+        self.assertEqual(self.written("ready_off_yes"), [{"lifeOnScreenMode": "off"}])
+        self.assertEqual(self.probe("ready_off_after")["res"], {"on": False})
+
+    def test_ai_recommendations_are_the_switches_the_tv_shows_and_the_one_it_hides_is_left_out(self):
+        rows = [r[1] for r in self.probe("look_tv_rows")["res"] if r[0] == 1]
+        self.assertIn("Smart Tips", rows)
+        self.assertIn("Smart Tips in Settings", rows)
+        self.assertNotIn("Who.Where.What?", rows)                                                                               # LG hides it on this set
+        self.assertEqual(self.written("ai_tips"), [{"aiNudge": "off"}, {"aiSettingsNudge": "off"}])
+
+    def test_extended_press_time_waits_for_its_switch_and_offers_the_tvs_own_times(self):
+        self.assertEqual(self.probe("remote_slow_locked")["res"], {"on": False, "detail": "Turn Extend Pressing Time on", "value": "Basic"})
+        self.assertEqual(self.written("remote_slow_on"), [{"remoteSlowInput": "on"}])
+        d = self.probe("remote_slow_pick")["res"]
+        self.assertTrue(d["on"])
+        self.assertEqual(d["a"], ["basic:Basic", "1.5:1.5 s", "2:2 s", "2.5:2.5 s", "3:3 s", "3.5:3.5 s", "4:4 s", "4.5:4.5 s", "5:5 s"])
+        self.assertEqual(d["b"][:3], ["basic:Basic", "0.5:0.5 s", "1:1 s"])
+        self.assertEqual((d["va"], d["vb"]), ("1.5 s", "0.5 s"))
+        self.assertEqual(self.written("remote_slow_pick"), [{"longPressInterval": "1.5"}, {"repeatInterval": "0.5"}])
+
+    def test_oled_care_has_LGs_three_care_modes_pixel_cleaning_asks_to_turn_on_and_recommendations_switch(self):
+        d = self.probe("oled_care")["res"]
+        self.assertEqual(d["options"], ["off:Off", "comfortCare:Comfort Mode", "cinemaCare:Theater Mode", "kidsCare:Kids Care Mode"])
+        self.assertEqual(d["value"], "Comfort Mode")
+        self.assertEqual(self.written("oled_care"), [{"oledCareMode": "comfortCare"}, {"oledCareRecommendation": "off"}])
+        d = self.probe("pixel_ask")["res"]
+        self.assertEqual((d["asked"], d["on"]), (True, False))
+        self.assertEqual([c for c in self.probe("pixel_no")["calls"] if c["method"] == "/setSystemSettings"], [])
+        self.assertEqual(self.written("pixel_yes"), [{"scheduledPixelCleaning": "on"}])
+        self.assertEqual(self.written("pixel_off"), [{"scheduledPixelCleaning": "off"}])                                      # off needs no question
 
 
 if __name__ == "__main__":

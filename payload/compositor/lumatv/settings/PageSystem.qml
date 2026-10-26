@@ -24,7 +24,8 @@ PageList {
         Sio.read("time", ["timeZone", "noOperationAutoOff", "autoOff15Min", "autoOff2HourOnTimer", "automaticStandBy", "onTimerEnable", "onTimerHour", "onTimerMinute",
                           "offTimerEnable", "offTimerHour", "offTimerMinute"])
         Sio.read("option", ["quickStartMode", "audioGuidance", "highContrast", "focusEmphasis", "screenMagnification", "adjustments"])
-        Sio.read("picture", ["screenShift", "logoLuminanceAdjust"])
+        Sio.read("picture", ["screenShift", "logoLuminanceAdjust", "scheduledPixelCleaning"])
+        Sio.read("other", ["oledCareMode", "oledCareRecommendation"])
         Sio.read("caption", ["captionEnable"])
         Sio.read("sound", ["audioDescription"])
         Sio.read("network", ["deviceName"])
@@ -79,7 +80,19 @@ PageList {
         R.toggle(Sio, { ds: "picture.screenShift", tab: 2, icon: "scan-eye", label: "Screen shift", help: "Moves the picture a pixel now and then so the panel wears evenly." }),
         R.seg(Sio, { ds: "picture.logoLuminanceAdjust", tab: 2, icon: "contrast", label: "Dim logos and subtitles", help: "Lowers the brightness of static logos and subtitles so they do not burn in.",
                      options: ["Off", "Light", "Strong"], values: ["off", "light", "strong"] }),
-        R.lg(page, { tab: 2, target: "OledCare", label: "Pixel refresher and panel care", help: "Runs while the TV is off and takes about an hour. LG's screen asks first." }),
+        C.lgShown(Sio, "other.oledCareMode", C.choice(Sio, { ds: "other.oledCareMode", tab: 2, icon: "shield-check", label: "Care Picture Settings", names: "oledCare", page: page,
+                                                            help: "A picture set for the eyes or for the room: comfort, theater or kids. It replaces the energy saving step." })),
+        C.lgShown(Sio, "picture.scheduledPixelCleaning", {
+            kind: "toggle", tab: 2, id: "pixelcleaning", icon: "sparkles", label: "Pixel Cleaning", help: "The panel runs a cleaning the next time the TV is turned off, and the TV stays off for about an hour.",
+            detail: R.unavailable(Sio, "picture.scheduledPixelCleaning"), enabled: function() { return Sio.usable("picture.scheduledPixelCleaning") },
+            on: function() { return String(Sio.get("picture.scheduledPixelCleaning")) === "on" },
+            act: function(v) {
+                if (!v) { Sio.write("picture.scheduledPixelCleaning", "off"); return }
+                C.ask(page, { icon: "sparkles", title: "Clean the pixels?", body: "It runs when the TV is turned off next, and takes about an hour.", yes: "Turn on", no: "Cancel" },
+                      function() { Sio.write("picture.scheduledPixelCleaning", "on") })()
+            } }),
+        C.lgShown(Sio, "other.oledCareRecommendation", R.toggle(Sio, { ds: "other.oledCareRecommendation", tab: 2, icon: "lightbulb", label: "Care Recommendations",
+                                                                      help: "Suggests a picture setting for eye strain or the room, from how the TV is watched." })),
 
         R.head("Vision", 3),
         R.link({ tab: 3, id: "audioguide", icon: "audio-lines", label: "Audio Guidance", enabled: function() { return Sio.has("option.audioGuidance") },

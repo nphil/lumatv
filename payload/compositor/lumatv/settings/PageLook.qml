@@ -1,11 +1,13 @@
 import QtQuick 2.4
 import "../kit"
 import "Rows.js" as R
+import "Choice.js" as C
 import "."
 
 // Home & look (docs/mocks/30-settings-home): the theme's few knobs a person changes from the sofa
 // (theme.json, the same file `lumatv theme set` and the Home popovers write), in four tabs. A row reads
-// the live theme through Lu and writes through the host's patch, which applies it at once and saves it.
+// the live theme through Lu and writes through the host's patch, which applies it at once and saves it. The few rows that are the TV's own
+// settings (AI Recommendation on Home, Always Ready on Standby) go through Sio, on LG's keys.
 PageList {
     id: page
     title: "Home & look"
@@ -26,6 +28,17 @@ PageList {
     readonly property var depthLevels: ["flat", "normal", "deep"]      // the steps of theme.depth.steps
     summary: ""                                         // nothing here is a state to glance at from the rail
 
+    // the TV's own settings this page also holds: AI Recommendation (Home) and Always Ready (Standby)
+    function refreshTv() {
+        Sio.read("general", ["aiNudge", "aiSettingsNudge", "lifeOnScreenMode"])
+        Sio.read("option", ["broadcastInfoNoti", "lifeOnScreenEnergySaving", "lifeOnScreenNotification", "lifeOnScreenUsingMotionSensor"])
+    }
+    Component.onCompleted: refreshTv()
+    onOpened: refreshTv()
+    readonly property bool alwaysReady: Sio.has("general.lifeOnScreenMode") && String(Sio.get("general.lifeOnScreenMode")) !== "off"
+    function whenReady(row) {
+        return R.over(row, { enabled: function() { return page.alwaysReady && Sio.usable(row.id) }, detail: function() { return !Sio.has(row.id) ? "TV not answering" : page.alwaysReady ? "" : "Turn Always Ready on" } })
+    }
     function patch(p) { if (host) host.patch(p) }
     // Theme patches merge one level deep, so a change to one art option carries the whole art block.
     function artPatch(field, v) {
@@ -68,6 +81,12 @@ PageList {
         { kind: "seg", tab: 1, icon: "sun-medium", label: "Temperature", help: function() { return "Weather for " + (page.theme.weather && page.theme.weather.zip ? page.theme.weather.zip : "your zip code") + "." },
           options: ["\u00b0F", "\u00b0C"], index: function() { return page.theme.weather && page.theme.weather.units === "celsius" ? 1 : 0 },
           act: function(i) { page.patch({ weather: { units: i === 1 ? "celsius" : "fahrenheit" } }) } },
+        C.lgShown(Sio, "option.broadcastInfoNoti", R.toggle(Sio, { ds: "option.broadcastInfoNoti", tab: 1, icon: "sparkles", label: "Who.Where.What?",
+                                                                  help: "LG's suggestions about the people, places and things in what Live TV is showing." })),
+        C.lgShown(Sio, "general.aiNudge", R.toggle(Sio, { ds: "general.aiNudge", tab: 1, icon: "sparkles", label: "Smart Tips",
+                                                         help: "LG's tips about features, shown now and then on Home." })),
+        C.lgShown(Sio, "general.aiSettingsNudge", R.toggle(Sio, { ds: "general.aiSettingsNudge", tab: 1, icon: "sparkles", label: "Smart Tips in Settings",
+                                                                 help: "LG's tips about settings, shown inside LG's Settings screens." })),
 
         { kind: "seg", tab: 2, icon: "moon", label: "Screensaver", help: "Starts after a while with no key. It moves, so the panel never holds one picture.",
           options: ["Clock", "Art", "Off"], index: function() { var s = page.saverStyle; return s === "off" ? 2 : s === "art" ? 1 : 0 },
@@ -100,7 +119,19 @@ PageList {
         { kind: "seg", tab: 3, icon: "moon", label: "Power-off logo",
           options: ["Panes", "Arc", "Name only"], index: function() { return Math.max(0, Math.min(2, (page.logo.off || 1) - 1)) },
           act: function(i) { page.patch({ logo: { off: i + 1 } }) } },
-        R.lg(page, { tab: 3, target: "LifeOnScreenMode", label: "LG standby screens",
-                     help: "In standby the panel goes fully dark. LG's Always Ready and Gallery+ are off, and the TV still wakes at once." })
+        C.lgShown(Sio, "general.lifeOnScreenMode", {
+            kind: "toggle", tab: 3, id: "alwaysready", icon: "moon-star", label: "Always Ready", help: "LG's standby: a wallpaper, the voice and music from a phone while the TV is off. It uses more power than a dark panel.",
+            detail: R.unavailable(Sio, "general.lifeOnScreenMode"), enabled: function() { return Sio.usable("general.lifeOnScreenMode") },
+            on: function() { return page.alwaysReady },
+            act: function(v) {
+                if (v) { Sio.write("general.lifeOnScreenMode", "allEnabled"); return }
+                C.ask(page, { icon: "moon-star", title: "Turn Always Ready off?", body: "In standby the TV goes dark.", yes: "Turn off", no: "Cancel" }, function() { Sio.write("general.lifeOnScreenMode", "off") })()
+            } }),
+        whenReady(C.lgShown(Sio, "option.lifeOnScreenEnergySaving", C.seg(Sio, { ds: "option.lifeOnScreenEnergySaving", tab: 3, icon: "leaf", label: "Always Ready energy saving",
+                                                                                names: { auto: "Auto", off: "Off" }, help: "Lets Always Ready dim and rest when nobody is near." }))),
+        whenReady(C.lgShown(Sio, "option.lifeOnScreenNotification", R.toggle(Sio, { ds: "option.lifeOnScreenNotification", tab: 3, on: "true", off: "false", icon: "bell",
+                                                                                   label: "Always Ready notifications", help: "Shows LG's notices on the Always Ready screen." }))),
+        whenReady(C.lgShown(Sio, "option.lifeOnScreenUsingMotionSensor", R.toggle(Sio, { ds: "option.lifeOnScreenUsingMotionSensor", tab: 3, on: "true", off: "false", icon: "scan-eye",
+                                                                                        label: "Always Ready motion sensor", help: "Wakes the screen when someone walks by." })))
     ]
 }

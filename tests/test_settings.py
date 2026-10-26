@@ -516,7 +516,7 @@ class Settings(HostCase):
         with open(os.path.join(HERE, "qmlhost", "stubs", "WebOSServices", "LgSettings.js")) as f:
             js = f.read()
         known = set(re.findall(r'"([A-Za-z0-9_]+)"', js[js.index("var targets"):js.index("function domain")]))
-        self.assertGreater(len(rows), 10)
+        self.assertGreater(len(rows), 7)
         for r in rows:
             if r["app"] == "com.palm.app.settings" and r["target"]:
                 self.assertIn(r["target"], known, r)
