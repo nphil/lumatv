@@ -6,6 +6,7 @@
 
 pub mod card;
 pub mod card_ui;
+pub mod gfn;
 pub mod home;
 pub mod lifecycle;
 pub mod look;
