@@ -104,6 +104,13 @@ impl Drop for Server {
     }
 }
 
+/// What the output shows once the scene's pending changes are drawn: one tick on the server thread, then the read-back. The loop ticks every
+/// 4 ms by itself, but a loaded machine leaves that thread late, and a sleep before a read-back races with it.
+pub fn drawn(s: &mut State) -> lumatv_compositor::output::Image {
+    s.tick();
+    s.output.capture().unwrap()
+}
+
 fn run_server(
     stream: UnixStream,
     jobs: Receiver<Job>,

@@ -130,7 +130,7 @@ fn newest_card_is_the_foreground_and_the_older_one_returns_on_close() {
     second.surface.destroy();
     client.roundtrip();
     std::thread::sleep(Duration::from_millis(30));
-    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), s.output.capture().unwrap()));
+    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), harness::drawn(s)));
     assert_eq!(fg.as_deref(), Some("A"));
     assert_eq!(image.pixel(5, 5), [0xff, 0, 0, 0xff], "the older card is drawn again once the newer one is gone");
 }
@@ -166,7 +166,7 @@ fn a_covered_card_is_minimized_and_comes_back_when_it_asks_for_fullscreen_or_the
     client.conn.flush().unwrap();
     assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen, minimized, fullscreen] && states(s, hdmi_id) == [fullscreen, minimized]));
     std::thread::sleep(Duration::from_millis(30));
-    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), s.output.capture().unwrap()));
+    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), harness::drawn(s)));
     assert_eq!(fg.as_deref(), Some("Home"));
     assert_eq!(image.pixel(5, 5), [0xff, 0, 0, 0xff], "the raised card is drawn");
 
@@ -175,7 +175,7 @@ fn a_covered_card_is_minimized_and_comes_back_when_it_asks_for_fullscreen_or_the
     client.conn.flush().unwrap();
     assert!(client.wait_until(WAIT, |s| states(s, hdmi_id) == [fullscreen, minimized, fullscreen]));
     std::thread::sleep(Duration::from_millis(30));
-    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), s.output.capture().unwrap()));
+    let (fg, image) = server.eval(|s| (s.scene.foreground(&s.surfaces).map(|w| w.title.clone()), harness::drawn(s)));
     assert_eq!(fg.as_deref(), Some("HDMI2"));
     assert_eq!(image.pixel(5, 5), [0, 0, 0xff, 0xff]);
 }
@@ -218,7 +218,7 @@ fn a_preloaded_card_relaunched_is_the_foreground_before_its_first_buffer() {
     std::thread::sleep(Duration::from_millis(30));
     let (fg, mapped, image) = server.eval(|s| {
         let mapped = s.scene.windows().find(|w| w.title == "HDMI2").map(|w| w.map_serial > 0).unwrap();
-        (foreground(s), mapped, s.output.capture().unwrap())
+        (foreground(s), mapped, harness::drawn(s))
     });
     assert_eq!(fg, ["org.test.hdmi2"], "SAM is told before the first buffer");
     assert!(!mapped);
@@ -240,7 +240,7 @@ fn a_preloaded_card_relaunched_is_the_foreground_before_its_first_buffer() {
     client.conn.flush().unwrap();
     assert!(client.wait_until(WAIT, |s| states(s, home_id) == [fullscreen, minimized, fullscreen] && states(s, hdmi_id) == [fullscreen, minimized]));
     std::thread::sleep(Duration::from_millis(30));
-    let (fg, image) = server.eval(|s| (foreground(s), s.output.capture().unwrap()));
+    let (fg, image) = server.eval(|s| (foreground(s), harness::drawn(s)));
     assert_eq!(fg, ["org.test.home"]);
     assert_eq!(image.pixel(5, 5), [0xff, 0, 0, 0xff]);
 }
@@ -517,12 +517,12 @@ fn synchronized_subsurface_waits_for_the_parent_commit() {
     child.commit();
     client.roundtrip();
     std::thread::sleep(Duration::from_millis(20));
-    let before = server.eval(|s| s.output.capture().unwrap());
+    let before = server.eval(harness::drawn);
     assert_eq!(before.pixel(350, 350), [0, 0, 0, 0xff], "cached until the parent commits");
     parent.surface.commit();
     client.roundtrip();
     std::thread::sleep(Duration::from_millis(30));
-    let after = server.eval(|s| s.output.capture().unwrap());
+    let after = server.eval(harness::drawn);
     assert_eq!(after.pixel(350, 350), [0, 0xff, 0xff, 0xff]);
     assert_eq!(after.pixel(299, 299), [0, 0, 0, 0xff]);
 }
@@ -702,7 +702,7 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     server.eval(|s| lumatv_compositor::control::handle(s, "pointer 30 30").text());
     assert!(client.wait_until(WAIT, |s| s.pointer_enters.len() >= 2));
     std::thread::sleep(Duration::from_millis(30));
-    let shown = server.eval(|s| s.output.capture().unwrap());
+    let shown = server.eval(harness::drawn);
     assert_eq!(shown.pixel(30, 30), [0xff, 0xff, 0xff, 0xff], "the sprite's centre");
     assert_eq!(shown.pixel(60, 60), [0xff, 0, 0, 0xff], "the card beside it");
     server.eval(|s| {
@@ -712,7 +712,7 @@ fn pointer_enters_the_window_under_it_and_ok_clicks_while_the_cursor_shows() {
     assert!(client.wait_until(WAIT, |s| s.pointer_leaves >= 2));
     assert!(!server.eval(|s| s.seat.cursor_visible));
     std::thread::sleep(Duration::from_millis(30));
-    let hidden = server.eval(|s| s.output.capture().unwrap());
+    let hidden = server.eval(harness::drawn);
     assert_eq!(hidden.pixel(30, 30), [0xff, 0, 0, 0xff], "the card is whole again");
 }
 
@@ -870,7 +870,7 @@ fn destroying_the_shown_buffer_keeps_the_last_frame() {
     // Force a redraw of the whole output and look again.
     server.eval(|s| s.scene.layout_changed = true);
     std::thread::sleep(Duration::from_millis(30));
-    let (image, mapped) = server.eval(|s| (s.output.capture().unwrap(), s.scene.foreground(&s.surfaces).is_some()));
+    let (image, mapped) = server.eval(|s| (harness::drawn(s), s.scene.foreground(&s.surfaces).is_some()));
     assert!(mapped, "the window stays mapped");
     assert_eq!(image.pixel(960, 540), [0x7d, 0x80, 0x82, 0xff], "the last frame stays on screen");
 }
