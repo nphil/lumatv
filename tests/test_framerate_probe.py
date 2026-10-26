@@ -418,10 +418,25 @@ class Report(unittest.TestCase):
 
     def test_verdict_without_a_switch(self):
         shots = [{"n": i, "up": 27870 + i * 0.25, "bytes": 18000} for i in range(8)]
-        v = probe.verdict(make_samples(secs=6.0, switch_at=99), shots, [], [], [])
+        rows = make_samples(secs=6.0, switch_at=99)
+        for r in rows:
+            r["win0"]["vFreq"] = 240
+            r["vsync"] = probe.parse_vsync(VSYNC)
+        v = probe.verdict(rows, shots, [], [], [])
         self.assertTrue(v["clean"])
         self.assertIn("no output-rate switch", v["words"][0])
         self.assertIn("120 Hz band", v["words"][0])
+
+    def test_a_run_where_no_video_played_or_the_mute_never_cleared_fails(self):
+        shots = [{"n": i, "up": 27870 + i * 0.25, "bytes": 18000} for i in range(8)]
+        v = probe.verdict(make_samples(secs=6.0, switch_at=99), shots, [], [], [])
+        self.assertFalse(v["clean"])
+        self.assertFalse(v["evidence"])
+        self.assertIn("no video", " ".join(v["words"]))
+        rows = make_samples(secs=6.0, switch_at=0.0, mute_from=0.0, mute_to=99.0)
+        v = probe.verdict(rows, shots, [], [], [])
+        self.assertFalse(v["clean"])
+        self.assertIn("never cleared", " ".join(v["words"]))
 
     def test_a_run_with_no_samples_or_no_shots_fails_for_want_of_evidence(self):
         v = probe.verdict([], [], [], [], [])

@@ -685,6 +685,18 @@ def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=Fa
     elif not shots and not protected:
         clean = False
         words.append("no screen shots: blanking cannot be judged")
+    else:
+        played = any(v for _, v in out["source_rate"]) or bool(out["decoder_rate"])
+        last = samples[-1]["up"]
+        muted_throughout = any(a <= first_up + 0.5 and (b is None or b >= last - 0.5) for a, b, _ in fw_mute)
+        if not played:
+            clean = False
+            words.append("no video: the DE saw no source rate and no decoder vsync, so nothing played")
+        elif muted_throughout:
+            clean = False
+            words.append("the firmware mute never cleared: no picture was shown")
+    out["evidence"] = not any(w.startswith(("no samples", "no screen shots", "no video", "the firmware mute never"))
+                              for w in words)
     out["clean"] = clean
     out["words"] = words
     return out
@@ -719,7 +731,7 @@ def report(run_dir, protected=None):
                                                           " (protected video: black by design)" if protected else "")]
     lines += v["words"]
     lines.append("VERDICT: %s" % ("PASS: every switch clean (no firmware mute, no vsync gap)" if v["clean"]
-                                  else "FAIL: no evidence" if not v["samples"] or (not v["shots"] and not protected)
+                                  else "FAIL: no evidence" if not v["evidence"]
                                   else "FAIL: a switch muted or gapped"))
     text = "\n".join(lines) + "\n"
     with open(os.path.join(run_dir, "summary.txt"), "w") as f:
