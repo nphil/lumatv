@@ -398,6 +398,24 @@ class RealScript(Base):
         self.assertEqual(self.verb("install")[0], 0)
         self.assertEqual(self.sh("vplane_remove\nvplane_json", functions=FUNCTIONS)[1], '{"installed":false,"role":false,"clips":0,"running":false,"pid":0}')
 
+    def test_the_started_supervisor_does_not_keep_the_tools_lock(self):
+        # lumatv's apply holds its mutation lock on fd 9 (flock) while it starts the player; a supervisor that kept the fd held the lock for
+        # its whole life and every later apply or restart timed out (the colour reader's daemon did, 2026-10-26)
+        self.write(self.player, "#!/bin/sh\nexec sleep 30\n", 0o755)
+        self.assertEqual(self.verb("install")[0], 0)
+        lock = os.path.join(self.d, "mutate.lock")
+        r = subprocess.run(["sh", "-c", 'exec 8>"$1.8" 9>"$1"; sh "$2" start "$3" "$4" "$5"', "sh", lock, os.path.join(self.pv, "vplane.sh"), self.state,
+                            os.path.join(self.d, "mailbox"), APPID], env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        child = os.path.join(self.state, "vplane.child")
+        self.assertTrue(self.wait_for(lambda: os.path.exists(child)), "the supervisor did not start the player")
+        for name in ("vplane.pid", "vplane.child"):
+            with open(os.path.join(self.state, name)) as f:
+                pid = int(f.read())
+            fds = {os.readlink("/proc/%d/fd/%s" % (pid, n)) for n in os.listdir("/proc/%d/fd" % pid)}
+            self.assertNotIn(lock, fds, name)
+            self.assertNotIn(lock + ".8", fds, name)
+
 
 if __name__ == "__main__":
     unittest.main()

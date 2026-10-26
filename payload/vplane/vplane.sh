@@ -146,10 +146,11 @@ start_cmd() {
   [ -n "$mailbox" ] || { echo "vplane: no mailbox directory" >&2; return 1; }
   [ -n "$(supervisor_pid "$state")" ] && return 0
   [ "$(wc -c < "$state/vplane.log" 2>/dev/null || echo 0)" -gt 262144 ] && mv -f "$state/vplane.log" "$state/vplane.log.1"
+  # 8>&- 9>&-: not lumatv's mutation lock (flock on fd 9) for the supervisor's whole life; see capture.sh's start.
   if command -v setsid >/dev/null 2>&1; then
-    setsid nohup sh "$SELF" supervise "$state" "$mailbox" "$appid" >/dev/null 2>&1 < /dev/null &
+    setsid nohup sh "$SELF" supervise "$state" "$mailbox" "$appid" >/dev/null 2>&1 < /dev/null 8>&- 9>&- &
   else
-    nohup sh "$SELF" supervise "$state" "$mailbox" "$appid" >/dev/null 2>&1 < /dev/null &
+    nohup sh "$SELF" supervise "$state" "$mailbox" "$appid" >/dev/null 2>&1 < /dev/null 8>&- 9>&- &
   fi
   echo $! > "$state/vplane.pid"
   return 0
