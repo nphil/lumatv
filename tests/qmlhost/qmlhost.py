@@ -258,6 +258,19 @@ def main(argv=None):
 
     qmlRegister = QtQml.qmlRegisterType
     qmlRegister(TextFile, 'TextFile', 1, 0, 'TextFile')
+    if not a.fake_helper:
+        # A host that must find no helper shares the lock with the others that do not want one, and is kept apart from every host that serves
+        # the stand-in on the fixed port (below): it would otherwise read another run's weather as its own. The server of the host before it can
+        # outlive that host's lock for a moment, so the port is waited on until nothing answers.
+        import fcntl
+        import socket
+        _lock = open(os.path.join(tempfile.gettempdir(), 'lumatv-qmlhost.lock'), 'w')
+        fcntl.flock(_lock, fcntl.LOCK_SH)
+        for _ in range(100):
+            with socket.socket() as probe:
+                if probe.connect_ex(('127.0.0.1', 18731)) != 0:
+                    break
+            time.sleep(0.05)
     if a.fake_helper:
         sys.path.insert(0, HERE)
         import fakehelper
