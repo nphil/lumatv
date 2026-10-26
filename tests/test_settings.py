@@ -427,15 +427,16 @@ class Settings(HostCase):
         self.assertIn("Match screen and sound", sound)
         self.assertNotIn("avSync", {k for c in calls for k in c["payload"]["settings"]})
 
-    def test_the_aspect_ratio_is_written_for_the_input_in_front(self):
+    def test_the_aspect_ratio_and_just_scan_are_written_for_the_input_in_front(self):
         # Picture, Mode tab: cards, OLED pixel brightness, AI Picture Pro (the fake TV has no Filmmaker ambient light, so no row), Aspect ratio
-        # (Original now): Left is 16:9
-        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "down", "left", "ok"),
+        # (Original now): Left is 16:9; Down to Energy saving, Down again past Minimum Brightness (dimmed unless Auto) to Just Scan (on now): OK turns it off
+        rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT, *self.go("picture", "right", "down", "down", "down", "left", "ok", "down", "down", "ok"),
                             "--eval", "%d:%s" % (READY + 3600, LUNA), "--wait", str(READY + 4200))
         self.assertEqual(rc, 0, out[-1500:])
         calls = self.docs(out)[-1]
         self.assertEqual([c for c in calls if c["category"] == "aspectRatio"],
-                         [{"category": "aspectRatio", "settings": {"arcPerApp": "16x9"}, "app_id": "com.webos.app.hdmi2"}])
+                         [{"category": "aspectRatio", "settings": {"arcPerApp": "16x9"}, "app_id": "com.webos.app.hdmi2"},
+                          {"category": "aspectRatio", "settings": {"justScan": "off"}, "app_id": "com.webos.app.hdmi2"}])
 
     def ambient_posts(self, *keys):
         """Home opens Settings, the rail goes down to Ambient light and the D-pad does `keys`; what the helper was asked to change or do.

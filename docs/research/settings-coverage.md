@@ -54,7 +54,7 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Personalized Picture Wizard | luna app com.webos.app.picturewizard |  | - | cannot: LG's own image-survey app; the result lands in `picture.pictureMode` personalized |
 | Aspect Ratio: 16:9, Original, 4:3 | aspectRatio.arcPerApp (per app_id) | no description | Picture › Mode | covered |
 | Aspect Ratio: Vertical Zoom, 4-Way Zoom | aspectRatio.arcPerApp + aspectRatio.vertZoomVRatio, vertZoomVPosition, allDirZoomHRatio, allDirZoomVRatio, allDirZoomHPosition, allDirZoomVPosition | no description | - | cannot: the TV publishes no limits for the zoom ratios (no description) and LG's panel is a live adjustment over the picture; left to LG's own screen |
-| Just Scan | aspectRatio.justScan | on, off | Picture › Mode | built |
+| Just Scan | aspectRatio.justScan | on, off | Picture › Mode | built — per input, read and written with the app's id as LG's own read does (the owner's TV answered nothing to a read without one, so the row said TV not answering); with Home in front it says No input open |
 
 ### Advanced Settings › Brightness
 

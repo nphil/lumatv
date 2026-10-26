@@ -38,12 +38,11 @@ PageList {
         Sio.read("picture", ["truMotionJudder", "truMotionBlur", "motionPro", "filmMakerMode", "hdrDynamicToneMapping", "expressionEnhancer", "applyToAllInput"])
         Sio.read("aiPicture", ["ai_Picture", "ai_Genre", "ai_Brightness"])
         Sio.read("other", ["colorimetry"])
-        Sio.read("aspectRatio", ["justScan"])
         readPerApp()
     }
     function readPerApp() {
         if (inputApp === "") return
-        Sio.read("aspectRatio", ["arcPerApp"], inputApp)
+        Sio.read("aspectRatio", ["arcPerApp", "justScan"], inputApp)
         Sio.read("picture", ["truMotionMode"], inputApp)
     }
     Component.onCompleted: refresh()
@@ -80,8 +79,9 @@ PageList {
                               help: "How dark Auto energy saving may make the picture." }),
                { enabled: function() { return String(Sio.get("picture.energySaving")) === "auto" && Sio.usable("picture.energySavingAutoMin") },
                  detail: function() { return !Sio.has("picture.energySavingAutoMin") ? "TV not answering" : String(Sio.get("picture.energySaving")) === "auto" ? "" : "Energy saving is not Auto" } }),
-        R.toggle(Sio, { ds: "aspectRatio.justScan", tab: 0, icon: "monitor", label: "Just Scan",
-                        help: "Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge." }),
+        // Just Scan is per input like the aspect ratio: LG reads and writes it with the app's id, and the TV answers nothing to a read without one
+        perApp(R.toggle(Sio, { ds: "aspectRatio.justScan", tab: 0, icon: "monitor", label: "Just Scan", appId: function() { return page.inputApp },
+                               help: "Shows the picture whole, without cropping its edges. Turn it off if a line shows at an edge." })),
 
         R.slider(Sio, { ds: "picture.contrast", tab: 1, min: 0, max: 100, step: 1, icon: "contrast", label: "Contrast" }),
         R.slider(Sio, { ds: "picture.brightness", tab: 1, min: 0, max: 100, step: 1, icon: "sun-dim", label: "Brightness",

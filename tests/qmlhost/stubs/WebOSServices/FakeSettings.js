@@ -12,7 +12,7 @@
 // the same keys is the set's to say (tools/settings_check.py, in the slot script).
 //
 // Answers take the set's own shape (OLED65C4, webOS 24, read 2026-10-25): a read answers the keys it has in
-// `settings` and names the rest in `errorKey` with `returnValue: false`; a per-app key (truMotionMode, arcPerApp)
+// `settings` and names the rest in `errorKey` with `returnValue: false`; a per-app key (truMotionMode, arcPerApp, justScan)
 // answers only when asked with `app_id`, and with `app_id` the other keys of the category are the missing ones;
 // a description comes as `results`, one entry per key the service has. The set has no filmmakerAmbientLight,
 // and `localeInfo` is read with no category.
@@ -46,7 +46,7 @@ function restore(params) {
     for (var i = 0; i < params.keys.length; i++) if (def[params.keys[i]] !== undefined) cat[params.keys[i]] = JSON.parse(JSON.stringify(def[params.keys[i]]));
 }
 // the keys the service keeps per app: answered only with `app_id`
-var perApp = { picture: ["truMotionMode"], aspectRatio: ["arcPerApp"] };
+var perApp = { picture: ["truMotionMode"], aspectRatio: ["arcPerApp", "justScan"] };
 
 // What the service refused, as {category, key, value, why}; a test reads it back through LS.
 var rejected = [];
