@@ -25,7 +25,7 @@ STUBS = ["tv.twitch.tv.starshot.lg", "karaokesmart", "com.joinhighbrow.highbrow"
 INSTALLED = ["netflix", "amazon", "youtube.leanback.v4", "com.apple.appletv", "com.webos.app.browser", "com.miniclip.eightballpool"]
 US7 = {"applications_dosci": ["amazon", "youtube.leanback.v4", "dazn"] + STUBS}
 USA = {"applications_dosci": ["netflix", "amazon", "com.disney.disneyplus-prod", "hulu", "com.apple.appletv", "com.lgtvod.us.app",
-                              "youtube.leanback.v4", "com.miniclip.eightballpool", "shortcutcopilot", "epoxyaisports"]}
+                              "youtube.leanback.v4", "com.miniclip.eightballpool", "shortcutcopilot", "epoxyaisports", "com.folder.only"]}
 DELETED = {"deletedList": ["com.disney.disneyplus-prod", "hulu", "youtube.leanback.v4", "epoxyaisports", "netflix", "shortcutcopilot"]}
 
 LUNA_SEND = r'''#!/usr/bin/env python3
@@ -87,7 +87,7 @@ class FakeSet:
             write(os.path.join(apps, "usr/palm/applications", i, "appinfo.json"), json.dumps({"id": i, "type": "stub", "version": "0.0.1"}))
             write(os.path.join(apps, "var/lib/opkg/info", i + ".control"), "Package: %s\n" % i)
             write(os.path.join(apps, "var/lib/opkg/info", i + ".list"), "/x\n")
-        for i in ("netflix", "com.miniclip.eightballpool"):
+        for i in ("netflix", "com.miniclip.eightballpool", "com.folder.only"):          # the last: a folder SAM has not listed (yet)
             write(os.path.join(apps, "usr/palm/applications", i, "appinfo.json"), json.dumps({"id": i, "type": "web"}))
             write(os.path.join(apps, "usr/palm/packages", i, "packageinfo.json"), json.dumps({"id": i}))
         write(os.path.join(self.root, "var/palm/customization/launchpoints/US7/applist.json"), json.dumps(US7))
@@ -190,7 +190,7 @@ class Autoinstall(unittest.TestCase):
         self.assertEqual(self.fake.calls("/setSystemSettings"), [{"category": "option", "settings": {"appUpdateMode": "manual"}}],
                          "a switch that already had its value was written")
         self.assertEqual(sorted(c["id"] for c in self.fake.calls("/remove")), sorted(STUBS), "dazn is not on the set: nothing to remove")
-        self.assertEqual(self.fake.installed_dirs(), ["com.miniclip.eightballpool", "netflix"])
+        self.assertEqual(self.fake.installed_dirs(), ["com.folder.only", "com.miniclip.eightballpool", "netflix"])
         backup = os.path.join(self.fake.root, "var/lib/lumatv/declutter/backup")
         for i in STUBS:
             self.assertTrue(os.path.exists(os.path.join(backup, "app-%s.tgz" % i)), i)
@@ -204,6 +204,7 @@ class Autoinstall(unittest.TestCase):
         self.assertIn("com.lgtvod.us.app", deleted, "not installed and in the USA list: the sync would add it")
         for i in INSTALLED:
             self.assertNotIn(i, deleted[len(DELETED["deletedList"]):], "an installed app was marked deleted: " + i)
+        self.assertNotIn("com.folder.only", deleted, "an app that is there as a folder, before SAM lists it, must not be marked")
         status = self.fake.status()
         self.assertEqual(status["groups"]["autoinstall"], {"on": True, "inTarget": "8/8"})
         self.assertEqual(status["profile"], "custom")
@@ -219,7 +220,7 @@ class Autoinstall(unittest.TestCase):
         self.assertEqual(self.fake.st()["settings"]["option"]["appUpdateMode"], "auto")
         for p, text in self.fake.originals.items():
             self.assertEqual(self.fake.file(p), text, p + " did not come back as it was")
-        self.assertEqual(self.fake.installed_dirs(), sorted(STUBS + ["com.miniclip.eightballpool", "netflix"]))
+        self.assertEqual(self.fake.installed_dirs(), sorted(STUBS + ["com.folder.only", "com.miniclip.eightballpool", "netflix"]))
         for i in STUBS:
             self.assertTrue(os.path.exists(self.fake.path("media/cryptofs/apps/var/lib/opkg/info/%s.control" % i)), i)
         status = self.fake.status()

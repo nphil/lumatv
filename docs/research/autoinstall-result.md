@@ -127,7 +127,7 @@ named it [INFERENCE].
 | `setting option.appUpdateMode "manual"` | LG's own automatic-app-update switch, held off; `off` puts `auto` back | the Home Hub's "Automatic Update"; the one LG-side knob for the updater that the set exposes |
 | `setting support.automaticUpdate "off"` | LG's "Allow Automatic Updates", recorded and held | the updater subscribes to it; already off, a reset or a menu visit cannot flip it unnoticed |
 | `app dazn`, the four stubs | removed through `appInstallService/remove`, their folders and opkg entries kept in `declutter/backup`, their ids on SAM's deleted list and out of the US7 list | no stub, nothing for an update to turn into an app; DAZN on the deleted list in case LG lists it |
-| `sync lists` | every id of LG's country lists that SAM does not list as installed goes on the deleted list (`dc.py deleted-missing`) | the wake-time sync has nothing left to add; installed apps are never marked |
+| `sync lists` | every id of LG's country lists that is neither in SAM's app list nor a folder under `/media/cryptofs/apps` goes on the deleted list (`dc.py deleted-missing`) | the wake-time sync has nothing left to add; an installed app is never marked, not even by the boot pass that runs before SAM has scanned |
 
 Kept: the install service, the store's own installs and updates (the store
 calls the install service itself; `sdx` stays), the "update to open" prompt

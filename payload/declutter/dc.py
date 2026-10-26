@@ -6,9 +6,10 @@
     dc.py apps                        installed app ids, one per line (SAM's listApps)
     dc.py strip <file> <id>...        drop app ids from every list in a JSON file; prints how many
     dc.py deleted <file> <id>...      add app ids to a deletedList JSON file; prints how many
-    dc.py deleted-missing [--check] <deleted-file> <applist>...
-                                      add every id of the customization lists that SAM does not list as
-                                      installed to the deleted list; prints how many (--check: only counts)
+    dc.py deleted-missing [--check] <deleted-file> <apps-dir> <applist>...
+                                      add every id of the customization lists that is neither in SAM's list
+                                      nor a folder under apps-dir to the deleted list; prints how many
+                                      (--check: only counts)
     dc.py measure [seconds]           one JSON object: memory, resident sizes, CPU over the interval
 """
 import json
@@ -109,14 +110,20 @@ def list_ids(node, out):
     return out
 
 
-def cmd_deleted_missing(path, lists, check):
-    """Every id of the customization lists that SAM does not list as installed goes on the deleted list,
-    so the wake-time sync has nothing to add. With check, only prints how many are not there yet."""
+def cmd_deleted_missing(path, lists, check, apps_dir):
+    """Every id of the customization lists that is installed neither by SAM's list nor as a folder under
+    apps_dir goes on the deleted list, so the wake-time sync has nothing to add (the folder check keeps an
+    early boot pass, before SAM has scanned, from marking an app that is there). With check, only prints how
+    many are not there yet."""
     r = luna('luna://com.webos.applicationManager/listApps', {})
     installed = {a.get('id', '') for a in r.get('apps') or []}
     if not r.get('returnValue'):
         print('error: ' + str(r.get('errorText') or r))
         return 1
+    try:
+        installed.update(os.listdir(apps_dir))
+    except OSError:
+        pass
     ids = []
     for p in lists:
         try:
@@ -238,15 +245,15 @@ def main(argv):
         cmd_strip(argv[2], argv[3:])
     elif c == 'deleted' and len(argv) >= 4:
         cmd_deleted(argv[2], argv[3:])
-    elif c == 'deleted-missing' and len(argv) >= 3:
+    elif c == 'deleted-missing' and len(argv) >= 4:
         args = argv[2:]
         check = args[0] == '--check'
         if check:
             args = args[1:]
-        if not args:
+        if len(args) < 2:
             print(__doc__)
             return 2
-        return cmd_deleted_missing(args[0], args[1:], check)
+        return cmd_deleted_missing(args[0], args[2:], check, args[1])
     elif c == 'measure':
         cmd_measure(int(argv[2]) if len(argv) > 2 else 30)
     else:

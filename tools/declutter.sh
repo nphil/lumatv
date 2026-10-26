@@ -427,7 +427,7 @@ apps_edit_lists() {
   fi
   if group_syncs "$eg" && [ -f "$DELETED_LIST" ]; then
     if [ "$DRY" = 1 ]; then printf '+ deleted-list add every id of the lists that is not installed\n' >&2
-    else py deleted-missing "$DELETED_LIST" $(custom_files) >/dev/null; fi
+    else py deleted-missing "$DELETED_LIST" "$APP_ROOT/usr/palm/applications" $(custom_files) >/dev/null; fi
   fi
 }
 
@@ -626,7 +626,7 @@ state_json() {
         fi ;;
       setting) [ "$(py get "$N")" = "$A" ] && done_=$((done_ + 1)) ;;
       app) printf '%s\n' "$apps" | grep -qxF "$N" || app_installed "$N" || done_=$((done_ + 1)) ;;
-      sync) [ "$(py deleted-missing --check "$DELETED_LIST" $(custom_files) 2>/dev/null)" = 0 ] && done_=$((done_ + 1)) ;;
+      sync) [ "$(py deleted-missing --check "$DELETED_LIST" "$APP_ROOT/usr/palm/applications" $(custom_files) 2>/dev/null)" = 0 ] && done_=$((done_ + 1)) ;;
     esac
   done <<EOF
 $items
