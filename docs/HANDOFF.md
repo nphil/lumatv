@@ -6,31 +6,30 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-25 14:20 EDT, paused for quota until 15:30)
+## Resume here (LumaTV, 2026-10-26 06:45 EDT, after the overnight run)
 
 - Source of truth: `docs/PLAN.md` (phases, gates, decisions), `docs/SURFACES.md`
   (inventory), each `docs/research/*-result.md` (its worker's recovery point). An
   implemented file is not proof that its feature passed on the TV.
-- Helpers: at most 10 at once including nested ones; briefs forbid spawning.
-  Fourth gate ran 14:18-14:34 (c41da8d): Netflix, volume, standby/wake and
-  escape pass; x1 down to 2 gaps over 20 ms (worst 24.7 ms, first second);
-  HDMI 2 comes to the front but draws nothing: the compositor never sends
-  `wl_webos_shell_surface.exposed`. That fix is the next compositor task.
-- Done offline today, all slices finished and pushed (notes
-  `docs/research/{shell,settings,panels,notify,plugins}-slice-result.md`,
-  `cardapp-result.md`): every Phase 2-9 surface except the voice source, gear
-  hold and LG-process restyles; the full Python suite passed (242 tests,
-  13:55) and the helper build gate.
-- On the set today: preload list Netflix + Home + HDMI inputs (memory-result.md);
-  zram A/B not kept (no Home-return gain); 3rd gate x1 16 -> 6 gaps, UI idle
-  0.49 ms GPU (pass); light-sync probe blocked by a missing LS2 role, now built
-  as `lumatv-capture` (approved by Nitin, not yet installed).
-- Next, in order: (1) read the fourth gate result and hand fixes to the
-  compositor owner; (2) ask Nitin before installing the card app
-  (`rustui/tools/tv-card.py`, needs `--approved`) and before the capture service
-  probe slot (`ambient/capture/tv_probe_slot.py`); (3) open decisions: voice
-  search source (PLAN: search only, no LG cloud), cold-boot logo check.
-- Backups of uncommitted work: `/data/home/lumatv-backups/recovery-*`.
+- Helpers: at most 10 at once including nested ones; briefs forbid spawning. One
+  TV owner at a time, deploying from a clean worktree; the compile gate
+  (`tests/qmlhost/compile_all.py`) runs before every package or hand deploy.
+- On the set at 06:45: package of 3c8857a, LG's compositor, Active Standby, keyboard
+  keys restyle on, Search and Live TV restyles off, LumaTV's saver owns the idle
+  state on Home, GFN app installed (signed out), receiver 65.5 unmuted.
+- Results of the night: `docs/research/round9-result.md` (rounds 9-11, table and
+  evidence), `round8-result.md`, `test-health-result.md` (every cargo suite green,
+  Python green bar one load flake in test_vplane_player).
+- Open, in order (also the todo list): compositor gate 8 failed (x1 one 20.4 ms gap,
+  watchdog crash reason string); quick panel p90 3.43 ms over Home and first-frame
+  misses over HDMI/Netflix (`shell-host-result.md`); 50 fps return 100->120 Hz
+  blanks the picture (`framerate-result.md`); Live TV restyle two capture failures;
+  next deploy then a look-only walk of the new Settings pages
+  (`settings-coverage.md`); Nitin's steps (HA token, GFN sign-in, Z2M login, store
+  check, leak sensor OTA, volume bar position).
+- Netflix tvq-pb-101 came from a compositor restart with an input app in front
+  (audio decoder port left open); `lumatv inputs status|release`, fixed in 5d3267c.
+- Backups of uncommitted work: `/data/home/lumatv-backups/wip-*`.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,
 Phases, Decided); this file holds the proven mechanics.
