@@ -253,9 +253,10 @@ class ShadowKeyboard(unittest.TestCase):
         d = self.tmp.name
         script = (f'STOCK_QML_MODULE="{self.stock}"\nCOMPOSITOR_STAGE="{self.comp_stage}"\nLUMA_STAGE="{d}/luma"\nQML_MODULE=LumaHome\n'
                   f'SHADOW_ROOT="{self.shadow}"\nMODULE_RELPATH=views/fullscreen/StarfishFullscreenContainer.qml\n'
-                  f'SHADOW_STOCK_FP="{d}/stock.fp"\nSHADOW_SELF_FP="{d}/self.fp"\nKEYBOARD_TOOL="{tool}"\nTHEME_SRC="{theme}"\nLOGFILE="{self.log}"\n'
+                  f'SHADOW_STOCK_FP="{d}/stock.fp"\nSHADOW_SELF_FP="{d}/self.fp"\nSHADOW_PATCH_FP="{d}/patch.fp"\nKEYBOARD_TOOL="{tool}"\nTHEME_SRC="{theme}"\nLOGFILE="{self.log}"\n'
+                  'SHADOW_PATCH_FILES="$KEYBOARD_TOOL $THEME_SRC/theme.json"\n'
                   f'log_line() {{ echo "$1" >> "{self.log}"; }}\n'
-                  + function("stock_module_fp") + function("shadow_self_fp") + function("build_shadow") + "build_shadow; echo rc=$?\n")
+                  + function("stock_module_fp") + function("shadow_self_fp") + function("shadow_patch_fp") + function("build_shadow") + "build_shadow; echo rc=$?\n")
         r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=60)
         self.assertIn("rc=0", r.stdout, r.stdout + r.stderr)
         return open(self.log).read() if os.path.exists(self.log) else ""
@@ -303,6 +304,262 @@ class ShadowKeyboard(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(self.shadow, STOCK_MODULE, rel)), rel)
         self.assertFalse(os.path.exists(self.shadow + ".next"))
         self.assertTrue(re.fullmatch(r"[0-9a-f]{32}", self.read(os.path.join(self.tmp.name, "self.fp")).strip()))
+
+
+def tool_lines(pattern):
+    """The lines of tools/lumatv that match pattern at their start, in file order."""
+    with open(TOOL) as f:
+        return [l.rstrip("\n") for l in f if re.match(pattern, l)]
+
+
+# The constants that name a script of tools/ and the lines that make up the shadow's patch list, as the tool defines them.
+TOOL_CONSTANTS = tool_lines(r'[A-Z_]+_TOOL="\$APPDIR/tools/[^"]+"$')
+PATCH_LIST = tool_lines(r"SHADOW_PATCH_FILES=")
+
+
+class ShadowPatches(unittest.TestCase):
+    """The shadow module's identity includes what its patches were made from. Without it a set that already has a shadow keeps the old
+    one when an update changes only a patch script or the theme's motion: shadow_current() and apply's compositor_changed never
+    looked at them, so the keyboard patch (and any later one) reached a set only when LumaHome's QML changed in the same update.
+
+    Runs the tool's own functions and constants under sh against a small module and stand-in patch scripts, no census needed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        d = self.tmp.name
+        self.d = d
+        self.app = os.path.join(d, "app")
+        self.files = {
+            "stock/WebOSCompositor/views/StarfishKeyboardView.qml": "// LG's keyboard view\n",
+            "stock/WebOSCompositor/views/fullscreen/StarfishFullscreenContainer.qml": "// LG's container\n",
+            "compositor.qml": "// ours\n",
+            "luma/LumaHome/Home.qml": "// home\n",
+            "app/tools/keyboard_patch.py": "import sys\nopen(sys.argv[1], 'a').write('// patched v1\\n')\n",
+            "app/tools/notification_patch.py": "# sub()\n",
+            "app/tools/tokens.py": "# EASING\n",
+            "app/theme/theme.json": '{"motion": {"layerMs": 300}}\n',
+        }
+        for rel, body in self.files.items():
+            self.put(rel, body)
+        self.shadow = os.path.join(d, "qml")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def put(self, rel, body):
+        p = os.path.join(self.d, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(body)
+
+    def read(self, rel):
+        with open(os.path.join(self.d, rel)) as f:
+            return f.read()
+
+    def sh(self, command, extra=""):
+        d = self.d
+        script = (f'APPDIR="{self.app}"\nSTATE="{d}/state"\nTHEME_SRC="{self.app}/theme"\n' + "\n".join(TOOL_CONSTANTS) + "\n" + "\n".join(PATCH_LIST) + "\n"
+                  f'STOCK_QML_MODULE="{d}/stock/WebOSCompositor"\nCOMPOSITOR_STAGE="{d}/compositor.qml"\nLUMA_STAGE="{d}/luma"\nQML_MODULE=LumaHome\n'
+                  f'SHADOW_ROOT="{self.shadow}"\nMODULE_RELPATH=views/fullscreen/StarfishFullscreenContainer.qml\n'
+                  'SHADOW_QML="$SHADOW_ROOT/WebOSCompositor/$MODULE_RELPATH"\n'
+                  f'SHADOW_STOCK_FP="{d}/stock.fp"\nSHADOW_SELF_FP="{d}/self.fp"\nSHADOW_PATCH_FP="{d}/patch.fp"\nLOGFILE="{d}/log"\n'
+                  f'log_line() {{ echo "$1" >> "{d}/log"; }}\n'
+                  + "".join(function(n) for n in ("tree_fp", "stock_module_fp", "shadow_self_fp", "shadow_patch_fp", "shadow_patch_current", "build_shadow", "shadow_current"))
+                  + extra + command + "\n")
+        r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=60)
+        return r.returncode, r.stdout.strip()
+
+    def build(self):
+        self.assertEqual(self.sh("build_shadow")[0], 0)
+
+    def test_a_build_records_what_its_patches_were_made_from_and_is_then_current(self):
+        self.build()
+        rc, fp = self.sh("shadow_patch_fp")
+        self.assertRegex(fp, r"^[0-9a-f]{32}$")
+        self.assertEqual(self.read("patch.fp").strip(), fp)
+        self.assertEqual(self.sh("shadow_current")[0], 0)
+        self.assertEqual(self.sh("shadow_patch_current")[0], 0)
+        with open(os.path.join(self.shadow, STOCK_MODULE, "views", "StarfishKeyboardView.qml")) as f:
+            self.assertIn("// patched v1", f.read())
+
+    def test_a_changed_patch_script_or_theme_makes_the_shadow_not_current_until_it_is_rebuilt(self):
+        for rel in ("app/tools/keyboard_patch.py", "app/tools/notification_patch.py", "app/tools/tokens.py", "app/theme/theme.json"):
+            self.build()
+            self.assertEqual(self.sh("shadow_current")[0], 0, rel)
+            self.put(rel, self.read(rel) + "\n# changed by an update\n")
+            self.assertEqual(self.sh("shadow_patch_current")[0], 1, rel)
+            self.assertEqual(self.sh("shadow_current")[0], 1, rel)
+            self.build()
+            self.assertEqual(self.sh("shadow_current")[0], 0, rel + ": a rebuild takes the change in")
+
+    def test_the_rebuild_carries_the_new_patch_into_the_module(self):
+        self.build()
+        self.put("app/tools/keyboard_patch.py", self.files["app/tools/keyboard_patch.py"].replace("v1", "v2"))
+        self.assertEqual(self.sh("shadow_current")[0], 1)
+        self.build()
+        with open(os.path.join(self.shadow, STOCK_MODULE, "views", "StarfishKeyboardView.qml")) as f:
+            view = f.read()
+        self.assertIn("// patched v2", view)
+        self.assertNotIn("// patched v1", view)
+
+    def test_a_shadow_built_before_there_was_a_fingerprint_is_rebuilt_once(self):
+        self.build()
+        os.remove(os.path.join(self.d, "patch.fp"))                 # what every shadow on a set today looks like
+        self.assertEqual(self.sh("shadow_current")[0], 1)
+        self.build()
+        self.assertEqual(self.sh("shadow_current")[0], 0)
+
+    def test_a_patch_script_that_goes_missing_is_a_change_too(self):
+        self.build()
+        os.remove(os.path.join(self.app, "tools", "keyboard_patch.py"))
+        self.assertEqual(self.sh("shadow_current")[0], 1)
+        self.build()                                                 # LG's view stays, the build goes on, and that is what was recorded
+        self.assertEqual(self.sh("shadow_current")[0], 0)
+        with open(os.path.join(self.shadow, STOCK_MODULE, "views", "StarfishKeyboardView.qml")) as f:
+            self.assertEqual(f.read(), "// LG's keyboard view\n")
+
+    def test_only_the_content_counts_not_the_time(self):
+        self.build()
+        os.utime(os.path.join(self.app, "tools", "keyboard_patch.py"), (1, 1))
+        self.assertEqual(self.sh("shadow_current")[0], 0)
+
+    def test_the_same_fingerprint_comes_back_from_the_same_files(self):
+        a = self.sh("shadow_patch_fp")[1]
+        self.assertEqual(self.sh("shadow_patch_fp")[1], a)
+        self.put("app/theme/theme.json", "{}\n")
+        self.assertNotEqual(self.sh("shadow_patch_fp")[1], a)
+
+    def test_a_patch_only_update_changes_what_the_compositor_reads_so_apply_restarts_it_once(self):
+        # apply's own condition, run as it is written: nothing staged differs, then only a patch does
+        m = re.search(r"  compositor_changed=1\n  if .*?\n  fi\n", function("verb_apply"), re.S)
+        self.assertIsNotNone(m, "the compositor_changed block of verb_apply is gone")
+        for rel, body in (("stage/compositor.qml", "// ours\n"), ("stage/compositor.qml.next", "// ours\n"), ("wall.png", "png"), ("stage/wall.png", "png"),
+                          ("stage/luma/Home.qml", "// home\n"), ("stage/luma.next/Home.qml", "// home\n")):
+            self.put(rel, body)
+        d = self.d
+        setup = (f'COMPOSITOR_STAGE="{d}/stage/compositor.qml"\nWALL_SRC="{d}/wall.png"\nWALLPAPER_STAGE="{d}/stage/wall.png"\nLUMA_STAGE="{d}/stage/luma"\n'
+                 'kf_changed=0\n')
+        block = m.group(0) + 'echo "compositor_changed=$compositor_changed"\n'
+        self.build()
+        # SHADOW_ROOT & co. are the build's: run the block in the same shell setup
+        def run(kf=0):
+            rc, out = self.sh(block.replace('kf_changed', 'kf_changed'), extra=setup.replace("kf_changed=0", "kf_changed=%d" % kf) + 'LUMA_STAGE="%s/stage/luma"\n' % d)
+            return out.split("compositor_changed=")[-1]
+        self.assertEqual(run(), "0", "nothing changed: the compositor is left running")
+        self.assertEqual(run(kf=1), "1", "the key filter changed: restart")
+        self.put("app/tools/keyboard_patch.py", self.read("app/tools/keyboard_patch.py") + "# v2\n")
+        self.assertEqual(run(), "1", "only a patch changed")
+        os.remove(os.path.join(d, "patch.fp"))
+        self.assertEqual(run(), "1", "a shadow with no fingerprint")
+
+    def test_revert_forgets_the_fingerprint_with_the_other_two(self):
+        self.assertIn('rm -f "$SHADOW_STOCK_FP" "$SHADOW_SELF_FP" "$SHADOW_PATCH_FP"', function("do_revert_internal"))
+
+
+class ShadowPatchList(unittest.TestCase):
+    """The list itself: every patch build_shadow runs is in it, and so is everything those patches import."""
+
+    def listed(self):
+        r = subprocess.run(["sh", "-c", f'APPDIR="{ROOT}"\nTHEME_SRC="{ROOT}/payload/theme"\n' + "\n".join(TOOL_CONSTANTS) + "\n" + "\n".join(PATCH_LIST)
+                            + '\nfor f in $SHADOW_PATCH_FILES; do echo "$f"; done\n'], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.split()
+
+    def test_the_list_is_one_plain_assignment_and_then_appends_so_that_a_later_patch_cannot_overwrite_an_earlier_one(self):
+        self.assertGreaterEqual(len(PATCH_LIST), 1)
+        self.assertRegex(PATCH_LIST[0], r'^SHADOW_PATCH_FILES="\$KEYBOARD_TOOL ')
+        for line in PATCH_LIST[1:]:
+            self.assertRegex(line, r'^SHADOW_PATCH_FILES="\$SHADOW_PATCH_FILES [^"]+"$')
+        # every constant a line names is defined before that line
+        with open(TOOL) as f:
+            lines = f.read().split("\n")
+        for n, line in enumerate(lines):
+            if line.startswith("SHADOW_PATCH_FILES="):
+                for name in re.findall(r"\$([A-Z_]+)", line):
+                    if name == "SHADOW_PATCH_FILES":
+                        continue
+                    first = next(i for i, l in enumerate(lines) if re.match(r"%s=" % name, l))
+                    self.assertLess(first, n, "%s is defined after the list that uses it" % name)
+
+    def test_every_patch_build_shadow_runs_is_in_the_list(self):
+        body = function("build_shadow")
+        run = re.findall(r'python3 "\$([A-Z_]+)"', body)
+        self.assertIn("KEYBOARD_TOOL", run)
+        listed = "\n".join(PATCH_LIST)
+        for name in run:
+            self.assertIn("$" + name, listed, "build_shadow runs $%s and SHADOW_PATCH_FILES does not list it: an update that changes it would not rebuild the shadow" % name)
+
+    def test_everything_a_listed_python_script_imports_is_listed_too(self):
+        listed = self.listed()
+        names = {os.path.basename(p) for p in listed}
+        for path in listed:
+            if not path.endswith(".py"):
+                continue
+            with open(path) as f:
+                for line in f:
+                    m = re.match(r"(?:from|import)\s+([A-Za-z0-9_]+)", line)
+                    if m and os.path.exists(os.path.join(ROOT, "tools", m.group(1) + ".py")):
+                        self.assertIn(m.group(1) + ".py", names, "%s imports %s.py, which the list leaves out" % (os.path.basename(path), m.group(1)))
+
+    def test_the_keyboard_patch_its_modules_and_the_theme_are_listed_and_every_listed_file_exists(self):
+        listed = self.listed()
+        names = [os.path.basename(p) for p in listed]
+        for want in ("keyboard_patch.py", "notification_patch.py", "tokens.py", "theme.json"):
+            self.assertIn(want, names)
+        for p in listed:
+            self.assertTrue(os.path.isfile(p), p)
+        self.assertIn("$THEME_SRC/theme.json", "\n".join(PATCH_LIST))
+
+
+class BootBindRebuild(unittest.TestCase):
+    """verb_boot_bind rebuilds a shadow that is not current (a changed patch makes it so) and restarts LG's compositor once, so that it
+    loads the new module. LumaTV's own compositor draws none of the module: a restart under it only costs a boot's frames."""
+
+    def run_bind(self, shadow_current, live):
+        with tempfile.TemporaryDirectory() as d:
+            for rel, body in (("stage/compositor.qml", "x"), ("stage/wall.png", "x"), ("stage/luma/LumaHome/Home.qml", "x"), ("assets/home.xml", "x"),
+                              ("assets/i18n/en.json", "x"), ("verified", "h\n")):
+                p = os.path.join(d, rel)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as f:
+                    f.write(body)
+            stubs = "\n".join([
+                f'COMPOSITOR_STAGE="{d}/stage/compositor.qml"\nWALLPAPER_STAGE="{d}/stage/wall.png"\nLUMA_STAGE="{d}/stage/luma"\nQML_MODULE=LumaHome',
+                f'ASSETS="{d}/assets"\nSTOCK_ASSETS="{d}/stock-assets"\nVERIFIED="{d}/verified"\nBOOT_PENDING="{d}/pending"\nENV_FILE="{d}/none.env"\nENV_EXTRA="{d}/none"',
+                'DISPLAY_NAME=LumaTV\nSURFACE_SVC=surface-manager',
+                'take_mutation_lock() { return 0; }', 'staged_hash() { echo h; }', 'log_line() { :; }', 'ntfy_notify() { :; }',
+                'homestub_drop() { :; }', 'remove_env() { :; }', 'write_env() { echo write_env; }', 'keyfilter_set() { :; }',
+                'is_mounted() { return 0; }', 'all_binds_live() { return 0; }', 'record_bound_now() { :; }', 'count_mounts() { echo 3; }',
+                'surface_start_uptime() { return 0; }', 'panel_is_active() { return 0; }', 'compositor_has_shadow() { return 0; }',
+                f'restart_surface() {{ echo restart_surface >> "{d}/calls"; }}', 'home_back_after_restart() { echo home_back; }',
+                'build_shadow() { echo build_shadow; return 0; }',
+                f'shadow_current() {{ return {0 if shadow_current else 1}; }}',
+                f'comp_live() {{ return {0 if live else 1}; }}',
+            ])
+            r = subprocess.run(["sh", "-c", stubs + "\n" + function("verb_boot_bind") + "verb_boot_bind\n"], capture_output=True, text=True, timeout=30)
+            calls = open(os.path.join(d, "calls")).read() if os.path.exists(os.path.join(d, "calls")) else ""
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout + calls
+
+    def test_a_stale_shadow_is_rebuilt_and_lgs_compositor_restarted_once(self):
+        out = self.run_bind(shadow_current=False, live=False)
+        self.assertEqual(out.count("build_shadow"), 1, out)
+        self.assertEqual(out.count("restart_surface"), 1, out)
+        self.assertIn('"bound":true', out)
+
+    def test_under_lumatvs_compositor_the_rebuild_costs_no_restart(self):
+        out = self.run_bind(shadow_current=False, live=True)
+        self.assertEqual(out.count("build_shadow"), 1, out)
+        self.assertNotIn("restart_surface", out)
+        self.assertNotIn("home_back", out)
+        self.assertIn('"bound":true', out)
+
+    def test_a_current_shadow_is_left_alone_either_way(self):
+        for live in (False, True):
+            out = self.run_bind(shadow_current=True, live=live)
+            self.assertNotIn("build_shadow", out)
+            self.assertNotIn("restart_surface", out)
+            self.assertIn('"bound":true', out)
 
 
 if __name__ == "__main__":

@@ -193,9 +193,12 @@ Each a slot of its own, receiver muted by the scripts, the set idle; LG's compos
   restarts a service.
 - `build_shadow` runs `tools/keyboard_patch.py` on the shadow module's copy of `views/StarfishKeyboardView.qml` with the
   shipped theme's motion; a view LG changed (an anchor missing, the theme without usable motion) is left as LG's and the
-  refusal is logged. It is not behind a switch (the shadow is LumaTV's own copy of the module), matters only while LG's
-  compositor is live, and takes the theme's motion as of the build: a changed `layerMs` shows after the next rebuild.
-- Tests: `tests/test_lumatv_inputcommon.py` (verb, wiring, the shadow build on LG's own view), the registry's.
+  refusal is logged. It is not behind a switch (the shadow is LumaTV's own copy of the module) and matters only while LG's
+  compositor is live. The shadow records a fingerprint of the patch script, its two modules and the theme (`.shadow-patch`,
+  `SHADOW_PATCH_FILES`); `shadow_current` and `apply`'s `compositor_changed` compare it, so an update that changes only a patch
+  or `layerMs` rebuilds the shadow at the next `boot-bind` or `apply`. `boot-bind` restarts the surface after a rebuild only
+  under LG's compositor, never under LumaTV's.
+- Tests: `tests/test_lumatv_inputcommon.py` (verb, wiring, the shadow build on LG's own view, the patch fingerprint, boot-bind's rebuild), the registry's.
 
 CHANGELOG line: "LumaTV's compositor starts at boot only on a firmware build the gate passed on; a supervisor that falls
 back on a frozen output, an empty panel, a run that never settled and a held Home key."

@@ -190,6 +190,11 @@ INPUTCOMMON_ON="$STATE/.inputcommon-on"
 # The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
 # views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one.
 KEYBOARD_TOOL="$APPDIR/tools/keyboard_patch.py"
+# What build_shadow's patches are made of: each patch script, the modules it imports and the files it reads. shadow_patch_fp
+# fingerprints them, so that an update that changes only one of them (a patch, or the theme's motion) rebuilds the shadow and
+# restarts the compositor once; without it a set that already has a shadow keeps the old one. A patch added to build_shadow
+# appends its files to this list on the line after it is defined (tests/test_lumatv_inputcommon.py fails when one is missing).
+SHADOW_PATCH_FILES="$KEYBOARD_TOOL $NOTI_PATCH_TOOL $TOKENS_TOOL $THEME_SRC/theme.json"
 
 # The compositor resolves QML modules through QML2_IMPORT_PATH, and its unit
 # reads an optional environment file from /var - which is writable and
@@ -237,6 +242,8 @@ SHADOW_STOCK_FP="$STATE/.shadow-stock"
 # compositor then starts on it, resolves nothing and presents a black screen,
 # so integrity has to be checked against this, not just the one file we inject.
 SHADOW_SELF_FP="$STATE/.shadow-self"
+# Fingerprint of SHADOW_PATCH_FILES as of the build: a shadow built from other patches, or before there was one, is not current.
+SHADOW_PATCH_FP="$STATE/.shadow-patch"
 ENV_DIR=/var/systemd/system/env
 ENV_FILE="$ENV_DIR/surface-manager.env"
 # Extra compositor variables for tuning and measurement, one KEY=VALUE per
@@ -1139,6 +1146,19 @@ shadow_self_fp() {
   ls -lnR "$SHADOW_ROOT" 2>/dev/null | md5sum | cut -c1-32
 }
 
+shadow_patch_fp() {
+  # Identity of what the shadow's patches were made from (SHADOW_PATCH_FILES, in that order). A file that is not there counts as
+  # different from one that is.
+  for sp_f in $SHADOW_PATCH_FILES; do
+    printf '%s\n' "$sp_f"
+    cat "$sp_f" 2>/dev/null
+  done | md5sum | cut -c1-32
+}
+
+shadow_patch_current() {
+  [ "$(cat "$SHADOW_PATCH_FP" 2>/dev/null)" = "$(shadow_patch_fp)" ]
+}
+
 build_shadow() {
   # Rebuild the shadow module from the stock one, swap our staged QML into it,
   # and record both what it was built from and what it now contains. Built
@@ -1172,6 +1192,7 @@ build_shadow() {
   rm -rf "$SHADOW_ROOT.old" 2>/dev/null
   stock_module_fp > "$SHADOW_STOCK_FP"
   shadow_self_fp > "$SHADOW_SELF_FP"
+  shadow_patch_fp > "$SHADOW_PATCH_FP"
   sync
   return 0
 }
@@ -1184,6 +1205,7 @@ shadow_current() {
   [ "$(md5sum < "$SHADOW_QML" 2>/dev/null)" = "$(md5sum < "$COMPOSITOR_STAGE" 2>/dev/null)" ] || return 1
   [ "$(tree_fp "$SHADOW_ROOT/WebOSCompositor/$QML_MODULE")" = "$(tree_fp "$LUMA_STAGE/$QML_MODULE")" ] || return 1
   [ "$(cat "$SHADOW_SELF_FP" 2>/dev/null)" = "$(shadow_self_fp)" ] || return 1
+  shadow_patch_current || return 1
   [ "$(cat "$SHADOW_STOCK_FP" 2>/dev/null)" = "$(stock_module_fp)" ] || return 1
   return 0
 }
@@ -2000,7 +2022,7 @@ do_revert_internal() {
   remove_early_hook
   if [ -d "$SHADOW_ROOT" ]; then REVERT_CHANGED=1; fi
   rm -rf "$SHADOW_ROOT" "$SHADOW_ROOT.next" "$SHADOW_ROOT.old" 2>/dev/null
-  rm -f "$SHADOW_STOCK_FP" "$SHADOW_SELF_FP" 2>/dev/null
+  rm -f "$SHADOW_STOCK_FP" "$SHADOW_SELF_FP" "$SHADOW_PATCH_FP" 2>/dev/null
 
   if is_mounted "$STOCK_ASSETS"; then REVERT_CHANGED=1; fi
   drain_umount "$STOCK_ASSETS"
@@ -2156,7 +2178,8 @@ verb_apply() {
   if [ "$kf_changed" -eq 0 ] \
      && [ "$(md5sum < "$COMPOSITOR_STAGE.next" 2>/dev/null)" = "$(md5sum < "$COMPOSITOR_STAGE" 2>/dev/null)" ] \
      && [ "$(md5sum < "$WALL_SRC" 2>/dev/null)" = "$(md5sum < "$WALLPAPER_STAGE" 2>/dev/null)" ] \
-     && [ "$(tree_fp "$LUMA_STAGE.next")" = "$(tree_fp "$LUMA_STAGE")" ]; then
+     && [ "$(tree_fp "$LUMA_STAGE.next")" = "$(tree_fp "$LUMA_STAGE")" ] \
+     && shadow_patch_current; then
     compositor_changed=0
   fi
   # The env file is read only when the compositor starts, so a change to it
@@ -2365,8 +2388,11 @@ verb_boot_bind() {
       # The compositor started before this hook did. If it loaded the module we
       # have just replaced, it is running on the bad one - and a compositor
       # that started on a truncated module comes up healthy and presents
-      # nothing, so no liveness check catches it. Restart it once.
-      if compositor_has_shadow && panel_is_active; then
+      # nothing, so no liveness check catches it. Restart it once. LumaTV's own
+      # compositor draws none of this module, so a rebuild (a changed patch
+      # rebuilds it, SHADOW_PATCH_FILES) gives it nothing to reload and the
+      # restart would only cost a boot's frames.
+      if ! comp_live && compositor_has_shadow && panel_is_active; then
         log_line "boot-bind: compositor had loaded the damaged module, restarting it"
         restart_surface >/dev/null 2>&1
         home_back_after_restart

@@ -99,8 +99,8 @@ Run from the repo root:
   unchanged, the idle input apps closed through a stand-in SAM only after the dump is aside, the one on screen and look-alike ids left, a refused close or a SAM that hangs costs nothing,
   a copy already aside kept and a newer dump dropped, `off` putting it back, a restore that is still running waited for; `mount`, `umount` and `luna-send` are stand-in scripts).
 - `python3 -m unittest tests.test_package_tools` (7: everything the tool and the boot hook call or import is copied by `tools/build-ipk.sh` and listed in its REQUIRED_FILES, the checker
-  finds a script that is not, and the dry run lists the three restyle scripts as present) and `tests.test_lumatv_inputcommon` (21: the verb, the flag, the boot re-mount that leaves a
-  mounted overlay alone, revert, the registry row, and the keyboard patch in `build_shadow` on LG's own view).
+  finds a script that is not, and the dry run lists the three restyle scripts as present) and `tests.test_lumatv_inputcommon` (37: the verb, the flag, the boot re-mount that leaves a
+  mounted overlay alone, revert, the registry row, the keyboard patch in `build_shadow` on LG's own view, the shadow's patch fingerprint and boot-bind's rebuild below).
 - `python3 -m unittest tests.test_keyboard_patch` (11: the patch, the motion read from the theme and bad motion refused, only the animation changes, anchors fatal, and in the
   host on LG's own `BaseView`: it loads clean where LG's has one warning, the panel is reported the same way and the window ends in the same place, it no longer overshoots
   (stock 42 px past its place), it is quicker, and the duration follows the theme).
@@ -254,6 +254,11 @@ idle Live TV instance has side effects; the 5 s wait for `/tmp/criu_restoring` m
 - `build_shadow` runs `python3 tools/keyboard_patch.py` on the shadow module's copy of `views/StarfishKeyboardView.qml` with the shipped theme's motion;
   LG's file stays when the patch refuses (an anchor missing, no usable motion), with a line in the log. Not behind a switch: the shadow is LumaTV's own
   copy of the module. It only matters while LG's compositor is the live one.
+- The shadow module records `.shadow-patch`, a fingerprint of `SHADOW_PATCH_FILES` (the patch script, the two modules it imports and the theme), and `shadow_current`
+  and `apply`'s `compositor_changed` compare it. Before, a set that already had a shadow kept it through an update that changed only a patch or the theme's motion, so
+  the keyboard patch reached a set only when LumaHome's QML changed in the same update. The first `boot-bind` or `apply` after this update rebuilds the shadow once and
+  restarts LG's compositor once so that it loads it; under LumaTV's compositor (it draws none of the module) `boot-bind` rebuilds without a restart. A patch added to
+  `build_shadow` appends its files to the list, and a test fails when one is missing.
 - `tools/build-ipk.sh` copies `inputcommon.sh`, `inputcommon_patch.py` and `keyboard_patch.py` (and lists them, with `tileicons.js`, `systemui.py` and
   `systemui_patch.py`, which were copied and not listed, in REQUIRED_FILES). `tests/test_package_tools.py` follows what the tool, the boot hook and
   every shipped script call or import and fails when any of it is not copied and listed.
