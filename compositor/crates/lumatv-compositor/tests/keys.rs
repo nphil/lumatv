@@ -355,3 +355,18 @@ fn a_note_is_a_journal_line_the_gate_reads_what_followed_from() {
     let journal = server.eval(|s| lumatv_compositor::control::handle(s, "journal").text());
     assert!(journal.contains("\"note: keys-gear\""), "{journal}");
 }
+
+#[test]
+fn lgs_rf_home_773_is_home_not_an_unnamed_key_and_the_network_device_sends_the_network_home() {
+    let server = Server::start();
+    let journal = server.eval(|s| {
+        s.key_event(SeatId(0), KEY_RF_HOME, true, true);
+        s.key_event(SeatId(0), KEY_RF_HOME, false, true);
+        s.key_event(SeatId(0), KEY_RF_HOME, true, false);
+        s.key_event(SeatId(0), KEY_RF_HOME, false, false);
+        s.journal.clone()
+    });
+    let homes: Vec<&String> = journal.iter().filter(|l| l.contains("launchDefaultApp")).collect();
+    assert_eq!(homes, ["input: Home (network key): launchDefaultApp", "input: Home: launchDefaultApp"], "{journal:?}");
+    assert!(!journal.iter().any(|l| l.contains("has no name")), "Home is a key the routing knows: {journal:?}");
+}

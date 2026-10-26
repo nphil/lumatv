@@ -22,6 +22,9 @@ use crate::window::{WindowType, key_mask};
 pub mod code {
     pub const KEY_HOME: u32 = 102;
     pub const KEY_HOMEPAGE: u32 = 172;
+    /// LG's `RF_HOME` (network-input-service's key table): the code PlainHome reads as the Magic Remote's Home and `perf/kb.py` injects
+    /// as Home through the SSAP key device (`Smart Remote RCU Input`); the kernel headers do not name it.
+    pub const KEY_RF_HOME: u32 = 773;
     pub const KEY_BACK: u32 = 158;
     /// The remote's Back arrives as KEY_PREVIOUS on this set (HANDOFF).
     pub const KEY_PREVIOUS: u32 = 412;
@@ -75,7 +78,7 @@ pub enum Route {
 pub fn route(code: u32, mask: u32, takes_back: bool, takes_home: bool) -> Route {
     use code::*;
     match code {
-        KEY_HOME | KEY_HOMEPAGE => {
+        KEY_HOME | KEY_HOMEPAGE | KEY_RF_HOME => {
             if takes_home && mask & key_mask::HOME != 0 {
                 Route::Client
             } else {
@@ -382,7 +385,7 @@ impl State {
             .map(|w| (w.key_mask, w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_BACK"), w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_HOME")))
             .unwrap_or((0, false, false));
         let r = route(code, mask, back, home);
-        if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE) {
+        if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME) {
             if pressed {
                 if self.keys.home_down_since.is_none() {
                     self.keys.home_down_since = Some(now);
@@ -477,7 +480,7 @@ impl State {
     /// A code in LG's own range (768 and up) that the key table has no name for, noted once with how to teach it: the buttons this set's
     /// remote has that the table was built without (Disney+, LG Channels) are read from the journal after a press.
     fn note_unnamed_key(&mut self, code: u32, pressed: bool) {
-        if pressed && code >= 768 && self.keys.unnamed.len() < 32 && !self.keys.router.table.knows(code) && !self.keys.unnamed.contains(&code) {
+        if pressed && code >= 768 && code != code::KEY_RF_HOME && self.keys.unnamed.len() < 32 && !self.keys.router.table.knows(code) && !self.keys.unnamed.contains(&code) {
             self.keys.unnamed.push(code);
             self.journal(format!("input: key {code} has no name in the key table; for a button the routing should know, add `NAME {code}` to compositor/keys.conf"));
         }
@@ -525,6 +528,17 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_code_a_remote_sends_for_home_is_home() {
+        let all = key_mask::DEFAULT;
+        for (name, home) in [("KEY_HOME", code::KEY_HOME), ("KEY_HOMEPAGE", code::KEY_HOMEPAGE), ("RF_HOME", code::KEY_RF_HOME)] {
+            assert_eq!(route(home, all, false, false), Route::Home, "{name}");
+            assert_eq!(route(home, all, false, true), Route::Home, "{name}: the default mask leaves Home out");
+            assert_eq!(route(home, all | key_mask::HOME, false, true), Route::Client, "{name}: an app with the policy and the mask gets it");
+        }
+        assert_eq!((code::KEY_HOME, code::KEY_HOMEPAGE, code::KEY_RF_HOME), (102, 172, 773));
+    }
 
     #[test]
     fn keys_follow_the_mask_and_the_access_policies() {

@@ -4,7 +4,8 @@
     uinput-key.py hold SECONDS [--settle S] [--key CODE] [--device PATH]
 
 Creates a keyboard device, waits S seconds (default 1) so that anything that scans the event nodes has opened it, presses the
-key (default KEY_HOMEPAGE, 172, the Home key of LG's remotes), holds it SECONDS, releases it and destroys the device. Exit 0
+key (default KEY_RF_HOME, 773, LG's code for Home: PlainHome reads it as the Magic Remote's Home and perf/kb.py injects it; the routing
+takes 172 and 102 as Home too, --key 172), holds it SECONDS, releases it and destroys the device. Exit 0
 when every step went through. The press is a real evdev press on a node of its own: the compositor opens the nodes once, at
 its start, so a device made later is seen only by a reader that rescans (the supervisor's Home reader does, every 6 s).
 
@@ -21,7 +22,7 @@ UI_DEV_CREATE = 0x5501
 UI_DEV_DESTROY = 0x5502
 EV_SYN = 0
 EV_KEY = 1
-KEY_HOMEPAGE = 172
+KEY_RF_HOME = 773
 BUS_USB = 3
 NAME = b"lumatv-gate-remote"
 
@@ -70,7 +71,7 @@ def main(argv):
         return 2
     try:
         seconds = float(argv[2])
-        settle, key, device = 1.0, KEY_HOMEPAGE, "/dev/uinput"
+        settle, key, device = 1.0, KEY_RF_HOME, "/dev/uinput"
         rest = argv[3:]
         while rest:
             flag, value = rest[0], rest[1]

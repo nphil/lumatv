@@ -1213,6 +1213,13 @@ class GateDriver(unittest.TestCase):
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 12", "live", "keys", "evidence", "cutover disable"])
 
+    def test_the_keys_ime_and_home_checks_in_one_run_each_session_ends_with_the_check_that_ends_it(self):
+        calls, code, _ = self.run_main(argv=["--only", "keys,ime,homekey,escape"])
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence",
+                          "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "escape", "cutover disable"])
+
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
         enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
@@ -1357,6 +1364,22 @@ class VirtualRemote(unittest.TestCase):
             self.assertEqual(self.k.main(["x", "hold", "1", "--bogus", "1"]), 2)
             self.assertEqual(self.k.main(["x", "hold", "1", "--settle"]), 2)
             self.assertEqual(self.k.main(["x", "hold", "1", "--device", "/nonexistent/uinput"]), 1)
+
+    def test_the_default_key_is_lgs_rf_home_773_and_another_can_be_named(self):
+        seen = []
+        with mock.patch.object(self.k, "hold", lambda seconds, settle, key, device: seen.append((seconds, settle, key, device))):
+            self.assertEqual(self.k.main(["x", "hold", "2"]), 0)
+            self.assertEqual(self.k.main(["x", "hold", "2", "--key", "172", "--settle", "0.5"]), 0)
+        self.assertEqual(seen, [(2.0, 1.0, 773, "/dev/uinput"), (2.0, 0.5, 172, "/dev/uinput")])
+
+    def test_every_home_check_of_the_gate_holds_lgs_773(self):
+        text = read(GATE)
+        self.assertIn("ctl remote 773 press", text)
+        self.assertIn("ctl remote 773 release", text)
+        self.assertNotIn("ctl remote 172", text)
+        self.assertEqual(text.count("python3 $D/uinput-key.py hold"), 2)                  # homeheld and homekey: the tool's default key
+        self.assertNotIn("uinput-key.py hold 3 --key", text)
+        self.assertNotIn("--key 172", text)
 
 
 class SupervisorBuild(unittest.TestCase):

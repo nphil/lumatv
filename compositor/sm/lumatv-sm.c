@@ -362,7 +362,10 @@ static void decide(struct verdict *v) {
 struct home { double down_at; };    // 0 while no Home key is down
 static struct home home_state;
 
-static bool is_home_key(int code) { return code == KEY_HOME || code == KEY_HOMEPAGE; }
+// LG's RF_HOME (network-input-service's key table): the code PlainHome reads as the Magic Remote's Home and perf/kb.py injects as Home
+// through the SSAP key device; the kernel headers do not name it.
+#define KEY_RF_HOME 773
+static bool is_home_key(int code) { return code == KEY_HOME || code == KEY_HOMEPAGE || code == KEY_RF_HOME; }
 
 // A key event of a remote: press and repeat start the hold, release ends it.
 static void home_event(struct home *h, int code, int value, double now) {
@@ -386,12 +389,26 @@ static int open_input(const char *path) {
     return fd;
 }
 
-// Whether a Home key is down on this device right now (the kernel keeps the state of every key it saw pressed).
+// Whether a Home key's bit is set in a key-state bitmap of `n` bytes (the answer of EVIOCGKEY): a bit past the answer's end is not read.
+static bool home_bits_set(const unsigned char *bits, size_t n) {
+    static const int homes[] = { KEY_HOME, KEY_HOMEPAGE, KEY_RF_HOME };
+    for (size_t i = 0; i < sizeof homes / sizeof homes[0]; i++) {
+        size_t byte = (size_t)homes[i] / 8;
+        if (byte < n && ((bits[byte] >> (homes[i] % 8)) & 1)) return true;
+    }
+    return false;
+}
+
+// Whether a Home key is down on this device right now (the kernel keeps the state of every key it saw pressed). The buffer covers
+// 1024 key codes, more than the header's KEY_MAX: LG's RF_HOME (773) lies above the mainline limit, and the kernel copies no more
+// than it holds.
+#define KEY_STATE_BYTES 128
+_Static_assert(KEY_STATE_BYTES * 8 > KEY_RF_HOME && KEY_STATE_BYTES * 8 > KEY_HOMEPAGE, "the key-state buffer must reach every Home code");
 static bool input_home_down(int fd) {
-    unsigned char bits[KEY_MAX / 8 + 1];
+    unsigned char bits[KEY_STATE_BYTES];
     memset(bits, 0, sizeof bits);
     if (ioctl(fd, EVIOCGKEY(sizeof bits), bits) < 0) return false;
-    return ((bits[KEY_HOME / 8] >> (KEY_HOME % 8)) & 1) || ((bits[KEY_HOMEPAGE / 8] >> (KEY_HOMEPAGE % 8)) & 1);
+    return home_bits_set(bits, sizeof bits);
 }
 
 static int open_inputs_all(int *fds, int n) {
@@ -1647,6 +1664,32 @@ static void test_home(void) {
     CHECK(home_due(&h, 300.7));
     home_event(&h, KEY_HOME, 0, 300.3);
     CHECK(!home_due(&h, 301));                                                // a tap is not a hold
+    home_event(&h, KEY_RF_HOME, 1, 400.0);                                    // LG's RF_HOME counts as well
+    CHECK(!home_due(&h, 400.6) && home_due(&h, 400.7) && home_due(&h, 405));
+    home_event(&h, KEY_RF_HOME, 2, 400.5);                                    // a repeat does not restart it
+    CHECK(home_due(&h, 400.7));
+    home_event(&h, KEY_RF_HOME, 0, 400.8);
+    CHECK(!home_due(&h, 405));
+    home_event(&h, KEY_RF_HOME, 1, 500.0);
+    home_event(&h, KEY_RF_HOME, 0, 500.3);
+    CHECK(!home_due(&h, 501));                                                // a tap is not a hold
+    // the key-state bitmap of EVIOCGKEY: each of the three Home codes is found, other keys' bits are not Home, and a bit past the
+    // end of a short answer is not read
+    unsigned char bits[128];
+    memset(bits, 0, sizeof bits);
+    CHECK(!home_bits_set(bits, sizeof bits));
+    bits[KEY_ENTER / 8] |= 1 << (KEY_ENTER % 8);
+    bits[KEY_MENU / 8] |= 1 << (KEY_MENU % 8);
+    CHECK(!home_bits_set(bits, sizeof bits));
+    int homes[] = { KEY_HOME, KEY_HOMEPAGE, KEY_RF_HOME };
+    for (size_t i = 0; i < sizeof homes / sizeof homes[0]; i++) {
+        unsigned char one[128];
+        memset(one, 0, sizeof one);
+        one[homes[i] / 8] |= 1 << (homes[i] % 8);
+        CHECK(home_bits_set(one, sizeof one));
+        CHECK(!home_bits_set(one, (size_t)homes[i] / 8));                     // the answer ends before the key's byte
+        CHECK(home_bits_set(one, (size_t)homes[i] / 8 + 1));
+    }
     CHECK(name_is_network_keys("Smart Remote RCU Input") && name_is_network_keys("LGE Network Input"));
     CHECK(!name_is_network_keys("LGE RCU") && !name_is_network_keys("LGE M-RCU - Builtin [0]"));
     // no event nodes, or ones that are no input devices: Home is not held, and nothing is waited for
@@ -1685,6 +1728,13 @@ static void test_input_reads(void) {
     ev[0].code = KEY_HOMEPAGE; ev[0].value = 0;
     CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
     CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at == 0);
+    ev[0].code = KEY_RF_HOME; ev[0].value = 1;                          // LG's RF_HOME is Home on a remote as well
+    CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at != 0);
+    ev[0].value = 0;
+    CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
+    CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at == 0);
+    ev[0].code = KEY_HOMEPAGE;
     ev[0].value = 2;                                                    // a repeat is the key still down
     CHECK(write(p[1], ev, sizeof ev[0]) == (ssize_t)sizeof ev[0]);
     CHECK(on_input(NULL, G_IO_IN, (gpointer)(intptr_t)0) == 1 && home_state.down_at != 0);

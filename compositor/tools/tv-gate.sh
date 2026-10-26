@@ -18,11 +18,11 @@
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
 #   gate.sh woke      after the wake: PreparePowerOff and PreparePowerOn acked, no fallback, Home on the panel
-#   gate.sh escape    Home held 1 s through the compositor's own routing: the supervisor falls back to LG's,
+#   gate.sh escape    Home (773) held 1 s through the compositor's own routing: the supervisor falls back to LG's,
 #                     records the escape, LG's Home comes back, SAM was not restarted
 #   gate.sh firmware  not live: the firmware check on this set's own files and tools, against a scratch list
-#   gate.sh homeheld  not live: a virtual remote holds Home; `lumatv-sm --home-held` sees it, then stops seeing it
-#   gate.sh homekey   live: the supervisor's own Home reader, on a virtual remote the compositor never opened
+#   gate.sh homeheld  not live: a virtual remote holds Home (773); `lumatv-sm --home-held` sees it, then stops seeing it
+#   gate.sh homekey   live: the supervisor's own Home reader (773), on a virtual remote the compositor never opened
 #   gate.sh wd-hang   live: the compositor is stopped (SIGSTOP); the heartbeat falls back to LG's, SAM untouched
 #   gate.sh wd-crash  live: the compositor is killed (SIGKILL); the supervisor falls back to LG's, SAM untouched
 #
@@ -420,10 +420,11 @@ woke)
     if [ "$off" -ge 1 ] && [ "$on" -ge 1 ] && [ "$fb" = 0 ] && [ "$st" = active ] && is_mounted && home_panel_ok "$b"; then pass standby "$detail"; else fail standby "$detail"; fi
     ;;
 escape)
+    # Home as LG's RF_HOME (773, what PlainHome reads as the Magic Remote's Home and perf/kb.py injects); the compositor's tests cover 172 and 102.
     sam0=$(sam_id)
-    ctl remote 172 press > /dev/null
+    ctl remote 773 press > /dev/null
     sleep 1
-    ctl remote 172 release > /dev/null 2>&1
+    ctl remote 773 release > /dev/null 2>&1
     wait_unmount 40
     sleep 2
     fb=$(grep 'fallback:' $STATE/sm.log | tail -1)

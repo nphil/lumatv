@@ -626,8 +626,9 @@ fn a_client_that_disconnects_with_the_focus_does_not_take_the_server_down() {
     assert!(server.eval(|s| s.seat.pointer_focus.is_some()), "the pointer is on Home's surface now");
 }
 
-#[test]
-fn home_held_through_the_remote_command_asks_for_the_fallback() {
+/// A Home key of the remote, whichever code it sends: a tap launches the home app and never reaches the client, a hold past 650 ms asks the
+/// supervisor for the fallback, and the release after the escape launches nothing.
+fn home_through_the_remote_command(code: u32) {
     use lumatv_compositor::luna::ToBridge;
     let mut server = Server::start();
     let mut client = Client::connect(&mut server);
@@ -637,20 +638,35 @@ fn home_held_through_the_remote_command_asks_for_the_fallback() {
     client.present(&win.surface, &buf);
     assert!(client.wait_until(WAIT, |s| s.keyboard_enters >= 1));
     // A tap goes to launchDefaultApp (Home is the compositor's), never to the client.
-    let reply = server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 tap").text());
+    let reply = server.eval(move |s| lumatv_compositor::control::handle(s, &format!("remote {code} tap")).text());
     assert!(reply.contains("\"ok\":true"), "{reply}");
     let launched = server.eval(|s| s.luna.sent().iter().any(|(uri, _)| uri.ends_with("/launchDefaultApp")));
-    assert!(launched, "a tapped Home launches the home app");
+    assert!(launched, "a tapped Home ({code}) launches the home app");
     // Held past 650 ms, the tick's hold poll sends the fallback to the supervisor.
-    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 press").text());
+    server.eval(move |s| lumatv_compositor::control::handle(s, &format!("remote {code} press")).text());
     std::thread::sleep(std::time::Duration::from_millis(700));
     server.eval(|s| s.poll_holds());
     let fallback = server.eval(|s| s.luna.history().iter().any(|m| matches!(m, ToBridge::Fallback { .. })));
-    assert!(fallback, "a held Home is the escape to LG's compositor");
-    server.eval(|s| lumatv_compositor::control::handle(s, "remote 172 release").text());
+    assert!(fallback, "a held Home ({code}) is the escape to LG's compositor");
+    server.eval(move |s| lumatv_compositor::control::handle(s, &format!("remote {code} release")).text());
     let launches = server.eval(|s| s.luna.sent().iter().filter(|(uri, _)| uri.ends_with("/launchDefaultApp")).count());
     assert_eq!(launches, 1, "the release after an escape does not launch Home again");
     assert!(client.state.keys.is_empty(), "Home never reached the client");
+}
+
+#[test]
+fn home_held_through_the_remote_command_asks_for_the_fallback() {
+    home_through_the_remote_command(172);
+}
+
+#[test]
+fn the_older_home_code_102_is_home_too() {
+    home_through_the_remote_command(102);
+}
+
+#[test]
+fn lgs_rf_home_773_is_home_too() {
+    home_through_the_remote_command(773);
 }
 
 #[test]

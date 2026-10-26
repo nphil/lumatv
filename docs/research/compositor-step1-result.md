@@ -7,11 +7,13 @@ in its own QML (gear, Input, the app keys, Quick Access digits, Mute held, Exit;
 ## Resume here
 
 State (2026-10-26): built, committed and host-tested (safety timer aa3a2eb, key routing 21b6013, keyboard path 83faf05, gate checks
-d2afb2b). First TV run (Main, 15:33): `live` PASS; `keys`: Input, Netflix button, digit tap and hold, Exit OK, gear FAIL; `ime` FAIL.
-Both failures were in the checks, not the routing: LG's Settings and Search are overlay windows, which SAM never names as the
-foreground app, and the checks waited for SAM to name them ("First TV run" below). The checks now look for a mapped window of the
-app in `ctl windows`. Next: re-run `sh compositor/tools/tv-first-light.sh gate --only keys,ime` (deploy and `cutover install`
-first, the bundle changed). The TV is not touched by this work.
+d2afb2b, overlay-aware checks 840a0c0). First TV run (Main, 15:33): `live` PASS; `keys`: Input, Netflix button, digit tap and hold,
+Exit OK, gear FAIL; `ime` FAIL. Both failures were in the checks, not the routing: LG's Settings and Search are overlay windows, which
+SAM never names as the foreground app, and the checks waited for SAM to name them ("First TV run" below); they now look for a mapped
+window of the app in `ctl windows`. Home as LG's `RF_HOME` 773 is now Home in the compositor and in the supervisor's hold-Home escape
+(Main's decision; "Key codes"), and the `escape` and `homekey` checks hold 773. Next: re-run
+`sh compositor/tools/tv-first-light.sh gate --only keys,ime,homekey,escape` (deploy and `cutover install` first: the bundle changed).
+The TV is not touched by this work.
 
 ## What was built
 
@@ -53,6 +55,7 @@ Host tests: unit tests in `keys.rs`, `tests/keys.rs`, `tests/ime.rs` (a client p
 |---|---|---|
 | gear | 139 (`KEY_MENU`) | read on this set: a tap opened LG's Quick Settings (`shell-host-result.md`) |
 | Input | 241 (`Key_webOS_InputSource`) | read on this set (`round8-result.md`) |
+| Home | 773 (`RF_HOME`), 172, 102 | 773: LG's table, PlainHome (`home-launcher-replacements.md`), and `perf/kb.py` and round 8's `r8key.py` inject it as Home, which LG's compositor takes; 172 and 102: the routing's earlier codes; the physical Magic Remote's own code is not recorded |
 | Back, Exit | 412 or 158, 174 | the existing routing |
 | Mute, digits | 113, 2..11 (1 to 9, then 0) | the existing routing |
 | Netflix | 1037 (`NETFLIX`, 0x40D) | LG's network-input-service key table (gist Simon34545/fc5c91e0456789dd7a56a947c1148939), not read on this set |
@@ -63,26 +66,28 @@ Unconfirmed: Netflix and Prime Video are LG's table's values, not yet seen from 
 at all, so those two buttons reach the app until one is taught. Teaching a code needs no build: press the button during a
 session and read `ctl journal` (or `compositor.log`) for `input: key N has no name in the key table`; add `NAME N` to
 `/var/lib/lumatv/compositor/keys.conf` (names: `gear`, `input`, `netflix`, `amazon`, `disneyplus`, `lgchannels`) and start the
-next session. `ctl keys` lists the table. Open, not changed here: LG's table has Home as 773 (`RF_HOME`), and `perf/kb.py` injects Home
-as 773 through the SSAP key device (`Smart Remote RCU Input`), which LG's compositor takes as Home; this compositor and the supervisor
-treat only 102 and 172 as Home, so a Home sent as 773 is ignored under LumaTV's compositor. The physical Magic Remote's own Home code
-is not recorded in the repo (a press of it during a session shows in the unnamed-key line if it is 773).
+next session. `ctl keys` lists the table. Home is not in it: 773, 172 and 102 are all Home in `route()` (`input.rs`, from any device)
+and in the supervisor's reader (`lumatv-sm.c`, which still leaves the SSAP key devices out: the escape is a person's, at the TV),
+so none of them shows in the unnamed-key line.
 
 ## The TV test (Main)
 
-One session: the set's own 12-minute safety timer, the checks' waits add up to under 5 minutes, and it ends on LG's compositor
-with the flag removed and the receiver unmuted. From `/data/home/lumaglass`, LG's compositor live, nothing of ours running (`cutover status`):
+Two kinds of session: the set's own safety timer ends each (12 minutes for the first, 6 for the ones after a check that ends the
+live session), the checks' waits add up to under 5 minutes in the first, and the run ends on LG's compositor with the flag removed
+and the receiver unmuted. From `/data/home/lumaglass`, LG's compositor live, nothing of ours running (`cutover status`):
 
     sh compositor/tools/tv-first-light.sh deploy
     sh compositor/tools/tv-first-light.sh cutover install
-    sh compositor/tools/tv-first-light.sh gate --only keys,ime
+    sh compositor/tools/tv-first-light.sh gate --only keys,ime,homekey,escape
 
 `deploy` builds and copies the bundle, `install` records the firmware and the bundle the session starts from, the gate
-(`tv_gate.py --only`) wakes the set, mutes the receiver, runs `enable --session --max-minutes 12`, `live`, `keys`, `ime`,
-`evidence`, then `disable`. Skip either check with `--skip keys` or `--skip ime`; both are in a full gate after `hdmi`. If the
-driver or the workstation dies, the set ends the session by itself after 12 minutes. Result lines: `GATE keys:` and
-`GATE ime:` (also in `docs/research/compositor/gate-<date>.txt`); files in `/tmp/lumatv-tv-out/out/gate/`: `keys-*.txt` (the
-journal after each key), `keys.json`, `ime-*.json`, `ime.png` (the panel with the keyboard up), `compositor-final.log`.
+(`tv_gate.py --only`) wakes the set, mutes the receiver, runs `enable --session --max-minutes 12`, `live`, `keys`, `ime`, `evidence`;
+`homekey` ends that session, so a fresh one follows (`--max-minutes 6`, `live after-homekey`), `escape` ends the second, and
+`disable` ends the run. Skip a check with `--skip NAME`; `keys` and `ime` are in a full gate after `hdmi`. If the driver or the
+workstation dies, the set ends the session by itself when its timer runs out. Result lines: `GATE keys:`, `GATE ime:`,
+`GATE homekey:`, `GATE escape:` (also in `docs/research/compositor/gate-<date>.txt`); files in `/tmp/lumatv-tv-out/out/gate/`:
+`keys-*.txt` (the journal after each key), `keys.json`, `ime-*.json`, `ime.png` (the panel with the keyboard up),
+`homekey-result.txt`, `escape-result.txt`, `compositor-final.log`.
 
 Pass criteria. Home is in front at the start and at the end, and every app a key opened is closed again. An app counts as up when
 `ctl windows` has a mapped window of it: SAM's foreground names only the front card, and LG's Settings, Search and Quick Access
@@ -107,12 +112,22 @@ many times the system was asked for an input method, how many OK presses it took
 `ime.png` shows the keyboard over the app; a check that fails early still leaves `ime-result.txt`, `ime-journal.txt` and
 `ime-windows.json`.
 
+`GATE homekey: PASS` (the supervisor's own reader): a virtual remote made after the compositor started holds Home as 773 for 1.5 s; the
+session ends as an escape (`hold Home 650 ms (supervisor)` in the supervisor's log, `escaped` recorded, failures unchanged, SAM
+untouched, LG's Home on the panel). `GATE escape: PASS` (the compositor's own route): `ctl remote 773` held 1 s; `fallback: hold Home`,
+`escaped` recorded, LG's Home back, SAM untouched. Host tests: the compositor's, 773, 172 and 102 each as a tap (launches Home, never
+reaches the app) and a hold (asks for the fallback, the release launches nothing again), and 773 never an unnamed key; the
+supervisor's C tests, the three codes in its hold tracker and in the key-state bitmap, whose buffer reaches code 773 (checked at
+compile time); the virtual remote's default key is 773.
+
 A failure names its reason in the line. Likeliest first: the Search app brings up no keyboard either way (the check then says the
 window never came on the screen, and `ime-journal.txt` shows whether a text model reached the compositor: `ime:` lines); maliit
 not binding (`asked` above 0 and no method: look at `systemctl status maliit-server`); the keyboard up but nothing typed
 (`ime-typed.json`: `grab` false means maliit never asked for the keys, `grabbedKeys` 0 with `grab` true means they never reached
 it); a button code the table does not know (the `keys` step that did nothing, and the unnamed-key line above). The Netflix step
 follows Settings > Remote: a button the owner pointed at another app is expected to open that app, one set to nothing to open nothing.
+A `homekey` that fails at its injector (`homekey-inject.txt` says `uinput: ...`, injector exit 1) means this kernel does not take key
+code 773 on a virtual device.
 
 ## First TV run (Main, 2026-10-26 15:33)
 

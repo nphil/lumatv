@@ -89,8 +89,8 @@ Not failures: the hold-Home escape and a Home held at start (recorded as `escape
 
 The compositor's escape (650 ms, `input.rs`) needs the compositor running and reading the remote. The supervisor now
 reads the evdev nodes itself, from its first moment, and rescans every 6 s (the compositor opens the nodes once, so a
-remote that pairs later is invisible to it): Home (`KEY_HOME` 102, `KEY_HOMEPAGE` 172) down for 650 ms is the same
-escape. At start, Home already down for 700 ms is the escape before anything of LumaTV's runs (`escaped` =
+remote that pairs later is invisible to it): Home (`KEY_HOME` 102, `KEY_HOMEPAGE` 172, `RF_HOME` 773) down for 650 ms is the
+same escape. At start, Home already down for 700 ms is the escape before anything of LumaTV's runs (`escaped` =
 `hold Home at start`); the early hook asks the same question (`--home-held`) before it mounts (`hold Home at boot`). The
 network key devices (`Smart Remote RCU Input`, `LGE Network Input`: the SSAP keys of automations and apps) are left out of
 the supervisor's reader: it is a person's escape, at the TV.
