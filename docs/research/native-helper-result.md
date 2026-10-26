@@ -385,6 +385,24 @@ screen off-to-on change the helper reads `<data>/preload.json`, `{"off":["<app i
 `app/tests/preload.rs` (the whole service, a fake `luna-send`: told at start, again after off and on, nothing after the file is removed).
 Not run on the set.
 
+## Frame rate after 25/50 fps video: `helper/app/src/framerate.rs`
+
+After a 25 or 50 fps video LG's kernel leaves the panel at 100 Hz (the UI at 50 Hz) until the next video's first frame
+(`framerate-result.md` "Round 11"). The helper puts it back to 120 Hz on Home only: SAM's `getForegroundAppInfo` subscription (one
+`luna-send -n 1000000` child, restarted after 5 s doubling to 5 min) says when Home comes to the front, and the screen coming on with
+Home in front counts too. One check then counts `osd_irq` in `/proc/interrupts` over 0.5 s; at 100 Hz it waits until
+`/proc/lgtv-driver/scaler/main.p0` says `connect_src=NONE`, counts again, looks at the window once more, writes `0 60` to
+`/proc/lg/de/fr_rate`, counts a third time and logs `frame rate: ...`. Nothing is written while a source is connected or an app is in
+front; a status file it cannot read turns the check off until the helper restarts. One thread (`framerate`) blocked on its channel
+(woken by the subscription, the screen watcher and the stop); it polls the scaler every 0.25 s only during a check. Off with
+`frameRate.returnOnHome: false`; not started where `/proc/lg/de/fr_rate` is missing (a host). Tests: 13 unit tests (the status
+parsers on the set's own text, the two reply shapes, the check against a fake panel: 120 Hz left alone, the write only after the
+window closed, a source that connects during the last count or just before the write, a write that does not take, a rate in
+neither band, the slower look at a source that stays, a panel that cannot be read) and `app/tests/framerate.rs` (the thread with a
+fake `luna-send` and status files a thread advances at 100 Hz until `0 60` is written: nothing inside an app, one write on Home
+with no source, none while a source stays connected, none with the screen off, a check when it comes on, the child gone at stop).
+Not run on the set ("TV check" in `framerate-result.md`).
+
 ## Seams for later phases
 
 - `service::Service::start` is the list of components; each takes a `ctx::Ctx` (config, hub, settings, stop). The MCP server and
