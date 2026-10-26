@@ -827,9 +827,10 @@ Item {
     }
     property int saverEaten: 0              // the key whose press the screensaver took: its release is taken too
     function key(k, pressed, autoRepeat, deviceId) {
-        // A volume key press is LG's whatever is on screen (the screensaver does not use it to wake the TV). The display does not wait for
-        // it: it answers the audio service and the receiver (panels/VolumeOsd.qml, in LumaOverlay).
-        if (pressed && !autoRepeat && (k === Qt.Key_VolumeUp || k === Qt.Key_VolumeDown || k === Qt.Key_VolumeMute)) return false
+        // A volume key press is LG's whatever is on screen. The display does not wait for it: it answers the audio service and the receiver
+        // (panels/VolumeOsd.qml, in LumaOverlay). A saver LumaTV owns (the TV is Active, nothing else will end it) ends with it, as LG's own
+        // `Screen Saver` state ends on any key; in LG's state the TV's change of state does that, and the saver is left to it.
+        if (pressed && !autoRepeat && (k === Qt.Key_VolumeUp || k === Qt.Key_VolumeDown || k === Qt.Key_VolumeMute)) { layers.saverEnd(); return false }
         // The screensaver is up: any other key wakes the TV and does nothing else, so the key that wakes it never acts on Home;
         // the release goes with it (an OK release alone would open whatever is focused). The AI prompt is the exception: it is
         // drawn over the saver and only the physical remote answers it.

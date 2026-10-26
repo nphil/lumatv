@@ -99,7 +99,7 @@ class Surfaces(HostCase):
     def run_host(self, theme, *args):
         theme = dict(theme, perf={"syncResidents": True})
         cmd = [sys.executable, HOST, "LumaHome.qml", "--fake-helper", "--prop", "hostActive=true", "--theme", json.dumps(theme), *args]
-        r = subprocess.run(cmd, env=dict(os.environ, DISPLAY=DISPLAY), capture_output=True, text=True, timeout=240)
+        r = subprocess.run(cmd, env=dict(os.environ, DISPLAY=DISPLAY), capture_output=True, text=True, timeout=int(os.environ.get("HOST_TIMEOUT", "240")))
         return r.returncode, r.stdout + r.stderr
 
     MINE = ("Drawer.qml", "Screensaver.qml", "ArtPiece.qml", "PluginHub.qml", "NoteLog.qml", "HomeAssistantWidget.qml", "Widget.qml", "LuButton.qml")
@@ -272,7 +272,8 @@ class Saver(Surfaces):
                 "Timer { interval: 40; repeat: true; running: true; onTriggered: { var c = JSON.parse(s.snapshot()).clock; if (fx >= 0 && (c.fx !== fx || c.fy !== fy)) { moves++; if (c.opacity > 0.02) visibleMoves++ } fx = c.fx; fy = c.fy; seen++ } } }', root); w.s = byName(root, 'under-test');"),
             *probe(at + 9000, "moves", read, find="root"),
             *js(at + 9100, "byName(root, 'under-test').key('left');" + BYNAME),
-            *js(at + 9200, "console.info('[calls] ' + JSON.stringify(root.lunaCalls.filter(function(c) { return c.uri.indexOf('tvpower') > 0 }).map(function(c) { return c.method })));"),
+            # (Home's own saver is on tvpower's screen saver list while Home is in front: those calls are the vote's, not what a key and the standby timer ask)
+            *js(at + 9200, "console.info('[calls] ' + JSON.stringify(root.lunaCalls.filter(function(c) { return c.uri.indexOf('tvpower') > 0 && c.method.indexOf('ScreenSaverRequest') < 0 }).map(function(c) { return c.method })));"),
             "--wait", str(at + 9800))
         self.assertEqual(self.own_warnings(out), [], out[-3000:])
         p = probes(out)

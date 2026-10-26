@@ -25,7 +25,6 @@ from xdisplay import DISPLAY, HAVE_QT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-MAILBOX = "/tmp/lumatv-vplane"          # the QML's `file:///tmp/{{shortId}}-vplane/` with the brand's short id
 
 SNAP = "var d = JSON.parse(s.snapshot()); return {up: d.up, timers: d.timers, video: d.video, current: d.art.current, shown: d.art.shown, loaded: d.art.loaded};"
 # Home's own saver (Layers builds one) is the one under test: a second, built beside it, would answer the power state too and ask the player twice.
@@ -36,18 +35,21 @@ def probe(at, label, body):
     return _probe(at, label, body, find=RES)
 
 
-def configure(at, cfg):
-    """JS: Home's own saver takes these settings (the timings a test shortens) before it comes up."""
-    return js(at, BYPROP + "var s = byProp(root, 'videoUsable'); var c = %s; for (var k in c) s[k] = c[k];" % json.dumps(cfg))
+def configure(at, cfg, mailbox=None):
+    """JS: Home's own saver takes these settings (the timings a test shortens) before it comes up, and its player's mailbox is the test's own
+    (/tmp/lumatv-vplane is the real player's on the set, and what every other run on this machine would share)."""
+    pre = "s.videoPlayer.dirUrl = %s;" % json.dumps("file://" + mailbox + "/") if mailbox else ""
+    return js(at, BYPROP + "var s = byProp(root, 'videoUsable'); " + pre + " var c = %s; for (var k in c) s[k] = c[k];" % json.dumps(cfg))
 
 
 class FakePlayer:
     """The player's end of the mailbox, as far as the saver can tell: it reads `req.json` and writes `status.json`."""
 
-    def __init__(self, mode="play", answer_ms=120, ready=True):
+    def __init__(self, mailbox, mode="play", answer_ms=120, ready=True):
         self.mode, self.answer_ms = mode, answer_ms
-        shutil.rmtree(MAILBOX, ignore_errors=True)
-        os.makedirs(MAILBOX)
+        self.dir = mailbox
+        shutil.rmtree(self.dir, ignore_errors=True)
+        os.makedirs(self.dir)
         self.requests = []
         self.seen = None
         self.state, self.last_seq = "idle", 0
@@ -61,10 +63,10 @@ class FakePlayer:
     def status(self, state, reason=""):
         self.state = state
         doc = {"v": 1, "pid": 1, "ts": int(time.time() * 1000), "state": state, "reason": reason, "seq": self.last_seq, "clip": "great-wave"}
-        tmp = os.path.join(MAILBOX, "status.json.tmp")
+        tmp = os.path.join(self.dir, "status.json.tmp")
         with open(tmp, "w") as f:
             json.dump(doc, f)
-        os.replace(tmp, os.path.join(MAILBOX, "status.json"))
+        os.replace(tmp, os.path.join(self.dir, "status.json"))
 
     def loop(self):
         beat = time.monotonic()
@@ -72,7 +74,7 @@ class FakePlayer:
         while self.running:
             time.sleep(0.02)
             try:
-                with open(os.path.join(MAILBOX, "req.json")) as f:
+                with open(os.path.join(self.dir, "req.json")) as f:
                     text = f.read()
             except OSError:
                 text = ""
@@ -109,7 +111,7 @@ class FakePlayer:
     def close(self):
         self.running = False
         self.thread.join(2)
-        shutil.rmtree(MAILBOX, ignore_errors=True)
+        shutil.rmtree(self.dir, ignore_errors=True)
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
@@ -118,14 +120,19 @@ class VideoSaver(Surfaces):
     THEME = {"screensaver": {"style": "art", "video": True, "art": {"order": "sequence"}}}
     PROPS = {"videoStartMs": 1500, "videoRenewMs": 700, "videoStaleMs": 2500}
 
+    def setUp(self):
+        super().setUp()
+        self.mailbox = tempfile.mkdtemp(prefix="vplane-saver-")
+        self.addCleanup(shutil.rmtree, self.mailbox, True)
+
     def player(self, **kw):
-        p = FakePlayer(**kw)
+        p = FakePlayer(self.mailbox, **kw)
         self.addCleanup(p.close)
         return p
 
     def run_saver(self, theme, player_events, props=None, wait=11000, awake_at=None):
         at = READY + 300
-        args = [*publish(300, "screen", AWAKE), *configure(at - 200, dict(self.PROPS, **(props or {}))), *publish(at + 100, "screen", SAVER)]
+        args = [*publish(300, "screen", AWAKE), *configure(at - 200, dict(self.PROPS, **(props or {})), self.mailbox), *publish(at + 100, "screen", SAVER)]
         args += player_events(at)
         if awake_at:
             args += publish(at + awake_at, "screen", AWAKE)
@@ -147,7 +154,11 @@ class VideoSaver(Surfaces):
     def test_a_preview_is_always_the_gpus(self):
         player = self.player()
         at = READY + 300
+        # (the previewing surface and Home's own look at this test's player: /tmp/lumatv-vplane is the real one's, and what other runs share)
+        mailbox = json.dumps("file://" + self.mailbox + "/")
         rc, out = self.run_host(self.THEME, *publish(300, "screen", AWAKE), *build(at, "Screensaver.qml", {"z": 95, "objectName": "under-test"}),
+                                *configure(at - 200, {}, self.mailbox),
+                                *js(at + 100, BYNAME + "byName(root, 'under-test').videoPlayer.dirUrl = %s;" % mailbox),
                                 *js(at + 300, BYNAME + "byName(root, 'under-test').preview(0.2, 0.3, 'starry-night');"),
                                 *_probe(at + 1500, "up", "var d = JSON.parse(s.snapshot()); return {up: d.up, forced: s.forced, usable: d.video.usable, state: d.video.state, spec: d.video.spec, shown: d.art.shown, style: s.style};"),
                                 "--wait", str(at + 2500))
@@ -155,26 +166,24 @@ class VideoSaver(Surfaces):
         p = probes(out)
         self.assertEqual((p["up"]["forced"], p["up"]["usable"]), (True, False), p)
         self.assertEqual(p["up"]["shown"], "starry-night")
-        # (Home's own saver may ask the player in this run; what is asserted is that the previewing surface did not)
         self.assertEqual((p["up"]["state"], p["up"]["spec"]), ("off", {}), "the preview asked for nothing")
+        self.assertEqual(player.requests, [], "and the player was not asked by anything")
 
     # ---- no player
 
     def test_with_no_player_on_the_tv_the_gpu_draws_the_art_at_once(self):
-        shutil.rmtree(MAILBOX, ignore_errors=True)
-        self.addCleanup(shutil.rmtree, MAILBOX, True)
         p, out = self.run_saver(self.THEME, lambda at: [*probe(at + 700, "soon", SNAP)])
         v = p["soon"]["video"]
         self.assertEqual((v["usable"], v["state"], v["reason"]), (True, "off", "no player"))
         self.assertEqual(p["soon"]["shown"], "great-wave", "the art is up within a moment: no black wait for a player that is not there")
-        self.assertFalse(os.path.exists(os.path.join(MAILBOX, "req.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.mailbox, "req.json")))
 
     def test_a_status_that_stopped_being_rewritten_is_no_player_either(self):
         player = self.player()
-        with open(os.path.join(MAILBOX, "status.json")) as f:
+        with open(os.path.join(self.mailbox, "status.json")) as f:
             doc = json.load(f)
         doc["ts"] -= 10 * 60 * 1000
-        with open(os.path.join(MAILBOX, "status.json"), "w") as f:
+        with open(os.path.join(self.mailbox, "status.json"), "w") as f:
             json.dump(doc, f)
         p, out = self.run_saver(self.THEME, lambda at: [*probe(at + 700, "soon", SNAP)])
         self.assertEqual((p["soon"]["video"]["state"], p["soon"]["shown"]), ("off", "great-wave"))
@@ -307,12 +316,11 @@ class WithTheRealPlayer(Surfaces):
         from test_vplane_player import BIN, HAVE, NDL, Rig, argb
         if not HAVE:
             self.skipTest("needs zig to build vplane/")
-        shutil.rmtree(MAILBOX, ignore_errors=True)
-        rig = Rig(clip_keys=(3000, 4000), units=20, captions=True, mailbox=MAILBOX)
+        rig = Rig(clip_keys=(3000, 4000), units=20, captions=True)
         self.addCleanup(rig.close)
         at = READY + 300
         theme = {"screensaver": {"style": "art", "video": True, "dimOverMin": 1, "dimTo": 0.5, "shiftEverySec": 1, "art": {"order": "sequence"}}}
-        rc, out = self.run_host(theme, *publish(300, "screen", AWAKE), *configure(at - 200, {"videoStartMs": 4000, "videoRenewMs": 1500}),
+        rc, out = self.run_host(theme, *publish(300, "screen", AWAKE), *configure(at - 200, {"videoStartMs": 4000, "videoRenewMs": 1500}, rig.mb),
                                 *publish(at + 100, "screen", SAVER), *probe(at + 3500, "up", SNAP), *publish(at + 5500, "screen", AWAKE), "--wait", str(at + 7500))
         self.assertEqual(self.own_warnings(out), [], out[-3000:])
         p = probes(out)

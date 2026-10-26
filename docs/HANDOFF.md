@@ -629,6 +629,11 @@ stays up. Idle time is 3 minutes; `screenSaverTime` is not a settingsservice
 key on this firmware. A Flutter build of our own would be the only native route
 and was not attempted.
 
+LumaTV's own saver does not replace that app. While Home is in front it is on
+tvpower's screen saver list and answers the idle question with no, so the app
+is never started (`docs/research/saver-own-result.md`; built and tested on the
+host, not yet run on the set).
+
 ## Compositor restart side effects still worth knowing
 
 A bare `systemctl restart surface-manager-daemon` on stock firmware, no mod,

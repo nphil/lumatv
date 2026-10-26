@@ -16,8 +16,8 @@ On the set (TV, `--once great-wave 20`, Active state): the print on the video pl
 
 Open, in this order:
 
-1. The black panel in the Screen Saver state. Candidates: LumaTV's own idle timer starts the video saver in the Active state (the saver hosted over Home, not tied to LG's power state; Nitin declined Hearth's quiet mode, so this wants his OK and a Home hook); or find what LG blanks (a capture with the panel watched, `playVideo` as LG's own video saver sets it, `tvpower` and `panelcontroller` logs). Needs the TV.
-2. The `MemAvailable` drop of 34 MB after unload (page cache or the decoder's memory): watch it over three cycles.
+1. The black panel in the Screen Saver state. Now avoided rather than solved: `saver-own-result.md` answers LG's idle question with no, so LG's saver is never started, the power state stays Active and the saver (this player included) draws there, where the player showed the print; the Active-state run is its TV check, step 5. A saver LG started anyway (`own` false) still meets the black panel; for that case: find what LG blanks (a capture with the panel watched, `playVideo` as LG's own video saver sets it, `tvpower` and `panelcontroller` logs). Needs the TV.
+2. The `MemAvailable` drop of 34 MB after unload: read against the other idle readings of that session and the GPU saver's code, with an offline cycle test, in `saver-own-result.md` ("The 34 MB question"); its step 9 is the TV measurement over five cycles.
 3. Not built: the moving wallpaper (design below), the Home gating hook, the compositor's hole draw order.
 
 Evidence tags: `TV:` measured on this set, `SRC:` LG's firmware tree in the repo, `PUB:` public source, `[INFERENCE]` not run.

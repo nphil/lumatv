@@ -333,8 +333,9 @@ Item {
     }
 
     // ---- the screensaver and art mode (step 12): over everything here, under the AI prompt (Home's own, a level above this item),
-    // while the TV's power state is Screen Saver. It is not a surface Home opens, so it has no name in find(); Home hands it the
-    // key that wakes the TV (saverKey) and the key does nothing else.
+    // while the TV's power state is Screen Saver, or while it is the saver the TV is showing (tvpower asked whether LG's may start and was
+    // told no). It is not a surface Home opens, so it has no name in find(); Home hands it the key that wakes the TV (saverKey) and the key
+    // does nothing else.
     Resident {
         id: saverRes
         name: "saver"
@@ -348,6 +349,14 @@ Item {
     }
     readonly property bool saverUp: saverRes.visible
     function saverKey() { if (saverRes.item) saverRes.item.key("") }
+    function saverEnd() { if (saverRes.item && saverRes.item.owned) saverRes.item.wake() }       // a volume key: it goes on to LG, and ends a saver LumaTV owns
+    // The saver answers tvpower's question about LG's saver only while Home is in front (panels/SaverVote.qml), so it is told when that is.
+    Binding {
+        target: saverRes.item
+        property: "hostActive"
+        value: layers.hostActive
+        when: !!saverRes.item
+    }
 
     // ---- the kit gallery (development): built the first time the flag asks for it, then kept
     Resident {

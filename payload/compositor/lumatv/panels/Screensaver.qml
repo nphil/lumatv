@@ -5,11 +5,14 @@ import "../kit"
 import TextFile 1.0
 import "../ArtDeck.js" as Deck
 
-// The screensaver and art mode (docs/mocks/21-screensaver-*). Drawn over everything while the TV's power state is `Screen Saver`
-// (`tvpower/power/getPowerState`, which the helper publishes as `screen.state`; LG's own saver is not a window of anything LumaTV
-// owns, so this one is drawn in the compositor on that state), and gone the moment it changes. The owner's options are
-// `theme.screensaver` (Settings › Home & look › Screensaver): `style` clock, art or off; `dim`; `glance`; `art.everyMin`,
-// `art.order`, `art.caption`. (`afterMin` is when the TV's own power manager starts the state; nothing here counts idle time.)
+// The screensaver and art mode (docs/mocks/21-screensaver-*). Drawn over everything when LG's idle timer ends: tvpower asks its screen
+// saver list whether LG's saver may start and this surface, on that list while Home is in front, says no (`vote`, SaverVote.qml; the power
+// state stays Active and LG's Flutter saver is never started, docs/research/saver-own-result.md). It is also drawn while the TV's power state
+// is `Screen Saver` (`tvpower/power/getPowerState`, which the helper publishes as `screen.state`), which only happens when LG's saver was
+// started anyway; under LG's compositor LG's window is above this one then, under LumaTV's it is below. The owner's options are
+// `theme.screensaver` (Settings › Home & look › Screensaver): `style` clock, art or off; `own` (false: LG's saver is left alone, nothing
+// is voted); `dim`; `glance`; `art.everyMin`, `art.order`, `art.caption`. (`afterMin` is not read here: the idle time is LG's timer, 180 s on
+// this set; nothing here counts idle time.)
 // The rest of `theme.screensaver` is the burn-in tokens (docs/PLAN.md, Screensaver; docs/mocks/BATCH3.md): `clockLevel`, `artLevel`,
 // `dimTo` over `dimOverMin`, `moveEverySec`, `fadeMs`, `crossfadeMs`, `preloadMs`, `graceMs`, `shiftEverySec`, `standbyHours`.
 //
@@ -63,10 +66,24 @@ Item {
     property int videoStaleMs: 12000
 
     // ---- when it is up
+    // Two ways in. LG's power state says `Screen Saver` (LG's saver was started: under LG's compositor its window is above this surface, so
+    // this one is drawn but not seen; under LumaTV's compositor this one is above). Or `owned`: tvpower asked, while Home was in front and this
+    // saver wanted, whether LG's saver may start, and `vote` (SaverVote.qml) said no. Then the power state stays `Active`, LG's Flutter saver
+    // is never started, and this one draws over Home: it ends on any key (Home takes the key and nothing else happens), on the pointer, when
+    // Home is no longer in front, when the TV is switched off, and when the owner turns the saver off.
     property bool forced: false                   // shown without the power state (a preview, a test)
+    property bool hostActive: false               // Home is in front (Layers.qml)
+    property bool owned: false                    // tvpower asked and was told no: this saver is the one the TV is showing
     readonly property bool powerState: !!(Helper.screen && Helper.screen.state === "Screen Saver")
-    readonly property bool active: style !== "off" && (forced || powerState)
+    readonly property bool tvOff: !!(Helper.screen && Helper.screen.on === false)
+    readonly property bool active: style !== "off" && (forced || powerState || owned)
     readonly property bool up: visible && active  // what every timer follows
+    // The owner's switch for taking LG's saver over: on unless `theme.screensaver.own` is false (the way back to LG's saver, whose state and
+    // window are then the TV's alone). It is the vote's only input besides Home being in front.
+    readonly property bool takesOver: cfg.own !== false && style !== "off"
+    onHostActiveChanged: if (!hostActive) owned = false
+    onTvOffChanged: { if (tvOff) owned = false; else vote.renew() }      // (the TV came on: the subscription is made again, in case tvpower kept none through standby)
+    onTakesOverChanged: if (!takesOver) owned = false
 
     // ---- the burn-in tokens of theme.json (the mock's numbers: docs/mocks/lucent.css `.ss-clock`, `.art`)
     readonly property real clockLevel: cfg.clockLevel
@@ -103,13 +120,48 @@ Item {
         return (h === 0 ? 12 : h) + Qt.formatTime(now, ":mm")
     }
 
-    // ---- keys: any key wakes the TV and nothing else happens
+    // ---- keys: any key wakes the TV and nothing else happens. When LG's state is `Screen Saver` (or this is a preview) the TV is asked to turn
+    // the screen on, as it always was; when this saver is the only one (`owned`, the state is `Active`) there is nothing to ask: it simply ends.
     signal woke()
     function wake() {
-        LS.adhoc.call("luna://com.webos.service.tvpower", "/power/turnOnScreen", "{}")
+        var lg = powerState || forced
+        owned = false
+        if (lg) LS.adhoc.call("luna://com.webos.service.tvpower", "/power/turnOnScreen", "{}")
         woke()
     }
     function key(dir) { wake() }
+
+    // ---- tvpower's question (SaverVote.qml): while Home is in front and the saver is wanted this surface is on tvpower's screen saver list and
+    // says no to LG's saver; the question is the idle time's end, so the saver comes up in the Active state.
+    SaverVote {
+        id: vote
+        want: saver.hostActive && saver.takesOver && !saver.forced
+        onClaimed: saver.owned = true
+    }
+
+    property alias voter: vote             // (the tests answer through it)
+    property alias videoPlayer: video      // (and give the player's mailbox a directory of their own)
+
+    // A saver LG did not start has no power state to end it when the viewer moves the pointer or touches the screen, so it ends here. The first
+    // position it hears is only where the pointer already is (a saver that comes up under a resting pointer gets one at once); a move of more
+    // than a few pixels from there, a button or the wheel ends it. (LG's own state wakes on the pointer by itself, so this is only for `owned`.)
+    property real pointerX: -1
+    property real pointerY: -1
+    function pointerAt(x, y) {
+        if (pointerX < 0) { pointerX = x; pointerY = y; return }
+        if (Math.abs(x - pointerX) + Math.abs(y - pointerY) > 12) wake()
+    }
+    MouseArea {
+        id: pointer
+        anchors.fill: parent
+        enabled: saver.owned && saver.visible
+        hoverEnabled: true
+        acceptedButtons: Qt.AllButtons
+        onEnabledChanged: { saver.pointerX = -1; saver.pointerY = -1 }
+        onPositionChanged: saver.pointerAt(mouse.x, mouse.y)
+        onPressed: saver.wake()
+        onWheel: saver.wake()
+    }
     // The panel is not left on a picture overnight.
     function standby() { LS.adhoc.call("luna://com.webos.service.tvpower", "/power/powerOff", JSON.stringify({ reason: "remoteKey" })) }
     Timer { id: standbyTimer; interval: Math.max(1, saver.standbyMs); running: saver.up && saver.standbyMs > 0; onTriggered: saver.standby() }
@@ -130,16 +182,23 @@ Item {
     onStyleChanged: if (up) { if (style === "art") startArt(); else { art.stop(); video.end() } }
     onPeriodMsChanged: if (up && style === "art" && art.current >= 0 && !video.busy) lead.restart()
 
+    // Whether the art goes to the player. The handlers below read it from what it is made of, not from `videoUsable`: a handler that runs because
+    // `forced` changed (a preview) can run before the binding that follows `forced` has, and a preview must never ask the player.
+    function videoAllowed() { return cfg.video === true && !forced && cfg.style === "art" }
     // The art is drawn by the GPU, as it always was, or by the decoder when the owner has asked for that and the player is there and plays:
     // black between the ask and the answer, the GPU's art if the player says no, does not answer or goes quiet. The order of the prints is
     // this surface's either way (its bag is kept across restarts), so the player is told the first print and each next one.
     function startArt() {
-        if (!videoUsable) { art.start(); return }
+        if (!videoAllowed()) { art.start(); return }
         art.began = since
-        art.loadIndex(function() { if (saver.up && saver.style === "art") { art.videoFirst(); saver.askVideo() } })
+        art.loadIndex(function() {
+            if (!(saver.up && saver.style === "art")) return
+            if (!saver.videoAllowed()) { art.start(); return }      // turned off, or a preview, while the index loaded
+            art.videoFirst(); saver.askVideo()
+        })
     }
     function askVideo() {
-        if (!up) return
+        if (!up || !videoAllowed()) return
         video.spec = videoSpec()
         video.begin()
         if (!video.busy) { art.leaveVideo(); art.start() }      // no player on this TV
@@ -169,6 +228,9 @@ Item {
         want: saver.up && saver.videoUsable
         startMs: saver.videoStartMs; renewMs: saver.videoRenewMs; staleMs: saver.videoStaleMs
         onStateChanged: saver.videoChanged()
+        // The player took a key or the pointer in its own window and asked tvpower for the screen: when LG's state is the Active one that ends the
+        // saver (in LG's `Screen Saver` state the change of state does).
+        onWoken: { saver.owned = false; saver.woke() }
     }
     readonly property bool holeOpen: video.playing && videoShell      // the picture is on the video plane and this surface is above it: nothing of its own under the dim
     // The shuffle bag is kept across restarts (ArtDeck.js): a small file in the data directory, and a second handle to ask whether a print's file is there.
@@ -185,7 +247,8 @@ Item {
     // Whether anything is running: nothing may be while it is hidden.
     readonly property bool timersRunning: standbyTimer.running || minute.running || move.running || lead.running || turn.running || grace.running || crossfade.running || shift.running || moveClock.running || video.timersRunning || vchange.running || vturn.running
     function snapshot() {
-        return JSON.stringify({ up: up, active: active, style: style, level: level, timers: timersRunning, clock: { fx: clockBlock.fx, fy: clockBlock.fy, fade: clockBlock.fade, opacity: clockBlock.opacity },
+        return JSON.stringify({ up: up, active: active, owned: owned, style: style, level: level, timers: timersRunning,
+                                vote: { want: vote.want, registered: vote.registered, asked: vote.asked, refused: vote.refused, timers: vote.timersRunning }, clock: { fx: clockBlock.fx, fy: clockBlock.fy, fade: clockBlock.fade, opacity: clockBlock.opacity },
                                 art: { loaded: art.pictures.length, current: art.current, pending: art.pending, front: art.aFront, skipped: art.skipped, dx: art.dx, dy: art.dy,
                                        bag: art.bag.map(function(i) { return art.pictures[i].id }), last: art.lastId, key: art.deckKey,
                                        shown: art.shown.meta ? art.shown.meta.id : "", idle: art.idle.meta ? art.idle.meta.id : "", shownOpacity: art.shown.opacity, idleOpacity: art.idle.opacity },
