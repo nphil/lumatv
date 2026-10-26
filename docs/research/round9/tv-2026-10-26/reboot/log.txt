@@ -1,0 +1,47 @@
+before: power {"returnValue":true,"state":"Active"}, uptime 23192.1 s, logo {"ok":true,"on":true,"main":{"com.webos.app.quicksettings": "file:///var/lib/lumatv/systemui/QuickSettings/QuickSettings.qml", "com.webos.app.quickinputpicker": "file:///usr/lib/qt5/qml/InputPicker/In
+reboot at 00:17:11
+ssh answers at 00:17:42, uptime 29.9 s
+frames: 100 (uptime 14.60 .. 73.97); bytes 1777 2777 2777 2777 2912 2912 2912 2912 2912 1777 1777 1777 1777 1777 1777 269025 269025 269025 269025 269025 269025 4663 4663 4663 4663 69623 68254 68254 68196 68463 68420 68375 68420 68145 68420 68145 68375 68228 1777 1777 1777 1777 1777 1777 4022 3971 3971 3971 3971 3971 3971 3971 3971 1777 1777 1777 1777 1777 1777 1777 120835 120869 120918 120803 120803 120803 121315 121266 121117 120922 121220 121084 120903 120790 120754 121031 121048 121158 121057 120678 120906 120715 120979 121001 121113 121155 120954 121052 121193 120742 120853 120819 121056 121022 121105 121256 121200 120979 121066 120894
+hook: 2026-10-25 17:50:53 boot: boot capture of 60s started
+2026-10-26 00:17:26 boot: [up 14.51 s] boot capture of 60s started
+logo lines: 
+state.txt: 41 lines
+logo-events.txt: 15 lines
+boot-events.txt: 65 lines
+boot-events-prev.txt: 1 lines
+boot log lines: 2026-10-25 17:50:53 boot: boot capture of 60s started
+2026-10-25 17:50:54 boot: homestub-boot: {"ok":true,"stub":true}
+2026-10-25 17:50:54 compositor-boot: off
+2026-10-25 17:50:55 boot: compositor-boot: {"ok":true,"compositor":"off"}
+2026-10-25 17:51:03 boot: boot-bind: {"ok":true,"bound":true,"mounts":1}
+2026-10-25 17:51:09 boot: early hook already handled this boot, nothing to do
+2026-10-25 17:51:41 boot: apply ok
+2026-10-26 00:17:26 boot: [up 14.51 s] boot capture of 60s started
+2026-10-26 00:17:27 boot: [up 15.83 s] homestub-boot: {"ok":true,"stub":true}
+2026-10-26 00:17:29 boot: [up 17.29 s] compositor-boot: {"ok":true,"compositor":"off"}
+2026-10-26 00:17:43 boot: [up 32.00 s] early hook already handled this boot, nothing to do
+2026-10-26 00:17:47 boot: [up 36.08 s] boot-bind: {"ok":true,"bound":true,"mounts":1}
+2026-10-26 00:18:03 boot: [up 51.80 s] boot-restart: {"ok":true,"restarted":true,"at":36,"landed":"home"}
+2026-10-26 00:18:37 boot: [up 85.85 s] apply ok
+state after boot:
+91.78 95.24
+resume
+{"returnValue":true,"state":"Active"}
+{"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""}
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+{"ok": true, "on": true, "backup": true, "off": [{"id": "youtube.leanback.v4", "listed": true, "enabled": false}, {"id": "com.webos.app.lgchannels", "listed": true, "enabled": false}, {"id": "com.webos.app.browser", "listed": true, "enabled": false}, {"id": "amazon", "listed": true, "enabled": false
+2026-10-26 00:11:46 homestub: compositor restarted
+2026-10-26 00:12:40 homestub: compositor restarted
+2026-10-26 00:17:27 homestub: stub in place at uptime 15 s
+2026-10-26 00:17:27 boot: [up 15.83 s] homestub-boot: {"ok":true,"stub":true}
+2026-10-26 00:17:28 homestub: guard started
+2026-10-26 00:17:50 homestub: compositor restarted
+2026-10-26 00:18:19 apply: Home's assets stay bound under the stub
+2026-10-26 00:18:20 homestub: stub in place at uptime 68 s
+2026-10-26 00:18:20 homestub: guard started
+2026-10-26 00:18:29 homestub: compositor restarted
+2026-10-26 00:18:33 apply: compositor restarted to read shadow module
+2026-10-26 00:18:37 apply: success version=0.4.0 mounts=1 took=34s
+
+done

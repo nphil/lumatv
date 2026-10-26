@@ -1,0 +1,342 @@
+00:00:33 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-slot
+00:00:33 before: {"ok":true,"version":"0.4.0"} | 4e61cf58e7f9b0f1eb61ef247d52e0be  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | 5b5183f656231527b6200848a2248ef2  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+00:00:33 power Active Standby fg  picture filmMaker
+00:00:37 ipk put: -rw-r--r--    1 root     root      38931132 Oct 26 00:00 /tmp/lumatv.ipk | a63c8d01e74c8172063a9caa755ccbbc6e748643d8c42f0bf01f3dbf653760f0  /tmp/lumatv.ipk
+00:00:38 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+00:00:38 app dir helper sha matches ipk: True after 4 s
+00:00:57 apply (23 s): {"ok":true,"applied":true,"mounts":1,"took":18}
+00:01:05 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":14308,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":false,"unsettled":false,"failures":1,"lastFallback":"compositor closed the bridge socket","smLog":"19:37:49 recover: librdx reports swept; remaining 0"}}
+00:01:05 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+00:01:05 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":14308,"port":18731,"running":true}}
+00:01:05 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":false,"unsettled":false,"failures":1,"lastFallback":"compositor closed the bridge socket","smLog":"19:37:49 recover: librdx reports swept; remaining 0"}}
+00:01:05 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+00:01:06 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},{"id":"helper","on":true,"fallback":"Home draws the last saved weather and n
+00:01:09 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+00:01:09 helper log tail: 2026-10-26T03:40:51Z INFO  screen: Screen Saver (on)
+2026-10-26T03:43:44Z INFO  screen: Active (on)
+2026-10-26T03:46:42Z INFO  screen: Screen Saver (on)
+2026-10-26T03:49:22Z INFO  screen: Active (on)
+2026-10-26T03:54:49Z INFO  screen: Active Standby (off)
+00:01:09 foreground: com.webos.app.home power Active Standby picture filmMaker
+00:01:09 compositor log since install: 
+00:01:09 end (36 s)
+00:01:21 wake: power before Active Standby
+00:01:54 wake: power Active fg com.webos.app.home picture filmMaker
+00:01:54 receiver HA: {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+00:01:54 receiver helper: {'enabled': True, 'error': None, 'fresh': True, 'host': '192.168.1.93', 'input': 'TV', 'mute': False, 'polling': True, 'power': 'on', 'reachable': True, 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR', 'updatedAt': 1792987313698, 'volumeAbs': 65.5, 'volumeDb': -14.5, 'volumeDisplay': 'absolute', 'volumeText': '65.5'}
+00:01:54 shot 00-home-after-install
+00:01:54 compositor log tail (Resident/errors): 
+00:02:59 receiver after vol 0.10: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:03:03 gate: start tv_next_slot --no-standby --gate-args --enable-after
+00:14:47 receiver after vol 0.655: HA {'state': 'on', 'volume_level': 0.65, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': False, 'volumeText': '65', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:14:59 receiver after volume_up: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': False, 'volumeText': '65.5', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:15:41 standby1: power Active fg com.webos.app.home; messages lines 10146
+00:16:07 standby1: after powerOff 25 s: power Active Standby
+00:16:27 standby1: at 45 s: power Active Standby
+00:17:00 standby1: after wake: power Active fg com.webos.app.home picture filmMaker
+00:17:01 shot standby1-after-wake
+00:17:01 standby1: autoinstall/appinstall/logo lines since the run's start:
+2026-10-26T04:12:21.381794Z [22902.176956540] user.warning pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_FAIL {"reason":""}  
+2026-10-26T04:12:21.381911Z [22902.177067600] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}  
+2026-10-26T04:12:21.397650Z [22902.192806080] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}  
+2026-10-26T04:13:36.311838Z [22977.106999520] user.warning pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_FAIL {"reason":""}  
+2026-10-26T04:13:36.311929Z [22977.107083580] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}  
+2026-10-26T04:13:36.328419Z [22977.123578700] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}  
+2026-10-26T04:15:41.399267Z [23102.194427440] user.info surface-manager [] surface-manager launch {} launch, [Logo] power-off logo 1
+2026-10-26T04:16:28.074316Z [23148.869475120] user.info appinstalld [] AppInstallD AUTO_APPUPDATE_CHECK_START {}  
+2026-10-26T04:16:28.172505Z [23148.967667560] user.warning pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_FAIL {"reason":""}  
+2026-10-26T04:16:28.172603Z [23148.967759080] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}  
+2026-10-26T04:16:28.194359Z [23148.989513540] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}  
+2026-10-26T04:16:29.738251Z [23150.533404380] user.info appinstalld [] AppInstallD AUTO_APPUPDATE_CHECK_END {}
+00:17:01 standby1: logo-events tail: up=21848.92 wall=2026-10-26T03:54:48.126Z power-off logo 1 launch reason=-
+up=21849.62 wall=2026-10-26T03:54:48.832Z power-off answered tvpowerd
+up=22205.89 wall=2026-10-26T04:00:45.095Z power-off close
+up=23102.19 wall=2026-10-26T04:15:41.400Z power-off logo 1 launch reason=-
+up=23102.90 wall=2026-10-26T04:15:42.106Z power-off answered tvpowerd
+up=23148.31 wall=2026-10-26T04:16:27.517Z power-off close
+00:17:01 standby1: helper log tail: 2026-10-26T04:15:42Z INFO  screen: Active Standby (off)
+2026-10-26T04:16:27Z INFO  screen: Active (on)
+2026-10-26T04:16:27Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T04:16:28Z INFO  preload: 14 apps kept from preloading
+00:17:10 pre-reboot: 23191.43 | 14308 lumatv-helper | 15746 sh | 21642 python3 | {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":14308,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled": | compositor flag: none | 1
+00:19:53 post-reboot: uptime 160.31 power Active fg com.webos.app.home picture filmMaker
+00:19:53 post-reboot status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":8608,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+00:19:53 post-reboot procs: 7758 python3 | 8608 lumatv-helper | 14580 lumatv | 18960 sh | /tmp/padguard.lock | /tmp/padguard.log | 00:17:44 8-1: found (attached) | 00:17:44 8-1: no live reports, detached
+00:19:53 post-reboot volume patch: 1 | 0 | ls: /var/lib/lumatv/compositor/enabled: No such file or directory
+00:19:57 post-reboot lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"16/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"4/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"persist":true,"skip":false,"memAvailableKb":927540}
+00:19:57 post-reboot helper: {"api":1,"boot":1792988268454,"now":1792988396185,"ok":true,"seq":47,"topic":"receiver","value":{"enabled":true,"error":null,"fresh":true,"host":"192.168.1.93","input":"TV","mute":false,"polling":true,"power":"on","reachable":true,"signal":"PCM","soundMode":"DOLBY AUDIO-DSUR","updatedAt":17929883959 | 2026-10-26T04:18:18Z WARN  preload: com.webos.app.livemenu: luna-send did not answer in 5 s | 2026-10-26T04:18:23Z WARN  preload: com.webos.app.voice: luna-send did not answer in 5 s | 2026-10-26T04:18:27Z INFO  preload: 7 apps kept from preloading
+00:19:57 post-reboot autoinstall lines: 2026-10-26T04:17:59.374432Z [47.504983580] user.warning pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_FAIL {"reason":""}   | 2026-10-26T04:17:59.374539Z [47.505081140] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}   | 2026-10-26T04:17:59.387000Z [47.517540520] user.info pkginstalld [] PkgInstallD AUTO_APPUPDATE_CHECK_END {}   | 2026-10-26T04:18:01.440982Z [49.571529720] user.info appinstalld [] AppInstallD AUTO_APPUPDATE_CHECK_START {}   | 2026-10-26T04:18:04.242490Z [52.373029360] user.info appinstalld [] AppInstallD AUTO_APPUPDATE_CHECK_END {}
+00:19:57 post-reboot compositor errors: LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+check {} check, [Resident] settings built
+LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:29:5: Unable to assign [undefined] to QString
+LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:28:5: Unable to assign [undefined] to QString
+LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:27:5: Unable to assign [undefined] to QString
+LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:26:5: Unable to assign [undefined] to QString
+LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:230:9: Unable to assign [undefined] to bool
+check {} check, [Resident] settings built
+00:19:57 shot 10-home-after-reboot
+00:20:38 receiver after vol 0.10: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:20:40 receiver after mute on: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '10', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:20:40 volume/netflix: receiver {'mute': True, 'volumeText': '10', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:20:41 netflix launch: {
+    "returnValue": true
+}
+00:20:46   t+5s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:20:51   t+10s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [         {             "appId": "netflix",             "playState": "starting",   
+00:20:56   t+15s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:21:02   t+20s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:21:07   t+25s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:21:12   t+30s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:21:17   t+35s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:21:23   t+40s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} video {     "subscribed": false,     "returnValue": true,     "foregroundAppInfo": [     ] }
+00:21:23 shot 20-netflix-playing
+00:21:24 keyshot 21-netflix-volup-0.35s: 1792988482.%N | 1792988483.%N | 1792988483.%N
+00:21:24   receiver after Volume+: {'mute': False, 'volumeText': '10.5', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:21:25 shot 22-netflix-volup-1.5s
+00:21:29 keyshot 23-netflix-voldown-0.35s: 1792988487.%N | 1792988487.%N | 1792988488.%N
+00:21:29   receiver after Volume-: {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:21:29   cues:
+cue {} cue, [VolumeOsd] cue: the bar appears now
+LSM {} cue, [VolumeOsd] cue: the bar appears now
+00:21:29 netflix close: {
+    "appId": "netflix",
+    "returnValue": true
+}
+00:21:38 home: com.webos.app.home
+00:22:01 receiver after mute on: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:22:01 volume/netflix-play: receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:22:16 shot 24-netflix-title
+00:22:16 OK on Resume Playing: 
+00:22:21   t+5s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:26   t+10s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:32   t+15s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:37   t+20s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:42   t+25s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:47   t+30s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:52   t+35s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState { subscribed: false, returnValue: true, foregroundAppInfo: [ ] }
+00:22:53 shot 25-netflix-playing
+00:22:54 keyshot 26-netflix-volup-0.35s: 1792988572.%N | 1792988572.%N | 1792988573.%N
+00:22:54   receiver after Volume+: {'mute': False, 'volumeText': '10.5', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:22:55 shot 27-netflix-volup-1.5s
+00:22:58 keyshot 28-netflix-voldown-0.35s: 1792988577.%N | 1792988577.%N | 1792988577.%N
+00:22:58   receiver after Volume-: {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:22:58   cues:
+
+00:22:58 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:23:08 home: com.webos.app.home receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:26:32 nf2: power Active fg com.webos.app.home receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:26:37   t+5s fg netflix picture filmMaker receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:26:43   t+10s fg netflix picture filmMaker receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:26:48   t+15s fg netflix picture filmMaker receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:26:53   t+20s fg netflix picture filmMaker receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:26:58   t+25s fg netflix picture filmMaker receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:27:04   t+30s fg netflix picture filmMaker receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:27:04 shot 29-netflix-70143836
+00:27:04   errors: 
+00:27:04 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:27:13 home: com.webos.app.home receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:27:31 receiver after mute on: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:27:46 OK on Play: 
+00:27:51   t+5s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:27:56   t+10s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:28:02   t+15s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:28:07   t+20s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:28:12   t+25s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:28:17   t+30s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} playState  ] }
+00:28:18 shot 40-netflix-70143836-playing
+00:28:18 keyshot 41-netflix-70143836-volup-0.35s: 1792988897.%N | 1792988897.%N | 1792988897.%N
+00:28:19   receiver after Volume+: {'mute': False, 'volumeText': '10.5', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:28:20 shot 42-netflix-70143836-volup-1.5s
+00:28:23 keyshot 43-netflix-70143836-voldown-0.35s: 1792988901.%N | 1792988902.%N | 1792988902.%N
+00:28:23   receiver after Volume-: {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:28:23   cues:
+
+00:28:23   errors: 
+00:28:23 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:28:33 home: com.webos.app.home receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:30:45 receiver after mute on: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:31:12 nf4: fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} uptime window 813-840
+00:31:12 nf4 dmesg lines: 142
+[  814.488635] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[  814.490610] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.490620] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.492556] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.492582] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 1, enable 0 .
+[  814.492970] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[  814.493002] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[  814.493008] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[  814.493012] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.494515] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[  814.494520] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.496063] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[  814.500407] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[  814.502651] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[  814.504226] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.504234] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.506200] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.506209] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.511452] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.511465] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  814.511471] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[  814.511482] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.513805] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[  814.513810] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.514329] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[  814.517399] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[  814.518889] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.518897] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.520021] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.520045] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 1, enable 0 .
+[  814.520403] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[  814.520428] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[  814.520437] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[  814.520441] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.521048] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[  814.521052] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.522510] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[  814.523559] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[  814.524858] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[  814.526326] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.526334] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.527519] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.527526] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.535677] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.535690] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  814.535696] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[  814.535707] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.538281] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[  814.538286] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.538785] alsasndout   NOT 
+00:31:12 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:31:22 home: com.webos.app.home receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:32:15 nf5: netflix pid 27834
+00:32:15 nf5 jail dev: total 4
+drwxrwx---    2 root     audio          540 Dec 31  1969 .
+dr-xr-xr-x    8 6579     jailer        4096 Dec 19  2025 ..
+crwxrwx---    1 root     audio     116,   0 Dec 31  1969 controlC0
+crwxrwx---    1 root     audio     116,  32 Dec 31  1969 controlC1
+crwxrwx---    1 root     audio     116,  16 Dec 31  1969 pcmC0D0p
+crwxrwx---    1 root     audio     116,  34 Dec 31  1969 pcmC0D10c
+crwxrwx---    1 root     audio     116,  35 Dec 31  1969 pcmC0D11c
+lrwxr-xr-x    1 root     root            12 Dec 19  2025 gfx -> /dev/lg/gfx0
+dr-xr-xr-x    2 root     jailer        2520 Dec 31  2022 lg
+drwxrwx---    2 root     audio          540 Dec 31  1969 snd
+38
+/bin /bin ro,nosuid,relatime
+/usr/lib/nyx/modules /usr/lib/nyx/modules ro,nosuid,relatime
+/usr/share/fonts /usr/share/fonts ro,nosuid,relatime
+/snd /dev/snd rw,relatime
+/ /dev/shm rw
+/logdir /dev/logdir ro,nosuid,relatime
+/var/luna/preferences /var/luna/preferences ro,nosuid,relatime
+/internal /media/internal rw,nosuid,relatime
+/ /mnt/lg/ciplus/authcxt rw,relatime
+/ssobj /mnt/lg/cmn_data/ssobj rw,nosuid,relatime
+/var/lguta /var/lguta ro,nosuid,relatime
+/ /dev/pts rw,relatime
+0
+Tgid:	27834
+Ngid:	0
+Uid:	6579	6579	6579	6579
+Gid:	5000	5000	5000	5000
+Groups:	15 19 29 44 505 509 511 777 
+NStgid:	27834
+NSpgid:	27834
+00:32:18 nf5 fds at +3s: 1 (deleted)
+      2 /dev/null
+      1 /var/palm/jail/netflix/dev/dma_buf_te
+      1 /var/palm/jail/netflix/dev/input/event11
+      1 /var/palm/jail/netflix/dev/input/event12
+      1 /var/palm/jail/netflix/dev/lg/de0
+      3 /var/palm/jail/netflix/dev/lg/logm0
+      1 /var/palm/jail/netflix/dev/lg/pm0
+      1 /var/palm/jail/netflix/dev/lg/se0
+      1 /var/palm/jail/netflix/dev/lg/sys0
+      1 /var/palm/jail/netflix/dev/mali0
+      1 /var/palm/jail/netflix/dev/shm/pmloglib.lock
+      2 /var/palm/jail/netflix/dev/urandom
+00:32:24 nf5 fds at +9s: 1 (deleted)
+      2 /dev/null
+      1 /var/palm/jail/netflix/dev/dma_buf_te
+      1 /var/palm/jail/netflix/dev/input/event11
+      1 /var/palm/jail/netflix/dev/input/event12
+      1 /var/palm/jail/netflix/dev/lg/de0
+      3 /var/palm/jail/netflix/dev/lg/logm0
+      1 /var/palm/jail/netflix/dev/lg/pm0
+      1 /var/palm/jail/netflix/dev/lg/se0
+      1 /var/palm/jail/netflix/dev/lg/sys0
+      1 /var/palm/jail/netflix/dev/mali0
+      1 /var/palm/jail/netflix/dev/shm/pmloglib.lock
+      2 /var/palm/jail/netflix/dev/urandom
+00:32:24 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:32:33 home: com.webos.app.home receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:34:55 nf6: declutter off: {"ok":true,"off":"uploaders settings apps voice ads connectivity share misc push autoinstall"}
+00:35:03 nf6: status: {"ok":true,"profile":"off","groups":{"uploaders":{"on":false,"inTarget":"0/7"},"ads":{"on":false,"inTarget":"0/6"},"push":{"on":false,"inTarget":"0/5"},"settings":{"on":false,"inTarget":"8/16"},"apps"
+00:35:22   t+5s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:35:28   t+10s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:35:33   t+15s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:35:38   t+20s fg netflix picture filmMaker receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:35:38 shot 45-netflix-lean-off
+00:35:38   errors: 
+00:35:38 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:35:48 home: com.webos.app.home
+00:36:28 nf6: declutter on lean: {"ok":true,"on":"uploaders ads push settings apps autoinstall voice connectivity share misc"}
+00:36:34 nf6: status: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"16/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"4/4"},"share":{"on":true,"inTarget":"11/11"},"misc":{"on":true,"inTarget":"3/3"},"ai":{"on":false,"inTarget":"0/3"},"livetv":{"on":false,"inTarget":"0/9"},"cast":{"on":false,"inTarget":"0/3"}},"persist":true,"skip":false,"memAvailableKb":815288}
+00:38:26 nf7: before: { "returnValue": true, "muteStatus": true, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] } | receiver {'mute': True, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:38:26 nf7: to tv_speaker: { "errorCode": -1, "returnValue": false, "errorText": "Unknown method \"changeSoundOut\" for category \"/\"" }
+00:38:27 nf7: speaker volume as found: { "returnValue": true, "muteStatus": true, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" }
+00:38:27 nf7: setVolume 0: { "returnValue": true } setMute: { "errorCode": -1, "returnValue": false, "errorText": "Unknown method \"setMute\" for category \"/\"" }
+00:38:28 nf7: speaker now: { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] }
+00:38:48   t+5s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_ext_speaker_arc" }
+00:38:53   t+10s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_ext_speaker_arc" }
+00:38:58   t+15s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_ext_speaker_arc" }
+00:39:03   t+20s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_ext_speaker_arc" }
+00:39:04 shot 46-netflix-tv-speaker
+00:39:04   errors: 
+00:39:04   dmesg: [ 1277.236424] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 1277.268106] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 1283.687644] lgadec       ERR (04389:04515) lgadec_decoder_get_ac4_dialog_enhancement_gain 2024: audio device is not opened
+[ 1283.687654] lgadec       ERR (04389:04515) lgadec_get_ac4_dialog_enhancement_gain 3526: Get Ac4 Dialog Enhancement Gain Err
+[ 1284.365292] lgadec       ERR (04389:04632) lgadec_flush             2518: audio device is not opened
+[ 1284.365297] lgadec       ERR (04389:04632) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+00:39:04 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:39:13 home: com.webos.app.home
+00:39:13 nf7: back to external_arc: { "errorCode": -1, "returnValue": false, "errorText": "Unknown method \"changeSoundOut\" for category \"/\"" }
+00:39:15 nf7: after: { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] } | receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} | HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+00:39:46 restore TV arc counter: setVolume 71: { "returnValue": true }
+00:39:48 tv volume: { "returnValue": true, "muteStatus": false, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" } | receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'} | HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+00:40:11 nf8: before: { "returnValue": true, "muteStatus": false, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] } | receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'soundMode': 'DOLBY AUDIO-DSUR'}
+00:40:11 nf8: to tv_speaker: { "returnValue": true, "method": "setSystemSettings" }
+00:40:14 nf8: speaker as found: { "returnValue": true, "muteStatus": false, "volume": 24, "scenario": "mastervolume_tv_speaker" } | { "returnValue": true, "lastSoundOutput": "external_arc", "soundOutput": "tv_speaker", "settingsSoundOutputs": [ "tv_speaker" ] }
+00:40:14 nf8: setVolume 0: { "returnValue": true }
+00:40:15 nf8: speaker now: { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" }
+00:40:35   t+5s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" }
+00:40:40   t+10s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" }
+00:40:45   t+15s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" }
+00:40:50   t+20s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" }
+00:40:55   t+25s fg netflix picture filmMaker tv { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" }
+00:40:56 shot 47-netflix-tv-speaker
+00:40:56   errors: 
+00:40:56   dmesg: [ 1391.085756] lgadec       ERR (05061:05224) lgadec_select_codec      2624: audio device is not opened
+[ 1397.950703] lgadec       ERR (05061:05229) lgadec_select_codec      2624: audio device is not opened
+00:40:56 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:41:05 home: com.webos.app.home
+00:41:05 nf8: back to external_arc: { "returnValue": true, "method": "setSystemSettings" }
+00:41:08 nf8: after: { "returnValue": true, "muteStatus": false, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] } | receiver {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'} | HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+00:43:42   t+5s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:43:47   t+10s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:43:52   t+15s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:43:57   t+20s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:44:02   t+25s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:44:07   t+30s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:44:13   t+35s fg netflix picture filmMaker pipelines [ { is_foreground: false, id: _f8o4UIgdp1GgW7, timestamp: 1049934452200, policy_state: 0, is_managed: false, level: 6, sub_level: 0, resource: [ ], is_focus: false, type: media, group_level: -1, window_group_id: , is_boundary: false, sub_type: card }, { is_foreground: false, id: _fir9FIN2k1Fi0M, tim
+00:44:13 shot 48-netflix-direct
+00:44:13   dmesg: [ 1592.276258] amedia       ERR (11478:11672) adecoder_open             203: can not open audio decoder. already opened index 1
+[ 1592.276263] lgadec       ERR (11478:11672) lgadec_decoder_open      1112: audio decoder [1] is not available
+[ 1592.276270] amedia       ERR (11478:11672) adecoder_close            224: can not find audio decoder .
+[ 1592.855088] lgadec       NOT (11478:11529) lgadec_close             1002: aimc finalized.
+[ 1592.855095] lgadec       NOT (11478:11529) lgadec_close             1020: closed.
+00:44:13 netflix close: {     "appId": "netflix",     "returnValue": true }
+00:44:23 home: com.webos.app.home

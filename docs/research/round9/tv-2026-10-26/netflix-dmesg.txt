@@ -1,0 +1,142 @@
+[  814.488635] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[  814.490610] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.490620] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.492556] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.492582] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 1, enable 0 .
+[  814.492970] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[  814.493002] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[  814.493008] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[  814.493012] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.494515] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[  814.494520] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.496063] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[  814.500407] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[  814.502651] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[  814.504226] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.504234] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.506200] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.506209] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.511452] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.511465] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  814.511471] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[  814.511482] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.513805] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[  814.513810] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.514329] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[  814.517399] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[  814.518889] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.518897] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.520021] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.520045] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 1, enable 0 .
+[  814.520403] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[  814.520428] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[  814.520437] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[  814.520441] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.521048] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[  814.521052] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  814.522510] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[  814.523559] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[  814.524858] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[  814.526326] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.526334] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  814.527519] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.527526] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.535677] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.535690] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  814.535696] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[  814.535707] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  814.538281] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[  814.538286] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  814.538785] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[  822.143999] media_event  WAR (22641:22835) gst_lx_videosink_set_caps 1354: <lxvideosink0> video codec change on PAUSED state. Send forced flush to lxvo
+[  822.155109] vmcu: [  813.092993]      ves NOT  (028)                 ves_open 1564: [VES0] src:2 codec:10 CPB base:0x57B20000 size:0xA00000
+[  822.155223] vmcu: [  813.093103]     vdec NOT  (028)               init_codec 3547: vdec:506d8000, ch0,hevc,dovi,dovi_bl,tiled,4k_cont,svp res 3840x2160 fr 15712911/262144 max_tid:-1
+[  822.155975] lgadec       ERR (22641:22831) lgadec_select_codec      2624: audio device is not opened
+[  822.195194] media_event  NOT (22641:22835) gst_lx_videosink_event_video_information 3824: <lxvideosink0> video-info, vdec-ch=(int)0, codec=(string)H265, width=(uint)3840, height=(uint)2160, framerate=(fraction)60000/1001, 3D_Ty
+[  822.207363] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 1.
+[  822.208399] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3690: Start main audio input 1, port 1 master_index 0.
+[  822.208425] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  822.208435] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3724: main audio input 1, port 1 master_index 1.
+[  822.209897] alsasndout   NOT (02215:02215) sndout_connect           3243: Start Connect output 0x20 input 0x1 port 1.
+[  822.210010] alsasndout   NOT (02215:02215) sndout_connect           3406: main_audio: 1, codec: 1
+[  822.210014] alsasndout   NOT (02215:02215) sndout_connect           3410: output 0x20 input 0x1 port 1 .
+[  822.243873] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[  822.252414] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[  822.254087] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[  822.256013] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[  822.258099] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  822.258177] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  822.261284] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  822.262434] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[  822.262466] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[  822.262473] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[  822.262477] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  822.264871] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[  822.264876] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  822.266326] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[  822.267502] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[  822.277715] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[  822.279437] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  822.279444] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  822.285628] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  822.285637] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  822.289732] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  822.289746] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  822.289752] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[  822.289763] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  822.293731] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[  822.293736] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  822.294340] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[  822.295019] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[  822.295101] alsasndout   NOT (02215:02215) sndout_gain_output       3889: output 0x20 gain 0x800000 .
+[  822.300067] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 0.
+[  822.446873] alsasndout   NOT (02215:02215) sndout_disconnect        3488: Start Disconnect output 0x20 input 0x1 port 1 .
+[  822.446960] alsasndout   NOT (02215:02215) sndout_disconnect        3640: main_audio: 1, codec: 1
+[  822.446964] alsasndout   NOT (02215:02215) sndout_disconnect        3644: output 0x20 input 0x1 port 1 .
+[  822.451777] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[  828.388029] media_event  WAR (22641:22895) gst_lx_videosink_set_caps 1354: <lxvideosink1> video codec change on PAUSED state. Send forced flush to lxvo
+[  828.640010] lgadec       ERR (22641:22837) lgadec_select_codec      2624: audio device is not opened
+[  828.645797] vmcu: [  819.583683]      ves NOT  (028)                 ves_open 1564: [VES0] src:2 codec:10 CPB base:0x57B20000 size:0xA00000
+[  828.645906] vmcu: [  819.583785]     vdec NOT  (028)               init_codec 3547: vdec:506d8000, ch0,hevc,dovi,dovi_bl,tiled,4k_cont,svp res 3840x2160 fr 15712911/262144 max_tid:-1
+[  828.683590] media_event  NOT (22641:22895) gst_lx_videosink_event_video_information 3824: <lxvideosink1> video-info, vdec-ch=(int)0, codec=(string)H265, width=(uint)3840, height=(uint)2160, framerate=(fraction)60000/1001, 3D_Ty
+[  828.690571] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 1.
+[  828.698479] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3690: Start main audio input 1, port 1 master_index 0.
+[  828.698506] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  828.698515] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3724: main audio input 1, port 1 master_index 1.
+[  828.704842] alsasndout   NOT (02215:02215) sndout_connect           3243: Start Connect output 0x20 input 0x1 port 1.
+[  828.704973] alsasndout   NOT (02215:02215) sndout_connect           3406: main_audio: 1, codec: 1
+[  828.704977] alsasndout   NOT (02215:02215) sndout_connect           3410: output 0x20 input 0x1 port 1 .
+[  828.743721] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[  828.745374] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[  828.763759] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[  828.766966] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[  828.768973] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  828.768981] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  828.770471] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  828.771205] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[  828.771233] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[  828.771240] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[  828.771244] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  828.771847] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[  828.771852] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[  828.773133] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[  828.774298] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[  828.775676] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[  828.777017] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  828.777025] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[  828.778321] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  828.778328] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  828.779483] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  828.779496] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[  828.779502] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[  828.779511] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[  828.782896] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[  828.782902] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[  828.783381] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[  828.784069] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[  828.784151] alsasndout   NOT (02215:02215) sndout_gain_output       3889: output 0x20 gain 0x800000 .
+[  828.827763] alsasndout   NOT (02215:02215) sndout_disconnect        3488: Start Disconnect output 0x20 input 0x1 port 1 .
+[  828.827845] alsasndout   NOT (02215:02215) sndout_disconnect        3640: main_audio: 1, codec: 1
+[  828.827849] alsasndout   NOT (02215:02215) sndout_disconnect        3644: output 0x20 input 0x1 port 1 .
+[  828.830955] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[  829.215154] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 0.

@@ -1,0 +1,15 @@
+up=6277.53 wall=2026-10-25T23:35:16.739Z power-off logo 1 launch reason=-
+up=6278.24 wall=2026-10-25T23:35:17.446Z power-off answered tvpowerd
+up=6303.79 wall=2026-10-25T23:35:42.997Z power-off close
+up=6990.91 wall=2026-10-25T23:47:10.122Z power-off logo 1 launch reason=-
+up=6991.60 wall=2026-10-25T23:47:10.813Z power-off answered tvpowerd
+up=7900.21 wall=2026-10-26T00:02:19.428Z power-off close
+up=17789.02 wall=2026-10-26T02:47:08.229Z power-off logo 1 launch reason=-
+up=17789.70 wall=2026-10-26T02:47:08.910Z power-off answered tvpowerd
+up=18317.02 wall=2026-10-26T02:55:56.228Z power-off close
+up=21848.92 wall=2026-10-26T03:54:48.126Z power-off logo 1 launch reason=-
+up=21849.62 wall=2026-10-26T03:54:48.832Z power-off answered tvpowerd
+up=22205.89 wall=2026-10-26T04:00:45.095Z power-off close
+up=23102.19 wall=2026-10-26T04:15:41.400Z power-off logo 1 launch reason=-
+up=23102.90 wall=2026-10-26T04:15:42.106Z power-off answered tvpowerd
+up=23148.31 wall=2026-10-26T04:16:27.517Z power-off close
