@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "error": null,
+  "fresh": true,
+  "host": "192.168.1.93",
+  "input": "TV",
+  "mute": true,
+  "polling": true,
+  "power": "on",
+  "reachable": true,
+  "signal": "Dolby Atmos - DD+",
+  "soundMode": "DOLBY ATMOS",
+  "updatedAt": 1793001306138,
+  "volumeAbs": 65.0,
+  "volumeDb": -15.0,
+  "volumeDisplay": "absolute",
+  "volumeText": "65"
+}

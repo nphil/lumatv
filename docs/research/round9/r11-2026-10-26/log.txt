@@ -1,0 +1,191 @@
+03:51:50 before-deploy: fg=com.webos.app.home power=Screen Saver picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'sdr', 'input': 'default'}, 'settings': {'pictureMode': 'filmMaker'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '65.5', 'input': 'TV', 'signal': 'PCM ZERO', 'soundMode': 'DOLBY AUDIO-DSUR'}
+03:51:50 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":8608,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+03:51:51 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+03:51:51 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":8608,"port":18731,"running":true}}
+03:51:51 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+03:51:52 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},{"id":"helper","on":true,"fallback":"Home draws the last saved weather and news; `helper stop`"},{"id":"preload","on":true,"fallback":"`preload off` restores LG's list from preload.orig"},{"id":"compositor","on":false,"fallback":"the supervisor falls back by itself; `compositor off`, revert, or hold Home"}]}
+03:51:52 layout: e194fda89ba7219fb08c389b1c92573db64de9178272cd948c3a41ada336a6a2  /var/lib/lumatv/theme/layout.json
+03:51:52 ports: AdecPortNum=0 | Open=0 | Connect=UNKNOWN | Start=0 | AdecPortNum=1 | Open=0 | Connect=UNKNOWN | Start=0
+03:52:13 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-slot1
+03:52:13 before: {"ok":true,"version":"0.4.0"} | 4e61cf58e7f9b0f1eb61ef247d52e0be  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | 7b8ec39ae1384496f067068035a065d1  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+03:52:13 power Screen Saver fg com.webos.app.home picture filmMaker
+03:52:17 ipk put: -rw-r--r--    1 root     root      38953496 Oct 26 03:52 /tmp/lumatv.ipk | da345b3bc410320d02768ae5ac4f13e984ed7b56d1e3ec94565d27996e9af59d  /tmp/lumatv.ipk
+03:52:18 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+03:52:21 app dir helper sha matches ipk: True after 8 s
+03:52:39 apply (25 s): {"ok":true,"applied":true,"mounts":1,"took":18}
+03:52:47 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+03:52:47 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+03:52:47 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":15970,"port":18731,"running":true}}
+03:52:48 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":true,"unsettled":false,"failures":0,"lastFallback":"hold Home 650 ms","smLog":"00:13:48 recover: librdx reports swept; remaining 0"}}
+03:52:48 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+03:52:48 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"voice","on":false,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG's Search app returns"},{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG's own keyboard view; revert drops the module"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`;
+03:52:51 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"16/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+03:52:51 helper log tail: 2026-10-26T07:52:30Z INFO  screen: Screen Saver (on)
+2026-10-26T07:52:30Z INFO  listening on 127.0.0.1:18731 (api 1)
+2026-10-26T07:52:30Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T07:52:30Z INFO  preload: 14 apps kept from preloading
+2026-10-26T07:52:35Z INFO  screen: Active (on)
+03:52:51 foreground: com.webos.app.home power Active picture filmMaker
+03:52:51 compositor log since install: 2026-10-26T07:52:21.217023Z [12909.347570240] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/lumatv/panels/AppsGrid.qml:171: TypeError: Cannot read property 'sub' of undefined
+2026-10-26T07:52:33.865500Z [12921.996046260] user.info surface-manager [] surface-manager LSM {} onCompleted, [LumaOverlay] loaded
+2026-10-26T07:52:34.231771Z [12922.362318740] user.warning surface-manager [] surface-manager LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+2026-10-26T07:52:34.233810Z [12922.364356020] user.warning surface-manager [] surface-manager LSM {} refresh, [Dock] launchPointsList parse failed: SyntaxError: JSON.parse: Parse error
+2026-10-26T07:52:34.447007Z [12922.577555700] user.info surface-manager [] surface-manager LSM {} onCompleted, [LumaHome] loaded, first beat written
+2026-10-26T07:52:34.973110Z [12923.103652500] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:29:5: Unable to assign [undefined] to QString
+2026-10-26T07:52:34.973215Z [12923.103757240] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:28:5: Unable to assign [undefined] to QString
+2026-10-26T07:52:34.973312Z [12923.103854380] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:27:5: Unable to assign [undefined] to QString
+2026-10-26T07:52:34.973414Z [12923.103955880] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:26:5: Unable to assign [undefined] to QString
+2026-10-26T07:52:34.973515Z [12923.104057380] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/qml/WebOSCompositor/views/StarfishKeyboardView.qml:230:9: Unable to assign [undefined] to bool
+2026-10-26T07:52:34.973634Z [12923.104176080] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:73: TypeError: Cannot read property 'normal600' of undefined
+2026-10-26T07:52:34.973736Z [12923.104278340] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:72: TypeError: Cannot read property 'normal600' of undefined
+2026-10-26T07:52:34.973836Z [12923.104378020] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:71: TypeError: Cannot read property 'normal400' of undefined
+2026-10-26T07:52:34.973934Z [12923.104476160] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/RemoteUserList/RemoteUserListStyle.qml:70: TypeError: Cannot read property 'normal400' of undefined
+2026-10-26T07:52:34.974155Z [12923.104696900] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qml/WebOSComposito
+03:52:51 end (38 s)
+03:53:17 launch com.webos.app.hdmi2: {
+    "returnValue": true
+}
+03:53:24 HDMI before restart: fg=com.webos.app.hdmi2 receiver={'mute': False, 'volumeText': '0', 'input': 'MPLAY', 'signal': 'PCM', 'soundMode': 'MCH STEREO'} ports=AdecPortNum=0
+Open=0
+Connect=UNKNOWN
+Start=0
+UserCodec=UNKNOWN
+CurCodec=UNKNOWN
+SrcCodec=UNKNOWN
+SrcBitrate=0
+SrcSamplingRate=0
+SrcChannel=0
+OutputCodec=PCM
+OutputChannel=0
+PTS=0
+Language=0
+DolbyDRCMode=LINE
+DownmixMode=LORO
+SyncMode=0
+TrickMode=NONE
+DualmonoMode=LR
+Gain=0x800000
+Mute=0
+Delay=0
+Audio Description=0
+EaseGain=0
+EaseDuration=0
+DefaultPRL=0
+Overflow=0
+
+AdecPortNum=1
+Open=1
+Connect=HDMI_PORT2
+Start=1
+UserCodec=PCM
+CurCodec=UNKNOWN
+SrcCodec=UNKNOWN
+SrcBitrate=0
+SrcSamplingRate=0
+SrcChannel=0
+OutputCodec=PCM
+OutputChannel=0
+PTS=0
+Language=0
+DolbyDRCMode=LINE
+DownmixMode=LTRT
+SyncMode=1
+TrickMode=NONE
+DualmonoMode=LR
+Gain=0x800000
+Mute=0
+Delay=0
+Audio Description=0
+EaseGain=0
+EaseDuration=0
+DefaultPRL=2147483647
+Overflow=0
+
+ 
+03:53:29 restart: {"ok":true}
+03:53:35 after restart: fg=com.webos.app.home receiver={'mute': False, 'volumeText': '0', 'input': 'TV', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'} inputs={"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
+03:53:35 launch com.webos.app.home: {
+    "returnValue": true
+}
+03:54:27 launch netflix: {
+    "returnValue": true
+}
+03:54:42 capture netflix-title: {
+    "capturedHeight": 540,
+    "writtenBytes": 71787,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+03:54:49 Netflix +5s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '65', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fU6SNc3p7BDiOl",
+            "windowId": "_Window_Id_2"
+        }
+    ]
+}
+03:54:55 Netflix +10s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '65', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fU6SNc3p7BDiOl",
+            "windowId": "_Window_Id_2"
+        }
+    ]
+}
+03:55:01 Netflix +15s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '65', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fU6SNc3p7BDiOl",
+            "windowId": "_Window_Id_2"
+        }
+    ]
+}
+03:55:07 Netflix +20s: picture={'subscribed': False, 'category': 'picture', 'method': 'getSystemSettings', 'dimension': {'dynamicRange': 'dolbyHdr', 'input': 'default'}, 'settings': {'pictureMode': 'dolbyHdrCinema'}, 'returnValue': True} receiver={'mute': True, 'volumeText': '65', 'input': 'TV', 'signal': 'Dolby Atmos - DD+', 'soundMode': 'DOLBY ATMOS'} media={
+    "subscribed": false,
+    "returnValue": true,
+    "foregroundAppInfo": [
+        {
+            "appId": "netflix",
+            "playState": "playing",
+            "type": "media",
+            "mediaId": "_fU6SNc3p7BDiOl",
+            "windowId": "_Window_Id_2"
+        }
+    ]
+}
+03:55:08 capture netflix-playing: {
+    "capturedHeight": 540,
+    "writtenBytes": 10496,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+03:55:19 capture netflix-mute-hop: {
+    "capturedHeight": 540,
+    "writtenBytes": 18627,
+    "returnValue": true,
+    "capturedWidth": 960
+}
+03:55:19 close netflix: {
+    "appId": "netflix",
+    "returnValue": true
+}
+03:55:19 launch com.webos.app.home: {
+    "returnValue": true
+}
+03:55:23 Netflix complete: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
+03:56:10 receiver restore via half-step: {'mute': False, 'volumeText': '65.5', 'input': 'TV', 'signal': 'Dolby Atmos', 'soundMode': 'DOLBY ATMOS'}
