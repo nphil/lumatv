@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   box and input lock prompts (`lumatv inputcommon on|off`, which also sets LG's CRIU dump
   of the input app aside so it starts cold), and the on-screen keyboard's open and close
   motion (`lumatv keyboard on|off`). Both patches fail loudly when LG changes the code.
+- GeForce NOW app (`org.nphil.lumatv.gfn`, its own ipk): OpenNOW's engine and core on the
+  TV with the stream on the video plane through LG's NDL DirectMedia (4K120 HEVC Main10
+  HDR10, low-delay game mode), controllers read from evdev with grab and rumble, and a
+  Lucent UI (sign-in by device code, library, launch, in-stream overlay).
 - Settings and every custom screen: words are never cut, crammed, moved by focus or
   unreadable. The settings service's partial answers are read (OLED pixel brightness and
   Energy saving are live again; a key the TV lacks hides its row), focus lifts the plate
