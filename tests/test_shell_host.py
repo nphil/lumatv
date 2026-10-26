@@ -104,6 +104,21 @@ class KeyPath(HostCase):
         self.assertEqual((got["press_on"], got["release_on"]), ("true", "true"))
         self.assertEqual(launches(got["calls_on"]), ["com.beb.plxnative"])
 
+    def test_the_apps_library_rail_rows_hold_their_words_and_its_clock_is_read_when_it_opens(self):
+        find = ("function find(p, k) { if (p[k] !== undefined && p.children !== undefined) return p; for (var i = 0; i < p.children.length; i++) "
+                "{ var f = find(p.children[i], k); if (f) return f } return null } ")
+        rows = ("function rows(p, out) { if (p.detail !== undefined && p.tileAccent !== undefined && p.implicitHeight !== undefined) out.push(p); "
+                "for (var i = 0; i < p.children.length; i++) rows(p.children[i], out); return out } ")
+        probe = ("(function(){ " + find + rows + "var a = find(root, 'inGrid'); var out = []; rows(a, out); "
+                 "return [out.length, out.filter(function(r) { return r.parent.height < r.implicitHeight }).length, "
+                 "out.filter(function(r) { return r.detail.indexOf(',') >= 0 }).length, Date.now() - a.clock.getTime()].join('/') })()")
+        got, _ = self.run_host([(0, do("root.openApps()"), "open"), (800, probe, "rail")], 1400)
+        n, overflow, lists, age = (int(x) for x in got["rail"].split("/"))
+        self.assertGreaterEqual(n, 4)
+        self.assertEqual(overflow, 0, "a rail row is taller than the slot it sits in, so it runs into the next row")
+        self.assertEqual(lists, 0, "a list of titles wraps to a second line in the rail")
+        self.assertLess(age, 2000, "the bar's clock is the page's build time")
+
     def test_the_gear_hold_opens_the_notification_drawer_from_wherever_home_is_and_a_second_hold_closes_it(self):
         got, _ = self.run_host([
             (0, "root.gearReady()", "ready"), (50, "root.gearHold()", "held"), (900, STATE, "open"), (1000, "root.gearHold()", "again"), (1400, STATE, "closed"),

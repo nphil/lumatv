@@ -56,6 +56,12 @@ def wrapped(name, body):
 # the pages that read a luna service when they are opened, opened first so that the reads have come back by the probes below
 probe("open_clock", "root.openPage('clock');return 1", wait=400)
 
+# the HDMI rows name their port in the label (the second line is the reason a row is dimmed, so a port named there was lost on the set)
+probe("hdmi_labels", "var p=root.pageItem('inputs');return p.rows.map(function(r){return p.ev(r.label)}).filter(function(l){return /4:4:4/.test(l)})")
+# the Time & Date row shows the clock of the moment the page is shown: the page is built at start and the probes come seconds later
+probe("system_open", "root.openPage('system');return 1", wait=400)
+probe("system_clock", "var p=root.pageItem('system');return {age:Date.now()-p.now.getTime(),text:p.clockText()}")
+
 # ---- Accessibility and captions
 probe("display_switches",
       FIND % "system" + "R('Text with High Contrast').act(true);R('Grayscale').act(true);var g1=p.ev(R('Grayscale').on);R('Invert Colors').act(true);"
@@ -370,6 +376,13 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("bt_hid_rows")["res"], [["Registered Devices (1)", ""], ["Wireless Controller", ""], ["Connectable Devices (0)", ""], ["Search", ""]])
         found = self.probe("bt_hid_found")
         self.assertEqual([c["payload"] for c in found["calls"] if c["method"] == "/requestConnect"], [{"name": "Keyboard K380", "address": "11:22:33:00:00:02"}])
+    def test_the_hdmi_rows_name_their_port_and_the_empty_bluetooth_slots_are_not_devices(self):
+        self.assertEqual(self.probe("hdmi_labels")["res"], ["4:4:4 Pass Through (HDMI %d)" % n for n in (1, 2, 3, 4)])
+
+    def test_the_time_and_date_row_reads_the_clock_when_the_page_is_shown(self):
+        d = self.probe("system_clock")["res"]
+        self.assertLess(d["age"], 2000, "the row showed the clock of an earlier moment: %s" % d)
+
         self.assertIn(["Keyboard K380", "Connected"], self.probe("bt_hid_paired")["res"])
 
     def test_a_device_is_deleted_only_after_the_question_is_answered_yes(self):

@@ -38,7 +38,8 @@ PageList {
 
     // the clock as the Time & Date row shows it (it moves on every half minute while the page is up) and a timer as its row shows it
     property var now: new Date()
-    Timer { interval: 30000; running: page.visible; repeat: true; onTriggered: page.now = new Date() }
+    // triggeredOnStart: the page is built long before it is shown (it read the build time on the set), so it reads the clock when it is shown
+    Timer { interval: 30000; running: page.visible; repeat: true; triggeredOnStart: true; onTriggered: page.now = new Date() }
     function clockText() { var h = now.getHours() % 12; return (h === 0 ? 12 : h) + ":" + (now.getMinutes() < 10 ? "0" : "") + now.getMinutes() + (now.getHours() < 12 ? " AM" : " PM") }
     function timerText(w) {
         if (String(Sio.get("time." + w + "TimerEnable")) !== "on") return "Off"

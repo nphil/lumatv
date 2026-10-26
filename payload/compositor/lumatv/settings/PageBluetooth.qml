@@ -43,7 +43,12 @@ PageList {
         } else {
             var l = doc.deviceLists || {}
             var keys = Object.keys(l).sort()
-            for (var k = 0; k < keys.length; k++) out.push({ address: l[keys[k]].deviceAddr, name: l[keys[k]].deviceName, state: l[keys[k]].isConnected ? "connected" : "disconnected", connected: !!l[keys[k]].isConnected })
+            // the service answers one entry for each of its slots: an empty one is "Not Paired" with the address "N/A"
+            for (var k = 0; k < keys.length; k++) {
+                var e = l[keys[k]]
+                if (e.isPaired === false || !e.deviceAddr || e.deviceAddr === "N/A") continue
+                out.push({ address: e.deviceAddr, name: e.deviceName, state: e.isConnected ? "connected" : "disconnected", connected: !!e.isConnected })
+            }
         }
         paired = out
         if (busy !== "") for (var b = 0; b < out.length; b++) if (out[b].address === busy && out[b].connected) busy = ""

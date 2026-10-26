@@ -92,7 +92,7 @@ function act(path, params) {
 var bt = {
     audio: { paired: [{ address: "AA:BB:CC:00:00:01", name: "Living Room Headphones", state: "disconnected", display: true }],
              found: [{ address: "AA:BB:CC:00:00:02", name: "Kitchen Speaker" }] },
-    hid: { paired: [{ deviceAddr: "11:22:33:00:00:01", deviceName: "Wireless Controller", deviceType: "gamepad", isConnected: false }],
+    hid: { paired: [{ deviceAddr: "11:22:33:00:00:01", isPaired: true, deviceName: "Wireless Controller", deviceType: "gamepad", isConnected: false }],
            found: [{ address: "11:22:33:00:00:02", name: "Keyboard K380" }] }
 };
 function btAudio(path, p) {
@@ -119,7 +119,7 @@ function btHid(path, p) {
     if (path === "requestConnect") {
         i = at(p.address);
         if (i < 0) {
-            h.paired.push({ deviceAddr: p.address, deviceName: p.name, deviceType: "keyboard", isConnected: true });
+            h.paired.push({ deviceAddr: p.address, isPaired: true, deviceName: p.name, deviceType: "keyboard", isConnected: true });
             h.found = h.found.filter(function(x) { return x.address !== p.address; });
         } else h.paired[i].isConnected = true;
     } else if (path === "requestDisconnect" || path === "requestDelete") {
@@ -180,8 +180,9 @@ var services = {
     },
     "luna://com.webos.service.btaudiosrc/getDeviceStatus": { returnValue: true, subscribed: true, state: "idle" },
     "luna://com.webos.service.bthidmanager/getPairedDeviceLists": function() {
-        var l = {};
-        for (var i = 0; i < bt.hid.paired.length; i++) l["device" + i] = bt.hid.paired[i];
+        // the TV's own shape: an array with one entry for each of its four slots, the empty ones "Not Paired" with the address "N/A"
+        var l = bt.hid.paired.slice();
+        while (l.length < 4) l.push({ deviceAddr: "N/A", isPaired: false, deviceName: "Not Paired", isConnected: false, deviceType: "N/A", pairedTime: "0000/00/00, 00:00:00" });
         return { returnValue: true, deviceLists: l };
     },
     "luna://com.webos.service.bthidmanager/subscribeDevicesStatus": { returnValue: true, subscribed: true, status: "disconnected" },

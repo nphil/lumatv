@@ -53,8 +53,8 @@ Item {
         for (var k = 0; k < kinds.length; k++) {
             var mine = shown.filter(function(a) { return page.categoryOf(a) === kinds[k] })
             if (!mine.length) continue
-            var titles = mine.slice(0, 3).map(function(a) { return a.title })
-            out.push({ id: kinds[k], title: names[kinds[k]], sub: mine.length > 3 || kinds[k] === "streaming" ? mine.length + (mine.length === 1 ? " app" : " apps") : titles.join(", ") })
+            // a count, not the names: three titles wrapped to a second line and ran into the next row on the set
+            out.push({ id: kinds[k], title: names[kinds[k]], sub: mine.length + (mine.length === 1 ? " app" : " apps") })
         }
         var dock = shown.filter(function(a) { return a.onDock })
         out.push({ id: "dock", title: "On the dock", sub: dock.length + " tiles \u00b7 reorder here" })
@@ -125,11 +125,12 @@ Item {
             x: parent.width - width - Lu.space(6); anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(5)
             LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "wifi"; size: 28; color: Lu.ink2 }
             LuIcon { anchors.verticalCenter: parent.verticalCenter; name: "mouse-pointer-2"; size: 28; color: Lu.ink2 }
-            LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; color: Lu.ink2; text: Qt.formatTime(clock.now, "h:mm AP") }
+            LuText { anchors.verticalCenter: parent.verticalCenter; role: "label"; color: Lu.ink2; text: Qt.formatTime(page.clock, "h:mm AP") }
         }
     }
-    QtObject { id: clock; property date now: new Date() }
-    Timer { interval: 15000; running: page.visible; repeat: true; onTriggered: clock.now = new Date() }
+    property date clock: new Date()
+    // triggeredOnStart: the page is built long before it is shown, so the clock has to be read again when it is
+    Timer { interval: 15000; running: page.visible; repeat: true; triggeredOnStart: true; onTriggered: page.clock = new Date() }
 
     // ---- the rail
     LuPane {
@@ -142,8 +143,9 @@ Item {
                 delegate: Item {
                     readonly property var r: page.rail[index]
                     visible: r.id !== "hidden"
-                    width: parent.width; height: visible ? 80 : 0
+                    width: parent.width; height: visible ? Math.max(80, railRow.implicitHeight) : 0      // a detail that wraps grows its row
                     LuRow {
+                        id: railRow
                         anchors.fill: parent
                         icon: page.icons[r.id] || "layout-grid"
                         label: r.title
@@ -162,9 +164,10 @@ Item {
         // Hidden is the last entry of the rail and sits at the foot of it
         Item {
             visible: page.hiddenApps.length > 0
-            x: 16; y: parent.height - 20 - 80; width: parent.width - 32; height: 80
+            x: 16; y: parent.height - 20 - height; width: parent.width - 32; height: Math.max(80, hiddenRow.implicitHeight)
             readonly property int at: page.rail.length - 1
             LuRow {
+                id: hiddenRow
                 anchors.fill: parent
                 icon: "eye-off"
                 label: "Hidden"
