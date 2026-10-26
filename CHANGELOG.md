@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The gear tap and the Input key open LumaTV's quick panel (tall, docked at the left where
   LG's sat, sliding out of the edge) and input picker, on Home and over apps; LG's own
   stay one button away and take over whenever LumaTV cannot show its own.
+- Home widgets: Settings > Home & look > Home widgets (show, hide, size, order, reset), an
+  on-TV layout editor (hold OK on a card), and Clock, Weather, News and At-home cards that
+  use the room they get; `lumatv layout` writes the owner's layout file.
 - Helper: Bluetooth proxy for Home Assistant. The TV answers as an ESPHome Bluetooth
   proxy (passive scanning, raw advertisements, encrypted API, mDNS) fed by LG's bluetooth2
   `le/startScan`; off until the owner runs `lumatv-helper ble-link`, scans in windows of
