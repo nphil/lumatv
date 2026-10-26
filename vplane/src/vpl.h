@@ -34,7 +34,8 @@ typedef struct {
     int clock;           /* the corner clock is drawn */
     int twelveHour;      /* 12 hour face, no leading zero */
     int drift;           /* the picture drifts (the window moves) */
-    int overlay;         /* 1 the window carries the veil and the clock, 0 it carries nothing */
+    int overlay;         /* 1 the window carries the veil, the caption and the clock, 0 it carries nothing (the shell draws them above the picture) */
+    int autoChange;      /* 1 the player turns to the next print every everyMin, 0 only when it is asked to (`next`) */
     int caption;         /* the print's caption is drawn (the art mode's `caption` switch) */
     uint32_t ink;        /* the caption's artist name, 0xRRGGBB, and its alpha 0..255 (the QML's ink at 0.7) */
     int inkAlpha;

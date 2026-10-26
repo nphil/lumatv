@@ -102,6 +102,7 @@ void vpl_params_default(vpl_params *p) {
     p->twelveHour = 1;
     p->drift = 1;
     p->overlay = 1;
+    p->autoChange = 1;
     p->caption = 1;
     p->ink = 0xF2EFF6;                    /* theme.json dark.ink and ink2 at the QML's 0.7 opacity: ink2 itself is at alpha A8 */
     p->inkAlpha = 178;
@@ -129,6 +130,7 @@ static void params_from(vpl_params *p, const char *j, size_t n) {
     p->twelveHour = vj_bool(j, n, "twelveHour", p->twelveHour);
     p->drift = vj_bool(j, n, "drift", p->drift);
     p->overlay = vj_bool(j, n, "overlay", p->overlay);
+    p->autoChange = vj_bool(j, n, "auto", p->autoChange);
     p->caption = vj_bool(j, n, "caption", p->caption);
     char ink[16];
     if (vj_str(j, n, "ink", ink, sizeof ink) == 7 && ink[0] == '#') p->ink = (uint32_t)strtoul(ink + 1, NULL, 16) & 0xFFFFFF;
@@ -191,6 +193,8 @@ struct player {
     int64_t next_move_ms, next_change_ms, phase_ms, next_veil_ms, next_clock_ms;
     int phase;                     /* 0 steady, 1 fading out, 2 held black, 3 fading in */
     int switched;                  /* the new print has been taken during this hold */
+    int change_now;                /* a `next` request: turn the page at the next step */
+    int want_clip;                 /* ... to this clip (an index), or -1 for the next in the order */
     int veil;                      /* the veil's alpha now */
     int dx, dy;
     char clock_text[16];
@@ -450,6 +454,8 @@ static void begin(struct player *p, const char *req, size_t n) {
     p->next_clock_ms = now;
     p->phase = 0;
     p->veil = 0;
+    p->change_now = 0;
+    p->want_clip = -1;
     p->clock_text[0] = 0;
     vpl_say("opening: window %s as %s, clip %s (%ux%u, %u units), %d clips", p->window_id, p->o.window, p->names[p->cur], p->clip.width, p->clip.height, p->clip.count, p->nclips);
     write_status(p);
@@ -590,7 +596,8 @@ static void to_phase(struct player *p, int phase, int64_t now) {
 }
 
 static void switch_print(struct player *p) {
-    int next = vpl_order_next(&p->order, p->prm.shuffle, &p->rng);
+    int next = p->want_clip >= 0 ? p->want_clip : vpl_order_next(&p->order, p->prm.shuffle, &p->rng);
+    p->want_clip = -1;
     char err[300];
     if (next >= 0 && open_clip(p, next, err, sizeof err) == 0) {
         p->order.current = next;
@@ -603,11 +610,12 @@ static void switch_print(struct player *p) {
 
 static void step_change(struct player *p, int64_t now) {
     if (p->phase == 0) {
-        if (p->nclips > 1 && now >= p->next_change_ms) {
+        if (p->nclips > 1 && (p->change_now || (p->prm.autoChange && now >= p->next_change_ms))) {
+            p->change_now = 0;
             if (p->prm.overlay) {
                 to_phase(p, 1, now);
                 p->switched = 0;
-            } else {                                              /* no veil to fade with: a cut */
+            } else {                                              /* no veil to fade with: a cut (the shell, which has the veil, asked for it) */
                 switch_print(p);
                 p->next_change_ms = now + every_ms(&p->prm);
             }
@@ -674,7 +682,14 @@ static void handle_request(struct player *p, const char *req, size_t n) {
     } else if (!strcmp(op, "status")) {
         write_status(p);                                      /* a fresh reading (the tests, and the TV steps, ask for one) */
     } else if (!strcmp(op, "next")) {
-        if (p->st == ST_PLAYING) p->next_change_ms = 0;
+        if (p->st == ST_PLAYING) {
+            char c[64];
+            p->want_clip = -1;
+            if (vj_str(req, n, "clip", c, sizeof c) > 0)
+                for (int i = 0; i < p->nclips; i++)
+                    if (!strcmp(p->names[i], c)) p->want_clip = i;
+            p->change_now = 1;
+        }
     } else if (!strcmp(op, "stop")) {
         if (p->st != ST_IDLE) to_idle(p, "stopped");
         else write_status(p);
@@ -713,7 +728,7 @@ static int64_t next_wake_us(struct player *p, int64_t now_ms) {
         SOONER(p->next_move_ms * 1000);
         SOONER(p->next_veil_ms * 1000);
         SOONER(p->next_clock_ms * 1000);
-        if (!p->phase) SOONER(p->next_change_ms * 1000);
+        if (!p->phase && p->prm.autoChange) SOONER(p->next_change_ms * 1000);
         if (p->st == ST_OPENING) SOONER((p->open_ms + p->o.open_timeout_ms) * 1000);
         if (p->once_end_ms) SOONER(p->once_end_ms * 1000);
     } else if (p->st == ST_ERROR) {

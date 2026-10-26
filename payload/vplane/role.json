@@ -1,0 +1,20 @@
+{
+  "exeName": "@EXE@",
+  "type": "regular",
+  "allowedNames": [
+    "com.webos.rm.client.*",
+    "com.webos.media.client.*"
+  ],
+  "permissions": [
+    {
+      "service": "com.webos.rm.client.*",
+      "inbound": ["com.webos.media"],
+      "outbound": ["com.webos.media"]
+    },
+    {
+      "service": "com.webos.media.client.*",
+      "inbound": ["com.webos.media"],
+      "outbound": ["com.webos.media"]
+    }
+  ]
+}

@@ -65,9 +65,9 @@ def synthetic_clip(path, units=30, key=3000, other=150, fps=60, w=W, h=H, codec=
 class Rig:
     """A player, a compositor and a library stand-in, each in its own temporary place."""
 
-    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False):
+    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False, mailbox=None):
         self.tmp = tempfile.mkdtemp(prefix="vplane-test-")
-        self.mb = os.path.join(self.tmp, "mb")
+        self.mb = mailbox or os.path.join(self.tmp, "mb")      # (the saver's own tests put it where the saver looks)
         self.clipdir = os.path.join(self.tmp, "clips")
         os.makedirs(self.clipdir)
         self.units = []
@@ -746,6 +746,37 @@ class Player(unittest.TestCase):
         self.assertTrue(r.wait_state("playing"))
         self.assertEqual(r.status()["clip"], "clip2")
         self.assertEqual(r.plays()[0][0], 5000)
+
+    def test_a_next_request_can_name_the_print_and_an_unknown_name_is_the_next_in_the_order(self):
+        r = self.rig(clip_keys=(3000, 4000, 5000), units=20)
+        r.send("start", fadeMs=100, clock=False, shuffle=False, auto=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        r.send("next", clip="clip2")
+        self.assertTrue(r.wait(lambda: 5000 in [s for s, _ in r.plays()], 3))
+        self.assertEqual(r.fresh()["clip"], "clip2")
+        self.assertNotIn(4000, [s for s, _ in r.plays()], "the print in between was never shown")
+        r.send("next", clip="no-such-print")
+        self.assertTrue(r.wait(lambda: [s for s, _ in r.plays() if s in (3000, 4000, 5000)][-1] == 3000, 3), "after the last, the first")
+        self.assertEqual(r.fresh()["clip"], "clip0")
+
+    def test_a_player_told_not_to_turn_pages_never_does_it_by_itself(self):
+        r = self.rig(clip_keys=(3000, 4000), units=20)
+        r.send("start", everyMs=300, fadeMs=100, clock=False, shuffle=False, auto=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        time.sleep(1.5)
+        self.assertEqual({s for s, _ in r.plays() if s in (3000, 4000)}, {3000}, "one print for as long as nobody asks for another")
+        self.assertEqual(r.status()["phase"], 0)
+        r.send("next")
+        self.assertTrue(r.wait(lambda: 4000 in [s for s, _ in r.plays()], 3))
+
+    def test_without_the_overlay_a_named_next_is_a_cut(self):
+        r = self.rig(clip_keys=(3000, 4000, 5000), units=20)
+        r.send("start", overlay=False, auto=False, clock=False, shuffle=False, ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"))
+        r.send("next", clip="clip2")
+        self.assertTrue(r.wait(lambda: 5000 in [s for s, _ in r.plays()], 3))
+        self.assertEqual(r.fresh()["clip"], "clip2")
+        self.assertEqual({argb(g[2], g[0], 5, 5)[0] for t, s, g in r.fc.commits if g}, {0}, "no veil: the shell has its own")
 
     def test_the_corner_clock_is_dropped_quietly_when_there_is_no_atlas(self):
         r = self.rig(glyphs=False)
