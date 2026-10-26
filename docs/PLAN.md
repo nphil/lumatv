@@ -941,7 +941,11 @@ above replaces it).
    to see; the choice among the options is the owner's (`logo.on`, `logo.off` in
    `theme.json`; option 1 is the default).
 6. Restyles in other processes: Live TV banners, keyboard, search and voice,
-   the shared web-app theme.
+   the shared web-app theme. Built offline, not yet seen on the TV (TV check in
+   `docs/research/lg-restyles-result.md`): the input and channel banners, INFO
+   cards, no-signal screen, banner position editor and prompts (`lumatv
+   inputcommon on|off`), and the keyboard window's motion (`lumatv keyboard
+   on|off`). Still to do, for want of source: maliit's keys and LG's Search app.
 7. Removal: nudges, ads and store promotions off; LG's telemetry, ad and
    app-push services removed outright, not only stopped, with two reversible
    profiles, `ads` and `lean`, that trim webOS to what it needs (Nitin,
