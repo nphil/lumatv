@@ -818,11 +818,43 @@ static void handle_line(char *line) {
     }
 }
 
+// The reason a child's end gives: its exit code or the signal that killed it.
+static void child_end_reason(int status, char *out, size_t outsz) {
+    if (WIFEXITED(status)) snprintf(out, outsz, "compositor exited with %d", WEXITSTATUS(status));
+    else snprintf(out, outsz, "compositor killed by signal %d", WTERMSIG(status));
+}
+
+// The kernel closes a dying process's sockets before the process can be reaped, so the bridge's hang-up reaches this
+// loop ahead of the child watch: a `kill -9` read "compositor closed the bridge socket" (gate 8's wd-crash). The child
+// is given BRIDGE_REAP_MS to become reapable; `true` with its exit status as the reason when it was, `false` for a
+// compositor still alive (it closed the socket itself, and the bridge's own words stay the reason).
+#define BRIDGE_REAP_MS 300
+static bool reap_child_within(int ms, char *reason, size_t reasonsz) {
+    if (child_pid <= 0) return false;
+    for (int waited = 0;; waited += 5) {
+        int status;
+        pid_t r = waitpid(child_pid, &status, WNOHANG);
+        if (r == child_pid) {
+            child_pid = 0;
+            child_end_reason(status, reason, reasonsz);
+            return true;
+        }
+        if (r < 0 || waited >= ms) return false;
+        usleep(5000);
+    }
+}
+
+static void bridge_gone(const char *what) {
+    char reason[128];
+    if (!reap_child_within(BRIDGE_REAP_MS, reason, sizeof reason)) snprintf(reason, sizeof reason, "%s", what);
+    fallback(reason, true);
+}
+
 static gboolean on_bridge_readable(GIOChannel *ch, int cond, gpointer data) {
     (void)ch; (void)data;
-    if (cond & (G_IO_HUP | G_IO_ERR)) { fallback("compositor closed the bridge socket", true); return 0; }
+    if (cond & (G_IO_HUP | G_IO_ERR)) { bridge_gone("compositor closed the bridge socket"); return 0; }
     ssize_t n = read(bridge_fd, inbuf + inlen, sizeof inbuf - inlen - 1);
-    if (n <= 0) { fallback("bridge read ended", true); return 0; }
+    if (n <= 0) { bridge_gone("bridge read ended"); return 0; }
     inlen += n;
     inbuf[inlen] = 0;
     char *start = inbuf, *nl;
@@ -874,8 +906,7 @@ static void on_child(int pid, int status, gpointer data) {
     if (pid != child_pid) return;
     child_pid = 0;
     char reason[128];
-    if (WIFEXITED(status)) snprintf(reason, sizeof reason, "compositor exited with %d", WEXITSTATUS(status));
-    else snprintf(reason, sizeof reason, "compositor killed by signal %d", WTERMSIG(status));
+    child_end_reason(status, reason, sizeof reason);
     fallback(reason, true);
 }
 
@@ -1676,6 +1707,56 @@ static void test_log_rotation(void) {
     CHECK(!has("sm.log") && has("sm.log.old"));
 }
 
+// The bridge's hang-up of a compositor that crashed: the reason is the reaped status, not the socket. A child holding
+// one end of a socketpair is killed with SIGKILL (the gate's wd-crash), the hang-up is seen first, then the reaping.
+static pid_t bridge_child(int sv[2], int how) {
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+    pid_t p = fork();
+    if (p == 0) {
+        close(sv[0]);
+        if (how == 1) close(sv[1]);                                      // alive, its end of the bridge closed
+        if (how == 2) _exit(3);
+        for (;;) pause();
+    }
+    close(sv[1]);
+    return p;
+}
+
+static bool hung_up(int fd) {
+    struct pollfd p = { .fd = fd, .events = POLLIN };
+    return poll(&p, 1, 2000) == 1 && (p.revents & (POLLHUP | POLLIN));
+}
+
+static void test_bridge_gone(void) {
+    int sv[2];
+    char reason[128] = "";
+    child_pid = bridge_child(sv, 0);
+    kill(child_pid, SIGKILL);
+    CHECK(hung_up(sv[0]));
+    CHECK(reap_child_within(BRIDGE_REAP_MS, reason, sizeof reason));
+    CHECK(!strcmp(reason, "compositor killed by signal 9") && child_pid == 0);
+    close(sv[0]);
+
+    reason[0] = 0;
+    child_pid = bridge_child(sv, 2);
+    CHECK(hung_up(sv[0]));
+    CHECK(reap_child_within(BRIDGE_REAP_MS, reason, sizeof reason));
+    CHECK(!strcmp(reason, "compositor exited with 3") && child_pid == 0);
+    close(sv[0]);
+
+    // Alive after closing its end: not reaped, the reason left to the bridge's words, the child still supervised.
+    reason[0] = 0;
+    pid_t alive = bridge_child(sv, 1);
+    child_pid = alive;
+    CHECK(hung_up(sv[0]));
+    CHECK(!reap_child_within(50, reason, sizeof reason));
+    CHECK(child_pid == alive && reason[0] == 0);
+    kill(alive, SIGKILL);
+    waitpid(alive, NULL, 0);
+    child_pid = 0;
+    close(sv[0]);
+}
+
 int main(void) {
     test_json();
     test_decide();
@@ -1685,6 +1766,7 @@ int main(void) {
     test_control_query();
     test_home();
     test_input_reads();
+    test_bridge_gone();
     test_log_rotation();
     for (int i = 0; i < nmade; i++) { char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", made[i]); if (system(cmd) != 0) failures_seen++; }
     printf("lumatv-sm json tests: %s\n", failures_seen ? "FAILED" : "ok");
