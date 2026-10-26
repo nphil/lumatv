@@ -62,7 +62,7 @@ Item {
     LuPane {
         id: sheet
         x: 64; width: 1792
-        height: 404
+        height: Math.max(404, tileRow.y + tileRow.childrenRect.height + Lu.space(6))       // the shape of the mock; taller only when the words need it
         // the one thing that moves: the sheet rises from the bottom edge and fades in (a transform and an opacity; nothing is laid out)
         readonly property real rise: Lu.reduced ? 0 : (height + 64) * (1 - motion.progress)
         y: 1080 - 64 - height + rise
@@ -93,7 +93,9 @@ Item {
                     readonly property var t: picker.tiles[index]
                     readonly property bool focused: picker.index === index
                     width: Math.floor((sheet.width - 2 * Lu.space(7) - (Math.max(picker.tiles.length, 5) - 1) * Lu.space(4)) / Math.max(picker.tiles.length, 5))
-                    height: 264
+                    // the mock's 264, or what its words need (a name that wraps, a larger text size): nothing is drawn over anything
+                    readonly property real need: Lu.space(4) + Math.max(48, portText.height + Lu.space(1)) + (portText.lineCount > 1 ? 44 : 56) + Lu.space(3) + words.height + Lu.space(4)
+                    height: Math.max(264, need)
                     FocusLift { id: lift; focused: tile.focused; rested: picker.rested; reduced: Lu.reduced; duration: Lu.cardMs; easing: Lu.cardEasing }
                     z: focused ? 1 : 0
                     LuHalo { anchors.centerIn: parent; width: parent.width * 1.5; height: parent.height * 1.7; z: -1; on: tile.focused }
@@ -110,6 +112,7 @@ Item {
                     LuIcon { id: soundMark; visible: !!tile.t.sound; x: parent.width - width - Lu.space(4); y: Lu.space(4); name: "volume-2"; size: 26; color: Lu.positive }
                     LuIcon { x: Lu.space(5); y: Lu.space(4) + Math.max(48, portText.height + Lu.space(1)); name: tile.t.icon; size: portText.lineCount > 1 ? 44 : 56; color: tile.t.on ? Lu.ink : Lu.ink2 }
                     Column {
+                        id: words
                         x: Lu.space(5); width: parent.width - 2 * Lu.space(5)
                         y: parent.height - height - Lu.space(4)
                         LuText { width: parent.width; role: "label"; text: tile.t.name; wrapMode: Text.WordWrap }
