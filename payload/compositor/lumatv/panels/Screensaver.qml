@@ -11,7 +11,8 @@ import "../ArtDeck.js" as Deck
 // is `Screen Saver` (`tvpower/power/getPowerState`, which the helper publishes as `screen.state`), which only happens when LG's saver was
 // started anyway; under LG's compositor LG's window is above this one then, under LumaTV's it is below. The owner's options are
 // `theme.screensaver` (Settings › Home & look › Screensaver): `style` clock, art or off; `own` (false: LG's saver is left alone, nothing
-// is voted); `dim`; `glance`; `art.everyMin`, `art.order`, `art.caption`.
+// is voted); `dim`; `glance`; `art.everyMin`, `art.order`, `art.caption`. Nothing here counts idle time: that is LG's timer
+// (`option.screenSaverTimer`, 180 s on this set).
 // The rest of `theme.screensaver` is the burn-in tokens (docs/PLAN.md, Screensaver; docs/mocks/BATCH3.md): `clockLevel`, `artLevel`,
 // `dimTo` over `dimOverMin`, `moveEverySec`, `fadeMs`, `crossfadeMs`, `preloadMs`, `graceMs`, `shiftEverySec`, `standbyHours`.
 //
