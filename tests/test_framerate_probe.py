@@ -254,19 +254,25 @@ VIDEOOUTPUT_LINE = json.dumps({"subscribed": True, "returnValue": True, "video":
     {"sink": "SUB", "frameRate": 0, "muted": False, "connected": False, "appId": "unknown", "contentType": "unknown"}]})
 
 
-def make_samples(t0=1000.0, period=0.05, secs=12.0, switch_at=5.0, mute_from=None, mute_to=None, gap_from=None, gap_to=None):
-    """A run of ticks: the panel vsync (osd_irq) at 120/s, then 100/s from `switch_at`; DE2VSYNC at twice it; optional localmute and vsync gap spans."""
+def make_samples(t0=1000.0, period=0.05, secs=12.0, switch_at=5.0, mute_from=None, mute_to=None, gap_from=None, gap_to=None,
+                 connect_at=0.0, unmute_at=None, close_at=None, at_100=()):
+    """A run of ticks: the panel vsync (osd_irq) at 120/s, then 100/s from `switch_at` and inside each `at_100` span (from, to);
+    DE2VSYNC at twice it; the main window's source connected from `connect_at` until `close_at`, its mute off from `unmute_at`
+    (default `connect_at`); optional localmute and vsync gap spans."""
     rows, de, osd, t = [], 1000, 2000, 0.0
+    unmute_at = connect_at if unmute_at is None else unmute_at
     while t <= secs:
-        hz = 120.0 if t < switch_at else 100.0
+        hz = 100.0 if t >= switch_at or any(a <= t < b for a, b in at_100) else 120.0
         in_gap = gap_from is not None and gap_from <= t < gap_to
         if not in_gap:
             de += int(round(hz * period * 2))
             osd += int(round(hz * period))
         mute = 56 if mute_from is not None and mute_from <= t < mute_to else 0
+        connected = t >= connect_at and (close_at is None or t < close_at)
         rows.append({"t": t0 + t, "up": t0 + t, "irq": {"DE2VSYNC": de, "osd_irq": osd}, "flip": "12",
                      "win0": {"vFreq": 500 if t >= switch_at - 0.04 else 0, "localmute": mute, "lowdelaymode": 0, "hdr_type": 0},
-                     "scaler": {"connect_src": "VDEC", "mute": 0}, "vsync": probe.parse_vsync(VSYNC) if t >= switch_at else [],
+                     "scaler": {"connect_src": "VDEC" if connected else "NONE", "mute": 0 if connected and t >= unmute_at else 1},
+                     "vsync": probe.parse_vsync(VSYNC) if t >= switch_at else [],
                      "vrate": [], "vdisp": [], "vo": [{"flags": ["svp"]}]})
         t = round(t + period, 3)
     return rows
@@ -352,6 +358,14 @@ class Report(unittest.TestCase):
         self.assertEqual((a, b), (120, 100))
         self.assertTrue(1004.7 <= up <= 1005.3, up)
 
+    def test_a_fifth_of_a_second_at_100_hz_shows_as_two_switches(self):
+        # The kernel applies the previous stream's rate at a connect until the new stream's first frame (about 0.2 s in round 11).
+        sw = probe.switches(make_samples(secs=6.0, switch_at=99, at_100=[(3.0, 3.2)]))
+        self.assertEqual([(a, b) for _, a, b in sw], [(120, 100), (100, 120)])
+        self.assertAlmostEqual(sw[0][0], 1003.0, delta=0.1)
+        self.assertAlmostEqual(sw[1][0], 1003.2, delta=0.1)
+        self.assertEqual(probe.switches(make_samples(secs=6.0, switch_at=99)), [])
+
     def test_gaps_and_mutes(self):
         rows = make_samples(secs=8.0, switch_at=99, mute_from=2.0, mute_to=2.3, gap_from=4.0, gap_to=4.2)
         gaps = probe.vsync_gaps(rows)
@@ -397,24 +411,67 @@ class Report(unittest.TestCase):
         keep = probe.shots_to_keep(shots, [1010.0], every=20, around=1.0)
         self.assertEqual(sorted(k for k in keep if k % 20 != 0), [36, 37, 38, 39, 41, 42, 43, 44])
 
-    def test_verdict_names_a_switch_hidden_under_the_app_mute(self):
-        rows = make_samples(t0=27870.0, secs=12.0, switch_at=4.55)      # the switch lands at 27874.55, inside the X4 mute
+    def test_a_switch_at_a_start_before_the_window_is_shown_is_clean(self):
+        # The X4 start: the source connects at 27874.3, videooutputd's mute (the bus) ends at 27874.70 and the scaler's at 27874.75;
+        # the switch lands at 27874.55, before the window is on screen.
+        rows = make_samples(t0=27870.0, secs=12.0, switch_at=4.55, connect_at=4.3, unmute_at=4.75)
         shots = [{"n": i, "up": 27870 + i * 0.25, "bytes": 3000 if 17 <= i <= 19 else 18000} for i in range(48)]
         v = probe.verdict(rows, shots, [{"up": 27875.0, "line": VIDEOOUTPUT_LINE}], MONITOR, [(27870.5, "launch"), (27882.0, "end")])
         self.assertEqual(len(v["switches"]), 1)
         self.assertEqual(v["switches"][0][1:], (120, 100))
+        self.assertEqual(v["switch_where"], ["start"])
         self.assertTrue(v["clean"])
-        self.assertIn("under the app's own video mute", v["words"][0])
+        self.assertIn("at a video start, before its window was shown (shown at 4.75 s)", v["words"][0])
+        self.assertEqual(v["starts"], [(4.75, 4.75, 0.0)])
         self.assertEqual(v["app_video_mute"], [(4.49, 4.7)])
         self.assertEqual(v["marks"], [(0.5, "launch"), (12.0, "end")])
         self.assertEqual(v["black"], [(4.25, 4.75)])
 
-    def test_verdict_fails_on_a_firmware_mute_at_the_switch(self):
-        rows = make_samples(secs=12.0, switch_at=5.0, mute_from=5.0, mute_to=5.4)
-        v = probe.verdict(rows, [], [], [], [])
+    def test_a_switch_in_the_middle_of_playback_fails(self):
+        shots = [{"n": i, "up": 1000 + i * 0.25, "bytes": 18000} for i in range(48)]
+        v = probe.verdict(make_samples(secs=12.0, switch_at=5.0, mute_from=5.0, mute_to=5.4), shots, [], [], [])
         self.assertFalse(v["clean"])
-        self.assertIn("firmware mute yes", v["words"][0])
-        self.assertIn("with the app's video unmuted", v["words"][0])
+        self.assertTrue(v["evidence"])
+        self.assertEqual(v["switch_where"], ["showing"])
+        self.assertIn("WHILE VIDEO WAS SHOWING; firmware mute [(5.0, 5.35, 56)]", v["words"][0])
+        # With no mute at all it still fails: the picture was on screen when the rate changed.
+        v = probe.verdict(make_samples(secs=12.0, switch_at=5.0), shots, [], [], [])
+        self.assertFalse(v["clean"])
+        self.assertIn("WHILE VIDEO WAS SHOWING; firmware mute none", v["words"][0])
+
+    def test_the_helpers_return_with_no_window_is_clean(self):
+        # A 50 fps start (the switch before the window is shown), the window closing at 4.0 with the panel left at 100 Hz, and the
+        # helper's return at 6.0 with no source connected.
+        rows = make_samples(secs=9.0, switch_at=99, connect_at=1.0, unmute_at=1.5, close_at=4.0, at_100=[(1.3, 6.0)])
+        for r in rows:
+            if r["scaler"]["connect_src"] == "VDEC":
+                r["win0"]["vFreq"] = 500
+        shots = [{"n": i, "up": 1000 + i * 0.25, "bytes": 18000} for i in range(36)]
+        v = probe.verdict(rows, shots, [], [], [])
+        self.assertEqual([(a, b) for _, a, b in v["switches"]], [(120, 100), (100, 120)])
+        self.assertEqual(v["switch_where"], ["start", "no window"])
+        self.assertTrue(v["clean"])
+        self.assertIn("with no video window (no source connected)", v["words"][1])
+
+    def test_round_11_reads_as_two_switches_before_the_window_was_shown(self):
+        def run(name):
+            d = os.path.join(ROOT, "docs", "research", "framerate", name)
+            meta = json.loads(probe.read(os.path.join(d, "run.json")) or "{}")
+            return probe.verdict(*(probe.load_jsonl(os.path.join(d, f)) for f in ("samples.jsonl", "shots.jsonl", "videooutput.jsonl",
+                                                                                   "monitor.jsonl")),
+                                 probe.parse_marks(probe.read(os.path.join(d, "marks.txt"))), None, bool(meta.get("protected")))
+        v = run("youtube50-20261026-0424")
+        self.assertEqual([(a, b) for _, a, b in v["switches"]], [(120, 100), (100, 120)])
+        self.assertAlmostEqual(v["switches"][0][0], 6.9, delta=0.1)
+        self.assertAlmostEqual(v["switches"][1][0], 19.69, delta=0.1)
+        self.assertEqual(v["switch_where"], ["start", "start"])
+        self.assertEqual([d for _, _, d in v["starts"]], [0.15, 0.51])
+        self.assertTrue(v["clean"])
+        # LG's start mute at that night's six starts without a switch is what START_MUTE_S says.
+        quiet = [d for name in ("netflix24-20261026-0409", "plex25after24-20261026-0414", "youtube50-20261026-0411",
+                                "youtube50-20261026-0412") for _, _, d in run(name)["starts"]]
+        self.assertEqual(len(quiet), 6)
+        self.assertEqual((min(quiet), max(quiet)), probe.START_MUTE_S)
 
     def test_verdict_without_a_switch(self):
         shots = [{"n": i, "up": 27870 + i * 0.25, "bytes": 18000} for i in range(8)]
@@ -464,7 +521,7 @@ class Report(unittest.TestCase):
     def test_report_writes_summary_and_verdict_and_prunes(self):
         d = tempfile.mkdtemp()
         try:
-            rows = make_samples(secs=12.0, switch_at=5.0)
+            rows = make_samples(secs=12.0, switch_at=5.0, connect_at=4.6, unmute_at=5.3)
             with open(os.path.join(d, "samples.jsonl"), "w") as f:
                 f.write("".join(json.dumps(r) + "\n" for r in rows))
             shots = [{"n": i, "up": 1000 + i * 0.25, "bytes": 18000} for i in range(48)]
@@ -477,9 +534,14 @@ class Report(unittest.TestCase):
                 f.write("1000.5 launch\n1012.0 end\n")
             with open(os.path.join(d, "run.json"), "w") as f:
                 json.dump({"protected": True}, f)
+            with open(os.path.join(d, "helper.txt"), "w") as f:
+                f.write("2026-10-27T14:00:01Z info frame rate: Home was left at 100.0 Hz with no video window open; set back to 120 Hz\n")
             text = probe.report(d)
             self.assertIn("VERDICT: PASS", text)
-            self.assertIn("switches: [(", text)
+            self.assertIn("switches: 120 -> 100 Hz at ", text)
+            self.assertIn(" s (start)", text)
+            self.assertIn("starts (videooutputd's unmute -> window on screen): 5.3 -> 5.3 s (+0.0 s)", text)
+            self.assertIn("helper: 2026-10-27T14:00:01Z info frame rate: Home was left at 100.0 Hz", text)
             self.assertIn("protected video: black by design", text)
             self.assertTrue(os.path.exists(os.path.join(d, "summary.txt")))
             v = json.load(open(os.path.join(d, "verdict.json")))
@@ -502,6 +564,8 @@ class Plan(unittest.TestCase):
             self.assertEqual(steps[:6], ["preflight", "upload", "mute", "sample", "launch", "keys"], name)
             self.assertEqual(steps[-4:], ["close", "unmute", "fetch", "standby"], name)
         self.assertIn("home", [s for s, _ in probe.plan(probe.RUNS["youtube50"])])
+        self.assertIn("home", [s for s, _ in probe.plan(probe.RUNS["youtube50home"])])
+        self.assertEqual(probe.RUNS["youtube50home"]["launch"]["params"]["contentTarget"], probe.YOUTUBE_50_CLIP)
         self.assertIn("second", [s for s, _ in probe.plan(probe.RUNS["plex25after24"])])
 
     def test_main_plan_is_the_default_and_the_fr_rate_write_is_refused(self):

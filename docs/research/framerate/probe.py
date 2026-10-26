@@ -10,8 +10,8 @@ decoder's clock and the screen do, every 50 ms, from before an app's launch to w
 
 `--go` is read-only on the set apart from the app launch (`luna://com.webos.applicationManager/launch`), the key presses of the run
 (kb.py on the SSAP key device) and the files under /tmp/fr-probe-<stamp>/ (samples, screenshots, logs). It never writes under
-/usr or /var, never sets a picture setting, and never writes /proc/lg/de/fr_rate (the one lever the note names: that write is a
-separate experiment, and `--allow-fr-rate-write` is refused here). The receiver is muted through
+/usr or /var, never sets a picture setting, and never writes /proc/lg/de/fr_rate (the helper does, on Home:
+helper/app/src/framerate.rs; `--allow-fr-rate-write` is refused here). The receiver is muted through
 Home Assistant before anything plays and put back as it was only once Home is in front again; the set is left in Active Standby
 (`--no-standby` leaves it on). Picture Mode is read before and after, never set.
 
@@ -51,9 +51,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 NETFLIX_MERIDIAN = "m=https://www.netflix.com/watch/80141336&source_type=4"    # 59.94 fps 4K Dolby Vision (ambient-result.md, X4)
 NETFLIX_24 = "m=https://www.netflix.com/watch/80049832&source_type=4"          # Our Planet: 23.976 fps 4K DV [the id is a guess; vFreq says what played]
+# Camera Jabber, "Sony A1 4K Full frame vs Super 35": 151 s of 3840x2160 at 50 fps. Round 11 launched it as `v=xX0wOkuLKZM` and YouTube
+# left it for its Browse page after 10 s; the full watch URL is the documented form.
+YOUTUBE_50_CLIP = "https://www.youtube.com/watch?v=xX0wOkuLKZM"
 YOUTUBE_50 = "https://www.youtube.com/results?search_query=4k+50fps+test"
 HA = "http://192.168.1.146"
 RECEIVER = "media_player.living_room_avr"
+HELPER_LOG = "/var/lib/lumatv/log-helper"     # the helper's `frame rate:` lines (helper/app/src/framerate.rs) land here
 PERIOD = 0.05
 SHOT_W, SHOT_H = 320, 180
 BLANK_BYTES = 5000               # a 320x180 PNG of a black screen (perf/startup.py: blank under 5000, a presented frame over 20000)
@@ -76,6 +80,12 @@ RUNS = {
                   "secs": 45, "then_home": 10,
                   "what": "YouTube, a 50 fps clip (the first search result; --launch names a known one): the 120 -> 100 Hz switch at the "
                           "first frame, and whether 100 Hz holds over on Home afterwards"},
+    # Home 10 s after the launch: in round 11 the clip's window connected 3.8 s after the launch, and YouTube left the clip for its
+    # Browse page on its own 13.8 s after the launch.
+    "youtube50home": {"launch": {"id": "youtube.leanback.v4", "params": {"contentTarget": YOUTUBE_50_CLIP}}, "settle": 6, "keys": "",
+                      "after_keys": 0, "secs": 4, "then_home": 15,
+                      "what": "YouTube, the known 50 fps clip, then Home while it plays: the 120 -> 100 Hz switch at its start, then the "
+                              "helper's return to 120 Hz on Home once the clip's window has closed (helper log `frame rate:`)"},
     "plex25after24": {"launch": {"id": "com.beb.plxnative"}, "settle": 4, "keys": "OK s4 OK s5 OK", "after_keys": 2, "secs": 30,
                       "second": {"keys": "BACK s2 DOWN s1 OK s4 OK", "after_keys": 2, "secs": 30},
                       "what": "Plex, a 24 fps item then a 25 fps item without going Home (the library order picks them; --keys and "
@@ -396,6 +406,7 @@ def sample(out, secs, period=PERIOD, shots=True, streams=True):
         f.write("--- raw /proc/lgtv-driver/scaler/main.p0\n%s\n" % read("/proc/lgtv-driver/scaler/main.p0"))
         f.write("--- raw /proc/lxvo/vdisp/vsync\n%s\n" % read("/proc/lxvo/vdisp/vsync"))
     log0 = len(read("/var/log/messages"))
+    helper0 = len(read(HELPER_LOG))
     threads = []
     if shots:
         threads.append(Shots(out, stop))
@@ -430,6 +441,8 @@ def sample(out, secs, period=PERIOD, shots=True, streams=True):
             dmesg = ""
         f.write("--- dmesg\n" + "\n".join(kernel_lines(dmesg)) + "\n")
         f.write("--- /var/log/messages since the start\n" + "\n".join(kernel_lines(read("/var/log/messages")[log0:])) + "\n")
+    with open(os.path.join(out, "helper.txt"), "w") as f:
+        f.write("".join(l + "\n" for l in read(HELPER_LOG)[helper0:].splitlines() if "frame rate" in l))
     with open(os.path.join(out, "done.txt"), "w") as f:
         f.write("%d\n" % n)
     return n
@@ -473,24 +486,35 @@ def rate_band(hz):
     return None
 
 
-def switches(samples, name=OSD_IRQ, short_window=0.25):
-    """Where the DE's output rate band changes: [(up, from_band, to_band)]. The band is read over the 1 s window (robust); the
-    moment is the last sample whose `short_window` rate was still in the old band, so the change lies within the next quarter
-    second. None bands (a window still filling, or the crossing itself) are skipped."""
-    long_, short = rates(samples, name), rates(samples, name, short_window)
-    out, last = [], None
-    for i, (up, hz) in enumerate(long_):
-        band = rate_band(hz)
+def switches(samples, name=OSD_IRQ, half=2, hold=2):
+    """Where the output rate changes between the 100 and 120 Hz families: [(up, from_band, to_band)]. The rate at each sample is
+    the count over `half` samples either side (about 0.2 s: 20 interrupts at 100 Hz, 24 at 120 Hz, split at 110), on the
+    samples' own clock `t`; a new band counts once it holds for `hold` samples, so a stay of 0.15 s in the other family shows
+    (the 100 Hz moment at a connect, while the decoder's register still holds the previous stream's rate) and the crossing's
+    in-between readings do not. The moment is midway between the last sample in the old band and the first in the new one."""
+    pts = [(s.get("t", s["up"]), s["up"], s["irq"].get(name)) for s in samples]
+    bands = []
+    for i in range(len(pts)):
+        a, b = i - half, i + half
+        if a < 0 or b >= len(pts) or pts[a][2] is None or pts[b][2] is None or pts[b][0] <= pts[a][0]:
+            bands.append(None)
+            continue
+        hz = (pts[b][2] - pts[a][2]) / (pts[b][0] - pts[a][0])
+        bands.append(100 if 90 <= hz < 110 else 120 if 110 <= hz <= 130 else None)
+    out, cur, cur_last, cand, cand_first, cand_n = [], None, None, None, None, 0
+    for i, band in enumerate(bands):
         if band is None:
             continue
-        if last is not None and band != last:
-            at = up
-            for j in range(i, -1, -1):
-                if rate_band(short[j][1]) == last:
-                    at = short[j][0]
-                    break
-            out.append((at, last, band))
-        last = band
+        if cur is None or band == cur:
+            cur, cur_last, cand, cand_n = band, i, None, 0
+            continue
+        if band == cand:
+            cand_n += 1
+        else:
+            cand, cand_first, cand_n = band, i, 1
+        if cand_n >= hold:
+            out.append((round((pts[cur_last][1] + pts[cand_first][1]) / 2, 3), cur, cand))
+            cur, cur_last, cand, cand_n = cand, i, None, 0
     return out
 
 
@@ -642,8 +666,55 @@ def inside(up, spans, slack=0.1):
     return any(a - slack <= up <= (b if b is not None else 1e12) + slack for a, b in spans)
 
 
+# The firmware's own mute after videooutputd's unmute at a start with no switch, 2026-10-26: 0.31 to 0.52 s over six starts
+# (framerate-result.md "Round 11"). Every start has it; a switch inside it is not a blank of its own.
+START_MUTE_S = (0.31, 0.52)
+
+
+def window_shown(s, app_mute):
+    """Whether the main window was on screen at a sample: a source connected, the scaler and videooutputd unmuted, and no firmware
+    mute (localmute 0)."""
+    sc, w = s.get("scaler") or {}, s.get("win0") or {}
+    return (sc.get("connect_src") not in (None, "NONE") and sc.get("mute") in (0, "0")
+            and w.get("localmute") in (0, "0") and not inside(s["up"], app_mute, 0.0))
+
+
+def starts(samples, app_mute):
+    """Each video start: [(unmuted_up, shown_up)], from videooutputd's unmute (the scaler's mute going to 0 with a source connected)
+    to the first sample with the window on screen (None when it never was)."""
+    out = []
+    for i in range(1, len(samples)):
+        a, b = samples[i - 1].get("scaler") or {}, samples[i].get("scaler") or {}
+        if a.get("mute") in (1, "1") and b.get("mute") in (0, "0") and b.get("connect_src") not in (None, "NONE"):
+            out.append((samples[i]["up"], next((s["up"] for s in samples[i:] if window_shown(s, app_mute)), None)))
+    return out
+
+
+def switch_context(samples, up, app_mute, before_s=0.1, shown_samples=3):
+    """Where a switch fell: "no window" (no source connected), "start" (the window, since its source connected, had not been on
+    screen for `shown_samples` samples in a row up to `before_s` before the switch) or "showing" (in the middle of playback)."""
+    if not samples:
+        return "no window"
+    i = min(range(len(samples)), key=lambda k: abs(samples[k]["up"] - up))
+    if (samples[i].get("scaler") or {}).get("connect_src") in (None, "NONE"):
+        return "no window"
+    j = i
+    while j > 0 and (samples[j - 1].get("scaler") or {}).get("connect_src") not in (None, "NONE"):
+        j -= 1
+    run = 0
+    for s in samples[j:i + 1]:
+        if s["up"] > up - before_s:
+            break
+        run = run + 1 if window_shown(s, app_mute) else 0
+        if run >= shown_samples:
+            return "showing"
+    return "start"
+
+
 def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=False):
-    """What the run says, as a dict for summary.txt: the rates, the switches, the mutes and gaps around them, and the words."""
+    """What the run says, as a dict for summary.txt: the rates, the switches and where each fell (no video window, a start before
+    the window was shown, or in the middle of playback), the starts, the mutes and gaps, and the words. A switch fails the run
+    when video was on screen around it or the vsync stopped at it."""
     de = rates(samples)
     osd = rates(samples, OSD_IRQ)
     sw = switches(samples)
@@ -651,6 +722,7 @@ def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=Fa
     fw_mute = mute_windows(samples)
     app_mute = app_mute_windows(mon_rows)
     spans = shot_spans(shots, run_dir, protected)
+    st = starts(samples, app_mute)
     first_up = samples[0]["up"] if samples else 0.0
     rel = lambda u: None if u is None else round(u - first_up, 2)
     out = {"samples": len(samples), "seconds": rel(samples[-1]["up"]) if samples else 0,
@@ -658,6 +730,8 @@ def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=Fa
            "de_hz_first": de[min(len(de) - 1, 25)][1] if de else None, "de_hz_last": de[-1][1] if de else None,
            "osd_hz_last": osd[-1][1] if osd else None,
            "switches": [(rel(u), a, b) for u, a, b in sw],
+           "switch_where": [switch_context(samples, u, app_mute) for u, _, _ in sw],
+           "starts": [(rel(a), rel(b), round(b - a, 2) if b is not None else None) for a, b in st],
            "vsync_gaps": [(rel(a), rel(b)) for a, b in gaps],
            "firmware_mute": [(rel(a), rel(b), r) for a, b, r in fw_mute],
            "app_video_mute": [(rel(a), rel(b)) for a, b in app_mute],
@@ -671,16 +745,23 @@ def verdict(samples, shots, vo_rows, mon_rows, marks, run_dir=None, protected=Fa
     words = []
     if not sw:
         words.append("no output-rate switch: the panel stayed in the %s Hz band for the whole run" % (rate_band(out["osd_hz_last"]) or "?"))
-    for u, a, b in out["switches"]:
-        hidden = inside(u + first_up, app_mute)
-        muted = inside(u + first_up, [(x, y) for x, y, _ in fw_mute], 0.3)
-        gap = inside(u + first_up, gaps, 0.3)
-        black = inside(u + first_up, spans["black"], 0.3) if not protected else None
-        words.append("switch %s -> %s Hz at %.2f s: %s; firmware mute %s; vsync gap %s; screen %s" % (
-            a, b, u, "under the app's own video mute" if hidden else "with the app's video unmuted",
-            "yes" if muted else "none seen", "yes" if gap else "none",
+    clean = True
+    for (u, a, b), where in zip(out["switches"], out["switch_where"]):
+        at = u + first_up
+        gap = inside(at, gaps, 0.3)
+        black = inside(at, spans["black"], 0.3) if not protected else None
+        if where == "no window":
+            said = "with no video window (no source connected)"
+        elif where == "start":
+            shown = next((s for x, s in st if x - 0.6 <= at and (s is None or at <= s)), None)
+            said = "at a video start, before its window was shown%s" % (" (shown at %.2f s)" % rel(shown) if shown else "")
+        else:
+            fw = [(rel(x), rel(y), r) for x, y, r in fw_mute if x - 0.3 <= at <= y + 0.3]
+            said = "WHILE VIDEO WAS SHOWING; firmware mute %s" % (fw or "none")
+        clean = clean and where != "showing" and not gap
+        words.append("switch %s -> %s Hz at %.2f s: %s; vsync gap %s; screen %s" % (
+            a, b, u, said, "yes" if gap else "none",
             "protected (capture black by design)" if protected else "black" if black else "not black"))
-    clean = all(not inside(u + first_up, [(x, y) for x, y, _ in fw_mute], 0.3) and not inside(u + first_up, gaps, 0.3) for u, _, _ in out["switches"])
     if not samples:
         clean = False
         words.append("no samples: the sampler recorded nothing, so the run proves nothing")
@@ -725,16 +806,20 @@ def report(run_dir, protected=None):
              "source rate seen by the DE (0.1 Hz): " + ", ".join("%s at %s s" % (r, u) for u, r in v["source_rate"][:12]),
              "decoder vsync (hz, fixed): " + ", ".join("%s/%s at %s s" % (hz, f, u) for u, hz, f in v["decoder_rate"][:12]),
              "decoder HFR fixed: %s; vo hfr flag: %s" % (v["decoder_hfr_fixed"], v["de_hfr"]),
-             "switches: %s" % (v["switches"] or "none"),
+             "switches: %s" % (", ".join("%s -> %s Hz at %s s (%s)" % (a, b, u, w) for (u, a, b), w in zip(v["switches"], v["switch_where"]))
+                               or "none"),
+             "starts (videooutputd's unmute -> window on screen): %s; LG's start mute without a switch: %.2f-%.2f s (2026-10-26)" % (
+                 ", ".join("%s -> %s s (+%s s)" % (a, b, d) for a, b, d in v["starts"]) or "none", START_MUTE_S[0], START_MUTE_S[1]),
              "firmware mute (localmute) spans: %s" % (v["firmware_mute"] or "none"),
              "app video mute spans (setAvMute): %s" % (v["app_video_mute"] or "none seen"),
              "vsync gaps over 30 ms: %s" % (v["vsync_gaps"] or "none"),
+             "helper: %s" % (" | ".join(read(os.path.join(run_dir, "helper.txt")).strip().splitlines()) or "no frame-rate line"),
              "screen: %d shots; black %s; frozen %s%s" % (v["shots"], v["black"] or "none", v["frozen"] or "none",
                                                           " (protected video: black by design)" if protected else "")]
     lines += v["words"]
-    lines.append("VERDICT: %s" % ("PASS: every switch clean (no firmware mute, no vsync gap)" if v["clean"]
+    lines.append("VERDICT: %s" % ("PASS: no switch while video was showing, no vsync gap at a switch" if v["clean"]
                                   else "FAIL: no evidence" if not v["evidence"]
-                                  else "FAIL: a switch muted or gapped"))
+                                  else "FAIL: a switch while video was showing, or a vsync gap at one"))
     text = "\n".join(lines) + "\n"
     with open(os.path.join(run_dir, "summary.txt"), "w") as f:
         f.write(text)
