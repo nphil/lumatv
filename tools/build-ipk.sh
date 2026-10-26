@@ -87,9 +87,9 @@ payload/homestub/appinfo.json
 payload/homestub/index.html
 payload/homestub/icon.png
 helper/dist/lumatv-helper
-ambient/capture/build/arm/lumatv-capture
 helper/dist/plugins/home-assistant/plugin.json
 helper/dist/plugins/home-assistant/bin/home-assistant
+ambient/capture/build/arm/lumatv-capture
 payload/capture/capture.sh
 payload/capture/role.json
 jpeg/build/arm/lumatv-jpeg
@@ -291,14 +291,14 @@ cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh tools/voice_pa
 mkdir -p "$DATA_ROOT/payload/helper"
 cp helper/dist/lumatv-helper "$DATA_ROOT/payload/helper/"
 chmod 755 "$DATA_ROOT/payload/helper/lumatv-helper"
-# The ambient light's colour reader (32-bit, LG's library is) with the LS2 role it needs and the script that installs both.
-mkdir -p "$DATA_ROOT/payload/capture"
 # The Home Assistant plugin (LumaShow's manifest and its program): `lumatv-helper plugin-enable` installs it as a plugin of its own
 # uid, which only Nitin's own command does, so nothing here switches it on.
 mkdir -p "$DATA_ROOT/payload/plugins/home-assistant/bin"
 cp helper/dist/plugins/home-assistant/plugin.json "$DATA_ROOT/payload/plugins/home-assistant/"
 cp helper/dist/plugins/home-assistant/bin/home-assistant "$DATA_ROOT/payload/plugins/home-assistant/bin/"
 chmod 755 "$DATA_ROOT/payload/plugins/home-assistant/bin/home-assistant"
+# The ambient light's colour reader (32-bit, LG's library is) with the LS2 role it needs and the script that installs both.
+mkdir -p "$DATA_ROOT/payload/capture"
 cp ambient/capture/build/arm/lumatv-capture payload/capture/capture.sh payload/capture/role.json "$DATA_ROOT/payload/capture/"
 chmod 755 "$DATA_ROOT/payload/capture/lumatv-capture" "$DATA_ROOT/payload/capture/capture.sh"
 # The picture decoder over LG's hardware JPEG block (32-bit, like LG's library); `lumatv` stages it beside the helper.
