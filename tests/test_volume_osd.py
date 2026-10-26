@@ -119,7 +119,7 @@ class VolumeOsd(HostCase):
             (B + 8000, SHOWN, "later"),
         ], B + 8600)
         self.assertEqual(got["idle"], "false|false|receiver|46|false|false", "nothing is on screen before a key, the receiver is the source")
-        self.assertEqual(got["key_state"], "true|true|receiver|46|false|false", "a key shows the receiver's own level at once")
+        self.assertEqual(got["key_state"], "true|true|receiver|46.5|false|false", "a key moves the receiver's own level at once, one step, before it says anything")
         self.assertEqual(got["pushed"], "true|true|receiver|46.5|false|false", "the receiver's push changes the number in place")
         self.assertAlmostEqual(float(got["fraction"]), 46.5 / 98, places=3)
         self.assertEqual(got["later"], "false|false|receiver|46.5|false|false", "gone after the hold")
@@ -129,7 +129,25 @@ class VolumeOsd(HostCase):
     def test_the_decibel_scale_shows_the_number_without_its_unit(self):
         got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX_DB), "rx"), (B + 2000, press("volumeDown", 30), "key"),
                                (B + 2800, on_osd("o.level"), "db")], B + 3400)
-        self.assertEqual(got["db"], "-34.5")
+        self.assertEqual(got["db"], "-35", "the key's step on the decibel scale, without the unit")
+
+    def test_a_key_moves_the_level_at_once_and_an_old_reading_does_not_move_it_back(self):
+        got, _ = self.run_osd([
+            (300, do("o.holdMs = 7000; o.settleMs = 1200"), "cfg"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+            # five presses of a held key, 100 ms apart: the level has moved five steps before any reading, and the fill with it
+            (B + 2000, press("volumeUp", 32), "k0"), (B + 2100, press("volumeUp", 33), "k1"), (B + 2200, press("volumeUp", 34), "k2"),
+            (B + 2300, press("volumeUp", 35), "k3"), (B + 2400, press("volumeUp", 36), "k4"),
+            (B + 2500, on_osd("[o.level, o.fraction.toFixed(3)].join('|')"), "keyed"),
+            # a reading from before the keys reaches the display: it does not take the level back
+            (B + 2600, rx(RX), "old"), (B + 3000, on_osd("o.level"), "kept"),
+            # the receiver's own, after the last key: the level it reports is the one shown once the keys' answer has run out
+            (B + 3100, rx(dict(RX, volumeAbs=48.5, volumeDb=-31.5, volumeText="48.5")), "reported"),
+            (B + 5000, on_osd("[o.level, o.keyed].join('|')"), "reconciled"),
+        ], B + 5600)
+        self.assertEqual(got["keyed"].split("|")[0], "48.5", "five keys, five steps of 0.5, before the receiver says anything")
+        self.assertAlmostEqual(float(got["keyed"].split("|")[1]), 48.5 / 98, places=3)
+        self.assertEqual(got["kept"], "48.5", "an old reading does not move it back")
+        self.assertEqual(got["reconciled"], "48.5|false", "then the reading is taken")
 
     def test_without_a_receiver_it_is_the_tvs_own_volume(self):
         cases = [("unreachable", GONE), ("switched off in Settings", OFF), ("in standby", dict(RX, power="standby"))]

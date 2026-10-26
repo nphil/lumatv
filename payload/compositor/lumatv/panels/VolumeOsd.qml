@@ -1,11 +1,13 @@
 import QtQuick 2.4
 import "../kit"
+import "../kit/AudioFormat.js" as AudioFormat
 
 // The volume and mute display (docs/mocks/11-volume-osd): the only one on the TV. LG's own, the speaker with a + and a -, the level bar and
-// the mute bubble, is switched off in the shadow module (tools/volume_patch.py). This is a slim pane at the right edge, where LG's was, over
-// Home, over every app and every input. It takes no key and no focus. It lives in LumaOverlay, the layer that is always up above whatever
-// the compositor shows, so a volume key answers the same while Plex, HDMI 2 or Live TV is in front as it does on Home.
-// Little copy: the level and its bar, and the word Muted while muted. Nothing says which device it is: the number is the answer.
+// the mute bubble, is switched off in the shadow module (tools/volume_patch.py). This is a slim bar at the bottom centre, over Home, over
+// every app and every input: the level as a number and a thin bar and, while the receiver says what it is playing, the format in small words
+// at the end of it. It takes no key and no focus. It lives in LumaOverlay, the layer that is always up above whatever the compositor shows,
+// so a volume key answers the same while Plex, HDMI 2 or Live TV is in front as it does on Home.
+// Little copy: the number and the bar, and the format when it is known. Muted, the number gives way to a slashed speaker; no word is shown.
 //
 // Whose volume it shows. The keys change one device, and which one depends on where the sound goes:
 //   the receiver  the sound leaves over HDMI ARC (or optical) and the Denon is on and answering: its own level in its own units (the helper's
@@ -14,13 +16,18 @@ import "../kit"
 //   the TV        the TV's speakers, headphones or Bluetooth are the output, or the receiver is off, unreachable or switched off in Settings:
 //                 the TV's own volume, the one LG's popup read (kit/TvVolume, the audio service).
 // A reading that is not in date is never shown (kit/ReceiverGate). When the receiver may answer and has not yet (a key after minutes of
-// quiet) the pane waits `decideMs` for it instead of showing the TV's counter and then changing to the receiver's level.
+// quiet) the bar waits `decideMs` for it instead of showing the TV's counter and then changing to the receiver's level.
+//
+// The key answers before the receiver does. The TV reports a volume key 44 to 63 ms after the press, with its direction (`cause`), and the
+// Denon's own reading follows some 0.4 s later. The bar appears and moves its fill on the key (one receiver step, 0.5, per key and per repeat of
+// a held key), keeps what the keys have made it say for `settleMs` after the last one, then takes the reading: no stale reading in between
+// moves it back.
 //
 // When it opens: the audio service reports a change (a volume key, a mute, Home Assistant, an app: the moments LG's popup opened for), or
 // the receiver reports a new level or mute (its own remote too). It goes `holdMs` after the last of either. While the sound is muted a small
-// mark stays where the pane was and moves a little every ten seconds, as LG's mute bubble did: a still mark is what an OLED panel must not hold.
+// mark stays at the bottom centre and moves a little every ten seconds, as LG's mute bubble did: a still mark is what an OLED panel must not hold.
 //
-// `enabledHere` is the host's switch. `overVideo` says the pane is over an app's picture (the overlay): its glass then lets the picture through
+// `enabledHere` is the host's switch. `overVideo` says the bar is over an app's picture (the overlay): its glass then lets the picture through
 // down to Lu.readingAlpha, the least that keeps the ink at the TV's distance contrast against the worst frame.
 Item {
     id: osd
@@ -32,6 +39,7 @@ Item {
     property int decideMs: 250                    // how long a key waits for a receiver that may answer before the TV's own volume is shown
     property int hopMs: 10000                     // LG's mute bubble moves this often
     property int graceMs: 1500                    // a mute that was in date stays shown this long after its reading ages out and before the next one
+    property int settleMs: 900                    // what the keys made the receiver say stays this long after the last key, then the reading is taken
 
     // The age gate every receiver surface shares (kit/ReceiverGate). It asks the helper to confirm an aged reading when a key is pressed
     // (`cue`) and, while a mute is on screen, each time the reading ages out: the helper moves a reading's stamp quietly, and a mute that is
@@ -51,12 +59,36 @@ Item {
     readonly property bool viaReceiver: source === "receiver"
     readonly property bool viaTv: source === "tv"
 
+    // ---- the key answers before the receiver does
+    property bool keyed: false                    // the keys have moved the receiver's level or mute since its last reading was trusted
+    property real optAbs: -1                      // the level the keys made it (0 to 98, the receiver's own steps), or -1
+    property int optMute: -1                      // the mute the keys made it, 0 or 1, or -1
+    readonly property real receiverStep: 0.5      // one volume key moves the Denon this far on the set (42.5 to 43 to 42.5, read 2026-10-25)
+    Timer { id: settleT; interval: osd.settleMs; onTriggered: osd.keyed = false }
+    function readAbs() { return rc && rc.volumeAbs !== undefined && rc.volumeAbs !== null ? rc.volumeAbs : -1 }
+    function key() {
+        var cause = String(TvVolume.cause)
+        var base = keyed && optAbs >= 0 ? optAbs : readAbs()
+        if (base >= 0) optAbs = /down/i.test(cause) ? Math.max(0, base - receiverStep) : /up/i.test(cause) ? Math.min(98, base + receiverStep) : base
+        var was = keyed && optMute >= 0 ? optMute === 1 : !!(rc && rc.mute)
+        optMute = /mute/i.test(cause) ? (was ? 0 : 1) : (was ? 1 : 0)
+        keyed = true
+        settleT.restart()
+    }
+    function num(x) { return String(Math.round(x * 2) / 2) }
+
     // ---- what is read
-    readonly property string rawLevel: viaReceiver ? (rc.volumeText ? String(rc.volumeText) : "") : viaTv ? String(TvVolume.volume) : ""
+    readonly property bool useKey: keyed && viaReceiver && optAbs >= 0
+    readonly property real abs: viaReceiver ? (useKey ? optAbs : readAbs()) : -1
+    readonly property bool relative: viaReceiver && rc.volumeDisplay === "relative"
+    readonly property string rawLevel: viaReceiver ? (useKey ? (relative ? num(abs - 80) : num(abs)) : (rc.volumeText ? String(rc.volumeText) : ""))
+                                       : viaTv ? String(TvVolume.volume) : ""
     readonly property string level: rawLevel.replace(/\s*dB$/, "")       // the decibel scale's unit is left out: the minus sign says it
-    readonly property real fraction: viaReceiver ? (rc.volumeAbs !== undefined && rc.volumeAbs !== null ? Math.max(0, Math.min(1, rc.volumeAbs / 98)) : 0)
+    readonly property real fraction: viaReceiver ? (abs >= 0 ? Math.max(0, Math.min(1, abs / 98)) : 0)
                                      : viaTv ? Math.max(0, Math.min(1, TvVolume.volume / TvVolume.volumeMax)) : 0
-    readonly property bool muted: viaReceiver ? !!rc.mute : viaTv ? TvVolume.muted : false
+    readonly property bool muted: viaReceiver ? (keyed && optMute >= 0 ? optMute === 1 : !!rc.mute) : viaTv ? TvVolume.muted : false
+    // what the receiver is playing, in short words (kit/AudioFormat.js); nothing while it does not say or the TV's own sound is what is read
+    readonly property string format: viaReceiver && !muted ? AudioFormat.describe(rc.soundMode, rc.signal) : ""
 
     property bool pill: false
     readonly property real paneAlpha: overVideo ? Lu.readingAlpha : 1     // how much of the glass is painted
@@ -77,7 +109,9 @@ Item {
         pill = true
         hide.restart()
     }
-    // The audio service reported a change: show the pane now. If the receiver may be the one that changed, ask the helper to read it now.
+    // Where the time goes on the set: the log line below, at the key's report, against `onVolumeUpdated` (LG's own line for the same report) and the
+    // key injector's timestamp, gives the key to the bar; the bar itself is drawn on the next frame (it appears at once, without a fade).
+    // The audio service reported a change: show the bar now. If the receiver may be the one that changed, ask the helper to read it now.
     function cue() {
         if (!enabledHere) return
         if (!tvOutput && receiverMay) {
@@ -87,6 +121,8 @@ Item {
             if (now - nudgedAt > 300) { nudgedAt = now; Helper.post("/v1/receiver/nudge", {}) }
             if (gate.stale) gate.confirm()
         }
+        if (viaReceiver) key()
+        console.info("[VolumeOsd] cue: the bar " + (pill ? "is up" : "appears now"))
         show()
     }
     property double nudgedAt: 0
@@ -94,7 +130,7 @@ Item {
     Timer { id: decide; interval: osd.decideMs; onTriggered: osd.deciding = false }
     Connections { target: TvVolume; onCue: osd.cue() }
 
-    // A reading that is in date: a change of level or of mute, against the last one, shows the pane (while it is the receiver that is read).
+    // A reading that is in date: a change of level or of mute, against the last one, shows the bar (while it is the receiver that is read).
     function read(r) {
         deciding = false
         var nextKey = r.volumeText + "|" + r.mute
@@ -107,77 +143,88 @@ Item {
     onFreshChanged: if (!fresh && mutedRx) graceT.restart()
     Timer { id: graceT; interval: osd.graceMs; onTriggered: if (!osd.fresh) osd.mutedRx = false }
 
-    // ---- the pane: as wide and as tall as its words need, so it holds at 200 % text as well, and never slimmer or lower than the design
-    readonly property int edgeX: 64               // from the right edge, as Home's panes and the banners sit (layout.json safe.x)
-    readonly property int pad: Lu.space(7)        // 32: text inside starts 96 from the screen's edge, the TV's 5 % safe area
-    readonly property int gap: Lu.space(6)        // between the words and the level
-    readonly property int trackLen: 216
-    readonly property bool showNum: !muted && source !== "none"
-    readonly property bool showWord: muted && source !== "none"
-    readonly property real wordsW: Math.max(showNum ? numText.implicitWidth : 0, showWord ? wordText.implicitWidth : 0)
-    readonly property real topH: Math.max(numText.implicitHeight, wordText.implicitHeight)
+    // ---- the bar: a pill at the bottom centre, as long as its number and its format need, so it holds at 200 % text as well
+    readonly property int edgeY: 64               // from the bottom edge: the TV's safe area and clear of subtitles
+    readonly property int padX: Lu.space(6)       // 24
+    readonly property int padY: Lu.space(3)       // 12
+    readonly property int gap: Lu.space(5)        // 20, between the number, the bar and the format
+    readonly property int glyph: 32
+    readonly property int barMin: 140
+    readonly property real fmtLimit: 360          // a long format is cut here, not allowed to widen the bar
+    // the widest level it shows, so the bar's start does not move as the digits change
+    readonly property real numW: Math.max(Math.ceil(numMetrics.width), glyph)
+    readonly property real fmtW: format !== "" ? Math.min(Math.ceil(fmtMetrics.width), fmtLimit) : 0
+    readonly property real rowH: Math.max(numMetrics.height, fmtMetrics.height, glyph)
+    TextMetrics { id: numMetrics; font: numText.font; text: "-88.8" }
+    TextMetrics { id: fmtMetrics; font: fmtText.font; text: osd.format !== "" ? osd.format : "Dolby" }
     LuPane {
         id: card
-        width: Math.max(176, Math.ceil(osd.wordsW) + 2 * osd.pad)
-        height: osd.pad + osd.topH + osd.gap + osd.trackLen + osd.pad
-        x: osd.width - osd.edgeX - width
-        y: Math.round((osd.height - height) / 2)
-        cardRadius: Lu.radius("card")
+        width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.fmtW > 0 ? osd.gap + osd.fmtW : 0))
+        height: Math.max(56, Math.ceil(osd.rowH) + 2 * osd.padY)
+        x: Math.round((osd.width - width) / 2)
+        y: osd.height - osd.edgeY - height
+        cardRadius: height / 2
         fillAlpha: osd.paneAlpha
         opacity: osd.paneUp ? 1 : 0
         visible: opacity > 0
-        Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: osd.paneUp ? Lu.cardMs : Lu.restMs } }
+        // in on the key's own frame, out quickly
+        Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: osd.paneUp ? 0 : Lu.restMs } }
 
-        // the level, or the word that replaces it
         LuText {
             id: numText
-            visible: osd.showNum
-            x: osd.pad; y: osd.pad
-            width: card.width - 2 * osd.pad
-            horizontalAlignment: Text.AlignHCenter
-            role: "title"
-            text: osd.level !== "" ? osd.level : "\u2013"
-        }
-        LuText {
-            id: wordText
-            visible: osd.showWord
-            x: osd.pad; y: osd.pad + Math.round((osd.topH - implicitHeight) / 2)
-            width: card.width - 2 * osd.pad
-            horizontalAlignment: Text.AlignHCenter
+            visible: osd.source !== "none" && !osd.muted
+            x: osd.padX; y: Math.round((card.height - implicitHeight) / 2)
+            width: osd.numW
+            horizontalAlignment: Text.AlignRight
             role: "label"
             font.weight: Font.DemiBold
-            text: "Muted"
+            text: osd.level !== "" ? osd.level : "\u2013"
+        }
+        // muted: the slashed speaker where the number was
+        LuIcon {
+            visible: osd.source !== "none" && osd.muted
+            x: osd.padX + Math.round((osd.numW - osd.glyph) / 2); y: Math.round((card.height - osd.glyph) / 2)
+            size: osd.glyph
+            name: "volume-x"
+        }
+        // the level, filling from the left; muted, the same length dimmed
+        Rectangle {
+            visible: osd.source !== "none"
+            x: osd.padX + osd.numW + osd.gap
+            y: Math.round((card.height - height) / 2)
+            width: card.width - x - osd.padX - (osd.fmtW > 0 ? osd.gap + osd.fmtW : 0)
+            height: Lu.space(2)
+            radius: height / 2
+            color: Lu.trackOff
+            antialiasing: true
+            Rectangle {
+                width: Math.round(parent.width * osd.fraction)
+                height: parent.height
+                radius: height / 2
+                color: osd.muted ? Lu.ink3 : Lu.ink
+                antialiasing: true
+                Behavior on width { enabled: !Lu.reduced; NumberAnimation { duration: Lu.focusMs } }
+            }
+        }
+        LuText {
+            id: fmtText
+            visible: osd.format !== ""
+            x: card.width - osd.padX - osd.fmtW; y: Math.round((card.height - implicitHeight) / 2)
+            width: osd.fmtW
+            horizontalAlignment: Text.AlignRight
+            role: "caption"
+            elide: Text.ElideRight
+            text: osd.format
         }
         // nothing to read: say so
         LuText {
             visible: osd.source === "none"
-            x: osd.pad; y: osd.pad
-            width: card.width - 2 * osd.pad
+            x: osd.padX; y: Math.round((card.height - implicitHeight) / 2)
+            width: card.width - 2 * osd.padX
             horizontalAlignment: Text.AlignHCenter
             role: "caption"
-            wrapMode: Text.WordWrap
+            elide: Text.ElideRight
             text: "Receiver not answering"
-        }
-
-        // the level, filling from the bottom; muted, the same height dimmed
-        Rectangle {
-            visible: osd.source !== "none"
-            x: Math.round((card.width - width) / 2)
-            y: osd.pad + osd.topH + osd.gap
-            width: Lu.space(3)
-            height: osd.trackLen
-            radius: width / 2
-            color: Lu.trackOff
-            antialiasing: true
-            Rectangle {
-                width: parent.width
-                height: Math.round(parent.height * osd.fraction)
-                anchors.bottom: parent.bottom
-                radius: width / 2
-                color: osd.muted ? Lu.ink3 : Lu.ink
-                antialiasing: true
-                Behavior on height { enabled: !Lu.reduced; NumberAnimation { duration: Lu.focusMs } }
-            }
         }
     }
 
@@ -193,12 +240,12 @@ Item {
             readonly property int step: 94        // LG's bubble moves this far, between three places
             property int place: 0                 // -1, 0 or 1 steps from the middle
             property int way: 1
-            width: 96; height: 96                 // LG's bubble's size: a speaker with a slash says it all
-            x: osd.width - osd.edgeX - width
-            y: Math.round((osd.height - height) / 2) + place * step
+            width: 64; height: 64                 // the TV's smallest target: a speaker with a slash says it all
+            x: Math.round((osd.width - width) / 2) + place * step
+            y: osd.height - osd.edgeY - height
             cardRadius: width / 2
             fillAlpha: osd.paneAlpha
-            LuIcon { anchors.centerIn: parent; size: 48; name: "volume-x" }
+            LuIcon { anchors.centerIn: parent; size: osd.glyph; name: "volume-x" }
             // out, to the next place (the glass samples the backdrop where the pane is, so it is told where that is now), and back in
             function hop() {
                 if (place + way > 1 || place + way < -1) way = -way

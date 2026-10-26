@@ -6,10 +6,11 @@
 <link rel="stylesheet" href="lucent.css">
 <style>
   .frame { background-image: url("img/still.jpg"); }
-  /* one display, seven states: the Denon on the set (0 to 98, default), its decibel scale (?v=db), muted (?v=muted), the mark that stays while muted (?v=mark),
-     the TV's own volume where there is no receiver (?v=tv, ?v=arc), and nothing to read (?v=offline). The number and its bar; no words but Muted. */
+  /* one display, seven states: the Denon on the set (0 to 98, default; its format when it says one: ?v=format), its decibel scale (?v=db), muted (?v=muted),
+     the mark that stays while muted (?v=mark), the TV's own volume where there is no receiver (?v=tv, ?v=arc), and nothing to read (?v=offline).
+     The number and its bar; no words but the format. */
   .st { display: none; }
-  html:not([data-v]) .st.abs, [data-v="db"] .st.db, [data-v="muted"] .st.muted, [data-v="mark"] .st.mark, [data-v="tv"] .st.tv, [data-v="arc"] .st.arc, [data-v="offline"] .st.offline { display: flex; }
+  html:not([data-v]) .st.abs, [data-v="format"] .st.format, [data-v="db"] .st.db, [data-v="muted"] .st.muted, [data-v="mark"] .st.mark, [data-v="tv"] .st.tv, [data-v="arc"] .st.arc, [data-v="offline"] .st.offline { display: flex; }
 </style>
 </head>
 <body>
@@ -17,43 +18,49 @@
 
 <!-- the receiver: its own level -->
 <div class="st abs overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">46</span></div>
-  <div class="vtrack"><i style="height:47%"></i></div>
+  <span class="num">46</span>
+  <div class="htrack"><i style="width:47%"></i></div>
+</div>
+
+<!-- the receiver, and what it is playing -->
+<div class="st format overlay osd" role="status" aria-live="polite">
+  <span class="num">46.5</span>
+  <div class="htrack"><i style="width:47%"></i></div>
+  <span class="cap">Dolby Digital+ · Surround</span>
 </div>
 
 <!-- the same, counting in decibels: the number, no unit -->
 <div class="st db overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">-34.5</span></div>
-  <div class="vtrack"><i style="height:46%"></i></div>
+  <span class="num">-35</span>
+  <div class="htrack"><i style="width:46%"></i></div>
 </div>
 
-<!-- muted: the word; the level stays, dimmed -->
-<div class="st muted overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="word">Muted</span></div>
-  <div class="vtrack"><i style="height:47%"></i></div>
+<!-- muted: a slashed speaker where the number was; the bar stays, dimmed; no word -->
+<div class="st muted overlay osd" role="status" aria-label="Muted" aria-live="polite">
+  <i class="ic" data-ic="volume-x"></i>
+  <div class="htrack"><i style="width:47%"></i></div>
 </div>
 
-<!-- what stays once the pane has gone, until the sound is back: LG's bubble, a speaker with a slash; it moves 94 px every ten seconds, between three places (here the middle one) -->
+<!-- what stays once the bar has gone, until the sound is back: LG's bubble, a speaker with a slash; it moves 94 px sideways every ten seconds, between three places (here the middle one) -->
 <div class="st mark overlay osd-mark" role="status" aria-label="Muted" aria-live="polite">
-  <i data-ic="volume-x"></i>
+  <i class="ic" data-ic="volume-x"></i>
 </div>
 
 <!-- no receiver: the TV's own volume (here its speakers) -->
 <div class="st tv overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">18</span></div>
-  <div class="vtrack"><i style="height:18%"></i></div>
+  <span class="num">18</span>
+  <div class="htrack"><i style="width:18%"></i></div>
 </div>
 
 <!-- the sound goes out over ARC and the receiver is off: the TV's step count -->
 <div class="st arc overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">32</span></div>
-  <div class="vtrack"><i style="height:32%"></i></div>
+  <span class="num">32</span>
+  <div class="htrack"><i style="width:32%"></i></div>
 </div>
 
 <!-- nothing to read -->
 <div class="st offline overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="cap wrap">Receiver not answering</span></div>
-  <div class="vtrack none"></div>
+  <span class="cap">Receiver not answering</span>
 </div>
 
 <script src="icons.js"></script>

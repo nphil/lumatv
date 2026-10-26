@@ -107,7 +107,7 @@ def measure(image, x, y, w, h):
 GEOM = ("(function(){ var f=function(p){if(p.staleMs!==undefined)return p;for(var i=0;i<p.children.length;i++){var r=f(p.children[i]);if(r)return r}return null}; "
         "var o=f(overlay); var out=[]; var walk=function(it){ for (var i=0;i<it.children.length;i++){ var c=it.children[i]; var p=c.mapToItem(null,0,0); "
         "var rec={x:p.x,y:p.y,w:c.width,h:c.height,vis:c.visible}; "
-        "if (c.text!==undefined) { rec.text=String(c.text) } else if (c.radius!==undefined && c.color!==undefined && c.width===12) { rec.bar=true } "
+        "if (c.text!==undefined) { rec.text=String(c.text) } else if (c.radius!==undefined && c.color!==undefined && c.height===8) { rec.bar=true } "
         "else if (c.name!==undefined && c.size!==undefined) { rec.icon=String(c.name) } else if (c.accent!==undefined && c.icon!==undefined) { rec.tile=String(c.icon) } "
         "out.push(rec); walk(c) } }; walk(o); console.info('[geom:%s] '+JSON.stringify(out)); return out.length })()")
 
@@ -135,9 +135,9 @@ class OnThePicture(unittest.TestCase):
         import scenes_volume as sv
         name = "contrast"
         b = 1500                # the helper is up and has synced from here on (tests/test_volume_osd.py)
-        steps = [sv.sound_out(b), sv.receiver_at(b + 200, sv.RX), sv.osd_at(b + 300, "o.holdMs = 1500"), sv.key_at(b + 2000, "volumeUp", 32),
+        steps = [sv.sound_out(b), sv.receiver_at(b + 200, sv.RX_FMT), sv.osd_at(b + 300, "o.holdMs = 1500"), sv.key_at(b + 2000, "volumeUp", 32),
                  (b + 2600, GEOM % "a"),
-                 sv.receiver_at(b + 4000, dict(sv.RX, mute=True)), (b + 4900, GEOM % "b"),
+                 sv.receiver_at(b + 4000, dict(sv.RX_FMT, mute=True)), (b + 4900, GEOM % "b"),
                  (b + 7000, GEOM % "c")]
         shots = {s: os.path.join(self.tmp.name, "%s-%s.png" % (material, s)) for s in "bc"}
         rc, warn, text = sv.render(name, self.tmp.name, material, steps, b + 2700, bg=self.frame(WORST[material]),
@@ -162,23 +162,24 @@ class OnThePicture(unittest.TestCase):
 
     def check(self, material):
         shown = self.run_material(material)
-        for state, text in (("a", "46"), ("b", "Muted")):
+        for state, text in (("a", "46.5"), ("a", "Dolby Digital+ \u00b7 Surround")):
             image, item = self.words(shown[state], text)
             self.assertGreaterEqual(self.ink_ratio(image, item), DISTANCE, "%s, %s, %r on the worst frame" % (material, state, text))
-        # the mark's glyph: a slashed speaker, the only thing on it
-        image, items = shown["c"]
-        glyphs = [g for g in items if "icon" in g and g["w"] > 0]
-        self.assertTrue(glyphs, "the mark's glyph")
-        self.assertGreaterEqual(self.ink_ratio(image, glyphs[0]), DISTANCE, "%s, the mark's glyph on the worst frame" % material)
-        # the level against the empty part of its track, and against the glass beside it, as drawn
+        # the slashed speaker: where the number was in the muted bar, and alone on the mark that stays
+        for state, what in (("b", "the muted bar's"), ("c", "the mark's")):
+            image, items = shown[state]
+            glyphs = [g for g in items if "icon" in g and g["w"] > 0]
+            self.assertTrue(glyphs, what + " glyph")
+            self.assertGreaterEqual(self.ink_ratio(image, glyphs[0]), DISTANCE, "%s, %s glyph on the worst frame" % (material, what))
+        # the level against the empty end of its bar, and against the glass above it, as drawn
         image, items = shown["a"]
-        bars = sorted((g for g in items if g.get("bar")), key=lambda g: g["h"])
+        bars = sorted((g for g in items if g.get("bar")), key=lambda g: g["w"])
         self.assertEqual(len(bars), 2, bars)
         fill, well = bars
         px = lambda x, y: (lambda c: (c.red(), c.green(), c.blue()))(image.pixelColor(int(x), int(y)))
-        centre = fill["x"] + fill["w"] / 2
-        self.assertGreaterEqual(ratio(px(centre, fill["y"] + fill["h"] / 2), px(centre, well["y"] + 12)), CONTROL, material + ": the level against the empty track")
-        self.assertGreaterEqual(ratio(px(centre, fill["y"] + fill["h"] / 2), px(fill["x"] - 24, fill["y"] + fill["h"] / 2)), CONTROL, material + ": the level against the glass")
+        mid, along = fill["y"] + fill["h"] / 2, fill["x"] + fill["w"] / 2
+        self.assertGreaterEqual(ratio(px(along, mid), px(well["x"] + well["w"] - 8, mid)), CONTROL, material + ": the level against the empty end")
+        self.assertGreaterEqual(ratio(px(along, mid), px(along, fill["y"] - 10)), CONTROL, material + ": the level against the glass")
 
     def test_the_dark_glass_over_a_white_frame(self):
         self.check("dark")
@@ -206,10 +207,11 @@ class Layout(unittest.TestCase):
         self.assertEqual(rc, 0, text[-1500:])
         self.assertEqual(found, [], text[-1500:])
 
-    def test_the_widest_number_and_its_unit_in_the_dark_pane(self):
+    def test_the_widest_number_and_the_longest_format_in_the_dark_bar(self):
         import scenes_volume as sv
         b = sv.B
-        self.audit("audit-db", "dark", [sv.sound_out(b), sv.receiver_at(b + 200, sv.RX_DB), sv.key_at(b + 2000, "volumeUp", 32)], b + 2700)
+        wide = dict(sv.RX_DB, soundMode="DOLBY AUDIO-DD+DSUR", signal="DOLBY D+ 5.1")
+        self.audit("audit-db", "dark", [sv.sound_out(b), sv.receiver_at(b + 200, wide), sv.key_at(b + 2000, "volumeUp", 32)], b + 2700)
 
     def test_the_muted_pane_in_the_light_material(self):
         import scenes_volume as sv

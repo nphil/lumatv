@@ -22,6 +22,8 @@ const SHOTS = [
   ['10-quick-panel-video', '10-quick-panel.html?v=video'],
   ['11-volume-osd', '11-volume-osd.html'],
   ['11-volume-osd-light', '11-volume-osd.html?theme=light'],
+  ['11-volume-osd-format', '11-volume-osd.html?v=format'],
+  ['11-volume-osd-format-light', '11-volume-osd.html?v=format&theme=light'],
   ['11-volume-osd-db', '11-volume-osd.html?v=db'],
   ['11-volume-osd-muted', '11-volume-osd.html?v=muted'],
   ['11-volume-osd-muted-light', '11-volume-osd.html?v=muted&theme=light'],

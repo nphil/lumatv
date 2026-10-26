@@ -2,12 +2,11 @@
 
 ## Resume here
 
-State at 2026-10-25 21:45: on the set (build `ddc293c`) and checked on Home, Plex and HDMI 2. The deploy took two `lumatv apply` restarts: the first
-with files copied unrendered, which left Home and the overlay unloaded for about two minutes (see Deploying by hand), the second with them rendered.
-`lumatv revert` is the way back and brings LG's popup back with it. The set shows the first form of the pane: a line under the number (the receiver's
-input, `TV` or `MPLAY`), a speaker tile under the bar, and a mute mark with the word. Decided after the set check (Nitin: minimal text; the tile reads as
-a button): the repo has none of those, only the number, the bar and, while muted, the icon-only bubble. They show after the next `lumatv apply`, which
-restarts the compositor. Open: frame cost over video, and the TV's own volume with the receiver off (offline only so far).
+State at 2026-10-25 22:35 (the cut for TV round 8): the display is a slim bar at the bottom centre (Nitin, 22:20), in the repo and offline-tested. The set
+still shows the right-edge pane of `ddc293c` until the round's `lumatv apply`. The first deploy took two restarts: the first, with files copied unrendered,
+left Home and the overlay unloaded for about two minutes (see Deploying by hand). `lumatv revert` is the way back and brings LG's popup back with it.
+In: the bar, the key moving the level at once, the format text (display and mapper). Not in: the helper does not publish `soundMode` and `signal` yet, so
+the format text stays hidden on the set (see The format text). Open: frame cost over video on the set; the TV's own volume with the receiver off.
 
 ## What LG draws and how it is stopped
 
@@ -49,16 +48,21 @@ second one (a test fails if they do). The display takes no key and no focus.
 - **Whose volume**: with the sound over ARC or optical and the receiver on and answering, the receiver's own level in its units (0 to 98, or
   decibels, shown as the number without "dB": the minus sign says it), not webOS's counter, which moves by one per key (31, 32, 31 on Volume+,
   Volume-) and says nothing of the Denon. With the TV's speakers, headphones or Bluetooth as the output, or with the receiver off, unreachable or
-  switched off in Settings, the TV's own volume (`LS.audioService.volume` of 100). Nothing on the pane says which of the two it is. A receiver that
+  switched off in Settings, the TV's own volume (`LS.audioService.volume` of 100). Nothing on the bar says which of the two it is. A receiver that
   may answer and has not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not.
-- **Mute**: the word "Muted", the level bar dimmed, from the receiver's `MU` push or, with no receiver, the TV's mute. Then a mark
-  stays at the right edge while the sound is muted: a 96 px bubble with a slashed speaker, no words, as LG's was, moving 94 px between three places
-  every 10 s so no pixel holds a still mark.
-  The receiver's mute is kept while the helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped
-  1.5 s after the readings stop.
-- **Shape**: a pane 176 px wide (wider when the number needs it, at 200 % text too), 64 px from the right edge, vertically centred, 28 px radius;
-  the level in the title size and a 12 px track 216 px long filled from the bottom in the ink. No input name, no unit, no icon tile (a tile read as
-  a button): little copy, nothing to focus. Lucent's catalogue row for the volume OSD: compact overlay, lateral safe region, no focus.
+- **The key answers first**: the bar appears on the key's own frame (no fade in, 150 ms out) and moves its fill by one receiver step (0.5, as read on the
+  set: 42.5 to 43 to 42.5) per key and per repeat of a held key, from the direction the TV reports, before the Denon says anything (its push follows
+  some 0.4 s later). What the keys made it say stays 900 ms after the last key (`settleMs`); an older reading that arrives meanwhile does not move it
+  back, and then the reading is taken. Nothing heavy runs on a press: no blur is rebuilt, hidden text is not laid out (the format text and the glyph are
+  `visible` only when used), the fill animates for 100 ms. Offline, from the audio service's report to the next presented frame: see `volume_sheet.py --latency`.
+- **Mute**: the number gives way to a slashed speaker and the bar is dimmed; no word. From the receiver's `MU` push or, with no receiver, the TV's mute
+  (and at once from the key when the TV's `cause` says mute). Then a 64 px bubble with a slashed speaker stays at the bottom centre while the sound is
+  muted, moving 94 px sideways between three places every 10 s so no pixel holds a still mark, as LG's bubble did. The receiver's mute is kept while the
+  helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped 1.5 s after the readings stop.
+- **Shape**: a pill 440 px wide, or as wide as the number, a 140 px bar and the format need (the format is cut at 360 px), 56 to 64 px tall (the label type
+  and 12 px above and below), 64 px above the bottom edge, centred; at 200 % text it grows in both. The number in the label size, semibold, in a slot as
+  wide as "-88.8" so the bar does not move with the digits; the bar 8 px thick, filled from the left in the ink; the format in the caption size at the right
+  end, in the ink at full strength (a fainter ink would not hold the contrast floor). No caption, no icon tile (it read as a button), nothing to focus.
 - **Over video**: the glass is painted at `readingAlpha` (theme.json, 0.8; over Home 1) so the picture shows through the fill; the 1 px edge and the
   shadow keep their weight (`Glass.fillAlpha`). Against the worst frame, white under the dark glass and black under the light, blended in the
   plane's own values, the ink is 9.2:1 (dark) and 11.4:1 (light), the bar 5.7:1 and 9.0:1 against its track; 7:1 (Lucent's distance contrast)
@@ -68,6 +72,37 @@ second one (a test fails if they do). The display takes no key and no focus.
   in WebOSServices and hides it. `kit/TvVolume.qml` imports both. Files that still use `LS` with the one import: `Layers.qml`, `LumaOverlay.qml`,
   `panels/QuickPanel.qml` (its volume nudge), `panels/Screensaver.qml`, `kit/Sio.qml`, `kit/Power.qml`, `kit/PluginHub.qml`, `kit/NoteLog.qml`,
   `kit/Apps.qml`.
+
+## The format text
+
+The Denon says what it plays in words. Read-only queries answered by the S760H on 2026-10-25 (nothing was playing): `MS?` gives `MSDOLBY AUDIO-DSUR` and a
+status batch (`MV`, `MVMAX 81`, `PS…`, `MU`, `SI`); `SSINFAISSIG ?` gives `SSINFAISSIG 13` and `SYSDA PCM ZERO` (the input signal in words); `PW?` adds
+`SYSMI Dolby Audio - Dolby Surround` (the mode in words); `SSINFAISFSV ?` gives `NON`; `OPINFASP ?` gives a channel map of digits. The HTTP
+`AppCommand` `GetSurroundModeStatus` answers an empty list. `kit/AudioFormat.js` maps `SYSDA` (the format) and `MS` (the mode word) to "Dolby Digital+ ·
+Surround", "Dolby Atmos", "DTS:X", "PCM 2.0", "Multi Ch In" and the like, and to nothing when they say nothing ("PCM ZERO", an unknown text); no raw code is
+shown. Only "PCM ZERO" with "DOLBY AUDIO-DSUR" has been seen on the set: the other patterns follow the receiver's published naming and have to be confirmed
+while something plays (`tests/test_audio_format.py`). The bar shows the text only with the receiver on and fresh, not muted.
+
+Not done: the helper (`helper/app/src/receiver_telnet.rs`) has to carry two more lines into the `receiver` topic: `soundMode` (the last `MS<text>` heard, asked
+with `MS?` on connect) and `signal` (the `SYSDA` text, asked with `SSINFAISSIG ?` on connect and on a mode or input change). Until it does, `rc.soundMode`
+and `rc.signal` are absent and the text is hidden.
+
+## TV check for this slice (round 8)
+
+1. After `lumatv apply`: the compositor log has no `LumaOverlay failed`, no `[Resident] overlay volume did not load`, no ReferenceError from `VolumeOsd`,
+   `TvVolume` or `AudioFormat`.
+2. Home, then Plex's menu, then HDMI 2: Volume+ once, Volume- once (note the receiver's level first through Home Assistant or `/v1/receiver`). Pass: a slim
+   bar at the bottom centre appears at once (capture within 0.3 s of the key), the number moves by 0.5 and back, LG's popup never shows, the log has
+   `onVolumeUpdated, volume view is not available` once per press and `[VolumeOsd] cue: the bar appears now` within a few ms of it, the receiver ends where
+   it began. Over Plex and HDMI 2 the picture shows through the bar and the number reads.
+3. Hold Volume+ for about a second. Pass: the number climbs with the repeats without a stall; at release it settles on the level the Denon reports
+   (`/v1/receiver`) within about a second, with no step back.
+4. Mute at Home (then unmute at Home, with apps closed first). Pass: the number becomes a slashed speaker with a dim bar, no word; after the hold a 64 px
+   bubble stays at the bottom centre and has moved sideways within ten seconds; unmuting removes it; LG's bubble never shows.
+5. Format: with the helper that publishes `soundMode` and `signal`, play something with a known format on the Denon and check the text against the Denon's front display.
+6. Latency: the key injector prints its epoch time (`kb.py`); the compositor log line `[VolumeOsd] cue` carries its own. The difference is key to cue (the TV's
+   report adds 44 to 63 ms); the bar is drawn on the frame after the cue. A capture 16 ms after the key cannot be had from the capture service (one grab takes
+   about 0.9 s), so the frame time comes from `lumatv fps on` (`[FPSJANK]` lines must not appear around a press).
 
 ## Tests and renders
 

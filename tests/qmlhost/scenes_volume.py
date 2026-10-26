@@ -21,6 +21,9 @@ RX = {"enabled": True, "error": None, "fresh": True, "host": "192.168.1.93", "in
       "reachable": True, "volumeAbs": 46.0, "volumeDb": -34.0, "volumeDisplay": "absolute", "volumeText": "46"}
 # the same receiver on the decibel scale
 RX_DB = dict(RX, volumeAbs=45.5, volumeDb=-34.5, volumeDisplay="relative", volumeText="-34.5 dB")
+# the same receiver playing a Dolby Digital+ stream, worded as the receiver words them (`soundMode` is its MS text, `signal` its SYSDA text; on the set
+# only "PCM ZERO" with "DOLBY AUDIO-DSUR" has been read so far, while nothing played)
+RX_FMT = dict(RX, soundMode="DOLBY AUDIO-DD+DSUR", signal="DOLBY D+ 5.1")
 GONE = {"enabled": True, "error": None, "fresh": False, "host": "192.168.1.93", "polling": True, "reachable": False}
 
 
@@ -51,7 +54,7 @@ def key_at(at, why="volumeUp", volume=None, muted=None):
     return audio_at(at, "LS.audioService.report(%s, %s, %s)" % (json.dumps(why), "null" if volume is None else volume, "null" if muted is None else ("true" if muted else "false")))
 
 
-def render(name, out_dir, material, steps, snap_at, over="video", bg=None, more_snaps=(), audit=False):
+def render(name, out_dir, material, steps, snap_at, over="video", bg=None, more_snaps=(), audit=False, helper=True):
     """steps: [(ms, js)] run in the host. `over` is "video" (an app in front, from 800 ms, `bg` the picture behind: a stand-in by default) or "home"
     (Home in front); one grab at `snap_at`, and `more_snaps` [(ms, path)] besides. With `audit`, the layout audit (layoutaudit.py) runs on the grab and
     again with the type doubled (the 200 % text pass, overlap only), and its findings come back as `[layout]` warnings. Returns (exit code,
@@ -60,7 +63,7 @@ def render(name, out_dir, material, steps, snap_at, over="video", bg=None, more_
     if os.path.exists(path):
         os.remove(path)
     user = {"perf": {"syncResidents": True}, "material": material}
-    args = [sys.executable, os.path.join(HERE, "qmlhost.py"), "LumaHome.qml", "--fake-helper", "--overlay", "--theme", json.dumps(user),
+    args = [sys.executable, os.path.join(HERE, "qmlhost.py"), "LumaHome.qml"] + (["--fake-helper"] if helper else []) + ["--overlay", "--theme", json.dumps(user),
             "--eval", "100:overlay.warm = true"]
     if over == "video":
         args += ["--bgimage", bg or scenes_host.video_png(), "--prop", "hostActive=false", "--eval", "800:overlay.appFront = true"]
@@ -109,7 +112,7 @@ B = 1500
 @scene("11-volume-osd", runner=True)
 def _(out_dir, material):
     """The Denon on the set (0 to 98) at 46, a Volume+ just pressed: the number and the level."""
-    return render("11-volume-osd", out_dir, material, [sound_out(B), receiver_at(B + 200, RX), key_at(B + 2000, "volumeUp", 32)], B + 2700)
+    return render("11-volume-osd", out_dir, material, [sound_out(B), receiver_at(B + 200, RX_FMT), key_at(B + 2000, "volumeUp", 32)], B + 2700)
 
 
 @scene("11-volume-osd-db", runner=True)
