@@ -82,11 +82,11 @@ Where it goes: Bifrost resolves every channel of the area to a device and addres
 `addrs[friendly_name] = [nwk + member.index, ...]`), then sends **every frame to one device only, the first channel's**
 (`backend_event.rs:409-410`, `entertainment.rs:140`: `send_entertainment_frame(&self.target, ...)`). The frame carries
 the records of all the lights; the bulb that receives it repeats it in broadcast mode for the others
-(`doc/hue-zigbee-clusters.md:59-60`). One Zigbee message per frame, however many bulbs. That other bulbs do get their
-records is shown by PR #160/#161 (closed, not merged): several bulbs in one area each lit up, with the colours assigned
-in the wrong order, because Bifrost maps channel N to the Nth address in friendly-name order (`entertainment.rs:36-52,
-78`: `self.modes[channel % len]`) rather than by membership. For the helper this does not matter: it builds the records
-from its own light list.
+(`doc/hue-zigbee-clusters.md:59-60`). One Zigbee message per frame, however many bulbs. That the other bulbs do get
+their records is what PR #160/#161 (closed, not merged, 2026-04) describes: in an area of several bulbs each bulb
+followed a channel, but not its own, because Bifrost maps channel N to the Nth address in friendly-name order
+(`entertainment.rs:36-52,78`: `self.modes[channel % len]`) rather than by membership. For the helper this does not
+matter: it builds the records from its own light list, in the order given.
 
 Frame size: `6 + 7 n` bytes of ZCL payload plus a 5-byte ZCL header. Hue's own frames carry up to 10 lights
 (`doc/hue-zigbee-clusters.md:202-203`); PR #165 (closed, a personal fork) reports `MESSAGE_TOO_LONG` on an Ember
