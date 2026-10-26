@@ -1,0 +1,1587 @@
+{
+ "tag": "r13-qp",
+ "verdict": "FAIL",
+ "measure_cycles": 3,
+ "soak_cycles": 10,
+ "thresholds": {
+  "p90_render_ms": 3.0,
+  "p90_window_ms": 4.0,
+  "dropped": 0,
+  "burst_over20": 0,
+  "first_frame_ms": 50.0,
+  "burst_end_ms": 180.0
+ },
+ "surfaces": [
+  {
+   "name": "quick",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 44.17,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 160.94,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": false,
+     "value": 3.81,
+     "limit": "< 3",
+     "detail": "39 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": false,
+     "value": 4.49,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 57 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 1.08",
+     "detail": "60137 -> 60137 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": ""
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-quick-m0",
+    "gate-r13-qp-quick-s0"
+   ],
+   "windows": [
+    {
+     "name": "quick-open",
+     "dur_s": 1.501,
+     "frames": 10,
+     "fps": 6.7,
+     "over20": 2,
+     "worst_ms": 1000.9,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.46,
+      "p90": 2.66,
+      "max": 3.92
+     },
+     "first_frame_ms": 26.75,
+     "burst_end_ms": 143.53,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.66,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-close",
+     "dur_s": 1.602,
+     "frames": 9,
+     "fps": 5.6,
+     "over20": 1,
+     "worst_ms": 583.9,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.39,
+      "p90": 3.42,
+      "max": 4.1
+     },
+     "first_frame_ms": 43.82,
+     "burst_end_ms": 160.59,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.42,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-open",
+     "dur_s": 1.5,
+     "frames": 31,
+     "fps": 20.7,
+     "over20": 3,
+     "worst_ms": 550.5,
+     "anim_frames": 25,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.27,
+      "p90": 3.37,
+      "max": 4.71
+     },
+     "first_frame_ms": 26.6,
+     "burst_end_ms": 160.05,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 4.49,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-close",
+     "dur_s": 1.602,
+     "frames": 9,
+     "fps": 5.6,
+     "over20": 1,
+     "worst_ms": 483.8,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.18,
+      "p90": 3.25,
+      "max": 3.81
+     },
+     "first_frame_ms": 44.17,
+     "burst_end_ms": 160.94,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.25,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-open",
+     "dur_s": 1.501,
+     "frames": 9,
+     "fps": 6.0,
+     "over20": 1,
+     "worst_ms": 900.8,
+     "anim_frames": 5,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.09,
+      "p90": 2.8,
+      "max": 3.51
+     },
+     "first_frame_ms": 26.96,
+     "burst_end_ms": 143.73,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.8,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-close",
+     "dur_s": 1.594,
+     "frames": 10,
+     "fps": 6.3,
+     "over20": 2,
+     "worst_ms": 1000.9,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.01,
+      "p90": 3.34,
+      "max": 3.58
+     },
+     "first_frame_ms": 44.17,
+     "burst_end_ms": 160.94,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.34,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 0,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 0.0,
+    "allowed_mb": 1.08,
+    "base_pages": 60137,
+    "last_pages": 60137,
+    "first_pages": 60107,
+    "ok": true
+   }
+  },
+  {
+   "name": "picker",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 41.57,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 157.32,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": false,
+     "value": 3.5,
+     "limit": "< 3",
+     "detail": "34 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 3.5,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 37 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": false,
+     "value": 1,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": -0.008,
+     "limit": "<= 1.08",
+     "detail": "60228 -> 60226 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": ""
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-picker-m0",
+    "gate-r13-qp-picker-s0"
+   ],
+   "windows": [
+    {
+     "name": "picker-open",
+     "dur_s": 1.552,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 1,
+     "worst_ms": 633.9,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.93,
+      "p90": 2.66,
+      "max": 3.19
+     },
+     "first_frame_ms": 25.58,
+     "burst_end_ms": 142.34,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.66,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-close",
+     "dur_s": 1.552,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 2,
+     "worst_ms": 1000.9,
+     "anim_frames": 5,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.94,
+      "p90": 3.5,
+      "max": 3.62
+     },
+     "first_frame_ms": 41.57,
+     "burst_end_ms": 141.66,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.5,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-open",
+     "dur_s": 1.552,
+     "frames": 19,
+     "fps": 12.2,
+     "over20": 2,
+     "worst_ms": 550.5,
+     "anim_frames": 10,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.39,
+      "p90": 2.89,
+      "max": 5.55
+     },
+     "first_frame_ms": 24.31,
+     "burst_end_ms": 141.08,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.89,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-close",
+     "dur_s": 1.552,
+     "frames": 19,
+     "fps": 12.2,
+     "over20": 2,
+     "worst_ms": 750.7,
+     "anim_frames": 5,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.81,
+      "p90": 3.22,
+      "max": 4.1
+     },
+     "first_frame_ms": 40.34,
+     "burst_end_ms": 140.42,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.22,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-open",
+     "dur_s": 1.551,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 1,
+     "worst_ms": 433.7,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.58,
+      "p90": 3.38,
+      "max": 5.55
+     },
+     "first_frame_ms": 23.31,
+     "burst_end_ms": 140.07,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.38,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-close",
+     "dur_s": 1.585,
+     "frames": 9,
+     "fps": 5.7,
+     "over20": 2,
+     "worst_ms": 850.8,
+     "anim_frames": 5,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 3.12,
+      "p90": 3.16,
+      "max": 3.48
+     },
+     "first_frame_ms": 23.87,
+     "burst_end_ms": 157.32,
+     "burst_over20": 1,
+     "burst_anim_p90_ms": 3.16,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 0,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": -0.008,
+    "allowed_mb": 1.08,
+    "base_pages": 60228,
+    "last_pages": 60226,
+    "first_pages": 60219,
+    "ok": true
+   }
+  },
+  {
+   "name": "quick-hdmi",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 33.63,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 162.6,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 2.2,
+     "limit": "< 3",
+     "detail": "23 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 2.65,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 26 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": false,
+     "value": 1.969,
+     "limit": "<= 1.08",
+     "detail": "56641 -> 57145 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": ""
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-quick-hdmi-m0",
+    "gate-r13-qp-quick-hdmi-s0"
+   ],
+   "windows": [
+    {
+     "name": "quick-hdmi-open",
+     "dur_s": 1.502,
+     "frames": 22,
+     "fps": 14.6,
+     "over20": 1,
+     "worst_ms": 66.7,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.15,
+      "p90": 1.96,
+      "max": 2.4
+     },
+     "first_frame_ms": 17.75,
+     "burst_end_ms": 151.2,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.96,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-hdmi-close",
+     "dur_s": 1.606,
+     "frames": 8,
+     "fps": 5.0,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 0,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": null,
+     "first_frame_ms": 33.63,
+     "burst_end_ms": 150.4,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-hdmi-open",
+     "dur_s": 1.502,
+     "frames": 9,
+     "fps": 6.0,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.12,
+      "p90": 2.65,
+      "max": 3.18
+     },
+     "first_frame_ms": 29.16,
+     "burst_end_ms": 162.6,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.65,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-hdmi-close",
+     "dur_s": 1.602,
+     "frames": 8,
+     "fps": 5.0,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 1,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 0.36,
+      "p90": 0.36,
+      "max": 0.36
+     },
+     "first_frame_ms": 28.19,
+     "burst_end_ms": 144.96,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 0.36,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-hdmi-open",
+     "dur_s": 1.502,
+     "frames": 29,
+     "fps": 19.3,
+     "over20": 2,
+     "worst_ms": 400.4,
+     "anim_frames": 9,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.56,
+      "p90": 2.14,
+      "max": 2.2
+     },
+     "first_frame_ms": 10.59,
+     "burst_end_ms": 144.04,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.14,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-hdmi-close",
+     "dur_s": 1.593,
+     "frames": 40,
+     "fps": 25.1,
+     "over20": 2,
+     "worst_ms": 683.9,
+     "anim_frames": 2,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.69,
+      "p90": 0.2,
+      "max": 1.69
+     },
+     "first_frame_ms": 26.69,
+     "burst_end_ms": 143.46,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 0.2,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 0,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 1.969,
+    "allowed_mb": 1.08,
+    "base_pages": 56641,
+    "last_pages": 57145,
+    "first_pages": 56163,
+    "ok": false
+   }
+  },
+  {
+   "name": "picker-hdmi",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 38.33,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 138.42,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 1.63,
+     "limit": "< 3",
+     "detail": "6 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 1.63,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 18 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": 0.254,
+     "limit": "<= 1.08",
+     "detail": "56838 -> 56903 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": ""
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-picker-hdmi-m0",
+    "gate-r13-qp-picker-hdmi-s0"
+   ],
+   "windows": [
+    {
+     "name": "picker-hdmi-open",
+     "dur_s": 1.551,
+     "frames": 8,
+     "fps": 5.2,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 0,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": null,
+     "first_frame_ms": 21.33,
+     "burst_end_ms": 138.09,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-hdmi-close",
+     "dur_s": 1.552,
+     "frames": 28,
+     "fps": 18.0,
+     "over20": 2,
+     "worst_ms": 383.7,
+     "anim_frames": 3,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.63,
+      "p90": 1.63,
+      "max": 1.98
+     },
+     "first_frame_ms": 38.33,
+     "burst_end_ms": 138.42,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.63,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-hdmi-open",
+     "dur_s": 1.551,
+     "frames": 8,
+     "fps": 5.2,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 2,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.45,
+      "p90": 1.06,
+      "max": 1.45
+     },
+     "first_frame_ms": 21.18,
+     "burst_end_ms": 137.95,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.06,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-hdmi-close",
+     "dur_s": 1.552,
+     "frames": 7,
+     "fps": 4.5,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 1,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.53,
+      "p90": 1.53,
+      "max": 1.53
+     },
+     "first_frame_ms": 38.31,
+     "burst_end_ms": 138.39,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.53,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-hdmi-open",
+     "dur_s": 1.552,
+     "frames": 8,
+     "fps": 5.2,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 0,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": null,
+     "first_frame_ms": 20.53,
+     "burst_end_ms": 137.31,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-hdmi-close",
+     "dur_s": 1.64,
+     "frames": 40,
+     "fps": 24.4,
+     "over20": 1,
+     "worst_ms": 317.0,
+     "anim_frames": 12,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.72,
+      "p90": 3.22,
+      "max": 3.46
+     },
+     "first_frame_ms": 36.42,
+     "burst_end_ms": 136.51,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.01,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 0,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 0.254,
+    "allowed_mb": 1.08,
+    "base_pages": 56838,
+    "last_pages": 56903,
+    "first_pages": 56883,
+    "ok": true
+   }
+  },
+  {
+   "name": "quick-netflix",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 37.89,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": false,
+     "value": 422.31,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": false,
+     "value": 3.63,
+     "limit": "< 3",
+     "detail": "24 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 3.63,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.026,
+     "limit": "<= 0.17",
+     "detail": "1 of 39 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": false,
+     "value": 1.105,
+     "limit": "<= 1.08",
+     "detail": "56156 -> 56439 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": "2 known stock lines ignored"
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-quick-netflix-m0",
+    "gate-r13-qp-quick-netflix-m1",
+    "gate-r13-qp-quick-netflix-m2",
+    "gate-r13-qp-quick-netflix-s0"
+   ],
+   "windows": [
+    {
+     "name": "quick-netflix-open",
+     "dur_s": 1.502,
+     "frames": 21,
+     "fps": 14.0,
+     "over20": 1,
+     "worst_ms": 116.8,
+     "anim_frames": 18,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.86,
+      "p90": 2.71,
+      "max": 3.94
+     },
+     "first_frame_ms": 37.89,
+     "burst_end_ms": 154.67,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.12,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-netflix-close",
+     "dur_s": 1.643,
+     "frames": 11,
+     "fps": 6.7,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 4,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 3.27,
+      "p90": 3.27,
+      "max": 3.58
+     },
+     "first_frame_ms": 37.52,
+     "burst_end_ms": 204.35,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.27,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-netflix-open",
+     "dur_s": 1.502,
+     "frames": 88,
+     "fps": 58.6,
+     "over20": 1,
+     "worst_ms": 50.1,
+     "anim_frames": 3,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 3.63,
+      "p90": 3.63,
+      "max": 11.55
+     },
+     "first_frame_ms": 5.28,
+     "burst_end_ms": 255.52,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.63,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-netflix-close",
+     "dur_s": 1.6,
+     "frames": 28,
+     "fps": 17.5,
+     "over20": 2,
+     "worst_ms": 533.9,
+     "anim_frames": 2,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.35,
+      "p90": 2.02,
+      "max": 2.35
+     },
+     "first_frame_ms": 5.22,
+     "burst_end_ms": 422.31,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.02,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-netflix-open",
+     "dur_s": 1.503,
+     "frames": 11,
+     "fps": 7.3,
+     "over20": 2,
+     "worst_ms": 1001.0,
+     "anim_frames": 8,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.21,
+      "p90": 3.49,
+      "max": 4.54
+     },
+     "first_frame_ms": 21.64,
+     "burst_end_ms": 155.11,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.49,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "quick-netflix-close",
+     "dur_s": 1.605,
+     "frames": 11,
+     "fps": 6.9,
+     "over20": 1,
+     "worst_ms": 767.4,
+     "anim_frames": 4,
+     "dropped": 1,
+     "dropped_in_motion": 1,
+     "anim_render_ms": {
+      "median": 1.22,
+      "p90": 1.22,
+      "max": 2.95
+     },
+     "first_frame_ms": 37.21,
+     "burst_end_ms": 153.99,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.02,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 2,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 1.105,
+    "allowed_mb": 1.08,
+    "base_pages": 56156,
+    "last_pages": 56439,
+    "first_pages": 56045,
+    "ok": false
+   }
+  },
+  {
+   "name": "picker-netflix",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 38.76,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 154.94,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 2.09,
+     "limit": "< 3",
+     "detail": "22 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 2.02,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 24 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": false,
+     "value": 1,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": 0.242,
+     "limit": "<= 1.08",
+     "detail": "56171 -> 56233 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": "2 known stock lines ignored"
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-picker-netflix-m0",
+    "gate-r13-qp-picker-netflix-m1",
+    "gate-r13-qp-picker-netflix-m2",
+    "gate-r13-qp-picker-netflix-s0"
+   ],
+   "windows": [
+    {
+     "name": "picker-netflix-open",
+     "dur_s": 1.551,
+     "frames": 8,
+     "fps": 5.2,
+     "over20": 1,
+     "worst_ms": 33.4,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.96,
+      "p90": 2.02,
+      "max": 2.33
+     },
+     "first_frame_ms": 21.48,
+     "burst_end_ms": 154.94,
+     "burst_over20": 1,
+     "burst_anim_p90_ms": 2.02,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-netflix-close",
+     "dur_s": 1.643,
+     "frames": 8,
+     "fps": 4.9,
+     "over20": 1,
+     "worst_ms": 383.7,
+     "anim_frames": 5,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.93,
+      "p90": 1.94,
+      "max": 2.14
+     },
+     "first_frame_ms": 38.76,
+     "burst_end_ms": 138.86,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.94,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-netflix-open",
+     "dur_s": 1.553,
+     "frames": 8,
+     "fps": 5.2,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 1,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 0.34,
+      "p90": 0.34,
+      "max": 0.34
+     },
+     "first_frame_ms": 19.28,
+     "burst_end_ms": 136.06,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 0.34,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-netflix-close",
+     "dur_s": 1.602,
+     "frames": 10,
+     "fps": 6.2,
+     "over20": 1,
+     "worst_ms": 1084.4,
+     "anim_frames": 7,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.81,
+      "p90": 2.47,
+      "max": 2.94
+     },
+     "first_frame_ms": 34.96,
+     "burst_end_ms": 151.74,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.82,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-netflix-open",
+     "dur_s": 1.551,
+     "frames": 8,
+     "fps": 5.2,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 0,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": null,
+     "first_frame_ms": 21.05,
+     "burst_end_ms": 137.83,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "picker-netflix-close",
+     "dur_s": 1.609,
+     "frames": 10,
+     "fps": 6.2,
+     "over20": 2,
+     "worst_ms": 567.2,
+     "anim_frames": 5,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.75,
+      "p90": 2.09,
+      "max": 2.84
+     },
+     "first_frame_ms": 37.83,
+     "burst_end_ms": 137.92,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.75,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 2,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 0.242,
+    "allowed_mb": 1.08,
+    "base_pages": 56171,
+    "last_pages": 56233,
+    "first_pages": 56170,
+    "ok": true
+   }
+  },
+  {
+   "name": "lgqs-netflix",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": false,
+     "value": 88.16,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": false,
+     "value": null,
+     "limit": "<= 180",
+     "detail": "no burst at the key"
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": false,
+     "value": 3.06,
+     "limit": "< 3",
+     "detail": "265 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 3.86,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.034,
+     "limit": "<= 0.17",
+     "detail": "9 of 268 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": 0.766,
+     "limit": "<= 1.08",
+     "detail": "58519 -> 58715 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": false,
+     "value": 5,
+     "limit": "== 0",
+     "detail": "2 known stock lines ignored"
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 409,
+     "limit": "== 409",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r13-qp-lgqs-netflix-m0",
+    "gate-r13-qp-lgqs-netflix-m1",
+    "gate-r13-qp-lgqs-netflix-m2",
+    "gate-r13-qp-lgqs-netflix-s0"
+   ],
+   "windows": [
+    {
+     "name": "lgqs-netflix-open",
+     "dur_s": 2.501,
+     "frames": 46,
+     "fps": 18.4,
+     "over20": 10,
+     "worst_ms": 1017.7,
+     "anim_frames": 23,
+     "dropped": 8,
+     "dropped_in_motion": 7,
+     "anim_render_ms": {
+      "median": 2.59,
+      "p90": 3.86,
+      "max": 7.58
+     },
+     "first_frame_ms": 53.43,
+     "burst_end_ms": null,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "lgqs-netflix-close",
+     "dur_s": 2.63,
+     "frames": 21,
+     "fps": 8.0,
+     "over20": 3,
+     "worst_ms": 2135.5,
+     "anim_frames": 18,
+     "dropped": 1,
+     "dropped_in_motion": 1,
+     "anim_render_ms": {
+      "median": 2.58,
+      "p90": 3.06,
+      "max": 3.24
+     },
+     "first_frame_ms": 88.16,
+     "burst_end_ms": null,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "lgqs-netflix-open",
+     "dur_s": 2.503,
+     "frames": 99,
+     "fps": 39.5,
+     "over20": 3,
+     "worst_ms": 734.1,
+     "anim_frames": 92,
+     "dropped": 2,
+     "dropped_in_motion": 1,
+     "anim_render_ms": {
+      "median": 2.21,
+      "p90": 2.75,
+      "max": 3.98
+     },
+     "first_frame_ms": 83.18,
+     "burst_end_ms": null,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "lgqs-netflix-close",
+     "dur_s": 2.6,
+     "frames": 37,
+     "fps": 14.2,
+     "over20": 1,
+     "worst_ms": 1785.1,
+     "anim_frames": 33,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.46,
+      "p90": 3.11,
+      "max": 6.33
+     },
+     "first_frame_ms": 15.78,
+     "burst_end_ms": 566.33,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.18,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "lgqs-netflix-open",
+     "dur_s": 2.501,
+     "frames": 97,
+     "fps": 38.8,
+     "over20": 1,
+     "worst_ms": 834.2,
+     "anim_frames": 76,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.93,
+      "p90": 2.81,
+      "max": 3.3
+     },
+     "first_frame_ms": 66.19,
+     "burst_end_ms": null,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    },
+    {
+     "name": "lgqs-netflix-close",
+     "dur_s": 2.605,
+     "frames": 34,
+     "fps": 13.0,
+     "over20": 2,
+     "worst_ms": 1318.0,
+     "anim_frames": 26,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.61,
+      "p90": 3.06,
+      "max": 5.66
+     },
+     "first_frame_ms": 0.54,
+     "burst_end_ms": 501.03,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 3.06,
+     "sent_ms": null,
+     "osd_wake_ms": null
+    }
+   ],
+   "log_lines": [
+    "2026-10-26T09:39:30.267995Z [19338.398537480] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Type error",
+    "2026-10-26T09:39:59.885962Z [19368.016520480] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/systemui/QuickSettings/Component/ControlPanelDotPickerButton.qml:31:13: Unable to assign [undefined] to QObject*",
+    "2026-10-26T09:39:59.917759Z [19368.048307880] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/systemui/QuickSettings/Component/ControlPanelDotPickerButton.qml:31:13: Unable to assign [undefined] to QObject*",
+    "2026-10-26T09:39:59.932092Z [19368.062640880] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/systemui/QuickSettings/Component/BaseControlPanelButton.qml:382:9: Unable to assign [undefined] to QString",
+    "2026-10-26T09:41:03.793599Z [19431.924148460] user.warning surface-manager [] surface-manager LSM {} file:///var/lib/lumatv/systemui/QuickSettings/Configurations/SystemServiceResponseProcessors.js:252: TypeError: Cannot call method 'map' of undefined"
+   ],
+   "log_ignored": 2,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 0.766,
+    "allowed_mb": 1.08,
+    "base_pages": 58519,
+    "last_pages": 58715,
+    "first_pages": 58204,
+    "ok": true
+   }
+  }
+ ]
+}

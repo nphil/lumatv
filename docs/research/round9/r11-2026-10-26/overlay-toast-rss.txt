@@ -1,0 +1,60 @@
+6372:2026-10-26T09:20:04.635037Z [18172.765585260] user.info surface-manager [] LSM NoticiationService {"CLOCK":18172.765,"accept":true,"type":"Toast"} 
+6422:2026-10-26T09:20:04.666474Z [18172.797022960] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Type error
+14620:2026-10-26T09:18:08.166125Z [18056.296672820] user.info surface-manager [] LSM NoticiationService {"CLOCK":18056.296,"accept":true,"type":"Toast"} 
+14637:2026-10-26T09:18:08.189034Z [18056.319576540] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Cannot read property 'id' of undefined
+25722:2026-10-26T09:16:18.361687Z [17946.492228180] user.info surface-manager [] LSM NoticiationService {"CLOCK":17946.491,"accept":true,"type":"Toast"} 
+25738:2026-10-26T09:16:18.381394Z [17946.511934000] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Cannot read property 'id' of undefined
+---RSS
+VmRSS:	  230604 kB
+VmRSS:	  230604 kB
+VmRSS:	  230604 kB
+VmRSS:	  230604 kB
+VmRSS:	  230604 kB
+VmRSS:	  230756 kB
+VmRSS:	  230756 kB
+VmRSS:	  230756 kB
+VmRSS:	  230992 kB
+VmRSS:	  230992 kB
+VmRSS:	  230992 kB
+VmRSS:	  231228 kB
+ 2026-10-26T09:20:04.147605Z [18172.278144520] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(23): ModuleManager:notifySinkStatusInfo source:source sink:sink, sinkId:2 Sink status:2 Mixer type:1
+2026-10-26T09:20:04.147666Z [18172.278206180] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =30
+2026-10-26T09:20:04.147878Z [18172.278420700] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =28
+2026-10-26T09:20:04.148066Z [18172.278606020] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =26
+2026-10-26T09:20:04.148115Z [18172.278654640] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =25
+2026-10-26T09:20:04.148158Z [18172.278697120] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =29
+2026-10-26T09:20:04.148200Z [18172.278739460] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =27
+2026-10-26T09:20:04.148243Z [18172.278782740] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =24
+2026-10-26T09:20:04.149512Z [18172.280054740] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =2
+2026-10-26T09:20:04.149629Z [18172.280168620] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(137): ModuleManager:notifyRegisterPipelineId pipelineId:pulse isRegister:0 
+2026-10-26T09:20:04.150101Z [18172.280640640] user.info audiod [] AudioD AUDIO_POLICY_MANAGER {} audioPolicyManager.cpp(1201): AudioPolicyManager notifyGetStreamStatusSubscribers with payload = {"subscribed":true,"returnValue":true,"streamObject":[{"source":"source","sink":"sink","muteStatus":false,"inputVolume":100,"s
+2026-10-26T09:20:04.151889Z [18172.282429000] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(23): ModuleManager:notifySinkStatusInfo source:source sink:sink, sinkId:2 Sink status:1 Mixer type:1
+2026-10-26T09:20:04.151951Z [18172.282490940] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =30
+2026-10-26T09:20:04.151993Z [18172.282532140] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =28
+2026-10-26T09:20:04.152034Z [18172.282573540] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =26
+2026-10-26T09:20:04.152074Z [18172.282613780] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =25
+2026-10-26T09:20:04.152120Z [18172.282659220] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =29
+2026-10-26T09:20:04.152161Z [18172.282700820] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =27
+2026-10-26T09:20:04.152202Z [18172.282741480] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =24
+2026-10-26T09:20:04.152244Z [18172.282783080] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(430): ModuleManager:notifyModifyPolicyVolume isRestore = 1, ttsMixRatio = 50, sink =2
+2026-10-26T09:20:04.152325Z [18172.282864600] user.info audiod [] AudioD MODULE_MANAGER {} moduleManagerNotification.cpp(137): ModuleManager:notifyRegisterPipelineId pipelineId:pulse isRegister:1 
+2026-10-26T09:20:04.153098Z [18172.283637260] user.info audiod [] AudioD AUDIO_POLICY_MANAGER {} audioPolicyManager.cpp(1201): AudioPolicyManager notifyGetStreamStatusSubscribers with payload = {"subscribed":true,"returnValue":true,"streamObject":[{"source":"ADEC1","sink":"MAIN","muteStatus":false,"inputVolume":100,"st
+2026-10-26T09:20:04.506651Z [18172.637190380] user.info audiod [] AudioD DOLBY_MANAGER {} dolbyManager.cpp(788): Sending payload(type: 2): {"iconUrl":"/etc/palm/audiod/light_toast_icon_dolby.png","message":"Dolby Vision<br>Dolby Atmos<br><font size=\"1\">via Audio Device</font>","type":"light","opacity":0.7}
+2026-10-26T09:20:04.510185Z [18172.640733880] user.info ls-hubd [] ls-hubd LSHUB_SRV_LNCH {"SERVICE_NAME":"com.webos.notification","EXE":"/usr/bin/run-service /usr/sbin/notificationmgr","REQUESTER":"com.webos.service.audio","APP_ID":"(null)","STATE":1,"PID":20183}  
+2026-10-26T09:20:04.574720Z [18172.705267740] user.info notificationmgr [] NOTIFICATION SETTINGSSTATUS_APPLYOPTIONCACHE {}  
+2026-10-26T09:20:04.574811Z [18172.705351440] user.info notificationmgr [] NOTIFICATION SETTINGSSTATUS_COUNTRY {"country":"USA"}  
+2026-10-26T09:20:04.574848Z [18172.705388180] user.info notificationmgr [] NOTIFICATION SETTINGSSTATUS_STOREMODE {"storeMode":"home"}  
+2026-10-26T09:20:04.574872Z [18172.705411200] user.info notificationmgr [] NOTIFICATION SETTINGSSTATUS_ENABLETOAST {"enableToastPopup":"on"}  
+2026-10-26T09:20:04.574893Z [18172.705432460] user.info notificationmgr [] NOTIFICATION SETTINGSSTATUS_LIFEONSCREEN {"lifeOnScreenNotification":1}  
+2026-10-26T09:20:04.575989Z [18172.706533820] user.warning notificationmgr [] NOTIFICATION notificationmgr {} [toastRespond:358] Caller: com.webos.service.audio
+2026-10-26T09:20:04.580146Z [18172.710695120] user.info sam [] SAM API_REQUEST {"category":"/","method":"getAppInfo","caller":"com.webos.notification","status":"received_request"} 
+2026-10-26T09:20:04.580243Z [18172.710784100] user.info sam [] SAM API_RETURN_FALSE {"category":"/","method":"getAppInfo","err_code":1,"err_text":"Invalid appId specified OR Unsupported Application Type: com.webos.service.audio"} 
+2026-10-26T09:20:04.580470Z [18172.711013240] user.warning notificationmgr [] NOTIFICATION notificationmgr {} [toastRespond:358] Caller: com.webos.service.audio
+2026-10-26T09:20:04.580762Z [18172.711304800] user.info notificationmgr [] NOTIFICATION NOTIFY_INVOKE {"CLOCK":18172.711,"SOURCE_ID":"com.webos.service.audio","TYPE":"TOAST","CONTENT":"Dolby Vision<br>Dolby Atmos<br><font size="1">via Audio Device</font>"}  
+2026-10-26T09:20:04.582059Z [18172.712607200] user.info audiod [] AudioD PARSE_JSON {} messageUtils.cpp(85): Received: _createDolbyPopupCallback: got '{"returnValue":true,"toastId":"com.webos.service.audio-1793006404580"}'
+2026-10-26T09:20:04.586189Z [18172.716735700] user.warning LunaSysService [] <default-lib> LS_DEPRECATED {"SENDER":"com.webos.notification","SERVICE":"com.webos.notification","CATEGORY":"/time","METHOD":"getSystemTime","FLAGS":1} Deprecated method call
+2026-10-26T09:20:04.586289Z [18172.716829580] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power2/getPowerStateHandler] subscribed sender: com.webos.notification
+2026-10-26T09:20:04.586815Z [18172.717360800] user.info devicereset [] devicereset DEVICERESET_CALLER {} [getInstopCompletedHandler] (caller: com.webos.notification) {"subscribe":true}
+2026-10-26T09:20:04.586915Z [18172.717456020] user.info devicereset [] devicereset DEVICERESET_CALLER {} getInstopCompletedHandler - sender: com.webos.notification
+2026-10-26T09:20:04.588635Z [18172.719182640] user.info notificationmgr [] NOTIFICATION FACTORY_GETINSTOPSTATE {"instopcompleted":"true"}  
+ 

@@ -470,7 +470,9 @@ Verified offline, from the repo root:
 - Renders, dark and light, 100 % and 200 % text, 960x540, in `docs/research/lg-restyles/` (`09-lg-keys`, `-focus-search`, `-focus-shift`, `-symbols`, `-numbers`, `-candidates`, each with `-200` and `-light`), looked at against `docs/mocks/shots/09-search-keyboard.png` and `keyboard-own.png` (LG's, round 11):
   `python3 tests/qmlhost/scenes.py --only 09-lg-keys,09-lg-keys-focus-search,09-lg-keys-focus-shift,09-lg-keys-symbols,09-lg-keys-numbers,09-lg-keys-candidates --out DIR --theme both` (and the `-200` names).
 
-## TV check, keyboard keys (not verified on the TV)
+## TV check, keyboard keys (verified on the TV 2026-10-26 05:28-05:30, package `1aaf632`)
+
+Both directions passed and the switch is left on: patched keys, D-pad focus and typing; `keys off` restored LG's keys; a second `keys on` restyled them again. `maliit-server.service` can be inactive at the first `keys on` (`restarted:false,"unit":"inactive"`); the server then starts on demand and reads the patched tree. The overlay propagates into every app jail's `/usr/lib/maliit/plugins/qml` (43 mount lines); `keys off` removed all of them. Evidence: `docs/research/lg-restyles/tv/keys-*.png`, `log.txt`.
 
 One short slot, after "TV check, keyboard and search"; it needs Nitin's go like the keyboard switch's compositor restart (`keys on` restarts `maliit-server.service`, the keyboard's own process: no app, no SAM). Set on Home, receiver muted through Home Assistant, evidence to
 `docs/research/lg-restyles/tv/` (`log.txt` first, PASS/FAIL/INFO a line), `TOOL`, `APP`, `shot` and `kb` as in "TV check, overnight round". The keys are drawn by LG's compositor's keyboard view: `$TOOL compositor status` says which compositor is live; under LumaTV's own (maliit unrouted, phase 6)

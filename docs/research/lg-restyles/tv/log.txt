@@ -1,0 +1,113 @@
+05:24:53 before failed: 7 | librdx: 0 | dsp: 0
+05:26:25 $ /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv keys on
+{"ok":true,"keys":"on","restarted":false,"unit":"inactive"}
+05:26:25 keys on took 1.2 s
+inactive
+MainPID=0
+LoadState=loaded
+ActiveState=inactive
+maliit /usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/amazon/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/amazon/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/amazon/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.lighting.huesync/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.lighting.huesync/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.lighting.huesync/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.webos.chromecast/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.webos.chromecast/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.webos.chromecast/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/netflix/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/netflix/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/netflix/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.webos.ghp/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.webos.ghp/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.webos.ghp/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/youtube.leanback.v4/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/youtube.leanback.v4/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/youtube.leanback.v4/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/com.beb.plxnative/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/com.beb.plxnative/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/com.beb.plxnative/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/cmn_data/var/palm/jail/org.nphil.lumatv.gfn/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/flash/data/var/palm/jail/org.nphil.lumatv.gfn/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+maliit /mnt/lg/user/var/palm/jail/org.nphil.lumatv.gfn/usr/lib/maliit/plugins/qml overlay rw,relatime,lowerdir=/usr/lib/maliit/plugins/qml,upperdir=/var/lib/lumatv/maliit/upper,workdir=/var/lib/lumatv/maliit/work 0 0
+2026-10-26 05:24:29 home on panel after 0 relaunch attempt(s)
+2026-10-26 05:24:31 apply: success version=0.4.0 mounts=1 took=19s
+2026-10-26 05:26:24 maliit: on: mounted over /usr/lib/maliit/plugins/qml, server inactive
+2026-10-26 05:26:24 keys on: {"ok":true,"keys":"on","restarted":false,"unit":"inactive"}
+  mnt-lg-cmn_data-var-palm-jail-amazon-usr-lib-maliit-plugins-qml.mount                                                                                       loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/amazon/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-com.beb.plxnative-usr-lib-maliit-plugins-qml.mount                                                                            loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/com.beb.plxnative/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-com.lighting.huesync-usr-lib-maliit-plugins-qml.mount                                                                         loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/com.lighting.huesync/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-com.webos.chromecast-usr-lib-maliit-plugins-qml.mount                                                                         loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/com.webos.chromecast/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-com.webos.ghp-usr-lib-maliit-plugins-qml.mount                                                                                loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/com.webos.ghp/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-com.webos.service.voice.performer-usr-lib-maliit-plugins-qml.mount                                                            loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-lg.thinqai.adapter-usr-lib-maliit-plugins-qml.mount                                                                           loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-netflix-usr-lib-maliit-plugins-qml.mount                                                                                      loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/netflix/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-org.nphil.lumatv.gfn-usr-lib-maliit-plugins-qml.mount                                                                         loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/org.nphil.lumatv.gfn/usr/lib/maliit/plugins/qml
+  mnt-lg-cmn_data-var-palm-jail-youtube.leanback.v4-usr-lib-maliit-plugins-qml.mount                                                                          loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/youtube.leanback.v4/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-amazon-usr-lib-maliit-plugins-qml.mount                                                                                     loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/amazon/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-com.beb.plxnative-usr-lib-maliit-plugins-qml.mount                                                                          loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/com.beb.plxnative/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-com.lighting.huesync-usr-lib-maliit-plugins-qml.mount                                                                       loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/com.lighting.huesync/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-com.webos.chromecast-usr-lib-maliit-plugins-qml.mount                                                                       loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/com.webos.chromecast/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-com.webos.ghp-usr-lib-maliit-plugins-qml.mount                                                                              loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/com.webos.ghp/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-com.webos.service.voice.performer-usr-lib-maliit-plugins-qml.mount                                                          loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-lg.thinqai.adapter-usr-lib-maliit-plugins-qml.mount                                                                         loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-netflix-usr-lib-maliit-plugins-qml.mount                                                                                    loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/netflix/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-org.nphil.lumatv.gfn-usr-lib-maliit-plugins-qml.mount                                                                       loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/org.nphil.lumatv.gfn/usr/lib/maliit/plugins/qml
+  mnt-lg-flash-data-var-palm-jail-youtube.leanback.v4-usr-lib-maliit-plugins-qml.mount                                                                        loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/youtube.leanback.v4/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-amazon-usr-lib-maliit-plugins-qml.mount                                                                                           loaded    active     mounted      /mnt/lg/user/var/palm/jail/amazon/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-com.beb.plxnative-usr-lib-maliit-plugins-qml.mount                                                                                loaded    active     mounted      /mnt/lg/user/var/palm/jail/com.beb.plxnative/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-com.lighting.huesync-usr-lib-maliit-plugins-qml.mount                                                                             loaded    active     mounted      /mnt/lg/user/var/palm/jail/com.lighting.huesync/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-com.webos.chromecast-usr-lib-maliit-plugins-qml.mount                                                                             loaded    active     mounted      /mnt/lg/user/var/palm/jail/com.webos.chromecast/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-com.webos.ghp-usr-lib-maliit-plugins-qml.mount                                                                                    loaded    active     mounted      /mnt/lg/user/var/palm/jail/com.webos.ghp/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-com.webos.service.voice.performer-usr-lib-maliit-plugins-qml.mount                                                                loaded    active     mounted      /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-lg.thinqai.adapter-usr-lib-maliit-plugins-qml.mount                                                                               loaded    active     mounted      /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-netflix-usr-lib-maliit-plugins-qml.mount                                                                                          loaded    active     mounted      /mnt/lg/user/var/palm/jail/netflix/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-org.nphil.lumatv.gfn-usr-lib-maliit-plugins-qml.mount                                                                             loaded    active     mounted      /mnt/lg/user/var/palm/jail/org.nphil.lumatv.gfn/usr/lib/maliit/plugins/qml
+  mnt-lg-user-var-palm-jail-youtube.leanback.v4-usr-lib-maliit-plugins-qml.mount                                                                              loaded    active     mounted      /mnt/lg/user/var/palm/jail/youtube.leanback.v4/usr/lib/maliit/plugins/qml
+  usr-lib-maliit-plugins-qml.mount                                                                                                                            loaded    active     mounted      /usr/lib/maliit/plugins/qml
+  maliit-server.service                                                                                                                                       loaded    inactive   dead         webos - "maliit-server.service"
+ {"ok":true,"keys":"off","restarted":false,"unit":"inactive"}
+0
+2026-10-26 05:26:24 keys on: {"ok":true,"keys":"on","restarted":false,"unit":"inactive"}
+2026-10-26 05:28:11 maliit: off: unmounted from /usr/lib/maliit/plugins/qml, server inactive
+2026-10-26 05:28:11 keys off: {"ok":true,"keys":"off","restarted":false,"unit":"inactive"}
+{"ok":true,"on":false,"qml":"/usr/lib/maliit/plugins/qml","staged":true,"mounted":false,"unit":"inactive"}
+   mnt-lg-cmn_data-var-palm-jail-com.webos.ghp-media-system-apps-usr-palm-services-com.webos.ghp.runtime.mount                                                 loaded    active     mounted      /mnt/lg/cmn_data/var/palm/jail/com.webos.ghp/media/system/apps/usr/palm/services/com.webos.ghp.runtime
+  mnt-lg-flash-data-var-palm-jail-com.webos.ghp-media-system-apps-usr-palm-services-com.webos.ghp.runtime.mount                                               loaded    active     mounted      /mnt/lg/flash/data/var/palm/jail/com.webos.ghp/media/system/apps/usr/palm/services/com.webos.ghp.runtime
+  mnt-lg-user-var-palm-jail-com.webos.ghp-media-system-apps-usr-palm-services-com.webos.ghp.runtime.mount                                                     loaded    active     mounted      /mnt/lg/user/var/palm/jail/com.webos.ghp/media/system/apps/usr/palm/services/com.webos.ghp.runtime
+  var-palm-jail-com.webos.ghp-media-system-apps-usr-palm-services-com.webos.ghp.runtime.mount                                                                 loaded    active     mounted      /var/palm/jail/com.webos.ghp/media/system/apps/usr/palm/services/com.webos.ghp.runtime
+  cpuchart.service                                                                                                                                            loaded    inactive   dead         CPUCHART RUN RUNTIME PROFILE
+  timers.target                                                                                                                                               loaded    active     active       Timer Units
+  certupdmgr.timer                                                                                                                                            loaded    active     elapsed      webos-pro - "certupdmgr.timer"
+● systemd-tmpfiles-clean.timer                                                                                                                                masked    inactive   dead         systemd-tmpfiles-clean.timer
+ 05:28:29 keys on (server inactive, on-demand test): {"ok":true,"keys":"on","restarted":false,"unit":"inactive"}
+05:28:40 server after open: active
+/proc/4521 /usr/sbin/MaliitServer
+05:28:52 after keys use failed: 7 | librdx: 0 | dsp: 0
+05:29:06 keys off: {"ok":true,"keys":"off","restarted":true,"unit":"active"} (0.8 s)
+05:29:06 mounts: 0
+active
+5168
+05:29:25 second off: {"ok":true,"keys":"off","restarted":false,"unit":"active"}
+05:29:32 keys on again: {"ok":true,"keys":"on","restarted":true,"unit":"active"} (7.6 s)
+05:29:51 status: {"ok":true,"on":true,"qml":"/usr/lib/maliit/plugins/qml","staged":true,"mounted":true,"unit":"active"} | mounts 43
+05:29:51 final keys failed: 7 | librdx: 0 | dsp: 0

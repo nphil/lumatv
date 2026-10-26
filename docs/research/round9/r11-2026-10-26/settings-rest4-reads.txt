@@ -1,0 +1,23 @@
+$ luna-send -n 1 luna://com.webos.service.config/getConfigs '{"configNames":["system.supportATSC3tuner","system.supportBluetoothFeatures","profile.list","tv.conti.supportUsedTime"]}'
+{"subscribed":false,"configs":{"system.supportBluetoothFeatures":["btsound","wirelesskeyboard","gamepad","remoteapp","quicksettings","userguide","remotediagnosis","btsoundsink","self-diagnosis","bluetoothPlusTvSpeaker","supportDualAudioBTOnly","supportDualAudioTVBTSPK","supportWoBLE"],"system.supportATSC3tuner":false,"profile.list":["audioRenderer","broadcast","camera","edid","hdmi","home","idleApp","keyfilter","mrcu","musicRecognition","storeDemo","thinq","tts","universalControl"],"tv.conti.supportUsedTime":true},"returnValue":true}
+
+$ luna-send -n 1 luna://com.webos.service.ppm/queryPermissions '{}'
+{"errorCode":8006,"returnValue":false,"errorText":"Invalid JSON format"}
+
+$ luna-send -n 1 luna://com.webos.service.btaudiosrc/surround/getVolumeBalancing '{}'
+{"returnValue":false,"errorCode":"1012","errorText":"There is no connected device"}
+
+$ luna-send -n 1 luna://com.webos.service.connectionmanager/getStatus '{}'
+{"returnValue":true,"wifiDirect":{"state":"disconnected"},"wifi":{"tetheringEnabled":false,"state":"disconnected"},"wan":{"connectedContexts":[],"connected":false},"subscribed":false,"offlineMode":"disabled","wired":{"method":"dhcp","onInternet":"yes","interfaceName":"eth0","proxyinfo":{"method":"direct"},"state":"connected","gateway":"192.168.1.1","netmask":"255.255.255.0","ipAddress":"192.168.1.242","dns1":"192.168.1.1","checkingInternet":false,"plugged":true},"cellular":{"enabled":false},"bluetooth":{"tetheringEnabled":false,"state":"disconnected"},"isInternetConnectionAvailable":true}
+
+$ luna-send -n 1 luna://com.webos.service.audio/tv/getSoundCardsState '{}'
+{"returnValue":true,"soundCards":[]}
+
+$ luna-send -n 1 luna://com.webos.service.settings/getSystemSettings '{"category":"option","keys":["livePlus","livePromotion","screenSaverTimer","emergencyInformationAtsc30","cameraResourcePermission","nearbyDevicePermission"]}'
+{"subscribed":false,"category":"option","method":"getSystemSettings","returnValue":true,"settings":{"screenSaverTimer":"3","livePromotion":"off","cameraResourcePermission":[{"appId":"com.webos.app.browser","_id":"d640f","appTitle":"Web Browser","permissions":[{"permission":true,"_id":"d6410","resource":"camera"},{"permission":false,"_id":"d6411","resource":"mic"}]},{"appId":"com.webos.app.camera","_id":"d6412","appTitle":"Camera","permissions":[{"permission":true,"_id":"d6413","resource":"camera"},{"permission":false,"_id":"d6414","resource":"mic"}]}],"emergencyInformationAtsc30":"on","livePlus":"off","nearbyDevicePermission":[]}}
+
+$ luna-send -n 1 luna://com.webos.service.settings/getSystemSettings '{"category":"general","keys":["homeAutoLaunch","selectedInputApp","homePromotion","screenSaverAd"]}'
+{"subscribed":false,"category":"general","method":"getSystemSettings","returnValue":true,"settings":{"screenSaverAd":"off","selectedInputApp":"off","homeAutoLaunch":"on","homePromotion":"off"}}
+
+$ luna-send -n 1 luna://com.webos.service.settings/getSystemSettings '{"category":"other","keys":["contentRecommendation","colorimetry","eotf","masteringPeak"]}'
+{"subscribed":false,"category":"other","method":"getSystemSettings","dimension":{"gameInput":"none"},"settings":{"contentRecommendation":"off","eotf":"auto","colorimetry":"auto","masteringPeak":"auto"},"returnValue":true}

@@ -14,3 +14,45 @@
 2026-10-26T08:50:26.701912Z [16394.832452100] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1809457310", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
 04:55:42 step4 start: last key before this run at 04:55:00 (GFN check); power Active
 04:55:43 step4: keys RIGHT LEFT at t=0 (Home in front)
+04:58:42 step4 first: question after 179 s: asked: { "returnValue": true, "timestamp": "2301681203", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (LumaTV's saver draws) | power2 ACTIVE
+04:58:43 flutter: 0
+05:01:42 step4 second: question after 179 s: asked: { "returnValue": true, "timestamp": "2481680747", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (LumaTV's saver draws) | power2 ACTIVE
+05:01:43 flutter: 0 power Active
+05:01:44 step4: key RIGHT ended saver? power Active fg com.webos.app.home
+05:04:17 step4 after first key (expect none): no question within 150 s
+05:04:18 step4: second key LEFT at 153 s after the first key
+05:07:41 step4 after second key (expect ~180 s): no question within 200 s
+05:07:43 step4 end: power Active fg com.webos.app.home; SaverVote tail:
+2026-10-26T09:07:13.880858Z [17402.011397380] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "2816680118", "sub state": "active", "lifeOnScreenMode": "alwaysReady" }
+2026-10-26T09:07:13.882590Z [17402.013129500] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "2816680118", "state": "Active", "instantBoot": "on" } -> no (LumaTV's
+2026-10-26T08:49:43.753455Z [16351.884000740] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:49:43.753609Z [16351.884152080] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:50:26.693069Z [16394.823615240] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "1809457310", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (Lu
+2026-10-26T08:50:26.701912Z [16394.832452100] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "1809457310", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
+2026-10-26T08:51:42.258508Z [16470.389048440] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:51:42.267318Z [16470.397860580] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:52:37.208852Z [16525.339398960] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:52:37.208950Z [16525.339490800] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:55:01.541877Z [16669.672421460] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] on tvpower's list /power2
+2026-10-26T08:55:01.541975Z [16669.672515140] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] on tvpower's list /power
+2026-10-26T08:58:38.892897Z [16887.023440660] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "2301681203", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (Lu
+2026-10-26T08:58:38.913387Z [16887.043927320] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "2301681203", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draw
+2026-10-26T09:01:38.883971Z [17067.014515460] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "2481680747", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (Lu
+2026-10-26T09:01:38.884453Z [17067.014995500] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "2481680747", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draws)
+2026-10-26T09:07:13.880858Z [17402.011397380] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "2816680118", "sub state": "active", "lifeOnScreenMode": "alwaysReady" } -> no (Lu
+2026-10-26T09:07:13.882590Z [17402.013129500] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "2816680118", "state": "Active", "instantBoot": "on" } -> no (LumaTV's saver draw
+{ "state": "ACTIVE", "sub state": "active", "lifeOnScreenMode": "alwaysReady", "returnValue": true }
+ 05:08:50 step7: turnOnScreenSaver {     "returnValue": true }  
+05:08:53 step7: power before key Active; votes:
+2026-10-26T09:07:13.880858Z [17402.011397380] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "2816680118", "sub state": "active", "lifeOnScreenMode": "alwa
+2026-10-26T09:07:13.882590Z [17402.013129500] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "2816680118", "state": "Active", "instantBoot": "on" } -> no 
+2026-10-26T09:08:49.935878Z [17498.066417580] user.info surface-manager [] surface-manager LSM {} heard, [SaverVote] /power2 asked: { "returnValue": true, "timestamp": "2912733050", "sub state": "active", "lifeOnScreenMode": "alwa
+2026-10-26T09:08:49.936125Z [17498.066664900] user.info surface-manager [] surface-manager heard {} heard, [SaverVote] /power asked: { "returnValue": true, "timestamp": "2912733050", "state": "Active", "instantBoot": "on" } -> no
+05:09:02 step7: after power key: power Active Standby
+05:09:39 step7: woken: power Active fg com.webos.app.home
+05:09:44 step8: own false {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 12, "depth": 0.45, "scale": 1.2, "detail": 0.5, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": true, "minutes": 5, "opacity": 0.6}, "kitGallery": false, "banners": {"own": false}, "accent": "wallpaper", "screensaver": {"video": false, "own": false}}}
+05:09:48 step8: lists ['ListScreenSaverRequests":[{"clientName":"com.webos.service.screenmanager"}]']
+05:09:49 step8: turnOnScreenSaver {     "returnValue": true }  
+05:09:56 step8: power2 {     "returnValue": true,     "sub state": "screen saver",     "lifeOnScreenMode": "alwaysReady",     "state": "ACTIVE" }   flutter 0
+05:09:57 step8: own true {"ok": true, "theme": {"wallpaperMotion": {"amplitude": 12, "depth": 0.45, "scale": 1.2, "detail": 0.5, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25}, "idleDim": {"enabled": true, "minutes": 5, "opacity": 0.6}, "kitGallery": false, "banners": {"own": false}, "accent": "wallpaper", "screensaver": {"video": false, "own": true}}}
+05:10:03 step8: after key: power Active fg com.webos.app.home lists ['ListScreenSaverRequests":[{"clientName":"com.webos.service.screenmanager"},{"clientName":"org.nphil.lumatv"}]', 'ListScreenSaverRequests":[{"clientName":"org.nphil.lumatv"}]']
