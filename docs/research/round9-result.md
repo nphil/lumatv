@@ -43,6 +43,13 @@ HDMI switching cancels mute: volume 0 was used during the HDMI regression. HA’
 | Search restyle | FAIL; left off | `voice on` mounted, but `com.webos.app.voice` pid 8321 survived `closeByAppId`; SAM used `RelaunchAsCommon`, so the patched QML did not load. `voice off` restored the mount. Stock Search reappeared after a later relaunch. |
 | Keyboard animation | PASS by capture; left off | `keyboard on` patched one marker and restarted LG’s compositor. The keyboard stood flush at the bottom; after Back it was gone by the next 0.3 s capture. `keyboard off` returned to unpatched. |
 | LG keyboard source | PASS | `/usr/lib/maliit/plugins/qml` has 85 QML files. A read-only copy is in `/data/home/lgtv/uiinv/maliit/qml`; the archive is `maliit-qml.tgz`. |
+| Frame rate: Netflix 23.976 | PASS | `netflix24-20261026-0409`: source 23.976, decoder 23.97, firmware mute cleared at 14.4 s, no vsync gap; re-reported with `osd_irq` as 120 Hz for the whole run (no switch). |
+| Frame rate: 50 fps | FAIL, LG mute on the return switch | `youtube50-20261026-0424` (`v=xX0wOkuLKZM`): a 50 fps segment switched 120 → 100 Hz under the app's own mute, then the 23.976 video switched 100 → 120 Hz with firmware mute while the app's video was unmuted. Earlier YouTube runs were the app home (29.97) or 23.976 content and are not counted. |
+| Frame rate: Plex 24 → 25 | OPEN | `plex25after24-20261026-0414` selected two 23.976 items; no 25 fps item was reached by the scripted path. |
+| Quick and input picker gate | FAIL | Home and HDMI mostly pass. Failures: quick p90 render 3.70 ms; picker RSS +1.67 MB in 8 cycles; over Netflix quick first frame 1479 ms with no key burst and one >20 ms frame; picker over Netflix lost 2 of 6 markers; both Netflix rows logged LG's `SystemUI/Notification/Services.qml:513` TypeError. |
+| GFN read-only and feeder probe | PASS | Media capability files copied; `libNDL_directmedia.so.1`, features 31. No game controller was connected (input names saved). |
+| GFN app launch through SAM (`4757348`) | FAIL, fixed by GfnApp4 in `1255efe` | SAM accepted `registerApp`, then the feeder exited 0 about 105 ms later. By hand, the UI lacked the display environment; with it, the UI exported `_Window_Id_15` and failed on wrong core/engine paths. |
+| GFN video plane | PASS | 1080p60 H.264 test card: playing in 1 s, 60 fed/s, 0 dropped. Nine HEVC tiers including 4K120 HDR 50/80/100 Mbit/s and declared level 5.1: 120 fed/s, 0 dropped, p99 queue ≤3, no full buffer. 4K120 80 Mbit/s: source 120 Hz, low-delay mode, HDR, `hdrGame`, OSD 119.8/s, feeder CPU 6.4 %. |
 
 ## Round 9 handoff (historical)
 
