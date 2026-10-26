@@ -261,17 +261,18 @@ class OverlayPanels(HostCase):
     def test_the_door_opens_a_panel_for_the_gate_and_the_tv_steps(self):
         import os
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        door = "/tmp/%s-overlay" % json.load(open(os.path.join(root, "brand.json")))["shortId"]
+        with open(os.path.join(root, "brand.json")) as f:
+            door = "/tmp/%s-overlay" % json.load(f)["shortId"]
         with open(door, "w") as f:
             f.write('{"open":"quick"}')
         try:
             p, out = self.overlay_host([
                 (1000, "front", "overlay.appFront = true; return 1;"),
-                (2600, "opened", "return [overlay.surface, overlay.wants];"),
-            ], 3200)
+                (1500, "read", "overlay.readDoor(); return [overlay.surface, overlay.wants];"),       # the poll reads it every second; the test does not wait for the tick
+            ], 2400)
         finally:
             os.remove(door)
-        self.assertEqual(p["opened"], ["quick", True], out[-2000:])
+        self.assertEqual(p["read"], ["quick", True], out[-2000:])
 
 
 if __name__ == "__main__":
