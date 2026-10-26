@@ -33,7 +33,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
-use crate::output::{Image, Output, Presented, RenderStats};
+use crate::output::{Image, Output, Presented, RenderStats, monotonic_ns as mono_ns};
 use crate::render::gl::{Gl, TargetId};
 use crate::scene::Plan;
 use crate::surface::Surfaces;
@@ -166,14 +166,6 @@ const PAGES: usize = 3;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
-}
-
-/// CLOCK_MONOTONIC in ns.
-fn mono_ns() -> u64 {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: a stack timespec for clock_gettime.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
 /// One scan-out page: a dumb buffer with a framebuffer and a GL target over its dma-buf. `alpha` makes it ARGB8888 for
@@ -429,8 +421,14 @@ impl Kms {
         }
     }
 
-    /// Reads the DRM events that have arrived (without waiting); returns how many page flips landed.
+    /// Reads the DRM events that have arrived; returns how many page flips landed. Never waits: the card's descriptor
+    /// blocks, and the tick asks whether or not one landed, so the read is made only when poll says one is there.
     fn drain_events(&mut self) -> io::Result<u32> {
+        let mut p = libc::pollfd { fd: self.card.as_fd().as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one pollfd on the card's open descriptor, no timeout.
+        if unsafe { libc::poll(&mut p, 1, 0) } != 1 || p.revents & libc::POLLIN == 0 {
+            return Ok(0);
+        }
         let mut landed = 0;
         for ev in self.card.receive_events()? {
             if let Event::PageFlip(f) = ev {
@@ -463,11 +461,18 @@ impl Kms {
         });
         let landed = self.timing.landed(presented_ns, frame);
         // Consecutive flips are one refresh apart; a stamp that is not (two flips stamped alike, a refresh skipped)
-        // is what the second gate's `lost` count hinted at, so each is logged while frames follow one another.
+        // is logged while frames follow one another. A skipped refresh is a frame the panel missed only when one was
+        // due at it (`Landed::missed`); the gates count `page-flip stamp` lines over 20 ms as such, so a refresh with
+        // nothing new to show gets a line of its own.
         if let Some(since) = landed.odd
             && self.timing.odd_stamps <= 200
         {
-            log::info!("kms: page-flip stamp {:.2} ms after the last (one refresh is {:.2})", since as f64 / 1e6, self.timing.period_ns() as f64 / 1e6);
+            let (since, period) = (since as f64 / 1e6, self.timing.period_ns() as f64 / 1e6);
+            if landed.missed || since < period {
+                log::info!("kms: page-flip stamp {since:.2} ms after the last (one refresh is {period:.2})");
+            } else {
+                log::info!("kms: page-flip interval {since:.2} ms, nothing due at the refresh between (one refresh is {period:.2})");
+            }
         }
         if let Some((old, new)) = landed.rate_change {
             log::info!("kms: the panel refreshes every {:.2} ms now ({:.2} before): the pacer is keyed to it", new as f64 / 1e6, old as f64 / 1e6);
@@ -530,7 +535,6 @@ impl Kms {
             req.add_property(self.crtc, self.crtc_mode_id, property::Value::Blob(self.mode_blob));
             req.add_property(self.crtc, self.crtc_active, property::Value::Boolean(true));
             flags |= AtomicCommitFlags::ALLOW_MODESET;
-            flags.remove(AtomicCommitFlags::NONBLOCK);
         }
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
         let primary_fb = match a.primary {
@@ -561,8 +565,25 @@ impl Kms {
             }
         }
         let _ = self.crtc_out_fence;
-        match self.card.atomic_commit(flags, req) {
+        // The session's first commit carries the mode. Made blocking, it held the loop until the GPU had the first
+        // frame and the next vblank came: 21.8 ms on the eighth gate's trial, 13.3-16.1 ms on the gates before
+        // (`present: ... atomic commit`), the trial's one loop pass over 20 ms. Non-blocking it returns at once and
+        // the page-flip event says when it is on; a driver that refuses a non-blocking modeset gets the blocking one.
+        let first = !self.modeset_done;
+        let retry = first.then(|| req.clone());
+        let committed = match (retry, self.card.atomic_commit(flags, req)) {
+            (Some(req), Err(e)) => {
+                log::warn!("kms: the first commit (with the mode) refused non-blocking: {e}; committing it blocking");
+                flags.remove(AtomicCommitFlags::NONBLOCK);
+                self.card.atomic_commit(flags, req)
+            }
+            (_, r) => r,
+        };
+        match committed {
             Ok(()) => {
+                if first {
+                    log::info!("kms: the mode went out with the first frame ({})", if flags.contains(AtomicCommitFlags::NONBLOCK) { "non-blocking" } else { "blocking" });
+                }
                 // The planes' recorded state follows only a commit the kernel took; after a refused one the next
                 // request must carry everything again.
                 self.state = new_state;
@@ -749,8 +770,9 @@ impl Output for Kms {
             landed += 1;
         }
         if landed > 0 {
-            // The GPU is done with the frame that landed, the last that could have read a retired texture; the
-            // frame drawn next is a latch away, so the driver's unmapping costs this pass and no frame.
+            // The GPU is done with the frame that landed, the last that could have read a retired texture. A queued
+            // frame went out just above, so the driver's unmapping never sits between a draw and its commit; when a
+            // tick took the flip, its frame starts after the frees (`BURY_BUDGET` at most).
             self.gl.bury();
             self.prune_direct();
         }
@@ -767,7 +789,7 @@ impl Output for Kms {
         let ui = self.gl.ui_stats_line();
         let t = &self.timing;
         format!(
-            "flips {} late {} lost {} reached late {} direct {} split {} odd stamps {} refresh {:.2} ms (changed {}){}{}",
+            "flips {} late {} lost {} reached late {} direct {} split {} odd stamps {} ({} missed) refresh {:.2} ms (changed {}){}{}",
             t.flips,
             t.late_frames,
             t.lost_refreshes,
@@ -775,6 +797,7 @@ impl Output for Kms {
             self.direct_frames,
             self.split_frames,
             t.odd_stamps,
+            t.missed_stamps,
             t.period_ns() as f64 / 1e6,
             t.rate_changes,
             if ui.is_empty() { "" } else { " " },
@@ -827,12 +850,19 @@ impl Output for Kms {
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
         // flip is pending, one drawn into (a waiting frame's, or the next).
+        // A superseded frame's content was due as long as it waited: the oldest of the two is this frame's (a frame of
+        // no new commit counts as due since the last flip).
+        let mut content_ns = plan.content_ns;
         if let Some(q) = self.queued.take() {
             self.frames.redraw(q.assignment.primary);
             if let Some((s, _)) = q.assignment.overlay {
                 self.frames.redraw(s);
             }
             self.replacing = true;
+            content_ns = match (content_ns, q.timing.content_ns) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                _ => None,
+            };
         }
         let direct = plan.sole_fullscreen().and_then(|item| {
             let fb = self.direct_fb(&item.buffer)?;
@@ -850,7 +880,7 @@ impl Output for Kms {
         }
         self.last_assignment = Some(Frame {
             assignment,
-            timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns() },
+            timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns(), content_ns },
             #[cfg(feature = "ui")]
             ui: self.gl.take_ui_frame(),
         });

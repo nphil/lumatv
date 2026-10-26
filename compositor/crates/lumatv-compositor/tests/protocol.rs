@@ -868,7 +868,7 @@ fn destroying_the_shown_buffer_keeps_the_last_frame() {
     buf.destroy();
     client.roundtrip();
     // Force a redraw of the whole output and look again.
-    server.eval(|s| s.scene.layout_changed = true);
+    server.eval(|s| s.scene.redraw_all());
     std::thread::sleep(Duration::from_millis(30));
     let (image, mapped) = server.eval(|s| (harness::drawn(s), s.scene.foreground(&s.surfaces).is_some()));
     assert!(mapped, "the window stays mapped");

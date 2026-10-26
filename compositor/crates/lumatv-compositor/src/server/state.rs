@@ -273,8 +273,6 @@ impl State {
                     }
                     super::seat::refocus(self);
                 }
-            } else if eff.new_buffer {
-                self.scene.layout_changed |= self.surfaces.get(sid).map(|s| s.current.damage.is_none()).unwrap_or(false);
             }
             if eff.new_buffer {
                 self.note_cadence(sid);
@@ -352,6 +350,10 @@ impl State {
     pub fn tick(&mut self) -> Presented {
         let t0 = Instant::now();
         self.stats.ticks += 1;
+        // A flip that landed while the pass did other work goes out before this frame is drawn, and one that landed
+        // while it was drawn goes out before the tick's own bookkeeping: its callbacks start the clients' next frames.
+        // X1's 20.4 ms frame gap on the eighth gate came with a flip the loop reached 3.6 ms after it landed.
+        self.land_flips();
         if self.output.warming() {
             self.stats.held_ticks += 1;
             if !self.holding {
@@ -395,6 +397,7 @@ impl State {
             }
         };
         let t_presented = Instant::now();
+        self.land_flips();
         if drew {
             self.stats.frames_drawn += 1;
             self.after_drawn_frame();
@@ -452,11 +455,25 @@ impl State {
         }
     }
 
-    /// `n` frames reached the screen (the output's page-flip events): their callbacks are due.
+    /// `n` frames reached the screen (the output's page-flip events): their callbacks are due, and are sent now rather
+    /// than with the rest of the pass.
     pub fn frames_landed(&mut self, n: u32) {
+        let mut fired = false;
         for _ in 0..n {
             let Some((_, callbacks)) = self.frames_in_flight.pop_front() else { break };
             self.fire_callbacks(callbacks, crate::output::monotonic_ms());
+            fired = true;
+        }
+        if fired && let Err(e) = self.dh.flush_clients() {
+            log::warn!("flush after a flip: {e}");
+        }
+    }
+
+    /// Takes the page flips that have landed (none is fine: the output does not wait) and sends their callbacks.
+    pub fn land_flips(&mut self) {
+        match self.output.dispatch_events() {
+            Ok(n) => self.frames_landed(n),
+            Err(e) => log::warn!("output events: {e}"),
         }
     }
 

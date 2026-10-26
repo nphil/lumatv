@@ -111,7 +111,6 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                         {
                             s.role = Role::GroupMember { owner };
                         }
-                        state.scene.layout_changed = true;
                     } else {
                         log::warn!("attach to unknown layer {layer_name:?} of group {gname:?}");
                     }
@@ -131,7 +130,6 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                         {
                             s.role = Role::GroupMember { owner };
                         }
-                        state.scene.layout_changed = true;
                     } else {
                         log::warn!("anonymous attach to group {gname:?} that does not allow it");
                     }
@@ -158,7 +156,6 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                     {
                         s.role = Role::None;
                     }
-                    state.scene.layout_changed = true;
                 }
             }
             wl_webos_surface_group::Request::FocusOwner => state.note_request("wl_webos_surface_group", pid, "focus_owner"),
@@ -174,7 +171,6 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosSurfaceGroup, data: &GroupData) {
         if data.is_owner {
             state.scene.groups.retain(|g| g.name != data.name);
-            state.scene.layout_changed = true;
         }
     }
 }
@@ -198,7 +194,6 @@ impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
                 if let Some(l) = layer(state, data) {
                     l.z = z_index;
                 }
-                state.scene.layout_changed = true;
                 state.note_request("wl_webos_surface_group_layer", pid, &format!("set_z_index({z_index})"));
             }
             wl_webos_surface_group_layer::Request::SetKeyIndex { key_index } => {
@@ -214,7 +209,6 @@ impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosSurfaceGroupLayer, data: &LayerData) {
         if let Some(g) = state.scene.groups.iter_mut().find(|g| g.name == data.group) {
             g.layers.remove(&data.name);
-            state.scene.layout_changed = true;
         }
     }
 }

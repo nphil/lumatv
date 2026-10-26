@@ -200,7 +200,6 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
                 state.luna_call(uri, payload);
             }
             state.scene.holes.retain(|h| h.surface != e.surface);
-            state.scene.layout_changed = true;
         }
     }
 }
@@ -313,7 +312,6 @@ impl State {
         if !contexts.is_empty() && !dest.is_empty() {
             self.scene.holes.push(Hole { surface, rect: dest });
         }
-        self.scene.layout_changed = true;
         for (id, i) in &self.foreign.imported {
             if i.window_id == window_id
                 && let Ok(res) = WlWebosImported::from_id(&self.dh, id.clone())

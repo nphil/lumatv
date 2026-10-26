@@ -65,6 +65,9 @@ pub struct Plan {
     pub tiles: Option<Tiles>,
     /// Where the pointer's sprite goes, above everything, while the cursor shows.
     pub cursor: Option<Rect>,
+    /// When the oldest commit this frame shows for the first time arrived (CLOCK_MONOTONIC ns); `None` when it
+    /// shows no new commit (a layout request, the system UI), which is judged as due since the last flip.
+    pub content_ns: Option<u64>,
 }
 
 impl Plan {
@@ -88,10 +91,21 @@ impl Plan {
         self.damage_rects.clear();
         self.damage = Rect::default();
         self.cursor = None;
+        self.content_ns = None;
         if let Some(t) = &mut self.tiles {
             t.clear();
         }
     }
+}
+
+/// What one drawn item looked like to the eye, apart from its content: the plans of two frames with the same list of
+/// these, in the same order, and the same holes show the same picture wherever no surface damage says otherwise.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Placed {
+    surface: SurfaceId,
+    rect: Rect,
+    opaque: bool,
+    y_invert: bool,
 }
 
 #[derive(Default)]
@@ -105,16 +119,17 @@ pub struct Scene {
     /// The pointer's sprite rectangle while the cursor shows (set by the state before each plan).
     pub cursor: Option<Rect>,
     last_cursor: Option<Rect>,
-    /// Set whenever something other than surface damage changed the picture (map, unmap, move, restack).
-    pub layout_changed: bool,
-    /// What the last plan covered, to damage what a vanished window exposed.
-    last_rects: Vec<Rect>,
+    /// The next plan damages everything it covers whatever changed ([`Scene::redraw_all`]).
+    redraw_all: bool,
+    /// What the last plan drew and where, to damage what moved, appeared, restacked or vanished.
+    last_placed: Vec<Placed>,
+    last_holes: Vec<Rect>,
     plan: Plan,
     // Scratch space for planning, reused across frames.
     stack: Vec<(Layer, u64, WindowId)>,
     members: Vec<(i32, SurfaceId)>,
     tree: Vec<(SurfaceId, i32, i32)>,
-    rects: Vec<Rect>,
+    placed: Vec<Placed>,
 }
 
 impl Scene {
@@ -126,7 +141,6 @@ impl Scene {
         let id = WindowId(self.next_window);
         self.windows.insert(id, Window::new(id, surface));
         self.by_surface.insert(surface, id);
-        self.layout_changed = true;
         id
     }
 
@@ -135,7 +149,6 @@ impl Scene {
     }
 
     pub fn window_mut(&mut self, id: WindowId) -> Option<&mut Window> {
-        self.layout_changed = true;
         self.windows.get_mut(&id)
     }
 
@@ -156,7 +169,6 @@ impl Scene {
     pub fn remove_window(&mut self, id: WindowId) -> Option<Window> {
         let w = self.windows.remove(&id)?;
         self.by_surface.remove(&w.surface);
-        self.layout_changed = true;
         Some(w)
     }
 
@@ -174,7 +186,6 @@ impl Scene {
             g.anonymous.retain(|(s, _)| *s != surface);
         }
         self.holes.retain(|h| h.surface != surface);
-        self.layout_changed = true;
     }
 
     /// Records that a window's surface got its first buffer (or lost its last). A card that maps comes to the front
@@ -191,7 +202,6 @@ impl Scene {
                 w.map_serial = 0;
                 w.front = 0;
             }
-            self.layout_changed = true;
         }
     }
 
@@ -219,7 +229,6 @@ impl Scene {
             if w.map_serial > 0 {
                 w.map_serial = self.map_counter;
             }
-            self.layout_changed = true;
         }
     }
 
@@ -324,24 +333,25 @@ impl Scene {
                 }
             }
         }
-        self.rects.clear();
-        self.rects.extend(self.plan.items.iter().map(|i| i.rect));
-        if self.layout_changed || self.rects != self.last_rects {
+        // Whatever moved, appeared, restacked or vanished is drawn again in full, old place and new. A request that
+        // changes nothing on the screen (a window made, named or given a state before its first buffer) draws no
+        // frame: on every gate the full redraw of the same picture at X1's window creation flipped 14-15 ms before
+        // X1's first commit, and that frame's flip two refreshes later was logged as a skipped refresh (33.37 ms).
+        self.placed.clear();
+        self.placed.extend(self.plan.items.iter().map(|i| Placed { surface: i.surface, rect: i.rect, opaque: i.opaque, y_invert: i.y_invert }));
+        if std::mem::take(&mut self.redraw_all) || self.placed != self.last_placed || self.plan.holes != self.last_holes {
             let tiles = self.plan.tiles.as_mut().unwrap();
-            for r in self.last_rects.iter().chain(self.rects.iter()) {
+            for r in self.last_placed.iter().chain(self.placed.iter()).map(|p| &p.rect).chain(self.last_holes.iter()).chain(self.plan.holes.iter()) {
                 self.plan.damage = self.plan.damage.union(r);
                 tiles.add(r);
-            }
-            for h in &self.plan.holes {
-                self.plan.damage = self.plan.damage.union(h);
-                tiles.add(h);
             }
             for i in &mut self.plan.items {
                 i.damage = None;
             }
-            self.layout_changed = false;
         }
-        std::mem::swap(&mut self.last_rects, &mut self.rects);
+        std::mem::swap(&mut self.last_placed, &mut self.placed);
+        self.last_holes.clear();
+        self.last_holes.extend_from_slice(&self.plan.holes);
         // The sprite sits above everything: where it was and where it is are redrawn when it moved or hid.
         self.plan.cursor = self.cursor;
         if self.cursor != self.last_cursor {
@@ -362,6 +372,11 @@ impl Scene {
     /// The last plan, as built by [`Scene::plan`].
     pub fn last_plan(&self) -> &Plan {
         &self.plan
+    }
+
+    /// Damages everything the next plan covers, whatever changed.
+    pub fn redraw_all(&mut self) {
+        self.redraw_all = true;
     }
 
     fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32)) {
@@ -402,6 +417,9 @@ impl Scene {
                 s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
                     || crate::buffer::kind_of(&buffer).is_opaque_format();
             let y_invert = s.current.y_invert;
+            if let Some(c) = s.current.content_ns {
+                self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));
+            }
             self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert });
         }
     }

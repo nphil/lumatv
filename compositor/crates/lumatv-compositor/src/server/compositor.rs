@@ -219,7 +219,6 @@ impl Dispatch<WlSubcompositor, ()> for State {
                 }
                 data_init.init(id, SubsurfaceData { surface: child });
                 state.note_request("wl_subcompositor", 0, &format!("get_subsurface(surface {} under {})", child.0, par.0));
-                state.scene.layout_changed = true;
             }
             wl_subcompositor::Request::Destroy => {}
             _ => {}
@@ -247,13 +246,11 @@ impl Dispatch<WlSubsurface, SubsurfaceData> for State {
             wl_subsurface::Request::PlaceAbove { sibling } => {
                 if let Some(sib) = surface_id(&sibling) {
                     state.surfaces.place(id, sib, true);
-                    state.scene.layout_changed = true;
                 }
             }
             wl_subsurface::Request::PlaceBelow { sibling } => {
                 if let Some(sib) = surface_id(&sibling) {
                     state.surfaces.place(id, sib, false);
-                    state.scene.layout_changed = true;
                 }
             }
             wl_subsurface::Request::SetSync => {
@@ -281,7 +278,6 @@ impl Dispatch<WlSubsurface, SubsurfaceData> for State {
                     p.children.retain(|c| *c != data.surface);
                 }
             }
-            state.scene.layout_changed = true;
         }
     }
 }

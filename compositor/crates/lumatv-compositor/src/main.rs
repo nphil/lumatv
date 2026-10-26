@@ -231,6 +231,9 @@ fn run(config: Config) -> io::Result<()> {
         };
         let n = epoll.wait(&mut events, timeout)?;
         let woke = Instant::now();
+        // Landed flips first: their callbacks start the clients' next frames, and anything handled before them in the
+        // pass (a tick's draw, a client's buffer import) would delay those by its own length.
+        events[..n].sort_by_key(|ev| ev.u64 != TAG_OUTPUT);
         let mut handled = 0u32;
         for ev in &events[..n] {
             let tag = ev.u64;
@@ -267,11 +270,8 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_OUTPUT => {
                     // Page flips landed: the pacer learned their timestamps, a frame waiting behind the flip went
-                    // out, and the landed frames' callbacks are due.
-                    match state.output.dispatch_events() {
-                        Ok(n) => state.frames_landed(n),
-                        Err(e) => log::warn!("output events: {e}"),
-                    }
+                    // out, and the landed frames' callbacks are sent.
+                    state.land_flips();
                 }
                 TAG_LUNA => {
                     luna_poll(&mut state);

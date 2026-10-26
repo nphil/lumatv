@@ -158,8 +158,13 @@ impl FrameClock {
 
 /// CLOCK_MONOTONIC in milliseconds, truncated to 32 bits like libwayland's own frame callbacks.
 pub fn monotonic_ms() -> u32 {
+    (monotonic_ns() / 1_000_000) as u32
+}
+
+/// CLOCK_MONOTONIC in ns: the clock the kernel stamps page flips with and the log's lines carry.
+pub fn monotonic_ns() -> u64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: plain clock read into a stack struct.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-    (ts.tv_sec as u64 * 1000 + ts.tv_nsec as u64 / 1_000_000) as u32
+    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }

@@ -103,6 +103,9 @@ pub struct Current {
     pub buffer_commits: u64,
     /// A commit with new content has not been drawn yet.
     pub undrawn: bool,
+    /// When the oldest such commit arrived (CLOCK_MONOTONIC ns): the earliest a frame showing it could have started,
+    /// which is what tells a refresh the compositor missed from one that had nothing new to show (`Plan::content_ns`).
+    pub content_ns: Option<u64>,
 }
 
 pub struct Surface {
@@ -328,6 +331,7 @@ impl Surfaces {
         }
         if eff.new_buffer || s.current.damage.as_ref().map(|d| !d.is_empty()).unwrap_or(true) {
             s.current.undrawn = true;
+            s.current.content_ns.get_or_insert_with(crate::output::monotonic_ns);
         }
         s.current.frame_callbacks.extend(p.frame_callbacks);
         let now_mapped = s.current.buffer.is_some();
@@ -368,6 +372,7 @@ impl Surfaces {
         for s in self.map.values_mut() {
             s.current.damage = Some(Vec::new());
             s.current.undrawn = false;
+            s.current.content_ns = None;
         }
     }
 
