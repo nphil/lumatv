@@ -52,6 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verified builds, a watchdog that falls back to LG's compositor on a frozen or
   empty panel or an unsettled run, the hold-Home escape from the first moment of
   boot, and a gate that allows no gap over 20 ms.
+- Declutter group `autoinstall` (profile `ads`): LG's silent app installs
+  stopped at their two switches (`option.appUpdateMode` manual,
+  `support.automaticUpdate` off), the factory stubs that LG's app updater turns
+  into full apps in standby removed (DAZN came that way on 2026-10-25), and
+  every not-installed id of LG's country list on SAM's deleted list so the
+  wake-time sync adds nothing. The store's own installs and updates stay. Host
+  tests run the tool against a made-up set (`DECLUTTER_ROOT`), and switching
+  one group off re-applies the list edits of the others still on.
 
 ### Changed
 

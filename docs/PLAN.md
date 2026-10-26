@@ -570,7 +570,11 @@ panel care and stored values are unchanged; only the screens are new.
   legal, LG account, software update) stay LG's, themed, behind "More in LG
   settings" rows that open them directly.
 - The Settings key, the gear on Home and Quick Settings' "All settings" all
-  open it (launch redirect); LG's app remains reachable from System.
+  open it (launch redirect). Every LG Settings item, rare ones included, gets a
+  native LumaTV page or row so LG's Settings app and menus never need to open
+  and take memory (Nitin, 2026-10-25; inventory in
+  `docs/research/settings-coverage.md`); one emergency "Open LG Settings" row
+  stays in System.
 - Mockups: `docs/mocks/` (gallery `index.html`, mapping of LG's items to the
   sections in `settings-map.md`).
 
