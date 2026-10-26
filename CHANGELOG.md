@@ -245,6 +245,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Video-plane saver: the player's window is double-buffered and repaints a buffer only after
+  the compositor releases it, so no half-painted frame (a veil without its caption) can show.
 - Home: a read of `theme.json` that landed while Home was writing it reset the theme on
   screen and dropped earlier choices from the next save; such a read is now ignored.
 - Settings: Just Scan is read and written per input, as LG's Settings does, and App
