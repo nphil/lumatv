@@ -315,7 +315,10 @@ fn converse(
         }
         // The signal and the mode can change with what plays, and the receiver does not say so on its own: one more pair of questions per burst of
         // volume changes (a held key is one burst), never faster than every 800 ms.
-        if volume_moved && queue.is_empty() && now.duration_since(asked_format) > Duration::from_millis(800) {
+        if volume_moved
+            && queue.is_empty()
+            && now.duration_since(asked_format) > Duration::from_millis(800)
+        {
             queue.extend(FORMAT_QUERIES);
             asked_format = now;
         }

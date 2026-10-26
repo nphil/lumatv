@@ -79,7 +79,8 @@ pub fn parse_line(line: &str) -> Option<Push> {
     if let Some(rest) = line.strip_prefix("MS") {
         // `MSQUICK1` and `MSSMART1` are quick-select slots, not a sound mode
         let mode = rest.trim();
-        return (!mode.is_empty() && !mode.starts_with("QUICK") && !mode.starts_with("SMART")).then(|| Push::Mode(mode.to_owned()));
+        return (!mode.is_empty() && !mode.starts_with("QUICK") && !mode.starts_with("SMART"))
+            .then(|| Push::Mode(mode.to_owned()));
     }
     if let Some(rest) = line.strip_prefix("SYSDA") {
         let text = rest.trim();
@@ -375,9 +376,15 @@ mod format_tests {
 
     #[test]
     fn the_sound_mode_and_the_signal_words_are_heard_as_the_receiver_says_them() {
-        assert_eq!(parse_line("MSDOLBY AUDIO-DSUR"), Some(Push::Mode("DOLBY AUDIO-DSUR".into())));
+        assert_eq!(
+            parse_line("MSDOLBY AUDIO-DSUR"),
+            Some(Push::Mode("DOLBY AUDIO-DSUR".into()))
+        );
         assert_eq!(parse_line("MSSTEREO"), Some(Push::Mode("STEREO".into())));
-        assert_eq!(parse_line("SYSDA PCM ZERO             "), Some(Push::Signal("PCM ZERO".into())));
+        assert_eq!(
+            parse_line("SYSDA PCM ZERO             "),
+            Some(Push::Signal("PCM ZERO".into()))
+        );
         assert_eq!(parse_line("SYSMI Dolby Audio - Dolby Surround"), None);
         assert_eq!(parse_line("SSINFAISSIG 13"), None);
     }
@@ -393,7 +400,12 @@ mod format_tests {
     #[test]
     fn the_snapshot_keeps_them_beside_the_four_parts_and_is_ready_without_them() {
         let mut s = Snapshot::default();
-        for push in [Push::Power(Power::On), Push::Volume(-37.5), Push::Mute(false), Push::Input("TV".into())] {
+        for push in [
+            Push::Power(Power::On),
+            Push::Volume(-37.5),
+            Push::Mute(false),
+            Push::Input("TV".into()),
+        ] {
             s.apply(push);
         }
         assert!(s.status().is_some() && s.mode().is_none() && s.signal().is_none());
@@ -407,6 +419,10 @@ mod format_tests {
         for q in FORMAT_QUERIES {
             assert!(q.ends_with('?') && (2..=16).contains(&q.len()));
         }
-        assert!("SSINFAISSIG ?".bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b' ' || b == b'?'));
+        assert!(
+            "SSINFAISSIG ?"
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b' ' || b == b'?')
+        );
     }
 }

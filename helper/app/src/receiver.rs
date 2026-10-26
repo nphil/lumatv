@@ -120,8 +120,14 @@ impl Poller<'_> {
         doc.insert("volumeText".into(), json!(shown.and_then(volume_text)));
         doc.insert("mute".into(), json!(shown.and_then(|s| s.mute)));
         // what the receiver says it plays, raw; the screen turns them into words (kit/AudioFormat.js). Like the rest, only while the reading is fresh.
-        doc.insert("soundMode".into(), json!(self.mode.as_deref().filter(|_| fresh)));
-        doc.insert("signal".into(), json!(self.signal.as_deref().filter(|_| fresh)));
+        doc.insert(
+            "soundMode".into(),
+            json!(self.mode.as_deref().filter(|_| fresh)),
+        );
+        doc.insert(
+            "signal".into(),
+            json!(self.signal.as_deref().filter(|_| fresh)),
+        );
         Value::Object(doc)
     }
 
@@ -165,7 +171,14 @@ impl Poller<'_> {
 
     /// Takes a reading from the telnet link in: it counts as a successful attempt and moves the stamp, whether or not the
     /// receiver said anything new.
-    fn accept(&mut self, mut status: Status, at: Instant, at_ms: u64, mode: Option<String>, signal: Option<String>) {
+    fn accept(
+        &mut self,
+        mut status: Status,
+        at: Instant,
+        at_ms: u64,
+        mode: Option<String>,
+        signal: Option<String>,
+    ) {
         status.volume_display = self.display.clone();
         self.failures = 0;
         self.last_attempt = Some(None);
@@ -387,7 +400,13 @@ fn run(ctx: &Ctx, tx: Sender<Cmd>, rx: &Receiver<Cmd>) {
             Ok(Cmd::Link) => {
                 for event in link.iter().flat_map(Link::drain) {
                     match event {
-                        Event::Reading { status, at, at_ms, mode, signal } => {
+                        Event::Reading {
+                            status,
+                            at,
+                            at_ms,
+                            mode,
+                            signal,
+                        } => {
                             if link_state != LinkState::Up {
                                 link_state = LinkState::Up;
                                 probe_at = Some(Instant::now());
