@@ -56,6 +56,7 @@ function makeFilter({ bridge = undefined, webos = WEBOS } = {}) {
     appKey(id, frontApp) { calls.push(["appKey", id, frontApp]); return appKeyTakes(id, frontApp); },
     panelReady(kind) { return panelReady(kind); },
     panel(kind) { calls.push(["panel", kind]); return panelOpens(kind); },
+    warmPanel(kind) { calls.push(["warm", kind]); return true; },
   } : bridge;
   const genericTimer = {
     set(ms, fn) { if (timerBroken) return -1; const id = ++nextTimer; timers.push({ id, at: now + ms, fn }); return id; },
@@ -800,6 +801,61 @@ test("the gear's hold is still the drawer's: the late entry never sees a hold th
   // LG's long press was cancelled and the release is ours: no replay comes, so the late entry has nothing to take
   expect(f.handleLumaHome(GEAR, false, false, 1)).toBe(KeyPolicy.Accepted);
   expect(calls.filter((c) => c[0] === "panel")).toEqual([]);
+});
+
+// ---- the quick panel joins the scene when the gear goes down, so that the tap's slide starts in a scene that has it (panels/PanelMotion.qml)
+
+test("the gear's press joins the quick panel to the scene, LG's chain still gets it, and LG's replay of the tap then opens it", () => {
+  const f = makeFilter();
+  bridgeAnswers = homeDeclines;
+  expect(f.handleLumaHome(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  expect(calls).toEqual([["dispatch", GEAR, true, false], ["warm", "quick"]]);
+  f.handleLumaHome(GEAR, true, true, 1);                          // a repeat and the release join nothing more
+  f.handleLumaHome(GEAR, false, false, 1);
+  expect(calls.filter((c) => c[0] === "warm").length).toBe(1);
+  calls = [];
+  expect(f.handleLumaQuick(GEAR, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(f.handleLumaQuick(GEAR, false, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(calls).toEqual([["panel", "quick"]]);
+});
+
+test("the gear's press over an app joins the quick panel too, and the Input key joins nothing", () => {
+  const f = makeFilter();
+  bridgeAnswers = homeDeclines;
+  front = { app: "com.webos.app.hdmi2", focus: true };
+  f.handleLumaHome(GEAR, true, false, 1);
+  f.handleLumaHome(INPUT, true, false, 1);
+  expect(calls).toEqual([["warm", "quick"]]);
+});
+
+test("a press that cannot open the quick panel joins nothing: none ready, the TV off, LG's own overlay on top, the layer not answering, the saver", () => {
+  for (const arrange of [
+    () => { panelReady = () => false; },
+    () => { power = "screen off"; },
+    () => { front = { app: "com.webos.app.home", focus: false }; },
+    () => { answering = false; },
+  ]) {
+    calls = []; panelReady = () => true; power = "active"; front = { app: "com.webos.app.home", focus: true }; answering = true; bridgeAnswers = homeDeclines;
+    arrange();
+    makeFilter().handleLumaHome(GEAR, true, false, 1);
+    expect(calls.filter((c) => c[0] === "warm")).toEqual([]);
+  }
+  calls = []; panelReady = () => true; power = "active"; front = { app: "com.webos.app.home", focus: true }; answering = true;
+  bridgeAnswers = (key) => key === GEAR;                          // LumaHome's saver eats the key: it wakes the TV and does nothing else
+  expect(makeFilter().handleLumaHome(GEAR, true, false, 1)).toBe(KeyPolicy.Accepted);
+  expect(calls).toEqual([["dispatch", GEAR, true, false]]);
+});
+
+test("a warm-up that throws leaves the press to LG with one warning, and the hold still opens the drawer", () => {
+  const f = makeFilter();
+  bridgeAnswers = homeDeclines;
+  f.theBridge.warmPanel = () => { throw new Error("boom"); };
+  expect(f.handleLumaHome(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);
+  f.handleLumaHome(GEAR, false, false, 1);
+  f.handleLumaHome(GEAR, true, false, 1);
+  expect(warnings.filter((w) => w.includes("the quick panel's warm-up")).length).toBe(1);
+  advance(650);
+  expect(calls).toContainEqual(["gearHold"]);
 });
 
 // ---- the pointer showing and hiding (Key_webOS_CursorShow and Hide: webOS scancodes 484 and 485 on the remote's own side)

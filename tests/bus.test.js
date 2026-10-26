@@ -16,7 +16,7 @@ let now, warnings, front, timers, nextTimer, lgCalls, log, Bus;
 
 function makeBus() {
   const env = { console: { warn: (m) => warnings.push(m), info() {} }, Date: { now: () => now } };
-  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "setSystemLauncher", "systemLaunch", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold", "setPanels", "panelReady", "panel", "wantSettings", "takeSettings"];
+  const names = ["setHandler", "setEscapeHandler", "setGear", "setOverlay", "setAppKey", "appKey", "setSystemLauncher", "systemLaunch", "beat", "answering", "dispatch", "overlayWants", "dispatchOverlay", "gearReady", "gearHold", "setPanels", "panelReady", "panel", "warmPanel", "wantSettings", "takeSettings"];
   return new Function(...Object.keys(env), BUS_SRC + "\nreturn { " + names.join(", ") + " };")(...Object.values(env));
 }
 
@@ -26,7 +26,7 @@ function makeFilter(bus) {
     dispatch: (...a) => bus.dispatch(...a), answering: () => bus.answering(), homeKey: () => false,
     dispatchOverlay: (...a) => bus.dispatchOverlay(...a), overlayWants: () => bus.overlayWants(),
     gearReady: () => bus.gearReady(), gearHold: () => bus.gearHold(),
-    panelReady: (k) => bus.panelReady(k), panel: (k) => bus.panel(k),
+    panelReady: (k) => bus.panelReady(k), panel: (k) => bus.panel(k), warmPanel: (k) => bus.warmPanel(k),
   };
   const genericTimer = {
     set(ms, fn) { const id = ++nextTimer; timers.push({ id, at: now + ms, fn }); return id; },
@@ -230,12 +230,14 @@ test("a system window is asked for through the launcher the key filter registere
 function registerPanels(bus, state) {
   bus.setPanels({
     ready: (k) => state.home, open: (k) => { log.push(["home panel", k]); return state.opens; },
+    warm: (k) => { log.push(["home warm", k]); return state.opens; },
   });
 }
 function registerOverlayPanels(bus, state) {
   bus.setOverlay({
     wants: () => false, ready: () => true, key: () => false, hold: () => true,
     panelReady: (k) => state.ready, panel: (k) => { log.push(["overlay panel", k]); return state.opens; },
+    warm: (k) => { log.push(["overlay warm", k]); return state.opens; },
   });
 }
 
@@ -260,6 +262,31 @@ test("a panel is shown by Home while Home can, else by the overlay, else by nobo
   // a panel that is asked and does nothing is not an answer
   home.home = true; home.opens = false;
   expect(Bus.panel("quick")).toBe(false);
+});
+
+test("the quick panel is joined to the scene by Home while Home can show it, else by the overlay, else by nobody", () => {
+  const home = { home: true, opens: true }, over = { ready: true, opens: true };
+  registerHome(Bus);
+  registerPanels(Bus, home);
+  registerOverlayPanels(Bus, over);
+  expect(Bus.warmPanel("quick")).toBe(true);
+  expect(log).toEqual([["home warm", "quick"]]);
+  log = [];
+  home.home = false;
+  expect(Bus.warmPanel("quick")).toBe(true);
+  expect(log).toEqual([["overlay warm", "quick"]]);
+  log = [];
+  over.ready = false;
+  expect(Bus.warmPanel("quick")).toBe(false);
+  // one that is asked and cannot (something is up, the switch is off) is not an answer; a registry without it, or that throws, answers no
+  over.ready = true; over.opens = false;
+  expect(Bus.warmPanel("quick")).toBe(false);
+  Bus.setOverlay({ wants: () => false, ready: () => true, key: () => false, hold: () => true, panelReady: () => true });
+  expect(Bus.warmPanel("quick")).toBe(false);
+  expect(warnings.length).toBe(1);
+  Bus.setPanels({ ready: () => true, open: () => true, warm: () => { throw new Error("boom"); } });
+  expect(Bus.warmPanel("quick")).toBe(false);
+  expect(warnings.length).toBe(1);       // one line per five seconds
 });
 
 test("a panel is not asked for while the layer is not answering, and a registry that throws answers no and logs once", () => {
@@ -306,6 +333,24 @@ test("a gear tap and the Input key reach the panels through the real filter and 
   front = { app: APP, focus: false };
   expect(tap()).toEqual([KeyPolicy.NextPolicy, KeyPolicy.NextPolicy]);
   expect(log).toEqual([]);
+});
+
+test("the gear's press joins the quick panel to the scene through the real filter and the bus, on Home and over an app", () => {
+  const home = { home: true, opens: true }, over = { ready: true, opens: true };
+  registerHome(Bus);
+  registerPanels(Bus, home);
+  registerOverlayPanels(Bus, over);
+  const f = makeFilter(Bus);
+  const warmed = () => log.filter((l) => l[0].endsWith("warm"));
+  expect(f.handleLumaHome(GEAR, true, false, 1)).toBe(KeyPolicy.NextPolicy);       // LG's chain still gets the press
+  expect(warmed()).toEqual([["home warm", "quick"]]);
+  f.handleLumaHome(GEAR, false, false, 1);
+  log = [];
+  front = { app: APP, focus: true };
+  home.home = false;
+  f.handleLumaHome(GEAR, true, false, 1);
+  expect(warmed()).toEqual([["overlay warm", "quick"]]);
+  expect(warnings).toEqual([]);
 });
 
 test("a Settings page asked for over an app waits for Home, once, and is dropped after fifteen seconds", () => {

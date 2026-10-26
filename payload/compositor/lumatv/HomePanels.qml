@@ -46,6 +46,17 @@ Item {
         return true
     }
 
+    // The gear is down, and its tap opens the quick panel when the key is let go: the panel joins the scene now, off the screen, so that the slide of
+    // the opening starts in a scene that has it (panels/PanelMotion.qml). Nothing is shown and nothing taken; a hold becomes the drawer, which
+    // lets the panel go again (Layers.releaseParked).
+    function warm(kind) {
+        if (kind !== "quick" || !ready(kind) || aiPrompt.up || layers.saverUp || layers.open !== "") return false
+        var r = layers.find(kind)
+        if (!r.item.warm) return false
+        r.item.warm()
+        return true
+    }
+
     // LG's own Quick Settings, for what the panel does not have: through the key filter's luna client, the one LG's key filters open it with
     function lgQuick() {
         home.closeLayerById("quick")
@@ -77,6 +88,6 @@ Item {
         }
     }
 
-    Component.onCompleted: Bus.setPanels({ ready: panels.ready, open: panels.open })
+    Component.onCompleted: Bus.setPanels({ ready: panels.ready, open: panels.open, warm: panels.warm })
     Component.onDestruction: Bus.setPanels(null)
 }

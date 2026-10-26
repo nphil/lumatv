@@ -38,6 +38,7 @@ Item {
     readonly property bool up: presented || leaving
     property alias lingerMs: motion.lingerMs
     function release() { motion.release() }
+    function warm() { motion.warm() }
     PanelMotion { id: motion; presented: panel.presented }
     readonly property real progress: motion.progress     // 0 away, 1 shown
     readonly property real slideX: slide.x               // where the sheet is (24 at rest), for the tests and the gate's step list
@@ -127,7 +128,7 @@ Item {
     Item {
         id: slide
         readonly property real travel: panel.edge + panel.sheetW
-        x: panel.parked ? -(panel.sheetW + 400) : panel.edge - (Lu.reduced ? 0 : travel * (1 - motion.progress))
+        x: panel.parked ? -(panel.sheetW + 400) - (motion.nudge ? 1 : 0) : panel.edge - (Lu.reduced ? 0 : travel * (1 - motion.progress))
         y: panel.edge
         width: panel.sheetW
         height: panel.sheetH

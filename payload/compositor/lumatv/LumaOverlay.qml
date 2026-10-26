@@ -266,6 +266,13 @@ Item {
         return true
     }
     function closePanel() { if (surface === "quick" || surface === "picker") { surface = ""; idle.stop() } }
+    // The gear is down over an app: its tap opens the quick panel when the key is let go, so the panel joins the scene now, off the screen, and the
+    // slide of the opening starts in a scene that has it (panels/PanelMotion.qml). Nothing is shown and nothing is taken.
+    function warmPanel(kind) {
+        if (kind !== "quick" || !panelReady(kind) || surface !== "" || !quickRes.item.warm) return false
+        quickRes.item.warm()
+        return true
+    }
     // "All settings" and the rows that open a page: Settings is a layer of Home, so over an app they take the TV to Home, which opens it
     // (LumaBus.js holds the request until Home is in front)
     function settingsFromPanel(page) {
@@ -317,7 +324,7 @@ Item {
     Timer { interval: 1000; running: ov.appFront; repeat: true; onTriggered: ov.readDoor() }
 
     Component.onCompleted: {
-        Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel })
+        Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel, warm: ov.warmPanel })
         console.info("[LumaOverlay] loaded")
     }
     Component.onDestruction: Bus.setOverlay(null)

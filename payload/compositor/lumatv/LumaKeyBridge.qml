@@ -47,6 +47,7 @@ QtObject {
     // and the doing of it. False leaves the key to LG's own window.
     function panelReady(kind) { return Bus.panelReady(kind) }
     function panel(kind) { return Bus.panel(kind) }
+    function warmPanel(kind) { return Bus.warmPanel(kind) }
     // One of the remote's app keys, pressed over whatever is in front: true when LumaHome took it (theme `remote.appKeys`).
     function appKey(id, frontAppId) { return Bus.appKey(id, frontAppId) }
     Component.onCompleted: Bus.setSystemLauncher(function(appId, params) { return bridge.launchHook ? bridge.launchHook(appId, params) === true : false })

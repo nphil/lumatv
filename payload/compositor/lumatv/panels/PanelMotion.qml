@@ -29,6 +29,17 @@ QtObject {
     property int lingerMs: 4000
     property bool held: false
     function release() { held = false; linger.stop() }
+    // The panel is about to be wanted (the gear is down and its tap opens it when the key is let go): it joins the scene now, parked, and one
+    // move of the sheet later (`nudge`: the sheet's transform node becomes a batch root at its first move, another rebuild of the whole scene),
+    // so that the slide of the opening starts in a scene that has it. A panel that is not opened goes with the linger.
+    property bool nudge: false
+    function warm() {
+        if (presented || lingerMs <= 0) return
+        held = true
+        linger.restart()
+        nudger.restart()
+    }
+    onHeldChanged: if (!held) { nudge = false; nudger.stop() }
     readonly property int enterMs: Math.min(Lu.layerMs, 110)
     readonly property int exitMs: Math.min(Lu.layerMs, 110)
     readonly property int fadeMs: Lu.ms("labelMs")           // reduced motion: one short fade, no travel
@@ -45,4 +56,5 @@ QtObject {
 
     property NumberAnimation anim: NumberAnimation { target: motion; property: "progress" }
     property Timer linger: Timer { interval: motion.lingerMs; onTriggered: motion.held = false }
+    property Timer nudger: Timer { interval: 30; onTriggered: motion.nudge = true }
 }

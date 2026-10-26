@@ -21,7 +21,7 @@ var escapeHandler = null
 var gearHome = null                     // { ready(): bool, hold(): bool }
 var overlay = null                      // { wants(): bool, key(k, pressed, autoRepeat, device): bool, ready(): bool, hold(): bool }
 var appKeyHandler = null                // (id, frontAppId) -> true when LumaHome took the remote's app key (launched an app, or does nothing)
-var homePanels = null                   // { ready(kind): bool, open(kind): bool }, kind "quick" | "picker"
+var homePanels = null                   // { ready(kind): bool, open(kind): bool, warm(kind): bool }, kind "quick" | "picker"
 var systemLauncher = null               // (appId, params) -> true when LG's system window was asked for: the key filter's own luna client (see systemLaunch)
 var lastFaultMs = 0
 var beatMs = 0
@@ -121,6 +121,16 @@ function panel(kind) {
         if (homePanels && homePanels.ready(kind) === true) return homePanels.open(kind) === true
         if (overlay && typeof overlay.panelReady === "function" && overlay.panelReady(kind) === true) return overlay.panel(kind) === true
     } catch (e) { fault("panel", e) }
+    return false
+}
+
+// The gear is down, and its tap opens the quick panel when the key is let go: the panel joins the scene now (Home first, then the overlay), so that
+// the slide of the opening starts in a scene that has it. True when one did.
+function warmPanel(kind) {
+    try {
+        if (homePanels && homePanels.ready(kind) === true) return homePanels.warm(kind) === true
+        if (overlay && typeof overlay.panelReady === "function" && overlay.panelReady(kind) === true) return overlay.warm(kind) === true
+    } catch (e) { fault("panel warm-up", e) }
     return false
 }
 

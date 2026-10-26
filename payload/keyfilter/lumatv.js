@@ -20,7 +20,8 @@
 // is fourth, behind this filter) and decides on release: before 1 s it replays the key, which
 // opens Quick Settings and counts toward the three-tap AV reset; at 1 s it injects Key_Option,
 // which launches LG's Settings app. This filter only watches the press, so a tap is LG's as it
-// always was. Held 650 ms it asks LumaHome (or the overlay, over an app) to open the
+// always was (the press also tells the quick panel to join the scene: `warmQuick`). Held 650 ms it
+// asks LumaHome (or the overlay, over an app) to open the
 // notification drawer; once that has opened, LG's own long-press timer is cancelled the way
 // the Home hold cancels Screen Zoom's, and the rest of the hold, its repeats and its release,
 // ends here, so LG neither opens Settings nor replays a tap. When nothing of ours can show the
@@ -239,6 +240,18 @@ function gearKey(pressed, autoRepeat) {
     return swallow;
 }
 
+// The gear is down. If it is let go within the hold, LG replays it as a tap and the second entry below opens the quick panel, so the panel
+// joins the scene now, off the screen, and the tap's slide starts in a scene that has it (panels/PanelMotion.qml has the numbers). Nothing is
+// shown, and LG's chain still gets the press.
+function warmQuick() {
+    try {
+        if (global.powerState !== "active" || (!homeInFront() && !appInFront()) || !bridge.answering()) return;
+        if (bridge.panelReady("quick") === true) bridge.warmPanel("quick");
+    } catch (e) {
+        fault("the quick panel's warm-up", e);
+    }
+}
+
 // Key_Option: LG's 1 s conversion of a held gear (and the key an Option key of a keyboard would send, which is none of
 // this). Ours only while the gear is down or its hold has been taken.
 function optionKey(pressed) {
@@ -267,7 +280,10 @@ function handleLumaHome(key, pressed, autoRepeat, deviceId) {
         // A surface of ours may take any key first: the saver wakes on the gear like on any other key
         if (takeKey(key, pressed, autoRepeat, deviceId)) return KeyPolicy.Accepted;
         if (APP_KEYS[key] !== undefined) return appKey(key, pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
-        if (GEAR_KEY !== null && key === GEAR_KEY) return gearKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+        if (GEAR_KEY !== null && key === GEAR_KEY) {
+            if (pressed && !autoRepeat) warmQuick();
+            return gearKey(pressed, autoRepeat) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
+        }
         if (key === Qt.Key_Option) return optionKey(pressed) ? KeyPolicy.Accepted : KeyPolicy.NextPolicy;
         return KeyPolicy.NextPolicy;
     } catch (e) {

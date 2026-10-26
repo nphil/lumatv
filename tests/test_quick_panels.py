@@ -29,7 +29,7 @@ function nodes(p) { var n = 1; for (var i=0; i<p.children.length; i++) n += node
 # LumaBus.js as the key filter's bridge reaches it: the same library instance Home and the overlay registered with
 BUS = ("function bus() { return Qt.createQmlObject('import QtQuick 2.4\\nimport \"' + root.moduleDirUrl + 'LumaBus.js\" as Bus\\n"
        "QtObject { function ready(k) { return Bus.panelReady(k) } function open(k) { return Bus.panel(k) } function take() { return Bus.takeSettings() }"
-       " function want(p) { Bus.wantSettings(p) } }', root) }")
+       " function want(p) { Bus.wantSettings(p) } function warm(k) { return Bus.warmPanel(k) } }', root) }")
 CALLS = "JSON.stringify(root.lunaCalls.map(function(c) { var p; try { p = JSON.parse(c.payload) } catch (e) { p = c.payload } return { u: c.uri, m: c.method, p: p } }))"
 PLAIN = '{"perf":{"syncResidents":true}}'
 REDUCED = '{"perf":{"syncResidents":true},"motion":{"reduced":true}}'
@@ -215,6 +215,49 @@ class HomePanels(HostCase):
             self.assertEqual(p["up2"], up)
             self.assertEqual((p["gone"]["visible"], p["gone"]["held"], p["gone"]["drawn"], p["gone"]["nodes"]), (False, False, 0, built["nodes"]))
 
+    def test_the_gears_press_joins_the_quick_panel_to_the_scene_before_its_tap_opens_it(self):
+        # The key filter's first entry sees the gear go down, and LG replays the tap on the release: the panel joins the scene, off the screen, at
+        # the press (and moves the sheet once, which makes it a batch root there and not in the slide), so the opening joins and rebuilds nothing.
+        # Nothing is shown; a hold becomes the drawer, which lets the panel go again; something that is up leaves it alone.
+        state = "var s = find(root, 'footFocus'); return {visible: s.visible, held: s.held, parked: s.parked, drawn: onscreen(s), x: s.slideX, nodes: nodes(s)};"
+        rc, out = self.host(
+            *probe(READY + 400, "warm", "var r = bus().warm('quick'); return [r, find(root, 'footFocus').held, find(root, 'footFocus').slideX];"),
+            *probe(READY + 1100, "warmed", state),                  # the sheet's move is a timer of 30 ms, which a frame of the software renderer can hold up
+            *probe(READY + 1200, "open", "return bus().open('quick');"),
+            *probe(READY + 2000, "up", state),
+            *probe(READY + 2100, "close", "return bus().open('quick');"),
+            *probe(READY + 2300, "hold", "root.closeAllLayers(); var w = bus().warm('quick'); root.openLayer('drawer'); var s = find(root, 'footFocus'); return [w, s.held, s.visible, root.layerOpen];"),
+            *probe(READY + 2800, "busy", "root.closeAllLayers(); root.openSettings(); return [bus().warm('quick'), root.settingsOpen];"),
+            *probe(READY + 2900, "picker", "root.closeSettings(); return [bus().warm('picker'), bus().ready('picker')];"),
+            "--wait", str(READY + 3300))
+        self.assertEqual(rc, 0, out[-2500:])
+        p = probes(out)
+        self.assertEqual(p["warm"], [True, True, -892], "the gear's press must join the panel at once, parked")
+        warmed = p["warmed"]
+        self.assertEqual((warmed["visible"], warmed["held"], warmed["parked"], warmed["drawn"]), (True, True, True, 0), "warmed, nothing is shown: %s" % warmed)
+        self.assertEqual(warmed["x"], -893, "the sheet did not move once after it joined the scene")
+        self.assertEqual(p["open"], True)
+        up = p["up"]
+        self.assertEqual((up["visible"], up["held"], up["parked"], up["drawn"], up["x"]), (True, False, False, 2, 24), "opened after a warm-up: %s" % up)
+        self.assertEqual(up["nodes"], warmed["nodes"], "the opening built or lost something")
+        self.assertEqual(p["hold"], [True, False, False, "drawer"], "the drawer opened and the warmed panel stayed")
+        self.assertEqual(p["busy"], [False, True], "a panel was warmed under Settings")
+        self.assertEqual(p["picker"][0], False, "only the quick panel is warmed")
+
+    def test_the_renderer_builds_nothing_of_the_scene_again_when_the_tap_opens_a_panel_that_the_press_joined(self):
+        # tests/qmlhost/renderstats.py: the press' warm-up takes the join (and the sheet becoming a batch root) out of the frames of the opening
+        t = READY + 7000
+        steps = [*probe(t, "warm", "return bus().warm('quick');"), *probe(t + 1500, "open", "return bus().open('quick');"),
+                 *probe(t + 2400, "close", "return bus().open('quick');"), *probe(t + 3200, "end", "return 1;")]
+        with mock.patch.dict(os.environ, {"QSG_RENDERER_DEBUG": "render"}):
+            rc, out = self.host(*steps, "--wait", str(t + 3700))
+        self.assertEqual(rc, 0, out[-1500:])
+        seg = {m["marker"]: m["frames"] for m in renderstats.parse(out)}
+        report = "\n".join("%s %s" % (name, renderstats.kinds(seg[name])) for name in ("warm", "open", "close"))
+        self.assertGreaterEqual(renderstats.whole(seg["warm"]), 1, "the panel did not join the scene when it was warmed\n%s" % report)
+        self.assertEqual(renderstats.whole(seg["open"][:6]), 0, "the opening of a warmed panel rebuilt the scene\n%s" % report)
+        self.assertEqual(renderstats.whole(seg["close"]), 0, "its closing rebuilt the scene\n%s" % report)
+
     def test_a_surface_that_opens_takes_the_parked_panels_out_of_the_scene_with_it(self):
         # Whatever opens joins nodes to the scene and rebuilds its render list anyway: the panels parked for their next opening go in that frame,
         # not in one of their own a few seconds later (the linger here is the default, 4 s: it is still running when the next surface opens)
@@ -394,6 +437,23 @@ class OverlayPanels(HostCase):
         self.assertEqual((p["again"], p["reopened"]), ([True, "quick"], [False, True, True]))
         self.assertEqual(p["close2"], [True, ""])
         self.assertEqual((p["away"], p["after"]), (False, [False, False, False]), "the app went and the parked panel stayed")
+
+    def test_the_gears_press_over_an_app_joins_the_quick_panel_to_the_scene_and_a_surface_that_is_up_leaves_it_alone(self):
+        panel = "var s = find(overlay, 'footFocus');"
+        p, out = self.overlay_host([
+            (1000, "front", "overlay.appFront = true; return 1;"),
+            (1300, "warm", "return [overlay.warmPanel('quick'), overlay.warmPanel('picker'), overlay.visible];"),
+            # the software renderer's first showing of the overlay's panel compiles its programs, and the sheet's move is a timer of 30 ms
+            (2600, "warmed", panel + "return [s.held, s.visible, onscreen(s), overlay.visible, overlay.up, s.slideX];"),
+            (2700, "open", "return [overlay.panel('quick'), overlay.surface];"),
+            (3700, "up", panel + "return [s.held, s.visible, onscreen(s), s.progress];"),
+            (3800, "again", "return [overlay.warmPanel('quick'), overlay.surface];"),
+        ], 4200)
+        self.assertEqual(p["warm"], [True, False, True], "the quick panel is the one warmed, and the layer is in the scene with it")
+        self.assertEqual(p["warmed"], [True, True, 0, True, False, -893], "warmed over an app: in the scene, off the screen, the sheet moved once")
+        self.assertEqual(p["open"], [True, "quick"])
+        self.assertEqual(p["up"], [False, True, 2, 1])
+        self.assertEqual(p["again"], [False, "quick"], "a panel that is up was warmed")
 
     def test_the_gear_again_hides_it_and_a_gear_hold_replaces_it_with_the_drawer(self):
         p, out = self.overlay_host([
