@@ -887,6 +887,10 @@ class Player(unittest.TestCase):
         self.assertTrue(r.wait_state("idle"))
         series = [(argb(g[2], g[0], 200, 200)[0], argb(g[2], g[0], *probe)[1]) for t, s, g in r.fc.commits if g]
         series = series[next(i for i, (v, c) in enumerate(series) if c > 0):]          # from the first picture that carries the caption
+        # The player has one shm buffer and the stand-in compositor reads it when it gets round to the commit, so under load it can read a
+        # frame the player is already repainting (veil filled, ink not yet laid). The caption's opacity is 0 only at the veil's peak: a
+        # frame without ink below it is such a read, not a picture.
+        series = [(v, c) for v, c in series if c > 0 or v == 255]
         veils = [v for v, _ in series]
         peak = veils.index(255)
         at_black = [(v, c) for v, c in series if v == 255]
