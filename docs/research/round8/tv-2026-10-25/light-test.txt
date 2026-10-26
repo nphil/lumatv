@@ -1,0 +1,15 @@
+23:22:31 as found: HA ('off', {'brightness': None, 'color_mode': None, 'xy_color': None, 'color_temp_kelvin': None}); stored {'state': 'OFF', 'brightness': 1, 'color_temp': 366}
+23:22:31 start: light balance 0xFE, then command 3 (counter 0)
+23:22:33 frame 40: rgb16 (3469, 4471, 5319) record f5ff0b1490066b; HA reads ('off', {'brightness': None, 'color_mode': None, 'xy_color': None, 'color_temp_kelvin': None})
+23:22:41 frame 200: rgb16 (3700, 4394, 6707) record f5ff0b1a66c65f; HA reads ('off', {'brightness': None, 'color_mode': None, 'xy_color': None, 'color_temp_kelvin': None})
+23:22:51 frame 400: rgb16 (1619, 1619, 3084) record f5ff0b0c7d7654; HA reads ('off', {'brightness': None, 'color_mode': None, 'xy_color': None, 'color_temp_kelvin': None})
+23:22:56 sent 500 frames in 25.0 s (20.0 fps asked 20; 0 frames late)
+23:22:56 end: black twice, command 3, then the bulb back as found
+23:23:01 after: HA ('off', {'brightness': None, 'color_mode': None, 'xy_color': None, 'color_temp_kelvin': None})
+23:23:07 Zigbee2MQTT state messages during the test: 0
+23:29:28 second check: 10 s at 10 fps, red/blue every 2 s; records red f5ff2b2efe2f52 blue f5ff2b36687305
+23:29:33 camera light-cam-during-red: 401294 bytes
+23:29:37 camera light-cam-during-blue: 401679 bytes
+23:29:39 sent 100 frames in 10.0 s, 32 late
+23:29:43 camera light-cam-after: 348383 bytes
+23:29:43 bulb told: ON brightness 1 color_temp 366, then OFF

@@ -1,0 +1,539 @@
+22:49:28 Nitin's layout.json saved to /tmp/r8/nitin-layout.json: { |  "widgets": [ |   { |    "id": "clock", |    "type": "clock", |    "col": 0, |    "row": 0, |    "span": 6, |    "rows": 1 |   }, |   { |    "id": "home", |    "type": "homeassistant", |    "col": 0, |    "row": 1, |    "span": 6, |    "rows": 1, |    "title": "At home" |   }, |   { |    "id": "weather", |    "type": "weather", |    "col": 6, |    "row": 0, |    "span": 6, |    "rows": 2 |   }, |   { |    "id": "dock", |    "type": "dock", |    "col": 0, |    "row": 2, |    "span": 12, |    "rows": 1, |    "tile": 120, |    "gap": 16, |    "padY": 40, |    "fade": 110 |   } |  ] | } | total 2044 | drwxr-xr-x    2 root     root          4096 Oct 25 21:37 . | drwxr-xr-x   22 
+22:55:34 prep: kb.py (repo) and r8key.py on the set; power Active Standby fg 
+22:55:37 after BACK: power Active Standby fg 
+22:55:46 home: fg com.webos.app.home power Active Standby
+22:55:56 wake: power Active Standby
+22:56:25 after wake: power Active fg com.webos.app.home
+22:56:58 shot 00-home-before-deploy
+22:56:58 receiver as found: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} helper {'input': 'TV', 'mute': False, 'power': 'on', 'volumeAbs': 65.5}
+22:56:59 install: start, sha gitdir: /data/home/lumaglass/.git/worktrees/lumatv-slot
+22:56:59 before: {"ok":true,"version":"0.4.0"} | 6e645cedbc75e838282fd2425ca0dd50  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/helper/lumatv-helper | 19df878c81f9786bf52116929bcd4e9d  /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv
+22:56:59 power Active fg com.webos.app.home picture filmMaker
+22:57:03 ipk put: -rw-r--r--    1 root     root      38922942 Oct 25 22:57 /tmp/lumatv.ipk | 3269c3facaa2611ea69b255f556f01ddac9dad0b212421e51e6a24e78a91b234  /tmp/lumatv.ipk
+22:57:04 install: "returnValue": true | "statusValue": 268, | "statusValue": 269, | "statusValue": 270,
+22:57:07 app dir helper sha matches ipk: True after 7 s
+22:57:23 apply (24 s): {"ok":true,"applied":true,"mounts":1,"took":16}
+22:57:31 status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":true,"pid":14308,"port":18731,"running":true},"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":false,"unsettled":false,"failures":1,"lastFallback":"compositor closed the bridge socket","smLog":"19:37:49 recover: librdx reports swept; remaining 0"}}
+22:57:31 homestub status: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+22:57:32 helper status: {"ok":true,"helper":{"healthy":true,"ok":true,"pid":14308,"port":18731,"running":true}}
+22:57:32 compositor status: {"ok":true,"compositor":{"bundle":true,"enabled":false,"flag":"off","mounted":false,"live":false,"lgBinary":"same","firmware":"unverified","escaped":false,"unsettled":false,"failures":1,"lastFallback":"compositor closed the bridge socket","smLog":"19:37:49 recover: librdx reports swept; remaining 0"}}
+22:57:32 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+22:57:32 surfaces: {"ok":true,"surfaces":[{"id":"home","on":true,"state":"stub","fallback":"LG's Home: hold Home 650 ms, the guard, or `homestub off`"},{"id":"quicksettings","on":true,"fallback":"`systemui off` puts the stock entry back in configd"},{"id":"settings-theme","on":true,"fallback":"`webglass off` unmounts the overlays"},{"id":"inputcommon","on":false,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG's input banners return"},{"id":"notifications","on":false,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG's file"},{"id":"logos","on":true,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},{"id":"helper","on":true,"fallback":"Home draws the last saved weather and news; `helper stop`"},{"id":"preload","on":true,"fallback":"`preload off` restores LG's list from preload.orig"},{"id":"compositor","on":f
+22:57:35 lean: {"ok":true,"profile":"lean","groups":{"uploaders":{"on":true,"inTarget":"7/7"},"ads":{"on":true,"inTarget":"6/6"},"push":{"on":true,"inTarget":"5/5"},"settings":{"on":true,"inTarget":"15/16"},"apps":{"on":true,"inTarget":"2/2"},"autoinstall":{"on":true,"inTarget":"8/8"},"voice":{"on":true,"inTarget":"16/16"},"connectivity":{"on":true,"inTarget":"3/4"},"share":{"on":true,"inTarget":"11/11"},"misc":
+22:57:35 helper log tail: 2026-10-26T02:57:14Z INFO  feeds: fetching through openssl (openssl OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024))
+2026-10-26T02:57:14Z INFO  listening on 127.0.0.1:18731 (api 1)
+2026-10-26T02:57:14Z INFO  screen: Active (on)
+2026-10-26T02:57:15Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T02:57:15Z INFO  preload: 14 apps kept from preloading
+22:57:35 foreground: com.webos.app.home power Active picture filmMaker
+22:57:35 compositor log since install: 
+22:57:35 end (36 s)
+22:57:57 shot 01-home-after-apply
+22:57:57 compositor log after apply:
+2026-10-26T02:57:27.797643Z [18408.592805800] user.info surface-manager [] surface-manager check {} check, [Resident] settings built
+2026-10-26T02:57:27.909582Z [18408.704747840] user.info surface-manager [] surface-manager check {} check, [Resident] apps built
+2026-10-26T02:57:27.977588Z [18408.772742840] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5/qml/InputPicker/InputPicker.qml:35: TypeError: Cannot call method 'resetMRCUPolicy' of undefined
+2026-10-26T02:57:28.119381Z [18408.914544660] user.info surface-manager [] surface-manager check {} check, [Resident] overlay banner built
+2026-10-26T02:57:28.142296Z [18408.937459340] user.info surface-manager [] surface-manager check {} check, [Resident] overlay drawer built
+2026-10-26T02:57:28.184131Z [18408.979294420] user.info surface-manager [] surface-manager check {} check, [Resident] overlay volume built
+2026-10-26T02:57:29.652807Z [18410.447968580] user.info surface-manager [] surface-manager check {} check, [Resident] overlay quick panel built
+2026-10-26T02:57:31.115758Z [18411.910920160] user.info surface-manager [] surface-manager check {} check, [Resident] overlay input picker built
+
+22:58:05 compositor restart lines:
+2026-10-26T02:57:25.584745Z [18406.379907340] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+2026-10-26T02:57:26.578841Z [18407.373997040] user.warning surface-manager [] surface-manager LSM {} WebOSCoreCompositor::processSurfaceItem, no transition to ItemStateNormal for WebOSSurfaceItem(0x2a4a788, name="surfaceItem_com.w
+2026-10-26T02:57:26.627307Z [18407.422461060] user.warning surface-manager [] surface-manager LSM {} onFocused, focusOnSurface is unset, skip setting focus on the current surface
+2026-10-26T02:57:26.639703Z [18407.434866020] user.warning surface-manager [] surface-manager LSM {} __getCurrentStarfishFocusableViewInfo, unknown view property: view=StarfishOverlayView_QMLTYPE_116(0x2484058, "starfishOverlayVie
+2026-10-26T02:57:26.639854Z [18407.435007520] user.warning surface-manager [] surface-manager LSM {} __getCurrentStarfishFocusableViewInfo, unknown view property: view=StarfishOverlayView_QMLTYPE_116(0x2484058, "starfishOverlayVie
+2026-10-26T02:57:26.639875Z [18407.435028920] user.err surface-manager [] LSM VIEW_STATE_CHANGED_ERROR {"event":"view-closed","status":"cannot_get_view_info","viewName":"starfishOverlayView","where":"StarfishForegroundViewInfo_vie
+2026-10-26T02:57:26.639919Z [18407.435072120] user.warning surface-manager [] surface-manager LSM {} __getCurrentStarfishFocusableViewInfo, unknown view property: view=StarfishOverlayView_QMLTYPE_116(0x2484058, "starfishOverlayVie
+2026-10-26T02:57:26.640669Z [18407.435823940] user.warning surface-manager [] surface-manager LSM {} __getCurrentStarfishFocusableViewInfo, unknown view property: view=StarfishOverlayView_QMLTYPE_116(0x2484058, "starfishOverlayVie
+2026-10-26T02:57:26.640700Z [18407.435853500] user.err surface-manager [] LSM VIEW_STATE_CHANGED_ERROR {"event":"view-closed","status":"cannot_get_view_info","viewName":"starfishOverlayView","where":"StarfishForegroundViewInfo_vie
+2026-10-26T02:57:26.688793Z [18407.483949180] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+2026-10-26T02:57:27.756815Z [18408.551976400] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+2026-10-26T02:57:27.797643Z [18408.592805800] user.info surface-manager [] surface-manager check {} check, [Resident] settings built
+2026-10-26T02:57:27.909582Z [18408.704747840] user.info surface-manager [] surface-manager check {} check, [Resident] apps built
+2026-10-26T02:57:27.977588Z [18408.772742840] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5/qml/InputPicker/InputPicker.qml:35: TypeError: Cannot call method 'resetMRCUPolicy' of undefined
+2026-10-26T02:57:28.119381Z [18408.914544660] user.info surface-manager [] surface-manager check {} check, [Resident] overlay banner built
+2026-10-26T02:57:28.142296Z [18408.937459340] user.info surface-manager [] surface-manager check {} check, [Resident] overlay drawer built
+2026-10-26T02:57:28.184131Z [18408.979294420] user.info surface-manager [] surface-manager check {} check, [Resident] overlay volume built
+2026-10-26T02:57:28.757871Z [18409.553027160] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+2026-10-26T02:57:29.652807Z [18410.447968580] user.info surface-manager [] surface-manager check {} check, [Resident] overlay quick panel built
+2026-10-26T02:57:29.760122Z [18410.555276220] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+2026-10-26T02:57:30.761833Z [18411.556989340] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+2026-10-26T02:57:31.115758Z [18411.910920160] user.info surface-manager [] surface-manager check {} check, [Resident] overlay input picker built
+2026-10-26T02:57:31.763816Z [18412.558972420] user.info surface-manager [] surface-manager LSM {} Get Orientation Info:  { "subscribed": true, "returnValue": false, "errorCode": "-4", "errorText": "Not initialized", "status": "Dis
+
+22:58:05 resetMRCUPolicy count/first, 'is not defined' count: 1 | 2026-10-26T02:57:27.977588Z [18408.772742840] user.warning surface-manager [] surface-manager LSM {} file:///usr/lib/qt5 | 0 | 
+22:58:52 receiver topic (new helper): {'volumeAbs': 65.5, 'volumeText': '65.5', 'mute': False, 'power': 'on', 'input': 'TV', 'soundMode': 'DOLBY AUDIO-DSUR', 'signal': 'PCM', 'fresh': True}
+22:58:52 fg com.webos.app.home power Active
+22:58:54 after Vol+: receiver 66 mute False; key out press 18493.263491 release 18493.318629
+{"capturedHeight":540,"writtenBytes":384
+22:58:57 after Vol-: receiver 65.5 mute False
+22:58:57 log lines:
+2026-10-26T02:58:52.477191Z [18493.272344620] user.info surface-manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available
+2026-10-26T02:58:52.478970Z [18493.274139400] user.info surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar appears now
+2026-10-26T02:58:54.806815Z [18495.601968380] user.info surface-manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available
+2026-10-26T02:58:54.806835Z [18495.601988540] user.info surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar is up
+22:58:57 cue latency: 10.6 ms after the key press (press 18493.263 cue 18493.274)
+22:58:57 cue latency: 5.0 ms after the key press (press 18495.597 cue 18495.602)
+23:00:43 before hold: receiver 65.5
+23:00:45 hold out: press 18604.620591 release 18605.622539
+{"capturedHeight":54
+23:00:46 1.2 s after release: receiver 68.5 mute False
+23:00:47 shot 05-home-volhold-settled
+23:00:47 hold log (16 lines): -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | face-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar appears now | -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | fo surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar is up | -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | fo surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar is up | -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | fo surface-manager [] surface-manager cue {} cue, [VolumeOsd] cue: the bar is up | -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | fo surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar is up | -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | fo surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar is up | -manager [] surface-manager LSM {} onVolumeUpdated, volume view is not available | fo surface-manager [] surface-manager LSM {} cue, [VolumeOsd] cue: the bar is up | -manager [] surface-manager LSM {} onV
+23:00:47 hold raised the level by 6 steps; stepping back
+23:00:51 after stepping back: receiver 65.5 mute False
+23:01:16 after MUTE: receiver 65.5 mute True (HA True)
+23:01:19 shot 07-home-mute-mark
+23:01:31 shot 08-home-mute-mark-14s
+23:01:34 after unMUTE: receiver 65.5 mute False (HA False)
+23:01:37 shot 10-home-unmute-3s
+23:01:37 mute log (55 lines): [] AudioD PARSE_JSON {} messageUtils.cpp(91): Received: /master/muteVolume '{"mute":true}' | .cpp(199): Call Master VolumeMute with params:'{"soundOutput":"external_arc","mute":true}' | } moduleManagerNotification.cpp(720): ModuleManager:notifyMasterMuteStatus muteStatus = 1, | AGER {} tvPowerManagerUtil.cpp(1342): TVPowerManager::eventMasterMuteStatus muteStatus = 1 | external_arc","volume":71,"caller":"com.webos.surfacemanager.audio","mute_status":"true"}  | e,"volumeSyncable":false,"adjustVolume":true},"callerId":"com.webos.surfacemanager.audio"} | response with params:'{"returnValue":true,"muteStatus":true,"soundOutput":"external_arc"}' | e,"volumeSyncable":false,"adjustVolume":true},"callerId":"com.webos.surfacemanager.audio"} | viceControl":true,"muteStatus":true,"volumeSyncable":false,"adjustVolume":true} [dim : {}] | callerId":"com.webos.surfacemanager.audio"}    [_adapter_audio_registerGetVolumeCB (291)]  | utputd AUDIO_MUTE_SOUNDOUTPUT_CALL {} muteSoundOut for soundOutput:external_arc muteFlag:1 | OG {} umitvaudio.cpp:setOutputMute(1256) Setting mute to 1 on soundOutputType external_arc | utd [] audiooutputd AUDIO_MUTE_SOUNDOUTPUT_CALL {} muteSoundOut request umi returnStatus 0 | ,"volumeSyncable":false,"adjustVolume":true},"callerId":"com.webos.surfacemanager.audio"}] | VolumeCallBack with params:'{"returnValue":true,"soundOutput":"external_arc","mute":true}' | VolumeCallBack with params:'{"returnValue":true,"soundOutput":"external_arc","mute":true}' | fo surface-m
+23:02:48 audio getVolume subscription around MUTE, MUTE:
+press 18722.727527 release 18722.777726
+press 18725.328158 release 18725.378392
+{"subscribed":true,"returnValue":true,"action":"requested","muteStatus":false,"volume":71,"scenario":"mastervolume_ext_speaker_arc"}
+23:02:48 receiver after: 65.5 mute False
+23:03:07 ls-monitor around MUTE, MUTE (lines with cause):
+press 18740.909868 release 18740.960103
+press 18743.513749 release 18743.563970
+
+147
+
+23:03:07 receiver after: 65.5 mute False
+23:03:36 receiver mute True -> helper reads mute=True vol=65.5
+23:03:45 plex fg com.beb.plxnative
+23:03:46 shot 11-plex-menu
+23:03:48 12-plex after Vol+: receiver 66 mute False
+23:03:50 12-plex after Vol-: receiver 65.5 mute False
+23:03:50 12-plex log: 2 'not available', 2 cue; cue latencies ms ['6.1', '6.2']
+23:03:59 hdmi2 fg com.webos.app.hdmi2
+23:03:59 shot 13-hdmi2
+23:04:02 14-hdmi2 after Vol+: receiver 66 mute False
+23:04:04 14-hdmi2 after Vol-: receiver 65.5 mute False
+23:04:04 14-hdmi2 log: 2 'not available', 2 cue; cue latencies ms ['4.0', '6.8']
+23:04:10 home: com.webos.app.home
+23:10:06 settings: fg com.webos.app.home
+23:10:10 shot 20-settings-picture
+23:10:12 shot 20-settings-1-sound
+23:10:14 shot 20-settings-2-inputs
+23:10:15 shot 20-settings-3-network
+23:10:17 shot 20-settings-4-ambient
+23:10:19 shot 20-settings-5-look
+23:10:21 shot 20-settings-6-remote
+23:10:23 shot 20-settings-7-ai
+23:10:25 shot 20-settings-8-system
+23:10:26 shot 20-settings-9-lg
+23:10:27 settings rail sweep log: clean
+23:11:13 shot 21-picture-rail
+23:11:15 shot 21-picture-row1
+23:11:16 shot 21-picture-row2
+23:11:17 shot 21-picture-row3
+23:11:18 shot 21-picture-row4-aspect
+23:11:38 shot 22-picture-help-sheet
+23:11:39 shot 22-picture-help-closed
+23:11:39 help log: nothing
+23:11:41 shot 23-picture-tabs-focus
+23:11:43 shot 23-picture-tab-1-brightness
+23:11:44 shot 23-picture-tab-2-colour
+23:11:46 shot 23-picture-tab-3-clarity
+23:11:48 shot 23-picture-tab-4-motion
+23:11:49 shot 23-picture-tab-5-expert
+23:12:08 shot 24-picture-tabstrip
+23:12:10 shot 24-picture-tab-1-brightness
+23:12:12 shot 24-picture-tab-2-colour
+23:12:14 shot 24-picture-tab-3-clarity
+23:12:15 shot 24-picture-tab-4-motion
+23:12:17 shot 24-picture-tab-5-expert
+23:12:46 backlight before: 80
+23:12:51 shot 25-oled-row-focus
+23:12:54 shot 25-oled-after-hold
+23:12:55 backlight after a 1.5 s hold of Right: 95
+23:13:05 backlight after 15 Left taps: 80
+23:13:05 shot 25-oled-restored
+23:13:20 shot 26-sound-mode
+23:13:22 shot 26-sound-advanced
+23:13:24 shot 26-sound-output-row1
+23:13:40 picture now: { "subscribed": false, "category": "picture", "errorKey": [ "aiPicture" ], "method": "getSystemSettings", "dimension": { "pictureMode": "filmMaker", "dynamicRange": "sdr", "input": "default" }, "settings": { "contrast": "85", "pictureMode": "filmMaker", "backlight": "79" }, "returnValue": false } 
+23:13:40 shot 27-where-am-i
+23:13:52 backlight restored: 80
+23:13:53 shot 27-after-back
+23:13:53 fg com.webos.app.home
+23:14:06 shot 28-sound-mode
+23:14:08 shot 28-sound-advanced
+23:14:09 shot 28-sound-back
+23:14:30 shot 29-look-home
+23:14:32 shot 29-look-screensaver
+23:14:34 shot 29-look-standby
+23:14:37 shot 29-look-home-row1
+23:14:59 shot 30-ha-page
+23:15:01 shot 30-ha-page-rows
+23:15:03 shot 30-ha-back
+23:15:03 ha page log: clean
+23:15:03 ha plugin over ssh: -rwxr-xr-x    1 root     root        995848 Dec 31  1969 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/payload/plugins/home-assistant/bin/home-assistant | {"enabled":[],"helper":{"api":1,"firstParty":[{"class":"S","firstParty":true,"id":"weather","name":"Weather","registered":true,"state":"connected","version":"1"},{"class":"S","firstParty":true,"id":"news","name":"News","registered":true,"state":"connected","version":"1"},{"class":"S","firstParty":true,"id":"clock","name":"Clock","registered":true,"state":"connected","version":"1"},{"class":"S","fi | {"approve":"bd302afc530c1c8abe973af60880b6f1988a51e597f7ebc97dc426e86ed406b1","caution":"A plugin is a separate program that runs as a user of its own. This TV cannot box it in as the Show does (its kernel has no seccomp and no namespaces), so switch on only a plugin you trust.","class":"S","id":"home-assistant","mayDo":["Use this TV's connection to Home Assistant (the TV keeps the address and the access token; the plugin never sees them)","Have a page of its own in Settings","Show cards on the home screen","Add switches to the quick settings","Send you notifications","Keep running while you are not looking at it","Read from Home Assistant: the rooms, Home Assistant's notifications, lights, scenes, events, such as a doorbell ring, sensors that are on or off","Control in Home Assistant: lights, scenes","Tell this TV whether somebody is in the room"],"name":"Home Assistant","neverDoes":["Reach the network, the internet or any device by itself: it talks only to this TV","Open or lock a door, work an alarm, a siren, a camera, a garage door or a water valve, or run a script or an automation in Home Assistant: this TV does not let a plugin do that, whatever it asks"],"ok":true,"program":
+23:15:24 shot 31-system-timepower
+23:15:26 shot 31-system-oledcare
+23:15:28 shot 31-system-accessibility
+23:15:30 shot 31-system-about
+23:15:30 system tabs log: clean
+23:15:51 shot 32-access-hearing
+23:15:53 shot 32-access-row-ok
+23:15:55 shot 32-access-child-tab2
+23:15:57 shot 32-access-back
+23:15:57 accessibility log: clean
+23:16:21 shot 33-time-date
+23:16:23 shot 33-time-date-back
+23:16:29 shot 34-inputs-hdmi
+23:16:31 shot 34-inputs-devices
+23:16:32 shot 34-inputs-devices-row1
+23:16:32 inputs log: clean
+23:16:56 shot 35-bluetooth
+23:16:58 shot 35-bluetooth-back
+23:17:01 shot 36-network-row1
+23:17:07 shot 36-join-network
+23:17:12 shot 36-ip-settings
+23:17:14 shot 36-network-back
+23:17:14 network log: clean
+23:17:36 wol now: { "subscribed": false, "category": "network", "method": "getSystemSettings", "returnValue": true, "settings": { "wolwowlOnOff": "false" } } 
+23:17:36 shot 37-where
+23:17:47 shot 37-network-focus
+23:17:49 shot 37-network-wol-row
+23:17:51 shot 37-network-wol-on
+23:17:51 wol after OK: true
+23:18:00 shot 38-join-row
+23:18:07 shot 38-join-network
+23:18:09 shot 38-join-back
+23:18:12 shot 38-ip-settings
+23:18:14 shot 38-ip-back
+23:18:14 join/ip log: clean
+23:18:35 shot 39-settings-closed
+23:18:35 fg com.webos.app.home; door file: settings
+23:18:37 shot 40-gear-tap-home
+23:18:38 shot 40-gear-tap-closed
+23:18:38 gear tap log: 
+23:18:57 door emptied; fg com.webos.app.home
+23:18:59 shot 41-key241
+23:18:59 key 241 log: 2026-10-26T03:18:57.277903Z [19698.073058920] user.info surface-manager [] surface-manager LSM {} (Key.QPA) QPA_KEY_INPUT name= "Key_webOS_InputSource" , state= "pressed" , consumed= false
+2026-10-26T03:18:57.328037Z [19698.123195700] user.info surface-manager [] surface-manager LSM {} (Key.QPA) QPA_KEY_INPUT name= "Key_webOS_InputSource" , state= "released" , consumed= false
+23:19:00 shot 41-key241-back
+23:26:57 fg com.webos.app.home
+23:26:57 shot 42-home-rest
+23:27:00 shot 42-apps-grid
+23:27:02 shot 42-apps-grid-moved
+23:27:04 shot 42-apps-closed
+23:27:04 apps log: clean
+23:27:24 shot 43-home-after-settings
+23:27:29 shot 43-dock-first
+23:27:31 shot 43-apps-grid
+23:27:33 shot 43-apps-grid-moved
+23:27:35 shot 43-apps-closed
+23:27:35 apps log: clean
+23:27:53 fg com.webos.app.home
+23:27:54 shot 44-home-0
+23:27:55 shot 44-home-down1
+23:27:57 shot 44-home-down2
+23:27:59 shot 44-home-down3
+23:28:00 shot 44-home-up
+23:28:21 shot 45-dock-apps-tile
+23:28:24 shot 45-apps-grid
+23:28:26 shot 45-apps-grid-moved
+23:28:28 shot 45-apps-closed
+23:28:28 apps log: clean
+23:30:50 receiver mute True -> helper reads mute=True vol=65.5
+23:30:51 fg com.webos.app.home power Active
+23:30:51 theme set art/gpu: 5, "scale": 1.2, "detail": 0.5, "vignette": 0.9, "bloom": 0.25, "saturation": 1.25, "contrast": 1.25, "enabled": true}, "idleDim": {"enabled": true, "minutes": 5, "opacity": 0.6}, "kitGallery": false, "banners": {"own": false}, "accent": "wallpaper", "screensaver": {"style": "art", "video": false}}}
+23:30:53 enter saver: {
+    "returnValue": true
+}
+23:31:00 power Screen Saver fg com.webos.app.home
+23:31:00 shot 50-saver-gpu-art
+23:31:30 measure gpu-art:
+wrote /tmp/vp/gpu-art.json
+{"label": "gpu-art", "seconds": 27.06, "samples": 28, "mali_pct": 21.9, "flips_per_s": 59.9, "vsync_per_s": 120.6, "osd_irq_per_s": 119.9, "cma_free_min_mb": 128.7, "mem_avail_min_mb": 702.0, "temp_max": 56.0}
+
+23:31:30 shot 50-saver-gpu-art-30s
+23:31:30 saver log: 2026-10-26T03:30:53.896753Z [20414.691906940] user.info tvpowerd [] tvpowerd TVPOWER_NOTI2 {} { "returnValue": true, "state": "ACTIVE", "sub state": "active", "sub processing": "request screen saver", "lifeOnScreenMode": "alwaysReady" }
+2026-10-26T03:30:53.897589Z [20414.692745860] user.info tvpowerd [] qbd QBD_POWER {} callback_getPowerState=Payload({ "returnValue": true, "state": "ACTIVE", "sub state": "active", "sub processing": "request screen saver", "lifeOnScreenMode": "alwaysReady" })
+2026-10-26T03:30:53.901555Z [20414.696721660] user.info nn-proxy [] nn-proxy MSG_SERVER {} power state: {"returnValue":true,"sub state":"active","sub processing":"request screen saver","state":"ACTIVE","lifeOnScreenMode":"alwaysReady"}
+2026-10-26T03:30:53.901652Z [20414.696806240] user.info pqcontroller [] pqcontroller LS2_RECEIVED {} getPowerStateResponse:{"returnValue":true,"sub state":"active","sub processing":"request screen saver","state":"ACTIVE","lifeOnScreenMode":"alwaysReady"}
+2026-10-26T03:30:53.901703Z [20414.696856120] user.info devicereset [] devicereset cb_GetPowerState {} cb_getPowerState=Payload({ "returnValue": true, "state": "ACTIVE", "sub state": "active", "sub processing": "
+23:32:15 after wake: power Active fg com.webos.app.home
+23:32:15 shot 51-home-after-wake
+23:32:18 enter saver again: {     "returnValue": true }
+23:32:26 shot 51-saver-art-try2
+23:32:26 power Screen Saver; saver lines: none
+23:33:24 awake: power Active fg com.webos.app.home
+23:33:29 shot 52-gallery-flag
+23:33:33 shot 52-gallery-flag-off
+23:33:33 theme file now: {"wallpaperMotion":{"amplitude":12,"depth":0.45,"scale":1.2,"detail":0.5,"vignette":0.9,"bloom":0.25,"saturation":1.25,"contrast":1.25,"enabled":true},"idleDim":{"enabled":true,"minutes":5,"opacity":0.6},"kitGallery":false,"banners":{"own":false},"accent":"wallpaper","screensaver":{"style":"art","video":false}}
+23:33:33 defaults beside LumaHome: ls: /var/lib/lumatv/qml/WebOSCompositor/lumatv/theme.json: No such file or directory | ls: /var/lib/lumatv/qml/WebOSCompositor/lumatv/theme/: No such file or directory
+23:34:13 shot 53-settings-screensaver-tab
+23:34:17 fg com.webos.app.home
+23:34:41 enter saver: {     "returnValue": true }
+23:34:48 procs: 7816 ?        00:00:01 flutter-client
+23:34:48 sam fg: com.webos.app.home; helper screen: {"api":1,"boot":1792983434934,"now":1792985688538,"ok":true,"seq":130,"topic":"screen","value":{"error":null,"on":true,"since":1792985681972,"source":"luna-subscribe","state":"Screen Saver"}}
+23:34:48 sm lines: 2026-10-26T03:34:41.940060Z [20642.735214000] user.info surface-manager [] surface-manager LSM {} WebOSCompositorWindow::viewOpened, "starfishScreenSaverView"  is opened: window =  StarfishCompositorW || 2026-10-26T03:34:41.940573Z [20642.735726420] user.info surface-manager [] surface-manager LSM {} getForegroundWindowInfo, [GET_FOREGROUND_WINDOW_INFO] push_foreground_window_info:{"windows":[{"appId" || 2026-10-26T03:34:41.940745Z [20642.735898620] user.info surface-manager [] surface-manager LSM {} action: on_view_updated,  app_id: "com.webos.app.screensaver" ,  view_name: "starfishScreenSaverView"  || 2026-10-26T03:34:41.941156Z [20642.736310320] user.info surface-manager [] LSM NL_VSC {"app_id":"com.webos.app.screensaver","visible":true,"window_type":"_WEBOS_WINDOW_TYPE_SCREENSAVER"}  || 2026-10-26T03:34:42.016256Z [20642.811419360] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"appId -> com.webos.app.screensaver"}  || 2026-10-26T03:34:42.016491Z [20642.811651540] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"com.webos.app.screensaver is foreground app."}  || 2026-10-26T03:34:42.017062Z [20642.812222100] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"appId -> com.webos.app.screensaver"}  || 2026-10-26T03:34:42.017255Z [20642.812413340] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"com.webos.app.screensaver is foreground app."}
+23:34:48 shot 54-saver-whose
+23:35:06 awake: power Active fg com.webos.app.home
+23:35:07 vplane install: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"running":false,"pid":0}}
+23:35:07 vplane start: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"running":true,"pid":8111}}
+23:35:10 status.json: {"v":1,"pid":8111,"ts":1792985707789,"state":"idle","reason":"","seq":0,"clip":"","clips":6,"window":"screensaver","windowId":"","playingMs":0,"fed":0,"full":0,"skipped":0,"queue":-1,"events":"","drift":[0,0],"veil":0,"phase":0,"memAvailKb":739908,"cmaFreeKb":149060,"rssKb":760}
+23:35:10 vplane status: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"running":true,"pid":8111}}
+23:35:11 LSHUB lines: 2026-10-26T03:35:07.629437Z [20668.424590500] user.err ls-hubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes || 2026-10-26T03:35:07.629493Z [20668.424647220] user.err ls-hubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes || 2026-10-26T03:35:07.629538Z [20668.424692420] user.err ls-hubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes || 2026-10-26T03:35:07.629587Z [20668.424741580] user.err ls-hubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes || 2026-10-26T03:35:08.356453Z [20669.151613820] user.err ls-hubd [] ls-hubd LSHUB_NOT_LSTED {"SERVICE_NAME":"com.webos.service.acb","EXE":"/usr/bin/luna-send","APP_ID":"(null)","PID":8123} Service not l || 2026-10-26T03:35:08.356532Z [20669.151686900] user.warning ls-hubd [] ls-hubd LSHUB_NO_SERVICE {} _LSHubSendQueryNameReplyMessage: Failed Connecting to Service err_code: -4, service_name: "com.webos.s
+23:35:11 probe -n: {"ndl":true,"ndlError":"","clips":6,"clipsOk":6,"clipError":"","memAvailKb":737400,"cmaFreeKb":147004}
+ exit=0
+23:35:23 vplane stop: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"running":false,"pid":0}}
+23:35:30 7 s: fg com.webos.app.home power Active
+23:35:30 shot 55-vplane-once-7s
+23:35:37 shot 55-vplane-once-13s
+23:35:37 procs: 8240 sh | 8241 lumatv-vplane | 8292 sh
+23:35:47 once output: 
+23:35:47 after: fg com.webos.app.home power Active
+23:35:47 shot 55-vplane-once-after
+23:35:47 sm log: 2026-10-26T03:35:23.609978Z [20684.405132000] user.info surface-manager [] surface-manager LSM {} action: on_view_updated,  app_id: "org.nphil.lumatv.vplane" ,  view_name: "starfishScreenSaverView" ,  is_opened: true ,   || 2026-10-26T03:35:23.610313Z [20684.405467660] user.info surface-manager [] LSM NL_VSC {"app_id":"org.nphil.lumatv.vplane","visible":true,"window_type":"_WEBOS_WINDOW_TYPE_SCREENSAVER"}  || 2026-10-26T03:35:23.619213Z [20684.414366580] user.err ls-hubd [] ls-hubd LSHUB_NO_NAME_PERMS {"APP_ID":"(null)","ROLE_ID":"/var/lib/lumatv/bin/lumatv-vplane","EXE":"/var/lib/lumatv/bin/lumatv-vplane"} Executable: "/var/ || 2026-10-26T03:35:23.622393Z [20684.417547280] user.err ls-hubd [] ls-hubd LSHUB_NO_NAME_PERMS {"APP_ID":"(null)","ROLE_ID":"/var/lib/lumatv/bin/lumatv-vplane","EXE":"/var/lib/lumatv/bin/lumatv-vplane"} Executable: "/var/ || 2026-10-26T03:35:23.677219Z [20684.472375120] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"appId -> org.nphil.lumatv.vplane"}  || 2026-10-26T03:35:23.677272Z [20684.472425820] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"org.nphil.lumatv.vplane is foreground app."}  || 2026-10-26T03:35:23.677524Z [20684.472678300] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"appId -> org.nphil.lumatv.vplane"}  || 2026-10-26T03:35:23.677548Z [20684.472701680] user.info surface-manager [] LSM KEYFILTER_APPLAUNCH {"cb_getForegroundApps":"org.nphil.lumatv.vplane is foreground app."}
+23:37:35 kill stuck player: 
+23:37:35 vplane install (new role): {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"running":false,"pid":0}}
+23:37:35 role on the set: {"exeName":"/var/lib/lumatv/bin/lumatv-vplane","type":"regular","allowedNames":["com.webos.media.client.*","com.webos.rm.client.*","com.webos.pipeline.*","com.webos.pipe.avmuteclient.*","com.webos.avconnector.*","com.webos.vt.*",""],"permissions":[{"service":"com.webos.media.client.*","inbound":["co
+23:37:35 hub lines: ubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes || ubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes || ubd [] ls-hubd LSHUB_MANIFEST_FILE_ERROR {"FILE":"security.cpp","LINE":1080} Skipping already loaded manifest </var/luna-service2-dev/manifes
+23:37:47 players: 8241 lumatv-vplane | 8735 sh | end
+23:37:55 8 s: fg com.webos.app.home power Active
+23:37:56 shot 56-vplane-once2-8s
+23:37:56 hub: none
+23:37:56 ndl: ", "tid": "8742", "msg":""}  || : "8742", "msg":"Subtitle hide"}  || : "8742", "msg":"Unload break: video not loaded"}
+23:38:12 once2 output: [SDL2:ERROR:0] Video subsystem has not been initialized
+[SDL2:SYSTEM:3] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:3] fail set property : no video device
+[SDL2:SYSTEM:3] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:3] fail set property : no video device
+[SDL2:SYSTEM:3] [SDL_webOSSetExportedWindow] called 
+[SDL2:ERROR:3] fail setting region : no video device
+AquireLogContext result = 0
+>> [gst.tracer][INFO ][default] [ 8748][ 0x2445c00] cooltracer registered
+AquireLogContext result = 0error: XDG_RUNTIME_DIR not set in the environment.
+23:37:48 lumatv-vplane: opening: window _Window_Id_5 as screensaver, clip great-wave (1856x1024, 120 units), 6 clips
+23:37:48 lumatv-vplane: ndl event 18 (104) fail to create AVProxy
+23:37:48 lumatv-vplane: error: the pipeline reported an error
+23:37:48 lumatv-vplane: idle: the player was stopped
+[SDL2:SYSTEM:705] [SDL_webOSDestroyExportedWindow] called 
+[SDL2:SYSTEM:705] [SDL_webOSDestroyExportedWindow] called 
+exit=0
+23:38:12 after: fg com.webos.app.home; players: 8241 lumatv-vplane | 8883 sh | end
+23:38:12 shot 56-vplane-once2-after
+23:38:26 kill -9 8241: 8913 sh | end
+23:38:26 player errors (second run):
+atv-vplane [] smp.api pipeline_init {"CLOCK":20829.312,"status":"start_pipeline_init","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+atv-vplane [] avc.proxy AVProxy {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"avConnector Created"} 
+tv-vplane [] wayland WAYLAND {} [pid:8742][tid:0xf7b00220] error: XDG_RUNTIME_DIR not set in the environment. 
+tv-vplane [] avc.lsm registerId {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"register failed [_Window_Id_5]"} 
+tv-vplane [] avc.impl initialize {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"register failed."} 
+tv-vplane [] avc.proxy initialize {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"initialize failed"} 
+atv-vplane [] smp.api pipeline_initialized {"CLOCK":20829.329,"status":"end_pipeline_init","PerfType":"mediaAPIs","PerfGroup":"starfish-media-pipeline"} 
+atv-vplane [] smp.api NL_MEDIA_INFO {"transportType":283,"container":"ES","vdec":"video\/x-h265","adec":"","resolution":"1856x1024 120.000000","drmType":-1,"errorCode":104}  
+atv-vplane [] smp.api SVU_SMP_MEDIA_INFO {"transportType":283,"container":"ES","vdec":"video\/x-h265","adec":"","resolution":"1856x1024 120.000000","drmType":-1,"errorCode":104}  
+atv-vplane [] smp.api NL_DOLBYVISION_INFO {"is_platform_support_dolby_vision":true,"is_stream_play_as_dolby_vision":false,"dolby_vision_profile":-1,"dolby_vision_level":-1,"dolby_vision_ccid":-1,"container":"ES","vdec":"video\/x-h265","error_code":104}  
+tv-vplane [] avc.impl setRenderReady {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"not initialized. status [84]"} 
+atv-vplane [] smp.api UNLOAD {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"Delete AVProxy"} 
+atv-vplane [] avc.proxy ~AVProxy {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"delete AVProxy"} 
+atv-vplane [] avc.proxy SVU_AVC_CREATION {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"delete AVProxy"} 
+atv-vplane [] avc.proxy ~AVProxy {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"delete avconnector"} 
+atv-vplane [] avc.proxy ~AVProxy {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"delete rmclient"} 
+atv-vplane [] avc.proxy ~AVProxy {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"end AVProxy"} 
+atv-vplane [] avc.proxy SVU_AVC_CREATION {"uid":"_LDXE8n5PF2JtVX", "tid": "8742", "msg":"end AVProxy"} 
+
+23:39:03 players: 9087 sh | dbus-1 lumatv-control pulse surface-manager.eglfs.json wayland-0 wayland-0.lock wayland_debug xdg
+23:39:11 8 s: fg com.webos.app.home power Active
+23:39:11 shot 57-vplane-once3-8s
+23:39:17 shot 57-vplane-once3-13s
+23:39:29 once3 output: AquireLogContext result = 0
+AquireLogContext result = 023:39:03 lumatv-vplane: opening: window _Window_Id_6 as screensaver, clip great-wave (1856x1024, 120 units), 6 clips
+23:39:03 lumatv-vplane: ndl event 22 (0) true
+23:39:03 lumatv-vplane: ndl event 26 (0) true
+23:39:03 lumatv-vplane: playing: great-wave
+23:39:23 lumatv-vplane: idle: the test time is over
+exit=0
+23:39:29 after: fg com.webos.app.home; players: 9217 sh | end
+23:39:29 shot 57-vplane-once3-after
+23:40:44 vplane start: {"ok":true,"vplane":{"installed":true,"role":true,"clips":6,"running":true,"pid":9375}}
+23:40:47 theme video on:  "kitGallery": false, "banners": {"own": false}, "accent": "wallpaper", "screensaver": {"style": "art", "video": true}}}
+23:40:50 before saver: MemAvailable: 772900 kB CmaFree: 165124 kB
+23:40:50 enter saver: {     "returnValue": true }
+23:40:57 status.json: {"v":1,"pid":9375,"ts":1792986056842,"state":"playing","reason":"","seq":1792986051449,"clip":"impression-sunrise","clips":6,"window":"screensaver","windowId":"_Window_Id_7","playingMs":5032,"fed":303,"full":0,"skipped":0,"queue":1,"events":"22,26","drift":[2,1],"veil":0,"phase":0,"memAvailKb":729732,"cmaFreeKb":155664,"rssKb":25572}
+23:40:57 power Screen Saver fg com.webos.app.home
+23:40:58 shot 58-saver-video-7s
+23:41:28 measure video-art: wrote /tmp/vp/video-art.json
+{"label": "video-art", "seconds": 27.32, "samples": 28, "mali_pct": 1.9, "flips_per_s": 12.3, "vsync_per_s": 121.7, "osd_irq_per_s": 120.2, "cpu_pct": 8.3, "cma_free_min_mb": 148.8, "mem_avail_min_mb": 707.4, "temp_max": 58.0, "procs": {"lumatv-vplane": {"cpu_pct": 3.6, "rss_mb_max": 25.0}}}
+23:41:29 shot 58-saver-video-40s
+23:41:29 status.json 40 s: {"v":1,"pid":9375,"ts":1792986086924,"state":"playing","reason":"","seq":1792986081540,"clip":"impression-sunrise","clips":6,"window":"screensaver","windowId":"_Window_Id_7","playingMs":35114,"fed":2108,"full":0,"skipped":0,"queue":0,"events":"22,26","drift":[11,10],"veil":1,"phase":0,"memAvailKb":727568,"cmaFreeKb":153444,"rssKb":25572}
+23:41:29 saver/player log: clean
+23:41:29 LG saver window: 2026-10-26T03:40:51.955948Z [21012.751101620] user.info surface-manager [] surface-manager LSM {} action: on_view_updated,  app_id: "org.nphil.lumatv.vplane" ,  view_name: "starfishScreenSaverView" ,  || 2026-10-26T03:40:51.955991Z [21012.751144700] user.info surface-manager [] surface-manager LSM {} action: on_view_updated,  app_id: "org.nphil.lumatv.vplane" ,  view_name: "starfishScreenSaverView" ,
+23:41:29 vplane.log tail: AquireLogContext result = 0
+AquireLogContext result = 023:40:51 lumatv-vplane: opening: window _Window_Id_7 as screensaver, clip impression-sunrise (1856x1024, 120 units), 6 clips
+23:40:51 lumatv-vplane: ndl event 22 (0) true
+23:40:51 lumatv-vplane: ndl event 26 (0) true
+23:40:51 lumatv-vplane: playing: impression-sunrise
+23:41:59 status now: {"v":1,"pid":9375,"ts":1792986116973,"state":"playing","reason":"","seq":1792986111541,"clip":"impression-sunrise","clips":6,"window":"screensaver","windowId":"_Window_Id_7","playingMs":65163,"fed":3911,"full":0,"skipped":0,"queue":1,"events":"22,26","drift":[20,17],"veil":2,"phase":0,"memAvailKb":731248,"cmaFreeKb":158076,"rssKb":25572}
+23:42:00 shot 58-saver-video-70s
+23:42:00 fg windows: windows":[{"appId":"com.webos.app.home","windowType":"_WEBOS_WINDOW_TYPE_CARD"},{"appId":"org.nphil.lumatv.vplane","windowType":"_WEBOS_WINDOW_TYPE_SCREENSAVER"}]}
+23:42:00 flutter: 9676 sh | end
+23:42:00 vplane.log: 23:40:44 lumatv-vplane: ready: 6 clips in /var/lib/lumatv/vplane/clips, mailbox /tmp/lumatv-vplane, window screensaver
+AquireLogContext result = 0
+AquireLogContext result = 023:40:51 lumatv-vplane: opening: window _Window_Id_7 as screensaver, clip impression-sunrise (1856x1024, 120 units), 6 clips
+23:40:51 lumatv-vplane: ndl event 22 (0) true
+23:40:51 lumatv-vplane: ndl event 26 (0) true
+23:40:51 lumatv-vplane: playing: impression-sunrise
+23:42:00 saver req: {"seq":1792986111541,"sent":1792986111541,"op":"renew","ttlMs":30000}
+23:42:40 capture GRAPHIC: {"capturedHeight":540,"writtenBytes":10502,"returnValue":true,"capturedWidth":960}
+23:42:40 capture VIDEO: {"capturedHeight":540,"writtenBytes":280310,"returnValue":true,"capturedWidth":960}
+23:42:40 status: {"v":1,"pid":9375,"ts":1792986157088,"state":"playing","reason":"","seq":1792986151541,"clip":"impression-sunrise","clips":6,"window":"screensaver","windowId":"_Window_Id_7","playingMs":105278,"fed":6318,"full":0,"skipped":0,"queue":0,"events":"22,26
+23:42:40 avmute: {     "videoMute": [         {             "videoMuteStatus": true,             "contextId": "2304797917tnm4kx",             "videoPreMuteStatus": 1,             "muteTarget": [             ],             "muteOwner": [                 "com.webos.service.extinputs.avmute",                 "com.webos.service.videooutput"             ]         },         {             "videoMuteStatus": false,      
+23:43:19 avmute during saver: {"videoMute": [{"videoMuteStatus": true, "contextId": "2304797917tnm4kx", "videoPreMuteStatus": 1, "muteTarget": [], "muteOwner": ["com.webos.service.extinputs.avmute", "com.webos.service.videooutput"]}, {"videoMuteStatus": false, "contextId": "_LvZICq56d0kLzl", "videoPreMuteStatus": 0, "muteTarget": [{"port": 0, "name": "scaler"}], "muteOwner": []}], "subscribed": false, "videoMuteDrv": 0, "audioMute": [{"audioMuteStatus": true, "contextId": "2304797917tnm4kx", "muteOwner": ["com.webos.service.extinputs.avmute"], "muteTarget": [{"port": 1, "name": "adec"}]}, {"audioMuteStatus": false, "contextId": "_LvZICq56d0kLzl", "muteOwner": [], "muteTarget": []}], "videoMuteErr": 0, "avSubscriborCount": "1", "audioSubscribeCount": "1", "videoSubscribeCount": "3"}
+23:43:19 videooutput status: {"video":[{"displayOutput":{"width":3712,"y":84,"x":124,"height":2048},"extraInfo":null,"sourceInput":{"width":1856,"y":0,"x":0,"height":1024},"zOrder":0,"fullScreen":false,"scanType":"progressive","frameRate":60,"connected":true,"height":1024,"connectedSourcePort":0,"context":"_LvZICq56d0kLzl","muted":false,"sink":"MAIN","connectedSource":"VDEC","width":1856,"appId":"org.nphil.lumatv.vplane","videoInfo":{"rotation":"Deg0","path":"network","lowDelayMode":true,"autoAspectRatio":false,"pixelAspectRatio":{"width":1,"height":1},"afd":0,"adaptive":true,"rgbRange":"LIMITED","hdrType":"none","isGameMode":true,"subScalerOccupied":true,"hfrEnabled":false,"sei":{"whitePointX":0,"displayPrimariesY2":0,"displayPrimariesX2":0,"displayPrimariesY1":0,"displayPrimariesX1":0,"maxContentLightLevel":0,"displayPrimariesX0":0,"displayPrimariesY0":0,"maxDisplayMasteringLuminance":0,"maxPicAverageLightLevel":0
+23:43:46 1.2 s after the key: power Active fg com.webos.app.home status {"v":1,"pid":9375,"ts":1792986224938,"state":"idle","reason":"stopped","seq":1792986224851,"clip":"","clips":6,"window":
+23:43:46 shot 59-after-wake-key
+23:43:50 5 s: power Active; status {"v":1,"pid":9375,"ts":1792986224938,"state":"idle","reason":"stopped","seq":1792986224851,"clip":""; mem MemAvailable: 738704 kB CmaFree: 160480 kB
+23:43:50 fg windows: 
+23:43:50 vplane.log: 23:40:51 lumatv-vplane: ndl event 22 (0) true
+23:40:51 lumatv-vplane: ndl event 26 (0) true
+23:40:51 lumatv-vplane: playing: impression-sunrise
+23:43:44 lumatv-vplane: idle: stopped
+23:44:09 avmute (active, once): [{"videoMuteStatus": true, "contextId": "2304797917tnm4kx", "videoPreMuteStatus": 1, "muteTarget": [], "muteOwner": ["com.webos.service.extinputs.avmute", "com.webos.service.videooutput"]}, {"videoMuteStatus": false, "contextId": "_0lQSNt5NileokZ", "videoPreMuteStatus": 0, "muteTarget": [{"port": 0, "name": "scaler"}], "muteOwner": []}]
+23:44:19 once4: 23:44:01 lumatv-vplane: ndl event 26 (0) true
+23:44:01 lumatv-vplane: playing: great-wave
+23:44:16 lumatv-vplane: idle: the test time is over
+23:44:49 theme back:  true, "minutes": 5, "opacity": 0.6}, "kitGallery": false, "banners": {"own": false}, "accent": "wallpaper", "screensaver": {"style": "clock", "video": false}}}
+23:44:50 vplane remove: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+23:44:50 vplane status: {"ok":true,"vplane":{"installed":false,"role":false,"clips":0,"running":false,"pid":0}}
+23:44:50 players: 10236 sh | end
+23:44:50 measure table: label           s Mali % flips/s vsync/s CPU % CMA min Avail min C max  processes (CPU % of a core, largest RSS MB)
+gpu-art     27.06   21.9    59.9   120.6     -   128.7     702.0  56.0  
+video-art   27.32    1.9    12.3   121.7   8.3   148.8     707.4  58.0  lumatv-vplane 3.6%/25.0
+23:45:15 jpeg read-only: crwxrwxrwx 1 root root 1128, 0 Dec 31 1969 /dev/lg/mjpeg0 | lrwxrwxrwx 1 root root 22 Apr 5 2011 /usr/lib/libdile_photo.so.1 -> libdile_photo.so.1.0.1 | lrwxrwxrwx 1 root root 21 Apr 5 2011 /usr/lib/libhal_photo.so.2 -> libhal_photo.so.2.0.1 | lrwxrwxrwx 1 root root 17 Apr 5 2011 /usr/lib/libjpeg.so.62 -> libjpeg.so.62.3.0 | 111:          0          0     GICv2 111 Edge      JpgDec | CmaFree:          162780 kB | -rwxr-xr-x    1 root     root         25192 Oct 25 22:57 /var/lib/lumatv/bin/lumatv-jpeg
+23:45:15 jpeg -n: lumatv-jpeg: libdile_photo.so.1 did not load: /usr/lib/libdile_photo.so.1: undefined symbol: _PmLogMsgKV
+library: open=(nil) close=(nil) decode=(nil)
+23:45:42 new -n: library: open=0xf7680e85 close=0xf7680ea9 decode=0xf7681391
+23:45:42 decode 1080.jpg:
+file=1080.jpg bytes=639045 width=1920 height=1080 block_takes_it=1 shift=0 count=1 convert=neon path=hardware
+out_width=1920 out_height=1080 out_stride=7680 hw_width=1920 hw_height=1080 hw_pixfmt=13 hw_bytes=6856704 used=hardware hw_status=0
+decode_us min=13089 median=13089 mean=13089 max=13089
+convert_us min=16949 median=16949 mean=16949 max=16949
+ok=1 of 1 wall_ms=60 cpu_ms=46 cpu_per_image_ms=46
+jpgdec_irq_before=0 jpgdec_irq_after=69 cma_free_kb_before=162240 cma_free_kb_after=159344 cma_free_kb_min=151320
+23:45:42 decode odd.jpg:
+lumatv-jpeg: DILE_JPEG_Decode returned 1 (1003x707, shift 0)
+file=odd.jpg bytes=222726 width=1003 height=707 block_takes_it=1 shift=0 count=1 convert=neon path=hardware
+iter=0 status=5
+ok=0 of 1 wall_ms=18 cpu_ms=13 cpu_per_image_ms=0
+jpgdec_irq_before=69 jpgdec_irq_after=114 cma_free_kb_before=162336 cma_free_kb_after=159912 cma_free_kb_min=159912
+23:45:42 decode 4k.jpg:
+file=4k.jpg bytes=2521831 width=3840 height=2160 block_takes_it=1 shift=0 count=1 convert=neon path=hardware
+out_width=3840 out_height=2160 out_stride=15360 hw_width=3840 hw_height=2160 hw_pixfmt=13 hw_bytes=26234880 used=hardware hw_status=0
+decode_us min=46992 median=46992 mean=46992 max=46992
+convert_us min=67554 median=67554 mean=67554 max=67554
+ok=1 of 1 wall_ms=224 cpu_ms=183 cpu_per_image_ms=183
+jpgdec_irq_before=114 jpgdec_irq_after=253 cma_free_kb_before=160116 cma_free_kb_after=160744 cma_free_kb_min=126744
+23:45:43 decode 4k444.jpg:
+file=4k444.jpg bytes=2638083 width=3840 height=2160 block_takes_it=1 shift=0 count=1 convert=neon path=hardware
+out_width=3840 out_height=2160 out_stride=15360 hw_width=3840 hw_height=2160 hw_pixfmt=8 hw_bytes=26234880 used=hardware hw_status=0
+decode_us min=64429 median=64429 mean=64429 max=64429
+convert_us min=70456 median=70456 mean=70456 max=70456
+ok=1 of 1 wall_ms=282 cpu_ms=224 cpu_per_image_ms=224
+jpgdec_irq_before=253 jpgdec_irq_after=393 cma_free_kb_before=163532 cma_free_kb_after=132396 cma_free_kb_min=111296
+23:45:43 decode 1080p.jpg:
+lumatv-jpeg: DILE_JPEG_Decode returned 1 (1920x1080, shift 0)
+file=1080p.jpg bytes=605113 width=1920 height=1080 block_takes_it=1 shift=0 count=1 convert=neon path=hardware
+iter=0 status=5
+ok=0 of 1 wall_ms=9 cpu_ms=8 cpu_per_image_ms=0
+jpgdec_irq_before=393 jpgdec_irq_after=393 cma_free_kb_before=132096 cma_free_kb_after=130004 cma_free_kb_min=130004
+23:45:43 after: 111:        393          0          0          0     GICv2 111 Edge      JpgDec | CmaFree:          132704 kB | [21304.055170] LOGM_Close.667: device closed (1810:0) | [21304.055597] de           INF (10422:10422) DE_Close                  868: device closed (1105:0) | [21304.055603] LOGM_Close.667: device closed (1810:0)
+23:46:01 helper route: HTTP/1.1 404 Not Found | Content-Type: application/json; charset=utf-8 | Content-Length: 80 | X-Content-Type-Options: nosniff | -rw-r--r--    1 root     root            80 Oct 25 23:46 /tmp/a.bmp | {"api":1,"images":{"backingOff":false,"decoder":"/var/lib/lumatv/bin/lumatv-jpeg","decoderPresent":true,"enabled":true,"lastDecodeMs":null,"lastProblem":null,"roots":{"art":"/var/lib/lumatv/qml/WebOSCompositor/lumatv/art","images":"/var/lib/lumatv/images"},"running":false,"served":{"cpu":0,"file":0,"hardware":0}},"now":1792986361306,"ok":true}
+23:46:01 route timing (two fetches): 0.000955s 80B | 0.000706s
+23:46:21 stage: 040ad52c43ea b5b0ba9354ea b5b0ba9354ea | total 2464 | -rw-r--r--    1 root     root       2521831 Oct 25 23:46 a.jpg |  | [stderr] | cp: can't create '/var/lib/lumatv/bin/lumatv-jpeg': Text file busy
+23:46:22 helper route 4k->1080: HTTP/1.1 200 OK | Content-Length: 8294454 | X-Luma-Decoder: cpu | X-Luma-Size: 1920x1080 | X-Luma-Decode-Us: 121661 | -rw-r--r--    1 root     root       8294454 Oct 25 23:46 /tmp/a.bmp
+23:46:23 art route and timings: HTTP/1.1 200 OK | X-Luma-Decoder: cpu | X-Luma-Size: 1280x860 | X-Luma-Decode-Us: 48601 | 0.158355s 0.159699s 0.159496s  | {"api":1,"images":{"backingOff":false,"decoder":"/var/lib/lumatv/bin/lumatv-jpeg","decoderPresent":true,"enabled":true,"lastDecodeMs":119,"lastProblem":null,"roots":{"art":"/var/lib/lumatv/qml/WebOSCompositor/lumatv/art","images":"/var/lib/lumatv/images"},"running":true,"served":{"cpu":6,"file":0,"hardware":0}},"now":1792986383294,"ok":true}
+23:46:37 stage: 040ad52c43ea
+23:46:39 helper route (new decoder): HTTP/1.1 200 OK | X-Luma-Decoder: cpu | X-Luma-Size: 1920x1080 | X-Luma-Decode-Us: 117741 | 0.160055s 0.159438s 0.158294s  | X-Luma-Decoder: cpu | X-Luma-Size: 1280x860 | X-Luma-Decode-Us: 44378 | "served":{"cpu":11,"file":0,"hardware":0} | 111: 393 0 0 0 GICv2 111 Edge JpgDec
+23:47:53 socket probe (shift 1, 4k): {'magic': 827478090, 'id': 1, 'status': 0, 'width': 1920, 'height': 1080, 'stride': 7680, 'fmt': 0, 'data_len': 8294400, 'decode_us': 39527, 'convert_us': 18403, 'total_us': 76574, 'hw_pixfmt': 13, 'hw_width': 1920, 'hw_height': 1080, 'hw_bytes': 6558720, 'flags': 0}
+hardware hw status bits 0
+stderr:
+23:47:53 socket probe (shift 0, 1080): {'magic': 827478090, 'id': 1, 'status': 0, 'width': 1920, 'height': 1080, 'stride': 7680, 'fmt': 0, 'data_len': 8294400, 'decode_us': 12432, 'convert_us': 15419, 'total_us': 38076, 'hw_pixfmt': 13, 'hw_width': 1920, 'hw_height': 1080, 'hw_bytes': 6856704, 'flags': 0}
+hardware hw status bits 0
+stderr:
+23:48:04 decoder procs: 10496 lumatv-jpeg | 10891 sh | end
+23:48:05 helper route again: X-Luma-Decoder: hardware | X-Luma-Size: 1920x1080 | X-Luma-Decode-Us: 32592 | 0.086060s 0.081740s 0.088146s  | X-Luma-Decoder: cpu | X-Luma-Size: 1280x860 | X-Luma-Decode-Us: 52589 | "served":{"cpu":12,"file":0,"hardware":4} | 111: 1035 0 0 GICv2 111 Edge JpgDec
+23:48:05 decoder procs: 10905 lumatv-jpeg | 10927 sh | end
+23:48:36 ble baseline adapter: { "adapters": [ { "discoverableTimeout": 0, "discoveryTimeout": 10, "discoverable": true, "pairable": true, "powered": true, "discovering": false, "pairing": false, "name": "Living Room TV", "adapterAddress": "84:a3:29:b9:4d:43", "pairableTimeout": 30 } ], "returnValue": true, "subscribed": false } 
+23:48:36 ble le status: { "adapterAddress": "84:a3:29:b9:4d:43", "returnValue": true, "advertising": true } 
+23:48:38 ping baseline: 10 packets transmitted, 10 received, 0% packet loss, time 1835ms | rtt min/avg/max/mdev = 0.147/0.175/0.204/0.018 ms
+23:48:38 load: 14.24 13.77 13.62 1/1164 10977
+23:48:56 scan 15 s: 30 /tmp/ble-scan-1.txt | {"subscribed":true,"returnValue":true,"adapterAddress":"84:a3:29:b9:4d:43"} | {"returnValue":true,"devices":[{"address":"fc:a8:9b:f1:24:96","scanRecord":[2,1,6,17,6,186,92,247,147,59,18,211,137,228,17,231,173,8,28,46,180,9,255,52,3,77,241,166,174,73,0],"rssi":-62},{"address":"01:00:00:67:0d:8a","scanR | 0 | 28 | 17 | 60 packets transmitted, 60 received, 0% packet loss, time 15236ms | rtt min/avg/max/mdev = 0.143/0.218/1.661/0.211 ms | 10981 sh
+23:48:56 log after: no scan lines
+23:48:56 remote link after:  "name": "xiaomi.magic_touch.jj01", "connectedProfiles": [ "name": "", "connectedProfiles": [ "name": "", "connectedProfiles": [ "name": "U-Bolt-ZWave", "connectedProfiles": [ "name": "LGE MR24", "connectedProfiles": [ "name": "steamdeck", "connectedProfiles": [ 
+23:49:15 running before: [('com.webos.app.home', '14903'), ('com.webos.app.hdmi2', '2513'), ('com.webos.app.screensaver', '10626')]
+23:49:15 settings procs before: 3457 ?        00:00:57 SettingsService
+23:49:22 fg com.webos.app.home
+23:49:22 shot 62-lg-settings-open
+23:49:22 settings procs open: 11064 VmRSS:	 52320 kB /usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 - | 11099 VmRSS:	 768 kB sh -c for p in $(pgrep -f 'com.palm.app.settings'); do echo "$p $(grep VmRSS /pr
+23:49:22 running open: [('com.webos.app.home', '14903'), ('com.webos.app.hdmi2', '2513'), ('com.webos.app.screensaver', '10626'), ('com.palm.app.settings', '11064')]
+23:49:25 after BACK: fg com.webos.app.home; running: [('com.webos.app.home', '14903'), ('com.webos.app.hdmi2', '2513'), ('com.palm.app.settings', '11064')]
+23:49:31 after Home: fg com.webos.app.home; running: [('com.webos.app.home', '14903'), ('com.webos.app.hdmi2', '2513'), ('com.palm.app.settings', '11064')]
+23:49:31 settings procs after: 11064 VmRSS:	 70680 kB | 11265 VmRSS:	 768 kB
+23:49:31 shot 62-lg-settings-closed
+23:49:51 power Active fg com.webos.app.home running ['com.webos.app.home', 'com.webos.app.hdmi2', 'com.palm.app.settings']
+23:49:57 fg com.webos.app.home
+23:49:57 shot 63-lg-settings-open
+23:49:57 rss open: VmRSS:	 65472 kB | VmRSS:	 776 kB
+23:50:00 after BACK: fg com.webos.app.home running ['com.webos.app.home', 'com.webos.app.hdmi2']
+23:50:00 shot 63-lg-settings-after-back
+23:50:05 after HOME key: fg com.webos.app.home running ['com.webos.app.home', 'com.webos.app.hdmi2']; rss VmRSS:	 776 kB
+23:50:08 after closeByAppId: running ['com.webos.app.home', 'com.webos.app.hdmi2']; procs 1
+23:50:27 layout get before: {"ok": true, "layout": {"widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 1}, {"id": "home", "type": "homeassistant", "col": 0, "row": 1, "span": 6, "rows": 1, "title": "At home"}, {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 2}, {"id"
+23:50:30 shot 64-focus-weather
+23:50:40 shot 64-focus-down
+23:50:42 shot 64-focus-right
+23:50:56 shot 65-editor-open
+23:50:57 shot 65-editor-pickup
+23:50:59 shot 65-editor-moved
+23:51:01 shot 65-editor-sized
+23:51:02 shot 65-editor-putdown
+23:51:04 shot 65-editor-back-ask
+23:51:04 editor log: clean
+23:51:30 shot 66-editor-narrower
+23:51:32 shot 66-editor-save-ask
+23:51:48 shot 67-after-save
+23:51:48 layout get after save: {"ok": true, "layout": {"widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 1}, {"id": "home", "type": "homeassistant", "col": 0, "row": 1, "span": 6, "rows": 1, "title": "At home"}, {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 2}, {"id": "dock", "type": "dock", "col": 0, "row": 2, "span": 12, "rows": 1, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]}}
+23:52:01 shot 68-save-ask-right
+23:52:04 shot 68-after-ok
+23:52:04 layout get: {"ok": true, "layout": {"widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 1}, {"id": "home", "type": "homeassistant", "col": 0, "row": 1, "span": 6, "rows": 1, "title": "At home"}, {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 2}, {"id": "dock", "type": "dock", "col": 0, "row": 2, "span": 12, "rows": 1, "tile": 120, "gap": 16, "padY": 40, "fade": 110}]}}
+23:52:25 shot 69-bar-save-focus
+23:52:28 shot 69-after-bar-save
+23:52:29 layout get: {"ok": true, "layout": {"grid": {"rows": 16}, "widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4}, {"id": "home", "type": "homeassistant", "col": 0, "row": 4, "span": 6, "rows": 5, "title": "At home"}, {"id": "weather", "type": "weather", "col": 6, "row": 0, "span"
+23:52:29 log: 2026-10-26T03:52:26.031775Z [21706.826954160] user.info surface-manager [] surface-manager LSM {} writeLayoutFile, [LumaHome] layout.json written, 4 cards
+23:52:29 file: -rwxr-xr-x    1 root     root           651 Oct 25 23:52 /var/lib/lumatv/theme/layout.json {   "grid": {     "rows": 16   },   "widgets": [     {       "id": "clock",       "type": "clock",       "col": 0,       "row": 0,       "span": 6,       "rows": 4     },     {       "id": "home",
+23:52:36 saved cards: [('clock', 0, 0, 6, 4), ('home', 0, 4, 6, 5), ('weather', 6, 0, 5, 9), ('dock', 0, 9, 12, 7)]
+23:52:36 fg com.webos.app.home
+23:52:40 shot 70-settings-opened
+23:52:55 shot 71-home-widgets-page
+23:52:58 shot 71-home-widgets-page-down3
+23:53:13 shot 72-look-home-row
+23:53:16 shot 72-widgets-page
+23:53:34 shot 73-widgets-page
+23:53:37 shot 73-widgets-page-down4
+23:53:51 shot 74-news-half
+23:53:51 layout after News Half: {"ok": true, "layout": {"grid": {"rows": 16}, "widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 4}, {"id": "home", "type": "homeassistant", "col": 0, "row": 4, "span": 6, "rows": 5, "title": "At home"}, {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 5, "rows": 9}, {"id": "dock", "type": "dock", "col": 0, "row": 9, "span": 12, "rows": 7, "tile": 1
+23:53:55 fg com.webos.app.home
+23:53:56 shot 74-home-with-news
+23:54:15 reset: {"ok": true, "layout": {}}
+23:54:15 get after reset: {"ok": true, "layout": {}}
+23:54:19 shot 75-home-after-reset
+23:54:19 put: {"ok": true, "layout": {"widgets": [{"id": "clock", "type": "clock", "col": 0, "row": 0, "span": 6, "rows": 1}, {"id": "home", "type": "homeassistant", "col": 0, "row": 1, "span": 6, "rows": 1, "title": "At home"}, {"id": "weather", "type": "weather", "col": 6, "row": 0, "span": 6, "rows": 2}, {"id"
+23:54:22 restored byte-equal to the saved copy: True
+23:54:22 shot 75-home-restored
+23:54:43 cleanup: done
+23:54:43 state: fg com.webos.app.home power Active picture filmMaker; theme ity":0.6},"kitGallery":false,"banners":{"own":false},"accent":"wallpaper","screensaver":{"style":"clock","video":false}}
+23:54:43 tool status: {"ok":true,"version":"0.4.0","applied":true,"live":true,"mounts":1,"persist":true,"early":true,"standby":"warm","fps":false,"ntfy":{"enabled":false,"url":"https://ntfy.sh/lumaglass-selftest-nphil"},"firmware":"10.2.1","model":"o22n2","homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0},"helper":{"healthy":true,"ok":t
+23:54:45 receiver mute False -> helper reads mute=False vol=65.5
+23:54:47 receiver end: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}; helper {'input': 'TV', 'mute': False, 'power': 'on', 'volumeAbs': 65.5}
+23:54:49 standby: {     "returnValue": true,     "state": "Active Standby" }
+23:54:57 end: power Active Standby

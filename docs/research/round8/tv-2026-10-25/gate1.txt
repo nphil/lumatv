@@ -1,0 +1,46 @@
+PASS  home-idle       windows                3/3  (== 3)
+PASS  home-idle       p90_render_ms         0.16  (< 3)  1 frames
+PASS  home-idle       p90_window_ms         0.16  (< 4)  worst single window
+PASS  home-idle       dropped_share         0.00  (<= 0.17)  0 of 1 animated frames, LG's compositor floor
+PASS  home-idle       log_errors               0  (== 0)
+PASS  home-idle       compositor_pid       14480  (== 14480)
+PASS  home-dpad       windows                3/3  (== 3)
+PASS  home-dpad       first_frame_ms       23.20  (<= 50)
+PASS  home-dpad       p90_render_ms         2.77  (< 3)  82 frames
+PASS  home-dpad       p90_window_ms         2.67  (< 4)  worst single window
+PASS  home-dpad       dropped_share         0.01  (<= 0.17)  1 of 82 animated frames, LG's compositor floor
+PASS  home-dpad       burst_over20             0  (<= 0)
+PASS  home-dpad       rss_growth_mb         0.05  (<= 1.08)  57354 -> 57366 pages over 8 cycles
+PASS  home-dpad       log_errors               0  (== 0)
+PASS  home-dpad       compositor_pid       14480  (== 14480)
+PASS  home-sweep      windows                3/3  (== 3)
+PASS  home-sweep      first_frame_ms       25.17  (<= 50)
+PASS  home-sweep      p90_render_ms         2.51  (< 3)  82 frames
+PASS  home-sweep      p90_window_ms         2.51  (< 4)  worst single window
+PASS  home-sweep      dropped_share         0.00  (<= 0.17)  0 of 82 animated frames, LG's compositor floor
+FAIL  home-sweep      burst_over20             1  (<= 0)
+PASS  home-sweep      rss_growth_mb         0.26  (<= 1.08)  57326 -> 57392 pages over 8 cycles
+PASS  home-sweep      log_errors               0  (== 0)
+PASS  home-sweep      compositor_pid       14480  (== 14480)
+PASS  quick           windows                6/6  (== 6)
+FAIL  quick           first_frame_ms      125.13  (<= 50)
+FAIL  quick           burst_end_ms          none  (<= 180)  no burst at the key
+FAIL  quick           p90_render_ms         3.32  (< 3)  50 frames
+PASS  quick           p90_window_ms         3.67  (< 4)  worst single window
+PASS  quick           dropped_share         0.00  (<= 0.17)  0 of 50 animated frames, LG's compositor floor
+FAIL  quick           burst_over20             2  (<= 0)
+PASS  quick           rss_growth_mb        -0.04  (<= 1.08)  57381 -> 57370 pages over 8 cycles
+PASS  quick           log_errors               0  (== 0)
+PASS  quick           compositor_pid       14480  (== 14480)
+PASS  picker          windows                6/6  (== 6)
+PASS  picker          first_frame_ms       24.77  (<= 50)
+FAIL  picker          burst_end_ms        375.08  (<= 180)
+PASS  picker          p90_render_ms         2.90  (< 3)  78 frames
+PASS  picker          p90_window_ms         3.44  (< 4)  worst single window
+PASS  picker          dropped_share         0.01  (<= 0.17)  1 of 81 animated frames, LG's compositor floor
+FAIL  picker          burst_over20             3  (<= 0)
+PASS  picker          rss_growth_mb        -0.11  (<= 1.08)  57400 -> 57372 pages over 8 cycles
+PASS  picker          log_errors               0  (== 0)
+PASS  picker          compositor_pid       14480  (== 14480)
+VERDICT FAIL
+exit 1

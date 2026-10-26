@@ -1,0 +1,41 @@
+{
+ "widgets": [
+  {
+   "id": "clock",
+   "type": "clock",
+   "col": 0,
+   "row": 0,
+   "span": 6,
+   "rows": 1
+  },
+  {
+   "id": "home",
+   "type": "homeassistant",
+   "col": 0,
+   "row": 1,
+   "span": 6,
+   "rows": 1,
+   "title": "At home"
+  },
+  {
+   "id": "weather",
+   "type": "weather",
+   "col": 6,
+   "row": 0,
+   "span": 6,
+   "rows": 2
+  },
+  {
+   "id": "dock",
+   "type": "dock",
+   "col": 0,
+   "row": 2,
+   "span": 12,
+   "rows": 1,
+   "tile": 120,
+   "gap": 16,
+   "padY": 40,
+   "fade": 110
+  }
+ ]
+}
