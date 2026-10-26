@@ -631,8 +631,8 @@ and was not attempted.
 
 LumaTV's own saver does not replace that app. While Home is in front it is on
 tvpower's screen saver list and answers the idle question with no, so the app
-is never started (`docs/research/saver-own-result.md`; built and tested on the
-host, not yet run on the set).
+is never started (`docs/research/saver-own-result.md`; on the set the list, the
+no and the key that ends it work; the idle timer itself is not yet watched).
 
 ## Compositor restart side effects still worth knowing
 
