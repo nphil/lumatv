@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Settings · Help</title>
+<link rel="stylesheet" href="lucent.css"><link rel="stylesheet" href="help.css">
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="pane topbar">
+  <i data-ic="chevron-left" class="ic"></i>
+  <span class="title">Settings</span>
+  <span class="spacer"></span>
+  <span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span>
+  <span class="time num">9:48 PM</span>
+</div>
+
+<nav class="pane rail" data-open="picture" aria-label="Settings sections"></nav>
+
+<main class="pane page">
+  <div class="page-head">
+    <h1>Picture</h1>
+    
+  </div>
+  <div class="tabs" role="tablist">
+    <div class="tab focusable" role="tab" aria-selected="true">Mode</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Brightness</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Colour</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Advanced</div>
+  </div>
+  <div class="page-body">
+    <div class="mode-grid" role="radiogroup" aria-label="Picture mode">
+      <div class="mode focusable" role="radio" aria-checked="true" id="mode-filmmaker">
+        <i data-ic="clapperboard"></i><div><div class="mt">Filmmaker</div></div><i data-ic="check" class="check"></i>
+      </div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="film"></i><div><div class="mt">Cinema</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="tv"></i><div><div class="mt">Standard</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="sun"></i><div><div class="mt">Vivid</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="gamepad-2"></i><div><div class="mt">Game Optimizer</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="activity"></i><div><div class="mt">Sports</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="leaf"></i><div><div class="mt">Eco</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="sun-medium"></i><div><div class="mt">Expert · day</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="moon"></i><div><div class="mt">Expert · night</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="user"></i><div><div class="mt">Personalised</div></div><i data-ic="check" class="check"></i></div>
+    </div>
+
+    <div class="rows">
+      <div class="row focusable no-line" tabindex="0">
+        <div class="text"><div class="t">OLED pixel brightness</div></div>
+        <div class="slider" aria-label="OLED pixel brightness"><i data-ic="sun-dim"></i><div class="track"><div class="fill" style="width:80%"></div><div class="thumb" style="left:80%"></div></div><i data-ic="sun"></i></div>
+        <div class="v num" style="min-width:64px;justify-content:flex-end;color:var(--lu-ink)">80</div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="text"><div class="t">Filmmaker ambient light<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="text"><div class="t">AI Picture Pro<i data-ic="info" class="info"></i></div></div>
+        <div class="toggle" role="switch" aria-checked="false"></div>
+      </div>
+      <div class="row focusable" tabindex="0" data-autofocus>
+        <div class="text"><div class="t">Aspect ratio<span class="info-pill"><i data-ic="info"></i>Hold OK</span></div></div>
+        <div class="v">Original <i data-ic="chevron-right"></i></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="text"><div class="t">Energy saving</div></div>
+        <div class="v">Off <i data-ic="chevron-right"></i></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="square-arrow-out-up-right"></i></div>
+        <div class="text"><div class="t">More in LG settings</div></div>
+        <div class="v"><i data-ic="chevron-right"></i></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="scrim"></div>
+<div class="overlay help-sheet" style="left:572px; top:772px" role="dialog" aria-label="Aspect ratio">
+  <div class="ht"><i data-ic="info"></i>Aspect ratio</div>
+  <p>Original keeps the film’s own shape. It is set for the input in front.</p>
+</div>
+
+<script src="icons.js"></script>
+<script src="mock.js"></script>
+</body>
+</html>

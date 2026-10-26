@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>LumaTV · Settings · Picture</title>
-<link rel="stylesheet" href="lucent.css">
+<link rel="stylesheet" href="lucent.css"><link rel="stylesheet" href="help.css">
 </head>
 <body>
 <div class="wall"></div>
@@ -21,7 +21,7 @@
 <main class="pane page">
   <div class="page-head">
     <h1>Picture</h1>
-    <span class="sub">Filmmaker on HDMI 2 · Dolby Vision</span>
+    
   </div>
   <div class="tabs" role="tablist">
     <div class="tab focusable" role="tab" aria-selected="true">Mode</div>
@@ -32,44 +32,44 @@
   <div class="page-body">
     <div class="mode-grid" role="radiogroup" aria-label="Picture mode">
       <div class="mode focusable" role="radio" aria-checked="true" id="mode-filmmaker" data-autofocus>
-        <i data-ic="clapperboard"></i><div><div class="mt">Filmmaker</div><div class="ms">Director’s grade</div></div><i data-ic="check" class="check"></i>
+        <i data-ic="clapperboard"></i><div><div class="mt">Filmmaker</div></div><i data-ic="check" class="check"></i>
       </div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="film"></i><div><div class="mt">Cinema</div><div class="ms">Warm, dark room</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="tv"></i><div><div class="mt">Standard</div><div class="ms">Everyday</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="sun"></i><div><div class="mt">Vivid</div><div class="ms">Bright, punchy</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="gamepad-2"></i><div><div class="mt">Game Optimizer</div><div class="ms">Lowest lag</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="activity"></i><div><div class="mt">Sports</div><div class="ms">Smooth motion</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="leaf"></i><div><div class="mt">Eco</div><div class="ms">Dims with the room</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="sun-medium"></i><div><div class="mt">Expert · day</div><div class="ms">Calibrated, bright</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="moon"></i><div><div class="mt">Expert · night</div><div class="ms">Calibrated, dark</div></div><i data-ic="check" class="check"></i></div>
-      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="user"></i><div><div class="mt">Personalised</div><div class="ms">Nate’s wizard</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="film"></i><div><div class="mt">Cinema</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="tv"></i><div><div class="mt">Standard</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="sun"></i><div><div class="mt">Vivid</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="gamepad-2"></i><div><div class="mt">Game Optimizer</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="activity"></i><div><div class="mt">Sports</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="leaf"></i><div><div class="mt">Eco</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="sun-medium"></i><div><div class="mt">Expert · day</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="moon"></i><div><div class="mt">Expert · night</div></div><i data-ic="check" class="check"></i></div>
+      <div class="mode focusable" role="radio" aria-checked="false"><i data-ic="user"></i><div><div class="mt">Personalised</div></div><i data-ic="check" class="check"></i></div>
     </div>
 
     <div class="rows">
       <div class="row focusable no-line" tabindex="0">
-        <div class="text"><div class="t">OLED pixel brightness</div><div class="d">How bright the panel may go.</div></div>
+        <div class="text"><div class="t">OLED pixel brightness</div></div>
         <div class="slider" aria-label="OLED pixel brightness"><i data-ic="sun-dim"></i><div class="track"><div class="fill" style="width:80%"></div><div class="thumb" style="left:80%"></div></div><i data-ic="sun"></i></div>
         <div class="v num" style="min-width:64px;justify-content:flex-end;color:var(--lu-ink)">80</div>
       </div>
       <div class="row focusable" tabindex="0">
-        <div class="text"><div class="t">Filmmaker ambient light</div><div class="d">Lift dark scenes a little when the room is bright.</div></div>
+        <div class="text"><div class="t">Filmmaker ambient light<i data-ic="info" class="info"></i></div></div>
         <div class="toggle" role="switch" aria-checked="true"></div>
       </div>
       <div class="row focusable" tabindex="0">
-        <div class="text"><div class="t">AI Picture Pro</div><div class="d">LG’s sharpening and upscaling. Off keeps Filmmaker faithful.</div></div>
+        <div class="text"><div class="t">AI Picture Pro<i data-ic="info" class="info"></i></div></div>
         <div class="toggle" role="switch" aria-checked="false"></div>
       </div>
       <div class="row focusable" tabindex="0">
-        <div class="text"><div class="t">Aspect ratio</div><div class="d">Original keeps the film’s own shape; Just Scan shows every pixel.</div></div>
+        <div class="text"><div class="t">Aspect ratio<i data-ic="info" class="info"></i></div></div>
         <div class="v">Original <i data-ic="chevron-right"></i></div>
       </div>
       <div class="row focusable" tabindex="0">
-        <div class="text"><div class="t">Energy saving</div><div class="d">Lowers brightness to save power. Off while Filmmaker is on.</div></div>
+        <div class="text"><div class="t">Energy saving</div></div>
         <div class="v">Off <i data-ic="chevron-right"></i></div>
       </div>
       <div class="row focusable" tabindex="0">
         <div class="lead"><i data-ic="square-arrow-out-up-right"></i></div>
-        <div class="text"><div class="t">More in LG settings</div><div class="d">Expert calibration: white balance, colour gamut, gamma, 4:4:4.</div></div>
+        <div class="text"><div class="t">More in LG settings</div></div>
         <div class="v"><i data-ic="chevron-right"></i></div>
       </div>
     </div>

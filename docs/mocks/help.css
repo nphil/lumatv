@@ -1,0 +1,17 @@
+/* The help mark and its sheet (compositor kit/LuInfo and kit/LuHelp; docs/research/settings-ux-result.md).
+   A row shows its name and its value. What is not obvious sits behind one mark after the name: a quiet "i" at rest, a pill that
+   says how to open it ("Hold OK") while its row has the focus (36-settings-help). The sheet is the overlay surface under the row,
+   the page dimmed. */
+
+.row .t .info, .assistant .t .info, .perm .t .info {
+  display: inline-block; width: 26px; height: 26px; margin-left: 12px; vertical-align: -3px; color: var(--lu-ink-2);
+}
+.info-pill { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 10px; margin-left: 12px; border-radius: 999px;
+  vertical-align: -9px; font-size: 24px; font-weight: 500; line-height: 1; color: var(--lu-ink);
+  background: var(--selected-wash); border: 1px solid var(--lu-edge-raised); }
+.info-pill .ic { width: 24px; height: 24px; }
+
+.help-sheet { position: absolute; width: 768px; padding: 22px 28px 26px; border-radius: var(--lu-radius-card); display: flex; flex-direction: column; gap: 8px; }
+.help-sheet .ht { display: flex; align-items: center; gap: 12px; font-size: 26px; font-weight: 500; }
+.help-sheet .ht .ic { width: 26px; height: 26px; color: var(--lu-ink-2); }
+.help-sheet p { margin: 0; font-size: 28px; font-weight: 500; line-height: 1.45; }

@@ -6,17 +6,18 @@
   document.documentElement.dataset.theme = theme;
   if (q.get('v')) document.documentElement.dataset.v = q.get('v');
 
-  /* The nine curated sections. Live one-line summaries read the current values (illustrative here). */
+  /* The nine curated sections. A live line is one short fact (Nitin, 2026-10-25: minimal text), and none where there is nothing to
+   * glance at; illustrative here. */
   const RAIL = [
-    { id: 'picture', ic: 'image', name: 'Picture', line: 'Filmmaker · Brightness 80' },
-    { id: 'sound', ic: 'volume-2', name: 'Sound', line: 'Denon AVR-S760H · eARC' },
-    { id: 'inputs', ic: 'cable', name: 'Inputs & devices', line: 'HDMI 2 · 3 connected' },
+    { id: 'picture', ic: 'image', name: 'Picture', line: 'Filmmaker' },
+    { id: 'sound', ic: 'volume-2', name: 'Sound', line: 'Receiver' },
+    { id: 'inputs', ic: 'cable', name: 'Inputs & devices', line: 'HDMI 2' },
     { id: 'network', ic: 'wifi', name: 'Network', line: 'Nate\u2019s Home · Strong' },
-    { id: 'ambient', ic: 'lamp', name: 'Ambient light', line: 'Follows the picture' },
-    { id: 'home', ic: 'house', name: 'Home & look', line: 'Dynamic tint · Aurora' },
-    { id: 'remote', ic: 'mouse-pointer-2', name: 'Remote & pointer', line: 'Pointer on · Normal speed' },
-    { id: 'ai', ic: 'bot', name: 'AI access', line: 'LAN only · 2 assistants' },
-    { id: 'system', ic: 'settings', name: 'System', line: 'Up to date · webOS 10.2.1' },
+    { id: 'ambient', ic: 'lamp', name: 'Ambient light', line: 'On' },
+    { id: 'home', ic: 'house', name: 'Home & look', line: '' },
+    { id: 'remote', ic: 'mouse-pointer-2', name: 'Remote & pointer', line: 'Pointer on' },
+    { id: 'ai', ic: 'bot', name: 'AI access', line: 'On' },
+    { id: 'system', ic: 'settings', name: 'System', line: '' },
   ];
 
   function buildRail(root) {
@@ -24,7 +25,7 @@
     root.innerHTML = RAIL.map(e =>
       `<div class="rail-entry focusable" id="rail-${e.id}" ${e.id === open ? 'aria-current="page"' : ''} tabindex="0">
          <div class="tile"><i data-ic="${e.ic}"></i></div>
-         <div><div class="name">${e.name}</div><div class="line">${e.line}</div></div>
+         <div><div class="name">${e.name}</div>${e.line ? `<div class="line">${e.line}</div>` : ''}</div>
        </div>`).join('');
   }
 

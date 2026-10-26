@@ -76,6 +76,7 @@ const SHOTS = [
   ['30-settings-ambient', '30-settings-ambient.html'],
   ['30-settings-home', '30-settings-home.html'],
   ['30-settings-system', '30-settings-system.html'],
+  ['36-settings-help', '36-settings-help.html'],
   ['31-quick-access-toast', '31-quick-access.html'],
   ['31-quick-access-assign', '31-quick-access.html?v=assign'],
   ['32-pairing-prompt', '32-pairing-prompt.html'],
