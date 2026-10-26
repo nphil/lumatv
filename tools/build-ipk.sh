@@ -88,6 +88,10 @@ ambient/capture/build/arm/lumatv-capture
 payload/capture/capture.sh
 payload/capture/role.json
 jpeg/build/arm/lumatv-jpeg
+vplane/build/arm/lumatv-vplane
+payload/vplane/vplane.sh
+payload/vplane/role.json
+payload/vplane/clips/index.json
 tools/cardapp.sh
 card/appinfo.json
 card/splash.png
@@ -141,6 +145,12 @@ if [ -n "$MISSING" ]; then
         *jpeg/build/arm/lumatv-jpeg*)
             # Git-ignored like the helper; without it pictures are decoded by the shell, which works, but the hardware block idles.
             echo "The 32-bit picture decoder is built by jpeg/build.sh; this package is not built without it." >&2
+            ;;
+    esac
+    case "$MISSING" in
+        *vplane/build/arm/lumatv-vplane*)
+            # Git-ignored like the helper; the art saver would keep drawing its own picture and say nothing.
+            echo "The 32-bit video-plane player is built by vplane/build.sh (zig); this package is not built without it." >&2
             ;;
     esac
     case "$MISSING" in
@@ -275,6 +285,12 @@ chmod 755 "$DATA_ROOT/payload/capture/lumatv-capture" "$DATA_ROOT/payload/captur
 mkdir -p "$DATA_ROOT/payload/jpeg"
 cp jpeg/build/arm/lumatv-jpeg "$DATA_ROOT/payload/jpeg/"
 chmod 755 "$DATA_ROOT/payload/jpeg/lumatv-jpeg"
+# The art saver's video-plane player (32-bit, like LG's media library) with its clips, the LS2 role it needs and the script that
+# installs them. Nothing here installs the role: it is a permission for a new program, so only the owner's `lumatv vplane install` writes it.
+mkdir -p "$DATA_ROOT/payload/vplane/clips"
+cp vplane/build/arm/lumatv-vplane payload/vplane/vplane.sh payload/vplane/role.json "$DATA_ROOT/payload/vplane/"
+cp payload/vplane/clips/* "$DATA_ROOT/payload/vplane/clips/"
+chmod 755 "$DATA_ROOT/payload/vplane/lumatv-vplane" "$DATA_ROOT/payload/vplane/vplane.sh"
 mkdir -p "$DATA_ROOT/payload/frame"
 cp "$BUILD_DIR/frame-ipk/$APP_ID.frame.ipk" "$DATA_ROOT/payload/frame/"
 mkdir -p "$DATA_ROOT/payload/card"

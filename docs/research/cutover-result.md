@@ -207,3 +207,19 @@ On the set (2026-10-25 19:43): the ipk did not carry `tools/inputcommon.sh`, `to
 `lumatv inputcommon on|off|status` answered `{"ok":false,"error":"tools/inputcommon.sh did not answer"}` on a set installed from it. They are
 in `tools/build-ipk.sh` now (copied and listed), and `tests/test_package_tools.py` fails when any script the tool, the boot hook or a
 shipped script calls or imports is not; the cold start that round 7 found missing is in `lg-restyles-result.md`.
+
+## Also wired: the art saver's video-plane player (VideoPlaneSaver's, at its request)
+
+- `lumatv vplane install|start|stop|remove|status` runs `payload/vplane/vplane.sh` (`install BIN ROLE CLIPS STATE`, `start STATE /tmp/<shortId>-vplane
+  <appId>.vplane`) and prints the script's status object under `"vplane"`. `install` and `remove` take the mutation lock.
+- `install` writes an LS2 role for a new program that runs as root, so it is the owner's own command. Nothing else runs it: not `apply`, not the boot hook
+  (`tests/test_lumatv_vplane.py` fails when other code does). After an update of the package, `vplane install` stages the new program and clips; the role is
+  rewritten only when its template changed, which is a new permission and the owner's to give.
+- `apply`, the boot's too, starts the player only when `vplane.sh status` says the program is staged and the role is written. A failed start is logged and
+  `apply` goes on. `revert`, and an `apply` that reverts itself, removes the player, its role, its manifest and its clips, as it does the colour reader's.
+- `tools/build-ipk.sh` requires and stages `vplane/build/arm/lumatv-vplane` (built by `sh vplane/build.sh`, git-ignored: a package built without it stops with that
+  hint), the script, the role and the clips, and marks the program and the script executable (`vplane.sh install` refuses a program that is not).
+  `tests/test_package_tools.py` also checks that every file under `payload/` the tool names is in the package: in the repository's tree, or built and staged by a
+  `cp` of its own with its source in REQUIRED_FILES.
+- Tests: `tests/test_lumatv_vplane.py` (the verb and the boot line against a stand-in script; the tool against the real `vplane.sh` in a temporary state and role
+  directory with a stand-in program), `tests/test_package_tools.py`. Not verified on the TV.

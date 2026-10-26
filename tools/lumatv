@@ -12,6 +12,9 @@
 #                            bootd opened when the TV is set to start on its last input (general.homeAutoLaunch off)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
 #   capture start|stop|remove|status -> the ambient light's colour reader and its bus role (payload/capture/capture.sh)
+#   vplane install|start|stop|remove|status -> the art saver's video-plane player and its clips (payload/vplane/vplane.sh); `install`
+#                            writes an LS2 role, so it is the owner's own command and apply never runs it; apply starts a player
+#                            that is installed, revert removes it
 #   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
 #   compositor on|off|status|check -> LumaTV's own compositor in place of LG's (tools/compositor.sh); `on` is the
 #                            persistent enable and needs a firmware build on verified.list; `check` is what the
@@ -130,6 +133,15 @@ CAPTURE_SOCKET="$STATE/ambient.sock"
 # The picture decoder (jpeg/service.c), started by the helper from $JPEG_BIN, where `jpeg_stage` puts it.
 JPEG_SRC="$APPDIR/payload/jpeg/lumatv-jpeg"
 JPEG_BIN="$STATE/bin/lumatv-jpeg"
+# The art saver's video-plane player (vplane/, payload/vplane/vplane.sh): a 32-bit program that puts the saver's clips on the video
+# plane; the saver asks it for a picture through $VPLANE_MAILBOX. Its LS2 role is a permission for a new program, so only the owner's
+# `lumatv vplane install` writes it. Apply starts a player that is installed, and revert removes it with the role.
+VPLANE_SH="$APPDIR/payload/vplane/vplane.sh"
+VPLANE_SRC="$APPDIR/payload/vplane/lumatv-vplane"
+VPLANE_ROLE="$APPDIR/payload/vplane/role.json"
+VPLANE_CLIPS="$APPDIR/payload/vplane/clips"
+VPLANE_MAILBOX="/tmp/$SHORT_ID-vplane"
+VPLANE_APPID="$APP_ID.vplane"
 
 # Quick Settings, drawn by the compositor from a QML tree in /usr that configd
 # names per app id. The stock tree is copied to /var once, our replacement
@@ -1966,6 +1978,54 @@ verb_capture() {
   return 0
 }
 
+# The art saver's video-plane player. Installed means its program is staged and its role is written (vplane.sh status says so), and only
+# `lumatv vplane install` gets it there. A player that is not installed is not a fault anywhere: the saver draws its own picture.
+vplane_json() {
+  [ -f "$VPLANE_SH" ] && sh "$VPLANE_SH" status "$STATE" 2>/dev/null < /dev/null | tr -d '\n' || printf '{"installed":false,"role":false,"clips":0,"running":false,"pid":0}'
+}
+
+vplane_installed() {
+  vp_st=$(vplane_json)
+  case "$vp_st" in *'"installed":true'*) ;; *) return 1 ;; esac
+  case "$vp_st" in *'"role":true'*) return 0 ;; esac
+  return 1
+}
+
+vplane_install() {
+  { [ -f "$VPLANE_SH" ] && [ -f "$VPLANE_SRC" ]; } || { vp_out="this package has no video-plane player"; return 1; }
+  vp_out=$(sh "$VPLANE_SH" install "$VPLANE_SRC" "$VPLANE_ROLE" "$VPLANE_CLIPS" "$STATE" 2>&1 < /dev/null) && return 0
+  log_line "vplane install: $(printf '%s' "$vp_out" | tr -d '\n' | cut -c1-200)"
+  return 1
+}
+
+vplane_start() {
+  [ -f "$VPLANE_SH" ] || { vp_out="this package has no video-plane player"; return 1; }
+  vp_out=$(sh "$VPLANE_SH" start "$STATE" "$VPLANE_MAILBOX" "$VPLANE_APPID" 2>&1 < /dev/null) && return 0
+  log_line "vplane: $(printf '%s' "$vp_out" | tr -d '\n' | cut -c1-200)"
+  return 1
+}
+
+vplane_stop() { [ -f "$VPLANE_SH" ] && sh "$VPLANE_SH" stop "$STATE" >/dev/null 2>&1; return 0; }
+
+# Revert takes the player, its role, its clips and the manifest away: nothing of it stays on the set once LumaTV is off.
+vplane_remove() { [ -f "$VPLANE_SH" ] && sh "$VPLANE_SH" remove "$STATE" >/dev/null 2>&1; return 0; }
+
+verb_vplane() {
+  case "${1:-status}" in
+    install)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if vplane_install; then printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)"; else emit_error "vplane did not install: $vp_out"; return 1; fi ;;
+    start) if vplane_start; then printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)"; else emit_error "vplane did not start: $vp_out"; return 1; fi ;;
+    stop) vplane_stop; printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)" ;;
+    remove)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      vplane_remove; printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)" ;;
+    status) printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)" ;;
+    *) emit_error "vplane: install, start, stop, remove or status"; return 1 ;;
+  esac
+  return 0
+}
+
 verb_preload() {
   case "$1" in
     on|off|status)
@@ -2026,6 +2086,7 @@ do_revert_internal() {
 
   helper_stop
   capture_remove
+  vplane_remove
   rm -f "$JPEG_BIN" "$JPEG_BIN.new"   # the picture decoder: the helper that started it is stopped, so it has ended
   comp_release
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
@@ -2284,6 +2345,9 @@ verb_apply() {
   helper_start
   # 5e. The colour reader and its bus role. Not fatal: it idles until the helper wants a picture.
   capture_start || true
+  # 5f. The art saver's video-plane player, where the owner installed it. Not fatal: without it the saver draws its own picture. Never
+  # installed from here: its role is a permission, so `lumatv vplane install` is the owner's.
+  if vplane_installed; then vplane_start || true; fi
   # The preload list is configd's and survives a restart; re-asserted only where `preload on` was
   # run, and written only when it differs.
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" on "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>>"$LOGFILE"
@@ -3078,6 +3142,7 @@ case "$VERB" in
   restart) verb_restart; exit $? ;;
   helper) verb_helper "${2:-status}"; exit $? ;;
   capture) verb_capture "${2:-status}"; exit $? ;;
+  vplane) verb_vplane "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
   notifications) verb_notifications "${2:-status}"; exit $? ;;
