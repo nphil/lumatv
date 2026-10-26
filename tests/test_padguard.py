@@ -22,20 +22,17 @@ def put(path, text=""):
 
 
 class FakeProbe:
-    """Stands in for the usbfs prober; `queue` is how many reports each service() reaps."""
+    """Stands in for the usbfs prober; sample() returns `live` live reports."""
     made = []
 
     def __init__(self, path, ifnum, ep, size):
         self.args = (path, ifnum, ep, size)
-        self.queue, self.dead, self.closed = 0, False, False
+        self.live, self.dead, self.closed, self.samples = 0, False, False, 0
         FakeProbe.made.append(self)
 
-    def fileno(self):
-        return 99
-
-    def service(self):
-        n, self.queue = self.queue, 0
-        return n
+    def sample(self):
+        self.samples += 1
+        return self.live
 
     def close(self):
         self.closed = True
@@ -53,7 +50,6 @@ class Rig(unittest.TestCase):
         put(d + "/idProduct", "09cc\n")
         put(d + "/busnum", "8\n")
         put(d + "/devnum", "15\n")
-        put(d + "/urbnum", "1000\n")
         put(i + "/bInterfaceClass", "03\n")
         put(i + "/bInterfaceNumber", "00\n")
         put(i + "/ep_02/type", "Interrupt\n")
@@ -101,15 +97,9 @@ class Rig(unittest.TestCase):
                 return op
         return None
 
-    def urbs(self, n):
-        put(self.sys + "/bus/usb/devices/8-1/urbnum", "%d\n" % n)
-
-    def step(self, rate=None, dt=1.0):
-        """One tick `dt` seconds on, with the pad submitting `rate` URBs/s since the last one."""
+    def step(self, dt=1.0):
+        """One tick `dt` seconds on."""
         self.now += dt
-        if rate is not None:
-            cur = int(open(self.sys + "/bus/usb/devices/8-1/urbnum").read())
-            self.urbs(cur + int(rate * dt))
         self.g.tick()
         return self.settle()
 
@@ -118,52 +108,63 @@ class Rig(unittest.TestCase):
 
 
 class AttachedToDetached(Rig):
+    LIVE = padguard.CONFIRM_REPORTS
+
+    def run_ticks(self, n, live):
+        self.raw = self.LIVE if live else 0
+        return [self.step() for _ in range(n)]
+
     def test_a_live_pad_stays_attached(self):
         self.g.tick()
-        for _ in range(10):
-            self.assertIsNone(self.step(rate=1000))
+        ops = self.run_ticks(10, live=True)
+        self.assertEqual(ops, [None] * 10)
         self.assertEqual(self.pad().state, "attached")
-        self.assertEqual(self.raw_calls, [])        # no hidraw reads while the counter is healthy
 
-    def test_a_silent_pad_is_detached_within_grace_plus_two_samples(self):
+    def test_a_pad_that_is_off_is_detached_after_two_samples(self):
         self.g.tick()
-        ops = [self.step(rate=0) for _ in range(6)]
+        ops = self.run_ticks(4, live=False)
         self.assertEqual(ops.count("unbind"), 1)
+        self.assertEqual(ops.index("unbind"), 0)       # a kernel-bound pad has no grace: sampled on discovery, again a tick later
         self.assertEqual(self.pad().state, "detached")
-        self.assertIsNotNone(self.pad().probe)       # claimed through usbfs
         self.assertEqual(self.pad().probe.args, (self.dev + "/bus/usb/008/015", 0, 0x82, 64))
-        # grace is 3 s: ticks at +1,+2 ignored, +3 first sample, +4 second -> unbound on the 4th
-        self.assertEqual(ops.index("unbind"), 3)
-
-    def test_grace_after_start_ignores_the_probe_noise_of_a_fresh_bind(self):
-        self.g.tick()
-        self.assertIsNone(self.step(rate=0))
-        self.assertIsNone(self.step(rate=0))
-        self.assertEqual(self.pad().state, "attached")
-
-    def test_low_counter_but_hidraw_reports_means_nobody_was_polling(self):
-        self.g.tick()
-        self.raw = padguard.CONFIRM_REPORTS
-        for _ in range(8):
-            self.assertIsNone(self.step(rate=0))
-        self.assertEqual(self.pad().state, "attached")
-        self.assertTrue(self.raw_calls)
         self.assertEqual(self.raw_calls[0], self.dev + "/hidraw0")
 
-    def test_a_few_stray_urbs_do_not_count_as_a_live_pad(self):
+    def test_our_own_bind_gets_a_grace_period(self):
         self.g.tick()
-        ops = [self.step(rate=3) for _ in range(6)]
+        self.raw = 0
+        while self.pad().state != "detached":
+            self.step()
+        self.pad().probe.live = padguard.CONFIRM_REPORTS
+        self.step()
+        self.assertEqual(self.pad().state, "attached")
+        self.raw_calls.clear()
+        self.step(dt=0.5)                               # inside GRACE: not sampled
+        self.assertEqual(self.raw_calls, [])
+        self.step(dt=0.5)
+        self.assertEqual(len(self.raw_calls), 1)
+
+    def test_too_few_live_reports_count_as_off(self):
+        self.g.tick()
+        self.raw = self.LIVE - 1
+        ops = [self.step() for _ in range(6)]
         self.assertIn("unbind", ops)
 
-    def test_a_single_quiet_second_is_forgiven(self):
+    def test_a_single_quiet_sample_is_forgiven(self):
         self.g.tick()
-        for _ in range(3):
-            self.step(rate=1000)
-        self.step(rate=0)
+        self.run_ticks(3, live=True)
+        self.run_ticks(1, live=False)
         self.assertEqual(self.pad().state, "attached")
-        self.step(rate=1000)
-        self.step(rate=0)
+        self.run_ticks(1, live=True)
+        self.run_ticks(1, live=False)
         self.assertEqual(self.pad().state, "attached")
+
+    def test_no_hidraw_node_counts_as_off(self):
+        import shutil
+        shutil.rmtree(self.sys + "/bus/usb/devices/8-1/8-1:1.0/0003:054C:09CC.000B/hidraw")
+        self.g.tick()
+        self.raw = 99
+        ops = [self.step() for _ in range(6)]
+        self.assertIn("unbind", ops)
 
     def test_failed_unbind_keeps_it_attached_and_retries(self):
         os.unlink(self.drv + "/unbind")
@@ -179,41 +180,38 @@ class AttachedToDetached(Rig):
 class DetachedToAttached(Rig):
     def detach(self):
         self.g.tick()
+        self.raw = 0
         while self.pad().state != "detached":
-            self.step(rate=0)
+            self.step()
         return self.pad().probe
 
-    def test_a_burst_of_reports_reattaches(self):
+    def test_the_probe_is_sampled_every_tick_while_detached(self):
         probe = self.detach()
-        probe.queue = padguard.CONFIRM_REPORTS
-        self.now += 0.2
-        self.g.wake({probe})
-        self.assertEqual(self.settle(), "bind")
+        before = probe.samples
+        for _ in range(4):
+            self.step()
+        self.assertEqual(probe.samples, before + 4)
+        self.assertEqual(self.pad().state, "detached")
+
+    def test_a_pad_turned_on_reattaches_on_the_next_tick(self):
+        probe = self.detach()
+        probe.live = padguard.CONFIRM_REPORTS
+        self.assertEqual(self.step(), "bind")
         self.assertTrue(probe.closed)                 # usbfs released before usbhid binds
         self.assertEqual(self.pad().state, "attached")
         self.assertIsNone(self.pad().probe)
 
-    def test_reports_trickling_in_across_windows_do_not(self):
+    def test_a_few_live_reports_are_not_enough(self):
         probe = self.detach()
+        probe.live = padguard.CONFIRM_REPORTS - 1
         for _ in range(5):
-            probe.queue = padguard.CONFIRM_REPORTS - 1
-            self.now += padguard.CONFIRM_WINDOW + 0.1
-            self.g.wake({probe})
-        self.assertIsNone(self.settle())
+            self.assertIsNone(self.step())
         self.assertEqual(self.pad().state, "detached")
 
-    def test_reports_accumulate_inside_one_window(self):
-        probe = self.detach()
-        for _ in range(4):
-            probe.queue = 3
-            self.now += 0.05
-            self.g.wake({probe})
-        self.assertEqual(self.settle(), "bind")
-
-    def test_a_probe_that_died_is_reopened_on_the_next_tick(self):
+    def test_a_probe_that_died_is_reopened_after_a_back_off(self):
         probe = self.detach()
         probe.dead = True
-        self.g.wake({probe})
+        self.step(dt=0.5)
         self.assertTrue(probe.closed)
         self.assertIsNone(self.pad().probe)
         self.step(dt=0.5)
@@ -225,10 +223,24 @@ class DetachedToAttached(Rig):
     def test_the_full_cycle_repeats(self):
         for _ in range(3):
             probe = self.detach()
-            probe.queue = padguard.CONFIRM_REPORTS
-            self.g.wake({probe})
-            self.assertEqual(self.settle(), "bind")
+            probe.live = padguard.CONFIRM_REPORTS
+            self.assertEqual(self.step(), "bind")
             self.assertEqual(self.pad().state, "attached")
+
+    def test_a_failed_bind_is_retried(self):
+        probe = self.detach()
+        probe.live = padguard.CONFIRM_REPORTS
+        os.unlink(self.drv + "/bind")
+        os.mkdir(self.drv + "/bind")
+        self.now += 1
+        self.g.tick()
+        self.assertTrue(any("bind failed" in m for m in self.logs))
+        os.rmdir(self.drv + "/bind")
+        put(self.drv + "/bind")
+        self.step(dt=1)
+        self.pad().probe.live = padguard.CONFIRM_REPORTS
+        self.assertEqual(self.step(dt=0.5), "bind")
+        self.assertEqual(self.pad().state, "attached")
 
     def test_a_pad_found_unbound_at_start_goes_straight_to_probing(self):
         os.unlink(self.link)
@@ -293,7 +305,33 @@ class Abi(unittest.TestCase):
         self.assertEqual(padguard._SUBMITURB, 0x8038550A)
         self.assertEqual(padguard._REAPURBNDELAY, 0x4008550D)
         self.assertEqual(padguard._CLAIMINTERFACE, 0x8004550F)
+        self.assertEqual(padguard._DISCARDURB, 0x0000550B)
         self.assertEqual(padguard.Guard.__init__.__defaults__[3].__name__, "UsbfsProbe")
+
+
+class LiveReports(unittest.TestCase):
+    """read_hidraw counts only report ID 0x01; a pad that is off streams ID 0x00."""
+
+    def count(self, reports):
+        from unittest import mock
+        feed = list(reports)
+        with mock.patch.object(padguard.os, "open", return_value=7), \
+                mock.patch.object(padguard.os, "close"), \
+                mock.patch.object(padguard.select, "select", side_effect=lambda r, w, x, t: (r, [], []) if feed else ([], [], [])), \
+                mock.patch.object(padguard.os, "read", side_effect=lambda fd, n: feed.pop(0)):
+            return padguard.read_hidraw("/dev/hidraw0", 0.3)
+
+    def test_zero_id_reports_from_a_receiver_with_the_pad_off_are_not_live(self):
+        off = bytes(10) + b"\xb6\x45" + bytes(52)
+        self.assertEqual(self.count([off] * 100), 0)
+
+    def test_id_one_reports_are_live_and_counting_stops_at_the_threshold(self):
+        on = b"\x01\x83\x80\x7e" + bytes(60)
+        self.assertEqual(self.count([on] * 100), padguard.CONFIRM_REPORTS)
+
+    def test_a_mix_counts_only_the_live_ones(self):
+        on, off = b"\x01" + bytes(63), bytes(64)
+        self.assertEqual(self.count([on, off, on, off, on]), 3)
 
 
 class Hook(unittest.TestCase):

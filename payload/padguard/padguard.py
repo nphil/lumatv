@@ -7,17 +7,21 @@ reports, so its axes sit at 0 and read as a stick held full up-left. The
 pad is therefore attached (usbhid + hid-sony bound, evdev nodes present) only while
 it is sending reports, and detached while it is silent.
 
-Attached -> detached: the interface's sysfs urbnum (URBs submitted, which for an
-interrupt endpoint is one per report) is sampled once a second. A low rate is
-double-checked by reading the pad's hidraw node briefly, because usbhid only
-polls while something has a node open. Silent for SILENT_TICKS samples: usbhid
-is unbound from the interface, so every input node vanishes.
+A pad that is off is not silent on the wire: its 2.4 GHz receiver stays enumerated and
+streams ~500 all-zero reports per second with report ID 0x00 (bytes 10-11 a running counter).
+hid-sony ignores them, so the nodes exist but never receive an event and the axes read 0. A live
+pad sends report ID 0x01 (~1000/s). "Pad on" therefore means reports whose first byte is 0x01.
 
-Detached -> attached: with usbhid unbound nothing polls the endpoint, so this
-process claims the interface through usbfs and keeps one interrupt-IN URB in
-flight. A burst of CONFIRM_REPORTS reports means the pad is on: the interface
-is released and usbhid is bound again (hid-sony probes, nodes reappear).
-The URB wait is a blocking poll(), so the detached state costs no CPU.
+Attached -> detached: once a second the pad's hidraw node is read for up to HIDRAW_PROBE seconds
+(a separate reader never steals evdev events). Without CONFIRM_REPORTS live reports for
+SILENT_TICKS samples in a row, usbhid is unbound from the interface and every input node vanishes.
+
+Detached -> attached: with usbhid unbound nothing polls the endpoint, so this process claims the
+interface through usbfs and, twice a second, polls the interrupt-IN endpoint for a few ms (a pad
+that is off yields a handful of ID-0 reports and no verdict). CONFIRM_REPORTS live reports mean the
+pad is on: the interface is released and usbhid is bound again (hid-sony probes, nodes reappear).
+Polling only during those windows keeps the detached state near zero CPU; a URB left in flight
+would wake this process for every one of the receiver's ~500 reports/s.
 
 Remove /var/lib/webosbrew/init.d/50-padguard to uninstall (reboot, or kill this
 process and rebind usbhid to the interface).
@@ -31,13 +35,14 @@ import sys
 import time
 
 IDS = (("054c", "09cc"),)
-TICK = 1.0            # seconds between attached-state samples
-GRACE = 3.0           # after an attach, hid-sony probing makes the counter meaningless
-MIN_RATE = 20         # URBs/s below which an attached pad looks silent (a live pad: ~1000)
-SILENT_TICKS = 2      # consecutive silent samples before detaching
-HIDRAW_PROBE = 0.5    # seconds the confirmation read waits for a report
-CONFIRM_REPORTS = 10  # reports in CONFIRM_WINDOW that prove a detached pad is on
-CONFIRM_WINDOW = 1.0
+TICK = 0.5            # seconds between samples, attached or detached
+GRACE = 1.0           # after our own bind, hid-sony is still probing: no verdict yet
+SILENT_TICKS = 2      # consecutive samples without live reports before detaching
+HIDRAW_PROBE = 0.2    # seconds one attached-state sample waits for live reports
+LIVE_ID = 0x01        # DS4 USB input report ID; a pad that is off sends ID 0x00 instead
+CONFIRM_REPORTS = 10  # live reports that prove a pad is on
+PEEK_WINDOW = 0.03    # detached sample: how long to look for a first live report (~15 reports from a pad that is off)
+CONFIRM_WINDOW = 1.0  # ... and how long to wait for CONFIRM_REPORTS once one has appeared
 LOG_MAX = 65536
 
 
@@ -63,6 +68,7 @@ class _Urb(ctypes.Structure):
 _SUBMITURB = _ioc(_IOC_READ, 10, ctypes.sizeof(_Urb))
 _REAPURBNDELAY = _ioc(_IOC_WRITE, 13, ctypes.sizeof(ctypes.c_void_p))
 _CLAIMINTERFACE = _ioc(_IOC_READ, 15, 4)
+_DISCARDURB = _ioc(0, 11, 0)
 _URB_TYPE_INTERRUPT = 1
 _libc = None
 
@@ -77,59 +83,91 @@ def _ioctl(fd, req, arg):
 
 
 class UsbfsProbe:
-    """Claims one interface and counts reports on its interrupt-IN endpoint."""
+    """Claims one interface and samples its interrupt-IN endpoint on demand.
+
+    The endpoint is only polled during sample(): a pad that is off still streams ~500 reports/s, and
+    keeping a URB in flight all the time would wake this process for every one of them.
+    """
 
     def __init__(self, path, ifnum, ep, size):
-        self.count = 0
         self.dead = False
+        self.pending = False
         self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
         try:
             _ioctl(self.fd, _CLAIMINTERFACE, ctypes.byref(ctypes.c_uint(ifnum)))
-            self.buf = ctypes.create_string_buffer(size)
-            self.urb = _Urb(type=_URB_TYPE_INTERRUPT, endpoint=ep,
-                            buffer=ctypes.addressof(self.buf), buffer_length=size)
-            self._submit()
         except Exception:
             os.close(self.fd)
             raise
+        self.buf = ctypes.create_string_buffer(size)
+        self.urb = _Urb(type=_URB_TYPE_INTERRUPT, endpoint=ep,
+                        buffer=ctypes.addressof(self.buf), buffer_length=size)
+        self.poller = select.poll()
+        self.poller.register(self.fd, select.POLLOUT | select.POLLERR | select.POLLHUP)
 
-    def _submit(self):
-        _ioctl(self.fd, _SUBMITURB, ctypes.byref(self.urb))
-
-    def fileno(self):
-        return self.fd
-
-    def service(self):
-        """Reap completed URBs; return how many carried a report."""
-        n = 0
-        while not self.dead:
-            out = ctypes.c_void_p()
-            try:
-                _ioctl(self.fd, _REAPURBNDELAY, ctypes.byref(out))
-            except OSError as e:
-                if e.errno != errno.EAGAIN:
-                    self.dead = True
-                return n
-            if self.urb.status != 0:
+    def _reap(self):
+        """The completed URB's status, or None if none is ready."""
+        try:
+            _ioctl(self.fd, _REAPURBNDELAY, ctypes.byref(ctypes.c_void_p()))
+        except OSError as e:
+            if e.errno != errno.EAGAIN:
                 self.dead = True
-                return n
-            if self.urb.actual_length > 0:
-                n += 1
+            return None
+        self.pending = False
+        return self.urb.status
+
+    def sample(self, peek=PEEK_WINDOW, window=CONFIRM_WINDOW):
+        """Poll the endpoint; return the number of live reports seen.
+
+        Looks for `peek` seconds, or `window` once a live report has appeared, and stops at
+        CONFIRM_REPORTS live ones. A pad that is off sends only report ID 0, so the common
+        outcome is a few reaped URBs and 0.
+        """
+        live = 0
+        start = time.monotonic()
+        end = start + peek
+        try:
+            while not self.dead and live < CONFIRM_REPORTS:
+                left = end - time.monotonic()
+                if left <= 0:
+                    break
+                if not self.pending:
+                    _ioctl(self.fd, _SUBMITURB, ctypes.byref(self.urb))
+                    self.pending = True
+                if not self.poller.poll(left * 1000):
+                    break
+                status = self._reap()
+                if status is None:
+                    continue
+                if status != 0:
+                    self.dead = True
+                elif self.urb.actual_length > 0 and self.buf[0] == bytes([LIVE_ID]):
+                    live += 1
+                    end = start + window
+        except OSError:
+            self.dead = True
+        self._park()
+        return live
+
+    def _park(self):
+        """Stop polling: cancel the in-flight URB and wait for its completion."""
+        if self.pending and not self.dead:
             try:
-                self._submit()
+                _ioctl(self.fd, _DISCARDURB, ctypes.byref(self.urb))
+                self.poller.poll(100)
+                self._reap()
             except OSError:
                 self.dead = True
-        return n
+        self.pending = False
 
     def close(self):
-        # Closing the fd discards the URB and releases the interface.
+        # Closing the fd discards any URB and releases the interface.
         if self.fd >= 0:
             os.close(self.fd)
             self.fd = -1
 
 
 def read_hidraw(node, secs):
-    """Count reports on a hidraw node for up to `secs` (a reader never steals evdev events)."""
+    """Count live reports on a hidraw node for up to `secs`, stopping at CONFIRM_REPORTS."""
     try:
         fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
     except OSError:
@@ -143,7 +181,7 @@ def read_hidraw(node, secs):
                 break
             if select.select([fd], [], [], left)[0]:
                 try:
-                    if os.read(fd, 128):
+                    if os.read(fd, 128)[:1] == bytes([LIVE_ID]):
                         n += 1
                 except OSError:
                     break
@@ -180,11 +218,7 @@ class Pad:
         self.state = None        # "attached" | "detached"
         self.probe = None
         self.until = 0.0         # attached: end of grace
-        self.last_urbnum = None
-        self.last_time = 0.0
         self.silent = 0
-        self.burst = 0           # detached: reports seen in the current window
-        self.burst_start = 0.0
         self.retry_at = 0.0
 
 
@@ -245,10 +279,6 @@ class Guard:
         link = pad.idir + "/driver"
         return os.path.basename(os.readlink(link)) if os.path.islink(link) else None
 
-    def _urbnum(self, pad):
-        v = _read(os.path.join(self.sys, "bus/usb/devices", pad.name, "urbnum"))
-        return int(v) if v and v.isdigit() else None
-
     def _hidraw_node(self, pad):
         try:
             for h in os.listdir(pad.idir):
@@ -263,7 +293,7 @@ class Guard:
     # -- transitions -------------------------------------------------------
     def _attached(self, pad, now):
         pad.state, pad.until = "attached", now + GRACE
-        pad.last_urbnum, pad.last_time, pad.silent = self._urbnum(pad), now, 0
+        pad.silent = 0
 
     def _open_probe(self, pad, now):
         try:
@@ -272,7 +302,7 @@ class Guard:
             pad.probe, pad.retry_at = None, now + 5.0
             self.log("%s: cannot claim the interface (%s)" % (pad.name, e))
             return False
-        pad.state, pad.burst, pad.burst_start = "detached", 0, 0.0
+        pad.state = "detached"
         return True
 
     def _detach(self, pad, now):
@@ -280,7 +310,7 @@ class Guard:
             self.log("%s: usbhid unbind failed" % pad.name)
             pad.silent = 0
             return
-        self.log("%s: silent, detached" % pad.name)
+        self.log("%s: no live reports, detached" % pad.name)
         pad.state, pad.retry_at = "detached", 0.0
         self._open_probe(pad, now)
 
@@ -308,7 +338,10 @@ class Guard:
                 continue
             drv = self._driver(new)
             if drv == "usbhid":
+                # Bound by the kernel (boot, or the receiver re-enumerated): judge it at once, its
+                # nodes are already visible.
                 self._attached(new, now)
+                new.until = now
             elif drv is None:
                 new.state = "detached"
             else:
@@ -317,17 +350,8 @@ class Guard:
             self.log("%s: found (%s)" % (name, new.state))
 
     def _sample(self, pad, now):
-        n = self._urbnum(pad)
         if now < pad.until:
-            pad.last_urbnum, pad.last_time = n, now
             return
-        dt = max(now - pad.last_time, 1e-3)
-        rate = (n - pad.last_urbnum) / dt if n is not None and pad.last_urbnum is not None else None
-        pad.last_urbnum, pad.last_time = n, now
-        if rate is not None and rate >= MIN_RATE:
-            pad.silent = 0
-            return
-        # usbhid only polls while a node is open: look at the pad directly.
         node = self._hidraw_node(pad)
         if node and self.hidraw(node, HIDRAW_PROBE) >= CONFIRM_REPORTS:
             pad.silent = 0
@@ -355,44 +379,23 @@ class Guard:
                         self._open_probe(pad, now)
                     elif self._driver(pad) == "usbhid":
                         self._attached(pad, now)
+                if pad.probe is not None:
+                    self._look(pad, now)
         self.next_tick = now + TICK
 
-    def wake(self, ready):
-        """Handle probes that polled readable; attach pads whose reports confirm the pad is on."""
-        now = self.clock()
-        for pad in list(self.pads.values()):
-            if pad.state != "detached" or pad.probe is None or pad.probe not in ready:
-                continue
-            n = pad.probe.service()
-            if pad.probe.dead:
-                pad.probe.close()
-                pad.probe, pad.retry_at = None, now + 1.0
-                continue
-            if n == 0:
-                continue
-            if now - pad.burst_start > CONFIRM_WINDOW:
-                pad.burst, pad.burst_start = 0, now
-            pad.burst += n
-            if pad.burst >= CONFIRM_REPORTS:
-                self._attach(pad, now)
-
-    def probes(self):
-        return [p.probe for p in self.pads.values() if p.state == "detached" and p.probe]
+    def _look(self, pad, now):
+        """Detached: sample the endpoint; enough live reports mean the pad is on."""
+        n = pad.probe.sample()
+        if pad.probe.dead:
+            pad.probe.close()
+            pad.probe, pad.retry_at = None, now + 1.0
+        elif n >= CONFIRM_REPORTS:
+            self._attach(pad, now)
 
     def run(self):
-        self.tick()
         while True:
-            poller = select.poll()
-            by_fd = {}
-            for pr in self.probes():
-                poller.register(pr.fileno(), select.POLLOUT | select.POLLERR | select.POLLHUP)
-                by_fd[pr.fileno()] = pr
-            # An empty poller just sleeps until the next tick.
-            events = poller.poll(max(0.0, self.next_tick - self.clock()) * 1000)
-            if events:
-                self.wake({by_fd[fd] for fd, _ in events if fd in by_fd})
-            if self.clock() >= self.next_tick:
-                self.tick()
+            self.tick()
+            time.sleep(max(0.0, self.next_tick - self.clock()))
 
 
 def main():
