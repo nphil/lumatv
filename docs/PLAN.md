@@ -85,7 +85,7 @@ into the compositor's pages on the host (41c6e83); not on the TV.
 - TV tests still open: X4 during PlxNative playback (Netflix done); the
   histogram probe (needs the `libvtcapture` histogram signatures first); the five
   census experiments, each its own slot; a TV smoke test of the plugin broker.
-  Need Nitin present: PIN prompt; keys from his universal remote once set up.
+  Need Nitin present: keys from his universal remote once set up.
 - Next: the slices in `docs/HANDOFF.md` (Resume here) finish phases 2-9 offline;
   TV slots run one at a time (memory, compositor trial, light-sync probe,
   compressed-RAM swap). Existing TV results remain in the dated worker notes; do
@@ -586,6 +586,25 @@ panel care and stored values are unchanged; only the screens are new.
 - Mockups: `docs/mocks/` (gallery `index.html`, mapping of LG's items to the
   sections in `settings-map.md`).
 
+## Home layout
+
+Home's cards sit on the grid of the layout simulator (`sim/` on the workstation, Nitin, September): twelve columns, a safe area, a
+status bar, and rows that are a count or a list of pixel heights (the shipped file pins three: 222, 238, 392). `LayoutGrid.js` is the one
+model of it, for LumaHome, Settings and the editor: a card is `{id, type, col, row, span, rows}`, no two overlap (a hidden card takes no
+room), a change that would overlap is refused, and the three pixel rows become sixteen equal ones when a layout is first edited. The
+owner's `layout.json` holds only what differs from the shipped file; Reset to default writes `{}`; no copy of a replaced file is kept.
+
+- Settings › Home & look › Home widgets: each card Off, Small, Half or Wide (4, 6 or 8 of the 12 columns; one that does not fit says
+  what is in the way and stays as it was), their order, Edit on Home, Reset to default.
+- Edit on Home (that row, or OK held on a card): the cells where nothing is are drawn; the arrows choose a card, OK picks it up, the
+  arrows move it a cell, OK sizes it, OK puts it down; Add (Clock, At home, Weather, News), Remove, Undo, Cancel, Save; Back asks before
+  it throws a change away. The dock is moved and sized, never removed.
+- Each card draws for the room it has, with no void and no clipped word (`docs/research/widgets-result.md`).
+- From the workstation: the simulator's Save sends its layout to the TV over the SSH the workstation already has
+  (`tools/layout_push.py`, started with `LUMATV_PUSH=1`), and `lumatv layout` is the same on the TV. The helper serves no layout page:
+  its API is loopback only, and the one LAN listener the plan has is AI access (a listener for layouts would be a new network entrance,
+  Nitin's to open).
+
 ## AI access (MCP)
 
 The native helper serves an MCP server so AI assistants (Cody, Home
@@ -905,8 +924,8 @@ above replaces it).
    top right, pointed at through `changeSystemUIView`; the toast and alert are
    gated against LG's own (`gate.py --surfaces toast,alert`) on the set. Open:
    the input popup in the mock's look (`docs/mocks/18-device-connected`), a title
-   and an app icon on the alert, the PIN prompt (a security screen: tested with
-   Nitin present).
+   and an app icon on the alert. The PIN prompt keeps LG's own screen in the
+   patched look and gets no separate check (Nitin uses no PIN, 2026-10-25).
 3. Quick panel, Settings, and AI access (MCP server, permissions, prompt).
    Settings is a layer of Home from the gear with two pages so far (Home & look,
    AI access) and a last row that opens LG's Settings; Picture, Sound, Inputs,
@@ -943,7 +962,7 @@ Track C, the compositor, runs beside phases 1-9 and switches over only
 when it passes on the set:
 
 - C1: finish the X4 capture (standby and wake, Netflix, PlxNative, the
-  input picker, PIN) so the whole contract LG's apps and services rely on
+  input picker) so the whole contract LG's apps and services rely on
   is known before code is written.
 - C2: a 64-bit Rust compositor on a private socket, built on the X2 import
   path, running LG's apps unchanged: the webOS Wayland extensions, the 56
@@ -965,7 +984,7 @@ when it passes on the set:
 - C4: cutover with LG's compositor kept installed: a watchdog and a
   boot-time firmware check switch back to it on any failure, and the hold-
   Home escape forces it. Gate: the X1 test with zero frames over 20 ms in
-  60 s, every surface gate met, and Netflix, HDR, Dolby Vision, PIN, input
+  60 s, every surface gate met, and Netflix, HDR, Dolby Vision, input
   switching, standby and wake all passing scripted tests. Passing the gate
   makes LumaTV's compositor the live one at once; Nitin's go is not awaited
   (Decided).
@@ -1071,7 +1090,7 @@ what it already does.
 - Boot verifies every redirect and restores LG's entry for any that will not
   load; the firmware fingerprint check catches LG rewriting the underlying
   files.
-- PIN prompt, modal alerts, input switching and power controls get scripted
+- Modal alerts, input switching and power controls get scripted
   tests before cutover. Picture Mode stays FILMMAKER MODE throughout.
 
 ## Decided
@@ -1118,8 +1137,10 @@ what it already does.
 - The 64-bit card app (`org.nphil.lumatv.card`) may be installed on the set
   for its TV checks, and the capture-service probe slot may run (Nitin,
   2026-10-25). Also approved for 2026-10-25: one full restart of the set to check
-  the power-up logo, a test of a second Denon control connection beside Home
-  Assistant's, and a PIN-screen check with Nitin at the TV.
+  the power-up logo and a test of a second Denon control connection beside Home
+  Assistant's.
+- No PIN checks: Nitin uses no PIN (no app, channel or purchase locks), so the
+  PIN prompt is left out of TV checks and the cutover gate (Nitin, 2026-10-25).
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
