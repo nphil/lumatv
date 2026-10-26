@@ -15,6 +15,8 @@
 //! from the remote. Every seat is bound, the ones that appear later too, and each one's keyboard is asked for.
 
 use lumatv_render::Gles;
+use lumatv_wl_protocols::webos_foreign::client::wl_webos_exported::{self, WlWebosExported};
+use lumatv_wl_protocols::webos_foreign::client::wl_webos_foreign::WlWebosForeign;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell::WlWebosShell;
 use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::{self, WlWebosShellSurface};
 use std::collections::VecDeque;
@@ -48,6 +50,10 @@ pub struct Spec {
     pub state: Option<u32>,
     /// Bind the seats' keyboards.
     pub keys: bool,
+    /// Export a video element on the surface (`wl_webos_foreign.export_element`, type 0) and place it over the whole window: the
+    /// media pipeline then puts its picture under the window's pixels, where they are transparent (the GeForce NOW app). The id
+    /// the compositor assigns is [`Window::video_window_id`].
+    pub video: bool,
 }
 
 /// What the compositor said.
@@ -78,6 +84,8 @@ struct State {
     /// `Spec::keys`: whether seats are bound at all.
     keys: bool,
     seats: Vec<Seat>,
+    /// `wl_webos_exported.window_id_assigned`: the exported video element's id.
+    video_window_id: Option<String>,
 }
 
 impl State {
@@ -202,9 +210,20 @@ impl Dispatch<XdgToplevel, ()> for State {
 }
 
 delegate_noop!(State: ignore WlCompositor);
+impl Dispatch<WlWebosExported, ()> for State {
+    fn event(state: &mut Self, _: &WlWebosExported, event: wl_webos_exported::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_webos_exported::Event::WindowIdAssigned { window_id, exported_type } = event {
+            eprintln!("window: video element exported as {window_id} (type {exported_type})");
+            state.video_window_id = Some(window_id);
+        }
+    }
+}
+
 delegate_noop!(State: ignore WlShell);
 delegate_noop!(State: ignore WlSurface);
 delegate_noop!(State: ignore WlWebosShell);
+delegate_noop!(State: ignore WlWebosForeign);
+delegate_noop!(State: ignore wayland_client::protocol::wl_region::WlRegion);
 
 pub struct Window {
     conn: Connection,
@@ -216,6 +235,7 @@ pub struct Window {
     _shell_surface: Option<WlShellSurface>,
     webos: Option<WlWebosShellSurface>,
     _xdg: Option<(XdgSurface, XdgToplevel)>,
+    _exported: Option<WlWebosExported>,
 }
 
 fn blob_symbol(name: &str) -> io::Result<*mut c_void> {
@@ -276,6 +296,25 @@ pub fn open(width: u32, height: u32, libmali: &str, spec: &Spec) -> io::Result<(
         xdg = Some((xs, top));
         eprintln!("window: no wl_shell/wl_webos_shell; using xdg_shell (a host compositor)");
     }
+    // The video element, before the first commit (the order vplane/src/vpl_wl.c uses on the set): the whole window, source and
+    // destination alike, so the picture fills the screen under the window's transparent pixels.
+    let mut exported = None;
+    if spec.video {
+        match globals.bind::<WlWebosForeign, _, _>(&qh, 1..=1, ()) {
+            Ok(foreign) => {
+                let e = foreign.export_element(&surface, 0, &qh, ());
+                let src = compositor.create_region(&qh, ());
+                src.add(0, 0, width as i32, height as i32);
+                let dst = compositor.create_region(&qh, ());
+                dst.add(0, 0, width as i32, height as i32);
+                e.set_exported_window(&src, &dst);
+                src.destroy();
+                dst.destroy();
+                exported = Some(e);
+            }
+            Err(e) => eprintln!("window: no wl_webos_foreign ({e}); the video has no element to show through"),
+        }
+    }
     queue.roundtrip(&mut state).map_err(|e| io::Error::other(format!("roundtrip: {e}")))?;
 
     // The blob first: its symbols (wl_egl_window_create, EGL, GLES) resolve against it from here.
@@ -308,10 +347,15 @@ pub fn open(width: u32, height: u32, libmali: &str, spec: &Spec) -> io::Result<(
     gles.set_swap_interval(1);
     let _ = queue.dispatch_pending(&mut state);
     let _ = conn.flush();
-    Ok((gles, Window { conn, queue, state, _registry: registry, _surface: surface, _shell_surface: shell_surface, webos, _xdg: xdg }))
+    Ok((gles, Window { conn, queue, state, _registry: registry, _surface: surface, _shell_surface: shell_surface, webos, _xdg: xdg, _exported: exported }))
 }
 
 impl Window {
+    /// The exported video element's id (`_Window_Id_N`), once the compositor has assigned it.
+    pub fn video_window_id(&self) -> Option<&str> {
+        self.state.video_window_id.as_deref()
+    }
+
     /// Reads what the connection has (waiting at most `timeout_ms`; -1 for ever, 0 for none) and dispatches it. `extra` is another
     /// descriptor to wake for; the answer says whether it is readable.
     pub fn wait(&mut self, timeout_ms: i32, extra: Option<RawFd>) -> io::Result<bool> {

@@ -13,6 +13,6 @@
   "nativeLifeCycleInterfaceVersion": 2,
   "handlesRelaunch": true,
   "requiredMemory": 320,
-  "transparent": false,
+  "transparent": true,
   "visible": true
 }

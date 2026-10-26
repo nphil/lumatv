@@ -1,0 +1,419 @@
+//! `lumatv-gfn-app`: the GeForce NOW app's 64-bit UI, a card window of LG's compositor (and, unchanged, of LumaTV's) drawn with
+//! LumaShow's toolkit over the video plane the feeder fills. It starts `opennow-core` (which starts the stream engine beside it),
+//! speaks the core protocol (`gfn/core.rs`), runs the rules (`gfn/app.rs`) and draws the screens (`gfn/ui.rs`). The feeder, the
+//! app's `main`, starts this through `gfx64/launch.sh`. `docs/research/gfn-app-result.md` has the account.
+//!
+//!   lumatv-gfn-app [--app-id ID] [--assets DIR] [--shm DIR] [--libmali PATH] [--core RUNNER] [--core-arg ARG]... [--engine PATH]
+//!                  [--data DIR] [--pad-side PATH] [--feeder-socket PATH]
+//!
+//! The pad's side channel (`--pad-side`, a datagram socket the engine writes to while the stream's input is paused) drives the
+//! overlay with the same controller as the game.
+use lumatv_render::host::{Engine, HostConfig};
+use lumatv_render::{Demand, Gles, now_ns};
+use lumatv_rustui::card::{FULLSCREEN, key_of};
+use lumatv_rustui::gfn::app::{Action, App, Input, PadKey};
+use lumatv_rustui::gfn::core::{CoreClient, CoreMsg};
+use lumatv_rustui::gfn::ui::{GfnUi, H, W};
+use lumatv_rustui::window::{self, Event, Spec};
+use serde_json::Value;
+use std::io;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixDatagram;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+use ui::{SceneOptions, Ui};
+
+struct Options {
+    app_id: String,
+    assets: PathBuf,
+    shm: PathBuf,
+    libmali: Option<String>,
+    core: PathBuf,
+    core_args: Vec<String>,
+    engine: PathBuf,
+    data: PathBuf,
+    pad_side: PathBuf,
+    feeder_socket: PathBuf,
+    window_id_file: PathBuf,
+}
+
+fn parse() -> Result<Options, String> {
+    let here = std::env::current_exe().ok().and_then(|p| p.parent().and_then(|b| b.parent()).map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("."));
+    let mut o = Options {
+        app_id: "org.nphil.lumatv.gfn".into(),
+        assets: here.join("assets"),
+        shm: std::env::temp_dir().join("lumatv-gfn-shm"),
+        libmali: std::env::var("LUMATV_GFX_LIB").ok(),
+        core: here.join("run64.sh"),
+        core_args: vec!["opennow-core".into()],
+        engine: here.join("bin64/opennow-streamer"),
+        data: PathBuf::from("/var/lib/lumatv-gfn"),
+        pad_side: PathBuf::from("/tmp/lumatv-gfn/pad.sock"),
+        feeder_socket: PathBuf::from("/tmp/lumatv-gfn/feed.sock"),
+        window_id_file: PathBuf::from("/tmp/lumatv-gfn/window-id"),
+    };
+    let mut args = std::env::args().skip(1);
+    let mut core_args_given = false;
+    while let Some(a) = args.next() {
+        let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
+        match a.as_str() {
+            "--app-id" => o.app_id = value("--app-id")?,
+            "--assets" => o.assets = PathBuf::from(value("--assets")?),
+            "--shm" => o.shm = PathBuf::from(value("--shm")?),
+            "--libmali" => o.libmali = Some(value("--libmali")?),
+            "--core" => o.core = PathBuf::from(value("--core")?),
+            "--core-arg" => {
+                if !core_args_given {
+                    o.core_args.clear();
+                    core_args_given = true;
+                }
+                o.core_args.push(value("--core-arg")?);
+            }
+            "--engine" => o.engine = PathBuf::from(value("--engine")?),
+            "--data" => o.data = PathBuf::from(value("--data")?),
+            "--pad-side" => o.pad_side = PathBuf::from(value("--pad-side")?),
+            "--feeder-socket" => o.feeder_socket = PathBuf::from(value("--feeder-socket")?),
+            "--window-id-file" => o.window_id_file = PathBuf::from(value("--window-id-file")?),
+            other => return Err(format!("unknown option {other}")),
+        }
+    }
+    Ok(o)
+}
+
+fn log(what: &str) {
+    eprintln!("gfn[{:.3}]: {what}", now_ns() as f64 / 1e9);
+}
+
+extern "C" fn on_term(_: libc::c_int) {
+    // SAFETY: _exit is async-signal-safe.
+    unsafe { libc::_exit(0) };
+}
+
+static SWAP_SINCE_MS: AtomicU64 = AtomicU64::new(0);
+const SWAP_LIMIT_MS: u64 = 8000;
+
+fn watch_swaps() {
+    let _ = std::thread::Builder::new().name("swap-watch".into()).spawn(|| {
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let since = SWAP_SINCE_MS.load(Ordering::Relaxed);
+            let now = now_ns() / 1_000_000;
+            if since != 0 && now.saturating_sub(since) > SWAP_LIMIT_MS {
+                log(&format!("a swap has waited {} ms for a frame callback: ending", now - since));
+                unsafe { libc::_exit(0) };
+            }
+        }
+    });
+}
+
+fn main() {
+    let options = match parse() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(64);
+        }
+    };
+    // SAFETY: plain signal registrations before any thread exists.
+    unsafe {
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::signal(signal, on_term as extern "C" fn(libc::c_int) as libc::sighandler_t);
+        }
+    }
+    let shm = options.shm.clone();
+    let code = match run(options) {
+        Ok(code) => code,
+        Err(e) => {
+            log(&format!("failed: {e}"));
+            1
+        }
+    };
+    let _ = std::fs::remove_dir_all(shm);
+    std::process::exit(code);
+}
+
+fn graphics(gles: &Gles) -> String {
+    let path = match std::env::var("LUMATV_GFX_PATH").as_deref() {
+        Ok("64") => "64-bit",
+        Ok("32") => "32-bit",
+        _ => "host",
+    };
+    format!("{path} {}", gles.describe())
+}
+
+/// The pad's side channel: JSON datagrams from the engine while the stream's input is paused (gfn/engine `pads.rs`), turned into
+/// the overlay's keys. A report that moves the left stick or the d-pad is one key; the edge of a button press is one key.
+struct PadSide {
+    sock: UnixDatagram,
+    last_buttons: u16,
+    last_dir: Option<PadKey>,
+}
+
+impl PadSide {
+    fn open(path: &PathBuf) -> Option<Self> {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::remove_file(path);
+        let sock = UnixDatagram::bind(path).ok()?;
+        sock.set_nonblocking(true).ok()?;
+        Some(Self { sock, last_buttons: 0, last_dir: None })
+    }
+
+    fn poll(&mut self) -> Vec<PadKey> {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 512];
+        while let Ok(n) = self.sock.recv(&mut buf) {
+            let Ok(v) = serde_json::from_slice::<Value>(&buf[..n]) else { continue };
+            match v["pad"].as_str() {
+                Some("guide") if v["pressed"] == true => out.push(PadKey::Guide),
+                Some("exit") => out.push(PadKey::Exit),
+                Some("report") => {
+                    let buttons = v["buttons"].as_u64().unwrap_or(0) as u16;
+                    let pressed = buttons & !self.last_buttons;
+                    self.last_buttons = buttons;
+                    if pressed & 0x1000 != 0 {
+                        out.push(PadKey::Ok);
+                    }
+                    if pressed & 0x2000 != 0 {
+                        out.push(PadKey::Back);
+                    }
+                    let lx = v["lx"].as_i64().unwrap_or(0);
+                    let ly = v["ly"].as_i64().unwrap_or(0);
+                    let dir = if pressed & 0x0001 != 0 || ly > 20_000 {
+                        Some(PadKey::Up)
+                    } else if pressed & 0x0002 != 0 || ly < -20_000 {
+                        Some(PadKey::Down)
+                    } else if pressed & 0x0004 != 0 || lx < -20_000 {
+                        Some(PadKey::Left)
+                    } else if pressed & 0x0008 != 0 || lx > 20_000 {
+                        Some(PadKey::Right)
+                    } else {
+                        None
+                    };
+                    if dir != self.last_dir {
+                        if let Some(d) = dir {
+                            out.push(d);
+                        }
+                        self.last_dir = dir;
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
+fn run(o: Options) -> io::Result<i32> {
+    log(&format!("start: {} core {} engine {} data {}", o.app_id, o.core.display(), o.engine.display(), o.data.display()));
+    let _ = std::fs::remove_dir_all(&o.shm);
+    std::fs::create_dir_all(&o.shm)?;
+    let libmali = o.libmali.as_deref().ok_or_else(|| io::Error::other("--libmali (or LUMATV_GFX_LIB) names the GL driver"))?;
+    let spec = Spec { app_id: o.app_id.clone(), title: "GeForce NOW".into(), window_type: "_WEBOS_WINDOW_TYPE_CARD".into(), keys_back: true, state: Some(FULLSCREEN), keys: true, video: true };
+    let (gles, mut win) = window::open(W as u32, H as u32, libmali, &spec)?;
+    log(&format!("GL: {}", graphics(&gles)));
+    let (seats, keyboards) = win.seats();
+    log(&format!("seats: {seats} bound, {keyboards} with a keyboard"));
+    // The video element's id goes to the feeder through a file it reads at every load (gfn/feeder, --window-id-file).
+    match win.video_window_id() {
+        Some(id) => {
+            if let Some(dir) = o.window_id_file.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            match std::fs::write(&o.window_id_file, format!("{id}\n")) {
+                Ok(()) => log(&format!("video element {id} written to {}", o.window_id_file.display())),
+                Err(e) => log(&format!("cannot write {}: {e}", o.window_id_file.display())),
+            }
+        }
+        None => log("no video element id from the compositor: the stream will have nowhere to show"),
+    }
+    let (mut engine, app_end) = Engine::new(
+        gles,
+        HostConfig { width: W as u32, height: H as u32, refresh_hz: 60.0, shm_dir: o.shm.clone(), direct: false, gpu_sync: false, idle_trim: true, pages: 0, reference: false, blit: true, external: false, system_z: i32::MAX },
+    )?;
+    let (scene, _welcome, events) = ui::Scene::over_with(app_end, SceneOptions { shm_dir: Some(o.shm.clone()), ..SceneOptions::default() })?;
+    engine.finish_handshake()?;
+    let mut ui = Ui::new(scene);
+    ui.enable_glyph_text().map_err(|e| io::Error::other(format!("{e}")))?;
+    let mut land = |ui: &mut Ui| -> io::Result<()> {
+        let began = Instant::now();
+        loop {
+            while let Ok(event) = events.try_recv() {
+                ui.scene.observe(&event);
+            }
+            if let Some(atlas) = ui.text_atlas() {
+                atlas.pump();
+            }
+            if ui.scene.has_pending() {
+                let _ = ui.try_commit()?;
+            }
+            engine.pump()?;
+            engine.apply_waiting(now_ns());
+            engine.tidy();
+            if ui.glyph_text_settled() && !ui.scene.has_pending() && !engine.tidy_more() {
+                return Ok(());
+            }
+            if began.elapsed() > Duration::from_secs(5) {
+                return Err(io::Error::other("the glyph atlas did not land in 5 s"));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let mut page = GfnUi::build(ui, &o.assets, &mut land)?;
+    land(&mut page.ui)?;
+
+    // The core, with the engine's whereabouts and the feeder's socket in its environment (the engine reads them; the core passes
+    // its environment on).
+    let env = [
+        ("LUMATV_GFN_FEEDER_SOCKET", o.feeder_socket.to_string_lossy().into_owned()),
+        ("LUMATV_GFN_PAD_SIDE", o.pad_side.to_string_lossy().into_owned()),
+        ("OPENNOW_STREAMER_LOG_FILE", o.data.join("streamer.log").to_string_lossy().into_owned()),
+    ];
+    let mut core = CoreClient::spawn(&o.core, &o.core_args, &o.data, &env)?;
+    log(&format!("core started, pid {:?}", core.child_pid()));
+    let mut pad = PadSide::open(&o.pad_side);
+    let mut app = App::new();
+    let started = Instant::now();
+    let mut actions = app.start();
+    // The engine's path goes into the core's settings once the handshake answered; the first settings.set the rules send carries
+    // everything else, so the path is added to it here.
+    let engine_path = o.engine.to_string_lossy().into_owned();
+
+    watch_swaps();
+    let mut want_frame = true;
+    let mut ready = false;
+    loop {
+        for action in actions.drain(..) {
+            match action {
+                Action::Request { method, mut params } => {
+                    if method == "settings.set" {
+                        params["nativeStreamerExecutablePath"] = Value::String(engine_path.clone());
+                    }
+                    match core.request(&method, params) {
+                        Ok(id) => app.sent(&id, &method),
+                        Err(e) => log(&format!("core request {method}: {e}")),
+                    }
+                }
+                Action::Ack { id } => {
+                    let _ = core.ack(&id);
+                }
+                Action::PauseInput(_) => {}
+                Action::Exit(why) => {
+                    log(&format!("exit: {why}"));
+                    core.shutdown();
+                    return Ok(0);
+                }
+            }
+        }
+        let mut inputs: Vec<Input> = Vec::new();
+        for e in win.events() {
+            match e {
+                Event::State(s) => inputs.push(Input::State(s)),
+                Event::Close => inputs.push(Input::Close),
+                Event::Key { code, pressed } => {
+                    if key_of(code).is_some() {
+                        inputs.push(Input::Key { code, pressed });
+                    } else if pressed {
+                        log(&format!("key {code}"));
+                    }
+                }
+            }
+        }
+        if let Some(p) = pad.as_mut() {
+            inputs.extend(p.poll().into_iter().map(Input::Pad));
+        }
+        inputs.extend(core.poll().into_iter().map(Input::Core));
+        inputs.push(Input::Tick { now_ms: started.elapsed().as_millis() as u64 });
+        for input in inputs {
+            if !matches!(input, Input::Tick { .. }) {
+                log(&format!("input {}", describe(&input)));
+            }
+            actions.extend(app.handle(input));
+        }
+        if !actions.is_empty() {
+            continue;
+        }
+
+        let visible = app.wants_frames();
+        let now = now_ns();
+        if visible {
+            while let Ok(event) = events.try_recv() {
+                page.ui.scene.observe(&event);
+            }
+            if let Some(atlas) = page.ui.text_atlas() {
+                atlas.pump();
+            }
+            page.show(&app);
+            if page.ui.scene.has_pending() {
+                let _ = page.ui.try_commit()?;
+            }
+            if engine.pump()?.closed {
+                return Err(io::Error::other("the compositor side of the toolkit closed"));
+            }
+            let demand = engine.demand();
+            let due = match demand {
+                Demand::EveryRefresh => true,
+                Demand::At(slot) => now >= slot,
+                Demand::Idle => false,
+            };
+            if want_frame || engine.has_commits() || engine.redraw_wanted() || due {
+                want_frame = false;
+                let cost = engine.draw(now_ns());
+                if let Some(code) = cost.gl_error {
+                    log(&format!("GL error {code:#x}"));
+                }
+                SWAP_SINCE_MS.store((now_ns() / 1_000_000).max(1), Ordering::Relaxed);
+                let swapped = engine.gles().swap_buffers();
+                SWAP_SINCE_MS.store(0, Ordering::Relaxed);
+                swapped?;
+                engine.frame_done(now_ns(), &cost);
+                engine.tidy();
+                engine.idle_moment(true);
+                if !ready {
+                    ready = true;
+                    log("first frame presented");
+                }
+                continue;
+            }
+            engine.apply_waiting(now);
+            if engine.tidy_more() {
+                engine.tidy();
+                continue;
+            }
+            engine.idle_moment(false);
+        } else {
+            want_frame = true;
+        }
+
+        let mut wait_ms = 250i64;    /* the core's and the pad's messages arrive on channels with no descriptor to wait on */
+        if let Some(d) = app.next_wake() {
+            wait_ms = wait_ms.min(d.as_millis() as i64);
+        }
+        if visible {
+            let demand = engine.demand();
+            if let Demand::At(slot) = demand {
+                wait_ms = wait_ms.min((slot.saturating_sub(now_ns()) / 1_000_000) as i64);
+            }
+            if let Some(wake) = engine.idle_wake_at(demand == Demand::Idle) {
+                wait_ms = wait_ms.min((wake.saturating_sub(now_ns()) / 1_000_000) as i64);
+            }
+        }
+        let extra = pad.as_ref().map(|p| p.sock.as_raw_fd());
+        win.wait(wait_ms.max(0) as i32, extra)?;
+    }
+}
+
+fn describe(input: &Input) -> String {
+    match input {
+        Input::Key { code, pressed } => format!("key {code} {}", if *pressed { "down" } else { "up" }),
+        Input::Pad(p) => format!("pad {p:?}"),
+        Input::Core(CoreMsg::Response { method, ok, error_code, .. }) => format!("{method}: {}", if *ok { "ok".to_owned() } else { format!("error {error_code}") }),
+        Input::Core(CoreMsg::Event { name, .. }) => format!("event {name}"),
+        Input::Core(CoreMsg::Gone) => "core gone".into(),
+        Input::State(s) => format!("state {s}"),
+        Input::Close => "close".into(),
+        Input::Tick { .. } => "tick".into(),
+    }
+}

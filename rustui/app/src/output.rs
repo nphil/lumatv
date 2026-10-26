@@ -90,6 +90,7 @@ pub fn window(width: u32, height: u32, libmali: &str, window_type: &str, want_ke
         keys_back: false,
         state: Some(3),
         keys: want_keys,
+        video: false,
     };
     let (gles, win) = window::open(width, height, libmali, &spec)?;
     Ok((gles, Box::new(WindowOutput { win, keys: Vec::new(), raw: Vec::new() })))

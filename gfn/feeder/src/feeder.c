@@ -24,7 +24,9 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -39,6 +41,7 @@
 #define SAMPLES 4096
 #define DEFAULT_APP_ID "org.nphil.lumatv.gfn"
 #define DEFAULT_SOCKET "/tmp/lumatv-gfn/feed.sock"
+#define DEFAULT_WINDOW_ID_FILE "/tmp/lumatv-gfn/window-id"
 
 /* The app id for NDL_DirectMediaInit: SAM passes no environment, so an installed app reads it off its own directory
  * (/media/developer/apps/usr/palm/applications/<id>/lumatv-gfn-feeder), as jellyfin-webos-native's ndlplay does. */
@@ -75,7 +78,9 @@ struct second {
 
 struct feeder {
     /* options */
-    const char *lib, *app_id, *window_type, *window_id_opt, *play_path, *audio_path, *sock_path;
+    const char *lib, *app_id, *window_type, *window_id_opt, *window_id_file, *play_path, *audio_path, *sock_path;
+    const char *ui_home;        /* the installed app's directory: the 64-bit UI is started from it and owns the window */
+    pid_t ui_pid;
     const char *stats_path;
     int codec, width, height, fps, seconds, loop, hdr, drop_threshold, pts_unit, full_wait_ms, burst, no_ndl, no_window, once, export_first;
     /* state */
@@ -270,9 +275,28 @@ static int feed_audio(struct feeder *f, const uint8_t *d, size_t n, int64_t pts_
 
 /* ---- window and pipeline ------------------------------------------------------------------------------------------------------ */
 
+/* The window id the UI process exported (bin/gfn.rs writes it once the compositor assigned it). Read at every load, so a UI that was
+ * restarted is followed. */
+static int read_window_id_file(struct feeder *f) {
+    if (!f->window_id_file) return -1;
+    FILE *fp = fopen(f->window_id_file, "r");
+    if (!fp) return -1;
+    char line[64] = "";
+    if (!fgets(line, sizeof line, fp)) line[0] = 0;
+    fclose(fp);
+    line[strcspn(line, "\r\n")] = 0;
+    if (strncmp(line, "_Window_Id_", 11) != 0) return -1;
+    snprintf(f->window_id, sizeof f->window_id, "%s", line);
+    return 0;
+}
+
 static int open_window(struct feeder *f, char *err, size_t cap) {
     if (f->window_id_opt) {
         snprintf(f->window_id, sizeof f->window_id, "%s", f->window_id_opt);
+        return 0;
+    }
+    if (f->window_id_file) {
+        if (read_window_id_file(f) != 0) snprintf(f->window_id, sizeof f->window_id, "_Window_Id_pending");
         return 0;
     }
     if (f->no_window) {
@@ -294,6 +318,10 @@ static void place_video(struct feeder *f, int w, int h) {
 }
 
 static int start_pipeline(struct feeder *f, const gf_load *l, char *err, size_t cap) {
+    if (f->window_id_file && read_window_id_file(f) != 0) {
+        snprintf(err, cap, "no window id in %s yet (the UI has not exported its video element)", f->window_id_file);
+        return -1;
+    }
     if (f->no_ndl) {
         f->loaded = f->playing = 1;
         return 0;
@@ -550,6 +578,55 @@ static int run_play(struct feeder *f) {
     return rc;
 }
 
+/* ---- the UI process (the installed app) ------------------------------------------------------------------------------------------- */
+
+/* Starts the 64-bit UI the way the card app's launcher does (rustui/app/stub/lumatv-card.c): through gfx64/launch.sh with the
+ * package's own loader, heap shim and Mali driver, in its own process group, gone with this process. What SAM gave this 32-bit
+ * program (LD_PRELOAD, LD_LIBRARY_PATH) must not reach the 64-bit loader. */
+static pid_t start_ui(const char *home, const char *app_id) {
+    char launch[600], bundle[600], shim[600], app[600], assets[600];
+    snprintf(launch, sizeof launch, "%s/gfx64/launch.sh", home);
+    snprintf(bundle, sizeof bundle, "%s/gfx64/bundle", home);
+    snprintf(shim, sizeof shim, "%s/gfx64/heapshim.so", home);
+    snprintf(app, sizeof app, "%s/bin64/lumatv-gfn-app", home);
+    snprintf(assets, sizeof assets, "%s/assets", home);
+    if (access(app, X_OK) != 0) {
+        gf_say("no UI at %s: serving the engine only", app);
+        return 0;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        gf_say("fork: %s", strerror(errno));
+        return 0;
+    }
+    if (pid == 0) {
+        setpgid(0, 0);
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+        unsetenv("LD_PRELOAD");
+        unsetenv("LD_LIBRARY_PATH");
+        setenv("PATH", "/usr/sbin:/usr/bin:/sbin:/bin", 0);
+        for (int fd = 3; fd < 256; fd++) close(fd);
+        execl("/bin/sh", "sh", launch, "--bundle", bundle, "--shim", shim, "--", app, "--app-id", app_id, "--assets", assets, "--shm", "/tmp/lumatv-gfn-shm", (char *)NULL);
+        _exit(127);
+    }
+    setpgid(pid, pid);
+    gf_say("the UI started: pid %d", (int)pid);
+    return pid;
+}
+
+/* 1 when the UI process has ended (the app is over: SAM sees this process end with it). */
+static int ui_gone(struct feeder *f) {
+    if (f->ui_pid <= 0) return 0;
+    int status;
+    pid_t r = waitpid(f->ui_pid, &status, WNOHANG);
+    if (r == f->ui_pid) {
+        gf_say("the UI ended (%s %d)", WIFSIGNALED(status) ? "signal" : "status", WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status));
+        f->ui_pid = 0;
+        return 1;
+    }
+    return 0;
+}
+
 /* ---- serve: the engine's sink ---------------------------------------------------------------------------------------------------- */
 
 struct client {
@@ -746,6 +823,7 @@ static int run_serve(struct feeder *f) {
         return 3;
     }
     chmod(f->sock_path, 0660);
+    if (f->ui_home) f->ui_pid = start_ui(f->ui_home, f->app_id);
     gf_say("serving %s, window %s, library %s", f->sock_path, f->window_id, f->ndl ? gf_ndl_lib_name(f->ndl) : "none");
     fprintf(f->stats, "{\"serving\":\"%s\",\"window\":\"%s\",\"library\":\"%s\",\"features\":%u,\"pid\":%d}\n", f->sock_path, f->window_id,
             f->ndl ? gf_ndl_lib_name(f->ndl) : "none", f->ndl ? gf_ndl_features(f->ndl) : 0, (int)getpid());
@@ -765,6 +843,7 @@ static int run_serve(struct feeder *f) {
                 rc = 3;
                 goto out;
             }
+            if (ui_gone(f)) goto out;
             if (f->wl && nf > 1 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR)) && dispatch_window(f) != 0) {
                 rc = 5;
                 goto out;
@@ -794,6 +873,10 @@ static int run_serve(struct feeder *f) {
             int64_t left = (next_status - gf_ns()) / 1000000;
             int r = poll(fds, (nfds_t)nf, left < 0 ? 0 : (int)left);
             if (r < 0 && errno != EINTR) break;
+            if (ui_gone(f)) {
+                g_term = 1;
+                break;
+            }
             if (fds[0].revents & (POLLIN | POLLHUP | POLLERR)) {
                 if (read_client(f, &c) != 0) break;
             }
@@ -833,6 +916,10 @@ out:
     close(ls);
     unlink(f->sock_path);
     close_all(f);
+    if (f->ui_pid > 0) {
+        kill(-f->ui_pid, SIGTERM);
+        waitpid(f->ui_pid, NULL, 0);
+    }
     return rc;
 }
 
@@ -854,7 +941,8 @@ static void usage(void) {
             "usage: lumatv-gfn-feeder --probe | --play FILE [--codec h264|h265|av1] [--size WxH] [--fps N] [--seconds S] [--loop] [--hdr]\n"
             "         [--audio PKTS] [--drop-threshold N] [--pts-unit ns|us|ms] [--full-wait-ms N] [--burst] [--no-ndl] [--stats FILE]\n"
             "       | --serve SOCKET [--once]\n"
-            "  common: [-w card|overlay|default|screensaver] [--window-id ID] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n");
+            "  common: [-w card|overlay|default|screensaver] [--window-id ID] [--window-id-file F] [--no-window] [-a APP_ID] [-L NDL_LIB] [-e first|after]\n"
+            "  serve: [--ui-home DIR] starts DIR/bin64/lumatv-gfn-app through DIR/gfx64/launch.sh (SAM mode does this from the app's own directory)\n");
 }
 
 int main(int argc, char **argv) {
@@ -911,6 +999,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--stats") && v) f.stats_path = argv[++i];
         else if (!strcmp(a, "-w") && v) f.window_type = argv[++i];
         else if (!strcmp(a, "--window-id") && v) f.window_id_opt = argv[++i];
+        else if (!strcmp(a, "--window-id-file") && v) f.window_id_file = argv[++i];
+        else if (!strcmp(a, "--ui-home") && v) f.ui_home = argv[++i];
         else if (!strcmp(a, "-a") && v) f.app_id = argv[++i];
         else if (!strcmp(a, "-L") && v) f.lib = argv[++i];
         else if (!strcmp(a, "-e") && v) f.export_first = strcmp(argv[++i], "after") != 0;
@@ -920,10 +1010,20 @@ int main(int argc, char **argv) {
         }
     }
     if (!mode) {
-        /* SAM starts the app's `main` with no arguments: serve the engine from the app's own window */
+        /* SAM starts the app's `main` with no arguments: start the 64-bit UI from the app's directory and serve the engine on the
+         * default socket; the UI owns the card window and writes the id of its video element to the window-id file. */
         mode = 3;
         f.sock_path = DEFAULT_SOCKET;
         mkdir("/tmp/lumatv-gfn", 0770);
+        static char home[512];
+        ssize_t n = readlink("/proc/self/exe", home, sizeof home - 1);
+        if (n > 0) {
+            home[n] = 0;
+            char *slash = strrchr(home, '/');
+            if (slash) *slash = 0;
+            f.ui_home = home;
+        }
+        if (!f.window_id_file) f.window_id_file = DEFAULT_WINDOW_ID_FILE;
     }
     if (f.fps <= 0 || f.width <= 0 || f.height <= 0) {
         usage();

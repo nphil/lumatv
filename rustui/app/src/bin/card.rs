@@ -161,6 +161,7 @@ fn run(o: Options) -> io::Result<i32> {
         keys_back: true,
         state: if o.hidden { None } else { Some(FULLSCREEN) },
         keys: true,
+        video: false,
     };
     let (gles, mut win) = window::open(W as u32, H as u32, libmali, &spec)?;
     let graphics = graphics(&gles);

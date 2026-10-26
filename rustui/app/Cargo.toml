@@ -25,6 +25,12 @@ name = "lumatv-card-app"
 path = "src/bin/card.rs"
 required-features = ["window"]
 
+# The GeForce NOW app's UI: the feeder (the app's `main`, gfn/feeder) starts it through gfx64/launch.sh; see docs/research/gfn-app-result.md.
+[[bin]]
+name = "lumatv-gfn-app"
+path = "src/bin/gfn.rs"
+required-features = ["window"]
+
 [features]
 default = []
 # the Wayland window (needs the Wayland client libraries at run time: the bundle's, on the set)

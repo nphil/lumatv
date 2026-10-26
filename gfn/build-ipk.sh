@@ -3,12 +3,13 @@
 # touched: this app installs and removes on its own through appInstallService/dev/install (tools/cardapp.sh does the same for the
 # card app; the same calls apply with this id).
 #
-# Inside: the feeder as `main` (the installer's role is keyed to `main`'s path and names the media services NDL registers), the 64-bit
-# engine and core under bin64/ with run64.sh and the loader and glibc of the 64-bit runtime, the probe streams are NOT included (they
-# go to /tmp for the TV steps). The 64-bit UI is added here when it exists (docs/research/gfn-app-result.md, "The app").
+# Inside: the feeder as `main` (the installer's role is keyed to `main`'s path and names the media services NDL registers; started by
+# SAM it starts the UI and serves the engine), the 64-bit UI, engine and core under bin64/ with run64.sh, the 64-bit runtime (loader,
+# glibc, the Mali driver and the heap shim: gfx64/), the wallpaper. The probe streams are NOT included (they go to /tmp for the TV
+# steps).
 #
 # Needs: sh gfn/feeder/build.sh; cd gfn/engine && cargo zigbuild --release --target aarch64-unknown-linux-gnu.2.36 -p lumatv-gfn-streamer;
-# sh gfn/engine/build-core.sh; gfx64/fetch-blob.sh (for the loader and glibc).
+# sh gfn/engine/build-core.sh; sh rustui/tools/build-gfn.sh; gfx64/fetch-blob.sh and gfx64/build.sh.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/.." && pwd)
@@ -18,22 +19,32 @@ feeder=$here/feeder/build/arm/lumatv-gfn-feeder
 streamer=$here/engine/target/aarch64-unknown-linux-gnu/release/opennow-streamer
 core=$here/build/core/aarch64/opennow-core
 bundle=$root/gfx64/build/bundle/lib
-for f in "$feeder" "$streamer" "$core" "$bundle/ld-linux-aarch64.so.1"; do
+app=$root/rustui/build/gfn/bin64/lumatv-gfn-app
+shim=$root/gfx64/build/out/heapshim.so
+for f in "$feeder" "$streamer" "$core" "$app" "$shim" "$bundle/ld-linux-aarch64.so.1" "$root/gfx64/launch.sh" "$root/payload/wallpaper/wall_1080.png"; do
   [ -e "$f" ] || { echo "missing $f (see the header of this script)" >&2; exit 1; }
 done
 build=$here/build/ipk
 data=$build/data/usr/palm/applications/$id
 rm -rf "$build"
-mkdir -p "$data/bin64" "$data/gfx64/bundle/lib" "$build/control"
+mkdir -p "$data/bin64" "$data/gfx64/bundle" "$data/assets/wallpaper" "$build/control"
 cp "$here/package/appinfo.json" "$here/package/run64.sh" "$data/"
 cp "$root/assets/icon.png" "$root/assets/largeIcon.png" "$root/assets/splash.png" "$data/"
 cp "$feeder" "$data/lumatv-gfn-feeder"
-cp "$streamer" "$data/bin64/opennow-streamer"
+# The core execs the engine by path with no loader of its own, and the set's 32-bit userland has no /lib/ld-linux-aarch64.so.1, so
+# the path the core gets is a shell wrapper that runs the real binary through the package's loader.
+cp "$streamer" "$data/bin64/opennow-streamer.bin"
+cat > "$data/bin64/opennow-streamer" <<'WRAP'
+#!/bin/sh
+here=$(cd "$(dirname "$0")/.." && pwd)
+exec "$here/gfx64/bundle/lib/ld-linux-aarch64.so.1" --library-path "$here/gfx64/bundle/lib" "$here/bin64/opennow-streamer.bin" "$@"
+WRAP
 cp "$core" "$data/bin64/opennow-core"
-for l in ld-linux-aarch64.so.1 libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1 libgcc_s.so.1 libstdc++.so.6; do
-  cp "$bundle/$l" "$data/gfx64/bundle/lib/"
-done
-chmod 755 "$data/lumatv-gfn-feeder" "$data/run64.sh" "$data/bin64/"* "$data/gfx64/bundle/lib/ld-linux-aarch64.so.1"
+cp "$app" "$data/bin64/lumatv-gfn-app"
+cp "$root/gfx64/launch.sh" "$shim" "$data/gfx64/"
+cp -R "$bundle" "$data/gfx64/bundle/"
+cp "$root/payload/wallpaper/wall_1080.png" "$data/assets/wallpaper/"
+chmod 755 "$data/lumatv-gfn-feeder" "$data/run64.sh" "$data/bin64/"* "$data/gfx64/launch.sh" "$data/gfx64/bundle/lib/ld-linux-aarch64.so.1"
 ( cd "$build/data" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='1970-01-01 00:00:00 UTC' -czf ../data.tar.gz . )
 printf 'Package: %s\nVersion: %s\nArchitecture: all\nMaintainer: nphil\nDescription: GeForce NOW on the video plane\n' "$id" "$version" > "$build/control/control"
 ( cd "$build/control" && tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='1970-01-01 00:00:00 UTC' -czf ../control.tar.gz control )
