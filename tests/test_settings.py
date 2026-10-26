@@ -187,10 +187,10 @@ class Settings(HostCase):
         self.assertEqual(self.values(out)[-1], "false")
 
     def test_art_options_carry_the_whole_art_block_and_show_only_with_the_art_style(self):
-        # Screensaver tab: style Art, then (afterMin, dim) down to "Change the art every" (15 min now): Right picks 1 hour
+        # Screensaver tab: style Art, then Dim down to "Change the art every" (15 min now): Right picks 1 hour
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
                             *self.go("look", "right", "up", "right", "right", "down", "right", "ok"),
-                            *self.keys(READY + 3000, "down", "down", "down", "right", "ok"),
+                            *self.keys(READY + 3000, "down", "down", "right", "ok"),
                             "--eval", "%d:JSON.stringify(root.theme.screensaver)" % (READY + 4200), "--wait", str(READY + 4800))
         self.assertEqual(rc, 0, out[-1500:])
         s = self.docs(out)[-1]
@@ -198,9 +198,9 @@ class Settings(HostCase):
         self.assertEqual(s["art"], {"everyMin": 60, "order": "shuffle", "caption": True})      # one change, the other two kept
 
     def test_the_screensaver_tab_ends_its_own_rows_with_the_switch_between_lumatvs_saver_and_lgs(self):
-        # Screensaver tab, style Clock: Start after, Dim over time, Weather and home fact, Then go to standby, then LumaTV saver (on until OK turns it off)
+        # Screensaver tab, style Clock: Dim over time, Weather and home fact, Then go to standby, then LumaTV saver (on until OK turns it off)
         rc, out = self.host("--eval", "%d:root.openSettings()" % OPEN_AT,
-                            *self.go("look", "right", "up", "right", "right", "down", "down", "down", "down", "down", "down", "ok"),
+                            *self.go("look", "right", "up", "right", "right", "down", "down", "down", "down", "down", "ok"),
                             "--eval", "%d:JSON.stringify(root.theme.screensaver || {})" % (READY + 3000), "--wait", str(READY + 3600))
         self.assertEqual(rc, 0, out[-1500:])
         self.assertEqual(self.docs(out)[-1].get("own"), False)
