@@ -123,6 +123,25 @@ class Install(Base):
         self.run_sh("remove", self.state)
         self.assertEqual(len(self.ls_calls()), 4, "removing what is not there asks nothing")
 
+    def test_the_started_reader_does_not_keep_the_tools_lock(self):
+        # lumatv's apply holds its mutation lock on fd 9 (flock) when it starts the reader; a reader that kept the fd held the lock
+        # for its whole life and every later apply or restart timed out (2026-10-26).
+        self.install()
+        lock = os.path.join(self.tmp, "mutate.lock")
+        r = subprocess.run(["sh", "-c", 'exec 8>"$1.8" 9>"$1"; sh "$2" start "$3" "$4"', "sh", lock, SH, self.state,
+                            os.path.join(self.tmp, "ambient.sock")], env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(self.state, "capture.pid")) as f:
+            pid = int(f.read())
+        # The stand-in execs sleep; the fds are the ones it ends with.
+        deadline = time.time() + 5
+        while time.time() < deadline and not os.readlink("/proc/%d/exe" % pid).endswith("sleep"):
+            time.sleep(0.05)
+        fds = {os.readlink("/proc/%d/fd/%s" % (pid, n)) for n in os.listdir("/proc/%d/fd" % pid)}
+        os.kill(pid, 15)
+        self.assertNotIn(lock, fds)
+        self.assertNotIn(lock + ".8", fds)
+
 
 @unittest.skipUnless(os.path.exists(HOST_BIN), "needs ambient/capture/build.sh (the host build)")
 class EndToEnd(Base):
