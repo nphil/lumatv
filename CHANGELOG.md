@@ -245,6 +245,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Home: a read of `theme.json` that landed while Home was writing it reset the theme on
+  screen and dropped earlier choices from the next save; such a read is now ignored.
+- Settings: Just Scan is read and written per input, as LG's Settings does, and App
+  Permissions asks LG's permission service the way LG does.
 - GeForce NOW app: started by SAM with an empty environment, it now finds the compositor,
   its core and engine, and logs to `/tmp/lumatv-gfn/feeder.log`; the core is told the
   engine's path and the settings one at a time, so the streamer is found; its data goes to
