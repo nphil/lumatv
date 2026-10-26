@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Home widgets: Settings > Home & look > Home widgets (show, hide, size, order, reset), an
   on-TV layout editor (hold OK on a card), and Clock, Weather, News and At-home cards that
   use the room they get; `lumatv layout` writes the owner's layout file.
+- Saver: art mode can draw its print on the TV's idle video decoder instead of the GPU
+  (`screensaver.video`, off by default while the panel stays black in LG's Screen Saver
+  state; on the set it cut Mali from 21.9 % to 1.9 %). The player is `lumatv-vplane`
+  (`lumatv vplane install|start|stop|remove|status`). The shuffle order is kept across
+  restarts, and the twelve-hour clock shows 12-hour time.
 - Settings and every custom screen: words are never cut, crammed, moved by focus or
   unreadable. The settings service's partial answers are read (OLED pixel brightness and
   Energy saving are live again; a key the TV lacks hides its row), focus lifts the plate
