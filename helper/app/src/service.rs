@@ -13,6 +13,7 @@ use crate::config::{Config, Paths};
 use crate::control::Stop;
 use crate::ctx::Ctx;
 use crate::fetcher;
+use crate::framerate;
 use crate::homefeeds;
 use crate::http::{self, Server};
 use crate::hub::Hub;
@@ -86,18 +87,21 @@ impl Service {
 
         let (receiver_tx, receiver_rx) = mpsc::channel();
         let (feeds_tx, feeds_rx) = mpsc::channel();
+        let (framerate_tx, framerate_rx) = mpsc::channel();
 
         // Stopping wakes everything that blocks: the runners on their channels, long polls on the hub.
         {
-            let (r, f, hub, a) = (
+            let (r, f, fr, hub, a) = (
                 receiver_tx.clone(),
                 feeds_tx.clone(),
+                framerate_tx.clone(),
                 hub.clone(),
                 ambient.clone(),
             );
             stop.on_stop(move || {
                 let _ = r.send(receiver::Cmd::Stop);
                 let _ = f.send(homefeeds::Cmd::Stop);
+                let _ = fr.send(framerate::Cmd::Stop);
                 hub.close();
                 a.wake();
             });
@@ -118,17 +122,26 @@ impl Service {
 
         let mut threads: Vec<(&'static str, JoinHandle<()>)> = Vec::new();
 
-        // The screen watcher tells both runners when the panel goes on or off.
+        // The screen watcher tells both runners, ambient light and the frame-rate watcher when the panel goes on or off.
         let notify: Arc<dyn Fn() + Send + Sync> = {
-            let (r, f, a) = (receiver_tx.clone(), feeds_tx.clone(), ambient.clone());
+            let (r, f, fr, a) = (
+                receiver_tx.clone(),
+                feeds_tx.clone(),
+                framerate_tx.clone(),
+                ambient.clone(),
+            );
             Arc::new(move || {
                 let _ = r.send(receiver::Cmd::Wake);
                 let _ = f.send(homefeeds::Cmd::Wake);
+                let _ = fr.send(framerate::Cmd::Wake);
                 a.wake();
             })
         };
         if let Some(handle) = screen::spawn(&ctx, notify)? {
             threads.push(("screen", handle));
+        }
+        if let Some(handle) = framerate::spawn(&ctx, framerate_tx, framerate_rx)? {
+            threads.push(("framerate", handle));
         }
         threads.push((
             "receiver",

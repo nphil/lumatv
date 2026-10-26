@@ -89,6 +89,8 @@ pub struct Config {
     pub receiver: ReceiverTuning,
     pub fetch: FetchConfig,
     pub luna: LunaConfig,
+    /// The panel's rate after 25 or 50 fps video (`framerate.rs`): put back to 120 Hz on Home.
+    pub frame_rate: FrameRateConfig,
     /// The AI-access module (the MCP server). Off until the TV's owner turns it on with the remote; these are only how it runs.
     pub ai: AiConfig,
     /// The plugin broker. It exists only while `plugins/enabled.json` lists a plugin; these are only how it runs.
@@ -126,6 +128,7 @@ impl Default for Config {
             receiver: ReceiverTuning::default(),
             fetch: FetchConfig::default(),
             luna: LunaConfig::default(),
+            frame_rate: FrameRateConfig::default(),
             ai: AiConfig::default(),
             plugins: PluginsConfig::default(),
             device: DeviceConfig::default(),
@@ -308,6 +311,23 @@ impl Default for LunaConfig {
     fn default() -> Self {
         Self {
             send: "luna-send".to_owned(),
+        }
+    }
+}
+
+/// The output rate after 25 or 50 fps video (`framerate.rs`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct FrameRateConfig {
+    /// Puts the panel back to 120 Hz when Home is in front with no video window after a 25 or 50 fps video left it at 100 Hz.
+    /// Off: the rate stays as LG's kernel left it until the next video.
+    pub return_on_home: bool,
+}
+
+impl Default for FrameRateConfig {
+    fn default() -> Self {
+        Self {
+            return_on_home: true,
         }
     }
 }
