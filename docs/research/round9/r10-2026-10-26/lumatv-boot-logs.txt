@@ -1,0 +1,115 @@
+2026-10-25 21:36:06 apply: compositor restarted to read shadow module
+2026-10-25 21:36:42 home up after 0 relaunch attempt(s), panel not presenting
+2026-10-25 21:36:43 apply: success version=0.4.0 mounts=1 took=49s
+2026-10-25 21:36:43 homestub: LumaHome's heartbeat stopped (30 s, file 1792978594 s old), giving LG's Home back
+2026-10-25 21:36:43 homestub: LG's Home is back in its directory
+2026-10-25 21:36:43 homestub: fault 1 of 2 (LumaHome's heartbeat stopped (30 s, file 1792978594 s old))
+patched
+2026-10-25 21:37:58 homestub: stub in place at uptime 13639 s
+2026-10-25 21:37:58 homestub: guard started
+2026-10-25 21:38:03 apply: compositor restarted to read shadow module
+2026-10-25 21:38:06 home on panel after 0 relaunch attempt(s)
+2026-10-25 21:38:06 apply: success version=0.4.0 mounts=1 took=14s
+2026-10-25 22:15:18 homestub: compositor restarted
+2026-10-25 22:15:22 home on panel after 0 relaunch attempt(s)
+2026-10-25 22:15:22 restart: compositor restarted
+patched
+2026-10-25 22:57:14 apply: Home's assets stay bound under the stub
+2026-10-25 22:57:14 homestub: stub in place at uptime 18395 s
+2026-10-25 22:57:14 homestub: guard started
+2026-10-25 22:57:16 homestub: compositor restarted
+2026-10-25 22:57:19 apply: compositor restarted to read shadow module
+2026-10-25 22:57:22 home on panel after 0 relaunch attempt(s)
+2026-10-25 22:57:23 apply: success version=0.4.0 mounts=1 took=16s
+patched
+2026-10-26 00:00:47 apply: Home's assets stay bound under the stub
+2026-10-26 00:00:47 homestub: stub in place at uptime 22208 s
+2026-10-26 00:00:47 homestub: guard started
+2026-10-26 00:00:53 apply: compositor restarted to read shadow module
+2026-10-26 00:00:55 home on panel after 0 relaunch attempt(s)
+2026-10-26 00:00:56 apply: success version=0.4.0 mounts=1 took=18s
+2026-10-26 00:03:51 homestub: compositor restarted
+2026-10-26 00:05:56 homestub: compositor restarted
+2026-10-26 00:06:26 homestub: compositor restarted
+2026-10-26 00:10:49 homestub: compositor restarted
+2026-10-26 00:11:46 homestub: compositor restarted
+2026-10-26 00:12:40 homestub: compositor restarted
+2026-10-26 00:17:26 boot: [up 14.51 s] boot capture of 60s started
+2026-10-26 00:17:27 homestub: stub in place at uptime 15 s
+2026-10-26 00:17:27 boot: [up 15.83 s] homestub-boot: {"ok":true,"stub":true}
+2026-10-26 00:17:28 homestub: guard started
+2026-10-26 00:17:29 boot: [up 17.29 s] compositor-boot: {"ok":true,"compositor":"off"}
+2026-10-26 00:17:43 boot: [up 32.00 s] early hook already handled this boot, nothing to do
+2026-10-26 00:17:46 boot-bind: shadow module not current (stale or damaged), rebuilding
+2026-10-26 00:17:47 boot-bind: shadow module rebuilt
+2026-10-26 00:17:47 boot-bind: 0 bind(s) made, assets live, compositor already on shadow=no
+2026-10-26 00:17:47 boot: [up 36.08 s] boot-bind: {"ok":true,"bound":true,"mounts":1}
+2026-10-26 00:17:50 homestub: compositor restarted
+2026-10-26 00:17:58 disarmed 2 crash report(s) produced by our compositor restart
+2026-10-26 00:17:58 boot-restart: compositor restarted at uptime 36 s to read the shadow module
+2026-10-26 00:18:03 home on panel after 0 relaunch attempt(s)
+2026-10-26 00:18:03 boot: [up 51.80 s] boot-restart: {"ok":true,"restarted":true,"at":36,"landed":"home"}
+patched
+2026-10-26 00:18:19 apply: Home's assets stay bound under the stub
+2026-10-26 00:18:20 homestub: stub in place at uptime 68 s
+2026-10-26 00:18:20 homestub: guard started
+2026-10-26 00:18:29 homestub: compositor restarted
+2026-10-26 00:18:33 apply: compositor restarted to read shadow module
+2026-10-26 00:18:36 home on panel after 0 relaunch attempt(s)
+2026-10-26 00:18:37 apply: success version=0.4.0 mounts=1 took=34s
+2026-10-26 00:18:37 boot: [up 85.85 s] apply ok
+=====
+2026-10-26T04:17:48Z INFO  starting lumatv-helper 0.1.0 (pid 8608, data dir /var/lib/lumatv)
+2026-10-26T04:17:48Z INFO  screen: Active (on)
+2026-10-26T04:17:48Z INFO  feeds: fetching through openssl (openssl OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024))
+2026-10-26T04:17:48Z INFO  listening on 127.0.0.1:18731 (api 1)
+2026-10-26T04:17:48Z INFO  receiver: telnet 192.168.1.93:23
+2026-10-26T04:17:53Z WARN  preload: youtube.leanback.v4: luna-send did not answer in 5 s
+2026-10-26T04:17:58Z WARN  preload: com.webos.app.lgchannels: luna-send did not answer in 5 s
+2026-10-26T04:18:03Z WARN  preload: com.webos.app.browser: luna-send did not answer in 5 s
+2026-10-26T04:18:08Z WARN  preload: amazon: luna-send did not answer in 5 s
+2026-10-26T04:18:13Z WARN  preload: com.webos.app.livetv: luna-send did not answer in 5 s
+2026-10-26T04:18:18Z WARN  preload: com.webos.app.livemenu: luna-send did not answer in 5 s
+2026-10-26T04:18:23Z WARN  preload: com.webos.app.voice: luna-send did not answer in 5 s
+2026-10-26T04:18:27Z INFO  preload: 7 apps kept from preloading
+=====
+2026-10-26T04:17:51.490275Z [39.620814940] user.warning bootd [] bootManager Client {} 'registerServiceCategory' is called already.
+2026-10-26T04:17:51.490297Z [39.620836580] user.warning bootd [] bootManager Client {} Listener isn't null
+2026-10-26T04:17:53.502509Z [41.633048880] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power2/registerClientHandler] requestPowerOffLogo_power2- sender: com.webos.surfacemanager
+2026-10-26T04:17:53.502530Z [41.633069800] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power2/registerClientHandler] requestPowerOffLogo_power2- sender: com.webos.surfacemanager is registered
+2026-10-26T04:17:54.007944Z [42.138492020] user.info surface-manager [] LSM FRESH_LAUNCH_SYSTEMUI {"appId":"com.webos.app.quicksettings","defaultWindowType":"overlay","isPartOfGroup":false,"isSurfaceG
+2026-10-26T04:17:54.012172Z [42.142721600] user.info surface-manager [] LSM FRESH_LAUNCH_SYSTEMUI {"appId":"com.webos.app.quickinputpicker","defaultWindowType":"overlay","isPartOfGroup":false,"isSurfa
+2026-10-26T04:17:54.229044Z [42.359586980] user.info surface-manager [] surface-manager LSM {} cbGetBootStatus:: change values to isCoreBootDone:  true
+2026-10-26T04:17:56.341527Z [44.472073120] user.info bootd [] bootManager Boot {} SIGNAL_rest-boot-done
+2026-10-26T04:17:57.911481Z [46.042020820] user.info sdx [] sdx.logging SDX {} checkDuplicatedMac[109] minimalBootDone: 1, fullmacAuth: 1, UDID: 7dcf089b-e1f5-ff51-6f57-bead421273b9
+2026-10-26T04:17:57.912323Z [46.042862180] user.info pbs [] PBS INFO {} [set:121] put property [minimalBootDone] value [true]
+2026-10-26T04:17:58.944492Z [47.075031900] user.debug alwaysready [] alwaysready DBGMSG {} onBootDStatusChanged: {"datastore-init-start":true,"data-migration-start":false,"rest-boot-done":true,"boot-d
+2026-10-26T04:18:01.803163Z [49.933711960] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power2/getPowerStateHandler] subscribed sender: com.webos.app.cpcover
+2026-10-26T04:18:02.689821Z [50.820371840] user.info surface-manager [] surface-manager LSM {} setNextLayout, [FULLSCREEN:Container][baseContainer][0] fullscreenCover.visible false
+2026-10-26T04:18:21.915551Z [70.046096220] user.info bootd [] bootManager Boot {} SIGNAL_boot-done
+2026-10-26T04:18:22.143035Z [70.273574060] user.debug alwaysready [] alwaysready DBGMSG {} onBootDStatusChanged: {"datastore-init-start":true,"data-migration-start":false,"rest-boot-done":true,"boot-d
+2026-10-26T04:18:22.143101Z [70.273640360] user.info pbs [] PBS INFO {} [set:121] put property [minimalBootDone] value [true]
+2026-10-26T04:18:22.143308Z [70.273847180] user.info pbs [] PBS INFO {} [bootDone:238] retryTimerRunning set fail
+2026-10-26T04:18:22.143389Z [70.273928820] user.info pbs [] PBS INFO {} [bootDone:242] epgRFBlock set fail
+2026-10-26T04:18:22.143746Z [70.274285860] user.info sdx [] sdx.logging SDX {} checkDuplicatedMac[109] minimalBootDone: 1, fullmacAuth: 1, UDID: 7dcf089b-e1f5-ff51-6f57-bead421273b9
+2026-10-26T04:18:23.960577Z [72.091125880] user.info bootd [] bootManager Boot {} SIGNAL_BOOTMODE=normal-boot-done
+2026-10-26T04:18:23.971624Z [72.102173720] user.err bootd [] bootManager Priority {} Fail to open stat(/proc/15094/stat)
+2026-10-26T04:18:23.971720Z [72.102260920] user.err bootd [] bootManager Priority {} Fail to open stat(/proc/15176/stat)
+2026-10-26T04:18:23.972131Z [72.102696480] user.err bootd [] bootManager Priority {} Cannot find process(flutter-client) info
+2026-10-26T04:18:23.972237Z [72.102777860] user.info bootd [] bootManager BootSequencer {} Register Conditions
+2026-10-26T04:18:23.987786Z [72.118325760] user.info bootd [] bootManager BootSequencer {} Bootd's job is done
+2026-10-26T04:18:24.001713Z [72.132280620] user.warning bootd [] bootManager Client {} 'luna://com.webos.service.systemprofile/getProfiles' is called already.
+2026-10-26T04:18:27.913844Z [76.044383280] user.info activitymanager [] ActivityManager SERVICE_DOWN {"serial":215,"service":"com.webos.coverUI","retry":1} 
+2026-10-26T04:18:27.913865Z [76.044404380] user.info sam [] SAM COVER_UI_STATUS {"status":"cover_ui_status_changed"} {"serviceName":"com.webos.coverUI","returnValue":false,"errorText":"com.webos.cover
+2026-10-26T04:18:27.963097Z [76.093637360] user.info sam [] SAM SERVICE_OBSERVER_INFORM {"service_name":"com.webos.coverUI","connection":"off"} 
+2026-10-26T04:18:31.464167Z [79.594714040] user.info surface-manager [] surface-manager LSM {} LSRegister done for appId: "com.webos.coverUI" 0
+2026-10-26T04:18:31.464259Z [79.594798920] user.info surface-manager [] surface-manager LSM {} LunaServiceManager instance created for appId: "com.webos.coverUI" 0
+2026-10-26T04:18:31.464285Z [79.594824480] user.info sam [] SAM SERVICE_OBSERVER_INFORM {"service_name":"com.webos.coverUI","connection":"on"} 
+2026-10-26T04:18:31.465049Z [79.595594980] user.warning bootd [] bootManager Client {} 'registerServiceCategory' is called already.
+2026-10-26T04:18:31.465123Z [79.595663220] user.warning bootd [] bootManager Client {} Listener isn't null
+2026-10-26T04:18:33.373415Z [81.503955020] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power2/registerClientHandler] requestPowerOffLogo_power2- sender: com.webos.surfacemanager
+2026-10-26T04:18:33.373436Z [81.503975800] user.info tvpowerd [] tvpowerd CLIENT_REGISTER {} [/power2/registerClientHandler] requestPowerOffLogo_power2- sender: com.webos.surfacemanager is registered
+2026-10-26T04:18:34.014323Z [82.144870060] user.info surface-manager [] LSM FRESH_LAUNCH_SYSTEMUI {"appId":"com.webos.app.quicksettings","defaultWindowType":"overlay","isPartOfGroup":false,"isSurfaceG
+2026-10-26T04:18:34.017366Z [82.147914340] user.info surface-manager [] LSM FRESH_LAUNCH_SYSTEMUI {"appId":"com.webos.app.quickinputpicker","defaultWindowType":"overlay","isPartOfGroup":false,"isSurfa
+2026-10-26T04:18:34.079840Z [82.210380860] user.info surface-manager [] surface-manager LSM {} cbGetBootStatus:: change values to isCoreBootDone:  true
+2026-10-26T04:18:34.890960Z [83.021504320] user.info surface-manager [] surface-manager LSM {} setNextLayout, [FULLSCREEN:Container][baseContainer][0] fullscreenCover.visible false

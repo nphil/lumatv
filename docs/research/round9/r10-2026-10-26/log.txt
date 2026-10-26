@@ -1,0 +1,194 @@
+01:34:26 r10 start: power Screen Saver fg com.webos.app.home picture filmMaker; HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+01:39:14 speaker-restore: before { "returnValue": true, "muteStatus": false, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] }
+01:39:14 speaker-restore: to tv_speaker: { "returnValue": true, "method": "setSystemSettings" }
+01:39:17 speaker-restore: speaker as found: { "returnValue": true, "muteStatus": false, "volume": 0, "scenario": "mastervolume_tv_speaker" } | { "returnValue": true, "lastSoundOutput": "external_arc", "soundOutput": "tv_speaker", "settingsSoundOutputs": [ "tv_speaker" ] }
+01:39:17 speaker-restore: setVolume 24: { "returnValue": true }
+01:39:18 speaker-restore: speaker now: { "returnValue": true, "muteStatus": false, "volume": 24, "scenario": "mastervolume_tv_speaker" }
+01:39:18 speaker-restore: back to external_arc: { "returnValue": true, "method": "setSystemSettings" }
+01:39:21 speaker-restore: after: { "returnValue": true, "muteStatus": false, "volume": 71, "scenario": "mastervolume_ext_speaker_arc" } | { "returnValue": true, "lastSoundOutput": "tv_speaker", "soundOutput": "external_arc", "settingsSoundOutputs": [ "external_arc" ] } | HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': False, 'volumeText': '65.5', 'signal': 'PCM'}
+01:39:53 receiver before mute: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+01:39:56 receiver mute True -> helper reads mute=True vol=65.5
+01:39:56 HA after mute: {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+01:39:56 nf10: start fg com.webos.app.home power Screen Saver picture filmMaker receiver {'mute': True, 'volumeText': '65.5', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+01:39:56 nf10: aaudio instances before: 38
+01:39:57 nf10: launch: { "returnValue": true }
+01:40:02   t+5s fg netflix picture filmMaker
+01:40:07   t+10s fg netflix picture filmMaker
+01:40:12   t+15s fg netflix picture filmMaker
+01:40:12 shot nf10-title
+01:40:12 nf10: netflix pid 18090; OK on the title page
+01:40:18   t+5s fg netflix picture filmMaker
+01:40:23   t+10s fg netflix picture filmMaker
+01:40:28   t+15s fg netflix picture filmMaker
+01:40:33   t+20s fg netflix picture filmMaker
+01:40:38   t+25s fg netflix picture filmMaker
+01:40:38 shot nf10-after-ok
+01:40:39 nf10: media fg: { "subscribed": false, "returnValue": true, "foregroundAppInfo": [ ] }
+01:40:39 nf10: dmesg 1274 lines, decoder lines:
+[ 4971.921276] media_event  NOT (18090:18333) gst_lx_videosink_set_property  861: <lxvideosink0> set lipsync_offset 0
+[ 4971.925192] media_event  NOT (18090:18333) gst_lx_videosink_pad_link  792: <lxvideosink0> sink_pad linked
+[ 4971.925218] media_event  NOT (18090:18333) gst_lx_videosink_pad_link  800: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 4971.925230] media_event  NOT (18090:18333) gst_lx_videosink_pad_link  807: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 4971.932814] lgadec       ERR (18090:18333) lgadec_decoder_get_ac4_dialog_enhancement_gain 2024: audio device is not opened
+[ 4971.932822] lgadec       ERR (18090:18333) lgadec_get_ac4_dialog_enhancement_gain 3526: Get Ac4 Dialog Enhancement Gain Err
+[ 4971.941849] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2391: <lxvideosink0> state: NULL_TO_READY
+[ 4971.942358] media_event  NOT (18090:18333) gst_lx_videosink_start   2011: <lxvideosink0> lxvo_open(): 0xc4a96b28
+[ 4971.942632] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2487: <lxvideosink0> state: NULL_TO_READY DONE
+[ 4971.942664] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2391: <lxvideosink0> state: READY_TO_PAUSED
+[ 4971.942932] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2487: <lxvideosink0> state: READY_TO_PAUSED DONE
+[ 4972.628205] lgadec       ERR (18090:18430) lgadec_flush             2518: audio device is not opened
+[ 4972.628209] lgadec       ERR (18090:18430) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.629371] media_event  NOT (18090:18430) gst_lx_videosink_event   2199: <lxvideosink0> event: flush-start
+[ 4972.629379] media_event  NOT (18090:18430) gst_lx_videosink_event   2243: <lxvideosink0> signal wait_noti cond
+[ 4972.629387] media_event  NOT (18090:18430) gst_lx_videosink_signal_notification 1239: <lxvideosink0> signal notification, <gst_lx_videosink_event:2244>
+[ 4972.632979] media_event  NOT (18090:18430) gst_lx_videosink_event   2199: <lxvideosink0> event: flush-stop
+[ 4972.637833] media_event  NOT (18090:18424) gst_lx_videosink_event   2199: <lxvideosink0> event: stream-start
+[ 4972.637844] media_event  NOT (18090:18424) gst_lx_videosink_update_stream_id 2167: <lxvideosink0> first stream_id (76d2add9f600c509f611b5e9e5d0ed7b)
+[ 4972.637910] media_event  NOT (18090:18424) gst_lx_videosink_event   2199: <lxvideosink0> event: caps
+[ 4972.637950] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1274: <lxvideosink0> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 4972.637964] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1362: <lxvideosink0> First video mimetype received [video/x-h265]
+[ 4972.638018] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1380: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 4972.638042] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1391: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 4972.638064] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1274: <lxvideosink0> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 4972.638071] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1352: <lxvideosink0> video mimetype not changed
+[ 4972.638075] media_event  WAR (18090:18424) gst_lx_videosink_set_caps 1354: <lxvideosink0> video codec change on PAUSED state. Send forced flush to lxvo
+[ 4972.638306] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1380: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 4972.638330] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1391: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 4972.638352] media_event  NOT (18090:18424) gst_lx_videosink_event   2199: <lxvideosink0> event: segment
+01:40:39 nf10: aaudio instances after: 43 (+['0310007c', '0411007c', '041b0012', '041d000d', '0424000f', '0425000e', '0427000e'] -['03100076', '04110076'])
+01:40:39 nf10: close: { "appId": "netflix", "returnValue": true }
+01:40:42 nf10: grants and errors:
+webos-bluetooth-service [] webos-bluetooth-service SVU_BT_WBS_COMMON {} LS error : {"errorCode":6,"returnValue":false,"errorText":"An invalid value was passed for one of the parameters"}
+audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:setArcOutputType(632) set codec type: 7 is not supported
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:10]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:20]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:40]:: seMode[2] is not supported!!
+audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:setArcOutputType(632) set codec type: 7 is not supported
+alwaysready [] alwaysready DBGMSG {} _getReservation: Response:{"errorCode":-3970,"errorText":"kind not registered: 'com.webos.service.tvReservationAgent.info:1'","returnValue":false}
+netflix.bin [] ums.resource_mgr_client ACQUIRE_COMPLETED {"SESSION_ID":"_0bNlrN15xj44Re","TIMESTAMP":4971.893397180,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(534)>"} connectionId: _ffqbrN1D230Bgu. acquireComplete response: state=true, resources = {"resources":[{"qty":1,"index":1,"resource":"ADEC"},{"qty":1,"index":5,"res
+netflix.bin [] ums.resource_mgr_client SVU_UMS_ACQUIRE_COMPLETED {"SESSION_ID":"_0bNlrN15xj44Re","TIMESTAMP":4971.893457360,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(541)>"} connectionId: _ffqbrN1D230Bgu. acquireComplete response: state=true, resources = {"resources":[{"qty":1,"index":1,"resource":"ADEC"},{"qty":1,"index
+netflix.bin [] playerfactory.default SFPIPELINE {"CODE_POINT":"[_ffqbrN1D230Bgu][18090:18122]<pipeline.cpp:notifyPipelineErrorEvent(1654)>"} msg[8], errorString[audio codec not supported]
+netflix.bin [] netflix.player LOG {} [handlePlayerInfo] [Primary][2] PF_EVENT_TYPE_INT_ERROR 18 !!
+netflix.bin [] playerfactory.default SFPIPELINE {"CODE_POINT":"[_ffqbrN1D230Bgu][18090:18122]<pipeline.cpp:handleBusErrorMessage(2715)>"} [BUS]GST_MESSAGE_ERROR : GST_STREAM_ERROR - 1(from audio-app-es), Internal data stream error., ../gstreamer/libs/gst/base/gstbasesrc.c(3302): gst_base_src_loop (): /GstPipeline:custom-player/G
+netflix.bin [] playerfactory.default SVU_PF_ERROR {"CODE_POINT":"[_ffqbrN1D230Bgu][18090:18122]<pipeline.cpp:handleBusErrorMessage(2723)>"} [BUS]GST_MESSAGE_ERROR : GST_STREAM_ERROR - 1(from audio-app-es), Internal data stream error., ../gstreamer/libs/gst/base/gstbasesrc.c(3302): gst_base_src_loop (): /GstPipeline:custom-player
+netflix.bin [] playerfactory.default SFPIPELINE {"CODE_POINT":"[_ffqbrN1D230Bgu][18090:18122]<pipeline.cpp:convertGstreamerErrorMessage(2478)>"} [BUS] ERROR msg : [GST_MESSAGE_ERROR][domain:GST_STREAM_ERROR][from:audio-app-es][code:1][msg:Internal data stream error.]
+01:40:48 nf10: home: com.webos.app.home; played=False
+01:44:19 hdmi2-cycle: before: adec.p0: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN 
+adec.p1: Open=1 Connect=HDMI_PORT2 Start=1 UserCodec=PCM | fg com.webos.app.home | receiver {'mute': True, 'volumeText': '65.5', 'signal': 'Unknown'}
+01:44:19 hdmi2-cycle: launch hdmi2: { "returnValue": true }
+01:44:23   t+4s fg com.webos.app.hdmi2 adec.p0: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN 
+adec.p1: Open=1 Connect=HDMI_PORT2 Start=1 UserCodec=PCM
+01:44:28   t+8s fg com.webos.app.hdmi2 adec.p0: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN 
+adec.p1: Open=1 Connect=HDMI_PORT2 Start=1 UserCodec=PCM
+01:44:28 shot hdmi2-cycle-input
+01:44:28 hdmi2-cycle: pipelines: [ { appStatus: 6, group_level: -1, level: 4, currentAppId: com.webos.app.hdmi2, is_focus: false, policy_state: 0, sub_type: card, is_foreground: true, is_managed: false, id: _0UuA7S11u5Upxr, type: avconnector, window_group_id: , is_boundary: false, timestamp: 5227855474100, resource: [ { index: 0, resource: MAIN_SCALER } ], sub_level: 0, sharedAppIdList:  }, { appStatus: 6, group_level: -1, level: 4, currentAppId: com.webos.app.hdmi2, is_focus: false, policy_state: 0, sub_type: card, is_foreground: true, is_managed: false, id: _L2bL7S1eUWZCzb, type: tv, window_group_id: , is_boundary: false, t
+01:44:28 hdmi2-cycle: close hdmi2: { "appId": "com.webos.app.hdmi2", "returnValue": true }
+01:44:32   t+4s fg com.webos.app.home adec.p0: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN 
+adec.p1: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN
+01:44:36   t+8s fg com.webos.app.home adec.p0: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN 
+adec.p1: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN
+01:44:43 hdmi2-cycle: home: com.webos.app.home; adec.p0: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN 
+adec.p1: Open=0 Connect=UNKNOWN Start=0 UserCodec=UNKNOWN; receiver {'mute': False, 'volumeText': '65.5', 'signal': 'PCM'}
+01:44:51 after hdmi2 cycle: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+01:44:53 receiver mute True -> helper reads mute=True vol=65.5
+01:44:53 HA after re-mute: {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'}
+01:44:53 nf11: start fg com.webos.app.home power Active picture filmMaker receiver {'mute': True, 'volumeText': '65.5', 'signal': 'PCM', 'soundMode': 'DOLBY AUDIO-DSUR'}
+01:44:53 nf11: aaudio instances before: 23
+01:44:54 nf11: launch: { "returnValue": true }
+01:44:59   t+5s fg netflix picture filmMaker
+01:45:04   t+10s fg netflix picture dolbyHdrCinema
+01:45:09   t+15s fg netflix picture dolbyHdrCinema
+01:45:09 shot nf11-title
+01:45:09 nf11: netflix pid 3376; OK on the title page
+01:45:15   t+5s fg netflix picture dolbyHdrCinema
+01:45:20   t+10s fg netflix picture dolbyHdrCinema
+01:45:25   t+15s fg netflix picture dolbyHdrCinema
+01:45:25 shot nf11-after-ok
+01:45:26 nf11: media fg: { "subscribed": false, "returnValue": true, "foregroundAppInfo": [ { "appId": "netflix", "playState": "playing", "type": "media", "mediaId": "_LTj9oS18T1SeIz", "windowId": "_Window_Id_24" } ] }
+01:45:26 nf11: dmesg 756 lines, decoder lines:
+[ 5268.647710] media_event  NOT (03376:03464) gst_lx_videosink_set_property  861: <lxvideosink0> set lipsync_offset 0
+[ 5268.653128] media_event  NOT (03376:03464) gst_lx_videosink_pad_link  792: <lxvideosink0> sink_pad linked
+[ 5268.653166] media_event  NOT (03376:03464) gst_lx_videosink_pad_link  800: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 5268.653181] media_event  NOT (03376:03464) gst_lx_videosink_pad_link  807: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 5268.664583] lgadec       ERR (03376:03464) lgadec_decoder_get_ac4_dialog_enhancement_gain 2024: audio device is not opened
+[ 5268.664596] lgadec       ERR (03376:03464) lgadec_get_ac4_dialog_enhancement_gain 3526: Get Ac4 Dialog Enhancement Gain Err
+[ 5268.671192] media_event  NOT (03376:03464) gst_lx_videosink_change_state 2391: <lxvideosink0> state: NULL_TO_READY
+[ 5268.672069] media_event  NOT (03376:03464) gst_lx_videosink_start   2011: <lxvideosink0> lxvo_open(): 0xbf501788
+[ 5268.672481] media_event  NOT (03376:03464) gst_lx_videosink_change_state 2487: <lxvideosink0> state: NULL_TO_READY DONE
+[ 5268.672505] media_event  NOT (03376:03464) gst_lx_videosink_change_state 2391: <lxvideosink0> state: READY_TO_PAUSED
+[ 5268.672584] media_event  NOT (03376:03464) gst_lx_videosink_change_state 2487: <lxvideosink0> state: READY_TO_PAUSED DONE
+[ 5268.673279] media_event  NOT (03376:03563) gst_lx_videosink_event   2199: <lxvideosink0> event: stream-start
+[ 5268.673287] media_event  NOT (03376:03563) gst_lx_videosink_update_stream_id 2167: <lxvideosink0> first stream_id (49f8a4016104d999cc2899895cf37179)
+[ 5268.673362] media_event  NOT (03376:03563) gst_lx_videosink_event   2199: <lxvideosink0> event: caps
+[ 5268.673400] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1274: <lxvideosink0> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 5268.673413] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1362: <lxvideosink0> First video mimetype received [video/x-h265]
+[ 5268.673466] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1380: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 5268.673490] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1391: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 5268.673514] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1274: <lxvideosink0> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 5268.673523] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1352: <lxvideosink0> video mimetype not changed
+[ 5268.673528] media_event  WAR (03376:03563) gst_lx_videosink_set_caps 1354: <lxvideosink0> video codec change on PAUSED state. Send forced flush to lxvo
+[ 5268.674799] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1380: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 5268.674826] media_event  NOT (03376:03563) gst_lx_videosink_set_caps 1391: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 5269.204474] lgadec       ERR (03376:03577) lgadec_flush             2518: audio device is not opened
+[ 5269.204478] lgadec       ERR (03376:03577) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 5269.205459] media_event  NOT (03376:03577) gst_lx_videosink_event   2199: <lxvideosink0> event: flush-start
+[ 5269.205466] media_event  NOT (03376:03577) gst_lx_videosink_event   2243: <lxvideosink0> signal wait_noti cond
+[ 5269.205485] media_event  NOT (03376:03577) gst_lx_videosink_signal_notification 1239: <lxvideosink0> signal notification, <gst_lx_videosink_event:2244>
+[ 5269.206934] media_event  NOT (03376:03577) gst_lx_videosink_event   2199: <lxvideosink0> event: flush-stop
+[ 5269.210171] media_event  NOT (03376:03563) gst_lx_videosink_event   2199: <lxvideosink0> event: segment
+01:45:26 nf11: aaudio instances after: 54 (+['02100001', '02110005', '02110006', '023e0002', '03100081', '04100005', '04100006', '0411007e', '04110082', '04180002', '04180003', '041b0013', '041b0014', '041d000e', '04240010', '04240011', '04240012', '0425000f', '04250010', '0427000f', '04270010', '08100001', '08100002', '08110001', '08120001', '08120002', '08130001', '09100001', '09110001', '09110002', '09120001', '09130001', '09130002'] -['0310007d', '0411007d'])
+01:45:26 nf11: close: { "appId": "netflix", "returnValue": true }
+01:45:29 nf11: grants and errors:
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:10]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:20]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:40]:: seMode[2] is not supported!!
+alwaysready [] alwaysready DBGMSG {} _getReservation: Response:{"errorCode":-3970,"errorText":"kind not registered: 'com.webos.service.tvReservationAgent.info:1'","returnValue":false}
+netflix.bin [] ums.resource_mgr_client ACQUIRE_COMPLETED {"SESSION_ID":"_0RFAoS1SwVA7MU","TIMESTAMP":5268.620195360,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(534)>"} connectionId: _LTj9oS18T1SeIz. acquireComplete response: state=true, resources = {"resources":[{"qty":1,"index":1,"resource":"ADEC"},{"qty":1,"index":5,"res
+netflix.bin [] ums.resource_mgr_client SVU_UMS_ACQUIRE_COMPLETED {"SESSION_ID":"_0RFAoS1SwVA7MU","TIMESTAMP":5268.621285400,"CODE_POINT":"<ResourceManagerClient.cpp:_acquire(541)>"} connectionId: _LTj9oS18T1SeIz. acquireComplete response: state=true, resources = {"resources":[{"qty":1,"index":1,"resource":"ADEC"},{"qty":1,"index
+wowplay [] wowplay Controller {} [msgHandler] :: This category is not supported. The handler table need to be updated. [msg id : dimensionInfo]
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:10]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:20]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:40]:: seMode[2] is not supported!!
+audiooutputd [] umi INFO_LOG {} umitvaudioquality.cpp:setArcOutputType(632) set codec type: 7 is not supported
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:10]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:20]:: seMode[2] is not supported!!
+audiooutputd [] aal_se AALSE_WARNING {} isSupportedSeModeForIndex[index:40]:: seMode[2] is not supported!!
+01:45:35 nf11: home: com.webos.app.home; played=True
+01:47:39 leak-test: before: adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=0 Connect=UNKNOWN Start=0 | running ['com.webos.app.home', 'airplay'] | receiver {'mute': True, 'volumeText': '65.5', 'signal': 'Dolby Atmos'}
+01:47:39 leak-test: launch hdmi3: { "returnValue": true }
+01:47:45 leak-test: on hdmi3: fg com.webos.app.hdmi3 | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT1 Start=0 | receiver {'mute': True, 'volumeText': '65.5', 'signal': 'Dolby Atmos'}
+01:50:53 leak-test: after restart (late): fg com.webos.app.hdmi3 power Active | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT1 Start=0 | running ['com.webos.app.home', 'airplay', 'com.webos.app.hdmi3'] | hdmi procs: 2513 /usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined",
+01:56:30 lock: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '65.5', 'signal': 'Dolby Atmos', 'input': 'TV'}
+01:56:30 lock: capture stop: {"ok":true,"capture":{"installed":true,"role":true,"running":false,"pid":0}}
+01:56:32 lock: holders now: 
+01:56:33 leak-test2: on hdmi3: fg com.webos.app.hdmi3 | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT1 Start=0 | running ['com.webos.app.home', 'airplay', 'com.webos.app.hdmi3']
+01:56:38 leak-test2: lumatv restart (5 s): {"ok":true}
+01:56:42 leak-test2: after restart: fg com.webos.app.home | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=0 Connect=UNKNOWN Start=0 | running ['com.webos.app.magicnum', 'com.webos.app.home'] | input procs: 
+01:56:42 leak-test2: capture start: {"ok":true,"capture":{"installed":true,"role":true,"running":true,"pid":6262}}
+01:57:44 leak-test3: receiver as found: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '65.5', 'signal': 'PCM', 'input': 'TV'}
+01:57:48 receiver mute True -> helper reads mute=True vol=10
+01:57:48 leak-test3: receiver now: HA {'state': 'on', 'volume_level': 0.1, 'is_volume_muted': True, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': True, 'volumeText': '10', 'signal': 'PCM', 'input': 'TV'}
+01:57:49 leak-test3: lock holders: []
+01:57:50 leak-test3: launch hdmi2: { "returnValue": true }
+01:57:53   t+3s fg com.webos.app.hdmi2 | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT2 Start=0 | receiver {'mute': False, 'volumeText': '10', 'signal': 'Unknown', 'input': 'MPLAY'}
+01:57:56   t+6s fg com.webos.app.hdmi2 | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT2 Start=1 | receiver {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'input': 'MPLAY'}
+01:57:57 shot leak-test3-hdmi2
+01:58:01 leak-test3: lumatv restart (old tool, 4 s): {"ok":true}
+01:58:06 leak-test3: after restart: fg com.webos.app.home | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT2 Start=1 | running ['com.webos.app.home'] | receiver {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'input': 'TV'}
+01:58:38 fix-test: md5 a90c371b43d2e93db85f77ef9d5982e2
+01:58:38 fix-test: inputs status: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":true,"connect":"HDMI_PORT2"}],"running":[],"held":"HDMI_PORT2"}}
+01:58:42 fix-test: inputs release (start): {"ok":true,"released":true,"app":"com.webos.app.hdmi2","inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":["com.webos.app.hdmi2"],"held":""}}
+01:58:42 fix-test: after release (3 s): fg com.webos.app.home | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=0 Connect=UNKNOWN Start=0 | receiver {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'input': 'MPLAY'}
+01:58:42 fix-test: log: 2026-10-26 01:58:00 restart: compositor restarted | 2026-10-26 01:58:40 input app(s) ended through SAM before the compositor goes down: com.webos.app.hdmi2 (decoder port closed after 0 s) | 2026-10-26 01:58:41 inputs release: com.webos.app.hdmi2 launched and closed, the port is free
+01:58:58 fix-test2: before: fg com.webos.app.home | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=0 Connect=UNKNOWN Start=0 | running ['com.webos.app.home'] | receiver {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'input': 'TV'}
+01:58:59 fix-test2: launch hdmi2: { "returnValue": true }
+01:59:02   t+3s fg com.webos.app.hdmi2 | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT2 Start=0
+01:59:05   t+6s fg com.webos.app.hdmi2 | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=1 Connect=HDMI_PORT2 Start=1
+01:59:10 fix-test2: lumatv-r10 restart (5 s): {"ok":true}
+01:59:14 fix-test2: after: fg com.webos.app.home | adec.p0: Open=0 Connect=UNKNOWN Start=0  | adec.p1: Open=0 Connect=UNKNOWN Start=0 | running ['com.webos.app.magicnum', 'com.webos.app.home'] | receiver {'mute': False, 'volumeText': '10', 'signal': 'PCM', 'input': 'TV'}
+01:59:14 fix-test2: log: 2026-10-26 01:59:05 homestub: compositor restarted | 2026-10-26 01:59:09 home on panel after 0 relaunch attempt(s) | 2026-10-26 01:59:09 restart: compositor restarted
+01:59:14 fix-test2: inputs status: {"ok":true,"inputs":{"ports":[{"port":0,"open":false,"connect":"UNKNOWN"},{"port":1,"open":false,"connect":"UNKNOWN"}],"running":[],"held":""}}
+06:11:51 receiver mute False -> helper reads mute=False vol=65.5
+06:11:51 avr restore: HA {'state': 'on', 'volume_level': 0.655, 'is_volume_muted': False, 'sound_mode': 'DOLBY DIGITAL', 'source': 'TV Audio'} | helper {'mute': False, 'volumeText': '65.5', 'signal': 'PCM', 'input': 'TV'}
+02:11:58 (the two lines above stamped 06:11:51 are 02:11:51 EDT: the eval kernel ran in UTC)
+02:13:08 fix-test: lumatv-r10 removed from the app's tools dir

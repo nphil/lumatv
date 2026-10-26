@@ -12,6 +12,8 @@
 #                            bootd opened when the TV is set to start on its last input (general.homeAutoLaunch off)
 #   helper start|stop|status -> the native helper daemon (weather, news, receiver, settings API)
 #   capture start|stop|remove|status -> the ambient light's colour reader and its bus role (payload/capture/capture.sh)
+#   inputs status|release  -> the kernel's audio decoder ports and the input apps running; `release` frees a port an input
+#                            left open (the input launched and closed through SAM; Netflix's tvq-pb-101 after a compositor restart)
 #   vplane install|start|stop|remove|status -> the art saver's video-plane player and its clips (payload/vplane/vplane.sh); `install`
 #                            writes an LS2 role, so it is the owner's own command and apply never runs it; apply starts a player
 #                            that is installed, revert removes it
@@ -561,6 +563,63 @@ wait_wam_restart() {
   return 1
 }
 
+# The input apps (HDMI, Live TV, the other external inputs: every one is /usr/bin/com.webos.app.inputcommon).
+INPUT_APP_IDS="com.webos.app.inputcommon com.webos.app.livetv com.webos.app.livetvopapp com.webos.app.hdmi1 com.webos.app.hdmi2 com.webos.app.hdmi3 com.webos.app.hdmi4 com.webos.app.dp1 com.webos.app.dp2 com.webos.app.externalinput.av1 com.webos.app.externalinput.av2 com.webos.app.externalinput.component com.webos.app.externalinput.scart com.webos.app.usbc1 com.webos.app.usbc2"
+# The kernel's view of its audio decoder ports: adec.p<n> with Open=, Connect= (HDMI_PORT<x>, ATV, DTV for an input) and Start=.
+ADEC_PROC=${ADEC_PROC:-/proc/lgtv-driver/audio}
+
+input_apps_running() {
+  # The input apps SAM lists as running, space-separated.
+  ia_running=$(luna-send -n 1 luna://com.webos.applicationManager/running '{}' 2>/dev/null | tr -d ' \r\n')
+  ia_out=""
+  for ia_app in $INPUT_APP_IDS; do
+    case "$ia_running" in *"\"id\":\"$ia_app\""*) ia_out="$ia_out $ia_app" ;; esac
+  done
+  printf '%s' "${ia_out# }"
+}
+
+input_decoder_held() {
+  # An audio decoder port the kernel shows open for an input. Prints its Connect value (HDMI_PORT2 ...).
+  for id_f in "$ADEC_PROC"/adec.p*; do
+    [ -f "$id_f" ] || continue
+    grep -qs '^Open=1' "$id_f" || continue
+    id_c=$(sed -n 's/^Connect=\(HDMI_PORT[0-9]*\|ATV\|DTV\).*/\1/p' "$id_f" | head -n1)
+    [ -n "$id_c" ] || continue
+    printf '%s\n' "$id_c"
+    return 0
+  done
+  return 1
+}
+
+close_input_apps() {
+  # $1 = why, for the log line. Run before the compositor goes down: an input app that dies with the compositor
+  # while its sound is started leaves the kernel's audio decoder port open (adec.p1 Open=1, Start=1,
+  # Connect=HDMI_PORT2) with nobody to close it. The resource manager still hands that port to the next media app
+  # first, the driver refuses it ("can not open audio decoder. already opened index 1") and Netflix ends in
+  # tvq-pb-101 until the input is launched and closed again. Measured 2026-10-26: bootd put the last input
+  # (hdmi2) in front at 16 s, the boot restart at 37 s took it down, and every Netflix start of that boot
+  # failed; a restart with hdmi2 in front left the same port, one with no signal on the input (Start=0) did not.
+  # Ended through SAM the app closes the port itself; the wait is for that.
+  ci_apps=$(input_apps_running)
+  [ -n "$ci_apps" ] || return 0
+  for ci_app in $ci_apps; do
+    luna-send -n 1 luna://com.webos.applicationManager/closeByAppId "{\"id\":\"$ci_app\"}" >/dev/null 2>&1
+  done
+  ci_i=0
+  while [ "$ci_i" -lt 10 ] && input_decoder_held >/dev/null; do sleep 1; ci_i=$((ci_i+1)); done
+  if ci_c=$(input_decoder_held); then ci_port="$ci_c port still open after $ci_i s"; else ci_port="decoder port closed after $ci_i s"; fi
+  log_line "$1: input app(s) ended through SAM: $ci_apps ($ci_port)"
+  return 0
+}
+
+warn_input_decoder_held() {
+  # After a restart: a port left open with no input app to release it means the next media app's sound fails.
+  wi_c=$(input_decoder_held) || return 0
+  [ -z "$(input_apps_running)" ] || return 0
+  log_line "restart: an audio decoder port is still open for $wi_c with no input app running; media apps fail to start sound until \`$SHORT_ID inputs release\` (or the input launched and closed by hand)"
+  return 0
+}
+
 restart_surface() {
   # A restart is how the modded QML reaches the screen: the compositor's first
   # start at 2.6s cannot see our EnvironmentFile, because /var does not yet
@@ -577,6 +636,7 @@ restart_surface() {
   # away: a second restart would take the compositor down under the recovery's Home launch.
   i=0; while comp_recovering && [ "$i" -lt 60 ]; do sleep 1; i=$((i+1)); done
   if comp_recovering; then log_line "restart: a recovery of LG's Home is still running, the compositor is not restarted"; return 1; fi
+  close_input_apps "restart"
   WAM_STAMP0=$(wam_stamp)
   reports_before=$(snapshot_reports)
   systemctl restart "$SURFACE_SVC" >/dev/null 2>&1
@@ -594,6 +654,7 @@ home_back_after_restart() {
   kill_home_app
   relaunch_home
   disarm_restart_crashes "$reports_before"
+  warn_input_decoder_held
 }
 
 surface_start_uptime() {
@@ -2063,6 +2124,61 @@ verb_capture() {
   return 0
 }
 
+inputs_json() {
+  # The kernel's audio decoder ports and the input apps running: what `inputs release` acts on.
+  ij_ports=""
+  for ij_f in "$ADEC_PROC"/adec.p*; do
+    [ -f "$ij_f" ] || continue
+    ij_n=${ij_f##*.p}
+    ij_o=$(sed -n 's/^Open=\([01]\).*/\1/p' "$ij_f" | head -n1)
+    ij_c=$(sed -n 's/^Connect=\([A-Za-z0-9_]*\).*/\1/p' "$ij_f" | head -n1)
+    ij_ports="$ij_ports${ij_ports:+,}{\"port\":$ij_n,\"open\":$([ "$ij_o" = 1 ] && printf true || printf false),\"connect\":\"$ij_c\"}"
+  done
+  ij_apps=""
+  for ij_a in $(input_apps_running); do ij_apps="$ij_apps${ij_apps:+,}\"$ij_a\""; done
+  ij_held=$(input_decoder_held) || ij_held=""
+  printf '{"ports":[%s],"running":[%s],"held":"%s"}' "$ij_ports" "$ij_apps" "$ij_held"
+}
+
+verb_inputs() {
+  # status: the ports and the input apps running. release: an input's decoder port left open with no input app
+  # to release it (the state close_input_apps prevents) is released the way the owner would by hand: the port's
+  # input app launched through SAM and closed again. Launching the input the receiver is on switches the receiver
+  # through CEC (seen 2026-10-26: HDMI 2, the eARC port, cleared the receiver's mute), so this is the owner's
+  # command, never apply's.
+  case "${1:-status}" in
+    status) printf '{"ok":true,"inputs":%s}\n' "$(inputs_json)" ;;
+    release)
+      ir_c=$(input_decoder_held) || { printf '{"ok":true,"released":false,"reason":"no port held","inputs":%s}\n' "$(inputs_json)"; return 0; }
+      if [ -n "$(input_apps_running)" ]; then
+        printf '{"ok":true,"released":false,"reason":"an input app is running and owns it","inputs":%s}\n' "$(inputs_json)"
+        return 0
+      fi
+      case "$ir_c" in
+        HDMI_PORT*) ir_app="com.webos.app.hdmi${ir_c#HDMI_PORT}" ;;
+        *) ir_app="com.webos.app.livetv" ;;
+      esac
+      ir_front=$(foreground_app_id)
+      luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_app\"}" >/dev/null 2>&1
+      ir_i=0
+      while [ "$ir_i" -lt 10 ] && [ "$(foreground_app_id)" != "$ir_app" ]; do sleep 1; ir_i=$((ir_i+1)); done
+      sleep 2
+      close_input_apps "inputs release"
+      case "$ir_front" in ''|"$ir_app") ir_front=$HOME_APP_ID ;; esac
+      luna-send -n 1 "$HOME_LAUNCH_URI" "{\"id\":\"$ir_front\"}" >/dev/null 2>&1
+      if input_decoder_held >/dev/null; then
+        log_line "inputs release: $ir_app launched and closed, the port is still open"
+        printf '{"ok":false,"released":false,"reason":"the port is still open after %s was launched and closed","inputs":%s}\n' "$ir_app" "$(inputs_json)"
+        return 1
+      fi
+      log_line "inputs release: $ir_app launched and closed, the port is free"
+      printf '{"ok":true,"released":true,"app":"%s","inputs":%s}\n' "$ir_app" "$(inputs_json)"
+      ;;
+    *) emit_error "inputs: status or release"; return 1 ;;
+  esac
+  return 0
+}
+
 # The art saver's video-plane player. Installed means its program is staged and its role is written (vplane.sh status says so), and only
 # `lumatv vplane install` gets it there. A player that is not installed is not a fault anywhere: the saver draws its own picture.
 vplane_json() {
@@ -3245,6 +3361,7 @@ case "$VERB" in
   restart) verb_restart; exit $? ;;
   helper) verb_helper "${2:-status}"; exit $? ;;
   capture) verb_capture "${2:-status}"; exit $? ;;
+  inputs) verb_inputs "${2:-status}"; exit $? ;;
   vplane) verb_vplane "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;

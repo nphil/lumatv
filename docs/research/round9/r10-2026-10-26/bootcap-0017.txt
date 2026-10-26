@@ -1,0 +1,82 @@
+0 14.60 1777
+1 15.77 2777
+2 16.33 2777
+3 17.10 2777
+4 18.09 2912
+5 19.03 2912
+6 19.39 2912
+7 19.81 2912
+8 20.45 2912
+9 20.96 1777
+10 21.51 1777
+11 21.92 1777
+12 22.28 1777
+13 22.78 1777
+14 23.44 1777
+15 23.94 269025
+16 24.51 269025
+17 25.06 269025
+18 26.05 269025
+19 26.69 269025
+20 27.21 269025
+21 27.76 4663
+22 28.44 4663
+23 29.10 4663
+24 29.86 4663
+25 30.46 69623
+26 31.11 68254
+27 31.74 68254
+28 32.47 68196
+29 33.12 68463
+30 33.78 68420
+31 34.47 68375
+32 35.14 68420
+33 35.73 68145
+34 36.37 68420
+35 37.02 68145
+36 37.63 68375
+37 38.37 68228
+38 39.05 1777
+39 39.53 1777
+====
+14.57 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+16.17 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+18.72 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+20.01 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+21.56 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+22.77 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+24.28 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+25.59 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+27.30 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+28.65 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+30.05 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+31.37 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+32.66 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+33.98 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+35.22 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+36.43 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active
+37.67 fg={"returnValue":true,"appId":"com.webos.app.hdmi2","appCategory":[],"processId":"","windowId":""} ui= cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":true}
+42.43 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+43.61 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+44.70 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+45.82 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+46.96 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+48.65 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+50.39 fg={"returnValue":true,"appId":"","appCategory":[],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"Active","returnValue":tru
+52.21 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+53.56 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+56.87 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+58.04 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+59.24 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+60.41 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+61.62 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+62.94 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+64.17 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+65.37 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+66.50 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+67.69 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+68.83 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+69.94 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+71.03 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+72.16 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A
+73.29 fg={"returnValue":true,"appId":"com.webos.app.home","appCategory":["home"],"processId":"","windowId":""} ui={"foregroundAppInfo":[],"returnValue":true} cover={"isRunning":false,"returnValue":true} power={"state":"A

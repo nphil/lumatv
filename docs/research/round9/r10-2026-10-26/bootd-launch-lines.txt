@@ -1,0 +1,60 @@
+DEBUG( 10.010054560) : Client) Response: {"subscribed":false,"configs":{"profile.list":["audioRenderer","broadcast","camera","edid","hdmi","home","idleApp","keyfilter","mrcu","musicRecognition","store
+DEBUG( 10.145430600) : Client) Call luna://com.webos.applicationManager/getForegroundAppInfo
+DEBUG( 10.145872040) : Respawn) foregroundAppId:
+DEBUG( 10.145954680) : BootSequencer) foreground is empty
+DEBUG( 10.334833580) : Event) No event status : 'HotelMode Default Input - ON'
+DEBUG( 10.334843980) : Event) No event status : 'HotelMode Default Input - ON'
+DEBUG( 10.334848380) : Condition) Start condition (HotelMode Default Input - OFF)
+DEBUG( 10.335052760) : Event) Add new event : 'HotelMode Default Input - OFF' [Status : trigger] "off"
+DEBUG( 10.335071020) : Event) Trigger 'HotelMode Default Input - OFF' event ("off")
+DEBUG( 10.335114600) : Condition) Start condition (HotelMode Default Input - ON)
+DEBUG( 10.335316980) : Event) Add new event : 'HotelMode Default Input - ON', [Status : clear]
+DEBUG( 10.335661740) : Condition) Start condition (Last App AppId)
+DEBUG( 10.337419820) : Event) Add new event : 'Last App AppId' [Status : trigger] "com.webos.app.home"
+DEBUG( 10.337456300) : Event) Trigger 'Last App AppId' event ("com.webos.app.home")
+DEBUG( 10.337571320) : Condition) Start condition (Last App Booting)
+DEBUG( 10.337596720) : Condition) Start condition (Last Input App)
+DEBUG( 10.338514160) : Event) Add new event : 'Last Input App' [Status : trigger] "com.webos.app.hdmi2"
+DEBUG( 10.338576660) : Event) Trigger 'Last Input App' event ("com.webos.app.hdmi2")
+ERROR( 10.339508680) : Settings) getHomeAutoLaunch: homeAutoLaunch not get
+DEBUG( 10.340025620) : Settings) homeAutoLaunch(on)
+DEBUG( 10.340092880) : Settings) getHomeAutoLaunch: homeAutoLaunch : on
+DEBUG( 10.340279660) : Condition) Start condition (OnTimer AppId)
+DEBUG( 10.346238900) : Condition) Condition (Last App Booting) is ready to execute
+DEBUG( 10.346468380) : Event) Add new event : 'Last App Booting' [Status : trigger] {}
+DEBUG( 10.346480180) : Event) Trigger 'Last App Booting' event ({})
+DEBUG( 10.346494900) : Event) Add new event : 'Last App Booting - OFF' [Status : trigger] {}
+DEBUG( 10.346500740) : Event) Trigger 'Last App Booting - OFF' event ({})
+DEBUG( 10.346510900) : Event) Add new event : 'Last App Booting - ON', [Status : clear]
+DEBUG( 10.346818420) : Condition) Start condition (Remind AppId)
+DEBUG( 10.353225260) : Action) Check action is ready (Input App)
+DEBUG( 10.353258520) : Action) Action (Input App) - condition (Hotkey - OFF) : ok
+DEBUG( 10.353267540) : Action) Action (Input App) - condition (OTT GIP - OFF) : ok
+DEBUG( 10.353275600) : Action) Action (Input App) - condition (OnTimer - OFF) : ok
+DEBUG( 10.353281940) : Action) Action (Input App) - condition (Remind - OFF) : ok
+DEBUG( 10.353290180) : Action) Action (Input App) - condition (EWBS - OFF) : ok
+DEBUG( 10.353296440) : Action) Action (Input App) - condition (BNO - OFF) : ok
+DEBUG( 10.353303180) : Action) Action (Input App) - condition (Auto Browser - OFF) : ok
+DEBUG( 10.353309900) : Action) Action (Input App) - condition (HotelMode Default Input - OFF) : ok
+DEBUG( 10.353316120) : Action) Action (Input App) - condition (Last App Booting - OFF) : ok
+DEBUG( 10.353322780) : Action) Action (Input App) - condition (Last Input App) : ok
+DEBUG( 10.354163760) : Action) Check action is ready (Input App)
+DEBUG( 10.354179560) : Action) Action (Input App) - condition (Hotkey - OFF) : ok
+DEBUG( 10.354186520) : Action) Action (Input App) - condition (OTT GIP - OFF) : ok
+DEBUG( 10.354193180) : Action) Action (Input App) - condition (OnTimer - OFF) : ok
+DEBUG( 10.354199140) : Action) Action (Input App) - condition (Remind - OFF) : ok
+DEBUG( 10.354215740) : Action) Action (Input App) - condition (EWBS - OFF) : ok
+DEBUG( 10.354222660) : Action) Action (Input App) - condition (BNO - OFF) : ok
+DEBUG( 10.354229020) : Action) Action (Input App) - condition (Auto Browser - OFF) : ok
+DEBUG( 10.354235540) : Action) Action (Input App) - condition (HotelMode Default Input - OFF) : ok
+DEBUG( 10.354243860) : Action) Action (Input App) - condition (Last App Booting - OFF) : ok
+DEBUG( 10.354250440) : Action) Action (Input App) - condition (Last Input App) : ok
+DEBUG( 10.354604080) : Client) Request:{"appId":"com.webos.app.hdmi2","channelId":"","deviceId":"HDMI_2"}
+DEBUG( 13.486835400) : BootSequencer) Try to launch first app
+DEBUG( 13.486943880) : Action) Action (Cover App) - condition (Last Input App) : ok
+DEBUG( 13.486949920) : Action) Action (Cover App) - condition (Last App Booting - OFF) : ok
+DEBUG( 13.486963120) : Action) CoverAppLaunchAction is not ready
+DEBUG( 13.487098240) : Action) Register action (Hotel Input App)
+DEBUG( 13.487103840) : Action) Action (Hotel Input App) - condition (Hotkey - OFF) : ok
+DEBUG( 13.487110000) : Action) Action (Hotel Input App) - condition (OTT GIP - OFF) : ok
+DEBUG( 13.487114760) : Action) Action (Hotel Input App) - condition (OnTimer - OFF) : ok

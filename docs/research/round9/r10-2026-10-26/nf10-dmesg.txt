@@ -1,0 +1,1274 @@
+[ 4964.542141] user shared: info (00000000bc37517b) (51d86000) (f79ec000)
+[ 4964.542647] _getMemInfo (0x0) (0xa00000bd700000) (0xbe100000) (0xa00000)
+[ 4964.542781] LOGM_Open.626: device opened (1810:0)
+[ 4964.967380] LOGM_Open.626: device opened (1810:0)
+[ 4965.238255] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4965.240958] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4965.241033] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4965.241068] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4965.248297] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[ 4965.257875] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.257886] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.264337] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[ 4965.264362] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 1, enable 0 .
+[ 4965.264374] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 1
+[ 4965.264776] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[ 4965.264804] aud_output   NOT (02215:02215) output_set_format         263: ARC 4, 8, 192000 0.
+[ 4965.264809] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[ 4965.264816] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[ 4965.264820] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[ 4965.264915] aud_kaimc    NOT (17965:17965) aud1                      589: 4956.447744]       mod_encmat 0x604a90d0 NOT   matenc_set_prop_atmos_lock. 825: set atmos_lock mode 0
+[ 4965.264924] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.447755]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=3
+[ 4965.264934] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.447777]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 3
+[ 4965.265439] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 0
+[ 4965.265451] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4965.265455] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[ 4965.265461] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[ 4965.266912] aud_kaimc    NOT (17965:17965) aud1                      589: 4956.449722] output_arc_03230003 0x6049c808 NOT                irq_handle_bc. 681: overrun. rd 00000400, wr 00000000, bc_filled -1024
+[ 4965.266987] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[ 4965.272829] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[ 4965.278919] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[ 4965.286263] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.286274] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.288908] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.288918] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.292994] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.293010] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 4965.293017] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[ 4965.293028] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[ 4965.293195] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.475966]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=0
+[ 4965.293208] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.476000]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 2
+[ 4965.293215] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.476044]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=0
+[ 4965.293239] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.476077]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 2
+[ 4965.294219] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 1
+[ 4965.294239] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4965.294244] aud_output   NOT (02215:02215) output_set_format         263: ARC 0, 2, 48000 1.
+[ 4965.295324] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 0
+[ 4965.295338] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[ 4965.296250] aud_kaimc    NOT (17965:17965) aud1                      589: 4956.479055] output_arc_03230003 0x6049c808 NOT                irq_handle_bc. 681: overrun. rd 00003000, wr 00002c00, bc_filled -1024
+[ 4965.300044] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.300641] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[ 4965.302285] alsase       NOT (02215:02215) _kcontrol_mode_put       1157: LGSE SOUNDENGINE MODE=0x1 (idx=10)
+[ 4965.302696] alsase       NOT (02215:02215) _kcontrol_mode_put       1157: LGSE SOUNDENGINE MODE=0x1 (idx=20)
+[ 4965.303292] alsase       NOT (02215:02215) _kcontrol_mode_put       1157: LGSE SOUNDENGINE MODE=0x1 (idx=40)
+[ 4965.310771] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[ 4965.338020] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.338029] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.342999] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[ 4965.343027] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 1, enable 0 .
+[ 4965.343040] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 1
+[ 4965.344010] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[ 4965.344038] aud_output   NOT (02215:02215) output_set_format         263: ARC 4, 8, 192000 0.
+[ 4965.344042] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[ 4965.344049] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[ 4965.344053] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[ 4965.344127] aud_kaimc    NOT (17965:17965) aud1                      589: 4956.526955]       mod_encmat 0x604a90d0 NOT   matenc_set_prop_atmos_lock. 825: set atmos_lock mode 0
+[ 4965.344138] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.526988]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=3
+[ 4965.344188] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.527011]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 3
+[ 4965.344746] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 0
+[ 4965.344760] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4965.344765] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[ 4965.344771] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[ 4965.344988] aud_kaimc    NOT (17965:17965) aud1                      589: 4956.527811] output_arc_03230003 0x6049c808 NOT                irq_handle_bc. 681: overrun. rd 00003800, wr 00003400, bc_filled -1024
+[ 4965.349521] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[ 4965.354803] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[ 4965.358194] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[ 4965.361824] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.361833] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4965.365568] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.365577] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.367806] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.367819] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 4965.367826] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[ 4965.367838] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[ 4965.368104] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.550777]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=0
+[ 4965.368117] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.550811]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 2
+[ 4965.368124] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.550855]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=0
+[ 4965.368130] aud_kaimc    NOT (17965:17965) aud2                      610: 4956.550888]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 2
+[ 4965.369660] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 1
+[ 4965.369680] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4965.369684] aud_output   NOT (02215:02215) output_set_format         263: ARC 0, 2, 48000 1.
+[ 4965.370384] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 0
+[ 4965.370399] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[ 4965.370404] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4965.370934] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[ 4965.371663] aud_kaimc    NOT (17965:17965) aud1                      589: 4956.554477] output_arc_03230003 0x6049c808 NOT                irq_handle_bc. 681: overrun. rd 00002000, wr 00001c00, bc_filled -1024
+[ 4965.579956] LOGM_Close.657: closed daemon, do force printk
+[ 4965.579962] LOGM_Close.667: device closed (1810:0)
+[ 4966.877740] aud_clock    NOT (17970:17970) _update_dto_rate          542: [arc] change rate to 72
+[ 4968.028722] aplayback    ERR (01982:02688) _aplayback_connect        343: Create 0x041D000D
+[ 4968.029194] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.211966] playback_041d000d 0x602dfae8 NOT         playback_constructor. 324: create...
+[ 4968.029513] aplayback    NOT (01982:02688) _aplayback_set_format     478: substream->runtime->format = 2
+[ 4968.029519] aplayback    NOT (01982:02688) _aplayback_set_format     522: endian = 0, sign = 0
+[ 4968.029537] aplayback    NOT (01982:02688) _aplayback_set_format     531: downmix = 1
+[ 4968.030316] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.213133]      mod_pcm_cvt 0x604092a0 NOT                 Pcmcvt_Event.1259: pcmcvt_0400f027 : got first event
+[ 4968.030520] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.213333]      mod_pcm_cvt 0x604092a0 NOT                 Pcmcvt_Event.1321: first event (OUT): first(1), prop 00000003, channels=(int)2, bi
+[ 4968.032041] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.214866]        mod_sola2 0x604092a0 NOT                   sola_chain. 239:    bypass sola. play speed:1.00(1000/1000), channel:2
+[ 4968.032154] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.214988]          lipsync 0x604092a0 NOT                _lipsync_core.2362: [lipsync_0424000f] p:[ 446329327][ 177893871] s:[ 177893888][ 1
+[ 4968.032646] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.215477]         mixerbin 0x604c20d8 WAR               mixerbin_event. 338: input port (10) is not connected. event (13)
+[ 4968.033229] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.216055]           mix_lg 0x604c20d8 NOT            lgmix_event_first. 907: first event for input10. acmod 2, layout lr(2ch), min->in_layou
+[ 4968.033326] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.216166]           mix_lg 0x604c20d8 NOT            lgmix_event_first. 907: first event for input10. acmod 2, layout lr(2ch), min->in_layou
+[ 4968.033418] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.216255]           mix_lg 0x604c20d8 NOT            lgmix_event_first. 907: first event for input10. acmod 2, layout lr(2ch), min->in_layou
+[ 4968.033518] aud_kaimc    NOT (17965:17965) aud2                      610: 4959.216355]           mix_lg 0x604c20d8 NOT            lgmix_event_first. 907: first event for input10. acmod 2, layout lr(2ch), min->in_layou
+[ 4968.049626] linux-ruta: info, process_one_request, 341, Remote UTA looping ~ ~  
+[ 4968.049725] linux-ca     DEB (18090:18337) pr_ca_interface_init      723: pr init
+[ 4968.066792] linux-ruta: info, process_one_request, 341, Remote UTA looping ~ ~  
+[ 4968.067941] linux-ruta: info, process_one_request, 341, Remote UTA looping ~ ~  
+[ 4968.068500] linux-ruta: info, process_one_request, 341, Remote UTA looping ~ ~  
+[ 4970.118007] user shared: info (00000000bc37517b) (51d86000) (f78f1000)
+[ 4970.118033] _getMemInfo (0x0) (0xa00000bd700000) (0xbe100000) (0xa00000)
+[ 4970.122292] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(6G) for [5000] msec(C) TMDS[ 1381] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[1]
+[ 4971.913900] LOGM_Open.626: device opened (1810:0)
+[ 4971.913941] media_event  NOT (18090:18333) gst_lx_videodec_init     4221: <(null)> Compile info : May  7 2025 07:01:47
+[ 4971.914017] media_event  INF (18090:18333) gst_lx_videodec_init     4277: <(null)> Initialized
+[ 4971.914667] media_event  INF (18090:18333) gst_lx_videodec_set_property 1429: <lxvideodec0> gen_hash_interval = 0
+[ 4971.918907] media_event  NOT (18090:18333) gst_lx_videosink_init     702: <(null)> Compile info : May  7 2025 07:01:47
+[ 4971.918985] kadp         NOT (18090:18333) KADP_InitSystem           261: KAdaptor Init [1] PS netflix.bin, TID 18333 (Kdriver Adaptation Layer for lg1k)
+[ 4971.919244] de           INF (18090:18333) DE_Open                   831: device opened (1105:0)
+[ 4971.921061] pm           NOT (18090:18333) o22_pm_ioctl_main         323: PM_CHECK_INIT [1]
+[ 4971.921197] kadp         NOT (18090:18333) KADP_InitSystem           279: KAdaptor Init Done. status=0x00000001,0x00000000
+[ 4971.921276] media_event  NOT (18090:18333) gst_lx_videosink_set_property  861: <lxvideosink0> set lipsync_offset 0
+[ 4971.925192] media_event  NOT (18090:18333) gst_lx_videosink_pad_link  792: <lxvideosink0> sink_pad linked
+[ 4971.925218] media_event  NOT (18090:18333) gst_lx_videosink_pad_link  800: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 4971.925230] media_event  NOT (18090:18333) gst_lx_videosink_pad_link  807: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 4971.932642] media_event  NOT (18090:18333) gst_lg_adec_set_property 3623: <lgaudiodec> Set audio index(resource-info) to 1
+[ 4971.932814] lgadec       ERR (18090:18333) lgadec_decoder_get_ac4_dialog_enhancement_gain 2024: audio device is not opened
+[ 4971.932822] lgadec       ERR (18090:18333) lgadec_get_ac4_dialog_enhancement_gain 3526: Get Ac4 Dialog Enhancement Gain Err
+[ 4971.932957] media_event  NOT (18090:18333) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from NULL to READY
+[ 4971.932964] media_event  NOT (18090:18333) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from NULL to READY. DONE
+[ 4971.932969] media_event  NOT (18090:18333) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from NULL to READY
+[ 4971.932973] media_event  NOT (18090:18333) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from NULL to READY. DONE
+[ 4971.933003] media_event  NOT (18090:18333) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from READY to PAUSED
+[ 4971.933020] media_event  NOT (18090:18333) _gst_lg_adec_start       2757: <lgaudiodec> start
+[ 4971.933024] media_event  NOT (18090:18333) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from READY to PAUSED. DONE
+[ 4971.933038] media_event  NOT (18090:18333) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from READY to PAUSED
+[ 4971.933042] media_event  NOT (18090:18333) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from READY to PAUSED. DONE
+[ 4971.939122] media_event  NOT (18090:18333) gst_lg_audio_render_init 1032: <audio_sink> Compile info : May  7 2025 07:01:47
+[ 4971.939264] media_event  INF (18090:18333) gst_lg_audio_render_set_property 1561: <audio_sink> Set Audio's lipsync offset to 0
+[ 4971.939311] lgao         ERR (18090:18333) lgao_set_lipsync_offset   733: context is null
+[ 4971.939417] media_event  INF (18090:18333) gst_lg_audio_render_set_property 1922: <audio_sink> Set Netflix VSP(Variable Speed Playback) mode TRUE
+[ 4971.939426] lgao         ERR (18090:18333) lgao_set_vsp_mode        3101: context is null
+[ 4971.939759] media_event  NOT (18090:18422) gst_lx_videodec_change_state  955: <lxvideodec0> state: NULL_TO_READY
+[ 4971.940070] media_event  NOT (18090:18333) gst_lg_audio_render_set_property 1737: <audio_sink> video-port is 0
+[ 4971.940079] media_event  INF (18090:18333) gst_lg_audio_render_set_property 1748: <audio_sink> audio-port 1, video-port 0,mixer-port -1
+[ 4971.940087] lgao         ERR (18090:18333) lgao_set_port            1037: context is null
+[ 4971.940105] media_event  NOT (18090:18333) gst_lg_audio_render_change_state 2965: <audio_sink> change state from NULL to READY
+[ 4971.940136] media_event  NOT (18090:18333) gst_lg_audio_render_change_state 2977: <audio_sink> send preopen properties to lgao
+[ 4971.940141] media_event  NOT (18090:18333) _gst_lg_audio_render_set_preconditions 2750: <audio_sink> applying PROP_LIPSYNC_OFFSET...0
+[ 4971.940148] media_event  NOT (18090:18333) _gst_lg_audio_render_set_preconditions 2852: <audio_sink> applying PROP_RESOURCE_INFO...port 1,-1
+[ 4971.940153] media_event  INF (18090:18333) _gst_lg_audio_render_set_preconditions 2917: <audio_sink> Set Netflix VSP(Variable Speed Playback) saeamless mode. TRUE
+[ 4971.940157] lgao         NOT (18090:18333) lgao_set_vsp_mode        3103: Set vsp (variable speed playback) mode
+[ 4971.940161] media_event  INF (18090:18333) _gst_lg_audio_render_set_preconditions 2934: <audio_sink> property not for preopen condition 33
+[ 4971.940594] media_event  INF (18090:18422) gst_lx_videodec_change_state  969: <lxvideodec0> lxvdec_open(): 0xee1266a0
+[ 4971.940601] media_event  INF (18090:18422) gst_lx_videodec_change_state 1040: <lxvideodec0> parent class change state start
+[ 4971.940607] media_event  INF (18090:18422) gst_lx_videodec_change_state 1059: <lxvideodec0> parent class change state end
+[ 4971.940611] media_event  NOT (18090:18422) gst_lx_videodec_change_state 1075: <lxvideodec0> state: NULL_TO_READY DONE
+[ 4971.940628] media_event  NOT (18090:18422) gst_lx_videodec_change_state  955: <lxvideodec0> state: READY_TO_PAUSED
+[ 4971.940631] media_event  INF (18090:18422) gst_lx_videodec_change_state 1040: <lxvideodec0> parent class change state start
+[ 4971.940823] media_event  INF (18090:18422) gst_lx_videodec_change_state 1059: <lxvideodec0> parent class change state end
+[ 4971.940828] media_event  NOT (18090:18422) gst_lx_videodec_change_state 1075: <lxvideodec0> state: READY_TO_PAUSED DONE
+[ 4971.940918] media_event  INF (18090:18422) gst_lx_videodec_set_property 1429: <lxvideodec0> gen_hash_interval = 0
+[ 4971.940940] media_event  INF (18090:18422) gst_lx_videodec_sinkpad_linked 4036: <lxvideodec0> sinkpad linked!
+[ 4971.940980] media_event  INF (18090:18422) gst_lx_videodec_sinkpad_linked 4043: <lxvideodec0> thumbnail_mode from smart-properties is 0, ret -1
+[ 4971.941036] media_event  NOT (18090:18422) gst_lx_videodec_pad_event 3766: <lxvideodec0> event: sink:stream-start
+[ 4971.941042] media_event  INF (18090:18422) gst_lx_videodec_pad_event 3774: <lxvideodec0> pad:sink, received event stream-start updated
+[ 4971.941048] media_event  NOT (18090:18422) gst_lx_videodec_pad_event 3898: <lxvideodec0> stream id received [76d2add9f600c509f611b5e9e5d0ed7b]
+[ 4971.941137] media_event  NOT (18090:18422) gst_lx_videodec_pad_event 3766: <lxvideodec0> event: sink:caps
+[ 4971.941141] media_event  INF (18090:18422) gst_lx_videodec_pad_event 3774: <lxvideodec0> pad:sink, received event caps updated
+[ 4971.941173] media_event  NOT (18090:18422) gst_lx_videodec_pad_event_caps 3684: <lxvideodec0> received : caps video/x-h265, format=(string)H265, container=(string)ES, parsed=(boolean)true, stream-format=(string)byte-s
+[ 4971.941178] media_event  INF (18090:18422) gst_lx_videodec_pad_event_caps 3727: <lxvideodec0> First CAPS event. store mimetype [video/x-h265]
+[ 4971.941220] media_event  INF (18090:18422) gst_lx_videodec_srcpad_setcaps 2390: <lxvideodec0> srcpad caps : video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false,
+[ 4971.941289] media_event  NOT (18090:18422) gst_lx_videodec_handle_caps 2426: <lxvideodec0> caps : video/x-h265, format=(string)H265, container=(string)ES, parsed=(boolean)true, stream-format=(string)byte-stream, align
+[ 4971.941305] media_event  INF (18090:18422) gst_lx_videodec_extract_caps  619: <lxvideodec0> mime=video/x-h265, width=1920, height=1080, fourCC=H265, container=ES, mpegversion=-1, app-type=, alignment=au
+[ 4971.941310] media_event  NOT (18090:18422) gst_lx_videodec_extract_caps  628: <lxvideodec0> [H265] (1920 x 1080)
+[ 4971.941316] media_event  NOT (18090:18422) gst_lx_videodec_extract_caps  766: <lxvideodec0> container is : ES
+[ 4971.941320] media_event  INF (18090:18422) gst_lx_videodec_extract_caps  773: <lxvideodec0> change resolution info. from orig. 1920x1080 to max res. 3840x2160
+[ 4971.941328] media_event  INF (18090:18422) gst_lx_videodec_handle_caps 2444: <lxvideodec0> stream-format : byte-stream
+[ 4971.941375] media_event  NOT (18090:18333) gst_lg_audio_render_start 2658: <audio_sink> trace
+[ 4971.941445] media_event  INF (18090:18422) gst_lx_videodec_handle_caps 2509: <lxvideodec0> set framerate: 15712911/262144
+[ 4971.941557] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 1977: <lxvideodec0> vdec handle 0xee1266a0
+[ 4971.941608] media_event  NOT (18090:18333) gst_lg_audio_render_change_state 3131: <audio_sink> change state from NULL to READY. DONE
+[ 4971.941643] media_event  NOT (18090:18333) gst_lg_audio_render_change_state 2959: <audio_sink> DEC.1 - change state from READY to PAUSED
+[ 4971.941677] media_event  INF (18090:18422) gst_lx_videodec_init_decoder 1986: <lxvideodec0> SET MEMORY TYPE <TILED> play mode
+[ 4971.941684] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 1990: <lxvideodec0> set channel (video port) 0
+[ 4971.941804] media_event  NOT (18090:18333) gst_lg_audio_render_change_state 3125: <audio_sink> DEC.1 - change state from READY to PAUSED. DONE
+[ 4971.941849] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2391: <lxvideosink0> state: NULL_TO_READY
+[ 4971.941880] media_event  INF (18090:18422) gst_lx_videodec_init_decoder 2034: <lxvideodec0> dovi_bl
+[ 4971.941989] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 2043: <lxvideodec0> dolby_vision 1
+[ 4971.942284] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 2116: <lxvideodec0> [SVP] VDEC SECURE CPB/SE INIT. DONE..(0x57b20000)
+[ 4971.942289] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 2165: <lxvideodec0> SVP detected! send vdec handle signal!
+[ 4971.942295] media_event  WAR (18090:18422) gst_lx_videodec_svp_handle_cb 1956: <lxvideodec0> svp-handle signal emitting with instance 0xee1266a0
+[ 4971.942358] media_event  NOT (18090:18333) gst_lx_videosink_start   2011: <lxvideosink0> lxvo_open(): 0xc4a96b28
+[ 4971.942632] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2487: <lxvideosink0> state: NULL_TO_READY DONE
+[ 4971.942664] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2391: <lxvideosink0> state: READY_TO_PAUSED
+[ 4971.942932] media_event  NOT (18090:18333) gst_lx_videosink_change_state 2487: <lxvideosink0> state: READY_TO_PAUSED DONE
+[ 4971.947864] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 2190: <lxvideodec0> cpb threshold 5
+[ 4971.949143] media_event  NOT (18090:18422) gst_lx_videodec_init_decoder 2214: <lxvideodec0> decoder init. SUCCESS
+[ 4971.952077] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x982909 (V4L2_CID_EXT_VSC_RGB444), value 0
+[ 4971.952086] de           NOT (02664:02664) vsc_set_rgb444           1472: win[0] rgb444 [0]
+[ 4971.952091] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:3, input:0,3840x2160@599, hdr:0, hdmi444:0
+[ 4971.952346] v4l2_conn    NOT (02664:02664) set_vdo_ext_ctrls         326: fh:00000000eec04ffc, dev:28, 0 -> 0 connect
+[ 4971.952809] vmcu: [ 4962.890661]    vdisp NOT  (032)       vdisp_set_out_port  112: vdisp:0 => port:0 connect
+[ 4971.952984] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x98290c (V4L2_CID_EXT_VSC_CONNECT_INFO)
+[ 4971.952995] de           NOT (02664:02664) DE_REG_O22_CviMap        1846: sel_cvi[255] sel_clk[255]
+[ 4971.952999] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1882: Src map (NONE(0)/VGA(1)/YPBPR(2)/ATV(3)/CVD(4)/SCART(5)/HDMI(6)/MVI(7)/CPU(8))
+[ 4971.953002] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1883:   => win[0] src[7] port[0]
+[ 4971.953039] de           NOT (02664:02664) vsc_set_input             550: win[0] src[4] index[0] attr[0] out[1] vdop[0] pid[0]
+[ 4971.953044] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:0, input:4,3840x2160@599, hdr:0, hdmi444:0
+[ 4971.953555] de           NOT (01951:01951) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x980923 (V4L2_CID_BG_COLOR), value 1
+[ 4971.953561] de           NOT (01951:01951) vsc_set_mute             1247: Mute win[0] 1
+[ 4971.961500] pe           NOT (02653:02653) vpq_set_ext_ctrl_cmn      366: setpqmodeinfo: v:1,l:20,w:0, 0,0,1000,0,0
+[ 4971.961542] pe           NOT (02653:02653) vpq_hwrap_sethdropmodeinfo 9728: [0]t:cc(0,0,0,0,0,0,0,1000)<-(0,0,0,1,0,0,0,1000)
+[ 4971.962877] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1245: v:1,l:32,wid:0, gl v:1,sn:1,p:000000007905f45c, ai s:28,p:00000000f116e1f9
+[ 4971.963410] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1332: s:28, iv:0x00, id:1,0,2,0, [1] en:0, cp:0, c,b,s:512,512,128
+[ 4971.963652] de           NOT (02653:02653) v4l2_vsc_update_pulldown 2148: memc_type : 0  --> _g_curr_pulldown : 0
+[ 4971.970195] de           NOT (02649:02649) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 5  <<<<<<<
+[ 4971.970206] de           NOT (02649:02649) _vsc_vp_periodictask     2400: win[0] h/v 3840/2160 , fr 599/10Hz , [2], dsc[0], svp=1
+[ 4971.970210] pe           NOT (02649:02649) v4l2_vpq_update_inputSrc  136: LATENCY inputSrc inputSrc: 9
+[ 4971.970214] pe           NOT (02649:02649) v4l2_vpq_update_vFreq     150: LATENCY inputSrc Vfreq: 599
+[ 4971.970217] pe           NOT (02649:02649) v4l2_vpq_update_scanType  143: LATENCY inputSrc Scantype: 1
+[ 4971.970220] pe           NOT (02649:02649) v4l2_vpq_detect_vFreq     270: LATENCY inputSrc Vfreq: 599
+[ 4971.970223] de           NOT (02649:02649) _vsc_vp_periodictask     2421: set_frate set_frate:60
+[ 4971.970228] de           NOT (02649:02649) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[ 4971.970256] de           NOT (02649:02649) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0
+[ 4971.970289] de           NOT (02649:02649) vsc_bwm_set_config        148: [bwm] opt:1, input:4,3840x2160@599, hdr:0, hdmi444:0
+[ 4971.970295] de           NOT (02649:02649) vsc_bwm_noti              210: [bwm] sys_bwm_noti(pqe.input=vdec,3840x2160@59) noti
+[ 4971.973421] de           NOT (00000:00000) DE_VSYNC_WakeUp           636: update_win_ intr_mask = 3 [0,0 0x0] [0,0 3840x2160] [63853,28707 7116x46574] [63853,28707 7116x46574] [5992,4530 65408x65535] [0,0 0x0]
+[ 4971.998188] [wlan][4801]halRxMonitor:(HAL STATE) halRxMonitor: periodic check
+[ 4971.998193] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_submit#: 8
+[ 4971.998194] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_complete#: 4
+[ 4971.998195] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_fail#: 0
+[ 4971.998197] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataFreeQ#: 0
+[ 4971.998199] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataCompleteQ#: 0
+[ 4972.627777] media_event  NOT (18090:18430) gst_lg_adec_downstream_event 3130: <lgaudiodec> got event(flush-start)
+[ 4972.627817] media_event  INF (18090:18430) gst_lg_audio_render_event 2224: <audio_sink> Received GST_EVENT_FLUSH_START event
+[ 4972.628196] media_event  NOT (18090:18430) gst_lg_adec_downstream_event 3142: <lgaudiodec> got event(flush-stop)
+[ 4972.628205] lgadec       ERR (18090:18430) lgadec_flush             2518: audio device is not opened
+[ 4972.628209] lgadec       ERR (18090:18430) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.628226] media_event  INF (18090:18430) gst_lg_audio_render_event 2231: <audio_sink> Received Event = GST_EVENT_FLUSH_STOP
+[ 4972.628517] media_event  NOT (18090:18430) gst_lx_videodec_pad_event 3766: <lxvideodec0> event: sink:flush-start
+[ 4972.628525] media_event  INF (18090:18430) gst_lx_videodec_pad_event 3774: <lxvideodec0> pad:sink, received event flush-start updated
+[ 4972.628530] media_event  INF (18090:18430) gst_lx_videodec_pad_event 3799: <lxvideodec0> flush-start
+[ 4972.628589] media_event  NOT (18090:18427) gst_lx_videodec_callback 3299: <lxvideodec0> message kick
+[ 4972.628740] vmcu: [ 4963.566594]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4972.628771] vmcu: [ 4963.566656]     vdec NOT  (032)                   _flush 3736: done
+[ 4972.629371] media_event  NOT (18090:18430) gst_lx_videosink_event   2199: <lxvideosink0> event: flush-start
+[ 4972.629379] media_event  NOT (18090:18430) gst_lx_videosink_event   2243: <lxvideosink0> signal wait_noti cond
+[ 4972.629387] media_event  NOT (18090:18430) gst_lx_videosink_signal_notification 1239: <lxvideosink0> signal notification, <gst_lx_videosink_event:2244>
+[ 4972.629628] media_event  INF (18090:18430) gst_lx_videodec_pad_event 3815: <lxvideodec0> flush-start done
+[ 4972.632943] media_event  NOT (18090:18430) gst_lx_videodec_pad_event 3766: <lxvideodec0> event: sink:flush-stop
+[ 4972.632953] media_event  INF (18090:18430) gst_lx_videodec_pad_event 3774: <lxvideodec0> pad:sink, received event flush-stop updated
+[ 4972.632958] media_event  INF (18090:18430) gst_lx_videodec_pad_event 3821: <lxvideodec0> flush-stop
+[ 4972.632979] media_event  NOT (18090:18430) gst_lx_videosink_event   2199: <lxvideosink0> event: flush-stop
+[ 4972.633309] vmcu: [ 4963.571153]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4972.633331] vmcu: [ 4963.571215]     vdec NOT  (032)                   _flush 3736: done
+[ 4972.633814] media_event  INF (18090:18430) gst_lx_videodec_pad_event 3854: <lxvideodec0> flush-stop done
+[ 4972.634221] media_event  NOT (18090:18422) gst_lx_videodec_pad_event 3766: <lxvideodec0> event: sink:segment
+[ 4972.634232] media_event  INF (18090:18422) gst_lx_videodec_pad_event 3774: <lxvideodec0> pad:sink, received event segment updated
+[ 4972.634247] media_event  NOT (18090:18422) gst_lx_videodec_pad_event_segment 3576: <lxvideodec0> segment: start 0:01:34.744000000, rate=1.000000
+[ 4972.634254] media_event  INF (18090:18422) gst_lx_videodec_adjust_rate 3500: <lxvideodec0> rate changed from 1 to 1
+[ 4972.634435] vmcu: [ 4963.572297]     vdec WAR  (032)                   do_eos 4555: vdec:506d8000, no ves
+[ 4972.634451] vmcu: [ 4963.572337]     vdec WAR  (032)               vdec_ioctl 5785: ioctl failed (cmd:47, ret:-22)
+[ 4972.634476] lxvdec       ERR (18090:18422) lxvdec_eos               3075: v0xee1266a0, LX_VDEC_EOS, Invalid argument
+[ 4972.634481] media_event  NOT (18090:18422) gst_lx_videodec_pad_event_segment 3599: <lxvideodec0> EOS done. Flushing
+[ 4972.634667] vmcu: [ 4963.572523]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4972.634713] vmcu: [ 4963.572583]     vdec NOT  (032)                   _flush 3736: done
+[ 4972.637545] media_event  NOT (18090:18422) gst_lx_videodec_pad_event_segment 3622: <lxvideodec0> scanMode = 0
+[ 4972.637558] media_event  NOT (18090:18422) gst_lx_videodec_pad_event_segment 3628: <lxvideodec0> change play rate, rate =1.000000
+[ 4972.637830] linux-ca     DEB (18090:18422) ca_if_svp_open            206: base:0x57b20000, sz:0xa00000, (type:0x79647270) (v-handl: 0xee1266a0)
+[ 4972.637833] media_event  NOT (18090:18424) gst_lx_videosink_event   2199: <lxvideosink0> event: stream-start
+[ 4972.637841] linux-ca     DEB (18090:18422) ca_if_svp_get_ca_session_from_fourcc   51: playready
+[ 4972.637844] media_event  NOT (18090:18424) gst_lx_videosink_update_stream_id 2167: <lxvideosink0> first stream_id (76d2add9f600c509f611b5e9e5d0ed7b)
+[ 4972.637855] linux-ca     DEB (18090:18422) svp_client_initialize     541: decrypt_buf_sz = 0x900000, 9437184 bytes
+[ 4972.637864] linux-ca     DEB (18090:18422) svp_client_helper_add_svp_id_to_stat 1214: svp opened count(1)
+[ 4972.637869] linux-ca     DEB (18090:18422) ca_if_svp_open            269: handle (0xee11f3e0)
+[ 4972.637910] media_event  NOT (18090:18424) gst_lx_videosink_event   2199: <lxvideosink0> event: caps
+[ 4972.637950] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1274: <lxvideosink0> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 4972.637964] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1362: <lxvideosink0> First video mimetype received [video/x-h265]
+[ 4972.638018] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1380: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 4972.638042] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1391: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 4972.638064] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1274: <lxvideosink0> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 4972.638071] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1352: <lxvideosink0> video mimetype not changed
+[ 4972.638075] media_event  WAR (18090:18424) gst_lx_videosink_set_caps 1354: <lxvideosink0> video codec change on PAUSED state. Send forced flush to lxvo
+[ 4972.638306] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1380: <lxvideosink0> thumbnail_mode from smart-properties is 0
+[ 4972.638330] media_event  NOT (18090:18424) gst_lx_videosink_set_caps 1391: <lxvideosink0> interleaving_type (0) ret (-1)
+[ 4972.638352] media_event  NOT (18090:18424) gst_lx_videosink_event   2199: <lxvideosink0> event: segment
+[ 4972.638363] media_event  NOT (18090:18424) gst_lx_videosink_event   2279: <lxvideosink0> received new segment 0:01:34.744000000, rate 1.000000
+[ 4972.638532] media_event  NOT (18090:18424) gst_lx_videosink_set_speed 1437: <lxvideosink0> set speed: 1.000000
+[ 4972.643939] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3388: <lgaudiodec> got event(stream-start)
+[ 4972.643953] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3399: <lgaudiodec> new stream-start ID: 1f41be3aa39c8cb17b192ceae380b58e
+[ 4972.643959] lgadec       ERR (18090:18420) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.644031] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3241: <lgaudiodec> got event(caps)
+[ 4972.644056] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3250: <lgaudiodec> DEC.1 - caps "audio/x-eac3, framed=(boolean)true, rate=(int)48000, channels=(int)6, alignment=(string)iec61937, immersive=(str
+[ 4972.644088] amedia       ERR (18090:18420) adecoder_open             203: can not open audio decoder. already opened index 1
+[ 4972.644095] lgadec       ERR (18090:18420) lgadec_decoder_open      1112: audio decoder [1] is not available
+[ 4972.644101] amedia       ERR (18090:18420) adecoder_close            224: can not find audio decoder .
+[ 4972.644148] lgadec       ERR (18090:18420) lgadec_select_codec      2624: audio device is not opened
+[ 4972.644152] media_event  INF (18090:18426) gst_lg_audio_render_event 2357: <audio_sink> Received Event = GST_EVENT_STREAM_START
+[ 4972.644161] media_event  INF (18090:18426) gst_lg_audio_render_event 2365: <audio_sink> Stream ID: 1f41be3aa39c8cb17b192ceae380b58e
+[ 4972.644522] lgadec       ERR (18090:18420) lgadec_start             2113: audio device is not opened
+[ 4972.644534] lgadec       ERR (18090:18420) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.644629] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3241: <lgaudiodec> got event(caps)
+[ 4972.644651] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3250: <lgaudiodec> DEC.1 - caps "audio/x-eac3, framed=(boolean)true, rate=(int)48000, channels=(int)6, alignment=(string)iec61937, immersive=(str
+[ 4972.644663] lgadec       ERR (18090:18420) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.644678] media_event  NOT (18090:18420) gst_lg_adec_downstream_event 3195: <lgaudiodec> got event(segment)
+[ 4972.644689] lgadec       ERR (18090:18420) lgadec_decoder_set_basetime 1913: audio device is not opened
+[ 4972.644701] lgadec       ERR (18090:18420) lgadec_set_basetime      4183: set basetime Err
+[ 4972.644706] lgadec       ERR (18090:18420) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.644729] media_event  INF (18090:18426) gst_lg_audio_render_event 2322: <audio_sink> Received Event = GST_EVENT_CAPS
+[ 4972.644776] media_event  INF (18090:18426) gst_lg_audio_render_set_caps 1136: <audio_sink> DEC.1 - caps "audio/x-raw, format=(string)S8, layout=(string)interleaved, rate=(int)8000, channels=(int)1, DUMMY=(int)1, BYPAS
+[ 4972.644798] media_event  INF (18090:18426) gst_lg_audio_render_set_caps 1151: <audio_sink> BYPASS 0..
+[ 4972.644802] media_event  INF (18090:18426) gst_lg_audio_render_set_caps 1160: <audio_sink> This caps is dummy. So drop this
+[ 4972.644823] media_event  INF (18090:18426) gst_lg_audio_render_event 2277: <audio_sink> Received Event = GST_EVENT_SEGMENT
+[ 4972.644853] lgadec       ERR (18090:18420) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4972.644855] media_event  INF (18090:18426) gst_lg_audio_render_event 2281: <audio_sink> time segment start=0:01:34.744000000, offset=0:00:00.000000000, stop=99:99:99.999999999, rate=1.000000, applied_rate=1.000000, fl
+[ 4972.644862] media_event  INF (18090:18426) gst_lg_audio_render_event 2293: <audio_sink> init decodedSize(current decodedSize is 0)
+[ 4972.653143] linux-ca     DEB (18090:18422) ca_if_svp_copy_sample_to_cpb  536: first touch or after flush (0x57b20000): (v-handl: 0xee1266a0)
+[ 4972.653919] media_event  INF (18090:18422) gst_lx_videodec_pad_chain 3457: <lxvideodec0> received buffer, 0:01:34.744650000
+[ 4972.654479] vmcu: [ 4963.592344] dpb_cleaner NOT  (032) dpb_cleaner_register_decoder   90: 506d8000 0
+[ 4972.654526] vmcu: [ 4963.592407]      ves NOT  (032)                 ves_open 1564: [VES0] src:2 codec:10 CPB base:0x57B20000 size:0xA00000
+[ 4972.654653] vmcu: [ 4963.592526]     vdec NOT  (032)               init_codec 3547: vdec:506d8000, ch0,hevc,dovi,dovi_bl,tiled,4k_cont,svp res 3840x2160 fr 15712911/262144 max_tid:-1
+[ 4972.655050] vmcu: [ 4963.592918]     podi NOT  (032)        _PodiInitInstInfo  951: [0]HEVC COMP NORMAL cpb(p:0x57b20000 v:0x97b20000 sz:0xa00000) add:1 f/a:0
+[ 4972.663554] vmcu: [ 4963.601407]     podi NOT  (032)                _PodiOpen  525: [0]PODI Instance opened : 11 (0x57B20000--0x58520000) dv 128 uhd 0 shvc 0 hfr 0 2pid 0 bl 512 el 0
+[ 4972.667863] vmcu: [ 4963.605719]   feeder NOT  (020)           check_instance  767: ch:0 dec idle but input q empty(dq=0, out_total=0)
+[ 4972.691615] vmcu: [ 4963.629474]     vdec NOT  (020)          display_picture 1847: vdec:506d8000, pts 160f38a110, stc 1aa0d815(-4869129ms), ts 94744650000, 0(0), res 3840x2160, fr 60000/1001
+[ 4972.695635] media_event  INF (18090:18427) gst_lx_videodec_output_loop 2637: <lxvideodec0> push first buffer, 0:01:34.744650000
+[ 4972.695805] media_event  NOT (18090:18424) gst_lx_videosink_preroll 1501: <lxvideosink0> preroll start
+[ 4972.695815] media_event  NOT (18090:18424) gst_lx_videosink_preroll 1511: <lxvideosink0> [READY->PAUSED] preroll, 0:01:34.744650000
+[ 4972.696992] media_event  NOT (18090:18424) gst_lx_videosink_setup_before_first_frame 1652: <lxvideosink0> framerate e 60000/1001 (c 60000/1001)
+[ 4972.697688] vmcu: [ 4963.635552]       vo NOT  (035)        initialize_locked  622: vo:50705600, vdisp_id:0, enable match
+[ 4972.697812] vmcu: [ 4963.635686]     vpts NOT  (035)                vpts_open  151: [VPTS0] Match Mode 0(enable)
+[ 4972.697890] vmcu: [ 4963.635743]    vdisp NOT  (035)      vdisp_open_instance 1283: [VDISP0] dolby, clk_src:GSTC,disp_offset:0ms,1st pts(8527018),gav repeat:off
+[ 4972.697898] vmcu: [ 4963.635778]    vdisp NOT  (035)          vdisp_set_speed  351: [VDISP0] Set Speed 1000 mode 0
+[ 4972.697970] vmcu: [ 4963.635842]    vdisp NOT  (035)             set_out_port 1082: [VDISP0] Outport -2(UNKNOWN) => 0(PORT0)
+[ 4972.698404] media_event  NOT (18090:18424) gst_lx_videosink_event_video_information 3767: <lxvideosink0> self->typeof3d=0, tmpTridType(from vdec)=0, width=3840, height=2160
+[ 4972.698553] media_event  NOT (18090:18424) gst_lx_videosink_event_video_information 3810: <lxvideosink0> media-info, stream-id=(string)76d2add9f600c509f611b5e9e5d0ed7b, type=(int)1, 3D_Type=(uint)0, PAR_Width=(uint)1,
+[ 4972.698638] media_event  NOT (18090:18424) gst_lx_videosink_event_video_information 3824: <lxvideosink0> video-info, vdec-ch=(int)0, codec=(string)H265, width=(uint)3840, height=(uint)2160, framerate=(fraction)60000/1
+[ 4972.698687] media_event  NOT (18090:18424) gst_lx_videosink_preroll 1601: <lxvideosink0> preroll done
+[ 4972.701798] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x982908 (V4L2_CID_EXT_VSC_ADAPTIVE_STREAM), value 1
+[ 4972.702564] de           NOT (02664:02664) DE_REG_O22_SetCviSrcType 1912: CVI-Ch[0] HDMI Phy[2] : hsize = 3840, vsize = 2160
+[ 4972.702576] de           NOT (02664:02664) vsc_set_adaptives_stream 1432: Seamless flag  win_id[0] - on/off[1]
+[ 4972.703876] de           NOT (02664:02664) v4l2_vsc_vidioc_g_ctrl   1179: vsc:id 0x982910 (V4L2_CID_EXT_VSC_OCCUPATION_SUB_SCALER), value 0
+[ 4972.703946] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x98290b (V4L2_CID_EXT_VSC_HDR_TYPE), value 2
+[ 4972.703956] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3320: Before_IPC:[CMD:0x00000061]wid:0,ipc:1,from:0, DE:1,PE:0 -> 1
+[ 4972.703985] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3331: After_IPC:[CMD:0x00000061]wid:0,ipc:1,from:0, DE:1,PE:0 -> 1
+[ 4972.703989] de           NOT (02664:02664) vsc_set_hdr_type         1534: hdr type : flag:1, win:0, type:2, ipc:1
+[ 4972.703996] pe           NOT (02664:02664) vpq_hwrap_sethdropmodeinfo 9728: [0]t:1(1,0,0,0,0,0,0,1000)<-(0,0,0,0,0,0,0,1000)
+[ 4972.704003] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:2, input:4,3840x2160@599, hdr:2, hdmi444:0
+[ 4972.704008] de           NOT (02664:02664) vsc_v4l2_dolby_event      676: hdr type = 2 input_type = 4
+[ 4972.704011] de           NOT (02664:02664) vsc_v4l2_dolby_event      701: INPUT IS OTT##########
+[ 4972.704022] de           NOT (02664:02664) vsc_v4l2_dolby_event      729: DOLBY VSC EVENTS Are success fully posted!!!!
+[ 4972.704188] dolby        INF (01954:01985) DOVI_Init                 179: NOTI:: OTT/LL Mutex initialized for Win [0]
+[ 4972.704214] de           NOT (01954:01985) DE_DHDR_IP_REG_O22_Init   246: Info: Dolby Driver Init Mode [1]
+[ 4972.704241] de           NOT (01954:01985) DE_DHDR_IP_REG_O22_Phy2Virt  220: Info: MD H/W & Virtual Addr 0xc9006000 000000002368118c
+[ 4972.704247] de           NOT (01954:01985) DE_DHDR_IP_IO_Init        200: Info: 0 [DE_DHDR_IP_IO_Init:200] Dolby Driver Init Done! OTT Md Addr & Size = 0x80480000 0x1400 Lut DDR Addr & size= 0x80481400 0x1b9c0 CompDM 
+[ 4972.704251] de           NOT (01954:01985) v4l2_set_ext_ctrl_dolby_driver 1391: Dolby Driver INIT done 
+[ 4972.704300] dolby        INF (01954:01985) DOVI_FWSync_Init          191: Size of Raw MD = 80 Interface Size = 4096 Lut Size = 12288 MD Sise = 2328 Toatal SIze = 102400
+[ 4972.704393] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_Init  246: allocted 66626 size of OTT DM metaData
+[ 4972.704407] dolby        INF (01954:01985) DOVI_FWSync_Init          209: ##############MD Parser Init Done 1 64 sizeof(dovi_fw_interface_t) = 12288 sizeof(dovi_interace_mng_data_t = 4096############### !!!
+[ 4972.704411] dolby        INF (01954:01985) DOVI_FWSync_Init          212: Dolby Driver Init Done !!!
+[ 4972.704415] dolby        INF (01954:01985) DOVI_IP_INF_Init          131: DBG:: Dolby Driver IP Interface Init Done [DOVI_IP_INF_Init] !!!
+[ 4972.704420] dolby        INF (01954:01985) DOVI_IP_INF_Init          136: DBG:: BEFORE Dolby Driver IP Interface Init Done [DOVI_IP_INF_Init] !!!
+[ 4972.704424] dolby        INF (01954:01985) DOVI_IP_INF_Init          138: DBG:: Dolby Driver IP Interface Init Done [DOVI_IP_INF_Init] !!!
+[ 4972.704429] dolby        ERR (01954:01985) KADP_HDR_Init             165: Kadp_HDR_Init done with hdr mode 1
+[ 4972.704444] LowPower::info::video::video40::4::kadpd-Dolby_Monitor::open::ok::vbe
+[ 4972.704455] pe           NOT (01954:01985) v4l2_vpq_fh_open          866: vpq: open (kadpd-Dolby_Monitor) (open_idx:17)
+[ 4972.704459] pe           NOT (01954:01985) v4l2_vpq_fh_open          869: v4l2_vpq : ret0:1, usage_count:4
+[ 4972.704462] LowPower::info::picturequality::video50::3::kadpd-Dolby_Monitor::open::ok::vpq
+[ 4972.704472] de           NOT (01954:01985) v4l2_vsc_fh_open          817: vsc: open...(stat:3)(kadpd-Dolby_Monitor)
+[ 4972.704476] de           NOT (01954:01985) v4l2_vsc_fh_open          820: v4l2_vsc : ret0:1, usage_count:6
+[ 4972.704483] de           NOT (01954:01985) v4l2_vsc_fh_open          872: VSC V4l2 Thread already created= 1
+[ 4972.704486] de           NOT (01954:01985) v4l2_vsc_fh_open          881: index = 0, minor = 3, win_id[0]
+[ 4972.704490] de           NOT (01954:01985) vsc_open_info             328: win[0], open_count[52] pid[1954]
+[ 4972.704492] LowPower::info::video::video30::5::kadpd-Dolby_Monitor::open::ok::vsc
+[ 4972.704507] de           NOT (01954:01985) vpq_get_ext_dolby_data   1228: copied PQMODE 0 0 data to user space p_user_data = 000000008c48521b
+[ 4972.704514] dolby        INF (01954:01985) DOVI_Start                316: Updated PQ value from driver is 0 0 BRIGHT mode
+[ 4972.704525] dolby        ERR (01954:01985) startBackEndControl       188: Nice value of thread set to -20
+[ 4972.704638] dolby        INF (01954:01985) startBackEndControl       205: ProcessID:: 7a2 ThreadID:: 1985
+[ 4972.704655] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982900 (V4L2_CID_EXT_VSC_WIN_REGION)
+[ 4972.704662] de           NOT (02664:02664) vsc_set_win_info          776: no darc
+[ 4972.704701] de           NOT (02664:02664) vsc_set_win_info          825: wId[0] : Rot[0] size[3840x2160] In[3840x2160(0,0)] Out[0x0(0,0)] VENC[0] Ani[0]
+[ 4972.704744] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4972.704781] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4972.704815] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4972.705019] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4972.707158] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 1.
+[ 4972.707439] dolby        INF (01954:18448) executeBackendCntrlThread  345: Memory allocated for DM metadata with 4096 size
+[ 4972.707596] dolby        INF (01954:18448) executeBackendCntrlThread  424: 136880 bytes are allocated for Dolby MetaData in buffer 0xf50a5068
+[ 4972.713377] pe           NOT (02653:02653) vpq_set_ext_ctrl_cmn      366: setpqmodeinfo: v:1,l:20,w:0, 1,1,1000,0,0
+[ 4972.713600] pe           NOT (02653:02653) vpq_hwrap_sethdropmodeinfo 9728: [0]t:cc(1,0,1,1,0,0,0,1000)<-(1,0,0,0,0,0,0,1000)
+[ 4972.713711] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby  980: picmode = 2 eHDRMovieMode = 2 
+[ 4972.713717] de           NOT (02653:02653) vpq_v4l2_dolby_event      760: Posting PQ Mode EVENT 2 1############
+[ 4972.713739] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4972.713748] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby 1016: DOLBY PQ SUBMODE chnaging for 0 1 value = 100 #####!!!
+[ 4972.713752] de           NOT (02653:02653) vpq_v4l2_dolby_event      770: Posting PQ SUB Mode EVENT ############
+[ 4972.713755] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4972.713876] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1653: v:1,l:32,wid:0, set c:512,b:512,s:128,h:128
+[ 4972.715067] dolby        INF (01954:01985) KADP_HDR_SetPQSubMode     416: i_unWinID 0 i_unPQSubMode 0 i_nVal 100
+[ 4972.715112] dolby        INF (01954:01985) DOVI_SetPQSubMode         496: UnLocked OTT/LL Mutex DOVI_SetPQSubMode
+[ 4972.715249] dolby        ERR (01954:18448) executeBackendCntrlThread  679: Resolution Updated:: width = [3840] Height = [2160] NormalizeWidth = [3840] NormalizeHeight= [2160] PTS: [8527018]
+[ 4972.715285] dolby        INF (01954:18448) isHDRModeUpdated          682: Get Configuration for [2] PQ Mode
+[ 4972.715294] dolby        INF (01954:18448) isHDRModeUpdated          703: Backlight [100]
+[ 4972.715302] dolby        INF (01954:18448) executeBackendCntrlThread  740: Config file or PQ mode changed changed
+[ 4972.720283] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1680: v:96,l:8,wid:0, ui_value:0,curr_input:10,color_space:3,black_level_type:1(0,1,4,5:yuv,others:rgb)
+[ 4972.720410] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1245: v:1,l:32,wid:0, gl v:1,sn:1,p:000000007905f45c, ai s:28,p:00000000f116e1f9
+[ 4972.723545] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3690: Start main audio input 1, port 1 master_index 0.
+[ 4972.723571] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 4972.723580] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3724: main audio input 1, port 1 master_index 1.
+[ 4972.725363] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1332: s:28, iv:0x00, id:1,1,2,1, [1] en:0, cp:0, c,b,s:512,512,128
+[ 4972.726002] de           NOT (02653:02653) v4l2_vsc_update_pulldown 2148: memc_type : 4  --> _g_curr_pulldown : 0
+[ 4972.729676] alsasndout   NOT (02215:02215) sndout_connect           3243: Start Connect output 0x20 input 0x1 port 1.
+[ 4972.729785] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 0 mode = 1
+[ 4972.729800] alsasndout   NOT (02215:02215) sndout_connect           3406: main_audio: 1, codec: 1
+[ 4972.729804] alsasndout   NOT (02215:02215) sndout_connect           3410: output 0x20 input 0x1 port 1 .
+[ 4972.729858] aud_kaimc    NOT (17965:17965) aud0                      568: 4963.912688]     mod_hdmi_new 0x608aae08 NOT      hdmi_set_data_drop_mode.1876: hdmi1_021c0001: setting 2 -> 1(port = 2, process_size = 4096)
+[ 4972.737272] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982900 (V4L2_CID_EXT_VSC_WIN_REGION)
+[ 4972.737283] de           NOT (02664:02664) vsc_set_win_info          776: no darc
+[ 4972.737351] de           NOT (02664:02664) vsc_set_win_info          825: wId[0] : Rot[0] size[3840x2160] In[3840x2160(0,0)] Out[3840x2160(0,0)] VENC[0] Ani[0]
+[ 4972.737428] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4972.737486] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[3840x2160(0,0)] oi[1920x1080(0,0)] vo[3840x2160(0,0)] oo[3840x2160(0,0)]
+[ 4972.737512] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4972.737536] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[3840x2160(0,0)] oi[3840x2160(0,0)] vo[3840x2160(0,0)] oo[3840x2160(0,0)]
+[ 4972.738421] de           NOT (02649:02649) vsc_bwm_noti              228: [bwm] sys_bwm_noti(pqe.hdr=dolby) noti
+[ 4972.742260] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[ 4972.745327] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby 1016: DOLBY PQ SUBMODE chnaging for 0 1 value = 100 #####!!!
+[ 4972.745337] de           NOT (02653:02653) vpq_v4l2_dolby_event      770: Posting PQ SUB Mode EVENT ############
+[ 4972.745347] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4972.748332] dolby        INF (01954:01985) KADP_HDR_SetPQSubMode     416: i_unWinID 0 i_unPQSubMode 0 i_nVal 100
+[ 4972.748350] dolby        INF (01954:01985) DOVI_SetPQSubMode         480: Same backlight value and PQ Mode as before. Nothing to do
+[ 4972.751352] aud_output   NOT (02215:02215) output_set_scms           306: ARC 0
+[ 4972.751362] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[ 4972.754093] aud_output   NOT (02215:02215) output_set_scms           306: ARC 0
+[ 4972.754101] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[ 4972.757084] be           ERR (01954:18452) vbe_set_ctrl             2116: pwm is not initialized
+[ 4972.757106] dolby        INF (01954:18452) BE_V4l2_Set_DutyCycle    1001: ioctl(12)(VIDIOC_S_EXT_CTRLS),err:-1
+[ 4972.757530] alsadec      INF (02215:02215) alsa_decoder_dolby_ottmode 4571: same dolby ottmode bOTTEnable 0, ATMOSLockingEnable 0 .
+[ 4972.763910] de           NOT (02653:02653) DE_VSYNC_WakeUp           636: update_win_ intr_mask = 3 [0,0 3840x2160] [0,0 0x0] [63853,28707 7116x46574] [63853,28707 7116x46574] [47956,4322 65472x65535] [47956,4322 6547
+[ 4972.774913] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4972.774924] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4972.793685] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[ 4972.793713] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4972.793755] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 1
+[ 4972.793798] aud_kaimc    NOT (17965:17965) aud0                      568: 4963.976611]     mod_hdmi_new 0x608aae08 NOT      hdmi_set_data_drop_mode.1876: hdmi1_021c0001: setting 1 -> 2(port = 2, process_size = 4096)
+[ 4972.794134] alsadec      INF (02215:02215) decoder_set_output_mode  1011: SAME output_mode 0, enable 0 .
+[ 4972.794173] aud_output   NOT (02215:02215) output_set_format         263: ARC 4, 8, 192000 0.
+[ 4972.794177] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 1, ddpenc 1 output type is 3
+[ 4972.794183] aud_mixer    NOT (02215:02215) mixer_set_atmos_locking_mode  492: atmos_lock_mode : 0
+[ 4972.794187] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[ 4972.794278] aud_kaimc    NOT (17965:17965) aud1                      589: 4963.977100]       mod_encmat 0x604a90d0 NOT   matenc_set_prop_atmos_lock. 825: set atmos_lock mode 0
+[ 4972.794287] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.977111]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=3
+[ 4972.794295] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.977144]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 3
+[ 4972.794805] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 0
+[ 4972.794814] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4972.794819] alsasndout   NOT (02215:02215) _set_output              2915: update params(4 0 0 1) from params(4 0 0 1).
+[ 4972.794824] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(7), cn(0), sr(0), mo(1).
+[ 4972.796221] aud_kaimc    NOT (17965:17965) aud1                      589: 4963.979033] output_arc_03230003 0x6049c808 NOT                irq_handle_bc. 681: overrun. rd 00002000, wr 00001c00, bc_filled -1024
+[ 4972.797848] alsasndout   NOT (02215:02215) dolby_ms12_iidk_version_get 3744: ms12 version 2.6.
+[ 4972.798899] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.981711]              bin 0x604c20d8 NOT      bin_check_active_output. 313: mixerbin_04280001: output port1 connnected 0 -> 1
+[ 4972.799409] alsasndout   NOT (02215:02215) sndout_earc_ms12_sp50_onoff_put 6461: sp50OnOff (0)
+[ 4972.800933] alsasndout   NOT (02215:02215) sndout_wowcast_output_type_put 6319: Wowcast Output Type: st(2), ct(1), cn(0), sr(0), mo(1).
+[ 4972.802391] alsasndout   NOT (02215:02215) sndout_optic_output_type 5287: Start Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4972.802400] alsasndout   NOT (02215:02215) sndout_optic_output_type 5326: Optic Output Type: st(2), ct(2), cn(0), sr(0), mo(1).
+[ 4972.803950] alsasndout   NOT (02215:02215) sndout_arc_output_type   5198: Start Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4972.803958] alsasndout   NOT (02215:02215) sndout_arc_output_type   5238: Arc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4972.805823] alsasndout   NOT (02215:02215) sndout_earc_output_type  5114: Start Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4972.805859] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 4972.805867] aud_mixer    NOT (02215:02215) mixer_set_encoder_connection  467: connected 0, ddpenc 0 output type is 0
+[ 4972.805878] aud_mixer    NOT (02215:02215) mixer_set_sp50            520: set_sp50 is false.
+[ 4972.805997] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.988822]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=0
+[ 4972.806007] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.988855]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 2
+[ 4972.806062] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.988911]      mod_pcmrend 0x602dfae8 INF          pcmren_prop_updated.1419: pcmren_0400f003: updated output-type=0
+[ 4972.806091] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.988933]      mod_pcmrend 0x602dfae8 NOT          pcmren_prop_updated.1506: pcm output type is changed 3 -> 2
+[ 4972.806380] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 1
+[ 4972.806396] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4972.806401] aud_output   NOT (02215:02215) output_set_format         263: ARC 0, 2, 48000 1.
+[ 4972.806924] aud_kaimc    NOT (17965:17965) aud1                      589: 4963.989744] output_arc_03230003 0x604a90d0 NOT                irq_handle_bc. 681: overrun. rd 00003000, wr 00002c00, bc_filled -1024
+[ 4972.807175] aud_hal_outp NOT (02215:02215) audio_hal_earc_set_mute  1008: eARC Mute : 0
+[ 4972.807238] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 0 mode = 1
+[ 4972.807244] alsasndout   NOT (02215:02215) _set_output              2915: update params(0 1 0 1) from params(0 1 0 1).
+[ 4972.807249] alsasndout   NOT (02215:02215) sndout_earc_output_type  5150: Earc Output Type: st(2), ct(5), cn(0), sr(0), mo(0).
+[ 4972.807306] aud_kaimc    NOT (17965:17965) aud0                      568: 4963.990144]     mod_hdmi_new 0x608aae08 NOT      hdmi_set_data_drop_mode.1876: hdmi1_021c0001: setting 2 -> 1(port = 2, process_size = 4096)
+[ 4972.807851] alsasndout   NOT (02215:02215) sndout_audio_latency_time_get 6013: src:5, codec:0x1, acmod:0x0, output:8, delay:-55.
+[ 4972.808658] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[ 4972.808746] alsasndout   NOT (02215:02215) sndout_gain_output       3889: output 0x20 gain 0x800000 .
+[ 4972.809211] alsase       NOT (02215:02215) _kcontrol_mode_put       1157: LGSE SOUNDENGINE MODE=0x1 (idx=10)
+[ 4972.809371] alsase       NOT (02215:02215) _kcontrol_mode_put       1157: LGSE SOUNDENGINE MODE=0x1 (idx=20)
+[ 4972.809616] alsase       NOT (02215:02215) _kcontrol_mode_put       1157: LGSE SOUNDENGINE MODE=0x1 (idx=40)
+[ 4972.810494] aud_kaimc    NOT (17965:17965) aud2                      610: 4963.993311]              bin 0x604c20d8 NOT      bin_check_active_output. 313: mixerbin_04280001: output port1 connnected 1 -> 0
+[ 4973.267260] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 0.
+[ 4973.406579] media_event  INF (18090:18335) gst_lg_audio_render_set_property 1805: <audio_sink> ease volume setting start
+[ 4973.406594] media_event  INF (18090:18335) gst_lg_audio_render_set_property 1817: <audio_sink> audio ease volume value = 100
+[ 4973.406599] media_event  INF (18090:18335) gst_lg_audio_render_set_property 1818: <audio_sink> audio ease volume duration = 0
+[ 4973.406603] media_event  INF (18090:18335) gst_lg_audio_render_set_property 1819: <audio_sink> audio ease volume fadeType = Linear
+[ 4973.406609] lgao         NOT (18090:18335) lgao_set_fade            1156: ease volume setting, target vol changing -1 -> 100
+[ 4973.406613] lgao         NOT (18090:18335) lgao_set_fade            1162: ease volume setting, duration changing -1 -> 0
+[ 4973.406617] lgao         NOT (18090:18335) lgao_set_fade            1168: ease volume setting, remaining duration changing -1 -> 0
+[ 4973.406621] lgao         NOT (18090:18335) lgao_set_fade            1174: ease volume setting, fade type changing 0 -> 1
+[ 4973.411439] media_event  NOT (18090:18335) gst_lg_audio_render_change_state 2959: <audio_sink> DEC.1 - change state from PAUSED to READY
+[ 4973.412355] media_event  NOT (18090:18335) gst_lg_audio_render_change_state 3125: <audio_sink> DEC.1 - change state from PAUSED to READY. DONE
+[ 4973.412407] media_event  NOT (18090:18335) gst_lx_videosink_change_state 2391: <lxvideosink0> state: PAUSED_TO_READY
+[ 4973.413319] media_event  NOT (18090:18335) gst_lx_videosink_change_state 2487: <lxvideosink0> state: PAUSED_TO_READY DONE
+[ 4973.413457] alsasndout   NOT (02215:02215) sndout_disconnect        3488: Start Disconnect output 0x20 input 0x1 port 1 .
+[ 4973.413517] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4973.413542] alsasndout   NOT (02215:02215) sndout_disconnect        3640: main_audio: 1, codec: 1
+[ 4973.413545] alsasndout   NOT (02215:02215) sndout_disconnect        3644: output 0x20 input 0x1 port 1 .
+[ 4973.413605] aud_kaimc    NOT (17965:17965) aud0                      568: 4964.596422]     mod_hdmi_new 0x608aae08 NOT      hdmi_set_data_drop_mode.1876: hdmi1_021c0001: setting 1 -> 2(port = 2, process_size = 4096)
+[ 4973.416186] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[ 4973.419368] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x982908 (V4L2_CID_EXT_VSC_ADAPTIVE_STREAM), value 0
+[ 4973.419422] de           NOT (02664:02664) DE_REG_O22_SetCviSrcType 1912: CVI-Ch[0] HDMI Phy[2] : hsize = 3840, vsize = 2160
+[ 4973.419428] de           NOT (02664:02664) vsc_set_adaptives_stream 1432: Seamless flag  win_id[0] - on/off[0]
+[ 4973.419678] de           NOT (02664:02664) v4l2_vsc_vidioc_unsubscribe_event 1814: vsc[0] type 0x3, id 0x982922 (base:0x982900)
+[ 4973.419684] de           NOT (02664:02664) v4l2_vsc_vidioc_unsubscribe_event 1879: done
+[ 4973.420025] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x98290b (V4L2_CID_EXT_VSC_HDR_TYPE), value 0
+[ 4973.420033] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3320: Before_IPC:[CMD:0x00000061]wid:0,ipc:0,from:0, DE:0,PE:0 -> 0
+[ 4973.420064] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3331: After_IPC:[CMD:0x00000061]wid:0,ipc:0,from:0, DE:0,PE:0 -> 0
+[ 4973.420068] de           NOT (02664:02664) vsc_set_hdr_type         1534: hdr type : flag:1, win:0, type:0, ipc:0
+[ 4973.420074] pe           NOT (02664:02664) vpq_hwrap_sethdropmodeinfo 9728: [0]t:1(0,0,1,1,0,0,0,1000)<-(1,0,1,1,0,0,0,1000)
+[ 4973.420086] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:2, input:4,3840x2160@599, hdr:0, hdmi444:0
+[ 4973.420089] de           NOT (02664:02664) vsc_v4l2_dolby_event      676: hdr type = 0 input_type = 4
+[ 4973.420122] de           NOT (02664:02664) vsc_v4l2_dolby_event      726: Dolby Status[0],Set to HDR Mode = 0(0-SDR,1-HDR10,2-Dolby,3-HLG,4-PRIME,5-Dolby_LL,6 to 8-RESERVED)\n
+[ 4973.420126] de           NOT (02664:02664) vsc_v4l2_dolby_event      729: DOLBY VSC EVENTS Are success fully posted!!!!
+[ 4973.420517] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982900 (V4L2_CID_EXT_VSC_WIN_REGION)
+[ 4973.420523] de           NOT (02664:02664) vsc_set_win_info          776: no darc
+[ 4973.421802] de           NOT (02664:02664) vsc_set_win_info          825: wId[0] : Rot[0] size[0x0] In[0x0(0,0)] Out[0x0(0,0)] VENC[0] Ani[0]
+[ 4973.421897] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4973.422010] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4973.422053] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4973.422088] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4973.422305] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982905 (V4L2_CID_EXT_VSC_ZORDER)
+[ 4973.422312] de           NOT (02664:02664) vsc_set_zorder           1044: win[0] zorder[BOT] alpha[255]
+[ 4973.422345] de           NOT (02664:02664) vsc_set_zorder           1047: z_list[0:top]=win_1, z_list[1:bot]=win_0, alpha[0:top]=255, alpha[1:bot]=255
+[ 4973.422387] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982905 (V4L2_CID_EXT_VSC_ZORDER)
+[ 4973.422391] de           NOT (02664:02664) vsc_set_zorder           1044: win[1] zorder[TOP] alpha[255]
+[ 4973.423225] pe           NOT (02653:02653) vpq_set_ext_ctrl_cmn      366: setpqmodeinfo: v:1,l:20,w:0, 0,0,1000,0,0
+[ 4973.425021] de           NOT (02664:02664) vsc_set_zorder           1047: z_list[0:top]=win_1, z_list[1:bot]=win_0, alpha[0:top]=255, alpha[1:bot]=255
+[ 4973.425145] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x98290c (V4L2_CID_EXT_VSC_CONNECT_INFO)
+[ 4973.425209] de           NOT (02664:02664) vsc_set_input             465: disconnect & close out window id[0] (0x0)
+[ 4973.425216] de           NOT (02664:02664) DE_REG_O22_CviMap        1846: sel_cvi[255] sel_clk[255]
+[ 4973.425220] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1882: Src map (NONE(0)/VGA(1)/YPBPR(2)/ATV(3)/CVD(4)/SCART(5)/HDMI(6)/MVI(7)/CPU(8))
+[ 4973.425223] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1883:   => win[0] src[0] port[0]
+[ 4973.425251] pe           NOT (02653:02653) vpq_hwrap_sethdropmodeinfo 9728: [0]t:cc(0,0,0,0,0,0,0,1000)<-(0,0,1,1,0,0,0,1000)
+[ 4973.425356] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby  976: PQ Setting to default: VIVID[0]
+[ 4973.425360] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby  980: picmode = 0 eHDRMovieMode = 0 
+[ 4973.425364] de           NOT (02653:02653) vpq_v4l2_dolby_event      760: Posting PQ Mode EVENT 0 0############
+[ 4973.425370] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4973.425378] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby 1016: DOLBY PQ SUBMODE chnaging for 0 0 value = 80 #####!!!
+[ 4973.425381] de           NOT (02653:02653) vpq_v4l2_dolby_event      770: Posting PQ SUB Mode EVENT ############
+[ 4973.425384] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4973.425459] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1653: v:1,l:32,wid:0, set c:471,b:512,s:128,h:128
+[ 4973.426261] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1680: v:96,l:8,wid:0, ui_value:2,curr_input:10,color_space:0,black_level_type:1(0,1,4,5:yuv,others:rgb)
+[ 4973.426413] de           NOT (02664:02664) vsc_set_input             550: win[0] src[0] index[0] attr[0] out[0] vdop[2] pid[0]
+[ 4973.426419] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:0, input:0,3840x2160@599, hdr:0, hdmi444:0
+[ 4973.426504] v4l2_conn    NOT (02664:02664) set_vdo_ext_ctrls         337: fh:00000000200fca7e, dev:28 24364060 -> 0 disconnect
+[ 4973.426573] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1245: v:1,l:32,wid:0, gl v:1,sn:1,p:000000007905f45c, ai s:28,p:00000000f116e1f9
+[ 4973.427187] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1332: s:28, iv:0x00, id:1,0,2,0, [1] en:0, cp:0, c,b,s:512,512,128
+[ 4973.430064] media_event  NOT (18090:18335) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from PAUSED to READY
+[ 4973.430076] media_event  NOT (18090:18335) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from PAUSED to READY. DONE
+[ 4973.430111] media_event  NOT (18090:18335) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from PAUSED to READY
+[ 4973.430123] lgadec       ERR (18090:18335) lgadec_stop              2176: audio device is not opened
+[ 4973.430145] lgadec       ERR (18090:18335) lgadec_decoder_close     1146: audio device is not opened
+[ 4973.430179] lgadec       NOT (18090:18335) lgadec_close             1002: aimc finalized.
+[ 4973.430184] lgadec       NOT (18090:18335) lgadec_close             1020: closed.
+[ 4973.430188] media_event  NOT (18090:18335) _gst_lg_adec_stop        2801: <lgaudiodec> stop
+[ 4973.430192] media_event  NOT (18090:18335) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from PAUSED to READY. DONE
+[ 4973.430309] media_event  NOT (18090:18335) gst_lx_videodec_change_state  955: <lxvideodec0> state: PAUSED_TO_READY
+[ 4973.430342] media_event  NOT (18090:18427) gst_lx_videodec_callback 3299: <lxvideodec0> message stop
+[ 4973.430555] vmcu: [ 4964.368416]    vdisp NOT  (032)       vdisp_set_out_port  112: vdisp:0 => port:0 disconnect
+[ 4973.430579] vmcu: [ 4964.368467]    vdisp NOT  (032)             set_out_port 1082: [VDISP0] Outport 0(PORT0) => -1(DISCONNECTED)
+[ 4973.430649] vmcu: [ 4964.368531]       vo NOT  (032)       displayed_callback  482: vo:50705600, matched, y 5adab000, priv 2ce5298, 3840x2160, 60000/1001, match1, freerun0, drop0, queue(3/3)
+[ 4973.430918] vmcu: [ 4964.368794]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4973.430955] vmcu: [ 4964.368843]     podi NOT  (032)               _PodiFlush  673: [0]flush start
+[ 4973.432912] vmcu: [ 4964.370393]     podi NOT  (032)       _PodiFlushInternal 1342: [0]flush Done
+[ 4973.432919] vmcu: [ 4964.370660]   feeder NOT  (032)              stop_feeder  854: ch:0 check work stop done
+[ 4973.433301] media_event  NOT (18090:18446) gst_lx_videosink_monitor_pollin 4094: <lxvideosink0> vo disconnected
+[ 4973.433310] media_event  NOT (18090:18446) gst_lx_videosink_signal_notification 1239: <lxvideosink0> signal notification, <gst_lx_videosink_monitor_pollin:4095>
+[ 4973.433697] vmcu: [ 4964.371316]   feeder NOT  (032)              stop_feeder  856: ch:0 feed work stop done
+[ 4973.433702] vmcu: [ 4964.371404]     vdec NOT  (032)                   _flush 3736: done
+[ 4973.434532] de           NOT (02653:02653) v4l2_vsc_update_pulldown 2148: memc_type : 0  --> _g_curr_pulldown : 0
+[ 4973.441232] media_event  INF (18090:18335) gst_lx_videodec_change_state 1040: <lxvideodec0> parent class change state start
+[ 4973.441400] media_event  INF (18090:18335) gst_lx_videodec_change_state 1059: <lxvideodec0> parent class change state end
+[ 4973.441407] media_event  NOT (18090:18335) gst_lx_videodec_change_state 1075: <lxvideodec0> state: PAUSED_TO_READY DONE
+[ 4973.441703] linux-ca     DEB (18090:18335) ca_if_svp_flush           608: flush : (before predicted info: 0x57b578e0) (v-handl: 0xee1266a0)
+[ 4973.458193] de           NOT (02649:02649) vsc_bwm_noti              210: [bwm] sys_bwm_noti(pqe.input=none,3840x2160@59) noti
+[ 4973.458207] de           NOT (02649:02649) vsc_bwm_noti              228: [bwm] sys_bwm_noti(pqe.hdr=sdr) noti
+[ 4973.620894] media_event  NOT (18090:18335) gst_lg_audio_render_change_state 2959: <audio_sink> DEC.1 - change state from READY to NULL
+[ 4973.621005] media_event  NOT (18090:18335) gst_lg_audio_render_stop 2686: <audio_sink> trace
+[ 4973.621016] media_event  INF (18090:18335) gst_lg_audio_render_stop 2701: <audio_sink> stopping renderer & callback task
+[ 4973.621020] media_event  INF (18090:18335) gst_lg_audio_render_stop 2705: <audio_sink> kicking locked task
+[ 4973.621059] media_event  INF (18090:18428) gst_lg_audio_render_callback_task  411: <audio_sink> Got LGAO_EVENT_CLOSE_IPC event. kicked!
+[ 4973.621093] lgao         NOT (18090:18335) lgao_close                572: aimc finalized.
+[ 4973.621097] lgao         NOT (18090:18335) lgao_close                576: closed.
+[ 4973.621102] media_event  NOT (18090:18335) gst_lg_audio_render_stop 2731: <audio_sink> stop
+[ 4973.621138] media_event  NOT (18090:18335) gst_lg_audio_render_change_state 3125: <audio_sink> DEC.1 - change state from READY to NULL. DONE
+[ 4973.621198] media_event  NOT (18090:18335) gst_lx_videosink_change_state 2391: <lxvideosink0> state: READY_TO_NULL
+[ 4973.621227] media_event  NOT (18090:18335) gst_lx_videosink_stop    2068: <lxvideosink0> stop
+[ 4973.621275] media_event  NOT (18090:18446) gst_lx_videosink_monitor_task 4217: <lxvideosink0> message, kick
+[ 4973.621635] vmcu: [ 4964.559447]    vdisp NOT  (032)     vdisp_close_instance 1306: [VDISP0] close vdisp:50654000, out 1, match 1, drop 0, noack 0, freerun 0
+[ 4973.621694] media_event  NOT (18090:18335) gst_lx_videosink_stop    2100: <lxvideosink0> stop done.
+[ 4973.621738] media_event  NOT (18090:18335) gst_lx_videosink_change_state 2487: <lxvideosink0> state: READY_TO_NULL DONE
+[ 4973.621816] media_event  NOT (18090:18335) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from READY to NULL
+[ 4973.621822] media_event  NOT (18090:18335) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from READY to NULL. DONE
+[ 4973.621831] media_event  NOT (18090:18335) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from READY to NULL
+[ 4973.621835] media_event  NOT (18090:18335) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from READY to NULL. DONE
+[ 4973.621887] media_event  NOT (18090:18335) gst_lx_videodec_change_state  955: <lxvideodec0> state: READY_TO_NULL
+[ 4973.622062] media_event  INF (18090:18335) gst_lx_videodec_change_state  990: <lxvideodec0> [SVP] VDEC SECURE CPB/SE CLOSE DONE..
+[ 4973.622067] media_event  INF (18090:18335) gst_lx_videodec_change_state 1002: <lxvideodec0> lxvdec_close(): 0xee1266a0
+[ 4973.622240] vmcu: [ 4964.560109]     vdec NOT  (032)       destroy_submodules 2830: vdec:506d8000, flush control
+[ 4973.622267] vmcu: [ 4964.560155]     podi NOT  (032)               _PodiFlush  673: [0]flush start
+[ 4973.622346] vmcu: [ 4964.560201]     podi NOT  (032)       _PodiFlushInternal 1342: [0]flush Done
+[ 4973.622569] vmcu: [ 4964.560451]   feeder NOT  (032)              stop_feeder  854: ch:0 check work stop done
+[ 4973.622589] vmcu: [ 4964.560479]   feeder NOT  (032)              stop_feeder  856: ch:0 feed work stop done
+[ 4973.622929] vmcu: [ 4964.560512] dpb_cleaner NOT  (032) dpb_cleaner_unregister_decoder  139: unregister 0(506d8000)
+[ 4973.622935] vmcu: [ 4964.560553]     vdec NOT  (032) destroy_submodules_locked 2747: vdec:506d8000, close control 50731000
+[ 4973.622939] vmcu: [ 4964.560594]     podi NOT  (032)      _PodiDeinitInstInfo  987: [0]deinit Start
+[ 4973.625280] vmcu: [ 4964.563152]     podi NOT  (032)      _PodiDeinitInstInfo 1021: [0]deinit done
+[ 4973.625301] vmcu: [ 4964.563191]     podi NOT  (032)               _PodiClose  549: [0]Instance closed
+[ 4973.654688] de           INF (01954:18448) DE_DHDR_IP_IO_GetOTTMetaData  309: PRINT: OTT MD Ready Interrupt Timeout  DE_DHDR_IP_IO_GetOTTMetaData
+[ 4973.654696] de           ERR (01954:18448) v4l2_set_ext_ctrl_dolby_driver 1443: Dolby Driver OTT MD ERROR
+[ 4973.654703] de           ERR (01954:18448) vpq_v4l2_set_ext_ctrl_dolby 1115: dolby driver ioctl error
+[ 4973.654741] dolby        ERR (01954:18448) DOVI_FWSync_V4L2_DHDR_GetOTTMD 1600: ERROR in Get IOCTL Input/output error 8 8
+[ 4973.654746] de           NOT (01954:01985) v4l2_vsc_fh_release       909: vsc: close (kadpd-Dolby_Monitor)
+[ 4973.654748] dolby        ERR (01954:18448) DOVI_FWSync_GetRFOTTMetaData  319: RAW MD Not received from F/W!!!
+[ 4973.654754] de           NOT (01954:01985) v4l2_vsc_fh_release       963: vsc: close win[0]
+[ 4973.654760] de           NOT (01954:01985) vsc_open_info             328: win[0], open_count[4] pid[1954]
+[ 4973.654764] de           NOT (01954:01985) v4l2_vsc_fh_release       970: v4l2_vsc : ret0:0, usage_count:5
+[ 4973.654768] LowPower::info::video::video30::4::kadpd-Dolby_Monitor::close::ok::vsc
+[ 4973.654782] dolby        INF (01954:01985) stopBackEndControl        257: UnLocked OTT/LL Mutex stopBackEndControl
+[ 4973.689999] vmcu: [ 4964.627871]      ves NOT  (032)                ves_close 1647: [VES0] closed
+[ 4973.690290] media_event  NOT (18090:18335) gst_lx_videodec_change_state 1005: <lxvideodec0> lxvdec_close()
+[ 4973.690297] media_event  INF (18090:18335) gst_lx_videodec_change_state 1040: <lxvideodec0> parent class change state start
+[ 4973.690321] media_event  INF (18090:18335) gst_lx_videodec_change_state 1059: <lxvideodec0> parent class change state end
+[ 4973.690327] media_event  NOT (18090:18335) gst_lx_videodec_change_state 1075: <lxvideodec0> state: READY_TO_NULL DONE
+[ 4973.690512] linux-ca     DEB (18090:18335) ca_if_svp_close           292: handle (0xee11f3e0)
+[ 4973.690521] linux-ca     DEB (18090:18335) svp_client_helper_delete_svp_id_from_stat 1257: svp opened count(0)
+[ 4973.690819] media_event  INF (18090:18335) gst_lg_audio_render_finalize  754: <audio_sink> finalized
+[ 4973.690904] media_event  NOT (18090:18335) gst_lx_videosink_pad_unlink  825: <lxvideosink0> sink_pad unlinked
+[ 4973.690926] media_event  NOT (18090:18335) gst_lx_videosink_finalize 1182: <lxvideosink0> finalized
+[ 4973.691047] media_event  INF (18090:18335) gst_lx_videodec_finalize 1162: <lxvideodec0> finalize
+[ 4973.894679] de           INF (01954:18448) DE_DHDR_IP_IO_GetOTTMetaData  309: PRINT: OTT MD Ready Interrupt Timeout  DE_DHDR_IP_IO_GetOTTMetaData
+[ 4973.894686] de           ERR (01954:18448) v4l2_set_ext_ctrl_dolby_driver 1443: Dolby Driver OTT MD ERROR
+[ 4973.894690] de           ERR (01954:18448) vpq_v4l2_set_ext_ctrl_dolby 1115: dolby driver ioctl error
+[ 4973.894724] dolby        ERR (01954:18448) DOVI_FWSync_V4L2_DHDR_GetOTTMD 1600: ERROR in Get IOCTL Input/output error 8 8
+[ 4973.894730] dolby        ERR (01954:18448) DOVI_FWSync_GetRFOTTMetaData  319: RAW MD Not received from F/W!!!
+[ 4973.894735] dolby        INF (01954:18448) executeBackendCntrlThread  569: Info:: Thread Exit [executeBackendCntrlThread] Line [569] 
+[ 4973.894743] dolby        INF (01954:18448) executeBackendCntrlThread 1032: Freed Dolby Analyzer Algorithm Buffer 0xf505c098 of size 76168 bytes
+[ 4973.894748] dolby        INF (01954:18448) executeBackendCntrlThread 1044: Freed Dolby MetaData buffer 0xf50a5068
+[ 4973.894752] dolby        INF (01954:18448) executeBackendCntrlThread 1049: Freed Dolby Algorithm Buffer 0xf50130c8 of size 76168 bytes
+[ 4973.894755] dolby        INF (01954:18448) executeBackendCntrlThread 1054: DBG:: EXIT function [executeBackendCntrlThread]
+[ 4973.894862] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_UnInit 1262: freed MD parser memory of size 401844
+[ 4973.894868] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_UnInit 1267: FREED 66626 OTT DM size 
+[ 4973.894872] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_UnInit 1276: DOVI OTT MD parser UnInit Done
+[ 4973.894889] de           NOT (01954:01985) DE_DHDR_IP_IO_Uninit      516: Info: Dolby Driver Un Init done
+[ 4973.894895] dolby        INF (01954:01985) DOVI_FWSync_UnInit       1241: Exit Fn [DOVI_FWSync_UnInit]
+[ 4973.904993] dolby        INF (01954:01985) DOVI_UnInit               261: Destroying OTT/LL Mutex
+[ 4973.905076] LowPower::info::video::video40::3::kadpd-Dolby_Monitor::close::ok::vbe
+[ 4973.905086] pe           NOT (01954:01985) v4l2_vpq_fh_release       923: vpq: close (kadpd-Dolby_Monitor) (open_idx:17)
+[ 4973.905092] pe           NOT (01954:01985) v4l2_vpq_fh_release       945: v4l2_vpq : ret0:0, usage_count:3
+[ 4973.905094] LowPower::info::picturequality::video50::2::kadpd-Dolby_Monitor::close::ok::vpq
+[ 4973.905111] dolby        INF (01954:01985) KADP_HDR_SetPQMode        392: HDR mode is not initialized for [0] window!!
+[ 4973.905115] dolby        ERR (01954:01985) KADP_HDR_DOLBY_Event_Handler 1068: ERROR in setting PQ mode for DOlby Module!!!!!!!!!!!!!!!!!!
+[ 4973.905119] dolby        ERR (01954:01985) KADP_HDR_DOLBY_Monitor    876: EVENT Handler failed
+[ 4973.905125] dolby        INF (01954:01985) KADP_HDR_DOLBY_Event_Handler 1096: bOnOff flag is off 0 so not setting PQSubMode 0
+[ 4977.202224] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(6G) for [5000] msec(C) TMDS[ 1451] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[1]
+[ 4978.394950] CPU3: shutdown
+[ 4979.664045] de           NOT (03901:03901) v4l2_vt_fh_open           730: v4l2_vt : ret:1, usage_count:2
+[ 4979.664295] LowPower::info::video::video60::1::captureservice-captureservice::open::ok::vt60
+[ 4979.664300] de           NOT (03901:03901) v4l2_vt_fh_open           819: name[vt-capture-dev] open
+[ 4979.664449] de           NOT (03901:03901) v4l2_vt_vidioc_s_ext_ctrls 1600: vt : id 0x982a03 (V4L2_CID_EXT_CAPTURE_PLANE_PROP)
+[ 4979.762307] de           NOT (03901:03901) vt_set_plane_property    3089: loc[2] w/h[960/540] buf_count[1] - timeout_rem[2] @VTG 2311
+[ 4979.762391] de           NOT (03901:03901) queue_setup              1810: queue_setup: num_buffers:0, *nbuffers:5, stride:960 w/h:960/540
+[ 4979.762399] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762402] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762406] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762410] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762413] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762416] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762420] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762424] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762427] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762432] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 4979.762457] de           NOT (03901:03901) v4l2_vt_vidioc_reqbufs    454: PHY [0x80780000] VIRT [00000000fda6c39e] Total Buffers [1/5] stride[960]
+[ 4979.762730] de           NOT (03901:03901) vt_get_output_rate       3344: loc[2] vt_fr[60] disp_fr[120]
+[ 4979.762836] de           NOT (03901:03901) buffer_queue             1830: buffer_queue: 000000008085b40d  - vt_qbuf
+[ 4979.762839] de           NOT (03901:03901) start_streaming          1850: start_streaming: 
+[ 4979.763073] de           WAR (03901:04063) v4l2_vt_vidioc_dqbuf     1447: mute[777] : return -ENODATA 
+[ 4979.778254] de           WAR (03901:04063) v4l2_vt_vidioc_dqbuf     1447: mute[777] : return -ENODATA 
+[ 4979.778326] de           NOT (03901:03901) stop_streaming           1875: stop_streaming: 
+[ 4979.778352] de           NOT (18493:18493) vt_capture_thread        2208: Index: 0 locked
+[ 4979.778360] de           NOT (18493:18493) vt_capture_thread        2243: idx[0] buff[000000008085b40d][0] offs[0] fr[0] diff[1639805166msec]
+[ 4979.778363] de           NOT (18493:18493) vt_capture_thread        2250: vt_capture_thread: stop
+[ 4979.778514] de           NOT (03901:03901) buffer_finish            1842: buffer_finish: 000000008085b40d - vt_dqbuf
+[ 4979.793730] de           NOT (03901:03901) v4l2_vt_fh_release        891: vt: close, usage_count[1][1]
+[ 4979.793736] LowPower::info::video::video60::0::captureservice-captureservice::close::ok::vt60
+[ 4979.793739] de           NOT (03901:03901) v4l2_vt_fh_release        903: name[vt-capture-dev] close hist_cmd[2](1:start,2:stop) 
+[ 4980.349484] Detected PIPT I-cache on CPU3
+[ 4980.349518] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[ 4980.804002] media_event  NOT (18090:18140) gst_lx_videodec_init     4221: <(null)> Compile info : May  7 2025 07:01:47
+[ 4980.804047] media_event  INF (18090:18140) gst_lx_videodec_init     4277: <(null)> Initialized
+[ 4980.804190] media_event  INF (18090:18140) gst_lx_videodec_set_property 1429: <lxvideodec1> gen_hash_interval = 0
+[ 4980.805065] media_event  NOT (18090:18140) gst_lx_videosink_init     702: <(null)> Compile info : May  7 2025 07:01:47
+[ 4980.805096] media_event  NOT (18090:18140) gst_lx_videosink_set_property  861: <lxvideosink1> set lipsync_offset 0
+[ 4980.805488] media_event  NOT (18090:18140) gst_lx_videosink_pad_link  792: <lxvideosink1> sink_pad linked
+[ 4980.805508] media_event  NOT (18090:18140) gst_lx_videosink_pad_link  800: <lxvideosink1> thumbnail_mode from smart-properties is 0
+[ 4980.805520] media_event  NOT (18090:18140) gst_lx_videosink_pad_link  807: <lxvideosink1> interleaving_type (0) ret (-1)
+[ 4980.806546] media_event  NOT (18090:18140) gst_lg_adec_set_property 3623: <lgaudiodec> Set audio index(resource-info) to 1
+[ 4980.806721] lgadec       ERR (18090:18140) lgadec_decoder_get_ac4_dialog_enhancement_gain 2024: audio device is not opened
+[ 4980.806729] lgadec       ERR (18090:18140) lgadec_get_ac4_dialog_enhancement_gain 3526: Get Ac4 Dialog Enhancement Gain Err
+[ 4980.806874] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from NULL to READY
+[ 4980.806881] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from NULL to READY. DONE
+[ 4980.806886] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from NULL to READY
+[ 4980.806890] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from NULL to READY. DONE
+[ 4980.806915] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from READY to PAUSED
+[ 4980.806932] media_event  NOT (18090:18140) _gst_lg_adec_start       2757: <lgaudiodec> start
+[ 4980.806936] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from READY to PAUSED. DONE
+[ 4980.806948] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from READY to PAUSED
+[ 4980.806952] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from READY to PAUSED. DONE
+[ 4980.807793] media_event  NOT (18090:18140) gst_lg_audio_render_init 1032: <audio_sink> Compile info : May  7 2025 07:01:47
+[ 4980.807892] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1561: <audio_sink> Set Audio's lipsync offset to 0
+[ 4980.807899] lgao         ERR (18090:18140) lgao_set_lipsync_offset   733: context is null
+[ 4980.807956] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1922: <audio_sink> Set Netflix VSP(Variable Speed Playback) mode TRUE
+[ 4980.807961] lgao         ERR (18090:18140) lgao_set_vsp_mode        3101: context is null
+[ 4980.808406] media_event  NOT (18090:18140) gst_lg_audio_render_set_property 1737: <audio_sink> video-port is 0
+[ 4980.808415] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1748: <audio_sink> audio-port 1, video-port 0,mixer-port -1
+[ 4980.808420] lgao         ERR (18090:18140) lgao_set_port            1037: context is null
+[ 4980.808434] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 2965: <audio_sink> change state from NULL to READY
+[ 4980.808484] media_event  NOT (18090:18513) gst_lx_videodec_change_state  955: <lxvideodec1> state: NULL_TO_READY
+[ 4980.808499] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 2977: <audio_sink> send preopen properties to lgao
+[ 4980.808505] media_event  NOT (18090:18140) _gst_lg_audio_render_set_preconditions 2750: <audio_sink> applying PROP_LIPSYNC_OFFSET...0
+[ 4980.808509] media_event  NOT (18090:18140) _gst_lg_audio_render_set_preconditions 2852: <audio_sink> applying PROP_RESOURCE_INFO...port 1,-1
+[ 4980.808515] media_event  INF (18090:18140) _gst_lg_audio_render_set_preconditions 2917: <audio_sink> Set Netflix VSP(Variable Speed Playback) saeamless mode. TRUE
+[ 4980.808520] lgao         NOT (18090:18140) lgao_set_vsp_mode        3103: Set vsp (variable speed playback) mode
+[ 4980.808524] media_event  INF (18090:18140) _gst_lg_audio_render_set_preconditions 2934: <audio_sink> property not for preopen condition 33
+[ 4980.808618] media_event  NOT (18090:18140) gst_lg_audio_render_start 2658: <audio_sink> trace
+[ 4980.808982] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 3131: <audio_sink> change state from NULL to READY. DONE
+[ 4980.809016] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 2959: <audio_sink> DEC.1 - change state from READY to PAUSED
+[ 4980.809096] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 3125: <audio_sink> DEC.1 - change state from READY to PAUSED. DONE
+[ 4980.809132] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2391: <lxvideosink1> state: NULL_TO_READY
+[ 4980.809362] media_event  NOT (18090:18140) gst_lx_videosink_start   2011: <lxvideosink1> lxvo_open(): 0xd949a128
+[ 4980.809645] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2487: <lxvideosink1> state: NULL_TO_READY DONE
+[ 4980.809700] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2391: <lxvideosink1> state: READY_TO_PAUSED
+[ 4980.809768] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2487: <lxvideosink1> state: READY_TO_PAUSED DONE
+[ 4980.811727] media_event  INF (18090:18513) gst_lx_videodec_change_state  969: <lxvideodec1> lxvdec_open(): 0x296ae00
+[ 4980.811737] media_event  INF (18090:18513) gst_lx_videodec_change_state 1040: <lxvideodec1> parent class change state start
+[ 4980.811744] media_event  INF (18090:18513) gst_lx_videodec_change_state 1059: <lxvideodec1> parent class change state end
+[ 4980.811750] media_event  NOT (18090:18513) gst_lx_videodec_change_state 1075: <lxvideodec1> state: NULL_TO_READY DONE
+[ 4980.811767] media_event  NOT (18090:18513) gst_lx_videodec_change_state  955: <lxvideodec1> state: READY_TO_PAUSED
+[ 4980.811771] media_event  INF (18090:18513) gst_lx_videodec_change_state 1040: <lxvideodec1> parent class change state start
+[ 4980.811987] media_event  INF (18090:18513) gst_lx_videodec_change_state 1059: <lxvideodec1> parent class change state end
+[ 4980.811994] media_event  NOT (18090:18513) gst_lx_videodec_change_state 1075: <lxvideodec1> state: READY_TO_PAUSED DONE
+[ 4980.812070] media_event  INF (18090:18513) gst_lx_videodec_set_property 1429: <lxvideodec1> gen_hash_interval = 0
+[ 4980.812093] media_event  INF (18090:18513) gst_lx_videodec_sinkpad_linked 4036: <lxvideodec1> sinkpad linked!
+[ 4980.812138] media_event  INF (18090:18513) gst_lx_videodec_sinkpad_linked 4043: <lxvideodec1> thumbnail_mode from smart-properties is 0, ret -1
+[ 4980.812198] media_event  NOT (18090:18513) gst_lx_videodec_pad_event 3766: <lxvideodec1> event: sink:stream-start
+[ 4980.812204] media_event  INF (18090:18513) gst_lx_videodec_pad_event 3774: <lxvideodec1> pad:sink, received event stream-start updated
+[ 4980.812210] media_event  NOT (18090:18513) gst_lx_videodec_pad_event 3898: <lxvideodec1> stream id received [45706c915b45a7ae8b728171df54d798]
+[ 4980.812303] media_event  NOT (18090:18513) gst_lx_videodec_pad_event 3766: <lxvideodec1> event: sink:caps
+[ 4980.812308] media_event  INF (18090:18513) gst_lx_videodec_pad_event 3774: <lxvideodec1> pad:sink, received event caps updated
+[ 4980.812339] media_event  NOT (18090:18513) gst_lx_videodec_pad_event_caps 3684: <lxvideodec1> received : caps video/x-h265, format=(string)H265, container=(string)ES, parsed=(boolean)true, stream-format=(string)byte-s
+[ 4980.812345] media_event  INF (18090:18513) gst_lx_videodec_pad_event_caps 3727: <lxvideodec1> First CAPS event. store mimetype [video/x-h265]
+[ 4980.812386] media_event  INF (18090:18513) gst_lx_videodec_srcpad_setcaps 2390: <lxvideodec1> srcpad caps : video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false,
+[ 4980.812459] media_event  NOT (18090:18513) gst_lx_videodec_handle_caps 2426: <lxvideodec1> caps : video/x-h265, format=(string)H265, container=(string)ES, parsed=(boolean)true, stream-format=(string)byte-stream, align
+[ 4980.812476] media_event  INF (18090:18513) gst_lx_videodec_extract_caps  619: <lxvideodec1> mime=video/x-h265, width=1920, height=1080, fourCC=H265, container=ES, mpegversion=-1, app-type=, alignment=au
+[ 4980.812482] media_event  NOT (18090:18513) gst_lx_videodec_extract_caps  628: <lxvideodec1> [H265] (1920 x 1080)
+[ 4980.812489] media_event  NOT (18090:18513) gst_lx_videodec_extract_caps  766: <lxvideodec1> container is : ES
+[ 4980.812493] media_event  INF (18090:18513) gst_lx_videodec_extract_caps  773: <lxvideodec1> change resolution info. from orig. 1920x1080 to max res. 3840x2160
+[ 4980.812501] media_event  INF (18090:18513) gst_lx_videodec_handle_caps 2444: <lxvideodec1> stream-format : byte-stream
+[ 4980.812628] media_event  INF (18090:18513) gst_lx_videodec_handle_caps 2509: <lxvideodec1> set framerate: 15712911/262144
+[ 4980.812754] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 1977: <lxvideodec1> vdec handle 0x296ae00
+[ 4980.812878] media_event  NOT (18090:18515) gst_lx_videosink_event   2199: <lxvideosink1> event: stream-start
+[ 4980.812886] media_event  NOT (18090:18515) gst_lx_videosink_update_stream_id 2167: <lxvideosink1> first stream_id (45706c915b45a7ae8b728171df54d798)
+[ 4980.812948] media_event  NOT (18090:18515) gst_lx_videosink_event   2199: <lxvideosink1> event: caps
+[ 4980.812977] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1274: <lxvideosink1> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 4980.812988] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1362: <lxvideosink1> First video mimetype received [video/x-h265]
+[ 4980.813040] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1380: <lxvideosink1> thumbnail_mode from smart-properties is 0
+[ 4980.813062] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1391: <lxvideosink1> interleaving_type (0) ret (-1)
+[ 4980.813081] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1274: <lxvideosink1> setcaps (sink): video/x-raw, width=(int)1920, height=(int)1080, framerate=(fraction)60000/1001, dualstream-LR=(boolean)false, f
+[ 4980.813089] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1352: <lxvideosink1> video mimetype not changed
+[ 4980.813093] media_event  WAR (18090:18515) gst_lx_videosink_set_caps 1354: <lxvideosink1> video codec change on PAUSED state. Send forced flush to lxvo
+[ 4980.813112] media_event  INF (18090:18513) gst_lx_videodec_init_decoder 1986: <lxvideodec1> SET MEMORY TYPE <TILED> play mode
+[ 4980.813117] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 1990: <lxvideodec1> set channel (video port) 0
+[ 4980.813447] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1380: <lxvideosink1> thumbnail_mode from smart-properties is 0
+[ 4980.813470] media_event  NOT (18090:18515) gst_lx_videosink_set_caps 1391: <lxvideosink1> interleaving_type (0) ret (-1)
+[ 4980.813502] media_event  INF (18090:18513) gst_lx_videodec_init_decoder 2034: <lxvideodec1> dovi_bl
+[ 4980.813611] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 2043: <lxvideodec1> dolby_vision 1
+[ 4980.814132] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 2116: <lxvideodec1> [SVP] VDEC SECURE CPB/SE INIT. DONE..(0x57b20000)
+[ 4980.814139] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 2165: <lxvideodec1> SVP detected! send vdec handle signal!
+[ 4980.814144] media_event  WAR (18090:18513) gst_lx_videodec_svp_handle_cb 1956: <lxvideodec1> svp-handle signal emitting with instance 0x296ae00
+[ 4980.814643] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 2190: <lxvideodec1> cpb threshold 5
+[ 4980.814901] media_event  NOT (18090:18513) gst_lx_videodec_init_decoder 2214: <lxvideodec1> decoder init. SUCCESS
+[ 4980.819649] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x982909 (V4L2_CID_EXT_VSC_RGB444), value 0
+[ 4980.819657] de           NOT (02664:02664) vsc_set_rgb444           1472: win[0] rgb444 [0]
+[ 4980.819662] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:3, input:0,3840x2160@599, hdr:0, hdmi444:0
+[ 4980.819830] v4l2_conn    NOT (02664:02664) set_vdo_ext_ctrls         326: fh:000000002f0420e6, dev:28, 0 -> 0 connect
+[ 4980.820340] vmcu: [ 4971.758203]    vdisp NOT  (032)       vdisp_set_out_port  112: vdisp:0 => port:0 connect
+[ 4980.820572] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x98290c (V4L2_CID_EXT_VSC_CONNECT_INFO)
+[ 4980.820580] de           NOT (02664:02664) DE_REG_O22_CviMap        1846: sel_cvi[255] sel_clk[255]
+[ 4980.820584] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1882: Src map (NONE(0)/VGA(1)/YPBPR(2)/ATV(3)/CVD(4)/SCART(5)/HDMI(6)/MVI(7)/CPU(8))
+[ 4980.820587] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1883:   => win[0] src[7] port[0]
+[ 4980.820622] de           NOT (02664:02664) vsc_set_input             550: win[0] src[4] index[0] attr[0] out[1] vdop[0] pid[0]
+[ 4980.820627] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:0, input:4,3840x2160@599, hdr:0, hdmi444:0
+[ 4980.821028] de           NOT (01951:01951) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x980923 (V4L2_CID_BG_COLOR), value 1
+[ 4980.821035] de           NOT (01951:01951) vsc_set_mute             1247: Mute win[0] 1
+[ 4980.853694] de           NOT (02649:02649) _vsc_vp_periodictask     2276: >>>>>>>  timing_changed[0] = 5  <<<<<<<
+[ 4980.853706] de           NOT (02649:02649) _vsc_vp_periodictask     2400: win[0] h/v 3840/2160 , fr 599/10Hz , [2], dsc[0], svp=1
+[ 4980.853710] pe           NOT (02649:02649) v4l2_vpq_update_inputSrc  136: LATENCY inputSrc inputSrc: 9
+[ 4980.853713] pe           NOT (02649:02649) v4l2_vpq_update_vFreq     150: LATENCY inputSrc Vfreq: 599
+[ 4980.853716] pe           NOT (02649:02649) v4l2_vpq_update_scanType  143: LATENCY inputSrc Scantype: 1
+[ 4980.853719] pe           NOT (02649:02649) v4l2_vpq_detect_vFreq     270: LATENCY inputSrc Vfreq: 599
+[ 4980.853722] de           NOT (02649:02649) _vsc_vp_periodictask     2421: set_frate set_frate:60
+[ 4980.853726] de           NOT (02649:02649) DE_IO_SetFrRate          1006: for 120Hz model : freq = 120 Hz
+[ 4980.853755] de           NOT (02649:02649) DE_IO_SetFrRate          1068: set_frate fr_rate:120, isForceFreeRun:0
+[ 4980.853792] de           NOT (02649:02649) vsc_bwm_set_config        148: [bwm] opt:1, input:4,3840x2160@599, hdr:0, hdmi444:0
+[ 4980.853799] de           NOT (02649:02649) vsc_bwm_noti              210: [bwm] sys_bwm_noti(pqe.input=vdec,3840x2160@59) noti
+[ 4980.896589] de           NOT (02653:02889) DE_VSYNC_WakeUp           636: update_win_ intr_mask = 3 [0,0 0x0] [0,0 3840x2160] [63853,28707 7116x46574] [63853,28707 7116x46574] [5992,4530 65408x65535] [0,0 0x0]
+[ 4980.992153] media_event  NOT (18090:18521) gst_lg_adec_downstream_event 3130: <lgaudiodec> got event(flush-start)
+[ 4980.992188] media_event  INF (18090:18521) gst_lg_audio_render_event 2224: <audio_sink> Received GST_EVENT_FLUSH_START event
+[ 4980.996405] media_event  NOT (18090:18521) gst_lg_adec_downstream_event 3142: <lgaudiodec> got event(flush-stop)
+[ 4980.996418] lgadec       ERR (18090:18521) lgadec_flush             2518: audio device is not opened
+[ 4980.996423] lgadec       ERR (18090:18521) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4980.996444] media_event  INF (18090:18521) gst_lg_audio_render_event 2231: <audio_sink> Received Event = GST_EVENT_FLUSH_STOP
+[ 4980.996782] media_event  NOT (18090:18521) gst_lx_videodec_pad_event 3766: <lxvideodec1> event: sink:flush-start
+[ 4980.996789] media_event  INF (18090:18521) gst_lx_videodec_pad_event 3774: <lxvideodec1> pad:sink, received event flush-start updated
+[ 4980.996794] media_event  INF (18090:18521) gst_lx_videodec_pad_event 3799: <lxvideodec1> flush-start
+[ 4980.996858] media_event  NOT (18090:18519) gst_lx_videodec_callback 3299: <lxvideodec1> message kick
+[ 4980.997046] vmcu: [ 4971.934896]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4980.997071] vmcu: [ 4971.934956]     vdec NOT  (032)                   _flush 3736: done
+[ 4980.997648] media_event  NOT (18090:18521) gst_lx_videosink_event   2199: <lxvideosink1> event: flush-start
+[ 4980.997676] media_event  NOT (18090:18521) gst_lx_videosink_event   2243: <lxvideosink1> signal wait_noti cond
+[ 4980.997681] media_event  NOT (18090:18521) gst_lx_videosink_signal_notification 1239: <lxvideosink1> signal notification, <gst_lx_videosink_event:2244>
+[ 4980.997881] media_event  INF (18090:18521) gst_lx_videodec_pad_event 3815: <lxvideodec1> flush-start done
+[ 4980.997969] media_event  NOT (18090:18521) gst_lx_videodec_pad_event 3766: <lxvideodec1> event: sink:flush-stop
+[ 4980.997974] media_event  INF (18090:18521) gst_lx_videodec_pad_event 3774: <lxvideodec1> pad:sink, received event flush-stop updated
+[ 4980.997978] media_event  INF (18090:18521) gst_lx_videodec_pad_event 3821: <lxvideodec1> flush-stop
+[ 4980.997989] media_event  NOT (18090:18521) gst_lx_videosink_event   2199: <lxvideosink1> event: flush-stop
+[ 4980.998188] vmcu: [ 4971.936062]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4980.998230] vmcu: [ 4971.936117]     vdec NOT  (032)                   _flush 3736: done
+[ 4980.998659] media_event  INF (18090:18521) gst_lx_videodec_pad_event 3854: <lxvideodec1> flush-stop done
+[ 4980.999061] media_event  NOT (18090:18513) gst_lx_videodec_pad_event 3766: <lxvideodec1> event: sink:segment
+[ 4980.999069] media_event  INF (18090:18513) gst_lx_videodec_pad_event 3774: <lxvideodec1> pad:sink, received event segment updated
+[ 4980.999080] media_event  NOT (18090:18513) gst_lx_videodec_pad_event_segment 3576: <lxvideodec1> segment: start 0:01:34.744000000, rate=1.000000
+[ 4980.999086] media_event  INF (18090:18513) gst_lx_videodec_adjust_rate 3500: <lxvideodec1> rate changed from 1 to 1
+[ 4980.999247] vmcu: [ 4971.937111]     vdec WAR  (032)                   do_eos 4555: vdec:506d8000, no ves
+[ 4980.999257] vmcu: [ 4971.937147]     vdec WAR  (032)               vdec_ioctl 5785: ioctl failed (cmd:47, ret:-22)
+[ 4980.999277] lxvdec       ERR (18090:18513) lxvdec_eos               3075: v0x296ae00, LX_VDEC_EOS, Invalid argument
+[ 4980.999282] media_event  NOT (18090:18513) gst_lx_videodec_pad_event_segment 3599: <lxvideodec1> EOS done. Flushing
+[ 4980.999415] vmcu: [ 4971.937299]     vdec NOT  (032)                   _flush 3696: vdec:506d8000
+[ 4980.999463] vmcu: [ 4971.937350]     vdec NOT  (032)                   _flush 3736: done
+[ 4980.999823] media_event  NOT (18090:18513) gst_lx_videodec_pad_event_segment 3622: <lxvideodec1> scanMode = 0
+[ 4980.999829] media_event  NOT (18090:18513) gst_lx_videodec_pad_event_segment 3628: <lxvideodec1> change play rate, rate =1.000000
+[ 4980.999893] media_event  NOT (18090:18515) gst_lx_videosink_event   2199: <lxvideosink1> event: segment
+[ 4980.999902] media_event  NOT (18090:18515) gst_lx_videosink_event   2279: <lxvideosink1> received new segment 0:01:34.744000000, rate 1.000000
+[ 4980.999988] linux-ca     DEB (18090:18513) ca_if_svp_open            206: base:0x57b20000, sz:0xa00000, (type:0x79647270) (v-handl: 0x296ae00)
+[ 4980.999994] linux-ca     DEB (18090:18513) ca_if_svp_get_ca_session_from_fourcc   51: playready
+[ 4981.000004] linux-ca     DEB (18090:18513) svp_client_initialize     541: decrypt_buf_sz = 0x900000, 9437184 bytes
+[ 4981.000011] linux-ca     DEB (18090:18513) svp_client_helper_add_svp_id_to_stat 1214: svp opened count(1)
+[ 4981.000015] linux-ca     DEB (18090:18513) ca_if_svp_open            269: handle (0x2c19538)
+[ 4981.000105] media_event  NOT (18090:18515) gst_lx_videosink_set_speed 1437: <lxvideosink1> set speed: 1.000000
+[ 4981.006337] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3388: <lgaudiodec> got event(stream-start)
+[ 4981.006348] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3399: <lgaudiodec> new stream-start ID: 0cc5d1b2af8bf31fa6c72258b45c5237
+[ 4981.006354] lgadec       ERR (18090:18426) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4981.006416] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3241: <lgaudiodec> got event(caps)
+[ 4981.006426] media_event  INF (18090:18517) gst_lg_audio_render_event 2357: <audio_sink> Received Event = GST_EVENT_STREAM_START
+[ 4981.006433] media_event  INF (18090:18517) gst_lg_audio_render_event 2365: <audio_sink> Stream ID: 0cc5d1b2af8bf31fa6c72258b45c5237
+[ 4981.006441] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3250: <lgaudiodec> DEC.1 - caps "audio/x-eac3, framed=(boolean)true, rate=(int)48000, channels=(int)6, alignment=(string)iec61937, immersive=(str
+[ 4981.006472] amedia       ERR (18090:18426) adecoder_open             203: can not open audio decoder. already opened index 1
+[ 4981.006478] lgadec       ERR (18090:18426) lgadec_decoder_open      1112: audio decoder [1] is not available
+[ 4981.006483] amedia       ERR (18090:18426) adecoder_close            224: can not find audio decoder .
+[ 4981.006503] lgadec       ERR (18090:18426) lgadec_select_codec      2624: audio device is not opened
+[ 4981.006842] media_event  INF (18090:18517) gst_lg_audio_render_event 2322: <audio_sink> Received Event = GST_EVENT_CAPS
+[ 4981.006880] media_event  INF (18090:18517) gst_lg_audio_render_set_caps 1136: <audio_sink> DEC.1 - caps "audio/x-raw, format=(string)S8, layout=(string)interleaved, rate=(int)8000, channels=(int)1, DUMMY=(int)1, BYPAS
+[ 4981.006887] media_event  INF (18090:18517) gst_lg_audio_render_set_caps 1151: <audio_sink> BYPASS 0..
+[ 4981.006891] media_event  INF (18090:18517) gst_lg_audio_render_set_caps 1160: <audio_sink> This caps is dummy. So drop this
+[ 4981.007027] lgadec       ERR (18090:18426) lgadec_start             2113: audio device is not opened
+[ 4981.007040] lgadec       ERR (18090:18426) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4981.007118] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3241: <lgaudiodec> got event(caps)
+[ 4981.007133] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3250: <lgaudiodec> DEC.1 - caps "audio/x-eac3, framed=(boolean)true, rate=(int)48000, channels=(int)6, alignment=(string)iec61937, immersive=(str
+[ 4981.007141] lgadec       ERR (18090:18426) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4981.007153] media_event  NOT (18090:18426) gst_lg_adec_downstream_event 3195: <lgaudiodec> got event(segment)
+[ 4981.007159] lgadec       ERR (18090:18426) lgadec_decoder_set_basetime 1913: audio device is not opened
+[ 4981.007163] lgadec       ERR (18090:18426) lgadec_set_basetime      4183: set basetime Err
+[ 4981.007167] lgadec       ERR (18090:18426) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4981.007194] media_event  INF (18090:18517) gst_lg_audio_render_event 2277: <audio_sink> Received Event = GST_EVENT_SEGMENT
+[ 4981.007218] lgadec       ERR (18090:18426) lgadec_decoder_send_serialized_event 2067: audio device is not opened
+[ 4981.007236] media_event  INF (18090:18517) gst_lg_audio_render_event 2281: <audio_sink> time segment start=0:01:34.744000000, offset=0:00:00.000000000, stop=99:99:99.999999999, rate=1.000000, applied_rate=1.000000, fl
+[ 4981.007242] media_event  INF (18090:18517) gst_lg_audio_render_event 2293: <audio_sink> init decodedSize(current decodedSize is 0)
+[ 4981.007913] linux-ca     DEB (18090:18513) ca_if_svp_copy_sample_to_cpb  536: first touch or after flush (0x57b20000): (v-handl: 0x296ae00)
+[ 4981.008622] media_event  INF (18090:18513) gst_lx_videodec_pad_chain 3457: <lxvideodec1> received buffer, 0:01:34.744650000
+[ 4981.009125] vmcu: [ 4971.946995] dpb_cleaner NOT  (032) dpb_cleaner_register_decoder   90: 506d8000 0
+[ 4981.009189] vmcu: [ 4971.947052]      ves NOT  (032)                 ves_open 1564: [VES0] src:2 codec:10 CPB base:0x57B20000 size:0xA00000
+[ 4981.009282] vmcu: [ 4971.947160]     vdec NOT  (032)               init_codec 3547: vdec:506d8000, ch0,hevc,dovi,dovi_bl,tiled,4k_cont,svp res 3840x2160 fr 15712911/262144 max_tid:-1
+[ 4981.009639] vmcu: [ 4971.947512]     podi NOT  (032)        _PodiInitInstInfo  951: [0]HEVC COMP NORMAL cpb(p:0x57b20000 v:0x97b20000 sz:0xa00000) add:1 f/a:0
+[ 4981.017904] vmcu: [ 4971.955767]     podi NOT  (032)                _PodiOpen  525: [0]PODI Instance opened : 11 (0x57B20000--0x58520000) dv 128 uhd 0 shvc 0 hfr 0 2pid 0 bl 512 el 0
+[ 4981.044361] vmcu: [ 4971.982227]     vdec NOT  (020)          display_picture 1847: vdec:506d8000, pts 160f38a110, stc 1aac5099(-4877482ms), ts 94744650000, 0(0), res 3840x2160, fr 60000/1001
+[ 4981.045520] media_event  INF (18090:18519) gst_lx_videodec_output_loop 2637: <lxvideodec1> push first buffer, 0:01:34.744650000
+[ 4981.045712] media_event  NOT (18090:18515) gst_lx_videosink_preroll 1501: <lxvideosink1> preroll start
+[ 4981.045725] media_event  NOT (18090:18515) gst_lx_videosink_preroll 1511: <lxvideosink1> [READY->PAUSED] preroll, 0:01:34.744650000
+[ 4981.046576] media_event  NOT (18090:18515) gst_lx_videosink_setup_before_first_frame 1652: <lxvideosink1> framerate e 60000/1001 (c 60000/1001)
+[ 4981.047608] vmcu: [ 4971.985475]       vo NOT  (039)        initialize_locked  622: vo:50705500, vdisp_id:0, enable match
+[ 4981.047725] vmcu: [ 4971.985606]     vpts NOT  (039)                vpts_open  151: [VPTS0] Match Mode 0(enable)
+[ 4981.047776] vmcu: [ 4971.985660]    vdisp NOT  (039)      vdisp_open_instance 1283: [VDISP0] dolby, clk_src:GSTC,disp_offset:0ms,1st pts(8527018),gav repeat:off
+[ 4981.047805] vmcu: [ 4971.985695]    vdisp NOT  (039)          vdisp_set_speed  351: [VDISP0] Set Speed 1000 mode 0
+[ 4981.047914] vmcu: [ 4971.985757]    vdisp NOT  (039)             set_out_port 1082: [VDISP0] Outport -2(UNKNOWN) => 0(PORT0)
+[ 4981.048279] media_event  NOT (18090:18515) gst_lx_videosink_event_video_information 3767: <lxvideosink1> self->typeof3d=0, tmpTridType(from vdec)=0, width=3840, height=2160
+[ 4981.048403] media_event  NOT (18090:18515) gst_lx_videosink_event_video_information 3810: <lxvideosink1> media-info, stream-id=(string)45706c915b45a7ae8b728171df54d798, type=(int)1, 3D_Type=(uint)0, PAR_Width=(uint)1,
+[ 4981.048468] media_event  NOT (18090:18515) gst_lx_videosink_event_video_information 3824: <lxvideosink1> video-info, vdec-ch=(int)0, codec=(string)H265, width=(uint)3840, height=(uint)2160, framerate=(fraction)60000/1
+[ 4981.048477] media_event  NOT (18090:18515) gst_lx_videosink_preroll 1601: <lxvideosink1> preroll done
+[ 4981.050479] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x982908 (V4L2_CID_EXT_VSC_ADAPTIVE_STREAM), value 1
+[ 4981.050540] de           NOT (02664:02664) DE_REG_O22_SetCviSrcType 1912: CVI-Ch[0] HDMI Phy[2] : hsize = 3840, vsize = 2160
+[ 4981.050546] de           NOT (02664:02664) vsc_set_adaptives_stream 1432: Seamless flag  win_id[0] - on/off[1]
+[ 4981.052314] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 1.
+[ 4981.054109] de           NOT (02664:02664) v4l2_vsc_vidioc_g_ctrl   1179: vsc:id 0x982910 (V4L2_CID_EXT_VSC_OCCUPATION_SUB_SCALER), value 0
+[ 4981.054165] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x98290b (V4L2_CID_EXT_VSC_HDR_TYPE), value 2
+[ 4981.054173] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3320: Before_IPC:[CMD:0x00000061]wid:0,ipc:1,from:0, DE:1,PE:0 -> 1
+[ 4981.054205] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3331: After_IPC:[CMD:0x00000061]wid:0,ipc:1,from:0, DE:1,PE:0 -> 1
+[ 4981.054209] de           NOT (02664:02664) vsc_set_hdr_type         1534: hdr type : flag:1, win:0, type:2, ipc:1
+[ 4981.054215] pe           NOT (02664:02664) vpq_hwrap_sethdropmodeinfo 9728: [0]t:1(1,0,0,0,0,0,0,1000)<-(0,0,0,0,0,0,0,1000)
+[ 4981.054222] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:2, input:4,3840x2160@599, hdr:2, hdmi444:0
+[ 4981.054229] de           NOT (02664:02664) vsc_v4l2_dolby_event      676: hdr type = 2 input_type = 4
+[ 4981.054234] de           NOT (02664:02664) vsc_v4l2_dolby_event      701: INPUT IS OTT##########
+[ 4981.054246] de           NOT (02664:02664) vsc_v4l2_dolby_event      729: DOLBY VSC EVENTS Are success fully posted!!!!
+[ 4981.054412] dolby        INF (01954:01985) DOVI_Init                 179: NOTI:: OTT/LL Mutex initialized for Win [0]
+[ 4981.054440] de           NOT (01954:01985) DE_DHDR_IP_REG_O22_Init   246: Info: Dolby Driver Init Mode [1]
+[ 4981.054467] de           NOT (01954:01985) DE_DHDR_IP_REG_O22_Phy2Virt  220: Info: MD H/W & Virtual Addr 0xc9006000 000000001f3f431c
+[ 4981.054474] de           NOT (01954:01985) DE_DHDR_IP_IO_Init        200: Info: 0 [DE_DHDR_IP_IO_Init:200] Dolby Driver Init Done! OTT Md Addr & Size = 0x80480000 0x1400 Lut DDR Addr & size= 0x80481400 0x1b9c0 CompDM 
+[ 4981.054478] de           NOT (01954:01985) v4l2_set_ext_ctrl_dolby_driver 1391: Dolby Driver INIT done 
+[ 4981.054531] dolby        INF (01954:01985) DOVI_FWSync_Init          191: Size of Raw MD = 80 Interface Size = 4096 Lut Size = 12288 MD Sise = 2328 Toatal SIze = 102400
+[ 4981.054700] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_Init  246: allocted 66626 size of OTT DM metaData
+[ 4981.054718] dolby        INF (01954:01985) DOVI_FWSync_Init          209: ##############MD Parser Init Done 1 64 sizeof(dovi_fw_interface_t) = 12288 sizeof(dovi_interace_mng_data_t = 4096############### !!!
+[ 4981.054722] dolby        INF (01954:01985) DOVI_FWSync_Init          212: Dolby Driver Init Done !!!
+[ 4981.054726] dolby        INF (01954:01985) DOVI_IP_INF_Init          131: DBG:: Dolby Driver IP Interface Init Done [DOVI_IP_INF_Init] !!!
+[ 4981.054730] dolby        INF (01954:01985) DOVI_IP_INF_Init          136: DBG:: BEFORE Dolby Driver IP Interface Init Done [DOVI_IP_INF_Init] !!!
+[ 4981.054734] dolby        INF (01954:01985) DOVI_IP_INF_Init          138: DBG:: Dolby Driver IP Interface Init Done [DOVI_IP_INF_Init] !!!
+[ 4981.054739] dolby        ERR (01954:01985) KADP_HDR_Init             165: Kadp_HDR_Init done with hdr mode 1
+[ 4981.054758] LowPower::info::video::video40::4::kadpd-Dolby_Monitor::open::ok::vbe
+[ 4981.054770] pe           NOT (01954:01985) v4l2_vpq_fh_open          866: vpq: open (kadpd-Dolby_Monitor) (open_idx:18)
+[ 4981.054774] pe           NOT (01954:01985) v4l2_vpq_fh_open          869: v4l2_vpq : ret0:1, usage_count:4
+[ 4981.054778] LowPower::info::picturequality::video50::3::kadpd-Dolby_Monitor::open::ok::vpq
+[ 4981.054791] de           NOT (01954:01985) v4l2_vsc_fh_open          817: vsc: open...(stat:3)(kadpd-Dolby_Monitor)
+[ 4981.054794] de           NOT (01954:01985) v4l2_vsc_fh_open          820: v4l2_vsc : ret0:1, usage_count:6
+[ 4981.054801] de           NOT (01954:01985) v4l2_vsc_fh_open          872: VSC V4l2 Thread already created= 1
+[ 4981.054804] de           NOT (01954:01985) v4l2_vsc_fh_open          881: index = 0, minor = 3, win_id[0]
+[ 4981.054808] de           NOT (01954:01985) vsc_open_info             328: win[0], open_count[53] pid[1954]
+[ 4981.054810] LowPower::info::video::video30::5::kadpd-Dolby_Monitor::open::ok::vsc
+[ 4981.054823] de           NOT (01954:01985) vpq_get_ext_dolby_data   1228: copied PQMODE 0 0 data to user space p_user_data = 000000008c48521b
+[ 4981.054832] dolby        INF (01954:01985) DOVI_Start                316: Updated PQ value from driver is 0 0 BRIGHT mode
+[ 4981.054843] dolby        ERR (01954:01985) startBackEndControl       188: Nice value of thread set to -20
+[ 4981.054932] dolby        INF (01954:01985) startBackEndControl       205: ProcessID:: 7a2 ThreadID:: 1985
+[ 4981.055024] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982900 (V4L2_CID_EXT_VSC_WIN_REGION)
+[ 4981.055030] de           NOT (02664:02664) vsc_set_win_info          776: no darc
+[ 4981.055692] dolby        INF (01954:18536) executeBackendCntrlThread  345: Memory allocated for DM metadata with 4096 size
+[ 4981.055759] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3690: Start main audio input 1, port 1 master_index 0.
+[ 4981.055783] alsasndout   ERR (02215:02215) input_codec_convert_sndout_codec 2285: input_codec(15). Default PCM outputs.
+[ 4981.055797] alsasndout   NOT (02215:02215) sndout_mainaudio_output  3724: main audio input 1, port 1 master_index 1.
+[ 4981.055837] dolby        INF (01954:18536) executeBackendCntrlThread  424: 136880 bytes are allocated for Dolby MetaData in buffer 0xf50a5068
+[ 4981.058994] de           NOT (02664:02664) vsc_set_win_info          825: wId[0] : Rot[0] size[3840x2160] In[3840x2160(0,0)] Out[0x0(0,0)] VENC[0] Ani[0]
+[ 4981.059102] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4981.059165] alsasndout   NOT (02215:02215) sndout_connect           3243: Start Connect output 0x20 input 0x1 port 1.
+[ 4981.059281] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 0 mode = 1
+[ 4981.059296] alsasndout   NOT (02215:02215) sndout_connect           3406: main_audio: 1, codec: 1
+[ 4981.059299] alsasndout   NOT (02215:02215) sndout_connect           3410: output 0x20 input 0x1 port 1 .
+[ 4981.059362] aud_kaimc    NOT (17965:17965) aud0                      568: 4972.242188]     mod_hdmi_new 0x608aae08 NOT      hdmi_set_data_drop_mode.1876: hdmi1_021c0001: setting 2 -> 1(port = 2, process_size = 4096)
+[ 4981.059382] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4981.059432] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4981.060233] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4981.064323] pe           NOT (02653:02653) vpq_set_ext_ctrl_cmn      366: setpqmodeinfo: v:1,l:20,w:0, 1,1,1000,0,0
+[ 4981.065001] dolby        ERR (01954:18536) executeBackendCntrlThread  679: Resolution Updated:: width = [3840] Height = [2160] NormalizeWidth = [3840] NormalizeHeight= [2160] PTS: [8527018]
+[ 4981.065024] dolby        INF (01954:18536) isHDRModeUpdated          682: Get Configuration for [0] PQ Mode
+[ 4981.065031] dolby        INF (01954:18536) isHDRModeUpdated          703: Backlight [100]
+[ 4981.065039] dolby        INF (01954:18536) executeBackendCntrlThread  740: Config file or PQ mode changed changed
+[ 4981.067392] pe           NOT (02653:02653) vpq_hwrap_sethdropmodeinfo 9728: [0]t:cc(1,0,1,1,0,0,0,1000)<-(1,0,0,0,0,0,0,1000)
+[ 4981.068812] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby  980: picmode = 2 eHDRMovieMode = 2 
+[ 4981.068819] de           NOT (02653:02653) vpq_v4l2_dolby_event      760: Posting PQ Mode EVENT 2 1############
+[ 4981.068905] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4981.068926] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby 1016: DOLBY PQ SUBMODE chnaging for 0 1 value = 100 #####!!!
+[ 4981.068929] de           NOT (02653:02653) vpq_v4l2_dolby_event      770: Posting PQ SUB Mode EVENT ############
+[ 4981.068933] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4981.077744] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1653: v:1,l:32,wid:0, set c:512,b:512,s:128,h:128
+[ 4981.081560] dolby        INF (01954:01985) KADP_HDR_SetPQSubMode     416: i_unWinID 0 i_unPQSubMode 0 i_nVal 100
+[ 4981.081604] dolby        INF (01954:01985) DOVI_SetPQSubMode         496: UnLocked OTT/LL Mutex DOVI_SetPQSubMode
+[ 4981.081651] dolby        INF (01954:18536) isHDRModeUpdated          682: Get Configuration for [2] PQ Mode
+[ 4981.081663] dolby        INF (01954:18536) isHDRModeUpdated          703: Backlight [100]
+[ 4981.081670] dolby        INF (01954:18536) executeBackendCntrlThread  740: Config file or PQ mode changed changed
+[ 4981.093696] de           NOT (02649:02649) vsc_bwm_noti              228: [bwm] sys_bwm_noti(pqe.hdr=dolby) noti
+[ 4981.110898] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1680: v:96,l:8,wid:0, ui_value:0,curr_input:10,color_space:3,black_level_type:1(0,1,4,5:yuv,others:rgb)
+[ 4981.119917] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982900 (V4L2_CID_EXT_VSC_WIN_REGION)
+[ 4981.119927] de           NOT (02664:02664) vsc_set_win_info          776: no darc
+[ 4981.119980] de           NOT (02664:02664) vsc_set_win_info          825: wId[0] : Rot[0] size[3840x2160] In[3840x2160(0,0)] Out[3840x2160(0,0)] VENC[0] Ani[0]
+[ 4981.120113] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1245: v:1,l:32,wid:0, gl v:1,sn:1,p:000000007905f45c, ai s:28,p:00000000f116e1f9
+[ 4981.120816] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1332: s:28, iv:0x00, id:1,1,2,1, [1] en:0, cp:0, c,b,s:512,512,128
+[ 4981.120988] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4981.124739] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[3840x2160(0,0)] oi[1920x1080(0,0)] vo[3840x2160(0,0)] oo[3840x2160(0,0)]
+[ 4981.124791] de           NOT (02653:02653) v4l2_vsc_update_pulldown 2148: memc_type : 4  --> _g_curr_pulldown : 0
+[ 4981.127172] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4981.127214] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[3840x2160(0,0)] oi[3840x2160(0,0)] vo[3840x2160(0,0)] oo[3840x2160(0,0)]
+[ 4981.133922] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1805: <audio_sink> ease volume setting start
+[ 4981.133937] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1817: <audio_sink> audio ease volume value = 100
+[ 4981.133941] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1818: <audio_sink> audio ease volume duration = 0
+[ 4981.133945] media_event  INF (18090:18140) gst_lg_audio_render_set_property 1819: <audio_sink> audio ease volume fadeType = Linear
+[ 4981.133951] lgao         NOT (18090:18140) lgao_set_fade            1156: ease volume setting, target vol changing -1 -> 100
+[ 4981.133955] lgao         NOT (18090:18140) lgao_set_fade            1162: ease volume setting, duration changing -1 -> 0
+[ 4981.133958] lgao         NOT (18090:18140) lgao_set_fade            1168: ease volume setting, remaining duration changing -1 -> 0
+[ 4981.133986] lgao         NOT (18090:18140) lgao_set_fade            1174: ease volume setting, fade type changing 0 -> 1
+[ 4981.137097] be           ERR (01954:18541) vbe_set_ctrl             2116: pwm is not initialized
+[ 4981.137120] dolby        INF (01954:18541) BE_V4l2_Set_DutyCycle    1001: ioctl(12)(VIDIOC_S_EXT_CTRLS),err:-1
+[ 4981.139484] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 2959: <audio_sink> DEC.1 - change state from PAUSED to READY
+[ 4981.144996] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 3125: <audio_sink> DEC.1 - change state from PAUSED to READY. DONE
+[ 4981.145058] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2391: <lxvideosink1> state: PAUSED_TO_READY
+[ 4981.146579] de           NOT (03482:03482) DE_VSYNC_WakeUp           636: update_win_ intr_mask = 3 [0,0 3840x2160] [0,0 0x0] [63853,28707 7116x46574] [63853,28707 7116x46574] [47956,4322 65472x65535] [0,0 0x0]
+[ 4981.151884] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2487: <lxvideosink1> state: PAUSED_TO_READY DONE
+[ 4981.152225] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from PAUSED to READY
+[ 4981.152234] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from PAUSED to READY. DONE
+[ 4981.152263] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from PAUSED to READY
+[ 4981.152273] lgadec       ERR (18090:18140) lgadec_stop              2176: audio device is not opened
+[ 4981.152277] lgadec       ERR (18090:18140) lgadec_decoder_close     1146: audio device is not opened
+[ 4981.152281] lgadec       NOT (18090:18140) lgadec_close             1002: aimc finalized.
+[ 4981.152291] lgadec       NOT (18090:18140) lgadec_close             1020: closed.
+[ 4981.152295] media_event  NOT (18090:18140) _gst_lg_adec_stop        2801: <lgaudiodec> stop
+[ 4981.152299] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from PAUSED to READY. DONE
+[ 4981.152486] media_event  NOT (18090:18140) gst_lx_videodec_change_state  955: <lxvideodec1> state: PAUSED_TO_READY
+[ 4981.153023] vmcu: [ 4972.090827]     vdec NOT  (039)                   _flush 3696: vdec:506d8000
+[ 4981.153049] vmcu: [ 4972.090936]     podi NOT  (039)               _PodiFlush  673: [0]flush start
+[ 4981.153104] vmcu: [ 4972.090990]     podi NOT  (039)       _PodiFlushInternal 1342: [0]flush Done
+[ 4981.154133] vmcu: [ 4972.091592]   feeder NOT  (039)              stop_feeder  854: ch:0 check work stop done
+[ 4981.154139] vmcu: [ 4972.091630]   feeder NOT  (039)              stop_feeder  856: ch:0 feed work stop done
+[ 4981.154143] vmcu: [ 4972.091720]     vdec NOT  (039)                   _flush 3736: done
+[ 4981.154984] media_event  NOT (18090:18519) gst_lx_videodec_callback 3299: <lxvideodec1> message stop
+[ 4981.155325] media_event  INF (18090:18140) gst_lx_videodec_change_state 1040: <lxvideodec1> parent class change state start
+[ 4981.155777] media_event  INF (18090:18140) gst_lx_videodec_change_state 1059: <lxvideodec1> parent class change state end
+[ 4981.155784] media_event  NOT (18090:18140) gst_lx_videodec_change_state 1075: <lxvideodec1> state: PAUSED_TO_READY DONE
+[ 4981.158486] linux-ca     DEB (18090:18140) ca_if_svp_flush           608: flush : (before predicted info: 0x57b578e0) (v-handl: 0x296ae00)
+[ 4981.162755] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[ 4981.164010] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby 1016: DOLBY PQ SUBMODE chnaging for 0 1 value = 100 #####!!!
+[ 4981.164017] de           NOT (02653:02653) vpq_v4l2_dolby_event      770: Posting PQ SUB Mode EVENT ############
+[ 4981.164043] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4981.164550] aud_output   NOT (02215:02215) output_set_scms           306: ARC 0
+[ 4981.164562] alsasndout   NOT (02215:02215) sndout_spdif_copy_protection 4602: optic_copy_protection 1 arc_copy_protection 1.
+[ 4981.164960] dolby        INF (01954:01985) KADP_HDR_SetPQSubMode     416: i_unWinID 0 i_unPQSubMode 0 i_nVal 100
+[ 4981.164970] dolby        INF (01954:01985) DOVI_SetPQSubMode         480: Same backlight value and PQ Mode as before. Nothing to do
+[ 4981.167306] alsasndout   NOT (02215:02215) sndout_disconnect        3488: Start Disconnect output 0x20 input 0x1 port 1 .
+[ 4981.167383] aud_input    NOT (02215:02215) input_set_hdmi_bypass     950: data_drop = 1 output_port = 1 mode = 2
+[ 4981.167422] alsasndout   NOT (02215:02215) sndout_disconnect        3640: main_audio: 1, codec: 1
+[ 4981.167425] alsasndout   NOT (02215:02215) sndout_disconnect        3644: output 0x20 input 0x1 port 1 .
+[ 4981.167480] aud_kaimc    NOT (17965:17965) aud0                      568: 4972.350288]     mod_hdmi_new 0x608aae08 NOT      hdmi_set_data_drop_mode.1876: hdmi1_021c0001: setting 1 -> 2(port = 2, process_size = 4096)
+[ 4981.171837] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x982908 (V4L2_CID_EXT_VSC_ADAPTIVE_STREAM), value 0
+[ 4981.172341] alsasndout   NOT (02215:02215) sndout_gain_input        4036: input 0x1 port 1 gain 8388608.
+[ 4981.174436] de           NOT (02664:02664) DE_REG_O22_SetCviSrcType 1912: CVI-Ch[0] HDMI Phy[2] : hsize = 3840, vsize = 2160
+[ 4981.174458] de           NOT (02664:02664) vsc_set_adaptives_stream 1432: Seamless flag  win_id[0] - on/off[0]
+[ 4981.174723] de           NOT (02664:02664) v4l2_vsc_vidioc_unsubscribe_event 1814: vsc[0] type 0x3, id 0x982922 (base:0x982900)
+[ 4981.174728] de           NOT (02664:02664) v4l2_vsc_vidioc_unsubscribe_event 1879: done
+[ 4981.175081] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ctrl    985: vsc:id 0x98290b (V4L2_CID_EXT_VSC_HDR_TYPE), value 0
+[ 4981.175090] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3320: Before_IPC:[CMD:0x00000061]wid:0,ipc:0,from:0, DE:0,PE:0 -> 0
+[ 4981.175259] de           NOT (02664:02664) DE_IO_SetIPCHDRMode      3331: After_IPC:[CMD:0x00000061]wid:0,ipc:0,from:0, DE:0,PE:0 -> 0
+[ 4981.175265] de           NOT (02664:02664) vsc_set_hdr_type         1534: hdr type : flag:1, win:0, type:0, ipc:0
+[ 4981.175271] pe           NOT (02664:02664) vpq_hwrap_sethdropmodeinfo 9728: [0]t:1(0,0,1,1,0,0,0,1000)<-(1,0,1,1,0,0,0,1000)
+[ 4981.175277] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:2, input:4,3840x2160@599, hdr:0, hdmi444:0
+[ 4981.175281] de           NOT (02664:02664) vsc_v4l2_dolby_event      676: hdr type = 0 input_type = 4
+[ 4981.175292] de           NOT (02664:02664) vsc_v4l2_dolby_event      726: Dolby Status[0],Set to HDR Mode = 0(0-SDR,1-HDR10,2-Dolby,3-HLG,4-PRIME,5-Dolby_LL,6 to 8-RESERVED)\n
+[ 4981.175295] de           NOT (02664:02664) vsc_v4l2_dolby_event      729: DOLBY VSC EVENTS Are success fully posted!!!!
+[ 4981.175648] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982900 (V4L2_CID_EXT_VSC_WIN_REGION)
+[ 4981.175653] de           NOT (02664:02664) vsc_set_win_info          776: no darc
+[ 4981.177810] pe           NOT (02653:02653) vpq_set_ext_ctrl_cmn      366: setpqmodeinfo: v:1,l:20,w:0, 0,0,1000,0,0
+[ 4981.180707] de           NOT (02664:02664) vsc_set_win_info          825: wId[0] : Rot[0] size[0x0] In[0x0(0,0)] Out[0x0(0,0)] VENC[0] Ani[0]
+[ 4981.180794] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982911 (V4L2_CID_EXT_VSC_ORBIT_WINDOW)
+[ 4981.182991] de           NOT (02664:02664) vsc_set_orbit_window     1893: win0: vi[0x0(0,0)] oi[1920x1080(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4981.183028] pe           NOT (02653:02653) vpq_hwrap_sethdropmodeinfo 9728: [0]t:cc(0,0,0,0,0,0,0,1000)<-(0,0,1,1,0,0,0,1000)
+[ 4981.183074] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982912 (V4L2_CID_EXT_VSC_ORBIT_MOVE)
+[ 4981.183146] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby  976: PQ Setting to default: VIVID[0]
+[ 4981.183150] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby  980: picmode = 0 eHDRMovieMode = 0 
+[ 4981.183151] de           NOT (02664:02664) vsc_set_orbit_move       1978: win0: vi[0x0(0,0)] oi[3840x2160(0,0)] vo[0x0(0,0)] oo[3840x2160(0,0)]
+[ 4981.183156] de           NOT (02653:02653) vpq_v4l2_dolby_event      760: Posting PQ Mode EVENT 0 0############
+[ 4981.183164] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4981.183171] de           NOT (02653:02653) vpq_v4l2_set_ext_ctrl_dolby 1016: DOLBY PQ SUBMODE chnaging for 0 0 value = 80 #####!!!
+[ 4981.183174] de           NOT (02653:02653) vpq_v4l2_dolby_event      770: Posting PQ SUB Mode EVENT ############
+[ 4981.183177] de           NOT (02653:02653) vpq_v4l2_dolby_event      817: #######EVENTS are successfully posted
+[ 4981.183250] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1653: v:1,l:32,wid:0, set c:471,b:512,s:128,h:128
+[ 4981.183300] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982905 (V4L2_CID_EXT_VSC_ZORDER)
+[ 4981.183306] de           NOT (02664:02664) vsc_set_zorder           1044: win[0] zorder[BOT] alpha[255]
+[ 4981.183575] de           NOT (02664:02664) vsc_set_zorder           1047: z_list[0:top]=win_1, z_list[1:bot]=win_0, alpha[0:top]=255, alpha[1:bot]=255
+[ 4981.183621] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x982905 (V4L2_CID_EXT_VSC_ZORDER)
+[ 4981.183625] de           NOT (02664:02664) vsc_set_zorder           1044: win[1] zorder[TOP] alpha[255]
+[ 4981.183653] de           NOT (02664:02664) vsc_set_zorder           1047: z_list[0:top]=win_1, z_list[1:bot]=win_0, alpha[0:top]=255, alpha[1:bot]=255
+[ 4981.183694] de           NOT (02664:02664) v4l2_vsc_vidioc_s_ext_ctrls 1345: vsc:id 0x98290c (V4L2_CID_EXT_VSC_CONNECT_INFO)
+[ 4981.183724] de           NOT (02664:02664) vsc_set_input             465: disconnect & close out window id[0] (0x0)
+[ 4981.183730] de           NOT (02664:02664) DE_REG_O22_CviMap        1846: sel_cvi[255] sel_clk[255]
+[ 4981.183733] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1882: Src map (NONE(0)/VGA(1)/YPBPR(2)/ATV(3)/CVD(4)/SCART(5)/HDMI(6)/MVI(7)/CPU(8))
+[ 4981.183736] de           INF (02664:02664) DE_REG_O22_SetWinPortSrc 1883:   => win[0] src[0] port[0]
+[ 4981.183867] de           NOT (02664:02664) vsc_set_input             550: win[0] src[0] index[0] attr[0] out[0] vdop[2] pid[0]
+[ 4981.183872] de           NOT (02664:02664) vsc_bwm_set_config        148: [bwm] opt:0, input:0,3840x2160@599, hdr:0, hdmi444:0
+[ 4981.183928] v4l2_conn    NOT (02664:02664) set_vdo_ext_ctrls         337: fh:00000000e6ab48b7, dev:28 24364060 -> 0 disconnect
+[ 4981.184148] pe           NOT (02653:02653) vpq_set_ext_ctrl_pe      1680: v:96,l:8,wid:0, ui_value:2,curr_input:10,color_space:0,black_level_type:1(0,1,4,5:yuv,others:rgb)
+[ 4981.184261] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1245: v:1,l:32,wid:0, gl v:1,sn:1,p:000000007905f45c, ai s:28,p:00000000f116e1f9
+[ 4981.184417] vmcu: [ 4972.122283]    vdisp NOT  (040)       vdisp_set_out_port  112: vdisp:0 => port:0 disconnect
+[ 4981.184440] vmcu: [ 4972.122328]    vdisp NOT  (040)             set_out_port 1082: [VDISP0] Outport 0(PORT0) => -1(DISCONNECTED)
+[ 4981.184508] vmcu: [ 4972.122391]       vo NOT  (040)       displayed_callback  482: vo:50705500, matched, y 5adab000, priv e7738c48, 3840x2160, 60000/1001, match1, freerun0, drop0, queue(3/3)
+[ 4981.184832] pe           NOT (02653:02653) vpq_set_ext_ctrl_be      1332: s:28, iv:0x00, id:1,0,2,0, [1] en:0, cp:0, c,b,s:512,512,128
+[ 4981.185193] de           NOT (02653:02653) v4l2_vsc_update_pulldown 2148: memc_type : 0  --> _g_curr_pulldown : 0
+[ 4981.186084] media_event  NOT (18090:18534) gst_lx_videosink_monitor_pollin 4094: <lxvideosink1> vo disconnected
+[ 4981.186092] media_event  NOT (18090:18534) gst_lx_videosink_signal_notification 1239: <lxvideosink1> signal notification, <gst_lx_videosink_monitor_pollin:4095>
+[ 4981.188264] de           NOT (03482:03482) DE_VSYNC_WakeUp           636: update_win_ intr_mask = 3 [0,0 0x0] [0,0 3840x2160] [63853,28707 7116x46574] [63853,28707 7116x46574] [5992,4530 65408x65535] [5992,4530 65408x
+[ 4981.189709] de           NOT (02649:02649) vsc_bwm_noti              210: [bwm] sys_bwm_noti(pqe.input=none,3840x2160@59) noti
+[ 4981.189723] de           NOT (02649:02649) vsc_bwm_noti              228: [bwm] sys_bwm_noti(pqe.hdr=sdr) noti
+[ 4981.219598] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 2959: <audio_sink> DEC.1 - change state from READY to NULL
+[ 4981.219678] media_event  NOT (18090:18140) gst_lg_audio_render_stop 2686: <audio_sink> trace
+[ 4981.219686] media_event  INF (18090:18140) gst_lg_audio_render_stop 2701: <audio_sink> stopping renderer & callback task
+[ 4981.219690] media_event  INF (18090:18140) gst_lg_audio_render_stop 2705: <audio_sink> kicking locked task
+[ 4981.219843] media_event  INF (18090:18518) gst_lg_audio_render_callback_task  411: <audio_sink> Got LGAO_EVENT_CLOSE_IPC event. kicked!
+[ 4981.219884] lgao         NOT (18090:18140) lgao_close                572: aimc finalized.
+[ 4981.219888] lgao         NOT (18090:18140) lgao_close                576: closed.
+[ 4981.219893] media_event  NOT (18090:18140) gst_lg_audio_render_stop 2731: <audio_sink> stop
+[ 4981.219943] media_event  NOT (18090:18140) gst_lg_audio_render_change_state 3125: <audio_sink> DEC.1 - change state from READY to NULL. DONE
+[ 4981.219973] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2391: <lxvideosink1> state: READY_TO_NULL
+[ 4981.220002] media_event  NOT (18090:18140) gst_lx_videosink_stop    2068: <lxvideosink1> stop
+[ 4981.220051] media_event  NOT (18090:18534) gst_lx_videosink_monitor_task 4217: <lxvideosink1> message, kick
+[ 4981.220438] media_event  NOT (18090:18140) gst_lx_videosink_stop    2100: <lxvideosink1> stop done.
+[ 4981.220473] vmcu: [ 4972.158238]    vdisp NOT  (040)     vdisp_close_instance 1306: [VDISP0] close vdisp:5073a000, out 1, match 1, drop 0, noack 0, freerun 0
+[ 4981.220503] media_event  NOT (18090:18140) gst_lx_videosink_change_state 2487: <lxvideosink1> state: READY_TO_NULL DONE
+[ 4981.220586] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4075: <lgaudiodec> change state (up) from READY to NULL
+[ 4981.220591] media_event  NOT (18090:18140) gst_lg_adec_change_state_up 4116: <lgaudiodec> change state from READY to NULL. DONE
+[ 4981.220599] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4132: <lgaudiodec> change state (down) from READY to NULL
+[ 4981.220603] media_event  NOT (18090:18140) gst_lg_adec_change_state_down 4180: <lgaudiodec> change state from READY to NULL. DONE
+[ 4981.220650] media_event  NOT (18090:18140) gst_lx_videodec_change_state  955: <lxvideodec1> state: READY_TO_NULL
+[ 4981.220797] media_event  INF (18090:18140) gst_lx_videodec_change_state  990: <lxvideodec1> [SVP] VDEC SECURE CPB/SE CLOSE DONE..
+[ 4981.220802] media_event  INF (18090:18140) gst_lx_videodec_change_state 1002: <lxvideodec1> lxvdec_close(): 0x296ae00
+[ 4981.221417] vmcu: [ 4972.158842]     vdec NOT  (040)       destroy_submodules 2830: vdec:506d8000, flush control
+[ 4981.221423] vmcu: [ 4972.158886]     podi NOT  (040)               _PodiFlush  673: [0]flush start
+[ 4981.221428] vmcu: [ 4972.158932]     podi NOT  (040)       _PodiFlushInternal 1342: [0]flush Done
+[ 4981.221436] vmcu: [ 4972.159180]   feeder NOT  (040)              stop_feeder  854: ch:0 check work stop done
+[ 4981.221441] vmcu: [ 4972.159208]   feeder NOT  (040)              stop_feeder  856: ch:0 feed work stop done
+[ 4981.221447] vmcu: [ 4972.159243] dpb_cleaner NOT  (040) dpb_cleaner_unregister_decoder  139: unregister 0(506d8000)
+[ 4981.221452] vmcu: [ 4972.159285]     vdec NOT  (040) destroy_submodules_locked 2747: vdec:506d8000, close control 50654000
+[ 4981.221458] vmcu: [ 4972.159323]     podi NOT  (040)      _PodiDeinitInstInfo  987: [0]deinit Start
+[ 4981.224132] vmcu: [ 4972.161927]     podi NOT  (040)      _PodiDeinitInstInfo 1021: [0]deinit done
+[ 4981.224139] vmcu: [ 4972.161966]     podi NOT  (040)               _PodiClose  549: [0]Instance closed
+[ 4981.300869] vmcu: [ 4972.238705]      ves NOT  (040)                ves_close 1647: [VES0] closed
+[ 4981.301335] media_event  NOT (18090:18140) gst_lx_videodec_change_state 1005: <lxvideodec1> lxvdec_close()
+[ 4981.301348] media_event  INF (18090:18140) gst_lx_videodec_change_state 1040: <lxvideodec1> parent class change state start
+[ 4981.301380] media_event  INF (18090:18140) gst_lx_videodec_change_state 1059: <lxvideodec1> parent class change state end
+[ 4981.301386] media_event  NOT (18090:18140) gst_lx_videodec_change_state 1075: <lxvideodec1> state: READY_TO_NULL DONE
+[ 4981.301582] linux-ca     DEB (18090:18140) ca_if_svp_close           292: handle (0x2c19538)
+[ 4981.301592] linux-ca     DEB (18090:18140) svp_client_helper_delete_svp_id_from_stat 1257: svp opened count(0)
+[ 4981.301874] media_event  INF (18090:18140) gst_lg_audio_render_finalize  754: <audio_sink> finalized
+[ 4981.301977] media_event  NOT (18090:18140) gst_lx_videosink_pad_unlink  825: <lxvideosink1> sink_pad unlinked
+[ 4981.302002] media_event  NOT (18090:18140) gst_lx_videosink_finalize 1182: <lxvideosink1> finalized
+[ 4981.302147] media_event  INF (18090:18140) gst_lx_videodec_finalize 1162: <lxvideodec1> finalize
+[ 4981.315864] alsasndout   NOT (01951:01951) sndout_mute_input        4106: input 0x1 port 1 mute 0.
+[ 4981.406693] de           INF (01954:18536) DE_DHDR_IP_IO_GetOTTMetaData  309: PRINT: OTT MD Ready Interrupt Timeout  DE_DHDR_IP_IO_GetOTTMetaData
+[ 4981.406701] de           ERR (01954:18536) v4l2_set_ext_ctrl_dolby_driver 1443: Dolby Driver OTT MD ERROR
+[ 4981.406705] de           ERR (01954:18536) vpq_v4l2_set_ext_ctrl_dolby 1115: dolby driver ioctl error
+[ 4981.406747] dolby        ERR (01954:18536) DOVI_FWSync_V4L2_DHDR_GetOTTMD 1600: ERROR in Get IOCTL Input/output error 8 8
+[ 4981.406753] de           NOT (01954:01985) v4l2_vsc_fh_release       909: vsc: close (kadpd-Dolby_Monitor)
+[ 4981.406761] dolby        ERR (01954:18536) DOVI_FWSync_GetRFOTTMetaData  319: RAW MD Not received from F/W!!!
+[ 4981.406762] de           NOT (01954:01985) v4l2_vsc_fh_release       963: vsc: close win[0]
+[ 4981.406769] de           NOT (01954:01985) vsc_open_info             328: win[0], open_count[4] pid[1954]
+[ 4981.406774] de           NOT (01954:01985) v4l2_vsc_fh_release       970: v4l2_vsc : ret0:0, usage_count:5
+[ 4981.406777] LowPower::info::video::video30::4::kadpd-Dolby_Monitor::close::ok::vsc
+[ 4981.406794] dolby        INF (01954:01985) stopBackEndControl        257: UnLocked OTT/LL Mutex stopBackEndControl
+[ 4981.646669] de           INF (01954:18536) DE_DHDR_IP_IO_GetOTTMetaData  309: PRINT: OTT MD Ready Interrupt Timeout  DE_DHDR_IP_IO_GetOTTMetaData
+[ 4981.646676] de           ERR (01954:18536) v4l2_set_ext_ctrl_dolby_driver 1443: Dolby Driver OTT MD ERROR
+[ 4981.646680] de           ERR (01954:18536) vpq_v4l2_set_ext_ctrl_dolby 1115: dolby driver ioctl error
+[ 4981.646708] dolby        ERR (01954:18536) DOVI_FWSync_V4L2_DHDR_GetOTTMD 1600: ERROR in Get IOCTL Input/output error 8 8
+[ 4981.646714] dolby        ERR (01954:18536) DOVI_FWSync_GetRFOTTMetaData  319: RAW MD Not received from F/W!!!
+[ 4981.646719] dolby        INF (01954:18536) executeBackendCntrlThread  569: Info:: Thread Exit [executeBackendCntrlThread] Line [569] 
+[ 4981.646727] dolby        INF (01954:18536) executeBackendCntrlThread 1032: Freed Dolby Analyzer Algorithm Buffer 0xf505c098 of size 76168 bytes
+[ 4981.646732] dolby        INF (01954:18536) executeBackendCntrlThread 1044: Freed Dolby MetaData buffer 0xf50a5068
+[ 4981.646736] dolby        INF (01954:18536) executeBackendCntrlThread 1049: Freed Dolby Algorithm Buffer 0xf50130c8 of size 76168 bytes
+[ 4981.646740] dolby        INF (01954:18536) executeBackendCntrlThread 1054: DBG:: EXIT function [executeBackendCntrlThread]
+[ 4981.646836] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_UnInit 1262: freed MD parser memory of size 401844
+[ 4981.646843] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_UnInit 1267: FREED 66626 OTT DM size 
+[ 4981.646846] dolby        INF (01954:01985) DOVI_FWSync_MD_Parser_UnInit 1276: DOVI OTT MD parser UnInit Done
+[ 4981.646866] de           NOT (01954:01985) DE_DHDR_IP_IO_Uninit      516: Info: Dolby Driver Un Init done
+[ 4981.646872] dolby        INF (01954:01985) DOVI_FWSync_UnInit       1241: Exit Fn [DOVI_FWSync_UnInit]
+[ 4981.656951] dolby        INF (01954:01985) DOVI_UnInit               261: Destroying OTT/LL Mutex
+[ 4981.657030] LowPower::info::video::video40::3::kadpd-Dolby_Monitor::close::ok::vbe
+[ 4981.657039] pe           NOT (01954:01985) v4l2_vpq_fh_release       923: vpq: close (kadpd-Dolby_Monitor) (open_idx:18)
+[ 4981.657045] pe           NOT (01954:01985) v4l2_vpq_fh_release       945: v4l2_vpq : ret0:0, usage_count:3
+[ 4981.657047] LowPower::info::picturequality::video50::2::kadpd-Dolby_Monitor::close::ok::vpq
+[ 4981.657064] dolby        INF (01954:01985) KADP_HDR_SetPQMode        392: HDR mode is not initialized for [0] window!!
+[ 4981.657069] dolby        ERR (01954:01985) KADP_HDR_DOLBY_Event_Handler 1068: ERROR in setting PQ mode for DOlby Module!!!!!!!!!!!!!!!!!!
+[ 4981.657072] dolby        ERR (01954:01985) KADP_HDR_DOLBY_Monitor    876: EVENT Handler failed
+[ 4981.657078] dolby        INF (01954:01985) KADP_HDR_DOLBY_Event_Handler 1096: bOnOff flag is off 0 so not setting PQSubMode 0
+[ 4982.242171] [wlan][4801]halRxMonitor:(HAL STATE) halRxMonitor: periodic check
+[ 4982.242175] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_submit#: 8
+[ 4982.242176] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_complete#: 4
+[ 4982.242178] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_fail#: 0
+[ 4982.242180] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataFreeQ#: 0
+[ 4982.242181] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataCompleteQ#: 0
+[ 4984.026935] CPU3: shutdown
+[ 4984.302223] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(6G) for [5020] msec(C) TMDS[ 1386] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[1]
+[ 4987.022966] [btmtk_info] btmtk_usb_fops_write: cmd:0x57 0xfd
+[ 4987.023199] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x7 0x1 0x57 0xfd
+[ 4987.023292] [btmtk_info] btmtk_usb_fops_write: cmd:0xc 0x20
+[ 4987.024954] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xc 0x20
+[ 4987.025082] [btmtk_info] btmtk_usb_fops_write: cmd:0xb 0x20
+[ 4987.025572] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xb 0x20
+[ 4987.025663] [btmtk_info] btmtk_usb_fops_write: cmd:0xb 0x20
+[ 4987.026195] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xb 0x20
+[ 4987.026250] [btmtk_info] btmtk_usb_fops_write: cmd:0xc 0x20
+[ 4987.026832] [btmtk_info] btmtk_usb_intr_complete: event:0xe 0x4 0x1 0xc 0x20
+[ 4987.357708] aud_clock    NOT (17970:17970) _update_dto_rate          542: [arc] change rate to 72
+[ 4988.350437] CPU2: shutdown
+[ 4989.769383] Detected PIPT I-cache on CPU2
+[ 4989.769417] CPU2: Booted secondary processor 0x0000000200 [0x414fd0b0]
+[ 4989.817490] Detected PIPT I-cache on CPU3
+[ 4989.817527] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[ 4991.329253] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(6G) for [5000] msec(C) TMDS[ 1288] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[1]
+[ 4992.326908] CPU3: shutdown
+[ 4992.481178] [wlan][4801]halRxMonitor:(HAL STATE) halRxMonitor: periodic check
+[ 4992.481181] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_submit#: 8
+[ 4992.481183] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_complete#: 4
+[ 4992.481184] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_fail#: 0
+[ 4992.481186] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataFreeQ#: 0
+[ 4992.481188] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataCompleteQ#: 0
+[ 4994.806417] CPU2: shutdown
+[ 4995.533372] Detected PIPT I-cache on CPU2
+[ 4995.533406] CPU2: Booted secondary processor 0x0000000200 [0x414fd0b0]
+[ 4995.825379] Detected PIPT I-cache on CPU3
+[ 4995.825415] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[ 4998.341752] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(6G) for [5000] msec(C) TMDS[ 1419] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[1]
+[ 4998.374907] CPU3: shutdown
+[ 4998.633375] Detected PIPT I-cache on CPU3
+[ 4998.633409] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[ 5001.150957] CPU3: shutdown
+[ 5002.721177] [wlan][4801]halRxMonitor:(HAL STATE) halRxMonitor: periodic check
+[ 5002.721180] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_submit#: 8
+[ 5002.721182] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_complete#: 4
+[ 5002.721183] [wlan][4801]halRxMonitor:(HAL STATE) in_urb_fail#: 0
+[ 5002.721185] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataFreeQ#: 0
+[ 5002.721187] [wlan][4801]halRxMonitor:(HAL STATE) urb in RxDataCompleteQ#: 0
+[ 5002.721244] aud_clock    NOT (17970:17970) _update_dto_rate          529: [arc] change rate to 71
+[ 5003.586417] CPU2: shutdown
+[ 5005.341733] hdmi20       NOT (02564:02564) __HDMI21_HAL_Rx_MainThread 10564: Warning [2] : Waited Delta(6G) for [5000] msec(C) TMDS[ 1336] State[0x080] TCS[0][0][0][0]/[0][0][0][0]/[0][0][0][0]/[0][0][0][0]. SCDC[1]
+[ 5005.717376] Detected PIPT I-cache on CPU2
+[ 5005.717408] CPU2: Booted secondary processor 0x0000000200 [0x414fd0b0]
+[ 5005.853470] Detected PIPT I-cache on CPU3
+[ 5005.853509] CPU3: Booted secondary processor 0x0000000300 [0x414fd0b0]
+[ 5005.917280] de           NOT (03901:03901) v4l2_vt_fh_open           730: v4l2_vt : ret:1, usage_count:2
+[ 5005.917442] LowPower::info::video::video60::1::captureservice-captureservice::open::ok::vt60
+[ 5005.917447] de           NOT (03901:03901) v4l2_vt_fh_open           819: name[vt-capture-dev] open
+[ 5005.917596] de           NOT (03901:03901) v4l2_vt_vidioc_s_ext_ctrls 1600: vt : id 0x982a03 (V4L2_CID_EXT_CAPTURE_PLANE_PROP)
+[ 5006.010701] de           NOT (03901:03901) vt_set_plane_property    3089: loc[2] w/h[960/540] buf_count[1] - timeout_rem[2] @VTG 2311
+[ 5006.010788] de           NOT (03901:03901) queue_setup              1810: queue_setup: num_buffers:0, *nbuffers:5, stride:960 w/h:960/540
+[ 5006.010796] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010799] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010804] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010807] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010810] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010813] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010817] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010820] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010823] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010827] de           NOT (03901:03901) vb2_vt_alloc              146: vb2_vt_alloc :: [virtual Addr] 00000000ff18114d [Phy Addr] 0
+[ 5006.010854] de           NOT (03901:03901) v4l2_vt_vidioc_reqbufs    454: PHY [0x80780000] VIRT [0000000017511249] Total Buffers [1/5] stride[960]
+[ 5006.011119] de           NOT (03901:03901) vt_get_output_rate       3344: loc[2] vt_fr[60] disp_fr[120]
+[ 5006.011217] de           NOT (03901:03901) buffer_queue             1830: buffer_queue: 000000009920b86a  - vt_qbuf
+[ 5006.011221] de           NOT (03901:03901) start_streaming          1850: start_streaming: 
+[ 5006.011557] de           WAR (03901:04063) v4l2_vt_vidioc_dqbuf     1447: mute[777] : return -ENODATA 
+[ 5006.026722] de           WAR (03901:04063) v4l2_vt_vidioc_dqbuf     1447: mute[777] : return -ENODATA 
+[ 5006.026792] de           NOT (03901:03901) stop_streaming           1875: stop_streaming: 
+[ 5006.026815] de           NOT (18631:18631) vt_capture_thread        2208: Index: 0 locked
+[ 5006.026824] de           NOT (18631:18631) vt_capture_thread        2243: idx[0] buff[000000009920b86a][0] offs[0] fr[0] diff[1546082167msec]
+[ 5006.026827] de           NOT (18631:18631) vt_capture_thread        2250: vt_capture_thread: stop
+[ 5006.027010] de           NOT (03901:03901) buffer_finish            1842: buffer_finish: 000000009920b86a - vt_dqbuf
+[ 5006.042219] de           NOT (03901:03901) v4l2_vt_fh_release        891: vt: close, usage_count[1][1]
+[ 5006.042225] LowPower::info::video::video60::0::captureservice-captureservice::close::ok::vt60
+[ 5006.042229] de           NOT (03901:03901) v4l2_vt_fh_release        903: name[vt-capture-dev] close hist_cmd[2](1:start,2:stop) 
