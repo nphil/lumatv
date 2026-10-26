@@ -36,6 +36,8 @@ Item {
     property color ink3C: mat.ink3 || "#6BF2EFF6"
     property color secondC: (theme.clock && theme.clock.secondHand) || "#ff3b5c"
     readonly property color onInk: isLight ? "#ffffff" : "#120e1a"
+    // the day letters are small (14 to 16 px) and sit on the card's lightest spots: the ink at 0.85, where its second ink (0.66) read 2.6 to 3.0:1
+    readonly property color softC: Qt.rgba(inkC.r, inkC.g, inkC.b, 0.85)
 
     // ------------------------------------------------------------------ the plan
     // Width of "12:45" and of its AM/PM at a time size (Manrope SemiBold: digits 0.62 em, the colon 0.28, the tracking -0.03 em, the
@@ -343,7 +345,7 @@ Item {
                     y: 0
                     horizontalAlignment: Text.AlignHCenter
                     text: modelData.initial
-                    color: modelData.today ? root.inkC : root.ink2C
+                    color: modelData.today ? root.inkC : root.softC
                     font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: Math.round(14 * strip.k)
                     renderType: Text.NativeRendering
                 }
@@ -401,7 +403,7 @@ Item {
                         width: monthsBlock.cell
                         horizontalAlignment: Text.AlignHCenter
                         text: modelData
-                        color: root.ink2C
+                        color: root.softC
                         font.family: "Manrope"; font.weight: Font.DemiBold; font.pixelSize: Math.max(14, monthsBlock.fs - 4)
                         renderType: Text.NativeRendering
                     }
