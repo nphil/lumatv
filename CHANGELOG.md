@@ -225,6 +225,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Netflix failed with tvq-pb-101 after a compositor restart taken while an HDMI input was in
+  front: the input's audio decoder port stayed open. `lumatv` now ends the input apps through
+  SAM before it restarts the compositor, and `lumatv inputs release` frees a port left open.
 - Volume bar: it measures its words as drawn, so the audio format is no longer cut off.
 - Video-plane saver: the player's role carries every name LG's media library registers, and
   the supervisor hands it the compositor's runtime directory.
