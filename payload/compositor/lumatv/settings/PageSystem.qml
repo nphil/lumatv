@@ -6,9 +6,9 @@ import "Names.js" as N
 import "."
 
 // System (docs/mocks/30-settings-system): the handful of TV-wide settings a person reaches for, and where the
-// rest of LG's Settings is. Keys and categories are the ones LG's own Settings app uses. Software update,
-// channels, privacy, the LG account and reset stay in LG's app (they are one-time screens with their own
-// confirmations); each row that leaves lands on that screen (R.lg `target`), not at LG's Picture page.
+// rest of LG's Settings is. Keys and categories are the ones LG's own Settings app uses. TV information, the software update's
+// state, privacy, self-diagnosis and reset are the Support page, the locks' state the Safety page; what is left in LG's app (the
+// account, the apps, the channel lists) is behind the one row that opens it, each row that leaves landing on its own screen (R.lg `target`).
 PageList {
     id: page
     title: "System"
@@ -54,7 +54,8 @@ PageList {
                  go: function() { page.host.openPage("language") } }),
         C.lgShown(Sio, "time.noOperationAutoOff", R.seg(Sio, { ds: "time.noOperationAutoOff", tab: 0, icon: "power", label: "No Operation Auto Off", help: "No key for this long turns the TV off.",
                      options: ["Off", "3 h", "6 h", "12 h", "24 h"], values: ["off", "3", "6", "12", "24"] })),
-        R.lg(page, { tab: 0, label: "Open LG settings", help: "LG's full Settings app, themed. Channels, privacy, account, reset." }),
+        R.link({ tab: 0, id: "safety", icon: "shield", label: "Safety", help: "Which locks are on. A lock changes only with the PIN, in LG's screen.", go: function() { page.host.openPage("safety") } }),
+        R.lg(page, { tab: 0, label: "Open LG settings", help: "LG's full Settings app, themed. For what LumaTV does not cover: the account, apps and channel lists." }),
 
         { kind: "stepper", tab: 1, id: "sleep", icon: "hourglass", label: "Sleep Timer", detail: function() { return Power.sleepLeft },
           help: "The TV turns itself off after this long.",
@@ -98,7 +99,6 @@ PageList {
           help: "The name on the network and in Home Assistant.", value: "", chevron: false, info: true },
         { kind: "value", tab: 4, icon: "sparkles", label: "LumaTV",
           value: function() { return Helper.up ? "Helper running" : "Helper stopped" }, chevron: false, info: true },
-        R.lg(page, { tab: 4, id: "update", target: "SoftwareUpdate", label: "Software update" }),
-        R.lg(page, { tab: 4, id: "info", target: "TVInformation", label: "TV information" })
+        R.link({ tab: 4, id: "support", icon: "circle-help", label: "Support", help: "TV information, software update, privacy, self-diagnosis and reset.", go: function() { page.host.openPage("support") } })
     ]
 }

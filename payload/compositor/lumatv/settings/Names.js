@@ -40,7 +40,8 @@ var tables = {
     tvSetup: { stand: "Stand", wall_mount: "Wall-mounted" },
     dtvAudio: { mpeg: "MPEG", dra: "DRA", dolbyDigital: "Dolby Digital", dobyDigitalPlus: "Dolby Digital Plus", heAaC: "HE-AAC", auto: "Auto" },
     hdmiAudio: { bitstream: "Bitstream", pcm: "PCM" },
-    magicSound: { off: "Off", standard: "Standard", bass: "Bass Boost", treble: "Treble Boost", flat: "Flat Mode" }
+    magicSound: { off: "Off", standard: "Standard", bass: "Bass Boost", treble: "Treble Boost", flat: "Flat Mode" },
+    movieRating: { off: "Off", g: "G", pg: "PG", pg13: "PG-13", r: "R", "nc-17": "NC-17", x: "X" }
 };
 
 // The name for `value` in `table` (a table name or an object); `fallback` (default: the value itself) when it has none.

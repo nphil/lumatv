@@ -51,7 +51,7 @@ QtObject {
         function call(uri, method, payload) {
             var error = ""
             if (method === "/setSystemSettings") {
-                try { var p = JSON.parse(payload); error = Fake.write(p.category, p.settings).errorText || "" } catch (e) { error = "bad payload" }
+                try { var p = JSON.parse(payload); error = Fake.write(p.category || "", p.settings).errorText || "" } catch (e) { error = "bad payload" }
             }
             if (method === "/timer/sleep/add") {
                 try { error = Fake.sleepAdd(JSON.parse(payload)).errorText || "" } catch (e2) { error = "bad payload" }
@@ -59,6 +59,7 @@ QtObject {
             // the coverage pages' services (FakeCoverage.js): a change of the clock, the zone or a pairing is kept for the next read
             try { error = error || Cov.act(uri + method, JSON.parse(payload)) || More.act(uri + method, JSON.parse(payload)) || "" } catch (e3) { error = error || "bad payload" }
             if (method === "/resetSystemSettings" && !error) { try { Fake.restore(JSON.parse(payload)) } catch (e4) { error = "bad payload" } }
+            if (!error) { try { var fx = More.effect(uri + method, JSON.parse(payload)); if (fx) Fake.write(fx.category, fx.settings) } catch (e5) { error = "bad payload" } }
             ls.record(uri, method, payload, error)
         }
     }

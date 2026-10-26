@@ -19,5 +19,8 @@ var pages = [
     { id: "poweroff", title: "Power Off Timer", icon: "power", page: "settings/PagePowerOff.qml", rail: false, parent: "system" },
     { id: "hdmiaudio", title: "HDMI input audio", icon: "cable", page: "settings/PageHdmiAudio.qml", rail: false, parent: "sound" },
     { id: "equalizer", title: "Equalizer", icon: "sliders-vertical", page: "settings/PageEqualizer.qml", rail: false, parent: "sound" },
-    { id: "language", title: "Language & location", icon: "languages", page: "settings/PageLanguage.qml", rail: false, parent: "system" }
+    { id: "language", title: "Language & location", icon: "languages", page: "settings/PageLanguage.qml", rail: false, parent: "system" },
+    { id: "support", title: "Support", icon: "circle-help", page: "settings/PageSupport.qml", rail: false, parent: "system" },
+    { id: "safety", title: "Safety", icon: "shield", page: "settings/PageSafety.qml", rail: false, parent: "system" },
+    { id: "channels", title: "Channels", icon: "antenna", page: "settings/PageChannels.qml", rail: false, parent: "inputs" }
 ];

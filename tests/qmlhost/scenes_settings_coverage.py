@@ -66,3 +66,13 @@ direct("30-settings-language", "language", at=4500)
 direct("30-settings-language-choice", "language", "ok", at=4500)
 direct("30-settings-language-keyboards", "language", "up", "right", DOWN, at=4500)
 direct("30-settings-language-location", "language", "up", "right", "right", DOWN, at=4500)
+
+# System › Support (tabs TV info, Update, Privacy, Tools, Reset), Safety, and Inputs › Channels
+direct("30-settings-support", "support", at=4500)
+direct("30-settings-support-update", "support", "up", "right", DOWN, at=4500)
+direct("30-settings-support-privacy", "support", "up", "right", "right", DOWN, at=4500)
+direct("30-settings-support-tools", "support", "up", "right", "right", "right", DOWN, at=4500)
+direct("30-settings-support-reset", "support", "up", "right", "right", "right", "right", DOWN, at=4500)
+direct("30-settings-support-reset-ask", "support", "up", "right", "right", "right", "right", DOWN, "ok", at=4500)
+direct("30-settings-safety", "safety", at=4500)
+direct("30-settings-channels", "channels", at=4500)

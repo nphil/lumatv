@@ -57,6 +57,7 @@ PageList {
         R.toggle(Sio, { ds: "other.enableDolbyVisionPC", tab: 1, icon: "monitor-cog", label: "Dolby Vision PC",
                         help: "Lets a PC send Dolby Vision. Turn HDR on in the PC's display settings." }),
 
+        R.link({ tab: 2, id: "channels", icon: "antenna", label: "Channels", help: "Channel scrolling, system colour and the interactive service.", go: function() { page.host.openPage("channels") } }),
         R.link({ tab: 2, id: "bt", icon: "gamepad-2", label: "Bluetooth Devices", go: function() { page.host.openPage("bthid") } }),
         R.lg(page, { tab: 2, id: "game", app: "com.webos.app.gameoptimizer", label: "Game Optimizer", help: "VRR, ALLM and latency per input, in LG's own screen." })
     ]

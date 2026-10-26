@@ -29,7 +29,7 @@ FIND = "var p=root.pageItem('%s');function R(l){for(var i=0;i<p.rows.length;i++)
 # or left out is skipped, as a person could not press it. A switch ends on, so the rows that wait for it (Audio Guidance's speed) are walked too.
 # the pages of this slice and the one it extends (others' pages are walked by their own tests)
 OWN = ["system", "captions", "audioguide", "audiooptions", "clock", "poweron", "poweroff", "btaudio", "bthid", "wifi", "ipsettings", "network", "inputs", "picture",
-       "equalizer", "sound", "hdmiaudio"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
+       "equalizer", "sound", "hdmiaudio", "language", "support", "channels"]       # the equalizer first: it answers in the Standard mode, which the sound page's own walk of the modes leaves
 WALK = ("var n=0;var ids=" + json.dumps(OWN) + ";for(var ii=0;ii<ids.length;ii++){var p=root.pageItem(ids[ii]);if(!p||!p.rows)continue;"
         "for(var r=0;r<p.rows.length;r++){var row=p.rows[r];if(!row.act||row.info===true)continue;"
         "if(p.ev(row.enabled)===false||p.ev(row.visible)===false)continue;var k=row.kind;"
@@ -215,6 +215,54 @@ probe("lang_zip_bad_state", FIND % "language" + "return {detail:p.ev(R('Zip Code
 probe("lang_zip", FIND % "language" + "R('Zip Code').act();" + (TYPE % "'90210'") + "return 1", wait=200)
 probe("lang_zip_after", FIND % "language" + "return {detail:p.ev(R('Zip Code').detail),value:p.ev(R('Zip Code').value)}")
 
+# ---- Support: what LG's TV Information shows, the update state, Auto Update (LG's terms first), privacy, the tools, and the reset behind its questions
+SUPPORT_TABS = ("var p=root.pageItem('support');var out=[[],[],[],[],[]];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+                "out[r.tab||0].push(String(p.ev(r.label)))}return out")
+SUPPORT_VALUES = ("var p=root.pageItem('support');var out={};for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false||r.kind!=='value')continue;"
+                  "out[String(p.ev(r.label))]=String(p.ev(r.value))}return out")
+probe("support_open", "root.openPage('support');return 1", wait=900)
+probe("support_tabs", SUPPORT_TABS)
+probe("support_info", SUPPORT_VALUES)
+probe("support_auto_state", FIND % "support" + "var r=R('Auto Update');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
+probe("support_auto_on", FIND % "support" + "R('Auto Update').act(true);return p.ev(R('Auto Update').on)", wait=250)
+probe("support_no_terms", SET + "s.set('', {eulaStatus: {generalTermsAllowed: false}});s.set('support', {automaticUpdate: 'off'});root.pageItem('support').refresh();return 1", wait=500)
+probe("support_auto_locked", FIND % "support" + "var r=R('Auto Update');return {on:p.ev(r.on),enabled:p.ev(r.enabled)!==false,detail:p.ev(r.detail)}")
+probe("support_terms_back", SET + "s.set('', {eulaStatus: {generalTermsAllowed: true}});root.pageItem('support').refresh();return 1", wait=500)
+probe("support_dns_ask", FIND % "support" + "R('Do Not Sell My Personal Information').act(true);return {asked:root.confirmOpen,on:p.ev(R('Do Not Sell My Personal Information').on)}", wait=250)
+probe("support_dns_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("support_dns_yes", FIND % "support" + "R('Do Not Sell My Personal Information').act(true);root.key('right');root.key('ok');return 1", wait=1200)
+probe("support_dns_after", FIND % "support" + "return {on:p.ev(R('Do Not Sell My Personal Information').on)}")
+probe("support_lmt", FIND % "support" + "R('Limit AD Tracking').act(true);return p.ev(R('Limit AD Tracking').on)", wait=250)
+probe("support_ad_id", FIND % "support" + "return {id:p.ev(R('AD ID').value)}")
+probe("support_ad_reset", FIND % "support" + "R('Reset AD ID').act();return {asked:root.confirmOpen}", wait=250)
+probe("support_ad_reset_yes", "root.key('right');root.key('ok');return 1", wait=1300)
+probe("support_ad_after", FIND % "support" + "return {id:p.ev(R('AD ID').value)}")
+probe("support_memory", FIND % "support" + "R('Memory Optimizer').act();var asked=root.confirmOpen;root.key('right');root.key('ok');return {asked:asked,button:p.ev(R('Memory Optimizer').button)}", wait=300)
+probe("support_tools", FIND % "support" + "return p.rows.filter(function(r){return r.tab===3}).map(function(r){return [p.ev(r.label),r.app||'',r.target||'']})")
+probe("support_reset_first", FIND % "support" + "R('Reset All').act();return {asked:root.confirmOpen}", wait=250)
+probe("support_reset_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("support_reset_continue", FIND % "support" + "R('Reset All').act();root.key('right');root.key('ok');return 1", wait=900)
+probe("support_reset_pin", "var pins=L.calls.filter(function(x){return x.method==='/createPincodePrompt'}).map(function(x){return JSON.parse(x.payload)});"
+      "return {second:root.confirmOpen,pins:pins,resets:L.calls.filter(function(x){return x.method==='/doReset'}).length}", wait=250)
+probe("support_reset_second_no", "root.key('ok');return {open:root.confirmOpen}", wait=250)
+probe("support_reset_again", FIND % "support" + "R('Reset All Except Network Settings').act();root.key('right');root.key('ok');return 1", wait=900)
+probe("support_reset_second_yes", "var second=root.confirmOpen;root.key('right');root.key('ok');return {second:second}", wait=300)
+
+# ---- Safety: the locks' state, read only
+probe("safety_open", "root.openPage('safety');return 1", wait=700)
+probe("safety_rows", "var p=root.pageItem('safety');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+      "out.push([String(p.ev(r.label)),String(p.ev(r.value)||''),!!r.act&&!r.app])}return out")
+probe("safety_locked", SET + "s.set('lock', {parentalControl: 'true', movieRating: 'pg13', tvRatingGeneralAge: 'pg', inputBlock: '5', applockPerApp: 'true'});root.pageItem('safety').refresh();return 1", wait=600)
+probe("safety_rows_locked", "var p=root.pageItem('safety');var out={};for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false||r.kind!=='value'||r.app)continue;out[String(p.ev(r.label))]=String(p.ev(r.value))}return out")
+probe("safety_unlock", SET + "s.set('lock', {parentalControl: 'false', movieRating: 'off', tvRatingGeneralAge: 'off', inputBlock: '0', applockPerApp: 'false'});return 1")
+
+# ---- Channels
+probe("channels_open", "root.openPage('channels');return 1", wait=700)
+probe("channels_rows", "var p=root.pageItem('channels');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
+      "out.push([String(p.ev(r.label)),String(p.ev(r.value)||''),p.ev(r.enabled)===false?'dim':'',String(p.ev(r.detail)||'')])}return out")
+probe("channels_interactive", FIND % "channels" + "var a=R('Interactive Service'),b=R('Interactive Service (HDMI)');var was=[p.ev(a.on),p.ev(b.on)];a.act(true);b.act(false);return {was:was,now:[p.ev(a.on),p.ev(b.on)]}", wait=300)
+probe("channels_scroll", FIND % "channels" + "var row=R('Channel Scrolling Options');var o=row.options();row.pick(o.map(function(x){return x.value}).indexOf('all_channel'));return {options:o.map(function(x){return x.value+':'+x.label}),value:p.ev(row.value)}", wait=300)
+
 # ---- every row against the TV's refusals (the last, it changes what the pages show)
 probe("walk", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(c, v) { LS.adhoc.call(\"luna://com.webos.service.settings\", "
       "\"/setSystemSettings\", JSON.stringify({category: c, settings: v})) } }', root);s.set('caption', {captionStyle: 'manual'});root.pageItem('captions').refresh();"
@@ -276,7 +324,8 @@ class Coverage(unittest.TestCase):
                 "ipv6Enable", "bleAdvertisingOnOff", "dynamicContrast", "peakBrightness", "gamma", "motionEyeCare", "colorTemperature", "colorGamut",
                 "dynamicColor", "superResolution", "noiseReduction", "mpegNoiseReduction", "smoothGradation", "realCinema", "motionPro", "filmMakerMode", "justScan",
                 "truMotionMode", "truMotionJudder", "soundOutput", "avSyncBypassInput", "supportATMOS", "audioBalance", "autoVolume", "tvSetupConfiguration",
-                "magicSpaceSound", "tvOnSound", "digitalAudioPriority", "inputAudioFormatHDMI1", "soundOutputDigital", "userEqualizerValues", "soundModeModified"}
+                "magicSpaceSound", "tvOnSound", "digitalAudioPriority", "inputAudioFormatHDMI1", "soundOutputDigital", "userEqualizerValues", "soundModeModified", "localeInfo", "automaticUpdate", "lmt", "interactive-service", "interactive-service-hdmi",
+                "autoscanChannelGroup"}
         self.assertEqual(want - written, set())
         self.assertEqual(written & {"nearBlackDetail", "expressionEnhancer", "dolbyPrecisionDetail", "hdrDynamicToneMapping"}, set())       # the TV hides them
 
@@ -329,6 +378,13 @@ class Coverage(unittest.TestCase):
         self.assertTrue(d["open"])
 
     # ---- Time & power: the timers and the clock
+    def test_the_hdmi_rows_name_their_port_and_the_empty_bluetooth_slots_are_not_devices(self):
+        self.assertEqual(self.probe("hdmi_labels")["res"], ["4:4:4 Pass Through (HDMI %d)" % n for n in (1, 2, 3, 4)])
+
+    def test_the_time_and_date_row_reads_the_clock_when_the_page_is_shown(self):
+        d = self.probe("system_clock")["res"]
+        self.assertLess(d["age"], 2000, "the row showed the clock of an earlier moment: %s" % d)
+
     def test_a_timer_writes_LGs_hour_minute_and_day_mask(self):
         doc = self.probe("timer_writes")
         d = doc["res"]
@@ -376,13 +432,6 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("bt_hid_rows")["res"], [["Registered Devices (1)", ""], ["Wireless Controller", ""], ["Connectable Devices (0)", ""], ["Search", ""]])
         found = self.probe("bt_hid_found")
         self.assertEqual([c["payload"] for c in found["calls"] if c["method"] == "/requestConnect"], [{"name": "Keyboard K380", "address": "11:22:33:00:00:02"}])
-    def test_the_hdmi_rows_name_their_port_and_the_empty_bluetooth_slots_are_not_devices(self):
-        self.assertEqual(self.probe("hdmi_labels")["res"], ["4:4:4 Pass Through (HDMI %d)" % n for n in (1, 2, 3, 4)])
-
-    def test_the_time_and_date_row_reads_the_clock_when_the_page_is_shown(self):
-        d = self.probe("system_clock")["res"]
-        self.assertLess(d["age"], 2000, "the row showed the clock of an earlier moment: %s" % d)
-
         self.assertIn(["Keyboard K380", "Connected"], self.probe("bt_hid_paired")["res"])
 
     def test_a_device_is_deleted_only_after_the_question_is_answered_yes(self):
@@ -568,6 +617,87 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("lang_zip_bad_state")["res"], {"detail": "Needs 5 digits", "value": "94105"})
         self.assertEqual(self.written("lang_zip"), [{"zipcode": "90210"}])
         self.assertEqual(self.probe("lang_zip_after")["res"], {"detail": "", "value": "90210"})
+
+    # ---- Support
+    def test_support_has_the_rows_of_LGs_tv_information_update_privacy_tools_and_reset(self):
+        self.assertEqual(self.probe("support_tabs")["res"], [
+            ["Device Name", "Model", "Model Code", "Serial Number", "webOS TV Version", "Total Power On Time", "Available Internal Storage", "MAC Address (Wired)",
+             "MAC Address (Wireless)", "ESN", "Widevine", "Dolby Vision"],                                   # VSN is hidden by the TV
+            ["Software Version", "Update status", "Auto Update", "Check for Updates"],
+            ["Do Not Sell My Personal Information", "Limit AD Tracking", "AD ID", "Reset AD ID"],
+            ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
+            ["Reset All", "Reset All Except Network Settings"]])
+
+    def test_the_information_is_what_the_tvs_services_answered_in_LGs_forms(self):
+        v = self.probe("support_info")["res"]
+        self.assertEqual((v["Model"], v["Model Code"], v["Serial Number"]), ("OLED65C4PUA", "OLED65C4PUA.AUSQLJR", "FAKE-SERIAL-0001"))
+        self.assertEqual((v["webOS TV Version"], v["Software Version"]), ("webOS24 / 9.1.2", "webOS24 / 9.1.2"))            # LG: webOS (major + 15) / version
+        self.assertEqual((v["Available Internal Storage"], v["MAC Address (Wired)"], v["MAC Address (Wireless)"]), ("1.22/2.83GB", "AA:BB:CC:11:22:33", "AA:BB:CC:44:55:66"))
+        self.assertEqual((v["ESN"], v["Widevine"], v["Dolby Vision"], v["Total Power On Time"]), ("FAKE-ESN-0001", "FAKE-WV-0001", "4.0.1", "1,705 h"))
+        self.assertEqual((v["Device Name"], v["Update status"]), ("Den TV", "No update running"))
+
+    def test_the_update_is_shown_not_run_and_auto_update_needs_LGs_terms_to_turn_on(self):
+        self.assertEqual(self.probe("support_auto_state")["res"], {"on": False, "enabled": True, "detail": ""})
+        self.assertEqual(self.written("support_auto_on"), [{"automaticUpdate": "on"}])
+        d = self.probe("support_auto_locked")["res"]
+        self.assertEqual(d, {"on": False, "enabled": False, "detail": "Needs LG's terms"})
+        for name in ("support_open", "support_auto_state", "support_auto_on", "support_no_terms"):
+            self.assertEqual([c["method"] for c in self.probe(name)["calls"] if "update" in c["method"].lower() and c["method"] != "/getStatus"], [])      # no check, no start
+
+    def test_do_not_sell_asks_then_tells_the_ad_service_and_the_setting_follows(self):
+        d = self.probe("support_dns_ask")["res"]
+        self.assertEqual((d["asked"], d["on"]), (True, False))
+        self.assertEqual([c for c in self.probe("support_dns_no")["calls"] if c["method"] == "/updateDNS"], [])
+        done = self.probe("support_dns_yes")
+        self.assertEqual([c["payload"] for c in done["calls"] if c["method"] == "/updateDNS"], [{"status": "on"}])
+        self.assertEqual(self.probe("support_dns_after")["res"], {"on": True})
+        self.assertEqual(self.written("support_lmt"), [{"lmt": "on"}])
+
+    def test_the_ad_id_is_shown_and_reset_after_a_question(self):
+        self.assertEqual(self.probe("support_ad_id")["res"], {"id": "00000000-0000-4000-8000-000000000001"})
+        self.assertTrue(self.probe("support_ad_reset")["res"]["asked"])
+        self.assertEqual([c["method"] for c in self.probe("support_ad_reset_yes")["calls"] if c["method"] == "/resetIFA"], ["/resetIFA"])
+        self.assertEqual(self.probe("support_ad_after")["res"], {"id": "00000000-0000-4000-8000-000000000002"})
+
+    def test_the_tools_ask_first_and_the_self_diagnosis_opens_LGs_customer_support_app(self):
+        self.assertEqual(self.probe("support_tools")["res"], [["Screen Self-diagnosis", "com.webos.app.customersupport", "pictureTest"],
+                                                              ["Sound Self-diagnosis", "com.webos.app.customersupport", "soundTest"], ["Memory Optimizer", "", ""]])
+        d = self.probe("support_memory")
+        self.assertTrue(d["res"]["asked"])
+        self.assertEqual([c["method"] for c in d["calls"] if c["method"] == "/removeAllRecents"], ["/removeAllRecents"])
+
+    def test_the_reset_asks_then_the_pin_prompt_then_asks_again_and_nothing_is_sent_before_the_last_yes(self):
+        self.assertTrue(self.probe("support_reset_first")["res"]["asked"])
+        self.assertEqual([c["method"] for c in self.probe("support_reset_no")["calls"] if c["method"] in ("/createPincodePrompt", "/doReset")], [])        # Cancel stops it
+        self.assertEqual([c for c in self.probe("support_reset_continue")["calls"] if c["method"] == "/doReset"], [])
+        d = self.probe("support_reset_pin")["res"]
+        self.assertEqual((d["pins"], d["resets"], d["second"]), ([{"promptType": "parental"}], 0, True))     # LG's prompt asked once, answered: the second question is up, nothing sent
+        self.assertEqual([c for c in self.probe("support_reset_second_no")["calls"] if c["method"] == "/doReset"], [])        # its safe answer resets nothing
+        self.assertEqual([c for c in self.probe("support_reset_again")["calls"] if c["method"] == "/doReset"], [])
+        done = self.probe("support_reset_second_yes")
+        self.assertTrue(done["res"]["second"])
+        self.assertEqual([(c["payload"], c["error"]) for c in done["calls"] if c["method"] == "/doReset"], [({"resetType": "userKeepNetwork"}, "")])
+
+    # ---- Safety
+    def test_safety_shows_the_locks_and_has_no_row_that_writes_one(self):
+        rows = self.probe("safety_rows")["res"]
+        self.assertEqual([r[:2] for r in rows], [["Lock System", "Off"], ["TV Program Locks", "Off"], ["Movie Lock", "Off"], ["Application Locks", "Off"], ["Input Locks", "Off"],
+                                                 ["Change locks", ""]])
+        self.assertEqual([r[0] for r in rows if r[2]], [])                                                                      # only LG's own screen changes a lock
+        self.assertEqual(self.probe("safety_rows_locked")["res"], {"Lock System": "On", "TV Program Locks": "On", "Movie Lock": "PG-13", "Application Locks": "On", "Input Locks": "On"})
+        for name in ("safety_open", "safety_rows", "safety_rows_locked"):
+            self.assertEqual([c for c in self.probe(name)["calls"] if c["method"] == "/setSystemSettings"], [])
+
+    # ---- Channels
+    def test_channels_lists_the_settings_the_tv_shows_and_writes_LGs_values(self):
+        rows = self.probe("channels_rows")["res"]
+        self.assertEqual(rows, [["Channel Scrolling Options", "Primary Channels", "", ""], ["System Color", "Multi", "dim", "Live TV only"], ["Interactive Service", "", "", ""],
+                                ["Interactive Service (HDMI)", "", "", ""], ["Channel Tuning & Settings", "", "", ""]])
+        d = self.probe("channels_interactive")
+        self.assertEqual(d["res"], {"was": [False, True], "now": [True, False]})
+        self.assertEqual(self.written("channels_interactive"), [{"interactive-service": "onByUser"}, {"interactive-service-hdmi": "offByUser"}])      # LG's own switch values
+        s = self.probe("channels_scroll")["res"]
+        self.assertEqual((s["options"], s["value"]), (["primary_channel:Primary Channels", "all_channel:All Channels"], "All Channels"))
 
 
 if __name__ == "__main__":

@@ -522,8 +522,12 @@ class Settings(HostCase):
                 self.assertIn(r["target"], known, r)
         # the ones that matter, by page: each page's escape lands where its own text says
         by = {(r["page"], r["label"], r["target"]) for r in rows}
+        self.assertIn(("look", "More in LG settings", "HomeSettings"), by)
         self.assertIn(("picture", "More in LG settings", "Brightness"), by)
-        self.assertIn(("system", "Software update", "SoftwareUpdate"), by)
+        self.assertIn(("channels", "Channel Tuning & Settings", "channel"), by)
+        self.assertIn(("safety", "Change locks", "parentalControls"), by)
+        self.assertIn(("support", "Check for Updates", "SoftwareUpdate"), by)
+        self.assertIn(("support", "Screen Self-diagnosis", "pictureTest"), by)
         self.assertIn(("inputs", "Game Optimizer", ""), by)
 
 
