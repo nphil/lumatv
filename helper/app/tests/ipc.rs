@@ -39,6 +39,7 @@ fn health_discovery_and_state_answer_over_tcp() {
             + lumatv_helper::ai::routes::ROUTES.len()
             + lumatv_helper::plugins::routes::ROUTES.len()
             + lumatv_helper::voice::ROUTES.len()
+            + lumatv_helper::images::ROUTES.len()
     );
 
     let state = get(rig.addr, "/v1/state").json();
