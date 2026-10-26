@@ -16,7 +16,7 @@ Read on the set (read-only, 2026-10-26; the replies are in `docs/research/round9
 
 How a page is made (read `settings/Choice.js`, `PageSound.qml`, `PageSupport.qml`): a row names LG's key (`C.seg`, `C.choice`, `C.range`, `R.toggle`), its list or range comes from the TV's description; a child page is added to `settings/Children.js`; probes are in `tests/test_settings_coverage.py` (one host run answers them all) and scenes in `tests/qmlhost/scenes_settings_coverage.py` (`python3 tests/qmlhost/scenes.py --only <names> --theme both --audit`).
 
-Next: the TV check (read-only: the configs above, then each page looked at, none pressed); the row under "Left" when a pair of matching speakers can be tested; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
+Next: deploy the package (the one on the set, 3c8857a, is older than the fixes after it: App Permissions' `{subscribe: true}`, the NEXTGEN TV rows waiting for the tuner, Just Scan per input), then the look-only TV check, nothing pressed. The rail was walked 2026-10-26 (Picture, Sound, Inputs & devices, Network, Ambient light, Home & look, Remote & pointer, AI access, System); not yet looked at: Fine Tune, White Balance, HDMI Signalling, the Support tabs, Safety, Privacy (App Permissions, Delete My Personal Information), and Picture > Mode with an HDMI input in front (Just Scan shows its value). Then the row under "Left" when a pair of matching speakers can be tested; a row that turns out not to be possible moves to `cannot` with the reason the TV gave.
 
 ## Sources
 
