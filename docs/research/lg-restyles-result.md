@@ -16,11 +16,12 @@ Built and tested offline, **not verified on the TV**:
   view that hosts the IME. Switch: `lumatv keyboard on|off|status` (off by default; a change is one `apply`, which rebuilds the shadow module and,
   under LG's compositor, restarts it once). The flag is part of the shadow's fingerprint, so the first `apply` after this update rebuilds the
   shadow once on every set.
+- `tools/voice_patch.py`, `tools/voice.sh`: the restyle of LG's Search app (`com.webos.app.voice`, 202 QML), same shape as inputcommon's ("LG's Search app" below).
+  Switch: `lumatv voice on|off|status` (off by default, mounted again by `apply` at boot).
 
-**Not done, both for lack of source:** maliit's keys (key caps, language bar, candidate list) and LG's Search app (`com.webos.app.voice`, 203 QML,
-`qml/` in its app directory). Neither tree is in anything copied from the set. Round 8's script copies maliit's
-(`docs/research/round8/tv-2026-10-25/maliit/`, step `maliit`); the voice tree was asked for in the same slot. When they are in
-`/data/home/lgtv/uiinv/maliit/` and `/data/home/lgtv/uiinv/voice/`, each is a patch of `inputcommon_patch.py`'s shape and the host gets scenes for it;
+**Not done, for lack of source:** maliit's keys (key caps, language bar, candidate list). Round 8's script copies maliit's tree
+(`docs/research/round8/tv-2026-10-25/maliit/`, step `maliit`) and it has not arrived: no QML of maliit is on this workstation (only its systemd unit and
+start script). When it is in `/data/home/lgtv/uiinv/maliit/` it is a patch of `inputcommon_patch.py`'s shape and the host gets scenes for it;
 if maliit's keys are a compiled resource (`qrc`), no mount reaches them and the rebuild of that resource is Nitin's call. LG's voice bar
 (`VoiceAgent`, source on disk) is not restyled: the `lean` profile stops the voice services that open it and LumaHome takes the mic key
 (`voice-result.md`), so it cannot appear; with `lean`'s `voice` group turned back on it shows in LG's look.
@@ -28,7 +29,7 @@ if maliit's keys are a compiled resource (`qrc`), no mount reaches them and the 
 Renders, dark and light, 960x540, in `docs/research/lg-restyles/` (`25-lg-input-*`, `20-lg-channel-*`, `18-lg-no-signal*`, `25-lg-banner-position`,
 `35-lg-prompt`); regenerate with `python3 tests/qmlhost/scenes.py --only <names> --out DIR --theme both`.
 
-Next, in order: (1) "TV check, overnight round" below; (2) read maliit's and the voice app's trees from round 8's copy and do their patches;
+Next, in order: (1) "TV check, overnight round" below; (2) "TV check, keyboard and search" below, and maliit's patch once its tree is copied;
 (3) the owner's pick on the optional items ("Not done").
 
 CHANGELOG line for the main agent: *Restyles of LG's own processes in the Lucent look: the input banners, Live TV's channel banner and INFO card, the
@@ -323,9 +324,68 @@ idle Live TV instance has side effects; the 5 s wait for `/tmp/criu_restoring` m
   `systemui_patch.py`, which were copied and not listed, in REQUIRED_FILES). `tests/test_package_tools.py` follows what the tool, the boot hook and
   every shipped script call or import and fails when any of it is not copied and listed.
 
+## LG's Search app (`com.webos.app.voice`)
+
+Source: `/data/home/lgtv/uiinv/voice/qml` (202 `.qml`, copied from `/tmp/tvsrc/apps/com.webos.app.voice/qml`; the app's pictures, `Views/images/`, are not in it).
+The app is one native process: `Main.qml` is its root, `Style.qml` its style sheet (about 190 colours, in objects by screen), `Views/` its screens. Under `lean`
+LG's voice services and cloud search are stopped, so the screens a user can reach are the search field with its keyboard, the keyword rows, the option popup,
+the confirm and notice popups; result cards and the voice screens (Weather, IoT, Voice ID, Sports) are only restyled through the shared style sheet.
+
+`tools/voice_patch.py` (14 files: `Style.qml`, `Main.qml`, `Views/{SearchView,MainView,UtteranceUIView}.qml`, `Views/SearchView/{SearchInputBox,NotiView}.qml`,
+`Views/ContentsList/KeywordsRec.qml`, `Views/Components/{ButtonFlex,ButtonIcon,FocusableText,FocusableSwitch,FocusableSwitchWithText,MiniBg}.qml`,
+`Views/PopupView/optionPopup.qml`), style only:
+
+- **A role for every colour of the style sheet.** `voice_patch.py` holds a table (sheet, ink, dim ink, hairline, lit fill, ring, accent, danger) and rewrites every
+  quoted colour of `Style.qml` by it. A colour with no role, or a role for a colour that is gone, is fatal: a firmware update that adds a colour must be looked at.
+  Kept on purpose: the black behind thumbnails, the IP channel's orange, the web tile's blue, the select pink and `transparent`.
+- **Manrope for Latin locales**: `reloadFontFamily` takes the four families from LG's language table; each goes through `lumaFamily`, which gives Manrope when the
+  locale's class is Latin and LG's family otherwise (this set is English). The faces are loaded by `FontLoader`s in the style sheet; `Main.qml`'s four defaults are Manrope too.
+- **One sheet under everything.** LG draws white words over 60-85 % black; with ink that follows the theme the sheet is whole, on every theme (the full-screen field, the
+  drawer's dim, the option popup's backdrop). The drawer's black gradient picture is dropped.
+- **Focus is a lit fill with a ring**, not LG's white box with dark text: the keyword chips, the buttons (`ButtonFlex`), the popup rows, the picture buttons (round, ring on focus; the
+  glyph picture that reads on the sheet is used in both states, as in inputcommon), the search field (a pill: a wash at rest, the lit fill and a ring focused). The grey
+  `7D848C` chips are the hairline wash.
+- **No live shadow**: the seven `DropShadow`s of the files above are off; the pads that LG only drew as the source of a shadow (`visible: false`) are drawn.
+- The AI keyword dot and its text are the accent; the "related" highlight and the utterance's highlight colour are the accent.
+
+Host: `tests/qmlhost/voice.py` (`--scene search|search-focus|auto|keywords|noti|option|confirm`, `--patched`, `--light`, `--text 200`, `--audit`) loads LG's own `Style.qml`,
+`StringSet.qml`, `GlobalVars.qml`, every `Services/*.qml` wrapper and the views, with `main`, `mainView`, `models`, `inputManager`, `voiceHintManager`, `ttsManager`, `util`
+and `Service` as stand-ins (`Service` answers LG's search server with four popular keywords and four auto keywords). Pictures are not drawn (not in the copy), so the three
+picture buttons show nothing; the close, more and profile buttons' places are visible by their rings only. Scenes: `tests/qmlhost/scenes_voice.py`
+(`09-lg-search*`, dark and light in `docs/research/lg-restyles/`; `*-200` are 200 % text). LG's own bugs in the host, left alone: `SearchView.qml:287` (`KeyNavigation.up` returns
+nothing while the dim is down) and the auto-keyword delegates reading their `ListView` while the model is cleared.
+
+`tools/voice.sh` is `tools/inputcommon.sh` with another tree's names (the script reads `IC_NAME`, `IC_ID`, `IC_ROOT_FILE` (`Main.qml`), `IC_STYLE_FILE` (`Style.qml`), `IC_PATCH_TOOL`,
+`IC_ASIDE` (`.lumatv-aside-voice.`), `IC_DUMP_GLOBS`, `IC_APPS`, `VOICE_QML`): the overlay is named `voice`, the stage directory is `$STATE/voice`, the dump set aside is `com.webos.app.voice` and
+nothing else (`voiceweb` and `voiceagent` are not matched, nor is inputcommon's dump), and only the Search app is ended through SAM. [INFERENCE] the QML is at
+`/usr/palm/applications/com.webos.app.voice/qml` (the app's `Main.qml` builds its picture path from `applicationDirPath + "/qml/Views/images/"`); `VOICE_QML` overrides.
+Whether the Search app is restored from a CRIU dump like the input apps is not known: if it is not, `on` sets aside nothing (`"checkpointAside":0`) and the app, ended once through SAM,
+starts again from the patched files.
+
+## TV check, keyboard and search (not verified on the TV)
+
+One short slot, after "TV check, overnight round". Set on Home, receiver muted through Home Assistant, evidence to `docs/research/lg-restyles/tv/` (`log.txt` first, PASS/FAIL/INFO a line).
+Renders to compare with: `09-lg-search*` (960x540).
+
+1. **Where the QML is.** `ls -d /usr/palm/applications/com.webos.app.voice/qml`; `find <dir> -name '*.qml' | wc -l` is 202 and `md5sum <dir>/Style.qml Main.qml` against
+   `/data/home/lgtv/uiinv/voice/qml`. If the QML is not there, `find / -name SearchInputBox.qml 2>/dev/null` and run the tool with `VOICE_QML=<dir>`. Also `ls <dir>/Views/images | head`.
+2. **Before.** `$TOOL voice status` answers `"ok":true,"on":false,"mounted":false`; `ls -A /tmp/checkpoint | grep -i voice` (what dumps exist: a `com.webos.app.voice` there means a restore, none means the app starts cold anyway);
+   `$TOOL surfaces` has `"id":"voice","on":false`; `ls $APP/tools/voice.sh $APP/tools/voice_patch.py` lists both. LG's own Search for comparison: launch it
+   (`luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"com.webos.app.voice"}'`, PTY) and `shot own-search` at 3 s, `kb OK` on the field for LG's keyboard, `shot own-keyboard`, `kb BACK` twice.
+3. **On.** `$TOOL voice on` (PTY). PASS: `{"ok":true,"voice":"on",...}`, `grep ' overlay ' /proc/mounts` shows the overlay over that directory, no new `failed` unit. Launch Search, `shot voice-search` at 3 s:
+   the field is a pill (hairline, `09-lg-search.jpg`), Manrope, the sheet dark with nothing white. `kb DOWN`: the lit chip with a ring. Type through LG's keyboard (it is maliit's, unchanged): the auto keywords
+   appear under the field as hairline chips (`09-lg-search-auto.jpg`). The microphone/account buttons show LG's pictures on the sheet: INFO what they look like (the pictures were not in the copy).
+   Right to the more key, OK: the option popup (`09-lg-search-option.jpg`): a sheet with a hairline, the switch in the accent. Quit with its last row or `kb BACK`.
+4. **Light.** None needed on the set: the sheet is always the dark material's.
+5. **Off.** `$TOOL voice off`: `"voice":"off"`, the overlay gone, LG's look is back at the next launch (compare `own-search`); `$TOOL surfaces` has `"id":"voice","on":false`. Leave it as found (off).
+6. **Keyboard switch** is step 10 of "TV check, overnight round"; maliit's keys cannot be restyled until its tree is copied: round 8's `maliit` step or the `maliit` commands of "Needs the TV" 5.
+7. **End.** Home in front, `$TOOL voice status`, `$TOOL inputcommon status`, `$TOOL surfaces` in the log, the receiver as found.
+
+Offline checks that back the steps: `python3 -m unittest tests.test_voice_patch tests.test_voice_stage tests.test_lumatv_inputcommon tests.test_package_tools tests.test_surfaces_registry`.
+
 ## Not done
 
-- maliit's keys and LG's Search app (`com.webos.app.voice`): no source ("Resume here").
+- maliit's keys: no source ("Resume here").
 - LG's voice bar (`VoiceAgent`): its source is on disk, but it cannot open while `lean` is on and LumaHome holds the mic key; the plan's one arc in place of the 485-frame animation is
   not built (SURFACES.md row 183).
 - Live TV screens that cannot appear on this set (Teletext, CI, EWS, DVR, LG Channels, region popups) keep LG's look apart from the shared fonts and colours (SURFACES.md rows 167-173).

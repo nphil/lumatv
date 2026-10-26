@@ -29,6 +29,8 @@
 #   webglass on|off|status -> glass stylesheet in the settings web apps
 #   inputcommon on|off|status -> LG's input banners (com.webos.app.inputcommon) in the Lucent look: a patched copy of its QML
 #                            mounted over LG's (tools/inputcommon.sh); off by default, re-mounted by apply at every boot while on
+#   voice on|off|status    -> LG's Search app (com.webos.app.voice) in the Lucent look: a patched copy of its QML mounted over
+#                            LG's (tools/voice.sh); off by default, re-mounted by apply at every boot while on
 #   keyboard on|off|status -> the on-screen keyboard's window in the theme's layer motion (shadow module, tools/keyboard_patch.py);
 #                            off by default; a change is one rebuild and, under LG's compositor, one restart
 #   homestub on|off|confirm|status -> LumaHome as the only Home: a stub in LG's Home's place
@@ -205,6 +207,9 @@ WEBGLASS_ON="$STATE/.webglass-on"
 # for webglass.
 INPUTCOMMON_TOOL="$APPDIR/tools/inputcommon.sh"
 INPUTCOMMON_ON="$STATE/.inputcommon-on"
+# LG's Search app (com.webos.app.voice): the same overlay mount, by tools/voice.sh (it runs tools/inputcommon.sh for the other tree).
+VOICE_TOOL="$APPDIR/tools/voice.sh"
+VOICE_ON="$STATE/.voice-on"
 # The on-screen keyboard's window in the theme's layer motion instead of LG's 600 ms jelly: the shadow module's copy of
 # views/StarfishKeyboardView.qml is patched when the module is built. It matters only while LG's compositor is the live one. Off by
 # default like every other restyle of an LG process: `keyboard on` leaves the flag that build_shadow reads and the rebuild makes the patch.
@@ -995,6 +1000,41 @@ verb_inputcommon() {
         *) emit_error "tools/inputcommon.sh did not answer"; return 1 ;;
       esac ;;
     *) emit_error "usage: inputcommon on|off|status"; return 1 ;;
+  esac
+  return 0
+}
+
+voice_mounted() {
+  # As inputcommon_mounted: apply leaves a mounted overlay alone, `voice on` is what ends the app's instance.
+  sh "$VOICE_TOOL" status < /dev/null 2>/dev/null | grep -q '"mounted":true'
+}
+
+voice_set() {
+  # $1 = on|off, one JSON object in $vo_out; what is in force stays when it cannot stage or mount.
+  vo_out=$(sh "$VOICE_TOOL" "$1" < /dev/null 2>>"$LOGFILE"); vo_rc=$?
+  log_line "voice $1: $(printf '%s' "$vo_out" | cut -c1-200)"
+  [ "$vo_rc" -eq 0 ] && printf '%s' "$vo_out" | grep -q '"ok":true'
+}
+
+verb_voice() {
+  case "${1:-status}" in
+    on|off)
+      take_mutation_lock || { emit_error "another apply or revert is still running"; return 1; }
+      if voice_set "$1"; then
+        if [ "$1" = on ]; then : > "$VOICE_ON"; else rm -f "$VOICE_ON"; fi
+        printf '%s\n' "$vo_out"
+      else
+        case "$vo_out" in '{'*'"ok":false'*) printf '%s\n' "$vo_out" ;; *) emit_error "tools/voice.sh did not answer" ;; esac
+        return 1
+      fi ;;
+    status)
+      vo_out=$(sh "$VOICE_TOOL" status < /dev/null 2>>"$LOGFILE")
+      vo_now=false; [ -f "$VOICE_ON" ] && vo_now=true
+      case "$vo_out" in
+        '{"ok":true,'*) vo_rest=${vo_out#'{"ok":true,'}; printf '{"ok":true,"on":%s,%s\n' "$vo_now" "$vo_rest" ;;
+        *) emit_error "tools/voice.sh did not answer"; return 1 ;;
+      esac ;;
+    *) emit_error "usage: voice on|off|status"; return 1 ;;
   esac
   return 0
 }
@@ -2153,6 +2193,7 @@ do_revert_internal() {
   [ -f "$NOTI_ON" ] && { noti_set off; rm -f "$NOTI_ON"; }
   rm -f "$KEYBOARD_ON"
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_set off; rm -f "$INPUTCOMMON_ON"; }
+  [ -f "$VOICE_ON" ] && { voice_set off; rm -f "$VOICE_ON"; }
   # Nothing of ours should run on the boot path after a revert, including the
   # PATH shim kdump.service would otherwise resolve.
   remove_early_hook
@@ -2305,6 +2346,7 @@ verb_apply() {
   [ -f "$LOGO_ON" ] && { logo_set on || log_line "apply: could not point the logos at the staged windows"; }
   [ -f "$NOTI_ON" ] && { noti_set on || { rm -f "$NOTI_ON"; log_line "apply: the notification view fell back to LG's"; }; }
   [ -f "$INPUTCOMMON_ON" ] && { inputcommon_mounted || inputcommon_set on || log_line "apply: could not mount the patched input banners over LG's"; }
+  [ -f "$VOICE_ON" ] && { voice_mounted || voice_set on || log_line "apply: could not mount the patched Search app over LG's"; }
 
   # What the compositor reads (QML, wallpaper) is tracked apart from the rest
   # of the set: a running compositor that already has the shadow only needs a
@@ -2685,6 +2727,7 @@ surfaces_json() {
   printf '{"id":"quicksettings","on":%s,"fallback":"`systemui off` puts the stock entry back in configd"},' "$(b test -f "$SYSTEMUI_ON")"
   printf '{"id":"settings-theme","on":%s,"fallback":"`webglass off` unmounts the overlays"},' "$(b test -f "$WEBGLASS_ON")"
   printf '{"id":"inputcommon","on":%s,"fallback":"`inputcommon off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s input banners return"},' "$(b test -f "$INPUTCOMMON_ON")"
+  printf '{"id":"voice","on":%s,"fallback":"`voice off` unmounts the overlay; a reboot or revert clears it and LG'"'"'s Search app returns"},' "$(b test -f "$VOICE_ON")"
   printf '{"id":"keyboard","on":%s,"fallback":"`keyboard off` rebuilds the shadow module with LG'"'"'s own keyboard view; revert drops the module"},' "$(b test -f "$KEYBOARD_ON")"
   printf '{"id":"notifications","on":%s,"fallback":"`notifications off`, a failed stage, or revert point the view back at LG'"'"'s file"},' "$(b test -f "$NOTI_ON")"
   printf '{"id":"logos","on":%s,"fallback":"`logo off`; a logo that will not load answers tvpowerd at once"},' "$(b test -f "$LOGO_ON")"
@@ -3129,7 +3172,7 @@ verb_version() {
 # ------------------------------------------------------------------- dispatch
 
 case "$VERB" in
-  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|keyboard|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
+  status|apply|boot-bind|boot-restart|boot-ok|revert|persist|fps|standby|ntfy|log|theme|systemui|webglass|inputcommon|keyboard|voice|homestub|homestub-boot|homestub-watch|helper|preload|logo|notifications|surfaces|compositor|compositor-boot)
     # Before ensure_config, which would create the new data dir and with it
     # hide the old one.
     if ! migrate_legacy; then
@@ -3217,6 +3260,7 @@ case "$VERB" in
   systemui) verb_systemui "${2:-status}"; exit $? ;;
   webglass) verb_webglass "${2:-status}"; exit $? ;;
   inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
+  voice) verb_voice "${2:-status}"; exit $? ;;
   keyboard) verb_keyboard "${2:-status}"; exit $? ;;
   homestub) verb_homestub "${2:-status}"; exit $? ;;
   homestub-boot) verb_homestub_boot; exit $? ;;

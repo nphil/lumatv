@@ -162,13 +162,13 @@ class Packaged(unittest.TestCase):
 
     def test_the_closure_reaches_the_scripts_it_should(self):
         names = wanted()
-        for must in ("lumatv", "autostart.sh", "bootcap.sh", "brand.sh", "compositor.sh", "inputcommon.sh", "inputcommon_patch.py", "keyboard_patch.py",
+        for must in ("lumatv", "autostart.sh", "bootcap.sh", "brand.sh", "compositor.sh", "inputcommon.sh", "inputcommon_patch.py", "voice.sh", "voice_patch.py", "keyboard_patch.py",
                      "notification_patch.py", "tokens.py", "preload.py", "theme.py", "keyfilter.py", "systemui.py", "systemui_patch.py", "tileicons.js"):
             self.assertIn(must, names)
 
     def test_the_input_banner_and_keyboard_restyle_are_shipped(self):
         # the three that were missing, and the modules they import
-        for name in ("inputcommon.sh", "inputcommon_patch.py", "keyboard_patch.py", "notification_patch.py", "tokens.py"):
+        for name in ("inputcommon.sh", "inputcommon_patch.py", "voice.sh", "voice_patch.py", "keyboard_patch.py", "notification_patch.py", "tokens.py"):
             self.assertIn(name, copied(self.build), name)
             self.assertIn(name, required(self.build), name)
 
@@ -179,7 +179,7 @@ class Packaged(unittest.TestCase):
 
     def test_the_checker_finds_a_script_that_is_not_shipped(self):
         names = wanted()
-        without_cp = self.build.replace("cp tools/inputcommon.sh tools/inputcommon_patch.py tools/keyboard_patch.py", "cp tools/inputcommon_patch.py tools/keyboard_patch.py")
+        without_cp = self.build.replace("cp tools/inputcommon.sh tools/inputcommon_patch.py tools/voice.sh", "cp tools/inputcommon_patch.py tools/voice.sh")
         self.assertEqual(missing(without_cp, names), ["inputcommon.sh"])
         without_listed = self.build.replace("tools/keyboard_patch.py\n", "", 1)
         self.assertEqual(missing(without_listed, names), ["keyboard_patch.py (not in REQUIRED_FILES)"])
@@ -189,7 +189,7 @@ class Packaged(unittest.TestCase):
     def test_the_dry_run_names_the_three_as_present(self):
         r = subprocess.run(["sh", BUILD, "--dry-run"], cwd=ROOT, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
-        for name in ("inputcommon.sh", "inputcommon_patch.py", "keyboard_patch.py", "tileicons.js", "systemui.py", "systemui_patch.py"):
+        for name in ("inputcommon.sh", "inputcommon_patch.py", "voice.sh", "voice_patch.py", "keyboard_patch.py", "tileicons.js", "systemui.py", "systemui_patch.py"):
             self.assertIn("✓ tools/%s\n" % name, r.stdout)
         self.assertNotIn("✗ tools/", r.stdout)
 
@@ -199,6 +199,8 @@ class Packaged(unittest.TestCase):
         self.assertIn('sh "$INPUTCOMMON_TOOL"', text)
         self.assertIn('python3 "$KEYBOARD_TOOL"', text)
         self.assertIn('python3 "$IC_PATCH_TOOL"', read(os.path.join(TOOLS, "inputcommon.sh")))
+        self.assertIn('sh "$VOICE_TOOL"', text)
+        self.assertIn('exec sh "$APPDIR/tools/inputcommon.sh"', read(os.path.join(TOOLS, "voice.sh")))
 
     def test_every_payload_file_the_tool_names_is_in_the_package(self):
         self.assertGreaterEqual(len(payload_refs()), 15, sorted(payload_refs()))

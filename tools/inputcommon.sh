@@ -37,11 +37,16 @@ if [ -z "${STATE:-}" ]; then
 fi
 
 mkdir -p "$STATE" 2>/dev/null
-IC_ID=com.webos.app.inputcommon
-IC_STAGE="$STATE/inputcommon"
+# tools/voice.sh runs this script for LG's Search app with these set (the same overlay and cold start, another tree); the defaults are
+# the input banners'.
+IC_NAME=${IC_NAME:-inputcommon}
+IC_ID=${IC_ID:-com.webos.app.inputcommon}
+IC_ROOT_FILE=${IC_ROOT_FILE:-RootWindow.qml}
+IC_STYLE_FILE=${IC_STYLE_FILE:-UserInterfaceLayer/GlobalStyle.qml}
+IC_STAGE="$STATE/$IC_NAME"
 IC_UPPER="$IC_STAGE/upper"
 IC_WORK="$IC_STAGE/work"
-IC_PATCH_TOOL="$APPDIR/tools/inputcommon_patch.py"
+IC_PATCH_TOOL=${IC_PATCH_TOOL:-$APPDIR/tools/inputcommon_patch.py}
 TOKENS_TOOL="$APPDIR/tools/tokens.py"
 THEME_SRC=${THEME_SRC:-$APPDIR/payload/theme}
 THEME_DIR=${THEME_DIR:-$STATE/theme}
@@ -54,12 +59,14 @@ CRIU_TMP=${CRIU_TMP:-/tmp/checkpoint}
 CRIU_ENABLE=${CRIU_ENABLE:-/tmp/criu_enable}
 CRIU_RESTORING=${CRIU_RESTORING:-/tmp/criu_restoring}
 RESTORE_WAIT=${RESTORE_WAIT:-5}
-IC_ASIDE=.lumatv-aside.
+IC_ASIDE=${IC_ASIDE:-.lumatv-aside.}
+# Which names in CRIU's working directory are this app's dump (globs; the voice app must not match voiceweb or voiceagent).
+IC_DUMP_GLOBS=${IC_DUMP_GLOBS:-*inputcommon*}
 LUNA_SEND=${LUNA_SEND:-luna-send}
 SAM_TIMEOUT=${SAM_TIMEOUT:-10}
 SAM_URI=luna://com.webos.applicationManager
 # The apps whose main is /usr/bin/com.webos.app.inputcommon (listApps.json of the census), the ones an instance can be running for.
-IC_APPS="com.webos.app.inputcommon com.webos.app.livetv com.webos.app.livetvopapp com.webos.app.hdmi1 com.webos.app.hdmi2 com.webos.app.hdmi3 com.webos.app.hdmi4 com.webos.app.dp1 com.webos.app.dp2 com.webos.app.externalinput.av1 com.webos.app.externalinput.av2 com.webos.app.externalinput.component com.webos.app.externalinput.scart com.webos.app.usbc1 com.webos.app.usbc2"
+IC_APPS=${IC_APPS:-"com.webos.app.inputcommon com.webos.app.livetv com.webos.app.livetvopapp com.webos.app.hdmi1 com.webos.app.hdmi2 com.webos.app.hdmi3 com.webos.app.hdmi4 com.webos.app.dp1 com.webos.app.dp2 com.webos.app.externalinput.av1 com.webos.app.externalinput.av2 com.webos.app.externalinput.component com.webos.app.externalinput.scart com.webos.app.usbc1 com.webos.app.usbc2"}
 PROC_MOUNTS=${PROC_MOUNTS:-/proc/mounts}
 MOUNT=${MOUNT:-mount}
 UMOUNT=${UMOUNT:-umount}
@@ -75,17 +82,18 @@ emit_error() {
 
 log_line() {
   mkdir -p "$STATE" 2>/dev/null
-  printf '%s inputcommon: %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$(printf '%s' "$1" | tr '\n' ' ')" >> "$LOGFILE" 2>/dev/null
+  printf '%s %s: %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$IC_NAME" "$(printf '%s' "$1" | tr '\n' ' ')" >> "$LOGFILE" 2>/dev/null
 }
 
 # LG's QML directory: the override, else the first candidate that holds the root window.
 ic_qml() {
-  if [ -n "${INPUTCOMMON_QML:-}" ]; then
-    [ -f "$INPUTCOMMON_QML/RootWindow.qml" ] && printf '%s\n' "$INPUTCOMMON_QML"
+  if [ -n "${IC_QML_OVERRIDE-${INPUTCOMMON_QML:-}}" ]; then
+    over=${IC_QML_OVERRIDE-${INPUTCOMMON_QML:-}}
+    [ -f "$over/$IC_ROOT_FILE" ] && printf '%s\n' "$over"
     return
   fi
   for d in $IC_CANDIDATES; do
-    if [ -f "$d/RootWindow.qml" ]; then printf '%s\n' "$d"; return; fi
+    if [ -f "$d/$IC_ROOT_FILE" ]; then printf '%s\n' "$d"; return; fi
   done
 }
 
@@ -137,14 +145,21 @@ ic_mount() {
   # overlayfs wants an empty work directory on the upper layer's file system.
   rm -rf "$IC_WORK" 2>/dev/null
   mkdir -p "$IC_WORK" 2>/dev/null || return 1
-  $MOUNT -t overlay inputcommon -o "lowerdir=$1,upperdir=$IC_UPPER,workdir=$IC_WORK" "$1" >>"$LOGFILE" 2>&1
+  $MOUNT -t overlay "$IC_NAME" -o "lowerdir=$1,upperdir=$IC_UPPER,workdir=$IC_WORK" "$1" >>"$LOGFILE" 2>&1
 }
 
 # ---- LG's CRIU dump of the app, and the instances that hold its QML
 # Names of the dump directories of inputcommon in CRIU's working directory. `*` does not match the dot-named copies set aside below.
 ic_dumps() {
-  for d in "$CRIU_TMP"/*inputcommon*; do
-    [ -d "$d" ] && printf '%s\n' "${d##*/}"
+  # Matched with `case` on each name, so that the patterns are never expanded against the current directory.
+  for d in "$CRIU_TMP"/*; do
+    [ -d "$d" ] || continue
+    n=${d##*/}
+    set -f
+    for pat in $IC_DUMP_GLOBS; do
+      case "$n" in $pat) printf '%s\n' "$n"; break ;; esac
+    done
+    set +f
   done
   return 0
 }
@@ -236,7 +251,7 @@ ic_json_list() {
 
 verb_stage() {
   qml=$(ic_qml)
-  [ -n "$qml" ] || { emit_error "LG's inputcommon QML was not found (set INPUTCOMMON_QML)"; return 1; }
+  [ -n "$qml" ] || { emit_error "LG's $IC_NAME QML was not found (set ${IC_OVERRIDE_NAME:-INPUTCOMMON_QML})"; return 1; }
   ic_mounted "$qml" && { emit_error "an overlay is mounted over $qml: unmount it first, a stage is a copy of LG's tree"; return 1; }
   if ic_stage "$qml"; then
     printf '{"ok":true,"staged":true,"qml":"%s"}\n' "$(json_escape "$qml")"
@@ -248,7 +263,7 @@ verb_stage() {
 
 verb_on() {
   qml=$(ic_qml)
-  [ -n "$qml" ] || { emit_error "LG's inputcommon QML was not found (set INPUTCOMMON_QML)"; return 1; }
+  [ -n "$qml" ] || { emit_error "LG's $IC_NAME QML was not found (set ${IC_OVERRIDE_NAME:-INPUTCOMMON_QML})"; return 1; }
   ic_umount "$qml" || { emit_error "could not unmount the overlay over $qml"; return 1; }
   if ! ic_stage "$qml"; then
     emit_error "could not stage the patched copy; LG's banners are in place"
@@ -261,12 +276,12 @@ verb_on() {
   aside=$(ic_checkpoint_aside)
   ic_close_idle
   log_line "on: mounted over $qml, dumps set aside $aside, ended:${IC_CLOSED:- none}, on screen: ${IC_ONSCREEN:-none}"
-  printf '{"ok":true,"inputcommon":"on","checkpointAside":%s,"closed":%s,"onScreen":"%s"}\n' "$aside" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN"
+  printf '{"ok":true,"%s":"on","checkpointAside":%s,"closed":%s,"onScreen":"%s"}\n' "$IC_NAME" "$aside" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN"
 }
 
 verb_off() {
   qml=$(ic_qml)
-  [ -n "$qml" ] || { emit_error "LG's inputcommon QML was not found (set INPUTCOMMON_QML)"; return 1; }
+  [ -n "$qml" ] || { emit_error "LG's $IC_NAME QML was not found (set ${IC_OVERRIDE_NAME:-INPUTCOMMON_QML})"; return 1; }
   was=0; ic_mounted "$qml" && was=1
   ic_umount "$qml" || { emit_error "could not unmount the overlay over $qml"; return 1; }
   back=$(ic_checkpoint_back)
@@ -274,13 +289,13 @@ verb_off() {
   # Only when there was something to undo: a set that never used the switch loses no running app to `off`.
   if [ "$was" = 1 ] || [ "$back" != 0 ]; then ic_close_idle; fi
   log_line "off: unmounted from $qml, dumps put back $back, ended:${IC_CLOSED:- none}, on screen: ${IC_ONSCREEN:-none}"
-  printf '{"ok":true,"inputcommon":"off","checkpointBack":%s,"closed":%s,"onScreen":"%s"}\n' "$back" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN"
+  printf '{"ok":true,"%s":"off","checkpointBack":%s,"closed":%s,"onScreen":"%s"}\n' "$IC_NAME" "$back" "$(ic_json_list $IC_CLOSED)" "$IC_ONSCREEN"
 }
 
 verb_status() {
   qml=$(ic_qml)
   printf '{"ok":true,"qml":"%s","staged":%s,"mounted":%s,"checkpoint":"%s","criuEnabled":%s}\n' "$(json_escape "${qml:-}")" \
-    "$( [ -f "$IC_UPPER/UserInterfaceLayer/GlobalStyle.qml" ] && echo true || echo false )" \
+    "$( [ -f "$IC_UPPER/$IC_STYLE_FILE" ] && echo true || echo false )" \
     "$( [ -n "$qml" ] && ic_mounted "$qml" && echo true || echo false )" \
     "$(ic_checkpoint_state)" \
     "$( [ -e "$CRIU_ENABLE" ] && echo true || echo false )"
@@ -291,5 +306,5 @@ case "${1:-status}" in
   off) verb_off ;;
   stage) verb_stage ;;
   status) verb_status ;;
-  *) emit_error "usage: inputcommon.sh on|off|stage|status"; exit 1 ;;
+  *) emit_error "usage: $IC_NAME.sh on|off|stage|status"; exit 1 ;;
 esac

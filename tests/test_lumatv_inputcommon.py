@@ -220,6 +220,86 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("systemctl", open(os.path.join(ROOT, "tools", "inputcommon.sh")).read())
 
 
+FAKE_VOICE_TOOL = FAKE_TOOL.replace('"inputcommon":"on"', '"voice":"on"').replace('"inputcommon":"off"', '"voice":"off"').replace("com.webos.app.inputcommon", "com.webos.app.voice")
+
+
+class VoiceVerb(unittest.TestCase):
+    """`lumatv voice`: the same switch as `inputcommon`, for LG's Search app (tools/voice.sh)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+        self.tool = os.path.join(self.d, "voice.sh")
+        with open(self.tool, "w") as f:
+            f.write(FAKE_VOICE_TOOL)
+        self.flag = os.path.join(self.d, ".voice-on")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_verb(self, arg, lock=True):
+        script = (f'FAKE="{self.d}"; export FAKE\nVOICE_TOOL="{self.tool}"\nVOICE_ON="{self.flag}"\nLOGFILE="{self.d}/log"\n'
+                  f'take_mutation_lock() {{ {"return 0" if lock else "return 1"}; }}\n'
+                  f'log_line() {{ echo "$1" >> "{self.d}/loglines"; }}\n'
+                  + function("json_escape") + function("emit_error") + function("voice_set") + function("verb_voice")
+                  + f'verb_voice "{arg}"\n')
+        r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=30)
+        return r.returncode, r.stdout.strip()
+
+    def mark(self, name):
+        open(os.path.join(self.d, name), "w").close()
+
+    def test_on_runs_the_tool_keeps_the_flag_and_prints_the_tools_object(self):
+        rc, out = self.run_verb("on")
+        self.assertEqual((rc, json.loads(out)["voice"]), (0, "on"))
+        self.assertTrue(os.path.exists(self.flag))
+        self.assertTrue(open(os.path.join(self.d, "loglines")).read().startswith("voice on: {"))
+
+    def test_off_removes_the_flag_and_a_refused_on_or_off_leaves_it_as_it_was(self):
+        open(self.flag, "w").close()
+        self.assertEqual(json.loads(self.run_verb("off")[1])["voice"], "off")
+        self.assertFalse(os.path.exists(self.flag))
+        self.mark("on-fails")
+        rc, out = self.run_verb("on")
+        self.assertEqual((rc, json.loads(out)["ok"]), (1, False))
+        self.assertFalse(os.path.exists(self.flag))
+        open(self.flag, "w").close()
+        self.mark("off-fails")
+        self.assertEqual(self.run_verb("off")[0], 1)
+        self.assertTrue(os.path.exists(self.flag))
+
+    def test_a_tool_that_says_nothing_is_an_error_and_changes_no_flag(self):
+        self.mark("silent")
+        rc, out = self.run_verb("on")
+        self.assertEqual((rc, json.loads(out)), (1, {"ok": False, "error": "tools/voice.sh did not answer"}))
+        self.assertFalse(os.path.exists(self.flag))
+
+    def test_status_is_the_tools_object_with_the_switch_in_front(self):
+        rc, out = self.run_verb("status")
+        self.assertEqual((rc, json.loads(out)["on"], json.loads(out)["mounted"]), (0, False, False))
+        open(self.flag, "w").close()
+        self.assertTrue(json.loads(self.run_verb("status")[1])["on"])
+
+    def test_a_mutation_in_progress_and_a_wrong_word_are_errors(self):
+        self.assertEqual(json.loads(self.run_verb("on", lock=False)[1])["error"], "another apply or revert is still running")
+        self.assertEqual(json.loads(self.run_verb("sideways")[1])["error"], "usage: voice on|off|status")
+
+    def test_wiring_apply_remounts_revert_unmounts_the_verb_is_dispatched_documented_and_never_restarts_a_service(self):
+        t = text()
+        apply_text = function("verb_apply")
+        self.assertIn('[ -f "$VOICE_ON" ] && { voice_mounted || voice_set on || log_line "apply: could not mount the patched Search app over LG\'s"; }', apply_text)
+        self.assertLess(apply_text.index('"$INPUTCOMMON_ON" ] && { inputcommon_mounted'), apply_text.index('"$VOICE_ON" ] && { voice_mounted'))
+        self.assertLess(apply_text.index('"$VOICE_ON" ] && { voice_mounted'), apply_text.index("compositor_changed=1"))
+        self.assertIn('[ -f "$VOICE_ON" ] && { voice_set off; rm -f "$VOICE_ON"; }', function("do_revert_internal"))
+        self.assertRegex(t, r"\n  status\|apply\|[^\n]*\|keyboard\|voice\|[^\n]*\)\n")
+        self.assertIn('voice) verb_voice "${2:-status}"; exit $? ;;', t)
+        self.assertRegex(t, r"\n#   voice on\|off\|status +->")
+        self.assertIn('VOICE_ON="$STATE/.voice-on"', t)
+        self.assertIn('VOICE_TOOL="$APPDIR/tools/voice.sh"', t)
+        for name in ("voice_set", "verb_voice"):
+            self.assertNotRegex(function(name), r"systemctl|restart|pkill|killall|restart_surface", name)
+
+
 STOCK_MODULE = "WebOSCompositor"
 
 
