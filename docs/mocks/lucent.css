@@ -435,7 +435,7 @@ body {
 [data-theme="light"] { --osd-glass: rgba(255, 255, 255, .80); }
 [data-video] .osd, [data-video] .osd-mark { background: var(--osd-glass); }
 .osd { right: var(--lu-edge-x); top: 50%; transform: translateY(-50%); width: 176px; padding: 32px 0; border-radius: 26px; flex-direction: column; align-items: center; gap: 24px; }
-.osd .head { display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 86px; max-width: 112px; justify-content: flex-start; }
+.osd .head { display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 54px; max-width: 112px; justify-content: flex-start; }
 .osd .num { font-size: 40px; font-weight: 600; letter-spacing: -.01em; line-height: 54px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .osd .word { font-size: 26px; font-weight: 600; line-height: 54px; white-space: nowrap; }
 .osd .cap { font-size: 24px; font-weight: 500; line-height: 32px; white-space: nowrap; }
@@ -443,9 +443,8 @@ body {
 .osd .vtrack { position: relative; width: 12px; height: 216px; border-radius: 6px; background: var(--lu-track-off); flex: none; }
 .osd .vtrack i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 6px; background: var(--lu-ink); }
 .osd .vtrack.none { visibility: hidden; }
-.osd .tile { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; background: var(--lu-accent); color: var(--lu-accent-ink); flex: none; }
-.osd .tile .ic { width: 35px; height: 35px; }
-.osd .tile.quiet { background: var(--tile-ink-wash); color: var(--lu-ink); border: 1px solid var(--lu-edge); }
+.osd.offline .head { height: 54px; }
+/* nothing to read: the words run on over the track's empty place */
 [data-v="muted"] .osd .vtrack i { background: var(--lu-ink-3); }
 /* the mark that stays while the sound is muted: moves 94 px every ten seconds between three places, as LG's bubble did */
 .osd-mark { right: var(--lu-edge-x); top: 50%; transform: translateY(-50%); width: 96px; height: 96px; border-radius: 50%; align-items: center; justify-content: center; }

@@ -7,7 +7,7 @@ audio service (`LS.audioService`, which a test tells where the sound goes and ma
   own where the TV's speakers are the output or the receiver is off, unreachable or switched off in Settings; a receiver that may answer and has
   not yet is waited for (`decideMs`), not replaced by the TV's counter and then corrected;
 - that a reading that is not in date is not shown, and that a silent helper loses a mute that stayed;
-- the mute: the word and what it was, then a mark that stays and moves, from the receiver's push or the TV's mute;
+- the mute: the word, then a mark that stays and moves, from the receiver's push or the TV's mute;
 - that it is up over Home as well as over an app, takes no key and no focus, has the glass see-through only over an app's picture, and that
   Home's own layers no longer hold a second one.
 
@@ -63,7 +63,8 @@ def quiet(doc):
 
 def audio(body):
     assert "'" not in body
-    return ("(function(){ Qt.createQmlObject('import QtQuick 2.4\\nimport WebOSServices 1.0\\nQtObject { Component.onCompleted: { %s } }', overlay, 'audio'); return 1 })()" % body)
+    # LS is in WebOSCompositorBase on the set and in the host's stub of it; the second import is the older stub's home for it
+    return ("(function(){ Qt.createQmlObject('import QtQuick 2.4\\nimport WebOSCompositorBase 1.0\\nimport WebOSServices 1.0\\nQtObject { Component.onCompleted: { %s } }', overlay, 'audio'); return 1 })()" % body)
 
 
 def sound_out(output="external_arc", volume=31, syncable=False):
@@ -74,7 +75,7 @@ def press(why="volumeUp", volume=None, muted=None):
     return audio("LS.audioService.report(%s, %s, %s)" % (json.dumps(why), "null" if volume is None else volume, "null" if muted is None else ("true" if muted else "false")))
 
 
-SHOWN = on_osd("[o.pill, o.paneUp, o.source, o.level, o.caption, o.muted, o.markUp].join('|')")
+SHOWN = on_osd("[o.pill, o.paneUp, o.source, o.level, o.muted, o.markUp].join('|')")
 POSTS = ("(function(){var x=new XMLHttpRequest(); x.onreadystatechange=function(){if(x.readyState===4) console.info('[posts] '+x.responseText)};"
          "x.open('GET','http://127.0.0.1:18731/__posts'); x.send(); return 1})()")
 
@@ -117,18 +118,18 @@ class VolumeOsd(HostCase):
             (B + 4200, POSTS, "posts"), (B + 4300, on_osd("o.fraction"), "fraction"),
             (B + 8000, SHOWN, "later"),
         ], B + 8600)
-        self.assertEqual(got["idle"], "false|false|receiver|46|TV|false|false", "nothing is on screen before a key, the receiver is the source")
-        self.assertEqual(got["key_state"], "true|true|receiver|46|TV|false|false", "a key shows the receiver's own level and the input it plays, at once")
-        self.assertEqual(got["pushed"], "true|true|receiver|46.5|TV|false|false", "the receiver's push changes the number in place")
+        self.assertEqual(got["idle"], "false|false|receiver|46|false|false", "nothing is on screen before a key, the receiver is the source")
+        self.assertEqual(got["key_state"], "true|true|receiver|46|false|false", "a key shows the receiver's own level at once")
+        self.assertEqual(got["pushed"], "true|true|receiver|46.5|false|false", "the receiver's push changes the number in place")
         self.assertAlmostEqual(float(got["fraction"]), 46.5 / 98, places=3)
-        self.assertEqual(got["later"], "false|false|receiver|46.5|TV|false|false", "gone after the hold")
+        self.assertEqual(got["later"], "false|false|receiver|46.5|false|false", "gone after the hold")
         posts = json.loads(re.findall(r"\[posts\] (.*)", out)[-1])["posts"]
         self.assertIn(["/v1/receiver/nudge", {}], posts, "a key asks the helper to read the receiver now")
 
-    def test_the_decibel_scale_is_split_into_a_number_and_its_unit(self):
+    def test_the_decibel_scale_shows_the_number_without_its_unit(self):
         got, _ = self.run_osd([(B, sound_out(), "out"), (B + 200, rx(RX_DB), "rx"), (B + 2000, press("volumeDown", 30), "key"),
-                               (B + 2800, on_osd("[o.level, o.caption, o.hasUnit].join('|')"), "db")], B + 3400)
-        self.assertEqual(got["db"], "-34.5|dB|true")
+                               (B + 2800, on_osd("o.level"), "db")], B + 3400)
+        self.assertEqual(got["db"], "-34.5")
 
     def test_without_a_receiver_it_is_the_tvs_own_volume(self):
         cases = [("unreachable", GONE), ("switched off in Settings", OFF), ("in standby", dict(RX, power="standby"))]
@@ -139,7 +140,7 @@ class VolumeOsd(HostCase):
                       (t + 2600, SHOWN, "state%d" % i), (t + 2650, on_osd("o.fraction"), "fraction%d" % i), (t + 2700, do("o.pill = false"), "off%d" % i)]
         got, _ = self.run_osd(steps, B + 3500 * len(cases) + 500)
         for i, (name, _) in enumerate(cases):
-            self.assertEqual(got["state%d" % i], "true|true|tv|%d|ARC|false|false" % (32 + i), name)
+            self.assertEqual(got["state%d" % i], "true|true|tv|%d|false|false" % (32 + i), name)
             self.assertAlmostEqual(float(got["fraction%d" % i]), (32 + i) / 100, places=3)
 
     def test_the_tvs_speakers_are_the_tvs_volume_even_with_the_receiver_on_and_a_receiver_change_is_not_shown(self):
@@ -150,9 +151,9 @@ class VolumeOsd(HostCase):
             # the headphones, Bluetooth: the same
             (B + 5200, sound_out("headphone", 7, True), "hp"), (B + 5600, press("volumeDown", 6), "hp_key"), (B + 6400, SHOWN, "hp_state"),
         ], B + 7000)
-        self.assertEqual(got["key_state"], "true|true|tv|19|TV|false|false")
-        self.assertEqual(got["after_push"], "false|false|tv|19|TV|false|false", "the receiver is not the output: its own level is not what the keys changed")
-        self.assertEqual(got["hp_state"], "true|true|tv|6|Headphones|false|false")
+        self.assertEqual(got["key_state"], "true|true|tv|19|false|false")
+        self.assertEqual(got["after_push"], "false|false|tv|19|false|false", "the receiver is not the output: its own level is not what the keys changed")
+        self.assertEqual(got["hp_state"], "true|true|tv|6|false|false")
 
     def test_a_receiver_that_may_answer_is_waited_for_and_the_tvs_counter_is_the_answer_only_when_it_does_not(self):
         got, _ = self.run_osd([
@@ -166,32 +167,32 @@ class VolumeOsd(HostCase):
             (B + 5000, quiet(RX), "quiet"), (B + 6000, press("volumeUp", 33), "key2"), (B + 7500, SHOWN, "answered"),
         ], B + 8200)
         self.assertEqual(got["aged"], "false|true", "the reading is not in date")
-        self.assertEqual(got["waiting"], "true|false|wait|||false|false", "a key waits for a receiver that may answer: nothing is drawn yet")
-        self.assertEqual(got["settled"], "true|true|tv|32|ARC|false|false", "no answer: the TV's own volume")
-        self.assertEqual(got["answered"], "true|true|receiver|46|TV|false|false", "answered: the receiver's own level, never the counter first")
+        self.assertEqual(got["waiting"], "true|false|wait||false|false", "a key waits for a receiver that may answer: nothing is drawn yet")
+        self.assertEqual(got["settled"], "true|true|tv|32|false|false", "no answer: the TV's own volume")
+        self.assertEqual(got["answered"], "true|true|receiver|46|false|false", "answered: the receiver's own level, never the counter first")
 
-    def test_the_mute_is_a_word_and_what_it_was_then_a_mark_that_stays_and_moves_until_the_sound_is_back(self):
+    def test_the_mute_is_a_word_then_a_mark_that_stays_and_moves_until_the_sound_is_back(self):
         steps = [(300, do("o.holdMs = 1500; o.hopMs = 1500; o.staleMs = 60000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
                  (B + 2000, rx(dict(RX, mute=True)), "mute"), (B + 2900, SHOWN, "pane"), (B + 5000, SHOWN, "mark")]
         steps += [(B + 5100 + i * 1000, on_osd("o.markPlace"), "place%d" % i) for i in range(6)]
         steps += [(B + 11500, rx(dict(RX, mute=False)), "unmute"), (B + 12800, SHOWN, "back"), (B + 16000, SHOWN, "after")]
         got, _ = self.run_osd(steps, B + 16600)
-        self.assertEqual(got["pane"], "true|true|receiver|46|TV|true|false", "a mute from the receiver shows the pane in its muted form")
-        self.assertEqual(got["mark"], "false|false|receiver|46|TV|true|true", "after the hold the mark stays")
+        self.assertEqual(got["pane"], "true|true|receiver|46|true|false", "a mute from the receiver shows the pane in its muted form")
+        self.assertEqual(got["mark"], "false|false|receiver|46|true|true", "after the hold the mark stays")
         places = [int(got["place%d" % i]) for i in range(6)]
         self.assertTrue(all(p in (-1, 0, 1) for p in places), places)
         self.assertGreaterEqual(len(set(places)), 2, "the mark moves: %s" % places)
         self.assertEqual(got["back"].split("|")[0], "true", "the receiver's unmute shows the pane again")
-        self.assertEqual(got["after"], "false|false|receiver|46|TV|false|false", "unmuted: nothing stays")
+        self.assertEqual(got["after"], "false|false|receiver|46|false|false", "unmuted: nothing stays")
 
     def test_the_tvs_own_mute_shows_and_stays_when_there_is_no_receiver(self):
         got, _ = self.run_osd([
             (300, do("o.holdMs = 1500"), "hold"), (B, sound_out("tv_speaker", 18, True), "out"), (B + 200, rx(GONE), "rx"),
-            (B + 2000, press("mute", None, True), "key"), (B + 2800, on_osd("[o.pill, o.source, o.muted, o.caption].join('|') + '|' + o.was"), "pane"),
+            (B + 2000, press("mute", None, True), "key"), (B + 2800, on_osd("[o.pill, o.source, o.muted].join('|')"), "pane"),
             (B + 5000, SHOWN, "mark"), (B + 6000, press("mute", None, False), "unmute"), (B + 7000, on_osd("[o.markUp, o.muted].join('|')"), "after"),
         ], B + 7600)
-        self.assertEqual(got["pane"], "true|tv|true|TV|18", "the TV's mute: the word and the level it was")
-        self.assertEqual(got["mark"], "false|false|tv|18|TV|true|true")
+        self.assertEqual(got["pane"], "true|tv|true", "the TV's mute: the word")
+        self.assertEqual(got["mark"], "false|false|tv|18|true|true")
         self.assertEqual(got["after"], "false|false")
 
     def test_a_mute_that_is_in_date_stays_while_the_helper_keeps_reading_and_goes_when_it_stops(self):

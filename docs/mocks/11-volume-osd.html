@@ -7,7 +7,7 @@
 <style>
   .frame { background-image: url("img/still.jpg"); }
   /* one display, seven states: the Denon on the set (0 to 98, default), its decibel scale (?v=db), muted (?v=muted), the mark that stays while muted (?v=mark),
-     the TV's own volume where there is no receiver (?v=tv, ?v=arc), and nothing to read (?v=offline) */
+     the TV's own volume where there is no receiver (?v=tv, ?v=arc), and nothing to read (?v=offline). The number and its bar; no words but Muted. */
   .st { display: none; }
   html:not([data-v]) .st.abs, [data-v="db"] .st.db, [data-v="muted"] .st.muted, [data-v="mark"] .st.mark, [data-v="tv"] .st.tv, [data-v="arc"] .st.arc, [data-v="offline"] .st.offline { display: flex; }
 </style>
@@ -15,25 +15,22 @@
 <body>
 <div class="frame"></div>
 
-<!-- the receiver: its own level, the input it plays -->
+<!-- the receiver: its own level -->
 <div class="st abs overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">46</span><span class="cap">TV</span></div>
+  <div class="head"><span class="num">46</span></div>
   <div class="vtrack"><i style="height:47%"></i></div>
-  <span class="tile"><i data-ic="volume-1"></i></span>
 </div>
 
-<!-- the same, counting in decibels -->
+<!-- the same, counting in decibels: the number, no unit -->
 <div class="st db overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">-34.5</span><span class="cap">dB</span></div>
+  <div class="head"><span class="num">-34.5</span></div>
   <div class="vtrack"><i style="height:46%"></i></div>
-  <span class="tile"><i data-ic="volume-1"></i></span>
 </div>
 
-<!-- muted: the word and what it was; the level stays, dimmed -->
+<!-- muted: the word; the level stays, dimmed -->
 <div class="st muted overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="word">Muted</span><span class="cap">was 46</span></div>
+  <div class="head"><span class="word">Muted</span></div>
   <div class="vtrack"><i style="height:47%"></i></div>
-  <span class="tile quiet"><i data-ic="volume-x"></i></span>
 </div>
 
 <!-- what stays once the pane has gone, until the sound is back: LG's bubble, a speaker with a slash; it moves 94 px every ten seconds, between three places (here the middle one) -->
@@ -43,23 +40,20 @@
 
 <!-- no receiver: the TV's own volume (here its speakers) -->
 <div class="st tv overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">18</span><span class="cap">TV</span></div>
+  <div class="head"><span class="num">18</span></div>
   <div class="vtrack"><i style="height:18%"></i></div>
-  <span class="tile"><i data-ic="volume-1"></i></span>
 </div>
 
-<!-- the sound goes out over ARC and the receiver is off: the TV's step count, said to be the ARC's -->
+<!-- the sound goes out over ARC and the receiver is off: the TV's step count -->
 <div class="st arc overlay osd" role="status" aria-live="polite">
-  <div class="head"><span class="num">32</span><span class="cap">ARC</span></div>
+  <div class="head"><span class="num">32</span></div>
   <div class="vtrack"><i style="height:32%"></i></div>
-  <span class="tile"><i data-ic="volume-1"></i></span>
 </div>
 
 <!-- nothing to read -->
 <div class="st offline overlay osd" role="status" aria-live="polite">
   <div class="head"><span class="cap wrap">Receiver not answering</span></div>
   <div class="vtrack none"></div>
-  <span class="tile quiet"><i data-ic="unplug"></i></span>
 </div>
 
 <script src="icons.js"></script>

@@ -5,6 +5,7 @@ import "../kit"
 // the mute bubble, is switched off in the shadow module (tools/volume_patch.py). This is a slim pane at the right edge, where LG's was, over
 // Home, over every app and every input. It takes no key and no focus. It lives in LumaOverlay, the layer that is always up above whatever
 // the compositor shows, so a volume key answers the same while Plex, HDMI 2 or Live TV is in front as it does on Home.
+// Little copy: the level and its bar, and the word Muted while muted. Nothing says which device it is: the number is the answer.
 //
 // Whose volume it shows. The keys change one device, and which one depends on where the sound goes:
 //   the receiver  the sound leaves over HDMI ARC (or optical) and the Denon is on and answering: its own level in its own units (the helper's
@@ -52,16 +53,10 @@ Item {
 
     // ---- what is read
     readonly property string rawLevel: viaReceiver ? (rc.volumeText ? String(rc.volumeText) : "") : viaTv ? String(TvVolume.volume) : ""
-    readonly property bool hasUnit: /\s*dB$/.test(rawLevel)
-    readonly property string level: hasUnit ? rawLevel.replace(/\s*dB$/, "") : rawLevel
+    readonly property string level: rawLevel.replace(/\s*dB$/, "")       // the decibel scale's unit is left out: the minus sign says it
     readonly property real fraction: viaReceiver ? (rc.volumeAbs !== undefined && rc.volumeAbs !== null ? Math.max(0, Math.min(1, rc.volumeAbs / 98)) : 0)
                                      : viaTv ? Math.max(0, Math.min(1, TvVolume.volume / TvVolume.volumeMax)) : 0
     readonly property bool muted: viaReceiver ? !!rc.mute : viaTv ? TvVolume.muted : false
-    // the line under the number: the unit when the receiver counts in decibels, else where the sound goes (the receiver's input, or the TV's output)
-    readonly property string caption: viaReceiver ? (hasUnit ? "dB" : (rc.input ? String(rc.input) : "")) : viaTv ? TvVolume.outputLabel : ""
-    property string lastLevel: ""                 // the level before it was muted, and whose it was
-    property string lastSource: ""
-    readonly property string was: lastSource === source && lastLevel !== "" ? lastLevel : (rawLevel !== "" ? rawLevel : "")
 
     property bool pill: false
     readonly property real paneAlpha: overVideo ? Lu.readingAlpha : 1     // how much of the glass is painted
@@ -92,7 +87,6 @@ Item {
             if (now - nudgedAt > 300) { nudgedAt = now; Helper.post("/v1/receiver/nudge", {}) }
             if (gate.stale) gate.confirm()
         }
-        if (viaTv && !muted) { lastLevel = String(TvVolume.volume); lastSource = "tv" }
         show()
     }
     property double nudgedAt: 0
@@ -105,7 +99,6 @@ Item {
         deciding = false
         var nextKey = r.volumeText + "|" + r.mute
         if (levelKey !== nextKey && levelKey !== "" && !tvOutput) show()
-        if (!r.mute && r.volumeText) { lastLevel = String(r.volumeText); lastSource = "receiver" }
         levelKey = nextKey
         mutedRx = !!r.mute
         graceT.stop()
@@ -117,20 +110,16 @@ Item {
     // ---- the pane: as wide and as tall as its words need, so it holds at 200 % text as well, and never slimmer or lower than the design
     readonly property int edgeX: 64               // from the right edge, as Home's panes and the banners sit (layout.json safe.x)
     readonly property int pad: Lu.space(7)        // 32: text inside starts 96 from the screen's edge, the TV's 5 % safe area
-    readonly property int gap: Lu.space(6)        // between the words, the level and the speaker
+    readonly property int gap: Lu.space(6)        // between the words and the level
     readonly property int trackLen: 216
-    // a long input name is cut at this width (secondary words), not allowed to widen the pane
-    readonly property real captionLimit: Lu.type("caption").size * 5.5
     readonly property bool showNum: !muted && source !== "none"
     readonly property bool showWord: muted && source !== "none"
-    readonly property bool showCap: source !== "none"
-    readonly property real wordsW: Math.max(showNum ? numText.implicitWidth : 0, showWord ? wordText.implicitWidth : 0,
-                                            showCap ? Math.min(capText.implicitWidth, captionLimit) : 0)
+    readonly property real wordsW: Math.max(showNum ? numText.implicitWidth : 0, showWord ? wordText.implicitWidth : 0)
     readonly property real topH: Math.max(numText.implicitHeight, wordText.implicitHeight)
     LuPane {
         id: card
         width: Math.max(176, Math.ceil(osd.wordsW) + 2 * osd.pad)
-        height: osd.pad + osd.topH + capText.implicitHeight + osd.gap + osd.trackLen + osd.gap + Lu.target + osd.pad
+        height: osd.pad + osd.topH + osd.gap + osd.trackLen + osd.pad
         x: osd.width - osd.edgeX - width
         y: Math.round((osd.height - height) / 2)
         cardRadius: Lu.radius("card")
@@ -139,7 +128,7 @@ Item {
         visible: opacity > 0
         Behavior on opacity { enabled: !Lu.reduced; NumberAnimation { duration: osd.paneUp ? Lu.cardMs : Lu.restMs } }
 
-        // the level, or the word that replaces it; the line under it says what it counts
+        // the level, or the word that replaces it
         LuText {
             id: numText
             visible: osd.showNum
@@ -159,16 +148,6 @@ Item {
             font.weight: Font.DemiBold
             text: "Muted"
         }
-        LuText {
-            id: capText
-            visible: osd.showCap
-            x: osd.pad; y: osd.pad + osd.topH
-            width: card.width - 2 * osd.pad
-            horizontalAlignment: Text.AlignHCenter
-            role: "caption"
-            text: osd.muted ? (osd.was !== "" ? "was " + osd.was : "") : osd.caption
-            elide: Text.ElideRight
-        }
         // nothing to read: say so
         LuText {
             visible: osd.source === "none"
@@ -184,7 +163,7 @@ Item {
         Rectangle {
             visible: osd.source !== "none"
             x: Math.round((card.width - width) / 2)
-            y: osd.pad + osd.topH + capText.implicitHeight + osd.gap
+            y: osd.pad + osd.topH + osd.gap
             width: Lu.space(3)
             height: osd.trackLen
             radius: width / 2
@@ -199,13 +178,6 @@ Item {
                 antialiasing: true
                 Behavior on height { enabled: !Lu.reduced; NumberAnimation { duration: Lu.focusMs } }
             }
-        }
-        LuTile {
-            x: Math.round((card.width - width) / 2)
-            y: card.height - osd.pad - height
-            size: Lu.target
-            accent: !osd.muted && osd.source !== "none"
-            icon: osd.source === "none" ? "unplug" : osd.muted ? "volume-x" : osd.fraction < 0.5 ? "volume-1" : "volume-2"
         }
     }
 

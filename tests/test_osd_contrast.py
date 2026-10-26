@@ -7,8 +7,8 @@ holds that number to the TV's distance contrast (7:1, `contrast.distance`) again
 - the arithmetic: the ink over the glass over a frame that is white under the dark glass and black under the light one, blended in the display's own
   (non-linear) values as the plane's blender does, and the bar against the track it fills;
 - the pixels: the display drawn by the offline host over such a frame, and every run of words and every glyph of it measured on the picture, as
-  the language measures (the background is the median of the box, the ink the pixel farthest from it): the level, the line under it, the muted
-  pane, the mark that stays, the speaker in its tile;
+  the language measures (the background is the median of the box, the ink the pixel farthest from it): the level, the word of the muted pane,
+  the glyph of the mark that stays;
 - the layout: the host's layout audit on the display over a picture, at the normal type size and doubled.
 """
 import json
@@ -79,7 +79,7 @@ class Arithmetic(unittest.TestCase):
             lowest = min(a / 100 for a in range(1, 101) if ratio(ink, glass_over_worst(material, a / 100)) >= DISTANCE)
             self.assertGreater(alpha, lowest + 0.03, "%s: 7:1 holds down to %.2f; the token is %.2f, which leaves the display no margin for the plane's blend" % (material, lowest, alpha))
 
-    def test_the_bar_reads_against_the_track_it_fills_and_the_speaker_on_its_tile(self):
+    def test_the_bar_reads_against_the_track_it_fills(self):
         for material in ("dark", "light"):
             m = THEME[material]
             bg = glass_over_worst(material)
@@ -88,10 +88,6 @@ class Arithmetic(unittest.TestCase):
             fill, _ = rgb(m["ink"])
             self.assertGreaterEqual(ratio(fill, track), CONTROL, material + ": the level against the empty part")
             self.assertGreaterEqual(ratio(fill, bg), CONTROL, material + ": the level against the glass")
-            accent, _ = rgb(m["accent"])
-            # as kit/Lu.qml picks it (Tint.bestInk): the palette's accentInk or either material's ink, whichever reads best on the accent
-            glyph = max((rgb(c)[0] for c in (m["accentInk"], THEME["dark"]["ink"], THEME["light"]["ink"])), key=lambda c: ratio(c, accent))
-            self.assertGreaterEqual(ratio(glyph, accent), 4.5, material + ": the speaker on the accent tile")
 
 
 def measure(image, x, y, w, h):
@@ -166,17 +162,14 @@ class OnThePicture(unittest.TestCase):
 
     def check(self, material):
         shown = self.run_material(material)
-        for state, text in (("a", "46"), ("a", "TV"), ("b", "Muted"), ("b", "was 46")):
+        for state, text in (("a", "46"), ("b", "Muted")):
             image, item = self.words(shown[state], text)
             self.assertGreaterEqual(self.ink_ratio(image, item), DISTANCE, "%s, %s, %r on the worst frame" % (material, state, text))
-        # the speaker in its tile (the accent when the sound is on, the quiet wash when muted) and the mark's glyph
-        for state, kind in (("a", "tile"), ("b", "tile"), ("c", "icon")):
-            image, items = shown[state]
-            glyphs = [g for g in items if kind in g and g["w"] > 0]
-            self.assertTrue(glyphs, (state, kind))
-            need = 4.5 if state == "a" else DISTANCE
-            inner = {"x": glyphs[0]["x"] + 12, "y": glyphs[0]["y"] + 12, "w": glyphs[0]["w"] - 24, "h": glyphs[0]["h"] - 24} if kind == "tile" else glyphs[0]
-            self.assertGreaterEqual(self.ink_ratio(image, inner), need, "%s, %s glyph on the worst frame" % (material, state))
+        # the mark's glyph: a slashed speaker, the only thing on it
+        image, items = shown["c"]
+        glyphs = [g for g in items if "icon" in g and g["w"] > 0]
+        self.assertTrue(glyphs, "the mark's glyph")
+        self.assertGreaterEqual(self.ink_ratio(image, glyphs[0]), DISTANCE, "%s, the mark's glyph on the worst frame" % material)
         # the level against the empty part of its track, and against the glass beside it, as drawn
         image, items = shown["a"]
         bars = sorted((g for g in items if g.get("bar")), key=lambda g: g["h"])

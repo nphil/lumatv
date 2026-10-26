@@ -2,11 +2,12 @@
 
 ## Resume here
 
-State at 2026-10-25 21:45: on the set (build `ddc293c`) and checked on Home, Plex and HDMI 2. The offline tests pass (`tests/test_volume_osd.py`,
-`tests/test_osd_contrast.py`, `tests/test_volume_patch.py`). The deploy took two `lumatv apply` restarts: the first with files copied unrendered, which
-left Home and the overlay unloaded for about two minutes (see Deploying by hand), the second with them rendered. `lumatv revert` is the way back and
-brings LG's popup back with it. Open: frame cost over video, the TV's own volume with the receiver off (offline only so far), and the icon-only mute
-mark, which is in the repo and not yet on the set (the next `lumatv apply` restarts the compositor).
+State at 2026-10-25 21:45: on the set (build `ddc293c`) and checked on Home, Plex and HDMI 2. The deploy took two `lumatv apply` restarts: the first
+with files copied unrendered, which left Home and the overlay unloaded for about two minutes (see Deploying by hand), the second with them rendered.
+`lumatv revert` is the way back and brings LG's popup back with it. The set shows the first form of the pane: a line under the number (the receiver's
+input, `TV` or `MPLAY`), a speaker tile under the bar, and a mute mark with the word. Decided after the set check (Nitin: minimal text; the tile reads as
+a button): the repo has none of those, only the number, the bar and, while muted, the icon-only bubble. They show after the next `lumatv apply`, which
+restarts the compositor. Open: frame cost over video, and the TV's own volume with the receiver off (offline only so far).
 
 ## What LG draws and how it is stopped
 
@@ -46,18 +47,18 @@ second one (a test fails if they do). The display takes no key and no focus.
   receiver topic reports a new level or mute (the Denon's own remote too). On the set the report comes 44 to 63 ms after the key, with `cause`
   `volumeUp` or `volumeDown`, whatever is in front, so no key plumbing is needed over an app. It goes 2.5 s after the last of them.
 - **Whose volume**: with the sound over ARC or optical and the receiver on and answering, the receiver's own level in its units (0 to 98, or
-  decibels split into the number and "dB"), not webOS's counter, which moves by one per key (31, 32, 31 on Volume+, Volume-) and says nothing of
-  the Denon. With the TV's speakers, headphones or Bluetooth as the output, or with the receiver off, unreachable or switched off in Settings, the
-  TV's own volume (`LS.audioService.volume` of 100), captioned with the output (TV, ARC, Headphones, Bluetooth). A receiver that may answer and has
-  not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not.
-- **Mute**: the word and what it was ("was 46"), the level dimmed, from the receiver's `MU` push or, with no receiver, the TV's mute. Then a mark
+  decibels, shown as the number without "dB": the minus sign says it), not webOS's counter, which moves by one per key (31, 32, 31 on Volume+,
+  Volume-) and says nothing of the Denon. With the TV's speakers, headphones or Bluetooth as the output, or with the receiver off, unreachable or
+  switched off in Settings, the TV's own volume (`LS.audioService.volume` of 100). Nothing on the pane says which of the two it is. A receiver that
+  may answer and has not yet (a key after minutes of quiet) is waited for 250 ms; the TV's counter is shown only if it does not.
+- **Mute**: the word "Muted", the level bar dimmed, from the receiver's `MU` push or, with no receiver, the TV's mute. Then a mark
   stays at the right edge while the sound is muted: a 96 px bubble with a slashed speaker, no words, as LG's was, moving 94 px between three places
   every 10 s so no pixel holds a still mark.
   The receiver's mute is kept while the helper keeps reading (the display asks for the newer stamp each time its copy ages out) and is dropped
   1.5 s after the readings stop.
-- **Shape**: a pane 176 px wide (wider when the words need it, at 200 % text too), 64 px from the right edge, vertically centred, 28 px radius;
-  level in the title size, the line under it in caption size, a 12 px track 216 px long filled from the bottom in the ink, a 64 px speaker tile in
-  the accent while the sound is on. Lucent's catalogue row for the volume OSD: compact overlay, lateral safe region, no focus.
+- **Shape**: a pane 176 px wide (wider when the number needs it, at 200 % text too), 64 px from the right edge, vertically centred, 28 px radius;
+  the level in the title size and a 12 px track 216 px long filled from the bottom in the ink. No input name, no unit, no icon tile (a tile read as
+  a button): little copy, nothing to focus. Lucent's catalogue row for the volume OSD: compact overlay, lateral safe region, no focus.
 - **Over video**: the glass is painted at `readingAlpha` (theme.json, 0.8; over Home 1) so the picture shows through the fill; the 1 px edge and the
   shadow keep their weight (`Glass.fillAlpha`). Against the worst frame, white under the dark glass and black under the light, blended in the
   plane's own values, the ink is 9.2:1 (dark) and 11.4:1 (light), the bar 5.7:1 and 9.0:1 against its track; 7:1 (Lucent's distance contrast)

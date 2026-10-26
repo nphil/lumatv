@@ -121,10 +121,10 @@ Batch-1 edits: `02-settings-sound.html` Sound out row now says it opens the rece
 - **10 Quick panel**: one right-edge pane as tall as its tiles (no empty slab), steppers so left/right
   changes picture mode and receiver volume in place; the receiver tile shows input · sound mode with
   the volume in the Denon's own dB. Over video the pane is tinted, not blurred.
-- **11 Volume OSD**: the right edge, where LG's popup was; vertical, 176 px wide, centred. The receiver's number with its unit or
-  input under it, a level track and the speaker on an accent tile; see-through over video (`readingAlpha`); muted swaps the number
-  for the word and what it was, and a small mark that moves between three places stays while the sound is muted; the TV's own volume
-  where there is no receiver; "Receiver not answering" when nothing can be read, never a stale number.
+- **11 Volume OSD**: the right edge, where LG's popup was; vertical, 176 px wide, centred. The receiver's number and a level bar,
+  nothing else (no input name, no unit, no icon tile that could pass for a button); see-through over video (`readingAlpha`); muted
+  swaps the number for the word and dims the bar, and a 96 px bubble with a slashed speaker, moving between three places, stays while
+  the sound is muted; the TV's own volume where there is no receiver; "Receiver not answering" when nothing can be read.
 - **12 Library**: the Settings rail pattern re-used for categories with live lines (counts, the apps
   inside), Hidden pinned at the bottom; 168 px tiles with names; key hints replace a toolbar; the hold-OK
   menu opens under its tile with the rest dimmed and the tile kept raised as the menu's source.

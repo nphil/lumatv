@@ -34,7 +34,7 @@ def receiver_at(at, doc):
 def audio_at(at, body):
     """`body` (JavaScript, double quotes only) run against the host's stand-in audio service at `at` ms."""
     assert "'" not in body
-    return (at, "(function(){ Qt.createQmlObject('import QtQuick 2.4\\nimport WebOSServices 1.0\\nQtObject { Component.onCompleted: { %s } }', overlay, 'audio'); return 1 })()" % body)
+    return (at, "(function(){ Qt.createQmlObject('import QtQuick 2.4\\nimport WebOSCompositorBase 1.0\\nimport WebOSServices 1.0\\nQtObject { Component.onCompleted: { %s } }', overlay, 'audio'); return 1 })()" % body)
 
 
 def osd_at(at, body):
@@ -108,19 +108,19 @@ B = 1500
 # ---- over a picture standing in for video: the glass lets it through
 @scene("11-volume-osd", runner=True)
 def _(out_dir, material):
-    """The Denon on the set (0 to 98) at 46, a Volume+ just pressed: the number, what it counts, the level and the speaker."""
+    """The Denon on the set (0 to 98) at 46, a Volume+ just pressed: the number and the level."""
     return render("11-volume-osd", out_dir, material, [sound_out(B), receiver_at(B + 200, RX), key_at(B + 2000, "volumeUp", 32)], B + 2700)
 
 
 @scene("11-volume-osd-db", runner=True)
 def _(out_dir, material):
-    """The Denon on the decibel scale."""
+    """The Denon on the decibel scale: the number, without its unit."""
     return render("11-volume-osd-db", out_dir, material, [sound_out(B), receiver_at(B + 200, RX_DB), key_at(B + 2000, "volumeUp", 32)], B + 2700)
 
 
 @scene("11-volume-osd-muted", runner=True)
 def _(out_dir, material):
-    """The mute key: the word, what it was, the level dimmed."""
+    """The mute key: the word, the level dimmed."""
     return render("11-volume-osd-muted", out_dir, material,
                   [sound_out(B), receiver_at(B + 200, RX), receiver_at(B + 2000, dict(RX, mute=True)), key_at(B + 2020, "mute", None, True)], B + 3300)
 
@@ -140,7 +140,7 @@ def _(out_dir, material):
 
 @scene("11-volume-osd-tv-arc", runner=True)
 def _(out_dir, material):
-    """The sound goes out over ARC and the receiver is off: the TV's step count, said to be the ARC's."""
+    """The sound goes out over ARC and the receiver is off: the TV's step count."""
     return render("11-volume-osd-tv-arc", out_dir, material,
                   [sound_out(B), receiver_at(B + 200, dict(RX, power="standby")), key_at(B + 2000, "volumeUp", 32)], B + 2700)
 

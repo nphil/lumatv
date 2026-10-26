@@ -29,16 +29,6 @@ QtObject {
     // The sound goes over HDMI ARC or optical to a device with a volume of its own (a receiver): the keys change that device, and the
     // counter above does not say where it stands.
     readonly property bool arc: output.indexOf("external_arc") >= 0 || output === "external_optical"
-    readonly property string outputLabel: {
-        if (arc) return "ARC"
-        if (output === "external_optical") return "Optical"
-        if (output === "headphone") return "Headphones"
-        if (output === "bt_soundbar" || output === "bt_atmos" || output === "tv_speaker_bluetooth" || output === "tv_speaker_bt_surround") return "Bluetooth"
-        if (output === "wisa_speaker") return "WiSA"
-        if (output === "lineout") return "Line out"
-        if (output === "usb_speaker") return "USB"
-        return "TV"
-    }
 
     signal cue()
     property QtObject link: Connections {
