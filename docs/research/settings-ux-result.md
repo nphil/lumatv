@@ -147,12 +147,14 @@ eARC outside a help sheet, "themed", "everything else".
   held-key slider test, the rail-summary test; the others in that file follow the new tab and row counts.
 - **Mocks**: the ten settings mocks, `help.css`, `36-settings-help`, the rail in `mock.js`, `settings-map.md`.
 
-Before (left) and after (right), from the offline host (`tests/qmlhost/scenes.py`), in `docs/research/settings-ux/`:
-[Picture](settings-ux/picture.jpg) ([light](settings-ux/picture-light.jpg)), [Sound](settings-ux/sound.jpg), [Ambient light](settings-ux/ambient.jpg)
-([light](settings-ux/ambient-light.jpg)), [Home & look](settings-ux/home.jpg), [Network](settings-ux/network.jpg) ([light](settings-ux/network-light.jpg)),
-[AI access](settings-ux/ai.jpg). The help sheet is new, so it has no before: [dark](settings-ux/help.jpg), [light](settings-ux/help-light.jpg). The after renders
-come from a copy of the tree in which the host picks another wallpaper file, so only the Settings surface compares; Inputs & devices, Remote & pointer, Receiver
-and System have no montage yet.
+Before (left) and after (right), from the offline host (`tests/qmlhost/scenes.py`), in `docs/research/settings-ux/`, dark with the light one beside it:
+[Picture](settings-ux/picture.jpg) ([light](settings-ux/picture-light.jpg)), [Sound](settings-ux/sound.jpg) ([light](settings-ux/sound-light.jpg)),
+[Inputs & devices](settings-ux/inputs.jpg) ([light](settings-ux/inputs-light.jpg)), [Network](settings-ux/network.jpg) ([light](settings-ux/network-light.jpg)),
+[Ambient light](settings-ux/ambient.jpg) ([light](settings-ux/ambient-light.jpg)), [Home & look](settings-ux/home.jpg) ([light](settings-ux/home-light.jpg)),
+[Remote & pointer, Keys tab](settings-ux/remote.jpg), [AI access](settings-ux/ai.jpg) ([light](settings-ux/ai-light.jpg)),
+[Receiver](settings-ux/receiver.jpg) ([light](settings-ux/receiver-light.jpg)), [System](settings-ux/system.jpg). The help sheet is new, so it has no before:
+[Picture](settings-ux/help.jpg) ([light](settings-ux/help-light.jpg)), [AI access](settings-ux/ai-help.jpg). The after renders come from a copy of the tree in
+which the host picks another wallpaper file, so only the Settings surface compares.
 
 ### Needs the TV (nothing here ran on the set)
 
