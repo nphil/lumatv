@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The frame-rate switch probe for the C4 (docs/research/framerate-result.md "TV probe steps"): what the display engine, the
+"""The frame-rate switch probe for the C4 (docs/research/framerate-result.md "TV check"): what the display engine, the
 decoder's clock and the screen do, every 50 ms, from before an app's launch to well into its playback. One file, three roles:
 
     python3 docs/research/framerate/probe.py --plan [--run NAME]          # the steps and the on-set commands; touches nothing (default)
@@ -51,9 +51,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 NETFLIX_MERIDIAN = "m=https://www.netflix.com/watch/80141336&source_type=4"    # 59.94 fps 4K Dolby Vision (ambient-result.md, X4)
 NETFLIX_24 = "m=https://www.netflix.com/watch/80049832&source_type=4"          # Our Planet: 23.976 fps 4K DV [the id is a guess; vFreq says what played]
-# Camera Jabber, "Sony A1 4K Full frame vs Super 35": 151 s of 3840x2160 at 50 fps. Round 11 launched it as `v=xX0wOkuLKZM` and YouTube
-# left it for its Browse page after 10 s; the full watch URL is the documented form.
-YOUTUBE_50_CLIP = "https://www.youtube.com/watch?v=xX0wOkuLKZM"
+# Camera Jabber, "Sony A1 4K Full frame vs Super 35": 151 s of 3840x2160 at 50 fps. The `v=` form plays a clip at once, and YouTube
+# leaves it for its Browse page 11 to 14 s after the launch (round 11: 0412, 0424); `https://www.youtube.com/tv?v=` showed the
+# Browse page instead (0411).
+YOUTUBE_50_CLIP = "v=xX0wOkuLKZM"
 YOUTUBE_50 = "https://www.youtube.com/results?search_query=4k+50fps+test"
 HA = "http://192.168.1.146"
 RECEIVER = "media_player.living_room_avr"
@@ -80,10 +81,10 @@ RUNS = {
                   "secs": 45, "then_home": 10,
                   "what": "YouTube, a 50 fps clip (the first search result; --launch names a known one): the 120 -> 100 Hz switch at the "
                           "first frame, and whether 100 Hz holds over on Home afterwards"},
-    # Home 10 s after the launch: in round 11 the clip's window connected 3.8 s after the launch, and YouTube left the clip for its
-    # Browse page on its own 13.8 s after the launch.
-    "youtube50home": {"launch": {"id": "youtube.leanback.v4", "params": {"contentTarget": YOUTUBE_50_CLIP}}, "settle": 6, "keys": "",
-                      "after_keys": 0, "secs": 4, "then_home": 15,
+    # Home 8 s after the launch: the clip's window connects 3.5 to 3.8 s after it, and YouTube leaves the clip 11 s after it at the
+    # earliest (round 11).
+    "youtube50home": {"launch": {"id": "youtube.leanback.v4", "params": {"contentTarget": YOUTUBE_50_CLIP}}, "settle": 5, "keys": "",
+                      "after_keys": 0, "secs": 3, "then_home": 15,
                       "what": "YouTube, the known 50 fps clip, then Home while it plays: the 120 -> 100 Hz switch at its start, then the "
                               "helper's return to 120 Hz on Home once the clip's window has closed (helper log `frame rate:`)"},
     "plex25after24": {"launch": {"id": "com.beb.plxnative"}, "settle": 4, "keys": "OK s4 OK s5 OK", "after_keys": 2, "secs": 30,

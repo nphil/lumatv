@@ -98,6 +98,7 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `receiver.pollMs`, `fastPollMs`, `burstMs`, `maxBackoffMs`, `hideAfterMs`, `telnetPort` | 2000, 250, 3000, 30000, 6000, 23 | `pollMs`: telnet re-query period, HTTP fallback period and reconnect backoff base; `fastPollMs`/`burstMs`: fallback burst after a nudge; `telnetPort` 0 turns the telnet link off; `connectTimeoutMs` 1500 and `requestTimeoutMs` 3000 also exist |
 | `fetch.backend`, `fetch.openssl`, `fetch.curl`, `fetch.caBundle`, `fetch.user` | `auto`, `/usr/bin/openssl`, `curl`, first existing of the usual paths, `nobody` | HTTPS transport; `user: null` runs the TLS child as the helper |
 | `luna.send` | `luna-send` | found in `PATH` and then `/usr/bin`, `/usr/sbin`, `/bin`, `/sbin` |
+| `frameRate.returnOnHome` | `true` | after a 25 or 50 fps video left the panel at 100 Hz, put it back to 120 Hz once Home is in front with no video window (`framerate.rs`, `framerate-result.md` "Design"); `false` leaves the rate to LG's kernel |
 | `nice` | 10 | scheduling priority given up |
 | `allowedOrigins` | `[]` | browser origins allowed to call the API (a web app would need `"file://"`) |
 

@@ -2,18 +2,20 @@
 
 Set: OLED65C4PUA, webOS 10.2.1, chip O22A3, kernel 5.4.268, 144 Hz panel option, internal FRC. Read from LG's GPL kernel tree
 (`/data/home/lgtv/research/lgsrc/k/soc_GO/linux-and-kdriver_paluma-5/kdriver`, `SRC:` paths relative to it), the set's recorded
-boot line and settings (`TV:`), the X4 bus capture (`docs/research/arch/x4`), and the notes named. No TV time was used; nothing
-on the set changed.
+boot line and settings (`TV:`), the X4 bus capture (`docs/research/arch/x4`), round 11's probe runs (`framerate/*-20261026-*`,
+run 2026-10-26 04:09-04:25) and the notes named.
 
 Evidence tags: `TV:` read on this set, `SRC:` LG's kernel tree, `PUB:` public, `[INFERENCE]` not proven, the probe below names it.
 
 ## Resume here
 
-Done (2026-10-26, offline): every question answered from source as far as source goes ("Verdicts" and the sections after);
-the probe `docs/research/framerate/probe.py` written with its parser tests (`tests/test_framerate_probe.py`); nothing run on the
-set. Open for the TV round: the probe's four runs ("TV probe steps"), which settle every `[INFERENCE]` below, chiefly whether the
-one real switch (120 to 100 Hz, the 25/50 family) blanks and for how long, and whether the output stays at 100 Hz on Home after
-a 50 fps video.
+Done (2026-10-26 morning, offline, no TV): round 11's 50 fps run read sample by sample ("Round 11"): the return to 120 Hz was
+LG's switch at the start of another video (YouTube's Browse-page masthead ad), inside the firmware's start mute that every start
+has, 0.33 s before that video's window was shown. Built on it: the helper puts the panel back to 120 Hz on Home after a 25/50 fps
+video (`helper/app/src/framerate.rs`, `898e638`); the probe places each switch against the video window instead of counting the
+start mute as a blank, sees 0.2 s stays, keeps the helper's log lines, and has the `youtube50home` run (`10aa929`). Open: the
+TV check ("TV check"), with Nitin at the set for the one thing no capture shows (whether a switch blinks the panel itself); the
+GFN 4K120 run; a 25 fps Plex item (Plex's library API answers 401 without a token, and none has been handed).
 
 Scope (Nitin, 2026-10-25 23:48): the TV's own decoder apps come first (Netflix, Plex, YouTube, Crunchyroll, Prime, the GFN app);
 HDMI is secondary.
@@ -23,30 +25,64 @@ HDMI is secondary.
 The display engine's output rate for decoded video is a function of the source rate alone, picked in the kernel (`_vsc_check_fr`)
 and doubled for this 120 Hz-class panel (`DE_IO_SetFrRate`): 24, 30, 60 and 120 fps families give 120 Hz, the 25, 50 and 100 fps
 family gives 100 Hz, and the 48 Hz case is compiled out on this set (below). The output is phase-locked to the decoder's frame
-clock (DCO tracking), so 23.976 fps is shown at 119.88 Hz, exactly five panel refreshes per frame. Every transition in the table
-is read from source; the "blank" column is what the probe measures.
+clock (DCO tracking), so 23.976 fps is shown at 119.88 Hz, exactly five panel refreshes per frame. Rows with `TV` evidence were
+measured in round 11 (2026-10-26); the rest are read from source.
 
 | Transition (output rate) | Cadence on the panel | Rate change | Expected blank | Evidence |
 |---|---|---|---|---|
-| Home (120) -> 23.976 / 24 fps | 5:5 | none (DCO slews 0.1 % for 23.976) | none [INFERENCE: dco_lock during the slew] | SRC `v4l2_vsc_event.c:2694-2707`, `de_io.c:988-998`, `io_video.c:1046-1059` |
-| Home -> 29.97 / 30 fps | 4:4 | none | none | same |
+| Home (120) -> 23.976 / 24 fps | 5:5 | none (DCO slews 0.1 % for 23.976) | none seen: 120 Hz band throughout, no vsync gap | TV `netflix24-20261026-0409`, `plex25after24-20261026-0414`; SRC `v4l2_vsc_event.c:2694-2707`, `de_io.c:988-998`, `io_video.c:1046-1059` |
+| Home -> 29.97 / 30 fps | 4:4 | none | none seen | TV `youtube50-20261026-0411` (the app's own 29.97 preview); SRC as above |
 | Home -> 59.94 / 60 fps | 2:2 | none | none | same |
 | Home -> 4K 120 fps (GFN, HFR) | 1:1 | none; DE HFR mode on | none | SRC `vp_kwrap.c:3700-3712`, `vdisp_core.c:1078-1091` |
-| Home -> 25 / 50 fps | 4:4 / 2:2 at 100 Hz | **120 -> 100 Hz** | the one switch to measure; it happens <= 40 ms after the decoder's first frame reaches the DE, while videooutputd still holds its own video mute (about 210 ms at a YouTube start) [INFERENCE: hidden by that mute] | SRC `v4l2_vsc.c:2436-2463` (40 ms poll), `v4l2_vsc_event.c:2411-2418`; TV X4 27874.491 mute on, .704 off |
-| 25/50 fps -> Home, then a 24/30/60 title | 100 -> 120 | one switch at the next title's first frame | as above | SRC: no call resets the rate on disconnect (`vp_kwrap.c:3749-3773` turns only HFR off) |
+| Home -> 25 / 50 fps | 4:4 / 2:2 at 100 Hz | **120 -> 100 Hz** at the first frame | none seen: the switch lands before the window is shown (round 11: at 6.90 s, window shown at 6.97 s, firmware start mute 0.15 s after videooutputd's unmute) | TV `youtube50-20261026-0424`; SRC `v4l2_vsc.c:2436-2463` (40 ms poll), `v4l2_vsc_event.c:2411-2418` |
+| 25/50 fps window closes | stays at 100 Hz, UI at 50 Hz | none | the hold-over: 2.6 s in round 11, until the next video's first frame; on Home the helper puts 120 Hz back | TV round 11 (16.80-19.66 s); SRC `v4l2_vsc_event.c:2220-2221` (`default: return` with no source) |
+| 25/50 fps, then a 24/30/60 video in the same app | | **100 -> 120 Hz** at the new video's first frame | none seen: inside the firmware's start mute (round 11: switch at 19.69 s, window shown at 20.02 s) | TV `youtube50-20261026-0424` |
 | 30 <-> 60, 24 <-> 60, 25 <-> 50 (adaptive streams, next episode) | | none within a family | none | `_vsc_check_fr` maps both to the same output |
-| 24 <-> 25, 60 <-> 50 (next episode, YouTube autoplay) | | 120 <-> 100, mid-play from the viewer's side | same as the start case, but after the previous picture, not under a loading screen | the only unavoidable mid-play switch; LumaTV's own players pre-switch (Design) |
+| Any start after the output was moved by hand (`fr_rate`) | | the previous stream's rate at the connect, the new one at the first frame (about 0.2 s apart) | under videooutputd's mute and the start mute [INFERENCE] | TV: the DE reads the decoder register's last value at a connect (0411: 23.97 then 29.97; 0412: 29.97 then 23.97; 0424: 50.0 then 23.97) |
 | Dolby Vision / HDR10 / SDR | | none from the dynamic range | none from timing; the picture-mode change is pqcontroller's | SRC `vdisp_core.c:1290`, `deif.c:333-335` (buffer count only) |
 | HDMI 24/30/60/120 Hz source | as for decoded | 120 | none at the TV; the source's own resync blanks | SRC `_vsc_check_fr` branch for CVI |
 | HDMI 25/50/100 Hz source | | 120 -> 100 | the source's resync covers it | same |
 | 1080p 120 fps stream (no DE HFR) | 1:1 at 120 | none | needs the pipeline's HFR flag, else the VDO handshake throttles [INFERENCE] | SRC `vo.c:579-606`, `driver.c:1732-1752`, `deif.c:156-165` |
 
-What this means for Nitin's design direction: the panel already stays at 120 Hz for everything but the 25/50 family, and that
-family already gets exactly one switch at the first frame. LumaTV has nothing to build for the common case. It has two things to
-add: (1) its own players (Plex plugin, GFN) pre-switch to 100 Hz before their first frame when the item is 25/50 fps, and
-(2) the shell puts the output back to 120 Hz when a 25/50 playback ends and nothing else holds a video window, so the UI does
-not run at 50 Hz afterwards. Both use the one lever LG left open (`/proc/lg/de/fr_rate`, Steer points), and both wait for the
-probe to say the switch is clean and the hold-over is real.
+What this means for Nitin's design direction: the panel already stays at 120 Hz for everything but the 25/50 family, and LG's
+switches into and out of that family land at a video's start, before its window is shown (round 11). LumaTV has one thing to add:
+the helper puts the output back to 120 Hz once Home is in front with no video window, so LumaTV's own UI never runs at 50 Hz
+after a 25/50 video ("Design"). A player that writes `fr_rate` before its first frame gains nothing: the kernel applies the decoder
+register's previous rate at the connect and the item's own at its first frame, whatever was written before.
+
+## Round 11: when the return to 120 Hz happened
+
+From `framerate/youtube50-20261026-0424` (samples every 50 ms, the bus monitor, videooutput's subscription, screenshots). Seconds
+from the run's first sample (uptime 14815.52).
+
+| s | What |
+|---|---|
+| 2.90 | YouTube launched with `contentTarget` `v=xX0wOkuLKZM` (Camera Jabber, "Sony A1 4K Full frame vs Super 35": 151 s, 3840x2160, 50 fps) |
+| 6.71 | The clip's window connects; the DE reads 59.9 then 60.0 Hz (the decoder's first rate), 50.0 Hz from 6.92 |
+| 6.82 / 6.90 / 6.97 | videooutputd unmutes; output 120 -> 100 Hz (OSD vsync 6 -> 5 per 50 ms); the firmware's mute (34) clears and the clip shows |
+| 6.97-16.67 | 50 fps at 100 Hz: no vsync gap, no frame dropped |
+| 16.44 | YouTube's own Browse page (its loading skeleton) is on screen while the clip still decodes; no key was pressed |
+| 16.67-16.80 | YouTube ends its player: ADEC and VDEC disconnected, the pipeline destroyed, videooutputd's mute on, the scaler `NONE`. The output stays at 100 Hz |
+| 16.80-19.36 | No video; YouTube's Browse page drawn at 100 Hz (UI at 50 Hz) |
+| 19.37 | A new pipeline connects: the Browse page's masthead, a Walmart ad, 1920x1080 at 23.976 fps in a 3380x1902 window |
+| 19.41 | The DE's connect-time read is 50.0 Hz (`vFreq` 500): the decoder register still holds the clip's rate, and the kernel sets 50 from it (SRC `v4l2_vsc_event.c:2401-2418`: the timing `win0/status` shows is the one the rate is set from), no change |
+| 19.51 | videooutputd unmutes the window; the firmware's start mute follows (267, then 34) |
+| 19.61 / 19.69 | The DE reads 23.97 Hz; `_vsc_check_fr` gives 60; output 100 -> 120 Hz |
+| 20.02 | The firmware's mute clears: the ad's first visible frame, at 120 Hz |
+
+The return was the kernel's `_vsc_check_fr` on the first frame of a different video, 2.6 s after YouTube itself abandoned the clip
+for its Browse page, 10 s into a 151 s clip: the app's decision opened the gap, the next video's rate closed it. Not the clip's
+end, an ad inside the clip, a seek, or a rate change inside one stream; the video window was not on screen during the switch.
+
+The run's "firmware mute yes" was the firmware's start mute, which every start has, switch or not: after videooutputd's unmute
+the window was shown 0.41, 0.41, 0.41, 0.31, 0.41 and 0.52 s later at that night's six starts without a switch (netflix24,
+plex25after24 twice, youtube50 0411, youtube50 0412 twice), 0.51 s at this one and 0.15 s at the clip's own start. The probe now
+fails a switch only when the window had been on screen before it (`probe.py` `switch_context`); `--report` reads this run as
+two switches at starts, `VERDICT: PASS` (its committed `summary.txt` is the original reading).
+
+What no capture shows: whether a 100 <-> 120 Hz change blinks the panel itself, the UI around a muted window included. The capture
+service reads the planes, not the panel, and the DE's vsync ran on without a gap through both switches. That needs an eye on the
+set ("TV check").
 
 ## 1. How LG picks the rate for decoded video
 
@@ -130,9 +166,10 @@ What the source says:
   (whole screen, panelcontroller's).
 - A switch is detected and sent within one 40 ms poll of the first frame that carries the new rate. Pre-roll frames carry the
   rate too (`display_info.preroll_data`, SRC `de_ipc.c:294-296`), so for apps that pre-roll the switch lands during loading.
-- The firmware's reaction (how many frames the sync generator takes, whether it mutes while the DCO relocks) is closed. The
-  probe reads `localmute`, the DE vsync count and the screen every 50 ms across the switch. [INFERENCE: a sub-100 ms relock
-  with no mute, as on LG's own 25/50 content every day; a mute would show as `localmute != 0` for one or more samples.]
+- The firmware's reaction is closed in source; round 11 measured it (TV `youtube50-20261026-0424`): both switches took effect
+  within one 50 ms sample (OSD vsync 6 -> 5 and 5 -> 6 interrupts per 50 ms) with no vsync gap, and the only `localmute` around
+  them was the start mute every start has (codes 34 and 267; "Round 11"). Whether the panel itself blinks is not visible to any
+  capture.
 - Seamless by construction: 24 <-> 30 <-> 60 <-> 120 (all 120 Hz: the FRC changes its repeat count; `DE_IOW_SET_FR_RATE` is
   still sent at every timing change, with the same value, and the firmware's reference path then re-sets the same sync type,
   `io_video.c:1583` [INFERENCE: a no-op, read as "no `localmute`, no vsync gap" in the 24 -> 60 run]); 23.976 <-> 24 and
@@ -147,7 +184,7 @@ What the source says:
 
 | Lever | What it does | Safe? | Use |
 |---|---|---|---|
-| `echo <freerun> <50|60> > /proc/lg/de/fr_rate` | The same `DE_IOW_SET_FR_RATE` ioctl the kernel thread issues (SRC `de_proc.c:1231-1240`, usage line `:575`): 50 -> 100 Hz, 60 -> 120 Hz on this panel. Overwritten by the kernel at the next timing change of window 0. | Low: a path LG's own kernel takes at every playback start; no panel-type change; no `/usr` write. [INFERENCE: no blank, same as LG's switch] | Pre-switch to 100 Hz before a 25/50 item's first frame; back to 120 Hz when playback ends and no video window remains |
+| `echo <freerun> <50|60> > /proc/lg/de/fr_rate` | The same `DE_IOW_SET_FR_RATE` ioctl the kernel thread issues (SRC `de_proc.c:1231-1240`, usage line `:575`): 50 -> 100 Hz, 60 -> 120 Hz on this panel. Overwritten by the kernel at the next timing change of window 0. | Low: a path LG's own kernel takes at every playback start; no panel-type change; no `/usr` write. [INFERENCE: no blank, same as LG's switch] | Back to 120 Hz on Home once no source is connected (the helper, "Design"). Not before a first frame: the connect applies the decoder register's previous rate whatever was written |
 | `luna://com.webos.service.videooutput` `setVideoData.frameRate` / `hfrEnabled` | Informs pqcontroller (`setPQ.frameRate`) and the pipeline (HFR flag); no display-rate effect | Safe, but not a rate lever | Only through the media pipeline's own load options (`hfrEnabled`) for 1080p120 |
 | settingsservice `picture.realCinema`, `truMotionMode`, `truMotionJudder/Blur` | MEMC cadence (5:5 against interpolation); no rate effect on this set | Safe (user-visible setting) | Keep `realCinema on`, judder 0 for film cadence; LumaTV's Settings already own these keys |
 | `V4L2_CID_EXT_VBE_DISPLAYOUTPUT_5060HZ` on the vbe node | Forces 60 Hz output (HDMI game lag mode); OVI half a no-op here, BE half changes the BE firmware's display mode | Medium risk (BE mode change under a live picture), and the wrong direction | Never |
@@ -157,15 +194,15 @@ What the source says:
 | DRM modes from the compositor | Cosmetic; the CRTC never touches panel timing (`gfn-444-vrr-result.md` (a)) | Harmless, useless | The compositor commits with `ALLOW_MODESET` once and never again (already so) |
 
 Hold 120 Hz as base: nothing to do while LG's apps play 24/30/60 content; the DE comes up at 60 -> 120 at resume
-(`resource_mgr.c:543-544`). The hold-over after 25/50 content is the gap, and the `fr_rate` write closes it.
+(`resource_mgr.c:543-544`). The hold-over after 25/50 content is the gap; the helper's write closes it on Home.
 
 ## 4. LumaTV's compositor (C3)
 
 What the compositor must and must not do, against what it does:
 
 - Never force a mode change: it commits `ALLOW_MODESET` only before `modeset_done` (`kms/mod.rs:525-534`) and the `lg1k` CRTC
-  ignores the mode anyway. Nothing else to add. It must never write `/proc/lg/de/fr_rate` itself: the shell (helper) does that
-  on playback end, so the rule lives in one place.
+  ignores the mode anyway. Nothing else to add. It must never write `/proc/lg/de/fr_rate` itself: the helper does that on Home,
+  so the rule lives in one place.
 - Its UI clock follows the panel: `kms/timing.rs` keys the pacer to the period the flips measure, re-keyed after four agreeing
   flips, with animations on wall time. That is the right design; two details to put straight: the doc comment names 24 Hz as a
   case ("24 Hz film is the other case"), but on this set 24p film gives a 60 Hz vblank (120 / 2), and the only UI periods that
@@ -177,8 +214,7 @@ What the compositor must and must not do, against what it does:
   (every interrupt sits on CPU0, `perf-tweaks.md`); the compositor is not real-time and the gate's x1 run shows no video
   stalls under it.
 - Video windows: placement goes through videooutputd as today (the compositor reports the rectangle; PLAN "Rendering stack").
-  A LumaTV player that pre-switches must do it before `connect`, i.e. before the pipeline's first frame, during its own loading
-  screen.
+  No player pre-switches the rate ("Verdicts": a connect applies the decoder register's previous rate).
 
 ## 5. HDMI sources (secondary)
 
@@ -190,56 +226,56 @@ new timing is stable. The source must either output the native rate per title (A
 1-3 s black at each change) or stay at one rate and accept 3:2 cadence inside the source. With the Apple TV retired or
 reduced to a hub this is moot; a future HDMI source should match rate, and the TV's part is already right.
 
-## Design
+## Design (2026-10-26, after round 11)
 
-1. **Measure first** (the probe, next TV round). Four runs settle the `[INFERENCE]` marks: a 23.976 title (Netflix) for the
-   no-switch case and the DCO slew; a 50 fps YouTube clip for the 120 -> 100 switch at start and the hold-over on Home after
-   it; a 25 fps clip after a 24 fps one in Plex for the mid-play switch; the 4K120 GFN stream for HFR. Each run logs every 50 ms
-   (`probe.py --sample` on the set): the DE and OSD vsync counts, `win0/status` (`vFreq`, `localmute`, `hdr_type`,
-   `lowdelaymode`), `scaler/main.p0` (`mute`, `adaptive`, `connect_src`), `vdisp/{vsync,vrate,vdisp}` (the decoder's timer
-   rate, fixed flag, rate source, film mode, frame count), the first `vo` instance's flags and frame counters; beside it a
-   videooutput `getStatus` subscription, the bus monitor filtered to videooutput/avmutemanager/pqcontroller, screenshots in a
-   loop (320x180 PNG, `writtenBytes` and luma: black and frozen frames), and the kernel log lines of the switch (`set_frate`,
-   `timing_changed`, `4k HFR mode`, `mute-on/off`, `FrameDuration90k`, `[VSYNC`).
-2. **If the switch is clean** (no `localmute`, no vsync gap over one refresh, no black screenshot outside videooutputd's own
-   mute): LG's behaviour is the design for LG's apps; LumaTV adds only the hold-over fix (helper: on the foreground app leaving
-   playback with no video window connected, `echo 0 60 > /proc/lg/de/fr_rate` if the measured rate is 100) and the pre-switch
-   in its own players (Plex plugin: the item's `videoFrameRate` 25/50 -> `echo 0 50` before `connect`; GFN: 120, nothing).
-3. **If the switch blanks** (`localmute` set or screenshots black for more than one sample after videooutputd unmutes): the
-   pre-switch moves earlier for every app LumaTV launches with a known rate (Plex), and for the rest the switch is still hidden
-   under the app's loading screen when the app pre-rolls; the mid-play case (next episode across the 100/120 boundary) stays
-   LG's and is documented as such. No path exists to make the firmware's relock itself faster.
+1. **Inside an app: LG's.** The next video's start carries the kernel's own switch, before its window is shown (round 11: 0.33 s
+   before). Holding 100 Hz through it is impossible (the kernel sets the rate at every timing change of window 0) and wrong
+   (23.976 fps at 100 Hz shows frames for four and five refreshes unevenly). LumaTV writes nothing while an app is in front.
+2. **On Home: the helper** (`helper/app/src/framerate.rs`, `898e638`). SAM's `getForegroundAppInfo` subscription says when Home
+   comes to the front; the screen coming on with Home in front counts too. One check then runs: the output is counted (`osd_irq`
+   over 0.5 s); at 100 Hz the helper waits until the main window has no source (`connect_src=NONE` in
+   `/proc/lgtv-driver/scaler/main.p0`, every 0.25 s for 15 s, then every 2 s), counts again with the window closed, looks at the
+   window once more, writes `0 60` to `/proc/lg/de/fr_rate` and counts a third time. The log line is
+   `frame rate: Home was left at 100.0 Hz with no video window open; set back to 120 Hz (119.6 Hz measured)`. Never a write while
+   a source is connected; nothing at all while the subscription is down. `helper.json` `"frameRate": {"returnOnHome": false}`
+   turns it off.
+3. **The price.** The next start after a return applies the 25/50 video's rate at its connect (the decoder register) and its own
+   at the first frame: a 120 -> 100 -> 120 pair about 0.2 s long, under videooutputd's mute and the start mute [INFERENCE until
+   the TV check].
 4. **Settings.** LumaTV's Picture page keeps Real Cinema on and TruMotion off/judder 0 as the film default (already Nitin's
    values); no new user setting for the rate: there is nothing the user should pick.
 
 ## Not found
 
-The DE firmware's relock time and whether it mutes; whether the output stays at 100 Hz on Home after a 50 fps title; whether a
-rate re-set with the same value (24 -> 60 content) is a no-op in the firmware; the DCO lock bit during a 23.976 <-> 24 slew; what
-LG's pipeline does for 1080p120 without `hfrEnabled`. All four runs of the probe.
+Whether a 100 <-> 120 Hz change blinks the panel itself (the planes are captured, not the panel; the DE's vsync never stopped);
+the DE firmware's relock time; whether a re-set with the same value (24 -> 60 content) is a no-op in the firmware; the DCO lock
+bit during a 23.976 <-> 24 slew; LG's pipeline for 1080p120 without `hfrEnabled`; a 25 fps Plex item.
 
-## TV probe steps
+## TV check (next slot, Nitin at the set)
 
-One slot of about 12 minutes, from the repository root, each run on its own: `probe.py --go` mutes the receiver through Home
-Assistant before anything plays and puts it back only after Home is in front again, as the other slots do. `--go` is read-only on
-the set apart from the app launch, the key presses (kb.py) and the files under `/tmp/fr-probe-<stamp>/`; the `fr_rate` write is a
-separate experiment and the script refuses `--allow-fr-rate-write`. Each run ends with the app closed, Home in front and seen,
-the receiver put back, the set in Active Standby (`--no-standby` leaves it on); its files land in
-`docs/research/framerate/<run>-<stamp>/` with `summary.txt` and `verdict.json` written, and the screenshots pruned to every
-20th plus those within 1.5 s of a switch, a mute or a mark.
+The helper of `898e638` or later on the set (the next package). From the repository root; each run mutes the receiver through
+Home Assistant, puts it back once Home is in front, and saves the helper's `frame rate:` lines (`helper.txt`); `--no-standby`
+keeps the set on between runs. About 6 minutes.
 
-1. `python3 docs/research/framerate/probe.py --plan --run youtube50` (nothing touched; prints the steps).
-2. `python3 docs/research/framerate/probe.py --go --run youtube50`: a 50 fps YouTube clip (the default launch is a search for
-   "4k 50fps test" and OK on the first result; `--launch '{"id":"youtube.leanback.v4","params":{"contentTarget":"https://www.youtube.com/watch?v=..."}}'`
-   names a known clip), 45 s, then Home for 10 s with the sampler running: the 120 -> 100 Hz switch and the hold-over.
-3. `python3 docs/research/framerate/probe.py --go --run netflix24`: Netflix, a 23.976 title (the id in `RUNS` is a guess; `vFreq`
-   in the summary says what played; `netflix60` is Meridian at 59.94): the no-switch case and the DCO slew.
-4. `python3 docs/research/framerate/probe.py --go --run plex25after24 [--keys ... --second-keys ...]`: Plex, a 24 fps item then
-   a 25 fps item without Home in between; the key paths depend on the library's order (`OK s4 OK s5 OK` then
-   `BACK s2 DOWN s1 OK s4 OK` by default): the mid-play switch.
-5. `python3 docs/research/framerate/probe.py --go --run gfn120`: the GFN app at 4K120, a session started by hand once the app is up
-   (skip when no session is possible): both HFR switches on, 120 Hz 1:1.
-6. Read each `summary.txt` (`--report DIR` recomputes it): the DE rate at start and end, the switch moments against the app's
-   own video mute, the firmware mute spans, the vsync gaps, the black and frozen screen spans, `VERDICT`. Put the measured rows
-   into "Verdicts" and settle the `[INFERENCE]` marks; the `kernel.txt` lines (`set_frate`, `timing_changed`, `4k HFR mode`,
-   `mute-on/off`) date the switch to the 40 ms poll.
+1. `python3 docs/research/framerate/probe.py --go --run youtube50home --no-standby`: the known 50 fps clip, Home 8 s after the
+   launch, 15 s of Home. Nitin watches the whole screen at the clip's start and for 2 s after Home appears.
+   Pass: `switches:` has `120 -> 100 Hz at … (start)`, then `100 -> 120 Hz at … (no window)` within 1.5 s of the clip's window
+   closing (the `0 at` source rate after the `home` mark); `helper:` has `Home was left at 10x.x Hz … set back to 120 Hz`;
+   `VERDICT: PASS`; OSD vsync 119-120 Hz at the end; Nitin saw no blink at either moment. If the clip's window closed before the
+   `home` mark (YouTube left it 11 s after the launch at the earliest in round 11), run it again.
+2. At once, from Home: `python3 docs/research/framerate/probe.py --go --run netflix24 --no-standby`: the first start after the
+   return. Pass: `VERDICT: PASS`; `switches:` none, or `120 -> 100` and `100 -> 120` about 0.2 s apart, both `(start)`; Nitin saw
+   no blink on Netflix's loading screen. The pair, or its absence, goes into "Verdicts" (the `fr_rate` row).
+3. Round 11's in-app return, watched: `python3 docs/research/framerate/probe.py --go --run youtube50home --secs 25 --no-standby`
+   (Home 30 s after the launch). When YouTube leaves the clip for its Browse page and starts a preview there, `switches:` has
+   `100 -> 120 Hz … (start)`; Nitin watches YouTube's Browse page at that moment. Pass: `VERDICT: PASS`, no blink seen.
+4. The set back in Active Standby (the last run without `--no-standby`, or the power key).
+
+A blink at step 1 alone is Nitin's choice: Home at 120 Hz after 25/50 video, or no write (`"frameRate": {"returnOnHome": false}`
+in `/var/lib/lumatv/helper.json`, then `lumatv helper stop` and `lumatv helper start`). A blink at step 2 or 3 is LG's own
+switch and stays either way.
+
+Still open after that: `gfn120` (a GFN session started by hand: both HFR switches on, 120 Hz 1:1), and a 25 fps Plex item:
+`plex25after24` picked two 23.976 items in round 11, and the Plex library API (`http://192.168.1.69:32400`) answers 401 without a
+token. With a token from Nitin, `/library/sections/<id>/all?type=4` lists each episode's `Media videoFrameRate` (`PAL` is 25 fps)
+and the run gets that item's key path; without one, a title he knows to be 25 fps (a UK or Australian series).

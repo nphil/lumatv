@@ -1188,12 +1188,12 @@ what it already does.
   Read from LG's kernel source (`docs/research/framerate-result.md`,
   2026-10-26): on this set the output is 120 Hz for the 24, 30, 60 and 120
   fps families (5:5, 4:4, 2:2, 1:1, phase-locked to the decoder's clock) and
-  100 Hz for the 25/50/100 family, switched within 40 ms of the first frame,
-  normally under the app's own video mute; the 48 Hz case is compiled out.
-  Nothing to build for LG's apps; LumaTV's own players pre-switch through
-  `/proc/lg/de/fr_rate` for 25/50 items, and the shell puts 120 Hz back when
-  a 25/50 playback ends. The probe `docs/research/framerate/probe.py` (next
-  TV round) measures the one real switch and the hold-over.
+  100 Hz for the 25/50/100 family, switched at a video's first frame, before
+  its window is shown (round 11, 2026-10-26); the 48 Hz case is compiled out.
+  Nothing to build for LG's apps. After a 25/50 video the output stays at
+  100 Hz until the next video; the helper puts 120 Hz back once Home is in
+  front with no video window (`helper/app/src/framerate.rs`). No player
+  pre-switches: a connect applies the previous stream's rate anyway.
 - Name: LumaTV (Nitin, 2026-10-23), kept easy to change again. The shown
   name and every internal identifier come from one file (`brand.json`:
   display name, short id, app id, data directory), read by the build, the
