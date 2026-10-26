@@ -35,6 +35,7 @@ vplane_install 12, gfn_feeder 28 + 1 skip that needs qemu, ambient_slot 23).
   under the run's staging dir). Two hosts at once shared `lumatv-wallsample.xpm` (a read of the other's half-written file warned, rc 1) and the doors.
 - QML host: a host without `--fake-helper` waits out the ones serving the stand-in on port 18731; `test_homefeeds` "saved file" and "later
   reading" read another run's weather.
+- `test_homefeeds` "later reading": looked for 3.5 s after the publish (it failed at 1.2 s when two modules ran at once).
 - `test_settings` AI page: the D-pad path to Cody and to the lock-out follows the two-column layout (it still described the one-column one).
 - `test_quick_panels`: LG's Quick Settings launch is matched by the service's last name (`com.webos.service.systemUIManager`).
 - `test_saver_own` (SaverOwn3, e660403): the vote test counted every `cancel`, and since 2886b62 the Inputs readings cancel their previous subscription too; it counts the vote's own only.
