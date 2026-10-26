@@ -209,6 +209,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Volume bar: it measures its words as drawn, so the audio format is no longer cut off.
+- Video-plane saver: the player's role carries every name LG's media library registers, and
+  the supervisor hands it the compositor's runtime directory.
+- Hardware JPEG: PmLog is loaded before LG's photo library; the helper's picture route
+  decodes on the block (4K to 1080p in 33 ms).
 - Luna calls from the compositor QML work on the set: `LS` lives in `WebOSCompositorBase`, not
   `WebOSServices`, and eleven files that imported only the latter failed with "LS is not defined"
   (the Settings launch, the notification log, the app list). The offline host now exports `LS`
