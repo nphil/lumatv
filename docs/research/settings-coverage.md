@@ -38,8 +38,13 @@ Look-only walk (2026-10-27 15:55-16:04 EDT, `9efedab` on the set, LG's composito
 | Home & look > Look, Standby (the page with the segmented controls) | `home-look-look.png`, `home-look-standby.png` | OK |
 | Remote & pointer > Pointer | `remote-pointer.png` | OK |
 | AI access | `ai-access.png` | OK |
+| Network > Wi-Fi (second pass, 16:08) | `network-wifi.png` | OK (Wi-Fi "Not connected", IP 192.168.1.242: the set is wired) |
+| Ambient light > Light | `ambient-light.png` | OK |
+| Sound > Devices tab | `sound-devices.png` | OK; this tab holds the HDMI input audio format, LG Sound Sync, TV Sound Mode Share and DTV Audio Setting, not Bluetooth speakers |
+| Sound > Output > Sound out chooser | `sound-out-chooser.png` | OK; eight outputs, HDMI(ARC) Device ticked, no Bluetooth entry (no speaker paired) |
+| Support > Reset | `support-reset.png` | OK (Reset All and Reset All Except Network Settings in the danger colour, not pressed) |
 
-No defect found on the pages looked at. **Not looked at:** Just Scan with an HDMI input in front, Sound > Output > Bluetooth Speakers (Devices tab), App Permissions and Delete My Personal Information, Support > Reset, a Home Assistant page, Network, Ambient light. A mistyped key sequence once took the focus to the rail's "More in LG settings" row and launched LG's Settings app (`com.palm.app.settings`, pid 9599); it was closed through SAM within a minute and nothing in it was pressed.
+No defect found on the pages looked at. **Not looked at:** Just Scan with an HDMI input in front, a Bluetooth Speakers page (the Sound out chooser lists none; [INFERENCE] it needs a paired speaker), App Permissions and Delete My Personal Information (rows on Privacy, pages not opened), a Home Assistant page. A mistyped key sequence once took the focus to the rail's "More in LG settings" row and launched LG's Settings app (`com.palm.app.settings`, pid 9599); it was closed through SAM within a minute and nothing in it was pressed.
 
 ## Sources
 
