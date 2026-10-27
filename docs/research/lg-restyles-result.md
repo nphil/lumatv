@@ -225,6 +225,17 @@ stamped with the time; a capture is the splash while its md5 is `3dcd88495b38ef1
 
 Offline checks behind the steps: `python3 -m unittest tests.test_inputcommon_patch tests.test_inputcommon_stage tests.test_lumatv_inputcommon`.
 
+## Round 17 on the TV (2026-10-26 20:45-20:49): "TV check, input banners again", stopped after step 3
+
+Evidence: `docs/research/lg-restyles/tv/banners-again/` (`log.txt`, bursts with `*-times.txt` and `*-md5.txt`; some burst frames were dropped from the folder, the md5 lists name them). Times are UTC in `log.txt`. The check stopped at the owner's request.
+
+1. **Own look: INFO/PASS.** pid 7890 (the `core-7890.img` of the 04:04 checkpoint), command line without `"snapshot":true`, not 2513/2517. LG's grey pill ("HDMI 2") first at 2.13 s after the launch (`own-pill-03`), "HDMI 2 / Apple TV" at 5.64-6.53 s, splash only in the first frame. OK and RIGHT (two tries): LG's OK banner did not show; captures black, because the key reaches the Apple TV over CEC (its Netflix resumed a show; BACK sent).
+2. **On: PASS.** `inputcommon on` `"checkpointAside":1`, overlay in `/proc/mounts`, 17 files with Screensaver.qml and ZappingBanner.qml, no input app running ten seconds later, `/tmp/checkpoint` without `com.webos.app.inputcommon`.
+3. **Patched pill: FAIL.** The input process was again pid 7890 with no `"snapshot":true` (a pid that is neither 2513 nor 2517; the same pid as in step 1, so a restore of the 04:04 images despite the aside is likelier than a cold start [INFERENCE]). No frame shows the dark glass pill: `pill-06` (1.93 s) is "HDMI 2 / Apple TV" as bare text on black at the left edge (x 0, no box), `pill-05` the same with "HDMI 2" only. OK: black, as in step 1 (INFO). INFO card: not seen, `kb 358` went to the Apple TV's Netflix (its own stats overlay, `info-01`).
+4. Live TV, 5 (off and restore) not run. `inputcommon off` at the end: `"checkpointBack":1`, `/tmp/checkpoint` has `com.webos.app.inputcommon` back. Guard values before and after: 6 failed units, 0 librdx files, `aud_dsp_reset_count` 0.
+
+Next: steps 4 and 5, then settle why a launch after the aside still has pid 7890.
+
 ## On the TV (2026-10-25 19:43-19:48)
 
 Set on Home, LG's compositor, receiver muted through Home Assistant, `filmMaker`; code `4ee268a`, the ipk of that commit installed

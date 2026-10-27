@@ -1,0 +1,26 @@
+03:45:04 step1 start; inputcommon status: {"ok":true,"on":false,"qml":"/usr/palm/applications/com.webos.app.inputcommon/qml","staged":true,"mounted":false,"checkpoint":"present","criuEnabled":true}
+03:45:04 guard (failed units, librdx files, aud_dsp_reset_count): ['6', '0', '0']
+03:45:17 launch-call-ms 500
+03:45:17 pids at ~5s: [('com.webos.app.hdmi2', '7890')]
+03:45:17 ps: PID  PPID                  STARTED COMMAND
+ 7890  2500 Mon Oct 26 23:45:04 2026 /usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.webos.app.hdmi2","parameters":{},"interfaceVersion":2,"interfaceMethod":"registerApp","@system_native_app":true}
+03:46:18 step1 results: own-pill burst: launch call returned at 0.50 s; process pid 7890 (core-7890.img of the 04:04 checkpoint in the directory), command line has no "snapshot":true (not 2513/2517). first LG grey pill ("HDMI 2") frame own-pill-03 at 2.13 s (shot return), pill with "Apple TV" own-pill-13..16 at 5.64-6.53 s, last pill frame 6.53 s; splash only own-pill-01 (0.34 s).
+03:46:18 step1 OK: two tries (own-ok-* and own-wait run, OK pressed 0.9-2.2 s after launch): every capture after kb OK / RIGHT is black (md5 54a69f3a, the same as the pre-pill frames); LG OK banner with the options key did not show (as rounds 7, 11). INFO.
+03:46:19 step2 inputcommon on: {"ok":true,"inputcommon":"on","checkpointAside":1,"closed":["com.webos.app.hdmi2"],"onScreen":""}
+03:46:19 mounts: inputcommon /usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inputcommon/qml,upperdir=/var/lib/lumatv/inputcommon/upper,workdir=/v
+inputcommon /mnt/lg/cmn_data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inputcommon/qml,uppe
+inputcommon /mnt/lg/flash/data/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inputcommon/qml,up
+inputcommon /mnt/lg/user/var/palm/jail/lg.thinqai.adapter/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inputcommon/qml,upperdir
+inputcommon /mnt/lg/cmn_data/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.input
+inputcommon /mnt/lg/flash/data/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inp
+inputcommon /mnt/lg/user/var/palm/jail/com.webos.service.voice.performer/usr/palm/applications/com.webos.app.inputcommon/qml overlay rw,relatime,lowerdir=/usr/palm/applications/com.webos.app.inputcomm
+03:46:20 upper qml count: 17 ; /var/lib/lumatv/inputcommon/upper/UserInterfaceLayer/Containers/BgViewLayer/Screensaver.qml
+/var/lib/lumatv/inputcommon/upper/UserInterfaceLayer/Containers/MainViewLayer/ChannelBanner/ZappingBanner.qml
+03:46:31 step2 input apps after on (running list): []; guard ['6', '0', '0']
+03:46:32 ls checkpoint dir: MD5SUM | core-7890.img | core-7902.img | creds-7890.img | eventfd.img | .lumatv-aside.com.webos.app.inputcommon  error                                    hash_check_com.webos.app.inputcommon     manager_pid
+03:46:45 step3 launch-call-ms 430
+03:46:45 pids at ~5s: [('com.webos.app.hdmi2', '7890')]
+03:46:45 ps: PID  PPID                  STARTED COMMAND
+ 7890  2500 Mon Oct 26 23:46:31 2026 /usr/bin/com.webos.app.inputcommon {"event":"launch","reason":"undefined","appId":"com.webos.app.hdmi2","parameters":{},"interfaceVersion":2,"interfaceMethod":"registerApp","@system_native_app":true}
+04:49:xx stopped at the owner's request after step 3's OK/INFO; steps 3 (rest), 4, 5 not run. OK on HDMI 2 reached the Apple TV (CEC): its Netflix app resumed "One-Punch Man" S2:E18 (ok-0..ok-right black while loading; info-01 is Netflix's own stats overlay, so INFO went to the Apple TV, not to the input banner); BACK sent twice (after-info-back.png). Receiver muted throughout.
+end: inputcommon off ("checkpointBack":1), Home in front, running [home], inputs running [], homestub state "stub", fps never turned on, pictureMode set back to filmMaker (read cinema after the checks).

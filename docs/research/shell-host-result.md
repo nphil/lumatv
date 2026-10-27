@@ -387,6 +387,19 @@ Baseline on the deployed build (`--tag r16-base`, `/tmp/r8/r16-baseline.log`, tr
 
 **Over Home.** The slow frames are the first frames of each opening and closing (3.2-4.5 ms against about 2.1). Every frame of a panel draws the sheet's texts, icons, plates and halos as separate batches: offline, Home with the quick panel up drew 152 nodes in 101 batches against Home's 107/69. Each sheet's content is now drawn once into a texture (`LuPane.cacheContent`, Qt's item layer): 110 nodes in 72 batches; the moving sheet then re-batches its two quads each frame and the texture is drawn again only when its content changes (offline renderer log: the layer drew at the first opening and not in the cycles after it). So that nothing inside changes while it slides, a focus change on a panel that is not settled lands at once (`PanelMotion.settled`; `instant` on QuickTile, LuButton and LuHalo), the quick panel's receiver reading stays live while parked, and its clock is set at the gear's press.
 
+### Round 17 (2026-10-26 20:38, 3036de9 on the set)
+
+LG's compositor, Home in front, receiver muted, `--input-key 241 --tag r17` (`/tmp/r17.json`; verdict FAIL). Worst interval is the longest interval inside a burst.
+
+| Surface | First frame | Burst end | Worst interval | p90 render | RSS over 8 cycles |
+|---|---|---|---|---|---|
+| quick over Home | 21.0 ms | 154.9 ms | 16.7 ms | 1.35 ms | +1.75 MB ✗ (bar 1.08) |
+| picker over Home | 29.1 ms | 172.5 ms | 20.9 ms | 2.01 ms | -2.40 MB |
+| quick over Netflix | 24.6 ms | 170.5 ms | 20.9 ms | 1.61 ms | +1.57 MB ✗ |
+| picker over Netflix | 18.7 ms | 152.2 ms | 16.7 ms | 2.15 ms | -0.10 MB |
+
+The late frame per opening over Home is gone for the quick panel (0 intervals over 20 ms in all six windows, worst 16.7 ms). The picker over Home and the quick panel over Netflix show a 20.8-20.9 ms interval on every animated frame of the burst (picker 41, quick-netflix 43 intervals over 20 ms): a uniform cadence, not a stall; the vblank count of those windows is 144-157 against 180-198 in the windows that ran at 16.7 ms [INFERENCE: the panel refreshed at a lower rate during them, not read from the display]. Render cost is low everywhere (p90 under 2.2 ms); `burst_app_jobs` 0 and no log errors. The two RSS failures are the quick panel's pages 64558 to 65007 and 66960 to 67361.
+
 ## Under LumaTV's own compositor
 
 The key filter, the overlay and the container patch run only inside LG's compositor. At the cutover LG's key filters go away (`compositor-c2-result.md`, "Surfaces under LumaTV's compositor") and the QML shell with them; the rules here then belong to the compositor's evdev key routing and the Rust UI: a gear that is LG's on a tap and ours at 650 ms (the three-tap AV reset stays three taps), the app keys with their owner's choice and LG's own where installed, the number keys on Home, and a layer over an app that takes keys only while it has a surface that wants them. `tests/keyfilter.test.js` and `tests/bus.test.js` are written as that rule set.
