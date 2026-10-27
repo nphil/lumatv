@@ -377,10 +377,17 @@ impl State {
             return;
         }
         let imports = l.main_qml.parent().map(|d| d.join("imports")).unwrap_or_default();
+        let Some(module_dir) = module_dir(&self.config.data_dir) else {
+            self.journal(format!("shell: no LumaHome.qml under {}/qml/WebOSCompositor; the shell client is not run", self.config.data_dir.display()));
+            self.shell.error = Some("no module".into());
+            self.shell.gave_up = true;
+            return;
+        };
         let params = json!({
             "port": l.port,
             "tokenFile": l.token_path,
             "dataDir": self.config.data_dir,
+            "moduleDir": module_dir,
             "runtimeDir": self.config.runtime_dir,
             "socket": self.config.socket,
         });
@@ -688,6 +695,15 @@ fn bundle_shell() -> Option<PathBuf> {
     let bundle = exe.parent()?.parent()?;
     let p = bundle.join("shell/Shell.qml");
     p.is_file().then_some(p)
+}
+
+/// LumaTV's QML module as `tools/lumatv` stages it: the directory under `<data dir>/qml/WebOSCompositor` that holds
+/// `LumaHome.qml` (named by the brand's `qmlModule`).
+fn module_dir(data_dir: &Path) -> Option<PathBuf> {
+    let root = data_dir.join("qml/WebOSCompositor");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).ok()?.flatten().map(|e| e.path()).filter(|p| p.join("LumaHome.qml").is_file()).collect();
+    dirs.sort();
+    dirs.into_iter().next()
 }
 
 /// Writes a fresh token (32 hex digits from the kernel's random source) readable by the owner only.

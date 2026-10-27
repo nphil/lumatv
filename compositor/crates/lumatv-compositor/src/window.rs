@@ -218,14 +218,17 @@ impl Window {
         self.props.get("appId").map(String::as_str).unwrap_or("")
     }
 
-    /// Applies one `set_property`; returns whether the window type changed (the scene must re-layer).
+    /// Applies one `set_property`; returns whether the window type changed (the scene must re-layer). A window the title
+    /// made a shell window keeps that through a later default type (a plain Qt `Window` has no type of its own to send).
     pub fn set_property(&mut self, name: &str, value: &str) -> bool {
         let mut relayer = false;
         match name {
             "_WEBOS_WINDOW_TYPE" => {
                 let k = WindowType::parse(value);
-                relayer = k != self.kind;
-                self.kind = k;
+                if k.is_shell() || !self.kind.is_shell() {
+                    relayer = k != self.kind;
+                    self.kind = k;
+                }
             }
             "title" => {
                 self.title = value.to_string();

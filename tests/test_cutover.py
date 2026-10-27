@@ -1157,6 +1157,7 @@ class GateDriver(unittest.TestCase):
         g.wake = lambda: True
         g.avr_mute = lambda on: None
         g.volume_check = lambda: "GATE volume: PASS fine"
+        g.frames_check = lambda cycles: "GATE frames: PASS fine"
         g.VERIFIED_LIST = lst
         g.here = repo
         with mock.patch.object(sys, "argv", ["tv_gate.py", *argv]), mock.patch.object(g.time, "sleep"), mock.patch.object(g.os, "system"), \
@@ -1181,7 +1182,8 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
-            "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "evidence", "standby", "woke",
+            "cutover enable --session --max-minutes 12", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "shell", "evidence",
+            "cutover enable --session --max-minutes 20", "live frames", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
@@ -1189,12 +1191,12 @@ class GateDriver(unittest.TestCase):
             "cutover disable"])
 
     def test_skips_leave_out_their_checks_and_their_sessions(self):
-        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,keys,ime,standby,homekey,wd-hang,wd-crash"])
+        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,keys,ime,shell,frames,standby,homekey,wd-hang,wd-crash"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 12", "live", "x1 60", "evidence", "escape", "cutover disable"])
 
     def test_the_keys_and_the_keyboard_are_checks_of_their_own_in_the_first_session(self):
-        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,x1,netflix,hdmi,standby,homekey,wd-hang,wd-crash,escape"])
+        calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,x1,netflix,hdmi,shell,frames,standby,homekey,wd-hang,wd-crash,escape"])
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence", "cutover disable"])
         sent = [c for c in calls if "gate.sh keys" in c or "gate.sh ime" in c]
@@ -1224,6 +1226,13 @@ class GateDriver(unittest.TestCase):
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["homeheld", "cutover enable --session --max-minutes 12", "live", "keys", "ime", "evidence",
                           "homekey", "cutover enable --session --max-minutes 6", "live after-homekey", "escape", "cutover disable"])
+
+    def test_the_shell_check_runs_in_the_first_session_and_the_frame_gate_in_one_of_its_own(self):
+        calls, code, _ = self.run_main(argv=["--only", "shell,frames"])
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 12", "live", "shell", "evidence",
+                          "cutover enable --session --max-minutes 20", "live frames", "cutover disable"])
 
     STUB_ON = '{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}'
 
@@ -1260,7 +1269,7 @@ class GateDriver(unittest.TestCase):
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
         enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
-        self.assertEqual(enables, ["enable --session --max-minutes 14"] + ["enable --session --max-minutes 6"] * 3)
+        self.assertEqual(enables, ["enable --session --max-minutes 14", "enable --session --max-minutes 20"] + ["enable --session --max-minutes 6"] * 3)
 
     def test_the_persistent_enable_after_a_pass_has_no_timer(self):
         answers = {"cutover.sh firmware record": "noise\r\n" + BLOCK.replace("\n", "\r\n")}

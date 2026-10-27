@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQuick.Window 2.2
 import ".."
 import "."
 
@@ -18,6 +19,8 @@ Item {
     property bool cacheContent: false
     property real sx: 0
     property real sy: 0
+    // In a window other than Home's (the shell's system layer) the backdrop is the overlay's flat colour: Home's blur lives in Home's window.
+    readonly property bool offHome: !!Lu.homeWindow && Window.window !== Lu.homeWindow
     default property alias content: slot.data
 
     function locate() {
@@ -37,7 +40,7 @@ Item {
         focusMix: pane.focusMix
         liftMix: pane.liftMix
         fillAlpha: pane.fillAlpha
-        backdrop: Lu.backdrop
+        backdrop: pane.offHome && Lu.flatBackdrop ? Lu.flatBackdrop : Lu.backdrop
         screenX: pane.sx
         screenY: pane.sy
         screenW: pane.width

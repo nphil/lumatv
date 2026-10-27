@@ -3,6 +3,7 @@
 #   bin/lumatv-compositor, bin/lumatv-testclient   64-bit glibc (cargo zigbuild, glibc 2.36)
 #   bin/x2cli                                       the X2 client, 32-bit, drawing through LG's own libmali
 #   bin/lumatv-sm                                   the C4 supervisor and luna bridge, 32-bit (sm/lumatv-sm.c)
+#   shell/                                          the shell client's QML (compositor/shell: LumaTV's QML on LG's Qt through qml-runner)
 #   lib/                                            the private Debian bookworm arm64 loader and libraries plus the
 #                                                   64-bit Mali blob, as used by X2 r8b (docs/research/shell-architecture.md)
 #   run.sh                                          the on-set runner (tools/tv-run.sh)
@@ -28,6 +29,7 @@ x1=$here/../docs/research/arch/x1
 zig cc -target aarch64-linux-gnu.2.36 -O1 -o "$out/bin/x1client" "$x1/x1client.c" "$m64/libwayland-client.so.0" -ldl -lm -Wl,--allow-shlib-undefined
 zig cc -target aarch64-linux-gnu.2.36 -O1 -shared -fPIC -o "$out/lib/x1heapshim.so" "$x1/x1heapshim.c" -ldl
 cp "$out/sm/lumatv-sm" "$out/bin/lumatv-sm"
+cp -R "$here/shell" "$out/shell"
 cp "$here/tools/tv-run.sh" "$out/run.sh"
 cp "$here/tools/tv-kms-window.sh" "$out/kms-window.sh"
 cp "$here/tools/tv-sm-dryrun.sh" "$out/sm-dryrun.sh"

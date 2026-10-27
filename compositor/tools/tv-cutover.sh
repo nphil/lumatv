@@ -134,6 +134,9 @@ install)
     cp $D/recover-home.sh $STATE/bin/recover-home.sh
     cp $D/lib/* $STATE/lib/
     chmod +x $STATE/bin/*
+    # The shell client's QML (the compositor runs it from <bundle>/shell/Shell.qml when it is there).
+    rm -rf $STATE/shell
+    [ -d $D/shell ] && cp -R $D/shell $STATE/shell
     # The builds the gate passed on come with the deploy (compositor/firmware/verified.list); a set that was never
     # given one keeps what it has, or an empty list, which verifies nothing.
     if [ -f $D/verified.list ]; then cp $D/verified.list $STATE/verified.list

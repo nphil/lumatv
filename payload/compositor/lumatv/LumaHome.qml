@@ -73,6 +73,7 @@ Item {
     // over an app the overlay (LumaOverlay.qml) points it at a flat colour. An assignment and not a Binding: a Binding that switches off is
     // the one construct whose behaviour differs between Qt 5.12 (the set) and 5.15 (the offline host).
     Binding { target: Lu; property: "baseUrl"; value: root.moduleDirUrl }
+    Binding { target: Lu; property: "homeWindow"; value: root.Window.window }
     // What the all-apps library lists and in which order: the owner's choices (theme.apps) and the dock's tiles (kit/Apps.qml).
     Binding { target: Apps; property: "prefs"; value: root.theme.apps || ({}) }
     Binding { target: Apps; property: "dockKey"; value: root.dockKey }
@@ -258,6 +259,7 @@ Item {
     property string doorLayer: ""             // a layer the development door asked for
     property string badDoor: ""               // the last name the door gave that is no surface, said once
     property string layerOpen: ""             // the layer that has the keys, one Home opened itself (the quick panel, the library, a menu)
+    readonly property bool saverUp: layers.saverUp   // the screensaver is over Home (the shell reports it under LumaTV's compositor)
 
     // ============================================================= Home stub contract
     // With the Home stub (tools/lumatv homestub) this layer is the only Home, so

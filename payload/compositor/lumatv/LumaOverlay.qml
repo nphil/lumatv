@@ -1,4 +1,5 @@
 import QtQuick 2.4
+import QtQuick.Window 2.2
 import WebOSCompositorBase 1.0
 import WebOSServices 1.0
 import WebOS.Global 1.0
@@ -76,7 +77,10 @@ Item {
         visible: false
     }
     onBaseColorChanged: flatTex.scheduleUpdate()
-    readonly property bool flatGlass: Lu.backdrop === flatTex       // the glass samples the flat colour, not Home's wallpaper blur
+    // Under LumaTV's compositor this layer is a window of its own (compositor/shell/Shell.qml): its panes sample the flat colour through
+    // Lu.flatBackdrop (kit/LuPane.qml) and Home's blur stays Home's, since a texture cannot be sampled across windows.
+    readonly property bool ownWindow: !!Lu.homeWindow && Window.window !== Lu.homeWindow
+    readonly property bool flatGlass: ownWindow || Lu.backdrop === flatTex       // the glass samples the flat colour, not Home's wallpaper blur
 
     // ---- the surfaces, built once and kept (Resident.qml)
     Resident {
@@ -172,7 +176,7 @@ Item {
     onSurfaceChanged: if (surface !== "") releaseParked(surface)
     // The backdrop is an assignment on the way in, as Home's is on the way back (LumaHome.onHostActiveChanged): a Binding that switches off
     // behaves differently in Qt 5.12 (the set) and 5.15 (the offline host).
-    onAppFrontChanged: { if (appFront) { Lu.backdrop = flatTex; tryPending() } else { pending = null; closeAll(); releaseParked("") } }
+    onAppFrontChanged: { if (appFront) { if (!ownWindow) Lu.backdrop = flatTex; tryPending() } else { pending = null; closeAll(); releaseParked("") } }
 
     // ---- banners
     function showBanner(spec) {
@@ -325,6 +329,7 @@ Item {
     Timer { interval: 1000; running: ov.appFront; repeat: true; onTriggered: ov.readDoor() }
 
     Component.onCompleted: {
+        Lu.flatBackdrop = flatTex
         Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel, warm: ov.warmPanel })
         console.info("[LumaOverlay] loaded")
     }

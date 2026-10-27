@@ -1,0 +1,2 @@
+module Eos.Window
+WebOSWindow 0.1 WebOSWindow.qml

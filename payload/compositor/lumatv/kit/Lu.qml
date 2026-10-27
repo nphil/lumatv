@@ -16,6 +16,11 @@ QtObject {
     property bool isLight: false
     property color wallAccent: "transparent"     // transparent until the wallpaper has been sampled
     property Item backdrop: null                  // ShaderEffectSource of the blurred wallpaper, for Glass
+    // Under LumaTV's compositor the system layer is a window of its own (compositor/shell/Shell.qml) and a texture cannot be sampled
+    // across windows: Home names its window, the overlay its flat colour, and a pane outside Home's window samples that (kit/LuPane.qml).
+    // Under LG's compositor everything is one window and these change nothing.
+    property var homeWindow: null
+    property Item flatBackdrop: null
     property string baseUrl: ""                   // the module directory as a file URL: where icons/ lives
     function iconUrl(name) { return baseUrl + "icons/lucide/" + name + ".png" }
     function logoUrl(name) { return baseUrl + "icons/audio/" + name + ".png" }

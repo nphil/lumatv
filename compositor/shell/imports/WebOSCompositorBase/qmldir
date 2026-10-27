@@ -1,0 +1,2 @@
+module WebOSCompositorBase
+singleton LS 1.0 LS.qml

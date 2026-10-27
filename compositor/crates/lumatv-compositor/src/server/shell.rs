@@ -87,8 +87,10 @@ impl Dispatch<WlShellSurface, ShellSurfaceData> for State {
             }
             wl_shell_surface::Request::SetTitle { title } => {
                 state.note_request("wl_shell_surface", pid, &format!("set_title({title:?})"));
-                if let Some(w) = state.scene.window_mut(data.window) {
-                    w.title = title;
+                // The same as the webos shell's `title` property: the shell client's windows are known by theirs.
+                let line = state.scene.window_mut(data.window).and_then(|w| w.set_property("title", &title).then(|| format!("window {}: title = {title} ({:?})", data.window.0, w.kind)));
+                if let Some(l) = line {
+                    state.journal(l);
                 }
             }
             wl_shell_surface::Request::SetClass { class_ } => {

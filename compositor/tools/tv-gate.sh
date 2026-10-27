@@ -14,6 +14,10 @@
 #                     and held, Exit; each judged by the compositor's journal and by what SAM then has in front
 #   gate.sh ime       a text field in LG's Search app brings up maliit's keyboard: an input method bound, a context made for the field,
 #                     the keyboard's window on the screen at the bottom, a key typed on it reaching the field, the keyboard closing
+#   gate.sh shell     the shell client (shell.rs, compositor/shell): connected, LumaTV's Home drawn in the stub's place and taking the
+#                     D-pad, the quick panel and the input picker on the gear and Input (on Home and over an app, where the system
+#                     layer takes the keys and lets go), the volume display on a volume key, a toast, the screensaver when tvpower
+#                     starts it; Home in front and no app left at the end
 #   gate.sh evidence  no check: SAM's subscriptions, the clients (command lines, globals) and both logs, while live
 #   gate.sh key CODE  one remote key through the compositor's routing (the volume check in tv_gate.py)
 #   gate.sh standby   power off (remoteKey); the driver wakes the set; `gate.sh woke` then checks the rounds
@@ -77,6 +81,18 @@ journal_after() {
 }
 # The first number of that name in the JSON on stdin.
 jnum() { grep -o "\"$1\":-\{0,1\}[0-9]*" | head -n 1 | cut -d: -f2; }
+# The first string, or the first true/false, of that name in the JSON on stdin.
+jstr() { grep -o "\"$1\":\"[^\"]*\"" | head -n 1 | cut -d'"' -f4; }
+jbool() { grep -o "\"$1\":\(true\|false\)" | head -n 1 | cut -d: -f2; }
+# The shell client (`ctl shell`): whether it says it can show a panel of KIND now, and its own state's fields.
+shell_can() { ctl shell | grep -o '"can":\[[^]]*\]' | grep -q "\"$1\""; }
+shell_str() { ctl shell | jstr "$1"; }
+shell_bool() { ctl shell | jbool "$1"; }
+shell_num() { ctl shell | jnum "$1"; }
+# Waits, SECS at most, for the shell's string field NAME to be VALUE.
+wait_shell_str() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_str "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_str "$1")" = "$2" ]; }
+wait_shell_bool() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_bool "$1")" = "$2" ] && return 0; sleep 0.5; w=$((w+1)); done; [ "$(shell_bool "$1")" = "$2" ]; }
+wait_shell_num_ge() { w=0; while [ "$w" -lt "$3" ]; do [ "$(shell_num "$1")" -ge "$2" ] 2>/dev/null && return 0; sleep 0.5; w=$((w+1)); done; return 1; }
 # What the input method has sent to the fields so far (commits, preedits and keysyms), from the `ctl ime` JSON in file $1.
 ime_typed() { c=$(jnum commits < "$1"); p=$(jnum preedits < "$1"); k=$(jnum keysyms < "$1"); echo $(( ${c:-0} + ${p:-0} + ${k:-0} )); }
 # With the Home stub mounted (tools/lumatv homestub) Home is a transparent page by design and LumaHome lives in
@@ -280,19 +296,36 @@ keys)
     kd=""; bad=""
     res() { if [ "$1" = ok ]; then kd="$kd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
     home; sleep 3
-    # The gear's tap: Quick Settings has no window under this compositor yet, so LG's Settings stands in for it. Settings is an overlay and
-    # slow to map (8.1 s after the tap on the set, window 3 of the first TV run), hence 25 s.
-    ctl note keys-gear > /dev/null; key_tap 139
-    if wait_app com.palm.app.settings 25 && journal_after keys-gear | grep -q 'input: gear tap: Quick Settings .*launching com.palm.app.settings'; then res ok gear
-    else res no gear "$(where_now); or no journal line"; fi
+    # The gear's tap: LumaTV's quick panel when the shell client says it can show it (`gate.sh shell` checks the panel itself); with no shell,
+    # LG's Settings stands in for Quick Settings. Settings is an overlay and slow to map (8.1 s after the tap on the set, window 3 of the
+    # first TV run), hence 25 s.
+    ctl note keys-gear > /dev/null
+    if shell_can quick; then
+        key_tap 139
+        if wait_shell_str layer quick 10 && journal_after keys-gear | grep -q "input: gear tap: Quick Settings -> LumaTV's quick panel"; then res ok gear-shell
+        else res no gear-shell "the shell's layer is '$(shell_str layer)'; or no journal line"; fi
+        key_tap 412; sleep 2
+    else
+        key_tap 139
+        if wait_app com.palm.app.settings 25 && journal_after keys-gear | grep -q 'input: gear tap: Quick Settings .*launching com.palm.app.settings'; then res ok gear
+        else res no gear "$(where_now); or no journal line"; fi
+        close_app com.palm.app.settings; sleep 2; home; sleep 3
+    fi
     journal_after keys-gear > $OUT/keys-gear.txt
-    close_app com.palm.app.settings; sleep 2; home; sleep 3
-    # Input's tap: the input picker's stand-in is the Home Hub.
-    ctl note keys-input > /dev/null; key_tap 241
-    if wait_app com.webos.app.homeconnect 15 && journal_after keys-input | grep -q 'input: Input tap: .*launching com.webos.app.homeconnect'; then res ok input
-    else res no input "$(where_now); or no journal line"; fi
+    # Input's tap: LumaTV's input picker through the shell, or the Home Hub as the picker's stand-in.
+    ctl note keys-input > /dev/null
+    if shell_can picker; then
+        key_tap 241
+        if wait_shell_str layer picker 10 && journal_after keys-input | grep -q "input: Input tap: the input picker -> LumaTV's input picker"; then res ok input-shell
+        else res no input-shell "the shell's layer is '$(shell_str layer)'; or no journal line"; fi
+        key_tap 412; sleep 2
+    else
+        key_tap 241
+        if wait_app com.webos.app.homeconnect 15 && journal_after keys-input | grep -q 'input: Input tap: .*launching com.webos.app.homeconnect'; then res ok input
+        else res no input "$(where_now); or no journal line"; fi
+        close_app com.webos.app.homeconnect; sleep 2; home; sleep 3
+    fi
     journal_after keys-input > $OUT/keys-input.txt
-    close_app com.webos.app.homeconnect; sleep 2; home; sleep 3
     # The Netflix button follows Settings > Remote: no choice is LG's own target (netflix), a choice is that app, "" is nothing.
     nk=$(ctl keys | grep -o '"netflix":"[^"]*"' | head -n 1)
     if [ -z "$nk" ]; then napp=netflix; nb=netflix-button
@@ -331,6 +364,62 @@ keys)
     detail="${kd# }${bad:+ NOT:$bad} (key table: ${names% }; unnamed keys seen: ${unnamed:-none})"
     echo "$detail" > $OUT/keys-result.txt
     if [ -z "$bad" ]; then pass keys "$detail"; else fail keys "$detail"; fi
+    ;;
+shell)
+    # The shell client under LumaTV's compositor: its surfaces on Home and over an app, each read back from the client's own report
+    # (`ctl shell`, the `ui` object the client sends every second and on each change) and the compositor's journal. Keys go through
+    # `ctl remote`, the path the remote's take. Home is in front at the start and at the end; the Home Hub, the one app opened, is closed.
+    sd=""; bad=""
+    res() { if [ "$1" = ok ]; then sd="$sd $2 ok;"; else bad="$bad $2 ($3);"; fi; }
+    home; sleep 3
+    ctl shell > $OUT/shell-start.json
+    if [ "$(shell_bool connected)" = true ] && [ "$(shell_bool homeMapped)" = true ] && [ "$(shell_bool homeDrawn)" = true ]; then res ok connected
+    else res no connected "connected $(shell_bool connected), home mapped $(shell_bool homeMapped), drawn $(shell_bool homeDrawn), pid $(shell_num pid)"; fi
+    if [ "$(shell_bool homeLoaded)" = true ] && [ "$(shell_bool hostActive)" = true ] && [ "$(shell_bool beat)" = true ]; then res ok home-loaded
+    else res no home-loaded "homeLoaded $(shell_bool homeLoaded), hostActive $(shell_bool hostActive), beat $(shell_bool beat)"; fi
+    # The D-pad: Up from the dock reaches the widgets, Down comes back; the shell counts the keys it got.
+    k0=$(shell_num keys); key_tap 103; sleep 1
+    f1=$(shell_str focus); key_tap 108; sleep 1
+    f2=$(shell_str focus); k1=$(shell_num keys)
+    if [ "$f1" = widgets ] && [ "$f2" = dock ] && [ "${k1:-0}" -ge $(( ${k0:-0} + 4 )) ]; then res ok dpad
+    else res no dpad "focus '$f1' after Up, '$f2' after Down, keys $k0 -> $k1"; fi
+    # The quick panel and the input picker on Home: the gear's tap and Input, Back closes each.
+    ctl note shell-quick > /dev/null; key_tap 139
+    if wait_shell_str layer quick 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok quick-home; else res no quick-home "Back left the layer '$(shell_str layer)'"; fi
+    else res no quick-home "layer '$(shell_str layer)' after the gear; can $(ctl shell | grep -o '"can":\[[^]]*\]')"; fi
+    journal_after shell-quick > $OUT/shell-quick.txt
+    ctl note shell-picker > /dev/null; key_tap 241
+    if wait_shell_str layer picker 10; then key_tap 412; if wait_shell_str layer "" 10; then res ok picker-home; else res no picker-home "Back left the layer '$(shell_str layer)'"; fi
+    else res no picker-home "layer '$(shell_str layer)' after Input"; fi
+    journal_after shell-picker > $OUT/shell-picker.txt
+    # The volume display: a volume key through the compositor's own route; the audio service's push reaches the client as the audio topic.
+    key_tap 115
+    if wait_shell_bool osd true 8; then res ok osd; else res no osd "osd $(shell_bool osd) after Volume+ (audio topic: $(ctl shell | grep -o '"audio":{[^}]*' | cut -c1-120))"; fi
+    # A toast through the notification service, as any app raises one.
+    ls1 com.webos.notification/createToast '{"message":"LumaTV gate: a toast under its own compositor","sourceId":"org.nphil.lumatv"}' > /dev/null
+    if wait_shell_num_ge toasts 1 10; then res ok toast
+    else res no toast "toasts $(shell_num toasts) after createToast"; fi
+    # Over an app (the Home Hub, a card): the system layer draws the quick panel, takes the keys while it is up and lets go on Back.
+    ls1 com.webos.applicationManager/launch '{"id":"com.webos.app.homeconnect"}' > /dev/null
+    if wait_app com.webos.app.homeconnect 20; then
+        sleep 3
+        ctl note shell-quick-app > /dev/null; key_tap 139
+        if wait_shell_str overlay quick 10 && wait_shell_bool wants true 4 && [ "$(shell_bool systemMapped)" = true ]; then
+            key_tap 412
+            if wait_shell_str overlay "" 10 && wait_shell_bool wants false 4; then res ok quick-app; else res no quick-app "Back left overlay '$(shell_str overlay)', wants $(shell_bool wants)"; fi
+        else res no quick-app "overlay '$(shell_str overlay)', wants $(shell_bool wants), system mapped $(shell_bool systemMapped), home drawn $(shell_bool homeDrawn)"; fi
+        journal_after shell-quick-app > $OUT/shell-quick-app.txt
+    else res no quick-app "the Home Hub did not map: $(where_now)"; fi
+    close_app com.webos.app.homeconnect; sleep 3; home; sleep 4
+    # The screensaver: tvpower asked to start it; LumaTV's own answers and draws (on Home, LumaHome's). Any key ends it.
+    ls1 com.webos.service.tvpower/power2/turnOnScreenSaver '{}' > /dev/null
+    if wait_shell_bool saver true 15; then key_tap 106; if wait_shell_bool saver false 10; then res ok saver; else res no saver "a key did not end it"; fi
+    else res no saver "saver $(shell_bool saver) after turnOnScreenSaver"; fi
+    sleep 2; home; sleep 2
+    ctl shell > $OUT/shell-end.json
+    detail="${sd# }${bad:+ NOT:$bad} (shell pid $(shell_num pid), starts $(ctl shell | grep -o '"starts":[0-9]*' | cut -d: -f2), exits $(ctl shell | grep -o '"exits":[0-9]*' | cut -d: -f2), luna calls $(ctl shell | grep -o '"lunaCalls":[0-9]*' | cut -d: -f2), refused $(ctl shell | grep -o '"lunaRefused":[0-9]*' | cut -d: -f2); $(where_now))"
+    echo "$detail" > $OUT/shell-result.txt
+    if [ -z "$bad" ]; then pass shell "$detail"; else fail shell "$detail"; fi
     ;;
 ime)
     # A text field brings up maliit's keyboard under LumaTV's compositor. LG's Search app (a Qt app, com.webos.app.voice) is launched in its

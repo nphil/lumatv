@@ -39,7 +39,11 @@ LUMATV_TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tool
 FIRST_SESSION_MINUTES = 12
 LATER_SESSION_MINUTES = 6
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
-CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "keys", "ime", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
+CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "keys", "ime", "shell", "frames", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
+# The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client.
+FRAMES_SURFACES = "home-dpad,quick,picker,toast"
+FRAMES_SESSION_MINUTES = 20
+PERF_GATE = os.path.join(here, "..", "..", "docs", "research", "perf", "gate.py")
 
 def pty(cmd, timeout=600):
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -101,6 +105,39 @@ def volume_check():
     detail = "receiver volume_level before %s after Volume+ %s after Volume- %s" % (before, up, back)
     ok = None not in (before, up, back) and up > before and abs(back - before) < 1e-6
     return "GATE volume: %s %s" % ("PASS" if ok else "FAIL", detail)
+
+def frames_check(cycles):
+    """The surface frame gate (`docs/research/perf/gate.py`) over LumaTV's own surfaces under its compositor: Home's D-pad, the quick
+    panel and the input picker (the gear and Input through the shell client) and a toast. Its verdict line, with each surface's
+    failed checks, becomes `GATE frames:`."""
+    out_json = "/tmp/lumatv-tv-out/frames.json"
+    os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
+    cmd = [sys.executable, PERF_GATE, "--surfaces", FRAMES_SURFACES, "--input-key", "241", "--cycles", str(cycles), "--json", out_json, "--tag", "c4shell"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
+        out = r.stdout + r.stderr
+    except subprocess.TimeoutExpired:
+        return "GATE frames: FAIL the surface gate did not finish in 25 minutes"
+    print(out[-4000:])
+    verdict = "FAIL"
+    for l in out.splitlines():
+        if l.startswith("VERDICT "):
+            verdict = l.split()[1]
+    detail = ""
+    try:
+        with open(out_json) as f:
+            doc = json.load(f)
+        parts = []
+        for res in doc.get("surfaces", []):
+            checks = res.get("checks") or []
+            failed = ["%s=%s" % (c["name"], c.get("value")) for c in checks if not c.get("ok")]
+            key = [c for c in checks if c["name"] in ("p90_render_ms", "first_frame_ms", "burst_end_ms")]
+            numbers = " ".join("%s %s" % (c["name"].replace("_ms", ""), c.get("value")) for c in key)
+            parts.append("%s %s%s%s" % (res.get("name"), "ok" if not failed else "NOT", (" " + ",".join(failed)) if failed else "", (" [" + numbers + "]") if numbers else ""))
+        detail = "; ".join(parts)
+    except (OSError, ValueError, AttributeError):
+        detail = "no frames.json"
+    return "GATE frames: %s %s (surfaces %s, %d cycles; %s)" % (verdict, detail, FRAMES_SURFACES, cycles, out_json)
 
 def wait_ssh(seconds):
     t0 = time.time()
@@ -202,6 +239,7 @@ def main():
     ap.add_argument("--only", default="")
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--enable-after", action="store_true")
+    ap.add_argument("--frames-cycles", type=int, default=3, help="open/close cycles of the surface frame gate's soak (default 3)")
     a = ap.parse_args()
     skip = set(a.skip.split(",")) - {""}
     only = set(a.only.split(",")) - {""}
@@ -263,7 +301,14 @@ def main():
             avr_mute(True)   # an app a key opened may have made a sound
         if "ime" not in skip:
             step("ime", "sh /tmp/lumatv/gate.sh ime", 180)
+        if "shell" not in skip:
+            step("shell", "sh /tmp/lumatv/gate.sh shell", 400)
+            avr_mute(True)   # the volume key of the check moved the receiver's mute
         step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
+        if "frames" not in skip:
+            # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
+            session(FRAMES_SESSION_MINUTES, "frames")
+            lines.append(frames_check(a.frames_cycles))
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
             time.sleep(25)
