@@ -31,10 +31,12 @@ guide are LG's and stay as they are (docs/research/lg-restyles-result.md). What 
     of the pill; the prompts are a sheet with rows for buttons.
   * The shared style (info banner colours, chips, the clock, the option bar) moves with all of them. Type-dependent geometry
     (the strip's height, the INFO cards') is derived from the font sizes, so a larger type never makes words meet.
-  * The patched banner files read their own measures, inks and type from `Components/LumaStyle.qml` (a new file, one instance a file),
-    not from `styleSheet.banner`: LG restores each input app from a CRIU dump, and that process holds the stock sheet in memory
-    while it reads a banner file from the overlay on its first draw. Whatever only the patched sheet has is undefined there (round 17:
-    a pill 0 high, its words bare at the left edge). The sheet keeps its edits for LG's own files that read it.
+  * Every file that reads something the patch sets (the patched banner files and the clock, the progress bars, the channel INFO card's
+    lines, the fonts...) reads it from `Components/LumaStyle.qml` (a new file, one instance a file), not from `styleSheet.banner`: LG
+    restores each input app from a CRIU dump, and that process holds the stock sheet in memory while it reads a banner file from the
+    overlay on its first draw. Whatever only the patched sheet has is undefined there (round 17: a pill 0 high, its words bare at the
+    left edge) and whatever it changes is LG's (round 18: the INFO cards in LG's grey). The sheet keeps its edits for LG's own files
+    that read it.
 
 Every edit is anchored to an exact fragment of LG's source and must find it exactly as many times as it expects: a
 missing or doubled anchor is fatal, because a half-patched banner is worse than an unpatched one, and a firmware update
@@ -85,23 +87,36 @@ SIMPLE_MIN_WIDTH = 320
 DINGBAT_BOTTOM = 32
 
 # What the patched banner files read from `lumaStyle` in place of `styleSheet.banner`. LG restores each input app from a CRIU dump: that
-# process holds the stock sheet in memory and reads a banner file from the overlay on its first draw, so a patched file must not
-# depend on anything the patched sheet adds or changes (round 17: every such name was undefined, the pill 0 high at the edge).
-LUMA_NAMES = ("inputBannerHeight", "inputSideMargin", "inputSideInset", "inputInfoWidth", "inputInfoHeight", "inputFocusInset",
-              "inputBannerColor", "inputBannerEdge", "inputFocusColor", "inputFocusEdge", "inputKickerColor",
-              "lumaSheetRadius", "lumaRowRadius", "lumaSheetColor", "lumaRowColor", "lumaEdge", "lumaInk", "lumaInkDim",
-              "noSignalColor", "noSignalDimColor",
-              "inputSimpleMinWidth", "inputColor", "inputFocusedColor", "inputNameFont", "inputNameFont2", "inputLabelFont", "inputLabelFont2",
-              "inputDingbatBottomMargin")
-LUMA_REF = re.compile(r"styleSheet\.banner\.(%s)\b" % "|".join(LUMA_NAMES))
+# process holds the stock sheet in memory and reads a banner file from the overlay on its first draw, so a banner file must not depend
+# on anything the patched sheet adds or changes. Round 17: every added name was undefined, the pill 0 high at the edge. Round 18: every
+# changed one kept LG's value, so the INFO cards stayed LG's flat grey with its inks. LumaStyle therefore carries every property the
+# patch sets in the sheet's `banner` (taken from the same edit list, so the two cannot drift), every font that sheet builds (the patched sheet's
+# font functions give Manrope, LG's give its own face) and the chips' two style objects.
+BANNER_PROP = re.compile(r"property (\w+) (\w+): (.*)\Z", re.S)
+JS_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+SHEET_FONTS = ("lightFont", "regularFont", "semiBoldFont", "boldFont", "numberFont", "condRegularFont")   # Manrope in the patched sheet
+ICON_STYLES = ("bannerIcon", "bannerTextIcon")      # the chips' and the text badges' objects, edited by chip_edits
+# Read by LG's channel colour helpers off the object they are handed, which the patched files hand LumaStyle; LG's values, unchanged.
+CHANNEL_COLORS = ("invisibleChannelColor", "fineTunedChannelColor", "internetChannelColor")
+CHANNEL_UTIL = re.compile(r"(ChUtils\.getChannel(?:Name)?ColorObj)\(styleSheet\.banner,")
+STYLE_ALIAS = re.compile(r"^\s*property var (\w+): styleSheet\.banner\n", re.M)     # `bannerStyle`, in the files that keep one
 
 
-def luma_style(pal, fonts):
-    """`LumaStyle.qml`: the banners' measures, inks and type, constants baked from the palette. The four Manrope faces are loaded here
-    too (the stock sheet in a restored process has no loaders); the sizes come from the sheet's own font functions, which the
-    text-size passes scale."""
-    loaders = ", ".join('FontLoader { source: "file://%s/%s" }' % (fonts, f) for f in FACES)
-    props = (
+def banner_block(sheet):
+    """The text of the sheet's `banner` object (brace-balanced from its opening line)."""
+    start = sheet.index(STYLE)
+    depth = 0
+    for end in range(start + len(STYLE) - 1, len(sheet)):
+        depth += (sheet[end] == "{") - (sheet[end] == "}")
+        if not depth:
+            break
+    return sheet[start:end]
+
+
+def luma_props(pal, sheet):
+    """(type, name, expression) of every property LumaStyle holds. `sheet` is the patched style sheet's text: the banner's own names
+    (a carried expression that reads one the patch did not set reads it from the sheet), its fonts and the two chip objects come from it."""
+    props = [
         ("int", "inputBannerHeight", PILL_HEIGHT),
         ("int", "inputSideMargin", SIDE_MARGIN),
         ("int", "inputSideInset", INSET),
@@ -122,28 +137,61 @@ def luma_style(pal, fonts):
         ("string", "lumaInkDim", '"%s"' % pal["inkDim"]),
         ("string", "noSignalColor", '"%s"' % on_black(pal, NOSIGNAL_INK)),
         ("string", "noSignalDimColor", '"%s"' % on_black(pal, NOSIGNAL_DIM)),
-        ("int", "inputSimpleMinWidth", SIMPLE_MIN_WIDTH),
-        ("string", "inputColor", '"%s"' % pal["ink"]),
-        ("string", "inputFocusedColor", '"%s"' % pal["focusInk"]),
-        ("font", "inputNameFont", "manrope(styleSheet.%s)" % NAME_FONT),
-        ("font", "inputNameFont2", "manrope(styleSheet.%s)" % NAME_FONT2),
-        ("font", "inputLabelFont", "manrope(styleSheet.%s)" % LABEL_FONT),
-        ("font", "inputLabelFont2", "manrope(styleSheet.%s)" % LABEL_FONT2),
-        ("int", "inputDingbatBottomMargin", DINGBAT_BOTTOM),
-    )
-    assert sorted(n for _, n, _ in props) == sorted(LUMA_NAMES)
+    ]
+    edits = [BANNER_PROP.match(new).groups() for _, new in banner_edits(pal)]
+    block = banner_block(sheet)
+    # Every font the sheet builds with its font functions is Manrope in the patched sheet and LG's face in a restored process, edited or not.
+    edits += [m for m in re.findall(r"^\s*property (font) (\w+): ((?:%s)\(\d+\))\s*$" % "|".join(SHEET_FONTS), block, re.M)
+              if m[1] not in {name for _, name, _ in edits}]
+    stock = set(re.findall(r"property\s+[\w<>]+\s+(\w+)\s*:", block)) - {name for _, name, _ in edits}
+
+    def reads(expr):
+        # the sheet's own names the expression uses and the patch did not set stay the sheet's; words in strings are left alone
+        expr = expr.replace('Qt.resolvedUrl("./', 'Qt.resolvedUrl("../')       # LumaStyle sits in Components/, one below the sheet
+        parts = JS_STRING.split(expr)
+        parts = [re.sub(r"(?<![\w.])([A-Za-z_]\w*)", lambda m: "styleSheet.banner." + m[1] if m[1] in stock else m[1], p) for p in parts]
+        out = parts[0]
+        for lit, rest in zip(JS_STRING.findall(expr), parts[1:]):
+            out += lit + rest
+        return out
+    props += [(t, n, reads(e)) for t, n, e in edits]
+    props += [("var", n, "styleSheet.banner." + n) for n in CHANNEL_COLORS]
+    for n in ICON_STYLES:
+        m = re.search(r"property var %s: (\(\{.*?\}\))" % n, sheet, re.S)
+        if not m:
+            raise ValueError("GlobalStyle.qml: no %s object" % n)
+        props.append(("var", n, m.group(1)))
+    names = [n for _, n, _ in props]
+    assert len(names) == len(set(names)), "LumaStyle: a name twice"
+    return props
+
+
+def luma_style(props, fonts):
+    """`LumaStyle.qml`: the banners' measures, inks and type. The four Manrope faces are loaded here too (the stock sheet in a restored
+    process has no loaders); the sizes come from the sheet's own font functions, which the text-size passes scale. The sheet's font
+    functions are here under their names, in Manrope, so that an expression carried from the sheet reads as it does there."""
+    loaders = ", ".join('FontLoader { source: "file://%s/%s" }' % (fonts, f) for f in FACES)
+    funcs = "".join("    function %s(size) { return manrope(styleSheet.%s(size)) }\n" % (f, f) for f in SHEET_FONTS)
+    funcs += ("    function dingbatRegularFont(size) { return styleSheet.dingbatRegularFont(size) }\n"        # glyphs, not letters
+              "    function channelColorObj(color, focusedColor, opacity) { return styleSheet.channelColorObj(color, focusedColor, opacity) }\n")
     body = "".join("    property %s %s: %s\n" % p for p in props)
     return ("import QtQuick 2.12\n\n"
             "// Luma: the input banners' own style (tools/inputcommon_patch.py). Patched banner files read it as `lumaStyle`, not from the\n"
             "// style sheet: a process LG restored from a CRIU dump has the stock sheet in memory.\n"
             "QtObject {\n    property list<QtObject> faces: [%s]\n\n" % loaders +
-            "    function manrope(f) { return Qt.font({pixelSize: f.pixelSize, family: \"Manrope\", weight: f.weight}) }\n\n" + body + "}\n")
+            "    function manrope(f) { return Qt.font({pixelSize: f.pixelSize, family: \"Manrope\", weight: f.weight}) }\n" + funcs + "\n" + body + "}\n")
 
 
-def localize(text, rel):
-    """A patched banner file reads the style it needs from its own `lumaStyle` (see LUMA_NAMES); files that read none stay as they are."""
-    text, n = LUMA_REF.subn(r"lumaStyle.\1", text)
-    if not n:
+def localize(text, rel, props):
+    """A banner file reads what the patch sets from its own `lumaStyle` (see luma_props), through `styleSheet.banner.` or the alias a
+    file keeps for it, and hands LumaStyle to LG's channel colour helpers; files that read none of it stay as they are."""
+    names = "|".join(sorted((n for _, n, _ in props), key=len, reverse=True))
+    text, n = re.subn(r"styleSheet\.banner\.(%s)\b" % names, r"lumaStyle.\1", text)
+    text, k = CHANNEL_UTIL.subn(r"\1(lumaStyle,", text)
+    for alias in STYLE_ALIAS.findall(text):
+        text, j = re.subn(r"\b%s\.(%s)\b" % (alias, names), r"lumaStyle.\1", text)
+        n += j
+    if not n + k:
         return text
     depth = len(pathlib.PurePosixPath(rel).parts) - 1       # directories below the staged qml dir
     comp = "/".join([".."] * (depth - 1) + ["Components"])  # UserInterfaceLayer/ is the first of them
@@ -371,7 +419,7 @@ def patch_detail(text):
     text = sub(name, text, "        leftMargin: styleSheet.banner.infoBannerOutSideMargin\n", "        leftMargin: styleSheet.banner.inputSideInset\n")
     text = sub(name, text, "        radius: styleSheet.banner.infoBannerRadius\n        color: styleSheet.banner.infoBannerColor\n",
                "        radius: styleSheet.banner.infoBannerRadius\n        color: styleSheet.banner.infoBannerColor\n"
-               "        border.width: 1\n        border.color: styleSheet.banner.inputBannerEdge\n")
+               "        objectName: \"lumaCard\"\n        border.width: 1\n        border.color: styleSheet.banner.inputBannerEdge\n")
     text = sub(name, text, "styleSheet.banner.infoBannerInMargin", "styleSheet.banner.inputSideMargin", count=5)
     # The chips sit on the card's bottom edge, where LG's tall card had them near its lower third.
     text = sub(name, text, "            width: styleSheet.banner.infoBannerWidth\n            height: styleSheet.banner.infoBannerContentsHeight\n",
@@ -385,7 +433,7 @@ def patch_channeldetail(text):
     text = sub(name, text, "        leftMargin: styleSheet.banner.infoBannerOutSideMargin\n", "        leftMargin: styleSheet.banner.inputSideInset\n")
     return sub(name, text, "        radius: styleSheet.banner.infoBannerRadius\n        color: styleSheet.banner.infoBannerColor\n",
                "        radius: styleSheet.banner.infoBannerRadius\n        color: styleSheet.banner.infoBannerColor\n"
-               "        border.width: 1\n        border.color: styleSheet.banner.inputBannerEdge\n")
+               "        objectName: \"lumaCard\"\n        border.width: 1\n        border.color: styleSheet.banner.inputBannerEdge\n")
 
 
 def patch_optionbutton(text, pal):
@@ -571,16 +619,26 @@ def patch_tree(root, pal, fonts):
     if MARKER + ": patched" in text:
         raise ValueError("already patched: stage a fresh copy of LG's tree")
     # Everything is computed before anything is written: a late anchor failure leaves the tree as LG's.
-    out = {style: "// Luma: patched, see tools/inputcommon_patch.py\n" + patch_style(text, pal, fonts)}
+    sheet = patch_style(text, pal, fonts)
+    props = luma_props(pal, sheet)
+    out = {style: "// Luma: patched, see tools/inputcommon_patch.py\n" + sheet}
     for rel, fn in FILES:
         f = root / rel
         if not f.is_file():
             raise ValueError("%s: LG's tree has no such file" % rel)
-        out[f] = localize(fn(f.read_text(), pal), rel)
+        out[f] = localize(fn(f.read_text(), pal), rel, props)
     luma = root / LUMA_STYLE_FILE
     if luma.exists():
         raise ValueError("%s: LG's tree already has this file" % LUMA_STYLE_FILE)
-    out[luma] = luma_style(pal, fonts)
+    # Every other file that reads something the patch sets (the clock, the progress bars, the channel INFO card's lines...) reads it from
+    # LumaStyle too: in a restored process LG's own copy would still hold LG's value.
+    for f in sorted(root.rglob("*.qml")):
+        if f not in out:
+            rel = str(f.relative_to(root))
+            text = f.read_text()
+            if localize(text, rel, props) != text:
+                out[f] = localize(text, rel, props)
+    out[luma] = luma_style(props, fonts)
     for f, text in out.items():
         f.write_text(text)
     return sorted(str(f.relative_to(root)) for f in out)

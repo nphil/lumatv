@@ -37,7 +37,11 @@ TOUCHED = [STYLE, BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner
            BANNER + "ChannelBanner/ZappingBanner.qml", BANNER + "ChannelBanner/ChannelBanner.qml", BANNER + "ChannelBanner/DetailInfoBanner.qml",
            BANNER + "BannerItems/BannerEditItem.qml", BANNER + "BannerEditView.qml",
            "UserInterfaceLayer/Components/SimpleButton.qml", "UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml",
-           BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml"]
+           BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml",
+           # not edited for their looks: they only read, from LumaStyle, what the patch sets (the clock, the progress bars, the channel card's lines...)
+           BANNER + "BannerItems/BannerClock.qml", BANNER + "BannerItems/BannerListView.qml", BANNER + "BannerItems/BannerTextIcon.qml",
+           BANNER + "BannerItems/DetailInfoItem.qml", BANNER + "BannerItems/ProgressBar.qml", BANNER + "BannerItems/RecInfoIcon.qml",
+           BANNER + "ChannelBanner/MiniBanner.qml", BANNER + "InputBanner/MiniBanner.qml", BANNER + "DvrInfoView.qml", BANNER + "SimilarListView.qml"]
 
 # What LG's code does, as opposed to how it looks: handlers, keys, interface reads and calls, focus. A patch that is only
 # style leaves every such line exactly as it was.
@@ -287,6 +291,42 @@ class InputcommonPatch(unittest.TestCase):
             if "lumaStyle." in text:
                 self.assertIn("LumaStyle { id: lumaStyle }", text, rel)
 
+    def test_no_file_reads_from_the_style_sheet_a_value_the_patch_changed(self):
+        """Round 18 on the set: the INFO cards were LG's flat grey sheet with LG's inks, because the patched card read `infoBannerColor`,
+        `infoBannerRadius` and `infoBannerOpacity` from the sheet: LG's file has those names, so the check above passed, and a restored process
+        holds LG's values for them. A name the patch sets is read from LumaStyle by every file, whichever way it is spelled."""
+        self.run_tool()
+
+        def banner_block(text):
+            return text[text.index("property var banner: QtObject {"):text.index("    property var dvr: ({")]
+
+        def props(text):
+            return dict(re.findall(r"^\s*property\s+[\w<>]+\s+(\w+)\s*:\s*(.*)$", banner_block(text), re.M))
+        def block(text, name):
+            return re.search(r"property var %s: \(\{.*?\}\)" % name, text, re.S).group(0)
+        stock, patched = props(self.stock(STYLE)), props(self.read(STYLE))
+        changed = {n for n in patched if stock.get(n) != patched[n]}
+        # a font built by the sheet's font functions has the same line in both sheets and another face in them
+        changed |= {n for n, e in patched.items() if re.match(r"(light|regular|semiBold|bold|number|condRegular)Font\(\d+\)$", e.strip())}
+        changed |= {n for n in ("bannerIcon", "bannerTextIcon") if block(self.stock(STYLE), n) != block(self.read(STYLE), n)}
+        changed = sorted(changed)
+        self.assertGreater(len(changed), 40, "the test's own list of what the patch changes")
+        for needed in ("infoBannerColor", "infoBannerRadius", "infoBannerOpacity", "clockTextColor", "infoDescColor", "infoDescFont", "bannerIcon", "bannerTextIcon"):
+            self.assertIn(needed, changed)
+        names = "|".join(changed)
+        own = set(re.findall(r"property\s+\w+\s+(\w+)\s*:", self.read(LUMA)))
+        self.assertEqual(sorted(set(changed) - own), [], "LumaStyle does not carry what the patch changed")
+        for base, _, files in os.walk(self.dir):
+            for f in files:
+                rel = os.path.relpath(os.path.join(base, f), self.dir)
+                if not f.endswith(".qml") or rel in (STYLE, LUMA):
+                    continue
+                text = self.read(rel)
+                self.assertIsNone(re.search(r"styleSheet\.banner\.(%s)\b" % names, text), rel)
+                self.assertIsNone(re.search(r"ChUtils\.getChannel(Name)?ColorObj\(styleSheet\.banner,", text), rel)
+                for alias in re.findall(r"property var (\w+): styleSheet\.banner\n", text):
+                    self.assertIsNone(re.search(r"\b%s\.(%s)\b" % (alias, names), text), "%s reads `%s.` a value the patch changed" % (rel, alias))
+
     def test_the_no_signal_words_read_on_black_in_both_materials(self):
         """4.5:1 for the line and its dimmer partner, composited on black (the panel's dark; the burn-in guard is why they are not brighter)."""
         for light in (False, True):
@@ -309,6 +349,12 @@ class InputcommonPatch(unittest.TestCase):
 class PatchedBannersInTheHost(unittest.TestCase):
     """LG's own banner components behind stand-ins for what is native, in Qt 5.15 on software GL: the patched banners must
     load, warn of nothing, take the keys as LG's do and call what LG's call."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
 
     def run_host(self, *args, patched=True):
         r = subprocess.run([sys.executable, HOST] + (["--patched"] if patched else []) + list(args), env=dict(os.environ, DISPLAY=DISPLAY),
@@ -358,6 +404,57 @@ class PatchedBannersInTheHost(unittest.TestCase):
         self.assertGreater(int(self.probe(out, "lumaPill", "height")), 0)
         self.assertGreater(int(self.probe(out, "lumaPill", "width")), 0)
         self.assertGreater(float(self.probe(out, "lumaPill", "color.a")), 0.5)
+
+    CARD_PROBES = ("lumaCard:color.r", "lumaCard:color.g", "lumaCard:color.b", "lumaCard:color.a", "lumaCard:radius", "lumaCard:opacity",
+                   "lumaCard:border.color.a", "time:color.r", "time:color.g", "time:color.b", "time:color.a", "time:font.family", "time:font.pixelSize",
+                   "resolution:iconColor", "ratio:iconColor")
+    CHANNEL_CARD_PROBES = ("eventDescription:color.r", "eventDescription:color.a", "eventDescription:font.family", "zappingBanner:height",
+                           "channelDetailInfoBanner:height")
+
+    def fresh(self, scene, *probes, wait="900"):
+        args = ["--scene", scene, "--wait", wait]
+        for p in probes:
+            args += ["--probe", "700:" + p]
+        return self.run_host(*args)
+
+    def test_the_info_cards_wear_the_glass_and_the_ink_when_the_style_sheet_is_LGs_own(self):
+        """Round 18 on the set (9efedab): the INFO card on HDMI 2 and on Live TV was a flat grey sheet in LG's colours with no hairline. LG's
+        process holds LG's sheet, and the card read its colour, radius and opacity, the clock's ink and the chips' colours from it."""
+        pal = palette()
+        r, g, b, a = (int(pal["sheetBottom"][i:i + 2], 16) / 255 for i in (3, 5, 7, 1))
+        for scene, probes in (("detail", self.CARD_PROBES), ("channel-detail", self.CARD_PROBES + self.CHANNEL_CARD_PROBES)):
+            rc, out = self.run_host("--scene", scene, "--stale-sheet", "--wait", "900", *sum((["--probe", "700:" + p] for p in probes), []))
+            self.assertEqual(rc, 0, "%s: a banner file warned with LG's sheet in memory: %s" % (scene, out[-1500:]))
+            for name, want in (("color.r", r), ("color.g", g), ("color.b", b), ("color.a", a)):
+                self.assertAlmostEqual(float(self.probe(out, "lumaCard", name)), want, delta=0.01, msg="%s card %s" % (scene, name))
+            self.assertEqual(int(self.probe(out, "lumaCard", "radius")), pal["radius"], scene)
+            self.assertEqual(float(self.probe(out, "lumaCard", "opacity")), 1.0, scene)
+            self.assertGreater(float(self.probe(out, "lumaCard", "border.color.a")), 0.05, "%s: the hairline" % scene)
+            self.assertEqual(self.probe(out, "time", "font.family"), "Manrope", scene)
+            # the clock's ink is the palette's, not LG's #E6E6E6
+            self.assertAlmostEqual(float(self.probe(out, "time", "color.r")), int(pal["ink"][3:5], 16) / 255, delta=0.01, msg=scene)
+            # and every value read is the one a process with the patched sheet reads
+            fresh = self.fresh(scene, *probes)[1]
+            for p in probes:
+                name, prop = p.split(":", 1)
+                self.assertEqual(self.probe(out, name, prop), self.probe(fresh, name, prop), "%s: %s with LG's sheet and with the patched one" % (scene, p))
+
+    def test_every_scene_reads_the_same_with_LGs_sheet_in_memory_as_with_the_patched_one(self):
+        """The banners' own stale-sheet check, over every scene of the input app but the prompts: pixels, bar the antialiasing of a second render."""
+        try:
+            from PIL import Image, ImageChops
+        except ImportError:
+            self.skipTest("needs Pillow")
+        for scene in ("pill", "focused-pill", "ok", "detail", "update", "channel", "channel-ok", "channel-detail", "banner-edit"):
+            shots = []
+            for stale in (False, True):
+                path = os.path.join(self.tmp.name, "%s-%s.png" % (scene, stale))
+                args = ["--scene", scene, "--wait", "900", "--shot", "900:" + path] + (["--stale-sheet"] if stale else [])
+                rc, out = self.run_host(*args)
+                self.assertEqual(rc, 0, "%s stale=%s: %s" % (scene, stale, out[-1200:]))
+                shots.append(Image.open(path).convert("L"))
+            diff = ImageChops.difference(*shots)
+            self.assertLess(max(diff.tobytes()), 24, "%s: LG's sheet in memory draws it differently (%s)" % (scene, diff.getbbox()))
 
     def test_the_pill_is_88_high_where_LGs_is_156(self):
         for patched, height in ((False, "156"), (True, "88")):
