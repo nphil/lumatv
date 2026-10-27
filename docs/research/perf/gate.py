@@ -208,10 +208,11 @@ LOG_FAIL_PATTERNS = [
 # response callback throws when the foreground-app array changes (surfaces-p1-result.md); Netflix
 # reports the instance the `-netflix` setup closed (closeByAppId) as a crash report of a user kill;
 # LG's toast model reads `userData.id` of the audio service's "Dolby Vision / Dolby Atmos" toast,
-# which has none, 20-30 ms after it is shown at the film's start (round 12, all three setups).
+# which has none, 20-30 ms after it is shown at the film's start (round 12, all three setups); the
+# same line also reports it as a bare "Type error" (round 16, both film surfaces).
 LOG_IGNORE_PATTERNS = [r'Controllers/ScreenOffInterfaces/Interfaces\.qml:52',
                        r'\[CrashReporter\] Previous CrashReport.*REASON_USER_KILL',
-                       r"SystemUI/Notification/Services\.qml:513: TypeError: Cannot read property 'id' of undefined"]
+                       r"SystemUI/Notification/Services\.qml:513: TypeError: (Cannot read property 'id' of undefined|Type error)$"]
 LOG_FAIL_RE = re.compile('|'.join(LOG_FAIL_PATTERNS))
 LOG_IGNORE_RE = re.compile('|'.join(LOG_IGNORE_PATTERNS))
 LOG_FILE = '/var/log/messages'
@@ -695,6 +696,12 @@ class Rig:
         except ValueError:
             return None
 
+    def wake(self):
+        """Home's screensaver and idle dim take the first key, which wakes them and does nothing else: the first gear tap of a run after
+        5 minutes of quiet opened no panel (round 16). One Back, eaten by the saver or harmless on a Home with nothing open, first."""
+        self.sh(f'python3 {KB} BACK')
+        time.sleep(2)
+
     def capture(self, name, mode):
         self.set.capture(name, mode)
         time.sleep(1)
@@ -884,6 +891,7 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None):
     age = rig.compositor_age_s()
     if age is not None and age < COMPOSITOR_SETTLE_S:
         time.sleep(COMPOSITOR_SETTLE_S - age)
+    rig.wake()
     original = rig.motion_enabled()       # None: the file says nothing, the shipped default (on) applies
     now = original is not False
     try:

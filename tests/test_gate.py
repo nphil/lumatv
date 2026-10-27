@@ -266,7 +266,9 @@ class Log(unittest.TestCase):
         toast = ("surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Cannot read property "
                  "'id' of undefined")
         ours = "surface-manager LSM {} file:///x/panels/QuickPanel.qml:513: TypeError: Cannot read property 'id' of undefined"
-        self.assertEqual(gate.log_failures([toast, ours]), ([ours], 1))
+        bare = "surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: Type error"
+        other = "surface-manager LSM {} file:///usr/lib/qt5/qml/SystemUI/Notification/Services.qml:513: TypeError: x is not a function"
+        self.assertEqual(gate.log_failures([toast, bare, other, ours]), ([other, ours], 2))
 
 
 class Windows(unittest.TestCase):
@@ -434,10 +436,13 @@ class Edges(unittest.TestCase):
 
     class FakeRig:
         def __init__(self, motion, age=None):
-            self.motion, self.calls, self.age = motion, [], age
+            self.motion, self.calls, self.age, self.woken = motion, [], age, False
 
         def compositor_age_s(self):
             return self.age
+
+        def wake(self):
+            self.woken = True
 
         def push_tools(self):
             pass
@@ -491,9 +496,11 @@ class Edges(unittest.TestCase):
         gate.run_surface = lambda rig_, s, tag, soak, log: {'name': s['name'], 'checks': [], 'log_lines': []}
         try:
             for age, slept in ((30.0, [60.0]), (200.0, []), (None, [])):
+                rig = self.FakeRig(False, age)
                 with patch.object(gate.time, 'sleep') as sleep:
-                    gate.run_gate(self.FakeRig(False, age), gate.find(['home-idle']), 3, 't', log=object())
+                    gate.run_gate(rig, gate.find(['home-idle']), 3, 't', log=object())
                 self.assertEqual([c.args[0] for c in sleep.call_args_list], slept, age)
+                self.assertTrue(rig.woken, "Home's saver was not woken before the first surface")
         finally:
             gate.run_surface = orig
 
