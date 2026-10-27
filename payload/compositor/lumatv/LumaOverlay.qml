@@ -127,6 +127,7 @@ Item {
         shown: ov.warm
     }
     Binding { target: osdRes.item; property: "overVideo"; value: ov.appFront; when: !!osdRes.item }
+    Binding { target: osdRes.item; property: "still"; value: ov.surface === "quick" || ov.surface === "picker" || ov.panelLeaving; when: !!osdRes.item }
     Connections {
         target: bannerRes.item
         ignoreUnknownSignals: true

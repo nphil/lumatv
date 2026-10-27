@@ -35,6 +35,10 @@ Item {
     anchors.fill: parent
     property bool enabledHere: true
     property bool overVideo: false
+    // the host has a panel up or on its way: the mute mark holds still where it is (its hop is a fade out and in, frames of their own that
+    // chained onto the panel's slide; round 16 over HDMI 3 and the film: picker bursts of 292 and 318 ms against 141)
+    property bool still: false
+    onStillChanged: if (still && hopping.running) { hopping.stop(); mark.opacity = 1 }
     property int holdMs: 2500
     property int staleMs: 6000
     property int decideMs: 250                    // how long a key waits for a receiver that may answer before the TV's own volume is shown
@@ -298,6 +302,6 @@ Item {
                 NumberAnimation { target: mark; property: "opacity"; to: 1; duration: Lu.reduced ? 0 : Lu.restMs }
             }
         }
-        Timer { interval: osd.hopMs; repeat: true; running: osd.markUp; onTriggered: hopping.restart() }
+        Timer { interval: osd.hopMs; repeat: true; running: osd.markUp && !osd.still; onTriggered: hopping.restart() }
     }
 }

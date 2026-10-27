@@ -254,6 +254,19 @@ class VolumeOsd(HostCase):
         self.assertEqual(got["back"].split("|")[0], "true", "the receiver's unmute shows the pane again")
         self.assertEqual(got["after"], "false|false|receiver|46|false|false", "unmuted: nothing stays")
 
+    def test_the_mark_holds_still_while_a_panel_is_up_and_moves_on_after(self):
+        # its hop is a fade out and in, frames that chained onto a panel's slide over the film (round 16: picker bursts of 292 and 318 ms)
+        steps = [(300, do("o.holdMs = 1500; o.hopMs = 1500; o.staleMs = 60000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),
+                 (B + 2000, rx(dict(RX, mute=True)), "mute"), (B + 4000, do("o.still = true"), "still")]
+        steps += [(B + 4100 + i * 1000, on_osd("[o.markPlace, o.markUp].join('|')"), "held%d" % i) for i in range(4)]
+        steps += [(B + 8000, do("o.still = false"), "free")]
+        steps += [(B + 8100 + i * 1000, on_osd("o.markPlace"), "after%d" % i) for i in range(4)]
+        got, _ = self.run_osd(steps, B + 12500)
+        held = [got["held%d" % i] for i in range(4)]
+        self.assertEqual(len(set(held)), 1, "the mark hopped while a panel was up: %s" % held)
+        self.assertTrue(held[0].endswith("|true"), held)
+        self.assertGreaterEqual(len({got["after%d" % i] for i in range(4)}), 2, "the mark stopped hopping for good")
+
     def test_over_home_the_mark_hops_along_the_status_bars_row_between_its_groups(self):
         # Home's corners are widgets (the clock top left, the weather top right) and the saver's clock roams the safe area: only the top edge is free
         steps = [(300, do("o.holdMs = 1500; o.hopMs = 1500; o.staleMs = 60000"), "hold"), (B, sound_out(), "out"), (B + 200, rx(RX), "rx"),

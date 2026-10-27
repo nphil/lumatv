@@ -59,5 +59,7 @@ QtObject {
 
     property NumberAnimation anim: NumberAnimation { target: motion; property: "progress" }
     property Timer linger: Timer { interval: motion.lingerMs; onTriggered: motion.held = false }
-    property Timer nudger: Timer { interval: 30; onTriggered: motion.nudge = true }
+    // One frame after the join: the gear's tap can be 50 ms long, and a nudge at 30 ms put its frame after the release, ahead of the
+    // opening's first frame by 33 ms (round 16, the gate's first opening: an interval over 20 ms in the burst)
+    property Timer nudger: Timer { interval: 16; onTriggered: motion.nudge = true }
 }
