@@ -18,7 +18,7 @@ live with the owner.
 - Helpers: at most 10 at once including nested ones; briefs forbid spawning. One
   TV owner at a time, deploying from a clean worktree; the compile gate
   (`tests/qmlhost/compile_all.py`) runs before every package or hand deploy.
-- On the set at 01:18 EDT (10-27): package of d4bc151, LG's compositor, Home stub on,
+- On the set at 10:54 EDT (10-27): package of fa15cbf, LG's compositor, Home stub on,
   `vt_devmode` on, Nitin watching Netflix. Keyboard keys restyle on, Search and Live TV
   restyles off, LumaTV's saver owns the idle state on Home, GFN app installed (signed
   out). Volume bar shows whole numbers and the format logos.

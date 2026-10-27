@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Input banners: the patched banner files read their own style, so the pill draws its glass
+  in an input process LG restored with its stock style sheet.
 - Settings: Bluetooth Speakers gains Sound Balance for two matching connected speakers and a
   Position row on each connected speaker's page (Left/Right or Front/Rear, as LG offers;
   asks before Left and Right swap). Every LG setting now has a LumaTV page or row.
