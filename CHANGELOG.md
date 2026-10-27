@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Settings: Bluetooth Speakers gains Sound Balance for two matching connected speakers and a
+  Position row on each connected speaker's page (Left/Right or Front/Rear, as LG offers;
+  asks before Left and Right swap). Every LG setting now has a LumaTV page or row.
 - Light sync over Zigbee2MQTT: nothing is sent while Zigbee2MQTT updates a device over the
   air (and for 30 s after); a running stream ends and the lights go back as they were, then
   it resumes by itself. Late answers from the Zigbee network halve the rate (20, 10, 5 fps),
