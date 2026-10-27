@@ -400,9 +400,21 @@ LG's compositor, Home in front, receiver muted, `--input-key 241 --tag r17` (`/t
 
 The late frame per opening over Home is gone for the quick panel (0 intervals over 20 ms in all six windows, worst 16.7 ms). The picker over Home and the quick panel over Netflix show a 20.8-20.9 ms interval on every animated frame of the burst (picker 41, quick-netflix 43 intervals over 20 ms): a uniform cadence, not a stall; the vblank count of those windows is 144-157 against 180-198 in the windows that ran at 16.7 ms [INFERENCE: the panel refreshed at a lower rate during them, not read from the display]. Render cost is low everywhere (p90 under 2.2 ms); `burst_app_jobs` 0 and no log errors. The two RSS failures are the quick panel's pages 64558 to 65007 and 66960 to 67361.
 
-### Round 18 (2026-10-27): not run
+### Round 18 (2026-10-27 15:39-15:51 EDT, 9efedab on the set)
 
-Not run: the owner was using the TV. The next run is `python3 docs/research/perf/gate.py --surfaces quick,picker,quick-netflix,picker-netflix --input-key 241 --tag r18 --json /tmp/r18.json` on the ipk of `fa15cbf`, with `osd_irq` sampled every 0.2 s on the set beside it (round 17's 20.9 ms cadence against the Home rate, "Home refresh rate read" in `framerate-result.md`: 119.9 Hz on Home at rest).
+LG's compositor, Home in front, receiver muted, `--input-key 241`. Two runs: `--tag r18` (`round9/r18-2026-10-27/r18.json`; the `osd_irq` sampler died at the start of that run) and `--tag r18b` (`r18b.json`, `osd_irq-r18b.txt`: `/proc/interrupts` every 0.2 s on the set for the whole run). Verdict FAIL both times. The gate keeps only intervals over 20 ms, so a worst interval under 20 ms is shown as "≤ 20".
+
+| Surface | First frame | Burst end | Worst interval in burst | Intervals > 20 ms | p90 render | RSS over 8 cycles |
+|---|---|---|---|---|---|---|
+| quick over Home | 35.7 / 29.9 ms | 151.0 / **340.9 ms ✗** | ≤ 20 / **33.4 ms** | 0 / **3** | 2.49 / 2.57 ms | -1.09 / -0.09 MB |
+| picker over Home | 38.6 / 25.9 ms | 155.2 / 142.6 ms | ≤ 20 / ≤ 20 | 0 / 0 | **3.04 ✗** / 2.56 ms | +0.09 / +0.11 MB |
+| quick over Netflix | 23.9 / 22.7 ms | 157.5 / 156.9 ms | ≤ 20 / ≤ 20 | 0 / 0 | 1.79 / 1.76 ms | -5.67 / -1.17 MB |
+| picker over Netflix | 23.0 / 24.7 ms | 156.4 / 158.1 ms | ≤ 20 / ≤ 20 | 0 / 0 | 2.41 / 2.04 ms | -0.88 / +0.08 MB |
+
+(r18 / r18b.) The two failures are different surfaces in the two runs and each is one reading: r18's picker p90 3.04 ms against the 3.0 bar (36 frames; r18b 2.56 ms); r18b's quick panel in 3 of 6 windows: 33.4 ms intervals (2 vblanks) at 14 ms and 141 ms into the opening (`ss.apiadapter-2549`, LG's, ran 5-7 ms on CPU 0 in those windows) and one in a closing; one opening's burst ran to 340.9 ms through a 66.7 ms gap. Round 17's two failures are gone: the quick panel's RSS does not grow (r17 +1.75 MB, now -1.09 and -0.09) and neither does quick-netflix's (r17 +1.57, now -5.67 and -1.17); the picker over Home and quick over Netflix have no 20.8-20.9 ms cadence (no interval over 20 ms in 12 windows each over the two runs, r17: 41 and 43).
+
+**Refresh rate.** Home at rest read 119.8 Hz (3 s, just after the wake, Netflix still in front), 119.9 Hz after Netflix was closed and Home brought front, 119.9 Hz after the runs and 120.0 Hz at the end of the session. During r18b the 1 s windows of the 350.7 s sampler run were 118.5-120.6 Hz, the 0.2 s steps 114.4-125.0 Hz, none below 100; the vblanks per gate window were 119.3-120.5 Hz in r18b and 119.5-120.4 Hz in r18. So the refresh rate did not leave 120 Hz during either gate run, and round 17's 20.9 ms cadence and the 95.9 Hz reads did not recur; what moved the panel then is not identified (not reproduced; the helper's `frame rate:` log lines were not read).
+
 
 ## Under LumaTV's own compositor
 

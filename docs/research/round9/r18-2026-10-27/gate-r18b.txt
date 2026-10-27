@@ -1,0 +1,41 @@
+PASS  quick           windows                6/6  (== 6)
+PASS  quick           first_frame_ms       29.92  (<= 50)
+FAIL  quick           burst_end_ms        340.85  (<= 180)
+PASS  quick           p90_render_ms         2.57  (< 3)  45 frames
+PASS  quick           p90_window_ms         2.93  (< 4)  worst single window
+PASS  quick           dropped_share         0.00  (<= 0.17)  0 of 58 animated frames, LG's compositor floor
+FAIL  quick           burst_over20             3  (<= 0)
+PASS  quick           rss_growth_mb        -0.09  (<= 1.08)  63474 -> 63451 pages over 8 cycles
+PASS  quick           log_errors               0  (== 0)
+PASS  quick           compositor_pid        5905  (== 5905)
+PASS  picker          windows                6/6  (== 6)
+PASS  picker          first_frame_ms       25.86  (<= 50)
+PASS  picker          burst_end_ms        142.63  (<= 180)
+PASS  picker          p90_render_ms         2.56  (< 3)  39 frames
+PASS  picker          p90_window_ms         2.24  (< 4)  worst single window
+PASS  picker          dropped_share         0.00  (<= 0.17)  0 of 57 animated frames, LG's compositor floor
+PASS  picker          burst_over20             0  (<= 0)
+PASS  picker          rss_growth_mb         0.11  (<= 1.08)  63520 -> 63549 pages over 8 cycles
+PASS  picker          log_errors               0  (== 0)
+PASS  picker          compositor_pid        5905  (== 5905)
+PASS  quick-netflix   windows                6/6  (== 6)
+PASS  quick-netflix   first_frame_ms       22.71  (<= 50)
+PASS  quick-netflix   burst_end_ms        156.85  (<= 180)
+PASS  quick-netflix   p90_render_ms         1.76  (< 3)  28 frames
+PASS  quick-netflix   p90_window_ms         1.85  (< 4)  worst single window
+PASS  quick-netflix   dropped_share         0.00  (<= 0.17)  0 of 33 animated frames, LG's compositor floor
+PASS  quick-netflix   burst_over20             0  (<= 0)
+PASS  quick-netflix   rss_growth_mb        -1.17  (<= 1.08)  63482 -> 63182 pages over 8 cycles
+PASS  quick-netflix   log_errors               0  (== 0)  2 known stock lines ignored
+PASS  quick-netflix   compositor_pid        5905  (== 5905)
+PASS  picker-netflix  windows                6/6  (== 6)
+PASS  picker-netflix  first_frame_ms       24.66  (<= 50)
+PASS  picker-netflix  burst_end_ms        158.14  (<= 180)
+PASS  picker-netflix  p90_render_ms         2.04  (< 3)  30 frames
+PASS  picker-netflix  p90_window_ms         2.04  (< 4)  worst single window
+PASS  picker-netflix  dropped_share         0.00  (<= 0.17)  0 of 36 animated frames, LG's compositor floor
+PASS  picker-netflix  burst_over20             0  (<= 0)
+PASS  picker-netflix  rss_growth_mb         0.08  (<= 1.08)  61425 -> 61446 pages over 8 cycles
+PASS  picker-netflix  log_errors               0  (== 0)  1 known stock lines ignored
+PASS  picker-netflix  compositor_pid        5905  (== 5905)
+VERDICT FAIL

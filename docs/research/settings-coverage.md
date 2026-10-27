@@ -20,7 +20,26 @@ Next: deploy the package (the one on the set, 3c8857a, is older than the fixes a
 
 Look-only walk (2026-10-26 20:48): not run. The slot was stopped at the owner's request before it started; Fine Tune, White Balance, HDMI Signalling, the Support tabs, Safety, Privacy and Just Scan with an HDMI input in front are still not looked at, and no page has image paths yet.
 
-Look-only walk (2026-10-27): not run, the owner was using the TV; no page looked at and no image paths yet.
+Look-only walk (2026-10-27 15:55-16:04 EDT, `9efedab` on the set, LG's compositor): images in `docs/research/settings-ux/tv-walk-2026-10-27/` (960x540). Keys were D-pad, OK on navigation rows only; no value was changed (picture mode `filmMaker` before, after the Picture pages and at the end; the Motion Eye Care and AI access segments' underlines unchanged after the focus passed over them). Looked at each image for overlap, cut text, wrong values and empty pages:
+
+| Page | Image | Result |
+|---|---|---|
+| Picture > Mode (no input open: Just Scan, Aspect ratio read "No input open", Minimum Brightness "Energy saving is not Auto") | `picture-mode.png` | OK |
+| Picture > Brightness (Video Range dimmed "Not available now") | `picture-brightness.png`, `picture-brightness-eye-care-after.png` | OK |
+| Picture > Colour (Fine Tune and White Balance rows with chevrons) | `picture-colour.png` | OK; INFO: the tab and rows say "Colour", Color Temperature, Color Gamut and Color Adjustment keep LG's "Color" |
+| Picture > Clarity, Motion, Expert | `picture-clarity.png`, `picture-motion.png`, `picture-expert.png` | OK |
+| Picture > Fine Tune | `picture-fine-tune.png` | OK; INFO: the four rows each repeat the second line "Set Color Adjustment to User" |
+| Picture > White Balance | `picture-white-balance.png` | OK |
+| Picture > Expert > HDMI Signalling | `picture-hdmi-signalling.png` | OK (no input: every row "Not available now" with its AUTO or V2 value) |
+| System > General, Safety | `system-safety.png` | OK (state only; Lock System, TV Program Locks, Movie Lock, Input Locks Off) |
+| System > About, Support > TV info, Update, Privacy, Tools | `system-about.png`, `support-tv-info.png`, `support-update.png`, `support-privacy.png`, `support-tools.png` | OK; the TV info list is longer than the pane and shows a scroll mark, not scrolled; App Permissions and Delete My Personal Information are rows on Privacy (their own pages not opened) |
+| Sound > Output | `sound-output.png` | OK (Receiver volume 53, Sound mode "Standard" dimmed "Not used with the receiver") |
+| Inputs & devices > Inputs | `inputs-and-devices.png` | OK |
+| Home & look > Look, Standby (the page with the segmented controls) | `home-look-look.png`, `home-look-standby.png` | OK |
+| Remote & pointer > Pointer | `remote-pointer.png` | OK |
+| AI access | `ai-access.png` | OK |
+
+No defect found on the pages looked at. **Not looked at:** Just Scan with an HDMI input in front, Sound > Output > Bluetooth Speakers (Devices tab), App Permissions and Delete My Personal Information, Support > Reset, a Home Assistant page, Network, Ambient light. A mistyped key sequence once took the focus to the rail's "More in LG settings" row and launched LG's Settings app (`com.palm.app.settings`, pid 9599); it was closed through SAM within a minute and nothing in it was pressed.
 
 ## Sources
 

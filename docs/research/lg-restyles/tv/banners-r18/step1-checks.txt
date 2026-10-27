@@ -1,0 +1,19 @@
+id":"6342
+id":"com.webos.app.home
+id":"6342
+guard failed=6 librdx=0 aud_reset=0
+/mnt/lg/cmn_data/checkpoint/:
+total 12
+drwxr-xr-x    3 root     root          4096 Sep 14 18:26 .
+drwxrwxrwx   78 root     root          4096 Oct 27 10:45 ..
+drwxr-xr-x    2 root     root          4096 Oct 26 04:04 com.webos.app.inputcommon
+
+/tmp/checkpoint:
+total 8
+drwxr-xr-x    4 root     root           120 Oct 27 15:52 .
+drwxrwxrwt   41 root     root          3040 Oct 27 15:52 ..
+drwxr--r--    2 root     root           580 Oct 27 07:42 .lumatv-aside.com.webos.app.inputcommon
+drwxr-xr-x    2 root     root            40 Dec 31  2022 error
+-rw-r--r--    1 root     root             2 Oct 27 07:42 hash_check_com.webos.app.inputcommon
+-rw-r--r--    1 root     root             5 Dec 31  2022 manager_pid
+ ls: /tmp/checkpoint/com.webos.app.inputcommon: No such file or directory

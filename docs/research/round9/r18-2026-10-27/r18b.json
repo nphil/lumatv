@@ -1,0 +1,9212 @@
+{
+ "tag": "r18b",
+ "verdict": "FAIL",
+ "measure_cycles": 3,
+ "soak_cycles": 10,
+ "thresholds": {
+  "p90_render_ms": 3.0,
+  "p90_window_ms": 4.0,
+  "dropped": 0,
+  "burst_over20": 0,
+  "first_frame_ms": 50.0,
+  "burst_end_ms": 180.0
+ },
+ "surfaces": [
+  {
+   "name": "quick",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 29.92,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": false,
+     "value": 340.85,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 2.57,
+     "limit": "< 3",
+     "detail": "45 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 2.93,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 58 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": false,
+     "value": 3,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": -0.09,
+     "limit": "<= 1.08",
+     "detail": "63474 -> 63451 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": ""
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 5905,
+     "limit": "== 5905",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r18b-quick-m0",
+    "gate-r18b-quick-s0"
+   ],
+   "windows": [
+    {
+     "name": "quick-open",
+     "dur_s": 1.501,
+     "frames": 11,
+     "fps": 7.3,
+     "over20": 2,
+     "worst_ms": 216.9,
+     "anim_frames": 8,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.8,
+      "p90": 2.44,
+      "max": 9.11
+     },
+     "first_frame_ms": 13.63,
+     "burst_end_ms": 147.08,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.03,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.38,
+      1.62,
+      1.78,
+      2.44,
+      1.8,
+      1.73
+     ],
+     "burst_anim_samples": [
+      1.38,
+      1.62,
+      1.73,
+      1.78,
+      1.8,
+      2.03,
+      2.44
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7169,
+      "IPI": 203,
+      "DE2VSYNC": 180,
+      "osd_irq": 180,
+      "ohci_hcd:usb8": 96,
+      "eth0": 83,
+      "c4250000.gpu": 82,
+      "TE_MCU[0]": 2
+     },
+     "gaps": [
+      {
+       "at": 0.147,
+       "ms": 216.9,
+       "vblanks": 13,
+       "sm": {
+        "run_ms": 33.41,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         0,
+         3
+        ],
+        "sleep_ms": 183.45
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          172.84
+         ],
+         [
+          "surface-manager-5905",
+          32.65
+         ],
+         [
+          "SettingsService-4732",
+          3.18
+         ],
+         [
+          "python3-5233",
+          3.06
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          213.41
+         ],
+         [
+          "lginput2-4031",
+          1.63
+         ],
+         [
+          "python3-23613",
+          0.45
+         ],
+         [
+          "com.webos.chrom-5772",
+          0.27
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          193.11
+         ],
+         [
+          "pq_thread-8179",
+          12.04
+         ],
+         [
+          "SettingsService-2698",
+          2.06
+         ],
+         [
+          "micomservice-3108",
+          1.25
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          176.15
+         ],
+         [
+          "ss.apiadapter-2549",
+          37.44
+         ],
+         [
+          "ServiceHandler-3704",
+          1.06
+         ],
+         [
+          "surface-manager-5905",
+          0.76
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.0,
+        "pm": [
+         [
+          197.74,
+          272,
+          1
+         ],
+         [
+          197.75,
+          288,
+          1
+         ],
+         [
+          197.75,
+          256,
+          0
+         ],
+         [
+          197.75,
+          272,
+          1
+         ],
+         [
+          197.76,
+          288,
+          1
+         ],
+         [
+          197.76,
+          256,
+          0
+         ],
+         [
+          197.76,
+          272,
+          1
+         ],
+         [
+          197.76,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 4.148,
+        "eth0": 0.027,
+        "IPI": 0.141,
+        "DE2VSYNC": 0.156,
+        "osd_irq": 0.153,
+        "ohci_hcd:usb8": 0.656,
+        "aud1": 0.007,
+        "TE_MCU[0]": 0.004,
+        "TE_MCU[1]": 0.004,
+        "c4250000.gpu": 0.076
+       },
+       "softirq_ms": 2.66,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         427
+        ],
+        [
+         "ss.apiadapter",
+         169
+        ],
+        [
+         "rcu_preempt",
+         31
+        ],
+        [
+         "com.webos.chrom",
+         24
+        ],
+        [
+         "tCMState",
+         22
+        ],
+        [
+         "extinput-integr",
+         21
+        ],
+        [
+         "mrcu_ls2",
+         21
+        ],
+        [
+         "tCursor",
+         21
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "process_dspirq_workfunc",
+         1
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.364,
+       "ms": 216.9,
+       "vblanks": 13,
+       "sm": {
+        "run_ms": 7.63,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 209.21
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          205.08
+         ],
+         [
+          "surface-manager-5905",
+          7.63
+         ],
+         [
+          "mrcu_ls2-4715",
+          1.41
+         ],
+         [
+          "SettingsService-4732",
+          0.41
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          213.9
+         ],
+         [
+          "lginput2-4031",
+          1.59
+         ],
+         [
+          "python3-23613",
+          0.46
+         ],
+         [
+          "com.webos.chrom-5772",
+          0.26
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          199.26
+         ],
+         [
+          "pq_thread-8179",
+          10.33
+         ],
+         [
+          "arccontroller-3473",
+          1.29
+         ],
+         [
+          "micomservice-3108",
+          1.09
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          178.13
+         ],
+         [
+          "ss.apiadapter-2549",
+          37.15
+         ],
+         [
+          "ksoftirqd/3-25",
+          0.88
+         ],
+         [
+          "extinput-integr-3610",
+          0.63
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.0,
+        "pm": [
+         [
+          199.08,
+          272,
+          1
+         ],
+         [
+          199.09,
+          288,
+          1
+         ],
+         [
+          199.09,
+          256,
+          0
+         ],
+         [
+          199.09,
+          272,
+          1
+         ],
+         [
+          199.09,
+          288,
+          1
+         ],
+         [
+          199.1,
+          256,
+          0
+         ],
+         [
+          199.1,
+          272,
+          1
+         ],
+         [
+          199.1,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 3.88,
+        "IPI": 0.044,
+        "DE2VSYNC": 0.152,
+        "osd_irq": 0.135,
+        "eth0": 0.031,
+        "ipc_vdec": 0.005,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.081
+       },
+       "softirq_ms": 2.93,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         428
+        ],
+        [
+         "ss.apiadapter",
+         170
+        ],
+        [
+         "rcu_preempt",
+         30
+        ],
+        [
+         "tCursor",
+         22
+        ],
+        [
+         "extinput-integr",
+         22
+        ],
+        [
+         "mrcu_ls2",
+         22
+        ],
+        [
+         "sdx",
+         22
+        ],
+        [
+         "com.webos.chrom",
+         21
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         4
+        ],
+        [
+         "vmstat_update",
+         4
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "ping_check",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-close",
+     "dur_s": 1.603,
+     "frames": 10,
+     "fps": 6.2,
+     "over20": 3,
+     "worst_ms": 934.2,
+     "anim_frames": 6,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.72,
+      "p90": 2.18,
+      "max": 4.45
+     },
+     "first_frame_ms": 14.33,
+     "burst_end_ms": 147.78,
+     "burst_over20": 1,
+     "burst_anim_p90_ms": 2.18,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      2.18,
+      4.45,
+      1.66,
+      1.6,
+      1.62,
+      1.72
+     ],
+     "burst_anim_samples": [
+      1.6,
+      1.62,
+      1.66,
+      1.72,
+      2.18,
+      4.45
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7249,
+      "DE2VSYNC": 192,
+      "osd_irq": 192,
+      "IPI": 155,
+      "ohci_hcd:usb8": 96,
+      "c4250000.gpu": 65,
+      "eth0": 41,
+      "mmc0": 5
+     },
+     "gaps": [
+      {
+       "at": 0.014,
+       "ms": 33.4,
+       "vblanks": 2,
+       "sm": {
+        "run_ms": 4.93,
+        "runnable_ms": 0.01,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 28.43
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          27.37
+         ],
+         [
+          "surface-manager-5905",
+          4.93
+         ],
+         [
+          "mrcu_ls2-4715",
+          0.3
+         ],
+         [
+          "mali-cmar-backe-6079",
+          0.23
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          32.98
+         ],
+         [
+          "lginput2-4031",
+          0.24
+         ],
+         [
+          "com.webos.chrom-5772",
+          0.04
+         ],
+         [
+          "tail-4850",
+          0.04
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          23.66
+         ],
+         [
+          "ss.apiadapter-2549",
+          6.16
+         ],
+         [
+          "pq_thread-8179",
+          1.75
+         ],
+         [
+          "ksoftirqd/2-20",
+          0.29
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          33.36
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.0,
+        "pm": [
+         [
+          0.34,
+          256,
+          0
+         ],
+         [
+          0.36,
+          288,
+          1
+         ],
+         [
+          0.36,
+          256,
+          0
+         ],
+         [
+          0.36,
+          272,
+          1
+         ],
+         [
+          0.37,
+          288,
+          1
+         ],
+         [
+          0.37,
+          256,
+          0
+         ],
+         [
+          0.37,
+          272,
+          1
+         ],
+         [
+          7.47,
+          272,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 0.674,
+        "c4250000.gpu": 0.1,
+        "IPI": 0.026,
+        "DE2VSYNC": 0.026,
+        "osd_irq": 0.033
+       },
+       "softirq_ms": 0.41,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         66
+        ],
+        [
+         "ss.apiadapter",
+         24
+        ],
+        [
+         "mali-cmar-backe",
+         8
+        ],
+        [
+         "kworker/u9:2",
+         6
+        ],
+        [
+         "QThread",
+         5
+        ],
+        [
+         "ksoftirqd/2",
+         5
+        ],
+        [
+         "tCursor",
+         4
+        ],
+        [
+         "sdx",
+         4
+        ]
+       ],
+       "workqueue": [
+        [
+         "shader_poweroff_timer_stop_callback",
+         2
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         2
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "psi_avgs_work",
+         2
+        ],
+        [
+         "commit_work",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.148,
+       "ms": 934.2,
+       "vblanks": 56,
+       "sm": {
+        "run_ms": 16.2,
+        "runnable_ms": 0.14,
+        "max_sched_lat_ms": 0.08,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 917.84
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          793.79
+         ],
+         [
+          "ss.apiadapter-2549",
+          85.74
+         ],
+         [
+          "surface-manager-5905",
+          16.2
+         ],
+         [
+          "mrcu_ls2-4715",
+          7.14
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          864.51
+         ],
+         [
+          "ss.apiadapter-2549",
+          54.56
+         ],
+         [
+          "lginput2-4031",
+          7.24
+         ],
+         [
+          "python3-23613",
+          2.45
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          829.11
+         ],
+         [
+          "pq_thread-8179",
+          49.93
+         ],
+         [
+          "ss.apiadapter-2549",
+          26.8
+         ],
+         [
+          "arccontroller-3473",
+          4.71
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          934.18
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.2,
+        "pm": [
+         [
+          915.88,
+          272,
+          1
+         ],
+         [
+          915.88,
+          288,
+          1
+         ],
+         [
+          915.89,
+          256,
+          0
+         ],
+         [
+          915.89,
+          272,
+          1
+         ],
+         [
+          915.89,
+          288,
+          1
+         ],
+         [
+          915.89,
+          256,
+          0
+         ],
+         [
+          915.89,
+          272,
+          1
+         ],
+         [
+          915.9,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 17.406,
+        "IPI": 0.202,
+        "DE2VSYNC": 0.663,
+        "osd_irq": 0.634,
+        "eth0": 0.106,
+        "ohci_hcd:usb8": 1.313,
+        "aud1": 0.005,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.004,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.085
+       },
+       "softirq_ms": 11.86,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1840
+        ],
+        [
+         "ss.apiadapter",
+         712
+        ],
+        [
+         "rcu_preempt",
+         136
+        ],
+        [
+         "com.webos.chrom",
+         96
+        ],
+        [
+         "extinput-integr",
+         93
+        ],
+        [
+         "mrcu_ls2",
+         93
+        ],
+        [
+         "tCMState",
+         93
+        ],
+        [
+         "tCursor",
+         93
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         14
+        ],
+        [
+         "vmstat_update",
+         2
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "process_dspirq_workfunc",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 1.082,
+       "ms": 500.4,
+       "vblanks": 30,
+       "sm": {
+        "run_ms": 12.94,
+        "runnable_ms": 0.16,
+        "max_sched_lat_ms": 0.11,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 487.35
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          411.81
+         ],
+         [
+          "ss.apiadapter-2549",
+          49.2
+         ],
+         [
+          "surface-manager-5905",
+          12.94
+         ],
+         [
+          "mrcu_ls2-4715",
+          3.87
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          492.66
+         ],
+         [
+          "lginput2-4031",
+          3.6
+         ],
+         [
+          "python3-23613",
+          1.44
+         ],
+         [
+          "PmLogDaemon-1945",
+          0.91
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          418.99
+         ],
+         [
+          "ss.apiadapter-2549",
+          40.09
+         ],
+         [
+          "pq_thread-8179",
+          27.66
+         ],
+         [
+          "micomservice-3108",
+          2.16
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          500.45
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.16,
+        "pm": [
+         [
+          491.35,
+          272,
+          1
+         ],
+         [
+          491.36,
+          288,
+          1
+         ],
+         [
+          491.36,
+          256,
+          0
+         ],
+         [
+          491.36,
+          272,
+          1
+         ],
+         [
+          491.37,
+          288,
+          1
+         ],
+         [
+          491.37,
+          256,
+          0
+         ],
+         [
+          491.37,
+          272,
+          1
+         ],
+         [
+          491.37,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 9.168,
+        "DE2VSYNC": 0.363,
+        "osd_irq": 0.346,
+        "eth0": 0.039,
+        "IPI": 0.171,
+        "ohci_hcd:usb8": 0.676,
+        "c4250000.gpu": 0.075
+       },
+       "softirq_ms": 6.55,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         989
+        ],
+        [
+         "ss.apiadapter",
+         379
+        ],
+        [
+         "rcu_preempt",
+         73
+        ],
+        [
+         "extinput-integr",
+         51
+        ],
+        [
+         "com.webos.chrom",
+         51
+        ],
+        [
+         "sdx",
+         50
+        ],
+        [
+         "tCursor",
+         50
+        ],
+        [
+         "mrcu_ls2",
+         49
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         12
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "flush_to_ldisc",
+         1
+        ],
+        [
+         "console_callback",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-open",
+     "dur_s": 1.502,
+     "frames": 11,
+     "fps": 7.3,
+     "over20": 2,
+     "worst_ms": 984.2,
+     "anim_frames": 7,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.24,
+      "p90": 3.27,
+      "max": 3.35
+     },
+     "first_frame_ms": 29.92,
+     "burst_end_ms": 146.69,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.93,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.25,
+      3.27,
+      2.93,
+      1.74,
+      1.8,
+      2.24
+     ],
+     "burst_anim_samples": [
+      1.25,
+      1.74,
+      1.8,
+      2.24,
+      2.93,
+      3.27
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 6789,
+      "DE2VSYNC": 180,
+      "osd_irq": 180,
+      "IPI": 152,
+      "ohci_hcd:usb8": 96,
+      "c4250000.gpu": 90,
+      "eth0": 61,
+      "TE_MCU[0]": 2
+     },
+     "gaps": [
+      {
+       "at": 0.147,
+       "ms": 333.6,
+       "vblanks": 20,
+       "sm": {
+        "run_ms": 46.81,
+        "runnable_ms": 0.93,
+        "max_sched_lat_ms": 0.54,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 285.89
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          255.66
+         ],
+         [
+          "ss.apiadapter-2549",
+          54.02
+         ],
+         [
+          "mrcu_ls2-4715",
+          2.99
+         ],
+         [
+          "SettingsService-4732",
+          2.12
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          327.22
+         ],
+         [
+          "lginput2-4031",
+          2.46
+         ],
+         [
+          "python3-23613",
+          0.98
+         ],
+         [
+          "PmLogDaemon-1945",
+          0.78
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          249.22
+         ],
+         [
+          "surface-manager-5905",
+          46.81
+         ],
+         [
+          "pq_thread-8179",
+          19.04
+         ],
+         [
+          "ss.apiadapter-2549",
+          6.43
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          333.64
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 4,
+        "busy_ms": 9.45,
+        "pm": [
+         [
+          316.1,
+          272,
+          1
+         ],
+         [
+          316.11,
+          288,
+          1
+         ],
+         [
+          316.11,
+          256,
+          0
+         ],
+         [
+          316.11,
+          272,
+          1
+         ],
+         [
+          316.11,
+          288,
+          1
+         ],
+         [
+          316.11,
+          256,
+          0
+         ],
+         [
+          316.12,
+          272,
+          1
+         ],
+         [
+          316.12,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.243,
+        "arch_timer": 6.424,
+        "ohci_hcd:usb8": 0.015,
+        "osd_irq": 0.24,
+        "DE2VSYNC": 0.258,
+        "eth0": 0.082,
+        "TE_MCU[0]": 0.006,
+        "TE_MCU[1]": 0.003,
+        "hdmicec": 0.002,
+        "ipc_vdec": 0.005,
+        "c4250000.gpu": 0.134
+       },
+       "softirq_ms": 4.96,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         658
+        ],
+        [
+         "ss.apiadapter",
+         248
+        ],
+        [
+         "rcu_preempt",
+         49
+        ],
+        [
+         "com.webos.chrom",
+         34
+        ],
+        [
+         "sdx",
+         33
+        ],
+        [
+         "mrcu_ls2",
+         33
+        ],
+        [
+         "tCMState",
+         33
+        ],
+        [
+         "extinput-integr",
+         33
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         7
+        ],
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "vmstat_update",
+         3
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         2
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         2
+        ]
+       ]
+      },
+      {
+       "at": 0.497,
+       "ms": 984.2,
+       "vblanks": 59,
+       "sm": {
+        "run_ms": 21.18,
+        "runnable_ms": 0.09,
+        "max_sched_lat_ms": 0.02,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 962.94
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          788.86
+         ],
+         [
+          "ss.apiadapter-2549",
+          110.29
+         ],
+         [
+          "pq_thread-8179",
+          20.87
+         ],
+         [
+          "captureservice-12930",
+          10.99
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          966.73
+         ],
+         [
+          "lginput2-4031",
+          7.13
+         ],
+         [
+          "ss.apiadapter-2549",
+          3.37
+         ],
+         [
+          "python3-23613",
+          2.4
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          849.21
+         ],
+         [
+          "ss.apiadapter-2549",
+          61.7
+         ],
+         [
+          "pq_thread-8179",
+          32.73
+         ],
+         [
+          "surface-manager-5905",
+          21.18
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          984.22
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 4,
+        "busy_ms": 10.2,
+        "pm": [
+         [
+          601.59,
+          272,
+          1
+         ],
+         [
+          601.6,
+          288,
+          1
+         ],
+         [
+          601.6,
+          256,
+          0
+         ],
+         [
+          601.6,
+          272,
+          1
+         ],
+         [
+          601.6,
+          288,
+          1
+         ],
+         [
+          601.6,
+          256,
+          0
+         ],
+         [
+          601.6,
+          272,
+          1
+         ],
+         [
+          601.61,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.234,
+        "arch_timer": 17.868,
+        "DE2VSYNC": 0.701,
+        "osd_irq": 0.643,
+        "ohci_hcd:usb8": 1.352,
+        "eth0": 0.111,
+        "gfx_irq": 0.005,
+        "c4250000.gpu": 0.176,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.003,
+        "hdmicec": 0.002
+       },
+       "softirq_ms": 12.36,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1943
+        ],
+        [
+         "ss.apiadapter",
+         746
+        ],
+        [
+         "rcu_preempt",
+         135
+        ],
+        [
+         "tCursor",
+         99
+        ],
+        [
+         "extinput-integr",
+         99
+        ],
+        [
+         "com.webos.chrom",
+         99
+        ],
+        [
+         "mrcu_ls2",
+         98
+        ],
+        [
+         "tCMState",
+         98
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         11
+        ],
+        [
+         "drain_local_pages_wq",
+         4
+        ],
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "wq_barrier_func",
+         3
+        ],
+        [
+         "vmstat_update",
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-close",
+     "dur_s": 1.607,
+     "frames": 21,
+     "fps": 13.1,
+     "over20": 3,
+     "worst_ms": 834.1,
+     "anim_frames": 17,
+     "dropped": 2,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.06,
+      "p90": 2.36,
+      "max": 3.72
+     },
+     "first_frame_ms": 29.47,
+     "burst_end_ms": 146.24,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.17,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.99,
+      3.72,
+      2.13,
+      2.05,
+      1.92,
+      2.17
+     ],
+     "burst_anim_samples": [
+      1.92,
+      1.99,
+      2.05,
+      2.13,
+      2.17,
+      3.72
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7216,
+      "IPI": 295,
+      "DE2VSYNC": 193,
+      "osd_irq": 193,
+      "c4250000.gpu": 144,
+      "eth0": 97,
+      "ohci_hcd:usb8": 96,
+      "TE_MCU[0]": 1
+     },
+     "gaps": [
+      {
+       "at": 0.146,
+       "ms": 834.1,
+       "vblanks": 50,
+       "sm": {
+        "run_ms": 18.85,
+        "runnable_ms": 0.05,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 815.18
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          729.79
+         ],
+         [
+          "pq_thread-8179",
+          46.93
+         ],
+         [
+          "ss.apiadapter-2549",
+          34.54
+         ],
+         [
+          "mrcu_ls2-4715",
+          5.33
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          801.8
+         ],
+         [
+          "ss.apiadapter-2549",
+          21.98
+         ],
+         [
+          "lginput2-4031",
+          5.13
+         ],
+         [
+          "python3-23613",
+          1.92
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          690.87
+         ],
+         [
+          "ss.apiadapter-2549",
+          89.01
+         ],
+         [
+          "surface-manager-5905",
+          18.85
+         ],
+         [
+          "ksoftirqd/2-20",
+          3.84
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          834.08
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.2,
+        "pm": [
+         [
+          811.51,
+          272,
+          1
+         ],
+         [
+          811.51,
+          288,
+          1
+         ],
+         [
+          811.51,
+          256,
+          0
+         ],
+         [
+          811.52,
+          272,
+          1
+         ],
+         [
+          811.52,
+          288,
+          1
+         ],
+         [
+          811.52,
+          256,
+          0
+         ],
+         [
+          811.52,
+          272,
+          1
+         ],
+         [
+          811.52,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.275,
+        "arch_timer": 15.013,
+        "ohci_hcd:usb8": 0.639,
+        "DE2VSYNC": 0.558,
+        "osd_irq": 0.479,
+        "eth0": 0.152,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.003,
+        "aud1": 0.006,
+        "c4250000.gpu": 0.09
+       },
+       "softirq_ms": 11.04,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1646
+        ],
+        [
+         "ss.apiadapter",
+         629
+        ],
+        [
+         "rcu_preempt",
+         112
+        ],
+        [
+         "tCursor",
+         84
+        ],
+        [
+         "com.webos.chrom",
+         84
+        ],
+        [
+         "tCMState",
+         83
+        ],
+        [
+         "extinput-integr",
+         83
+        ],
+        [
+         "sdx",
+         82
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         19
+        ],
+        [
+         "pm_runtime_work",
+         2
+        ],
+        [
+         "vmstat_update",
+         2
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "wb_workfn",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.98,
+       "ms": 266.9,
+       "vblanks": 16,
+       "sm": {
+        "run_ms": 9.83,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 257.05
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          236.24
+         ],
+         [
+          "pq_thread-8179",
+          14.11
+         ],
+         [
+          "ss.apiadapter-2549",
+          6.1
+         ],
+         [
+          "mrcu_ls2-4715",
+          1.97
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          251.88
+         ],
+         [
+          "ss.apiadapter-2549",
+          8.87
+         ],
+         [
+          "lginput2-4031",
+          2.27
+         ],
+         [
+          "com.webos.chrom-5777",
+          0.87
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          212.04
+         ],
+         [
+          "ss.apiadapter-2549",
+          32.08
+         ],
+         [
+          "surface-manager-5905",
+          9.83
+         ],
+         [
+          "python3-5233",
+          3.57
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          266.91
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.16,
+        "pm": [
+         [
+          251.73,
+          272,
+          1
+         ],
+         [
+          251.74,
+          288,
+          1
+         ],
+         [
+          251.74,
+          256,
+          0
+         ],
+         [
+          251.74,
+          272,
+          1
+         ],
+         [
+          251.75,
+          288,
+          1
+         ],
+         [
+          251.75,
+          256,
+          0
+         ],
+         [
+          251.75,
+          272,
+          1
+         ],
+         [
+          251.75,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.22,
+        "arch_timer": 5.121,
+        "DE2VSYNC": 0.191,
+        "osd_irq": 0.181,
+        "eth0": 0.114,
+        "ohci_hcd:usb8": 0.631,
+        "c4250000.gpu": 0.095
+       },
+       "softirq_ms": 4.18,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         526
+        ],
+        [
+         "ss.apiadapter",
+         196
+        ],
+        [
+         "rcu_preempt",
+         43
+        ],
+        [
+         "com.webos.chrom",
+         38
+        ],
+        [
+         "mrcu_ls2",
+         27
+        ],
+        [
+         "sdx",
+         27
+        ],
+        [
+         "tCMState",
+         27
+        ],
+        [
+         "extinput-integr",
+         27
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         7
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 1.397,
+       "ms": 183.5,
+       "vblanks": 11,
+       "sm": {
+        "run_ms": 10.97,
+        "runnable_ms": 0.13,
+        "max_sched_lat_ms": 0.12,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 172.39
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          119.75
+         ],
+         [
+          "ss.apiadapter-2549",
+          30.83
+         ],
+         [
+          "surface-manager-5905",
+          10.97
+         ],
+         [
+          "pq_thread-8179",
+          8.67
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          179.78
+         ],
+         [
+          "lginput2-4031",
+          1.39
+         ],
+         [
+          "PmLogDaemon-1945",
+          0.58
+         ],
+         [
+          "python3-23613",
+          0.52
+         ]
+        ],
+        "2": [
+         [
+          "migration/2-19",
+          183.5
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          183.5
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 4,
+        "busy_ms": 7.55,
+        "pm": [
+         [
+          162.31,
+          272,
+          1
+         ],
+         [
+          162.32,
+          288,
+          1
+         ],
+         [
+          162.32,
+          256,
+          0
+         ],
+         [
+          162.32,
+          272,
+          1
+         ],
+         [
+          162.32,
+          288,
+          1
+         ],
+         [
+          162.32,
+          256,
+          0
+         ],
+         [
+          162.32,
+          272,
+          1
+         ],
+         [
+          162.33,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 3.269,
+        "DE2VSYNC": 0.141,
+        "osd_irq": 0.14,
+        "IPI": 0.096,
+        "eth0": 0.022,
+        "c4250000.gpu": 0.14
+       },
+       "softirq_ms": 2.24,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         363
+        ],
+        [
+         "ss.apiadapter",
+         124
+        ],
+        [
+         "rcu_preempt",
+         29
+        ],
+        [
+         "com.webos.chrom",
+         20
+        ],
+        [
+         "ksoftirqd/0",
+         19
+        ],
+        [
+         "tCursor",
+         18
+        ],
+        [
+         "tCMState",
+         18
+        ],
+        [
+         "sdx",
+         18
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         2
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "psi_avgs_work",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-open",
+     "dur_s": 1.501,
+     "frames": 21,
+     "fps": 14.0,
+     "over20": 4,
+     "worst_ms": 967.5,
+     "anim_frames": 14,
+     "dropped": 2,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.92,
+      "p90": 2.07,
+      "max": 2.95
+     },
+     "first_frame_ms": 7.22,
+     "burst_end_ms": 340.85,
+     "burst_over20": 2,
+     "burst_anim_p90_ms": 2.07,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      0.99,
+      1.95,
+      1.62,
+      1.09,
+      2.07,
+      1.22
+     ],
+     "burst_anim_samples": [
+      0.32,
+      0.99,
+      1.09,
+      1.22,
+      1.45,
+      1.62,
+      1.91,
+      1.92,
+      1.95,
+      2.01,
+      2.01,
+      2.07,
+      2.49,
+      2.95
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 6279,
+      "IPI": 198,
+      "DE2VSYNC": 180,
+      "osd_irq": 180,
+      "c4250000.gpu": 136,
+      "ohci_hcd:usb8": 96,
+      "eth0": 67,
+      "fe500000.i2c": 20
+     },
+     "gaps": [
+      {
+       "at": 0.007,
+       "ms": 33.4,
+       "vblanks": 2,
+       "sm": {
+        "run_ms": 7.38,
+        "runnable_ms": 0.01,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 25.98
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          11.08
+         ],
+         [
+          "surface-manager-5905",
+          7.38
+         ],
+         [
+          "ss.apiadapter-2549",
+          6.52
+         ],
+         [
+          "python3-5233",
+          2.96
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          33.01
+         ],
+         [
+          "lginput2-4031",
+          0.24
+         ],
+         [
+          "tAiSceneService-8176",
+          0.03
+         ],
+         [
+          "ARTIMER_T-2718",
+          0.03
+         ]
+        ],
+        "2": [
+         [
+          "migration/2-19",
+          33.36
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          33.36
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 4,
+        "busy_ms": 8.51,
+        "pm": [
+         [
+          9.27,
+          272,
+          1
+         ],
+         [
+          9.28,
+          288,
+          1
+         ],
+         [
+          9.28,
+          256,
+          0
+         ],
+         [
+          9.28,
+          272,
+          1
+         ],
+         [
+          9.28,
+          288,
+          1
+         ],
+         [
+          9.28,
+          256,
+          0
+         ],
+         [
+          9.29,
+          272,
+          1
+         ],
+         [
+          9.29,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 0.655,
+        "ohci_hcd:usb8": 0.736,
+        "IPI": 0.006,
+        "DE2VSYNC": 0.031,
+        "osd_irq": 0.037,
+        "c4250000.gpu": 0.131
+       },
+       "softirq_ms": 0.39,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         66
+        ],
+        [
+         "ss.apiadapter",
+         18
+        ],
+        [
+         "python3",
+         16
+        ],
+        [
+         "mali-cmar-backe",
+         13
+        ],
+        [
+         "kworker/u9:2",
+         8
+        ],
+        [
+         "QThread",
+         5
+        ],
+        [
+         "extinput-integr",
+         4
+        ],
+        [
+         "com.webos.chrom",
+         4
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         2
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         2
+        ],
+        [
+         "commit_work",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.141,
+       "ms": 33.4,
+       "vblanks": 2,
+       "sm": {
+        "run_ms": 6.0,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 27.36
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          17.61
+         ],
+         [
+          "surface-manager-5905",
+          6.0
+         ],
+         [
+          "ss.apiadapter-2549",
+          5.11
+         ],
+         [
+          "pq_thread-8179",
+          1.76
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          32.86
+         ],
+         [
+          "lginput2-4031",
+          0.25
+         ],
+         [
+          "physical-device-3389",
+          0.17
+         ],
+         [
+          "tAiSceneService-8176",
+          0.03
+         ]
+        ],
+        "2": [
+         [
+          "migration/2-19",
+          33.37
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          33.37
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.0,
+        "pm": [
+         [
+          18.51,
+          272,
+          1
+         ],
+         [
+          18.51,
+          288,
+          1
+         ],
+         [
+          18.51,
+          256,
+          0
+         ],
+         [
+          18.51,
+          272,
+          1
+         ],
+         [
+          18.52,
+          288,
+          1
+         ],
+         [
+          18.52,
+          256,
+          0
+         ],
+         [
+          18.52,
+          272,
+          1
+         ],
+         [
+          18.52,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 0.679,
+        "DE2VSYNC": 0.029,
+        "osd_irq": 0.039,
+        "IPI": 0.013,
+        "c4250000.gpu": 0.073
+       },
+       "softirq_ms": 0.39,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         66
+        ],
+        [
+         "ss.apiadapter",
+         20
+        ],
+        [
+         "mali-cmar-backe",
+         8
+        ],
+        [
+         "com.webos.chrom",
+         5
+        ],
+        [
+         "rcu_preempt",
+         5
+        ],
+        [
+         "QThread",
+         4
+        ],
+        [
+         "mrcu_ls2",
+         4
+        ],
+        [
+         "extinput-integr",
+         4
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.341,
+       "ms": 66.7,
+       "vblanks": 4,
+       "sm": {
+        "run_ms": 28.0,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.02,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 38.7
+       },
+       "cpu": {
+        "0": [
+         [
+          "surface-manager-5905",
+          28.0
+         ],
+         [
+          "swapper/0-0",
+          13.53
+         ],
+         [
+          "ss.apiadapter-2549",
+          11.24
+         ],
+         [
+          "pq_thread-8179",
+          3.53
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          62.71
+         ],
+         [
+          "ss.apiadapter-2549",
+          2.63
+         ],
+         [
+          "lginput2-4031",
+          0.59
+         ],
+         [
+          "PmLogDaemon-1945",
+          0.48
+         ]
+        ],
+        "2": [
+         [
+          "migration/2-19",
+          66.73
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          66.73
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.0,
+        "pm": [
+         [
+          48.68,
+          272,
+          1
+         ],
+         [
+          48.69,
+          288,
+          1
+         ],
+         [
+          48.69,
+          256,
+          0
+         ],
+         [
+          48.69,
+          272,
+          1
+         ],
+         [
+          48.69,
+          288,
+          1
+         ],
+         [
+          48.69,
+          256,
+          0
+         ],
+         [
+          48.69,
+          272,
+          1
+         ],
+         [
+          48.7,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "DE2VSYNC": 0.067,
+        "arch_timer": 1.535,
+        "IPI": 0.044,
+        "osd_irq": 0.064,
+        "eth0": 0.007,
+        "c4250000.gpu": 0.07
+       },
+       "softirq_ms": 1.07,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         131
+        ],
+        [
+         "ss.apiadapter",
+         45
+        ],
+        [
+         "rcu_preempt",
+         11
+        ],
+        [
+         "ksoftirqd/0",
+         10
+        ],
+        [
+         "mali-cmar-backe",
+         8
+        ],
+        [
+         "mrcu_ls2",
+         7
+        ],
+        [
+         "extinput-integr",
+         7
+        ],
+        [
+         "com.webos.chrom",
+         7
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         2
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.408,
+       "ms": 967.5,
+       "vblanks": 58,
+       "sm": {
+        "run_ms": 17.56,
+        "runnable_ms": 2.21,
+        "max_sched_lat_ms": 1.72,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 947.77
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          646.23
+         ],
+         [
+          "ss.apiadapter-2549",
+          161.54
+         ],
+         [
+          "pq_thread-8179",
+          52.54
+         ],
+         [
+          "surface-manager-5905",
+          17.56
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          925.07
+         ],
+         [
+          "luna-send-23705",
+          8.58
+         ],
+         [
+          "lginput2-4031",
+          7.74
+         ],
+         [
+          "ss.apiadapter-2549",
+          5.93
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          591.76
+         ],
+         [
+          "migration/2-19",
+          363.07
+         ],
+         [
+          "captureservice-12930",
+          10.6
+         ],
+         [
+          "gal_renderd-1994",
+          0.98
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          967.54
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 4,
+        "busy_ms": 10.21,
+        "pm": [
+         [
+          583.42,
+          272,
+          1
+         ],
+         [
+          583.43,
+          288,
+          1
+         ],
+         [
+          583.43,
+          256,
+          0
+         ],
+         [
+          583.43,
+          272,
+          1
+         ],
+         [
+          583.43,
+          288,
+          1
+         ],
+         [
+          583.43,
+          256,
+          0
+         ],
+         [
+          583.43,
+          272,
+          1
+         ],
+         [
+          583.44,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 17.611,
+        "DE2VSYNC": 0.744,
+        "osd_irq": 0.701,
+        "ipc_vdec": 0.004,
+        "IPI": 0.41,
+        "eth0": 0.181,
+        "hdmicec": 0.008,
+        "ohci_hcd:usb8": 1.333,
+        "fe500000.i2c": 0.071,
+        "aud1": 0.005,
+        "gfx_irq": 0.004,
+        "c4250000.gpu": 0.148,
+        "TE_MCU[0]": 0.004,
+        "TE_MCU[1]": 0.004
+       },
+       "softirq_ms": 13.35,
+       "cpuhp": [
+        "cpuhp_enter cpu: 0002 target: 209 step:   1 (smpboot_create_threads)",
+        "cpuhp_exit  cpu: 0002  state:   1 step:   1 ret: 0",
+        "cpuhp_enter cpu: 0002 target: 209 step:   2 (perf_event_init_cpu)",
+        "cpuhp_exit  cpu: 0002  state:   2 step:   2 ret: 0"
+       ],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1909
+        ],
+        [
+         "ss.apiadapter",
+         678
+        ],
+        [
+         "rcu_preempt",
+         138
+        ],
+        [
+         "com.webos.chrom",
+         98
+        ],
+        [
+         "ksoftirqd/0",
+         97
+        ],
+        [
+         "mrcu_ls2",
+         96
+        ],
+        [
+         "extinput-integr",
+         96
+        ],
+        [
+         "tCursor",
+         96
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         20
+        ],
+        [
+         "wq_barrier_func",
+         4
+        ],
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "drain_local_pages_wq",
+         3
+        ],
+        [
+         "vmstat_update",
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-close",
+     "dur_s": 1.599,
+     "frames": 9,
+     "fps": 5.6,
+     "over20": 1,
+     "worst_ms": 717.3,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.11,
+      "p90": 2.24,
+      "max": 2.57
+     },
+     "first_frame_ms": 24.08,
+     "burst_end_ms": 140.85,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.24,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      2.57,
+      1.6,
+      1.96,
+      2.24,
+      2.07,
+      2.11
+     ],
+     "burst_anim_samples": [
+      1.6,
+      1.96,
+      2.07,
+      2.11,
+      2.24,
+      2.57
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 6821,
+      "DE2VSYNC": 197,
+      "osd_irq": 191,
+      "IPI": 163,
+      "ohci_hcd:usb8": 128,
+      "eth0": 66,
+      "c4250000.gpu": 58,
+      "TE_MCU[0]": 1
+     },
+     "gaps": [
+      {
+       "at": 0.141,
+       "ms": 717.3,
+       "vblanks": 43,
+       "sm": {
+        "run_ms": 15.33,
+        "runnable_ms": 0.8,
+        "max_sched_lat_ms": 0.76,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 701.19
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          494.38
+         ],
+         [
+          "ss.apiadapter-2549",
+          121.62
+         ],
+         [
+          "pq_thread-8179",
+          38.31
+         ],
+         [
+          "surface-manager-5905",
+          15.33
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          704.55
+         ],
+         [
+          "lginput2-4031",
+          5.32
+         ],
+         [
+          "python3-23613",
+          1.95
+         ],
+         [
+          "hdmi21_rx_engin-2564",
+          1.65
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          717.25
+         ],
+         [
+          "preload-11285",
+          0.04
+         ],
+         [
+          "terminalmanager-2663",
+          0.02
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          717.31
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.18,
+        "pm": [
+         [
+          709.57,
+          272,
+          1
+         ],
+         [
+          709.58,
+          288,
+          1
+         ],
+         [
+          709.58,
+          256,
+          0
+         ],
+         [
+          709.58,
+          272,
+          1
+         ],
+         [
+          709.58,
+          288,
+          1
+         ],
+         [
+          709.58,
+          256,
+          0
+         ],
+         [
+          709.58,
+          272,
+          1
+         ],
+         [
+          709.59,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 12.112,
+        "osd_irq": 0.503,
+        "DE2VSYNC": 0.531,
+        "IPI": 0.073,
+        "eth0": 0.061,
+        "ohci_hcd:usb8": 0.681,
+        "TE_MCU[0]": 0.006,
+        "TE_MCU[1]": 0.003,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.059
+       },
+       "softirq_ms": 8.81,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1416
+        ],
+        [
+         "ss.apiadapter",
+         510
+        ],
+        [
+         "rcu_preempt",
+         90
+        ],
+        [
+         "ksoftirqd/0",
+         78
+        ],
+        [
+         "mrcu_ls2",
+         72
+        ],
+        [
+         "tCursor",
+         72
+        ],
+        [
+         "com.webos.chrom",
+         71
+        ],
+        [
+         "extinput-integr",
+         70
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         8
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "vmstat_shepherd",
+         1
+        ],
+        [
+         "vmstat_update",
+         1
+        ]
+       ]
+      }
+     ]
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 0,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": -0.09,
+    "allowed_mb": 1.08,
+    "base_pages": 63474,
+    "last_pages": 63451,
+    "first_pages": 63406,
+    "ok": true
+   },
+   "discarded": []
+  },
+  {
+   "name": "picker",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 25.86,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 142.63,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 2.56,
+     "limit": "< 3",
+     "detail": "39 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 2.24,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 57 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": 0.113,
+     "limit": "<= 1.08",
+     "detail": "63520 -> 63549 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": ""
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 5905,
+     "limit": "== 5905",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r18b-picker-m0",
+    "gate-r18b-picker-s0"
+   ],
+   "windows": [
+    {
+     "name": "picker-open",
+     "dur_s": 1.551,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 1,
+     "worst_ms": 617.2,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.86,
+      "p90": 1.89,
+      "max": 4.19
+     },
+     "first_frame_ms": 24.62,
+     "burst_end_ms": 141.39,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.89,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.68,
+      4.19,
+      1.81,
+      1.86,
+      1.69,
+      1.89
+     ],
+     "burst_anim_samples": [
+      1.68,
+      1.69,
+      1.81,
+      1.86,
+      1.89,
+      4.19
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7482,
+      "IPI": 259,
+      "DE2VSYNC": 185,
+      "osd_irq": 185,
+      "ohci_hcd:usb8": 96,
+      "c4250000.gpu": 70,
+      "eth0": 55,
+      "aud1": 1
+     },
+     "gaps": [
+      {
+       "at": 0.141,
+       "ms": 617.2,
+       "vblanks": 37,
+       "sm": {
+        "run_ms": 41.68,
+        "runnable_ms": 0.05,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 575.5
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          545.0
+         ],
+         [
+          "ss.apiadapter-2549",
+          32.39
+         ],
+         [
+          "pq_thread-8179",
+          15.6
+         ],
+         [
+          "mrcu_ls2-4715",
+          4.27
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          605.19
+         ],
+         [
+          "lginput2-4031",
+          4.58
+         ],
+         [
+          "SettingsService-2698",
+          1.94
+         ],
+         [
+          "python3-23613",
+          1.44
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          545.33
+         ],
+         [
+          "surface-manager-5905",
+          41.68
+         ],
+         [
+          "ss.apiadapter-2549",
+          23.55
+         ],
+         [
+          "sdx-3263",
+          1.57
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          532.04
+         ],
+         [
+          "ss.apiadapter-2549",
+          53.56
+         ],
+         [
+          "pq_thread-8179",
+          18.81
+         ],
+         [
+          "kadpd-1986",
+          2.29
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.61,
+        "pm": [
+         [
+          603.71,
+          272,
+          1
+         ],
+         [
+          603.72,
+          288,
+          1
+         ],
+         [
+          603.72,
+          256,
+          0
+         ],
+         [
+          603.72,
+          272,
+          1
+         ],
+         [
+          603.72,
+          288,
+          1
+         ],
+         [
+          603.72,
+          256,
+          0
+         ],
+         [
+          603.72,
+          272,
+          1
+         ],
+         [
+          603.73,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 11.324,
+        "DE2VSYNC": 0.44,
+        "osd_irq": 0.389,
+        "IPI": 0.283,
+        "eth0": 0.068,
+        "ohci_hcd:usb8": 0.692,
+        "aud1": 0.006,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.095
+       },
+       "softirq_ms": 7.74,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1218
+        ],
+        [
+         "ss.apiadapter",
+         473
+        ],
+        [
+         "rcu_preempt",
+         79
+        ],
+        [
+         "tCursor",
+         62
+        ],
+        [
+         "com.webos.chrom",
+         62
+        ],
+        [
+         "extinput-integr",
+         61
+        ],
+        [
+         "sdx",
+         61
+        ],
+        [
+         "mrcu_ls2",
+         61
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         12
+        ],
+        [
+         "vmstat_update",
+         4
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "process_dspirq_workfunc",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-close",
+     "dur_s": 1.552,
+     "frames": 10,
+     "fps": 6.4,
+     "over20": 2,
+     "worst_ms": 1000.9,
+     "anim_frames": 7,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.76,
+      "p90": 1.97,
+      "max": 2.28
+     },
+     "first_frame_ms": 25.22,
+     "burst_end_ms": 141.98,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.97,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.76,
+      1.97,
+      1.76,
+      1.61,
+      2.28,
+      1.87
+     ],
+     "burst_anim_samples": [
+      1.61,
+      1.76,
+      1.76,
+      1.87,
+      1.97,
+      2.28
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7540,
+      "IPI": 328,
+      "DE2VSYNC": 187,
+      "osd_irq": 187,
+      "ohci_hcd:usb8": 96,
+      "eth0": 67,
+      "c4250000.gpu": 64,
+      "hdmicec": 2
+     },
+     "gaps": [
+      {
+       "at": 0.142,
+       "ms": 66.7,
+       "vblanks": 4,
+       "sm": {
+        "run_ms": 4.01,
+        "runnable_ms": 0.01,
+        "max_sched_lat_ms": 0.0,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 62.71
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          60.92
+         ],
+         [
+          "surface-manager-5905",
+          4.01
+         ],
+         [
+          "mrcu_ls2-4715",
+          0.41
+         ],
+         [
+          "ServiceSender-2656",
+          0.31
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          65.63
+         ],
+         [
+          "lginput2-4031",
+          0.51
+         ],
+         [
+          "mali-cmar-backe-6079",
+          0.21
+         ],
+         [
+          "kworker/u8:4-8557",
+          0.04
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          56.26
+         ],
+         [
+          "ss.apiadapter-2549",
+          9.12
+         ],
+         [
+          "sdx-3263",
+          0.33
+         ],
+         [
+          "micomservice-3108",
+          0.28
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          59.58
+         ],
+         [
+          "pq_thread-8179",
+          3.42
+         ],
+         [
+          "ss.apiadapter-2549",
+          2.74
+         ],
+         [
+          "extinput-integr-3610",
+          0.18
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.19,
+        "pm": [
+         [
+          52.95,
+          272,
+          1
+         ],
+         [
+          52.96,
+          288,
+          1
+         ],
+         [
+          52.96,
+          256,
+          0
+         ],
+         [
+          52.96,
+          272,
+          1
+         ],
+         [
+          52.97,
+          288,
+          1
+         ],
+         [
+          52.97,
+          256,
+          0
+         ],
+         [
+          52.97,
+          272,
+          1
+         ],
+         [
+          52.97,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 1.302,
+        "DE2VSYNC": 0.049,
+        "osd_irq": 0.045,
+        "hdmicec": 0.002,
+        "IPI": 0.045,
+        "c4250000.gpu": 0.068
+       },
+       "softirq_ms": 0.81,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         133
+        ],
+        [
+         "ss.apiadapter",
+         51
+        ],
+        [
+         "rcu_preempt",
+         8
+        ],
+        [
+         "sdx",
+         7
+        ],
+        [
+         "ServiceSender",
+         7
+        ],
+        [
+         "extinput-integr",
+         7
+        ],
+        [
+         "tCursor",
+         7
+        ],
+        [
+         "com.webos.chrom",
+         6
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "psi_avgs_work",
+         1
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.209,
+       "ms": 1000.9,
+       "vblanks": 60,
+       "sm": {
+        "run_ms": 21.2,
+        "runnable_ms": 0.52,
+        "max_sched_lat_ms": 0.38,
+        "cpus": [
+         0,
+         2
+        ],
+        "sleep_ms": 979.19
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          925.4
+         ],
+         [
+          "pq_thread-8179",
+          17.33
+         ],
+         [
+          "ss.apiadapter-2549",
+          10.58
+         ],
+         [
+          "surface-manager-5905",
+          9.48
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          983.56
+         ],
+         [
+          "lginput2-4031",
+          7.43
+         ],
+         [
+          "python3-23613",
+          2.37
+         ],
+         [
+          "com.webos.chrom-5777",
+          0.59
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          805.1
+         ],
+         [
+          "ss.apiadapter-2549",
+          159.67
+         ],
+         [
+          "surface-manager-5905",
+          11.71
+         ],
+         [
+          "ksoftirqd/2-20",
+          4.52
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          646.15
+         ],
+         [
+          "migration/3-24",
+          302.67
+         ],
+         [
+          "pq_thread-8179",
+          35.74
+         ],
+         [
+          "ss.apiadapter-2549",
+          7.17
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.16,
+        "pm": [
+         [
+          985.24,
+          272,
+          1
+         ],
+         [
+          985.25,
+          288,
+          1
+         ],
+         [
+          985.25,
+          256,
+          0
+         ],
+         [
+          985.25,
+          272,
+          1
+         ],
+         [
+          985.25,
+          288,
+          1
+         ],
+         [
+          985.25,
+          256,
+          0
+         ],
+         [
+          985.26,
+          272,
+          1
+         ],
+         [
+          985.26,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 18.259,
+        "IPI": 0.602,
+        "DE2VSYNC": 0.683,
+        "osd_irq": 0.609,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.003,
+        "eth0": 0.142,
+        "ipc_vdec": 0.005,
+        "ohci_hcd:usb8": 1.339,
+        "aud1": 0.006,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.099
+       },
+       "softirq_ms": 13.52,
+       "cpuhp": [
+        "cpuhp_enter cpu: 0003 target: 139 step: 209 (cpuhp_kick_ap_work)",
+        "cpuhp_enter cpu: 0003 target: 139 step: 208 (sched_cpu_deactivate)",
+        "cpuhp_exit  cpu: 0003  state: 207 step: 208 ret: 0",
+        "cpuhp_enter cpu: 0003 target: 139 step: 183 (free_slot_cache)"
+       ],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1976
+        ],
+        [
+         "ss.apiadapter",
+         770
+        ],
+        [
+         "rcu_preempt",
+         139
+        ],
+        [
+         "com.webos.chrom",
+         106
+        ],
+        [
+         "mrcu_ls2",
+         100
+        ],
+        [
+         "tCMState",
+         100
+        ],
+        [
+         "extinput-integr",
+         100
+        ],
+        [
+         "sdx",
+         99
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         27
+        ],
+        [
+         "vmstat_update",
+         2
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "ping_check",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-open",
+     "dur_s": 1.551,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 1,
+     "worst_ms": 517.1,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.88,
+      "p90": 2.09,
+      "max": 2.56
+     },
+     "first_frame_ms": 25.02,
+     "burst_end_ms": 141.81,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.09,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      2.09,
+      2.56,
+      2.05,
+      1.76,
+      1.66,
+      1.88
+     ],
+     "burst_anim_samples": [
+      1.04,
+      1.66,
+      1.76,
+      1.88,
+      2.05,
+      2.09,
+      2.56
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7102,
+      "IPI": 235,
+      "DE2VSYNC": 185,
+      "osd_irq": 185,
+      "ohci_hcd:usb8": 96,
+      "c4250000.gpu": 66,
+      "eth0": 41,
+      "hdmicec": 1
+     },
+     "gaps": [
+      {
+       "at": 0.142,
+       "ms": 517.1,
+       "vblanks": 31,
+       "sm": {
+        "run_ms": 37.49,
+        "runnable_ms": 0.06,
+        "max_sched_lat_ms": 0.03,
+        "cpus": [
+         0,
+         2
+        ],
+        "sleep_ms": 479.56
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          395.96
+         ],
+         [
+          "ss.apiadapter-2549",
+          73.2
+         ],
+         [
+          "surface-manager-5905",
+          20.89
+         ],
+         [
+          "mrcu_ls2-4715",
+          4.01
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          507.51
+         ],
+         [
+          "lginput2-4031",
+          3.87
+         ],
+         [
+          "SettingsService-2698",
+          1.91
+         ],
+         [
+          "python3-23613",
+          1.0
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          440.17
+         ],
+         [
+          "pq_thread-8179",
+          27.54
+         ],
+         [
+          "ss.apiadapter-2549",
+          20.24
+         ],
+         [
+          "surface-manager-5905",
+          16.6
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          517.11
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.64,
+        "pm": [
+         [
+          500.14,
+          272,
+          1
+         ],
+         [
+          500.15,
+          288,
+          1
+         ],
+         [
+          500.15,
+          256,
+          0
+         ],
+         [
+          500.15,
+          272,
+          1
+         ],
+         [
+          500.15,
+          288,
+          1
+         ],
+         [
+          500.15,
+          256,
+          0
+         ],
+         [
+          500.15,
+          272,
+          1
+         ],
+         [
+          500.16,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.335,
+        "arch_timer": 9.617,
+        "osd_irq": 0.349,
+        "DE2VSYNC": 0.386,
+        "eth0": 0.049,
+        "ohci_hcd:usb8": 0.685,
+        "hdmicec": 0.003,
+        "c4250000.gpu": 0.099
+       },
+       "softirq_ms": 6.4,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1021
+        ],
+        [
+         "ss.apiadapter",
+         388
+        ],
+        [
+         "rcu_preempt",
+         66
+        ],
+        [
+         "com.webos.chrom",
+         53
+        ],
+        [
+         "tCMState",
+         52
+        ],
+        [
+         "extinput-integr",
+         51
+        ],
+        [
+         "sdx",
+         51
+        ],
+        [
+         "mrcu_ls2",
+         51
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         3
+        ],
+        [
+         "vmstat_update",
+         3
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "vmstat_shepherd",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-close",
+     "dur_s": 1.552,
+     "frames": 29,
+     "fps": 18.7,
+     "over20": 4,
+     "worst_ms": 417.0,
+     "anim_frames": 23,
+     "dropped": 3,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.96,
+      "p90": 2.58,
+      "max": 3.97
+     },
+     "first_frame_ms": 25.86,
+     "burst_end_ms": 142.63,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.12,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.61,
+      2.12,
+      2.07,
+      1.76,
+      3.97,
+      1.94
+     ],
+     "burst_anim_samples": [
+      1.61,
+      1.76,
+      1.94,
+      2.07,
+      2.12,
+      3.97
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7144,
+      "IPI": 487,
+      "DE2VSYNC": 186,
+      "osd_irq": 186,
+      "c4250000.gpu": 180,
+      "eth0": 117,
+      "ohci_hcd:usb8": 96,
+      "hdmicec": 2
+     },
+     "gaps": [
+      {
+       "at": 0.143,
+       "ms": 200.2,
+       "vblanks": 12,
+       "sm": {
+        "run_ms": 11.03,
+        "runnable_ms": 0.12,
+        "max_sched_lat_ms": 0.07,
+        "cpus": [
+         0,
+         2
+        ],
+        "sleep_ms": 189.04
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          168.87
+         ],
+         [
+          "pq_thread-8179",
+          12.23
+         ],
+         [
+          "ss.apiadapter-2549",
+          4.98
+         ],
+         [
+          "python3-5233",
+          3.35
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          195.29
+         ],
+         [
+          "lginput2-4031",
+          1.55
+         ],
+         [
+          "Qt bearer threa-6218",
+          0.62
+         ],
+         [
+          "python3-23613",
+          0.49
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          152.59
+         ],
+         [
+          "ss.apiadapter-2549",
+          31.75
+         ],
+         [
+          "surface-manager-5905",
+          9.15
+         ],
+         [
+          "ksoftirqd/2-20",
+          1.05
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          200.19
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.19,
+        "pm": [
+         [
+          177.77,
+          272,
+          1
+         ],
+         [
+          177.78,
+          288,
+          1
+         ],
+         [
+          177.78,
+          256,
+          0
+         ],
+         [
+          177.78,
+          272,
+          1
+         ],
+         [
+          177.78,
+          288,
+          1
+         ],
+         [
+          177.78,
+          256,
+          0
+         ],
+         [
+          177.78,
+          272,
+          1
+         ],
+         [
+          177.79,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.216,
+        "arch_timer": 3.894,
+        "DE2VSYNC": 0.147,
+        "osd_irq": 0.137,
+        "eth0": 0.087,
+        "TE_MCU[0]": 0.006,
+        "TE_MCU[1]": 0.003,
+        "ohci_hcd:usb8": 0.681,
+        "ipc_vdec": 0.004,
+        "c4250000.gpu": 0.089
+       },
+       "softirq_ms": 3.41,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         395
+        ],
+        [
+         "ss.apiadapter",
+         151
+        ],
+        [
+         "rcu_preempt",
+         33
+        ],
+        [
+         "com.webos.chrom",
+         22
+        ],
+        [
+         "extinput-integr",
+         21
+        ],
+        [
+         "tCursor",
+         20
+        ],
+        [
+         "sdx",
+         20
+        ],
+        [
+         "tCMState",
+         20
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         8
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "ping_check",
+         1
+        ],
+        [
+         "free_work",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.359,
+       "ms": 33.4,
+       "vblanks": 2,
+       "sm": {
+        "run_ms": 5.93,
+        "runnable_ms": 0.44,
+        "max_sched_lat_ms": 0.43,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 27.0
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          28.02
+         ],
+         [
+          "pq_thread-8179",
+          1.89
+         ],
+         [
+          "ss.apiadapter-2549",
+          1.86
+         ],
+         [
+          "avahi-daemon-4343",
+          0.35
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          31.95
+         ],
+         [
+          "python3-23613",
+          0.48
+         ],
+         [
+          "lginput2-4031",
+          0.28
+         ],
+         [
+          "mali-cmar-backe-6079",
+          0.2
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          22.01
+         ],
+         [
+          "surface-manager-5905",
+          5.93
+         ],
+         [
+          "ss.apiadapter-2549",
+          4.39
+         ],
+         [
+          "micomservice-3108",
+          0.2
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          33.37
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.15,
+        "pm": [
+         [
+          11.75,
+          272,
+          1
+         ],
+         [
+          11.76,
+          288,
+          1
+         ],
+         [
+          11.76,
+          256,
+          0
+         ],
+         [
+          11.76,
+          272,
+          1
+         ],
+         [
+          11.76,
+          288,
+          1
+         ],
+         [
+          11.76,
+          256,
+          0
+         ],
+         [
+          11.76,
+          272,
+          1
+         ],
+         [
+          11.77,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 0.7,
+        "IPI": 0.071,
+        "DE2VSYNC": 0.026,
+        "osd_irq": 0.032,
+        "eth0": 0.032,
+        "c4250000.gpu": 0.068
+       },
+       "softirq_ms": 0.71,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         66
+        ],
+        [
+         "ss.apiadapter",
+         22
+        ],
+        [
+         "rcu_preempt",
+         6
+        ],
+        [
+         "com.webos.chrom",
+         5
+        ],
+        [
+         "extinput-integr",
+         4
+        ],
+        [
+         "surface-manager",
+         4
+        ],
+        [
+         "pqcontroller",
+         4
+        ],
+        [
+         "kworker/u9:2",
+         4
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "psi_avgs_work",
+         1
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ],
+        [
+         "kbase_pm_gpu_poweroff_wait_wq",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.526,
+       "ms": 417.0,
+       "vblanks": 25,
+       "sm": {
+        "run_ms": 11.86,
+        "runnable_ms": 0.03,
+        "max_sched_lat_ms": 0.0,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 405.16
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          351.28
+         ],
+         [
+          "ss.apiadapter-2549",
+          26.02
+         ],
+         [
+          "pq_thread-8179",
+          22.48
+         ],
+         [
+          "python3-5233",
+          3.1
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          411.06
+         ],
+         [
+          "lginput2-4031",
+          3.01
+         ],
+         [
+          "python3-23613",
+          0.95
+         ],
+         [
+          "mali-cmar-backe-6079",
+          0.23
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          344.98
+         ],
+         [
+          "ss.apiadapter-2549",
+          48.51
+         ],
+         [
+          "surface-manager-5905",
+          11.86
+         ],
+         [
+          "sdx-3263",
+          1.81
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          417.05
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.15,
+        "pm": [
+         [
+          393.78,
+          272,
+          1
+         ],
+         [
+          393.78,
+          288,
+          1
+         ],
+         [
+          393.78,
+          256,
+          0
+         ],
+         [
+          393.78,
+          272,
+          1
+         ],
+         [
+          393.79,
+          288,
+          1
+         ],
+         [
+          393.79,
+          256,
+          0
+         ],
+         [
+          393.79,
+          272,
+          1
+         ],
+         [
+          393.79,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.157,
+        "arch_timer": 7.594,
+        "DE2VSYNC": 0.297,
+        "osd_irq": 0.261,
+        "eth0": 0.038,
+        "ohci_hcd:usb8": 0.675,
+        "c4250000.gpu": 0.092
+       },
+       "softirq_ms": 5.28,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         823
+        ],
+        [
+         "ss.apiadapter",
+         312
+        ],
+        [
+         "rcu_preempt",
+         65
+        ],
+        [
+         "com.webos.chrom",
+         43
+        ],
+        [
+         "sdx",
+         42
+        ],
+        [
+         "tCMState",
+         42
+        ],
+        [
+         "tCursor",
+         41
+        ],
+        [
+         "extinput-integr",
+         41
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         4
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 1.077,
+       "ms": 33.4,
+       "vblanks": 2,
+       "sm": {
+        "run_ms": 4.18,
+        "runnable_ms": 0.01,
+        "max_sched_lat_ms": 0.0,
+        "cpus": [
+         2
+        ],
+        "sleep_ms": 29.18
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          24.26
+         ],
+         [
+          "ss.apiadapter-2549",
+          5.78
+         ],
+         [
+          "pq_thread-8179",
+          1.76
+         ],
+         [
+          "mrcu_ls2-4715",
+          0.35
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          32.75
+         ],
+         [
+          "lginput2-4031",
+          0.25
+         ],
+         [
+          "mali-cmar-backe-6079",
+          0.2
+         ],
+         [
+          "kworker/u8:4-8557",
+          0.04
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          28.15
+         ],
+         [
+          "surface-manager-5905",
+          4.18
+         ],
+         [
+          "hdmi21_rx_engin-2564",
+          0.14
+         ],
+         [
+          "sdx-3263",
+          0.13
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          33.36
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.15,
+        "pm": [
+         [
+          15.21,
+          272,
+          1
+         ],
+         [
+          15.21,
+          288,
+          1
+         ],
+         [
+          15.21,
+          256,
+          0
+         ],
+         [
+          15.21,
+          272,
+          1
+         ],
+         [
+          15.22,
+          288,
+          1
+         ],
+         [
+          15.22,
+          256,
+          0
+         ],
+         [
+          15.22,
+          272,
+          1
+         ],
+         [
+          15.22,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.043,
+        "arch_timer": 0.662,
+        "aud1": 0.006,
+        "DE2VSYNC": 0.026,
+        "osd_irq": 0.027,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.066
+       },
+       "softirq_ms": 0.5,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         66
+        ],
+        [
+         "ss.apiadapter",
+         24
+        ],
+        [
+         "ksoftirqd/0",
+         5
+        ],
+        [
+         "rcu_preempt",
+         5
+        ],
+        [
+         "QThread",
+         4
+        ],
+        [
+         "com.webos.chrom",
+         4
+        ],
+        [
+         "mrcu_ls2",
+         4
+        ],
+        [
+         "extinput-integr",
+         4
+        ]
+       ],
+       "workqueue": [
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "process_dspirq_workfunc",
+         1
+        ],
+        [
+         "psi_avgs_work",
+         1
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-open",
+     "dur_s": 1.551,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 1,
+     "worst_ms": 417.0,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.03,
+      "p90": 2.17,
+      "max": 2.93
+     },
+     "first_frame_ms": 25.3,
+     "burst_end_ms": 142.07,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.17,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      2.93,
+      2.03,
+      1.24,
+      2.06,
+      1.85,
+      1.81
+     ],
+     "burst_anim_samples": [
+      1.24,
+      1.81,
+      1.85,
+      2.03,
+      2.06,
+      2.17,
+      2.93
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 6427,
+      "IPI": 270,
+      "DE2VSYNC": 186,
+      "osd_irq": 186,
+      "ohci_hcd:usb8": 96,
+      "eth0": 72,
+      "c4250000.gpu": 71,
+      "hdmicec": 2
+     },
+     "gaps": [
+      {
+       "at": 0.142,
+       "ms": 417.0,
+       "vblanks": 25,
+       "sm": {
+        "run_ms": 36.65,
+        "runnable_ms": 1.13,
+        "max_sched_lat_ms": 1.07,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 379.26
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          248.33
+         ],
+         [
+          "ss.apiadapter-2549",
+          71.75
+         ],
+         [
+          "surface-manager-5905",
+          36.65
+         ],
+         [
+          "pq_thread-8179",
+          22.6
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          407.34
+         ],
+         [
+          "lginput2-4031",
+          3.24
+         ],
+         [
+          "SettingsService-2698",
+          1.87
+         ],
+         [
+          "python3-23613",
+          1.0
+         ]
+        ],
+        "2": [
+         [
+          "migration/2-19",
+          417.04
+         ]
+        ],
+        "3": [
+         [
+          "migration/3-24",
+          417.04
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 9.64,
+        "pm": [
+         [
+          399.38,
+          272,
+          1
+         ],
+         [
+          399.39,
+          288,
+          1
+         ],
+         [
+          399.39,
+          256,
+          0
+         ],
+         [
+          399.39,
+          272,
+          1
+         ],
+         [
+          399.39,
+          288,
+          1
+         ],
+         [
+          399.39,
+          256,
+          0
+         ],
+         [
+          399.4,
+          272,
+          1
+         ],
+         [
+          399.4,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.246,
+        "arch_timer": 7.625,
+        "DE2VSYNC": 0.344,
+        "osd_irq": 0.295,
+        "eth0": 0.1,
+        "ohci_hcd:usb8": 0.67,
+        "hdmicec": 0.003,
+        "c4250000.gpu": 0.096
+       },
+       "softirq_ms": 5.95,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         822
+        ],
+        [
+         "ss.apiadapter",
+         285
+        ],
+        [
+         "rcu_preempt",
+         68
+        ],
+        [
+         "ksoftirqd/0",
+         51
+        ],
+        [
+         "com.webos.chrom",
+         45
+        ],
+        [
+         "mrcu_ls2",
+         42
+        ],
+        [
+         "tCursor",
+         42
+        ],
+        [
+         "sdx",
+         41
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         9
+        ],
+        [
+         "vmstat_update",
+         2
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "pm_runtime_work",
+         1
+        ],
+        [
+         "vmstat_shepherd",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-close",
+     "dur_s": 1.634,
+     "frames": 10,
+     "fps": 6.1,
+     "over20": 1,
+     "worst_ms": 867.4,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.11,
+      "p90": 2.24,
+      "max": 2.74
+     },
+     "first_frame_ms": 9.11,
+     "burst_end_ms": 142.56,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.24,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      2.22,
+      1.98,
+      2.11,
+      1.78,
+      2.74,
+      2.24
+     ],
+     "burst_anim_samples": [
+      1.78,
+      1.88,
+      1.98,
+      2.11,
+      2.22,
+      2.24,
+      2.74
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7494,
+      "IPI": 388,
+      "DE2VSYNC": 202,
+      "osd_irq": 196,
+      "eth0": 106,
+      "ohci_hcd:usb8": 95,
+      "c4250000.gpu": 59,
+      "TE_MCU[0]": 2
+     },
+     "gaps": [
+      {
+       "at": 0.143,
+       "ms": 867.4,
+       "vblanks": 52,
+       "sm": {
+        "run_ms": 17.58,
+        "runnable_ms": 0.06,
+        "max_sched_lat_ms": 0.02,
+        "cpus": [
+         0
+        ],
+        "sleep_ms": 849.81
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          588.26
+         ],
+         [
+          "ss.apiadapter-2549",
+          78.81
+         ],
+         [
+          "node-9056",
+          45.01
+         ],
+         [
+          "ls-hubd-1865",
+          23.95
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          696.96
+         ],
+         [
+          "servicemanager-3030",
+          76.66
+         ],
+         [
+          "luna-send-23829",
+          10.78
+         ],
+         [
+          "luna-send-23827",
+          10.71
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          571.47
+         ],
+         [
+          "migration/2-19",
+          130.39
+         ],
+         [
+          "servicemanager-3030",
+          50.58
+         ],
+         [
+          "ss.apiadapter-2549",
+          49.04
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          564.67
+         ],
+         [
+          "migration/3-24",
+          198.07
+         ],
+         [
+          "ss.apiadapter-2549",
+          29.48
+         ],
+         [
+          "ls-hubd-1865",
+          24.57
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 7.19,
+        "pm": [
+         [
+          846.3,
+          272,
+          1
+         ],
+         [
+          846.31,
+          288,
+          1
+         ],
+         [
+          846.31,
+          256,
+          0
+         ],
+         [
+          846.31,
+          272,
+          1
+         ],
+         [
+          846.32,
+          288,
+          1
+         ],
+         [
+          846.32,
+          256,
+          0
+         ],
+         [
+          846.32,
+          272,
+          1
+         ],
+         [
+          846.32,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "arch_timer": 18.545,
+        "IPI": 1.208,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.003,
+        "DE2VSYNC": 0.72,
+        "osd_irq": 0.623,
+        "ohci_hcd:usb8": 1.33,
+        "eth0": 0.186,
+        "ipc_vdec": 0.005,
+        "hdmicec": 0.004,
+        "c4250000.gpu": 0.089
+       },
+       "softirq_ms": 13.33,
+       "cpuhp": [
+        "cpuhp_enter cpu: 0002 target: 209 step:   1 (smpboot_create_threads)",
+        "cpuhp_exit  cpu: 0002  state:   1 step:   1 ret: 0",
+        "cpuhp_enter cpu: 0002 target: 209 step:   2 (perf_event_init_cpu)",
+        "cpuhp_exit  cpu: 0002  state:   2 step:   2 ret: 0"
+       ],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1707
+        ],
+        [
+         "ss.apiadapter",
+         583
+        ],
+        [
+         "rcu_preempt",
+         127
+        ],
+        [
+         "tCursor",
+         87
+        ],
+        [
+         "extinput-integr",
+         86
+        ],
+        [
+         "com.webos.chrom",
+         86
+        ],
+        [
+         "tCMState",
+         86
+        ],
+        [
+         "sdx",
+         86
+        ]
+       ],
+       "workqueue": [
+        [
+         "psi_avgs_work",
+         20
+        ],
+        [
+         "free_work",
+         9
+        ],
+        [
+         "vmstat_update",
+         4
+        ],
+        [
+         "cpuset_hotplug_workfn",
+         2
+        ],
+        [
+         "wq_barrier_func",
+         2
+        ]
+       ]
+      }
+     ]
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 0,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 0.113,
+    "allowed_mb": 1.08,
+    "base_pages": 63520,
+    "last_pages": 63549,
+    "first_pages": 63478,
+    "ok": true
+   },
+   "discarded": []
+  },
+  {
+   "name": "quick-netflix",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 22.71,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 156.85,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 1.76,
+     "limit": "< 3",
+     "detail": "28 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 1.85,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 33 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": -1.172,
+     "limit": "<= 1.08",
+     "detail": "63482 -> 63182 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": "2 known stock lines ignored"
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 5905,
+     "limit": "== 5905",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r18b-quick-netflix-m0",
+    "gate-r18b-quick-netflix-m1",
+    "gate-r18b-quick-netflix-m1-r1",
+    "gate-r18b-quick-netflix-m2",
+    "gate-r18b-quick-netflix-s0"
+   ],
+   "windows": [
+    {
+     "name": "quick-netflix-open",
+     "dur_s": 1.502,
+     "frames": 13,
+     "fps": 8.7,
+     "over20": 2,
+     "worst_ms": 100.1,
+     "anim_frames": 9,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.28,
+      "p90": 1.76,
+      "max": 1.79
+     },
+     "first_frame_ms": 6.71,
+     "burst_end_ms": 156.85,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.76,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      0.92,
+      1.51,
+      1.79,
+      1.16,
+      1.1,
+      1.3
+     ],
+     "burst_anim_samples": [
+      0.92,
+      1.1,
+      1.16,
+      1.28,
+      1.3,
+      1.51,
+      1.76,
+      1.79
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7916,
+      "eth0": 3500,
+      "IPI": 3026,
+      "ipc_vdec": 1440,
+      "aud2": 388,
+      "DE2VSYNC": 270,
+      "osd_irq": 180,
+      "aud0": 138
+     },
+     "gaps": [
+      {
+       "at": 0.157,
+       "ms": 83.4,
+       "vblanks": 5,
+       "sm": {
+        "run_ms": 4.52,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         1
+        ],
+        "sleep_ms": 78.88
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          55.04
+         ],
+         [
+          "ss.apiadapter-2549",
+          19.14
+         ],
+         [
+          "HTTPREQUEST_MAN-24042",
+          3.01
+         ],
+         [
+          "kworker/0:1H-24163",
+          1.05
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          71.96
+         ],
+         [
+          "surface-manager-5905",
+          4.52
+         ],
+         [
+          "dpi player-24121",
+          0.95
+         ],
+         [
+          "audio-sink-Queu-24134",
+          0.81
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          66.58
+         ],
+         [
+          "pq_thread-8179",
+          5.35
+         ],
+         [
+          "Dolby_Vision-24150",
+          1.95
+         ],
+         [
+          "smc_kthread-1478",
+          1.83
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          73.67
+         ],
+         [
+          "netflix-23941",
+          3.38
+         ],
+         [
+          "video-queue:src-24131",
+          2.68
+         ],
+         [
+          "memchute-1923",
+          1.02
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 2.47,
+        "pm": [
+         [
+          80.07,
+          272,
+          1
+         ],
+         [
+          80.07,
+          288,
+          1
+         ],
+         [
+          80.07,
+          256,
+          0
+         ],
+         [
+          80.07,
+          272,
+          1
+         ],
+         [
+          80.08,
+          288,
+          1
+         ],
+         [
+          80.08,
+          256,
+          0
+         ],
+         [
+          80.08,
+          272,
+          1
+         ],
+         [
+          80.08,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.601,
+        "arch_timer": 2.284,
+        "ipc_vdec": 0.468,
+        "aud2": 0.161,
+        "eth0": 0.505,
+        "osd_irq": 0.074,
+        "DE2VSYNC": 0.1,
+        "aud0": 0.025,
+        "HDMI21_LINK": 0.008,
+        "c4250000.gpu": 0.054,
+        "TE_MCU[0]": 0.006,
+        "TE_MCU[1]": 0.004
+       },
+       "softirq_ms": 3.5,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         164
+        ],
+        [
+         "ss.apiadapter",
+         59
+        ],
+        [
+         "kworker/0:1H",
+         32
+        ],
+        [
+         "video-queue:src",
+         30
+        ],
+        [
+         "lxvideodec0:src",
+         30
+        ],
+        [
+         "task8",
+         24
+        ],
+        [
+         "starter_1512000",
+         18
+        ],
+        [
+         "alsa-sink-lg115",
+         16
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         32
+        ],
+        [
+         "noti_handler_work",
+         16
+        ],
+        [
+         "vmstat_update",
+         4
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "free_work",
+         1
+        ]
+       ]
+      },
+      {
+       "at": 0.257,
+       "ms": 100.1,
+       "vblanks": 6,
+       "sm": {
+        "run_ms": 32.42,
+        "runnable_ms": 0.66,
+        "max_sched_lat_ms": 0.63,
+        "cpus": [
+         1
+        ],
+        "sleep_ms": 67.03
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          73.5
+         ],
+         [
+          "ss.apiadapter-2549",
+          13.07
+         ],
+         [
+          "HTTPREQUEST_MAN-24042",
+          2.98
+         ],
+         [
+          "SettingsService-2698",
+          2.34
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          48.02
+         ],
+         [
+          "surface-manager-5905",
+          32.42
+         ],
+         [
+          "ss.apiadapter-2549",
+          9.4
+         ],
+         [
+          "memchute-1923",
+          1.12
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          78.09
+         ],
+         [
+          "pq_thread-8179",
+          5.39
+         ],
+         [
+          "SettingsService-4732",
+          3.14
+         ],
+         [
+          "Dolby_Vision-24150",
+          2.43
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          87.57
+         ],
+         [
+          "netflix-23941",
+          5.46
+         ],
+         [
+          "video-queue:src-24131",
+          3.1
+         ],
+         [
+          "lginput2-4031",
+          1.16
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 2.47,
+        "pm": [
+         [
+          89.58,
+          272,
+          1
+         ],
+         [
+          89.58,
+          288,
+          1
+         ],
+         [
+          89.58,
+          256,
+          0
+         ],
+         [
+          89.58,
+          272,
+          1
+         ],
+         [
+          89.59,
+          288,
+          1
+         ],
+         [
+          89.59,
+          256,
+          0
+         ],
+         [
+          89.59,
+          272,
+          1
+         ],
+         [
+          89.59,
+          256,
+          7
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 0.961,
+        "arch_timer": 3.06,
+        "ipc_vdec": 0.553,
+        "HDMI21_LINK": 0.027,
+        "aud2": 0.197,
+        "eth0": 0.555,
+        "aud0": 0.046,
+        "DE2VSYNC": 0.115,
+        "osd_irq": 0.087,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.083
+       },
+       "softirq_ms": 3.85,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         197
+        ],
+        [
+         "ss.apiadapter",
+         65
+        ],
+        [
+         "video-queue:src",
+         36
+        ],
+        [
+         "kworker/0:1H",
+         36
+        ],
+        [
+         "lxvideodec0:src",
+         36
+        ],
+        [
+         "task8",
+         30
+        ],
+        [
+         "starter_1512000",
+         20
+        ],
+        [
+         "alsa-sink-lg115",
+         19
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         37
+        ],
+        [
+         "noti_handler_work",
+         19
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ],
+        [
+         "commit_work",
+         1
+        ],
+        [
+         "shader_poweroff_timer_stop_callback",
+         1
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-netflix-close",
+     "dur_s": 1.593,
+     "frames": 8,
+     "fps": 5.0,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 4,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.51,
+      "p90": 1.51,
+      "max": 1.63
+     },
+     "first_frame_ms": 22.71,
+     "burst_end_ms": 139.5,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.51,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.51,
+      1.5,
+      1.51,
+      1.63
+     ],
+     "burst_anim_samples": [
+      1.5,
+      1.51,
+      1.51,
+      1.63
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8271,
+      "eth0": 3860,
+      "IPI": 2593,
+      "ipc_vdec": 1526,
+      "aud2": 412,
+      "DE2VSYNC": 287,
+      "osd_irq": 191,
+      "aud0": 150
+     },
+     "gaps": []
+    },
+    {
+     "name": "quick-netflix-open",
+     "dur_s": 1.502,
+     "frames": 11,
+     "fps": 7.3,
+     "over20": 1,
+     "worst_ms": 233.6,
+     "anim_frames": 8,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.61,
+      "p90": 2.1,
+      "max": 2.2
+     },
+     "first_frame_ms": 10.99,
+     "burst_end_ms": 144.46,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.85,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.22,
+      1.18,
+      1.61,
+      1.85,
+      1.46,
+      1.11
+     ],
+     "burst_anim_samples": [
+      1.11,
+      1.18,
+      1.22,
+      1.46,
+      1.61,
+      1.85,
+      2.1
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8123,
+      "eth0": 3298,
+      "IPI": 2593,
+      "ipc_vdec": 1440,
+      "aud2": 387,
+      "DE2VSYNC": 270,
+      "osd_irq": 180,
+      "aud0": 144
+     },
+     "gaps": [
+      {
+       "at": 0.144,
+       "ms": 233.6,
+       "vblanks": 14,
+       "sm": {
+        "run_ms": 38.46,
+        "runnable_ms": 1.75,
+        "max_sched_lat_ms": 1.27,
+        "cpus": [
+         1,
+         3
+        ],
+        "sleep_ms": 193.36
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          168.3
+         ],
+         [
+          "dpi player-24121",
+          13.89
+         ],
+         [
+          "smc_kthread-1478",
+          9.49
+         ],
+         [
+          "HTTPREQUEST_MAN-24042",
+          7.49
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          121.89
+         ],
+         [
+          "ss.apiadapter-2549",
+          38.47
+         ],
+         [
+          "surface-manager-5905",
+          36.8
+         ],
+         [
+          "dpi player-24138",
+          10.64
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          226.45
+         ],
+         [
+          "memchute-1923",
+          2.32
+         ],
+         [
+          "lginput2-4031",
+          2.09
+         ],
+         [
+          "tCMState-2797",
+          0.6
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          163.73
+         ],
+         [
+          "ss.apiadapter-2549",
+          14.06
+         ],
+         [
+          "pq_thread-8179",
+          12.49
+         ],
+         [
+          "netflix-23941",
+          10.54
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 4,
+        "busy_ms": 2.78,
+        "pm": [
+         [
+          214.31,
+          272,
+          1
+         ],
+         [
+          214.31,
+          288,
+          1
+         ],
+         [
+          214.31,
+          256,
+          0
+         ],
+         [
+          214.31,
+          272,
+          1
+         ],
+         [
+          214.32,
+          288,
+          1
+         ],
+         [
+          214.32,
+          256,
+          0
+         ],
+         [
+          214.32,
+          272,
+          1
+         ],
+         [
+          214.32,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 1.765,
+        "arch_timer": 6.998,
+        "aud2": 0.455,
+        "ipc_vdec": 1.359,
+        "HDMI21_LINK": 0.062,
+        "eth0": 1.358,
+        "DE2VSYNC": 0.296,
+        "osd_irq": 0.201,
+        "aud0": 0.074,
+        "c4250000.gpu": 0.145
+       },
+       "softirq_ms": 8.97,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         460
+        ],
+        [
+         "ss.apiadapter",
+         152
+        ],
+        [
+         "dpi player",
+         131
+        ],
+        [
+         "video-queue:src",
+         84
+        ],
+        [
+         "lxvideodec0:src",
+         84
+        ],
+        [
+         "kworker/0:1H",
+         81
+        ],
+        [
+         "task8",
+         70
+        ],
+        [
+         "audio-app-es:sr",
+         68
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         81
+        ],
+        [
+         "noti_handler_work",
+         44
+        ],
+        [
+         "psi_avgs_work",
+         7
+        ],
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "free_work",
+         3
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-netflix-close",
+     "dur_s": 1.602,
+     "frames": 11,
+     "fps": 6.9,
+     "over20": 1,
+     "worst_ms": 450.5,
+     "anim_frames": 2,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.61,
+      "p90": 0.7,
+      "max": 2.61
+     },
+     "first_frame_ms": 10.26,
+     "burst_end_ms": 127.04,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 0.7,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      0.7
+     ],
+     "burst_anim_samples": [
+      0.7
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8817,
+      "eth0": 3452,
+      "IPI": 3302,
+      "ipc_vdec": 1536,
+      "aud2": 415,
+      "DE2VSYNC": 288,
+      "osd_irq": 192,
+      "aud0": 150
+     },
+     "gaps": [
+      {
+       "at": 0.127,
+       "ms": 450.5,
+       "vblanks": 27,
+       "sm": {
+        "run_ms": 7.38,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         1
+        ],
+        "sleep_ms": 443.06
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          311.18
+         ],
+         [
+          "ss.apiadapter-2549",
+          48.31
+         ],
+         [
+          "dpi player-24121",
+          24.74
+         ],
+         [
+          "dpi player-24138",
+          10.81
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          325.25
+         ],
+         [
+          "dpi player-24138",
+          35.49
+         ],
+         [
+          "ss.apiadapter-2549",
+          17.46
+         ],
+         [
+          "HTTPREQUEST_MAN-24042",
+          12.78
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          378.61
+         ],
+         [
+          "netflix-23941",
+          53.52
+         ],
+         [
+          "lginput2-4031",
+          5.29
+         ],
+         [
+          "memchute-1923",
+          4.9
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          337.28
+         ],
+         [
+          "ss.apiadapter-2549",
+          43.56
+         ],
+         [
+          "pq_thread-8179",
+          25.27
+         ],
+         [
+          "smc_kthread-1478",
+          5.74
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 6,
+        "busy_ms": 1.68,
+        "pm": [
+         [
+          436.68,
+          272,
+          1
+         ],
+         [
+          436.68,
+          288,
+          1
+         ],
+         [
+          436.68,
+          256,
+          0
+         ],
+         [
+          436.68,
+          272,
+          1
+         ],
+         [
+          436.69,
+          288,
+          1
+         ],
+         [
+          436.69,
+          256,
+          0
+         ],
+         [
+          436.69,
+          272,
+          1
+         ],
+         [
+          436.69,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 3.376,
+        "arch_timer": 14.197,
+        "eth0": 2.523,
+        "ipc_vdec": 2.595,
+        "aud2": 0.85,
+        "HDMI21_LINK": 0.102,
+        "osd_irq": 0.364,
+        "DE2VSYNC": 0.564,
+        "aud0": 0.177,
+        "hdmicec": 0.002,
+        "TE_MCU[0]": 0.007,
+        "TE_MCU[1]": 0.003,
+        "ohci_hcd:usb8": 0.395,
+        "c4250000.gpu": 0.207
+       },
+       "softirq_ms": 18.04,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         884
+        ],
+        [
+         "ss.apiadapter",
+         297
+        ],
+        [
+         "dpi player",
+         269
+        ],
+        [
+         "video-queue:src",
+         162
+        ],
+        [
+         "lxvideodec0:src",
+         160
+        ],
+        [
+         "kworker/0:1H",
+         157
+        ],
+        [
+         "alsa-sink-lg115",
+         155
+        ],
+        [
+         "task8",
+         135
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         158
+        ],
+        [
+         "noti_handler_work",
+         85
+        ],
+        [
+         "psi_avgs_work",
+         11
+        ],
+        [
+         "free_work",
+         8
+        ],
+        [
+         "kbase_jd_done_worker",
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-netflix-open",
+     "dur_s": 1.501,
+     "frames": 11,
+     "fps": 7.3,
+     "over20": 1,
+     "worst_ms": 1001.0,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.33,
+      "p90": 1.34,
+      "max": 1.75
+     },
+     "first_frame_ms": 0.76,
+     "burst_end_ms": 150.92,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.34,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.06,
+      1.26,
+      1.33,
+      1.33,
+      1.3,
+      1.75
+     ],
+     "burst_anim_samples": [
+      1.06,
+      1.26,
+      1.3,
+      1.33,
+      1.33,
+      1.34,
+      1.75
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 7930,
+      "eth0": 3639,
+      "IPI": 2845,
+      "ipc_vdec": 1439,
+      "aud2": 389,
+      "DE2VSYNC": 269,
+      "osd_irq": 180,
+      "aud0": 144
+     },
+     "gaps": [
+      {
+       "at": 0.151,
+       "ms": 1001.0,
+       "vblanks": 60,
+       "sm": {
+        "run_ms": 35.76,
+        "runnable_ms": 0.15,
+        "max_sched_lat_ms": 0.1,
+        "cpus": [
+         1
+        ],
+        "sleep_ms": 965.08
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          875.74
+         ],
+         [
+          "video-queue:src-24131",
+          34.91
+         ],
+         [
+          "lginput2-4031",
+          12.72
+         ],
+         [
+          "memchute-1923",
+          11.36
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          788.13
+         ],
+         [
+          "ss.apiadapter-2549",
+          87.63
+         ],
+         [
+          "surface-manager-5905",
+          35.76
+         ],
+         [
+          "HTTPREQUEST_MAN-24042",
+          14.02
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          813.98
+         ],
+         [
+          "ss.apiadapter-2549",
+          43.07
+         ],
+         [
+          "pq_thread-8179",
+          35.84
+         ],
+         [
+          "netflix-23941",
+          22.8
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          820.98
+         ],
+         [
+          "ss.apiadapter-2549",
+          78.7
+         ],
+         [
+          "Dolby_Vision-24150",
+          23.58
+         ],
+         [
+          "pq_thread-8179",
+          19.89
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 2.46,
+        "pm": [
+         [
+          997.72,
+          272,
+          1
+         ],
+         [
+          997.73,
+          288,
+          1
+         ],
+         [
+          997.73,
+          256,
+          0
+         ],
+         [
+          997.73,
+          272,
+          1
+         ],
+         [
+          997.74,
+          288,
+          1
+         ],
+         [
+          997.74,
+          256,
+          0
+         ],
+         [
+          997.74,
+          272,
+          1
+         ],
+         [
+          997.74,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 6.895,
+        "arch_timer": 27.173,
+        "eth0": 5.899,
+        "aud2": 1.561,
+        "HDMI21_LINK": 0.193,
+        "ipc_vdec": 5.396,
+        "DE2VSYNC": 1.153,
+        "osd_irq": 0.774,
+        "aud0": 0.316,
+        "ohci_hcd:usb8": 1.629,
+        "hdmicec": 0.003,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.004,
+        "c4250000.gpu": 0.062
+       },
+       "softirq_ms": 38.75,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1959
+        ],
+        [
+         "ss.apiadapter",
+         720
+        ],
+        [
+         "lxvideodec0:src",
+         360
+        ],
+        [
+         "kworker/0:1H",
+         340
+        ],
+        [
+         "video-queue:src",
+         324
+        ],
+        [
+         "task8",
+         299
+        ],
+        [
+         "alsa-sink-lg115",
+         190
+        ],
+        [
+         "video-sink-Queu",
+         180
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         347
+        ],
+        [
+         "noti_handler_work",
+         188
+        ],
+        [
+         "free_work",
+         60
+        ],
+        [
+         "psi_avgs_work",
+         16
+        ],
+        [
+         "vmstat_update",
+         4
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "quick-netflix-close",
+     "dur_s": 1.65,
+     "frames": 10,
+     "fps": 6.1,
+     "over20": 1,
+     "worst_ms": 834.2,
+     "anim_frames": 3,
+     "dropped": 1,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.23,
+      "p90": 1.23,
+      "max": 2.93
+     },
+     "first_frame_ms": 18.02,
+     "burst_end_ms": 134.81,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 0.51,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      0.51
+     ],
+     "burst_anim_samples": [
+      0.51
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8417,
+      "IPI": 3296,
+      "eth0": 2799,
+      "ipc_vdec": 1584,
+      "aud2": 428,
+      "DE2VSYNC": 297,
+      "osd_irq": 198,
+      "aud0": 153
+     },
+     "gaps": [
+      {
+       "at": 0.135,
+       "ms": 834.2,
+       "vblanks": 50,
+       "sm": {
+        "run_ms": 7.48,
+        "runnable_ms": 0.05,
+        "max_sched_lat_ms": 0.02,
+        "cpus": [
+         1,
+         2
+        ],
+        "sleep_ms": 826.65
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          766.44
+         ],
+         [
+          "ss.apiadapter-2549",
+          15.59
+         ],
+         [
+          "lginput2-4031",
+          7.43
+         ],
+         [
+          "kworker/0:1H-24163",
+          7.11
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          688.36
+         ],
+         [
+          "ss.apiadapter-2549",
+          40.85
+         ],
+         [
+          "HTTPREQUEST_MAN-24042",
+          24.18
+         ],
+         [
+          "video-queue:src-24131",
+          9.35
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          638.69
+         ],
+         [
+          "ss.apiadapter-2549",
+          50.78
+         ],
+         [
+          "pq_thread-8179",
+          47.69
+         ],
+         [
+          "netflix-23941",
+          21.22
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          619.06
+         ],
+         [
+          "ss.apiadapter-2549",
+          67.1
+         ],
+         [
+          "migration/3-24",
+          59.77
+         ],
+         [
+          "Dolby_Vision-24150",
+          17.93
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 8,
+        "busy_ms": 2.18,
+        "pm": [
+         [
+          227.62,
+          272,
+          1
+         ],
+         [
+          227.63,
+          288,
+          1
+         ],
+         [
+          227.63,
+          256,
+          0
+         ],
+         [
+          227.63,
+          272,
+          1
+         ],
+         [
+          227.63,
+          288,
+          1
+         ],
+         [
+          227.64,
+          256,
+          0
+         ],
+         [
+          227.64,
+          272,
+          1
+         ],
+         [
+          227.64,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 5.915,
+        "eth0": 4.02,
+        "arch_timer": 21.889,
+        "ipc_vdec": 3.998,
+        "aud2": 1.113,
+        "DE2VSYNC": 0.954,
+        "osd_irq": 0.622,
+        "aud0": 0.272,
+        "HDMI21_LINK": 0.111,
+        "TE_MCU[0]": 0.005,
+        "TE_MCU[1]": 0.003,
+        "gfx_irq": 0.003,
+        "c4250000.gpu": 0.274,
+        "ohci_hcd:usb8": 1.522,
+        "aud1": 0.006
+       },
+       "softirq_ms": 28.8,
+       "cpuhp": [
+        "cpuhp_enter cpu: 0003 target: 139 step: 209 (cpuhp_kick_ap_work)",
+        "cpuhp_enter cpu: 0003 target: 139 step: 208 (sched_cpu_deactivate)",
+        "cpuhp_exit  cpu: 0003  state: 207 step: 208 ret: 0",
+        "cpuhp_enter cpu: 0003 target: 139 step: 183 (free_slot_cache)"
+       ],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1637
+        ],
+        [
+         "ss.apiadapter",
+         589
+        ],
+        [
+         "video-queue:src",
+         300
+        ],
+        [
+         "lxvideodec0:src",
+         300
+        ],
+        [
+         "kworker/0:1H",
+         283
+        ],
+        [
+         "task8",
+         250
+        ],
+        [
+         "alsa-sink-lg115",
+         157
+        ],
+        [
+         "video-sink-Queu",
+         150
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         286
+        ],
+        [
+         "noti_handler_work",
+         156
+        ],
+        [
+         "free_work",
+         25
+        ],
+        [
+         "psi_avgs_work",
+         18
+        ],
+        [
+         "kbase_jd_done_worker",
+         8
+        ]
+       ]
+      }
+     ]
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 2,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": -1.172,
+    "allowed_mb": 1.08,
+    "base_pages": 63482,
+    "last_pages": 63182,
+    "first_pages": 63462,
+    "ok": true
+   },
+   "discarded": [
+    {
+     "trace": "gate-r18b-quick-netflix-m1",
+     "windows": [
+      {
+       "name": "quick-netflix-close",
+       "burst_end_ms": 152.41,
+       "burst_app_jobs": 10
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "picker-netflix",
+   "checks": [
+    {
+     "name": "windows",
+     "ok": true,
+     "value": "6/6",
+     "limit": "== 6",
+     "detail": ""
+    },
+    {
+     "name": "first_frame_ms",
+     "ok": true,
+     "value": 24.66,
+     "limit": "<= 50",
+     "detail": ""
+    },
+    {
+     "name": "burst_end_ms",
+     "ok": true,
+     "value": 158.14,
+     "limit": "<= 180",
+     "detail": ""
+    },
+    {
+     "name": "p90_render_ms",
+     "ok": true,
+     "value": 2.04,
+     "limit": "< 3",
+     "detail": "30 frames"
+    },
+    {
+     "name": "p90_window_ms",
+     "ok": true,
+     "value": 2.04,
+     "limit": "< 4",
+     "detail": "worst single window"
+    },
+    {
+     "name": "dropped_share",
+     "ok": true,
+     "value": 0.0,
+     "limit": "<= 0.17",
+     "detail": "0 of 36 animated frames, LG's compositor floor"
+    },
+    {
+     "name": "burst_over20",
+     "ok": true,
+     "value": 0,
+     "limit": "<= 0",
+     "detail": ""
+    },
+    {
+     "name": "rss_growth_mb",
+     "ok": true,
+     "value": 0.082,
+     "limit": "<= 1.08",
+     "detail": "61425 -> 61446 pages over 8 cycles"
+    },
+    {
+     "name": "log_errors",
+     "ok": true,
+     "value": 0,
+     "limit": "== 0",
+     "detail": "1 known stock lines ignored"
+    },
+    {
+     "name": "compositor_pid",
+     "ok": true,
+     "value": 5905,
+     "limit": "== 5905",
+     "detail": ""
+    }
+   ],
+   "traces": [
+    "gate-r18b-picker-netflix-m0",
+    "gate-r18b-picker-netflix-m1",
+    "gate-r18b-picker-netflix-m2",
+    "gate-r18b-picker-netflix-s0"
+   ],
+   "windows": [
+    {
+     "name": "picker-netflix-open",
+     "dur_s": 1.552,
+     "frames": 9,
+     "fps": 5.8,
+     "over20": 0,
+     "worst_ms": 16.7,
+     "anim_frames": 7,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.15,
+      "p90": 1.48,
+      "max": 2.98
+     },
+     "first_frame_ms": 24.66,
+     "burst_end_ms": 158.14,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.48,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.48,
+      0.89,
+      2.98,
+      1.15,
+      1.37,
+      0.87
+     ],
+     "burst_anim_samples": [
+      0.87,
+      0.89,
+      1.14,
+      1.15,
+      1.37,
+      1.48,
+      2.98
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8391,
+      "eth0": 7095,
+      "IPI": 3282,
+      "ipc_vdec": 1489,
+      "aud2": 401,
+      "DE2VSYNC": 279,
+      "osd_irq": 186,
+      "aud0": 149
+     },
+     "gaps": []
+    },
+    {
+     "name": "picker-netflix-close",
+     "dur_s": 1.601,
+     "frames": 11,
+     "fps": 6.9,
+     "over20": 1,
+     "worst_ms": 383.7,
+     "anim_frames": 6,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.04,
+      "p90": 2.32,
+      "max": 2.95
+     },
+     "first_frame_ms": 24.04,
+     "burst_end_ms": 140.82,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 2.04,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      2.95,
+      1.65,
+      1.14,
+      1.66,
+      2.04
+     ],
+     "burst_anim_samples": [
+      1.14,
+      1.65,
+      1.66,
+      2.04,
+      2.95
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8231,
+      "eth0": 7073,
+      "IPI": 2774,
+      "ipc_vdec": 1538,
+      "aud2": 414,
+      "DE2VSYNC": 288,
+      "osd_irq": 192,
+      "aud0": 152
+     },
+     "gaps": [
+      {
+       "at": 0.141,
+       "ms": 383.7,
+       "vblanks": 23,
+       "sm": {
+        "run_ms": 7.64,
+        "runnable_ms": 0.02,
+        "max_sched_lat_ms": 0.01,
+        "cpus": [
+         3
+        ],
+        "sleep_ms": 376.06
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          290.89
+         ],
+         [
+          "ss.apiadapter-2549",
+          25.59
+         ],
+         [
+          "HTTPREQUEST_MAN-30328",
+          24.99
+         ],
+         [
+          "alsa-sink-lg115-2667",
+          7.58
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          304.87
+         ],
+         [
+          "pq_thread-8179",
+          21.46
+         ],
+         [
+          "netflix-30241",
+          19.28
+         ],
+         [
+          "ss.apiadapter-2549",
+          18.2
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          269.83
+         ],
+         [
+          "ss.apiadapter-2549",
+          45.96
+         ],
+         [
+          "video-queue:src-30425",
+          13.79
+         ],
+         [
+          "Dolby_Vision-30456",
+          9.35
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          342.26
+         ],
+         [
+          "smc_kthread-1478",
+          14.15
+         ],
+         [
+          "surface-manager-5905",
+          7.64
+         ],
+         [
+          "python3-5233",
+          4.34
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 5,
+        "busy_ms": 0.82,
+        "pm": [
+         [
+          368.15,
+          272,
+          1
+         ],
+         [
+          368.16,
+          288,
+          1
+         ],
+         [
+          368.16,
+          256,
+          0
+         ],
+         [
+          368.16,
+          272,
+          1
+         ],
+         [
+          368.16,
+          288,
+          1
+         ],
+         [
+          368.16,
+          256,
+          0
+         ],
+         [
+          368.16,
+          272,
+          1
+         ],
+         [
+          368.17,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 2.482,
+        "DE2VSYNC": 0.468,
+        "arch_timer": 11.134,
+        "aud2": 0.65,
+        "aud0": 0.144,
+        "ipc_vdec": 2.327,
+        "eth0": 5.228,
+        "osd_irq": 0.31,
+        "ohci_hcd:usb8": 0.791,
+        "TE_MCU[0]": 0.006,
+        "TE_MCU[1]": 0.003,
+        "hdmicec": 0.002,
+        "c4250000.gpu": 0.13
+       },
+       "softirq_ms": 22.76,
+       "cpuhp": [],
+       "reclaim": [
+        "mm_vmscan_kswapd_wake"
+       ],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         754
+        ],
+        [
+         "ss.apiadapter",
+         261
+        ],
+        [
+         "lxvideodec0:src",
+         140
+        ],
+        [
+         "video-queue:src",
+         139
+        ],
+        [
+         "kworker/0:2H",
+         137
+        ],
+        [
+         "alsa-sink-lg115",
+         137
+        ],
+        [
+         "task8",
+         115
+        ],
+        [
+         "starter_1612000",
+         80
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         137
+        ],
+        [
+         "noti_handler_work",
+         72
+        ],
+        [
+         "free_work",
+         22
+        ],
+        [
+         "kbase_jd_done_worker",
+         6
+        ],
+        [
+         "psi_avgs_work",
+         4
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-netflix-open",
+     "dur_s": 1.555,
+     "frames": 12,
+     "fps": 7.7,
+     "over20": 1,
+     "worst_ms": 317.0,
+     "anim_frames": 8,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.01,
+      "p90": 1.24,
+      "max": 2.23
+     },
+     "first_frame_ms": 22.53,
+     "burst_end_ms": 155.99,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.17,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      0.95,
+      1.17,
+      0.89,
+      0.92,
+      0.73,
+      1.01
+     ],
+     "burst_anim_samples": [
+      0.73,
+      0.89,
+      0.92,
+      0.95,
+      1.01,
+      1.17,
+      1.24
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8095,
+      "IPI": 2182,
+      "ipc_vdec": 1490,
+      "eth0": 637,
+      "aud2": 400,
+      "DE2VSYNC": 279,
+      "osd_irq": 186,
+      "aud0": 144
+     },
+     "gaps": [
+      {
+       "at": 0.156,
+       "ms": 317.0,
+       "vblanks": 19,
+       "sm": {
+        "run_ms": 145.38,
+        "runnable_ms": 0.13,
+        "max_sched_lat_ms": 0.12,
+        "cpus": [
+         1,
+         3
+        ],
+        "sleep_ms": 171.47
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          210.24
+         ],
+         [
+          "ss.apiadapter-2549",
+          63.69
+         ],
+         [
+          "alsa-sink-lg115-2667",
+          6.72
+         ],
+         [
+          "dpi player-30416",
+          6.11
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          210.0
+         ],
+         [
+          "surface-manager-5905",
+          51.05
+         ],
+         [
+          "Dolby_Vision-30456",
+          7.81
+         ],
+         [
+          "video-queue:src-30425",
+          7.73
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          210.12
+         ],
+         [
+          "pq_thread-8179",
+          18.24
+         ],
+         [
+          "netflix-30241",
+          17.16
+         ],
+         [
+          "ss.apiadapter-2549",
+          13.23
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          211.87
+         ],
+         [
+          "surface-manager-5905",
+          94.33
+         ],
+         [
+          "SettingsService-4732",
+          3.86
+         ],
+         [
+          "lginput2-4031",
+          3.4
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 3,
+        "busy_ms": 2.73,
+        "pm": [
+         [
+          303.25,
+          272,
+          1
+         ],
+         [
+          303.26,
+          288,
+          1
+         ],
+         [
+          303.26,
+          256,
+          0
+         ],
+         [
+          303.26,
+          272,
+          1
+         ],
+         [
+          303.26,
+          288,
+          1
+         ],
+         [
+          303.27,
+          256,
+          0
+         ],
+         [
+          303.27,
+          272,
+          1
+         ],
+         [
+          303.27,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 1.589,
+        "DE2VSYNC": 0.409,
+        "arch_timer": 9.629,
+        "aud2": 0.619,
+        "aud0": 0.145,
+        "ipc_vdec": 2.098,
+        "osd_irq": 0.262,
+        "TE_MCU[0]": 0.008,
+        "TE_MCU[1]": 0.003,
+        "eth0": 0.057,
+        "c4250000.gpu": 0.119
+       },
+       "softirq_ms": 6.0,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         624
+        ],
+        [
+         "ss.apiadapter",
+         208
+        ],
+        [
+         "alsa-sink-lg115",
+         118
+        ],
+        [
+         "kworker/0:2H",
+         114
+        ],
+        [
+         "lxvideodec0:src",
+         111
+        ],
+        [
+         "video-queue:src",
+         107
+        ],
+        [
+         "task8",
+         95
+        ],
+        [
+         "dpi player",
+         77
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         114
+        ],
+        [
+         "noti_handler_work",
+         59
+        ],
+        [
+         "free_work",
+         13
+        ],
+        [
+         "kbase_jd_done_worker",
+         4
+        ],
+        [
+         "psi_avgs_work",
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-netflix-close",
+     "dur_s": 1.595,
+     "frames": 11,
+     "fps": 6.9,
+     "over20": 1,
+     "worst_ms": 767.4,
+     "anim_frames": 1,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.8,
+      "p90": 1.8,
+      "max": 1.8
+     },
+     "first_frame_ms": 19.22,
+     "burst_end_ms": 136.01,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": null,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [],
+     "burst_anim_samples": [],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8226,
+      "IPI": 2411,
+      "ipc_vdec": 1530,
+      "aud2": 413,
+      "DE2VSYNC": 286,
+      "osd_irq": 191,
+      "aud0": 152,
+      "ohci_hcd:usb8": 96
+     },
+     "gaps": [
+      {
+       "at": 0.136,
+       "ms": 767.4,
+       "vblanks": 46,
+       "sm": {
+        "run_ms": 6.86,
+        "runnable_ms": 0.01,
+        "max_sched_lat_ms": 0.0,
+        "cpus": [
+         3
+        ],
+        "sleep_ms": 760.57
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          651.99
+         ],
+         [
+          "ss.apiadapter-2549",
+          27.24
+         ],
+         [
+          "pq_thread-8179",
+          16.48
+         ],
+         [
+          "netflix-30241",
+          9.01
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          569.8
+         ],
+         [
+          "ss.apiadapter-2549",
+          74.48
+         ],
+         [
+          "Dolby_Vision-30456",
+          18.3
+         ],
+         [
+          "video-queue:src-30425",
+          16.02
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          531.99
+         ],
+         [
+          "ss.apiadapter-2549",
+          59.87
+         ],
+         [
+          "smc_kthread-1478",
+          34.42
+         ],
+         [
+          "video-queue:src-30425",
+          28.56
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          753.72
+         ],
+         [
+          "surface-manager-5905",
+          6.86
+         ],
+         [
+          "python3-458",
+          1.52
+         ],
+         [
+          "netflix-30241",
+          0.66
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 6,
+        "busy_ms": 1.55,
+        "pm": [
+         [
+          756.42,
+          272,
+          1
+         ],
+         [
+          756.43,
+          288,
+          1
+         ],
+         [
+          756.43,
+          256,
+          0
+         ],
+         [
+          756.43,
+          272,
+          1
+         ],
+         [
+          756.43,
+          288,
+          1
+         ],
+         [
+          756.43,
+          256,
+          0
+         ],
+         [
+          756.43,
+          272,
+          1
+         ],
+         [
+          756.44,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 4.308,
+        "ipc_vdec": 4.18,
+        "arch_timer": 20.15,
+        "aud2": 1.091,
+        "aud0": 0.287,
+        "DE2VSYNC": 0.894,
+        "osd_irq": 0.623,
+        "ohci_hcd:usb8": 0.826,
+        "eth0": 0.089,
+        "hdmicec": 0.002,
+        "TE_MCU[0]": 0.004,
+        "TE_MCU[1]": 0.004,
+        "aud1": 0.006,
+        "fe500000.i2c": 0.028,
+        "c4250000.gpu": 0.241
+       },
+       "softirq_ms": 13.68,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1504
+        ],
+        [
+         "ss.apiadapter",
+         524
+        ],
+        [
+         "kworker/0:2H",
+         278
+        ],
+        [
+         "video-queue:src",
+         275
+        ],
+        [
+         "lxvideodec0:src",
+         270
+        ],
+        [
+         "task8",
+         230
+        ],
+        [
+         "alsa-sink-lg115",
+         208
+        ],
+        [
+         "dpi player",
+         195
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         278
+        ],
+        [
+         "noti_handler_work",
+         144
+        ],
+        [
+         "free_work",
+         46
+        ],
+        [
+         "psi_avgs_work",
+         10
+        ],
+        [
+         "kbase_jd_done_worker",
+         6
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-netflix-open",
+     "dur_s": 1.551,
+     "frames": 12,
+     "fps": 7.7,
+     "over20": 2,
+     "worst_ms": 884.2,
+     "anim_frames": 8,
+     "dropped": 0,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 1.17,
+      "p90": 1.52,
+      "max": 2.98
+     },
+     "first_frame_ms": 22.27,
+     "burst_end_ms": 155.74,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.52,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.05,
+      0.97,
+      2.98,
+      1.52,
+      1.19,
+      0.99
+     ],
+     "burst_anim_samples": [
+      0.97,
+      0.99,
+      1.05,
+      1.17,
+      1.19,
+      1.52,
+      2.98
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8021,
+      "eth0": 5062,
+      "IPI": 3211,
+      "ipc_vdec": 1486,
+      "aud2": 402,
+      "DE2VSYNC": 279,
+      "osd_irq": 186,
+      "aud0": 149
+     },
+     "gaps": [
+      {
+       "at": 0.156,
+       "ms": 884.2,
+       "vblanks": 53,
+       "sm": {
+        "run_ms": 39.39,
+        "runnable_ms": 0.45,
+        "max_sched_lat_ms": 0.18,
+        "cpus": [
+         0,
+         1,
+         2,
+         3
+        ],
+        "sleep_ms": 844.38
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          802.56
+         ],
+         [
+          "dpi player-30433",
+          39.0
+         ],
+         [
+          "lginput2-4031",
+          10.2
+         ],
+         [
+          "kworker/0:2H-27764",
+          8.5
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          643.99
+         ],
+         [
+          "ss.apiadapter-2549",
+          87.32
+         ],
+         [
+          "pq_thread-8179",
+          29.06
+         ],
+         [
+          "surface-manager-5905",
+          28.13
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          670.32
+         ],
+         [
+          "ss.apiadapter-2549",
+          70.25
+         ],
+         [
+          "pq_thread-8179",
+          21.63
+         ],
+         [
+          "dpi player-30416",
+          19.03
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          678.88
+         ],
+         [
+          "smc_kthread-1478",
+          41.66
+         ],
+         [
+          "ss.apiadapter-2549",
+          36.68
+         ],
+         [
+          "video-queue:src-30425",
+          30.27
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 2.93,
+        "pm": [
+         [
+          880.35,
+          272,
+          1
+         ],
+         [
+          880.35,
+          288,
+          1
+         ],
+         [
+          880.35,
+          256,
+          0
+         ],
+         [
+          880.35,
+          272,
+          1
+         ],
+         [
+          880.36,
+          288,
+          1
+         ],
+         [
+          880.36,
+          256,
+          0
+         ],
+         [
+          880.36,
+          272,
+          1
+         ],
+         [
+          880.36,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 6.988,
+        "DE2VSYNC": 1.021,
+        "arch_timer": 24.523,
+        "eth0": 10.311,
+        "ipc_vdec": 4.267,
+        "aud2": 1.259,
+        "aud0": 0.289,
+        "osd_irq": 0.689,
+        "ohci_hcd:usb8": 1.687,
+        "hdmicec": 0.002,
+        "TE_MCU[0]": 0.006,
+        "TE_MCU[1]": 0.009,
+        "c4250000.gpu": 0.084
+       },
+       "softirq_ms": 45.73,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1732
+        ],
+        [
+         "ss.apiadapter",
+         614
+        ],
+        [
+         "video-queue:src",
+         317
+        ],
+        [
+         "lxvideodec0:src",
+         317
+        ],
+        [
+         "kworker/0:2H",
+         314
+        ],
+        [
+         "task8",
+         264
+        ],
+        [
+         "dpi player",
+         244
+        ],
+        [
+         "alsa-sink-lg115",
+         171
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         314
+        ],
+        [
+         "noti_handler_work",
+         166
+        ],
+        [
+         "free_work",
+         37
+        ],
+        [
+         "psi_avgs_work",
+         20
+        ],
+        [
+         "vmstat_update",
+         5
+        ]
+       ]
+      },
+      {
+       "at": 1.057,
+       "ms": 367.0,
+       "vblanks": 22,
+       "sm": {
+        "run_ms": 7.71,
+        "runnable_ms": 0.76,
+        "max_sched_lat_ms": 0.32,
+        "cpus": [
+         1,
+         2,
+         3
+        ],
+        "sleep_ms": 358.56
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          352.21
+         ],
+         [
+          "lginput2-4031",
+          3.47
+         ],
+         [
+          "memchute-1923",
+          3.28
+         ],
+         [
+          "kworker/0:2H-27764",
+          3.1
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          288.18
+         ],
+         [
+          "ss.apiadapter-2549",
+          26.73
+         ],
+         [
+          "pq_thread-8179",
+          21.39
+         ],
+         [
+          "HTTPREQUEST_MAN-30328",
+          6.8
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          284.2
+         ],
+         [
+          "ss.apiadapter-2549",
+          28.9
+         ],
+         [
+          "netflix-30241",
+          17.18
+         ],
+         [
+          "dpi player-30416",
+          5.43
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          279.86
+         ],
+         [
+          "ss.apiadapter-2549",
+          21.6
+         ],
+         [
+          "video-queue:src-30425",
+          16.68
+         ],
+         [
+          "smc_kthread-1478",
+          13.94
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 2,
+        "busy_ms": 2.9,
+        "pm": [
+         [
+          356.3,
+          272,
+          1
+         ],
+         [
+          356.31,
+          288,
+          1
+         ],
+         [
+          356.31,
+          256,
+          0
+         ],
+         [
+          356.31,
+          272,
+          1
+         ],
+         [
+          356.31,
+          288,
+          1
+         ],
+         [
+          356.32,
+          256,
+          0
+         ],
+         [
+          356.32,
+          272,
+          1
+         ],
+         [
+          356.32,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 2.583,
+        "arch_timer": 9.442,
+        "aud2": 0.414,
+        "eth0": 1.376,
+        "ipc_vdec": 1.645,
+        "DE2VSYNC": 0.407,
+        "osd_irq": 0.276,
+        "aud0": 0.113,
+        "mmc0": 0.03,
+        "ohci_hcd:usb8": 0.775,
+        "c4250000.gpu": 0.098
+       },
+       "softirq_ms": 10.38,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [
+        "179,0 WM 4096 () 15644600 + 8 [kworker/1:1H]",
+        "179,0 WM 4096 () 17685512 + 8 [kworker/1:1H]",
+        "179,0 WM 4096 () 23714816 + 8 [kworker/1:1H]",
+        "179,0 WM 8192 () 23714832 + 16 [kworker/1:1H]"
+       ],
+       "wakeups": [
+        [
+         "lginput2",
+         722
+        ],
+        [
+         "ss.apiadapter",
+         257
+        ],
+        [
+         "video-queue:src",
+         132
+        ],
+        [
+         "kworker/0:2H",
+         130
+        ],
+        [
+         "lxvideodec0:src",
+         129
+        ],
+        [
+         "task8",
+         110
+        ],
+        [
+         "dpi player",
+         81
+        ],
+        [
+         "alsa-sink-lg115",
+         79
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         130
+        ],
+        [
+         "noti_handler_work",
+         69
+        ],
+        [
+         "free_work",
+         21
+        ],
+        [
+         "psi_avgs_work",
+         11
+        ],
+        [
+         "kbase_jd_done_worker",
+         2
+        ]
+       ]
+      }
+     ]
+    },
+    {
+     "name": "picker-netflix-close",
+     "dur_s": 1.668,
+     "frames": 13,
+     "fps": 7.8,
+     "over20": 2,
+     "worst_ms": 817.5,
+     "anim_frames": 6,
+     "dropped": 2,
+     "dropped_in_motion": 0,
+     "anim_render_ms": {
+      "median": 2.34,
+      "p90": 2.36,
+      "max": 2.83
+     },
+     "first_frame_ms": 22.63,
+     "burst_end_ms": 139.41,
+     "burst_over20": 0,
+     "burst_anim_p90_ms": 1.86,
+     "sent_ms": null,
+     "osd_wake_ms": null,
+     "burst_first_render_ms": [
+      1.91,
+      1.76,
+      1.86
+     ],
+     "burst_anim_samples": [
+      1.76,
+      1.86,
+      1.91
+     ],
+     "burst_app_jobs": 0,
+     "irq_counts": {
+      "arch_timer": 8728,
+      "eth0": 7465,
+      "IPI": 3703,
+      "ipc_vdec": 1601,
+      "aud2": 431,
+      "DE2VSYNC": 300,
+      "osd_irq": 200,
+      "aud0": 153
+     },
+     "gaps": [
+      {
+       "at": 0.139,
+       "ms": 383.7,
+       "vblanks": 23,
+       "sm": {
+        "run_ms": 6.69,
+        "runnable_ms": 0.6,
+        "max_sched_lat_ms": 0.59,
+        "cpus": [
+         1
+        ],
+        "sleep_ms": 376.42
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          334.08
+         ],
+         [
+          "ss.apiadapter-2549",
+          7.8
+         ],
+         [
+          "dpi player-30433",
+          6.9
+         ],
+         [
+          "NBP_POOL0-30272",
+          6.22
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          262.96
+         ],
+         [
+          "ss.apiadapter-2549",
+          52.54
+         ],
+         [
+          "netflix-30241",
+          16.67
+         ],
+         [
+          "alsa-sink-lg115-2667",
+          7.55
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          273.26
+         ],
+         [
+          "video-queue:src-30425",
+          19.66
+         ],
+         [
+          "ss.apiadapter-2549",
+          17.21
+         ],
+         [
+          "smc_kthread-1478",
+          15.8
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          318.51
+         ],
+         [
+          "pq_thread-8179",
+          16.37
+         ],
+         [
+          "Dolby_Vision-30456",
+          9.15
+         ],
+         [
+          "ss.apiadapter-2549",
+          9.12
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 3,
+        "busy_ms": 0.27,
+        "pm": [
+         [
+          365.98,
+          272,
+          1
+         ],
+         [
+          365.99,
+          288,
+          1
+         ],
+         [
+          365.99,
+          256,
+          0
+         ],
+         [
+          365.99,
+          272,
+          1
+         ],
+         [
+          366.0,
+          288,
+          1
+         ],
+         [
+          366.0,
+          256,
+          0
+         ],
+         [
+          366.0,
+          272,
+          1
+         ],
+         [
+          366.0,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 3.187,
+        "arch_timer": 10.795,
+        "eth0": 4.068,
+        "ohci_hcd:usb8": 0.845,
+        "ipc_vdec": 1.837,
+        "aud2": 0.565,
+        "aud0": 0.107,
+        "DE2VSYNC": 0.42,
+        "osd_irq": 0.286,
+        "mmc0": 0.026,
+        "TE_MCU[0]": 0.004,
+        "TE_MCU[1]": 0.003,
+        "c4250000.gpu": 0.117
+       },
+       "softirq_ms": 19.75,
+       "cpuhp": [],
+       "reclaim": [],
+       "cma": [],
+       "block": [
+        "179,0 FF 0 () 0 + 0 [kworker/0:2H]",
+        "179,0 WFS 4096 () 16167056 + 8 [kworker/0:2H]"
+       ],
+       "wakeups": [
+        [
+         "lginput2",
+         752
+        ],
+        [
+         "ss.apiadapter",
+         263
+        ],
+        [
+         "kworker/0:2H",
+         138
+        ],
+        [
+         "video-queue:src",
+         138
+        ],
+        [
+         "lxvideodec0:src",
+         132
+        ],
+        [
+         "task8",
+         115
+        ],
+        [
+         "dpi player",
+         91
+        ],
+        [
+         "alsa-sink-lg115",
+         73
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         135
+        ],
+        [
+         "noti_handler_work",
+         72
+        ],
+        [
+         "free_work",
+         11
+        ],
+        [
+         "psi_avgs_work",
+         6
+        ],
+        [
+         "kbase_jd_done_worker",
+         4
+        ]
+       ]
+      },
+      {
+       "at": 0.54,
+       "ms": 817.5,
+       "vblanks": 49,
+       "sm": {
+        "run_ms": 8.48,
+        "runnable_ms": 0.85,
+        "max_sched_lat_ms": 0.82,
+        "cpus": [
+         1,
+         2
+        ],
+        "sleep_ms": 808.15
+       },
+       "cpu": {
+        "0": [
+         [
+          "swapper/0-0",
+          766.22
+         ],
+         [
+          "lginput2-4031",
+          8.6
+         ],
+         [
+          "kworker/0:2H-27764",
+          7.34
+         ],
+         [
+          "LGDTV-PMDRV-TAS-1468",
+          5.05
+         ]
+        ],
+        "1": [
+         [
+          "swapper/1-0",
+          594.68
+         ],
+         [
+          "ss.apiadapter-2549",
+          74.51
+         ],
+         [
+          "pq_thread-8179",
+          35.88
+         ],
+         [
+          "dpi player-30416",
+          16.49
+         ]
+        ],
+        "2": [
+         [
+          "swapper/2-0",
+          555.45
+         ],
+         [
+          "video-queue:src-30425",
+          41.93
+         ],
+         [
+          "ss.apiadapter-2549",
+          35.25
+         ],
+         [
+          "smc_kthread-1478",
+          32.23
+         ]
+        ],
+        "3": [
+         [
+          "swapper/3-0",
+          540.61
+         ],
+         [
+          "migration/3-24",
+          96.3
+         ],
+         [
+          "ss.apiadapter-2549",
+          67.65
+         ],
+         [
+          "dpi player-30433",
+          36.74
+         ]
+        ]
+       },
+       "gpu": {
+        "jobs": 12,
+        "busy_ms": 2.12,
+        "pm": [
+         [
+          96.61,
+          272,
+          1
+         ],
+         [
+          96.62,
+          288,
+          1
+         ],
+         [
+          96.62,
+          256,
+          0
+         ],
+         [
+          96.62,
+          272,
+          1
+         ],
+         [
+          96.62,
+          288,
+          1
+         ],
+         [
+          96.62,
+          256,
+          0
+         ],
+         [
+          96.62,
+          272,
+          1
+         ],
+         [
+          96.63,
+          288,
+          1
+         ]
+        ]
+       },
+       "irq_ms": {
+        "IPI": 6.694,
+        "ipc_vdec": 3.796,
+        "arch_timer": 23.09,
+        "aud2": 1.046,
+        "eth0": 9.543,
+        "DE2VSYNC": 0.916,
+        "osd_irq": 0.612,
+        "aud0": 0.258,
+        "gfx_irq": 0.004,
+        "c4250000.gpu": 0.35,
+        "ohci_hcd:usb8": 1.715,
+        "hdmicec": 0.003
+       },
+       "softirq_ms": 41.74,
+       "cpuhp": [
+        "cpuhp_enter cpu: 0003 target: 139 step: 209 (cpuhp_kick_ap_work)",
+        "cpuhp_enter cpu: 0003 target: 139 step: 208 (sched_cpu_deactivate)",
+        "cpuhp_exit  cpu: 0003  state: 207 step: 208 ret: 0",
+        "cpuhp_enter cpu: 0003 target: 139 step: 183 (free_slot_cache)"
+       ],
+       "reclaim": [],
+       "cma": [],
+       "block": [],
+       "wakeups": [
+        [
+         "lginput2",
+         1602
+        ],
+        [
+         "ss.apiadapter",
+         538
+        ],
+        [
+         "dpi player",
+         342
+        ],
+        [
+         "video-queue:src",
+         295
+        ],
+        [
+         "lxvideodec0:src",
+         294
+        ],
+        [
+         "kworker/0:2H",
+         284
+        ],
+        [
+         "task8",
+         245
+        ],
+        [
+         "alsa-sink-lg115",
+         162
+        ]
+       ],
+       "workqueue": [
+        [
+         "process_dspirq_workfunc",
+         284
+        ],
+        [
+         "noti_handler_work",
+         153
+        ],
+        [
+         "free_work",
+         34
+        ],
+        [
+         "psi_avgs_work",
+         18
+        ],
+        [
+         "kbase_jd_done_worker",
+         12
+        ]
+       ]
+      }
+     ]
+    }
+   ],
+   "log_lines": [],
+   "log_ignored": 1,
+   "log_unfiltered": false,
+   "rss": {
+    "cycles": 10,
+    "growth_mb": 0.082,
+    "allowed_mb": 1.08,
+    "base_pages": 61425,
+    "last_pages": 61446,
+    "first_pages": 61423,
+    "ok": true
+   },
+   "discarded": []
+  }
+ ]
+}
