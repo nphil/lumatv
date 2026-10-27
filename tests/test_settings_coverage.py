@@ -126,6 +126,40 @@ probe("bt_device", "root.openPage('btaudio');root.openPage('btdevice',{kind:'aud
 probe("bt_device_delete", FIND % "btdevice" + "R('Delete Device').act();var asked=root.confirmOpen;root.key('right');root.key('ok');return {asked:asked,at:root.current}", wait=400)
 probe("bt_audio_gone", (ROWS % "btaudio") + "return out")
 
+# Sound Balance and the speaker positions: the offline TV's speakers are put in a variant (btaudiosrc/fake/speakers, only the stub answers it) and the page reads them again
+SPEAKERS = ("var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set(v) { "
+            "LS.adhoc.call(\"luna://com.webos.service.btaudiosrc\", \"/fake/speakers\", JSON.stringify({set: v})) } }', root);")
+BALANCE = FIND % "btaudio" + "var b=R('Sound Balance');return {shown:b!==undefined,text:b?p.ev(b.valueText):'',on:b?p.ev(b.enabled)!==false:false,min:b?p.ev(b.min):0,max:b?p.ev(b.max):0,num:b?p.ev(b.num):0}"
+DEVICE = ("root.openPage('btaudio');root.openPage('btdevice',{kind:'audio',address:'%s',name:'%s',connected:true,surround:'%s',back:'Bluetooth Speakers',backId:'btaudio'});")
+POSITION = FIND % "btdevice" + "var r=R('Position');return {shown:r!==undefined,value:r?p.ev(r.value):'',on:r?p.ev(r.enabled)!==false:false,detail:r?p.ev(r.detail):'',options:r?r.options().map(function(o){return o.value+':'+o.label}):[]}"
+probe("bt_balance_default", BALANCE)
+probe("bt_balance_different_set", SPEAKERS + "s.set('different');root.pageItem('btaudio').refresh();return 1", wait=400)
+probe("bt_balance_different", BALANCE)
+probe("bt_balance_avrcp_set", SPEAKERS + "s.set('avrcpOff');root.pageItem('btaudio').refresh();return 1", wait=400)
+probe("bt_balance_avrcp", BALANCE)
+probe("bt_balance_set", SPEAKERS + "s.set('matching');root.pageItem('btaudio').refresh();return 1", wait=400)
+probe("bt_balance_matching", BALANCE)
+probe("bt_balance_step", FIND % "btaudio" + "var b=R('Sound Balance');b.act(2);var t=p.ev(b.valueText);b.act(5);var mid=p.ev(b.valueText);b.act(10);return {left:t,mid:mid,right:p.ev(b.valueText)}", wait=300)
+probe("bt_balance_reread", FIND % "btaudio" + "p.btBalance=-1;p.refresh();return 1", wait=400)
+probe("bt_balance_after", BALANCE)
+probe("bt_position_locked", DEVICE % ("AA:BB:CC:00:00:11", "Studio Speaker (L)", "left") + "return 1", wait=400)
+probe("bt_position_locked_row", POSITION)
+probe("bt_position_sound_out", SET + "s.set('sound', {soundOutput: 'tv_speaker_bluetooth'});return 1", wait=250)
+probe("bt_position_open", DEVICE % ("AA:BB:CC:00:00:11", "Studio Speaker (L)", "left") + "return 1", wait=400)
+probe("bt_position_row", POSITION)
+probe("bt_position_swap_ask", FIND % "btdevice" + "R('Position').pick(1);return {asked:root.confirmOpen}", wait=300)
+probe("bt_position_swap_no", "root.key('ok');return 1", wait=300)
+probe("bt_position_swap_closed", "return {open:root.confirmOpen}")
+probe("bt_position_swap_yes_ask", FIND % "btdevice" + "R('Position').pick(1);return {asked:root.confirmOpen}", wait=300)
+probe("bt_position_swap_yes", "root.key('right');root.key('ok');return 1", wait=500)
+probe("bt_position_swapped", POSITION)
+probe("bt_position_list", "root.pageItem('btaudio').refresh();return 1", wait=400)
+probe("bt_position_list_rows", (ROWS % "btaudio") + "return out.filter(function(r){return /Studio/.test(r[0])})")
+probe("bt_position_front_open", SPEAKERS + "s.set('different');root.pageItem('btaudio').refresh();return 1", wait=400)
+probe("bt_position_front", DEVICE % ("AA:BB:CC:00:00:13", "Garage Boombox", "none") + FIND % "btdevice" + "var o=R('Position').options().map(function(x){return x.value});R('Position').pick(0);return {options:o,asked:root.confirmOpen}", wait=500)
+probe("bt_position_front_after", POSITION)
+probe("bt_position_end", SPEAKERS + "s.set('default');" + SET + "s.set('sound', {soundOutput: 'external_arc'});root.pageItem('sound').refresh();root.openPage('btaudio');root.pageItem('btaudio').refresh();return 1", wait=400)
+
 # ---- Network: joining, the address, the TV's name (typed on the keyboard: the probe types into it, then presses Done)
 TYPE = "root.entryItem.text=%s;root.entryItem.press('Done');"
 probe("wifi_open", "root.openPage('wifi');return 1", wait=400)
@@ -588,6 +622,47 @@ class Coverage(unittest.TestCase):
         self.assertEqual(doc["res"], {"asked": True, "at": "btaudio"})                                          # then back to the list it came from
         self.assertEqual([c["payload"] for c in doc["calls"] if c["method"] == "/removePairedDevice"], [{"address": "AA:BB:CC:00:00:01"}])
         self.assertNotIn(["Living Room Headphones", ""], self.probe("bt_audio_gone")["res"])
+
+    def test_sound_balance_is_shown_only_for_two_matching_speakers_that_both_answer_over_avrcp(self):
+        hidden = {"shown": False, "text": "", "on": False, "min": 0, "max": 0, "num": 0}
+        self.assertEqual(self.probe("bt_balance_default")["res"], hidden)                    # one speaker, not a pair
+        self.assertEqual(self.probe("bt_balance_different")["res"], hidden)                  # two connected, two models
+        self.assertEqual(self.probe("bt_balance_avrcp")["res"], hidden)                      # a pair, one of them not on AVRCP
+        self.assertEqual(self.probe("bt_balance_matching")["res"], {"shown": True, "text": "0", "on": True, "min": 0, "max": 10, "num": 5})
+
+    def test_the_balance_stepper_writes_the_left_right_key_and_is_read_back_from_the_service(self):
+        d = self.probe("bt_balance_step")
+        self.assertEqual(d["res"], {"left": "Left 3", "mid": "0", "right": "Right 5"})
+        self.assertEqual([(c["method"], c["payload"]) for c in d["calls"] if c["method"] == "/setVolumeBalancing"],
+                         [("/setVolumeBalancing", {"bluetooth_left_right": v}) for v in (2, 5, 10)])
+        self.assertEqual([c["error"] for c in d["calls"]], [""] * len(d["calls"]))
+        self.assertEqual(self.probe("bt_balance_after")["res"]["text"], "Right 5")           # the page forgot it, the service's answer brought it back
+
+    def test_a_speakers_position_waits_for_the_tv_and_bluetooth_sound_out_and_offers_the_pair_that_goes_with_it(self):
+        self.assertEqual(self.probe("bt_position_locked_row")["res"],
+                         {"shown": True, "value": "Left", "on": False, "detail": "Needs TV + Bluetooth", "options": ["left:Left", "right:Right"]})
+        self.assertEqual(self.probe("bt_position_row")["res"],
+                         {"shown": True, "value": "Left", "on": True, "detail": "", "options": ["left:Left", "right:Right"]})
+
+    def test_left_and_right_swap_only_after_the_question_is_answered_yes(self):
+        self.assertEqual(self.probe("bt_position_swap_ask")["res"], {"asked": True})
+        no = self.probe("bt_position_swap_no")
+        self.assertEqual(self.probe("bt_position_swap_closed")["res"], {"open": False})
+        self.assertEqual([c for c in no["calls"] if c["method"] == "/setChannel"], [])        # Keep it is the first answer, and what OK does
+        self.assertEqual(self.probe("bt_position_swap_yes_ask")["res"], {"asked": True})
+        d = self.probe("bt_position_swap_yes")
+        self.assertEqual([(c["method"], c["payload"]) for c in d["calls"] if c["method"] == "/setChannel"],
+                         [("/setChannel", {"address": "AA:BB:CC:00:00:11", "from": "left", "to": "right"})])
+        self.assertEqual([c["error"] for c in d["calls"]], [""] * len(d["calls"]))
+        self.assertEqual(self.probe("bt_position_swapped")["res"]["value"], "Right")
+        self.assertEqual(self.probe("bt_position_list_rows")["res"], [["Studio Speaker (L)", "Connected \u00b7 Right"], ["Studio Speaker (R)", "Connected \u00b7 Left"]])
+
+    def test_front_and_rear_change_at_once_with_the_position_the_speaker_had(self):
+        d = self.probe("bt_position_front")
+        self.assertEqual(d["res"], {"options": ["front", "rear"], "asked": False})
+        self.assertEqual([(c["method"], c["payload"]) for c in d["calls"] if c["method"] == "/setChannel"],
+                         [("/setChannel", {"address": "AA:BB:CC:00:00:13", "from": "none", "to": "front"})])
+        self.assertEqual(self.probe("bt_position_front_after")["res"]["value"], "Front")
 
     # ---- Network
     def test_join_network_lists_what_the_wifi_service_found_and_joins_after_the_question(self):

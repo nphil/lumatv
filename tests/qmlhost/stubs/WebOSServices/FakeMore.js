@@ -131,7 +131,6 @@ var services = {
         for (var i = 0; i < names.length; i++) if (known[names[i]] !== undefined) out[names[i]] = known[names[i]];
         return { returnValue: true, configs: out };
     },
-    "luna://com.webos.service.btaudiosrc/surround/getVolumeBalancing": { returnValue: true, subscribed: true, tvspeaker_bluetooth: 5, bluetooth_left_right: 5 },
     "luna://com.webos.service.audio/tv/getSoundCardsState": function() { return { returnValue: true, subscribed: true, soundCards: cards }; },
     "luna://com.webos.service.sdx/setCountrySettingByAuto": { returnValue: true, serverResponse: { code: "200" } },
     "luna://com.palm.systemservice/deviceInfo/query": { returnValue: true, product_id: "OLED65C4PUA.AUSQLJR", serial_number: "FAKE-SERIAL-0001" },

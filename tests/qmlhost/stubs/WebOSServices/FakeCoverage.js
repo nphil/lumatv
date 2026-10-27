@@ -90,20 +90,61 @@ function act(path, params) {
 
 // ---- Bluetooth (btaudiosrc for speakers, bthidmanager for controllers): what is paired, what can be found, and what a call changes
 var bt = {
-    audio: { paired: [{ address: "AA:BB:CC:00:00:01", name: "Living Room Headphones", state: "disconnected", display: true }],
+    audio: { paired: [{ address: "AA:BB:CC:00:00:01", name: "Living Room Headphones", state: "disconnected", display: true, surround: "none" }],
              found: [{ address: "AA:BB:CC:00:00:02", name: "Kitchen Speaker" }] },
     hid: { paired: [{ deviceAddr: "11:22:33:00:00:01", isPaired: true, deviceName: "Wireless Controller", deviceType: "gamepad", isConnected: false }],
            found: [{ address: "11:22:33:00:00:02", name: "Keyboard K380" }] }
 };
+// The speakers' volume and balance (btaudiosrc/surround): 0 to 10, 5 the middle of the balance.
+var balance = { tvspeaker_bluetooth: 5, bluetooth_left_right: 5 };
+var positions = ["left", "right", "front", "rear", "center", "none"];
+// Test variants of the paired speakers, put in place by `btaudiosrc/fake/speakers {set}` (not a call of the real service): "matching" is two connected
+// speakers of one model that both answer over AVRCP, as the TV lists a stereo pair; "different" is two of two models; "avrcpOff" is a pair whose
+// second speaker is not on AVRCP; "default" is the paired list the pages start with.
+var heldPaired = null;
+function speaker(addr, name, surround, avrcp) {
+    return { address: addr, name: name, state: "connected", display: true, surround: surround, avrcpSupported: true, avrcpConnected: avrcp };
+}
+function fakeSpeakers(set) {
+    var a = bt.audio;
+    if (heldPaired === null) heldPaired = a.paired;
+    if (set === "default") { a.paired = heldPaired; heldPaired = null; balance.bluetooth_left_right = 5; return null; }
+    if (set === "matching") a.paired = [speaker("AA:BB:CC:00:00:11", "Studio Speaker (L)", "left", true), speaker("AA:BB:CC:00:00:12", "Studio Speaker (R)", "right", true)];
+    else if (set === "different") a.paired = [speaker("AA:BB:CC:00:00:11", "Studio Speaker (L)", "left", true), speaker("AA:BB:CC:00:00:13", "Garage Boombox", "none", true)];
+    else if (set === "avrcpOff") a.paired = [speaker("AA:BB:CC:00:00:11", "Studio Speaker (L)", "left", true), speaker("AA:BB:CC:00:00:12", "Studio Speaker (R)", "right", false)];
+    else return "unknown variant";
+    return null;
+}
+// `setChannel {address, from, to}`: `from` is the position the speaker has, `to` one of the six; a speaker that holds `to` takes `from`.
+function setChannel(p) {
+    var list = bt.audio.paired, me = null, k;
+    for (k = 0; k < list.length; k++) if (list[k].address === p.address) me = list[k];
+    if (!me) return "unknown device";
+    if (me.state !== "connected") return "not connected";
+    if (positions.indexOf(p.to) < 0) return "unknown position";
+    if (p.from !== me.surround) return "from is not the speaker's position";
+    for (k = 0; k < list.length; k++) if (list[k] !== me && list[k].state === "connected" && list[k].surround === p.to && p.to !== "none") list[k].surround = p.from;
+    me.surround = p.to;
+    return null;
+}
 function btAudio(path, p) {
     var a = bt.audio, i;
     var at = function(list, addr) { for (var k = 0; k < list.length; k++) if (list[k].address === addr) return k; return -1; };
+    if (path === "fake/speakers") return fakeSpeakers(p.set);
+    if (path === "surround/setVolumeBalancing") {
+        var keys = Object.keys(p);
+        if (keys.length !== 1 || balance[keys[0]] === undefined) return "unknown key";
+        if (typeof p[keys[0]] !== "number" || p[keys[0]] < 0 || p[keys[0]] > 10 || p[keys[0]] % 1 !== 0) return "value out of range";
+        balance[keys[0]] = p[keys[0]];
+        return null;
+    }
+    if (path === "setChannel") return setChannel(p);
     if (path === "connect") {
         i = at(a.paired, p.address);
         if (i < 0) {
             var f = at(a.found, p.address);
             if (f < 0) return "unknown device";
-            a.paired.push({ address: a.found[f].address, name: a.found[f].name, state: "connected", display: true });
+            a.paired.push({ address: a.found[f].address, name: a.found[f].name, state: "connected", display: true, surround: "none" });
             a.found.splice(f, 1);
         } else a.paired[i].state = "connected";
     } else if (path === "disconnect" || path === "removePairedDevice") {
@@ -177,6 +218,9 @@ var services = {
     "luna://com.webos.service.btaudiosrc/getPairedDevices": function() { return { returnValue: true, subscribed: true, devices: bt.audio.paired }; },
     "luna://com.webos.service.btaudiosrc/startDiscovery": function() {
         return bt.audio.found.length ? { returnValue: true, timeOut: 30, state: "started", device: bt.audio.found[0] } : { returnValue: true, timeOut: 30, state: "stopped" };
+    },
+    "luna://com.webos.service.btaudiosrc/surround/getVolumeBalancing": function() {
+        return { returnValue: true, subscribed: true, tvspeaker_bluetooth: balance.tvspeaker_bluetooth, bluetooth_left_right: balance.bluetooth_left_right };
     },
     "luna://com.webos.service.btaudiosrc/getDeviceStatus": { returnValue: true, subscribed: true, state: "idle" },
     "luna://com.webos.service.bthidmanager/getPairedDeviceLists": function() {

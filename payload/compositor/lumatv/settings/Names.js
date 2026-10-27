@@ -22,6 +22,7 @@ var tables = {
     captionDigital: { off: "Off", svc1: "Service 1", svc2: "Service 2", svc3: "Service 3", svc4: "Service 4", svc5: "Service 5", svc6: "Service 6" },
     digitalPlusCaption: { eng: "English", spa: "Spanish", fre: "French" },
     deviceCnt: { singleConnection: "1 device", dualConnection: "2 devices (headset only)" },
+    speakerPosition: { left: "Left", right: "Right", front: "Front", rear: "Rear", center: "Center", none: "None" },
     automaticStandBy: { 0: "Off", 2: "2 hours", 4: "4 hours", 6: "6 hours", 8: "8 hours" },
     timerInput: { dtv: "Live TV", atv: "Analog TV", av1: "AV 1", av2: "AV 2", comp1: "Component 1", comp2: "Component 2", comp3: "Component 3", rgb: "RGB",
                   hdmi1: "HDMI 1", hdmi2: "HDMI 2", hdmi3: "HDMI 3", hdmi4: "HDMI 4" },

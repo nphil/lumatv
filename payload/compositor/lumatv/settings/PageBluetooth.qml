@@ -2,6 +2,7 @@ import QtQuick 2.4
 import "../kit"
 import "Rows.js" as R
 import "Choice.js" as C
+import "Names.js" as N
 import "."
 
 // Bluetooth devices (LG: General › External Devices › Connect Bluetooth Controller, and Sound › Sound Out › Bluetooth Device): the
@@ -19,9 +20,25 @@ PageList {
     property bool searching: false
     property string busy: ""               // the address being connected
     property real btVolume: -1             // LG's Bluetooth Speaker Volume, 0 to 10 (`tvspeaker_bluetooth` of btaudiosrc/surround); -1 until the service says
+    property real btBalance: -1            // LG's Sound Balance, 0 (left) to 10 (right), 5 the middle (`bluetooth_left_right`); -1 until the service says
     readonly property string surround: "luna://com.webos.service.btaudiosrc/surround"
     readonly property bool anyConnected: { for (var c = 0; c < paired.length; c++) if (paired[c].connected) return true; return false }
     readonly property bool hearingAidBt: String(Sio.get("sound.hearingAid")) === "bluetooth"
+    // LG's Sound Balance is for a pair of the same speaker (two connected with the same model name, which is what comes before "(" or "_") that both
+    // answer over AVRCP; the TV's name for each is "Model (L)" or "Model_L".
+    readonly property bool pairedSpeakers: {
+        var seen = {}
+        for (var c = 0; c < paired.length; c++) {
+            var d = paired[c]
+            if (!d.connected || !d.avrcpSupported || !d.avrcpConnected) continue
+            var n = String(d.name)
+            var m = n.indexOf("(") !== -1 ? n.split("(")[0] : n.split("_")[0]
+            if (seen[m]) return true
+            seen[m] = true
+        }
+        return false
+    }
+    function balanceText(v) { return v < 0 ? "\u2013" : v < 5 ? "Left " + (5 - v) : v > 5 ? "Right " + (v - 5) : "0" }
     title: audio ? "Bluetooth Speakers" : "Bluetooth Devices"
     back: audio ? "Sound" : "Inputs & devices"
     readonly property string svc: audio ? "luna://com.webos.service.btaudiosrc" : "luna://com.webos.service.bthidmanager"
@@ -37,14 +54,18 @@ PageList {
                 if (tag === "status" && (doc.status === "fail" || doc.status === "disconnected")) page.busy = ""
                 luna.call("list", page.svc, page.audio ? "getPairedDevices" : "getPairedDeviceLists", {})
             } else if (tag === "list") page.readPaired(doc)
-            else if (tag === "balance" && doc.tvspeaker_bluetooth !== undefined) page.btVolume = Number(doc.tvspeaker_bluetooth)
+            else if (tag === "balance") {
+                if (doc.tvspeaker_bluetooth !== undefined) page.btVolume = Number(doc.tvspeaker_bluetooth)
+                if (doc.bluetooth_left_right !== undefined) page.btBalance = Number(doc.bluetooth_left_right)
+            }
         }
     }
     function readPaired(doc) {
         var out = []
         if (page.audio) {
             var d = doc.devices || []
-            for (var i = 0; i < d.length; i++) if (d[i].display !== false) out.push({ address: d[i].address, name: d[i].name, state: d[i].state || "disconnected", connected: d[i].state === "connected" })
+            for (var i = 0; i < d.length; i++) if (d[i].display !== false) out.push({ address: d[i].address, name: d[i].name, state: d[i].state || "disconnected", connected: d[i].state === "connected",
+                                                                                    surround: d[i].surround || "none", avrcpSupported: d[i].avrcpSupported === true, avrcpConnected: d[i].avrcpConnected === true })
         } else {
             var l = doc.deviceLists || {}
             var keys = Object.keys(l).sort()
@@ -104,11 +125,13 @@ PageList {
     onVisibleChanged: if (!visible) { stopSearch(); luna.close("paired"); luna.close("status"); luna.close("balance") }
 
     function stateText(d) {
-        return busy === d.address ? "Connecting" : d.state === "connected" ? "Connected" : d.state === "connecting" ? "Connecting" : d.state === "disconnecting" ? "Disconnecting" : ""
+        var s = d.state === "connected" && (d.surround === "left" || d.surround === "right") ? N.name("speakerPosition", d.surround) : ""
+        var t = busy === d.address ? "Connecting" : d.state === "connected" ? "Connected" : d.state === "connecting" ? "Connecting" : d.state === "disconnecting" ? "Disconnecting" : ""
+        return s !== "" && t === "Connected" ? t + " \u00b7 " + s : t
     }
     function deviceRow(d) {
         return { kind: "value", id: "dev:" + d.address, icon: audio ? "headphones" : "gamepad-2", label: d.name, value: page.stateText(d), chevron: true,
-                 act: function() { page.host.openPage("btdevice", { kind: page.kind, address: d.address, name: d.name, connected: d.connected, back: page.title, backId: page.audio ? "btaudio" : "bthid" }) } }
+                 act: function() { page.host.openPage("btdevice", { kind: page.kind, address: d.address, name: d.name, connected: d.connected, surround: d.surround, back: page.title, backId: page.audio ? "btaudio" : "bthid" }) } }
     }
     function foundRow(d) {
         return { kind: "value", id: "found:" + d.address, icon: audio ? "headphones" : "gamepad-2", label: d.name, value: page.busy === d.address ? "Connecting" : "", chevron: false,
@@ -128,6 +151,11 @@ PageList {
                            num: function() { return page.btVolume < 0 ? 0 : page.btVolume }, valueText: function() { return page.btVolume < 0 ? "\u2013" : String(page.btVolume) },
                            enabled: function() { return page.btVolume >= 0 },
                            act: function(v) { page.btVolume = v; luna.act(page.surround, "setVolumeBalancing", { tvspeaker_bluetooth: v }) } })
+            if (pairedSpeakers)
+                out.push({ kind: "slider", id: "btbalance", icon: "audio-lines", label: "Sound Balance", min: 0, max: 10, step: 1, help: "Which of the two matching speakers plays louder.",
+                           num: function() { return page.btBalance < 0 ? 5 : page.btBalance }, valueText: function() { return page.balanceText(page.btBalance) },
+                           enabled: function() { return page.btBalance >= 0 },
+                           act: function(v) { page.btBalance = v; luna.act(page.surround, "setVolumeBalancing", { bluetooth_left_right: v }) } })
         }
         out.push(R.head("Registered Devices (" + paired.length + ")"))
         if (!paired.length) out.push(R.note("There are no paired devices."))

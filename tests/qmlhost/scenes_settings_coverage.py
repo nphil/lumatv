@@ -51,6 +51,34 @@ direct("30-settings-power-on-timer", "poweron")
 direct("30-settings-power-off-timer", "poweroff")
 direct("30-settings-bluetooth-speakers", "btaudio")
 direct("30-settings-bluetooth-controllers", "bthid")
+
+
+def speakers(variant):
+    """A step that gives the offline TV a variant of paired speakers (`matching`: a stereo pair that both answer over AVRCP)."""
+    js = ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function set() { "
+          "LS.adhoc.call(\"luna://com.webos.service.btaudiosrc\", \"/fake/speakers\", JSON.stringify({set: \"%s\"})) } }', root);o.set();return 1})()" % variant)
+    return ("eval", 1000, js)
+
+
+# Sound Balance (a matching pair), a speaker's page with its Position row, the chooser, and the question before Left and Right swap
+PAIR = [speakers("matching"), tv_setting("sound", '{soundOutput: "tv_speaker_bluetooth"}')]
+direct("30-settings-bluetooth-balance", "btaudio", at=4500, before=PAIR)
+
+
+def speaker_page(name, *after, at=4500):
+    """Keys on the speakers page with the pair: the pointer rests on the left speaker's row, so the first OK opens its page (Disconnect first, Position under it)."""
+    @scene(name)
+    def _():
+        steps = list(PAIR) + [("eval", 1500, "root.openSettings()"), ("eval", READY, "root.searchPicked('page','btaudio','')")]
+        if after:
+            steps.append(("keys", READY + 900, k(*after)))
+        return steps + [("snap", READY + at, name)]
+
+
+speaker_page("30-settings-bluetooth-position", "ok")
+speaker_page("30-settings-bluetooth-position-choice", "ok", DOWN, "ok")
+speaker_page("30-settings-bluetooth-position-swap", "ok", DOWN, "ok", DOWN, "ok")
+
 direct("30-settings-wifi", "wifi")
 direct("30-settings-wifi-ask", "wifi", DOWN, "ok")
 direct("30-settings-wifi-password", "wifi", DOWN, DOWN, "ok")
