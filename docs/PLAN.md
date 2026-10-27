@@ -1158,8 +1158,8 @@ what it already does.
   apps stay ready so switching inputs is instant (Nitin, 2026-10-25). Phase 8.
 - Light sync capture: the `vt_devmode` flag file, LG's developer switch that
   also relaxes the capture service's caller check, stays on for everyday light
-  sync (Nitin, 2026-10-26 20:21 PDT; created on the set 23:22 EDT). Removing
-  LumaTV should remove it too; `lumatv` does not do that yet.
+  sync (Nitin, 2026-10-26 20:21 PDT; created on the set 23:22 EDT). `lumatv
+  revert` removes it with the capture service.
 - Light-sync capture service: LumaTV's colour reader is installed with the ipk
   as a registered native service whose LS2 role allows reading screen colours
   (LG's histogram capture) and nothing else; it is removed with LumaTV. Its
