@@ -178,7 +178,8 @@ fn other(msg: impl Into<String>) -> io::Error {
 /// One scan-out page: a dumb buffer with a framebuffer and a GL target over its dma-buf. `alpha` makes it ARGB8888 for
 /// the overlay plane, else XRGB8888 for the primary.
 fn make_page(card: &Card, gl: &mut Gl, width: u32, height: u32, alpha: bool) -> io::Result<Page> {
-    let (fourcc, drm, depth) = if alpha { (crate::buffer::fourcc::ARGB8888, DrmFourcc::Argb8888, 32) } else { (crate::buffer::fourcc::XRGB8888, DrmFourcc::Xrgb8888, 24) };
+    let (fourcc, drm, depth) =
+        if alpha { (crate::buffer::fourcc::ARGB8888, DrmFourcc::Argb8888, 32) } else { (crate::buffer::fourcc::XRGB8888, DrmFourcc::Xrgb8888, 24) };
     let dumb = card.create_dumb_buffer((width, height), drm, 32)?;
     let fb = card.add_framebuffer(&dumb, depth, 32)?;
     let fd = card.buffer_to_prime_fd(dumb.handle(), libc::O_CLOEXEC as u32)?;
@@ -596,7 +597,10 @@ impl Kms {
         match committed {
             Ok(()) => {
                 if first {
-                    log::info!("kms: the mode went out with the first frame ({})", if flags.contains(AtomicCommitFlags::NONBLOCK) { "non-blocking" } else { "blocking" });
+                    log::info!(
+                        "kms: the mode went out with the first frame ({})",
+                        if flags.contains(AtomicCommitFlags::NONBLOCK) { "non-blocking" } else { "blocking" }
+                    );
                 }
                 // The planes' recorded state follows only a commit the kernel took; after a refused one the next
                 // request must carry everything again.

@@ -68,7 +68,15 @@ mod tests {
     use super::*;
 
     fn facts() -> Facts {
-        Facts { sole_fullscreen: true, layout_accepted: true, direct_fb: Some(77), next_page: 1, ui_over: false, ui_page: Some(2), output: Rect::new(0, 0, 1920, 1080) }
+        Facts {
+            sole_fullscreen: true,
+            layout_accepted: true,
+            direct_fb: Some(77),
+            next_page: 1,
+            ui_over: false,
+            ui_page: Some(2),
+            output: Rect::new(0, 0, 1920, 1080),
+        }
     }
 
     #[test]

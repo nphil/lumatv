@@ -406,7 +406,20 @@ impl Gl {
                         set_params(a);
                         (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, fmt as i32, shm.width, shm.height, 0, fmt, egl::GL_UNSIGNED_BYTE, std::ptr::null());
                     }
-                    Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false, external: false, warm_sync: None, held: false, prepared: Instant::now(), import_us: 0, submit_us: 0 }
+                    Tex {
+                        buffer: buffer.clone(),
+                        tex: t,
+                        image: std::ptr::null_mut(),
+                        size: (shm.width, shm.height),
+                        y_invert: true,
+                        uploaded: false,
+                        external: false,
+                        warm_sync: None,
+                        held: false,
+                        prepared: Instant::now(),
+                        import_us: 0,
+                        submit_us: 0,
+                    }
                 }
                 BufferKindRef::Dmabuf(d) => {
                     let plane = d.planes.first()?;
@@ -418,7 +431,20 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true, external: false, warm_sync: None, held: false, prepared: Instant::now(), import_us: 0, submit_us: 0 }
+                    Tex {
+                        buffer: buffer.clone(),
+                        tex: bind_image(a, image),
+                        image,
+                        size: (d.width, d.height),
+                        y_invert: d.y_invert,
+                        uploaded: true,
+                        external: false,
+                        warm_sync: None,
+                        held: false,
+                        prepared: Instant::now(),
+                        import_us: 0,
+                        submit_us: 0,
+                    }
                 }
                 BufferKindRef::External => {
                     let Some(ptr) = Self::resource_ptr(buffer) else {
@@ -440,7 +466,20 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true, external: true, warm_sync: None, held: false, prepared: Instant::now(), import_us: 0, submit_us: 0 }
+                    Tex {
+                        buffer: buffer.clone(),
+                        tex: bind_image(a, image),
+                        image,
+                        size,
+                        y_invert,
+                        uploaded: true,
+                        external: true,
+                        warm_sync: None,
+                        held: false,
+                        prepared: Instant::now(),
+                        import_us: 0,
+                        submit_us: 0,
+                    }
                 }
             };
             self.textures.insert(id, tex);
@@ -543,7 +582,7 @@ impl Gl {
                 } else if self.warm_lines < WARM_LINES {
                     self.warm_lines += 1;
                     log::info!(
-                        "warm: {} buffer {} {}x{}: import {:.1} ms, warm draw submitted in {:.1} ms, its fence done {:.1} ms after",
+                        "warm: {} buffer {} {}x{}: import {:.1} ms, warm draw submitted in {:.1} ms, its fence seen done {:.1} ms after (polled at the ticks)",
                         if t.external { "driver" } else { "dma-buf" },
                         t.buffer.id().protocol_id(),
                         t.size.0,

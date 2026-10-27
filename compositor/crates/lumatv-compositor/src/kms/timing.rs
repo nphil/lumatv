@@ -135,7 +135,8 @@ impl FlipTiming {
             {
                 timing.ready_ns = s;
             }
-            let shown = Shown { slot_ns: timing.slot_ns, started_ns: timing.started_ns, ready_ns: timing.ready_ns, presented_ns, content_ns: timing.content_ns };
+            let shown =
+                Shown { slot_ns: timing.slot_ns, started_ns: timing.started_ns, ready_ns: timing.ready_ns, presented_ns, content_ns: timing.content_ns };
             let landing = self.pacer.presented(&shown);
             if landing.late > 0 {
                 self.late_frames += 1;
