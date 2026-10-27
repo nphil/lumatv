@@ -705,11 +705,16 @@ Design:
   gain, per-light white balance and gamma, a dark threshold so black scenes
   turn lights low rather than flicker, black-bar handling for letterboxed
   films, and a delay setting to line light changes up with picture and sound.
-- Hue backlights: Hue Entertainment streaming (HueStream over DTLS, the
-  protocol Hue Sync and HyperHDR's Hue driver use) to Bifrost, which drives
-  the bulbs through Zigbee2MQTT in Zigbee entertainment mode. Plain MQTT light
-  commands are too slow for sync and are not used. Gradient lightstrips take
-  one colour per segment.
+- Hue backlights: the helper drives the bulbs straight through Zigbee2MQTT in
+  Zigbee entertainment mode (`helper/app/src/ambient_z2m*.rs`), sending the
+  same frames Bifrost's z2m backend sends, byte for byte, so neither a Hue
+  Bridge nor Bifrost is needed (`docs/research/z2m-direct-result.md`). The
+  HueStream path to a real bridge or Bifrost also exists (`hue.rs`); with
+  both linked, Zigbee2MQTT is used. Plain MQTT light commands are too slow for
+  sync and are not used. Gradient lightstrips take one colour per segment.
+  The stream never runs while Zigbee2MQTT updates a device's firmware and
+  slows down when the coordinator answers late (a 20 fps test aborted a leak
+  sensor's OTA on 2026-10-25).
 - RGBIC strip: WLED's UDP realtime protocol (DDP), per segment or per LED.
   ESPHome's WLED effect accepts the same protocol, so an ESPHome strip works.
   Vendor strips (Govee and similar) depend on their LAN protocol and are
@@ -721,17 +726,22 @@ Design:
   measured end to end and tuned with the delay setting; capture never stalls
   playback; tested on Netflix, Prime, Disney+, PlxNative, HDMI and Live TV.
 
-Before building, with the set free:
+Status (2026-10-26):
 
-1. Probe: call the four functions during Netflix playback and log the zones;
-   find the zone layout (grid or edges), the value range (8-bit, float,
-   SDR or HDR), the update rate and the CPU cost. The zones come from the
-   video plane, so LumaTV's own UI is likely not in them.
-2. Lights: pair the Hue backlights to Zigbee2MQTT (2.14.2, running as a Home
-   Assistant app). Bifrost is not installed anywhere yet; installing it is
-   Nitin's step. It needs its own IP on the LAN, since it answers as a Hue
-   Bridge on ports 80 and 443.
-3. Strip, on order: BTF-Lighting FCOB WS2814 RGBW 4000K, 24 V, 5 m (14
+1. Probe: done on the set. 16 zones, about 8 changes a second, protected
+   Netflix video included; the reader costs 1.15 % of a core at 10 polls a
+   second (`docs/research/ambient-result.md`).
+2. Picture side: blocked on one decision of Nitin's. LG's library answers
+   only while `/var/luna/preferences/vt_devmode` exists; it is allowed for
+   probe slots only. Keeping it for everyday light sync is open (it also
+   relaxes LG's capture service's caller check).
+3. Hue side: built and tested against a fake broker. One test stream of these
+   frames went to the Plant Room Fan Light on 2026-10-25 (whether it lit was not
+   seen; Zigbee2MQTT reports no state during a stream). The OTA guard and the
+   busy back-off are being built. Then Nitin links the broker on the set
+   (`lumatv-helper z2m-link`, his MQTT password on standard input).
+4. Strip: the DDP sender is built and tested against a fake socket; the strip
+   is not set up. Ordered: BTF-Lighting FCOB WS2814 RGBW 4000K, 24 V, 5 m (14
    addressable sections per metre, 71 mm each), BTF 10 mm 3-pin FCOB connector
    kit for the corners, Gledopto Elite GL-C-619WL (ESP32, WLED, Ethernet,
    level shifter, relay) and a 24 V 100 W supply. About 58 sections around

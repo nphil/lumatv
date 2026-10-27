@@ -6,30 +6,41 @@ how to measure again. Facts here were observed on one set unless marked
 [INFERENCE]. Credentials and the set's address are deliberately absent; they
 live with the owner.
 
-## Resume here (LumaTV, 2026-10-26 06:45 EDT, after the overnight run)
+## Resume here (LumaTV, 2026-10-26 19:05 PDT)
 
 - Source of truth: `docs/PLAN.md` (phases, gates, decisions), `docs/SURFACES.md`
   (inventory), each `docs/research/*-result.md` (its worker's recovery point). An
   implemented file is not proof that its feature passed on the TV.
+- TV installs: every LumaTV install on the set goes through Nitin's Face ID
+  (HomeLabber `run_command` on beastnas running the installer in the Cody container,
+  approved on his phone). A yes in chat does not count (PLAN, Decided). A request that
+  expires pauses HomeLabber approvals until Nitin resumes them.
 - Helpers: at most 10 at once including nested ones; briefs forbid spawning. One
   TV owner at a time, deploying from a clean worktree; the compile gate
   (`tests/qmlhost/compile_all.py`) runs before every package or hand deploy.
-- On the set at 14:11 (2026-10-26): package of 87e0fa5, LG's compositor (gate 9 failed on
-  frame timing only, `compositor-gate9-result.md`), Active Standby, keyboard keys restyle on,
-  Search and Live TV restyles off, LumaTV's saver owns the idle state on Home, GFN app
-  installed (signed out), receiver off at 65.5 unmuted.
-- Results of the night: `docs/research/round9-result.md` (rounds 9-11, table and
-  evidence), `round8-result.md`, `test-health-result.md` (every cargo suite green,
-  Python green bar one load flake in test_vplane_player).
-- Open, in order (also the todo list): compositor gate 8 failed (x1 one 20.4 ms gap,
-  watchdog crash reason string); quick panel p90 3.43 ms over Home and first-frame
-  misses over HDMI/Netflix (`shell-host-result.md`); 50 fps return 100->120 Hz
-  blanks the picture (`framerate-result.md`); Live TV restyle two capture failures;
-  next deploy then a look-only walk of the new Settings pages
-  (`settings-coverage.md`); Nitin's steps (HA token, GFN sign-in, Z2M login, store
-  check, leak sensor OTA, volume bar position).
-- Netflix tvq-pb-101 came from a compositor restart with an input app in front
-  (audio decoder port left open); `lumatv inputs status|release`, fixed in 5d3267c.
+- On the set at 20:31 EDT: package of a438a2e (approved 19:35), LG's compositor, Home
+  stub on, Nitin using the TV. Keyboard keys restyle on, Search and Live TV restyles off,
+  LumaTV's saver owns the idle state on Home, GFN app installed (signed out). Volume bar
+  shows whole numbers and the format logos.
+- Done 2026-10-26: compositor gate 9 (every safety check passes, frame timing fails:
+  `compositor-gate9-result.md`); compositor step 1, the remote's keys and the keyboard
+  under LumaTV's compositor, passed on the set (`compositor-step1-result.md`); quick
+  panel and picker round 16 (`shell-host-result.md`): over Netflix and HDMI every panel
+  opens in 146-159 ms, over Home p90 2.42/2.54 ms.
+- Open, in order (also the todo list):
+  1. Install c496611 (mute mark still while a panel is open) when Nitin resumes
+     approvals; then the one late frame per opening over Home.
+  2. Light sync: the Zigbee2MQTT OTA guard and back-off (being built, Z2mOtaGuard);
+     then Nitin's decision on keeping `vt_devmode` for everyday use and his
+     `z2m-link`; WLED strip not set up (PLAN, Ambient light, Status).
+  3. TV checks: Live TV restyle, Settings look-only walk, frame-rate blink with Nitin
+     watching.
+  4. Parked by Nitin: compositor frame timing and moving Home and the panels to
+     LumaTV's compositor; Music Assistant.
+  5. Nitin's steps: GFN sign-in, HA token and plugin enable, Bluetooth proxy link, LG
+     store check, leak sensor OTA retry, Denon OSD off, Apple TV CEC off.
+- Netflix tvq-pb-101 came from an input app left holding the audio decoder port;
+  `lumatv inputs status|release`, and gate.py now closes the HDMI app it opens.
 - Backups of uncommitted work: `/data/home/lumatv-backups/wip-*`.
 
 Written so any model can continue cold. The plan is `docs/PLAN.md` (Status,

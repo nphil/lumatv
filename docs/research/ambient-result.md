@@ -2,6 +2,10 @@
 
 ## Resume here
 
+Current status (2026-10-26): `docs/PLAN.md`, Ambient light, Status. The Hue output that will run is the helper's own
+Zigbee2MQTT path (`z2m-direct-result.md`), not Bifrost; the Bifrost/bridge path below stays as the alternative. Nothing has
+driven a light from the picture yet: that needs Nitin's `vt_devmode` decision, his `z2m-link`, and the OTA guard.
+
 Done (2026-10-25, the probe slot of 16:27 captured; "Probe results" below):
 
 - On the set (19:41, "Reduce in NEON on the set"): the NEON reduce runs there, 0.008 ms a poll (was 0.716); 1.15-1.17 % of a core
