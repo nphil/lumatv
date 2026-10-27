@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Settings lists: section heads grow with the text and read in the light theme; danger labels
+  (Delete Device) and disabled-row text pass contrast at 100% and 200%.
 - Input banners: the patched banner files read their own style, so the pill draws its glass
   in an input process LG restored with its stock style sheet.
 - Settings: Bluetooth Speakers gains Sound Balance for two matching connected speakers and a
