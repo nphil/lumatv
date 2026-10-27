@@ -564,6 +564,10 @@ there is nothing to see and only steps 1, 2 and 8 apply. Renders to compare with
 
 Offline checks that back the steps: `python3 -m unittest tests.test_maliit_patch tests.test_maliit_stage tests.test_lumatv_keys tests.test_package_tools tests.test_surfaces_registry`.
 
+**Load warnings (2026-10-26 log).** `StarfishKeyboardView.qml:26` to `:29` ("Unable to assign [undefined] to QString") are LG's own `moveAreaLeft/Right/Top/Bottom` bindings, which yield `undefined` when the window has no such property, and `:230` ("to bool") is LG's `Eos.Beziergon` `visible: draggableMask.isTransitioning`. All five are in the stock file (the census copy); the keys restyle (`lumatv keys`) touches maliit's own process and never this view. They were logged because the `keyboard` surface was off (`surfaces`: `"keyboard","on":false`), so LG's file was in force. `tools/keyboard_patch.py` removes the Beziergon, so `:230` is gone with `lumatv keyboard on` (`test_keyboard_patch` already asserts the stock file warns at `:230` and the patched one loads clean); `:26` to `:29` are left as LG wrote them: they log once at load, change nothing, and guarding them is not part of the restyle.
+
+TV check: with `keyboard on` the compositor log has no `StarfishKeyboardView.qml:230` line; the four `:26` to `:29` lines may remain, and the keyboard opens and closes as before.
+
 ## Not done
 
 - maliit's dictation card (`view-stt`) and the screens that only the Chinese and Japanese plugins draw (their stroke and kana layouts): those two plugins take the shared style sheets' colours, faces and focus, and nothing else is restyled in them.

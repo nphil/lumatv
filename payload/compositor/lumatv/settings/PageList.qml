@@ -471,8 +471,9 @@ Item {
                         id: cHead
                         Item {
                             width: cell.width
-                            height: Math.round(Lu.row * 0.6)
-                            LuText { x: Lu.space(2); anchors.bottom: parent.bottom; anchors.bottomMargin: Lu.space(2); role: "caption"; color: Lu.ink3; text: page.ev(cell.r.text) || page.ev(cell.r.label) || "" }
+                            height: Math.max(Math.round(Lu.row * 0.6), headText.height + Lu.space(4))
+                            // ink3 reads 2.2:1 on the light glass; ink2 clears 3:1 there
+                            LuText { id: headText; x: Lu.space(2); anchors.bottom: parent.bottom; anchors.bottomMargin: Lu.space(2); role: "caption"; color: Lu.isLight ? Lu.ink2 : Lu.ink3; text: page.ev(cell.r.text) || page.ev(cell.r.label) || "" }
                         }
                     }
                     Component {

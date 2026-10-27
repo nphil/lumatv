@@ -41,6 +41,9 @@ QtObject {
     readonly property color positive: role("positive")
     readonly property color warning: role("warning")
     readonly property color danger: role("danger")
+    // The danger colour as words: the fill colour reads 4.1:1 on the dark glass and 1.6:1 on the light one, so the label is pushed
+    // away from the material (lighter on dark, darker on light) until it clears 4.5:1.
+    readonly property color dangerInk: isLight ? Qt.darker(danger, 2.6) : Qt.lighter(danger, 1.25)
     readonly property color info: role("info")
     readonly property color live: role("live")
     // How much of a pane is painted where it sits over uncontrolled video (an app's picture: the overlay's surfaces). Lucent section 3

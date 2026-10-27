@@ -64,7 +64,7 @@ Item {
         x: Math.round((button.width - width + button.glyph) / 2); y: Math.round((button.height - height) / 2)
         role: "label"
         text: button.text
-        color: button.primary ? Lu.accentInk : button.danger ? Lu.danger : Lu.ink
+        color: button.primary ? Lu.accentInk : button.danger ? Lu.dangerInk : Lu.ink
     }
     MouseArea {
         id: mouse

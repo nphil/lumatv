@@ -79,7 +79,7 @@ Item {
             LuText {
                 id: labelText
                 width: Math.min(implicitWidth, parent.width - (infoMark.visible ? infoMark.width + Lu.space(3) : 0))
-                role: "label"; text: row.label; color: row.danger ? Lu.danger : Lu.ink; elide: Text.ElideRight
+                role: "label"; text: row.label; color: row.danger ? Lu.dangerInk : Lu.ink; elide: Text.ElideRight
             }
             LuInfo {
                 id: infoMark
@@ -90,7 +90,7 @@ Item {
                 onAsked: row.helpAsked()
             }
         }
-        LuText { id: detailText; width: parent.width; role: "caption"; text: row.detail; color: Lu.ink2; visible: row.detail !== ""; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
+        LuText { id: detailText; width: parent.width; role: "caption"; text: row.detail; color: (row.enabled ? Lu.ink2 : Lu.ink); visible: row.detail !== ""; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
     }
     LuText {
         id: valueText
@@ -98,7 +98,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         x: parent.width - Lu.space(6) - width - trailingSlot.width - (trailingSlot.children.length ? Lu.space(4) : 0)
         role: "label"
-        color: Lu.ink2
+        color: (row.enabled ? Lu.ink2 : Lu.ink)
         text: row.value
     }
     Item {
