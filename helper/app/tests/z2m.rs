@@ -70,6 +70,21 @@ struct Broker {
     stop: Arc<AtomicBool>,
 }
 
+/// MQTT's topic filter matching: `+` is one level, `#` the rest.
+fn filter_matches(filter: &str, topic: &str) -> bool {
+    let mut f = filter.split('/');
+    let mut t = topic.split('/');
+    loop {
+        match (f.next(), t.next()) {
+            (Some("#"), _) => return true,
+            (Some("+"), Some(_)) => {}
+            (Some(a), Some(b)) if a == b => {}
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
+}
+
 fn mqtt_str(s: &str) -> Vec<u8> {
     let mut v = (u16::try_from(s.len()).unwrap()).to_be_bytes().to_vec();
     v.extend_from_slice(s.as_bytes());
@@ -157,14 +172,25 @@ impl Broker {
 
     fn retain(&self, topic: &str, payload: &Value) {
         let bytes = payload.to_string().into_bytes();
-        let mut st = self.state.lock();
-        st.retained.insert(topic.to_owned(), bytes.clone());
-        // What a broker does with a new retained message: every subscriber gets it now.
+        self.state
+            .lock()
+            .retained
+            .insert(topic.to_owned(), bytes.clone());
+        self.deliver(topic, &bytes, 0x31);
+    }
+
+    /// A message that is not retained, as Zigbee2MQTT publishes its logs and a device's state.
+    fn push(&self, topic: &str, payload: &Value) {
+        self.deliver(topic, payload.to_string().as_bytes(), 0x30);
+    }
+
+    /// Every subscriber whose filter matches gets it now.
+    fn deliver(&self, topic: &str, payload: &[u8], first: u8) {
         let mut body = mqtt_str(topic);
-        body.extend_from_slice(&bytes);
-        let packet = mqtt_packet(0x31, &body);
-        for (writer, subs) in &st.clients {
-            if subs.lock().iter().any(|s| s == topic) {
+        body.extend_from_slice(payload);
+        let packet = mqtt_packet(first, &body);
+        for (writer, subs) in &self.state.lock().clients {
+            if subs.lock().iter().any(|s| filter_matches(s, topic)) {
                 let _ = writer.lock().write_all(&packet);
             }
         }
@@ -278,9 +304,10 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<State>>, stop: &Arc<AtomicBool
                 let retained: Vec<(String, Vec<u8>)> = {
                     let mut st = state.lock();
                     st.subscribed.extend(topics.iter().cloned());
-                    topics
+                    st.retained
                         .iter()
-                        .filter_map(|t| st.retained.get(t).map(|p| (t.clone(), p.clone())))
+                        .filter(|(t, _)| topics.iter().any(|f| filter_matches(f, t)))
+                        .map(|(t, p)| (t.clone(), p.clone()))
                         .collect()
                 };
                 subs.lock().extend(topics);
@@ -357,6 +384,31 @@ struct Setup {
 }
 
 fn setup(broker: &Broker, mode: &str) -> Setup {
+    setup_timed(broker, mode, &json!({}))
+}
+
+/// Short waits instead of the real ones (30 s settle, 5 min stale, 60 s pause, 2 s cut gap, 20 s recovery).
+fn quick(recover_ms: u64) -> Value {
+    json!({"ambient": {"z2m": {
+        "otaSettleMs": 700, "otaStaleMs": 600_000, "busyPauseMs": 1500, "busyCutGapMs": 150, "recoverMs": recover_ms,
+    }}})
+}
+
+/// What the topic `ambient` says is wrong, or nothing.
+fn problem(rig: &Rig) -> String {
+    rig.topic("ambient")
+        .and_then(|v| v["problem"].as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+fn problem_has(rig: &Rig, words: &str) -> bool {
+    rig.wait_topic("ambient", WAIT, |v| {
+        v["problem"].as_str().is_some_and(|p| p.contains(words))
+    })
+    .is_some()
+}
+
+fn setup_timed(broker: &Broker, mode: &str, extra: &Value) -> Setup {
     let mut rig = Rig::new();
     receiver_off(&rig.paths);
     seed_settings(
@@ -371,13 +423,15 @@ fn setup(broker: &Broker, mode: &str) -> Setup {
     );
     link(&rig.paths.data_dir, broker);
     let luna = FakeLuna::new(rig.dir.path(), LunaMode::PollOnly, "Active");
-    rig.start(
-        test_config(json!({
-            "screen": {"source": "luna", "pollMs": 40},
-            "luna": {"send": luna.program},
-        })),
-        Script::new(),
-    );
+    let mut config = json!({
+        "screen": {"source": "luna", "pollMs": 40},
+        "luna": {"send": luna.program},
+    });
+    config
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    rig.start(test_config(config), Script::new());
     Setup { rig, luna }
 }
 
@@ -798,6 +852,297 @@ fn a_dropped_connection_is_reported_and_the_stream_started_again() {
         counters.iter().filter(|c| **c < restart).count() >= 2,
         "{counters:?} restart {restart}"
     );
+}
+
+// ------------------------------------------------------------------------------------------------- the guard
+
+const GONE: &str = "zigbee2mqtt/leak";
+
+fn updating(progress: f64) -> Value {
+    json!({"battery": 90, "update": {"state": "updating", "progress": progress}})
+}
+
+#[test]
+fn an_update_running_before_the_start_holds_every_frame_back_until_it_has_ended_and_settled() {
+    let broker = Broker::start();
+    two_bulbs(&broker);
+    broker.retain(GONE, &updating(54.0));
+    let s = setup_timed(&broker, "colour", &quick(20_000));
+
+    let held = s
+        .rig
+        .wait_topic("ambient", WAIT, |v| {
+            v["problem"]
+                .as_str()
+                .is_some_and(|p| p.contains("paused: Zigbee2MQTT is updating leak"))
+        })
+        .expect("no word of the update");
+    assert_eq!(held["z2mState"], "idle");
+    assert!(
+        held["problem"]
+            .as_str()
+            .unwrap()
+            .starts_with("Zigbee2MQTT: "),
+        "{held}"
+    );
+    thread::sleep(Duration::from_millis(1500));
+    assert!(
+        broker.published().is_empty(),
+        "sent during an update: {:?}",
+        broker.published()
+    );
+
+    // The update ends: still nothing for the settle time, then the start, on the same connection.
+    let ended = Instant::now();
+    broker.push(GONE, &json!({"update": {"state": "idle"}}));
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        broker.published().is_empty(),
+        "sent within the settle time: {:?}",
+        broker.published()
+    );
+    assert!(
+        z2m_state(&s.rig, "streaming"),
+        "{:?}",
+        s.rig.topic("ambient")
+    );
+    assert!(ended.elapsed() >= Duration::from_millis(700));
+    assert_eq!(problem(&s.rig), "");
+    assert_eq!(broker.connects().len(), 1);
+    let left = broker.sets(LEFT);
+    assert_eq!(left[0], fr::light_balance(0xFE), "{left:?}");
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
+}
+
+#[test]
+fn an_update_starting_mid_stream_ends_it_and_the_lights_follow_again_when_it_is_over() {
+    let broker = Broker::start();
+    two_bulbs(&broker);
+    let s = setup_timed(&broker, "colour", &quick(20_000));
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
+    let restored = json!({"state": "ON", "brightness": 120, "color_temp": 366});
+
+    // Zigbee2MQTT starts updating a leak sensor: the stream ends the normal way and the words say why.
+    broker.push(GONE, &updating(1.0));
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 2));
+    assert!(problem_has(&s.rig, "paused: Zigbee2MQTT is updating leak"));
+    assert_eq!(s.rig.topic("ambient").unwrap()["z2mState"], "idle");
+    assert_eq!(broker.sets(RIGHT).last(), Some(&restored));
+    assert_eq!(broker.sets(LEFT).last(), Some(&json!({"state": "OFF"})));
+    let sent = broker.published().len();
+    thread::sleep(Duration::from_millis(1500));
+    assert_eq!(broker.published().len(), sent, "frames during an update");
+    // Progress messages keep it going; a different device's plain state changes nothing.
+    broker.push(GONE, &updating(30.0));
+    broker.push("zigbee2mqtt/plug", &json!({"state": "ON"}));
+
+    // It ends: after the settle time the start sequence again on the same connection, the counter carried on.
+    broker.push(GONE, &json!({"update": {"state": "idle"}}));
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 3));
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert_eq!(problem(&s.rig), "");
+    assert_eq!(broker.connects().len(), 1);
+    let restart = resets_to(&broker, LEFT)[2];
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT)
+        .iter()
+        .any(|f| f.counter == restart)));
+
+    // The same by Zigbee2MQTT's request and response topics.
+    broker.push(
+        "zigbee2mqtt/bridge/request/device/ota_update/update",
+        &json!({"id": "leak"}),
+    );
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 4));
+    assert!(problem_has(&s.rig, "paused: Zigbee2MQTT is updating leak"));
+    broker.push(
+        "zigbee2mqtt/bridge/response/device/ota_update/update",
+        &json!({"data": {"id": "leak", "from": {}, "to": {}}, "status": "ok"}),
+    );
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 5));
+    assert!(z2m_state(&s.rig, "streaming"));
+
+    // And by its log, which also carries an update's progress.
+    broker.push(
+        "zigbee2mqtt/bridge/logging",
+        &json!({"level": "info", "message": "Update of 'leak' at 12.50%, ≈ 9 minutes remaining"}),
+    );
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 6));
+    assert!(problem_has(&s.rig, "paused: Zigbee2MQTT is updating leak"));
+    broker.push(
+        "zigbee2mqtt/bridge/logging",
+        &json!({"level": "info", "message": "Finished update of 'leak'"}),
+    );
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 7));
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert_eq!(broker.connects().len(), 1);
+}
+
+#[test]
+fn an_update_that_never_ends_stops_holding_the_lights_back_after_the_stale_time() {
+    let broker = Broker::start();
+    two_bulbs(&broker);
+    broker.retain(GONE, &updating(10.0));
+    let mut timing = quick(20_000);
+    timing["ambient"]["z2m"]["otaStaleMs"] = json!(1200);
+    let s = setup_timed(&broker, "colour", &timing);
+    assert!(problem_has(&s.rig, "paused: Zigbee2MQTT is updating leak"));
+    assert!(broker.published().is_empty());
+    // Not heard of again: taken as over after 1.2 s, then the settle time, then the lights.
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 2));
+}
+
+/// Pictures on the capture socket until it is dropped: the stream's pace is then the frame rate and not the keepalive.
+struct Feeder {
+    stop: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Feeder {
+    fn start(socket: &Path) -> Feeder {
+        assert!(wait_until(WAIT, || socket.exists()), "no capture socket");
+        let mut capture = UnixStream::connect(socket).unwrap();
+        let bytes = wire::encode(&left_red_right_blue(), 1000);
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let thread = thread::spawn(move || {
+            while !flag.load(Ordering::Relaxed) {
+                if capture.write_all(&bytes).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(30));
+            }
+        });
+        Feeder {
+            stop,
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for Feeder {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+fn log_line(level: &str, message: &str) -> Value {
+    json!({"level": level, "message": message})
+}
+
+/// What Zigbee2MQTT logs when the coordinator did not answer a frame in time.
+fn late(name: &str) -> Value {
+    log_line(
+        "error",
+        &format!(
+            "Publish 'set' 'zclcommand' to '{name}' failed: 'Error: SRSP - AF - dataRequest after 6000ms'"
+        ),
+    )
+}
+
+#[test]
+fn late_answers_halve_the_rate_then_pause_the_stream_and_a_quiet_stream_recovers_its_rate() {
+    let broker = Broker::start();
+    two_bulbs(&broker);
+    let s = setup_timed(&broker, "picture", &quick(3000));
+    let _feed = Feeder::start(&s.rig.paths.data_dir.join("ambient.sock"));
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT).len() >= 5));
+    assert_eq!(problem(&s.rig), "");
+    let log = "zigbee2mqtt/bridge/logging";
+
+    // A late answer: half the rate, shown in words, and the fade of a frame follows the interval. A second one in the same
+    // moment is the same event.
+    broker.push(log, &late(LEFT));
+    broker.push(log, &late(RIGHT));
+    assert!(problem_has(&s.rig, "10 frames a second instead of 20"));
+    assert_eq!(s.rig.topic("ambient").unwrap()["z2mState"], "streaming");
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT)
+        .last()
+        .is_some_and(
+            |f| f.smoothing == fr::smoothing_for(Duration::from_millis(100))
+        )));
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        problem(&s.rig).contains("10 frames a second"),
+        "{}",
+        problem(&s.rig)
+    );
+
+    // Another one: the lowest rate, which is what the frames then keep.
+    broker.push(log, &late(LEFT));
+    assert!(problem_has(&s.rig, "5 frames a second instead of 20"));
+    let before = frames_to(&broker, LEFT).len();
+    let t0 = Instant::now();
+    thread::sleep(Duration::from_millis(1000));
+    let per_second = (frames_to(&broker, LEFT).len() - before) as f64 / t0.elapsed().as_secs_f64();
+    assert!(
+        (3.0..=7.0).contains(&per_second),
+        "{per_second} frames a second at the lowest rate"
+    );
+
+    // Not the lights' trouble, or not an error: no change.
+    broker.push(
+        log,
+        &log_line(
+            "error",
+            "Publish 'set' 'state' to 'plug' failed: 'Error: no ack'",
+        ),
+    );
+    broker.push(
+        log,
+        &log_line("info", &format!("Publish 'set' to '{LEFT}' failed")),
+    );
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        problem(&s.rig).contains("5 frames a second"),
+        "{}",
+        problem(&s.rig)
+    );
+    assert_eq!(resets_to(&broker, RIGHT).len(), 1);
+
+    // Still late at the lowest rate: the stream ends the normal way and stays off for a while.
+    broker.push(log, &late(LEFT));
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 2));
+    assert!(problem_has(
+        &s.rig,
+        "paused: the Zigbee network was too busy"
+    ));
+    assert_eq!(s.rig.topic("ambient").unwrap()["z2mState"], "idle");
+    assert_eq!(
+        broker.sets(RIGHT).last(),
+        Some(&json!({"state": "ON", "brightness": 120, "color_temp": 366}))
+    );
+    let sent = broker.published().len();
+    thread::sleep(Duration::from_millis(900));
+    assert_eq!(broker.published().len(), sent, "frames during the pause");
+
+    // Then it starts again, at the lower rate, on the same connection.
+    assert!(wait_until(WAIT, || resets_to(&broker, RIGHT).len() == 3));
+    assert!(z2m_state(&s.rig, "streaming"));
+    assert!(
+        problem(&s.rig).contains("5 frames a second instead of 20"),
+        "{}",
+        problem(&s.rig)
+    );
+    assert_eq!(broker.connects().len(), 1);
+
+    // Quiet: the rate climbs back by half again each time, to the link's 20, and the status goes clean.
+    assert!(
+        s.rig
+            .wait_topic("ambient", Duration::from_secs(40), |v| v["problem"]
+                .is_null())
+            .is_some(),
+        "{}",
+        problem(&s.rig)
+    );
+    assert!(wait_until(WAIT, || frames_to(&broker, LEFT)
+        .last()
+        .is_some_and(|f| f.smoothing == 1280)));
 }
 
 // ------------------------------------------------------------------------------------------------- the command line

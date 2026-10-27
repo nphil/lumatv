@@ -506,7 +506,7 @@ impl Ambient {
         let z2m = ambient_z2m_store::load(data_dir);
         let hue = hue_store::load(data_dir);
         let (output, note) = match (z2m, hue) {
-            (Ok(Some(link)), hue) => match ambient_z2m::Output::spawn(link, events) {
+            (Ok(Some(link)), hue) => match ambient_z2m::Output::spawn(link, self.ctx.config.ambient.z2m.clone(), events) {
                 Ok(output) => (
                     Some(Ent::Z2m(Arc::new(output))),
                     matches!(hue, Ok(Some(_))).then(|| {
@@ -1319,6 +1319,7 @@ mod tests {
                 }),
                 capture_socket: None,
                 sound,
+                ..AmbientConfig::default()
             },
             ..Config::default()
         };

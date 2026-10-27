@@ -23,6 +23,22 @@ produce the expected values: `helper/app/tests/fixtures/bifrost-vectors.jsonl`, 
 2026-10-25: `cargo fmt --check`, `cargo clippy -p lumatv-helper --all-targets -D warnings` and `cargo test -p
 lumatv-helper --no-fail-fast` all green (the aarch64 release build is the main gate's, `helper/build.sh check`).
 
+Network guard (2026-10-26, built and offline-tested, not run on the set): the output never sends while Zigbee2MQTT is
+updating a device over the air, and slows down and pauses when the coordinator answers late (the finding under "One stream
+on the set's network"). It reads each device's `update.state` (`<base>/+`, and the device list if it carries one),
+Zigbee2MQTT's log (`bridge/logging`: `Update of '<name>' at ...`, `Finished update of ...`, and failed publishes to a light
+or a `dataRequest` timeout) and `bridge/{request,response}/device/ota_update/#`. An update running before the start: no
+start sequence, status `paused: Zigbee2MQTT is updating <device>`. One starting mid-stream: black, command 3 and the
+bulbs' states back, connection kept, status the same words; it starts again by itself 30 s after the last update ended (an
+update not heard of for 5 minutes counts as ended). Late answers: the first halves the rate (20 to 10), the next the same
+down to 5, one more at 5 pauses for 60 s (then 5 again); events within 2 s are one; each 20 s without one raises the rate
+by half again to the link's; the status says `... N frames a second instead of M`. The waits are `ambient.z2m` in
+`helper.json` (`otaSettleMs`, `otaStaleMs`, `busyPauseMs`, `busyCutGapMs`, `recoverMs`); only the tests change them.
+What the TV check must confirm (items 8 and 9 of the list): which topics the real Zigbee2MQTT 2.14.2 publishes during an
+OTA (the state topic and the log lines are assumed from its source, not seen; if the device's state is not retained, an
+update begun while the TV was off shows only with its first progress message), and that an OTA of a device other than a
+light now runs to the end with ambient light on.
+
 ## How Bifrost drives the bulbs
 
 Source: `github.com/chrivers/bifrost`, `master` at `12d9e37` (2025-06-02, the newest commit on 2026-10-25; the `dev`
@@ -217,8 +233,8 @@ See "Resume here" for status. Modules in `helper/app/src/`:
   with both saved, Zigbee2MQTT is used and the topic's `problem` says so. Topic fields `z2m` and `z2mState` next to `hue`
   and `hueState`. `cli.rs`: `z2m-link`, `z2m-unlink`; `api.rs`: `POST /v1/ambient/refresh` reloads both links.
 
-Tests (`helper/app/tests/z2m.rs`, a fake broker in the test itself on 127.0.0.1, 7 tests, all passing on 2026-10-25
-with the rest of the helper's suite: 335 unit tests, and the hue, daemon and other integration tests):
+Tests (`helper/app/tests/z2m.rs`, a fake broker in the test itself on 127.0.0.1 with MQTT topic wildcards, 11 tests, all
+passing on 2026-10-26 with the rest of the helper's suite):
 
 - `the_still_colour_starts_the_bulbs_with_bifrosts_frames_and_the_screen_going_off_puts_them_back`: the saved user name
   and password in CONNECT, the three subscriptions, `write` of attribute 5 then command 3 with counter 0 to each bulb,
@@ -244,6 +260,17 @@ with the rest of the helper's suite: 335 unit tests, and the hue, daemon and oth
   with the Hue lights the list has and nothing is saved; the right lights are saved (mode 0600, the password in the
   file and in no output), the credentials were used, nothing was published; a refused password is the broker's words;
   `z2m-unlink`; the usage errors (no light, a bad place, a public address).
+- `an_update_running_before_the_start_holds_every_frame_back_until_it_has_ended_and_settled`: a retained
+  `update.state` of `updating` on another device: nothing published in 1.5 s and the words in `problem`; the update ends:
+  still nothing for the settle time, then the start sequence on the same connection.
+- `an_update_starting_mid_stream_ends_it_and_the_lights_follow_again_when_it_is_over`: black, command 3 and the restore,
+  no frames during the update, the start sequence again after it (state topic, `ota_update` request and response, log
+  lines), the counter carried on, one connection throughout.
+- `an_update_that_never_ends_stops_holding_the_lights_back_after_the_stale_time`.
+- `late_answers_halve_the_rate_then_pause_the_stream_and_a_quiet_stream_recovers_its_rate`: 20, 10, 5 frames a second
+  (measured, the fade following the interval), a failure of another device or an `info` line changing nothing, a pause
+  with the stream ended and no frames, the restart at 5, the climb back to 20.
+  Removing the update check or the rate cut makes these fail (checked).
 
 ## Nitin's steps
 
@@ -288,6 +315,14 @@ Keys are made and entered by Nitin only; nothing here reads Home Assistant, Zigb
 6. Helper CPU with the stream open (`top` on the set): the helper's total under the Hue path's, well under 1 % of a core
    for the output.
 7. Latency: a flash on the screen to the bulb (phone slow-motion), expected around 100-150 ms with `delay_ms` 0.
+8. Update guard: in Zigbee2MQTT start an OTA update of a battery device (not a light) while ambient light is on. The `ambient`
+   topic's `problem` says `Zigbee2MQTT: paused: Zigbee2MQTT is updating <name>`, the lights go back to their own state, no
+   `Publish 'set' 'zclcommand'` line appears during the update, and the update completes. After it, the lights follow again
+   within about 30 s. Also start the TV's stream while an update is running (screen off, update, screen on): no frames until
+   it ends. Read Zigbee2MQTT's MQTT output (`mosquitto_sub` on `zigbee2mqtt/#`) once during an update to confirm the state
+   topic's `update.state` and the log lines this relies on.
+9. Busy guard: at `--fps 60` or with a weak mesh, `problem` shows `N frames a second instead of M` when Zigbee2MQTT logs
+   `dataRequest` timeouts, and the rate comes back by itself when it is quiet.
 
 ## One stream on the set's network (2026-10-25 23:22, TvRound8)
 
@@ -302,9 +337,7 @@ Finding, a design rule for the output: Zigbee2MQTT was in the middle of an OTA u
 done) and the stream saturated the coordinator: the light-balance write failed 16 s later with `SRSP - AF - dataRequest after
 6000ms`, two of the OTA's `queryNextImageResponse` answers failed the same way, and the OTA ended with `ABORT` at 23:23:11
 (the device keeps its firmware; the update has to be started again). So the stream must not run while Zigbee2MQTT reports an
-OTA update in progress (`bridge/response/device/ota_update`, or a device's `update.state` of `updating` in `bridge/devices`
-and the state topics), and it should back off (a lower rate, then a pause) when the coordinator answers late (a
-`Publish 'set' ... failed` with a dataRequest timeout). Neither exists in `ambient_z2m.rs` yet.
+OTA update in progress, and it should back off when the coordinator answers late. Both are built, see "Resume here".
 
 ## Open
 

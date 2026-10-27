@@ -445,6 +445,37 @@ pub struct AmbientConfig {
     pub capture_socket: Option<String>,
     /// Where the sound for the sound modes of ambient light comes from.
     pub sound: SoundConfig,
+    /// The Zigbee2MQTT output's protection of the Zigbee network.
+    pub z2m: Z2mConfig,
+}
+
+/// How the Zigbee2MQTT output protects the Zigbee network (`ambient_z2m.rs`). The defaults are what a real network needs (one
+/// stream aborted an OTA update of a battery sensor); only a test shortens them.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct Z2mConfig {
+    /// How long after the last update of any device finished before frames are sent again.
+    pub ota_settle_ms: u64,
+    /// An update not heard of for this long is taken as over, so a missed end cannot block the lights for good.
+    pub ota_stale_ms: u64,
+    /// How long the stream stays off after repeated late answers from the coordinator.
+    pub busy_pause_ms: u64,
+    /// Late answers closer together than this are one event, and an event halves the frame rate once.
+    pub busy_cut_gap_ms: u64,
+    /// Without a late answer for this long, the frame rate goes up by half again, to the link's rate.
+    pub recover_ms: u64,
+}
+
+impl Default for Z2mConfig {
+    fn default() -> Self {
+        Self {
+            ota_settle_ms: 30_000,
+            ota_stale_ms: 300_000,
+            busy_pause_ms: 60_000,
+            busy_cut_gap_ms: 2_000,
+            recover_ms: 20_000,
+        }
+    }
 }
 
 /// The TV's own sound mix for ambient light's sound modes (`ambient_audio_capture.rs`). Whether the lights use it is the

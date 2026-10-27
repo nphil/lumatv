@@ -23,14 +23,23 @@
 //! A lost connection, a refused publish or a bulb Zigbee2MQTT does not know waits 5 s, then 10, up to 60, and the words of it are
 //! the output's [`Status`], which ambient light shows as the `problem`. The password is used only in CONNECT, to the address it was
 //! saved with; nothing here logs, prints or returns it.
+//!
+//! The output never adds to a busy Zigbee network (one stream once saturated the coordinator and aborted an OTA update of a leak
+//! sensor, `docs/research/z2m-direct-result.md`). It listens to what Zigbee2MQTT says about updates: a device's `update.state` on
+//! its state topic (and in the device list), the log lines of an update, and the requests and responses of `ota_update`. While
+//! any device is updating, and for a settle time after the last one, no start sequence and no frame is sent; a stream that is
+//! live is ended the normal way and the status says `paused: Zigbee2MQTT is updating <device>`; it starts again by itself. Late
+//! answers from the coordinator (a failed publish to a light, a dataRequest timeout in Zigbee2MQTT's log) halve the frame rate
+//! down to 5 a second, a further one pauses the stream for a while, and the rate comes back by half again for each quiet period.
 
 use crate::ambient_z2m_frame::{self as fr, Mode, Record};
 use crate::ambient_z2m_mqtt::{Client, Error as MqttError, Message, Options};
 use crate::ambient_z2m_store::Z2mLink;
+use crate::config::Z2mConfig;
 pub use crate::hue::{Demand, Event, Frame, Status};
 use parking_lot::{Condvar, Mutex};
 use serde_json::{Value as Json, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -52,6 +61,8 @@ const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_LONGEST: Duration = Duration::from_secs(60);
 /// A stop on the way out must not hold the helper up.
 const STOP_WITHIN: Duration = Duration::from_secs(4);
+/// The slowest the frames go before a late answer pauses the stream instead.
+const FLOOR_FPS: u8 = 5;
 
 struct Slot {
     demand: Demand,
@@ -74,7 +85,11 @@ pub struct Output {
 
 impl Output {
     /// Starts the thread for `link`. It tells ambient light the lights at once and does nothing else until it is given a demand.
-    pub fn spawn(link: Z2mLink, events: Arc<dyn Fn(Event) + Send + Sync>) -> io::Result<Self> {
+    pub fn spawn(
+        link: Z2mLink,
+        pacing: Z2mConfig,
+        events: Arc<dyn Fn(Event) + Send + Sync>,
+    ) -> io::Result<Self> {
         let shared = Arc::new(Shared {
             slot: Mutex::new(Slot {
                 demand: Demand::Off,
@@ -88,6 +103,7 @@ impl Output {
             }),
             wake: Condvar::new(),
         });
+        let fps = link.fps;
         let worker = Worker {
             shared: shared.clone(),
             events,
@@ -103,6 +119,17 @@ impl Output {
             backoff: RETRY_FIRST,
             last_problem: String::new(),
             pending: false,
+            rate: fps,
+            pacing,
+            ota: HashMap::new(),
+            ota_settle_until: None,
+            ota_last: String::new(),
+            last_cut: None,
+            recover_at: None,
+            pause_until: None,
+            held: false,
+            polled_at: Instant::now(),
+            subscribed: HashSet::new(),
         };
         let thread = thread::Builder::new()
             .name("z2m".to_owned())
@@ -163,6 +190,8 @@ struct Device {
     network_address: u16,
     vendor: String,
     model: String,
+    /// Zigbee2MQTT's own word that an update is running (`update.state`), if the list carries it.
+    updating: bool,
 }
 
 /// A light of the link with its address: `addr + i` is segment `i`.
@@ -204,6 +233,25 @@ struct Worker {
     last_problem: String,
     /// A frame has come that has not been sent yet.
     pending: bool,
+    /// The frames a second now: the link's, less what the coordinator's late answers took off. Set when the thread starts.
+    rate: u8,
+    pacing: Z2mConfig,
+    /// Devices Zigbee2MQTT is updating over the air, by friendly name.
+    ota: HashMap<String, Updating>,
+    /// No frames before this: an update ended (or went quiet) a moment ago.
+    ota_settle_until: Option<Instant>,
+    /// The last device that was updating, for the words of the settle.
+    ota_last: String,
+    /// When the rate was last cut, and when it next steps back up.
+    last_cut: Option<Instant>,
+    recover_at: Option<Instant>,
+    /// No stream before this: the coordinator answered late too often.
+    pause_until: Option<Instant>,
+    /// Connected, no stream open, waiting for a pause to end.
+    held: bool,
+    polled_at: Instant,
+    /// Topics subscribed to beyond the first ones: a device whose name has a slash is not under `<base>/+`.
+    subscribed: HashSet<String>,
 }
 
 /// What one pass of the loop is told.
@@ -231,6 +279,7 @@ fn parse_devices(payload: &[u8]) -> Option<HashMap<String, Device>> {
                 network_address: u16::try_from(addr).unwrap_or(0),
                 vendor: d["definition"]["vendor"].as_str().unwrap_or("").to_owned(),
                 model: d["definition"]["model"].as_str().unwrap_or("").to_owned(),
+                updating: d["update"]["state"].as_str() == Some("updating"),
             },
         );
     }
@@ -286,13 +335,19 @@ fn open_client(link: &Z2mLink) -> Result<Client, String> {
     };
     let addr = SocketAddr::from((link.host, link.port));
     let mut client = Client::connect(addr, &options).map_err(|e| format!("{addr}: {e}"))?;
-    client
-        .subscribe(&format!("{}/bridge/devices", link.base_topic))
-        .map_err(|e| e.to_string())?;
-    for l in &link.lights {
-        client
-            .subscribe(&format!("{}/{}", link.base_topic, l.name))
-            .map_err(|e| e.to_string())?;
+    let base = &link.base_topic;
+    // The update topics first: their retained messages then arrive before the lights' states, which the start waits for.
+    let mut topics = vec![
+        format!("{base}/bridge/devices"),
+        // Every device's state, where an update shows as `update.state`.
+        format!("{base}/+"),
+        format!("{base}/bridge/logging"),
+        format!("{base}/bridge/request/device/ota_update/#"),
+        format!("{base}/bridge/response/device/ota_update/#"),
+    ];
+    topics.extend(link.lights.iter().map(|l| format!("{base}/{}", l.name)));
+    for topic in &topics {
+        client.subscribe(topic).map_err(|e| e.to_string())?;
     }
     Ok(client)
 }
@@ -389,10 +444,57 @@ pub fn probe(link: &Z2mLink) -> Result<Vec<Found>, String> {
     found
 }
 
+/// A device Zigbee2MQTT is updating over the air.
+struct Updating {
+    /// Taken as over after this, unless it is heard of again.
+    until: Instant,
+    /// Known only from a request, not yet from the device's own state.
+    by_request: bool,
+}
+
+/// What opening a stream came to.
+enum Opened {
+    Live(Live),
+    /// Not wanted any more by the time it was ready.
+    Unwanted,
+    /// Not now: the words say why.
+    Held(String),
+}
+
+/// The text between the first pair of quotes: Zigbee2MQTT quotes friendly names in its log.
+fn quoted(s: &str) -> Option<&str> {
+    let rest = s.split_once('\'')?.1;
+    Some(rest.split_once('\'')?.0)
+}
+
+/// A device and whether it is updating, from a log line of Zigbee2MQTT's update extension.
+fn ota_log(message: &str) -> Option<(&str, bool)> {
+    if message.starts_with("Update of '") {
+        return Some((quoted(message)?, !message.contains("failed")));
+    }
+    if message.starts_with("Updating '") {
+        return Some((quoted(message)?, true));
+    }
+    if message.starts_with("Finished update of '") {
+        return Some((quoted(message)?, false));
+    }
+    None
+}
+
+/// Whether a log line of Zigbee2MQTT says the coordinator answered late or not at all: a failure that names one of the lights, or a
+/// dataRequest timeout (the coordinator's own, for whichever device).
+fn late_answer<'a>(message: &str, mut lights: impl Iterator<Item = &'a str>) -> bool {
+    let lower = message.to_lowercase();
+    let failed = ["failed", "timeout", "timed out", "no ack"]
+        .iter()
+        .any(|w| lower.contains(w));
+    lower.contains("datarequest") || (failed && lights.any(|n| message.contains(n)))
+}
+
 impl Worker {
     /// The least time between two frames.
     fn interval(&self) -> Duration {
-        Duration::from_millis(1000 / u64::from(self.link.fps.max(1)))
+        Duration::from_millis(1000 / u64::from(self.rate.max(1)))
     }
 
     fn topic(&self, name: &str, suffix: &str) -> String {
@@ -458,7 +560,10 @@ impl Worker {
                 }
             }
             (Demand::Stream, None) => {
-                if self.retry_ready(now) {
+                if self.held {
+                    let next = self.polled_at + POLL;
+                    (now >= next, Some(next))
+                } else if self.retry_ready(now) {
                     (true, None)
                 } else {
                     (false, self.retry_at)
@@ -543,33 +648,77 @@ impl Worker {
             self.client = Some(open_client(&self.link)?);
             self.devices = None;
             self.states.clear();
+            self.subscribed = self
+                .link
+                .lights
+                .iter()
+                .map(|l| self.topic(&l.name, ""))
+                .collect();
         }
         Ok(())
     }
 
     fn close(&mut self) {
+        self.held = false;
         if let Some(client) = self.client.take() {
             client.disconnect();
         }
     }
 
-    /// Takes in a message from the broker: a new device list, or a light's state.
+    /// Takes in a message from the broker: a new device list, a light's state, or what it says about updates and late answers.
     fn take(&mut self, m: Message) {
-        if m.topic == self.topic("bridge", "/devices") {
-            if let Some(devices) = parse_devices(&m.payload) {
-                self.devices = Some(devices);
+        let now = Instant::now();
+        let Some(rest) = m
+            .topic
+            .strip_prefix(self.link.base_topic.as_str())
+            .and_then(|r| r.strip_prefix('/'))
+        else {
+            return;
+        };
+        if let Some(bridge) = rest.strip_prefix("bridge/") {
+            match bridge {
+                "devices" => {
+                    if let Some(devices) = parse_devices(&m.payload) {
+                        for (name, d) in &devices {
+                            if d.updating {
+                                self.ota_note(name, true, false, now);
+                            }
+                        }
+                        self.watch_slashed(&devices);
+                        self.devices = Some(devices);
+                    }
+                }
+                "logging" => self.take_log(&m.payload, now),
+                t if t.starts_with("request/device/ota_update") && !t.contains("/check") => {
+                    if let Ok(v) = serde_json::from_slice::<Json>(&m.payload)
+                        && let Some(id) = v["id"].as_str()
+                    {
+                        self.ota_note(id, true, true, now);
+                    }
+                }
+                t if t.starts_with("response/device/ota_update") && !t.contains("/check") => {
+                    let v = serde_json::from_slice::<Json>(&m.payload).unwrap_or(Json::Null);
+                    self.ota_answered(v["data"]["id"].as_str(), now);
+                }
+                _ => {}
             }
             return;
         }
-        for l in &self.link.lights {
-            if m.topic == self.topic(&l.name, "") {
-                if let Ok(state) = serde_json::from_slice::<Json>(&m.payload)
-                    && state.is_object()
-                {
-                    self.states.insert(l.name.clone(), state);
-                }
-                return;
-            }
+        let is_light = self.link.lights.iter().any(|l| l.name == rest);
+        if !is_light && !m.payload.windows(8).any(|w| w == b"\"update\"") {
+            return;
+        }
+        let Ok(state) = serde_json::from_slice::<Json>(&m.payload) else {
+            return;
+        };
+        if !state.is_object() {
+            return;
+        }
+        if let Some(s) = state["update"]["state"].as_str() {
+            self.ota_note(rest, s == "updating", false, now);
+        }
+        if is_light {
+            self.states.insert(rest.to_owned(), state);
         }
     }
 
@@ -638,7 +787,11 @@ impl Worker {
 
     fn stream_pass(&mut self) {
         if self.live.is_none() {
-            self.begin();
+            if self.held {
+                self.hold_pass();
+            } else {
+                self.begin();
+            }
             return;
         }
         let now = Instant::now();
@@ -660,6 +813,10 @@ impl Worker {
             {
                 crate::log_info!("z2m: the lights' addresses changed; frames follow");
                 l.lights = lights;
+            }
+            self.tick_rate(now);
+            if let Some(words) = self.hold_reason(now) {
+                return self.hold(words, now);
             }
         }
         let interval = self.interval();
@@ -730,7 +887,7 @@ impl Worker {
     fn begin(&mut self) {
         self.set_status("connecting", None);
         match self.open() {
-            Ok(Some(live)) => {
+            Ok(Opened::Live(live)) => {
                 crate::log_info!(
                     "z2m: streaming to {} at {} a second, frames to {}",
                     live.lights
@@ -738,14 +895,25 @@ impl Worker {
                         .map(|l| format!("{} 0x{:04x}", l.name, l.addr))
                         .collect::<Vec<_>>()
                         .join(", "),
-                    self.link.fps,
+                    self.rate,
                     live.lights[0].name
                 );
                 self.live = Some(live);
+                self.held = false;
+                self.pending = self.last_frame.is_some();
+                if self.rate < self.link.fps {
+                    self.recover_at = Some(Instant::now() + self.recover());
+                }
                 self.succeeded();
-                self.set_status("streaming", None);
+                self.live_status();
             }
-            Ok(None) => {
+            Ok(Opened::Held(words)) => {
+                crate::log_info!("z2m: {words}");
+                self.held = true;
+                self.polled_at = Instant::now();
+                self.set_status("idle", Some(words));
+            }
+            Ok(Opened::Unwanted) => {
                 self.close();
                 self.set_status("idle", None);
             }
@@ -756,8 +924,8 @@ impl Worker {
         }
     }
 
-    /// Connects, resolves the lights and sends the start sequence. `Ok(None)`: no longer wanted by the time it was ready.
-    fn open(&mut self) -> Result<Option<Live>, String> {
+    /// Connects, resolves the lights and sends the start sequence, unless an update or a pause says not now.
+    fn open(&mut self) -> Result<Opened, String> {
         self.connect()?;
         self.drain(DEVICES_WAIT, |w| w.devices.is_some())
             .map_err(|e| e.to_string())?;
@@ -773,7 +941,13 @@ impl Worker {
             slot.demand == Demand::Stream && !slot.stop
         };
         if !wanted {
-            return Ok(None);
+            return Ok(Opened::Unwanted);
+        }
+        // What the retained messages said about updates has arrived by now: take it in before anything is sent.
+        self.drain(Duration::ZERO, |_| false)
+            .map_err(|e| e.to_string())?;
+        if let Some(words) = self.hold_reason(Instant::now()) {
+            return Ok(Opened::Held(words));
         }
         let before: HashMap<String, Json> = names
             .iter()
@@ -800,7 +974,7 @@ impl Worker {
             let set = self.topic(&l.name, "/set");
             self.publish(&set, &reset).map_err(|e| e.to_string())?;
         }
-        Ok(Some(Live {
+        Ok(Opened::Live(Live {
             lights,
             before,
             sent_at: None,
@@ -848,6 +1022,211 @@ impl Worker {
                 return;
             }
         }
+    }
+
+    fn recover(&self) -> Duration {
+        Duration::from_millis(self.pacing.recover_ms)
+    }
+
+    /// Notes that a device is, or is no longer, being updated. An update that ends starts the settle time.
+    fn ota_note(&mut self, name: &str, updating: bool, by_request: bool, now: Instant) {
+        if updating {
+            let until = now + Duration::from_millis(self.pacing.ota_stale_ms);
+            if let Some(m) = self.ota.get_mut(name) {
+                m.until = until;
+                m.by_request &= by_request;
+            } else {
+                crate::log_info!("z2m: {name} is being updated; no frames until it is done");
+                self.ota
+                    .insert(name.to_owned(), Updating { until, by_request });
+            }
+        } else if self.ota.remove(name).is_some() {
+            self.ota_ended(name, now);
+        }
+    }
+
+    fn ota_ended(&mut self, name: &str, now: Instant) {
+        name.clone_into(&mut self.ota_last);
+        let until = now + Duration::from_millis(self.pacing.ota_settle_ms);
+        self.ota_settle_until = self.ota_settle_until.max(Some(until));
+    }
+
+    /// A response to `ota_update`: the update it was for is over, done or failed. One that does not say which (an error) ends every
+    /// update known only from a request.
+    fn ota_answered(&mut self, id: Option<&str>, now: Instant) {
+        match id {
+            Some(id) => self.ota_note(id, false, false, now),
+            None => {
+                let names: Vec<String> = self
+                    .ota
+                    .iter()
+                    .filter(|(_, m)| m.by_request)
+                    .map(|(n, _)| n.clone())
+                    .collect();
+                for n in names {
+                    self.ota_note(&n, false, false, now);
+                }
+            }
+        }
+    }
+
+    /// Reads a line of Zigbee2MQTT's log: an update's progress or end, or a late answer from the coordinator.
+    fn take_log(&mut self, payload: &[u8], now: Instant) {
+        let Ok(v) = serde_json::from_slice::<Json>(payload) else {
+            return;
+        };
+        let (Some(level), Some(message)) = (v["level"].as_str(), v["message"].as_str()) else {
+            return;
+        };
+        if let Some((name, updating)) = ota_log(message) {
+            self.ota_note(name, updating, false, now);
+        } else if matches!(level, "error" | "warning")
+            && late_answer(message, self.link.lights.iter().map(|l| l.name.as_str()))
+        {
+            self.busy(now);
+        }
+    }
+
+    /// Subscribes to the state topic of each device whose name has a slash (`<base>/+` does not reach it).
+    fn watch_slashed(&mut self, devices: &HashMap<String, Device>) {
+        for name in devices.keys().filter(|n| n.contains('/')) {
+            let topic = self.topic(name, "");
+            if self.subscribed.insert(topic.clone())
+                && let Some(client) = self.client.as_mut()
+            {
+                let _ = client.subscribe(&topic);
+            }
+        }
+    }
+
+    /// Why no frame may be sent now, in words, or `None`: a device is updating, one finished a moment ago, or the stream is paused
+    /// after late answers.
+    fn hold_reason(&mut self, now: Instant) -> Option<String> {
+        let settle = Duration::from_millis(self.pacing.ota_settle_ms);
+        let gone: Vec<String> = self
+            .ota
+            .iter()
+            .filter(|(_, m)| m.until <= now)
+            .map(|(n, _)| n.clone())
+            .collect();
+        for name in gone {
+            if let Some(m) = self.ota.remove(&name) {
+                self.ota_last = name;
+                self.ota_settle_until = self.ota_settle_until.max(Some(m.until + settle));
+            }
+        }
+        if !self.ota.is_empty() {
+            let mut names: Vec<&str> = self.ota.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            return Some(format!(
+                "paused: Zigbee2MQTT is updating {}",
+                names.join(", ")
+            ));
+        }
+        if self.ota_settle_until.is_some_and(|t| now < t) {
+            return Some(format!(
+                "paused: Zigbee2MQTT has just finished updating {}; the lights follow again in a moment",
+                self.ota_last
+            ));
+        }
+        if let Some(t) = self.pause_until {
+            if now < t {
+                return Some(format!(
+                    "paused: the Zigbee network was too busy for the lights; trying again shortly at {} frames a second",
+                    self.rate
+                ));
+            }
+            self.pause_until = None;
+        }
+        None
+    }
+
+    /// Ends the live stream for a pause and keeps the connection, so the end of the update is heard.
+    fn hold(&mut self, words: String, now: Instant) {
+        crate::log_info!("z2m: {words}");
+        self.end_stream();
+        self.held = true;
+        self.polled_at = now;
+        self.set_status("idle", Some(words));
+    }
+
+    /// One look at the connection while paused: starts again when nothing holds the stream any more.
+    fn hold_pass(&mut self) {
+        let now = Instant::now();
+        if now < self.polled_at + POLL {
+            return;
+        }
+        self.polled_at = now;
+        if let Err(e) = self.drain(Duration::ZERO, |_| false) {
+            return self.lost(&e.to_string());
+        }
+        match self.hold_reason(now) {
+            Some(words) => self.set_status("idle", Some(words)),
+            None => {
+                self.held = false;
+                self.begin();
+            }
+        }
+    }
+
+    /// The status of a live stream: it says so when the rate is below the link's.
+    fn live_status(&mut self) {
+        let problem = (self.rate < self.link.fps).then(|| {
+            format!(
+                "the Zigbee network is busy: {} frames a second instead of {}",
+                self.rate, self.link.fps
+            )
+        });
+        self.set_status("streaming", problem);
+    }
+
+    /// The pace changed: the fade of a frame is one interval, and the status shows the rate.
+    fn rate_changed(&mut self) {
+        let smoothing = fr::smoothing_for(self.interval());
+        if let Some(live) = self.live.as_mut() {
+            live.smoothing = smoothing;
+        }
+        self.live_status();
+    }
+
+    /// The coordinator answered late. Late answers within the cut gap are one event; an event halves the rate, and one at the lowest
+    /// rate pauses the stream.
+    fn busy(&mut self, now: Instant) {
+        if self.live.is_none()
+            || self
+                .last_cut
+                .is_some_and(|t| now < t + Duration::from_millis(self.pacing.busy_cut_gap_ms))
+        {
+            return;
+        }
+        self.last_cut = Some(now);
+        self.recover_at = Some(now + self.recover());
+        let floor = self.link.fps.min(FLOOR_FPS);
+        if self.rate <= floor {
+            self.pause_until = Some(now + Duration::from_millis(self.pacing.busy_pause_ms));
+            crate::log_warn!(
+                "z2m: the coordinator answers late even at {} frames a second; pausing",
+                self.rate
+            );
+        } else {
+            self.rate = (self.rate / 2).max(floor);
+            crate::log_warn!(
+                "z2m: the coordinator answers late; {} frames a second now",
+                self.rate
+            );
+            self.rate_changed();
+        }
+    }
+
+    /// After a quiet period the rate goes up by half again, to the link's.
+    fn tick_rate(&mut self, now: Instant) {
+        if self.rate >= self.link.fps || self.recover_at.is_none_or(|t| now < t) {
+            return;
+        }
+        let up = u16::from(self.rate) + u16::from((self.rate / 2).max(1));
+        self.rate = u8::try_from(up).map_or(self.link.fps, |r| r.min(self.link.fps));
+        self.recover_at = Some(now + self.recover());
+        self.rate_changed();
     }
 }
 
@@ -922,5 +1301,39 @@ mod tests {
         assert_eq!((r[2].addr, r[3].addr), (0x2001, 0x2002));
         assert_eq!(r[0], fr::record(0x1000, [65535, 0, 0], Mode::Device));
         assert_eq!(r[3], fr::record(0x2002, [0, 0, 65535], Mode::Segment));
+    }
+
+    #[test]
+    fn update_lines_of_the_log_name_the_device_and_whether_it_is_updating() {
+        assert_eq!(
+            ota_log("Update of 'leak' at 54.30%, ≈ 4 minutes remaining"),
+            Some(("leak", true))
+        );
+        assert_eq!(
+            ota_log("Updating 'leak' to latest firmware"),
+            Some(("leak", true))
+        );
+        assert_eq!(ota_log("Finished update of 'leak'"), Some(("leak", false)));
+        assert_eq!(
+            ota_log("Update of 'leak' failed (ABORT)"),
+            Some(("leak", false))
+        );
+        assert_eq!(ota_log("MQTT publish: topic 'zigbee2mqtt/leak'"), None);
+    }
+
+    #[test]
+    fn a_late_answer_names_a_light_or_is_the_coordinators_own_timeout() {
+        let lights = ["TV left", "TV right"];
+        let late = |m: &str| late_answer(m, lights.iter().copied());
+        assert!(late(
+            "Publish 'set' 'zclcommand' to 'TV left' failed: 'Error: Timeout - 1 - 11 - 100ms'"
+        ));
+        assert!(late(
+            "Failed to write: SRSP - AF - dataRequest after 6000ms"
+        ));
+        assert!(!late(
+            "Publish 'set' 'state' to 'plug' failed: 'Error: no ack'"
+        ));
+        assert!(!late("Update of 'TV left' at 5%"));
     }
 }
