@@ -36,7 +36,8 @@ TOUCHED = sorted(["UserInterfaceLayer/GlobalStyle.qml", BANNER + "InputBanner/Si
                   BANNER + "BannerItems/NsuProgressBar.qml", BANNER + "ChannelBanner/ZappingBanner.qml", BANNER + "ChannelBanner/ChannelBanner.qml",
                   BANNER + "ChannelBanner/DetailInfoBanner.qml", BANNER + "BannerItems/BannerEditItem.qml", BANNER + "BannerEditView.qml",
                   "UserInterfaceLayer/Components/SimpleButton.qml", "UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml",
-                  BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml"])
+                  BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml",
+                  "UserInterfaceLayer/Components/LumaStyle.qml"])
 DUMP = "com.webos.app.inputcommon"
 ASIDE = ".lumatv-aside." + DUMP
 

@@ -30,6 +30,7 @@ from xdisplay import DISPLAY, HAVE_QT  # noqa: E402
 
 BANNER = "UserInterfaceLayer/Containers/MainViewLayer/"
 STYLE = "UserInterfaceLayer/GlobalStyle.qml"
+LUMA = "UserInterfaceLayer/Components/LumaStyle.qml"   # new: the patched banners' own style, not a file of LG's
 BG = "UserInterfaceLayer/Containers/BgViewLayer/"
 TOUCHED = [STYLE, BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner/InputBanner.qml", BANNER + "InputBanner/DetailInfoBanner.qml",
            BANNER + "BannerItems/OptionButton.qml", BANNER + "BannerItems/BannerIcon.qml", BANNER + "BannerItems/NsuProgressBar.qml",
@@ -115,7 +116,8 @@ class InputcommonPatch(unittest.TestCase):
         self.assertIn('property string inputColor: "%s"' % self.pal["ink"], style)
         self.assertIn('property string infoBannerColor: "%s"' % self.pal["sheetBottom"], style)
         self.assertIn("property int infoBannerRadius: %d" % self.pal["radius"], style)
-        self.assertIn('property string inputBannerEdge: "%s"' % self.pal["hairline"], style)
+        self.assertIn('property string inputBannerEdge: "%s"' % self.pal["hairline"], self.read(LUMA))
+        self.assertNotIn("inputBannerEdge", style)
         self.assertIn('DINGBAT_COLOR: "%s"' % self.pal["ink"], style)
         self.assertNotIn('infoBannerColor: "#575E66"', style)
         self.assertNotIn('nsuBgColor: "#575E66"', style)
@@ -123,7 +125,7 @@ class InputcommonPatch(unittest.TestCase):
     def test_it_changes_the_files_it_names_and_no_other_and_prints_them(self):
         self.run_tool()
         self.assertEqual(self.differing(), sorted(TOUCHED))
-        self.assertEqual(self.stdout.split("\n")[:-1], sorted(TOUCHED))
+        self.assertEqual(self.stdout.split("\n")[:-1], sorted(TOUCHED + [LUMA]))
 
     def test_only_style_is_removed_and_every_line_of_LGs_behaviour_is_still_there(self):
         self.run_tool()
@@ -160,8 +162,8 @@ class InputcommonPatch(unittest.TestCase):
         self.assertIn("isRepeatedMoving: !isPhotoRunning", text)
         self.assertIn("isMoving: isDynamic && systemProperties.isAppActivated", text)
         # one ink for words on the black, one on the sheet of the photo mode
-        self.assertIn("styleSheet.banner.noSignalColor", self.read(BG + "ScreensaverMainText.qml"))
-        self.assertIn("styleSheet.banner.noSignalDimColor", self.read(BG + "ScreensaverSubText.qml"))
+        self.assertIn("lumaStyle.noSignalColor", self.read(BG + "ScreensaverMainText.qml"))
+        self.assertIn("lumaStyle.noSignalDimColor", self.read(BG + "ScreensaverSubText.qml"))
 
     def test_no_live_shadow_comes_in_and_the_two_that_were_there_are_off(self):
         self.run_tool()
@@ -184,7 +186,7 @@ class InputcommonPatch(unittest.TestCase):
         style = self.read(STYLE)
         self.assertIn('optionImg: Qt.resolvedUrl("./Images/banner/option/ic_moreoption_f.png")', style)
         self.assertIn('optionFocusedImg: Qt.resolvedUrl("./Images/banner/option/ic_moreoption_f.png")', style)
-        self.assertIn('property string inputBannerColor: "%s"' % light["sheetBottom"], style)
+        self.assertIn('property string inputBannerColor: "%s"' % light["sheetBottom"], self.read(LUMA))
 
     ANCHORS = [
         (STYLE, "property int inputSimpleMinWidth: 582"),
@@ -270,12 +272,27 @@ class InputcommonPatch(unittest.TestCase):
         r = subprocess.run([sys.executable, TOOL, self.dir], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
 
+    def test_a_patched_banner_asks_the_sheet_only_for_what_LG_ships(self):
+        """A process restored from a CRIU dump has the stock sheet in memory (round 17), so a patched banner file that reads a name only the
+        patched sheet has gets undefined: its own style comes from LumaStyle."""
+        self.run_tool()
+        stock_names = set(re.findall(r"property\s+[\w<>]+\s+(\w+)\s*:", self.stock(STYLE)))
+        own = set(re.findall(r"property\s+\w+\s+(\w+)\s*:", self.read(LUMA)))
+        for rel in TOUCHED[1:]:
+            text = self.read(rel)
+            for name in re.findall(r"styleSheet\.banner\.(\w+)", text):
+                self.assertIn(name, stock_names, "%s reads styleSheet.banner.%s, which LG's sheet does not have" % (rel, name))
+            for name in re.findall(r"lumaStyle\.(\w+)", text):
+                self.assertIn(name, own, "%s reads lumaStyle.%s, which LumaStyle.qml does not define" % (rel, name))
+            if "lumaStyle." in text:
+                self.assertIn("LumaStyle { id: lumaStyle }", text, rel)
+
     def test_the_no_signal_words_read_on_black_in_both_materials(self):
         """4.5:1 for the line and its dimmer partner, composited on black (the panel's dark; the burn-in guard is why they are not brighter)."""
         for light in (False, True):
             pal = palette(light)
             self.assertEqual(self.run_tool(pal)[0], 0)
-            style = self.read(STYLE)
+            style = self.read(LUMA)
             for name in ("noSignalColor", "noSignalDimColor"):
                 m = re.search(r'property string %s: "#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})"' % name, style)
                 self.assertIsNotNone(m, name)
@@ -311,6 +328,36 @@ class PatchedBannersInTheHost(unittest.TestCase):
             for patched, extra in ((False, []), (True, []), (True, ["--light"])):
                 rc, out = self.run_host("--scene", scene, "--wait", "900", *extra, patched=patched)
                 self.assertEqual(rc, 0, "%s patched=%s %s: %s" % (scene, patched, extra, out[-1200:]))
+
+    def stale(self, scene, *probes, wait="900"):
+        args = ["--scene", scene, "--stale-sheet", "--wait", wait]
+        for p in probes:
+            args += ["--probe", "700:" + p]
+        return self.run_host(*args)[1]
+
+    def test_the_pill_draws_its_glass_when_the_style_sheet_is_LGs_own(self):
+        """Round 17 on the set: LG restores the input app from a CRIU dump, so the process held the stock style sheet and read the patched
+        banner from the overlay. Every name the patched sheet adds was undefined: the pill was 0 high and its words sat bare at x 0."""
+        out = self.stale("pill", "lumaPill:visible", "lumaPill:width", "lumaPill:height", "lumaPill:color.a", "lumaPill:x",
+                         "inputName:inside:lumaPill", "inputLabel:inside:lumaPill", "simpleBanner:height", "lumaBar:height")
+        self.assertEqual(self.probe(out, "lumaPill", "visible"), "true")
+        self.assertEqual(self.probe(out, "lumaPill", "height"), "88")
+        self.assertGreater(int(self.probe(out, "lumaPill", "width")), 320 - 1)
+        self.assertGreater(float(self.probe(out, "lumaPill", "color.a")), 0.5)
+        self.assertEqual(self.probe(out, "lumaBar", "height"), "88")
+        self.assertEqual(self.probe(out, "simpleBanner", "height"), "88")
+        self.assertEqual(self.probe(out, "inputName", "inside:lumaPill"), "true")
+        self.assertEqual(self.probe(out, "inputLabel", "inside:lumaPill"), "true")
+
+    def test_the_lit_inset_and_the_channel_strip_survive_the_stock_sheet_too(self):
+        out = self.stale("focused-pill", "lumaFocus:visible", "lumaFocus:inside:lumaPill", "lumaFocus:height")
+        self.assertEqual(self.probe(out, "lumaFocus", "visible"), "true")
+        self.assertEqual(self.probe(out, "lumaFocus", "inside:lumaPill"), "true")
+        self.assertGreater(int(self.probe(out, "lumaFocus", "height")), 0)
+        out = self.stale("channel", "lumaPill:height", "lumaPill:width", "lumaPill:color.a")
+        self.assertGreater(int(self.probe(out, "lumaPill", "height")), 0)
+        self.assertGreater(int(self.probe(out, "lumaPill", "width")), 0)
+        self.assertGreater(float(self.probe(out, "lumaPill", "color.a")), 0.5)
 
     def test_the_pill_is_88_high_where_LGs_is_156(self):
         for patched, height in ((False, "156"), (True, "88")):

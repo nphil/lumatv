@@ -31,6 +31,10 @@ guide are LG's and stay as they are (docs/research/lg-restyles-result.md). What 
     of the pill; the prompts are a sheet with rows for buttons.
   * The shared style (info banner colours, chips, the clock, the option bar) moves with all of them. Type-dependent geometry
     (the strip's height, the INFO cards') is derived from the font sizes, so a larger type never makes words meet.
+  * The patched banner files read their own measures, inks and type from `Components/LumaStyle.qml` (a new file, one instance a file),
+    not from `styleSheet.banner`: LG restores each input app from a CRIU dump, and that process holds the stock sheet in memory
+    while it reads a banner file from the overlay on its first draw. Whatever only the patched sheet has is undefined there (round 17:
+    a pill 0 high, its words bare at the left edge). The sheet keeps its edits for LG's own files that read it.
 
 Every edit is anchored to an exact fragment of LG's source and must find it exactly as many times as it expects: a
 missing or doubled anchor is fatal, because a half-patched banner is worse than an unpatched one, and a firmware update
@@ -73,47 +77,98 @@ FOCUS_INSET = 8            # the lit inset inside the pill when the input name h
 NOSIGNAL_INK = 0.66       # the no-signal screen's words on black: alpha of the ink (7:1 on black), and the dimmer line below
 NOSIGNAL_DIM = 0.55
 STYLE = "property var banner: QtObject {"
-NEW_STYLE_AT = "        property int inputInfoTopHeight: 181\n"
+LUMA_STYLE_FILE = "UserInterfaceLayer/Components/LumaStyle.qml"
+
+# The type the banners use that LG's sheet already has and the patch changes; the sheet's own copy stays for LG's files that read it.
+NAME_FONT, NAME_FONT2, LABEL_FONT, LABEL_FONT2 = ("semiBoldFont(22)", "semiBoldFont(34)", "semiBoldFont(28)", "semiBoldFont(34)")
+SIMPLE_MIN_WIDTH = 320
+DINGBAT_BOTTOM = 32
+
+# What the patched banner files read from `lumaStyle` in place of `styleSheet.banner`. LG restores each input app from a CRIU dump: that
+# process holds the stock sheet in memory and reads a banner file from the overlay on its first draw, so a patched file must not
+# depend on anything the patched sheet adds or changes (round 17: every such name was undefined, the pill 0 high at the edge).
+LUMA_NAMES = ("inputBannerHeight", "inputSideMargin", "inputSideInset", "inputInfoWidth", "inputInfoHeight", "inputFocusInset",
+              "inputBannerColor", "inputBannerEdge", "inputFocusColor", "inputFocusEdge", "inputKickerColor",
+              "lumaSheetRadius", "lumaRowRadius", "lumaSheetColor", "lumaRowColor", "lumaEdge", "lumaInk", "lumaInkDim",
+              "noSignalColor", "noSignalDimColor",
+              "inputSimpleMinWidth", "inputColor", "inputFocusedColor", "inputNameFont", "inputNameFont2", "inputLabelFont", "inputLabelFont2",
+              "inputDingbatBottomMargin")
+LUMA_REF = re.compile(r"styleSheet\.banner\.(%s)\b" % "|".join(LUMA_NAMES))
+
+
+def luma_style(pal, fonts):
+    """`LumaStyle.qml`: the banners' measures, inks and type, constants baked from the palette. The four Manrope faces are loaded here
+    too (the stock sheet in a restored process has no loaders); the sizes come from the sheet's own font functions, which the
+    text-size passes scale."""
+    loaders = ", ".join('FontLoader { source: "file://%s/%s" }' % (fonts, f) for f in FACES)
+    props = (
+        ("int", "inputBannerHeight", PILL_HEIGHT),
+        ("int", "inputSideMargin", SIDE_MARGIN),
+        ("int", "inputSideInset", INSET),
+        ("int", "inputInfoWidth", DETAIL_WIDTH),
+        ("int", "inputInfoHeight", "Math.max(%d, Math.round(styleSheet.banner.clockTopMargin + 2.7 * styleSheet.regularFont(26).pixelSize + 76))" % DETAIL_HEIGHT),
+        ("int", "inputFocusInset", FOCUS_INSET),
+        ("string", "inputBannerColor", '"%s"' % pal["sheetBottom"]),
+        ("string", "inputBannerEdge", '"%s"' % pal["hairline"]),
+        ("string", "inputFocusColor", '"%s"' % pal["focus"]),
+        ("string", "inputFocusEdge", '"%s"' % pal["focusEdge"]),
+        ("string", "inputKickerColor", '"%s"' % pal["inkDim"]),
+        ("int", "lumaSheetRadius", pal["radius"]),
+        ("int", "lumaRowRadius", pal["rowRadius"]),
+        ("string", "lumaSheetColor", '"%s"' % pal["sheetBottom"]),
+        ("string", "lumaRowColor", '"%s"' % pal["row"]),
+        ("string", "lumaEdge", '"%s"' % pal["hairline"]),
+        ("string", "lumaInk", '"%s"' % pal["ink"]),
+        ("string", "lumaInkDim", '"%s"' % pal["inkDim"]),
+        ("string", "noSignalColor", '"%s"' % on_black(pal, NOSIGNAL_INK)),
+        ("string", "noSignalDimColor", '"%s"' % on_black(pal, NOSIGNAL_DIM)),
+        ("int", "inputSimpleMinWidth", SIMPLE_MIN_WIDTH),
+        ("string", "inputColor", '"%s"' % pal["ink"]),
+        ("string", "inputFocusedColor", '"%s"' % pal["focusInk"]),
+        ("font", "inputNameFont", "manrope(styleSheet.%s)" % NAME_FONT),
+        ("font", "inputNameFont2", "manrope(styleSheet.%s)" % NAME_FONT2),
+        ("font", "inputLabelFont", "manrope(styleSheet.%s)" % LABEL_FONT),
+        ("font", "inputLabelFont2", "manrope(styleSheet.%s)" % LABEL_FONT2),
+        ("int", "inputDingbatBottomMargin", DINGBAT_BOTTOM),
+    )
+    assert sorted(n for _, n, _ in props) == sorted(LUMA_NAMES)
+    body = "".join("    property %s %s: %s\n" % p for p in props)
+    return ("import QtQuick 2.12\n\n"
+            "// Luma: the input banners' own style (tools/inputcommon_patch.py). Patched banner files read it as `lumaStyle`, not from the\n"
+            "// style sheet: a process LG restored from a CRIU dump has the stock sheet in memory.\n"
+            "QtObject {\n    property list<QtObject> faces: [%s]\n\n" % loaders +
+            "    function manrope(f) { return Qt.font({pixelSize: f.pixelSize, family: \"Manrope\", weight: f.weight}) }\n\n" + body + "}\n")
+
+
+def localize(text, rel):
+    """A patched banner file reads the style it needs from its own `lumaStyle` (see LUMA_NAMES); files that read none stay as they are."""
+    text, n = LUMA_REF.subn(r"lumaStyle.\1", text)
+    if not n:
+        return text
+    depth = len(pathlib.PurePosixPath(rel).parts) - 1       # directories below the staged qml dir
+    comp = "/".join([".."] * (depth - 1) + ["Components"])  # UserInterfaceLayer/ is the first of them
+    if not rel.startswith("UserInterfaceLayer/Components/"):
+        if 'import "%s"\n' % comp not in text:
+            text, k = re.subn(r"^(import QtQuick 2\.\d+\n)", lambda m: m.group(1) + 'import "%s"\n' % comp, text, count=1, flags=re.M)
+            if k != 1:
+                raise ValueError("%s: no `import QtQuick` line to add the Components import after" % rel)
+    text, k = re.subn(r"^(\w+ \{\n)", lambda m: m.group(1) + "    LumaStyle { id: lumaStyle }\n", text, count=1, flags=re.M)
+    if k != 1:
+        raise ValueError("%s: no root item to hold the style" % rel)
+    return text
 
 
 def banner_edits(pal):
     return [
-        # Where the new properties live: beside LG's own input-banner block.
-        (NEW_STYLE_AT, NEW_STYLE_AT +
-         "        // Luma: the input banners' own measures and colours (tools/inputcommon_patch.py)\n"
-         "        property int inputBannerHeight: %d\n"
-         "        property int inputSideMargin: %d\n"
-         "        property int inputSideInset: %d\n"
-         "        property int inputInfoWidth: %d\n"
-         "        property int inputInfoHeight: Math.max(%d, Math.round(clockTopMargin + 2.7 * clockTextFont.pixelSize + 76))\n"
-         "        property int inputFocusInset: %d\n"
-         "        property string inputBannerColor: \"%s\"\n"
-         "        property string inputBannerEdge: \"%s\"\n"
-         "        property string inputFocusColor: \"%s\"\n"
-         "        property string inputFocusEdge: \"%s\"\n"
-         "        property string inputKickerColor: \"%s\"\n"
-         "        property int lumaSheetRadius: %d\n"
-         "        property int lumaRowRadius: %d\n"
-         "        property string lumaSheetColor: \"%s\"\n"
-         "        property string lumaRowColor: \"%s\"\n"
-         "        property string lumaEdge: \"%s\"\n"
-         "        property string lumaInk: \"%s\"\n"
-         "        property string lumaInkDim: \"%s\"\n"
-         "        property string noSignalColor: \"%s\"\n"
-         "        property string noSignalDimColor: \"%s\"\n"
-         % (PILL_HEIGHT, SIDE_MARGIN, INSET, DETAIL_WIDTH, DETAIL_HEIGHT, FOCUS_INSET,
-            pal["sheetBottom"], pal["hairline"], pal["focus"], pal["focusEdge"], pal["inkDim"],
-            pal["radius"], pal["rowRadius"], pal["sheetBottom"], pal["row"], pal["hairline"], pal["ink"], pal["inkDim"],
-            on_black(pal, NOSIGNAL_INK), on_black(pal, NOSIGNAL_DIM))),
-        ("property int inputSimpleMinWidth: 582", "property int inputSimpleMinWidth: 320"),
+        ("property int inputSimpleMinWidth: 582", "property int inputSimpleMinWidth: %d" % SIMPLE_MIN_WIDTH),
         ('property string inputColor: "#E6E6E6"', 'property string inputColor: "%s"' % pal["ink"]),
         ('property string inputFocusedColor: "#4C5059"', 'property string inputFocusedColor: "%s"' % pal["focusInk"]),
         # The kicker (the input's name) over the title (the device's label).
-        ("property font inputNameFont: semiBoldFont(33)", "property font inputNameFont: semiBoldFont(22)"),
-        ("property font inputNameFont2: semiBoldFont(60)", "property font inputNameFont2: semiBoldFont(34)"),
-        ("property font inputLabelFont: regularFont(45)", "property font inputLabelFont: semiBoldFont(28)"),
-        ("property font inputLabelFont2: regularFont(60)", "property font inputLabelFont2: semiBoldFont(34)"),
-        ("property int inputDingbatBottomMargin: 29", "property int inputDingbatBottomMargin: 32"),
+        ("property font inputNameFont: semiBoldFont(33)", "property font inputNameFont: " + NAME_FONT),
+        ("property font inputNameFont2: semiBoldFont(60)", "property font inputNameFont2: " + NAME_FONT2),
+        ("property font inputLabelFont: regularFont(45)", "property font inputLabelFont: " + LABEL_FONT),
+        ("property font inputLabelFont2: regularFont(60)", "property font inputLabelFont2: " + LABEL_FONT2),
+        ("property int inputDingbatBottomMargin: 29", "property int inputDingbatBottomMargin: %d" % DINGBAT_BOTTOM),
         # The options key and the divider before it: a hairline for a bar, and one glyph in both states (LG swaps to a dark
         # glyph for its white focus; the focus here is a wash). LG's two pictures are light and dark: the light one on a
         # dark sheet, the dark one on a light sheet.
@@ -251,7 +306,8 @@ def patch_simplebanner(text):
                "        anchors.left: parent.left\n\n        Image {\n\n            id: bgMiddle\n",
                "        anchors.left: parent.left\n\n"
                "        Rectangle {\n\n"
-               "            id: lumaPill\n\n"
+               "            id: lumaPill\n"
+               "            objectName: \"lumaPill\"\n\n"
                "            anchors.fill: parent\n"
                "            radius: height / 2\n"
                "            color: styleSheet.banner.inputBannerColor\n"
@@ -260,7 +316,8 @@ def patch_simplebanner(text):
                "            visible: root.displayOnlyZapping\n"
                "        }\n\n"
                "        Rectangle {\n\n"
-               "            id: lumaFocus\n\n"
+               "            id: lumaFocus\n"
+               "            objectName: \"lumaFocus\"\n\n"
                "            anchors {\n"
                "                fill: parent\n"
                "                margins: styleSheet.banner.inputFocusInset\n"
@@ -295,7 +352,8 @@ def patch_inputbanner(text):
                "        anchors.fill: bannerRow\n\n        Image {\n\n            id: bgMiddle\n",
                "        anchors.fill: bannerRow\n\n"
                "        Rectangle {\n\n"
-               "            id: lumaPill\n\n"
+               "            id: lumaPill\n"
+               "            objectName: \"lumaBar\"\n\n"
                "            anchors.fill: parent\n"
                "            radius: height / 2\n"
                "            color: styleSheet.banner.inputBannerColor\n"
@@ -362,14 +420,14 @@ def patch_nsu(text):
 
 def pill(visible, radius="styleSheet.banner.lumaSheetRadius", indent="        "):
     """A sheet filling its parent, drawn where LG's background pictures were."""
-    lines = ["Rectangle {", "", "    id: lumaPill", "", "    anchors.fill: parent", "    radius: " + radius, "    color: styleSheet.banner.lumaSheetColor",
+    lines = ["Rectangle {", "", "    id: lumaPill", "    objectName: \"lumaPill\"", "", "    anchors.fill: parent", "    radius: " + radius, "    color: styleSheet.banner.lumaSheetColor",
              "    border.width: 1", "    border.color: styleSheet.banner.lumaEdge", "    visible: " + visible, "}", ""]
     return "".join((indent + ln if ln else "") + "\n" for ln in lines)
 
 
 def lit(visible, radius, indent="        "):
     """The lit inset a focused strip carries: the focus wash and its ring."""
-    lines = ["Rectangle {", "", "    id: lumaFocus", "", "    anchors {", "        fill: parent", "        margins: styleSheet.banner.inputFocusInset", "    }",
+    lines = ["Rectangle {", "", "    id: lumaFocus", "    objectName: \"lumaFocus\"", "", "    anchors {", "        fill: parent", "        margins: styleSheet.banner.inputFocusInset", "    }",
              "    radius: " + radius, "    color: styleSheet.banner.inputFocusColor", "    border.width: 2", "    border.color: styleSheet.banner.inputFocusEdge",
              "    visible: " + visible, "}", ""]
     return "".join((indent + ln if ln else "") + "\n" for ln in lines)
@@ -518,7 +576,11 @@ def patch_tree(root, pal, fonts):
         f = root / rel
         if not f.is_file():
             raise ValueError("%s: LG's tree has no such file" % rel)
-        out[f] = fn(f.read_text(), pal)
+        out[f] = localize(fn(f.read_text(), pal), rel)
+    luma = root / LUMA_STYLE_FILE
+    if luma.exists():
+        raise ValueError("%s: LG's tree already has this file" % LUMA_STYLE_FILE)
+    out[luma] = luma_style(pal, fonts)
     for f, text in out.items():
         f.write_text(text)
     return sorted(str(f.relative_to(root)) for f in out)

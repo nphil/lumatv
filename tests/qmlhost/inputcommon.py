@@ -3,7 +3,7 @@
 no-signal screen, the banner position editor and the prompt.
 
     python3 tests/qmlhost/inputcommon.py --scene pill|focused-pill|ok|detail|update|channel|channel-ok|channel-detail|nosignal|nosignal-photo|banner-edit|alert
-        [--patched] [--light] [--text PERCENT] [--audit [KINDS]] [--shot out.png]
+        [--patched] [--stale-sheet] [--light] [--text PERCENT] [--audit [KINDS]] [--shot out.png]
         [--wait MS] [--backdrop IMG] [--press MS:KEY[,KEY...]] [--probe MS:OBJECT:PROP] [--keep DIR]
 
 LG's own banner QML, copied from the set (`/data/home/lgtv/uiinv/inputcommon/qml`, 273 files), is loaded here as it
@@ -15,9 +15,10 @@ the set reports for HDMI 2 behind the Denon (device name, CEC label, remote), so
 --patched runs `tools/inputcommon_patch.py` over the staged copy first, exactly as `tools/inputcommon.sh stage` does on
 the set. Qt is the PyQt5 wheel's 5.15 on Xvfb with software GL: this finds load errors and shows what a banner looks
 like, and measures nothing. LG's own fonts are not on this machine, so the stock render falls back to a default face;
-the patched one draws Manrope from payload/fonts. `--text 200` doubles every size LG's style sheet hands out and `--audit` runs tests/qmlhost/layoutaudit.py on the picture
+the patched one draws Manrope from payload/fonts. `--stale-sheet` (with --patched) instantiates the style sheet from LG's unpatched file while the banners come
+from the patched tree: a process restored from a CRIU dump has the old sheet in memory and reads each banner file from the overlay when it first draws.
+`--text 200` doubles every size LG's style sheet hands out and `--audit` runs tests/qmlhost/layoutaudit.py on the picture
 (`overlap`, the universal rule, unless kinds are named; `all` for every kind): findings are printed as `[layout N%] ...` and make the exit status 1.
-
 Exit status 0 when nothing from the tree warned, 1 otherwise, 2 when LG's copy is not on this machine.
 """
 import argparse
@@ -342,18 +343,24 @@ Item {
             onLoaded: { if (screen.focused) { item.forceActiveFocus(); if (item.setDefaultFocus) item.setDefaultFocus() } }
         }
     }
-    // The property of the first item named `name` in the drawn tree.
+    // The property of the first item named `name` in the drawn tree; `inside:OUTER` asks whether its box lies within the first item named OUTER.
     function probe(name, prop) {
-        function walk(item) {
-            if (item.objectName === name) return item
+        function walk(item, n) {
+            if (item.objectName === n) return item
             for (var i = 0; i < item.children.length; i++) {
-                var found = walk(item.children[i])
+                var found = walk(item.children[i], n)
                 if (found) return found
             }
             return null
         }
-        var item = walk(screen)
+        var item = walk(screen, name)
         if (!item) return "<no such item>"
+        if (String(prop).indexOf("inside:") === 0) {
+            var outer = walk(screen, String(prop).substring(7))
+            if (!outer) return "<no such item>"
+            var a = item.mapToItem(screen, 0, 0), b = outer.mapToItem(screen, 0, 0)
+            return String(a.x >= b.x && a.y >= b.y && a.x + item.width <= b.x + outer.width && a.y + item.height <= b.y + outer.height)
+        }
         var v = item
         var path = String(prop).split(".")
         for (var j = 0; j < path.length && v !== undefined && v !== null; j++) v = v[path[j]]
@@ -416,6 +423,7 @@ def main(argv=None):
     ap.add_argument('--scene', choices=sorted(SCENES), default='pill')
     ap.add_argument('--patched', action='store_true', help='run tools/inputcommon_patch.py over the copy first')
     ap.add_argument('--light', action='store_true', help='with --patched: stage with the light material as the palette')
+    ap.add_argument('--stale-sheet', action='store_true', help='with --patched: the style sheet is LG\'s own file, the banners are the patched ones')
     ap.add_argument('--shot', action='append', default=[], metavar='MS:PATH', help='PNG of the window at MS after start (repeatable); a bare PATH is taken at --wait')
     ap.add_argument('--wait', type=int, default=1500)
     ap.add_argument('--backdrop', help='image drawn behind the banner')
@@ -493,7 +501,8 @@ def main(argv=None):
     make('interfaces', INTERFACES, dict(flags, extra=extra))
     fonts = make('fontManager', FONT_MANAGER)
     # LG's own style sheet, instantiated the way UIController does (a window size and the font manager).
-    sheet_comp = QtQml.QQmlComponent(eng, QtCore.QUrl.fromLocalFile(os.path.join(qml, 'UserInterfaceLayer', 'GlobalStyle.qml')))
+    sheet_dir = os.path.join(STOCK if a.stale_sheet else qml, 'UserInterfaceLayer')
+    sheet_comp = QtQml.QQmlComponent(eng, QtCore.QUrl.fromLocalFile(os.path.join(sheet_dir, 'GlobalStyle.qml')))
     sheet = sheet_comp.beginCreate(ctx)
     if sheet is None:
         for e in sheet_comp.errors():
