@@ -28,8 +28,9 @@ live with the owner.
   panel and picker round 16 (`shell-host-result.md`): over Netflix and HDMI every panel
   opens in 146-159 ms, over Home p90 2.42/2.54 ms.
 - Open, in order (also the todo list):
-  1. Install c496611 (mute mark still while a panel is open) when Nitin resumes
-     approvals; then the one late frame per opening over Home.
+  1. Install HEAD through Face ID when Nitin resumes approvals: it carries c496611 (mute
+     mark still while a panel is open), the Zigbee2MQTT OTA guard (4dd5a5b) and `lumatv
+     revert` removing `vt_devmode`; the set runs a438a2e, which has none of them.
   2. Light sync: the Zigbee2MQTT OTA guard and back-off are built (4dd5a5b, offline);
      `vt_devmode` is on for good (Nitin, 2026-10-26). There is no Hue light by the TV:
      Nitin picks which lights follow the picture; WLED strip not set up (PLAN, Ambient
