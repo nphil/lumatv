@@ -41,7 +41,8 @@ TOUCHED = [STYLE, BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner
            # not edited for their looks: they only read, from LumaStyle, what the patch sets (the clock, the progress bars, the channel card's lines...)
            BANNER + "BannerItems/BannerClock.qml", BANNER + "BannerItems/BannerListView.qml", BANNER + "BannerItems/BannerTextIcon.qml",
            BANNER + "BannerItems/DetailInfoItem.qml", BANNER + "BannerItems/ProgressBar.qml", BANNER + "BannerItems/RecInfoIcon.qml",
-           BANNER + "ChannelBanner/MiniBanner.qml", BANNER + "InputBanner/MiniBanner.qml", BANNER + "DvrInfoView.qml", BANNER + "SimilarListView.qml"]
+           BANNER + "ChannelBanner/MiniBanner.qml", BANNER + "InputBanner/MiniBanner.qml", BANNER + "DvrInfoView.qml", BANNER + "SimilarListView.qml",
+           "UserInterfaceLayer/Containers/PopupLayer/DpmsPopup.qml", "UserInterfaceLayer/Containers/PopupLayer/EwsUsView.qml"]
 
 # What LG's code does, as opposed to how it looks: handlers, keys, interface reads and calls, focus. A patch that is only
 # style leaves every such line exactly as it was.
@@ -281,7 +282,8 @@ class InputcommonPatch(unittest.TestCase):
         patched sheet has gets undefined: its own style comes from LumaStyle."""
         self.run_tool()
         stock_names = set(re.findall(r"property\s+[\w<>]+\s+(\w+)\s*:", self.stock(STYLE)))
-        own = set(re.findall(r"property\s+\w+\s+(\w+)\s*:", self.read(LUMA)))
+        own = set(re.findall(r"property\s+\w+\s+(\w+)\s*:|function (\w+)\(", self.read(LUMA)))
+        own = {a or b for a, b in own}
         for rel in TOUCHED[1:]:
             text = self.read(rel)
             for name in re.findall(r"styleSheet\.banner\.(\w+)", text):
@@ -314,8 +316,11 @@ class InputcommonPatch(unittest.TestCase):
         for needed in ("infoBannerColor", "infoBannerRadius", "infoBannerOpacity", "clockTextColor", "infoDescColor", "infoDescFont", "bannerIcon", "bannerTextIcon"):
             self.assertIn(needed, changed)
         names = "|".join(changed)
+        # the sheet's own objects the patch edits (the prompts, the no-signal screen) are read as `styleSheet.<name>`
+        roots = [n for n in ("alertPopup", "screensaver", "optionDetail", "clock") if block(self.stock(STYLE), n) != block(self.read(STYLE), n)]
+        self.assertEqual(roots, ["alertPopup", "screensaver"], "the test's own list of the sheet objects the patch edits")
         own = set(re.findall(r"property\s+\w+\s+(\w+)\s*:", self.read(LUMA)))
-        self.assertEqual(sorted(set(changed) - own), [], "LumaStyle does not carry what the patch changed")
+        self.assertEqual(sorted(set(changed + roots) - own), [], "LumaStyle does not carry what the patch changed")
         for base, _, files in os.walk(self.dir):
             for f in files:
                 rel = os.path.relpath(os.path.join(base, f), self.dir)
@@ -323,6 +328,9 @@ class InputcommonPatch(unittest.TestCase):
                     continue
                 text = self.read(rel)
                 self.assertIsNone(re.search(r"styleSheet\.banner\.(%s)\b" % names, text), rel)
+                self.assertIsNone(re.search(r"styleSheet\.(%s)\b" % "|".join(roots), text), rel)
+                if rel in TOUCHED:      # the sheet's font functions are Manrope only in the patched sheet
+                    self.assertIsNone(re.search(r"styleSheet\.(light|regular|semiBold|bold|number|condRegular)Font\(", text), rel)
                 self.assertIsNone(re.search(r"ChUtils\.getChannel(Name)?ColorObj\(styleSheet\.banner,", text), rel)
                 for alias in re.findall(r"property var (\w+): styleSheet\.banner\n", text):
                     self.assertIsNone(re.search(r"\b%s\.(%s)\b" % (alias, names), text), "%s reads `%s.` a value the patch changed" % (rel, alias))
@@ -440,12 +448,13 @@ class PatchedBannersInTheHost(unittest.TestCase):
                 self.assertEqual(self.probe(out, name, prop), self.probe(fresh, name, prop), "%s: %s with LG's sheet and with the patched one" % (scene, p))
 
     def test_every_scene_reads_the_same_with_LGs_sheet_in_memory_as_with_the_patched_one(self):
-        """The banners' own stale-sheet check, over every scene of the input app but the prompts: pixels, bar the antialiasing of a second render."""
+        """The stale-sheet check over every scene of the input app, the prompt and the no-signal screens included: pixels, bar the antialiasing of a
+        second render. The prompt differs by 241 grey levels on 9efedab..3ba7b16's tool and the photo no-signal screen's key-help line by 62."""
         try:
             from PIL import Image, ImageChops
         except ImportError:
             self.skipTest("needs Pillow")
-        for scene in ("pill", "focused-pill", "ok", "detail", "update", "channel", "channel-ok", "channel-detail", "banner-edit"):
+        for scene in ("pill", "focused-pill", "ok", "detail", "update", "channel", "channel-ok", "channel-detail", "banner-edit", "alert", "nosignal", "nosignal-photo"):
             shots = []
             for stale in (False, True):
                 path = os.path.join(self.tmp.name, "%s-%s.png" % (scene, stale))

@@ -96,6 +96,8 @@ BANNER_PROP = re.compile(r"property (\w+) (\w+): (.*)\Z", re.S)
 JS_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 SHEET_FONTS = ("lightFont", "regularFont", "semiBoldFont", "boldFont", "numberFont", "condRegularFont")   # Manrope in the patched sheet
 ICON_STYLES = ("bannerIcon", "bannerTextIcon")      # the chips' and the text badges' objects, edited by chip_edits
+ROOT_STYLES = ("alertPopup", "screensaver")         # objects of the sheet itself (not of `banner`) the patch edits: the prompts, the no-signal screen
+ROOT_REF = re.compile(r"styleSheet\.(%s)\b" % "|".join(ROOT_STYLES))
 # Read by LG's channel colour helpers off the object they are handed, which the patched files hand LumaStyle; LG's values, unchanged.
 CHANNEL_COLORS = ("invisibleChannelColor", "fineTunedChannelColor", "internetChannelColor")
 CHANNEL_UTIL = re.compile(r"(ChUtils\.getChannel(?:Name)?ColorObj)\(styleSheet\.banner,")
@@ -156,7 +158,7 @@ def luma_props(pal, sheet):
         return out
     props += [(t, n, reads(e)) for t, n, e in edits]
     props += [("var", n, "styleSheet.banner." + n) for n in CHANNEL_COLORS]
-    for n in ICON_STYLES:
+    for n in ICON_STYLES + ROOT_STYLES:
         m = re.search(r"property var %s: (\(\{.*?\}\))" % n, sheet, re.S)
         if not m:
             raise ValueError("GlobalStyle.qml: no %s object" % n)
@@ -183,15 +185,18 @@ def luma_style(props, fonts):
 
 
 def localize(text, rel, props):
-    """A banner file reads what the patch sets from its own `lumaStyle` (see luma_props), through `styleSheet.banner.` or the alias a
-    file keeps for it, and hands LumaStyle to LG's channel colour helpers; files that read none of it stay as they are."""
+    """A file reads what the patch sets from its own `lumaStyle` (see luma_props), through `styleSheet.banner.` or the alias a file
+    keeps for it, through `styleSheet.alertPopup` / `.screensaver`, and hands LumaStyle to LG's channel colour helpers; files that
+    read none of it stay as they are (the ones an edit gave a `lumaStyle.` read of their own get the instance too)."""
     names = "|".join(sorted((n for _, n, _ in props), key=len, reverse=True))
     text, n = re.subn(r"styleSheet\.banner\.(%s)\b" % names, r"lumaStyle.\1", text)
     text, k = CHANNEL_UTIL.subn(r"\1(lumaStyle,", text)
+    text, j = ROOT_REF.subn(r"lumaStyle.\1", text)
+    n += j
     for alias in STYLE_ALIAS.findall(text):
         text, j = re.subn(r"\b%s\.(%s)\b" % (alias, names), r"lumaStyle.\1", text)
         n += j
-    if not n + k:
+    if not n + k and "lumaStyle." not in text:
         return text
     depth = len(pathlib.PurePosixPath(rel).parts) - 1       # directories below the staged qml dir
     comp = "/".join([".."] * (depth - 1) + ["Components"])  # UserInterfaceLayer/ is the first of them
@@ -540,6 +545,9 @@ def patch_simplebutton(text, pal):
                      ("textFocusedColor: \"#4c5059\"", "textFocusedColor: styleSheet.banner.lumaInk"),
                      ("textNormalColor: \"#e6e6e6\"", "textNormalColor: styleSheet.banner.lumaInk")):
         text = sub(name, text, old, new)
+    # The sheet's font functions are LG's face in a restored process; the buttons' words are Manrope from LumaStyle's.
+    text = sub(name, text, "font: root.fontSize > 0 ? styleSheet.semiBoldFont(fontSize) : styleSheet.semiBoldFont(36)",
+               "font: root.fontSize > 0 ? lumaStyle.semiBoldFont(fontSize) : lumaStyle.semiBoldFont(36)")
     text = sub(name, text, "        radius: 6\n        border.width: useStroke ? 1 : 0\n        border.color: \"#616161\"\n",
                "        radius: styleSheet.banner.lumaRowRadius\n        border.width: useStroke ? 1 : (hasFocus ? 2 : 0)\n"
                "        border.color: hasFocus ? styleSheet.banner.inputFocusEdge : styleSheet.banner.lumaEdge\n")
