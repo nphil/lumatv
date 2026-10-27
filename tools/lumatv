@@ -2150,8 +2150,11 @@ capture_start() {
 
 capture_stop() { [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" stop "$STATE" >/dev/null 2>&1; return 0; }
 
-# Revert takes the role and the staged binary away with it: nothing of the reader stays on the set once LumaTV is off.
-capture_remove() { [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" remove "$STATE" >/dev/null 2>&1; return 0; }
+# Revert takes the role and the staged binary away with it: nothing of the reader stays on the set once LumaTV is off. The
+# developer flag goes too: it was created for LumaTV's light sync (PLAN.md, Decided) and relaxes LG's capture checks for
+# every caller while it exists.
+VT_DEVMODE="${LUMATV_VT_DEVMODE:-/var/luna/preferences/vt_devmode}"
+capture_remove() { [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" remove "$STATE" >/dev/null 2>&1; rm -f "$VT_DEVMODE"; return 0; }
 
 capture_json() {
   [ -f "$CAPTURE_SH" ] && sh "$CAPTURE_SH" status "$STATE" 2>/dev/null | tr -d '\n' || printf '{"installed":false,"role":false,"running":false,"pid":0}'
