@@ -25,8 +25,8 @@
 //!   reduced to a colour per area. The helper answers with one byte, the hardware preset the engine wants (`Engine::wanted_preset`:
 //!   plain, letterbox, pillarbox or games), on connect and whenever it changes.
 //! - **The capture permission flag is not touched here.** LG's library refuses the capture to any process but its own Hue Sync
-//!   service unless `/var/luna/preferences/vt_devmode` exists; creating it is the owner's decision, made for short supervised probe
-//!   slots (`ambient/capture/tv_probe_slot.py`), and no code of the helper creates it.
+//!   service unless `/var/luna/preferences/vt_devmode` exists; creating it is the owner's decision (kept on for everyday light
+//!   sync, PLAN.md, Decided), and no code of the helper creates it.
 //!
 //! The topic `ambient`: `{enabled, mode, brightness, sections, available, strip, hue, hueState, z2m, z2mState, state, problem,
 //! covered}`. `state` is `off` (not enabled), `idle` (enabled, but nothing to do now: the screen is off, or Home covers the picture

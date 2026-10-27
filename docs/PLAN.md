@@ -731,10 +731,9 @@ Status (2026-10-26):
 1. Probe: done on the set. 16 zones, about 8 changes a second, protected
    Netflix video included; the reader costs 1.15 % of a core at 10 polls a
    second (`docs/research/ambient-result.md`).
-2. Picture side: blocked on one decision of Nitin's. LG's library answers
-   only while `/var/luna/preferences/vt_devmode` exists; it is allowed for
-   probe slots only. Keeping it for everyday light sync is open (it also
-   relaxes LG's capture service's caller check).
+2. Picture side: the `vt_devmode` flag stays on (Nitin, 2026-10-26); the
+   capture service and its role are on the set with the package. Not yet run
+   as an everyday service with a light attached.
 3. Hue side: built and tested against a fake broker. One test stream of these
    frames went to the Plant Room Fan Light on 2026-10-25 (whether it lit was not
    seen; Zigbee2MQTT reports no state during a stream). The OTA guard and the
@@ -742,6 +741,10 @@ Status (2026-10-26):
    topic names are from Zigbee2MQTT's source, not yet seen live. Then Nitin
    links the broker on the set (`lumatv-helper z2m-link`, his MQTT password on
    standard input).
+   Home Assistant has no Hue light in the living room (2026-10-26): its lights
+   there are two Twinkly curtain lights, a Govee floor lamp and a Lutron Caseta
+   dimmer, none of which LumaTV drives yet. Which lights follow the picture is
+   Nitin's choice.
 4. Strip: the DDP sender is built and tested against a fake socket; the strip
    is not set up. Ordered: BTF-Lighting FCOB WS2814 RGBW 4000K, 24 V, 5 m (14
    addressable sections per metre, 71 mm each), BTF 10 mm 3-pin FCOB connector
@@ -1154,9 +1157,9 @@ what it already does.
   need not be kept ready: it is used rarely (Nitin, 2026-10-25). The HDMI input
   apps stay ready so switching inputs is instant (Nitin, 2026-10-25). Phase 8.
 - Light sync capture: the `vt_devmode` flag file, LG's developer switch that
-  also relaxes the capture service's caller check, may be created for short
-  probe slots and is removed at the end of each (Nitin, 2026-10-25). Keeping it
-  for everyday light sync is a separate decision.
+  also relaxes the capture service's caller check, stays on for everyday light
+  sync (Nitin, 2026-10-26 20:21 PDT; created on the set 23:22 EDT). Removing
+  LumaTV should remove it too; `lumatv` does not do that yet.
 - Light-sync capture service: LumaTV's colour reader is installed with the ipk
   as a registered native service whose LS2 role allows reading screen colours
   (LG's histogram capture) and nothing else; it is removed with LumaTV. Its
