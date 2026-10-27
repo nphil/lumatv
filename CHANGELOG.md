@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Light sync over Zigbee2MQTT: nothing is sent while Zigbee2MQTT updates a device over the
+  air (and for 30 s after); a running stream ends and the lights go back as they were, then
+  it resumes by itself. Late answers from the Zigbee network halve the rate (20, 10, 5 fps),
+  then pause it for 60 s.
 - Quick panel and input picker draw their content from one cached texture, so opening and
   closing over Home costs fewer draws per frame (101 to 72 batches).
 - Compositor (not live yet): LumaTV's compositor routes the remote's gear, Input, app

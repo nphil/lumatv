@@ -738,8 +738,10 @@ Status (2026-10-26):
 3. Hue side: built and tested against a fake broker. One test stream of these
    frames went to the Plant Room Fan Light on 2026-10-25 (whether it lit was not
    seen; Zigbee2MQTT reports no state during a stream). The OTA guard and the
-   busy back-off are being built. Then Nitin links the broker on the set
-   (`lumatv-helper z2m-link`, his MQTT password on standard input).
+   busy back-off are built and tested against a fake broker (4dd5a5b); their
+   topic names are from Zigbee2MQTT's source, not yet seen live. Then Nitin
+   links the broker on the set (`lumatv-helper z2m-link`, his MQTT password on
+   standard input).
 4. Strip: the DDP sender is built and tested against a fake socket; the strip
    is not set up. Ordered: BTF-Lighting FCOB WS2814 RGBW 4000K, 24 V, 5 m (14
    addressable sections per metre, 71 mm each), BTF 10 mm 3-pin FCOB connector

@@ -30,8 +30,8 @@ live with the owner.
 - Open, in order (also the todo list):
   1. Install c496611 (mute mark still while a panel is open) when Nitin resumes
      approvals; then the one late frame per opening over Home.
-  2. Light sync: the Zigbee2MQTT OTA guard and back-off (being built, Z2mOtaGuard);
-     then Nitin's decision on keeping `vt_devmode` for everyday use and his
+  2. Light sync: the Zigbee2MQTT OTA guard and back-off are built (4dd5a5b, offline);
+     next is Nitin's decision on keeping `vt_devmode` for everyday use and his
      `z2m-link`; WLED strip not set up (PLAN, Ambient light, Status).
   3. TV checks: Live TV restyle, Settings look-only walk, frame-rate blink with Nitin
      watching.
