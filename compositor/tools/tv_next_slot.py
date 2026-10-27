@@ -166,7 +166,7 @@ def main():
         gone = [l.split("] ", 1)[-1] for l in comp.splitlines() if "client disconnected" in l]
         note("trial: %d client disconnects; the first five: %s" % (len(gone), " | ".join(gone[:5])))
         note("trial: protocol errors %d, loop stalls %d, frame gaps %d, fallbacks %d" % (
-            comp.count("message too short") + comp.count("error in client communication"), comp.count("loop:"),
+            comp.count("message too short") + comp.count("error in client communication"), comp.count(" ms in one pass"),
             comp.count("frame gap"), len(fallbacks_of_run(sm))))
         problems = trial_problems(sm, comp)
         note("trial verdict: %s" % ("PASS: no fallback, no protocol error, nothing over %g ms in the compositor's log, the watchdog reading its inputs" % GAP_LIMIT_MS if not problems else "FAIL: " + "; ".join(problems)))
