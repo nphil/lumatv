@@ -27,7 +27,9 @@ pub mod output;
 pub mod pacer;
 pub mod render;
 pub mod scene;
+pub mod sched;
 pub mod server;
+pub mod shell;
 pub mod surface;
 pub mod system_ui;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).

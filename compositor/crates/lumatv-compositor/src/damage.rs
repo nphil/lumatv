@@ -193,6 +193,14 @@ impl Ring {
         &self.scratch
     }
 
+    /// Page `slot` was just drawn, but `tiles` of it hold older content (copied from another page in place of a buffer the
+    /// driver was still busy with): it owes them again.
+    pub fn owe(&mut self, slot: usize, tiles: &Tiles) {
+        if !tiles.is_empty() {
+            self.owed[slot].union(tiles);
+        }
+    }
+
     /// Pixels page `slot` would have to draw now.
     pub fn owed_pixels(&self, slot: usize) -> u64 {
         if self.known[slot] { self.owed[slot].pixels() } else { self.scratch.width as u64 * self.scratch.height as u64 }
@@ -265,5 +273,23 @@ mod tests {
         assert_eq!(ring.frame(1, &d).count(), 2, "page 1 owes frames 2 and 3");
         ring.forget();
         assert_eq!(ring.frame(2, &d).count(), 120 * 68);
+    }
+
+    #[test]
+    fn tiles_a_page_copied_in_place_of_a_warming_buffer_stay_owed_by_that_page() {
+        let mut ring = Ring::new(3, 1920, 1080);
+        let mut d = Tiles::new(1920, 1080);
+        for page in 0..3 {
+            ring.frame(page, &d);
+        }
+        // Frame into page 0: one tile's content came from another page, not from the buffer.
+        d.add(&Rect::new(320, 320, 16, 16));
+        assert_eq!(ring.frame(0, &d).count(), 1);
+        ring.owe(0, &d);
+        d.clear();
+        assert_eq!(ring.frame(1, &d).count(), 1, "page 1 owes frame 0's damage as ever");
+        assert_eq!(ring.frame(2, &d).count(), 1);
+        assert_eq!(ring.frame(0, &d).count(), 1, "page 0 owes the tile it only copied");
+        assert_eq!(ring.frame(1, &d).count(), 0, "the other pages owe nothing for it");
     }
 }

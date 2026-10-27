@@ -87,6 +87,11 @@ impl FlipTiming {
         self.period_ns
     }
 
+    /// When the last flip landed (CLOCK_MONOTONIC ns), 0 before the first.
+    pub fn last_flip_ns(&self) -> u64 {
+        self.last_flip_ns
+    }
+
     /// A flip landed at `presented_ns` (CLOCK_MONOTONIC). `frame` is the timing of the frame it was of, with the GPU's
     /// finish when the in-fence said; `None` for a flip nothing was waiting for.
     pub fn landed(&mut self, presented_ns: u64, frame: Option<(Timing, Option<u64>)>) -> Landed {

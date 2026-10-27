@@ -10,11 +10,11 @@ use parking_lot::Mutex;
 use wayland_server::{Display, ListeningSocket};
 
 use lumatv_compositor::config::{Config, RendererKind, USAGE};
-use lumatv_compositor::output::Output;
+use lumatv_compositor::output::{Output, monotonic_ns};
 use lumatv_compositor::render::gl::{BufferPath, Gl};
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::server::state::{ClientHandler, State};
-use lumatv_compositor::{control, luna};
+use lumatv_compositor::{control, luna, sched};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -170,6 +170,13 @@ fn run(config: Config) -> io::Result<()> {
         None
     };
 
+    // The loop's thread alone (the luna writer is up already, later threads put themselves back).
+    if config.rt_priority > 0 {
+        match sched::fifo(config.rt_priority) {
+            Ok(()) => log::info!("loop thread: {}", sched::describe()),
+            Err(e) => log::info!("loop thread: SCHED_FIFO {} refused ({e}); {}", config.rt_priority, sched::describe()),
+        }
+    }
     let timer = timerfd(config.tick_ns)?;
     let epoll = Epoll::new()?;
     const TAG_WL: u64 = 1;
@@ -212,6 +219,11 @@ fn run(config: Config) -> io::Result<()> {
     let mut linger_until: Option<Instant> = None;
     // Whether the tick is a one-shot at the output's latch (true) or the fixed interval (false).
     let mut paced = false;
+    // When the last pass ended and what it handled, and the last flip stamp read: a flip the loop reached late is
+    // told from them whether the loop was busy when it landed or woke late for it.
+    let mut pass_end_ns = monotonic_ns();
+    let mut pass_handled = 0u32;
+    let mut last_flip_seen: Option<u64> = None;
 
     loop {
         if state.should_exit {
@@ -231,6 +243,7 @@ fn run(config: Config) -> io::Result<()> {
         };
         let n = epoll.wait(&mut events, timeout)?;
         let woke = Instant::now();
+        let woke_ns = monotonic_ns();
         // Landed flips first: their callbacks start the clients' next frames, and anything handled before them in the
         // pass (a tick's draw, a client's buffer import) would delay those by its own length.
         events[..n].sort_by_key(|ev| ev.u64 != TAG_OUTPUT);
@@ -355,10 +368,34 @@ fn run(config: Config) -> io::Result<()> {
         // line says what ran, on the clock the clients' own logs use.
         let spent = woke.elapsed();
         if spent > Duration::from_millis(8) {
-            const NAMES: [&str; 11] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now", "ui"];
-            let what: Vec<&str> = (0..NAMES.len()).filter(|b| handled & (1 << b) != 0).map(|b| NAMES[b]).collect();
-            log::warn!("loop: {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, what.join(" "));
+            log::warn!("loop: {:.1} ms in one pass ({})", spent.as_secs_f64() * 1000.0, handled_names(handled));
         }
+        // A flip the loop reached late (its callbacks went out late): whether it was busy when the flip landed, or
+        // idle and late to wake for it (the CPU given to another task, or the event late in the kernel).
+        if let Some(stamp) = state.output.last_flip_ns()
+            && last_flip_seen != Some(stamp)
+        {
+            last_flip_seen = Some(stamp);
+            let reach = woke_ns.saturating_sub(stamp);
+            if reach > 3_000_000 {
+                if pass_end_ns <= stamp {
+                    log::info!(
+                        "loop: woke {:.1} ms after the flip's stamp, idle since {:.1} ms before it",
+                        reach as f64 / 1e6,
+                        stamp.saturating_sub(pass_end_ns) as f64 / 1e6
+                    );
+                } else {
+                    log::info!(
+                        "loop: woke {:.1} ms after the flip's stamp; the pass before ({}) ran until {:.1} ms after it",
+                        reach as f64 / 1e6,
+                        handled_names(pass_handled),
+                        pass_end_ns.saturating_sub(stamp) as f64 / 1e6
+                    );
+                }
+            }
+        }
+        pass_end_ns = monotonic_ns();
+        pass_handled = handled;
         if let Some(d) = deadline
             && Instant::now() >= d
         {
@@ -448,6 +485,7 @@ impl ControlClient {
     /// Runs `job` on a thread with the socket and writes its reply there (a capture's PNG).
     fn answer_later(mut self, job: Box<dyn FnOnce() -> String + Send + 'static>) {
         if let Err(e) = std::thread::Builder::new().name("control".into()).spawn(move || {
+            sched::time_shared();
             let reply = job();
             let _ = self.stream.set_nonblocking(false);
             let _ = self.stream.write_all(reply.as_bytes()).and_then(|_| self.stream.write_all(b"\n"));
@@ -455,6 +493,13 @@ impl ControlClient {
             log::warn!("control: no thread: {e}");
         }
     }
+}
+
+/// What a loop pass handled, by the `handled` bits, for its log lines.
+fn handled_names(handled: u32) -> String {
+    const NAMES: [&str; 11] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now", "ui"];
+    let what: Vec<&str> = (0..NAMES.len()).filter(|b| handled & (1 << b) != 0).map(|b| NAMES[b]).collect();
+    what.join(" ")
 }
 
 /// After a frame: the output's latch as a one-shot while it paces itself, else the fixed interval (re-armed

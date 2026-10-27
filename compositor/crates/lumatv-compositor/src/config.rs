@@ -53,6 +53,20 @@ pub struct Config {
     /// LumaTV's data directory (`/var/lib/lumatv` on the set): the theme the remote's app buttons are read from (`theme/theme.json`) and
     /// the key codes taught to the routing (`compositor/keys.conf`).
     pub data_dir: PathBuf,
+    /// SCHED_FIFO priority of the frame loop's thread (`sched`); 0 leaves it time-shared.
+    pub rt_priority: i32,
+    /// The shell client (`shell.rs`): `Auto` runs it live (`--input`) when the bundle beside this executable has `shell/Shell.qml`,
+    /// `Off` never, `At(path)` runs that root QML.
+    pub shell: ShellMode,
+    /// The loopback port of the UI channel the shell client speaks to.
+    pub shell_port: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShellMode {
+    Auto,
+    Off,
+    At(PathBuf),
 }
 
 impl Default for Config {
@@ -81,6 +95,9 @@ impl Default for Config {
             input: false,
             ui_demo: false,
             data_dir: PathBuf::from("/var/lib/lumatv"),
+            rt_priority: 20,
+            shell: ShellMode::Auto,
+            shell_port: 18750,
         }
     }
 }
@@ -110,6 +127,10 @@ pub const USAGE: &str = "lumatv-compositor [options]
                          compositor/keys.conf the key codes the routing was taught (`NAME CODE` per line)
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
+  --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared)
+  --shell off|auto|PATH  the shell client (LumaTV's QML on LG's Qt through /usr/bin/qml-runner): auto (default) runs it with
+                         --input when <bundle>/shell/Shell.qml sits beside this executable's bin/; PATH names another root QML
+  --shell-port N         the loopback port of the UI channel (default 18750)
   ctl CMD                talk to a running compositor's control socket (status, windows, capture PATH, quit)
 ";
 
@@ -181,6 +202,20 @@ impl Config {
                 "--input" => c.input = true,
                 "--data-dir" => c.data_dir = PathBuf::from(value()?),
                 "--ui-demo" => c.ui_demo = true,
+                "--rt-priority" => {
+                    c.rt_priority = value()?.parse().map_err(|_| "--rt-priority")?;
+                    if !(0..=99).contains(&c.rt_priority) {
+                        return Err("--rt-priority takes 0 to 99".into());
+                    }
+                }
+                "--shell" => {
+                    c.shell = match value()?.as_str() {
+                        "off" => ShellMode::Off,
+                        "auto" => ShellMode::Auto,
+                        p => ShellMode::At(PathBuf::from(p)),
+                    }
+                }
+                "--shell-port" => c.shell_port = value()?.parse().map_err(|_| "--shell-port")?,
                 "-h" | "--help" => return Err(USAGE.to_string()),
                 o => return Err(format!("unknown option {o}\n{USAGE}")),
             }

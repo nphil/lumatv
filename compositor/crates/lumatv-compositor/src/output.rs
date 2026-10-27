@@ -49,6 +49,8 @@ pub struct RenderStats {
     pub gl_errors: u64,
     /// Buffers this frame imported for the first time (none when the commit prepared them).
     pub imports: u32,
+    /// Surfaces drawn from the last frame's page because the driver was still busy with their new buffer.
+    pub stood_in: u32,
 }
 
 pub trait Output {
@@ -113,6 +115,12 @@ pub trait Output {
     /// Handles the events pending on `event_fd`; returns the number of frames that landed.
     fn dispatch_events(&mut self) -> io::Result<u32> {
         Ok(0)
+    }
+
+    /// When the last frame reached the panel (KMS: the stamp of the last page flip, CLOCK_MONOTONIC ns), for the loop
+    /// to read its own distance from it. `None` for outputs without flips.
+    fn last_flip_ns(&self) -> Option<u64> {
+        None
     }
 
     /// Whether a commit that arrived now should be drawn at once rather than at the next tick: the output shows a

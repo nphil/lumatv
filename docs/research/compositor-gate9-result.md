@@ -99,3 +99,64 @@ with `reason: compositor killed by signal 9`. Every other check passes (firmware
 standby, homekey, wd-hang, wd-crash, escape). Still failing: the trial has a `page-flip stamp 33.36 ms` (one missed
 refresh) and x1 has 3 client swap gaps of 20-28.1 ms in 3598 frames (59.95 fps), one `frame gap 20.1 ms` after 2694
 steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
+
+## Gate 10: the ninth gate's frame timing
+
+### Resume here
+
+State (2026-10-27): the changes below are built and host-tested (`cargo test`, the same with `--features ui`, clippy
+clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m unittest test_cutover` from `tests/`),
+not yet on the set. Next: deploy (Face ID: bundle deploy and `cutover install` in one approval plan), then
+`python3 compositor/tools/tv_gate.py --only x1` three times and the trial (`tv_next_slot.py --skip-gate --no-standby`)
+in one TV slot; read `gate/x1-compositor.txt` for the `warm:`, `standin:` and `loop: woke` lines and `x1.log` for the
+`gap ... at monotonic` lines, and record the round under "Rounds" below.
+
+### What the ninth gate's lines were
+
+**The missed refresh at a client's start** (`page-flip stamp 33.36 ms` in the trial at Home's mapping and in x1's first
+second, on every gate since the fifth) is the third swapchain buffer's warm: each new `mali_buffer_sharing` buffer is
+imported and warmed at its commit, the tick holds the frame while the warm's fence is pending, and the third buffer's
+fence takes 10-12 ms on the set (the first 4-15 ms, the second 1-5 ms; trial log, x1-compositor.txt), past the pacer's
+latch, so the frame that should have shown it slipped a refresh. The hold also cost a client's first frame up to a
+refresh more: a held tick re-armed the fixed tick, not a poll, so the warm's end was found at the next fixed tick (0-16.7
+ms later). What the fence waits on (the driver's mapping on its `mali-cmar-backe` thread, the GPU job, or both) is not
+known; the new `warm:` line measures it.
+
+**The 20.1 ms frame gap after 2694 steady frames**, with its flip reached 3.4 ms after it landed, has no line of its own
+below 8 ms; the loop thread's run-queue wait over the 60 s was 1177.6 ms (major faults 0): the loop shared the CPUs at
+nice 0 with X1, WebAppMgr and LG's daemons (LG's own compositor is reniced to -19 minutes after its start,
+`perf-tweaks.md`), so a wake-up for a flip could wait behind whoever held the CPU. [INFERENCE: that this wait was the
+3.4 ms; the new `loop: woke` line says so or not.]
+
+### Changes
+
+- Stand-in for a warming buffer (`render/gl.rs`, `kms/frames.rs`, `damage.rs`, `kms/mod.rs`): while the driver is busy
+  with a surface's new buffer and a page holds the last composed frame, the frame is drawn with the surface's rectangle
+  copied from that page (opaque, scissored to the owed tiles) instead of being held; the page owes those tiles again
+  (`Ring::owe`), the surface is remembered (`standins`), and once nothing is warming the output asks for a frame of its
+  own (`ui_needs_frame`) that draws the buffer for real. A client's first frame goes out at once with the window not yet
+  there; its content follows when the buffer is warm. Frames are still held when no page holds the last frame (the first
+  composed frame, after a direct or split frame, after a ring forgets its pages). Lines: `standin: surface N keeps the
+  last frame's content while its new buffer warms`, `warm: driver buffer N WxH: import X ms, warm draw submitted in Y ms,
+  its fence done Z ms after`.
+- A held frame polls (`kms/mod.rs`): `next_frame_at` is half a millisecond away while the last `warming` said so.
+- The loop thread is SCHED_FIFO 20 (`sched.rs`, `--rt-priority N`, 0 keeps it time-shared; `loop thread: SCHED_FIFO 20`
+  at start). Threads the loop spawns (control jobs, PNG writes) put themselves back in the time-shared class; the Mali
+  blob's threads are made before the change and stay time-shared. LG's input threads (SCHED_RR 99) and the HDMI interrupt
+  thread (FIFO 50) stay ahead of it.
+- A flip the loop reached late gets a second line (`main.rs`): `loop: woke N ms after the flip's stamp, idle since M ms
+  before it` (the CPU or the event was late) or `...; the pass before (what) ran until M ms after it` (the loop was
+  busy). `ctl status` reads `reached late N (over 1 ms M, worst X ms)`.
+- Gate (`tools/tv-gate.sh`): x1's detail line ends with the loop thread's scheduling class and priority (`loop thread
+  SCHED_FIFO prio -21`); `loop stalls` counts only `loop: N ms in one pass` lines; `x1-compositor.txt` keeps the `warm:`,
+  `standin:` and `loop: woke` lines. The X1 client (`arch/x1/x1client.c`) prints `first swap returned at monotonic T` and
+  one line per gap over 20 ms (`gap N ms before swap K returned at monotonic T`), so each gap lines up with the
+  compositor's log.
+
+Host tests: `standin.rs` (a second buffer the driver stays busy with: the frame is drawn, not held, shows the first
+buffer's content and carries the client's callback; nothing is drawn while it warms; the owed frame shows the new content
+once warm and nothing after it), `damage.rs::tiles_a_page_copied_in_place_of_a_warming_buffer_stay_owed_by_that_page`.
+
+### Rounds
+
+None on the set yet.

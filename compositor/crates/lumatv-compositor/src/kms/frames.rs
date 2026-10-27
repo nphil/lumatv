@@ -92,8 +92,12 @@ impl Frames {
         if gl.take_redraw_all() {
             self.ring.forget();
             self.ui_ring.forget();
+            // The pages hold layers that are gone: nothing to stand in from until this frame is composed.
+            gl.set_standin_source(None);
         }
         gl.plan_ui(&mut tiles)?;
+        // The rectangles the last frame stood in for (a buffer the driver was busy with): their real content is owed.
+        gl.owed_standins(&mut tiles);
         let facts = Facts {
             sole_fullscreen: direct.is_some(),
             layout_accepted: direct.is_some(),
@@ -107,6 +111,7 @@ impl Frames {
         let stats = match assignment {
             Assignment { primary: Source::Direct(_), overlay: None } => {
                 gl.skip_ui_frame()?;
+                gl.set_standin_source(None);
                 self.last_direct = true;
                 self.last_split = false;
                 RenderStats { items: plan.items.len(), ..Default::default() }
@@ -115,6 +120,7 @@ impl Frames {
                 if !std::mem::replace(&mut self.last_split, true) {
                     self.ui_ring.forget();
                 }
+                gl.set_standin_source(None);
                 self.last_direct = true;
                 let owed = self.ui_ring.frame(page, &tiles);
                 owed.rects(&mut self.rects);
@@ -133,6 +139,9 @@ impl Frames {
                 owed.rects(&mut self.rects);
                 gl.set_target(self.targets[page]);
                 let stats = gl.render_rects(plan, surfaces, &self.rects)?;
+                // What the page only copied from the last one it owes again; the page is the next frame's stand-in.
+                self.ring.owe(page, gl.standin_tiles());
+                gl.set_standin_source(Some(self.targets[page]));
                 self.next = (page + 1) % self.targets.len();
                 stats
             }

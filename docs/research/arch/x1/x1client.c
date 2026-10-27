@@ -166,6 +166,10 @@ int main(int argc, char **argv) {
         wl_display_dispatch_pending(dpy);
         double nw = now_s(), gap = nw - last; last = nw;
         if (frames > 0) { if (gap > worst) worst = gap; if (gap <= 0.0175) b17++; else if (gap <= 0.020) b20++; else if (gap <= 0.0335) b33++; else b_over++; }
+        // The first swap's return and each gap over 20 ms on their own lines, on the compositor log's clock: swap N
+        // returned at `nw`, N-1 that long before.
+        if (frames == 0) { printf("[x1] first swap returned at monotonic %.3f\n", nw); fflush(stdout); }
+        if (frames > 0 && gap > 0.020) { printf("[x1] gap %.1f ms before swap %d returned at monotonic %.3f\n", gap * 1000, frames + 1, nw); fflush(stdout); }
         frames++; sec_frames++;
         if (nw - sec_mark >= 1.0) { printf("[x1] t=%3.0f s: %d swaps this second, worst gap so far %.1f ms\n", nw - t0, sec_frames, worst * 1000); fflush(stdout); sec_mark = nw; sec_frames = 0; }
     }

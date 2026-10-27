@@ -16,7 +16,7 @@ use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
 use crate::scene::Plan;
-use crate::surface::Surfaces;
+use crate::surface::{SurfaceId, Surfaces};
 
 /// Which global serves the clients' GPU buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +31,8 @@ pub enum BufferPath {
 const WARM_LIMIT: Duration = Duration::from_millis(100);
 /// How long one `bury` call may spend freeing driver imports.
 const BURY_BUDGET: Duration = Duration::from_millis(2);
+/// Most `warm:` lines logged (three per client start on the set; a measurement, not a watch).
+const WARM_LINES: u32 = 120;
 
 struct Tex {
     /// Kept for liveness: the entry goes when the client destroys the buffer (`prune`).
@@ -46,7 +48,12 @@ struct Tex {
     /// The fence behind the warm draw (`prepare`), while it has not signalled: the driver is still busy with the
     /// buffer. `None` once it signalled, or for a buffer imported by a frame.
     warm_sync: Option<EGLSync>,
+    /// A host's stand-in for the driver's busy fence (`hold_warm`, tests): warming until released.
+    held: bool,
     prepared: Instant,
+    /// What `prepare` cost the loop for this buffer: the import and the warm draw's submission (each in us).
+    import_us: u32,
+    submit_us: u32,
 }
 
 /// A render target: the offscreen one `Gl::new` makes (id 0) or a dma-buf page added for scan-out.
@@ -86,6 +93,18 @@ pub struct Gl {
     cursor_tex: Option<GLuint>,
     rects: Vec<Rect>,
     redraw_all: bool,
+    /// The page holding the last composed frame, whole, while there is one (none before the first composed frame and after
+    /// a direct one): what a frame copies a surface's rectangle from while the driver is still busy with the surface's new
+    /// buffer (`render_rects`), so the frame goes out on time and the content follows a refresh or two later. Without it the
+    /// tick holds the frame instead (`warming`).
+    standin_source: Option<TargetId>,
+    /// The surfaces the last composed frame stood in for, with the rectangle each covered: owed once their buffers are warm
+    /// (`standin_due`, `owed_standins`). Rebuilt by every composed frame.
+    standins: Vec<(SurfaceId, Rect)>,
+    standins_next: Vec<(SurfaceId, Rect)>,
+    /// The tiles the frame being drawn copied from the stand-in page: the page owes them again (`Ring::owe`).
+    standin_tiles: crate::damage::Tiles,
+    warm_lines: u32,
     #[cfg(feature = "ui")]
     ui: Option<crate::ui::Ui>,
     #[cfg(feature = "ui")]
@@ -194,6 +213,11 @@ impl Gl {
             cursor_tex: None,
             rects: Vec::new(),
             redraw_all: false,
+            standin_source: None,
+            standins: Vec::new(),
+            standins_next: Vec::new(),
+            standin_tiles: crate::damage::Tiles::new(width, height),
+            warm_lines: 0,
             #[cfg(feature = "ui")]
             ui: None,
             #[cfg(feature = "ui")]
@@ -382,7 +406,7 @@ impl Gl {
                         set_params(a);
                         (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, fmt as i32, shm.width, shm.height, 0, fmt, egl::GL_UNSIGNED_BYTE, std::ptr::null());
                     }
-                    Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false, external: false, warm_sync: None, prepared: Instant::now() }
+                    Tex { buffer: buffer.clone(), tex: t, image: std::ptr::null_mut(), size: (shm.width, shm.height), y_invert: true, uploaded: false, external: false, warm_sync: None, held: false, prepared: Instant::now(), import_us: 0, submit_us: 0 }
                 }
                 BufferKindRef::Dmabuf(d) => {
                     let plane = d.planes.first()?;
@@ -394,7 +418,7 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true, external: false, warm_sync: None, prepared: Instant::now() }
+                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size: (d.width, d.height), y_invert: d.y_invert, uploaded: true, external: false, warm_sync: None, held: false, prepared: Instant::now(), import_us: 0, submit_us: 0 }
                 }
                 BufferKindRef::External => {
                     let Some(ptr) = Self::resource_ptr(buffer) else {
@@ -416,7 +440,7 @@ impl Gl {
                             return None;
                         }
                     };
-                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true, external: true, warm_sync: None, prepared: Instant::now() }
+                    Tex { buffer: buffer.clone(), tex: bind_image(a, image), image, size, y_invert, uploaded: true, external: true, warm_sync: None, held: false, prepared: Instant::now(), import_us: 0, submit_us: 0 }
                 }
             };
             self.textures.insert(id, tex);
@@ -433,9 +457,11 @@ impl Gl {
     /// is kept: while it has not signalled the driver is still busy with the buffer, and a frame drawn then waits on
     /// it (`warming`).
     pub fn prepare(&mut self, buffer: &WlBuffer) -> bool {
+        let began = Instant::now();
         if self.import(buffer) != Some(true) {
             return false;
         }
+        let imported = Instant::now();
         let (tex, y_invert) = {
             let t = &self.textures[&buffer.id()];
             (t.tex, t.y_invert)
@@ -464,14 +490,20 @@ impl Gl {
         }
         // The whole output rectangle fills the 16x16 viewport: every texel row is sampled.
         self.draw_quad(tex, &Rect::new(0, 0, self.width as i32, self.height as i32), y_invert);
-        if let Some(sync) = self.egl.kick_fence() {
+        let kicked = self.egl.kick_fence();
+        let submitted = Instant::now();
+        if let Some(t) = self.textures.get_mut(&buffer.id()) {
+            t.import_us = (imported - began).as_micros() as u32;
+            t.submit_us = (submitted - imported).as_micros() as u32;
+            t.prepared = submitted;
+        }
+        if let Some(sync) = kicked {
             // SAFETY: a fence this renderer just created; the flush starts the job, the sync lives on in the entry.
             if unsafe { self.egl.fence_signalled(sync, true) } {
                 // SAFETY: as above, done with.
                 unsafe { self.egl.destroy_fence(sync) };
             } else if let Some(t) = self.textures.get_mut(&buffer.id()) {
                 t.warm_sync = Some(sync);
-                t.prepared = Instant::now();
             }
         } else {
             // SAFETY: plain call.
@@ -485,13 +517,19 @@ impl Gl {
         true
     }
 
-    /// Whether a driver buffer's warm draw is still running, which is when a frame must not be drawn: on the set the
-    /// first job on a driver buffer (LG's `mali_buffer_sharing` imports: Home's, HDMI 2's, Netflix's player's) held
-    /// the frame that came while it ran for 10-16 ms, in the draw or in the fence export (sixth gate). Fences of
-    /// other buffers are polled and dropped too; a fence that has not signalled after 100 ms is given up on.
+    /// Whether a frame must not be drawn now: a driver buffer's warm draw is still running and there is no page to stand
+    /// in from (`standin_source`). On the set the first job on a driver buffer (LG's `mali_buffer_sharing` imports:
+    /// Home's, HDMI 2's, Netflix's player's) held the frame that came while it ran for 10-16 ms, in the draw or in the
+    /// fence export (sixth gate); with a stand-in page the frame is drawn without that buffer (`render_rects`). Fences
+    /// of other buffers are polled and dropped too; a fence that has not signalled after 100 ms is given up on. Each
+    /// buffer's warm gets one line when its fence is seen done, with what `prepare` cost the loop for it.
     pub fn warming(&mut self) -> bool {
         let mut busy = false;
         for t in self.textures.values_mut() {
+            if t.held {
+                busy = true;
+                continue;
+            }
             let Some(sync) = t.warm_sync else { continue };
             // SAFETY: a fence this renderer created, still alive.
             let done = unsafe { self.egl.fence_signalled(sync, false) };
@@ -502,12 +540,61 @@ impl Gl {
                 t.warm_sync = None;
                 if stale {
                     log::warn!("warm draw of a buffer not done after {} ms; drawing anyway", WARM_LIMIT.as_millis());
+                } else if self.warm_lines < WARM_LINES {
+                    self.warm_lines += 1;
+                    log::info!(
+                        "warm: {} buffer {} {}x{}: import {:.1} ms, warm draw submitted in {:.1} ms, its fence done {:.1} ms after",
+                        if t.external { "driver" } else { "dma-buf" },
+                        t.buffer.id().protocol_id(),
+                        t.size.0,
+                        t.size.1,
+                        t.import_us as f64 / 1000.0,
+                        t.submit_us as f64 / 1000.0,
+                        t.prepared.elapsed().as_secs_f64() * 1000.0
+                    );
                 }
             } else if t.external {
                 busy = true;
             }
         }
-        busy
+        busy && self.standin_source.is_none()
+    }
+
+    /// Whether a frame is owed for a surface a frame stood in for: its buffer is warm now and nothing else is warming, so
+    /// the frame draws it for real (`owed_standins` says where).
+    pub fn standin_due(&self) -> bool {
+        !self.standins.is_empty() && !self.textures.values().any(|t| t.external && (t.warm_sync.is_some() || t.held))
+    }
+
+    /// Adds the rectangles the last composed frame stood in for to a frame's damage.
+    pub fn owed_standins(&self, tiles: &mut crate::damage::Tiles) {
+        for (_, r) in &self.standins {
+            tiles.add(r);
+        }
+    }
+
+    /// The tiles the last `render_rects` copied from the stand-in page instead of drawing.
+    pub fn standin_tiles(&self) -> &crate::damage::Tiles {
+        &self.standin_tiles
+    }
+
+    /// The page frames copy a warming surface's rectangle from: the one the last composed frame went into, whole.
+    /// `None` when no page holds the last frame (before the first composed one, after a direct one): frames are held
+    /// while a buffer warms, and nothing is owed to a stand-in any more.
+    pub fn set_standin_source(&mut self, page: Option<TargetId>) {
+        self.standin_source = page;
+        if page.is_none() {
+            self.standins.clear();
+        }
+    }
+
+    /// A host's stand-in for a driver that is busy with `buffer` after its commit (tests): the texture counts as a
+    /// driver buffer warming until `held` is false again.
+    pub fn hold_warm(&mut self, buffer: &WlBuffer, held: bool) {
+        if let Some(t) = self.textures.get_mut(&buffer.id()) {
+            t.external = true;
+            t.held = held;
+        }
     }
 
     /// The texture for a buffer, imported now if the commit did not (`prepare`); `new` says which. Shm content is
@@ -749,6 +836,10 @@ impl Gl {
             (a.glBlendFunc)(egl::GL_ONE, egl::GL_ONE_MINUS_SRC_ALPHA);
         }
         let (mut imports, mut import_us) = (0u32, 0u64);
+        self.standin_tiles.clear();
+        let mut standins = std::mem::take(&mut self.standins_next);
+        standins.clear();
+        let standin_page = self.standin_source.filter(|p| p.0 < self.targets.len());
         for item in &plan.items {
             let began = std::time::Instant::now();
             let Some((tex, _size, y_invert, new)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
@@ -758,6 +849,35 @@ impl Gl {
             if new {
                 imports += 1;
                 import_us += began.elapsed().as_micros() as u64;
+            }
+            // The driver is still busy with this buffer (its warm draw has not finished): a draw from it now would wait
+            // on that, so the surface's rectangle is copied from the page holding the last frame instead, and the page
+            // being drawn owes it again. The copy is opaque: the page already composes everything under the surface.
+            let warming = self.textures.get(&item.buffer.id()).is_some_and(|t| t.external && (t.warm_sync.is_some() || t.held));
+            if let (true, Some(page)) = (warming, standin_page) {
+                let full = Rect::new(0, 0, self.width as i32, self.height as i32);
+                // SAFETY: plain state calls on the current context.
+                unsafe { (self.egl.api.glDisable)(egl::GL_BLEND) };
+                for r in rects {
+                    let clip = item.rect.intersect(r);
+                    if clip.is_empty() {
+                        continue;
+                    }
+                    // A page drawn again (a superseded frame's) already holds the last frame: nothing to copy.
+                    if page != self.current {
+                        self.scissor(&clip);
+                        self.draw_quad(self.targets[page.0].tex, &full, true);
+                    }
+                    self.standin_tiles.add(&clip);
+                }
+                // SAFETY: as above.
+                unsafe { (self.egl.api.glEnable)(egl::GL_BLEND) };
+                if !self.standins.iter().any(|(s, _)| *s == item.surface) && self.warm_lines < WARM_LINES {
+                    log::info!("standin: surface {} keeps the last frame's content while its new buffer warms", item.surface.0);
+                }
+                standins.push((item.surface, item.rect));
+                stats.stood_in += 1;
+                continue;
             }
             let mut drawn = false;
             for r in rects {
@@ -773,6 +893,7 @@ impl Gl {
                 stats.drawn += 1;
             }
         }
+        self.standins_next = std::mem::replace(&mut self.standins, standins);
         for h in &plan.holes {
             for r in rects {
                 let c = h.intersect(r);

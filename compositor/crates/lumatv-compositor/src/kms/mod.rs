@@ -155,10 +155,17 @@ pub struct Kms {
     /// Whether the last tick drew a frame: the run of frames the pacer keeps in step is on while ticks keep
     /// drawing; the first tick that finds nothing to draw ends it and the fixed tick takes over.
     in_run: bool,
+    /// The last `warming` answer: a frame is held while a driver buffer warms with no page to stand in from, and the
+    /// tick polls for the warm's end instead of waiting for the next fixed tick (up to a refresh on the eighth and
+    /// ninth gates: a client's first frame reached the panel a refresh late for it).
+    held: bool,
     pub direct_frames: u64,
     pub split_frames: u64,
-    /// Flips the loop handled more than 3 ms after they landed (their callbacks went out that late).
+    /// Flips the loop handled more than 3 ms after they landed (their callbacks went out that late), those over 1 ms,
+    /// and the worst.
     flips_reached_late: u64,
+    flips_reached_over_1ms: u64,
+    reach_worst_ns: u64,
     seq: u64,
 }
 
@@ -341,9 +348,12 @@ impl Kms {
             last_assignment: None,
             in_flight: None,
             in_run: false,
+            held: false,
             direct_frames: 0,
             split_frames: 0,
             flips_reached_late: 0,
+            flips_reached_over_1ms: 0,
+            reach_worst_ns: 0,
             seq: 0,
         })
     }
@@ -481,6 +491,10 @@ impl Kms {
         // flip is the compositor's share of a client's gap: X1's two 20.6-21.0 ms gaps on the sixth gate came with
         // nothing logged above 8 ms, and this says whether a 4 ms delay was here or in the client.
         let reached_ns = mono_ns().saturating_sub(presented_ns);
+        self.reach_worst_ns = self.reach_worst_ns.max(reached_ns);
+        if reached_ns > 1_000_000 {
+            self.flips_reached_over_1ms += 1;
+        }
         if reached_ns > 3_000_000 {
             self.flips_reached_late += 1;
             if self.flips_reached_late <= 200 {
@@ -745,14 +759,22 @@ impl Output for Kms {
 
     /// The pacer's latch while a run of frames is on (start late, aim early, one frame per refresh). Between
     /// runs the fixed tick rules: the latch would be in the past then (the slot timeline stops with the last
-    /// drawn frame) and re-arming at it spun the loop at 2000 ticks/s in the first TV run.
+    /// drawn frame) and re-arming at it spun the loop at 2000 ticks/s in the first TV run. A held frame (a driver
+    /// buffer warming) is tried again in half a millisecond, run or no run.
     fn next_frame_at(&self, now: Instant) -> Option<Instant> {
+        if self.held {
+            return Some(now + Duration::from_micros(500));
+        }
         let now_ns = self.now_ns();
         if !self.flowing(now_ns) {
             return None;
         }
         let latch = self.timing.pacer.latch_at(now_ns);
         Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
+    }
+
+    fn last_flip_ns(&self) -> Option<u64> {
+        Some(self.timing.last_flip_ns()).filter(|&t| t != 0)
     }
 
     fn event_fd(&self) -> Option<RawFd> {
@@ -789,11 +811,13 @@ impl Output for Kms {
         let ui = self.gl.ui_stats_line();
         let t = &self.timing;
         format!(
-            "flips {} late {} lost {} reached late {} direct {} split {} odd stamps {} ({} missed) refresh {:.2} ms (changed {}){}{}",
+            "flips {} late {} lost {} reached late {} (over 1 ms {}, worst {:.1} ms) direct {} split {} odd stamps {} ({} missed) refresh {:.2} ms (changed {}){}{}",
             t.flips,
             t.late_frames,
             t.lost_refreshes,
             self.flips_reached_late,
+            self.flips_reached_over_1ms,
+            self.reach_worst_ns as f64 / 1e6,
             self.direct_frames,
             self.split_frames,
             t.odd_stamps,
@@ -809,8 +833,9 @@ impl Output for Kms {
         (self.width, self.height)
     }
 
+    /// The system UI's requests, and a frame owed to a surface a frame stood in for once its buffer is warm.
     fn ui_needs_frame(&mut self) -> io::Result<bool> {
-        self.gl.ui_needs_frame()
+        Ok(self.gl.ui_needs_frame()? || self.gl.standin_due())
     }
 
     fn ui_fd(&self) -> Option<RawFd> {
@@ -826,7 +851,8 @@ impl Output for Kms {
     }
 
     fn warming(&mut self) -> bool {
-        self.gl.warming()
+        self.held = self.gl.warming();
+        self.held
     }
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
