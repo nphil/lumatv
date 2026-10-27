@@ -115,6 +115,8 @@ pub struct State {
     pub luna_state: crate::luna_methods::LunaState,
     pub keys: crate::input::Keys,
     pub ime: super::ime::ImeState,
+    /// The shell client and its UI channel (`shell.rs`).
+    pub shell: crate::shell::Shell,
     pub stats: Stats,
     pub check: CheckState,
     pub clients: HashMap<ClientId, ClientInfo>,
@@ -156,6 +158,7 @@ impl State {
             luna_state: crate::luna_methods::LunaState::default(),
             keys,
             ime: super::ime::ImeState::default(),
+            shell: crate::shell::Shell::default(),
             stats: Stats::default(),
             check: CheckState::default(),
             clients: HashMap::new(),

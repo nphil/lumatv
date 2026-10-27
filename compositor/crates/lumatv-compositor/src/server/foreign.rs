@@ -44,7 +44,6 @@ pub struct ForeignState {
     pub imported: HashMap<wayland_backend::server::ObjectId, Imported>,
     /// Whether each element's last placement had a rectangle (`true`) or hid it (`false`).
     placed: HashMap<String, bool>,
-    next_token: u64,
 }
 
 impl ForeignState {
@@ -278,14 +277,16 @@ impl Dispatch<WlWebosImported, ()> for State {
 }
 
 impl State {
+    /// A one-shot luna call through the bridge. Tokens come from the one counter every outbound call uses (`luna_token`): the
+    /// bridge answers each call as an event with its token, and a token shared with a subscription would answer the wrong one.
     pub fn luna_call(&mut self, uri: String, payload: serde_json::Value) {
-        self.foreign.next_token += 1;
         // Placements are what the gate's Netflix check counts; the per-video property calls are left out.
         if uri.ends_with("/setDisplayWindow") || uri.ends_with("/setCropRegion") || uri.ends_with("/setCompositing") {
             let method = uri.rsplit('/').next().unwrap_or_default();
             self.journal(format!("luna: {method} {payload}"));
         }
-        self.luna.send(ToBridge::Outbound(Outbound { token: self.foreign.next_token, uri, payload, subscribe: false }));
+        let token = self.luna_token();
+        self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: false }));
     }
 
     /// Output-space rectangle of an exported element: the exporting surface's window origin plus its destination.

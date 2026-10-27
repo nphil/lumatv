@@ -105,7 +105,7 @@ const HOME_UI_TYPES: [&str; 7] = ["toast", "inputAlert", "alert", "pincodePrompt
 const AUDIO: &str = "luna://com.webos.service.audio";
 
 impl State {
-    fn luna_token(&mut self) -> u64 {
+    pub(crate) fn luna_token(&mut self) -> u64 {
         self.luna_state.next_token += 1;
         self.luna_state.next_token
     }
@@ -125,13 +125,17 @@ impl State {
     }
 
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
-    /// ones acted on.
+    /// ones acted on; the shell's calls are answered to it.
     pub fn luna_event(&mut self, ev: Event) {
         if Some(ev.token) == self.luna_state.audio_token {
             // X4: {"volumeStatus": {"muteStatus": false, "soundOutput": "external_arc", "volume": 0, ...}}
             if let Some(m) = ev.payload.pointer("/volumeStatus/muteStatus").and_then(Value::as_bool) {
                 self.luna_state.muted = m;
             }
+            self.shell_audio(&ev.payload);
+            return;
+        }
+        if self.shell_luna_event(ev.token, &ev.payload) {
             return;
         }
         let Some(round) = self.luna_state.power_tokens.iter().find(|(t, _)| *t == ev.token).map(|(_, r)| *r) else {
@@ -146,6 +150,7 @@ impl State {
             self.journal(format!("tvpower: {round} ({}) -> ack", ev.payload.get("next sub state").and_then(Value::as_str).unwrap_or("")));
             let token = self.luna_token();
             self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: false }));
+            self.shell_sync_topics();
         }
     }
 
@@ -208,7 +213,9 @@ impl State {
     /// Pushes every subscription whose payload changed. Called after the scene or input state changed. A method is
     /// computed once however many subscribe to it (activitymanager holds 14 `getForegroundAppInfo` subscriptions on
     /// the set), the replies go to the bridge's queue, and one journal line covers a foreground push to all of them.
+    /// The shell's topics follow the same changes.
     pub fn luna_notify(&mut self) {
+        self.shell_sync_topics();
         if self.luna_state.subscriptions.is_empty() {
             return;
         }
@@ -238,8 +245,10 @@ impl State {
             if subs[*j].method != "getForegroundAppInfo" {
                 continue;
             }
-            let to: Vec<&Subscription> =
-                (0..subs.len()).filter(|i| pushed[*i] && subs[*i].service == subs[*j].service && subs[*i].method == subs[*j].method).map(|i| &subs[i]).collect();
+            let to: Vec<&Subscription> = (0..subs.len())
+                .filter(|i| pushed[*i] && subs[*i].service == subs[*j].service && subs[*i].method == subs[*j].method)
+                .map(|i| &subs[i])
+                .collect();
             if to.is_empty() {
                 continue;
             }
@@ -287,10 +296,36 @@ impl State {
             }
             ("com.webos.surfacemanager", "clearRecentsList") | ("com.webos.service.recent", "removeAllRecents") => ok(),
             ("com.webos.service.recent", "removeRecent") => json!({"returnValue": true, "appId": payload.get("appId").cloned().unwrap_or(Value::Null)}),
-            ("com.webos.surfacemanager", "showInputPicker")
-            | ("com.webos.surfacemanager", "showQuickSettings")
-            | ("com.webos.service.systemUIManager", "launch") => {
-                self.journal(format!("luna: {method} {payload} (system UI not built yet)"));
+            ("com.webos.surfacemanager", "showInputPicker") => {
+                if self.shell_show("picker", false) {
+                    self.journal(format!("luna: {method} -> LumaTV's input picker"));
+                } else {
+                    self.journal(format!("luna: {method} {payload} (the shell cannot show it now)"));
+                }
+                ok()
+            }
+            ("com.webos.surfacemanager", "showQuickSettings") => {
+                if self.shell_show("quick", false) {
+                    self.journal(format!("luna: {method} -> LumaTV's quick panel"));
+                } else {
+                    self.journal(format!("luna: {method} {payload} (the shell cannot show it now)"));
+                }
+                ok()
+            }
+            ("com.webos.service.systemUIManager", "launch") => {
+                // LG's key filters and LumaTV's own QML open the system windows this way; the two the shell draws are its.
+                let kind = match payload.get("appId").and_then(Value::as_str) {
+                    Some("com.webos.app.quicksettings") => Some("quick"),
+                    Some("com.webos.app.quickinputpicker") => Some("picker"),
+                    _ => None,
+                };
+                if let Some(k) = kind
+                    && self.shell_show(k, false)
+                {
+                    self.journal(format!("luna: systemUIManager/launch {} -> LumaTV's {k}", payload.get("appId").and_then(Value::as_str).unwrap_or("")));
+                } else {
+                    self.journal(format!("luna: {method} {payload} (no window of its own here)"));
+                }
                 ok()
             }
             ("com.webos.surfacemanager.home", "getCurrentHomeUIState") => self.home_ui_state(),

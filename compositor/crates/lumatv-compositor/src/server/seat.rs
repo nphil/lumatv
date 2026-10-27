@@ -392,4 +392,5 @@ fn set_cursor_visible(state: &mut State, visible: bool) {
     for r in &state.seat.input_managers {
         r.cursor_visibility(visible as u32, None);
     }
+    state.shell_sync_topics();
 }

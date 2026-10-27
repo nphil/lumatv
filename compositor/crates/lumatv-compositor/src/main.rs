@@ -188,6 +188,7 @@ fn run(config: Config) -> io::Result<()> {
     const TAG_CONTROL_CLIENT: u64 = 1 << 32;
     const TAG_INPUT: u64 = 1 << 33;
     const TAG_UI: u64 = 10;
+    const TAG_SHELL: u64 = 11;
     epoll.add(display.backend().poll_fd().as_raw_fd(), TAG_WL)?;
     epoll.add(listener.as_raw_fd(), TAG_LISTEN)?;
     epoll.add(timer.as_raw_fd(), TAG_TICK)?;
@@ -202,6 +203,11 @@ fn run(config: Config) -> io::Result<()> {
     }
     if let Some(fd) = state.output.ui_fd() {
         epoll.add(fd, TAG_UI)?;
+    }
+    // The shell client (shell.rs): its UI channel's wake-up; started once the socket listens, so it finds the display.
+    state.shell_start();
+    if let Some(fd) = state.shell_fd() {
+        epoll.add(fd, TAG_SHELL)?;
     }
     let mut inputs = if config.input { lumatv_compositor::input::open_all() } else { Vec::new() };
     // One wl_seat per device, as LG's compositor has them: a device's keys go out on its own seat.
@@ -256,7 +262,7 @@ fn run(config: Config) -> io::Result<()> {
                 } else if tag & TAG_CONTROL_CLIENT != 0 {
                     8
                 } else {
-                    tag.min(10) as u32
+                    tag.min(11) as u32
                 });
             match tag {
                 TAG_WL => {
@@ -296,6 +302,9 @@ fn run(config: Config) -> io::Result<()> {
                         state.tick();
                         rearm(&timer, &state, &mut paced, config.tick_ns)?;
                     }
+                }
+                TAG_SHELL => {
+                    state.shell_poll();
                 }
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {
@@ -497,7 +506,7 @@ impl ControlClient {
 
 /// What a loop pass handled, by the `handled` bits, for its log lines.
 fn handled_names(handled: u32) -> String {
-    const NAMES: [&str; 11] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now", "ui"];
+    const NAMES: [&str; 12] = ["?", "clients", "accept", "tick", "control", "flip", "luna", "input", "control-client", "draw-now", "ui", "shell"];
     let what: Vec<&str> = (0..NAMES.len()).filter(|b| handled & (1 << b) != 0).map(|b| NAMES[b]).collect();
     what.join(" ")
 }

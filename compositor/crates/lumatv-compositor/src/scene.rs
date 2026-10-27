@@ -17,6 +17,10 @@ use crate::surface::{Role, SurfaceId, Surfaces};
 use crate::window::{Layer, ShellState, Window, WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 
+/// SAM's Home app: the Home stub's transparent card under LumaTV's compositor (`tools/lumatv homestub`), LG's own Home
+/// otherwise. The card LumaTV's Home is drawn in place of.
+pub const HOME_APP: &str = "com.webos.app.home";
+
 /// A named `wl_webos_surface_group`, owned by one surface.
 pub struct Group {
     pub name: String,
@@ -127,6 +131,8 @@ pub struct Scene {
     last_placed: Vec<Placed>,
     last_holes: Vec<Rect>,
     plan: Plan,
+    /// Whether the last stack built drew LumaTV's Home in the card slot ([`Scene::shell_home_shown`]).
+    home_shown: bool,
     // Scratch space for planning, reused across frames.
     stack: Vec<(Layer, u64, WindowId)>,
     members: Vec<(i32, SurfaceId)>,
@@ -159,9 +165,37 @@ impl Scene {
     }
 
     /// The topmost drawn surface under an output point and the rectangle it is drawn at (the last plan), for
-    /// the pointer. Holes are the video's, not a window's, so they do not count.
+    /// the pointer. Holes are the video's, not a window's, so they do not count; the shell's system layer counts only
+    /// while it wants the keys (a transparent layer must not take the pointer from the app under it).
     pub fn surface_at(&self, x: i32, y: i32) -> Option<(SurfaceId, Rect)> {
-        self.plan.items.iter().rev().find(|i| i.rect.contains(x, y)).map(|i| (i.surface, i.rect))
+        self.plan
+            .items
+            .iter()
+            .rev()
+            .filter(|i| i.rect.contains(x, y))
+            .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::ShellSystem || w.takes_keys))
+            .map(|i| (i.surface, i.rect))
+    }
+
+    /// The shell client's window of `kind` (`ShellHome` or `ShellSystem`), if it has one.
+    pub fn shell_window(&self, kind: WindowType) -> Option<&Window> {
+        self.windows.values().find(|w| w.kind == kind)
+    }
+
+    /// Whether the last stack drew LumaTV's Home in the card slot: the shell's Home window is mapped and the card at the front is
+    /// SAM's Home (the stub) or there is none.
+    pub fn shell_home_shown(&self) -> bool {
+        self.home_shown
+    }
+
+    /// The shell's system layer wants the keys, or stops wanting them; returns whether that changed (the focus then moves).
+    pub fn set_shell_takes_keys(&mut self, takes: bool) -> bool {
+        let mut changed = false;
+        for w in self.windows.values_mut().filter(|w| w.kind == WindowType::ShellSystem) {
+            changed |= w.takes_keys != takes;
+            w.takes_keys = takes;
+        }
+        changed
     }
 
     pub fn windows(&self) -> impl Iterator<Item = &Window> {
@@ -247,7 +281,9 @@ impl Scene {
         self.stack.iter().rev().map(|(_, _, id)| *id).find(|id| self.windows.get(id).is_some_and(|w| w.needs_focus()))
     }
 
-    /// Mapped windows in draw order, bottom to top, into `self.stack`.
+    /// Mapped windows in draw order, bottom to top, into `self.stack`. LumaTV's Home (the shell's `ShellHome` window) takes the
+    /// card slot while the card at the front is SAM's Home, the stub that draws nothing, or while there is no card at all; under
+    /// an app's card it is left out, as the stub is while Home is drawn in its place.
     fn build_stack(&mut self, surfaces: &Surfaces) {
         self.stack.clear();
         for w in self.windows.values() {
@@ -264,14 +300,20 @@ impl Scene {
                 last_card = Some(i);
             }
         }
-        if let Some(keep) = last_card {
-            let mut i = 0;
-            self.stack.retain(|(layer, _, _)| {
-                let keep_it = *layer != Layer::Cards || i == keep;
-                i += 1;
-                keep_it
-            });
-        }
+        let card_is_home = last_card.map(|i| self.windows.get(&self.stack[i].2).is_some_and(|w| w.app_id() == HOME_APP)).unwrap_or(true);
+        let has_shell_home = self.stack.iter().any(|(layer, _, _)| *layer == Layer::Home);
+        self.home_shown = has_shell_home && card_is_home;
+        let drop_card = self.home_shown;
+        let mut i = 0;
+        self.stack.retain(|(layer, _, _)| {
+            let keep_it = match layer {
+                Layer::Cards => last_card == Some(i) && !drop_card,
+                Layer::Home => has_shell_home && card_is_home,
+                _ => true,
+            };
+            i += 1;
+            keep_it
+        });
     }
 
     /// Members of the groups `owner` owns, sorted by z, into `self.members` (negative z below the owner).

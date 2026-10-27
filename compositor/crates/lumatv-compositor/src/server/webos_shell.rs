@@ -175,6 +175,9 @@ pub fn on_mapped(state: &mut State, wid: WindowId) {
     let (kind, position, has_webos) = (w.kind, w.position, w.has_webos_shell);
     if kind.is_card() {
         settle_cards(state, None);
+    } else if kind.is_shell() {
+        sync_exposed(state);
+        state.shell_window_mapped(kind);
     }
     if !has_webos {
         return;
@@ -235,14 +238,15 @@ pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
 /// surface size yet; it gets the output's, the rectangle a card fills [INFERENCE: OSE would send an empty list
 /// there, which Qt 5 takes as an expose all the same]. The empty list for a covered or minimized card is this
 /// compositor's reading of the protocol ("areas that are visible in this surface"); OSE never unexposes a card.
+/// The shell client's windows (Qt as well) are exposed whole for as long as they are mapped.
 pub fn sync_exposed(state: &mut State) {
     let fg = state.scene.foreground(&state.surfaces).map(|w| w.id);
     let changes: Vec<(WindowId, bool)> = state
         .scene
         .windows()
-        .filter(|w| w.kind.is_card() && w.has_webos_shell)
+        .filter(|w| (w.kind.is_card() || w.kind.is_shell()) && w.has_webos_shell)
         .filter_map(|w| {
-            let wanted = Some(w.id) == fg;
+            let wanted = if w.kind.is_shell() { w.map_serial > 0 } else { Some(w.id) == fg };
             (w.exposed != wanted).then_some((w.id, wanted))
         })
         .collect();

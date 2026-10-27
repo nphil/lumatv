@@ -36,9 +36,20 @@ pub enum WindowType {
     BootPopup,
     Alert,
     AdvancedAlert,
+    /// LumaTV's own Home, drawn by the shell client (`shell.rs`) in place of the Home stub's card while that card is the
+    /// foreground one: `_WEBOS_WINDOW_TYPE_LUMATV_HOME`, or a window titled [`SHELL_HOME_TITLE`].
+    ShellHome,
+    /// LumaTV's system layer (the volume display, toasts and alerts, the PIN prompt, the quick panel and the input picker, the
+    /// screensaver), above every window: `_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM`, or a window titled [`SHELL_SYSTEM_TITLE`].
+    ShellSystem,
     /// A type this compositor does not know; kept by name so a TV session shows it.
     Unknown,
 }
+
+/// The titles the shell client gives its two windows, the second way they are told apart from the apps' (a plain `Window`
+/// cannot set LG's window type, a `WebOSWindow` can).
+pub const SHELL_HOME_TITLE: &str = "LumaTV shell: home";
+pub const SHELL_SYSTEM_TITLE: &str = "LumaTV shell: system";
 
 impl WindowType {
     pub fn parse(name: &str) -> WindowType {
@@ -68,6 +79,8 @@ impl WindowType {
             "_WEBOS_WINDOW_TYPE_BOOTPOPUP" => BootPopup,
             "_WEBOS_WINDOW_TYPE_ALERT" => Alert,
             "_WEBOS_WINDOW_TYPE_ADVANCEDALERT" => AdvancedAlert,
+            "_WEBOS_WINDOW_TYPE_LUMATV_HOME" => ShellHome,
+            "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM" => ShellSystem,
             _ => Unknown,
         }
     }
@@ -76,11 +89,13 @@ impl WindowType {
     pub fn layer(self) -> Layer {
         use WindowType::*;
         match self {
+            ShellHome => Layer::Home,
             Card | Home | Screensaver | Unknown => Layer::Cards,
             Overlay | Floating | Restricted => Layer::Overlays,
             SystemUi | TopUi | Volume | Indicator | Spinner | LongPressSpinner | InfiniteSpinner | CoverUi => Layer::SystemUi,
             Popup | Alert | AdvancedAlert | PinCodePrompt | Toast | BootPopup => Layer::Popups,
             Keyboard | VoiceAgent => Layer::Keyboard,
+            ShellSystem => Layer::Shell,
             ScreenCover | Splash => Layer::Cover,
         }
     }
@@ -89,20 +104,29 @@ impl WindowType {
     pub fn is_card(self) -> bool {
         self.layer() == Layer::Cards
     }
+
+    /// One of the shell client's two windows: neither a card nor anything LG's views know.
+    pub fn is_shell(self) -> bool {
+        matches!(self, WindowType::ShellHome | WindowType::ShellSystem)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Layer {
+    /// LumaTV's Home, under the cards (drawn in the card slot while the Home stub's card is the foreground one).
+    Home,
     Cards,
     Overlays,
     SystemUi,
     Popups,
     Keyboard,
+    /// LumaTV's system layer.
+    Shell,
     Cover,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 6] = [Layer::Cards, Layer::Overlays, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Cover];
+    pub const ALL: [Layer; 8] = [Layer::Home, Layer::Cards, Layer::Overlays, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Shell, Layer::Cover];
 }
 
 /// `wl_webos_shell_surface.state`.
@@ -162,6 +186,9 @@ pub struct Window {
     /// What the client was last told by `wl_webos_shell_surface.exposed`: its rectangle (true) or none (false). Sent
     /// on each change only, as OSE's `WebOSSurfaceItem::m_exposed` latches it.
     pub exposed: bool,
+    /// The shell's system layer has a surface that wants the keys (a panel is open, a prompt is up): it takes the keyboard
+    /// focus and the pointer. Off, it is drawn but lets both through to whatever is under it. Set over the UI channel.
+    pub takes_keys: bool,
 }
 
 impl Window {
@@ -183,6 +210,7 @@ impl Window {
             has_webos_shell: false,
             bare_commit_seen: false,
             exposed: false,
+            takes_keys: false,
         }
     }
 
@@ -199,7 +227,18 @@ impl Window {
                 relayer = k != self.kind;
                 self.kind = k;
             }
-            "title" => self.title = value.to_string(),
+            "title" => {
+                self.title = value.to_string();
+                let shell = match value {
+                    SHELL_HOME_TITLE => Some(WindowType::ShellHome),
+                    SHELL_SYSTEM_TITLE => Some(WindowType::ShellSystem),
+                    _ => None,
+                };
+                if let Some(k) = shell {
+                    relayer = k != self.kind;
+                    self.kind = k;
+                }
+            }
             "windowPosX" => {
                 if let Ok(v) = value.parse() {
                     self.position.0 = v;
@@ -221,8 +260,12 @@ impl Window {
     }
 
     /// Whether the window takes the keyboard focus when it is on top. The on-screen keyboard never does by default: the field it types
-    /// into stays focused (LG's input panel surface refuses the focus on a click as well).
+    /// into stays focused (LG's input panel surface refuses the focus on a click as well). The shell's system layer only while it has
+    /// something that wants the keys.
     pub fn needs_focus(&self) -> bool {
-        self.props.get("needFocus").map(|v| v != "false").unwrap_or(self.kind != WindowType::Keyboard)
+        match self.kind {
+            WindowType::ShellSystem => self.takes_keys,
+            _ => self.props.get("needFocus").map(|v| v != "false").unwrap_or(self.kind != WindowType::Keyboard),
+        }
     }
 }

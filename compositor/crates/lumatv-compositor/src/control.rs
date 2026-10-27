@@ -65,6 +65,22 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "bridge": state.luna.is_connected(),
             "subscriptions": state.luna_state.subscriptions.iter().map(|s| json!({"token": s.token, "service": s.service, "method": s.method, "sender": s.sender, "last": s.last})).collect::<Vec<_>>(),
         }),
+        "shell" => {
+            // shell [restart | show KIND]: the shell client and its UI channel (`shell.rs`); `show` asks the UI for a panel the way
+            // the gear and Input do, `restart` ends the client and starts it again.
+            match words.next() {
+                Some("restart") => {
+                    state.shell_restart();
+                    state.shell_report()
+                }
+                Some("show") => {
+                    let kind = words.next().unwrap_or("quick");
+                    let taken = state.shell_show(kind, false);
+                    json!({"ok": true, "kind": kind, "taken": taken})
+                }
+                _ => state.shell_report(),
+            }
+        }
         "capture" => match words.next() {
             Some(path) => match state.capture_image() {
                 Ok(image) => {
@@ -155,7 +171,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

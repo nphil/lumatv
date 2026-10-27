@@ -368,23 +368,36 @@ impl State {
         }
         let foreground = self.foreground_app();
         let keyboard_up = self.keyboard_up();
+        let logical = self.keys.router.table.classify(code);
+        let first_press = pressed && !self.keys.router.is_down(code);
         let out = {
             let Keys { router, app_keys, .. } = &mut self.keys;
             router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, app_keys })
         };
         self.run_actions(out.actions);
+        // The gear is down: its tap opens the quick panel at the release, and the shell puts the panel in the scene now, off the
+        // screen, so the slide of the opening starts in a scene that has it (LG's filter chain gave the same cue).
+        if first_press && logical == keys::Logical::Gear {
+            self.shell_show("quick", true);
+        }
         if out.swallow {
             self.seat.last_input = "key";
             return;
         }
-        let (mask, back, home) = self
-            .seat
-            .focus
-            .and_then(|s| self.scene.window_of(s))
-            .and_then(|w| self.scene.window(w))
+        let focused = self.seat.focus.and_then(|s| self.scene.window_of(s)).and_then(|w| self.scene.window(w));
+        let (mask, back, home) = focused
             .map(|w| (w.key_mask, w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_BACK"), w.access_policy("_WEBOS_ACCESS_POLICY_KEYS_HOME")))
             .unwrap_or((0, false, false));
-        let r = route(code, mask, back, home);
+        // The shell's windows (LumaTV's Home, its system layer with a panel open) get every key but the compositor's own: Back
+        // closes what they have open, never them, and Home stays the escape and the Home app's.
+        let shell_focus = focused.is_some_and(|w| w.kind.is_shell());
+        let r = if shell_focus
+            && !matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME | code::KEY_VOLUMEUP | code::KEY_VOLUMEDOWN | code::KEY_MUTE)
+        {
+            Route::Client
+        } else {
+            route(code, mask, back, home)
+        };
         if matches!(code, code::KEY_HOME | code::KEY_HOMEPAGE | code::KEY_RF_HOME) {
             if pressed {
                 if self.keys.home_down_since.is_none() {
@@ -395,6 +408,9 @@ impl State {
                 let held = self.keys.home_down_since.take().map(|t| now.saturating_duration_since(t)).unwrap_or_default();
                 if !self.keys.home_escape_sent && r == Route::Home && held < HOLD_HOME {
                     self.home_pressed(from_network);
+                    if shell_focus {
+                        self.shell_home_key();
+                    }
                 }
             }
         }
@@ -425,7 +441,7 @@ impl State {
     }
 
     /// Called every tick: a Home held 650 ms is the escape to LG's compositor (PLAN); the holds of the remote's own keys come
-    /// due; a cursor still for [`seat::CURSOR_TIMEOUT`] hides.
+    /// due; a cursor still for [`seat::CURSOR_TIMEOUT`] hides; the shell client is looked after.
     pub fn poll_holds(&mut self) {
         self.poll_holds_at(Instant::now());
     }
@@ -439,6 +455,7 @@ impl State {
             self.journal("input: Home held 650 ms: asking the supervisor to fall back to LG's compositor".into());
             self.luna.send(ToBridge::Fallback { reason: "hold Home 650 ms".into() });
         }
+        self.shell_tick(now);
         if self.keys.router.waiting() {
             let foreground = self.foreground_app();
             let keyboard_up = self.keyboard_up();
@@ -480,9 +497,17 @@ impl State {
     /// A code in LG's own range (768 and up) that the key table has no name for, noted once with how to teach it: the buttons this set's
     /// remote has that the table was built without (Disney+, LG Channels) are read from the journal after a press.
     fn note_unnamed_key(&mut self, code: u32, pressed: bool) {
-        if pressed && code >= 768 && code != code::KEY_RF_HOME && self.keys.unnamed.len() < 32 && !self.keys.router.table.knows(code) && !self.keys.unnamed.contains(&code) {
+        if pressed
+            && code >= 768
+            && code != code::KEY_RF_HOME
+            && self.keys.unnamed.len() < 32
+            && !self.keys.router.table.knows(code)
+            && !self.keys.unnamed.contains(&code)
+        {
             self.keys.unnamed.push(code);
-            self.journal(format!("input: key {code} has no name in the key table; for a button the routing should know, add `NAME {code}` to compositor/keys.conf"));
+            self.journal(format!(
+                "input: key {code} has no name in the key table; for a button the routing should know, add `NAME {code}` to compositor/keys.conf"
+            ));
         }
     }
 
@@ -507,12 +532,13 @@ impl State {
 
     /// Back on a window that does not take it, Exit, Back held: LG's compositor closes the window
     /// (`_WEBOS_LAUNCH_PREV_APP_AFTER_CLOSING` decides what shows next); here the window gets `close` and the app manager is told. The
-    /// Home app is not closed by either (LG closes its Home view and nothing else): a Home that closed would leave a black screen.
+    /// Home app is not closed by either (LG closes its Home view and nothing else): a Home that closed would leave a black screen, and
+    /// neither is the shell's window that has the keys (it got the key itself and closes what it has open).
     pub(crate) fn back_pressed(&mut self) {
         let Some(wid) = self.seat.focus.and_then(|s| self.scene.window_of(s)) else { return };
-        let app = self.scene.window(wid).map(|w| w.app_id().to_string()).unwrap_or_default();
-        if app == "com.webos.app.home" {
-            self.journal("input: Back or Exit on Home: nothing to close".into());
+        let (app, shell) = self.scene.window(wid).map(|w| (w.app_id().to_string(), w.kind.is_shell())).unwrap_or_default();
+        if app == crate::scene::HOME_APP || shell {
+            self.journal(format!("input: Back or Exit on {}: nothing to close", if shell { "LumaTV's shell" } else { "Home" }));
             return;
         }
         if let Some(res) = self.webos_shell_resource(wid) {

@@ -305,6 +305,11 @@ impl Router {
         self.down.iter().any(|h| !h.fired && matches!(h.logical, Logical::Gear | Logical::Input | Logical::Digit(_) | Logical::Back | Logical::Mute))
     }
 
+    /// Whether `code` is down (a press seen, no release yet): its further presses are the remote's repeats.
+    pub fn is_down(&self, code: u32) -> bool {
+        self.down.iter().any(|h| h.code == code)
+    }
+
     /// The holds that came due since the last call, each once. Called every tick.
     pub fn poll(&mut self, now: Instant, ctx: &Ctx) -> Vec<Action> {
         let mut out = Vec::new();
@@ -369,7 +374,13 @@ mod tests {
 
     impl Rig {
         fn new() -> Rig {
-            Rig { router: Router::new(KeyTable::default()), now: Instant::now(), foreground: "com.webos.app.home".into(), keyboard_up: false, app_keys: AppKeyConfig::default() }
+            Rig {
+                router: Router::new(KeyTable::default()),
+                now: Instant::now(),
+                foreground: "com.webos.app.home".into(),
+                keyboard_up: false,
+                app_keys: AppKeyConfig::default(),
+            }
         }
 
         fn at(&mut self, ms: u64) {
@@ -408,7 +419,10 @@ mod tests {
         assert_eq!((t.classify(113), t.classify(412), t.classify(158), t.classify(174)), (Logical::Mute, Logical::Back, Logical::Back, Logical::Exit));
         let (t, bad) = KeyTable::parse("# the remote's buttons\ndisneyplus 1041\nlgchannels 1042 # LG Channels\n\ngear 140\n");
         assert!(bad.is_empty(), "{bad:?}");
-        assert_eq!((t.classify(1041), t.classify(1042), t.classify(140), t.classify(139)), (Logical::App(AppKey::DisneyPlus), Logical::App(AppKey::LgChannels), Logical::Gear, Logical::Gear));
+        assert_eq!(
+            (t.classify(1041), t.classify(1042), t.classify(140), t.classify(139)),
+            (Logical::App(AppKey::DisneyPlus), Logical::App(AppKey::LgChannels), Logical::Gear, Logical::Gear)
+        );
         let (_, bad) = KeyTable::parse("volume 5\ngear\ngear 1 2\ngear x\nnetflix 1037\n");
         assert_eq!(bad.len(), 4, "{bad:?}");
     }
