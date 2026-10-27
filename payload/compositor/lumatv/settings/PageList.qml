@@ -176,7 +176,8 @@ Item {
     Item {
         id: head
         width: parent.width
-        height: titleText.height
+        readonly property bool chipBelow: chipItem.visible && titleText.x + titleText.width + Lu.space(4) + chipItem.width > width   // large text: the chip drops under the title instead of over it
+        height: titleText.height + (chipBelow ? Lu.space(2) + chipItem.height : 0)
         Rectangle {
             id: backPill
             visible: page.back !== ""
@@ -194,13 +195,13 @@ Item {
         LuText { id: titleText; x: backPill.visible ? backPill.width + Lu.space(4) : 0; role: "title"; text: page.title }
         LuText {
             x: titleText.x + titleText.width + Lu.space(4)
-            width: head.width - x - (chipItem.visible ? chipItem.width + Lu.space(4) : 0)
+            width: head.width - x - (chipItem.visible && !head.chipBelow ? chipItem.width + Lu.space(4) : 0)
             anchors.baseline: titleText.baseline
             role: "label"; color: Lu.ink2
             text: page.subtitle
             elide: Text.ElideRight
         }
-        LuChip { id: chipItem; visible: page.chip !== ""; x: head.width - width; anchors.verticalCenter: titleText.verticalCenter; text: page.chip; tone: page.chipTone }
+        LuChip { id: chipItem; visible: page.chip !== ""; x: head.chipBelow ? titleText.x : head.width - width; y: head.chipBelow ? titleText.height + Lu.space(2) : (titleText.height - height) / 2; text: page.chip; tone: page.chipTone }
     }
 
     // ---- tabs

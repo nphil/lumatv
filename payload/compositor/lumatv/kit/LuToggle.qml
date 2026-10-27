@@ -12,7 +12,7 @@ Item {
 
     width: Math.round(trackH * 1.75)
     height: trackH
-    opacity: enabled ? 1 : Lu.disabledOpacity
+    opacity: enabled || (parent && !parent.enabled) ? 1 : Lu.disabledOpacity   // a disabled row already dims what it holds
 
     Rectangle {
         anchors.fill: parent

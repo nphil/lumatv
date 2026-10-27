@@ -105,7 +105,7 @@ Item {
                 x: parent.width - width - 26; anchors.verticalCenter: parent.verticalCenter; spacing: Lu.space(2)
                 visible: search.voice || search.entry
                 LuIcon { visible: !search.entry; anchors.verticalCenter: parent.verticalCenter; name: "mic"; size: 26; color: Lu.ink3 }
-                LuText { anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink3; text: search.entry ? "Back cancels" : "Hold the mic key to speak" }
+                LuText { anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink; text: search.entry ? "Back cancels" : "Hold the mic key to speak" }
             }
         }
 
@@ -156,7 +156,7 @@ Item {
             Column {
                 x: 22 + 60 + 18; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 22; spacing: Lu.space(1)
                 LuText { width: parent.width; role: "label"; font.weight: Font.DemiBold; elide: Text.ElideRight; text: search.prompt }
-                LuText { width: parent.width; role: "caption"; color: Lu.ink2; text: "Done saves the name here and on the dock. An empty name brings back the one LG gave." }
+                LuText { width: parent.width; role: "caption"; color: Lu.ink; text: "Done saves the name here and on the dock. An empty name brings back the one LG gave." }
             }
         }
 

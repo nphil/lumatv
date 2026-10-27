@@ -530,3 +530,18 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Software Update app, Self-diagnosis, Customer Support, User Guide, Remote Control Guide | com.webos.app.softwareupdate, self-diagnosis, customersupport, tvuserguide, remotecontrolguide |  | System › Support | built — the update's state, the self-diagnosis and the information; the guides stay LG's |
 | Accessibility app, Accessibility overlay | com.webos.app.accessibility, com.webos.app.accessibility-overlay |  | System › Accessibility | built — the Accessibility page |
 | Gallery of LG apps (Discovery, Browser, Weather Location, Installation, First Use) | com.webos.app.discovery, browser, weatherlocation, installation, firstuse-overlay |  | - | cannot: store, browser and installer flows |
+
+## Layout audit 2026-10-27
+
+Full Settings audit (98 scenes, dark and light, 100 % and 200 % text) went from 17 failing scenes to 0.
+
+| Before | Cause | Fix |
+|---|---|---|
+| AI access, light: captions and times at 2.1-2.6:1; Allowed/Denied at 1.6-2.4:1 | ink3 captions; status colours used as text | captions in ink2; `Lu.positiveInk`/`warningInk` beside `dangerInk`, `dangerInk` darker on light |
+| AI access 200 %: Pair a new assistant over Lock out all AI | Lock row pinned to the page bottom | pinned only while the activity list leaves room |
+| Segmented controls, dark: Clock 3.5, Panes/Arc 4.1, Advanced 4.4, LAN only 4.0 | light wash and tray over a bright wallpaper lifted the background toward the label | tray and chosen/focused plate shade away from the label (a tint on light); dark `focusWash` 0.07 -> 0.05 |
+| Segmented controls, light: Normal/Flat/Deep 4.1-4.4 | same, darkening | white plate on light |
+| Standard (Sound), Stand/Wall-mounted, Auto/Off, Not installed: 1.6-2.9 | disabled opacity 0.55, doubled when a disabled row holds a control | opacity 0.76; controls in a disabled row do not dim twice; row value in ink |
+| Home Assistant (refused, off) 200 %: title over status chip | chip beside the title | chip drops under the title when it does not fit |
+| Join Network keyboard: Back cancels 2.3-2.8, Done saves 1.8 | ink3/ink2 on the pane | ink |
+| Support reset, light: Reset All 4.2 | dangerInk too pale | darker |

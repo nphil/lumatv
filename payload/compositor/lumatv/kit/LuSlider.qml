@@ -19,7 +19,7 @@ Item {
 
     width: Lu.target * 4
     height: Lu.target
-    opacity: enabled ? 1 : Lu.disabledOpacity
+    opacity: enabled || (parent && !parent.enabled) ? 1 : Lu.disabledOpacity   // a disabled row already dims what it holds
 
     function adjust(dir) {
         var v = Math.round((value + dir * step) / step) * step

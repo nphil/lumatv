@@ -98,7 +98,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         x: parent.width - Lu.space(6) - width - trailingSlot.width - (trailingSlot.children.length ? Lu.space(4) : 0)
         role: "label"
-        color: (row.enabled ? Lu.ink2 : Lu.ink)
+        color: Lu.ink              // ink2 read 2.9:1 on a lit row
         text: row.value
     }
     Item {

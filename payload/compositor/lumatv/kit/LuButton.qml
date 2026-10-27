@@ -22,7 +22,7 @@ Item {
     implicitHeight: Lu.target
     width: implicitWidth
     height: implicitHeight
-    opacity: enabled ? 1 : Lu.disabledOpacity
+    opacity: enabled || (parent && !parent.enabled) ? 1 : Lu.disabledOpacity   // a disabled row already dims what it holds
     z: focused ? 1 : 0
 
     FocusLift {

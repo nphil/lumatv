@@ -161,7 +161,7 @@ Item {
     }
     function clock(ms) { return ms ? Qt.formatTime(new Date(ms), "h:mm") : "" }
     function outcomeName(o) { return o === "ok" ? "Allowed" : o === "denied" ? "Denied" : o === "expired" ? "Expired" : o === "never" ? "Blocked" : o === "paused" ? "Paused" : o }
-    function outcomeColor(o) { return o === "ok" ? Lu.positive : o === "denied" || o === "never" ? Lu.danger : o === "expired" || o === "paused" ? Lu.warning : Lu.ink2 }
+    function outcomeColor(o) { return o === "ok" ? Lu.positiveInk : o === "denied" || o === "never" ? Lu.dangerInk : o === "expired" || o === "paused" ? Lu.warningInk : Lu.ink2 }
     // an assistant's state line: paused, else when it was last heard from (the request itself is in the activity list)
     function lastFor(a) {
         if (a.paused) return "Paused"
@@ -224,7 +224,7 @@ Item {
             id: colL
             y: rowListener.height + rowLimit.height + Lu.space(3)
             width: Math.round(parent.width * 0.46)
-            LuText { role: "caption"; color: Lu.ink3; text: "Paired assistants" }
+            LuText { role: "caption"; color: Lu.ink2; text: "Paired assistants" }
             Repeater {
                 id: assistRepeater
                 model: page.assistants
@@ -258,13 +258,13 @@ Item {
                 onHelpAsked: { page.pointAt("pair", 0); page.openHelp() }
             }
             Item { width: 1; height: Lu.space(2) }
-            LuText { visible: page.audit.length > 0; role: "caption"; color: Lu.ink3; text: "Recent activity" }
+            LuText { visible: page.audit.length > 0; role: "caption"; color: Lu.ink2; text: "Recent activity" }
             Repeater {
                 model: page.audit
                 delegate: Item {
                     width: colL.width
                     height: Math.round(Lu.row * 0.5)
-                    LuText { x: Lu.space(2); anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink3; text: page.clock(modelData.at) }
+                    LuText { x: Lu.space(2); anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink2; text: page.clock(modelData.at) }
                     LuText {
                         x: Lu.space(2) + 76; width: parent.width - x - 120; anchors.verticalCenter: parent.verticalCenter
                         role: "caption"; elide: Text.ElideRight
@@ -282,7 +282,7 @@ Item {
             y: colL.y
             width: parent.width - x
             visible: page.nAssist > 0
-            LuText { role: "caption"; color: Lu.ink3; text: "What assistants may do" }
+            LuText { role: "caption"; color: Lu.ink2; text: "What assistants may do" }
             LuSegmented {
                 id: chooser
                 visible: page.nAssist > 1
@@ -316,7 +316,7 @@ Item {
 
         LuRow {
             id: rowLock
-            y: parent.height - height
+            y: Math.max(parent.height - height, colL.y + colL.height + Lu.space(2))   // at the bottom, or below the activity when large text pushes it down
             width: colL.width
             icon: "ban"
             label: "Lock out all AI"

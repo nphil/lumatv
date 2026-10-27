@@ -40,17 +40,21 @@ Item {
     readonly property bool moreLeft: scrolls && first > 0
     readonly property bool moreRight: scrolls && first + inView < options.length
 
+    // The plate under the chosen or focused label. A light wash on the dark glass lifts the background toward the white
+    // label (3.5:1 over a bright wallpaper, 4.5 needed), so on dark it is a shade instead, and on light a tint, away from the label either way.
+    function plate(kind) { return Lu.isLight ? Qt.rgba(1, 1, 1, kind === "focus" ? 0.34 : 0.2) : Qt.rgba(0, 0, 0, kind === "focus" ? 0.28 : 0.16) }
+
     implicitWidth: scrolls ? fit : need
     implicitHeight: Lu.target
     width: implicitWidth
     height: implicitHeight
-    opacity: enabled ? 1 : Lu.disabledOpacity
+    opacity: enabled || (parent && !parent.enabled) ? 1 : Lu.disabledOpacity   // a disabled row already dims what it holds
 
     Rectangle {
         visible: seg.tray
         anchors.fill: parent
         radius: Lu.radius("control")
-        color: Lu.trackOff
+        color: Lu.isLight ? Lu.trackOff : Qt.rgba(0, 0, 0, 0.22)
         antialiasing: true
     }
     LuHalo {
@@ -80,7 +84,7 @@ Item {
                     anchors.fill: parent
                     anchors.margins: Lu.space(1)
                     radius: Lu.radius("control") - Lu.space(1)
-                    color: index === seg.focusedIndex ? Lu.wash("focus") : index === seg.current ? Lu.wash("selected") : "transparent"
+                    color: index === seg.focusedIndex ? seg.plate("focus") : index === seg.current ? seg.plate("selected") : "transparent"
                     border.width: index === seg.focusedIndex ? 1 : 0
                     border.color: Lu.edgeRaised
                     antialiasing: true
