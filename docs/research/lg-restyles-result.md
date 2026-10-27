@@ -244,6 +244,8 @@ Evidence: `docs/research/lg-restyles/tv/banners-again/` (`log.txt`, bursts with 
 2. Step 3 as written: launch `com.webos.app.hdmi2`, burst `pill`. PASS: a frame with the dark glass pill, about 44 px high and 32 px from the left edge in the capture, Manrope, no grey bar, whatever the pid (a restored 7890 is now expected to pass); write down the seconds from the launch to the first and last such frame. Record the pid and whether the command line has `"snapshot":true`. Then `kb OK` on the first pill frame, `shot ok-0`, `ok-1`, `kb RIGHT`, `shot ok-right` (the key reaches the Apple TV over CEC: black captures are the expected result, INFO), `kb BACK`. The INFO card: `kb 358` only with the Apple TV's app out of the way (round 17 sent it to Netflix).
 3. Steps 4 to 6 as written.
 
+**Round 18 (2026-10-27): steps 1-6 of "Next TV check" not run**, the owner was using the TV. Nothing was launched or pressed.
+
 ## On the TV (2026-10-25 19:43-19:48)
 
 Set on Home, LG's compositor, receiver muted through Home Assistant, `filmMaker`; code `4ee268a`, the ipk of that commit installed

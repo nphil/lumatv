@@ -279,3 +279,11 @@ Still open after that: `gfn120` (a GFN session started by hand: both HFR switche
 `plex25after24` picked two 23.976 items in round 11, and the Plex library API (`http://192.168.1.69:32400`) answers 401 without a
 token. With a token from Nitin, `/library/sections/<id>/all?type=4` lists each episode's `Media videoFrameRate` (`PAL` is 25 fps)
 and the run gets that item's key path; without one, a title he knows to be 25 fps (a UK or Australian series).
+
+## Home refresh rate read, 2026-10-27 14:55 UTC (read only)
+
+The helper's log has four lines `frame rate: the output measures 95.9 Hz on Home, neither 100 nor 120; left as it is` (2026-10-27 03:42:07, 03:43:58, 03:44:52 and 03:48:20 UTC), all after the helper restarted at 03:28:28; they fall inside round 17's frame gate (about 03:38-03:45, "Round 17" in `shell-host-result.md`) and the input-banner check (03:45-03:49). 95.9 Hz is 48 `osd_irq` interrupts in the helper's 0.5 s window each time. No other `frame rate` line is in the log.
+
+The same read now, with Home in front (Netflix closed a minute before): `osd_irq` in `/proc/interrupts` over 2.0 s, three times, 241, 241 and 240 interrupts = 119.9, 119.9 and 120.0 Hz. `/proc/lgtv-driver/scaler/main.p0` says `connect_src=NONE`; `/proc/lg/ovi/status` `panelFramerate 3 (144)`, `dispFramerate 3`; `picture.pictureMode` is `filmMaker`. `/proc/lg/de/fr_rate` is write-only (it prints its usage text); nothing was written.
+
+So Home is at 120 Hz now and nothing left it off 120 in this read: an app (Netflix browse), the picture mode and the helper's own check do not. Not read: the VRR / Game Optimizer settings, and the rate during a gate run (the gate and the TV check were stopped at the owner's request before they started). Round 17's windows with 144-157 vblanks against 180-198 match a rate about 20 % lower than 120 Hz [INFERENCE: the same cause as the 95.9 Hz reads; not isolated]. To isolate: sample `osd_irq` every 0.2 s on the set through a gate run and line the counts up with the surfaces.

@@ -400,6 +400,10 @@ LG's compositor, Home in front, receiver muted, `--input-key 241 --tag r17` (`/t
 
 The late frame per opening over Home is gone for the quick panel (0 intervals over 20 ms in all six windows, worst 16.7 ms). The picker over Home and the quick panel over Netflix show a 20.8-20.9 ms interval on every animated frame of the burst (picker 41, quick-netflix 43 intervals over 20 ms): a uniform cadence, not a stall; the vblank count of those windows is 144-157 against 180-198 in the windows that ran at 16.7 ms [INFERENCE: the panel refreshed at a lower rate during them, not read from the display]. Render cost is low everywhere (p90 under 2.2 ms); `burst_app_jobs` 0 and no log errors. The two RSS failures are the quick panel's pages 64558 to 65007 and 66960 to 67361.
 
+### Round 18 (2026-10-27): not run
+
+Not run: the owner was using the TV. The next run is `python3 docs/research/perf/gate.py --surfaces quick,picker,quick-netflix,picker-netflix --input-key 241 --tag r18 --json /tmp/r18.json` on the ipk of `fa15cbf`, with `osd_irq` sampled every 0.2 s on the set beside it (round 17's 20.9 ms cadence against the Home rate, "Home refresh rate read" in `framerate-result.md`: 119.9 Hz on Home at rest).
+
 ## Under LumaTV's own compositor
 
 The key filter, the overlay and the container patch run only inside LG's compositor. At the cutover LG's key filters go away (`compositor-c2-result.md`, "Surfaces under LumaTV's compositor") and the QML shell with them; the rules here then belong to the compositor's evdev key routing and the Rust UI: a gear that is LG's on a tap and ours at 650 ms (the three-tap AV reset stays three taps), the app keys with their owner's choice and LG's own where installed, the number keys on Home, and a layer over an app that takes keys only while it has a surface that wants them. `tests/keyfilter.test.js` and `tests/bus.test.js` are written as that rule set.

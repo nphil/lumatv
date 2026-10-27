@@ -20,6 +20,8 @@ Next: deploy the package (the one on the set, 3c8857a, is older than the fixes a
 
 Look-only walk (2026-10-26 20:48): not run. The slot was stopped at the owner's request before it started; Fine Tune, White Balance, HDMI Signalling, the Support tabs, Safety, Privacy and Just Scan with an HDMI input in front are still not looked at, and no page has image paths yet.
 
+Look-only walk (2026-10-27): not run, the owner was using the TV; no page looked at and no image paths yet.
+
 ## Sources
 
 - LG's Settings bundle `research/lgsettings/main.js`, read with a JavaScript parser: the router table `rV` and the per-category panel maps give the menu tree, each panel's components give the items, the `BH(...)`/`RH(...)` reads and `changeSetting` writes give the keys, and its `qH` tables give the value names.
