@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Overlays</title>
+<link rel="stylesheet" href="../lucent.css">
+<style>
+  /* One overlay system over any app (docs/research/overlays-result.md; the surface is payload/compositor/lumatv/panels/Overlays.qml and its
+     cards OverlayCard.qml). A column of glass cards in the top right corner: inside the 5 % safe area (96 from the right edge), below the status
+     bar's row (134 from the top), 560 wide as the camera pop-up and the toasts are, never lower than 75 % of the height (810) so that the film's
+     subtitles and the volume bar keep the bottom quarter. At most two cards at once, the most important class first, the camera pop-up (the
+     doorbell's card) on top where it is up.
+     ?v=stack (default) a doorbell with the camera's picture over a finished timer: the most two cards ever show together.
+     ?v=doorbell a ring with no camera behind it (the plugin's notification alone).  ?v=timer a timer finished.  ?v=alarm an alarm ringing.
+     ?v=alert a Home Assistant alert.  ?v=score a live score.  ?v=zones the same column with the zones it keeps to drawn on.
+     ?theme=light for the light material; ?text=200 doubles the type (Lucent: no overlapping text at 100 % and 200 %). A card that would end
+     below 810 does not show at all (it waits): the page applies the rule the surface applies, so ?text=200 on the stack shows one card.
+     OK acts (a button of the card, else it opens the notification drawer), Back dismisses, every other key stays the app's. */
+  :root { --ts: 1; --tone-accent: var(--lu-accent); --warn-ink: #FFD483; --danger-ink: #FF8BB6; }      /* Lu.warningInk and Lu.dangerInk of the dark material */
+  [data-theme="light"] { --tone-accent: #5A4C6A; --warn-ink: #614116; --danger-ink: #381F26; }  /* and of the light one: the status colours pushed to read on the glass */
+  [data-text="200"] { --ts: 2; }
+  .frame { background-image: url("../img/still.jpg"); }
+  /* the film's own subtitles, where Netflix puts them: they end about 70 px above the bottom edge and fill the 105 px above that */
+  .subs { position: absolute; left: 0; right: 0; bottom: 70px; text-align: center; font-size: 40px; font-weight: 600; line-height: 1.3; color: #fff; text-shadow: 0 0 3px #000, 0 2px 8px #000; }
+  .st { display: none; }
+  html:not([data-v]) .st.multi, [data-v="stack"] .st.multi, [data-v="doorbell"] .st.doorbell, [data-v="timer"] .st.timer, [data-v="alarm"] .st.alarm,
+  [data-v="alert"] .st.alert, [data-v="score"] .st.score, [data-v="zones"] .st.multi { display: block; }
+
+  .stack { position: absolute; right: 96px; top: 134px; width: 560px; display: flex; flex-direction: column; gap: 16px; }
+  .ov { position: relative; padding: 20px; border-radius: var(--lu-radius-card); }
+  .ov .ov-row { display: flex; align-items: flex-start; gap: 16px; }
+  .ov .ov-lead { width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center; flex: none; background: var(--selected-wash); border: 1px solid var(--lu-edge); }
+  .ov .ov-lead .ic { width: 32px; height: 32px; }
+  .tone-accent { color: var(--tone-accent); }
+  .tone-warning { color: var(--warn-ink); }
+  .tone-danger { color: var(--danger-ink); }
+  .ov .ov-who { flex: 1 1 auto; min-width: 0; }
+  .ov .ov-t { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .ov .ov-d { margin-top: 4px; font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .ov .ov-foot { display: flex; align-items: baseline; gap: 16px; margin-top: 12px; font-size: calc(24px * var(--ts)); line-height: 1.3; color: var(--lu-ink-2); }
+  .ov .ov-foot .ov-src { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ov .ov-foot .ov-hint { display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 20px; margin-left: auto; }
+  .ov .ov-k { white-space: nowrap; }
+  /* at 200 % the source takes a line and the keys the line under it, never the card's edge */
+  [data-text="200"] .ov .ov-foot { flex-wrap: wrap; row-gap: 4px; }
+  [data-text="200"] .ov .ov-foot .ov-src, [data-text="200"] .ov .ov-foot .ov-hint { flex-basis: 100%; margin-left: 0; justify-content: flex-start; }
+
+  /* the score: the tile, then the competition and the clock, then one line a team with the score at the end */
+  .ov.score .ov-meta { display: flex; align-items: flex-start; gap: 12px; font-size: calc(26px * var(--ts)); line-height: 1.3; color: var(--lu-ink-2); }
+  .ov.score .ov-meta .ov-what { flex: 1 1 auto; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .ov.score .ov-meta .ov-live { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+  .ov.score .ov-meta .ov-live i { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); }
+  .ov.score .ov-teams { margin-top: 8px; }
+  .ov.score .ov-team { display: flex; align-items: baseline; gap: 16px; }
+  .ov.score .ov-team .ov-n { flex: 1 1 auto; min-width: 0; font-size: calc(28px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ov.score .ov-team.ahead .ov-n { color: var(--lu-ink); font-weight: 600; }
+  .ov.score .ov-team .ov-s { font-size: calc(40px * var(--ts)); font-weight: 600; line-height: 1.25; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+
+  /* the camera pop-up, as panels/Cameras.qml draws it (docs/mocks/cameras): the doorbell's card */
+  .cam .head { display: flex; align-items: flex-start; gap: 16px; }
+  .cam .head .ic { width: 36px; height: 36px; margin-top: 2px; flex: none; }
+  .cam .ov-who { flex: 1 1 auto; min-width: 0; }
+  .cam .name { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cam .ov-what { font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.25; color: var(--lu-ink-2); margin-top: 4px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .cam .preview { margin-top: 12px; width: 520px; height: 292px; border-radius: var(--lu-radius-tile); background: #000 center / cover no-repeat; }
+  .cam .ov-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: calc(24px * var(--ts)); line-height: 1.3; color: var(--lu-ink-2); }
+  .cam .ov-foot .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); flex: none; }
+  .cam .ov-foot .ov-hint { margin-left: auto; }
+  [data-text="200"] .cam .ov-foot { flex-wrap: wrap; row-gap: 4px; }
+  [data-text="200"] .cam .ov-foot .ov-hint { margin-left: 0; flex-basis: 100%; }
+
+  /* the zones (?v=zones): what the column keeps to */
+  .zone { display: none; position: absolute; pointer-events: none; }
+  [data-v="zones"] .zone { display: block; }
+  .zone.safe { left: 96px; right: 96px; top: 54px; bottom: 54px; border: 2px dashed rgba(255,255,255,.35); border-radius: 8px; }
+  .zone.bottom { left: 0; right: 0; top: 810px; bottom: 0; background: repeating-linear-gradient(135deg, rgba(235,111,146,.26) 0 14px, rgba(235,111,146,.10) 14px 28px); border-top: 3px solid var(--lu-danger); }
+  .zone.bottom span { position: absolute; left: 96px; top: 12px; padding: 4px 16px; border-radius: 12px; background: rgba(0,0,0,.72); color: #fff; font-size: 24px; font-weight: 600; }
+  .zone.col { left: 1264px; width: 560px; top: 134px; height: 676px; border: 3px dashed var(--lu-accent); border-radius: 28px; }
+  .zone.col span { position: absolute; right: 16px; bottom: 8px; padding: 2px 12px; border-radius: 10px; background: rgba(0,0,0,.72); color: #fff; font-size: 22px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+<div class="subs">You said the door was locked.<br>Then who let them in?</div>
+<div class="zone safe"></div>
+<div class="zone bottom"><span>Bottom quarter: subtitles and the volume bar, no overlay</span></div>
+<div class="zone col"><span>134 to 810</span></div>
+
+<!-- the most two cards ever show together: a doorbell with the camera's picture (the camera pop-up, on top), a timer that finished under it -->
+<div class="st multi">
+  <div class="stack">
+    <div class="overlay ov cam" role="status" aria-live="polite" data-card>
+      <div class="head">
+        <i class="ic tone-accent" data-ic="bell-ring"></i>
+        <div class="ov-who"><div class="name">Front door</div><div class="ov-what">Doorbell rang &nbsp;·&nbsp; Just now</div></div>
+      </div>
+      <div class="preview" style="background-image:url('../img/wall.jpg')"></div>
+      <div class="ov-foot"><i class="dot"></i><span>Live</span><span class="ov-hint"><span class="ov-k">OK expands</span><span class="ov-k">Back dismisses</span></span></div>
+    </div>
+    <div class="overlay ov" role="status" aria-live="polite" data-card>
+      <div class="ov-row"><i class="ov-lead tone-accent"><i class="ic" data-ic="timer"></i></i>
+        <div class="ov-who"><div class="ov-t">Pasta</div><div class="ov-d">Time&#8217;s up</div></div></div>
+      <div class="ov-foot"><span class="ov-src">Kitchen Show</span><span class="ov-hint"><span class="ov-k">OK Stop</span><span class="ov-k">Back Dismiss</span></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- a ring with no camera: the doorbell plugin's notification alone -->
+<div class="st doorbell">
+  <div class="stack">
+    <div class="overlay ov" role="status" aria-live="polite" data-card>
+      <div class="ov-row"><i class="ov-lead tone-accent"><i class="ic" data-ic="bell-ring"></i></i>
+        <div class="ov-who"><div class="ov-t">Front doorbell</div><div class="ov-d">Doorbell rang</div></div></div>
+      <div class="ov-foot"><span class="ov-src">Home Assistant</span><span class="ov-hint"><span class="ov-k">OK Clear</span><span class="ov-k">Back Dismiss</span></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="st timer">
+  <div class="stack">
+    <div class="overlay ov" role="status" aria-live="polite" data-card>
+      <div class="ov-row"><i class="ov-lead tone-accent"><i class="ic" data-ic="timer"></i></i>
+        <div class="ov-who"><div class="ov-t">Pasta</div><div class="ov-d">Time&#8217;s up</div></div></div>
+      <div class="ov-foot"><span class="ov-src">Kitchen Show</span><span class="ov-hint"><span class="ov-k">OK Stop</span><span class="ov-k">Back Dismiss</span></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="st alarm">
+  <div class="stack">
+    <div class="overlay ov" role="status" aria-live="polite" data-card>
+      <div class="ov-row"><i class="ov-lead tone-warning"><i class="ic" data-ic="alarm-clock"></i></i>
+        <div class="ov-who"><div class="ov-t">Weekday</div><div class="ov-d">Alarm 7:00</div></div></div>
+      <div class="ov-foot"><span class="ov-src">Bedroom Show</span><span class="ov-hint"><span class="ov-k">OK Open</span><span class="ov-k">Back Dismiss</span></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="st alert">
+  <div class="stack">
+    <div class="overlay ov" role="status" aria-live="polite" data-card>
+      <div class="ov-row"><i class="ov-lead tone-warning"><i class="ic" data-ic="triangle-alert"></i></i>
+        <div class="ov-who"><div class="ov-t">Low battery</div><div class="ov-d">Back door sensor is at 5 %</div></div></div>
+      <div class="ov-foot"><span class="ov-src">Home Assistant</span><span class="ov-hint"><span class="ov-k">OK Open</span><span class="ov-k">Back Dismiss</span></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="st score">
+  <div class="stack">
+    <div class="overlay ov score" role="status" aria-live="polite" data-card>
+      <div class="ov-row"><i class="ov-lead tone-accent"><i class="ic" data-ic="trophy"></i></i>
+        <div class="ov-who">
+          <div class="ov-meta"><span class="ov-what">NBA &nbsp;·&nbsp; Q4 2:31</span><span class="ov-live"><i></i>Live</span></div>
+          <div class="ov-teams">
+            <div class="ov-team ahead"><span class="ov-n">Lakers</span><span class="ov-s">102</span></div>
+            <div class="ov-team"><span class="ov-n">Celtics</span><span class="ov-s">99</span></div>
+          </div>
+        </div></div>
+      <div class="ov-foot"><span class="ov-src"></span><span class="ov-hint"><span class="ov-k">OK Open</span><span class="ov-k">Back Dismiss</span></span></div>
+    </div>
+  </div>
+</div>
+
+<script src="../icons.js"></script>
+<script src="../mock.js"></script>
+<script>
+  (function () {
+    const q = new URLSearchParams(location.search);
+    if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+    // the rules the surface applies: the camera's picture gives up height until its card ends above 75 % of the height (810); then a card that would
+    // end below 810 is not shown (it waits in the queue). The first card always shows.
+    addEventListener('load', () => {
+      document.fonts.ready.then(() => {
+        document.querySelectorAll('.st').forEach(st => {
+          if (getComputedStyle(st).display === 'none') return;
+          const cards = [...st.querySelectorAll('[data-card]')];
+          const cam = st.querySelector('.cam .preview');
+          if (cam) {
+            const over = cards[0].getBoundingClientRect().bottom - 810;
+            if (over > 0) cam.style.height = (292 - Math.ceil(over / 2) * 2) + 'px';
+          }
+          cards.forEach((c, i) => { if (i > 0 && c.getBoundingClientRect().bottom > 810) { c.style.display = 'none'; c.dataset.waits = '1'; } });
+        });
+      });
+    });
+  })();
+</script>
+</body>
+</html>
