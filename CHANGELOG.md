@@ -373,6 +373,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to -1, which skips the call). `wl_webos_seat.info` names each seat by its input device as LG
   does, `wl_output` sends no `scale` (LG never does), and the gate launches YouTube and PlxNative
   (`gate.sh apps`: foreground within 5 s, alive at 10 s, closed cleanly).
+- Shell at 120 Hz: the quick panel, input picker and the dock's row scroll step once per rendered
+  frame (`kit/FrameMotion`). The basic render loop has no animation driver, so every QML
+  animation stepped on Qt's 16 ms timer and slides ran at 60 steps a second at 120 Hz.
+- Transitions: a late frame is a gap over 20 ms between two moving frames (a veil waiting for
+  its video no longer counts), a veil whose card never gets a hole ends at its 1.5 s cap, layers
+  below a video hole are no longer composited, buffer frees wait while a card moves, and each
+  late frame is journaled with the loop's timings (`ctl transitions` `lateLog`).
+- Video wallpaper: videooutputd's answers to the placement calls are journaled, and
+  `tools/vplane_wall.py probe` reads a capture as ok, colour, black or mismatch.
+- Frame gate: surfaces for Settings, the Apps library, Home's rows, the app switcher, smooth
+  transitions and both keyboards; `tv_gate.py` runs them all by default and the quick set with
+  `--frames-quick`. Gate runs no longer write an explicit wallpaper-motion false back as true.
 - Compositor: the shell may call the Homebrew Channel's `getConfiguration` and `setConfiguration`
   (and nothing else of that service, which also runs commands as root), so Settings > System >
   Support > Update can read and change "Block LG system updates" instead of showing "Homebrew
