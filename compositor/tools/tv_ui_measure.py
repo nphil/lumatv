@@ -2,7 +2,7 @@
 """The UI engine's frame cost under LumaTV's compositor, measured on the set in one maintenance window (about 5 min with the
 build and deploy, exclusive use of the set, from the repository root):
 
-    python3 compositor/tools/tv_ui_measure.py [--no-deploy] [--no-standby] [--gate]
+    python3 compositor/tools/tv_ui_measure.py [--no-deploy] [--no-standby] [--force-wake] [--gate]
 
 1. Preflight: the set answers and is woken (tv_gate.wake), nothing of ours runs, LG's compositor is live.
 2. Build the bundle with the engine host (LUMATV_FEATURES=ui) and deploy it; the set's /tmp/lumatv/FEATURES must say `ui`.
@@ -118,6 +118,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-deploy", action="store_true", help="the set already has a bundle built with LUMATV_FEATURES=ui")
     ap.add_argument("--no-standby", action="store_true", help="leave the set on at the end")
+    ap.add_argument("--force-wake", action="store_true", help="wake the set without waiting for LG's panel refresh (refresh_guard.py)")
     ap.add_argument("--gate", action="store_true", help="perf/gate.py under LumaTV's compositor (not runnable yet; reports why)")
     ap.add_argument("--report", metavar="DIR", help="only the figures of a fetched run")
     a = ap.parse_args()
@@ -139,6 +140,7 @@ def main():
         summary.append(line)
 
     # 1. Preflight.
+    tv_gate.FORCE_WAKE = a.force_wake
     if not tv_gate.wake():
         sys.exit("the set does not answer; nothing was changed")
     pre = tv.tv("pgrep -fl 'bin/lumatv-[c]ompositor|bin/lumatv-[s]m|bin/x2[c]li' || echo none; systemctl is-active surface-manager-daemon")

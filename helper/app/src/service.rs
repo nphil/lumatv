@@ -19,6 +19,7 @@ use crate::http::{self, Server};
 use crate::hub::Hub;
 use crate::preload;
 use crate::receiver;
+use crate::refreshguard;
 use crate::screen;
 use crate::settings::{SettingsStore, wake_on_change};
 use crate::timeutil::now_ms;
@@ -92,13 +93,19 @@ impl Service {
         let (receiver_tx, receiver_rx) = mpsc::channel();
         let (feeds_tx, feeds_rx) = mpsc::channel();
         let (framerate_tx, framerate_rx) = mpsc::channel();
+        let (panel_tx, panel_rx) = refreshguard::channel();
+        let guard = refreshguard::RefreshGuard::new(
+            &ctx,
+            Arc::new(refreshguard::LunaSource::new(&config.luna.send)),
+        );
 
         // Stopping wakes everything that blocks: the runners on their channels, long polls on the hub.
         {
-            let (r, f, fr, hub, a) = (
+            let (r, f, fr, p, hub, a) = (
                 receiver_tx.clone(),
                 feeds_tx.clone(),
                 framerate_tx.clone(),
+                panel_tx.clone(),
                 hub.clone(),
                 ambient.clone(),
             );
@@ -106,6 +113,7 @@ impl Service {
                 let _ = r.send(receiver::Cmd::Stop);
                 let _ = f.send(homefeeds::Cmd::Stop);
                 let _ = fr.send(framerate::Cmd::Stop);
+                let _ = p.send(refreshguard::Cmd::Stop);
                 hub.close();
                 a.wake();
             });
@@ -128,16 +136,18 @@ impl Service {
 
         // The screen watcher tells both runners, ambient light and the frame-rate watcher when the panel goes on or off.
         let notify: Arc<dyn Fn() + Send + Sync> = {
-            let (r, f, fr, a) = (
+            let (r, f, fr, p, a) = (
                 receiver_tx.clone(),
                 feeds_tx.clone(),
                 framerate_tx.clone(),
+                panel_tx.clone(),
                 ambient.clone(),
             );
             Arc::new(move || {
                 let _ = r.send(receiver::Cmd::Wake);
                 let _ = f.send(homefeeds::Cmd::Wake);
                 let _ = fr.send(framerate::Cmd::Wake);
+                let _ = p.send(refreshguard::Cmd::Wake);
                 a.wake();
             })
         };
@@ -171,7 +181,7 @@ impl Service {
 
         // AI access: loads its state (off and unpaired when there is none) and binds nothing; the LAN listener exists only while
         // the TV's owner has turned it on with the remote.
-        let ai_deps = ai_deps.unwrap_or_else(|| real_ai_deps(&config, &settings));
+        let ai_deps = ai_deps.unwrap_or_else(|| real_ai_deps(&config, &settings, &guard));
         let nudge: Arc<dyn Fn() + Send + Sync> = {
             let tx = receiver_tx.clone();
             Arc::new(move || {
@@ -192,6 +202,10 @@ impl Service {
         ));
         threads.push(("preload", preload::spawn(&ctx)?));
         threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
+        threads.push((
+            "refreshguard",
+            refreshguard::spawn(ctx.stop.clone(), guard.clone(), panel_rx)?,
+        ));
         // The Bluetooth proxy: nothing but one idle thread until the owner has linked it (`ble-link`).
         threads.push((
             "ble",
@@ -310,8 +324,12 @@ impl Service {
 }
 
 /// The real things the AI module acts through: the TV's input devices (to see the remote), `luna-send` (to read and drive the
-/// TV), the input device that carries network keys (for the playback keys) and the Denon receiver.
-fn real_ai_deps(config: &Config, settings: &Arc<SettingsStore>) -> crate::ai::Deps {
+/// TV), the input device that carries network keys (for the playback keys) and the Denon receiver. The TV's wakes go through `guard`.
+fn real_ai_deps(
+    config: &Config,
+    settings: &Arc<SettingsStore>,
+    guard: &Arc<refreshguard::RefreshGuard>,
+) -> crate::ai::Deps {
     use crate::ai::keys::{EvdevInjector, EvdevKeys};
     use crate::ai::luna::{LunaTv, MediaKeyCodes, RealTv};
     use crate::ai::receiver_ctl::DenonControl;
@@ -334,7 +352,11 @@ fn real_ai_deps(config: &Config, settings: &Arc<SettingsStore>) -> crate::ai::De
     };
     crate::ai::Deps {
         keys: Arc::new(EvdevKeys::with_dirs(&ai.sys_input_dir, &ai.input_dir)),
-        tv: Arc::new(RealTv::new(luna, injector, codes)),
+        // The calls that wake a TV in standby wait out LG's panel refresh (`refreshguard`).
+        tv: Arc::new(refreshguard::GuardedTv::new(
+            Arc::new(RealTv::new(luna, injector, codes)),
+            guard.clone(),
+        )),
         receiver: Arc::new(DenonControl::new(settings.clone(), config.receiver.clone())),
     }
 }

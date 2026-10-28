@@ -5,7 +5,7 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120] [--force-wake]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
@@ -20,6 +20,10 @@ before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh lin
 temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
 `gate.sh refresh 60` (and once more in the clean-up, whatever happened). `--only frames --refresh 120` is the whole 120 Hz check.
 
+The standby check wakes the set 25 s after it went to standby, which cuts LG's panel refresh (about 10 minutes of compensation LG runs at
+standby once the panel is 4 hours past the last one) short. When one is due the wake waits until 15 minutes of standby have passed, saying why
+(refresh_guard.py), and the first session's timer is 15 minutes longer to cover it; --force-wake wakes at once.
+
 Every session carries the set's own safety timer (cutover.sh enable --session --max-minutes): if this driver or the
 workstation dies in the middle of the gate, the set ends the session by itself and LG's compositor and Home come back.
 
@@ -30,7 +34,9 @@ than the list holds is what makes that build one LumaTV may start on at boot."""
 import argparse, os, re, socket, subprocess, sys, time, json, urllib.request
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(here, '..', '..', 'docs', 'research', 'arch'))
+sys.path.insert(0, here)
 import tv, paramiko
+import refresh_guard
 
 TV_MAC = "74:c1:7e:bd:ae:30"
 HA = "http://192.168.1.146"
@@ -46,6 +52,11 @@ LUMATV_TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tool
 # ending check 33-35 s; each gets at least three times that, so that a healthy run never meets its own timer, which would end
 # it under the checks.
 FIRST_SESSION_MINUTES = 14
+# The standby check wakes the set after 25 s, which cuts LG's panel refresh short when one is due; wake() then waits until 15 minutes of standby
+# have passed (refresh_guard.py), and the first session's timer must outlast that wait.
+WAKE_GUARD_MINUTES = 15
+# --force-wake (set by the drivers' argument parsers): wake() does not wait for LG's panel refresh.
+FORCE_WAKE = False
 LATER_SESSION_MINUTES = 6
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
 CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
@@ -184,10 +195,13 @@ def power_state():
             return l.split(":", 1)[1].strip().strip('",').lower()
     return out.strip()[:80]
 
-def wake():
+def wake(standby_since=None):
     """Active Standby keeps SSH up, so the set is woken the way the X4 session did (powerOn, then the screen);
-    a set that has gone on to suspend gets the magic packet first."""
+    a set that has gone on to suspend gets the magic packet first. A set in standby is first left alone while LG's panel
+    refresh may be running (refresh_guard.py: up to 15 minutes of standby; FORCE_WAKE skips it). `standby_since` is when the
+    caller put the set in standby (time.time()), where it did."""
     if not wait_ssh(10):
+        print("refresh guard: no SSH, so LG's panel refresh state cannot be read; waking")
         wol(); time.sleep(5); wol()
         if not wait_ssh(90):
             return False
@@ -195,6 +209,8 @@ def wake():
     print("power state:", st)
     if st == "active":
         return True
+    if st not in refresh_guard.LIT:
+        refresh_guard.wait_out_refresh(pty, standby_since=standby_since, force=FORCE_WAKE)
     pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/powerOn '{\"reason\":\"remoteKey\"}'", 20)
     time.sleep(20)
     pty("luna-send -n 1 -f luna://com.webos.service.tvpower/power/turnOnScreen '{}'", 20)
@@ -274,7 +290,11 @@ def main():
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     ap.add_argument("--refresh", type=int, choices=[60, 120], default=60,
                     help="the refresh the surface frame gate runs at: 120 switches the compositor's refresh test mode on for it (gate.sh refresh 120) and off after")
+    ap.add_argument("--force-wake", action="store_true",
+                    help="wake the set without waiting for LG's panel refresh (a run due at standby is left alone until 15 minutes of standby have passed: refresh_guard.py)")
     a = ap.parse_args()
+    global FORCE_WAKE
+    FORCE_WAKE = a.force_wake
     skip = set(a.skip.split(",")) - {""}
     skipped = set(skip)       # as asked, before --only leaves out what it did not name
     only = set(a.only.split(",")) - {""}
@@ -305,6 +325,8 @@ def main():
     # The loaded run is opt-in: `--frames-load` adds it (whatever --only names, unless --skip names it), `--only frames-load` is it alone.
     run_load = "frames-load" in only or (a.frames_load and "frames-load" not in skipped)
     first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
+    if "standby" not in skip and not a.force_wake:
+        first_minutes += WAKE_GUARD_MINUTES
     # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's timer must cover the frame gate too
     # (the full gate of 2026-10-27 lost its session to the 12 minute timer before standby), the loaded run's as well.
     frames_minutes = FRAMES_QUICK_SESSION_MINUTES if a.frames_quick else FRAMES_SESSION_MINUTES
@@ -387,8 +409,9 @@ def main():
             step("wake", "sh /tmp/lumatv/gate.sh wake loaded", 60)
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
+            standby_at = time.time()
             time.sleep(25)
-            if not wake():
+            if not wake(standby_since=standby_at):
                 lines.append("GATE standby: FAIL no SSH after the wake")
                 raise SystemExit("the set did not come back; LumaTV's compositor may still be enabled on it")
             step("woke", "sh /tmp/lumatv/gate.sh woke", 180)

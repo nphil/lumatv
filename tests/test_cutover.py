@@ -1199,6 +1199,11 @@ class GateDriver(unittest.TestCase):
         return self.gate.FIRST_SESSION_MINUTES
 
     @property
+    def standby_wait(self):
+        """The minutes the first session is longer by when the standby check runs: the wake that follows it waits for LG's panel refresh."""
+        return self.gate.WAKE_GUARD_MINUTES
+
+    @property
     def full(self):
         """The minutes the frame gate's session is armed for (the whole set of surfaces)."""
         return self.gate.FRAMES_SESSION_MINUTES
@@ -1282,7 +1287,7 @@ class GateDriver(unittest.TestCase):
                 return "GATE %s: PASS fine\n" % name
             return ""
         g.pty = pty
-        g.wake = lambda: True
+        g.wake = lambda standby_since=None: True
         g.avr_mute = lambda on: None
         g.volume_check = lambda: "GATE volume: PASS fine"
         g.frames_calls = []
@@ -1328,13 +1333,20 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
-            self.session(self.first + self.full), "live", "x1 60", "netflix", "hdmi", "apps", "keys", "ime", "shell", "evidence",
+            self.session(self.first + self.standby_wait + self.full), "live", "x1 60", "netflix", "hdmi", "apps", "keys", "ime", "shell", "evidence",
             self.session(self.full), "live frames", "wake reset", "wake frames", "mem", "callbacks", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
             "escape",
             "cutover disable"])
+
+    def test_force_wake_leaves_the_standby_waits_minutes_out_and_reaches_the_wake(self):
+        calls, code, _ = self.run_main(argv=["--force-wake", "--skip", "frames,homekey,wd-hang,wd-crash,escape"])
+        enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
+        self.assertEqual(enables, ["enable --session --max-minutes %d" % self.first])
+        self.assertTrue(self.gate.FORCE_WAKE)
+        self.gate.FORCE_WAKE = False
 
     def test_skips_leave_out_their_checks_and_their_sessions(self):
         calls, code, _ = self.run_main(argv=["--skip", "firmware,homeheld,netflix,hdmi,apps,keys,ime,shell,frames,standby,homekey,wd-hang,wd-crash"])
@@ -1503,7 +1515,7 @@ class GateDriver(unittest.TestCase):
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
         enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
-        self.assertEqual(enables, ["enable --session --max-minutes %d" % (self.first + 2 + self.full), "enable --session --max-minutes %d" % self.full] + ["enable --session --max-minutes 6"] * 3)
+        self.assertEqual(enables, ["enable --session --max-minutes %d" % (self.first + 2 + self.standby_wait + self.full), "enable --session --max-minutes %d" % self.full] + ["enable --session --max-minutes 6"] * 3)
 
     def test_the_persistent_enable_after_a_pass_has_no_timer(self):
         answers = {"cutover.sh firmware record": "noise\r\n" + BLOCK.replace("\n", "\r\n")}

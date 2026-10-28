@@ -22,6 +22,7 @@
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`framerate`] | the panel's rate after 25 or 50 fps video: back to 120 Hz once Home is in front with no video window |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
+//! | [`refreshguard`] | LG's panel refresh (the `panel` topic) and the guard that keeps an assistant's wake from cutting a run short, behind `theme.oledcare.refreshGuard` |
 //! | [`updateblock`] | whether LG's system updates are blocked (the Homebrew Channel's flag and its `/etc/hosts` block), read only |
 //! | [`crash`] | the crash notice Settings shows: what the supervisor saved when LumaTV's compositor was put out of the way (reason, time, last log and trace lines), read when the page opens |
 //! | [`capture`] | screenshots and screen recordings: the door to the compositor's capture, behind `capture.enabled` (off by default) |
@@ -68,6 +69,7 @@ pub mod plugins;
 pub mod preload;
 pub mod receiver;
 pub mod receiver_telnet;
+pub mod refreshguard;
 pub mod screen;
 pub mod service;
 pub mod settings;

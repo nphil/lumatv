@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The next C4 slot in one run (about 25 min, exclusive use of the set, from the repository root):
 
-    python3 compositor/tools/tv_next_slot.py [--skip-gate] [--gate-args "--skip netflix"] [--no-standby]
+    python3 compositor/tools/tv_next_slot.py [--skip-gate] [--gate-args "--skip netflix"] [--no-standby] [--force-wake]
 
 1. Preflight: the set answers and is woken (tv_gate.wake), nothing of ours runs, LG's compositor is live, Picture
    Mode is filmMaker. The installed tools/lumatv must know LumaTV's compositor (its Home stub guard, `comp_live`),
@@ -111,7 +111,9 @@ def main():
     ap.add_argument("--skip-gate", action="store_true")
     ap.add_argument("--gate-args", default="")
     ap.add_argument("--no-standby", action="store_true", help="leave the set on at the end")
+    ap.add_argument("--force-wake", action="store_true", help="wake the set without waiting for LG's panel refresh (refresh_guard.py); passed to the gate too")
     a = ap.parse_args()
+    tv_gate.FORCE_WAKE = a.force_wake
     stamp = time.strftime("%Y-%m-%d-%H%M")
     out = os.path.join(repo, "docs", "research", "compositor", "slot-" + stamp)
     os.makedirs(out, exist_ok=True)
@@ -174,7 +176,7 @@ def main():
 
         # 4. The gate.
         if not a.skip_gate:
-            cmd = [sys.executable, os.path.join(here, "tv_gate.py")] + a.gate_args.split()
+            cmd = [sys.executable, os.path.join(here, "tv_gate.py")] + a.gate_args.split() + (["--force-wake"] if a.force_wake else [])
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
             print(p.stdout[-6000:], p.stderr[-2000:])
             for l in p.stdout.splitlines():
