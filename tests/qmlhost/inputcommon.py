@@ -2,7 +2,7 @@
 """Offline preview of LG's screens in `com.webos.app.inputcommon`: the input pill, the OK banner and the INFO card, Live TV's channel banner and INFO card, the
 no-signal screen, the banner position editor and the prompt.
 
-    python3 tests/qmlhost/inputcommon.py --scene pill|focused-pill|ok|detail|update|channel|channel-ok|channel-detail|nosignal|nosignal-photo|banner-edit|alert
+    python3 tests/qmlhost/inputcommon.py --scene pill|focused-pill|ok|detail|update|channel|channel-ok|channel-detail|channel-guide|channel-guide-focused|nosignal|nosignal-photo|nosignal-tv|banner-edit|alert
         [--patched] [--stale-sheet] [--light] [--text PERCENT] [--audit [KINDS]] [--shot out.png]
         [--wait MS] [--backdrop IMG] [--press MS:KEY[,KEY...]] [--probe MS:OBJECT:PROP] [--keep DIR]
 
@@ -91,7 +91,7 @@ QtObject {
         property bool isLaunchingBanner: false
         property bool isDetailBanner: %(detail)s
         property bool isPlacedTop: false
-        property bool isViewVisible: true
+        property bool isViewVisible: %(viewvisible)s
         property int bannerPosState: 2
         function showZappingBanner() {}
         property real nsuProgressBarValue: %(nsu)s
@@ -112,6 +112,7 @@ QtObject {
         property int more: 0
         function handleBannerPressed() { pressed++; console.log("[luna] handleBannerPressed") }
         function launchMoreActions() { more++; console.log("[luna] launchMoreActions") }
+        function launchTVGuide() { console.log("[luna] launchTVGuide") }
         function restartHideTimer() {}
         function hide() {}
     }
@@ -124,7 +125,11 @@ QtObject {
     property var audioGuide: QtObject { function readButtonText() {} function readText() {} }
     property var cursor: QtObject { function requestPreventCursorHide() {} function releaseOkButton() {} }
     property var dvr: QtObject { property var recInfoModel: null }
-    property var common: QtObject { function setSystemSettings(kind, what) { console.log("[luna] setSystemSettings " + JSON.stringify(what)) } }
+    property var common: QtObject {
+        function setSystemSettings(kind, what) { console.log("[luna] setSystemSettings " + JSON.stringify(what)) }
+        function launchSystemUI(appId) { console.log("[luna] launchSystemUI " + appId) }
+        function launchDefaultAppWithHome() { console.log("[luna] launchDefaultAppWithHome") }
+    }
     %(extra)s
 }
 '''
@@ -173,6 +178,7 @@ EXTRA_CHANNEL = '''property var channelBanner: QtObject {
         function isInternetChannel() { return false }
         function handleBannerPressed() { console.log("[luna] handleBannerPressed") }
         function launchMoreActions() { more++; console.log("[luna] launchMoreActions") }
+        function launchTVGuide() { console.log("[luna] launchTVGuide") }
         function restartHideTimer() {}
         function hide() {}
     }'''
@@ -236,6 +242,7 @@ QtObject {
     property string banner_25: "button"
     property string banner_28: "Store Demo"
     property string banner_44: "Options"
+    property string banner_52: "Guide"
     property string ch_banner_24: "Input Information"
     property string ch_banner_25: "Universal Remote"
     property string ch_banner_39: "REC"
@@ -285,13 +292,20 @@ SCENES = {
     # Live TV's channel banner, the same two states as the input's (the strip alone; OK with the options key)
     'channel': {'file': 'MainViewLayer/ChannelBanner/ChannelBanner.qml', 'ok': False, 'zap': True, 'detail': False, 'size': 'width: 1920', 'focused': False, 'tv': True, 'extra': ('channel',)},
     'channel-ok': {'file': 'MainViewLayer/ChannelBanner/ChannelBanner.qml', 'ok': True, 'zap': False, 'detail': False, 'size': 'width: 1920', 'focused': True, 'tv': True, 'extra': ('channel',)},
+    # the "Guide" chip under the banner, at rest and with the focus
+    'channel-guide': {'file': 'MainViewLayer/Deeplink/DeeplinkView.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920', 'focused': False, 'tv': True, 'extra': ('channel',), 'top': 480},
+    'channel-guide-focused': {'file': 'MainViewLayer/Deeplink/DeeplinkView.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920', 'focused': True, 'tv': True, 'extra': ('channel',), 'top': 480},
     # the no-signal screen over black, and over LG's photo setting (the text box on a still)
     'channel-detail': {'file': 'MainViewLayer/ChannelBanner/DetailInfoBanner.qml', 'ok': False, 'zap': False, 'detail': True, 'size': '', 'focused': False, 'tv': True,
                        'extra': ('channel',), 'model': True},
+    # no banner is up and nothing gives the screen the focus: it takes it itself (LG's layer does when it can)
     'nosignal': {'file': 'BgViewLayer/Screensaver.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': False,
-                 'top': 0, 'backdrop': False, 'extra': ('screensaver',), 'photo': False},
+                 'top': 0, 'backdrop': False, 'extra': ('screensaver',), 'photo': False, 'viewvisible': False},
     'nosignal-photo': {'file': 'BgViewLayer/Screensaver.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': False,
                        'top': 0, 'backdrop': False, 'extra': ('screensaver',), 'photo': True},
+    # the tuner's no signal: not an HDMI input, so LG's block of words stays
+    'nosignal-tv': {'file': 'BgViewLayer/Screensaver.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': True,
+                    'top': 0, 'backdrop': False, 'extra': ('screensaver', 'channel'), 'photo': False, 'tv': True},
     # where the banner goes: four places, one with the focus
     'banner-edit': {'file': 'MainViewLayer/BannerEditView.qml', 'ok': False, 'zap': False, 'detail': False, 'size': 'width: 1920; height: 1080', 'focused': True, 'top': 0},
     # the question over the picture (set-top box, input lock)
@@ -496,7 +510,8 @@ def main(argv=None):
     ctx.setContextProperty('isDevice', True)
     make('logger', LOGGER)
     flags = dict({k: str(spec[k]).lower() for k in ('ok', 'zap', 'detail')}, nsu=spec.get('nsu', 0), photo=str(spec.get('photo', False)).lower(),
-                 still=os.path.join(ROOT, 'docs', 'mocks', 'img', 'still.jpg'), model=detail_model() if spec.get('model') else 'null')
+                 still=os.path.join(ROOT, 'docs', 'mocks', 'img', 'still.jpg'), model=detail_model() if spec.get('model') else 'null',
+                 viewvisible=str(spec.get('viewvisible', True)).lower())
     extra = ''.join(EXTRAS[n] % flags + '\n    ' for n in spec.get('extra', ()))
     make('interfaces', INTERFACES, dict(flags, extra=extra))
     fonts = make('fontManager', FONT_MANAGER)

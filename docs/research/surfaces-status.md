@@ -49,8 +49,8 @@ Also LG-side but rarer: the Home Hub tile in the apps grid (86), LG Channels on 
 
 | Surface | What differs | File |
 |---|---|---|
-| Input INFO card and channel INFO card (88, 165) | grey `#575E66` sheet on the TV instead of dark glass; the Guide chip under the channel banner stays flat grey | `tools/inputcommon_patch.py`; fix 3ba7b16 offline, not re-run on the set |
-| No-signal screen (89) | LG's layout: plain text right of centre, no icon, no Inputs and Home buttons as in mock 18 | `tools/inputcommon_patch.py` (Screensaver.qml) |
+| Input INFO card and channel INFO card (88, 165) | fixed offline, not yet on the set (it showed grey `#575E66`): every file reads LumaStyle, checked with LG's stock sheet in memory; the Guide chip is now a sheet pill (`restyle-fixes/banners/`) | `tools/inputcommon_patch.py` |
+| No-signal screen (89) | rebuilt offline to mock 18 on an HDMI input (glyph, input name, title, line, Inputs and Home); not yet on the set | `tools/inputcommon_patch.py` (Screensaver.qml), `payload/inputcommon/` |
 | Search app and keyboard (181, 182) | keys are Lucent, but field, chips, genre photo cards, cloud suggestions and the "Hold the AI button" hint are LG's; layout is not mock 09 | `tools/voice_patch.py`, `tools/maliit_patch.py` |
 | Volume bar (110) | bottom-centre bar lands on Netflix subtitle rows | `panels/VolumeOsd.qml` |
 | Quick panel (145) | docked left, mock 10 shows right; no second lines; extra "LG" button; no Ambient tile until linked | `panels/QuickPanel.qml` |
@@ -79,8 +79,8 @@ Also LG-side but rarer: the Home Hub tile in the apps grid (86), LG Channels on 
 | 72 | Recents (app switcher) | Replace | NOT BUILT | no switcher in `payload/` (LG's lived in the Flutter Home the stub removed) | n/a |
 | 79 | Quick Access (number keys) | Replace | BUILT-UNTESTED | `LumaHome.numberKey`, `Dock.openTile`; shell-host-result: not run on the set | UNSEEN |
 | 85 | Input picker | Replace | LIVE | round8-result (d): Input key (evdev 241) opens it; gates r12-r14 over Home, HDMI and Netflix (round9-result) | MATCHES in `round8/tv-2026-10-25/41-key241.jpg` (glass sheet, Manrope, icons, eARC mark); later layout changes (round 15 cached texture) not re-captured |
-| 88 | HDMI input banner | Restyle | BUILT-OFF | `inputcommon` off; round 18 on the TV 10-27: dark glass pill 1.68-6.37 s (lg-restyles-result); stock grey pill still shown at boot (`reboot/boot-002-up16.33.png`) | GAPS: pill matches; INFO card was LG grey `#575E66` (`banners-r18/info-1.png`), fixed 3ba7b16/95a66db offline, not re-run - `tools/inputcommon_patch.py` (DetailInfoBanner.qml) |
-| 89 | No-signal screen | Restyle | BUILT-OFF | `inputcommon` off; seen round 9 and round 18 (7 s frame, "unchanged, dim words") | GAPS: LG layout kept: text only, right of centre, no icon or Inputs/Home buttons as in mock 18 (`lg-restyles/18-lg-no-signal.jpg`) - `tools/inputcommon_patch.py` (Screensaver.qml) |
+| 88 | HDMI input banner | Restyle | BUILT-OFF | `inputcommon` off; round 18 on the TV 10-27: dark glass pill 1.68-6.37 s (lg-restyles-result); stock grey pill still shown at boot (`reboot/boot-002-up16.33.png`) | GAPS: pill matches; INFO card was LG grey `#575E66` (`banners-r18/info-1.png`), fixed 3ba7b16/95a66db and re-checked offline with LG's stock sheet in memory (`restyle-fixes/banners/after/detail.png`), TV check pending - `tools/inputcommon_patch.py` (DetailInfoBanner.qml) |
+| 89 | No-signal screen | Restyle | BUILT-OFF | `inputcommon` off; seen round 9 and round 18 (7 s frame, "unchanged, dim words") | Rebuilt offline to mock 18 (`restyle-fixes/banners/after/nosignal.png`): glyph, input name, title, line, Inputs (focused) and Home on an HDMI input with nothing connected; the tuner's no signal, LG's photo mode and LG's static text mode keep LG's block; TV check pending - `tools/inputcommon_patch.py` (Screensaver.qml) |
 | 95 | HDMI or CEC device connected | Replace | BUILT-UNTESTED | `AdvancedAlertDelegate.qml` in the notification view; only toast and alert were seen on the set | UNSEEN |
 | 111 | Mute bubble | Replace | LIVE | round8-result (a) mute; round9 `mutefix3` (mark returns after restart); r11 `saver-own-step2.png` | MATCHES (slashed-speaker disc, hops every 10 s, clear of subtitles after 00dbca3) |
 | 125 | Alert: standard and modal | Replace | BUILT-OFF | registry: `notifications` off; alert drew on the panel 10-25 (surfaces-p2-result) | UNSEEN (no image kept) |
@@ -106,8 +106,8 @@ Also LG-side but rarer: the Home Hub tile in the apps grid (86), LG Channels on 
 | 77 | Pointer right-click menu | Replace | NOT BUILT | shell-slice-result: pointer right-button menu not done; no code | n/a |
 | 78 | "More Actions" panel (on-screen remote) | Replace | BUILT-UNTESTED | `panels/ScreenRemote.qml`, Home only (the ScreenRemote key); over apps not wired (shell-host-result) | UNSEEN |
 | 86 | Home Hub | Off | NOT BUILT | no `keyaction.inputHub` repoint in `tools/`; Home Hub tile is in the apps grid (`45-apps-grid.jpg`) | n/a |
-| 90 | Banner position editor | Restyle | BUILT-OFF | `inputcommon` off; rendered Lucent in round 9 | UNSEEN (not reviewed) |
-| 92 | Set-top and lock states on an input | Restyle | BUILT-UNTESTED | inputcommon prompts patched; offline `lg-restyles/35-lg-prompt.jpg` only | UNSEEN |
+| 90 | Banner position editor | Restyle | BUILT-OFF | `inputcommon` off; rendered Lucent in round 9 | Rendered again offline in both materials, no overlap at 100 and 200 % text (`restyle-fixes/banners/after/banner-edit.png`); not seen on the set |
+| 92 | Set-top and lock states on an input | Restyle | BUILT-UNTESTED | inputcommon prompts patched; offline `lg-restyles/35-lg-prompt.jpg` only | Rendered again offline (`restyle-fixes/banners/after/alert.png`); not raised on the set |
 | 96 | HDMI format prompts | Replace | BUILT-OFF | alert/toast renderer: `notifications` off; the patched alert and toast drew on the panel 10-25 (surfaces-p2-result), this message never raised | UNSEEN |
 | 97 | Universal Control (IR blaster, set-top box) | Restyle | BUILT-UNTESTED | in `payload/webapps/apps.txt`; its comment: web theme "not run on the set yet" | UNSEEN |
 | 98 | USB and storage prompts | Replace | BUILT-OFF | alert/toast renderer: `notifications` off; the patched alert and toast drew on the panel 10-25 (surfaces-p2-result), this message never raised | UNSEEN |
@@ -136,11 +136,11 @@ Also LG-side but rarer: the Home Hub tile in the apps grid (86), LG Channels on 
 | 155 | Help and guides | Restyle | BUILT-UNTESTED | in `payload/webapps/apps.txt`; its comment: web theme "not run on the set yet" | UNSEEN |
 | 156 | Usage Care | Restyle | BUILT-UNTESTED | in `payload/webapps/apps.txt`; its comment: web theme "not run on the set yet" | UNSEEN |
 | 157 | Weather location | Off | LIVE | nothing to switch: Home weather has its own location (Atlanta, 10-26 Home capture) | n/a |
-| 164 | Channel banner | Restyle | BUILT-OFF | `inputcommon` off; round 9 and 18 PASS (`banners-r18/channel-ok.png`) | GAPS: banner matches; the "Guide" chip below stays flat LG grey - `tools/inputcommon_patch.py` |
-| 165 | Channel detail banner | Restyle | BUILT-OFF | `inputcommon` off; channel INFO seen round 9, `banners-r18/channel-info.png` | GAPS: shares the INFO card with 88 (grey on the TV, fixed offline 3ba7b16) |
+| 164 | Channel banner | Restyle | BUILT-OFF | `inputcommon` off; round 9 and 18 PASS (`banners-r18/channel-ok.png`) | The "Guide" chip below was flat LG grey: now a sheet pill with a ring on focus at the banner's inset (`restyle-fixes/banners/after/channel-guide.png`), checked with LG's stock sheet in memory; TV check pending - `tools/inputcommon_patch.py` |
+| 165 | Channel detail banner | Restyle | BUILT-OFF | `inputcommon` off; channel INFO seen round 9, `banners-r18/channel-info.png` | Shares the INFO card with 88 (grey on the TV, fixed 3ba7b16, re-checked offline); TV check pending |
 | 168 | TV Scheduler | Restyle | BUILT-UNTESTED | in `payload/webapps/apps.txt`; its comment: web theme "not run on the set yet" | UNSEEN |
 | 169 | Channel tuning and Channel Manager | Restyle | BUILT-UNTESTED | in `payload/webapps/apps.txt`; its comment: web theme "not run on the set yet" | UNSEEN |
-| 174 | Live TV prompts | Replace | BUILT-UNTESTED | inputcommon prompts patched; never raised on the set | UNSEEN |
+| 174 | Live TV prompts | Replace | BUILT-UNTESTED | inputcommon prompts patched; never raised on the set | Rendered offline with the input prompts (`restyle-fixes/banners/after/alert.png`); not raised on the set |
 | 184 | Microphone indicator | Replace | BUILT-UNTESTED | mic indicator in `VoiceBar.qml`; never seen | UNSEEN |
 | 185 | AI Concierge | Off | BUILT-UNTESTED | no check that LG's concierge entry cannot launch (no LumaHome entry; `voice` group masks voice services) | n/a |
 | 187 | TV help chatbot | Off | BUILT-UNTESTED | no check that LG's help chatbot cannot launch | n/a |

@@ -26,9 +26,12 @@ guide are LG's and stay as they are (docs/research/lg-restyles-result.md). What 
     are lifted tiles (the palette's hairline wash) with ink text.
   * The channel banner (Live TV) is drawn the same way as the pill: sheet, hairline, lit inset on focus, 64 px off the edge; its
     number, name and programme are smaller and grow the strip with the type; its INFO card keeps LG's layout on the sheet.
-  * The no-signal screen keeps LG's block that hops against burn-in and drops its animation; its words are dim ink over black
-    (the palette's light colour on any theme), or sit in a sheet when LG's photo setting is on. The banner position editor is four
-    of the pill; the prompts are a sheet with rows for buttons.
+  * The no-signal screen of an HDMI input is mock 18's block: a glyph, the input's name, a title, a line and the Inputs and Home actions
+    (OK opens the input picker as LG's Input key does, or the Home app); the screen takes the remote's keys while it shows them. The block
+    still hops against burn-in on LG's mover, and LG's animation is gone. Every other message (the tuner's no signal, a blocked input, an
+    unsupported format), LG's photo setting (words in a sheet) and its static text mode keep LG's block, its words dim ink over black (the
+    palette's light colour on any theme). The "Guide" chip under the channel banner is a pill on the sheet at the banner's inset. The
+    banner position editor is four of the pill; the prompts are a sheet with rows for buttons.
   * The shared style (info banner colours, chips, the clock, the option bar) moves with all of them. Type-dependent geometry
     (the strip's height, the INFO cards') is derived from the font sizes, so a larger type never makes words meet.
   * Every file that reads something the patch sets (the patched banner files and the clock, the progress bars, the channel INFO card's
@@ -78,6 +81,23 @@ DETAIL_HEIGHT = 184
 FOCUS_INSET = 8            # the lit inset inside the pill when the input name has the focus
 NOSIGNAL_INK = 0.66       # the no-signal screen's words on black: alpha of the ink (7:1 on black), and the dimmer line below
 NOSIGNAL_DIM = 0.55
+# The no-signal screen's two actions on black (mock 18): the words on them, their wash at rest and lit, the hairline and the ring. The ring and
+# the words are held to 3:1 and 4.5:1 over the lit wash by tests/test_inputcommon_patch.py.
+NOSIGNAL_BUTTON_INK = 0.80
+NOSIGNAL_WASH = 0.10
+NOSIGNAL_LIT = 0.20
+NOSIGNAL_EDGE = 0.20
+NOSIGNAL_RING = 0.62
+NOSIGNAL_WIDTH = 760       # the block's width in the mock, in the 1080-line units LG's style sheet counts in
+# What the no-signal screen of an HDMI input says (mock 18); LG's strings stay for every other message. The input's name goes between the halves.
+NOSIGNAL_TITLE = "Nothing is connected here"
+NOSIGNAL_LINE = ("Plug a device into ", ", or pick another input. The screen stays dark to protect the panel.")
+# Our own files for the no-signal screen: a glyph, the action button, and the Lucide pictures the glyphs draw (white strokes, one ink at run time).
+PAYLOAD = pathlib.Path(__file__).resolve().parent.parent / "payload" / "inputcommon"
+BG = "UserInterfaceLayer/Containers/BgViewLayer/"
+IMAGES = "UserInterfaceLayer/Images/luma/"
+NEW_FILES = ("LumaGlyph.qml", "LumaNoSignalButton.qml")
+GLYPHS = ("unplug.png", "cable.png", "house.png")
 STYLE = "property var banner: QtObject {"
 LUMA_STYLE_FILE = "UserInterfaceLayer/Components/LumaStyle.qml"
 
@@ -139,6 +159,11 @@ def luma_props(pal, sheet):
         ("string", "lumaInkDim", '"%s"' % pal["inkDim"]),
         ("string", "noSignalColor", '"%s"' % on_black(pal, NOSIGNAL_INK)),
         ("string", "noSignalDimColor", '"%s"' % on_black(pal, NOSIGNAL_DIM)),
+        ("string", "noSignalButtonColor", '"%s"' % on_black(pal, NOSIGNAL_BUTTON_INK)),
+        ("string", "noSignalWashColor", '"%s"' % on_black(pal, NOSIGNAL_WASH)),
+        ("string", "noSignalLitColor", '"%s"' % on_black(pal, NOSIGNAL_LIT)),
+        ("string", "noSignalEdgeColor", '"%s"' % on_black(pal, NOSIGNAL_EDGE)),
+        ("string", "noSignalRingColor", '"%s"' % on_black(pal, NOSIGNAL_RING)),
     ]
     edits = [BANNER_PROP.match(new).groups() for _, new in banner_edits(pal)]
     block = banner_block(sheet)
@@ -548,11 +573,27 @@ def patch_simplebutton(text, pal):
     # The sheet's font functions are LG's face in a restored process; the buttons' words are Manrope from LumaStyle's.
     text = sub(name, text, "font: root.fontSize > 0 ? styleSheet.semiBoldFont(fontSize) : styleSheet.semiBoldFont(36)",
                "font: root.fontSize > 0 ? lumaStyle.semiBoldFont(fontSize) : lumaStyle.semiBoldFont(36)")
+    # The chip under the channel banner is a pill; a lit button shows its ring over the hairline.
+    text = sub(name, text, "    property bool useStroke: false\n", "    property bool useStroke: false\n    property bool lumaPill: false\n")
     text = sub(name, text, "        radius: 6\n        border.width: useStroke ? 1 : 0\n        border.color: \"#616161\"\n",
-               "        radius: styleSheet.banner.lumaRowRadius\n        border.width: useStroke ? 1 : (hasFocus ? 2 : 0)\n"
+               "        radius: root.lumaPill ? height / 2 : styleSheet.banner.lumaRowRadius\n        border.width: hasFocus ? 2 : (useStroke ? 1 : 0)\n"
                "        border.color: hasFocus ? styleSheet.banner.inputFocusEdge : styleSheet.banner.lumaEdge\n")
     return sub(name, text, "        style: styleSheet.defaultItemShadow\n        target: background\n",
                "        style: styleSheet.defaultItemShadow\n        target: background\n        active: false\n")
+
+
+def patch_deeplink(text):
+    """The "Guide" chip under the channel banner: a pill on the sheet like the banner above it, lit with a ring on focus, at the banner's inset.
+    LG's button is flat grey (`#7d848c`); its height follows the type."""
+    name = "DeeplinkView.qml"
+    text = sub(name, text, "        height: styleSheet.banner.deeplink.BUTTON.HEIGHT\n        useSmallButton: true\n",
+               "        height: Math.max(styleSheet.banner.deeplink.BUTTON.HEIGHT, Math.round(1.8 * lumaStyle.semiBoldFont(styleSheet.banner.deeplink.BUTTON.FONT_SIZE).pixelSize))\n"
+               "        useSmallButton: true\n"
+               "        useStroke: true\n"
+               "        lumaPill: true\n"
+               "        bgNormalColor: styleSheet.banner.lumaSheetColor\n"
+               "        bgFocusedColor: Qt.tint(styleSheet.banner.lumaSheetColor, styleSheet.banner.inputFocusColor)\n")
+    return sub(name, text, "            leftMargin: styleSheet.banner.deeplink.L_MARGIN\n", "            leftMargin: styleSheet.banner.inputSideInset\n")
 
 
 def patch_alertpopup(text):
@@ -561,8 +602,10 @@ def patch_alertpopup(text):
 
 
 def patch_screensaver(text):
-    """The no-signal screen: the moving block of words on black, with no animation and no box of its own, and the sheet under
-    the words of the photo mode. The mover (the burn-in guard) and its ten second hop are LG's, unchanged."""
+    """The no-signal screen. On an HDMI input with nothing connected the moving block is mock 18's: a glyph, the input's name, a title, a line, and
+    the Inputs and Home actions (the screen takes the remote's keys while it shows them). Every other message keeps LG's block of words (the
+    tuner with no signal, a blocked input, an unsupported format), as does the photo mode and LG's static text-only mode. The block has no
+    animation and no box of its own, the mover (the burn-in guard) and its ten second hop are LG's, unchanged; the sheet is under the words of the photo mode."""
     name = "Screensaver.qml"
     text = sub(name, text, 'source: visible && !systemProperties.isBNOTV? "../../Images/screensaver/screensaver12frame.gif":""', 'source: ""')
     text = sub(name, text, "return Math.max(styleSheet.guiSize(340), (bodyText.contentHeight + styleSheet.guiSize(180)))",
@@ -573,14 +616,123 @@ def patch_screensaver(text):
     # The static (text only) box: a hairline, not LG's grey four-pixel rim.
     text = sub(name, text, 'border.color: isDynamic? "transparent":"#404040"\n        border.width: styleSheet.guiSize(4)\n        radius: styleSheet.guiSize(10)\n',
                'border.color: isDynamic? "transparent":styleSheet.banner.lumaEdge\n        border.width: 1\n        radius: styleSheet.banner.lumaRowRadius\n')
-    return text
+    # The block of mock 18: its state, the words, and what the two actions call.
+    text = sub(name, text, "    property alias textBoxOverPhoto: textBoxOverPhoto\n",
+               "    property alias textBoxOverPhoto: textBoxOverPhoto\n"
+               "    property bool lumaNoSignal: currentKey === \"noSignal\" && systemProperties.isExternalInput && element.isDynamic && !isPhotoRunning\n"
+               "    property string lumaPortName: interfaces[C.NAME_EXTDEVCTRL] ? interfaces[C.NAME_EXTDEVCTRL].getDeviceName() : \"\"\n")
+    # The screen takes the remote's keys while it shows its actions: the Inputs button has the focus, a banner or a prompt above takes it first.
+    text = sub(name, text, "    needKeyFocus: false\n", "    needKeyFocus: lumaNoSignal\n")
+    text = sub(name, text, "        width: {\n            if (systemProperties.isAirtelOperator && ViewModel.isAirtelScreensaver(ViewModel.messageType[currentKey])) {\n                return styleSheet.guiSize(1590);\n",
+               "        width: {\n            if (lumaNoSignal) {\n                return styleSheet.guiSize(%d) + screensaverStyle.TEXT_L_MARGIN;\n            }\n"
+               "            if (systemProperties.isAirtelOperator && ViewModel.isAirtelScreensaver(ViewModel.messageType[currentKey])) {\n                return styleSheet.guiSize(1590);\n" % NOSIGNAL_WIDTH)
+    text = sub(name, text, "        height: {\n            if (textBoxOverPhoto.visible) {\n",
+               "        height: {\n            if (lumaNoSignal) {\n                return lumaColumn.implicitHeight;\n            }\n            if (textBoxOverPhoto.visible) {\n")
+    text = sub(name, text, "            anchors.fill: parent\n            spacing: styleSheet.guiSize(23)\n",
+               "            id: lumaColumn\n\n            anchors.fill: parent\n            spacing: lumaNoSignal ? styleSheet.guiSize(16) : styleSheet.guiSize(23)\n")
+    text = sub(name, text, "            AnimatedImage {\n\n                id: animation\n",
+               "            LumaGlyph {\n\n"
+               "                objectName: \"lumaPlug\"\n"
+               "                anchors.horizontalCenter: parent.horizontalCenter\n"
+               "                visible: lumaNoSignal\n"
+               "                name: \"unplug\"\n"
+               "                size: styleSheet.guiSize(64)\n"
+               "                color: styleSheet.banner.noSignalDimColor\n"
+               "            }\n\n"
+               "            Text {\n\n"
+               "                objectName: \"lumaPort\"\n"
+               "                anchors.horizontalCenter: parent.horizontalCenter\n"
+               "                visible: lumaNoSignal && text.length > 0\n"
+               "                text: lumaPortName\n"
+               "                font: lumaStyle.semiBoldFont(24)\n"
+               "                color: styleSheet.banner.noSignalDimColor\n"
+               "            }\n\n"
+               "            AnimatedImage {\n\n                id: animation\n")
+    text = sub(name, text, "                height: styleSheet.guiSize(71)\n", "                height: lumaNoSignal ? contentHeight : styleSheet.guiSize(71)\n")
+    text = sub(name, text, "                visible: text.length > 0\n            }\n        }\n    }\n",
+               "                visible: text.length > 0\n            }\n\n"
+               "            Item {\n\n"
+               "                width: parent.width\n"
+               "                height: lumaActions.height + styleSheet.guiSize(10)\n"
+               "                visible: lumaNoSignal\n\n"
+               "                Row {\n\n"
+               "                    id: lumaActions\n\n"
+               "                    anchors.horizontalCenter: parent.horizontalCenter\n"
+               "                    anchors.bottom: parent.bottom\n"
+               "                    spacing: styleSheet.guiSize(10)\n\n"
+               "                    LumaNoSignalButton {\n\n"
+               "                        id: lumaInputs\n\n"
+               "                        objectName: \"lumaInputs\"\n"
+               "                        focus: true\n"
+               "                        glyph: \"cable\"\n"
+               "                        text: \"Inputs\"\n"
+               "                        KeyNavigation.right: lumaHome\n"
+               "                        onClicked: lumaOpenInputs()\n"
+               "                    }\n\n"
+               "                    LumaNoSignalButton {\n\n"
+               "                        id: lumaHome\n\n"
+               "                        objectName: \"lumaHome\"\n"
+               "                        glyph: \"house\"\n"
+               "                        text: \"Home\"\n"
+               "                        KeyNavigation.left: lumaInputs\n"
+               "                        onClicked: lumaOpenHome()\n"
+               "                    }\n"
+               "                }\n"
+               "            }\n"
+               "        }\n    }\n")
+    # The words: LG's (localised) strings for every other message.
+    text = sub(name, text,
+               "                headerText.text = Qt.binding(function() { return screensaverInterfaces.getDynamicMessage(currentKey) });\n"
+               "                bodyText.text =  Qt.binding(function() { return screensaverInterfaces.getDynamicSubMessage(currentKey) || \"\" });\n",
+               "                headerText.text = Qt.binding(function() { return lumaTitle(screensaverInterfaces.getDynamicMessage(currentKey)) });\n"
+               "                bodyText.text =  Qt.binding(function() { return lumaLine(screensaverInterfaces.getDynamicSubMessage(currentKey) || \"\") });\n")
+    # The actions are the calls LG's own Input and Home keys end in: the input picker is a system window, Home is the default Home app.
+    return sub(name, text, "    function hide(event) {\n",
+               "    function lumaTitle(stock) {\n        return lumaNoSignal ? %s : stock;\n    }\n\n"
+               "    function lumaLine(stock) {\n        return lumaNoSignal ? %s + (lumaPortName || \"this input\") + %s : stock;\n    }\n\n"
+               "    function lumaOpenInputs() {\n        if (interfaces[C.NAME_COMMON]) {\n            interfaces[C.NAME_COMMON].launchSystemUI(\"com.webos.app.quickinputpicker\");\n        }\n    }\n\n"
+               "    function lumaOpenHome() {\n        if (interfaces[C.NAME_COMMON]) {\n            interfaces[C.NAME_COMMON].launchDefaultAppWithHome();\n        }\n    }\n\n"
+               # LG's layer gives a screen that wants the keys the focus when its layers update; this does the same once the screen shows and whenever
+               # the banner above it goes, unless a banner or a prompt is up (they keep their keys).
+               "    onLumaNoSignalChanged: lumaFocusTimer.restart()\n    onVisibleChanged: lumaFocusTimer.restart()\n\n"
+               "    Timer {\n\n        id: lumaFocusTimer\n\n        interval: 120\n        onTriggered: lumaTakeFocus()\n    }\n\n"
+               "    Connections {\n\n        target: bannerInterfaces\n        ignoreUnknownSignals: true\n        onIsViewVisibleChanged: lumaFocusTimer.restart()\n    }\n\n"
+               "    function lumaTakeFocus() {\n        if (lumaNoSignal && visible && !activeFocus && !(bannerInterfaces && bannerInterfaces.isViewVisible)\n"
+               "                && !(interfaces[C.NAME_POPUP] && interfaces[C.NAME_POPUP].alertPopupVisible)) {\n            lumaInputs.forceActiveFocus();\n        }\n    }\n\n"
+               "    function hide(event) {\n" % (json.dumps(NOSIGNAL_TITLE), json.dumps(NOSIGNAL_LINE[0]), json.dumps(NOSIGNAL_LINE[1])))
+
+
+def patch_bgviewlayer(text):
+    """The screen saver's loader passes the focus down when the screen asks for the remote's keys (the other loader of the layer already does)."""
+    return sub("BgViewLayer.qml", text, "        source: viewListInfo.SCREENSAVER.SRC_URL\n        anchors.fill: parent\n",
+               "        source: viewListInfo.SCREENSAVER.SRC_URL\n        anchors.fill: parent\n        focus: (item && item.needKeyFocus) || false\n")
+
+
+def patch_commoninterfaces(text):
+    """A way to open a system window, which is how LG's Input key reaches the input picker (the banner's options key does the same for the on-screen remote)."""
+    return sub("CommonInterfaces.qml", text, "    function launchDefaultAppWithHome (addParams) {\n",
+               "    function launchSystemUI (appId) {\n        if (appId) {\n            serviceObj.launchSystemUI.params = {appId};\n"
+               "            callLogging(serviceObj.launchSystemUI);\n        }\n    }\n\n"
+               "    function launchDefaultAppWithHome (addParams) {\n")
+
+
+def patch_commonservices(text):
+    return sub("AppServices.js", text, "            {\n                \"name\": \"showSpinner\",\n",
+               "            {\n                \"name\": \"launchSystemUI\",\n                \"service\": \"com.webos.service.systemUIManager\",\n"
+               "                \"method\": \"launch\",\n                \"params\": {\"appId\": \"com.webos.app.quickinputpicker\"},\n            },\n"
+               "            {\n                \"name\": \"showSpinner\",\n")
 
 
 def patch_ssmain(text):
     name = "ScreensaverMainText.qml"
     ink = 'color: state === "OverPhoto" ? styleSheet.banner.lumaInk : styleSheet.banner.noSignalColor\n'
     text = sub(name, text, '    color: "#E6E6E6"\n', "    " + ink)
-    text = sub(name, text, "font.pixelSize: styleSheet.fontSize(48)", "font.pixelSize: styleSheet.fontSize(40)")
+    # Manrope in every state (the sheet's font functions are LG's face in a restored process); the title of the block is semibold like the photo mode's.
+    text = sub(name, text, 'font.family: styleSheet.fontProp("smart_Regular", "family")', 'font.family: "Manrope"', count=2)
+    text = sub(name, text, 'font.family: styleSheet.fontProp("smart_SemiBold", "family")', 'font.family: "Manrope"')
+    text = sub(name, text, 'font.weight: styleSheet.fontProp("smart_SemiBold", "weight")', "font.weight: Font.DemiBold")
+    text = sub(name, text, "font.pixelSize: styleSheet.fontSize(48)\n            }\n",
+               "font.pixelSize: styleSheet.fontSize(40)\n            }\n            PropertyChanges {\n                target: root\n                font.weight: Font.DemiBold\n            }\n")
     text = sub(name, text, "font.pixelSize: styleSheet.fontSize(35);", "font.pixelSize: styleSheet.fontSize(32)")
     return sub(name, text, "font.pixelSize: styleSheet.fontSize(54)", "font.pixelSize: styleSheet.fontSize(44)")
 
@@ -589,6 +741,8 @@ def patch_sssub(text):
     name = "ScreensaverSubText.qml"
     ink = 'color: state === "OverPhoto" ? styleSheet.banner.lumaInkDim : styleSheet.banner.noSignalDimColor\n'
     text = sub(name, text, '    color: "#E6E6E6"\n', "    " + ink)
+    text = sub(name, text, '    font.family: styleSheet.fontProp("smart_Regular", "family")\n', '    font.family: "Manrope"\n')
+    text = sub(name, text, 'font.weight: styleSheet.fontProp("smart_Regular", "weight")', "font.weight: Font.Medium", count=4)
     text = sub(name, text, "font.pixelSize: styleSheet.fontSize(30)", "font.pixelSize: styleSheet.fontSize(26)", count=2)
     return sub(name, text, "font.pixelSize: styleSheet.fontSize(35)", "font.pixelSize: styleSheet.fontSize(28)")
 
@@ -607,11 +761,15 @@ FILES = (
     (BANNER + "ChannelBanner/DetailInfoBanner.qml", lambda t, pal: patch_channeldetail(t)),
     (BANNER + "BannerItems/BannerEditItem.qml", lambda t, pal: patch_bannereditem(t)),
     (BANNER + "BannerEditView.qml", lambda t, pal: patch_bannereditview(t)),
+    (BANNER + "Deeplink/DeeplinkView.qml", lambda t, pal: patch_deeplink(t)),
     ("UserInterfaceLayer/Components/SimpleButton.qml", patch_simplebutton),
     ("UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml", lambda t, pal: patch_alertpopup(t)),
-    ("UserInterfaceLayer/Containers/BgViewLayer/Screensaver.qml", lambda t, pal: patch_screensaver(t)),
-    ("UserInterfaceLayer/Containers/BgViewLayer/ScreensaverMainText.qml", lambda t, pal: patch_ssmain(t)),
-    ("UserInterfaceLayer/Containers/BgViewLayer/ScreensaverSubText.qml", lambda t, pal: patch_sssub(t)),
+    ("UserInterfaceLayer/Containers/BgViewLayer.qml", lambda t, pal: patch_bgviewlayer(t)),
+    (BG + "Screensaver.qml", lambda t, pal: patch_screensaver(t)),
+    (BG + "ScreensaverMainText.qml", lambda t, pal: patch_ssmain(t)),
+    (BG + "ScreensaverSubText.qml", lambda t, pal: patch_sssub(t)),
+    ("Interfaces/CommonInterfaces/CommonInterfaces.qml", lambda t, pal: patch_commoninterfaces(t)),
+    ("Interfaces/CommonInterfaces/AppServices.js", lambda t, pal: patch_commonservices(t)),
 )
 STYLE_FILE = "UserInterfaceLayer/GlobalStyle.qml"
 
@@ -647,9 +805,27 @@ def patch_tree(root, pal, fonts):
             if localize(text, rel, props) != text:
                 out[f] = localize(text, rel, props)
     out[luma] = luma_style(props, fonts)
+    # Our own files (the no-signal screen's glyph and buttons, the Lucide pictures the glyphs draw) are added beside LG's, none replaced.
+    pictures = {}
+    for name in NEW_FILES:
+        rel = BG + name
+        if (root / rel).exists():
+            raise ValueError("%s: LG's tree already has this file" % rel)
+        src = PAYLOAD / name
+        if not src.is_file():
+            raise ValueError("%s: missing" % src)
+        out[root / rel] = localize(src.read_text(), rel, props)
+    for name in GLYPHS:
+        src = PAYLOAD / "images" / name
+        if not src.is_file():
+            raise ValueError("%s: missing" % src)
+        pictures[root / IMAGES / name] = src.read_bytes()
     for f, text in out.items():
         f.write_text(text)
-    return sorted(str(f.relative_to(root)) for f in out)
+    for f, data in pictures.items():
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+    return sorted(str(f.relative_to(root)) for f in list(out) + list(pictures))
 
 
 def main(argv):

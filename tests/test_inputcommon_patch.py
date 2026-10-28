@@ -5,6 +5,7 @@ skipped when it is not on this workstation): what it changes, that it changes st
 or doubled anchor is fatal and leaves the tree as LG's, and (with Xvfb and PyQt5) that the patched banners load and still
 answer the keys the way LG's do, through the offline host.
 """
+import collections
 import difflib
 import filecmp
 import json
@@ -35,14 +36,21 @@ BG = "UserInterfaceLayer/Containers/BgViewLayer/"
 TOUCHED = [STYLE, BANNER + "InputBanner/SimpleBanner.qml", BANNER + "InputBanner/InputBanner.qml", BANNER + "InputBanner/DetailInfoBanner.qml",
            BANNER + "BannerItems/OptionButton.qml", BANNER + "BannerItems/BannerIcon.qml", BANNER + "BannerItems/NsuProgressBar.qml",
            BANNER + "ChannelBanner/ZappingBanner.qml", BANNER + "ChannelBanner/ChannelBanner.qml", BANNER + "ChannelBanner/DetailInfoBanner.qml",
-           BANNER + "BannerItems/BannerEditItem.qml", BANNER + "BannerEditView.qml",
+           BANNER + "BannerItems/BannerEditItem.qml", BANNER + "BannerEditView.qml", BANNER + "Deeplink/DeeplinkView.qml",
            "UserInterfaceLayer/Components/SimpleButton.qml", "UserInterfaceLayer/Containers/PopupLayer/AlertPopupView.qml",
+           "UserInterfaceLayer/Containers/BgViewLayer.qml", "Interfaces/CommonInterfaces/CommonInterfaces.qml", "Interfaces/CommonInterfaces/AppServices.js",
            BG + "Screensaver.qml", BG + "ScreensaverMainText.qml", BG + "ScreensaverSubText.qml",
            # not edited for their looks: they only read, from LumaStyle, what the patch sets (the clock, the progress bars, the channel card's lines...)
            BANNER + "BannerItems/BannerClock.qml", BANNER + "BannerItems/BannerListView.qml", BANNER + "BannerItems/BannerTextIcon.qml",
            BANNER + "BannerItems/DetailInfoItem.qml", BANNER + "BannerItems/ProgressBar.qml", BANNER + "BannerItems/RecInfoIcon.qml",
            BANNER + "ChannelBanner/MiniBanner.qml", BANNER + "InputBanner/MiniBanner.qml", BANNER + "DvrInfoView.qml", BANNER + "SimilarListView.qml",
            "UserInterfaceLayer/Containers/PopupLayer/DpmsPopup.qml", "UserInterfaceLayer/Containers/PopupLayer/EwsUsView.qml"]
+# Files the patch adds beside LG's (the no-signal screen's glyph and buttons, the Lucide pictures the glyphs draw)
+NEW_QML = [BG + "LumaGlyph.qml", BG + "LumaNoSignalButton.qml"]
+NEW = NEW_QML + ["UserInterfaceLayer/Images/luma/%s.png" % n for n in ("cable", "house", "unplug")]
+# Files where the patch adds behaviour of its own (the Inputs and Home actions of the no-signal screen, and the focus and the call they need)
+ADDS_BEHAVIOUR = {BG + "Screensaver.qml", "UserInterfaceLayer/Containers/BgViewLayer.qml", "Interfaces/CommonInterfaces/CommonInterfaces.qml",
+                  "Interfaces/CommonInterfaces/AppServices.js"}
 
 # What LG's code does, as opposed to how it looks: handlers, keys, interface reads and calls, focus. A patch that is only
 # style leaves every such line exactly as it was.
@@ -130,14 +138,25 @@ class InputcommonPatch(unittest.TestCase):
     def test_it_changes_the_files_it_names_and_no_other_and_prints_them(self):
         self.run_tool()
         self.assertEqual(self.differing(), sorted(TOUCHED))
-        self.assertEqual(self.stdout.split("\n")[:-1], sorted(TOUCHED + [LUMA]))
+        self.assertEqual(self.stdout.split("\n")[:-1], sorted(TOUCHED + [LUMA] + NEW))
+        for rel in NEW:
+            self.assertFalse(os.path.exists(os.path.join(CENSUS, rel)), "%s is LG's: the patch adds files, it does not replace any" % rel)
 
     def test_only_style_is_removed_and_every_line_of_LGs_behaviour_is_still_there(self):
         self.run_tool()
         for rel in TOUCHED:
             old, new = lines(os.path.join(CENSUS, rel)), lines(os.path.join(self.dir, rel))
-            self.assertEqual(sorted(l for l in old if BEHAVIOUR.search(l)), sorted(l for l in new if BEHAVIOUR.search(l)), rel)
             removed = [l[1:] for l in difflib.unified_diff(old, new, lineterm="", n=0) if l.startswith("-") and not l.startswith("---")]
+            if rel in ADDS_BEHAVIOUR:
+                # the no-signal screen's actions are new behaviour: all of LG's lines stay (its two message bindings now go through a function that
+                # hands LG's own call back for every message but the one of mock 18), and the new lines are only added
+                unwrap = lambda l: re.sub(r"luma(?:Title|Line)\((.*)\) \}\);", r"\1 });", l)
+                gone = collections.Counter(l for l in old if BEHAVIOUR.search(l)) - collections.Counter(unwrap(l) for l in new if BEHAVIOUR.search(l))
+                self.assertEqual(sorted(gone.elements()), [], rel)
+                for l in removed:
+                    self.assertTrue(not BEHAVIOUR.search(l) or "screensaverInterfaces.getDynamic" in l, "%s: removes `%s`" % (rel, l.strip()))
+                continue
+            self.assertEqual(sorted(l for l in old if BEHAVIOUR.search(l)), sorted(l for l in new if BEHAVIOUR.search(l)), rel)
             for l in removed:
                 self.assertIsNone(BEHAVIOUR.search(l), "%s: removes `%s`" % (rel, l.strip()))
 
@@ -352,6 +371,41 @@ class InputcommonPatch(unittest.TestCase):
             shutil.rmtree(self.dir)
             shutil.copytree(CENSUS, self.dir)
 
+    def test_the_no_signal_actions_read_on_black_in_both_materials(self):
+        """The words on the lit action 4.5:1, its ring 3:1 against the black and against the lit wash, and the resting hairline is faint on purpose
+        (the button's words carry it). Composited on black like the words above, with the ring over the wash it is drawn on."""
+        def part(c):
+            c = c / 255
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        def luma(rgb):
+            return 0.2126 * part(rgb[0]) + 0.7152 * part(rgb[1]) + 0.0722 * part(rgb[2])
+
+        def ratio(a, b):
+            hi, lo = max(luma(a), luma(b)), min(luma(a), luma(b))
+            return (hi + 0.05) / (lo + 0.05)
+
+        def over(name, under, style):
+            m = re.search(r'property string %s: "#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{2})"' % name, style)
+            self.assertIsNotNone(m, name)
+            a, *rgb = (int(v, 16) for v in m.groups())
+            return tuple(c * a / 255 + u * (1 - a / 255) for c, u in zip(rgb, under))
+
+        for light in (False, True):
+            self.assertEqual(self.run_tool(palette(light))[0], 0)
+            style = self.read(LUMA)
+            black = (0, 0, 0)
+            lit = over("noSignalLitColor", black, style)
+            where = "in the %s material" % ("light" if light else "dark")
+            self.assertGreaterEqual(ratio(over("noSignalButtonColor", lit, style), lit), 4.5, "words on the lit action " + where)
+            self.assertGreaterEqual(ratio(over("noSignalButtonColor", over("noSignalWashColor", black, style), style), over("noSignalWashColor", black, style)), 4.5,
+                                    "words on the action at rest " + where)
+            ring = over("noSignalRingColor", lit, style)
+            self.assertGreaterEqual(ratio(ring, black), 3, "ring on black " + where)
+            self.assertGreaterEqual(ratio(ring, lit), 3, "ring on the lit wash " + where)
+            shutil.rmtree(self.dir)
+            shutil.copytree(CENSUS, self.dir)
+
 
 @unittest.skipUnless(os.path.isdir(CENSUS) and DISPLAY and HAVE_QT, "needs the census copy of LG's tree, Xvfb and PyQt5")
 class PatchedBannersInTheHost(unittest.TestCase):
@@ -454,7 +508,8 @@ class PatchedBannersInTheHost(unittest.TestCase):
             from PIL import Image, ImageChops
         except ImportError:
             self.skipTest("needs Pillow")
-        for scene in ("pill", "focused-pill", "ok", "detail", "update", "channel", "channel-ok", "channel-detail", "banner-edit", "alert", "nosignal", "nosignal-photo"):
+        for scene in ("pill", "focused-pill", "ok", "detail", "update", "channel", "channel-ok", "channel-detail", "channel-guide", "channel-guide-focused", "banner-edit", "alert",
+                      "nosignal", "nosignal-photo", "nosignal-tv"):
             shots = []
             for stale in (False, True):
                 path = os.path.join(self.tmp.name, "%s-%s.png" % (scene, stale))
@@ -508,7 +563,7 @@ class PatchedBannersInTheHost(unittest.TestCase):
         rc, out = self.run_host("--scene", "ok", "--wait", "1500", "--probe", "1200:option:hasFocus", "--probe", "1200:simpleBanner:hasFocus")
         self.assertEqual((self.probe(out, "option", "hasFocus"), self.probe(out, "simpleBanner", "hasFocus")), ("false", "true"))
 
-    LIVE_TV_SCENES = ("channel", "channel-ok", "channel-detail", "nosignal", "nosignal-photo", "banner-edit", "alert")
+    LIVE_TV_SCENES = ("channel", "channel-ok", "channel-detail", "channel-guide", "channel-guide-focused", "nosignal", "nosignal-photo", "nosignal-tv", "banner-edit", "alert")
 
     def test_the_live_tv_the_no_signal_and_the_prompt_scenes_load_clean_stock_and_patched(self):
         for scene in self.LIVE_TV_SCENES:
@@ -590,8 +645,54 @@ class PatchedBannersInTheHost(unittest.TestCase):
                 self.assertEqual(rc, 0, out[-800:])
                 from PyQt5.QtGui import QImage
                 img = QImage(png)
-                lit = max(img.pixelColor(x, y).lightness() for x in range(0, 1920, 3) for y in range(300, 700, 3))
+                lit = max(img.pixelColor(x, y).lightness() for x in range(0, 1920, 3) for y in range(0, 1080, 3))     # the block hops: it can be anywhere
             self.assertGreater(lit, 140, "the words are not light on black: %s" % extra)
+
+    def test_the_no_signal_screen_of_an_input_is_mock_18s_and_its_actions_call_what_LGs_keys_call(self):
+        """The glyph, the input's name, the title, the line and Inputs (focused, as in the mock) and Home; OK opens the input picker the way LG's
+        Input key does, Right then OK goes Home."""
+        rc, out = self.run_host("--scene", "nosignal", "--wait", "2400", "--probe", "800:lumaPlug:visible", "--probe", "800:lumaPort:text",
+                                "--probe", "800:randomMoveHeader:text", "--probe", "800:randomMoveBody:text", "--probe", "800:lumaInputs:hasFocus",
+                                "--probe", "800:lumaHome:hasFocus", "--probe", "800:lumaInputs:height", "--probe", "800:randomMoveHeader:font.family",
+                                "--press", "1000:OK", "--press", "1300:RIGHT", "--probe", "1500:lumaHome:hasFocus", "--press", "1600:OK")
+        self.assertEqual(rc, 0, out[-800:])
+        self.assertEqual(self.probe(out, "lumaPlug", "visible"), "true")
+        self.assertEqual(self.probe(out, "lumaPort", "text"), "HDMI 2")
+        self.assertEqual(self.probe(out, "randomMoveHeader", "text"), "Nothing is connected here")
+        self.assertEqual(self.probe(out, "randomMoveBody", "text"),
+                         "Plug a device into HDMI 2, or pick another input. The screen stays dark to protect the panel.")
+        self.assertEqual((self.probe(out, "lumaInputs", "hasFocus"), self.probe(out, "lumaHome", "hasFocus")), ("true", "false"))
+        self.assertGreaterEqual(int(self.probe(out, "lumaInputs", "height")), 60)
+        self.assertEqual(self.probe(out, "randomMoveHeader", "font.family"), "Manrope")
+        self.assertEqual(re.findall(r"\[probe\] lumaHome\.hasFocus=(\S+)", out), ["false", "true"])
+        self.assertEqual(re.findall(r"\[luna\] (launch\w+(?: \S+)?)", out), ["launchSystemUI com.webos.app.quickinputpicker", "launchDefaultAppWithHome"])
+
+    def test_every_other_message_keeps_LGs_block(self):
+        """The tuner's no signal (and, by the same condition, a blocked input or an unsupported format) is LG's words, and the screen takes no keys;
+        LG's own photo mode draws no block of mock 18 either."""
+        for scene in ("nosignal-tv", "nosignal-photo"):
+            rc, out = self.run_host("--scene", scene, "--wait", "1500", "--probe", "800:lumaPlug:visible", "--probe", "800:lumaInputs:visible", "--probe", "800:ScreensaverView:needKeyFocus")
+            self.assertEqual(rc, 0, "%s: %s" % (scene, out[-800:]))
+            self.assertEqual(self.probe(out, "lumaPlug", "visible"), "false", scene)
+            self.assertEqual(self.probe(out, "lumaInputs", "visible"), "false", scene)
+            self.assertEqual(self.probe(out, "ScreensaverView", "needKeyFocus"), "false", scene)
+        rc, out = self.run_host("--scene", "nosignal-tv", "--wait", "1500", "--probe", "800:randomMoveHeader:text")
+        self.assertEqual(self.probe(out, "randomMoveHeader", "text"), "No Signal")
+
+    def test_the_guide_chip_is_a_pill_on_the_sheet_and_not_LGs_grey_when_the_style_sheet_is_LGs_own(self):
+        """The chip under the channel banner was flat grey on the set (round 18): SimpleButton read the patched sheet's names, which the process
+        restored from LG's dump does not have. It is a lit pill on focus, and OK calls LG's guide."""
+        out = self.stale("channel-guide", "tvGuideButton:bgColor.a", "tvGuideButton:bgNormalColor", "tvGuideButton:lumaPill", "tvGuideButton:x",
+                         "tvGuideButton:label.font.family")
+        self.assertEqual(self.probe(out, "tvGuideButton", "lumaPill"), "true")
+        self.assertGreater(float(self.probe(out, "tvGuideButton", "bgColor.a")), 0.5)
+        self.assertNotEqual(self.probe(out, "tvGuideButton", "bgNormalColor").lower(), "#7d848c")
+        self.assertEqual(int(self.probe(out, "tvGuideButton", "x")), 64)
+        self.assertEqual(self.probe(out, "tvGuideButton", "label.font.family"), "Manrope")
+        rc, out = self.run_host("--scene", "channel-guide-focused", "--stale-sheet", "--wait", "1500", "--probe", "700:tvGuideButton:hasFocus", "--press", "800:OK")
+        self.assertEqual(rc, 0, out[-800:])
+        self.assertEqual(self.probe(out, "tvGuideButton", "hasFocus"), "true")
+        self.assertEqual(self.luna(out), ["launchTVGuide"])
 
 
 if __name__ == "__main__":

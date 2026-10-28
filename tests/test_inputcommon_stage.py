@@ -41,7 +41,11 @@ TOUCHED = sorted(["UserInterfaceLayer/GlobalStyle.qml", BANNER + "InputBanner/Si
                   BANNER + "BannerItems/DetailInfoItem.qml", BANNER + "BannerItems/ProgressBar.qml", BANNER + "BannerItems/RecInfoIcon.qml",
                   BANNER + "ChannelBanner/MiniBanner.qml", BANNER + "InputBanner/MiniBanner.qml", BANNER + "DvrInfoView.qml", BANNER + "SimilarListView.qml",
                   "UserInterfaceLayer/Containers/PopupLayer/DpmsPopup.qml", "UserInterfaceLayer/Containers/PopupLayer/EwsUsView.qml",
-                  "UserInterfaceLayer/Components/LumaStyle.qml"])
+                  "UserInterfaceLayer/Components/LumaStyle.qml",
+                  # added beside LG's: the no-signal screen's glyph and buttons and the pictures the glyphs draw; the screen saver's loader and the call for the input picker
+                  BG + "LumaGlyph.qml", BG + "LumaNoSignalButton.qml", BANNER + "Deeplink/DeeplinkView.qml", "UserInterfaceLayer/Containers/BgViewLayer.qml",
+                  "Interfaces/CommonInterfaces/CommonInterfaces.qml", "Interfaces/CommonInterfaces/AppServices.js",
+                  "UserInterfaceLayer/Images/luma/cable.png", "UserInterfaceLayer/Images/luma/house.png", "UserInterfaceLayer/Images/luma/unplug.png"])
 DUMP = "com.webos.app.inputcommon"
 ASIDE = ".lumatv-aside." + DUMP
 

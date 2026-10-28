@@ -84,6 +84,12 @@ def _(out_dir, material):
     return render("20-lg-channel-info", out_dir, material, "channel-detail")
 
 
+@scene("20-lg-channel-guide", runner=True)
+def _(out_dir, material):
+    # the chip under the banner, with the focus
+    return render("20-lg-channel-guide", out_dir, material, "channel-guide-focused")
+
+
 @scene("18-lg-no-signal", runner=True)
 def _(out_dir, material):
     return render("18-lg-no-signal", out_dir, material, "nosignal")
