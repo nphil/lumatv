@@ -203,6 +203,8 @@ def main(argv=None):
                     help='load LumaOverlay.qml beside the surface, as the fullscreen container does: the surface is hidden while its `hostActive` is false, '
                          'and `overlay` is the overlay\'s name in --eval (set `overlay.appFront = true` for an app in front)')
     ap.add_argument('--bgimage', metavar='PNG', help='a picture stretched behind everything: what an app (video) would show')
+    ap.add_argument('--wallpaper', metavar='PNG', help='the picture staged as the theme directory\'s wall_1080.png (the host otherwise stages the first PNG of payload/wallpaper, '
+                                                     'which is not always the shipped wallpaper)')
     a = ap.parse_args(argv)
 
     data = os.path.abspath(a.data) if a.data else tempfile.mkdtemp(prefix='qmlhost-')
@@ -211,6 +213,8 @@ def main(argv=None):
     os.makedirs(data, exist_ok=True)
     src = os.path.join(ROOT, 'payload', 'compositor', 'lumatv')
     mod = stage(data, src)
+    if a.wallpaper:
+        shutil.copy(a.wallpaper, os.path.join(data, 'theme', 'wall_1080.png'))
     for spec in a.cache:
         name, _, text = spec.partition('=')
         with open(os.path.join(data, 'cache', name + '.json'), 'w') as f:

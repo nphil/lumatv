@@ -8,6 +8,7 @@ import TextFile 1.0
 import "LumaBus.js" as Bus
 import "Tint.js" as Tint
 import "LayoutGrid.js" as Grid
+import "WallVideo.js" as WallPick
 import "kit"
 import "kit/Match.js" as Match
 import "settings/AppKeys.js" as AppKeys
@@ -262,6 +263,38 @@ Item {
     property string layerOpen: ""             // the layer that has the keys, one Home opened itself (the quick panel, the library, a menu)
     readonly property bool saverUp: layers.saverUp   // the screensaver is over Home (the shell reports it under LumaTV's compositor)
 
+    // ============================================================= the moving wallpaper on the video plane
+    // Home's wallpaper as a clip the TV's video decoder plays (vplane/; WallVideo.qml asks the player, WallVideo.js picks the clip; docs/research/
+    // videoplane-saver-result.md, "The moving wallpaper"), so the idle Home's frames are not the GPU's. `theme.wallpaperMotion.source` is "gpu"
+    // (the default: nothing here runs) or "video".
+    //
+    // It works under LumaTV's compositor only, whose wallpaper window (the player's) is under Home's: the shell sets `videoWallBackend` to "own"
+    // and `videoWallHole` from the compositor's `wall` topic (compositor/shell/Shell.qml). Under LG's compositor neither is set and the GPU
+    // wallpaper is drawn, as it always was.
+    //
+    // While the clip plays the GPU wallpaper is not drawn at all, so Home's window is transparent where it was: the plane shows through and
+    // what Home draws above it (the glass, the widgets, the dock) is blended over the video by the display engine. Glass cannot blur a plane the
+    // GPU cannot sample, so it keeps the blur of the picture the clip is made from (the clip is that picture in slow motion), or with
+    // `theme.wallpaperMotion.glass: "tint"` it is a flat tint over the video, opaque enough for its ink to read over the brightest the clip gets
+    // (the clip's `glass.alpha`, measured when it was made).
+    property string videoWallBackend: ""
+    property bool videoWallHole: false
+    readonly property var wallPick: wallVideo.pick(theme.wallpaper, wallMotion, (theme.dark && theme.dark.wallScrim) || [])
+    // The clip is the dark material's picture: the light material, another wallpaper or a look other than the clip's draws the GPU wallpaper.
+    readonly property bool videoWallWanted: videoWallBackend === "own" && wallMotion.source === "video" && wallMotionOn && !isLight
+                                            && hostActive && !idleHold && !saverUp && !!wallPick.entry
+    readonly property bool videoWallUp: wallVideo.up
+    readonly property alias videoWall: wallVideo       // the controller (state, reason, status): the host's tests and the TV steps read it
+    WallVideo { id: wallVideo; want: root.videoWallWanted; clip: WallPick.clipName(root.wallPick.entry); hole: root.videoWallHole; Component.onCompleted: loadManifest() }
+    Connections { target: root; onHostActiveChanged: if (root.hostActive) wallVideo.loadManifest() }
+    // The GPU wallpaper fades out over the plane's first pictures (the plane shows the same one) and is back the moment the plane goes.
+    property real gpuWall: 1
+    onVideoWallUpChanged: { gpuFade.stop(); if (videoWallUp) { gpuFade.from = gpuWall; gpuFade.to = 0; gpuFade.start() } else gpuWall = 1 }
+    NumberAnimation { id: gpuFade; target: root; property: "gpuWall"; duration: root.layerMs; easing.type: Easing.InOutQuad }
+    readonly property bool wallGlassTint: videoWallUp && gpuWall < 0.001 && wallMotion.glass === "tint" && !!wallPick.entry
+    Binding { target: Lu; property: "homeFill"; value: root.wallGlassTint ? root.wallPick.entry.glass.alpha : 1 }
+    property bool liveWallOn: wallMotionOn && wallpaperImg.status === Image.Ready      // the GPU wallpaper is the warped one (else the graded still)
+
     // ============================================================= Home stub contract
     // With the Home stub (tools/lumatv homestub) this layer is the only Home, so
     // something outside the compositor has to notice when it stops drawing: a file
@@ -451,13 +484,14 @@ Item {
 
     // ============================================================= wallpaper + one cached blur
     property string wallpaperFit: (layout.background && layout.background.wallpaperFit) || "1:1"
-    Rectangle { anchors.fill: parent; z: -3; color: (layout.background && layout.background.color) || "#0b0910" }
+    Rectangle { anchors.fill: parent; z: -3; color: (layout.background && layout.background.color) || "#0b0910"; visible: root.gpuWall > 0.001; opacity: root.gpuWall }
     Rectangle {
         // theme.<mat>.wallScrim: 3 stops at 0 / 55 / 100 %. Drawn by the live wallpaper's shader
         // while that is on, so the screen carries one full-screen quad, not two.
         anchors.fill: parent
         z: -1
-        visible: !liveWall.visible
+        visible: !root.liveWallOn && root.gpuWall > 0.001
+        opacity: root.gpuWall
         gradient: Gradient {
             GradientStop { position: 0.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0]) }
             GradientStop { position: 0.55; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1]) }
@@ -507,7 +541,8 @@ Item {
         textureSize: Qt.size(1920, 1080)
         live: false
         z: -2
-        visible: !liveWall.visible && wallpaperImg.status === Image.Ready   // the still path draws the graded texture
+        visible: !root.liveWallOn && wallpaperImg.status === Image.Ready && root.gpuWall > 0.001   // the still path draws the graded texture
+        opacity: root.gpuWall
         Connections { target: wallpaperImg; onStatusChanged: if (wallpaperImg.status === Image.Ready) gradedTex.scheduleUpdate() }
     }
 
@@ -532,15 +567,17 @@ Item {
     // a full-screen overlay): the tick stops then, so a Home nobody sees draws nothing. Never set under LG's compositor.
     property bool idleHold: false
     Timer {
-        interval: Math.round(1000 / (root.wallMotion.fps || 10))
-        running: root.hostActive && !root.idleHold
+        // With the clip on the plane the wallpaper has nothing to advance and the tick is the clock's alone (its second hand): once a second. The
+        // tick stops under the saver as well: Home is not seen then.
+        interval: root.videoWallUp ? 1000 : Math.round(1000 / (root.wallMotion.fps || 10))
+        running: root.hostActive && !root.idleHold && !root.saverUp
         repeat: true
         onTriggered: {
             var now = Date.now()
             var dt = now - root.lastTickMs
             if (dt <= 0 || dt > 200) dt = interval
             root.lastTickMs = now
-            if (liveWall.visible) liveWall.t += dt / 1000 * liveWall.speed
+            if (root.liveWallOn && !root.videoWallUp) liveWall.t += dt / 1000 * liveWall.speed
             root.frameTick++
         }
     }
@@ -548,7 +585,8 @@ Item {
         id: liveWall
         anchors.fill: parent
         z: -2
-        visible: root.wallMotionOn && wallpaperImg.status === Image.Ready
+        visible: root.liveWallOn && root.gpuWall > 0.001
+        opacity: root.gpuWall
         property variant src: gradedTex
         property real t: 0
         property real amp: (root.wallMotion.amplitude || 4) / 1920
@@ -651,12 +689,14 @@ Item {
     }
     ShaderEffectSource {
         id: blurTex
-        sourceItem: satPass
+        sourceItem: root.wallGlassTint ? flatPlate : satPass
         width: 960; height: 540
         textureSize: Qt.size(960, 540)
         visible: false
         smooth: true
     }
+    // The tint-only glass's backdrop: one flat colour, the mean of the clip's pictures (the pane then reads as the frosted look in colour).
+    Rectangle { id: flatPlate; width: 960; height: 540; visible: false; color: root.wallPick.entry ? root.wallPick.entry.glass.flat : "#111018" }
 
     // ============================================================= focus model
     // "dock" | "widgets" | "statusbar" | "popover"
@@ -1146,7 +1186,7 @@ Item {
                 cardEasing: root.cardEasing
                 motionReduced: root.motionReduced
                 rested: root.focusRested
-                live: root.hostActive
+                live: root.hostActive && !root.saverUp
                 frameTick: root.frameTick
                 onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData) root.focusLayer = "widgets" }
             }

@@ -322,6 +322,11 @@ impl Client {
 
     /// An shm buffer filled with one premultiplied ARGB value.
     pub fn shm_buffer(&mut self, w: i32, h: i32, argb: u32) -> WlBuffer {
+        self.shm_pattern(w, h, move |_, _| argb)
+    }
+
+    /// An shm buffer whose pixel at (x, y) is `pixel(x, y)`, premultiplied ARGB.
+    pub fn shm_pattern(&mut self, w: i32, h: i32, pixel: impl Fn(i32, i32) -> u32) -> WlBuffer {
         let stride = w * 4;
         let size = stride * h;
         // SAFETY: memfd for the test; sized and mapped below.
@@ -331,8 +336,10 @@ impl Client {
         let file = std::fs::File::from(fd.try_clone().unwrap());
         file.set_len(size as u64).unwrap();
         let mut bytes = Vec::with_capacity(size as usize);
-        for _ in 0..(w * h) {
-            bytes.extend_from_slice(&argb.to_le_bytes());
+        for y in 0..h {
+            for x in 0..w {
+                bytes.extend_from_slice(&pixel(x, y).to_le_bytes());
+            }
         }
         std::io::Write::write_all(&mut &file, &bytes).unwrap();
         let pool = self.shm.create_pool(fd.as_fd(), size, &self.qh, ());

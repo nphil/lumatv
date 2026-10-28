@@ -50,6 +50,7 @@
 #define STATUS_PLAYING_MS 5000
 #define STATUS_IDLE_MS 60000
 #define QUEUE_LIMIT 12
+#define WALL_WINDOW 16          /* the wallpaper's window is this many pixels square: it draws nothing, the video's rectangle is the element's */
 
 /* ---- log, clock, parameters ---------------------------------------------------------------------------------------------- */
 
@@ -109,6 +110,7 @@ void vpl_params_default(vpl_params *p) {
     p->ink2 = 0xF2EFF6;
     p->ink2Alpha = 118;
     p->ttlMs = 30000;
+    snprintf(p->role, sizeof p->role, "saver");
 }
 
 static int clampi(int64_t v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : (int)v; }
@@ -145,6 +147,8 @@ static void params_from(vpl_params *p, const char *j, size_t n) {
     p->everyMs = clampi(vj_int(j, n, "everyMs", p->everyMs), 0, 24 * 3600 * 1000);
     char at[8];
     if (vj_str(j, n, "clockAt", at, sizeof at) >= 0) snprintf(p->clockAt, sizeof p->clockAt, "%s", at);
+    char role[8];
+    if (vj_str(j, n, "role", role, sizeof role) > 0 && (!strcmp(role, "saver") || !strcmp(role, "wall"))) snprintf(p->role, sizeof p->role, "%s", role);
 }
 
 /* ---- the player ---------------------------------------------------------------------------------------------------------- */
@@ -152,8 +156,15 @@ static void params_from(vpl_params *p, const char *j, size_t n) {
 enum state { ST_IDLE, ST_OPENING, ST_PLAYING, ST_ERROR };
 static const char *const STATE_NAME[] = {"idle", "opening", "playing", "error"};
 
+/* What the player is playing for. The saver is the art mode (prints, veil, caption, clock, drift: the rest of this file). The wall is Home's moving
+ * wallpaper: one looping clip of the screen's size at the screen's origin and nothing else, in a window of a type of LumaTV's own compositor
+ * (`_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`, under Home). One decoder, so one role at a time: the saver takes the player from the wall, the wall never from the saver. */
+enum role { ROLE_SAVER, ROLE_WALL };
+static const char *const ROLE_NAME[] = {"saver", "wall"};
+static int role_of(const char *name) { return name && !strcmp(name, "wall") ? ROLE_WALL : ROLE_SAVER; }
+
 struct options {
-    const char *dir, *clips, *ndl_lib, *app_id, *window, *wake_cmd;
+    const char *dir, *clips, *ndl_lib, *app_id, *window, *wall_window, *wake_cmd;
     int export_first, mem_floor_kb, open_timeout_ms;
     const char *once_clip;
     int once_seconds;
@@ -166,8 +177,11 @@ struct player {
     char reason[200];
 
     /* clips */
-    int nclips;
+    int nclips;                    /* the prints: every clip that is not a wall */
     char names[VPL_MAX_CLIPS][64];
+    int nwalls, wcur;              /* the wall clips (`wall-*.vpc`), and the one playing */
+    char wnames[VPL_MAX_CLIPS][64];
+    int role;                      /* ROLE_SAVER or ROLE_WALL while a session is open */
     vpc_t clip;
     int clip_open, cur;
     vpl_order order;
@@ -250,13 +264,20 @@ static void write_status(struct player *p) {
     char path[512], tmp[560], buf[1400];
     long avail, cma;
     meminfo(&avail, &cma);
+    const char *clip_name = "";
+    if (p->st >= ST_OPENING && p->st != ST_ERROR) {
+        if (p->role == ROLE_WALL) clip_name = p->wcur >= 0 && p->wcur < p->nwalls ? p->wnames[p->wcur] : "";
+        else clip_name = p->cur >= 0 && p->cur < p->nclips ? p->names[p->cur] : "";
+    }
     int n = snprintf(buf, sizeof buf,
                      "{\"v\":1,\"pid\":%d,\"ts\":%lld,\"state\":\"%s\",\"reason\":\"%s\",\"seq\":%lld,\"clip\":\"%s\",\"clips\":%d,"
+                     "\"role\":\"%s\",\"walls\":%d,"
                      "\"window\":\"%s\",\"windowId\":\"%s\",\"playingMs\":%lld,\"fed\":%llu,\"full\":%llu,\"skipped\":%llu,\"queue\":%d,"
                      "\"events\":\"%s\",\"drift\":[%d,%d],\"veil\":%d,\"phase\":%d,\"memAvailKb\":%ld,\"cmaFreeKb\":%ld,\"rssKb\":%ld}\n",
-                     (int)getpid(), (long long)vpl_wall_ms(), STATE_NAME[p->st], p->reason, (long long)p->last_seq,
-                     p->cur >= 0 && p->cur < p->nclips && p->st >= ST_OPENING && p->st != ST_ERROR ? p->names[p->cur] : "", p->nclips,
-                     p->o.window, p->window_id, p->st == ST_PLAYING ? (long long)(vpl_ms() - p->playing_ms) : 0LL,
+                     (int)getpid(), (long long)vpl_wall_ms(), STATE_NAME[p->st], p->reason, (long long)p->last_seq, clip_name, p->nclips,
+                     p->st >= ST_OPENING && p->st != ST_ERROR ? ROLE_NAME[p->role] : "", p->nwalls,
+                     p->role == ROLE_WALL && p->st != ST_IDLE ? p->o.wall_window : p->o.window, p->window_id,
+                     p->st == ST_PLAYING ? (long long)(vpl_ms() - p->playing_ms) : 0LL,
                      (unsigned long long)p->fed, (unsigned long long)p->full, (unsigned long long)p->skipped, p->ndl_ready && p->ndl ? vpl_ndl_queued(p->ndl) : -1,
                      p->events, p->dx, p->dy, p->veil, p->phase, avail, cma, rss_kb());
     snprintf(path, sizeof path, "%s/status.json", p->o.dir);
@@ -273,20 +294,30 @@ static void write_status(struct player *p) {
 
 static int by_name(const void *a, const void *b) { return strcmp((const char *)a, (const char *)b); }
 
+/* The clips in the directory: `wall-*.vpc` are the moving wallpaper's (one looping clip each), every other one is a print of the art mode. */
+static int is_wall(const char *name) { return !strncmp(name, "wall-", 5); }
+
 static void scan_clips(struct player *p) {
     p->nclips = 0;
+    p->nwalls = 0;
     DIR *d = opendir(p->o.clips);
     if (!d) return;
     struct dirent *e;
-    while ((e = readdir(d)) && p->nclips < VPL_MAX_CLIPS) {
+    while ((e = readdir(d))) {
         size_t l = strlen(e->d_name);
         if (l < 5 || l - 4 >= sizeof p->names[0] || strcmp(e->d_name + l - 4, ".vpc") != 0) continue;
-        memcpy(p->names[p->nclips], e->d_name, l - 4);
-        p->names[p->nclips][l - 4] = 0;
-        p->nclips++;
+        char (*into)[64];
+        int *count;
+        if (is_wall(e->d_name)) into = p->wnames, count = &p->nwalls;
+        else into = p->names, count = &p->nclips;
+        if (*count >= VPL_MAX_CLIPS) continue;
+        memcpy(into[*count], e->d_name, l - 4);
+        into[*count][l - 4] = 0;
+        (*count)++;
     }
     closedir(d);
     qsort(p->names, (size_t)p->nclips, sizeof p->names[0], by_name);
+    qsort(p->wnames, (size_t)p->nwalls, sizeof p->wnames[0], by_name);
 }
 
 static int open_clip(struct player *p, int idx, char *err, size_t cap) {
@@ -316,6 +347,25 @@ static int open_clip(struct player *p, int idx, char *err, size_t cap) {
         if (vpt_open(&p->cap, path, cerr, sizeof cerr) == 0) p->have_cap = 1;
         else vpl_say("no caption: %s", cerr);
     }
+    return 0;
+}
+
+/* The wall clip `idx`: the one clip of a wall session. It has no caption and no clock; the pipeline is loaded for it. */
+static int open_wall(struct player *p, int idx, char *err, size_t cap) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/%s.vpc", p->o.clips, p->wnames[idx]);
+    vpc_t c;
+    if (vpc_open(&c, path, err, cap) != 0) return -1;
+    if (c.width != 1920 || c.height != 1080) {
+        vpc_close(&c);
+        snprintf(err, cap, "%s is %ux%u, the wallpaper's clips are 1920x1080", p->wnames[idx], c.width, c.height);
+        return -1;
+    }
+    p->clip = c;
+    p->clip_open = 1;
+    p->wcur = idx;
+    p->cur = -1;
+    p->unit = 0;
     return 0;
 }
 
@@ -391,28 +441,55 @@ static void begin(struct player *p, const char *req, size_t n) {
     }
     vpl_params_default(&p->prm);
     params_from(&p->prm, req, n);
+    char named[8];
+    if (vj_str(req, n, "role", named, sizeof named) <= 0 && is_wall(p->prm.clip)) snprintf(p->prm.role, sizeof p->prm.role, "wall");   /* `--once wall-x` */
+    p->role = role_of(p->prm.role);
     scan_clips(p);
-    if (p->nclips == 0) {
-        to_error(p, "no clips");
-        return;
-    }
-    vpl_order_init(&p->order, p->nclips);
-    vpl_rng_seed(&p->rng, (uint32_t)(vpl_wall_ms() ^ ((int64_t)getpid() << 16)));
-    int first = -1;
-    if (p->prm.clip[0])
-        for (int i = 0; i < p->nclips; i++)
-            if (!strcmp(p->names[i], p->prm.clip)) first = i;
-    if (first < 0) first = vpl_order_next(&p->order, p->prm.shuffle, &p->rng);
-    p->order.current = first;
     p->clip_open = 0;
-    if (open_clip(p, first, err, sizeof err) != 0) {
-        to_error(p, err);
-        return;
+    p->cur = -1;
+    p->wcur = -1;
+    int first = -1;
+    if (p->role == ROLE_WALL) {
+        /* nothing is drawn in the wall's window, nothing drifts or changes: one clip, looped */
+        p->prm.overlay = p->prm.drift = p->prm.autoChange = p->prm.clock = p->prm.caption = p->prm.dim = 0;
+        if (p->nwalls == 0) {
+            to_error(p, "no wall clips");
+            return;
+        }
+        if (p->prm.clip[0]) {
+            for (int i = 0; i < p->nwalls; i++)
+                if (!strcmp(p->wnames[i], p->prm.clip)) first = i;
+            if (first < 0) {
+                snprintf(err, sizeof err, "no wall clip named %s", p->prm.clip);
+                to_error(p, err);
+                return;
+            }
+        } else first = 0;
+        if (open_wall(p, first, err, sizeof err) != 0) {
+            to_error(p, err);
+            return;
+        }
+    } else {
+        if (p->nclips == 0) {
+            to_error(p, "no clips");
+            return;
+        }
+        vpl_order_init(&p->order, p->nclips);
+        vpl_rng_seed(&p->rng, (uint32_t)(vpl_wall_ms() ^ ((int64_t)getpid() << 16)));
+        if (p->prm.clip[0])
+            for (int i = 0; i < p->nclips; i++)
+                if (!strcmp(p->names[i], p->prm.clip)) first = i;
+        if (first < 0) first = vpl_order_next(&p->order, p->prm.shuffle, &p->rng);
+        p->order.current = first;
+        if (open_clip(p, first, err, sizeof err) != 0) {
+            to_error(p, err);
+            return;
+        }
+        char path[600];
+        snprintf(path, sizeof path, "%s/clock.vpg", p->o.clips);
+        if (p->prm.overlay && vpg_open(&p->glyphs, path, err, sizeof err) == 0) p->have_glyphs = 1;
+        else if (p->prm.overlay) vpl_say("no corner clock: %s", err);
     }
-    char path[600];
-    snprintf(path, sizeof path, "%s/clock.vpg", p->o.clips);
-    if (p->prm.overlay && vpg_open(&p->glyphs, path, err, sizeof err) == 0) p->have_glyphs = 1;
-    else if (p->prm.overlay) vpl_say("no corner clock: %s", err);
 
     if (!p->ndl && vpl_ndl_open_lib(&p->ndl, p->o.ndl_lib, err, sizeof err) != 0) {
         to_error(p, err);
@@ -420,7 +497,12 @@ static void begin(struct player *p, const char *req, size_t n) {
     }
     vpl_wl_opts wo = {.app_id = p->o.app_id, .title = "LumaTV saver", .width = SCREEN_W, .height = SCREEN_H, .state = 3,
                       .export_first = p->o.export_first, .timeout_ms = 3000};
-    if (!strcmp(p->o.window, "screensaver")) wo.window_type = "_WEBOS_WINDOW_TYPE_SCREENSAVER", wo.play_video = 1;
+    if (p->role == ROLE_WALL) {
+        /* a surface of its own type and no picture: the video's rectangle is the element's, so the window need not be the screen's size */
+        wo.title = "LumaTV wallpaper";
+        wo.window_type = p->o.wall_window;
+        wo.width = wo.height = WALL_WINDOW;
+    } else if (!strcmp(p->o.window, "screensaver")) wo.window_type = "_WEBOS_WINDOW_TYPE_SCREENSAVER", wo.play_video = 1;
     else if (!strcmp(p->o.window, "card")) wo.window_type = "_WEBOS_WINDOW_TYPE_CARD";
     else if (!strcmp(p->o.window, "overlay")) wo.window_type = "_WEBOS_WINDOW_TYPE_OVERLAY";
     if (vpl_wl_open(&p->wl, &wo, err, sizeof err) != 0) {
@@ -463,7 +545,10 @@ static void begin(struct player *p, const char *req, size_t n) {
     p->change_now = 0;
     p->want_clip = -1;
     p->clock_text[0] = 0;
-    vpl_say("opening: window %s as %s, clip %s (%ux%u, %u units), %d clips", p->window_id, p->o.window, p->names[p->cur], p->clip.width, p->clip.height, p->clip.count, p->nclips);
+    if (p->role == ROLE_WALL)
+        vpl_say("opening: window %s as the wallpaper (%s), clip %s (%ux%u, %u units), %d wall clips", p->window_id, p->o.wall_window, p->wnames[p->wcur], p->clip.width, p->clip.height, p->clip.count, p->nwalls);
+    else
+        vpl_say("opening: window %s as %s, clip %s (%ux%u, %u units), %d clips", p->window_id, p->o.window, p->names[p->cur], p->clip.width, p->clip.height, p->clip.count, p->nclips);
     write_status(p);
 }
 
@@ -695,24 +780,39 @@ static void handle_request(struct player *p, const char *req, size_t n) {
         vpl_say("a request of %lld s ago (ttl %d s) was ignored", (long long)((vpl_wall_ms() - sent) / 1000), ttl / 1000);
         return;
     }
+    /* Whose request it is: a request names its role, and one that does not is the saver's (the shell's earlier requests did not). There is one
+     * decoder: the saver takes it from the wallpaper, and the wallpaper's requests never touch a running saver (a stop that was in flight when
+     * the saver began must not end it, and the status's `seq` stays the saver's own). */
+    char rn[8];
+    int role = vj_str(req, n, "role", rn, sizeof rn) > 0 ? role_of(rn) : ROLE_SAVER;
+    int running = p->st == ST_PLAYING || p->st == ST_OPENING;
+    int mine = !running || role == p->role;
+    if (strcmp(op, "status") != 0 && strcmp(op, "start") != 0 && !mine) return;
+    if (!strcmp(op, "start") && running && role == ROLE_WALL && p->role == ROLE_SAVER) {
+        vpl_say("the wallpaper was asked for while the saver plays: ignored");
+        return;
+    }
     p->last_seq = seq;
     if (!strcmp(op, "start")) {
-        if (p->st == ST_PLAYING || p->st == ST_OPENING) {
+        if (running && role == p->role) {
             params_from(&p->prm, req, n);
             p->ttl_ms = vpl_ms() + p->prm.ttlMs;
-        } else begin(p, req, n);
+        } else {
+            if (running) to_idle(p, "the saver has the player");
+            begin(p, req, n);
+        }
     } else if (!strcmp(op, "update")) {
-        if (p->st == ST_PLAYING || p->st == ST_OPENING) {
+        if (running) {
             params_from(&p->prm, req, n);
             p->ttl_ms = vpl_ms() + p->prm.ttlMs;
             paint_all(p);
         }
     } else if (!strcmp(op, "renew")) {
-        if (p->st == ST_PLAYING || p->st == ST_OPENING) p->ttl_ms = vpl_ms() + ttl;
+        if (running) p->ttl_ms = vpl_ms() + ttl;
     } else if (!strcmp(op, "status")) {
         write_status(p);                                      /* a fresh reading (the tests, and the TV steps, ask for one) */
     } else if (!strcmp(op, "next")) {
-        if (p->st == ST_PLAYING) {
+        if (p->st == ST_PLAYING && p->role == ROLE_SAVER) {
             char c[64];
             p->want_clip = -1;
             if (vj_str(req, n, "clip", c, sizeof c) > 0)
@@ -755,10 +855,12 @@ static int64_t next_wake_us(struct player *p, int64_t now_ms) {
     if (p->st == ST_OPENING || p->st == ST_PLAYING) {
         SOONER(p->ttl_ms * 1000);
         SOONER(p->next_tick_us);
-        SOONER(p->next_move_ms * 1000);
-        SOONER(p->next_veil_ms * 1000);
-        SOONER(p->next_clock_ms * 1000);
-        if (!p->phase && p->prm.autoChange) SOONER(p->next_change_ms * 1000);
+        if (p->role == ROLE_SAVER) {
+            SOONER(p->next_move_ms * 1000);
+            SOONER(p->next_veil_ms * 1000);
+            SOONER(p->next_clock_ms * 1000);
+            if (!p->phase && p->prm.autoChange) SOONER(p->next_change_ms * 1000);
+        }
         if (p->st == ST_OPENING) SOONER((p->open_ms + p->o.open_timeout_ms) * 1000);
         if (p->once_end_ms) SOONER(p->once_end_ms * 1000);
     } else if (p->st == ST_ERROR) {
@@ -818,7 +920,8 @@ static int run(struct player *p) {
                 if (p->once_end_ms) break;
                 continue;
             }
-            if (p->wl && vpl_wl_activity(p->wl)) {
+            unsigned activity = p->wl ? vpl_wl_activity(p->wl) : 0;     /* (read either way: the wallpaper's window is under Home and gets none, and wakes nothing) */
+            if (activity && p->role == ROLE_SAVER) {
                 wake(p);
                 to_idle(p, "a key or the pointer: the screen was asked for");
                 if (p->once_end_ms) break;
@@ -840,7 +943,7 @@ static int run(struct player *p) {
                 p->st = ST_PLAYING;
                 p->playing_ms = now;
                 p->reason[0] = 0;
-                vpl_say("playing: %s", p->names[p->cur]);
+                vpl_say("playing: %s", p->role == ROLE_WALL ? p->wnames[p->wcur] : p->names[p->cur]);
                 paint_all(p);
                 write_status(p);
             } else if (p->st == ST_OPENING && now - p->open_ms > p->o.open_timeout_ms) {
@@ -848,7 +951,7 @@ static int run(struct player *p) {
                 if (p->once_end_ms) break;
                 continue;
             }
-            if (p->st == ST_PLAYING) {
+            if (p->st == ST_PLAYING && p->role == ROLE_SAVER) {
                 step_change(p, now);
                 if (now >= p->next_veil_ms) {
                     int a = veil_now(p, now);
@@ -887,22 +990,25 @@ static int probe(struct player *p) {
     vpl_ndl *n = NULL;
     int ndl = vpl_ndl_open_lib(&n, p->o.ndl_lib, nerr, sizeof nerr) == 0;
     scan_clips(p);
-    int ok = 0;
+    int ok = 0, walls_ok = 0;
     char first[600] = "";
-    for (int i = 0; i < p->nclips; i++) {
+    for (int i = 0; i < p->nclips + p->nwalls; i++) {
+        int wall = i >= p->nclips;
         vpc_t c;
         char path[600];
-        snprintf(path, sizeof path, "%s/%s.vpc", p->o.clips, p->names[i]);
+        snprintf(path, sizeof path, "%s/%s.vpc", p->o.clips, wall ? p->wnames[i - p->nclips] : p->names[i]);
         if (vpc_open(&c, path, err, sizeof err) == 0) {
-            ok++;
+            if (wall) walls_ok++;
+            else ok++;
             vpc_close(&c);
         } else if (!first[0]) snprintf(first, sizeof first, "%s", err);
     }
     long avail, cma;
     meminfo(&avail, &cma);
-    printf("{\"ndl\":%s,\"ndlError\":\"%s\",\"clips\":%d,\"clipsOk\":%d,\"clipError\":\"%s\",\"memAvailKb\":%ld,\"cmaFreeKb\":%ld}\n", ndl ? "true" : "false", nerr, p->nclips, ok, first, avail, cma);
+    printf("{\"ndl\":%s,\"ndlError\":\"%s\",\"clips\":%d,\"clipsOk\":%d,\"walls\":%d,\"wallsOk\":%d,\"clipError\":\"%s\",\"memAvailKb\":%ld,\"cmaFreeKb\":%ld}\n", ndl ? "true" : "false", nerr,
+           p->nclips, ok, p->nwalls, walls_ok, first, avail, cma);
     if (n) vpl_ndl_free(n);
-    return ndl && ok > 0 && ok == p->nclips ? 0 : 2;
+    return ndl && ok > 0 && ok == p->nclips && walls_ok == p->nwalls ? 0 : 2;
 }
 
 static int vpc_info(const char *path) {
@@ -963,7 +1069,8 @@ int main(int argc, char **argv) {
     static struct player p;
     p.o = (struct options){.dir = getenv("LUMATV_VPLANE_DIR") ? getenv("LUMATV_VPLANE_DIR") : "/tmp/lumatv-vplane",
                            .clips = getenv("LUMATV_VPLANE_CLIPS") ? getenv("LUMATV_VPLANE_CLIPS") : "/var/lib/lumatv/vplane/clips",
-                           .app_id = "org.nphil.lumatv.vplane", .window = "screensaver", .export_first = 1, .mem_floor_kb = 100 * 1024, .open_timeout_ms = 8000,
+                           .app_id = "org.nphil.lumatv.vplane", .window = "screensaver", .wall_window = "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER", .export_first = 1,
+                           .mem_floor_kb = 100 * 1024, .open_timeout_ms = 8000,
                            .wake_cmd = "luna-send -n 1 luna://com.webos.service.tvpower/power/turnOnScreen '{}'"};
     int do_probe = 0;
     for (int i = 1; i < argc; i++) {
@@ -973,6 +1080,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "-L") && i + 1 < argc) p.o.ndl_lib = argv[++i];
         else if (!strcmp(a, "-a") && i + 1 < argc) p.o.app_id = argv[++i];
         else if (!strcmp(a, "-w") && i + 1 < argc) p.o.window = argv[++i];
+        else if (!strcmp(a, "-P") && i + 1 < argc) p.o.wall_window = argv[++i];
         else if (!strcmp(a, "-m") && i + 1 < argc) p.o.mem_floor_kb = atoi(argv[++i]);
         else if (!strcmp(a, "-e") && i + 1 < argc) p.o.export_first = !strcmp(argv[++i], "first");
         else if (!strcmp(a, "-o") && i + 1 < argc) p.o.open_timeout_ms = atoi(argv[++i]);
@@ -985,7 +1093,7 @@ int main(int argc, char **argv) {
             p.o.once_seconds = atoi(argv[i + 2]);
             i += 2;
         } else {
-            fprintf(stderr, "usage: lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-m MEMFLOOR_KB] [-e first|after] [-o OPEN_MS] [-W WAKE_CMD]\n"
+            fprintf(stderr, "usage: lumatv-vplane [-d MAILBOX] [-c CLIPS] [-L NDL_LIB] [-a APP_ID] [-w screensaver|card|overlay|default] [-P WALL_WINDOW_TYPE] [-m MEMFLOOR_KB] [-e first|after] [-o OPEN_MS] [-W WAKE_CMD]\n"
                             "       lumatv-vplane -n | --once CLIP SECONDS | --vpc-info FILE | --calc WHAT ARGS...\n");
             return 2;
         }

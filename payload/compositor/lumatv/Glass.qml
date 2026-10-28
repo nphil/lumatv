@@ -17,8 +17,9 @@ ShaderEffect {
     property real focusMix: 0              // 0..1: tint, edge, rim and sheen, set at once by the owner
     property real liftMix: focusMix        // 0..1: shadow depth, animated by the owner after focus rests
     // The share of the pane's own pixels that is painted: 1 hides what is behind it (Home, where the backdrop is the blurred wallpaper), less lets
-    // that show through the fill (an app's video under the overlay's panes, Lu.readingAlpha). The 1px outline keeps its own weight.
-    property real fillAlpha: 1.0
+    // that show through the fill (an app's video under the overlay's panes, Lu.readingAlpha; Home's own cards over the moving wallpaper's video in
+    // tint-only glass, Lu.homeFill, which is 1 otherwise). The 1px outline keeps its own weight.
+    property real fillAlpha: Lu.homeFill
     property bool isLight: false
     // Card rect in screen space, unscaled: what the backdrop is sampled from.
     property real screenX: 0

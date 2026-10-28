@@ -1,6 +1,6 @@
-# The art saver on the video plane: `lumatv-vplane`
+# The art saver and the moving wallpaper on the video plane: `lumatv-vplane`
 
-Built, host-tested and run once on the set (TvRound8, 2026-10-25 23:35-23:45; evidence `docs/research/round8/tv-2026-10-25/`). The art mode's picture comes from the TV's idle hardware decoder (a still, looped) instead of the GPU. The player works in the Active power state; in LG's Screen Saver power state the panel stays black, so the video saver is off (`theme.screensaver.video`) until that is solved. The saver keeps its GPU path as the fallback.
+Built, host-tested and run once on the set (TvRound8, 2026-10-25 23:35-23:45; evidence `docs/research/round8/tv-2026-10-25/`). The art mode's picture comes from the TV's idle hardware decoder (a still, looped) instead of the GPU. The player works in the Active power state; in LG's Screen Saver power state the panel stays black, so the video saver is off (`theme.screensaver.video`) until that is solved. The saver keeps its GPU path as the fallback. The player's second role plays Home's moving wallpaper ("The moving wallpaper", below): built and host-tested under LumaTV's compositor, off by default (`lumatv wallpaper video`), not yet run on the set.
 
 ## Resume here
 
@@ -12,6 +12,7 @@ Done (host-tested; counts under "Checks run"):
 - The player's window is double-buffered (`vpl_wl.c`): one pool of two 1920x1080 ARGB buffers (2 x 8,294,400 = 16,588,800 bytes), each frame painted whole into the buffer the compositor has released and committed; a buffer is never written between its commit and its `wl_buffer.release`. Before, one shared buffer was repainted in place and a compositor that read it late could take a half-painted frame (veil filled, caption not yet laid: CaptionFlake). With both buffers held the frame waits for a release and is painted from the state as it is then, and the print is not switched under the black until the black frame has been committed. Host-tested with a stand-in compositor that reads late, holds a buffer until the next commit replaces it and flags every write to a held buffer; the TV check is step 16 of "TV steps".
 - The art saver's shuffle bag is kept across restarts (`ArtDeck.js`, `/var/lib/lumatv/theme/saver-deck.json`), on by default, off with `theme.screensaver.art.keepOrder: false`.
 - After the set's run: the role carries every name LG's library registers (the hub refused its nameless handle), the player sets `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` itself (LG's AV connector needs them), the window is opaque black around the picture (the margins showed Home's wallpaper), and the twelve hour clock is twelve hours in both savers (Qt's `h:mm` alone is 0-23).
+- The moving wallpaper (host-tested only): the player's `wall` role, `tools/vplane_wall.py` and `wall-silk.vpc`, the compositor's wallpaper layer with LG's hole order, `WallVideo.qml` and the gating in `LumaHome.qml`, the tint-glass mode, `lumatv wallpaper video|gpu`.
 
 On the set (TV, `--once great-wave 20`, Active state): the print on the video plane (1856x1024, placed by the exported window, drifting), caption and corner clock in the window, Home stays foreground, exit 0. In the Screen Saver state (`power2/turnOnScreenSaver`): the player plays (60 units a second, queue 0-1, nothing skipped) and LG's Flutter saver is evicted by the screensaver-type window, with Mali 1.9 % against LG's saver at 21.9 %, flips 12.3/s, `DE2VSYNC` 121.7/s, the player at 3.6 % of a core and 25 MB RSS, `CmaFree` 149-158 MB; but the display and graphic captures are black while the video capture shows the print and the output is connected and not muted [INFERENCE: LG blanks the output in its Screen Saver power state]. A key wakes to Home in about a second; `MemAvailable` fell 772 to 739 MB (over the 20 MB bar). Also seen: under LG's compositor LumaTV's own GPU saver is not visible in the Screen Saver state, LG's Flutter saver draws its clock over it.
 
@@ -19,7 +20,7 @@ Open, in this order:
 
 1. The black panel in the Screen Saver state. Now avoided rather than solved: `saver-own-result.md` answers LG's idle question with no, so LG's saver is never started, the power state stays Active and the saver (this player included) draws there, where the player showed the print; the Active-state run is its TV check, step 5. A saver LG started anyway (`own` false) still meets the black panel; for that case: find what LG blanks (a capture with the panel watched, `playVideo` as LG's own video saver sets it, `tvpower` and `panelcontroller` logs). Needs the TV.
 2. The `MemAvailable` drop of 34 MB after unload: read against the other idle readings of that session and the GPU saver's code, with an offline cycle test, in `saver-own-result.md` ("The 34 MB question"); its step 9 is the TV measurement over five cycles.
-3. Not built: the moving wallpaper (design below), the Home gating hook, the compositor's hole draw order.
+3. The moving wallpaper on the set (the steps and measurements under "The moving wallpaper") and its path under LG's compositor (the Home stub's `<video>`), which is designed and not built.
 
 Evidence tags: `TV:` measured on this set, `SRC:` LG's firmware tree in the repo, `PUB:` public source, `[INFERENCE]` not run.
 
@@ -60,7 +61,7 @@ The picture is a still: one IDR and 119 predicted skip units at 60 fps, looped f
 | Window (default) | `videoOverlay` unset | The player's own window, above the video, draws them | LG's compositor: the hole (`Eos.PunchThrough`, `z: -1`, SRC `views/punchThrough.js`) sits under the window's pixels, so they show |
 | Shell | `videoOverlay: "shell"` | The saver draws them above a transparent hole; the player's window draws nothing (`overlay:false`) | A compositor that draws the shell above the video plane |
 
-Finding in LumaTV's own compositor (`compositor/crates/lumatv-compositor`, `render/software.rs:125`, `render/gl.rs:776`, `scene.rs`): holes are cleared after the windows are drawn, which erases a window's own pixels inside the video rectangle. Window mode would show no veil, caption or clock there; any app's controls over its own video suffer the same. Fix: clear holes before drawing the windows above them, or use shell mode. Also there: `Screensaver` windows are Cards-layer and foreground-eligible (`window.rs`, `layer()`).
+Fixed with the moving wallpaper (`render/software.rs`, `render/gl.rs`, `scene.rs` of LumaTV's compositor): holes were cleared after the windows were drawn, which erased a window's own pixels inside the video rectangle. Each hole is now cleared just before its owner window's item, as LG's compositor orders it (`Eos.PunchThrough` under the surface), so what a window draws over its own video stays (window mode's veil, caption and clock; an app's controls over its video) and windows above are untouched. Also there: `Screensaver` windows are Cards-layer and foreground-eligible (`window.rs`, `layer()`).
 
 The order of the prints is the saver's in both modes (its bag, kept across restarts): the first print is named in `start` (`clip`), each next one by `next {clip}`, and the player never turns a page by itself (`auto:false`; it does when the saver's index has no prints).
 
@@ -68,7 +69,7 @@ The order of the prints is the saver's in both modes (its bag, kept across resta
 
 Default `-w screensaver`: `_WEBOS_WINDOW_TYPE_SCREENSAVER` with `playVideo: true`. In LG's compositor (SRC `views/StarfishScreenSaverView.qml`) a new saver window makes `onSurfaceAdded` call `close()` on the current one, so the player's window evicts LG's Flutter `com.webos.app.screensaver`, the app behind the as-found 54.5 % [INFERENCE: the animation is LG's saver app]. With `playVideo` the controller sends all apps to the background (SRC `controllers/StarfishViewStateController.qml:615-625`), so the Home stub is held back too. LG's own key path for the saver, `cancel()` to `power2/turnOnScreen`, works for a window it does not own. The saver view is not in the access-policy lists (SRC `controllers/StarfishAccessControlPolicy.qml`) [INFERENCE: it accepts any]; a refusal is `closeWindow(..., windowPolicy)` in the compositor log.
 
-If the screensaver type is refused, or LG's app comes back over it: `-w card`, `-w overlay`, `-w default` (`STATE/vplane/args`, one line, read at the next start). Home still ticks under the saver unless gated: a hook for `LumaHome.qml` (`running: root.hostActive && !layers.saverUp` on the wallpaper timer, the clock and the like) would also help the GPU saver.
+If the screensaver type is refused, or LG's app comes back over it: `-w card`, `-w overlay`, `-w default` (`STATE/vplane/args`, one line, read at the next start). Home no longer ticks under the saver: the wallpaper timer and the widgets' `live` flag are gated on `saverUp` (`LumaHome.qml`).
 
 ## Wake and the way out
 
@@ -108,9 +109,68 @@ No player, an error from the player, no answer in 6 s, a heartbeat gone stale fo
 
 Home has no wallpaper slideshow, so there is no second bag (planned in PLAN.md, "Wallpaper slideshow"; "not built" in `settings-slice-result.md`). When it is built, `ArtDeck.js` fits as it stands: ids, a key for each folder, a check that the file exists.
 
-## Moving wallpaper (not built)
+## The moving wallpaper
 
-Needs files that are not this slice's. Under LG's compositor the Home stub (`payload/homestub/index.html`, a transparent web page) plays an HTML5 `<video loop>` from a variant page that a TV step installs. Under LumaTV's compositor a helper window sits beneath the shell, with a hole contract in `LumaHome.qml` (a transparent wallpaper layer where the video shows). The loop would replicate `liveWall`'s warp (`LumaHome.qml`, 960x540 at 30 fps, 10-20 s, seamless); `vplane_clips.py` writes any such clip. Cost to the GPU is the hole's blend instead of 10 % Mali at 10 fps (hardware-census.md); blur-behind over the video is not possible.
+Home's GPU wallpaper (`liveWall`: the picture through a slow warp on a 64x36 mesh) costs 10 % Mali and 12.4 flips a second while Home idles (hardware-census.md, rank 4). The video wallpaper is the same picture as a looped clip on the video plane, so an idle Home draws no wallpaper frames. Built and host-tested for LumaTV's compositor, off by default, not yet run on the set. Under LG's compositor Home keeps the GPU wallpaper (below). Renders: `docs/research/videowall/` (`tests/qmlhost/render_wall.py`: the host's Home over a frame decoded from the shipped clip as the plane: `home-gpu.jpg`, `home-video-backdrop.jpg`, `home-video-tint-worst.jpg`; the planes `plane-frame.jpg`, `plane-worst.jpg`).
+
+### The switch
+
+`lumatv wallpaper video|gpu|status` (`theme.wallpaperMotion.source`, `gpu` by default). `status` names what is there: the clip, the player (installed, running, role) and the compositor (`own` or `lg`). `video` takes effect only while the whole contract holds: the shell is LumaTV's compositor's, the dark material is in use, `theme.wallpaper` is the shipped picture and the look and scrim are the ones the clip was made with (`wall.json` `look`; `vplane_wall.py check` names the key that moved). Otherwise the GPU wallpaper draws, so no setting puts a wrong picture behind Home. The player and the clip come with the owner's `lumatv vplane install`.
+
+### Planes and draw order
+
+Bottom to top: the video plane, the UI plane. LumaTV's compositor keeps a window for the player at its lowest layer (`Layer::Wallpaper`, type `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`: 16x16, transparent, never focused) that exports the whole 1920x1080 as the video element. The compositor clears that rectangle of the UI plane (the hole) just before the window's own item, so beneath everything else, and Home's window is transparent where its wallpaper was: Home's panes, text and icons draw over the plane, which shows between them. This is LG's order (`Eos.PunchThrough` under its surface) and the fix for the erase-after-draw finding above.
+
+The window is in the stack only while Home is the drawn front (`build_stack`). An app, an input, a card, the saver or standby takes it out in the same frame and the compositor ends the session at once (`wall_handover`, called from `luna_notify` before the topics go out), so the next program finds the decoder free; direct scan-out of a full-screen app is untouched. The topic `wall {hole}` tells the shell that the hole is in Home's picture.
+
+### Clip
+
+`tools/vplane_wall.py wall` makes `wall-silk.vpc`: `liveWall`'s vertex warp (the shader's own mesh, scrim and light) of the shipped wallpaper over 30 s, whole turns of every phase so the end meets the start, 20 pictures a second each shown three times at 60 Hz (1800 units), HEVC Main10 at constant QP 18: 651,239 bytes, 10,233 for the key unit. `wall.json` carries the look, the poster frames' tint and luma and the glass opacity. `check --deep` decodes the clip and bounds the seam (mean step under 0.6 of a level, 90th percentile under 2) and the stability of repeated pictures.
+
+On 6 s of the loop, the same pictures: 8 bit CRF 14, 10.7 MB; 10 bit CRF 18, 2.2 MB; 10 bit constant QP 18, 133 KB, mean error 0.108 of a level and 0.76 at worst between neighbouring pictures; 8 bit QP 16, 342 KB, steps up to 1.3. Constant QP because constant quality spends bits refining the repeated pictures; 10 bit because the picture is a dark gradient that bands at 8. If the set's pipeline refuses Main10: `vplane_wall.py wall --bit-depth 8 --qp 16`.
+
+### Player
+
+A request carries `role`: `saver` (also what a request without one means) or `wall`. One decoder, one player: a saver `start` takes over a running wall (idle, "the saver has the player"); a wall `start` while the saver plays is ignored; a request for the other role never advances `last_seq`. The wall role plays only `wall-*.vpc` clips (not counted among the prints), 1920x1080 only, with no overlay, drift, veil or clock and no wake on keys or pointer. `status.json` has `role` and `walls`; `lumatv-vplane -n` prints `walls` and `wallsOk`; `--once wall-silk 20` plays one by hand.
+
+### Home
+
+`WallVideo.qml` is the controller, on the saver's mailbox with `role:"wall"`. It asks for the clip while Home wants it (switch, contract, `hostActive`); `up` is `want && playing && settled && hole`, `settleMs` (250 ms) after the first frame with the hole in Home's picture. Then the GPU wallpaper fades out over `layerMs`, Home's wallpaper timer ticks once a second and the widgets' `live` flag stops while the saver is up. The way back is the other order: `up` falls, the GPU wallpaper is back at full opacity in the same frame and the player is told to stop `endMs` (250 ms) later, so a planned hand-over shows no black plane. The player is renewed every 10 s; unrenewed for 30 s it takes its window away by itself.
+
+| Event | Who ends the clip | Home shows |
+|---|---|---|
+| An app, an HDMI input, Netflix or a card takes the front | The compositor, in the frame the app is drawn (`wall_handover`); the shell's stop follows | The app |
+| The saver starts | Home stops wanting it (`saverUp`); the saver's `start` takes the player | The saver |
+| Standby, screen off | `hostActive` false | Nothing |
+| The switch goes off, or the look, material or wallpaper change | Home stops wanting it: the GPU wallpaper first, the stop after | The GPU wallpaper, no black frame |
+| Player error, silence, status not playing, window gone | `failed`: `up` falls, the GPU wallpaper in the next frame (poll 500 ms; the compositor's topic at once) | The GPU wallpaper; a decoder that dies under a playing clip may show black for the frames it takes [INFERENCE] |
+| Player not installed or not running | Never started; asked again every 15 s | The GPU wallpaper |
+| The shell dies | The player's ttl; the compositor closes the window when Home is not drawn | Home's own |
+
+### Glass
+
+The GPU cannot sample the plane, so there is no blur-behind and a pane has two looks (`wallpaperMotion.glass`). `backdrop` (default): panes keep the blurred still of the same wallpaper, so the hand-over from the GPU wallpaper is invisible (`home-gpu.jpg`, `home-video-backdrop.jpg`). `tint`: flat translucent panes at the clip's `glass.alpha` (`Lu.homeFill`): 0.80 for `wall-silk`, which keeps the ink at 8.4:1 over the brightest plane the clip reaches (worst luminance 0.4423, Lucent's distance rule is 7:1); `home-video-tint-worst.jpg` is Home over the per-pixel brightest of the poster frames, where every flat pane pixel measures 9.5:1 or more.
+
+The tint sampler (`Tint.js`, the accent tokens) is unchanged and samples the wallpaper PNG; the poster frames' tint (`#505070`, luma 0.294) agrees with it (0.297).
+
+### LG's compositor
+
+Not built. There LumaHome (z 2) draws inside the base container above the Home stub's surface, which is held at opacity 0, and a hole belongs to the window that owns it: the player's window cannot be put beneath LumaHome, and one above it clears the hole over the glass. The remaining design is the Home stub: a variant page (`payload/homestub/index.html`) plays an HTML5 `<video loop>` and exports its video window, the container keeps the stub's hole while LumaHome draws over it (the surface's opacity 0 may switch the hole off [INFERENCE]), and a foreground-video signal does the hand-over. It needs the TV: whether the web pipeline decodes the clip from a local file at 1080p60, where the hole lands, what Netflix finds afterwards. Until then `videoWallBackend` is empty there and Home draws the GPU wallpaper.
+
+### TV steps and measurements
+
+Receiver muted through Home Assistant, Filmmaker picture mode, `vplane/tools/measure.py` on the set, nothing written outside `/tmp` before the owner's OK to install.
+
+1. Baseline, Home idle on the GPU wallpaper: `measure.py run home-gpu 30 --proc lumatv-compositor`: Mali %, flips/s, `vsync_per_s`, CPU of the compositor and the shell, `CmaFree`, `MemAvailable`, temperature. The census figures to beat: 10 % Mali, 12.4 flips/s.
+2. `lumatv vplane install` and `start` (the owner's OK); `lumatv-vplane -n`: `walls` 1, `wallsOk` 1.
+3. `lumatv-vplane --once wall-silk 20` with Home in front: the pipeline takes Main10 (else regenerate at 8 bit), `status.json` says `playing` and how long after the request, the picture is on the plane under Home, no black before the first frame.
+4. `lumatv wallpaper video`: the time from the switch to `up` (journal, `status.json`), the GPU wallpaper gone, the glass over the plane (capture); `measure.py run home-video 30 --proc lumatv-vplane`: Mali (expected under 3 %), flips/s (expected near the clock's 1 a second), the player's and the shell's CPU; `CmaFree` and `MemAvailable` before, during and after three cycles of `video` and `gpu`.
+5. Output rate and the gates: `DE2VSYNC` per second; `compositor/tools/tv_gate.py --only shell,frames` with the wall up (the idle commits a second and CPU of Home at rest against the GPU wallpaper's, the surface frame gate unchanged), and a focus move, a panel and an app launch as smooth as before (while Home shows, the UI plane is composed per flip, not scanned out directly).
+6. Hand-overs, ten each, the decoder released and the app's first frame timed: Home to Netflix, Plex and an HDMI input (`status.json` back to `idle`, `CmaFree` back); the saver's start and a key out of it; standby and wake; `lumatv wallpaper gpu` with Home up (no black frame in a capture).
+7. Failure: `kill -9` the player with Home up (the GPU wallpaper back in under a second, the black frames counted in a capture); the clip deleted; the role refused; a player that never answers.
+8. Picture: the loop seam over three loops, the warp against the GPU's, colour and brightness of the plane against the GPU wallpaper (a capture of the margins), the glass in both looks over the brightest part, banding after an idle hour.
+9. Keys and pointer in Home with the wall up (the wallpaper window takes none).
+10. The figures against the GPU wallpaper's; if they hold, the owner turns `lumatv wallpaper video` on.
 
 ## Packaging
 
@@ -128,7 +188,9 @@ The way back is `lumatv vplane remove` (the role, the manifest, the binary and t
 - `tests/test_vplane_clips.py` (24) and `tools/vplane_clips.py check --deep`: formats, geometry, QML numbers, contrast.
 - `tests/test_vplane_saver.py`, `tests/test_saver_deck.py`, `tests/artdeck.test.js`: the saver against a stand-in player on the QML host, and against the real player (the request the QML writes is the one the C reads); the shuffle bag across restarts.
 - `tests/test_vplane_install.py` (12), `tests/test_vplane_measure.py` (9).
-- `compositor/crates/lumatv-compositor/tests/vplane_host.rs` (4): the player against the real wayland-server and compositor.
+- `compositor/crates/lumatv-compositor/tests/vplane_host.rs` (5): the player against the real wayland-server and compositor, the wallpaper hole under Home included; `tests/protocol.rs` takes the new hole order (what an app draws over its own video stays).
+- `tests/test_vplane_wall_clips.py` (22) and `tools/vplane_wall.py check --deep`: the clip's formats, geometry, look against the QML, the seam, the poster numbers, the encoder options. `tests/test_vplane_player.py`'s `Wall` class (9), `tests/test_lumatv_wallpaper.py` (8), `tests/wallvideo.test.js` (7).
+- `tests/test_vplane_wall.py` (16, QML host): the controller against a stand-in player (start, hole, hand-overs, failure inside a second, retry, ttl, the saver taking the player), Home's gating, the tint glass, the shell's `wall` topic, and the renders asserted (the plane shows through where Home draws nothing, the glass is the GPU wallpaper's, 7:1 over the worst plane).
 
 ## Tonight's check (TvRound8, Nitin's OK to install)
 
@@ -167,9 +229,10 @@ Steps 1-7 of "Tonight's check" ran once (Resume here has the figures). What foll
 
 ## Not verified on the TV
 
-Beyond what the run shows: the loop seam; the exported window moving without a glitch; the output rate in the Active state; the CMA figures over several cycles; `TextFile` `exists` read straight after a `name` change and `write` (the deck's file check; the host stand-in does both); the key and pointer path to a screensaver window in the Screen Saver state.
+Beyond what the run shows: the loop seam; the exported window moving without a glitch; the output rate in the Active state; the CMA figures over several cycles; `TextFile` `exists` read straight after a `name` change and `write` (the deck's file check; the host stand-in does both); the key and pointer path to a screensaver window in the Screen Saver state. The whole moving wallpaper: Main10 on the set's pipeline, the compositor's hole under the wallpaper window, the hand-over times, the Mali and flips figures; none of it has run on the set.
 
 ## Needs Nitin
 
 - The role file (an LS2 permission grant) and the new root process: `lumatv vplane install` when he says so.
 - The switch: `lumatv theme set '{"screensaver":{"video":true}}'`, only after steps 1-6.
+- The moving wallpaper: `lumatv vplane install` (above), then `lumatv wallpaper video`, only after steps 1-9 of "TV steps and measurements".

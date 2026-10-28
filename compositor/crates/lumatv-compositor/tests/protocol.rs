@@ -386,7 +386,17 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     let mut server = Server::start();
     let mut client = Client::connect(&mut server);
     let app = client.card("_WEBOS_WINDOW_TYPE_CARD", "Player");
-    let ui = client.shm_buffer(1920, 1080, 0xff20_2020);
+    // The app's surface as an app draws it: opaque UI, transparent where the video is (160,90 960x540), and a control it draws over the video
+    // (a progress bar): LG's punch-through is under the window's pixels, so the bar stays.
+    let ui = client.shm_pattern(1920, 1080, |x, y| {
+        if (700..900).contains(&x) && (560..600).contains(&y) {
+            0xff00_00ff
+        } else if (160..1120).contains(&x) && (90..630).contains(&y) {
+            0
+        } else {
+            0xff20_2020
+        }
+    });
     client.present(&app.surface, &ui);
     let exported = client.foreign.export_element(&app.surface, 0, &client.qh, ());
     client.roundtrip();
@@ -412,6 +422,7 @@ fn exported_video_region_becomes_a_hole_and_a_placement_call() {
     });
     assert_eq!(image.pixel(10, 10), [0x20, 0x20, 0x20, 0xff], "UI stays");
     assert_eq!(image.pixel(640, 360), [0, 0, 0, 0], "the exported region is a transparent hole");
+    assert_eq!(image.pixel(800, 580), [0, 0, 0xff, 0xff], "what the app draws over its own video stays (the hole is cleared before the window, not after)");
     // 160,90 960x540 of the output is 320,180 1920x1080 of the 4K panel; it is not the whole output.
     assert!(
         calls.iter().any(|c| c.contains("display/setDisplayWindow")

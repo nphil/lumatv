@@ -6,7 +6,8 @@ import TextFile 1.0
 // server, read the way LumaTV's helper is (kit/Helper.qml): one state read, then a long poll for events. Every request
 // carries the token the compositor wrote for this session (a root-only file named in the launch parameters).
 //
-// Topics (`topics`, `updated(name)`): foreground {app, home}, screen {on}, keyboard {up}, cursor {visible}, audio (the
+// Topics (`topics`, `updated(name)`): foreground {app, home}, screen {on}, keyboard {up}, cursor {visible}, wall {hole} (the moving wallpaper's
+// hole is under Home), audio (the
 // audio service's volume state). Events of their own: `show` (a panel the gear or Input asked for), `homeKey`, and the
 // answers to luna calls, which `luna()` routes to the callback of the call's tag. The compositor restarting restarts this
 // process with it, so a `reset` only ever means the client fell behind: the state is read again.

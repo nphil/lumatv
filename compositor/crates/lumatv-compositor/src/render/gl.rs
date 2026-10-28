@@ -876,7 +876,8 @@ impl Gl {
         let mut standins = std::mem::take(&mut self.standins_next);
         standins.clear();
         let standin_page = self.standin_source.filter(|p| p.0 < self.targets.len());
-        for item in &plan.items {
+        for (index, item) in plan.items.iter().enumerate() {
+            self.clear_holes_before(plan, index, rects);
             let began = std::time::Instant::now();
             let Some((tex, _size, y_invert, new)) = self.texture_for(&item.buffer, plan.item_damage(item), &item.rect) else {
                 stats.skipped += 1;
@@ -930,20 +931,7 @@ impl Gl {
             }
         }
         self.standins_next = std::mem::replace(&mut self.standins, standins);
-        for h in &plan.holes {
-            for r in rects {
-                let c = h.intersect(r);
-                if c.is_empty() {
-                    continue;
-                }
-                self.scissor(&c);
-                // SAFETY: as above.
-                unsafe {
-                    (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
-                    (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
-                }
-            }
-        }
+        // (a hole is cleared as its item is reached, above: what is drawn above the item stays)
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
             ui.draw_over(fbo, rects)?;
@@ -991,6 +979,26 @@ impl Gl {
             );
         }
         Ok(stats)
+    }
+
+    /// Clears, inside `rects`, the holes that belong to item `index` of the plan to transparent black, so the display engine's video shows
+    /// through what is under the item: LG's order (the punch-through is at z -1 inside its window), which keeps the item's own pixels and
+    /// everything drawn above it.
+    fn clear_holes_before(&mut self, plan: &Plan, index: usize, rects: &[Rect]) {
+        for h in plan.holes.iter().filter(|h| h.before == index) {
+            for r in rects {
+                let c = h.rect.intersect(r);
+                if c.is_empty() {
+                    continue;
+                }
+                self.scissor(&c);
+                // SAFETY: GL state calls on the current context.
+                unsafe {
+                    (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
+                    (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
+                }
+            }
+        }
     }
 
     /// Draws the system layer alone into the current target (a page with alpha for the overlay plane), inside `rects`:

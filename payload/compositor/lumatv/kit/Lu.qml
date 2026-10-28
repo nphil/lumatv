@@ -21,6 +21,10 @@ QtObject {
     // Under LG's compositor everything is one window and these change nothing.
     property var homeWindow: null
     property Item flatBackdrop: null
+    // The share of its own pixels a card of Home's glass paints: 1 (the pane hides what is behind it: the blurred wallpaper it sampled) except
+    // over the moving wallpaper's video in tint-only glass, where LumaHome sets the least alpha the ink reads at (the clip's `glass.alpha`).
+    // A pane that passes its own `fillAlpha` (kit/LuPane.qml: the overlay's panes over an app's video) is not affected.
+    property real homeFill: 1
     property string baseUrl: ""                   // the module directory as a file URL: where icons/ lives
     function iconUrl(name) { return baseUrl + "icons/lucide/" + name + ".png" }
     function logoUrl(name) { return baseUrl + "icons/audio/" + name + ".png" }

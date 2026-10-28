@@ -215,6 +215,7 @@ impl State {
     /// the set), the replies go to the bridge's queue, and one journal line covers a foreground push to all of them.
     /// The shell's topics follow the same changes.
     pub fn luna_notify(&mut self) {
+        self.wall_handover();
         self.shell_sync_topics();
         if self.luna_state.subscriptions.is_empty() {
             return;

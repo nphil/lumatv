@@ -153,10 +153,13 @@ class Install(Base):
         self.assertEqual(self.ls_calls(), [])
 
     def test_the_status_says_what_is_there(self):
-        self.assertEqual(self.status(), {"installed": False, "role": False, "clips": 0, "running": False, "pid": 0})
+        self.assertEqual(self.status(), {"installed": False, "role": False, "clips": 0, "walls": 0, "running": False, "pid": 0})
         self.install()
         s = self.status()
-        self.assertEqual((s["installed"], s["role"], s["clips"], s["running"]), (True, True, len([n for n in os.listdir(CLIPS) if n.endswith(".vpc")]), False))
+        names = [n for n in os.listdir(CLIPS) if n.endswith(".vpc")]
+        self.assertEqual((s["installed"], s["role"], s["clips"], s["walls"], s["running"]),
+                         (True, True, len([n for n in names if not n.startswith("wall-")]), len([n for n in names if n.startswith("wall-")]), False))
+        self.assertGreater(s["walls"], 0, "the package carries the moving wallpaper's clip, and it is not counted as a print")
 
     def test_remove_takes_the_role_the_binary_and_the_clips_away_and_asks_for_a_rescan_once(self):
         self.install()
@@ -165,7 +168,7 @@ class Install(Base):
         self.assertFalse(os.path.exists(os.path.join(self.ls2, "manifests.d", "org.nphil.lumatv.vplane.json")))
         self.assertFalse(os.path.exists(os.path.join(self.state, "bin", "lumatv-vplane")))
         self.assertFalse(os.path.exists(os.path.join(self.state, "vplane", "clips")))
-        self.assertEqual(self.status(), {"installed": False, "role": False, "clips": 0, "running": False, "pid": 0})
+        self.assertEqual(self.status(), {"installed": False, "role": False, "clips": 0, "walls": 0, "running": False, "pid": 0})
         self.assertEqual(self.ls_calls()[2:], ["scan-volatile-dirs", "scan-services"])
         self.run_sh("remove", self.state)
         self.assertEqual(len(self.ls_calls()), 4, "removing what is not there asks nothing")

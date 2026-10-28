@@ -47,7 +47,7 @@ QtObject {
     }
     function send(op, extra) {
         seq = Math.max(seq + 1, Date.now())
-        var req = { seq: seq, sent: Date.now(), op: op, ttlMs: ttlMs }
+        var req = { seq: seq, sent: Date.now(), op: op, ttlMs: ttlMs, role: "saver" }
         for (var k in (extra || {})) req[k] = extra[k]
         reqFile.write(JSON.stringify(req))
         return seq
@@ -59,10 +59,12 @@ QtObject {
         send("stop")
     }
 
-    // Asks for the picture. Returns at once with `state` `starting`, or `off` when there is no player to ask.
+    // Asks for the picture. Returns at once with `state` `starting`, or `off` when there is no player to ask. The player is one decoder: a player that
+    // is playing Home's moving wallpaper (role `wall`) is the saver's to take, and it takes it with the `start` (the wallpaper's session ends).
     function begin() {
         var s = readStatus()
-        if (!s || typeof s.ts !== "number" || Date.now() - s.ts > idleStaleMs || (s.state !== "idle" && s.state !== "error")) {
+        var free = !!s && (s.state === "idle" || s.state === "error" || s.role === "wall")
+        if (!s || typeof s.ts !== "number" || Date.now() - s.ts > idleStaleMs || !free) {
             reason = s ? "the player is not idle" : "no player"
             state = "off"
             return

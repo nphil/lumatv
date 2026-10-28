@@ -73,8 +73,14 @@ def main():
         if slim != data or not os.path.exists(path):
             write(path, slim)
         data = slim
+    elif mode == "read":                      # read KEY.PATH [DEFAULT]: one value as plain text (the owner's, else DEFAULT)
+        node = data
+        for part in sys.argv[3].split("."):
+            node = node.get(part) if isinstance(node, dict) else None
+        print(node if node is not None else (sys.argv[4] if len(sys.argv) > 4 else ""))
+        return
     elif mode != "get":
-        sys.exit("usage: theme.py <file> get|set|minimize ...")
+        sys.exit("usage: theme.py <file> get|set|minimize|read ...")
 
     print(json.dumps({"ok": True, "theme": data}))
 

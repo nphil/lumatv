@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "walls": [
+    {
+      "id": "silk",
+      "file": "wall-silk.vpc",
+      "codec": "hevc",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "units": 1800,
+      "loopSec": 30,
+      "contentFps": 20,
+      "keyBytes": 10233,
+      "bytes": 651239,
+      "sha256": "784da115c76ec16a61e9635c775f629ea53dac73948a64295e108e1736eb7230",
+      "source": {
+        "file": "wall_1080.png",
+        "sha256": "f43d641139d670525b943c895b0c85316dd9ef525110d4f62956ebbea84d0fd3"
+      },
+      "look": {
+        "motion": {
+          "amplitude": 4,
+          "speed": 1,
+          "depth": 0.25,
+          "scale": 1,
+          "detail": 0.35,
+          "vignette": 0,
+          "specular": 0,
+          "bloom": 0,
+          "saturation": 1,
+          "contrast": 1
+        },
+        "scrim": [
+          0.1,
+          0.18,
+          0.46
+        ],
+        "material": "dark",
+        "wallpaper": "wall_1080.png"
+      },
+      "turns": {
+        "x": 3,
+        "y": 2,
+        "z": 2,
+        "w": 4,
+        "v": 2
+      },
+      "tint": {
+        "luma": 0.294,
+        "lumaMin": 0.2918,
+        "lumaMax": 0.2975,
+        "tint": "#505070",
+        "posters": [
+          {
+            "at": 0.0,
+            "luma": 0.2939,
+            "tint": "#505070"
+          },
+          {
+            "at": 2.5,
+            "luma": 0.295,
+            "tint": "#505070"
+          },
+          {
+            "at": 5.0,
+            "luma": 0.293,
+            "tint": "#505070"
+          },
+          {
+            "at": 7.5,
+            "luma": 0.2927,
+            "tint": "#505070"
+          },
+          {
+            "at": 10.0,
+            "luma": 0.2928,
+            "tint": "#505070"
+          },
+          {
+            "at": 12.5,
+            "luma": 0.2949,
+            "tint": "#505070"
+          },
+          {
+            "at": 15.0,
+            "luma": 0.2975,
+            "tint": "#505070"
+          },
+          {
+            "at": 17.5,
+            "luma": 0.2959,
+            "tint": "#505070"
+          },
+          {
+            "at": 20.0,
+            "luma": 0.2953,
+            "tint": "#505070"
+          },
+          {
+            "at": 22.5,
+            "luma": 0.2918,
+            "tint": "#505070"
+          },
+          {
+            "at": 25.0,
+            "luma": 0.2922,
+            "tint": "#505070"
+          },
+          {
+            "at": 27.5,
+            "luma": 0.2933,
+            "tint": "#505070"
+          }
+        ]
+      },
+      "glass": {
+        "alpha": 0.8,
+        "ratio": 8.41,
+        "need": 7.0,
+        "worstLuminance": 0.4423,
+        "pane": "#282937",
+        "flat": "#373b4a"
+      },
+      "opts": {
+        "codec": "hevc",
+        "bits": 10,
+        "qp": 18,
+        "loopSec": 30,
+        "contentFps": 20,
+        "fps": 60
+      },
+      "inputs": "0679c1d9eca9f21c"
+    }
+  ],
+  "generator": 1
+}

@@ -12,7 +12,8 @@
 //!
 //! Everything else goes over the UI channel: an HTTP server on the loopback (`--shell-port`) that the client long-polls the
 //! way it polls LumaTV's helper (`kit/Helper.qml`), since QML has no socket of its own and the set has no QtWebSockets.
-//! To the UI, as topics: `foreground` (the app in front and whether Home is drawn), `screen`, `cursor`, `keyboard`,
+//! To the UI, as topics: `foreground` (the app in front and whether Home is drawn), `screen`, `cursor`, `keyboard`, `wall` (whether the
+//! moving wallpaper's hole is under Home),
 //! `audio` (the audio service's volume state the compositor subscribes to), `homekey`; and `show` (a panel the gear or
 //! Input asked for) and `luna` (the answers to its calls). From the UI: what it can show (`can`), whether its system layer
 //! wants the keys (`wants`), its state for the gate (`state`), and luna calls from an allowlist, which the bridge makes in
@@ -712,6 +713,10 @@ impl State {
         self.shell.push_if_changed("keyboard", keyboard);
         let cursor = json!({"visible": self.seat.cursor_visible});
         self.shell.push_if_changed("cursor", cursor);
+        // The moving wallpaper's hole is under Home: the shell takes its own wallpaper away only while this holds, and puts it back in the
+        // frame after it stops (an app taking the front stops it at once: the wallpaper's window is left out of the stack with Home).
+        let wall = json!({"hole": home_shown && self.scene.wall_hole()});
+        self.shell.push_if_changed("wall", wall);
     }
 
     /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is
@@ -719,6 +724,23 @@ impl State {
     pub fn shell_home_drawn(&self) -> bool {
         let home_mapped = self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0);
         home_mapped && self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP)
+    }
+
+    /// The moving wallpaper's window is closed the moment LumaTV's Home is not drawn (an app, an input, LG's Home or Settings took the front):
+    /// the player takes its window away and unloads the decoder, so what comes to the front finds the pipeline free. This does not wait for
+    /// the shell's word or the player's ttl; the shell asks again for the wallpaper when Home is back. Called after each drawn frame, which is
+    /// when the stack that says so changes.
+    pub fn wall_handover(&mut self) {
+        if self.shell_home_drawn() {
+            return;
+        }
+        let ids: Vec<_> = self.scene.windows().filter(|w| w.kind == WindowType::Wallpaper && w.map_serial > 0).map(|w| w.id).collect();
+        for id in ids {
+            if let Some(res) = self.webos_shell_resource(id) {
+                res.close();
+                self.journal(format!("wall: Home is not drawn, close sent to window {}", id.0));
+            }
+        }
     }
 
     /// One of the shell's windows got its first buffer.

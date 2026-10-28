@@ -169,14 +169,17 @@ remove_cmd() {
 
 status_cmd() {
   state=$1
-  inst=false role=false run=false pid=0 clips=0
+  inst=false role=false run=false pid=0 clips=0 walls=0
   [ -x "$state/bin/lumatv-vplane" ] && inst=true
   [ -e "$ROLE" ] && [ -e "$MANIFEST" ] && role=true
-  [ -d "$state/vplane/clips" ] && clips=$(ls "$state/vplane/clips" 2>/dev/null | grep -c '\.vpc$')
+  if [ -d "$state/vplane/clips" ]; then # the prints of the art saver, and the moving wallpaper's clips (wall-*.vpc) apart
+    clips=$(ls "$state/vplane/clips" 2>/dev/null | grep '\.vpc$' | grep -vc '^wall-')
+    walls=$(ls "$state/vplane/clips" 2>/dev/null | grep -c '^wall-.*\.vpc$')
+  fi
   p=$(supervisor_pid "$state")
   c=$(player_pid "$state")
   [ -n "$p" ] && [ -n "$c" ] && { run=true; pid=$c; }
-  printf '{"installed":%s,"role":%s,"clips":%s,"running":%s,"pid":%s}\n' "$inst" "$role" "$clips" "$run" "$pid"
+  printf '{"installed":%s,"role":%s,"clips":%s,"walls":%s,"running":%s,"pid":%s}\n' "$inst" "$role" "$clips" "$walls" "$run" "$pid"
 }
 
 case "$1" in

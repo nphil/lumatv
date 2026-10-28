@@ -30,7 +30,9 @@ WebOSWindow {
     title: "LumaTV shell: home"
     width: 1920
     height: 1080
-    color: "black"
+    // Clear to transparent: LumaHome draws an opaque wallpaper of its own, which covers the window whole, except while the moving wallpaper plays on
+    // the video plane under this window (the player's window, role wall): then nothing is drawn there and the plane shows through.
+    color: "transparent"
     // Mapped once Home has loaded (the stub's card, which draws nothing, shows meanwhile) and not while LG's own Home is
     // meant to be on the screen (the Home stub's `lg` mode: LumaHome steps aside).
     visible: lumaHome.status === Loader.Ready && !lgHome
@@ -62,6 +64,11 @@ WebOSWindow {
     Binding { target: lumaHome.item; property: "homeCurrent"; value: homeWin.homeCurrent; when: homeWin.homeReady }
     // Covered whole (an app, a full-screen overlay such as LG's Settings): the idle tick stops, nothing is drawn until Home shows again.
     Binding { target: lumaHome.item; property: "idleHold"; value: homeWin.covered; when: homeWin.homeReady }
+    // The moving wallpaper (LumaHome's WallVideo): this compositor has the wallpaper window under Home's, so the video wallpaper is offered, and Home
+    // takes its own wallpaper away only while the compositor says the hole is in its picture (the `wall` topic).
+    readonly property bool wallHole: !!Link.topics.wall && Link.topics.wall.hole === true
+    Binding { target: lumaHome.item; property: "videoWallBackend"; value: "own"; when: homeWin.homeReady }
+    Binding { target: lumaHome.item; property: "videoWallHole"; value: homeWin.wallHole; when: homeWin.homeReady }
 
     // The module's key bridge: the way into LumaBus.js's engine-wide instance (the one LumaHome and LumaOverlay registered
     // with), made from the module's own file so the library URL is theirs.
@@ -213,7 +220,8 @@ WebOSWindow {
             homeLoaded: !!h, hostActive: !!h && h.hostActive === true, layer: h ? String(h.layerOpen || "") : "", focus: h ? String(h.focusLayer || "") : "",
             settings: !!h && h.settingsOpen === true, overlay: o ? String(o.surface || "") : "", osd: !!o && o.osdLive === true,
             toasts: n ? n.toasts.length : 0, alert: !!n && n.alertUp, pin: !!n && n.pinUp, saver: saverUp || (!!h && h.saverUp === true), keys: keysSeen, dropped: keysDropped,
-            beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events }
+            beat: !!h && h.lastBeatMs > 0, idleHold: !!h && h.idleHold === true, link: { up: Link.up, calls: Link.nextTag, events: Link.events },
+            wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true }
         }
     }
     function report() {

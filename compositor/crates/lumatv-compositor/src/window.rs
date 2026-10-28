@@ -42,6 +42,10 @@ pub enum WindowType {
     /// LumaTV's system layer (the volume display, toasts and alerts, the PIN prompt, the quick panel and the input picker, the
     /// screensaver), above every window: `_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM`, or a window titled [`SHELL_SYSTEM_TITLE`].
     ShellSystem,
+    /// The moving wallpaper's window (`lumatv-vplane`, role `wall`): a transparent surface that owns the video element Home's wallpaper is,
+    /// under LumaTV's Home and only while that is drawn: `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`. Under LG's compositor the type is not
+    /// known, so the player is never asked for it there.
+    Wallpaper,
     /// A type this compositor does not know; kept by name so a TV session shows it.
     Unknown,
 }
@@ -81,6 +85,7 @@ impl WindowType {
             "_WEBOS_WINDOW_TYPE_ADVANCEDALERT" => AdvancedAlert,
             "_WEBOS_WINDOW_TYPE_LUMATV_HOME" => ShellHome,
             "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM" => ShellSystem,
+            "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER" => Wallpaper,
             _ => Unknown,
         }
     }
@@ -89,6 +94,7 @@ impl WindowType {
     pub fn layer(self) -> Layer {
         use WindowType::*;
         match self {
+            Wallpaper => Layer::Wallpaper,
             ShellHome => Layer::Home,
             Card | Home | Screensaver | Unknown => Layer::Cards,
             Overlay | Floating | Restricted => Layer::Overlays,
@@ -113,6 +119,8 @@ impl WindowType {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Layer {
+    /// The moving wallpaper's window, under LumaTV's Home and drawn only with it.
+    Wallpaper,
     /// LumaTV's Home, under the cards (drawn in the card slot while the Home stub's card is the foreground one).
     Home,
     Cards,
@@ -126,7 +134,7 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub const ALL: [Layer; 8] = [Layer::Home, Layer::Cards, Layer::Overlays, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Shell, Layer::Cover];
+    pub const ALL: [Layer; 9] = [Layer::Wallpaper, Layer::Home, Layer::Cards, Layer::Overlays, Layer::SystemUi, Layer::Popups, Layer::Keyboard, Layer::Shell, Layer::Cover];
 }
 
 /// `wl_webos_shell_surface.state`.
@@ -277,6 +285,7 @@ impl Window {
     pub fn needs_focus(&self) -> bool {
         match self.kind {
             WindowType::ShellSystem => self.takes_keys,
+            WindowType::Wallpaper => false,
             _ => self.props.get("needFocus").map(|v| v != "false").unwrap_or(self.kind != WindowType::Keyboard),
         }
     }

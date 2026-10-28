@@ -170,7 +170,7 @@ class Verb(Base):
     def test_a_package_without_the_player_is_not_installed_and_nothing_is_run(self):
         os.remove(os.path.join(self.pv, "vplane.sh"))
         rc, out = self.verb("status")
-        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "vplane": {"installed": False, "role": False, "clips": 0, "running": False, "pid": 0}}))
+        self.assertEqual((rc, json.loads(out)), (0, {"ok": True, "vplane": {"installed": False, "role": False, "clips": 0, "walls": 0, "running": False, "pid": 0}}))
         for word in ("install", "start"):
             rc, out = self.verb(word)
             self.assertEqual((rc, json.loads(out)), (1, {"ok": False, "error": "vplane did not %s: this package has no video-plane player" % word}))
@@ -352,7 +352,7 @@ class RealScript(Base):
 
     def test_an_uninstalled_player_stays_uninstalled_through_a_boot_and_says_so(self):
         rc, out = self.verb("status")
-        self.assertEqual(json.loads(out)["vplane"], {"installed": False, "role": False, "clips": 0, "running": False, "pid": 0})
+        self.assertEqual(json.loads(out)["vplane"], {"installed": False, "role": False, "clips": 0, "walls": 0, "running": False, "pid": 0})
         self.assertEqual(self.boot_line()[1], "rc=0")
         self.assertFalse(os.path.exists(self.ls2), "a boot wrote an LS2 role")
         self.assertFalse(os.path.exists(os.path.join(self.state, "bin")), "a boot staged the program")
@@ -362,7 +362,7 @@ class RealScript(Base):
         rc, out = self.verb("install")
         self.assertEqual(rc, 0, out)
         vp = json.loads(out)["vplane"]
-        prints = len([f for f in os.listdir(REAL_CLIPS) if f.endswith(".vpc")])
+        prints = len([f for f in os.listdir(REAL_CLIPS) if f.endswith(".vpc") and not f.startswith("wall-")])
         self.assertGreater(prints, 0)
         self.assertEqual((vp["installed"], vp["role"], vp["clips"], vp["running"]), (True, True, prints, False))
         staged = os.path.join(self.state, "bin", "lumatv-vplane")
@@ -388,7 +388,7 @@ class RealScript(Base):
         self.assertEqual(self.verb("install")[0], 0)
         rc, out = self.verb("remove")
         self.assertEqual(rc, 0, out)
-        self.assertEqual(json.loads(out)["vplane"], {"installed": False, "role": False, "clips": 0, "running": False, "pid": 0})
+        self.assertEqual(json.loads(out)["vplane"], {"installed": False, "role": False, "clips": 0, "walls": 0, "running": False, "pid": 0})
         self.assertFalse(os.path.exists(os.path.join(self.ls2, "roles.d", "lumatv-vplane.json")))
         self.assertFalse(os.path.exists(os.path.join(self.ls2, "manifests.d", "org.nphil.lumatv.vplane.json")))
         self.assertFalse(os.path.exists(os.path.join(self.state, "bin", "lumatv-vplane")))
@@ -396,7 +396,7 @@ class RealScript(Base):
 
     def test_revert_removes_what_the_owner_installed(self):
         self.assertEqual(self.verb("install")[0], 0)
-        self.assertEqual(self.sh("vplane_remove\nvplane_json", functions=FUNCTIONS)[1], '{"installed":false,"role":false,"clips":0,"running":false,"pid":0}')
+        self.assertEqual(self.sh("vplane_remove\nvplane_json", functions=FUNCTIONS)[1], '{"installed":false,"role":false,"clips":0,"walls":0,"running":false,"pid":0}')
 
     def test_the_started_supervisor_does_not_keep_the_tools_lock(self):
         # lumatv's apply holds its mutation lock on fd 9 (flock) while it starts the player; a supervisor that kept the fd held the lock for

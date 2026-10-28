@@ -88,7 +88,14 @@ impl Output for Software {
             return Ok(stats);
         }
         self.fill(&area, 0xff00_0000);
-        for item in &plan.items {
+        for (index, item) in plan.items.iter().enumerate() {
+            // a hole is cleared just before the item of its surface (LG's order): what is under it goes, what it and the items above draw stays
+            for h in plan.holes.iter().filter(|h| h.before == index) {
+                let r = h.rect.intersect(&area);
+                if !r.is_empty() {
+                    self.fill(&r, 0);
+                }
+            }
             let clip = item.rect.intersect(&area);
             if clip.is_empty() {
                 continue;
@@ -120,12 +127,6 @@ impl Output for Software {
                         self.skipped_logged = true;
                     }
                 }
-            }
-        }
-        for h in &plan.holes {
-            let r = h.intersect(&area);
-            if !r.is_empty() {
-                self.fill(&r, 0);
             }
         }
         if let Some(c) = plan.cursor {

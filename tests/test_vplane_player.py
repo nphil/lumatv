@@ -65,7 +65,7 @@ def synthetic_clip(path, units=30, key=3000, other=150, fps=60, w=W, h=H, codec=
 class Rig:
     """A player, a compositor and a library stand-in, each in its own temporary place."""
 
-    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False, mailbox=None, release="immediate", lag=0.0):
+    def __init__(self, clip_keys=(3000,), units=30, window="screensaver", args=(), env=None, glyphs=True, hold_window_id=False, captions=False, mailbox=None, release="immediate", lag=0.0, walls=0):
         self.tmp = tempfile.mkdtemp(prefix="vplane-test-")
         self.mb = mailbox or os.path.join(self.tmp, "mb")      # (the saver's own tests put it where the saver looks)
         self.clipdir = os.path.join(self.tmp, "clips")
@@ -73,6 +73,8 @@ class Rig:
         self.units = []
         for i, k in enumerate(clip_keys):
             self.units.append(synthetic_clip(os.path.join(self.clipdir, "clip%d.vpc" % i), units=units, key=k))
+        for i in range(walls):         # the moving wallpaper's clips: the screen's size, named for their role
+            synthetic_clip(os.path.join(self.clipdir, "wall-%d.vpc" % i), units=units, key=3000, w=1920, h=1080)
         if glyphs:
             shutil.copy(os.path.join(SHIPPED, "clock.vpg"), self.clipdir)
         self.captions = []
@@ -1043,11 +1045,156 @@ class Player(unittest.TestCase):
         self.assertTrue(r.wait_state("playing"))
         time.sleep(0.3)
         s = r.fresh()
-        for k in ("pid", "ts", "state", "reason", "seq", "clip", "clips", "window", "windowId", "playingMs", "fed", "full", "skipped", "queue", "events", "drift", "veil", "phase", "memAvailKb", "cmaFreeKb", "rssKb"):
+        for k in ("pid", "ts", "state", "reason", "seq", "clip", "clips", "role", "walls", "window", "windowId", "playingMs", "fed", "full", "skipped", "queue", "events", "drift", "veil", "phase", "memAvailKb", "cmaFreeKb", "rssKb"):
             self.assertIn(k, s)
         self.assertEqual(s["events"], "22,26")
         self.assertLess(abs(s["ts"] - time.time() * 1000), 3000)
         self.assertGreater(s["rssKb"], 100)
+
+
+@unittest.skipUnless(HAVE, "needs zig to build vplane/")
+class Wall(unittest.TestCase):
+    """The player's second role: Home's moving wallpaper (docs/research/videoplane-saver-result.md, "The moving wallpaper"). One clip of the
+    screen's size looped on a window of LumaTV's own wallpaper type, nothing drawn in it, no drift, no change, no way out by a key; and one
+    decoder, so the saver takes the player from it and it never takes the player from the saver."""
+
+    def rig(self, **kw):
+        kw.setdefault("walls", 1)
+        r = Rig(**kw)
+        self.addCleanup(r.close)
+        return r
+
+    def test_the_window_is_the_wallpapers_type_the_clip_fills_the_screen_and_the_window_is_small(self):
+        r = self.rig()
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        r.fc.settle()
+        s = r.status()
+        self.assertEqual((s["role"], s["clip"], s["clips"], s["walls"]), ("wall", "wall-0", 1, 1), "the wallpaper's clip is not one of the prints")
+        self.assertEqual(r.fc.props["_WEBOS_WINDOW_TYPE"], "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER")
+        self.assertNotIn("playVideo", r.fc.props, "the screen-saver type's flag is not the wallpaper's")
+        self.assertEqual(r.fc.props["appId"], "org.nphil.lumatv.vplane")
+        self.assertEqual(r.fc.video["src"], (0, 0, 1920, 1080))
+        self.assertEqual(r.fc.video["dst"], (0, 0, 1920, 1080), "the whole screen, from its corner: no drift, no margin")
+        self.assertEqual([ln for ln in r.ndl() if ln[2] == "Load"][0][3:], ["1920x1080", "type", "2"])
+        self.assertEqual(r.calls()[:6], ["DL_Initialize", "SetWindowId", "Init", "Load", "SetAppState", "Play"])
+        buffers = [a for w, a in r.fc.requests() if w == "wl_shm_pool.create_buffer"]
+        self.assertTrue(buffers)
+        self.assertEqual({(a[2], a[3]) for a in buffers}, {(16, 16)}, "a small surface: it draws nothing, the video's rectangle is the element's")
+
+    def test_nothing_is_drawn_nothing_moves_and_the_clip_loops_for_as_long_as_it_is_renewed(self):
+        r = self.rig(units=30)
+        r.send("start", role="wall", clip="wall-0", ttlMs=3000, moveMs=100, auto=True, drift=True, clock=True, dim=True)
+        self.assertTrue(r.wait_state("playing"), r.log())
+        r.fc.settle()
+        first = len(r.fc.commits)
+        placements = len(r.fc.video_history)
+        for _ in range(8):
+            time.sleep(0.4)
+            r.send("renew", role="wall", ttlMs=3000)
+        s = r.fresh()
+        self.assertEqual((s["state"], s["role"]), ("playing", "wall"), "renewed for three seconds past its ttl")
+        self.assertEqual(len(r.fc.commits), first, "no frame is drawn after the first: no veil, no clock, no caption")
+        self.assertEqual(len(r.fc.video_history), placements, "the picture is not moved (a drift would move the window)")
+        self.assertEqual(s["drift"], [0, 0])
+        plays = r.plays()
+        sizes = [len(u) for u, _ in synthetic_clip_sizes(30)]
+        self.assertEqual([x for x, _ in plays], [sizes[i % 30] for i in range(len(plays))], "every unit, in order, and the key unit again after the thirtieth")
+        r.send("stop", role="wall")
+        self.assertTrue(r.wait_state("idle"))
+
+    def test_a_wall_that_is_not_renewed_goes_by_itself(self):
+        r = self.rig()
+        r.send("start", role="wall", clip="wall-0", ttlMs=1500)
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertTrue(r.wait_state("idle", 5), r.status())
+        self.assertTrue(r.status()["reason"].startswith("ttl"), r.status())
+        self.assertTrue(r.wait(lambda: not r.fc.alive(), 2), "and its window with it")
+
+    def test_a_key_or_the_pointer_over_the_wallpaper_wakes_nothing(self):
+        marker = os.path.join(tempfile.gettempdir(), "vplane-wall-woke-%d" % os.getpid())
+        self.addCleanup(lambda: os.path.exists(marker) and os.unlink(marker))
+        r = self.rig(args=("-W", "echo woke > %s" % marker))
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        r.fc.settle()
+        r.fc.send_key(True)
+        r.fc.send_pointer("motion")
+        r.fc.send_pointer("button")
+        time.sleep(0.5)
+        self.assertEqual(r.status()["state"], "playing", "the way out is Home's, not the wallpaper's")
+        self.assertFalse(os.path.exists(marker), "the TV is not asked to turn the screen on")
+
+    def test_a_wall_clip_that_is_not_there_or_not_the_screens_size_is_an_error_the_requester_sees(self):
+        r = self.rig()
+        r.send("start", role="wall", clip="wall-nine")
+        self.assertTrue(r.wait_state("error"), r.log())
+        self.assertIn("no wall clip named wall-nine", r.status()["reason"])
+        self.assertEqual(r.fc.names(), [], "no window was made for it")
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        none = self.rig(walls=0)
+        none.send("start", role="wall", clip="wall-0")
+        self.assertTrue(none.wait_state("error"), none.log())
+        self.assertEqual(none.status()["reason"], "no wall clips")
+        small = self.rig(walls=0)
+        synthetic_clip(os.path.join(small.clipdir, "wall-odd.vpc"), units=10)       # 1856 x 1024: a print's size
+        small.send("start", role="wall")
+        self.assertTrue(small.wait_state("error"), small.log())
+        self.assertIn("1920x1080", small.status()["reason"])
+
+    def test_a_clip_named_for_a_wall_starts_the_wall_without_a_role(self):
+        r = self.rig()
+        r.send("start", clip="wall-0")                      # what `--once wall-0` writes
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(r.status()["role"], "wall")
+
+    def test_the_saver_takes_the_player_from_the_wall_and_the_wall_never_takes_it_back(self):
+        r = self.rig()
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(r.status()["role"], "wall")
+        r.send("start", ttlMs=60000, moveMs=600000)         # no role: the saver's
+        self.assertTrue(r.wait(lambda: r.status().get("state") == "playing" and r.status().get("role") == "saver", 8), (r.status(), r.log()))
+        self.assertEqual(r.status()["clip"], "clip0")
+        self.assertEqual(r.fc.props["_WEBOS_WINDOW_TYPE"], "_WEBOS_WINDOW_TYPE_SCREENSAVER")
+        self.assertIn("the saver has the player", r.log())
+        seq = r.status()["seq"]
+        # the wall asks for the player while the saver has it, and a stop meant for the wall is in flight: neither touches the saver
+        r.send("start", role="wall", clip="wall-0")
+        time.sleep(0.3)
+        r.send("stop", role="wall")
+        r.send("renew", role="wall")
+        time.sleep(0.4)
+        s = r.fresh()
+        self.assertEqual((s["state"], s["role"]), ("playing", "saver"))
+        self.assertEqual(s["seq"], r.seq, "only the status request is the last one the player took: the wall's were left out")
+        self.assertGreater(s["seq"], seq)
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+
+    def test_the_status_names_the_session_and_an_idle_player_has_none(self):
+        r = self.rig()
+        r.send("start", ttlMs=60000)
+        self.assertTrue(r.wait_state("playing"), r.log())
+        self.assertEqual(r.status()["role"], "saver")
+        r.send("stop")
+        self.assertTrue(r.wait_state("idle"))
+        self.assertEqual(r.status()["role"], "", "an idle player has no role")
+        r.send("start", role="wall", clip="wall-0")
+        self.assertTrue(r.wait(lambda: r.status().get("state") == "playing" and r.status().get("role") == "wall", 8), (r.status(), r.log()))
+
+    def test_the_probe_counts_the_walls_apart_from_the_prints(self):
+        r = self.rig()
+        out = subprocess.run([BIN, "-c", r.clipdir, "-L", NDL, "-n"], capture_output=True, text=True, env=dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(NDL)))
+        info = json.loads(out.stdout)
+        self.assertEqual((info["clips"], info["clipsOk"], info["walls"], info["wallsOk"]), (1, 1, 1, 1), out)
+        self.assertEqual(out.returncode, 0, out)
+
+
+def synthetic_clip_sizes(units, key=3000, other=150):
+    """The sizes of the units `synthetic_clip` writes, as (bytes, key) pairs."""
+    return [(b"\0" * (key if i == 0 else other + (i - 1) % 7), i == 0) for i in range(units)]
 
 
 def g_right():

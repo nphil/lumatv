@@ -78,6 +78,11 @@ struct Player {
 
 impl Player {
     fn spawn(server: &mut Server, window: &str) -> Player {
+        Player::spawn_with(server, window, None)
+    }
+
+    /// `clips`: a directory of the test's own (the wallpaper's clip is not the shipped prints'); the shipped one by default.
+    fn spawn_with(server: &mut Server, window: &str, clips: Option<&std::path::Path>) -> Player {
         let p = paths().expect("paths");
         let tmp = std::env::temp_dir().join(format!("vplane-host-{}-{}", std::process::id(), window));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -91,7 +96,7 @@ impl Player {
         cmd.arg("-d")
             .arg(&mailbox)
             .arg("-c")
-            .arg(&p.clips)
+            .arg(clips.unwrap_or(&p.clips))
             .arg("-L")
             .arg(p.ndl_dir.join("libNDL_directmedia.so.1"))
             .args(["-w", window, "-m", "1"])
@@ -139,10 +144,10 @@ impl Player {
         self.status()["state"].as_str().unwrap_or("").to_string()
     }
 
-    /// The window id the library was given, from the stand-in's log.
+    /// The window id the library was last given, from the stand-in's log.
     fn window_id(&self) -> Option<String> {
         let log = std::fs::read_to_string(&self.ndl_log).ok()?;
-        log.lines().find_map(|l| {
+        log.lines().rev().find_map(|l| {
             l.split_whitespace().skip(2).collect::<Vec<_>>().as_slice().strip_prefix(&["SetWindowId"]).and_then(|r| r.first().map(|s| s.to_string()))
         })
     }
@@ -257,12 +262,13 @@ fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_
 }
 
 /// What a window drawn above a video element looks like in this compositor: the player paints the margins around the picture opaque black
-/// (what is behind the saver does not show), and what it draws inside the rectangle (the veil, the clock) is cleared with the hole. LG's
-/// compositor draws the hole under the window (its `PunchThrough` item is at z -1, `views/punchThrough.js`), so there the clock shows;
-/// docs/research/videoplane-saver-result.md, "Two compositors". This is the test to change when this compositor is changed to LG's order:
-/// the clock's pixels are then in the picture.
+/// (what is behind the saver does not show), and what it draws inside the rectangle (the veil, the clock) is drawn over the hole. The hole is
+/// cleared just before its window is drawn, as LG's compositor has it (its `PunchThrough` item is at z -1 inside the window,
+/// `views/punchThrough.js`): what is under the window goes, the window's own pixels stay, and so does everything above the window. Before
+/// this order the holes were cleared after every window was drawn, which erased the clock here and anything above the window
+/// (docs/research/videoplane-saver-result.md, "Two compositors").
 #[test]
-fn the_margins_are_opaque_and_the_hole_clears_what_the_window_drew_in_it() {
+fn the_margins_are_opaque_and_the_window_draws_over_its_own_hole() {
     if paths().is_none() {
         return;
     }
@@ -287,7 +293,8 @@ fn the_margins_are_opaque_and_the_hole_clears_what_the_window_drew_in_it() {
     // outside the picture's rectangle (32 pixels of room at the left, 28 above): black, not the red card below
     assert_eq!(image.pixel(10, 500), [0, 0, 0, 255], "the left margin");
     assert_eq!(image.pixel(960, 4), [0, 0, 0, 255], "the top margin");
-    // inside it: clear, and the clock the player drew at the corner of the window (1856, 1015 less its height) is cleared with it
+    // inside it: the card below is cleared (the video shows), and the clock the player drew at the corner of the window (1856, 1015 less its
+    // height) is in the picture, over the hole
     assert_eq!(image.pixel(960, 540), [0, 0, 0, 0]);
     let mut lit = 0;
     for y in 985..1020 {
@@ -297,7 +304,7 @@ fn the_margins_are_opaque_and_the_hole_clears_what_the_window_drew_in_it() {
             }
         }
     }
-    assert_eq!(lit, 0, "nothing of the window shows inside the hole in this compositor");
+    assert!(lit > 200, "the clock the window drew shows over the hole: {lit} pixels");
 }
 
 #[test]
@@ -333,4 +340,129 @@ fn a_player_that_is_not_renewed_takes_its_window_away_by_itself() {
     assert!(wait_for(Duration::from_secs(6), || player.state() == "idle"), "{}", player.status());
     assert!(player.status()["reason"].as_str().unwrap().starts_with("ttl"));
     assert!(wait_for(Duration::from_secs(3), || server.eval(|s| s.windows_report().is_empty())), "no window is left on the screen when nobody asked for it");
+}
+
+/// A wallpaper clip the stand-in decoder takes: the container (`tools/vplane_clips.py` has the layout) of 1920 x 1080 HEVC access units, the
+/// first a key unit.
+fn write_wall_clip(path: &std::path::Path, units: u32) {
+    let unit = |key: bool| -> Vec<u8> {
+        let mut u = vec![0, 0, 0, 1, if key { 0x46 } else { 0x02 }, 0x01];
+        u.extend(std::iter::repeat_n(0xAB, 200));
+        u
+    };
+    let (mut table, mut body) = (Vec::new(), Vec::new());
+    for i in 0..units {
+        let u = unit(i == 0);
+        table.extend((u.len() as u32).to_le_bytes());
+        table.extend((if i == 0 { 1u32 } else { 0 }).to_le_bytes());
+        body.extend(u);
+    }
+    let mut head = Vec::new();
+    head.extend(b"VPC1");
+    head.extend([1u8, 2, 0, 0]); // version 1, HEVC, no flags
+    for v in [1920u32, 1080, 60, 1, units, 0, 40 + 8 * units, 0] {
+        head.extend(v.to_le_bytes());
+    }
+    std::fs::write(path, [head, table, body].concat()).unwrap();
+}
+
+/// A clips directory with one wallpaper clip.
+fn wall_clips(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("vplane-wall-clips-{}-{}", std::process::id(), tag));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    write_wall_clip(&dir.join("wall-test.vpc"), 30);
+    dir
+}
+
+/// The moving wallpaper: the player's window (type `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER`) is under LumaTV's Home, its hole is cleared before
+/// the window and so under Home, and Home's own pixels (the glass, the dock) are drawn over it: the pane keeps its alpha, the rest of Home is
+/// transparent so the video shows. An app taking the front ends it at once, from the compositor, whatever the shell has said.
+#[test]
+fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
+    if paths().is_none() {
+        return;
+    }
+    let _one = ONE_AT_A_TIME.lock();
+    let mut server = Server::start();
+    let clips = wall_clips("hole");
+    let mut player = Player::spawn_with(&mut server, "screensaver", Some(&clips));
+    // SAM's Home stub (a transparent card), and LumaTV's Home: transparent but for a glass pane (alpha 0x80) and a solid dock
+    let mut sam = Client::connect_extra(&mut server);
+    let stub = sam.card("_WEBOS_WINDOW_TYPE_CARD", "Stub");
+    stub.webos.set_property("appId".into(), "com.webos.app.home".into());
+    let clear = sam.shm_buffer(1920, 1080, 0);
+    sam.present(&stub.surface, &clear);
+    let mut shell = Client::connect_extra(&mut server);
+    let home = shell.card("_WEBOS_WINDOW_TYPE_LUMATV_HOME", "Home");
+    let pixel = |x: i32, y: i32| {
+        if (400..1000).contains(&x) && (300..600).contains(&y) {
+            0x8010_2030
+        } else if (100..500).contains(&x) && (900..980).contains(&y) {
+            0xff20_3050
+        } else {
+            0
+        }
+    };
+    let pane = shell.shm_pattern(1920, 1080, pixel);
+    shell.present(&home.surface, &pane);
+    assert!(shell.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
+    assert_eq!(server.eval(|s| (s.scene.holes.len(), s.scene.wall_hole())), (0, false), "no wallpaper yet");
+
+    player.send("start", json!({"role": "wall", "clip": "wall-test", "ttlMs": 60000}));
+    assert!(wait_for(Duration::from_secs(8), || player.state() == "playing"), "{}", player.status());
+    assert_eq!(player.status()["role"], "wall");
+    assert_eq!(player.status()["clip"], "wall-test");
+    let windows = server.eval(|s| s.windows_report());
+    let w = windows.iter().find(|w| w["type"] == "Wallpaper").unwrap_or_else(|| panic!("the wallpaper's window: {windows:?}"));
+    assert_eq!(w["appId"], APP);
+    assert_eq!(w["props"]["_WEBOS_WINDOW_TYPE"], "_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER");
+    assert!(w["props"].get("playVideo").is_none(), "the screen-saver type's flag is not the wallpaper's");
+
+    // the export is the whole screen, whatever the window's own size
+    let window_id = player.window_id().expect("the library was given a window id");
+    let (src, dst) = server.eval({
+        let id = window_id.clone();
+        move |s| {
+            let e = s.foreign.exported.get(&id).expect("an export");
+            (e.source.map(|r| (r.x, r.y, r.w, r.h)), (e.destination.x, e.destination.y, e.destination.w, e.destination.h))
+        }
+    });
+    assert_eq!(src, Some((0, 0, 1920, 1080)));
+    assert_eq!(dst, (0, 0, 1920, 1080));
+
+    // the pipeline attaches: the hole is there, under Home
+    let mut pipeline = Client::connect_extra(&mut server);
+    let imported = pipeline.foreign.import_element(window_id, 0, &pipeline.qh, ());
+    imported.attach_punchthrough("_ctx_wall".into());
+    pipeline.roundtrip();
+    assert!(pipeline.wait_until(Duration::from_secs(3), |s| s.punchthrough_attached == vec!["_ctx_wall".to_string()]));
+    std::thread::sleep(Duration::from_millis(150));
+    let (image, holes, wall_hole) = server.eval(|s| (s.output.capture().unwrap(), s.scene.holes.len(), s.scene.wall_hole()));
+    assert_eq!((holes, wall_hole), (1, true));
+    assert_eq!(image.pixel(1500, 700), [0, 0, 0, 0], "the hole shows through Home's transparent pixels");
+    assert_eq!(image.pixel(700, 450), [0x10, 0x20, 0x30, 0x80], "Home's glass is drawn over the hole, not cleared by it");
+    assert_eq!(image.pixel(300, 940), [0x20, 0x30, 0x50, 0xff], "so is the dock");
+    // the shell is told the hole is there (it hides its own wallpaper only then)
+    let topic = server.eval(|s| {
+        s.shell.connected = true;
+        s.shell_sync_topics();
+        s.shell.topic("wall").cloned()
+    });
+    assert_eq!(topic, Some(json!({"hole": true})));
+
+    // an app takes the front: the compositor closes the wallpaper's window, the player lets the decoder go, the hole and the topic follow
+    let mut app = Client::connect_extra(&mut server);
+    let front = app.card("_WEBOS_WINDOW_TYPE_CARD", "App");
+    let blue = app.shm_buffer(1920, 1080, 0xff00_00ff);
+    app.present(&front.surface, &blue);
+    assert!(wait_for(Duration::from_secs(5), || player.state() == "idle"), "{}", player.status());
+    assert!(player.status()["reason"].as_str().unwrap().contains("closed the window"), "{}", player.status());
+    assert!(wait_for(Duration::from_secs(3), || server.eval(|s| s.scene.holes.is_empty() && !s.windows_report().iter().any(|w| w["type"] == "Wallpaper"))));
+    let topic = server.eval(|s| {
+        s.shell_sync_topics();
+        s.shell.topic("wall").cloned()
+    });
+    assert_eq!(topic, Some(json!({"hole": false})));
+    assert_eq!(server.eval(|s| s.output.capture().unwrap()).pixel(1500, 700), [0, 0, 255, 255], "the app's picture, whole");
 }

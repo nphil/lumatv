@@ -79,6 +79,16 @@ pub struct Hole {
     pub rect: Rect,
 }
 
+/// A hole as the renderer draws it: where, and the index in the plan's items of the surface it belongs to. LG's compositor draws a
+/// video's punch-through at z -1 inside its window (`views/punchThrough.js`): what is under the window is cleared and the window's own
+/// pixels go on top of the clear, so the renderer clears a hole just before it draws that item. What is drawn above the item (Home's glass over the
+/// moving wallpaper's video, an app's controls over its own video) is not touched by it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlannedHole {
+    pub rect: Rect,
+    pub before: usize,
+}
+
 /// One surface to draw.
 pub struct Item {
     pub window: WindowId,
@@ -96,7 +106,7 @@ pub struct Item {
 #[derive(Default)]
 pub struct Plan {
     pub items: Vec<Item>,
-    pub holes: Vec<Rect>,
+    pub holes: Vec<PlannedHole>,
     pub damage_rects: Vec<Rect>,
     /// Bounds of everything that changed, in output pixels; empty when nothing did.
     pub damage: Rect,
@@ -164,7 +174,7 @@ pub struct Scene {
     redraw_all: bool,
     /// What the last plan drew and where, to damage what moved, appeared, restacked or vanished.
     last_placed: Vec<Placed>,
-    last_holes: Vec<Rect>,
+    last_holes: Vec<PlannedHole>,
     plan: Plan,
     /// Whether the last stack built drew LumaTV's Home in the card slot ([`Scene::shell_home_shown`]).
     home_shown: bool,
@@ -226,6 +236,13 @@ impl Scene {
     /// SAM's Home (the stub) or there is none.
     pub fn shell_home_shown(&self) -> bool {
         self.home_shown
+    }
+
+    /// Whether the moving wallpaper's window is mapped and has a video rectangle: the hole that goes under LumaTV's Home (the caller adds
+    /// that Home is drawn: the wallpaper's window is left out of the stack otherwise, and so is its hole). The shell takes its own
+    /// wallpaper away only while this holds (without the hole the plane's black would show), and puts it back the frame it stops.
+    pub fn wall_hole(&self) -> bool {
+        self.holes.iter().any(|h| self.by_surface.get(&h.surface).and_then(|w| self.windows.get(w)).is_some_and(|w| w.kind == WindowType::Wallpaper && w.map_serial > 0))
     }
 
     /// Whether LumaTV's Home, drawn or not, is under a window that covers the whole output (an app's card, LG's Settings, the gate's
@@ -366,7 +383,9 @@ impl Scene {
 
     /// Mapped windows in draw order, bottom to top, into `self.stack`. LumaTV's Home (the shell's `ShellHome` window) takes the
     /// card slot while the card at the front is SAM's Home, the stub that draws nothing, or while there is no card at all; under
-    /// an app's card it is left out, as the stub is while Home is drawn in its place.
+    /// an app's card it is left out, as the stub is while Home is drawn in its place. The moving wallpaper's window (`Wallpaper`, the
+    /// lowest layer) goes with it: it is drawn, with its hole, only under Home that is drawn, so an app that takes the front gets the
+    /// plane's picture back the same frame, whatever the player is still doing.
     fn build_stack(&mut self, surfaces: &Surfaces) {
         self.stack.clear();
         for w in self.windows.values() {
@@ -394,7 +413,7 @@ impl Scene {
         self.stack.retain(|(layer, _, _)| {
             let keep_it = match layer {
                 Layer::Cards => last_card == Some(i) && !drop_card,
-                Layer::Home => has_shell_home && card_is_home,
+                Layer::Home | Layer::Wallpaper => has_shell_home && card_is_home,
                 _ => true,
             };
             i += 1;
@@ -471,10 +490,10 @@ impl Scene {
             }
         }
         for h in &self.holes {
-            if let Some(item) = self.plan.items.iter().find(|i| i.surface == h.surface) {
-                let r = h.rect.translated(item.rect.x, item.rect.y).intersect(&output);
+            if let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) {
+                let r = h.rect.translated(self.plan.items[before].rect.x, self.plan.items[before].rect.y).intersect(&output);
                 if !r.is_empty() {
-                    self.plan.holes.push(r);
+                    self.plan.holes.push(PlannedHole { rect: r, before });
                 }
             }
         }
@@ -496,7 +515,7 @@ impl Scene {
         }
         if std::mem::take(&mut self.redraw_all) || self.placed != self.last_placed || self.plan.holes != self.last_holes {
             let tiles = self.plan.tiles.as_mut().unwrap();
-            for r in self.last_placed.iter().chain(self.placed.iter()).map(|p| &p.rect).chain(self.last_holes.iter()).chain(self.plan.holes.iter()) {
+            for r in self.last_placed.iter().chain(self.placed.iter()).map(|p| &p.rect).chain(self.last_holes.iter().map(|h| &h.rect)).chain(self.plan.holes.iter().map(|h| &h.rect)) {
                 self.plan.damage = self.plan.damage.union(r);
                 tiles.add(r);
             }

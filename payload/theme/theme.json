@@ -158,7 +158,9 @@
     "specular": 0,
     "bloom": 0,
     "saturation": 1,
-    "contrast": 1
+    "contrast": 1,
+    "source": "gpu",
+    "glass": "backdrop"
   },
   "warmup": {
     "enabled": true,

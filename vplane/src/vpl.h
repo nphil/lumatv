@@ -46,6 +46,7 @@ typedef struct {
     char clip[64];       /* start with this print (empty: the next in the order) */
     int everyMs;         /* tests: a change of print this often (0: everyMin) */
     char clockAt[8];     /* tests: the clock shows this text instead of the time */
+    char role[8];        /* "saver" (the art mode, the default) or "wall" (Home's moving wallpaper: one looping clip, nothing drawn in the window) */
 } vpl_params;
 
 void vpl_params_default(vpl_params *p);

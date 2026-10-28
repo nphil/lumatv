@@ -19,6 +19,9 @@
 #                            that is installed, revert removes it
 #   updateblock status     -> whether LG's system updates are blocked: the Homebrew Channel's flag and what /etc/hosts maps now (read only;
 #                            the setting is changed in Settings > System > Support > Update, through the channel's own service)
+#   wallpaper video|gpu|status -> Home's wallpaper source (theme.wallpaperMotion.source, default gpu): `video` plays the wallpaper as a looping
+#                            clip on the video plane through the video-plane player, under LumaTV's own compositor; the status names what is
+#                            missing (the compositor, the player installed and running, a clip), and until it is all there the GPU draws it
 #   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
 #   compositor on|off|status|check -> LumaTV's own compositor in place of LG's (tools/compositor.sh); `on` is the
 #                            persistent enable and needs a firmware build on verified.list; `check` is what the
@@ -2445,7 +2448,7 @@ verb_inputs() {
 # The art saver's video-plane player. Installed means its program is staged and its role is written (vplane.sh status says so), and only
 # `lumatv vplane install` gets it there. A player that is not installed is not a fault anywhere: the saver draws its own picture.
 vplane_json() {
-  [ -f "$VPLANE_SH" ] && sh "$VPLANE_SH" status "$STATE" 2>/dev/null < /dev/null | tr -d '\n' || printf '{"installed":false,"role":false,"clips":0,"running":false,"pid":0}'
+  [ -f "$VPLANE_SH" ] && sh "$VPLANE_SH" status "$STATE" 2>/dev/null < /dev/null | tr -d '\n' || printf '{"installed":false,"role":false,"clips":0,"walls":0,"running":false,"pid":0}'
 }
 
 vplane_installed() {
@@ -2487,6 +2490,50 @@ verb_vplane() {
     status) printf '{"ok":true,"vplane":%s}\n' "$(vplane_json)" ;;
     *) emit_error "vplane: install, start, stop, remove or status"; return 1 ;;
   esac
+  return 0
+}
+
+# The Home wallpaper's source (theme.wallpaperMotion.source): "gpu", drawn by the GPU as it always was (the default), or "video", a looping clip on
+# the TV's video decoder through the video-plane player (vplane/, docs/research/videoplane-saver-result.md, "The moving wallpaper"). `video` is only
+# the switch: the Home layer draws the GPU wallpaper until everything the clip needs is there, and the status says what is not (LumaTV's own
+# compositor, the player installed and running, a clip in the package). The Home layer reads theme.json every 2 s, so nothing restarts.
+wallpaper_source() {
+  [ -f "$THEME_DIR/theme.json" ] || stage_theme
+  src=$(python3 "$THEME_TOOL" "$THEME_DIR/theme.json" read wallpaperMotion.source gpu < /dev/null 2>/dev/null)
+  case "$src" in video) printf video ;; *) printf gpu ;; esac
+}
+
+wallpaper_set() {
+  [ -f "$THEME_DIR/theme.json" ] || stage_theme
+  python3 "$THEME_TOOL" "$THEME_DIR/theme.json" set "{\"wallpaperMotion\":{\"source\":\"$1\"}}" < /dev/null > /dev/null || return 1
+  write_tokens_js || log_line "wallpaper: Tokens.js not rewritten"
+  return 0
+}
+
+wallpaper_json() {
+  wp_src=$(wallpaper_source)
+  wp_vp=$(vplane_json)
+  wp_comp=lg
+  if command -v comp_live > /dev/null 2>&1 && comp_live; then wp_comp=own; fi
+  wp_missing=
+  [ "$wp_comp" = own ] || wp_missing="$wp_missing${wp_missing:+,}\"LumaTV's compositor is not the live one\""
+  case "$wp_vp" in *'"installed":true'*'"role":true'*) ;; *) wp_missing="$wp_missing${wp_missing:+,}\"the video-plane player is not installed (lumatv vplane install)\"" ;; esac
+  case "$wp_vp" in *'"running":true'*) ;; *) wp_missing="$wp_missing${wp_missing:+,}\"the video-plane player is not running (lumatv vplane start)\"" ;; esac
+  case "$wp_vp" in *'"walls":0'*) wp_missing="$wp_missing${wp_missing:+,}\"the package has no wallpaper clip\"" ;; esac
+  wp_status="$VPLANE_MAILBOX/status.json"
+  wp_state=$(sed -n 's/.*"state":"\([a-z]*\)".*/\1/p' "$wp_status" 2>/dev/null | head -n 1)
+  wp_role=$(sed -n 's/.*"role":"\([a-z]*\)".*/\1/p' "$wp_status" 2>/dev/null | head -n 1)
+  printf '{"source":"%s","ready":%s,"missing":[%s],"compositor":"%s","vplane":%s,"player":{"state":"%s","role":"%s"}}' \
+    "$wp_src" "$(if [ -z "$wp_missing" ]; then printf true; else printf false; fi)" "$wp_missing" "$wp_comp" "$wp_vp" "$wp_state" "$wp_role"
+}
+
+verb_wallpaper() {
+  case "${1:-status}" in
+    video|gpu) wallpaper_set "$1" || { emit_error "wallpaper: theme.json could not be updated"; return 1; } ;;
+    status) ;;
+    *) emit_error "wallpaper: video, gpu or status"; return 1 ;;
+  esac
+  printf '{"ok":true,"wallpaper":%s}\n' "$(wallpaper_json)"
   return 0
 }
 
@@ -3690,6 +3737,7 @@ case "$VERB" in
   capture) verb_capture "${2:-status}"; exit $? ;;
   inputs) verb_inputs "${2:-status}"; exit $? ;;
   vplane) verb_vplane "${2:-status}"; exit $? ;;
+  wallpaper) verb_wallpaper "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
   notifications) verb_notifications "${2:-status}"; exit $? ;;
