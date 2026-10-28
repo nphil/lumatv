@@ -42,6 +42,10 @@ WebOSWindow {
     readonly property bool appFront: !homeCurrent && !!fg.app && fg.app !== "com.webos.app.home" && screenOn
     readonly property bool lgHome: !!lumaHome.item && lumaHome.item.lgHome === true
     readonly property bool homeReady: lumaHome.status === Loader.Ready && !!lumaHome.item
+    // An app that takes the front under a panel of the system layer ends the panel (LG's own windows end with the app switch): the
+    // Input key held opens the picker at its press, and a second later the Home Hub in front of it. Banners are left alone.
+    readonly property string fgApp: fg.app || ""
+    onFgAppChanged: { if (overlay.item && overlay.item.closePanel) overlay.item.closePanel() }
 
     Loader {
         id: lumaHome

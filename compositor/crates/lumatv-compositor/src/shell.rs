@@ -56,6 +56,10 @@ const EVENTS_KEPT: usize = 512;
 const START_ALONE: Duration = Duration::from_secs(15);
 /// The client's nice level: below the apps (nice 0), so an app's frames win the CPU over the shell's.
 const NICE: i32 = 10;
+/// The kernel's trace buffer. The frame gate's captures (`docs/research/perf/capture.sh`) read their markers from it; the compositor
+/// leaves two kinds of its own there (`Q:<panel>-show` when it asks the shell for a panel on a key, `Q:<feed>-delivered` when a
+/// notification reaches it from the service), so the gate can tell what the shell is asked, and when, from what the shell does with it.
+pub const TRACE_MARKER: &str = "/sys/kernel/debug/tracing/trace_marker";
 
 /// The bus names the shell may call through the bridge: the services LumaTV's QML calls under LG's compositor (read off
 /// `payload/compositor/<module>`), and the compositor's own names, which the bridge routes back to `luna_methods.rs`.
@@ -217,6 +221,8 @@ pub struct Shell {
     pub recorded: Vec<Value>,
     pub stats: Stats,
     pub error: Option<String>,
+    /// Where the trace markers are written ([`TRACE_MARKER`]; a file of its own in the tests).
+    pub marker: PathBuf,
 }
 
 impl Default for Shell {
@@ -240,6 +246,7 @@ impl Default for Shell {
             recorded: Vec::new(),
             stats: Stats::default(),
             error: None,
+            marker: PathBuf::from(TRACE_MARKER),
         }
     }
 }
@@ -302,6 +309,13 @@ impl Shell {
         self.last_seen = Some(now);
         if !self.connected {
             self.connected = true;
+        }
+    }
+
+    /// Writes a line into the trace buffer ([`TRACE_MARKER`]); where there is none (the host, a kernel without tracefs) nothing happens.
+    fn mark(&self, text: &str) {
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&self.marker) {
+            let _ = f.write_all(format!("{text}\n").as_bytes());
         }
     }
 }
@@ -623,6 +637,9 @@ impl State {
     pub fn shell_luna_event(&mut self, token: u64, payload: &Value) -> bool {
         let Some(i) = self.shell.luna_tags.iter().position(|t| t.token == token) else { return false };
         let tag = self.shell.luna_tags[i].tag;
+        if let Some(feed) = notification_feed(&self.shell.luna_tags[i].uri, payload) {
+            self.shell.mark(&format!("Q:{feed}-delivered"));
+        }
         if !self.shell.luna_tags[i].subscribe {
             self.shell.luna_tags.remove(i);
         }
@@ -668,14 +685,22 @@ impl State {
         self.shell_sync_topics();
     }
 
+    /// Whether the client is connected and said it can show `kind` ("quick", "picker", "drawer") now.
+    pub fn shell_can(&self, kind: &str) -> bool {
+        self.shell.connected && self.shell.can.iter().any(|c| c == kind)
+    }
+
     /// The gear's tap, the Input key, a request through the luna methods: LumaTV's own panel when the UI says it can show it
     /// (`kind`: "quick", "picker", "drawer"). `warm` is the gear's press: the panel joins the scene off the screen, so the slide
     /// of the opening starts in a scene that has it. Returns whether the UI takes it.
     pub fn shell_show(&mut self, kind: &str, warm: bool) -> bool {
-        if !self.shell.connected || !self.shell.can.iter().any(|c| c == kind) {
+        if !self.shell_can(kind) {
             return false;
         }
         self.shell.stats.shows += 1;
+        if !warm {
+            self.shell.mark(&format!("Q:{kind}-show"));
+        }
         self.shell.push("show", json!({"kind": kind, "warm": warm, "n": self.shell.stats.shows}));
         true
     }
@@ -711,6 +736,19 @@ impl State {
             "stats": {"starts": s.stats.starts, "exits": s.stats.exits, "events": s.stats.events, "lunaCalls": s.stats.luna_calls, "lunaRefused": s.stats.luna_refused, "shows": s.stats.shows},
         })
     }
+}
+
+/// The feed of LG's notification service a push belongs to, when the push is a notification the shell shows: a toast with a message,
+/// an alert that opens. The compositor marks the trace when one reaches it (`Shell::mark`): the frame gate times the shell's own part
+/// of a toast from there, since the service hands it over at its own pace (2 to 4 s after `luna-send` returned under LG's compositor).
+fn notification_feed(uri: &str, payload: &Value) -> Option<&'static str> {
+    if uri.ends_with("/getToastNotification") && payload.get("message").and_then(Value::as_str).is_some_and(|m| !m.is_empty()) {
+        return Some("toast");
+    }
+    if uri.ends_with("/getAlertNotification") && payload.get("alertAction").and_then(Value::as_str) == Some("open") {
+        return Some("alert");
+    }
+    None
 }
 
 /// `<bundle>/shell/Shell.qml` beside this executable (`<bundle>/bin/lumatv-compositor`), when the bundle has one.

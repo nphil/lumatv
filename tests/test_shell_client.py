@@ -90,6 +90,20 @@ class ShellClient(unittest.TestCase):
         self.assertTrue(any(r["wants"] for r in reports), "the layer's wanting the keys was reported")
         self.assertEqual(rc, 0, "no warning of the shell's own:\n" + "\n".join(l for l in out.splitlines() if l.startswith("[warning]") or l.startswith("[critical]"))[-2000:])
 
+    def test_an_app_taking_the_front_ends_the_overlays_picker(self):
+        # The Input key held opens the picker at its press and the Home Hub a second later: the picker over the app goes with the switch.
+        hub = '{"app":"com.webos.app.homeconnect","home":false}'
+        rc, out = self.host(
+            "--push", "500:foreground:" + HOME, "--push", "500:screen:{\"on\":true}",
+            "--push", "7000:foreground:" + APP,
+            "--show", "13000:picker", "--eval", "13800:JSON.stringify([home.state().overlay, home.sysWants, sys.visible])",
+            "--push", "14000:foreground:" + hub, "--eval", "14800:JSON.stringify([home.state().overlay, home.sysWants])", wait=15500)
+        evals = self.evals(out)
+        self.assertEqual(len(evals), 2, out[-3000:])
+        self.assertEqual(evals[0], ["picker", True, True], "the picker is up over the app and wants the keys")
+        self.assertEqual(evals[1], ["", False], "the Hub taking the front ended it")
+        self.assertEqual(rc, 0, "no warning of the shell's own:\n" + "\n".join(l for l in out.splitlines() if l.startswith("[warning]") or l.startswith("[critical]"))[-2000:])
+
 
 if __name__ == "__main__":
     unittest.main()

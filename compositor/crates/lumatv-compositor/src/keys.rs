@@ -6,6 +6,9 @@
 //! LG's chain swallows the gear, Input and the app keys and decides at the release (a tap) or at 1 s (a hold, converted to
 //! another key); the digits and Back reach the app at once and a 1 s hold acts besides; Mute is a toggle at its release unless
 //! it was held 2 s. The same shapes here, on every device (LG converts holds for its own remotes only, which is all this set has).
+//! One exception: with LumaTV's own picker able to answer (`Ctx::picker_ready`) the Input key's tap acts on its press, as LumaTV's
+//! key filter did under LG's compositor (`payload/keyfilter/lumatv.js`: "the Input key acts on the press, as LG's does"). Waiting
+//! for the release put the picker's first frame behind the key by the length of the tap (50 ms for the gate's injected one).
 
 use std::time::{Duration, Instant};
 
@@ -194,7 +197,8 @@ impl AppKeyConfig {
 pub enum SystemRequest {
     /// The gear's tap: Quick Settings (`com.webos.app.quicksettings`).
     QuickSettings,
-    /// The Input key's tap: the input picker (`com.webos.app.quickinputpicker`).
+    /// The Input key's tap: the input picker (`com.webos.app.quickinputpicker`). At its press when LumaTV's picker can answer, else at
+    /// its release.
     InputPicker,
     /// The Input key held: the Home Hub (`com.webos.app.homeconnect`).
     InputHub,
@@ -236,6 +240,8 @@ pub struct Ctx<'a> {
     /// A keyboard window is mapped.
     pub keyboard_up: bool,
     pub app_keys: &'a AppKeyConfig,
+    /// The shell client can show the input picker now: the Input key's tap is acted on at its press.
+    pub picker_ready: bool,
 }
 
 struct Held {
@@ -246,6 +252,8 @@ struct Held {
     swallowed: bool,
     /// The hold's action ran: the release is swallowed.
     fired: bool,
+    /// The tap's action ran at the press (the Input key with the picker ready): the release asks for nothing.
+    early: bool,
 }
 
 #[derive(Default)]
@@ -268,8 +276,16 @@ impl Router {
             }
             let logical = self.table.classify(code);
             let mut out = Outcome::default();
+            let mut early = false;
             match logical {
-                Logical::Gear | Logical::Input => out.swallow = true,
+                Logical::Gear => out.swallow = true,
+                Logical::Input => {
+                    out.swallow = true;
+                    if ctx.picker_ready {
+                        early = true;
+                        out.actions.push(Action::Request(SystemRequest::InputPicker));
+                    }
+                }
                 Logical::App(k) => match ctx.app_keys.decide(k, ctx.foreground) {
                     AppKeyDecision::Launch(app) => {
                         out.swallow = true;
@@ -284,7 +300,7 @@ impl Router {
                 }
                 _ => {}
             }
-            self.down.push(Held { code, logical, since: now, swallowed: out.swallow, fired: false });
+            self.down.push(Held { code, logical, since: now, swallowed: out.swallow, fired: false, early });
             return out;
         }
         let Some(i) = self.down.iter().position(|h| h.code == code) else { return Outcome::default() };
@@ -293,7 +309,7 @@ impl Router {
         if !h.fired {
             match h.logical {
                 Logical::Gear => out.actions.push(Action::Request(self.gear_tap(now))),
-                Logical::Input => out.actions.push(Action::Request(SystemRequest::InputPicker)),
+                Logical::Input if !h.early => out.actions.push(Action::Request(SystemRequest::InputPicker)),
                 _ => {}
             }
         }
@@ -370,6 +386,7 @@ mod tests {
         foreground: String,
         keyboard_up: bool,
         app_keys: AppKeyConfig,
+        picker_ready: bool,
     }
 
     impl Rig {
@@ -380,6 +397,7 @@ mod tests {
                 foreground: "com.webos.app.home".into(),
                 keyboard_up: false,
                 app_keys: AppKeyConfig::default(),
+                picker_ready: false,
             }
         }
 
@@ -388,12 +406,12 @@ mod tests {
         }
 
         fn key(&mut self, code: u32, pressed: bool) -> Outcome {
-            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, app_keys: &self.app_keys };
+            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, app_keys: &self.app_keys, picker_ready: self.picker_ready };
             self.router.event(code, pressed, self.now, &ctx)
         }
 
         fn poll(&mut self) -> Vec<Action> {
-            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, app_keys: &self.app_keys };
+            let ctx = Ctx { foreground: &self.foreground, keyboard_up: self.keyboard_up, app_keys: &self.app_keys, picker_ready: self.picker_ready };
             self.router.poll(self.now, &ctx)
         }
 
@@ -496,9 +514,53 @@ mod tests {
         let mut r = Rig::new();
         let (press, polled, release) = r.hold(KEY_VIDEO_NEXT, 120);
         assert!(press.swallow && polled.is_empty());
-        assert_eq!(release.actions, vec![req(InputPicker)]);
+        assert_eq!(release.actions, vec![req(InputPicker)], "without a picker of LumaTV's to answer the tap is decided at the release");
         let (_, polled, release) = r.hold(KEY_VIDEO_NEXT, 1100);
         assert_eq!(polled, vec![req(InputHub)]);
+        assert!(release.swallow && release.actions.is_empty());
+    }
+
+    #[test]
+    fn with_the_picker_ready_input_acts_on_its_press_and_its_release_asks_for_nothing() {
+        let mut r = Rig::new();
+        r.picker_ready = true;
+        let press = r.key(KEY_VIDEO_NEXT, true);
+        assert!(press.swallow);
+        assert_eq!(press.actions, vec![req(InputPicker)], "the first frame is not held behind the tap");
+        r.at(40);
+        let repeat = r.key(KEY_VIDEO_NEXT, true);
+        assert!(repeat.swallow && repeat.actions.is_empty(), "a repeat asks for nothing");
+        r.at(60);
+        assert!(r.poll().is_empty());
+        let release = r.key(KEY_VIDEO_NEXT, false);
+        assert!(release.swallow && release.actions.is_empty(), "the tap was acted on");
+        // The next tap is another one: the key again goes on to the next input.
+        r.at(500);
+        assert_eq!(r.key(KEY_VIDEO_NEXT, true).actions, vec![req(InputPicker)]);
+        r.key(KEY_VIDEO_NEXT, false);
+    }
+
+    #[test]
+    fn a_press_that_found_no_picker_leaves_the_tap_to_the_release_whatever_the_picker_is_by_then() {
+        let mut r = Rig::new();
+        assert!(r.key(KEY_VIDEO_NEXT, true).actions.is_empty());
+        r.picker_ready = true;
+        r.at(80);
+        assert_eq!(r.key(KEY_VIDEO_NEXT, false).actions, vec![req(InputPicker)]);
+        // And the other way: a press the picker answered is not asked again at the release when the shell is gone by then.
+        assert_eq!(r.key(KEY_VIDEO_NEXT, true).actions, vec![req(InputPicker)]);
+        r.picker_ready = false;
+        r.at(80);
+        assert!(r.key(KEY_VIDEO_NEXT, false).actions.is_empty());
+    }
+
+    #[test]
+    fn with_the_picker_ready_a_held_input_still_opens_the_hub_once() {
+        let mut r = Rig::new();
+        r.picker_ready = true;
+        let (press, polled, release) = r.hold(KEY_VIDEO_NEXT, 1100);
+        assert_eq!(press.actions, vec![req(InputPicker)], "the press asked for the picker, as LG's chain acts on Input's press");
+        assert_eq!(polled, vec![req(InputHub)], "and the hold goes on to the Hub");
         assert!(release.swallow && release.actions.is_empty());
     }
 

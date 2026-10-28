@@ -368,11 +368,12 @@ impl State {
         }
         let foreground = self.foreground_app();
         let keyboard_up = self.keyboard_up();
+        let picker_ready = self.shell_can("picker");
         let logical = self.keys.router.table.classify(code);
         let first_press = pressed && !self.keys.router.is_down(code);
         let out = {
             let Keys { router, app_keys, .. } = &mut self.keys;
-            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, app_keys })
+            router.event(code, pressed, now, &Ctx { foreground: &foreground, keyboard_up, app_keys, picker_ready })
         };
         self.run_actions(out.actions);
         // The gear is down: its tap opens the quick panel at the release, and the shell puts the panel in the scene now, off the
@@ -459,9 +460,10 @@ impl State {
         if self.keys.router.waiting() {
             let foreground = self.foreground_app();
             let keyboard_up = self.keyboard_up();
+            let picker_ready = self.shell_can("picker");
             let actions = {
                 let Keys { router, app_keys, .. } = &mut self.keys;
-                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, app_keys })
+                router.poll(now, &Ctx { foreground: &foreground, keyboard_up, app_keys, picker_ready })
             };
             self.run_actions(actions);
         }

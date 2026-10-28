@@ -290,6 +290,43 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
 }
 
 #[test]
+fn a_panel_asked_for_and_a_notification_handed_over_leave_markers_in_the_trace_buffer() {
+    let server = Server::start();
+    let path = std::env::temp_dir().join(format!("lumatv-trace-marker-{}", std::process::id()));
+    std::fs::write(&path, "").unwrap();
+    let marker = path.clone();
+    let tokens = server.eval(move |s| {
+        s.shell.marker = marker;
+        s.shell_handle(Msg::Connected);
+        s.shell_handle(Msg::Ui { can: Some(vec!["picker".into(), "quick".into()]), wants: None, state: None });
+        // The gear's press warms the panel and marks nothing; the instant the shell is asked to show one is marked; one it cannot show is not.
+        s.shell_show("quick", true);
+        s.shell_show("picker", false);
+        s.shell_show("drawer", false);
+        for (tag, feed) in [(1, "getToastNotification"), (2, "getAlertNotification"), (3, "getInputAlertNotification")] {
+            s.shell_handle(Msg::Luna { tag, uri: format!("luna://com.webos.notification/{feed}"), payload: json!({"subscribe": true}), subscribe: true });
+        }
+        s.shell.luna_tags.iter().map(|t| t.token).collect::<Vec<_>>()
+    });
+    server.eval(move |s| {
+        // A subscription's first answer carries no notification; a toast with a message does, an alert that closes does not, one that opens does.
+        let answer = |token: u64, payload: Value| lumatv_compositor::luna::Event { token, payload };
+        s.luna_event(answer(tokens[0], json!({"returnValue": true, "subscribed": true})));
+        s.luna_event(answer(tokens[0], json!({"returnValue": true, "message": "A toast"})));
+        s.luna_event(answer(tokens[1], json!({"alertAction": "close"})));
+        s.luna_event(answer(tokens[1], json!({"alertAction": "open", "alertInfo": {}})));
+        s.luna_event(answer(tokens[2], json!({"alertAction": "open", "alertInfo": {}})));
+    });
+    let text = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        text.lines().collect::<Vec<_>>(),
+        vec!["Q:picker-show", "Q:toast-delivered", "Q:alert-delivered"],
+        "the input popup is not one of the gate's surfaces"
+    );
+}
+
+#[test]
 fn luna_calls_for_the_shell_go_through_the_bridge_from_the_allowlist() {
     let server = Server::start();
     server.eval(|s| {
