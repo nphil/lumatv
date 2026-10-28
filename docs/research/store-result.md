@@ -30,7 +30,7 @@ opened under the theme, and no open time of the store has ever been measured.
 | `supportQuickStart` | true | declared by 32 of 149 apps, among them LG Channels, which LG's preload manager does preload |
 | `spinnerOnLaunch`, `checkUpdateOnLaunch`, `requiredEULA` generalTerms, `hasAccountService` | true, true, yes, true | LG's spinner until the first frame, an update check, a terms check and an account service at launch |
 | `vendorExtension.allowCrossDomain`, `enableCBSPolicy` | true, true | cross-origin requests allowed; what CBS policy does is not established |
-| `inspectable` | false | |
+| `inspectable` | false | WAM's inspector may not list the page: its source lists system apps only when `/var/luna/preferences/debug_system_apps` exists, read at WAM's start [INFERENCE: the source is the open-source WAM, not LG's build]; creating that file would need a WAM restart, which nothing here does |
 
 How it loads (`docs/research/surfaces/AppsHomeMediaAI.json`, confidence high, read from `index.html` and `js/Loader.js` on the set):
 the app is a **thin loader that posts the device's info to LG's cloud page**, `https://<env>.app.lgwebostv.com/discovery_2024/discovery.html`
@@ -46,7 +46,7 @@ Launch parameters seen: `{query: "category/THEME/20411"}` (the New key), `{query
 (Settings, software update; LG's Settings bundle, `lgtv/research/lgsettings/main.js`), the Apps tile and the Apps remote key.
 
 What it needs from LG at open (measured on the set, 2026-10-25, `declutter-result.md`): with `sdx` stubbed the store shows "Service is
-temporarily unavailable"; with `sdx` kept it loads its catalogue. Hosts the store depends on (`lgtv/tmp-research/endpoints.md`):
+temporarily unavailable"; with `sdx` kept it loads its catalogue. Hosts the store depends on (community reports gathered in `lgtv/tmp-research/endpoints.md`, not measured here):
 `<cc>.nextlgsdp.com` and `<cc>.lgtvsdp.com` (catalogue, installs, the clock), `ngfts.lge.com` (thumbnails), `wiselg.com` (reported: blocking it
 gives error E5.48.XV). Installs go through `appInstallService` (`APP_INSTALL_REQ`, caller `com.webos.app.discovery`).
 
@@ -67,11 +67,12 @@ set `USER_SCRIPT_PATH`. That is the one injection point; the rest follow from it
   `generators/gen-store-font.py`). The script is 76 KB; host run time of its evaluation median 1.6 ms, p90 2.8 ms (the set's CPU is slower).
 - **The script runs before `<html>` exists**; it needs no root, and the light material is chosen at build time, not by an attribute.
 - **Frames**: the top document, frames of the app's own files and of `lgwebostv.com` are themed; an anonymous frame (a trailer, an ad)
-  is not.
+  is not. Whether the cloud page replaces the loader's document or sits in a frame of it is not established; the script covers both.
 - Not used: editing LG's `index.html` or `Loader.js` in the upper layer (that changes what the app loads), any interception of the cloud
   page, a Blink flag (WAM's switches are set by `webapp-mgr.sh`, which this package does not touch).
-- **Unproven on the set**: that WAM runs the script from an overlay over `/mnt/otncabi` (the settings theme is built the same way and its
-  list says "not run on the set yet"). Step 1 of the TV round is exactly that.
+- **Unproven on the set**: that WAM runs the script from an overlay over `/mnt/otncabi`. WAM does read what the tool mounts over an
+  app's directory (the Home stub's page is served from one: `homestub-result.md`), so the premise holds for `/usr/palm/applications`; the
+  settings theme, built the same way, is listed "not run on the set yet". Step 1 of the TV round is exactly that.
 
 ## 3. Why it is slow to open and to scroll
 
@@ -107,7 +108,7 @@ Measured on this set or in LG's own files:
 | A Lucent skin on the store | yes, as far as the selectors meet LG's markup | WAM user script in every document and origin (section 2); host: 20 renders pass the audit |
 | Without touching LG's files, reversibly | yes | overlay mount; `off` unmounts, 26 tests on the tool and the verb, with a fake overlay |
 | Shorter transitions | yes (transitions and `Element.animate`); not the script-driven scroll | host: 600 ms transition ends in 218 ms; `transitionend` still fires |
-| Cheaper focus | yes | the sheet replaces the shadow, `will-change` and fill of a focus move with a ring and a wash; host numbers in section 5 |
+| Cheaper focus | yes | the sheet replaces the shadow, `will-change` and fill of a focus move with a ring and a wash; host numbers in section 6 |
 | Keep the store alive after leaving it | it already is (`closeOnBackground` false) until LG's memory manager closes it; making it permanent through `keepAliveApps` is not available | the list is configd's `com.webos.applicationManager` (the store is not in it); read at SAM's start [INFERENCE]; no shipped tool may restart SAM (`tests/test_tool_rules.py`) |
 | Preload it hidden | possible in principle, not shipped | LG preloads LG Channels, a cloud-driven WAM web app that declares the same `supportQuickStart` and `allowCrossDomain`; the store has no entry in `supportAppList` (census `preload.json`); LG Channels' preloaded renderer holds 12 MB PSS and 21 MB in swap (`memory-result.md`), but it also sets `useAppHibernation` and the store does not [INFERENCE: that is part of why it is small]; whether the manager accepts a new id is unverified. Experiment E1 below |
 | Make the cloud page faster (network, server, bundle) | no | not on the set |
@@ -167,7 +168,7 @@ Order matters; each step says what PASS is. Default state at the start: `lumatv 
 0. **LG's store works, theme off** (Nitin's pending "LG store check", declutter `lean` on): open it, see the catalogue, install and remove
    a small free app (`APP_INSTALL_REQ` and `APP_REMOVE_REQ` with `caller: com.webos.app.discovery` in `/var/log/messages`). Then read the
    markup, read-only: `cat /mnt/otncabi/usr/palm/applications/com.webos.app.discovery/index.html js/Loader.js` (the cloud page's address
-   and what is posted), `curl -s http://127.0.0.1:9998/json/list` (WAM's inspector; the store page listed or not), and with the store
+   and what is posted), `curl -s http://127.0.0.1:9998/json/list` (or `wget -qO-`; WAM's inspector, the store page listed or not), and with the store
    open on each page type `python3 /media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/store_dump.py --out /tmp/store-<page>.json` (class names and the Sandstone components,
    effects counted, pictures and their sizes, stylesheets, fonts, timings; none of the page's words). **PASS**: the dump names
    `enact_sandstone_*` parts; the selectors of `store.css` that match nothing are listed and fixed before any theme run.
