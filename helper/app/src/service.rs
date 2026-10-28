@@ -191,6 +191,7 @@ impl Service {
         threads.push((
             "ble",
             crate::ble::spawn(&ctx, crate::ble::Deps::real(&config.luna.send))?,
+        threads.push(("updateblock", crate::updateblock::spawn(&ctx)?));
         ));
 
         let ip: IpAddr = config

@@ -17,6 +17,8 @@
 #   vplane install|start|stop|remove|status -> the art saver's video-plane player and its clips (payload/vplane/vplane.sh); `install`
 #                            writes an LS2 role, so it is the owner's own command and apply never runs it; apply starts a player
 #                            that is installed, revert removes it
+#   updateblock status     -> whether LG's system updates are blocked: the Homebrew Channel's flag and what /etc/hosts maps now (read only;
+#                            the setting is changed in Settings > System > Support > Update, through the channel's own service)
 #   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
 #   compositor on|off|status|check -> LumaTV's own compositor in place of LG's (tools/compositor.sh); `on` is the
 #                            persistent enable and needs a firmware build on verified.list; `check` is what the
@@ -2142,6 +2144,40 @@ verb_helper() {
 # The colour reader. Not fatal: without it the ambient light has no picture and says so; everything else is as it was.
 capture_start() {
   [ -f "$CAPTURE_SRC" ] || return 0   # a package built before it existed
+# LG's system updates, blocked by the Homebrew Channel: its flag file (`blockUpdates`, read at boot) and, while the flag exists, a
+# bind-mounted /etc/hosts that maps LG's update servers to loopback (its startup.sh). The two can differ until a restart, and another
+# mod's hosts file once hid the block, so both are read. The same fields and rules as the helper's `updateblock` topic
+# (helper/app/src/updateblock.rs). Read only.
+UB_FLAG=${UB_FLAG:-/var/luna/preferences/webosbrew_block_updates}
+UB_HOSTS=${UB_HOSTS:-/etc/hosts}
+UB_NAMES="snu.lge.com su.lge.com su-ssl.lge.com su-dev.lge.com"
+
+updateblock_json() {
+  ub_flag=false; [ -e "$UB_FLAG" ] && ub_flag=true
+  ub_map=""; ub_n=0
+  for ub_h in $UB_NAMES; do
+    ub_m=false
+    if [ -r "$UB_HOSTS" ] && awk -v h="$ub_h" '{ sub(/#.*/, "") } ($1 == "127.0.0.1" || $1 == "::1") { for (i = 2; i <= NF; i++) if (tolower($i) == h) f = 1 } END { exit f ? 0 : 1 }' "$UB_HOSTS" 2>/dev/null; then
+      ub_m=true; ub_n=$((ub_n+1))
+    fi
+    ub_map="$ub_map${ub_map:+,}\"$ub_h\":$ub_m"
+  done
+  ub_live=false; [ "$ub_n" -eq 4 ] && ub_live=true
+  ub_block=false; { [ "$ub_flag" = true ] || [ "$ub_n" -gt 0 ]; } && ub_block=true
+  if [ "$ub_flag" = true ] && [ "$ub_live" = true ]; then ub_state=blocked
+  elif [ "$ub_flag" = true ]; then ub_state=armed
+  elif [ "$ub_n" -gt 0 ]; then ub_state=hosts-only
+  else ub_state=open; fi
+  printf '{"flag":%s,"hosts":{%s},"live":%s,"blocking":%s,"state":"%s"}' "$ub_flag" "$ub_map" "$ub_live" "$ub_block" "$ub_state"
+}
+
+verb_updateblock() {
+  case "$1" in
+    status) printf '{"ok":true,"updateBlock":%s}\n' "$(updateblock_json)" ;;
+    *) emit_error "usage: updateblock status"; return 1 ;;
+  esac
+}
+
   out=$(sh "$CAPTURE_SH" install "$CAPTURE_SRC" "$CAPTURE_ROLE" "$STATE" 2>&1) \
     && out=$(sh "$CAPTURE_SH" start "$STATE" "$CAPTURE_SOCKET" 2>&1) && return 0
   log_line "capture: $(printf '%s' "$out" | tr -d '\n' | cut -c1-200)"
@@ -2939,8 +2975,9 @@ verb_status() {
   homestub=$(homestub_json)
   helper=$(helper_json)
   compositor=$(comp_json)
-  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s,"compositor":%s}\n' \
-    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper" "$compositor"
+  updateblock=$(updateblock_json)
+  printf '{"ok":true,"version":"%s","applied":%s,"live":%s,"mounts":%s,"persist":%s,"early":%s,"standby":"%s","fps":%s,"ntfy":{"enabled":%s,"url":"%s"},"firmware":"%s","model":"%s","homestub":%s,"helper":%s,"compositor":%s,"updateBlock":%s}\n' \
+    "$version" "$applied" "$live" "$mounts" "$persist" "$early" "$standby" "$fps" "$ntfy_en" "$ntfy_url_esc" "$firmware_esc" "$model_esc" "$homestub" "$helper" "$compositor" "$updateblock"
   return 0
 }
 
@@ -3437,6 +3474,7 @@ case "$VERB" in
   systemui) verb_systemui "${2:-status}"; exit $? ;;
   webglass) verb_webglass "${2:-status}"; exit $? ;;
   inputcommon) verb_inputcommon "${2:-status}"; exit $? ;;
+  updateblock) verb_updateblock "${2:-status}"; exit $? ;;
   voice) verb_voice "${2:-status}"; exit $? ;;
   keys) verb_keys "${2:-status}"; exit $? ;;
   keyboard) verb_keyboard "${2:-status}"; exit $? ;;

@@ -53,6 +53,11 @@ var zones = [
 ];
 var clock = { utc: 1761501000, auto: true, zone: zones[0] };     // 2025-10-26 17:30:00 UTC
 
+// The Homebrew Channel's service (org.webosbrew.hbchannel.service): its flags, of which Settings reads and sets `blockUpdates` (the block on LG's
+// system updates). `answers` false makes it say what the bus says of a service that is not there.
+var hbc = { answers: true, root: true, blockUpdates: true, telnetDisabled: false, sshdEnabled: false, failsafe: false };
+var hbcSets = [];
+
 // What a reset was asked for, as {category, dimension} (a picture mode) or {category, keys}: the service wants the input and the mode it is to
 // reset, or the keys.
 var resets = [];
@@ -76,6 +81,13 @@ function act(path, params) {
     } else if (path === "luna://com.palm.systemservice/setPreferences") {
         if (params.useNetworkTime !== undefined) clock.auto = !!params.useNetworkTime;
         if (params.timeZone) clock.zone = params.timeZone;
+    } else if (path === "luna://org.webosbrew.hbchannel.service/__answers") {
+        hbc.answers = params.on !== false;          // a test door, not a method of the service
+    } else if (path === "luna://org.webosbrew.hbchannel.service/setConfiguration") {
+        if (!hbc.answers) return "Service does not exist: org.webosbrew.hbchannel.service";
+        for (var f in params) if (typeof params[f] !== "boolean") return "Luna Error: " + f + " is not a boolean";
+        hbcSets.push(params);
+        if (params.blockUpdates !== undefined) hbc.blockUpdates = params.blockUpdates;
     } else if (path.indexOf("luna://com.webos.service.wifi/") === 0) {
         return netAct(path.substring("luna://com.webos.service.wifi/".length), params);
     } else if (path.indexOf("luna://com.webos.service.connectionmanager/") === 0) {
@@ -207,6 +219,12 @@ function netAct(path, p) {
 // "service/method" -> the reply (or a function of the parameters), for the luna services other than the settings service
 // (FakeSettings.services holds the older ones).
 var services = {
+    "luna://org.webosbrew.hbchannel.service/getConfiguration": function() {
+        return hbc.answers ? { returnValue: true, root: hbc.root, homebrewBaseDir: "/media/developer/apps/usr/palm/applications/org.webosbrew.hbchannel", telnetDisabled: hbc.telnetDisabled,
+                               sshdEnabled: hbc.sshdEnabled, blockUpdates: hbc.blockUpdates, failsafe: hbc.failsafe }
+                           : { returnValue: false, errorText: "Service does not exist: org.webosbrew.hbchannel.service" };
+    },
+    "luna://org.webosbrew.hbchannel.service/setConfiguration": function() { return { returnValue: true, blockUpdates: hbc.blockUpdates }; },
     "luna://com.palm.systemservice/time/getEffectiveBroadcastTime": function() { return { returnValue: true, adjustedUtc: clock.utc, systemTimeSource: clock.auto ? "ntp" : "user" }; },
     "luna://com.palm.systemservice/getPreferences": function() { return { returnValue: true, useNetworkTime: clock.auto, timeZone: clock.zone }; },
     "luna://com.palm.systemservice/getPreferenceValues": function() { return { returnValue: true, timeZone: zones }; },

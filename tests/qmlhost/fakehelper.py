@@ -124,6 +124,13 @@ def ha_check(st, key, value):
     return None
 
 
+def updateblock(state):
+    """The helper's `updateblock` topic (helper/app/src/updateblock.rs) in one of its four states."""
+    flag, live = {"blocked": (True, True), "armed": (True, False), "hosts-only": (False, True), "open": (False, False)}[state]
+    return {"flag": flag, "hosts": {n: live for n in ("snu.lge.com", "su.lge.com", "su-ssl.lge.com", "su-dev.lge.com")}, "live": live,
+            "blocking": flag or live, "state": state}
+
+
 class State:
     def __init__(self, a):
         self.boot = NOW()
@@ -137,6 +144,7 @@ class State:
         self.events = []        # (seq, topic, data)
         self.topics["ai"] = ai_doc()
         self.topics["ai.prompt"] = None
+        self.topics["updateblock"] = updateblock("blocked")
         self.requests = []      # (method, path, body) of every /v1/ai call, for the tests to read back
         self.posts = []         # (path, body) of every other POST (plugin actions, receiver nudge and set), read back at /__posts
         self.audit = []

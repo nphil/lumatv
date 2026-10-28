@@ -285,6 +285,45 @@ probe("support_reset_second_no", "root.key('ok');return {open:root.confirmOpen}"
 probe("support_reset_again", FIND % "support" + "R('Reset All Except Network Settings').act();root.key('right');root.key('ok');return 1", wait=900)
 probe("support_reset_second_yes", "var second=root.confirmOpen;root.key('right');root.key('ok');return {second:second}", wait=300)
 
+# ---- Support > Update: Block LG system updates (the Homebrew Channel's own setting, through its service) and Check for Updates while it is on
+PUBLISH_UB = ("var d=%s;var x=new XMLHttpRequest();x.open('POST','http://127.0.0.1:18731/__publish/updateblock');x.setRequestHeader('Content-Type','application/json');x.send(JSON.stringify(d));return 1")
+UB = lambda flag, live, state: json.dumps({"flag": flag, "hosts": {n: live for n in ("snu.lge.com", "su.lge.com", "su-ssl.lge.com", "su-dev.lge.com")}, "live": live,
+                                           "blocking": flag or live, "state": state})
+BLOCK_ROWS = ("var b=R('Block LG system updates'),c=R('Check for Updates');return {on:p.ev(b.on),enabled:p.ev(b.enabled)!==false,detail:p.ev(b.detail),"
+              "checkEnabled:p.ev(c.enabled)!==false,checkValue:p.ev(c.value)}")
+BLOCK_SETS = "return L.calls.filter(function(x){return x.method==='/setConfiguration'}).map(function(x){return JSON.parse(x.payload)})"
+LAUNCH_CHECK = "var n=0;root.launchApp.connect(function(){n++});R('Check for Updates').act();return n"
+OFF_FIRST = "R('Block LG system updates').act(false);var first=root.confirmOpen;root.key('right');root.key('ok');return {first:first,second:root.confirmOpen}"
+probe("block_reopen", "root.openPage('support');return 1", wait=900)
+probe("block_state", FIND % "support" + BLOCK_ROWS)
+probe("block_check_inert", FIND % "support" + LAUNCH_CHECK, wait=250)
+probe("block_off_first_no", FIND % "support" + "R('Block LG system updates').act(false);var asked=root.confirmOpen;root.key('ok');return {asked:asked}", wait=250)
+probe("block_closed_1", "return {open:root.confirmOpen}", wait=100)
+probe("block_off_second_no", FIND % "support" + OFF_FIRST, wait=250)
+probe("block_off_second_keep", "root.key('ok');return 1", wait=250)
+probe("block_closed_2", "return {open:root.confirmOpen}", wait=100)
+probe("block_sets_none", BLOCK_SETS)
+probe("block_off_yes", FIND % "support" + "R('Block LG system updates').act(false);root.key('right');root.key('ok');root.key('right');root.key('ok');return 1", wait=1300)
+probe("block_off_sets", BLOCK_SETS)
+probe("block_hosts_still", PUBLISH_UB % UB(False, True, "hosts-only"), wait=800)
+probe("block_hosts_still_rows", FIND % "support" + BLOCK_ROWS)
+probe("block_open", PUBLISH_UB % UB(False, False, "open"), wait=800)
+probe("block_open_rows", FIND % "support" + BLOCK_ROWS)
+probe("block_open_check", FIND % "support" + LAUNCH_CHECK, wait=250)
+probe("block_on", FIND % "support" + "R('Block LG system updates').act(true);return 1", wait=1300)
+probe("block_closed_3", "return {open:root.confirmOpen}", wait=100)
+probe("block_on_sets", BLOCK_SETS)
+probe("block_on_armed", PUBLISH_UB % UB(True, False, "armed"), wait=800)
+probe("block_on_armed_rows", FIND % "support" + BLOCK_ROWS)
+probe("block_on_check", FIND % "support" + LAUNCH_CHECK, wait=250)
+probe("block_mute", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function q() { LS.adhoc.call(\"luna://org.webosbrew.hbchannel.service\", "
+      "\"/__answers\", JSON.stringify({on: false})) } }', root);s.q();root.pageItem('support').refresh();return 1", wait=900)
+probe("block_mute_rows", FIND % "support" + BLOCK_ROWS)
+probe("block_unmute", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebOSCompositorBase 1.0; import WebOSServices 1.0; QtObject { function q() { LS.adhoc.call(\"luna://org.webosbrew.hbchannel.service\", "
+      "\"/__answers\", JSON.stringify({on: true})) } }', root);s.q();root.pageItem('support').refresh();return 1", wait=900)
+probe("block_unmute_rows", FIND % "support" + BLOCK_ROWS)
+probe("block_back_to_blocked", PUBLISH_UB % UB(True, True, "blocked"), wait=600)
+
 # ---- Safety: the locks' state, read only
 probe("safety_open", "root.openPage('safety');return 1", wait=700)
 probe("safety_rows", "var p=root.pageItem('safety');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
@@ -845,7 +884,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("support_tabs")["res"], [
             ["Device Name", "Model", "Model Code", "Serial Number", "webOS TV Version", "Total Power On Time", "Available Internal Storage", "MAC Address (Wired)",
              "MAC Address (Wireless)", "ESN", "Widevine", "Dolby Vision"],                                   # VSN is hidden by the TV
-            ["Software Version", "Update status", "Auto Update", "Check for Updates"],
+            ["Software Version", "Update status", "Auto Update", "Block LG system updates", "Check for Updates"],
             ["Do Not Sell My Personal Information", "Limit AD Tracking", "AD ID", "Reset AD ID", "Live Plus", "Live Promotion", "App Permissions", "Delete My Personal Information"],
             ["Screen Self-diagnosis", "Sound Self-diagnosis", "Memory Optimizer"],
             ["Reset All", "Reset All Except Network Settings"]])
@@ -865,6 +904,47 @@ class Coverage(unittest.TestCase):
         self.assertEqual(d, {"on": False, "enabled": False, "detail": "Needs LG's terms"})
         for name in ("support_open", "support_auto_state", "support_auto_on", "support_no_terms"):
             self.assertEqual([c["method"] for c in self.probe(name)["calls"] if "update" in c["method"].lower() and c["method"] != "/getStatus"], [])      # no check, no start
+
+    # ---- Support > Update: Block LG system updates
+    def test_the_block_switch_reads_the_channels_setting_and_says_what_is_live(self):
+        d = self.probe("block_state")["res"]
+        self.assertEqual(d, {"on": True, "enabled": True, "detail": "Active: LG's update servers are blocked", "checkEnabled": False, "checkValue": "Updates blocked"})
+
+    def test_check_for_updates_does_nothing_while_updates_are_blocked(self):
+        self.assertEqual(self.probe("block_check_inert")["res"], 0)                  # LG's Software Update screen was not launched
+        self.assertEqual(self.probe("block_on_check")["res"], 0)
+        for name in ("block_state", "block_check_inert", "block_off_yes", "block_open_check"):
+            self.assertEqual([c["method"] for c in self.probe(name)["calls"] if c["method"] in ("/startUpdate", "/checkUpdate")], [])
+
+    def test_turning_the_block_off_asks_twice_and_says_what_LGs_update_can_do(self):
+        self.assertEqual(self.probe("block_off_first_no")["res"], {"asked": True})        # Cancel is the first answer
+        self.assertEqual(self.probe("block_closed_1")["res"], {"open": False})
+        self.assertEqual(self.probe("block_off_second_no")["res"], {"first": True, "second": True})
+        self.assertEqual(self.probe("block_closed_2")["res"], {"open": False})
+        self.assertEqual(self.probe("block_sets_none")["res"], [])                                       # nothing was sent while either question was refused
+        self.assertEqual(self.probe("block_off_sets")["res"], [{"blockUpdates": False}])
+        src = open(os.path.join(HERE, "..", "payload", "compositor", "lumatv", "settings", "PageSupport.qml")).read()
+        self.assertIn("LG's update can remove root and LumaTV.", src)
+
+    def test_off_in_the_channel_but_still_mapped_is_blocked_until_the_restart_and_open_lets_the_check_through(self):
+        d = self.probe("block_hosts_still_rows")["res"]
+        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (False, "Off; still blocked until the TV restarts", False, "Updates blocked"))
+        d = self.probe("block_open_rows")["res"]
+        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (False, "Off; LG's update can reach this TV", True, ""))
+        self.assertEqual(self.probe("block_open_check")["res"], 1)
+
+    def test_turning_it_on_needs_no_question_and_applies_at_the_restart(self):
+        self.assertEqual(self.probe("block_closed_3")["res"], {"open": False})              # no question
+        self.assertEqual(self.probe("block_on_sets")["res"][-1:], [{"blockUpdates": True}])
+        d = self.probe("block_on_armed_rows")["res"]
+        self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (True, "On; active once the TV restarts", False, "Updates blocked"))
+
+    def test_without_the_channels_answer_the_switch_is_dimmed_and_says_so(self):
+        d = self.probe("block_mute_rows")["res"]
+        self.assertEqual((d["enabled"], d["checkEnabled"], d["checkValue"]), (False, False, "Updates blocked"))     # the helper still says the hosts block holds
+        self.assertTrue(d["detail"].startswith("Homebrew Channel"), d)
+        d = self.probe("block_unmute_rows")["res"]
+        self.assertEqual((d["enabled"], d["detail"]), (True, "On; active once the TV restarts"))
 
     def test_do_not_sell_asks_then_tells_the_ad_service_and_the_setting_follows(self):
         d = self.probe("support_dns_ask")["res"]

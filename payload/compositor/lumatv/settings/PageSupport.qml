@@ -12,6 +12,7 @@ import "."
 // its sign-off app, so here it only turns off, or on once the terms were accepted. Privacy: Do Not Sell goes through the ad service as LG's row does,
 // the AD ID is shown and reset, Limit AD Tracking is a switch; Live Plus (LG keeps it under Additional Settings, but it is consent) asks before it turns on and
 // holds Live Promotion; App Permissions and Delete My Personal Information are pages of their own. The self-diagnosis is LG's Customer Support app at its test (the app, not Settings).
+// Block LG system updates (the Homebrew Channel's own `blockUpdates`, set through its service) keeps LG's next major update from removing root by accident; while it is on, or cannot be read, Check for Updates does nothing.
 // Reset is last and asks twice, with LG's own PIN prompt between (`createPincodePrompt`; this page acts on its yes or no and never sees the digits);
 // the call is LG's `devicereset doReset {resetType}`. Nothing on this page is offered to an assistant: it is a Settings page, and Settings has no
 // AI access tool.
@@ -49,6 +50,7 @@ PageList {
     LunaCall {
         id: luna
         onAnswered: {
+            if (tag === "hbc" || tag === "hbcset") { page.blockAnswered(tag, doc); return }
             if (!doc) return
             if (tag === "pin") { page.pinAnswered(doc); return }
             if (doc.returnValue === false) return
@@ -87,8 +89,61 @@ PageList {
         luna.call("dolby", "luna://com.webos.service.pqcontroller", "getInfo", { key: "dolbySWVersion" })
         luna.call("keys", "luna://com.webos.service.sm/crypto", "checkSeStore", { id: ["esn", "widevine"] })
         luna.call("update", "luna://com.webos.service.update", "getStatus", {})
+        Helper.start()                          // idempotent: the live state of the hosts block is the helper's `updateblock` topic
+        luna.call("hbc", page.hbc, "getConfiguration", {})
         readAdId()
         pending = ""
+    }
+
+    // ---- Block LG system updates. webOS 26, LG's next major update, is reported to patch the root access this TV runs on, so the TV must not be
+    // updated by accident. The Homebrew Channel keeps the block as its own setting, `blockUpdates`, read and set through its service
+    // (`getConfiguration`, `setConfiguration`); at each boot, while it is on, the channel maps LG's update servers to this TV in /etc/hosts. So a
+    // change applies when the TV restarts, and what is mapped now is the helper's `updateblock` topic (another tool's hosts file once hid the block).
+    // Turning it off asks twice and says what LG's update can do. While updates are blocked, or while it cannot be told, Check for Updates does nothing.
+    readonly property string hbc: "luna://org.webosbrew.hbchannel.service"
+    property var blockFlag: null                // the channel's blockUpdates; null until it has answered
+    property string blockError: ""
+    readonly property var blockLive: Helper.updateBlock
+    readonly property bool blockOn: blockFlag !== null ? blockFlag === true : (blockLive !== null && blockLive.flag === true)
+    readonly property bool updatesBlocked: blockFlag === true || (blockLive !== null && blockLive.blocking === true)
+    readonly property bool blockUnknown: blockFlag === null && blockLive === null
+    readonly property string blockWords: {
+        if (blockError !== "") return blockError
+        if (blockFlag === null && blockLive === null) return "Homebrew Channel not answering"
+        if (blockLive === null) return blockOn ? "On" : "Off"
+        if (blockLive.state === "blocked") return "Active: LG's update servers are blocked"
+        if (blockLive.state === "armed") return "On; active once the TV restarts"
+        if (blockLive.state === "hosts-only") return "Off; still blocked until the TV restarts"
+        return "Off; LG's update can reach this TV"
+    }
+    function blockAnswered(tag, doc) {
+        if (!doc || doc.returnValue === false) {
+            blockError = doc && doc.errorText ? "Homebrew Channel: " + String(doc.errorText) : "Homebrew Channel not answering"
+            if (tag === "hbc") blockFlag = null
+            return
+        }
+        blockError = ""
+        if (typeof doc.blockUpdates === "boolean") blockFlag = doc.blockUpdates
+        if (tag === "hbcset") reread.restart()
+    }
+    function setBlock(on) {
+        if (on) { luna.call("hbcset", hbc, "setConfiguration", { blockUpdates: true }); return }
+        page.host.confirm({ icon: "shield-alert", title: "Allow LG system updates?", body: "LG's update can remove root and LumaTV.", focus: 0,
+                            answers: [{ id: "no", label: "Keep blocked" }, { id: "yes", label: "Continue", danger: true }] },
+                          function(id) {
+                              if (id !== "yes") return
+                              page.host.confirm({ icon: "shield-alert", title: "Turn the update block off?", body: "The TV can then fetch and install LG's update, and it cannot be undone from here.", focus: 0,
+                                                  answers: [{ id: "no", label: "Keep blocked" }, { id: "yes", label: "Turn off", danger: true }] },
+                                                function(id2) { if (id2 === "yes") luna.call("hbcset", hbc, "setConfiguration", { blockUpdates: false }) })
+                          })
+    }
+    function checkUpdatesRow() {
+        var row = R.lg(page, { tab: 1, id: "checkupdate", target: "SoftwareUpdate", label: "Check for Updates", help: "Checking sends the TV's model and version to LG, and an install restarts the TV. Both are done in LG's screen." })
+        var go = row.act
+        return R.over(row, { enabled: function() { return !page.updatesBlocked && !page.blockUnknown },
+                             value: function() { return page.updatesBlocked ? "Updates blocked" : page.blockUnknown ? "Block not readable" : "" },
+                             chevron: false,
+                             act: function() { if (!page.updatesBlocked && !page.blockUnknown) go() } })
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
@@ -142,7 +197,11 @@ PageList {
                                help: "The TV installs software updates by itself, with no notice. Turning it on needs LG's terms, which are accepted in LG's settings." }),
                { enabled: function() { return Sio.usable("support.automaticUpdate") && (String(Sio.get("support.automaticUpdate")) === "on" || page.termsOk) },
                  detail: function() { return !Sio.has("support.automaticUpdate") ? "TV not answering" : String(Sio.get("support.automaticUpdate")) !== "on" && !page.termsOk ? "Needs LG's terms" : "" } }),
-        R.lg(page, { tab: 1, id: "checkupdate", target: "SoftwareUpdate", label: "Check for Updates", help: "Checking sends the TV's model and version to LG, and an install restarts the TV. Both are done in LG's screen." }),
+        { kind: "toggle", tab: 1, id: "blockupdates", icon: "shield-check", label: "Block LG system updates",
+          help: "Keeps LG's update servers out of reach, so the TV is not updated by accident: LG's update can remove root and LumaTV. This is the Homebrew Channel's own setting; a change applies when the TV restarts.",
+          on: function() { return page.blockOn }, enabled: function() { return page.blockFlag !== null },
+          detail: function() { return page.blockWords }, act: function(v) { page.setBlock(v) } },
+        page.checkUpdatesRow(),
 
         R.over(R.toggle(Sio, { ds: "general.doNotSellMyPersonalInformation", tab: 2, icon: "shield", label: "Do Not Sell My Personal Information",
                                help: "Tells LG to ask its partners to stop selling data about this TV's use. Live Plus and LG Channels keep working." }),
