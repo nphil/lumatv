@@ -1191,9 +1191,14 @@ class GateDriver(unittest.TestCase):
         self.assertTrue(self.gate.add_entry(path, "build x\nend\n").startswith("refused: "))
         self.assertEqual(read(path).count("\nbuild "), 2)
 
-    def test_the_list_the_repo_ships_has_nothing_in_it_until_a_gate_passed(self):
+    def test_every_entry_of_the_list_the_repo_ships_is_one_the_gate_would_have_written(self):
+        # Whatever the list holds (nothing before a gate passed, a build after): an entry the gate would refuse to add
+        # must not be in it, since the set trusts every entry it finds.
         text = read(os.path.join(ROOT, "compositor", "firmware", "verified.list"))
-        self.assertEqual([l for l in text.splitlines() if l and not l.startswith("#")], [])
+        entries = re.findall(r"^build .*?^end$", text, re.S | re.M)
+        for entry in entries:
+            self.assertIsNone(self.gate.entry_problem(entry + "\n"), entry.splitlines()[0])
+        self.assertEqual(text.count("\nbuild ") + text.startswith("build "), len(entries))
 
     def run_main(self, pty_answers=None, argv=(), passed=True, stub_status="", crash_on=None):
         """main() with every call to the set recorded and answered: returns (calls, exit code, the repo list's text)."""
