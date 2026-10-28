@@ -35,6 +35,7 @@ pub mod shell;
 pub mod surface;
 pub mod system_ui;
 pub mod ticker;
+pub mod transition;
 /// LumaTV's UI engine drawing into the compositor's pages (feature `ui`, `rustui/`).
 #[cfg(feature = "ui")]
 pub mod ui;

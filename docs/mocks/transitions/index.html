@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Transitions</title>
+<link rel="stylesheet" href="../lucent.css">
+<link rel="stylesheet" href="../help.css">
+<style>
+  /* Smooth transitions (docs/research/transitions-result.md; the engine is compositor/crates/lumatv-compositor/src/transition.rs).
+     Storyboards of what the compositor draws, frame by frame, with the engine's own formulas written out below in `pose*()`: the numbers
+     in the legend are the constants of transition.rs. ?v=launch (default) an app grows out of its tile; ?v=leave back into it; ?v=switch one
+     app replaces another; ?v=video an app whose picture is on the video plane (the veil and the dissolve); ?v=interrupt Home pressed 90 ms
+     into a launch; ?v=splash a slow launch (the splash waits 400 ms, the card grows out of its icon); ?v=reduced reduced motion.
+     ?v=settings is the switch's row in Settings > Home & look. ?theme=light for the light material; ?text=200 doubles the Settings type.
+     The pictures are stand-ins. */
+  :root { --ts: 1; }
+  [data-text="200"] { --ts: 2; }
+  body { background: var(--pal-canvas); color: var(--lu-ink); }
+  .head { position: absolute; left: 64px; right: 64px; top: 34px; display: flex; align-items: baseline; gap: 24px; }
+  .head h1 { font-size: 38px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  .head .rule { font-size: 24px; font-weight: 500; color: var(--lu-ink-2); }
+  :root { --w: 576px; --sc: .3; --cols: 3; }
+  .board { position: absolute; left: 64px; right: 64px; top: 104px; display: grid; grid-template-columns: repeat(var(--cols), var(--w)); column-gap: 32px; row-gap: 34px; justify-content: space-between; }
+  .shot { margin: 0; }
+  .shot .box { position: relative; width: var(--w); height: calc(var(--w) * 9 / 16); border-radius: 14px; overflow: hidden; outline: 2px solid var(--lu-edge); background: #000; }
+  .stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform: scale(var(--sc)); transform-origin: 0 0; overflow: hidden; background: #000; }
+  .shot figcaption { margin-top: 10px; display: flex; gap: 14px; align-items: baseline; font-size: 24px; font-weight: 600; }
+  .shot figcaption .n { font-size: 22px; font-weight: 500; color: var(--lu-ink-2); }
+  .legend { position: absolute; left: 64px; right: 64px; bottom: 30px; display: flex; flex-wrap: wrap; gap: 6px 30px; font-size: 22px; font-weight: 500; color: var(--lu-ink-2); line-height: 1.3; }
+  .legend b { color: var(--lu-ink); font-weight: 600; }
+
+  /* ---- what the stage holds (1920 x 1080 reference pixels) ---- */
+  .plane { position: absolute; inset: 0; background: url("../img/game.jpg") center / cover no-repeat; }
+  .home { position: absolute; inset: 0; background: url("../img/wall.jpg") center / cover no-repeat; }
+  .home::before { content: ""; position: absolute; inset: 0; background: var(--wall-scrim); }
+  .home .bar { position: absolute; left: 64px; right: 64px; top: 40px; height: 86px; border-radius: 28px; background: var(--lu-glass); box-shadow: inset 0 0 0 2px var(--lu-edge); }
+  .home .bar i { position: absolute; left: 24px; top: 21px; width: 44px; height: 44px; border-radius: 22px; background: var(--lu-accent); }
+  .home .widgets { position: absolute; left: 64px; top: 160px; width: 1792px; height: 430px; border-radius: 28px; background: var(--lu-glass); box-shadow: inset 0 0 0 2px var(--lu-edge); }
+  .home .dock { position: absolute; left: 64px; top: 630px; width: 1792px; height: 380px; border-radius: 28px; background: var(--lu-glass); box-shadow: inset 0 0 0 2px var(--lu-edge); }
+  .home .tile { position: absolute; width: 120px; height: 120px; border-radius: 22px; background: #fff center / cover no-repeat; box-shadow: 0 6px 16px rgba(0,0,0,.28); }
+  .home .tile.hot { outline: 4px solid var(--lu-edge-raised); outline-offset: 4px; }
+  .shade { position: absolute; inset: 0; background: #000; }
+  .clip { position: absolute; overflow: hidden; }
+  .pic { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  .veil { position: absolute; inset: 0; background: #191724; }
+  /* the stand-in apps */
+  .app { position: absolute; inset: 0; color: #f2eff6; }
+  .app.netflix { background: #0b0b0f; }
+  .app.netflix .top { position: absolute; left: 96px; top: 54px; display: flex; align-items: center; gap: 20px; font-size: 44px; font-weight: 600; }
+  .app.netflix .top img { width: 72px; height: 72px; border-radius: 16px; }
+  .app.netflix .hero { position: absolute; left: 96px; top: 170px; width: 1728px; height: 520px; border-radius: 26px; background: url("../img/art-hokusai.jpg") center 30% / cover no-repeat; }
+  .app.netflix .hero b { position: absolute; left: 48px; bottom: 44px; font-size: 64px; font-weight: 600; text-shadow: 0 2px 18px rgba(0,0,0,.6); }
+  .app.netflix .row { position: absolute; left: 96px; top: 740px; display: flex; gap: 24px; }
+  .app.netflix .row span { width: 316px; height: 220px; border-radius: 20px; background: linear-gradient(135deg, #3a2f6b, #12101f); }
+  .app.netflix .row span:nth-child(2) { background: linear-gradient(135deg, #7a3144, #1d0f17); }
+  .app.netflix .row span:nth-child(3) { background: linear-gradient(135deg, #2e6a6e, #0d1b1c); }
+  .app.netflix .row span:nth-child(4) { background: linear-gradient(135deg, #8a6a2a, #1c150a); }
+  .app.netflix .row span:nth-child(5) { background: linear-gradient(135deg, #3a2f6b, #12101f); }
+  .app.plex { background: #1c1b22; }
+  .app.plex .top { position: absolute; left: 96px; top: 54px; font-size: 44px; font-weight: 700; color: #e5a00d; letter-spacing: .02em; }
+  .app.plex .hero { position: absolute; left: 96px; top: 170px; width: 1728px; height: 560px; border-radius: 26px; background: url("../img/still.jpg") center / cover no-repeat; }
+  .app.plex .row { position: absolute; left: 96px; top: 780px; display: flex; gap: 24px; }
+  .app.plex .row span { width: 316px; height: 190px; border-radius: 20px; background: #2b2a33; }
+  .app.hdmi { background: transparent; }
+  .app.hdmi .osd { position: absolute; left: 96px; top: 54px; height: 76px; padding: 0 30px; display: flex; align-items: center; gap: 16px; border-radius: 38px; font-size: 34px; font-weight: 600; background: rgba(18,14,26,.82); box-shadow: inset 0 0 0 2px rgba(255,255,255,.16); }
+  .app.hdmi .osd i { width: 18px; height: 18px; border-radius: 9px; background: #9ccfd8; }
+  .splash { position: absolute; inset: 0; background: url("../img/wall.jpg") center / cover no-repeat; filter: saturate(1.2) brightness(.55); }
+  .splashfg { position: absolute; left: 0; right: 0; top: 330px; text-align: center; color: #f2eff6; }
+  .splashfg img { width: 180px; height: 180px; border-radius: 38px; }
+  .splashfg .n { font-size: 40px; font-weight: 600; margin-top: 18px; }
+  .splashfg .st { font-size: 24px; font-weight: 500; color: rgba(242,239,246,.66); margin-top: 8px; }
+
+  /* ---- the switch's row ---- */
+  .set .wall { position: absolute; inset: 0; background: url("../img/wall.jpg") center / cover no-repeat; }
+  .set .wall::before { content: ""; position: absolute; inset: 0; background: var(--wall-scrim); }
+  .set .pane.page { position: absolute; left: 520px; right: 96px; top: 150px; bottom: 54px; padding: 36px 40px; box-sizing: border-box; overflow: hidden; }
+  .set .page h1 { font-size: calc(40px * var(--ts)); margin: 0 0 20px; font-weight: 600; }
+  .set .rows { margin-bottom: 22px; border-radius: 26px; background: var(--lu-glass); box-shadow: inset 0 0 0 2px var(--lu-edge); }
+  .set .row .t { font-size: calc(28px * var(--ts)); }
+  .set .row .d { font-size: calc(24px * var(--ts)); white-space: normal; }
+  [data-text="200"] .set .row { min-height: 0; padding-top: 18px; padding-bottom: 18px; }
+  [data-text="200"] .set .row .lead { width: 72px; height: 72px; }
+  .set .toggle { flex: none; }
+  .set .pane.rail { position: absolute; left: 64px; top: 150px; width: 400px; bottom: 54px; }
+  .set .pane.topbar { position: absolute; left: 64px; right: 64px; top: 40px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script src="../icons.js"></script>
+<script src="../mock.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const v = q.get('v') || 'launch';
+  if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+  const light = (q.get('theme') || 'dark') === 'light';
+  const out = document.getElementById('out');
+
+  /* ---- the engine's formulas (transition.rs): the same constants, the same curves ---- */
+  const FULL = { x: 0, y: 0, w: 1920, h: 1080 };
+  const K = { ARRIVE: 220, LEAVE: 180, REDUCED: 120, VEIL_FADE: 180, VEIL_SETTLE: 150, A0: .25, A_BY: .6, LEAVE_A_FROM: .35, HOME_SHADE: .55, CARD_SHADE: .6, AWAY: .94, AWAY_R: 26 };
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const lerpR = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), w: lerp(a.w, b.w, t), h: lerp(a.h, b.h, t) });
+  const outCubic = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+  const bez = (x1, y1, x2, y2, x) => { let lo = 0, hi = 1; const at = (s, a, b) => { const u = 1 - s; return 3*u*u*s*a + 3*u*s*s*b + s*s*s; }; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (at(m, x1, x2) < x) lo = m; else hi = m; } return at((lo + hi) / 2, y1, y2); };
+  const exitC = t => t <= 0 ? 0 : t >= 1 ? 1 : bez(.4, 0, 1, 1, t);
+  const clamp01 = x => Math.min(1, Math.max(0, x));
+  const NETFLIX = { x: 287, y: 699, w: 120, h: 120, r: 22 };
+  const cover = (tile) => { const s = Math.max(tile.w / 1920, tile.h / 1080); const w = 1920 * s, h = 1080 * s; return { x: tile.x + tile.w / 2 - w / 2, y: tile.y + tile.h / 2 - h / 2, w, h }; };
+  const alphaIn = e => Math.min(1, K.A0 + (1 - K.A0) * e / K.A_BY);
+  // a card arriving from `tile` (or from nothing: grown from the middle); p in 0..1 of ARRIVE
+  function arrive(p, tile) {
+    const e = outCubic(p);
+    if (tile) return { rect: lerpR(cover(tile), FULL, e), clip: lerpR(tile, FULL, e), radius: lerp(tile.r, 0, e), alpha: alphaIn(e), homeShade: lerp(1, K.HOME_SHADE, e) };
+    const s = lerp(K.AWAY, 1, e); const r = { x: 960 - 960 * s, y: 540 - 540 * s, w: 1920 * s, h: 1080 * s };
+    return { rect: r, clip: r, radius: lerp(K.AWAY_R, 0, e), alpha: alphaIn(e), homeShade: lerp(1, K.CARD_SHADE, e) };
+  }
+  // a card leaving into `tile` (or fading away); p in 0..1 of LEAVE
+  function leave(p, tile) {
+    const q = exitC(p);
+    const a = 1 - clamp01((q - K.LEAVE_A_FROM) / (1 - K.LEAVE_A_FROM));
+    if (tile) return { rect: lerpR(FULL, cover(tile), q), clip: lerpR(FULL, tile, q), radius: lerp(0, tile.r, q), alpha: a, homeShade: lerp(K.HOME_SHADE, 1, q) };
+    const s = lerp(1, K.AWAY, q); const r = { x: 960 - 960 * s, y: 540 - 540 * s, w: 1920 * s, h: 1080 * s };
+    return { rect: r, clip: r, radius: lerp(0, K.AWAY_R, q), alpha: a, homeShade: lerp(K.CARD_SHADE, 1, q) };
+  }
+
+  /* ---- drawing ---- */
+  const APPS = ['netflix', 'plex', 'youtube', 'appletv', 'geforce', 'crunchyroll', 'browser', 'livetv', 'huesync', 'lgmovies', 'inputs', 'pool'];
+  function homeEl(shade) {
+    const d = document.createElement('div'); d.className = 'home';
+    d.innerHTML = '<div class="bar"><i></i></div><div class="widgets"></div><div class="dock"></div>' +
+      [0, 1].map(r => APPS.slice(r * 6, r * 6 + 6).map((a, i) => `<div class="tile ${r === 0 && i === 0 ? 'hot' : ''}" style="left:${287 + i * 144 + (r ? 0 : 0)}px;top:${699 + r * 144}px;background-image:url('../img/apps/${a}.png')"></div>`).join('')).join('');
+    // the first tile is Netflix at (287, 699): the tile the engine's tests use
+    if (shade < 1) { const s = document.createElement('div'); s.className = 'shade'; s.style.opacity = String(1 - shade); d.appendChild(s); }
+    return d;
+  }
+  const UI = {
+    netflix: '<div class="app netflix"><div class="top"><img src="../img/apps/netflix.png" alt="">Netflix</div><div class="hero"><b>Continue watching</b></div><div class="row"><span></span><span></span><span></span><span></span><span></span></div></div>',
+    plex: '<div class="app plex"><div class="top">PLEX</div><div class="hero"></div><div class="row"><span></span><span></span><span></span><span></span><span></span></div></div>',
+    hdmi: '<div class="app hdmi"><div class="osd"><i></i>HDMI 2 &nbsp;·&nbsp; AVR-S760H</div></div>',
+  };
+  // a card: its picture on `rect`, showing through `clip` with `radius`, at `alpha`; a veil under the picture's hole when `veil` > 0
+  function card(stage, ui, pose, veil) {
+    const c = document.createElement('div'); c.className = 'clip';
+    c.style.cssText = `left:${pose.clip.x}px;top:${pose.clip.y}px;width:${pose.clip.w}px;height:${pose.clip.h}px;border-radius:${pose.radius}px;opacity:${pose.alpha}`;
+    const s = pose.rect.w / 1920;
+    const p = document.createElement('div'); p.className = 'pic';
+    p.style.cssText = `transform:translate(${pose.rect.x - pose.clip.x}px,${pose.rect.y - pose.clip.y}px) scale(${s})`;
+    p.innerHTML = (veil > 0 ? `<div class="veil" style="opacity:${veil}"></div>` : '') + UI[ui];
+    c.appendChild(p); stage.appendChild(c);
+  }
+  const REST = { rect: FULL, clip: FULL, radius: 0, alpha: 1 };
+
+  function shot(title, ms, note, build) {
+    const f = document.createElement('figure'); f.className = 'shot';
+    f.innerHTML = '<div class="box"><div class="stage"></div></div><figcaption><span>' + title + '</span><span class="n">' + (ms !== '' ? ms + ' ms' : '') + (note ? ' · ' + note : '') + '</span></figcaption>';
+    build(f.querySelector('.stage')); return f;
+  }
+  function board(head, rule, shots, legend) {
+    out.innerHTML = `<div class="head"><h1>${head}</h1><span class="rule">${rule}</span></div><div class="board"></div><div class="legend">${legend}</div>`;
+    const b = out.querySelector('.board'); shots.forEach(s => b.appendChild(s));
+  }
+  const frames = (n, dur) => Array.from({ length: n }, (_, i) => Math.round(dur * i / (n - 1)));
+
+  const LEGEND_MOVE = '<span><b>launch</b> 220 ms out-cubic · from the tile, picture cover-fitted, masked by the tile\u2019s 22 radius · first frame already ¼ seen, whole by 60 ms</span><span><b>leave</b> 180 ms, the exit curve · into the tile, fading from 35 % · Home brightens .55 → 1</span><span><b>switch</b> 220 ms · scale .94 → 1 · the card under darkens to .6</span><span><b>reduced</b> 120 ms linear fade, nothing moves</span>';
+
+  if (v === 'launch') {
+    board('App launch', 'Home → app: the card grows out of its tile; the app is drawn from its first frame', frames(6, K.ARRIVE).map(ms => shot('Netflix', ms, ms === 0 ? 'first frame' : ms === K.ARRIVE ? 'at rest' : '', st => {
+      const p = arrive(ms / K.ARRIVE, NETFLIX); st.appendChild(homeEl(p.homeShade)); card(st, 'netflix', p, 0);
+    })), LEGEND_MOVE);
+  } else if (v === 'leave') {
+    board('App to Home', 'Home press: the card shrinks into its tile while Home brightens under it', frames(6, K.LEAVE).map(ms => shot('Netflix', ms, ms === 0 ? 'as it was' : ms === K.LEAVE ? 'gone' : '', st => {
+      const p = leave(ms / K.LEAVE, NETFLIX); st.appendChild(homeEl(p.homeShade)); if (p.alpha > 0.001) card(st, 'netflix', p, 0);
+    })), LEGEND_MOVE);
+  } else if (v === 'switch') {
+    board('App to app', 'The new card scales .94 → 1 and fades in over the old one, which darkens', frames(6, K.ARRIVE).map(ms => shot('Plex → Netflix', ms, '', st => {
+      const p = arrive(ms / K.ARRIVE, null);
+      const a = { rect: FULL, clip: FULL, radius: 0, alpha: 1 };
+      card(st, 'plex', a, 0);
+      const sh = document.createElement('div'); sh.className = 'shade'; sh.style.opacity = String(1 - p.homeShade); st.appendChild(sh);
+      card(st, 'netflix', p, 0);
+    })), LEGEND_MOVE);
+  } else if (v === 'video') {
+    const HDMI = { x: 287 + 144 * 4, y: 699 + 144, w: 120, h: 120, r: 22 };
+    document.documentElement.style.setProperty('--w', '420px'); document.documentElement.style.setProperty('--sc', String(420 / 1920)); document.documentElement.style.setProperty('--cols', '4');
+    const rows = [];
+    // launch: the veil rides in with the card, is held until the hole has had 150 ms, then dissolves into the plane
+    [[0, 'first frame'], [110, 'mid-move'], [220, 'veil held'], [220 + 150 + 90, 'veil half'], [220 + 150 + 180, 'the picture']].forEach(([ms, note]) => rows.push(shot('HDMI 2', ms, note, st => {
+      const plane = document.createElement('div'); plane.className = 'plane'; st.appendChild(plane);
+      const p = arrive(Math.min(ms, 220) / K.ARRIVE, HDMI);
+      if (ms <= 220) st.appendChild(homeEl(p.homeShade));
+      const vf = ms <= 370 ? 1 : 1 - Math.min(1, (ms - 370) / K.VEIL_FADE);
+      card(st, 'hdmi', ms <= 220 ? p : REST, vf);
+    })));
+    // leave: nothing shrinks (the plane cannot); Home dissolves in over the card and its hole
+    [[0, 'as it was'], [90, 'half'], [180, 'Home']].forEach(([ms, note]) => rows.push(shot('Home', ms, note, st => {
+      const plane = document.createElement('div'); plane.className = 'plane'; st.appendChild(plane);
+      card(st, 'hdmi', REST, 0);
+      const h = homeEl(1); h.style.opacity = String(ms / K.LEAVE); st.appendChild(h);
+    })));
+    board('Video-plane apps', 'The plane cannot be read or scaled: a veil under the card on the way in, Home dissolving over the hole on the way out', rows,
+      '<span><b>veil</b> #191724, opaque, under the app\u2019s own picture where its hole is · moves and fades with the card · held until the hole (the video\u2019s placement) is 150 ms old and the card is whole (at most 1.5 s), then 180 ms linear to the plane, which the display engine blends</span><span><b>leave</b> the card and its hole stay put; Home fades in over them, 180 ms linear</span><span>no black frame at any step; the video is never read</span>');
+  } else if (v === 'interrupt') {
+    const S = 90;
+    const rows = [];
+    [0, 45, 90].forEach(ms => rows.push(shot('Launch', ms, ms === 90 ? 'Home pressed' : '', st => {
+      const p = arrive(ms / K.ARRIVE, NETFLIX); st.appendChild(homeEl(p.homeShade)); card(st, 'netflix', p, 0);
+    })));
+    // the card turns round from where it is: a leave leg from the pose at 90 ms (same geometry as `leave`, started there)
+    const from = arrive(S / K.ARRIVE, NETFLIX);
+    [40, 90, 140].forEach(ms => rows.push(shot('Turned round', S + ms, '+' + ms, st => {
+      const q = exitC(ms / K.LEAVE); const a = 1 - clamp01((q - K.LEAVE_A_FROM) / (1 - K.LEAVE_A_FROM));
+      const to = { rect: cover(NETFLIX), clip: NETFLIX, radius: NETFLIX.r };
+      const pose = { rect: lerpR(from.rect, to.rect, q), clip: lerpR(from.clip, to.clip, q), radius: lerp(from.radius, to.radius, q), alpha: lerp(from.alpha, 0, clamp01((q - K.LEAVE_A_FROM) / (1 - K.LEAVE_A_FROM))) };
+      st.appendChild(homeEl(lerp(from.homeShade, 1, q))); card(st, 'netflix', pose, 0);
+    })));
+    board('Interrupted', 'Home pressed 90 ms into a launch: the card turns round from where it is; no jump, no restart', rows,
+      '<span>A change of the front while a track is on its way picks the picture up at its pose and moves it on · a second Home press within 0.4 s hands the card to the switcher (AppSwitcher), which tweens it to its slot from the same pose</span>');
+  } else if (v === 'splash') {
+    const ICON = { x: 870, y: 450, w: 180, h: 180, r: 38 };
+    const rows = [];
+    rows.push(shot('OK', 0, 'Home stays, the tile lifts', st => { st.appendChild(homeEl(1)); }));
+    rows.push(shot('Slow app', 400, 'splash fades in', st => {
+      const s = document.createElement('div'); s.className = 'splash'; st.appendChild(s);
+      const f = document.createElement('div'); f.className = 'splashfg'; f.innerHTML = '<img src="../img/apps/netflix.png" alt=""><div class="n">Netflix</div><div class="st">Opening</div>'; st.appendChild(f);
+    }));
+    [0, 80, 150, 220].forEach(ms => rows.push(shot('App maps', ms, ms === 0 ? 'grows from the icon' : '', st => {
+      const s = document.createElement('div'); s.className = 'splash'; st.appendChild(s);
+      const f = document.createElement('div'); f.className = 'splashfg'; f.innerHTML = '<img src="../img/apps/netflix.png" alt=""><div class="n">Netflix</div><div class="st">Opening</div>'; st.appendChild(f);
+      const p = arrive(ms / K.ARRIVE, ICON); const sh = document.createElement('div'); sh.className = 'shade'; sh.style.opacity = String(1 - p.homeShade); st.appendChild(sh); card(st, 'netflix', p, 0);
+    })));
+    board('A slow launch', 'Tile feedback first; the splash only if the app takes more than 400 ms, and the card then grows out of its icon', rows,
+      '<span>A launch that lands within 400 ms shows no splash at all: the card grows out of the tile. After 400 ms the splash fades in (120 ms) and the shell tells the compositor where its icon is; the card starts there. The way back is always the tile.</span><span>Home is told it is covered when the card is whole, so the splash stays up under the move and is cleared after it.</span>');
+  } else if (v === 'reduced') {
+    board('Reduced motion', 'One fade of 120 ms, linear; no scale, no travel, no veil, Home is not darkened', frames(4, K.REDUCED).map(ms => shot('Netflix', ms, '', st => {
+      const p = { rect: FULL, clip: FULL, radius: 0, alpha: ms / K.REDUCED }; st.appendChild(homeEl(1)); card(st, 'netflix', p, 0);
+    })), '<span>Lucent <b>motion.reduce</b>: at most 120 ms, linear opacity only. The same fade leaves an app (Home dissolves in over the card).</span>');
+  } else if (v === 'settings') {
+    out.classList.add('set');
+    out.innerHTML = `
+<div class="wall"></div>
+<div class="pane topbar"><i data-ic="chevron-left" class="ic"></i><span class="title">Settings</span><span class="spacer"></span><span class="time num">9:57 PM</span></div>
+<nav class="pane rail" data-open="home" aria-label="Settings sections"></nav>
+<main class="pane page">
+  <h1>Home &amp; look</h1>
+  <div class="rows">
+    <div class="row focusable no-line" tabindex="0">
+      <div class="lead"><i data-ic="waves"></i></div>
+      <div class="text"><div class="t">Wallpaper motion</div></div>
+      <div class="toggle" role="switch" aria-checked="true"></div>
+    </div>
+    <div class="row focusable focus" tabindex="0" data-autofocus>
+      <div class="lead"><i data-ic="blend"></i></div>
+      <div class="text"><div class="t">Smooth transitions</div><div class="d">Apps grow out of their tile and shrink back.</div></div>
+      <div class="toggle" role="switch" aria-checked="true"></div>
+    </div>
+    <div class="row focusable" tabindex="0">
+      <div class="lead"><i data-ic="layout-grid"></i></div>
+      <div class="text"><div class="t">Glass depth</div></div>
+      <span class="seg" role="radiogroup"><span role="radio" aria-selected="false">Flat</span><span role="radio" aria-selected="false">Normal</span><span role="radio" aria-selected="true">Deep</span></span>
+    </div>
+  </div>
+</main>`;
+  }
+})();
+</script>
+</body>
+</html>

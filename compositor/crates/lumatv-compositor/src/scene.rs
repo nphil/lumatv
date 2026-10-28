@@ -14,6 +14,7 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 use crate::damage::Tiles;
 use crate::surface::{Role, SurfaceId, Surfaces};
+use crate::transition::{Transitions, Visual};
 use crate::window::{Layer, ShellState, Window, WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 
@@ -208,6 +209,10 @@ pub struct Scene {
     /// The shell's system layer has nothing to show ([`Scene::set_shell_system_live`]): its window is left out of the
     /// stack, mapped and warm as it stays.
     system_idle: bool,
+    /// The windows in transition (`transition.rs`): drawn through poses while their tracks run.
+    pub transitions: Transitions,
+    /// The clock of the last plan, CLOCK_MONOTONIC ns: what `take_visual` answers at.
+    plan_ns: u64,
     /// The system layer came back live since the last plan: it joins without damage of its own (see `plan`).
     system_joining: bool,
     // Scratch space for planning, reused across frames.
@@ -253,6 +258,13 @@ impl Scene {
             .filter(|i| i.rect.contains(x, y))
             .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::ShellSystem || w.takes_keys || keyboard))
             .map(|i| (i.surface, i.rect))
+    }
+
+    /// Where `window`'s picture is now, taken out of its transition: a second press of Home hands the card that was on its way home to
+    /// the switcher, which carries it on to its own slot (`Transitions::take_visual`, at the last plan's clock).
+    pub fn take_visual(&mut self, window: WindowId) -> Option<Visual> {
+        let now = self.plan_ns;
+        self.transitions.take_visual(window, now)
     }
 
     /// The shell client's window of `kind` (`ShellHome` or `ShellSystem`), if it has one.
