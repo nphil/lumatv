@@ -50,7 +50,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings: tabs sit on a tray, single tabs draw no bar, Delete/Reset/Forget use the danger
   style, and App Permissions shows each app's icon and a proper empty state.
 - `venc/`: the TV's hardware H.264 encoder driven from LumaTV's own process (video tap into
-  the encoder, zero copy), with a probe and a TCP stream server; protected video stays black.
+  the encoder, zero copy), in small steps under a watchdog, with a TCP stream server; LG's V4L2
+  M2M encoder node is never used (its mmap writes kernel memory).
+- Built behind switches, off until each TV check passes:
+  - App switcher: a second Home press (or Back from the top of Home) shows the running apps as
+    live pictures with Quit and Quit all; the first Home press still acts at once
+    (`remote.appSwitcher`).
+  - Smooth transitions: apps grow out of their tile and go back into it, one app fades over
+    another, and video apps arrive on a veil with no black frame (`motion.transitions`).
+  - Overlay cards over any app (doorbell, timers, alarms, Home Assistant alerts, scores) in the
+    top right, never in the bottom quarter, OK acts and Back dismisses (`overlays.enabled`).
+  - OLED care: LumaTV's own screens drift one pixel every 30 s around a 3 px ring and an idle
+    Home eases to 85% after 5 minutes; apps and video are never moved (`oledcare.enabled`).
+  - Screenshots and screen recordings of what LumaTV composes, with a recording dot; video
+    stays black (`capture.enabled`).
+  - A 120 Hz refresh test mode for Home and menus (`--refresh 120`, `ctl refresh`).
+- The volume bar rises to 184 px while an app is in front, clear of subtitles; on Home it stays
+  at 64 px.
+- LumaTV's own keyboard shows when a field activates, for apps that never ask for the panel.
 - Quick panel docks at the right edge as in mock 10 (648 wide), with steppers beside their
   names and no LG Quick Settings button; Settings tabs and segments mark the chosen option in the
   accent; the Notification Centre head and times hold at 200% text.
