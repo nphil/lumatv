@@ -5,16 +5,22 @@
 #
 # Pushed beforehand (docs/research/npu-result.md, "TV slot"):
 #   $W/lumatv-npu-probe   the arm build (npuprobe/build.sh arm)
-#   $W/models/            fetch-model.sh output: efficientdet_lite0_320_ptq.tflite, coco_labels.txt
+#   $W/models/            fetch-model.sh output: efficientdet_lite0_320_ptq.tflite, coco_labels.txt; with --all and --gpu also
+#                         tf2_ssd_mobilenet_v2_coco17_ptq.tflite, mp_efficientdet_lite0_float32.tflite, mp_ssd_mobilenet_v2_float32.tflite
+#   $W/gpu-ui-impact.py   for --gpu-run (python3 is on the set)
 #   $W/tv-probe.sh        this file
 #
-#   sh $W/tv-probe.sh [--runs N] [--threads N] [--no-luna] [--npu-run] [--force] [--assume-abi] [--nnapi-run]
+#   sh $W/tv-probe.sh [--runs N] [--threads N] [--no-luna] [--npu-run] [--force] [--assume-abi] [--nnapi-run] [--gpu-run]
 #     --npu-run  also run any model found in step 2 that carries an lgnpu_custom_op through LG's delegate (opens /dev/npu0)
 #     --force    carry on although something already holds the NPU
 #     --assume-abi  run the delegate steps although step 1 could not compare the TFLite releases
 #     --nnapi-run   step 6b: our model through the NNAPI delegate (accelerator lgnpu) over the device's NN HAL, with the probe and then
 #                   with LG's benchmark_model (the one route a builtin-op model could still take; it opens /dev/npu0 only if the
 #                   HAL behind it is a real one: the build analysed offline, step 6a, is a stand-in that sleeps 1 ms)
+#     --gpu-run     step 6d: the models through TFLite's GPU delegate on OpenCL (the Mali is busy for a few seconds at a time, one
+#                   process of ours; LG's compositor keeps running) and the UI's page-flip cadence while it runs. Steps 6c (what OpenCL
+#                   and the Mali offer, what the delegate would take of each model) and 6e (LG's AI picture services, files and luna
+#                   reads) always run and only read.
 set -u
 W=${W:-/tmp/lumatv-npu}
 OUT=$W/results
@@ -23,6 +29,8 @@ LGMODEL=${LGMODEL:-/usr/share/aif/model/FitTV_Detector_Yolov3_QAT_SoC.tflite}
 IMG=${IMG:-/usr/share/aif/images/people.jpg}
 OURS=${OURS:-$W/models/efficientdet_lite0_320_ptq.tflite}
 ALT=${ALT:-$W/models/tf2_ssd_mobilenet_v2_coco17_ptq.tflite}  # optional second candidate (fetch-model.sh --all)
+OURS_F32=${OURS_F32:-$W/models/mp_efficientdet_lite0_float32.tflite}  # optional, for the GPU (fetch-model.sh --gpu)
+ALT_F32=${ALT_F32:-$W/models/mp_ssd_mobilenet_v2_float32.tflite}
 LABELS=${LABELS:-$W/models/coco_labels.txt}
 DELEGATE=${DELEGATE:-/usr/lib/libtflite-npu-delegate.so.1}
 LIBDIR=${LIBDIR:-/usr/lib}
@@ -36,6 +44,7 @@ NPURUN=0
 FORCE=0
 ASSUME_ABI=0
 NNAPIRUN=0
+GPURUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --runs) RUNS=$2; shift ;;
@@ -45,7 +54,8 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1 ;;
     --assume-abi) ASSUME_ABI=1 ;;
     --nnapi-run) NNAPIRUN=1 ;;
-    *) echo "usage: sh tv-probe.sh [--runs N] [--threads N] [--no-luna] [--npu-run] [--force] [--assume-abi] [--nnapi-run]"; exit 2 ;;
+    --gpu-run) GPURUN=1 ;;
+    *) echo "usage: sh tv-probe.sh [--runs N] [--threads N] [--no-luna] [--npu-run] [--force] [--assume-abi] [--nnapi-run] [--gpu-run]"; exit 2 ;;
   esac
   shift
 done
@@ -235,6 +245,125 @@ if [ "$NNAPIRUN" = 1 ]; then
   fi
 else
   note "6b: skipped (--nnapi-run)"
+fi
+
+step "6c. GPU, read only: the OpenCL loader and driver, what the Mali offers, what the GPU delegate would take of our models"
+{
+  echo "-- files"
+  ls -l /usr/lib/libOpenCL* /usr/lib/libOpenCLDriverStub* /usr/lib/libmali* /usr/lib/libtensorflowlite_gpu_delegate* /etc/OpenCL /etc/OpenCL/vendors 2>&1
+  for f in /etc/OpenCL/vendors/*.icd; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
+  echo "-- OpenCL names inside the driver and loader binaries (lines containing each)"
+  for l in /usr/lib/libmali.so.0 /usr/lib/libmali.so /usr/lib/libOpenCL.so.1; do
+    [ -f "$l" ] || continue
+    echo "$l: clGetPlatformIDs $(grep -c clGetPlatformIDs "$l"), clIcdGetPlatformIDsKHR $(grep -c clIcdGetPlatformIDsKHR "$l"), clEnqueueNDRangeKernel $(grep -c clEnqueueNDRangeKernel "$l"), cl_khr_fp16 $(grep -c cl_khr_fp16 "$l"), cl_khr_priority_hints $(grep -c cl_khr_priority_hints "$l")"
+  done
+  echo "-- the Mali kernel driver's own files"
+  for f in $(find /sys/devices /sys/class/misc -maxdepth 6 \( -name gpuinfo -o -name power_policy -o -name core_mask -o -name pm_poweroff -o -name js_scheduling_period -o -name dvfs_period -o -name js_timeouts \) 2>/dev/null | head -n 20); do
+    echo "$f: $(head -c 300 "$f" 2>&1 | tr '\n' ' ')"
+  done
+  echo "-- the probe's view of OpenCL (--gpu-info; exit 3 means no device)"
+  "$PROBE" --gpu-info 2>&1
+  echo "exit $?"
+} > "$OUT/06c-gpu.txt" 2>&1
+GPU_ICD=""
+if ! grep -q 'platform \[0\]' "$OUT/06c-gpu.txt"; then
+  for l in /usr/lib/libmali.so.0 /usr/lib/libmali.so; do
+    [ -f "$l" ] || continue
+    echo "-- no platform through the loader's own search: the Mali library named as the driver (OCL_ICD_FILENAMES=$l, this process only)" >> "$OUT/06c-gpu.txt"
+    "$PROBE" --gpu-info --opencl-icd "$l" >> "$OUT/06c-gpu.txt" 2>&1
+    if tail -n 20 "$OUT/06c-gpu.txt" | grep -q 'platform \[0\]'; then GPU_ICD=$l; break; fi
+  done
+fi
+cat "$OUT/06c-gpu.txt"
+note "6c: $(grep -E '^ *platform \[|^ *device \[' "$OUT/06c-gpu.txt" | cut -c1-120 | tr '\n' ';') ${GPU_ICD:+ICD needed: $GPU_ICD;} $(grep -E 'fp16 arithmetic' "$OUT/06c-gpu.txt" | head -n 1 | sed 's/^ *//')"
+for m in "$OURS" "$OURS_F32" "$ALT" "$ALT_F32"; do
+  [ -f "$m" ] || continue
+  tag=$(basename "$m" .tflite)
+  "$PROBE" --model "$m" --gpu-coverage ${GPU_ICD:+--opencl-icd "$GPU_ICD"} > "$OUT/06c-coverage-$tag.txt" 2>&1
+  note "6c: $tag, GPU delegate: $(grep -E 'nodes:|on the CPU:' "$OUT/06c-coverage-$tag.txt" | sed 's/^ *//' | tr '\n' ';')"
+done
+
+step "6d. GPU runs (only with --gpu-run): the models through TFLite's GPU delegate on OpenCL, then the UI's flip cadence while one runs"
+if [ "$GPURUN" = 1 ]; then
+  tmo() { s=$1; shift; if command -v timeout >/dev/null 2>&1; then timeout "$s" "$@"; else "$@"; fi; }
+  rm -rf "$W/gpucache"
+  gpu_one() {  # TAG MODEL gpu-opts...: a CPU phase (XNNPACK) and a GPU phase in one probe run
+    tag=$1; m=$2; shift 2
+    [ -f "$m" ] || return 0
+    tmo 900 "$PROBE" --model "$m" --image "$IMG" --labels "$LABELS" --runs "$RUNS" --warmup 5 --threads "$THREADS" --cpu-backend xnnpack --gpu ${GPU_ICD:+--opencl-icd "$GPU_ICD"} "$@" > "$OUT/06d-$tag.txt" 2>&1
+    echo "exit $?" >> "$OUT/06d-$tag.txt"
+    note "$tag: $(grep -E 'delegate kernel\(s\) took|NOT APPLIED|refused|not created|WARNING|^exit ' "$OUT/06d-$tag.txt" | cut -c1-150 | tr '\n' ';') $(grep '^SUMMARY' "$OUT/06d-$tag.txt" | cut -d' ' -f3-)"
+  }
+  # ours (int8): the cache cold, then warm, then 32-bit arithmetic, then the short-start preference
+  gpu_one ours-int8-fp16-cold "$OURS" --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache"
+  gpu_one ours-int8-fp16-warm "$OURS" --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache"
+  gpu_one ours-int8-fp32 "$OURS" --gpu-opt precision=fp32
+  gpu_one ours-int8-fp16-fast "$OURS" --gpu-opt precision=fp16 --gpu-opt pref=fast
+  # the float32 networks (no QUANTIZE/DEQUANTIZE in the graph)
+  gpu_one lite0-f32-fp16-cold "$OURS_F32" --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache"
+  gpu_one lite0-f32-fp16-warm "$OURS_F32" --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache"
+  gpu_one lite0-f32-fp32 "$OURS_F32" --gpu-opt precision=fp32
+  # SSD-MobileNetV2
+  gpu_one ssd-int8-fp16 "$ALT" --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache"
+  gpu_one ssd-f32-fp16 "$ALT_F32" --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache"
+  gpu_one ssd-f32-fp32 "$ALT_F32" --gpu-opt precision=fp32
+  # What a GPU loop does to the UI's page flips at Home (nothing animating), against the same loop on the CPU
+  if [ -f "$W/gpu-ui-impact.py" ] && command -v python3 >/dev/null 2>&1 && [ -f "$OURS" ]; then
+    python3 "$W/gpu-ui-impact.py" --before 6 --after 4 --log "$OUT/06d-ui-gpu-probe.txt" -- "$PROBE" --model "$OURS" --image "$IMG" --runs 300 --warmup 5 --cpu-backend none --gpu ${GPU_ICD:+--opencl-icd "$GPU_ICD"} --gpu-opt precision=fp16 --gpu-opt cache="$W/gpucache" > "$OUT/06d-ui-gpu.txt" 2>&1
+    note "6d: Home's flip cadence around a 300-run GPU loop: $(grep '^UIIMPACT' "$OUT/06d-ui-gpu.txt" | cut -d' ' -f2-)"
+    python3 "$W/gpu-ui-impact.py" --before 6 --after 4 --log "$OUT/06d-ui-cpu-probe.txt" -- "$PROBE" --model "$OURS" --image "$IMG" --runs 300 --warmup 5 --threads "$THREADS" --cpu-backend xnnpack > "$OUT/06d-ui-cpu.txt" 2>&1
+    note "6d: Home's flip cadence around a 300-run CPU loop (XNNPACK, $THREADS threads): $(grep '^UIIMPACT' "$OUT/06d-ui-cpu.txt" | cut -d' ' -f2-)"
+  else
+    note "6d: no gpu-ui-impact.py, python3 or model: the flip cadence was not measured"
+  fi
+else
+  note "6d: skipped (--gpu-run)"
+fi
+
+step "6e. LG's own AI picture services, read only: who runs them, the files they leave, what nn-proxy answers on luna"
+{
+  echo "-- processes with LG's AI libraries mapped"
+  for m in /proc/[0-9]*/maps; do
+    p=${m#/proc/}; p=${p%%/*}
+    libs=$(grep -o -E 'libaibspLib\.so|libaibsp\.so|libnpu\.so|libnnrt\.so|libwebos_[a-z_]*nnhal\.so|libtflite-npu-delegate\.so|libedgeai-vision\.so' "$m" 2>/dev/null | sort -u | tr '\n' ' ')
+    [ -n "$libs" ] && echo "$p $(cat /proc/$p/comm 2>/dev/null): $(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | cut -c1-100): $libs"
+  done
+  echo "-- device nodes and who holds them open"
+  ls -l /dev/lne* /dev/npu0 /dev/mali0 2>&1
+  for fd in /proc/[0-9]*/fd/*; do
+    t=$(readlink "$fd" 2>/dev/null) || continue
+    case "$t" in */dev/lne*|*/dev/npu0|*/dev/mali0) p=${fd#/proc/}; p=${p%%/*}; echo "$t $p $(cat /proc/$p/comm 2>/dev/null)" ;; esac
+  done | sort -u
+  grep -i -E 'lne|npu|mali' /proc/devices 2>&1
+  echo "-- /var/aibsp (the work directory of libaibsp and libaibspLib)"
+  ls -l /var/aibsp /var/aibsp/image 2>&1 | head -n 40
+  for f in /var/aibsp/ai_scene_iir_params.txt /var/aibsp/ai_tone_params.txt /var/aibsp/genre_coef.txt /var/aibsp/scale_zero_point.txt; do
+    [ -f "$f" ] && { echo "-- $f"; head -c 600 "$f"; echo; }
+  done
+  [ -e /var/aibsp/skip ] && echo "/var/aibsp/skip exists: LG's AI initialisation is skipped"
+  echo "-- EdgeAI's extension registry (the solutions it offers: FACE, TEXT, BODY ...)"
+  for f in /mnt/lg/cmn_data/edgeai/edgeai_extension_registry.json; do [ -f "$f" ] && { head -c 3000 "$f"; echo; }; done
+  echo "-- LG's tools' own usage text"
+  /usr/bin/airunner --help 2>&1 | head -n 30
+} > "$OUT/06e-lg-ai.txt" 2>&1
+cat "$OUT/06e-lg-ai.txt"
+note "6e: AI library users: $(grep -E '^[0-9]+ ' "$OUT/06e-lg-ai.txt" | cut -c1-100 | tr '\n' ';')"
+if [ "$LUNA" = 1 ]; then
+  # nn-proxy (com.webos.service.nnproxy) registers /picture/get, /picture/set and /picture/debug; only get is called, and only for the data
+  # commands (the strings of the binary name the payload keys type, command, option, selected, subscribe and the values GENRE, SR_SQM, SR_LEARN).
+  lcall() { echo "-- luna-send $1 $2"; if command -v timeout >/dev/null 2>&1; then timeout 10 luna-send -n 1 -f "$1" "$2" 2>&1; else luna-send -n 1 -f "$1" "$2" 2>&1; fi; }
+  {
+    lcall luna://com.webos.service.nnproxy/picture/get '{"type":"GENRE","command":"data"}'
+    lcall luna://com.webos.service.nnproxy/picture/get '{"type":"SR_SQM","command":"data"}'
+    lcall luna://com.webos.service.nnproxy/picture/get '{"type":"SR_LEARN","command":"data"}'
+    lcall luna://com.webos.service.nnproxy/picture/get '{"type":"GENRE"}'
+    echo "-- the GenreData subscription for 8 s (what plays now decides what comes)"
+    if command -v timeout >/dev/null 2>&1; then timeout 8 luna-send -i -f luna://com.webos.service.nnproxy/picture/get '{"type":"GENRE","command":"data","subscribe":true}' 2>&1; fi
+  } > "$OUT/06e-nnproxy.txt" 2>&1
+  cat "$OUT/06e-nnproxy.txt"
+  note "6e: nn-proxy: $(grep -E 'returnValue|errorText|errorCode|data[1-4]|selected' "$OUT/06e-nnproxy.txt" | cut -c1-110 | head -n 8 | tr '\n' ';')"
+else
+  note "6e: luna reads skipped (--no-luna)"
 fi
 
 step "7. after"
