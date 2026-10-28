@@ -635,3 +635,13 @@ Main's grant, `/tmp/lumatv-r10` kept as the rollback, then the gate under LumaTV
   attempt opened LG's Sound > Advanced Settings by pressing OK on its row, then RIGHT and DOWN keys; nothing else was pressed there; the Dolby Atmos
   setting could not be read back).
 - Re-enabled: `cutover enable` persistent, `GATE live-enabled: PASS`, `settled: two minutes healthy`, failures 0.
+
+### Round 13, 2026-10-28 (set's clock 09:30-09:56; `compositor/slot-2026-10-28-1300/`, results in `keyboard-result.md`, `videoplane-saver-result.md`, `venc-result.md`)
+
+- `lumatv standbyscreen off` (Always Ready off, `general.lifeOnScreenMode` `off`, `prev alwaysReady`): LG's setting reads off. Then `power/powerOff` (`remoteKey`)
+  took the set out of reach: port 22 refused for more than 6 minutes (before, Active Standby kept SSH up). A magic packet booted it from cold (`up 0 min`
+  at 09:51:59, power state Active). So with Always Ready off the standby is a real off, and the way back is a wake-on-LAN packet and a cold boot
+  (about 20 s to the supervisor). [INFERENCE: a venc probe stuck in the kernel since 09:41 may have contributed; the boot cleared it.]
+- The cold boot was a second runbook reboot check: `compositor-boot: mounted` 19 s after boot, `persistent`, `mounted`, `live`, `firmware verified`, `failures 0`,
+  `settled: two minutes healthy` at 09:54:09; `keyboard lg`, `wallpaper gpu` and `standbyscreen off` all survived the boot.
+
