@@ -207,9 +207,31 @@ def main(argv=None):
             QtGui.QFontDatabase.addApplicationFont(os.path.join(data, 'fonts', n))
     QtQml.qmlRegisterType(qmlhost.TextFile, 'TextFile', 1, 0, 'TextFile')
     helper_state = None
+    # The helper's port is fixed (kit/Helper.qml) and shared with every other host and test on the machine. A host that must find no helper
+    # takes the lock shared and waits until nothing answers on the port (another run's stand-in would hand it weather and camera pop-ups of its
+    # own, and the system layer would be live for them); a host that serves the stand-in takes it exclusively and retries the bind while the
+    # host before it is going away (qmlhost.py does the same).
+    import errno
+    import fcntl
+    _lock = open(os.path.join(tempfile.gettempdir(), 'lumatv-qmlhost.lock'), 'w')
     if a.fake_helper:
         import fakehelper
-        _srv, helper_state = fakehelper.serve(18731)
+        fcntl.flock(_lock, fcntl.LOCK_EX)
+        for attempt in range(200):
+            try:
+                _srv, helper_state = fakehelper.serve(18731)
+                break
+            except OSError as e:
+                if e.errno != errno.EADDRINUSE or attempt == 199:
+                    raise
+                time.sleep(0.05)
+    else:
+        fcntl.flock(_lock, fcntl.LOCK_SH)
+        for _ in range(100):
+            with socket.socket() as probe:
+                if probe.connect_ex(('127.0.0.1', 18731)) != 0:
+                    break
+            time.sleep(0.05)
 
     eng = QtQml.QQmlApplicationEngine()
     # The shell's own modules shadow the host's stubs (addImportPath puts the newest path first), as they shadow LG's
