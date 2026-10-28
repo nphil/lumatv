@@ -1,0 +1,87 @@
+power state: active
+home stub before the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+avr: left to the agent (True)
+firmware: unverified: verified.list has no entry (this boot only: a reboot goes back to LG's compositor)
+safety timer: this session ends by itself after 12 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=31659 mounted=yes wam=active
+   00:49:52 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   00:49:52 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=31659 mounted=yes wam=active
+   00:49:52 recover: WebAppMgr answering after 0s (active)
+   00:49:53 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=31659 mounted=yes wam=active
+   00:49:52 recover: WebAppMgr answering after 0s (active)
+   00:49:53 recover: Home running under LumaTV's compositor after 0s
+t=20s unit=active exe=/usr/bin/surface-manager compositor=31659 mounted=yes wam=active
+   00:49:53 recover: Home running under LumaTV's compositor after 0s
+   00:50:04 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=31659 mounted=yes wam=active
+   00:49:53 recover: Home running under LumaTV's compositor after 0s
+   00:50:04 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=31659 mounted=yes wam=active
+   00:49:53 recover: Home running under LumaTV's compositor after 0s
+   00:50:04 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391989 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+evidence: 2 subscription(s) from SAM, 5 client lines, 3 loop stalls, 2 watchdog lines
+
+GATE standby: requested ({
+    "returnValue": true,
+    "state": "Active Standby"
+})
+
+power state: active standby
+power state after wake: active
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 61702.99 now 61773.09; mounted yes; panel 391981 bytes
+
+GATE homekey: PASS unmounted after 10s; [00:51:39] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 382548 bytes; injector exit 0; sam unchanged
+
+firmware: unverified: verified.list has no entry (this boot only: a reboot goes back to LG's compositor)
+safety timer: this session ends by itself after 6 min if it is still live ('cutover.sh disable' cancels the timer)
+mounted; restarting the unit
+t=5s unit=active exe=/usr/bin/surface-manager compositor=4232 mounted=yes wam=active
+   00:52:08 recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+   00:52:08 recover: WebAppMgr answering after 0s (active)
+t=10s unit=active exe=/usr/bin/surface-manager compositor=4232 mounted=yes wam=active
+   00:52:08 recover: WebAppMgr answering after 0s (active)
+   00:52:09 recover: Home running under LumaTV's compositor after 0s
+t=15s unit=active exe=/usr/bin/surface-manager compositor=4232 mounted=yes wam=active
+   00:52:08 recover: WebAppMgr answering after 0s (active)
+   00:52:09 recover: Home running under LumaTV's compositor after 0s
+t=20s unit=active exe=/usr/bin/surface-manager compositor=4232 mounted=yes wam=active
+   00:52:09 recover: Home running under LumaTV's compositor after 0s
+   00:52:19 recover: librdx reports swept; remaining 0
+t=25s unit=active exe=/usr/bin/surface-manager compositor=4232 mounted=yes wam=active
+   00:52:09 recover: Home running under LumaTV's compositor after 0s
+   00:52:19 recover: librdx reports swept; remaining 0
+t=30s unit=active exe=/usr/bin/surface-manager compositor=4232 mounted=yes wam=active
+   00:52:09 recover: Home running under LumaTV's compositor after 0s
+   00:52:19 recover: librdx reports swept; remaining 0
+enabled (session): LumaTV's compositor stays live (recovery done after 0s more); 'cutover.sh disable' restores LG's
+
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392020 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+safety timer cancelled
+umount: /usr/bin/surface-manager: target is busy.
+revert: active; mounted: no; exe: /usr/bin/surface-manager
+recover: surface-manager-daemon.service active after 0s; exe /usr/bin/surface-manager
+recover: compositor answering on the bus after 0s
+recover: webapp-mgr.service restarted: active; booster inactive; maliit inactive
+recover: WebAppMgr answering after 0s (active)
+recover: Home on the panel after 0s (capture 60836 bytes)
+recover: librdx reports swept; remaining 0
+
+avr: left to the agent (False)
+{"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+
+home stub after the run: {"ok":true,"homestub":{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"trialLeft":0,"guard":true,"beat":true,"faults":0}}
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391989 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE standby: requested ({
+GATE standby: PASS rounds: PreparePowerOff 1 PreparePowerOn 1; fallbacks 0; state active; uptime before 61702.99 now 61773.09; mounted yes; panel 391981 bytes
+GATE homekey: PASS unmounted after 10s; [00:51:39] fallback: hold Home 650 ms (supervisor); escaped yes; failures 0 -> 0; panel 382548 bytes; injector exit 0; sam unchanged
+GATE live-after-homekey: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 392020 bytes fg com.webos.app.home watchdog 1 power-seen 1
+GATE: PASS
+wrote ../lumatv-r5/docs/research/compositor/gate-2026-10-27.txt

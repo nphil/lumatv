@@ -269,6 +269,10 @@ def main():
         return out
     # An x1 run longer than the rule's 60 s lengthens the first session by its extra minutes.
     first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
+    # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's
+    # timer must cover the frame gate too (the full gate of 2026-10-27 lost its session to the 12 minute timer before standby).
+    if "frames" not in skip:
+        first_minutes += FRAMES_SESSION_MINUTES
     def session(minutes, label=None):
         """LumaTV's compositor live for this boot only, ended by the set itself after `minutes`, then `live` says so (the
         label names the line when it is a second session of the run)."""

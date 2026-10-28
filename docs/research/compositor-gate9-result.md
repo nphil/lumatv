@@ -104,15 +104,14 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): rounds 1 to 4 are on the set (below; round 4 is f0d3cb4, `compositor/slot-2026-10-27-1900/`). The go-live
+State (2026-10-27): rounds 1 to 5 are on the set (below; round 5 is 12a1d0b, `compositor/slot-2026-10-27-2100/`). The go-live
 configuration has CompShell's shell client up (`org.nphil.lumatv.shell`, run by the compositor from the state dir's
-`shell/Shell.qml`). Round 4 settled the probe's priming (X1_PRIME stays 4: LG's compositor shows the same swapchain-filling
-gaps with 0), the trial passes with the shell up, and x1 still fails the rule of zero gaps over 20 ms (2, 3 and 1 gaps,
-worst 20.5, 26.1, 21.5 ms), against 7 over 20 ms (worst 24.1 ms) for LG's own compositor in the same 60 s probe. Next:
-decide whether the rule is "zero" or "no worse than LG's compositor" (Main); if zero, the client-side gap at the 6th swap
-(first measured swap 2, 20.5-21.8 ms in all three runs: the swapchain's third buffer warming, 14-18 ms) and the
-occasional late client commit are what is left; the full gate (not run in round 4) follows. Read `gate/x1-compositor.txt`
-(`trace:`, `warm:`, `standin:`) against `x1.log` (`swap N returned`, `priming swap`, `gap`).
+`shell/Shell.qml`). X1_PRIME stays 4 (round 4's parity run). Round 5: x1 passes the new rule in 2 of 4 runs and fails in the
+other 2 on a late flip of the compositor's own (one at x1's mapping, one mid-run about 55 s in); the 120 s trial fails on 6
+missed refreshes in the first 5.5 s, at the shell client's start (`shell_start` 24.5 ms in one loop pass, then its first
+buffer's warm: 55.2 ms in one `draw-now` pass); the rest of the full gate passes. Next: the start-up of a client on the
+loop thread (the spawn, and the waits in `draw-now` for a client's first buffer's warm); then x1 and the trial again. Read
+`gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log` (`swap N returned`, `priming swap`, `gap`).
 
 ### What the ninth gate's lines were
 
@@ -283,3 +282,39 @@ between`. No loop stalls, no major faults, loop thread SCHED_FIFO.
 LG's own compositor in the same probe (7 over 20 ms and worst 24.1 ms in 60 s with priming; 4 in 30 s without): 1-3 gaps
 and worst 20.5-26.1 ms is no worse in count, with the one difference that LumaTV's gap at the 6th swap is in every run
 while LG's first measured swaps were clean after priming. One 60 s run of LG's is the whole parity sample.
+
+**Round 5, 2026-10-27 (set's clock 00:10-00:55), commit `12a1d0b` (`compositor/slot-2026-10-27-2100/`), the shell client up, the
+pass rule of PLAN "Decided" (no late flip of the compositor's own; probe gaps over 20 ms no more than LG's 4-7 a run).**
+
+*Trial* (`cutover.sh trial 120`): settled, two minutes healthy, but `odd stamps 51 (6 missed)`, `late 9 lost 9` of 1491 flips,
+`reached late 0 (worst 0.9 ms)`, `held ticks 1`: FAIL by the rule of no missed refresh. All six missed refreshes (`page-flip
+stamp 33.35-33.37 ms`) are in the first 5.5 s, at the shell's start; the other 118 s are clean. The log
+(`trial/trial-compositor.log`) at the start: `shell: starting the client (SAM's Home has mapped)` and, 23 ms later, `loop: 24.5
+ms in one pass (tick)` (the spawn of qml-runner on the loop thread, `shell_start`); the client's first buffer then comes
+(`commit of buffer 63 ... (new: warming)`, `warm: ... warm draw submitted in 4.7 ms, its fence seen done 48.4 ms after`) and
+the pass that takes it is `loop: 55.2 ms in one pass (clients draw-now)`, followed by `late 1 lost 1` at 60084.382 and four
+more misses up to 60089.6 while the Home window's buffers warm. Round 3's start-up miss (one) had the same two lines. Both
+are on the loop thread; a fix (the spawn off the loop thread, or the shell's start deferred until the first flips settle, and
+the warm of a client buffer polled instead of waited for in `draw-now`) is not made here: it needs another deploy.
+
+*x1, three runs of 60 s* (X1_PRIME 4, each its own session, shell up) and the full gate's run:
+
+| run | client gaps over 20 ms | worst | fps | `late` | compositor over 20 ms | old rule (zero) | new rule |
+|---|---|---|---|---|---|---|---|
+| 1 | 0 | 19.6 ms | 59.94 | 3 to 3 | 0 | PASS | PASS |
+| 2 | 1 (20.1 at swap 3) | 20.1 ms | 59.92 | 3 to 5 | 3 (two page-flip stamps of 33.37 ms at x1's mapping, `frame gap 22.2 ms` after 3310 steady frames) | FAIL | FAIL (2 late flips at the start) |
+| 3 | 1 (20.8 at swap 3057) | 20.8 ms | 59.94 | 9 to 9 | 0 | FAIL | PASS |
+| full gate | 2 (21.6 at swap 2, 27.4 at swap 3308) | 27.4 ms | 59.91 | 5 to 6 | 2 (`frame gap 22.9 ms` after 3303 steady frames, then `page-flip stamp 33.36 ms`) | FAIL | FAIL (1 late flip, mid-run) |
+
+Loop thread SCHED_FIFO in all four, run-queue wait 5.0-5.8 ms, `mali-cmar-backe` wait 3.6-4.4 ms, no major faults, no loop
+stalls. Against round 4 (f0d3cb4): the gap at the first measured swap is gone in runs 1 and 3 (it was in every round 4 run),
+and the client's gaps are 0-2 a run (1-3 before). Left: the late flip at x1's mapping (run 2, same two stamps as the start of
+every earlier round) and one mid-run late client commit in each of run 2 and the full gate, both about 55 s into the run
+(after 3310 and 3303 steady frames); the compositor's flips were on the grid before each, and the commit came 22-23 ms
+after the previous one. [INFERENCE: whether something periodic, in the shell client or the system, fires near 55 s; one
+60 s run each is not a pattern.]
+
+*Verdict.* x1: PASS in 2 of 4 runs by the new rule (1 and 3), FAIL in 2 (a late flip of the compositor's own at x1's start,
+and one mid-run); the client's side is within LG's 4-7 in every run. Trial: FAIL (start-up of the shell). Full gate: every
+check but x1 passed (standby and homekey in a run of their own; frames PASS), so the blockers for go-live are the late flips
+at a client's start (the shell's in the trial, x1's in run 2) and one mid-run late client commit.

@@ -1,0 +1,7 @@
+Round 5 on 12a1d0b (set's clock 00:10-00:55): ipk + bundle + cutover install through one HomeLabber plan.
+gate-keys-ime-shell-frames/   --only keys,ime,shell,frames: keys, ime, shell PASS; frames FAIL on toast only (first frame 51.5 ms); frames.json
+trial/                        cutover.sh trial 120 with the shell up: 6 missed refreshes in the first 5.5 s; compositor.log of the session
+gate-x1-1..3/                 x1 60 s each (separate sessions)
+gate-full/                    tv_gate.py --skip volume: frames PASS; standby/homekey FAIL because the first session's 12 minute timer had ended the session; frames.json
+gate-standby-homekey/         --only standby,homekey: both PASS
+volume                        by hand in a session: receiver 0.55 -> 0.555 (Volume+) -> 0.55 (Volume-)

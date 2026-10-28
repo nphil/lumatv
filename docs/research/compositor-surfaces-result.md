@@ -7,39 +7,29 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 
 ## Resume here
 
-State (2026-10-27, after round 4 on f0d3cb4, `compositor/slot-2026-10-27-1900/`): the picker's and the toast's frame-gate
-failures have a cause and a fix ("The picker and the toast of the frame gate" below: f903648, bc25983, b193b28), host-tested
-and not yet on the set. `gate.sh shell` passed 11 of 11 alone in round 4, and keys, ime and shell passed in
-`--only keys,ime,shell,frames`. Next, in order:
+State (2026-10-27, after round 5 on 12a1d0b, `compositor/slot-2026-10-27-2100/`): the picker passes the frame gate (first frame
+27-34 ms, `burst_over20` 0, callbacks ahead 3522 of 4272); keys, ime and shell pass; the full gate passed every check
+except x1 (`compositor-gate9-result.md`, "Round 5") and, in that run only, standby and homekey (a harness timer, fixed;
+both passed in a run of their own). The toast's frame gate is on its limit: first frame 51.5 ms in one run, 50.0 ms (worst
+of three opens) in the other, limit 50; with the shell's start-up in the trial (the other open item) it is what stands
+between this build and go-live. Next, in order:
 
-1. One TV round of `tv_gate.py --only keys,ime,shell,frames` with the bundle of HEAD installed. The frame gate must show:
-   - picker: `first_frame_ms` about 31 ms (limit 50), `burst_end_ms` 150-165 (limit 180), `windows` 6/6, `burst_over20` 0 (round
-     4: 5 intervals of 33.4 ms in its six windows) and `show_ms` under 1 ms on the opens (the compositor asks the shell at the
-     press). After the gate the driver prints `shell callbacks: N of M sent ahead of their flip` (`ctl status` `callbacksAhead`):
-     0 means the change was not in play. `--frames-callbacks landing` runs the gate with round 4's callbacks, the A/B. Where
-     33.4 ms intervals remain with callbacks ahead, the time is not in when the shell's frame starts: copy the TV's
-     `/tmp/perf/gate-c4shell-picker-*` before anything else runs (the gate keeps digests only) and read, for the first missed
-     interval, when qml-runner woke against the flip, when its GPU job began and ended against the next flip, and when
-     `commit_work` ran. They tell a late GPU from a late flip request, and what to cut (the picker's glass quad is 1.0 Mpx, the
-     quick panel's 0.7).
-   - toast: `windows` 3/3, and per window `sent_ms`, `delivered_ms` and `first_frame_ms` (now from the compositor's
-     `Q:toast-delivered`): the shell's own time from being handed the toast (limit 50). If it is over, read the journal's
-     `shell: system layer window mapped` line against `delivered_ms`: the system window's first showing after its last hide is
-     the candidate.
-   - the keys gate's `input-shell` line (journal `Input tap: ... LumaTV's input picker`) now comes at the press.
+1. The toast's first frame from `Q:toast-delivered` (37.5, 51.5, 28.0 and 44.4, 50.0, 24.2 ms): read the journal's `shell:
+   system layer window mapped` line against `delivered_ms`; the system window's first showing after its last hide is the
+   candidate. Whether 50 ms is the right limit for the toast's first frame (the stock toast's baseline is in `gate.py`) is
+   Main's.
 2. Input on Nitin's remote, once: a tap shows the picker at the press; a hold of 1 s opens the Home Hub and the picker goes
    with it.
 3. The held digit: its press also reaches SAM, which launches the Quick Access slot's app (`com.webos.app.browser`, 0.6 s
-   into the hold) beside the compositor's own Quick Access (`com.webos.app.magicnum`, at 1.0 s). The gate now closes
-   the browser; whether `keys.rs` should keep the press from SAM is open.
-4. The full gate (not run in round 4), then idle Home ("Open" below): the tick held while nothing visible changes.
+   into the hold) beside the compositor's own Quick Access (`com.webos.app.magicnum`, at 1.0 s). The gate closes the
+   browser; whether `keys.rs` should keep the press from SAM is open.
+4. Idle Home ("Open" below): the tick held while nothing visible changes.
 
-Likeliest failures on the set now: the picker's frame intervals if the shell's callbacks are not what gates its frames (above),
-the toast's first frame from the compositor's marker, an app left open by a key (`gate.sh shell` starts with Home not in front:
-`connected` fails with `drawn false`, and the frame gate's session then covers Home), the idle cost over the threshold (a
-client CPU over a third of a core at nice 10 would be the Qt render of the full scene per tick), keys not arriving (`ctl shell`
-`ui.keys` stays 0 while `ctl keys` counts them delivered: the focus went elsewhere, `ctl windows` and the journal's `focus ->`
-lines say where).
+Likeliest failures on the set now: the toast's first frame (above), an app left open by a key (`gate.sh shell` starts with Home
+not in front: `connected` fails with `drawn false`, and the frame gate's session then covers Home), the idle cost over the
+threshold (a client CPU over a third of a core at nice 10 would be the Qt render of the full scene per tick), keys not
+arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts them delivered: the focus went elsewhere, `ctl windows`
+and the journal's `focus ->` lines say where).
 
 ## What was built
 
@@ -215,6 +205,32 @@ Second run, same checks: keys, ime and shell PASS (shell 11 of 11: 10 commits/s,
 - `toast` NOT: `windows` 2 of 3: two of the three opens have no frame after the key (the display's OSD interrupt, which the
   analysis reports as `osd_wake_ms`, was silent at the key and came back 281 and 582 ms into those windows), so no first
   frame; the closes' first frames are 421.9, 55.5 and 980.3 ms.
+
+### Round 5 (12a1d0b, 2026-10-27, `compositor/slot-2026-10-27-2100/`)
+
+Ipk, bundle and `cutover install` of 12a1d0b through one HomeLabber plan (the plan before it expired unanswered; the set was
+untouched). `tv_gate.py --only keys,ime,shell,frames`: keys, ime and shell PASS (shell 11 of 11: idle Home 10 commits/s at
+3 %, covered 0 %, 176 luna calls, 0 refused; the held digit's browser is closed by the gate). Frames FAIL on the toast only:
+
+- `home-dpad` ok (first frame 28.0 ms), `quick` ok (28.1 ms, burst end 162.0 ms, `burst_over20` 0).
+- `picker` ok, 6 of 6 windows: first frame 27.4 ms (the compositor asks the shell 0.17 ms after the key), burst end 171.8 ms
+  (limit 180; the other opens 142-161 ms), `burst_over20` 0 (round 4: 5), `show_ms` 0.14-0.17 on the opens. The callbacks
+  were in play: `shell callbacks: 3522 of 4272 sent ahead of their flip`. No picker trace needed copying.
+- `toast` NOT: `windows` 3 of 3; the opens' `first_frame_ms` (from `Q:toast-delivered`) are 37.5, 51.5 and 28.0 ms (limit
+  50), `delivered_ms` 116.1, 31.2 and 91.7; `burst_end_ms` none in the middle open and `burst_over20` 1 in the third. The
+  failed value is 51.5 ms against 50; the full gate's frame gate (below) passed the toast with its worst open at 50.0 ms
+  (44.4, 50.0 and 24.2 ms), so the toast sits on the limit. The OSD wake of round 4 is gone.
+
+The full gate (`tv_gate.py --skip volume`, same bundle): frames PASS (home-dpad 28.8 ms; quick 28.0 ms, burst end 161.5;
+picker 33.8 ms, burst end 166.7, `burst_over20` 0; toast 50.0 ms, burst end 83.3, windows 3 of 3; `shell callbacks: 3566 of
+8956`), firmware, homeheld, live, netflix (Dolby Vision, picture mode back to filmMaker), hdmi, keys, ime, shell,
+wd-hang, wd-crash and escape PASS; x1 FAIL (below); standby and homekey FAIL for a harness reason: the frame gate's
+`enable --session` finds the first session live and does not re-arm its 12 minute timer, which ended the session before
+the standby step (`mounted no`). `tv_gate.py` now sizes the first session for the frame gate too. `--only standby,homekey`
+then PASSED both (PreparePowerOff 1, PreparePowerOn 1, no fallback; homekey: unmounted after 10 s, escaped, SAM unchanged).
+The volume check, by hand in a session because the driver's receiver reads were stubbed: the receiver went 0.55 to 0.555
+on Volume+ and back to 0.55 on Volume-: PASS.
+
 
 ## The picker and the toast of the frame gate
 
