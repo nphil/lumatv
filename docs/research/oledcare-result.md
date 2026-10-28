@@ -33,3 +33,9 @@ Tokens in `payload/theme/theme.json`: `oledcare.{enabled, orbitPx 0-4, stepSec 1
 7. Switch off in Settings: the offset returns to (0,0) in one step during the toggle's own frame.
 
 Pass: 2 to 7 hold; then `oledcare.enabled` ships on.
+
+## TV round 2026-10-28 (round 14)
+
+`a1555df`, `oledcare` on with `stepSec` 10, `dimAfterMin` 1, `dimOverMin` 2 (the theme keeps those three keys, `enabled` off). Home's `offset` moved one pixel on one axis per beat
+((0,0), (-1,0), (-2,0), (-3,0), (-3,-1), (-3,-2), then round to (3,3), (1,3)), never past 3; Home and its chrome moved together; switching off returned (0,0). `dim` stayed 1.0 for 2 minutes of no key:
+Home runs the moving wallpaper, and a Home that moves is not still by the care's own rule (`MOVING_PER_S`): the dim was not shown. Not run: steps 3 to 7. Result: orbit PASS, dim not exercised; off, go-live with Main's word.

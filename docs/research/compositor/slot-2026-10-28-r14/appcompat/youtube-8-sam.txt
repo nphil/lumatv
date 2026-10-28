@@ -1,0 +1,61 @@
+2026-10-28T17:25:52.733592Z [12745.387872960] user.info sam [] SAM APP_CLOSE {"app_id":"youtube.leanback.v4","pid":""} 
+2026-10-28T17:25:52.733616Z [12745.387896880] user.info sam [] SAM APP_CLOSE_ERR {"app_id":"youtube.leanback.v4","reason":"no_client"} close:897
+2026-10-28T17:25:52.733638Z [12745.387918260] user.info sam [] SAM APP_CLOSE {"app_id":"youtube.leanback.v4","uid":"121d9ef0-b4ea-4c9b-be55-d0a717d98bc3","action":"removed_close_item"} 
+2026-10-28T17:25:52.733658Z [12745.387938660] user.err sam [] SAM APP_CLOSE_ERR {"app_id":"youtube.leanback.v4"} err_text: native app is not running
+2026-10-28T17:25:52.734371Z [12745.388652020] user.info sam [] SAM APP_CLOSE {"app_id":"youtube.leanback.v4","caller":"com.webos.chromecast.core"} params: {"id":"youtube.leanback.v4"}
+2026-10-28T17:25:52.734416Z [12745.388696820] user.info sam [] SAM APP_CLOSE {"app_id":"youtube.leanback.v4","uid":"d19f19ef-543e-4e58-ba74-bf9bcbd2118e","action":"created_close_item"} 
+2026-10-28T17:25:52.734438Z [12745.388718400] user.info sam [] SAM APP_CLOSE {"app_id":"youtube.leanback.v4","pid":""} 
+2026-10-28T17:25:52.734458Z [12745.388738760] user.info sam [] SAM APP_CLOSE_ERR {"app_id":"youtube.leanback.v4","reason":"no_client"} close:897
+2026-10-28T17:25:52.734478Z [12745.388758940] user.info sam [] SAM APP_CLOSE {"app_id":"youtube.leanback.v4","uid":"d19f19ef-543e-4e58-ba74-bf9bcbd2118e","action":"removed_close_item"} 
+2026-10-28T17:25:52.734499Z [12745.388779220] user.err sam [] SAM APP_CLOSE_ERR {"app_id":"youtube.leanback.v4"} err_text: native app is not running
+2026-10-28T17:28:04.026716Z [12876.680998520] user.info sam [] SAM NL_APP_LAUNCH_BEGIN {"app_id":"youtube.leanback.v4","caller_id":"com.webos.lunasend-20001","mode":"normal"} 
+2026-10-28T17:28:04.026747Z [12876.681027520] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40","action":"created_launching_item"} 
+2026-10-28T17:28:04.026772Z [12876.681052340] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","is_launch_first_app":"false","auto_installation":"false","is_last_input_app":"false","automatic":"false","screen_type":"","stand_alone_launch":"false"} request-changeRunningAppId: empty
+2026-10-28T17:28:04.026795Z [12876.681075260] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","caller_id":"com.webos.lunasend-20001","launch_reason":"undefined","check_update":"false","check_lock":"true","preload_mode":"empty","keep_alive":"false","show_splash":"true","show_spinner":"true","shared_folder_path":""} 
+2026-10-28T17:28:04.026816Z [12876.681096860] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","params":{}} 
+2026-10-28T17:28:04.026839Z [12876.681120000] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","replace_params":{}} 
+2026-10-28T17:28:04.026861Z [12876.681141640] user.info sam [] SAM APP_LAUNCH {"CLOCK":12876.677,"app_id":"youtube.leanback.v4","status":"start_prelaunching","PerfType":"AppLaunch","PerfGroup":"youtube.leanback.v4"} 
+2026-10-28T17:28:04.026882Z [12876.681162240] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"mount_squashfs_for_dep_pkgs"} 
+2026-10-28T17:28:04.026902Z [12876.681182700] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"set_prelaunching_stage_for_drm"} uid: 2685ca50-0227-4e78-a7ee-97c6cbdfec40
+2026-10-28T17:28:04.026923Z [12876.681203120] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"set_prelaunching_stage_for_eula"} uid: 2685ca50-0227-4e78-a7ee-97c6cbdfec40
+2026-10-28T17:28:04.026943Z [12876.681223440] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"set_prelaunching_stage_for_applock"} uid: 2685ca50-0227-4e78-a7ee-97c6cbdfec40
+2026-10-28T17:28:04.029310Z [12876.683593540] user.info sam [] SAM APP_LAUNCH {"type":"squashfs","target":"/media/squashfs/apps/youtube.leanback.v4","status":"is_already_mounted"} 
+2026-10-28T17:28:04.035791Z [12876.690073460] user.info sam [] SAM APP_LAUNCH {"type":"overlay","target":"/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4","status":"is_already_mounted"} 
+2026-10-28T17:28:04.040632Z [12876.694912940] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","stage":13,"status":"passed_verifying_drm"} 
+2026-10-28T17:28:04.042031Z [12876.696312700] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","stage":15,"status":"passed_verifying_eula"} 
+2026-10-28T17:28:04.046540Z [12876.700826000] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","stage":17,"status":"passed_checking_applock"} 
+2026-10-28T17:28:04.046627Z [12876.700908540] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40","status":"prelaunching_done","launching_stage_in_detail":23} 
+2026-10-28T17:28:04.046654Z [12876.700935000] user.info sam [] SAM APP_LAUNCH {"CLOCK":12876.700,"app_id":"youtube.leanback.v4","status":"start_memory_checking","PerfType":"AppLaunch","PerfGroup":"youtube.leanback.v4"} 
+2026-10-28T17:28:04.046677Z [12876.700957320] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"start_memory_setting"} payload: {"defaultWindowType":"card","appId":"youtube.leanback.v4","requiredMemory":0,"containerBasedApp":false,"appType":"native_mvpd","relaunch":false,"windowGroup":false}
+2026-10-28T17:28:04.047213Z [12876.701493620] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"splash","appId":"youtube.leanback.v4","splashBackground":"file:///media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/2018-new-splash-solid-grey-LG.png","showSpinner":true,"title":"YouTube","showSplash":true,"returnValue":true}} 
+2026-10-28T17:28:04.047531Z [12876.701811780] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40"} removed from checking queue
+2026-10-28T17:28:04.047555Z [12876.701835600] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40","status":"memory_checking_done","launching_stage_in_detail":25} 
+2026-10-28T17:28:04.047577Z [12876.701857220] user.info sam [] SAM APP_LAUNCH {"CLOCK":12876.701,"app_id":"youtube.leanback.v4","status":"start_launching","PerfType":"AppLaunch","PerfGroup":"youtube.leanback.v4"} 
+2026-10-28T17:28:04.047597Z [12876.701877120] user.info sam [] SAM NATIVE_CLIENT_INFO {"app_id":"youtube.leanback.v4"} client_info_created
+2026-10-28T17:28:04.047677Z [12876.701957460] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"youtube.leanback.v4","pid":""} current_client
+2026-10-28T17:28:04.047697Z [12876.701977400] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"start_launch_handler"} life_status: 0
+2026-10-28T17:28:04.047716Z [12876.701996980] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"youtube.leanback.v4","start_native_handler":"LaunchAsCommon"} ver: 2
+2026-10-28T17:28:04.047738Z [12876.702018460] user.info sam [] SAM APP_LAUNCH {"jailer_path":"/usr/bin/jailer","jailer_type":"native_mvpd","app_id":"youtube.leanback.v4","app_folder_path":"/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4","shared_folder_path":"","app_path":"/media/cryptofs/apps/usr/palm/applications/youtube.leanback.v4/cobalt","params":{"event":"launch","reason":"undefined","appId":"youtube.leanback.v4","parameters":{},"interfaceVersion":2,"interfaceMethod":"regist
+2026-10-28T17:28:04.047773Z [12876.702053320] user.info sam [] SAM RUNTIME_STATUS {"app_id":"youtube.leanback.v4","current":0,"new":1} runtime_status_changed
+2026-10-28T17:28:04.047794Z [12876.702074880] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"launch","appId":"youtube.leanback.v4","returnValue":true,"reason":"undefined"}} 
+2026-10-28T17:28:04.047814Z [12876.702094840] user.info sam [] SAM LOADING_LIST {"app_id":"youtube.leanback.v4"} added
+2026-10-28T17:28:04.047835Z [12876.702115340] user.info sam [] SAM LIFE_STATUS {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40","current":0,"new":2} life_status_changed
+2026-10-28T17:28:04.048165Z [12876.702446220] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"launching","appId":"youtube.leanback.v4","appCategory":[],"type":"native_mvpd"}} 
+2026-10-28T17:28:04.050763Z [12876.705051160] user.info sam [] SAM APP_LAUNCHED {"app_id":"youtube.leanback.v4","type":"native","pid":20002,"start_time":12876677447720.000000,"collapse_time":27465700.000000} 
+2026-10-28T17:28:04.050901Z [12876.705182420] user.info sam [] SAM RUNNING_LIST {"app_id":"youtube.leanback.v4","pid":"20002","webprocid":"","default_window_type":"card","status":"added"} 
+2026-10-28T17:28:04.051688Z [12876.705974160] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"running","payload":{"running":[{"webprocessid":"17183","defaultWindowType":"card","id":"com.webos.app.home","processid":"17183","appType":"web"},{"webprocessid":"","defaultWindowType":"card","id":"netflix","processid":"18553","appType":"native_mvpd"},{"webprocessid":"","defaultWindowType":"card","id":"com.apple.appletv","processid":"18958","appType":"native_mvpd"},{"webprocessid":"","defaultWindowType"
+2026-10-28T17:28:04.051970Z [12876.706252320] user.info sam [] SAM RUNTIME_STATUS {"app_id":"youtube.leanback.v4","current":1,"new":3} runtime_status_changed
+2026-10-28T17:28:04.052008Z [12876.706288680] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40","status":"launching_done"} 
+2026-10-28T17:28:04.052030Z [12876.706310720] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","status":"finish_launching","is_last_fullscreen_app":"false","mode":"normal"} 
+2026-10-28T17:28:04.052167Z [12876.706448320] user.info sam [] SAM APP_LAUNCH {"app_id":"youtube.leanback.v4","uid":"2685ca50-0227-4e78-a7ee-97c6cbdfec40","action":"removed_launching_item"} 
+2026-10-28T17:28:04.285610Z [12876.939891040] user.info sam [] SAM NATIVE_APP_HANDLER {"app_id":"youtube.leanback.v4","status":"cancel_kill_timer"} 
+2026-10-28T17:28:04.285632Z [12876.939912720] user.info sam [] SAM APP_CLOSED {"app_id":"youtube.leanback.v4","type":"native","pid":"20002","exit_status":11} 
+2026-10-28T17:28:04.285662Z [12876.939943060] user.info sam [] SAM RUNTIME_STATUS {"app_id":"youtube.leanback.v4","current":3,"new":0} runtime_status_changed
+2026-10-28T17:28:04.285685Z [12876.939965460] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeEvents","payload":{"event":"stop","appId":"youtube.leanback.v4","returnValue":true,"reason":"undefined"}} 
+2026-10-28T17:28:04.285707Z [12876.939988040] user.warning sam [] SAM LIFE_STATUS {"app_id":"youtube.leanback.v4","current":2,"next":0} handle exception
+2026-10-28T17:28:04.285728Z [12876.940008700] user.info sam [] SAM LOADING_LIST {"app_id":"youtube.leanback.v4"} removed
+2026-10-28T17:28:04.285750Z [12876.940030120] user.info sam [] SAM LIFE_STATUS {"app_id":"youtube.leanback.v4","uid":"","current":2,"new":0} life_status_changed
+2026-10-28T17:28:04.285794Z [12876.940075560] user.info sam [] SAM SUBSCRIPTION_REPLY {"skey":"getAppLifeStatus","payload":{"reason":"undefined","status":"stop","appId":"youtube.leanback.v4","appCategory":[],"processId":"20002","type":"native_mvpd"}} 
+2026-10-28T17:28:04.285896Z [12876.940177080] user.info sam [] SAM RUNNING_LIST {"app_id":"youtube.leanback.v4","action":"removed"} 
+2026-10-28T17:28:04.286077Z [12876.940358820] user.info sam [] SAM NATIVE_CLIENT_INFO {"app_id":"youtube.leanback.v4"} client_info_removed
+ 

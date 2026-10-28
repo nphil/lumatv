@@ -295,3 +295,9 @@ text for the missing piece, `render_status`, is not in the firmware snapshot (it
 Next TV check (the wallpaper's steps 3 and 4 again, `lumatv vplane install` first so the new player and both clips are there): with the owner's own look and `lumatv wallpaper video`, no shell restart: `lumatv wallpaper
 status` `ready`, within 10 s `status.json` `playing` and the compositor's journal `foreign: punch-through ... attached to _Window_Id_N`, `wall` `hole true`, `ctl windows` `video` with one entry, the pipeline's log without
 `No render_status`, and the GPU wallpaper gone from the frame. Then the measurements of the steps above.
+
+## TV round 2026-10-28 (round 14, `compositor/slot-2026-10-28-r14/img/wall-video-home.png`)
+
+`lumatv vplane install` (walls 2), `vplane start`, `wallpaper video`: `ready true`, `player {"state":"playing","role":"wall"}`, and `wall.hole` true (round 13: false). The No-render_status lines
+still come from the player's connect. Home does not look the same: the picture is a 1856x1024 window and leaves a black margin of 32 px left and right and 27 px top and bottom around the whole of Home (measured on the capture),
+and the grade is darker than the GPU wallpaper. FAIL for go-live. `wallpaper gpu` and `vplane stop` put it back. Next: a clip that covers 1920x1080 (or a plane window scaled to it) with the drift inside the picture.

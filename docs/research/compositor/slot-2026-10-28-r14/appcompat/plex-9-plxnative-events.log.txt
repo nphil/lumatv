@@ -1,0 +1,58 @@
+-rw-r-----    1 5365     jailer        7347 Oct 28 13:28 /tmp/plxnative-events.log
+install: id=com.beb.plxnative flavour=- runtime=/tmp features=release APPID_env=com.beb.plxnative
+appdir: /media/developer/apps/usr/palm/applications/com.beb.plxnative (from current_exe)
+webos: webOS TV release=10.2.1 codename=ponytail-paparoa api= major=10
+webos: model=o22n2 board=O22A3_ATSC hw=BOARD_DV_1ST
+devjail: soc=o22n2 rtkmem=n/a
+telemetry: answered=true errors=false usage=false id=none errors_id=none
+telemetry: env=production sentry=yes posthog=yes
+devcaps: hevc=true 4096x2176 vp9=true av1=true audio=aac,ac3,eac3,dts rows: h264=4096x2304@60 hevc=4096x2176@60 vp9=4096x2304@60 av1=4096x2304@60 vp9bits=8 (device table)
+webos-caps: key=tv.config.supportDolbyHDRContents answer=supported source=configd elapsed_ms=19
+relaunch tap: installed
+video driver: wayland
+session: authority read reason=miss
+surface: webOS major 10, Interface resolution Auto -> None
+surface: window=1920x1080 drawable=1920x1080 panel=3840x2160 logical=1920x1080 scale=1.000
+GL: Mali-G52 / OpenGL ES 3.2 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416
+egl: display=0x150cd00 context=0x155b2f0 draw_surface=0x1565dd0
+egl vendor: ARM
+egl version: 1.5 Bifrost-"r46p0-01eac1"
+egl client_apis: OpenGL_ES
+egl extensions: EGL_WL_bind_wayland_display EGL_NV_context_priority_realtime EGL_KHR_partial_update EGL_EXT_swap_buffers_with_damage EGL_KHR_swap_buffers_with_damage EGL_KHR_config_attribs EGL_KHR_image EGL_KHR_image_base EGL_KHR_fence_sync EGL_KHR_wait_sync EGL_KHR_gl_colorspace EGL_KHR_get_all_proc_addresses EGL_IMG_context_priority EGL_KHR_no_config_context EGL_EXT_image_dma_buf_import EGL_EXT_
+egl procs: eglSetDamageRegionKHR=1 eglSwapBuffersWithDamageKHR=1 eglSwapBuffersWithDamageEXT=1 eglQuerySurface=1 eglSurfaceAttrib=1
+egl surface: 1920x1080 (ok=1/1) swap_behavior=0x3095 BUFFER_DESTROYED (ok=1 err=0x3000) buffer_age=0 (ok=1 err=0x3000)
+egl config: id=1 surface_type=0x0405 (ok=1)          SWAP_BEHAVIOR_PRESERVED_BIT=1
+gl extensions: GL_ARM_rgba8 GL_ARM_mali_shader_binary GL_OES_depth24 GL_OES_depth_texture GL_OES_depth_texture_cube_map GL_OES_packed_depth_stencil GL_OES_rgb8_rgba8 GL_EXT_read_format_bgra GL_OES_compressed_paletted_texture GL_OES_compressed_ETC1_RGB8_texture GL_OES_standard_derivatives GL_OES_EGL_image GL_OES_EGL_image_external GL_OES_EGL_image_external_essl3 GL_OES_EGL_sync GL_OES_texture_npot 
+keyboard: support=1 active=0 focus=0 winflags=0x7
+FB bits: alpha=8 red=8 depth=0 stencil=0 (config alpha=8 depth=0 stencil=0)
+wm sdl=2.0.14 subsys=6 wl_surface=0x157d618 wl_display=0x156a3d8 alpha=8
+init_text ok=1
+net: bound libcurl -> libcurl.so.4 (libcurl/7.82.0 OpenSSL/3.0.13 zlib/1.2.11 c-ares/1.19.0 nghttp2/1.47.0; AsynchDNS=yes); threaded-tls=true legacy-locks=NotNeeded
+locale: source=settings preference=system ui=en format=en-US clock=Locale
+plex: server slot 0 registered at https://<host> (pinned: v4 name resolved locally)
+hubs: source 0 fetching (off-thread)
+browse: roster now 1 source(s)
+pms: catalog activation queued
+boot: stored session — auto sign-in
+vplane: SDL exported window (webOS 5+)
+vplane: exported window (webOS 5+) — created per session
+curlio: bound libcurl.so.4 curl_multi_* (7 symbols)
+ff: bound avutil -> libavutil-plx.so.61
+ff: bound avcodec -> libavcodec-plx.so.63
+ff: bound avformat -> libavformat-plx.so.63
+ff: no swscale (expected in a RELEASE build) — dev capture JPEG/MPEG1 off
+ff: avformat=63.1.102 avcodec=63.1.102 avutil=61.1.102
+coldstart: could not remove every obsolete last-page bookmark
+notify: roster servers=1 described=1 owned=1
+notify: connecting sid=0
+font chain: Base /media/developer/apps/usr/palm/applications/com.beb.plxnative/appfont.ttf codepoints=2853
+
+*** SIGNAL 11 (SIGSEGV) addr=0x24 pc=0xf7594430 lr=0xf77c3e69
+time: 1793208502
+reg: sp=0xfffafa40 fp=0xfffafa70 ip=0xdd cpsr=0x60800030 r0=0x0 r1=0xf7812e18 r2=0xf7812e40 r3=0xf7594431 r4=0x493e0 r5=0x0 r6=0xf7593925 r7=0xf780df7c r8=0x3 r9=0xfffafa60 r10=0xfffafb60
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7590000-f7598000 r-xp 00000000 fd:01 48103                              /usr/lib/libwayland-client.so.0.20.0
+at: f7740000-f77fc000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+ 

@@ -144,3 +144,10 @@ opens and closes the same way, and apps on the video plane (inputs, Live TV, Net
 the picture and leave under Home dissolving in, with no black frame; 180 to 220 ms, interruptible, drawn from the app's first frame, with
 the launch screen waiting 400 ms so the tile is what the card grows from. Settings > Home & look > Smooth transitions
 (`lumatv transitions on|off`); off by default until the TV check passes.
+
+## TV round 2026-10-28 (round 14)
+
+`a1555df`, LumaTV's compositor, `lumatv transitions on`. Netflix launched from its tile: `origins` has `netflix` with a 134.4 px tile, `launches` 1, `lateGaps` 0, `maxGapMs` 17, in front 0.94 s after the key.
+Home from Netflix: `leaves` 1. Launch then Home within 100 ms: back at Home, `launches` 2, `leaves` 2 (`interrupted` stayed 0: not read as an interruption). HDMI 2: `launches` 3, `lateGaps` 0, `maxGapMs` 19; Home: `leaves` 3.
+Live TV: `lateGaps` 1 at the launch (30 ms), 2 at the leave (45 ms): INFO, above the 20 ms bar. `veilCaps` 0 throughout, `skipped` 0. Not run: slow launch, settings, app to app, reduced motion, cost, the visible
+frames. Result: PASS for the counters, Live TV late gaps open; switched off again, go-live with Main's word.

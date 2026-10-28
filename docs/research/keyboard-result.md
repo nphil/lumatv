@@ -264,3 +264,12 @@ The gate's own `ime` step (`gate.sh ime`) asserts maliit's start (`MaliitServer`
 - Auto-capitalisation after a full stop; `max_text_length` is not enforced by the keyboard (the app's field is).
 - A preview of the typed text in the sheet: the app's field is the preview; a reveal-password key would need the app's text and is left out.
 - Parking the keyboard in the scene before it is asked for (see step 9).
+
+## TV round 2026-10-28 (round 14, `compositor/slot-2026-10-28-r14/img/own-search.png`, `own-typed.png`)
+
+`a1555df`, LumaTV's compositor. Steps 1 to 4 and 10: with `luma`, LG's Search (`launchMode vkb`) shows the shell's sheet 2.1 s after the launch, flush at the bottom (1920x454 at y 626),
+`asked 0`, `own.serving` true: the show-at-activation fix (be14ccb) works. OK, Right, OK typed `gh` (`counts.texts 2`, `surround {"cursor":2,"len":2}`); `?123` and `ABC`
+switch pages; Left from the first key wraps to Backspace, which removes one character (`counts.keys 1`, `len` 2 to 1). Back with the keyboard up hides it and leaves Search in
+front; a second Back leaves Search in front too, the same under `keyboard lg` (INFO: Search ignores the injected Back either way). With the shell restarted at the moment a
+field opened the maliit keyboard came up (panel 1920x438 at y 642). Not run: steps 5 to 9, 11 (web fields, hardware keyboard, Netflix/YouTube search, repeat rate, frame markers, voice).
+Result: PASS for what ran; left on `lg` (the flag does nothing under LG's compositor), go-live with Main's word.

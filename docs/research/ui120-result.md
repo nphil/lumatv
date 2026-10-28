@@ -146,3 +146,10 @@ the GPU cost of a slide frame with the cache, and of the compositor's compositio
 behaviour at 100 Hz with the divider at 1 (50-family content in front, the pacer's switch to 100 and back); the thermal trend over
 minutes of 120 fps animation rather than the gate's seconds; whether a persistent 120 (the supervisor's exec line, a flag file) is ever
 wanted, which this test mode does not provide.
+
+## TV round 2026-10-28 (round 14, `compositor/slot-2026-10-28-r14/frames-120.json`, `gate-120-gate-lines.txt`)
+
+`a1555df`, `tv_gate.py --only frames --refresh 120`: `GATE refresh` 120: `divider 1`, DE2VSYNC 120.8/s, `osd_irq` 120.2/s, OSD flips 10.1/s at idle Home; `pipeline_ms` p50 4.75, p99 4.75 (budget 8.33),
+no late, lost or missed frames; Mali 11.7 %, 57 C. After the surfaces: 120 intervals, p99 4.85 ms, 0 late, 0 lost, Mali 11.8 %, 56 C. Surfaces at 120 Hz: home-dpad `dropped` 1, quick `burst_over20` 32, picker 35,
+toast first frame 51.9 ms: the bar (zero `burst_over20` and `dropped` on quick and picker) is not met. The slide frame's cost is not the limit (p99 4.85 ms, 0 late); the shell's cadence is
+(step 5: `QT_QPA_UPDATE_IDLE_TIME=0` untried). The run ended at 60 (`divider after: 2`, `GATE refresh` 60 `divider 2`). Verdict: the mode is reachable and stable at idle; the UI's bursts do not reach it.

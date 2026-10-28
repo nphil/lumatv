@@ -78,3 +78,9 @@ Pass marks: steps 1 to 5 on their words; step 6 a decodable file of about the re
 ## Changelog line (for Main)
 
 Screenshots and screen recordings of what LumaTV composes (video stays black): PNG of the compositor's last page, fragmented MP4 through the hardware encoder's program (child process, deadlines), red recording dot required from the shell, files under a size cap; `POST /v1/capture/{screenshot,record/start,record/stop}`, Settings > System > Screenshots & recording and two quick-panel tiles; off by default behind `capture.enabled`, TV check in `docs/research/capture-result.md`.
+
+## TV round 2026-10-28 (round 14, steps 1 to 5; `compositor/slot-2026-10-28-r14/img/capture-netflix-s.png`)
+
+`a1555df`, no encoder. Step 1: 403/`disabled`. With `capture.enabled` (the file `/var/lib/lumatv/helper.json` did not exist; created and the helper restarted): `GET /v1/capture` `enabled true, available true`;
+a screenshot at Home 86 ms, 1920x1080, Home as it was; with the volume bar up the bar is in the picture; over Netflix 30 ms and 1920x1080, the app's menu in it. Not read: the "Screenshot saved" note, the
+video-playing black case (the title was at its menu). The file and the folder were removed and the switch is off again. Result: steps 1 to 5 PASS as read.

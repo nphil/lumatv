@@ -160,3 +160,8 @@ overlay unloaded (the log shows a `%7B%7BqmlModule%7D%7D` path); run the same su
 
 - A sound-output change (Settings, Sound out) does not itself open the pane; LG's popup did not either.
 - Audio guidance: LG spoke the volume through the same view (`speakVolume`); with the view not available it is silent. The set has it off.
+
+## TV round 2026-10-28 (round 14, `compositor/slot-2026-10-28-r14/img/vol-home-up.png`, `vol-netflix-up.png`)
+
+`a1555df` (1ae1234 in it), LumaTV's compositor, receiver on and muted for the round. Volume+ and Volume- over Home: the bar at the bottom centre, `61`. Over Netflix playing (Dolby Vision
+test title): the bar sits about 120 px higher, clear of the subtitles (they stay at the lower edge), with the Dolby Atmos mark. PASS. Not run: hold, mute, latency.

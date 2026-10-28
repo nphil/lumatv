@@ -57,3 +57,12 @@ Pass: 3 to 9 hold; then `remote.appSwitcher` ships on.
 - Whether a covered app keeps its window mapped with its last buffer on the set (LG minimizes the card a new card covers, `settle_cards`); the list is the mapped cards, as `listRecents` here always was. If a kind of app unmaps on minimize it is not listed.
 - A window with subsurfaces is drawn from its root surface only.
 - The first draw from a driver buffer of another process on Mali is warmed at its commit (`prepare`); a buffer still warming is skipped for that frame.
+
+## TV round 2026-10-28 (round 14, `compositor/slot-2026-10-28-r14/img/switcher-open.png`, `sw-quitall-ask.png`)
+
+`a1555df`, LumaTV's compositor, Netflix and Apple TV open (Plex and YouTube could not be: they crash under this compositor, see compositor-gate9-result.md round 14).
+Off: Home twice goes Home and no switcher. On (`remote.appSwitcher`): `can` has `switcher` within 3 s; a single Home goes Home; Home twice within 0.4 s over Netflix opens the switcher
+(`opened #1 over 2 app(s), netflix shrinking into its card`, `the shell placed the cards`), both cards placed; Apple TV's card shows its picture, Netflix's is black (video plane: INFO).
+Right then OK opens Apple TV (in front within 2.5 s); Back closes; Down then OK on Quit sent `closeByAppId netflix` and the app left `running`, the other cards stayed; Up Up OK asks "Quit all"
+with Cancel focused, Cancel changes nothing. Not run: pictures of Live TV/HDMI, the held-Home escape (the gate's `homekey` passes), the frame gate with the switcher.
+Result: PASS for what ran; set back to off (the setting does nothing under LG's compositor), go-live with Main's word.

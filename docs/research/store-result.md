@@ -314,3 +314,11 @@ focus) and `csp` and `error`. `python3 tools/store_probe.py report /var/lib/luma
   and ink on the plate LG draws under a focused item (found by what the page computes, not by class), transitions capped at 180 ms; off by default, as WAM's user
   script mounted over LG's read-only app directory, `off` and `revert` give LG's store back exactly. `probe` posts the page's structure to a receiver on the set for the
   next round. Host-checked only.
+
+## 11. The TV round of 2026-10-28, `a1555df` (round 14, `compositor/slot-2026-10-28-r14/img/probe-focus-2.png`, `on-focus2.png`)
+
+`lumatv store probe look` then the store opened (foreground 0.65-0.84 s after the launch, three cold runs with `store on`): the probe received `focus` and `classes` posts (33 files in `/var/lib/lumatv/store-probe`);
+focus moves are marked by `.focus` on `div.blank.item-tit-wrap` (tiles) and `div.blank.btn.item-downBtn`; the finder found the plate on every focused tile (`ps:div:43470`, 3 words, 4-12 ms)
+and found none for the round download and header buttons (`null`; they keep LG's light plate and dark glyph, which read). Tiles show the dark glass with the ring and light words; no light-on-light.
+`store on` (look, motion) over the same pages looks the same. Not run: the page walk of steps 3, 5, 6 (install, scroll gate, reboot).
+Result: PASS for steps 0 to 2; left on.

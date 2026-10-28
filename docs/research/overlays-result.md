@@ -79,3 +79,8 @@ An app with subtitles in front (Netflix playing a title, the frame probe running
 ## Changelog line
 
 Overlay cards over any app: a doorbell (the camera pop-up), finished timers and alarms, Home Assistant alerts and live scores in one queue in the top right, two at a time at most, held while a PIN, alert or keyboard is up, never below 75 % of the height so subtitles stay clear; OK acts, Back dismisses, the arrows stay the app's (the compositor takes OK and Back by name; the camera pop-up no longer takes the app's keyboard focus). Off by default (`overlays.enabled`) until its TV check passes.
+
+## TV round 2026-10-28 (round 14, `compositor/slot-2026-10-28-r14/img/card-over-netflix.png`, `alert-doorbell.png`)
+
+`a1555df`, LumaTV's compositor, `overlays.enabled` on, Netflix playing. Steps 1 to 4 and 6: a timer card top right from y 134, subtitles untouched, `takes` `["ok","back"]`; Back dismisses it
+and Netflix stays; an alert then a doorbell: the doorbell shows first; a score card with the leader in full ink. Not run: 5, 7 to 10. Result: PASS for what ran; switched off again, go-live with Main's word.

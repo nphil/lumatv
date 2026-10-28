@@ -645,3 +645,21 @@ Main's grant, `/tmp/lumatv-r10` kept as the rollback, then the gate under LumaTV
 - The cold boot was a second runbook reboot check: `compositor-boot: mounted` 19 s after boot, `persistent`, `mounted`, `live`, `firmware verified`, `failures 0`,
   `settled: two minutes healthy` at 09:54:09; `keyboard lg`, `wallpaper gpu` and `standbyscreen off` all survived the boot.
 
+### Round 14, 2026-10-28 (set's clock 09:34-10:52 PDT), forge/main `a1555df` (`compositor/slot-2026-10-28-r14/`)
+
+- Installed through the standing grant (exit 0), compositor persistent from the gate's end. Full gate `--skip volume`: every step PASS except `frames`; two more
+  runs of `keys,ime,shell,frames`: `keys`, `ime`, `shell` PASS both times. `frames` (3 cycles each): home-dpad, picker PASS in all three runs; quick had one burst
+  interval over 20 ms in the first run and none in the next two; toast first frame 70.2, 67.4, 60.3 ms (MINOR by Nitin's rule, no burst end). `wd-hang`, `wd-crash`,
+  `escape`, `homekey`, `standby`, `firmware`, `x1` (59.95 fps, no gap over 20 ms), `netflix`, `hdmi` PASS.
+- **YouTube and Plex die under LumaTV's compositor (BLOCKING, found by the app switcher's check; no earlier round launched either).** Both exit with SIGSEGV (SAM
+  `exit_status 11`): cobalt 32-42 ms after connecting, with no window; `plxnative` maps a window ("committed without a buffer") and ends 0.55-0.6 s later.
+  Under LG's compositor both are in front 2 s after the launch. Netflix, Apple TV, Search, HDMI and Live TV are not affected. Plex's own `/tmp/plxnative-crash.log`:
+  `addr=0x24 pc` in `libwayland-client` `wl_proxy_get_version` with a NULL proxy, called from `libSDL2` `SetMRCUTimer` (LG's SDL patch: it marshals a request on the
+  webOS seat proxy at window data +0x60). The compositor implements `wl_webos_input_manager.get_webos_seat` (`server/input_manager.rs`); neither client's journal shows that it was asked
+  or answered, and both clients' bound lists lack globals the browser binds (`wl_data_device_manager`, `wl_subcompositor`, `wl_webos_xinput_extension`, `text_model_factory`; cobalt also `wl_shm`, `wl_output`).
+  Evidence: `compositor/slot-2026-10-28-r14/appcompat/` (README first). Because of it the set ended the round on LG's compositor (`compositor off`, Home stub on).
+- Features, per their docs (`img/`): own keyboard, volume bar, store theme, app switcher, transitions, overlays, OLED care and capture 1-5 PASS under LumaTV's compositor and
+  are left off or as found, waiting for go-live; the video wallpaper FAILS (black margin); 120 Hz: the mode works, the surfaces do not hold it. Each doc's "TV round 2026-10-28 (round 14)" has the numbers.
+- Left on: the store theme (`store on`, parts `look,motion`; it is a WAM overlay and does not depend on the compositor). Left off: `remote.appSwitcher`, `overlays.enabled`, `oledcare`, `transitions`,
+  capture, `keyboard lg`, `wallpaper gpu`; the `wall` player is installed and stopped.
+- Receiver: off at the start; the TV's wake turned it on at 0.585 unmuted. Muted for the round, set back to 0.585 unmuted at the end; it follows the TV into standby.
