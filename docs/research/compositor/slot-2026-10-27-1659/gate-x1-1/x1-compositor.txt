@@ -1,0 +1,6 @@
+[srv  44466.877] info standin: surface 187 keeps the last frame's content while its new buffer warms
+[srv  44466.878] info warm: driver buffer 10 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence done 1.1 ms after
+[srv  44466.921] info warm: driver buffer 13 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence done 20.3 ms after
+[srv  44466.954] info warm: driver buffer 14 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence done 18.5 ms after
+[srv  44466.968] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+[srv  44526.900] info client disconnected: pid 7758 uid 0 after 60069 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"

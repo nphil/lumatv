@@ -158,6 +158,16 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             }
             json!({"ok": true, "delivered": state.keys.delivered, "visible": state.seat.cursor_visible})
         }
+        // The Mali blob's submission threads' class, for an A/B on the set without a restart: `sched mali fifo [PRIO]` or
+        // `sched mali other`.
+        "sched" => match (words.next(), words.next()) {
+            (Some("mali"), Some("fifo")) => {
+                let prio = words.next().and_then(|w| w.parse::<i32>().ok()).filter(|p| (1..=99).contains(p)).unwrap_or(19);
+                json!({"ok": true, "threads": crate::sched::mali_threads(Some(prio))})
+            }
+            (Some("mali"), Some("other")) => json!({"ok": true, "threads": crate::sched::mali_threads(None)}),
+            _ => json!({"ok": false, "error": "sched mali fifo [PRIO] | sched mali other"}),
+        },
         "quit" => {
             state.should_exit = true;
             json!({"ok": true})
@@ -171,7 +181,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

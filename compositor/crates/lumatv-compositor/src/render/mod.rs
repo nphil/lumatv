@@ -5,3 +5,4 @@ pub mod cursor;
 pub mod egl;
 pub mod gl;
 pub mod software;
+pub mod sync;

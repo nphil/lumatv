@@ -55,6 +55,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// SCHED_FIFO priority of the frame loop's thread (`sched`); 0 leaves it time-shared.
     pub rt_priority: i32,
+    /// SCHED_FIFO priority of the Mali blob's submission threads (`sched::mali_threads`); 0 leaves them time-shared.
+    pub rt_mali: i32,
     /// The shell client (`shell.rs`): `Auto` runs it live (`--input`) when the bundle beside this executable has `shell/Shell.qml`,
     /// `Off` never, `At(path)` runs that root QML.
     pub shell: ShellMode,
@@ -96,6 +98,7 @@ impl Default for Config {
             ui_demo: false,
             data_dir: PathBuf::from("/var/lib/lumatv"),
             rt_priority: 20,
+            rt_mali: 19,
             shell: ShellMode::Auto,
             shell_port: 18750,
         }
@@ -128,6 +131,7 @@ pub const USAGE: &str = "lumatv-compositor [options]
   --ui-demo              draw the system-layer diagnostic (requires feature ui and gl|kms); LUMATV_UI_DEMO_HZ (ticker rate,
                          default 60) and LUMATV_UI_DEMO_VOLUME_S (the volume bar up 2 s every N s) pace it
   --rt-priority N        SCHED_FIFO priority of the frame loop's thread, 1-99 (default 20; 0 keeps it time-shared)
+  --rt-mali N            SCHED_FIFO priority of the Mali blob's submission threads, 1-99 (default 19; 0 keeps them time-shared)
   --shell off|auto|PATH  the shell client (LumaTV's QML on LG's Qt through /usr/bin/qml-runner): auto (default) runs it with
                          --input when <bundle>/shell/Shell.qml sits beside this executable's bin/; PATH names another root QML
   --shell-port N         the loopback port of the UI channel (default 18750)
@@ -206,6 +210,12 @@ impl Config {
                     c.rt_priority = value()?.parse().map_err(|_| "--rt-priority")?;
                     if !(0..=99).contains(&c.rt_priority) {
                         return Err("--rt-priority takes 0 to 99".into());
+                    }
+                }
+                "--rt-mali" => {
+                    c.rt_mali = value()?.parse().map_err(|_| "--rt-mali")?;
+                    if !(0..=99).contains(&c.rt_mali) {
+                        return Err("--rt-mali takes 0 to 99".into());
                     }
                 }
                 "--shell" => {

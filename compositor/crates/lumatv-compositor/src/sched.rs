@@ -41,3 +41,38 @@ pub fn describe() -> String {
         other => format!("policy {other}"),
     }
 }
+
+/// The Mali blob's threads that carry the loop's GPU work: `mali-cmar-backe` submits every job (a frame's draw, a
+/// buffer's first use), `mali-utility-wo` are its workers. Time-shared, they wait behind the clients for a CPU: on the
+/// tenth gate's third x1 run a frame's fence export (the loop waiting for the submission) took 7.7 ms and the frame
+/// missed its refresh; a new buffer's first job took 11-30 ms to signal.
+const MALI_THREADS: [&str; 2] = ["mali-cmar-backe", "mali-utility-wo"];
+
+/// Puts the Mali blob's submission threads in SCHED_FIFO at `fifo_priority`, or back in the time-shared class with
+/// `None`. One line per thread says what happened; none means the blob has no such threads (the host).
+pub fn mali_threads(fifo_priority: Option<i32>) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return out };
+    for task in tasks.flatten() {
+        let name = std::fs::read_to_string(task.path().join("comm")).unwrap_or_default();
+        let name = name.trim();
+        if !MALI_THREADS.iter().any(|p| name.starts_with(p)) {
+            continue;
+        }
+        let Ok(tid) = task.file_name().to_string_lossy().parse::<libc::pid_t>() else { continue };
+        let (policy, prio) = match fifo_priority {
+            Some(p) => (libc::SCHED_FIFO, p),
+            None => (libc::SCHED_OTHER, 0),
+        };
+        let param = libc::sched_param { sched_priority: prio };
+        // SAFETY: a stack sched_param; the tid is a thread of this process read from /proc.
+        let r = unsafe { libc::sched_setscheduler(tid, policy, &param) };
+        let what = match (fifo_priority, r) {
+            (Some(p), 0) => format!("SCHED_FIFO {p}"),
+            (None, 0) => "SCHED_OTHER".into(),
+            (_, _) => format!("refused ({})", io::Error::last_os_error()),
+        };
+        out.push(format!("{name} ({tid}): {what}"));
+    }
+    out
+}

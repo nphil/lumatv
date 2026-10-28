@@ -104,12 +104,13 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): the changes below are built and host-tested (`cargo test`, the same with `--features ui`, clippy
-clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m unittest test_cutover` from `tests/`),
-not yet on the set. Next: deploy (Face ID: bundle deploy and `cutover install` in one approval plan), then
-`python3 compositor/tools/tv_gate.py --only x1` three times and the trial (`tv_next_slot.py --skip-gate --no-standby`)
-in one TV slot; read `gate/x1-compositor.txt` for the `warm:`, `standin:` and `loop: woke` lines and `x1.log` for the
-`gap ... at monotonic` lines, and record the round under "Rounds" below.
+State (2026-10-27): round 1 is on the set (below); round 2's changes are built and host-tested (`cargo test`, the same
+with `--features ui`, clippy clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m unittest
+test_cutover` from `tests/`), not yet on the set. Next: deploy (Face ID: bundle deploy and `cutover install` in one
+approval), then `python3 compositor/tools/tv_gate.py --only x1` three times (one of them with the Mali threads
+time-shared again, `lumatv-compositor ctl --runtime-dir /tmp/xdg sched mali other` before the run, for the A/B) and the
+trial (`cutover.sh trial 120`); read `gate/x1-compositor.txt` for the `trace:`, `warm:` and `standin:` lines against
+`x1.log`'s `swap N returned` and `gap` lines, and record the round under "Rounds" below.
 
 ### What the ninth gate's lines were
 
@@ -159,4 +160,30 @@ once warm and nothing after it), `damage.rs::tiles_a_page_copied_in_place_of_a_w
 
 ### Rounds
 
-None on the set yet.
+**Round 1, 2026-10-27 20:00, commit `475357a` (`compositor/slot-2026-10-27-1659/`).** Trial PASS: `odd stamps 0 (0
+missed)`, `held ticks 1`, `reached late 0 (over 1 ms 0, worst 0.1 ms)`; `loop thread: SCHED_FIFO 20`. x1 FAIL three
+times, but the mid-run cause is gone: the loop thread's run-queue wait over the 60 s was 3.4, 7.1 and 4.6 ms (1177.6 on
+the ninth gate), no `flip reached` line, 15-41 gaps of 17.5-20 ms (32 before). Gaps over 20 ms: 4, 3 and 7 (worst 32.0,
+31.8, 26.5 ms), all but one group in the first 250 ms of the run, around the second and third swapchain buffers'
+warms: the stand-in frames went out, but the warm's fence took (as seen at the ticks) 20.3 and 18.5 ms, 11.2 and 30.3 ms,
+8.6 and 10.5 ms, and the frame drawn at the latch landed a refresh late each time (`page-flip stamp 33.36 ms`, `late` 1,
+2, 1). The third run also lost a refresh mid-run (after 2569 steady frames): `present: fence export 7.7 ms` and `tick:
+8.3 ms` at 44949.817, then `page-flip stamp 33.37` and `frame gap 33.6 ms`; and `fence export 4.2 ms` at 44966.245 with
+a 21.0 ms client gap. [INFERENCE: the warm's job and the frame's draw are both submitted by the blob's `mali-cmar-backe`
+thread, time-shared; the fence export waits for that submission, and a buffer's first job carries the driver's mapping
+of it, so a slow turn of that thread holds the frame.]
+
+Round 2 changes (`render/sync.rs`, `render/gl.rs`, `kms/mod.rs`, `sched.rs`, `config.rs`, `control.rs`, `main.rs`,
+`tools/tv-gate.sh`, `arch/x1/x1client.c`, `arch/x1/x1heapshim.c`):
+
+- The Mali blob's submission threads (`mali-cmar-backe`, `mali-utility-wo`) are SCHED_FIFO 19 (`--rt-mali N`, 0 keeps
+  them time-shared; `mali thread: NAME (TID): SCHED_FIFO 19` lines at start); `ctl sched mali fifo [PRIO]` and `ctl sched
+  mali other` switch them live for an A/B.
+- The warm's fence is a native fence (a sync file) where the blob exports them: the `warm:` line reads the kernel's own
+  signal time (`its fence signalled Z ms after (seen W ms after)`), no longer the tick that found it done.
+- A start-up trace: a new buffer prepared starts 90 flips of `trace:` lines (each commit of a buffer, each tick held,
+  each draw with its slot and panel time, each commit with its fence-export and atomic-commit times, each queued frame,
+  each flip with the frame's lateness and the GPU's finish). The gate keeps them in `x1-compositor.txt`.
+- The gate's x1 detail line ends with the `mali-cmar-backe` thread's run-queue wait over the run and its class. The X1
+  client stamps its first eight swaps (`swap N returned at monotonic T (its draw started D ms before)`); the heap shim
+  stamps each allocation.

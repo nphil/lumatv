@@ -135,17 +135,23 @@ comp_over_limit() {
         END { print n + 0 }' "$1" 2>/dev/null
 }
 
-# The compositor's major page faults, its loop thread's run-queue wait in ns and the thread's scheduling class and priority
-# as "MAJFLT WAIT POLICY PRIO": what holds the loop without a line of its own (a page read back from swap, the CPU given to
-# another task), read before and after a run. Policy 1 is SCHED_FIFO, 0 SCHED_OTHER; prio is the kernel's number (-21 for
-# FIFO 20, 20 for nice 0).
+# The compositor's major page faults, its loop thread's run-queue wait in ns, the thread's scheduling class and priority,
+# and the Mali blob's submission thread's (mali-cmar-backe) run-queue wait and class, as "MAJFLT WAIT POLICY PRIO MWAIT
+# MPOLICY": what holds the loop without a line of its own (a page read back from swap, the CPU given to another task, the
+# submission the loop waits for in a fence export), read before and after a run. Policy 1 is SCHED_FIFO, 0 SCHED_OTHER;
+# prio is the kernel's number (-21 for FIFO 20, 20 for nice 0).
 comp_sched() {
     c_pid=$(pgrep -f 'bin/lumatv-compositor' | head -1)
     c_mf=$(awk '{print $12}' /proc/$c_pid/stat 2>/dev/null)
     c_w=$(awk '{print $2}' /proc/$c_pid/task/$c_pid/schedstat 2>/dev/null)
     c_pol=$(awk '{print $41}' /proc/$c_pid/task/$c_pid/stat 2>/dev/null)
     c_pri=$(awk '{print $18}' /proc/$c_pid/task/$c_pid/stat 2>/dev/null)
-    echo "${c_mf:--} ${c_w:--} ${c_pol:--} ${c_pri:--}"
+    c_mw=-; c_mpol=-
+    for c_t in /proc/$c_pid/task/*; do
+        [ "$(cat $c_t/comm 2>/dev/null)" = mali-cmar-backe ] || continue
+        c_mw=$(awk '{print $2}' $c_t/schedstat 2>/dev/null); c_mpol=$(awk '{print $41}' $c_t/stat 2>/dev/null); break
+    done
+    echo "${c_mf:--} ${c_w:--} ${c_pol:--} ${c_pri:--} ${c_mw:--} ${c_mpol:--}"
 }
 
 # x1_rule RESULT SECONDS_ASKED LATE_BEFORE LATE_AFTER COMPOSITOR_OVER (a count, or "unreadable"): prints "PASS what held"
@@ -216,7 +222,10 @@ x1)
         $LD --library-path $LIB --preload $LIB/x1heapshim.so $D/bin/x1client $BLOB > $OUT/x1.log 2>&1
     res=$(grep RESULT $OUT/x1.log)
     after=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
-    sched=$(echo "$sched_before $(comp_sched)" | awk '{ f = ($1 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/) ? sprintf("+%d", $5 - $1) : "not read"; w = ($2 ~ /^[0-9]+$/ && $6 ~ /^[0-9]+$/) ? sprintf("+%.1f ms", ($6 - $2) / 1e6) : "not read"; p = ($7 == 1) ? "SCHED_FIFO" : ($7 == 0) ? "SCHED_OTHER" : "policy " $7; print "major faults " f ", run-queue wait " w ", loop thread " p " prio " $8 }')
+    sched=$(echo "$sched_before $(comp_sched)" | awk 'function pol(v) { return (v == 1) ? "SCHED_FIFO" : (v == 0) ? "SCHED_OTHER" : "policy " v }
+        { f = ($1 ~ /^[0-9]+$/ && $7 ~ /^[0-9]+$/) ? sprintf("+%d", $7 - $1) : "not read"; w = ($2 ~ /^[0-9]+$/ && $8 ~ /^[0-9]+$/) ? sprintf("+%.1f ms", ($8 - $2) / 1e6) : "not read";
+          mw = ($5 ~ /^[0-9]+$/ && $11 ~ /^[0-9]+$/) ? sprintf("+%.1f ms", ($11 - $5) / 1e6) : "not read";
+          print "major faults " f ", run-queue wait " w ", loop thread " pol($9) " prio " $10 ", mali-cmar-backe run-queue wait " mw " " pol($12) }')
     # `late` alone: `lost` is the pacer's own measure, which leaves a frame's render time out.
     late_before=$(echo "$before" | awk '{print $4}'); late_after=$(echo "$after" | awk '{print $4}')
     # The compositor's own view of the run (its log is on CLOCK_MONOTONIC like x1's): loop stalls, frame gaps of the
@@ -224,7 +233,7 @@ x1)
     # was then, a frame held while a driver buffer warms, a surface stood in for, each buffer's warm, buffers freed. The
     # gaps' cause is read from these lines; only the ones over the limit count against the rule (comp_over_limit).
     t0=$(sed -n 's/.*starting at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log); t1=$(sed -n 's/.*ended at monotonic \([0-9.]*\).*/\1/p' $OUT/x1.log)
-    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|warm:|standin:|bury:|tick:/) print }' \
+    awk -v a="${t0:-0}" -v b="${t1:-0}" '/^\[srv/ { t = $2; sub(/\]/, "", t); t += 0; if (t >= a && t <= b + 1 && $0 ~ /loop:|frame gap|client (dis)?connected|atomic commit|page-flip|callbacks held|flip reached|frame held|warm done|warm:|standin:|trace:|bury:|tick:/) print }' \
         $STATE/compositor.log > $OUT/x1-compositor.txt
     stalls=$(grep -c 'loop: [0-9.]* ms in one pass' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).

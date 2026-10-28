@@ -46,11 +46,15 @@ struct Tex {
     /// An import of the driver's own buffer (`EGL_WAYLAND_BUFFER_WL`), the kind whose first GPU job is slow on the set.
     external: bool,
     /// The fence behind the warm draw (`prepare`), while it has not signalled: the driver is still busy with the
-    /// buffer. `None` once it signalled, or for a buffer imported by a frame.
+    /// buffer. A native fence (a sync file, which carries the kernel's signal time) where the blob exports them, else
+    /// an EGL sync. `None` once it signalled, or for a buffer imported by a frame.
+    warm_fd: Option<std::os::fd::OwnedFd>,
     warm_sync: Option<EGLSync>,
     /// A host's stand-in for the driver's busy fence (`hold_warm`, tests): warming until released.
     held: bool,
     prepared: Instant,
+    /// When the warm draw was submitted, CLOCK_MONOTONIC ns, for the fence's own stamp to be read against.
+    prepared_ns: u64,
     /// What `prepare` cost the loop for this buffer: the import and the warm draw's submission (each in us).
     import_us: u32,
     submit_us: u32,
@@ -414,9 +418,11 @@ impl Gl {
                         y_invert: true,
                         uploaded: false,
                         external: false,
+                        warm_fd: None,
                         warm_sync: None,
                         held: false,
                         prepared: Instant::now(),
+                        prepared_ns: 0,
                         import_us: 0,
                         submit_us: 0,
                     }
@@ -439,9 +445,11 @@ impl Gl {
                         y_invert: d.y_invert,
                         uploaded: true,
                         external: false,
+                        warm_fd: None,
                         warm_sync: None,
                         held: false,
                         prepared: Instant::now(),
+                        prepared_ns: 0,
                         import_us: 0,
                         submit_us: 0,
                     }
@@ -474,9 +482,11 @@ impl Gl {
                         y_invert,
                         uploaded: true,
                         external: true,
+                        warm_fd: None,
                         warm_sync: None,
                         held: false,
                         prepared: Instant::now(),
+                        prepared_ns: 0,
                         import_us: 0,
                         submit_us: 0,
                     }
@@ -529,12 +539,16 @@ impl Gl {
         }
         // The whole output rectangle fills the 16x16 viewport: every texel row is sampled.
         self.draw_quad(tex, &Rect::new(0, 0, self.width as i32, self.height as i32), y_invert);
-        let kicked = self.egl.kick_fence();
+        // A native fence where the blob exports them: its signal time is the kernel's, read whenever it is polled.
+        let fd = self.export_fence();
+        let kicked = if fd.is_some() { None } else { self.egl.kick_fence() };
         let submitted = Instant::now();
         if let Some(t) = self.textures.get_mut(&buffer.id()) {
             t.import_us = (imported - began).as_micros() as u32;
             t.submit_us = (submitted - imported).as_micros() as u32;
             t.prepared = submitted;
+            t.prepared_ns = crate::output::monotonic_ns();
+            t.warm_fd = fd;
         }
         if let Some(sync) = kicked {
             // SAFETY: a fence this renderer just created; the flush starts the job, the sync lives on in the entry.
@@ -544,9 +558,9 @@ impl Gl {
             } else if let Some(t) = self.textures.get_mut(&buffer.id()) {
                 t.warm_sync = Some(sync);
             }
-        } else {
+        } else if self.textures.get(&buffer.id()).is_none_or(|t| t.warm_fd.is_none()) {
             // SAFETY: plain call.
-            unsafe { (a.glFlush)() };
+            unsafe { (self.egl.api.glFlush)() };
         }
         let err = self.egl.gl_error();
         if err != egl::GL_NO_ERROR {
@@ -561,7 +575,8 @@ impl Gl {
     /// Home's, HDMI 2's, Netflix's player's) held the frame that came while it ran for 10-16 ms, in the draw or in the
     /// fence export (sixth gate); with a stand-in page the frame is drawn without that buffer (`render_rects`). Fences
     /// of other buffers are polled and dropped too; a fence that has not signalled after 100 ms is given up on. Each
-    /// buffer's warm gets one line when its fence is seen done, with what `prepare` cost the loop for it.
+    /// buffer's warm gets one line when its fence is seen done, with what `prepare` cost the loop for it and, for a native
+    /// fence, the kernel's own time of the signal.
     pub fn warming(&mut self) -> bool {
         let mut busy = false;
         for t in self.textures.values_mut() {
@@ -569,27 +584,40 @@ impl Gl {
                 busy = true;
                 continue;
             }
-            let Some(sync) = t.warm_sync else { continue };
-            // SAFETY: a fence this renderer created, still alive.
-            let done = unsafe { self.egl.fence_signalled(sync, false) };
+            let (done, signalled_ns) = match (&t.warm_fd, t.warm_sync) {
+                (Some(fd), _) => {
+                    let at = crate::render::sync::signal_ns(fd);
+                    (at.is_some() || crate::render::sync::signalled(fd), at)
+                }
+                // SAFETY: a fence this renderer created, still alive.
+                (None, Some(sync)) => (unsafe { self.egl.fence_signalled(sync, false) }, None),
+                (None, None) => continue,
+            };
             let stale = !done && t.prepared.elapsed() > WARM_LIMIT;
             if done || stale {
-                // SAFETY: as above, destroyed once.
-                unsafe { self.egl.destroy_fence(sync) };
-                t.warm_sync = None;
+                if let Some(sync) = t.warm_sync.take() {
+                    // SAFETY: as above, destroyed once.
+                    unsafe { self.egl.destroy_fence(sync) };
+                }
+                t.warm_fd = None;
                 if stale {
                     log::warn!("warm draw of a buffer not done after {} ms; drawing anyway", WARM_LIMIT.as_millis());
                 } else if self.warm_lines < WARM_LINES {
                     self.warm_lines += 1;
+                    let seen_ms = t.prepared.elapsed().as_secs_f64() * 1000.0;
+                    let signalled = match signalled_ns {
+                        Some(at) => format!("its fence signalled {:.1} ms after (seen {:.1} ms after)", at.saturating_sub(t.prepared_ns) as f64 / 1e6, seen_ms),
+                        None => format!("its fence seen done {seen_ms:.1} ms after (polled at the ticks)"),
+                    };
                     log::info!(
-                        "warm: {} buffer {} {}x{}: import {:.1} ms, warm draw submitted in {:.1} ms, its fence seen done {:.1} ms after (polled at the ticks)",
+                        "warm: {} buffer {} {}x{}: import {:.1} ms, warm draw submitted in {:.1} ms, {}",
                         if t.external { "driver" } else { "dma-buf" },
                         t.buffer.id().protocol_id(),
                         t.size.0,
                         t.size.1,
                         t.import_us as f64 / 1000.0,
                         t.submit_us as f64 / 1000.0,
-                        t.prepared.elapsed().as_secs_f64() * 1000.0
+                        signalled
                     );
                 }
             } else if t.external {
@@ -602,7 +630,7 @@ impl Gl {
     /// Whether a frame is owed for a surface a frame stood in for: its buffer is warm now and nothing else is warming, so
     /// the frame draws it for real (`owed_standins` says where).
     pub fn standin_due(&self) -> bool {
-        !self.standins.is_empty() && !self.textures.values().any(|t| t.external && (t.warm_sync.is_some() || t.held))
+        !self.standins.is_empty() && !self.textures.values().any(|t| t.external && (t.warm_fd.is_some() || t.warm_sync.is_some() || t.held))
     }
 
     /// Adds the rectangles the last composed frame stood in for to a frame's damage.
@@ -892,7 +920,7 @@ impl Gl {
             // The driver is still busy with this buffer (its warm draw has not finished): a draw from it now would wait
             // on that, so the surface's rectangle is copied from the page holding the last frame instead, and the page
             // being drawn owes it again. The copy is opaque: the page already composes everything under the surface.
-            let warming = self.textures.get(&item.buffer.id()).is_some_and(|t| t.external && (t.warm_sync.is_some() || t.held));
+            let warming = self.textures.get(&item.buffer.id()).is_some_and(|t| t.external && (t.warm_fd.is_some() || t.warm_sync.is_some() || t.held));
             if let (true, Some(page)) = (warming, standin_page) {
                 let full = Rect::new(0, 0, self.width as i32, self.height as i32);
                 // SAFETY: plain state calls on the current context.

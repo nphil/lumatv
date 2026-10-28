@@ -1,0 +1,1 @@
+[x1] RESULT frames=3595 in 60.00 s = 59.92 fps; gaps: <=17.5 ms 3550, 17.5-20 41, 20-33.5 3, >33.5 0; worst 31.8 ms; ended at monotonic 44831.921 | pacer before: flips 23 late 0 lost 26 after: flips 3620 late 2 lost 27 | compositor: loop stalls 0, frame gaps 0, clients connected 0, over 20 ms 1; major faults +0, run-queue wait +7.1 ms, loop thread SCHED_FIFO prio -21

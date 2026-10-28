@@ -1,0 +1,12 @@
+[srv  44906.849] info standin: surface 187 keeps the last frame's content while its new buffer warms
+[srv  44906.858] info warm: driver buffer 10 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence done 8.6 ms after
+[srv  44906.874] info warm: driver buffer 13 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence done 2.3 ms after
+[srv  44906.899] info standin: surface 187 keeps the last frame's content while its new buffer warms
+[srv  44906.909] info warm: driver buffer 14 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence done 10.5 ms after
+[srv  44949.817] info present: fence export 7.7 ms, atomic commit 0.0 ms
+[srv  44949.817] warn tick: 8.3 ms: plan and draw 0.3, present 7.8, callbacks 0.0, releases 0.0, luna 0.1
+[srv  44949.818] warn loop: 8.4 ms in one pass (tick)
+[srv  44949.837] info kms: page-flip stamp 33.37 ms after the last (one refresh is 16.67)
+[srv  44949.837] warn frame gap 33.6 ms on surface 187 (org.nphil.lumatv.x1) after 2569 steady frames
+[srv  44966.245] info present: fence export 4.2 ms, atomic commit 0.1 ms
+[srv  44966.881] info client disconnected: pid 22647 uid 0 after 60062 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"

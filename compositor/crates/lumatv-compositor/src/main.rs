@@ -177,6 +177,11 @@ fn run(config: Config) -> io::Result<()> {
             Err(e) => log::info!("loop thread: SCHED_FIFO {} refused ({e}); {}", config.rt_priority, sched::describe()),
         }
     }
+    if config.rt_mali > 0 {
+        for line in sched::mali_threads(Some(config.rt_mali)) {
+            log::info!("mali thread: {line}");
+        }
+    }
     let timer = timerfd(config.tick_ns)?;
     let epoll = Epoll::new()?;
     const TAG_WL: u64 = 1;

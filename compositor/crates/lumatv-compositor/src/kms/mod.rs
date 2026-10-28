@@ -166,10 +166,15 @@ pub struct Kms {
     flips_reached_late: u64,
     flips_reached_over_1ms: u64,
     reach_worst_ns: u64,
+    /// Flips left of the start-up trace: a new buffer prepared starts one (a client's first frames, the time the gates
+    /// lose refreshes), and every tick, commit and flip until it runs out gets a `trace:` line.
+    trace_left: u32,
     seq: u64,
 }
 
 const PAGES: usize = 3;
+/// Flips a start-up trace runs for.
+const TRACE_FLIPS: u32 = 90;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
@@ -355,6 +360,7 @@ impl Kms {
             flips_reached_late: 0,
             flips_reached_over_1ms: 0,
             reach_worst_ns: 0,
+            trace_left: 0,
             seq: 0,
         })
     }
@@ -468,9 +474,25 @@ impl Kms {
             if let Some(cost) = flight.ui {
                 self.gl.ui_presented(presented_ns, &cost);
             }
-            (flight.timing, flight.fence.as_ref().and_then(fence_signal_ns))
+            (flight.timing, flight.fence.as_ref().and_then(crate::render::sync::signal_ns))
         });
         let landed = self.timing.landed(presented_ns, frame);
+        if self.trace_left > 0 {
+            self.trace_left -= 1;
+            match frame {
+                Some((t, gpu)) => log::info!(
+                    "trace: flip at {:.3} (+{:.1} ms to reach): frame drawn at {:.3} for slot {:.3}, late {} lost {}, gpu done {} ms after the draw",
+                    presented_ns as f64 / 1e9,
+                    mono_ns().saturating_sub(presented_ns) as f64 / 1e6,
+                    t.started_ns as f64 / 1e9,
+                    t.slot_ns as f64 / 1e9,
+                    landed.late,
+                    landed.lost,
+                    gpu.map_or("?".to_string(), |g| format!("{:.1}", g.saturating_sub(t.started_ns) as f64 / 1e6))
+                ),
+                None => log::info!("trace: flip at {:.3} of no frame of ours", presented_ns as f64 / 1e9),
+            }
+        }
         // Consecutive flips are one refresh apart; a stamp that is not (two flips stamped alike, a refresh skipped)
         // is logged while frames follow one another. A skipped refresh is a frame the panel missed only when one was
         // due at it (`Landed::missed`); the gates count `page-flip stamp` lines over 20 ms as such, so a refresh with
@@ -519,6 +541,14 @@ impl Kms {
         let t2 = Instant::now();
         if t2 - t0 > Duration::from_millis(4) {
             log::info!("present: fence export {:.1} ms, atomic commit {:.1} ms", (t1 - t0).as_secs_f64() * 1000.0, (t2 - t1).as_secs_f64() * 1000.0);
+        }
+        if self.trace_left > 0 {
+            log::info!(
+                "trace: committed at {:.3}: fence export {:.1} ms, atomic commit {:.1} ms",
+                self.now_ns() as f64 / 1e9,
+                (t1 - t0).as_secs_f64() * 1000.0,
+                (t2 - t1).as_secs_f64() * 1000.0
+            );
         }
         committed?;
         self.in_flight = Some(InFlight {
@@ -612,54 +642,6 @@ impl Kms {
             Err(e) => Err(other(format!("atomic commit: {e}"))),
         }
     }
-}
-
-/// `struct sync_fence_info` and `struct sync_file_info` of `<linux/sync_file.h>`, and `SYNC_IOC_FILE_INFO`
-/// (`_IOWR('>', 4, struct sync_file_info)`, 56 bytes).
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct SyncFenceInfo {
-    obj_name: [u8; 32],
-    driver_name: [u8; 32],
-    status: i32,
-    flags: u32,
-    timestamp_ns: u64,
-}
-
-#[repr(C)]
-struct SyncFileInfo {
-    name: [u8; 32],
-    status: i32,
-    flags: u32,
-    num_fences: u32,
-    pad: u32,
-    sync_fence_info: u64,
-}
-
-const SYNC_IOC_FILE_INFO: libc::c_ulong = ((3u64 << 30) | ((std::mem::size_of::<SyncFileInfo>() as u64) << 16) | ((b'>' as u64) << 8) | 4) as libc::c_ulong;
-
-/// When the sync file `fence` (a GL native fence, the commit's in-fence) signalled: the latest of its fences' timestamps,
-/// CLOCK_MONOTONIC ns (`dma_fence` stamps with `ktime_get`). `None` while it has not, for a file of more fences than a
-/// GL fence has, or when the kernel does not answer.
-fn fence_signal_ns(fence: &OwnedFd) -> Option<u64> {
-    const MOST: usize = 4;
-    let mut info = SyncFileInfo { name: [0; 32], status: 0, flags: 0, num_fences: 0, pad: 0, sync_fence_info: 0 };
-    // SAFETY: an ioctl on a sync file with a struct of the kernel's layout; `num_fences` 0 asks for the count alone.
-    if unsafe { libc::ioctl(fence.as_raw_fd(), SYNC_IOC_FILE_INFO, &mut info) } != 0 || info.status != 1 {
-        return None;
-    }
-    let count = info.num_fences as usize;
-    if count == 0 || count > MOST {
-        return None;
-    }
-    let mut fences = [SyncFenceInfo { obj_name: [0; 32], driver_name: [0; 32], status: 0, flags: 0, timestamp_ns: 0 }; MOST];
-    info.num_fences = count as u32;
-    info.sync_fence_info = fences.as_mut_ptr() as u64;
-    // SAFETY: the kernel writes `count` entries into the array, which holds MOST; `count` was checked above.
-    if unsafe { libc::ioctl(fence.as_raw_fd(), SYNC_IOC_FILE_INFO, &mut info) } != 0 {
-        return None;
-    }
-    fences[..count].iter().filter(|f| f.status == 1 && f.timestamp_ns != 0).map(|f| f.timestamp_ns).max()
 }
 
 /// Adds every property of one plane to the request: `dst` in output pixels, `src` in the framebuffer's (16.16 fixed
@@ -851,11 +833,21 @@ impl Output for Kms {
     }
 
     fn prepare_buffer(&mut self, buffer: &WlBuffer) -> bool {
-        self.gl.prepare(buffer)
+        let new = self.gl.prepare(buffer);
+        if new {
+            self.trace_left = TRACE_FLIPS;
+        }
+        if self.trace_left > 0 {
+            log::info!("trace: commit of buffer {} at {:.3}{}", buffer.id().protocol_id(), self.now_ns() as f64 / 1e9, if new { " (new: warming)" } else { "" });
+        }
+        new
     }
 
     fn warming(&mut self) -> bool {
         self.held = self.gl.warming();
+        if self.held && self.trace_left > 0 {
+            log::info!("trace: tick held at {:.3}", self.now_ns() as f64 / 1e9);
+        }
         self.held
     }
 
@@ -908,6 +900,17 @@ impl Output for Kms {
             }
             self.split_frames += 1;
         }
+        if self.trace_left > 0 {
+            log::info!(
+                "trace: drew at {:.3} for slot {:.3} (on the panel at {}): items {}, stood in {}, render {} us",
+                now as f64 / 1e9,
+                slot_ns as f64 / 1e9,
+                self.timing.pacer.phase_ns().map_or("?".to_string(), |p| format!("{:.3}", (slot_ns as i64 + p) as f64 / 1e9)),
+                stats.items,
+                stats.stood_in,
+                stats.render_us
+            );
+        }
         self.last_assignment = Some(Frame {
             assignment,
             timing: Timing { slot_ns, started_ns: now, ready_ns: self.now_ns(), content_ns },
@@ -930,6 +933,9 @@ impl Output for Kms {
         // One flip in flight at a time (the kernel refuses a second non-blocking commit, and the page it reads must
         // not be reused): a frame drawn while one is pending waits for it and goes out from `dispatch_events`.
         if self.pending_flip && !self.flip_overdue() {
+            if self.trace_left > 0 {
+                log::info!("trace: frame queued at {:.3} behind the flip in flight", self.now_ns() as f64 / 1e9);
+            }
             self.queued = Some(a);
         } else {
             self.commit_frame(a)?;

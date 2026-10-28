@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 struct dma_heap_allocation_data { uint64_t len; uint32_t fd; uint32_t fd_flags; uint64_t heap_flags; };
@@ -95,7 +96,8 @@ int ioctl(int fd, unsigned long req, ...) {
     int b = -1; const char *how = "none";
     if (mode_dumb) { b = alloc_dumb(a->len); if (b >= 0) { how = "drm dumb (CMA)"; n_dumb++; } }
     if (b < 0 && mode_te) { b = alloc_te(a->len); if (b >= 0) { how = "dma_buf_te (pages)"; n_te++; } }
-    fprintf(stderr, "x1heapshim: alloc %llu bytes -> fd %d via %s (dumb so far %d, te %d)\n", (unsigned long long)a->len, b, how, n_dumb, n_te);
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    fprintf(stderr, "x1heapshim: alloc %llu bytes -> fd %d via %s (dumb so far %d, te %d) at monotonic %.3f\n", (unsigned long long)a->len, b, how, n_dumb, n_te, ts.tv_sec + ts.tv_nsec / 1e9);
     if (b < 0) { errno = ENOMEM; return -1; }
     a->fd = (uint32_t)b;
     return 0;
