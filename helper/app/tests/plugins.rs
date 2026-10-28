@@ -141,6 +141,7 @@ fn next_matching<T>(plugin: &mut Plugin, mut pick: impl FnMut(&ToPlugin) -> Opti
             }
             Wait::Timeout => panic!("timed out"),
             Wait::Closed => panic!("closed"),
+            other => panic!("{other:?}"),
         }
     }
 }
@@ -151,6 +152,7 @@ fn refusal(plugin: &mut Plugin, what: &'static str) -> (String, String) {
             what: w,
             code,
             reason,
+            ..
         } if w == what => Some((code.clone(), reason.clone())),
         _ => None,
     })
@@ -375,9 +377,9 @@ fn an_action_of_the_ui_reaches_the_plugin_and_its_answer_or_its_silence_is_repor
     );
     let op = asked.json()["op"].as_u64().unwrap();
     let invoked = next_matching(&mut plugin, |m| match m {
-        ToPlugin::ActionInvoke { op, action, target } => {
-            Some((*op, action.clone(), target.clone()))
-        }
+        ToPlugin::ActionInvoke {
+            op, action, target, ..
+        } => Some((*op, action.clone(), target.clone())),
         _ => None,
     });
     assert_eq!(

@@ -11,17 +11,18 @@ license = "MIT"
 
 [workspace.dependencies]
 # LumaShow OS crates, shared and never forked: a path dependency on the sibling checkout
-# (/data/home/LumaShow/lumashow). helper/build.sh checks that it is there.
-fetch = { path = "../../LumaShow/lumashow/crates/fetch" }
-settings-schema = { path = "../../LumaShow/lumashow/crates/settings-schema" }
-plugin-api = { path = "../../LumaShow/lumashow/crates/plugin-api" }
-service-api = { path = "../../LumaShow/lumashow/crates/service-api" }
-lumashow-sdk = { path = "../../LumaShow/lumashow/crates/lumashow-sdk" }
-ha-link = { path = "../../LumaShow/lumashow/crates/ha-link" }
-esphome-api = { path = "../../LumaShow/lumashow/crates/esphome-api" }
-mdns = { path = "../../LumaShow/lumashow/crates/mdns" }
+# (/data/home/LumaShow/wt/lumatv, the worktree the TV builds against). helper/build.sh checks that it is there.
+fetch = { path = "../../LumaShow/wt/lumatv/crates/fetch" }
+settings-schema = { path = "../../LumaShow/wt/lumatv/crates/settings-schema" }
+plugin-api = { path = "../../LumaShow/wt/lumatv/crates/plugin-api" }
+service-api = { path = "../../LumaShow/wt/lumatv/crates/service-api" }
+lumashow-sdk = { path = "../../LumaShow/wt/lumatv/crates/lumashow-sdk" }
+ha-link = { path = "../../LumaShow/wt/lumatv/crates/ha-link" }
+ha-bridge = { path = "../../LumaShow/wt/lumatv/crates/ha-bridge" }
+esphome-api = { path = "../../LumaShow/wt/lumatv/crates/esphome-api" }
+mdns = { path = "../../LumaShow/wt/lumatv/crates/mdns" }
 # The Home Assistant plugin itself, as a library: the host tests run the real plugin against the broker.
-plugin-home-assistant = { path = "../../LumaShow/lumashow/plugins/home-assistant" }
+plugin-home-assistant = { path = "../../LumaShow/wt/lumatv/plugins/home-assistant" }
 
 libc = "0.2"
 parking_lot = "0.12"

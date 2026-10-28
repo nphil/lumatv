@@ -106,6 +106,7 @@ impl Reply {
             what: what.to_owned(),
             code: code.to_owned(),
             reason: reason.to_string(),
+            retry_after_ms: None,
         })
     }
 
@@ -531,6 +532,7 @@ impl Shared {
             op,
             action: action.to_owned(),
             target,
+            gesture: None,
         });
         if sent {
             live.outlet.poke();
@@ -782,6 +784,7 @@ impl Session {
                 max_assets: 0,
                 max_asset_bytes: 0,
             },
+            zone: None,
         }))
     }
 
@@ -881,11 +884,11 @@ impl Session {
                 "this TV has no Home Assistant lease to give",
             );
         }
-        // The lease's three keys are the base's: what the store serves is the page without them.
-        let register = Register {
-            settings: register.settings.map(|schema| served(schema, holds)),
-            ..register
-        };
+        // The lease's three keys are the base's: what the store serves is the page without them (the struct is non-exhaustive, so the
+        // page is swapped in place).
+        let mut register = register;
+        let page = register.settings.take().map(|schema| served(schema, holds));
+        let register = register.maybe_settings(page);
         let needs = [
             (register.settings.is_some(), Permission::Settings),
             (!register.channels.is_empty(), Permission::Notify),
@@ -936,7 +939,7 @@ impl Session {
         let tiles = register.tiles.clone();
         let has_page = register.settings.is_some();
         let schema = register.settings.clone();
-        let plan = match Plan::new(register, &key) {
+        let plan = match Plan::new(register, &key, &self.member.manifest.permissions) {
             Ok(plan) => plan,
             Err(e) => return Reply::refused("register", "invalid", e),
         };
@@ -1598,7 +1601,11 @@ mod tests {
         let reply = say(&mut early, json!({"t": "card.remove", "id": "x"}));
         assert!(reply.hangup, "{reply:?}");
         let mut newer = Session::new(member(), shared.clone(), 2, Arc::new(Quiet));
-        let reply = say(&mut newer, json!({"t": "hello", "min": 2, "target": 3}));
+        let too_new = plugin_api::API_LEVEL + 1;
+        let reply = say(
+            &mut newer,
+            json!({"t": "hello", "min": too_new, "target": too_new + 1}),
+        );
         assert!(reply.hangup);
         assert!(
             matches!(&reply.messages[0], ToPlugin::Error { code, fatal: true, .. } if code == "api_too_new"),
@@ -1641,6 +1648,7 @@ mod tests {
             what: "x".into(),
             code: "y".into(),
             reason: "z".into(),
+            retry_after_ms: None,
         };
         assert_eq!(
             wire_body(&refused, shared.device_facts()),

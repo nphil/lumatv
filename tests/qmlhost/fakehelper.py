@@ -131,6 +131,21 @@ def updateblock(state):
             "blocking": flag or live, "state": state}
 
 
+# A 32x18 baseline JPEG: what the frame route of the cameras answers (the shell decodes it as any camera picture).
+JPEG = bytes.fromhex(
+    "ffd8ffe000104a46494600010100000100010000ffdb0043000a07070807060a0808080b0a0a0b0e18100e0d0d0e1d15161118231f2524221f222126"
+    "2b372f26293429212230413134393b3e3e3e252e4449433c48373d3e3bffdb0043010a0b0b0e0d0e1c10101c3b2822283b3b3b3b3b3b3b3b3b3b3b3b"
+    "3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3bffc00011080012002003012200021101031101ffc400"
+    "1f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d010203000411051221"
+    "31410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a53545556"
+    "5758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6"
+    "c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffc4001f0100030101010101010101010000000000000102030405"
+    "060708090a0bffc400b51100020102040403040705040400010277000102031104052131061241510761711322328108144291a1b1c109233352f015"
+    "6272d10a162434e125f11718191a262728292a35363738393a434445464748494a535455565758595a636465666768696a737475767778797a828384"
+    "85868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae2e3e4e5e6e7e8e9ea"
+    "f2f3f4f5f6f7f8f9faffda000c03010002110311003f00f35a28a2ba8a0a28a2800a28a2800a28a2803fffd9")
+
+
 class State:
     def __init__(self, a):
         self.boot = NOW()
@@ -159,6 +174,8 @@ class State:
         self.ambient_strip = True
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
         self.voice_session = 0
+        self.frames = []        # the camera pictures asked for: (camera, w, h), read back at /__frames
+        self.topics["cameras.popup"] = None
 
     def publish(self, topic, data):
         if topic == "__audit":              # not a topic: the recent-activity list of /v1/ai/audit
@@ -336,6 +353,18 @@ def handler(st):
                                        "sections": sum(st.ambient[k]["value"] for k in ("top", "right", "bottom", "left")), "strip": st.ambient_strip, "hue": False, "problem": None})
             if u.path == "/__requests":
                 return self.send(200, {"requests": st.requests})
+            if u.path == "/__frames":
+                return self.send(200, {"frames": st.frames})
+            if u.path.startswith("/v1/cameras/") and u.path.endswith("/frame"):
+                # a camera's picture, as the helper's GET /v1/cameras/{id}/frame?w=&h= (the file itself: no decoder on the host)
+                camera = u.path[len("/v1/cameras/"):-len("/frame")]
+                st.frames.append([camera, int(q.get("w", ["0"])[0]), int(q.get("h", ["0"])[0])])
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(JPEG)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return self.wfile.write(JPEG)
             if u.path == "/__posts":
                 return self.send(200, {"posts": st.posts})
             if u.path.startswith("/v1/state/"):         # one topic's newest copy, as the helper's GET /v1/state/{topic}

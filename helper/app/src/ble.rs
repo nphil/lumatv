@@ -215,7 +215,7 @@ fn pollfd(fd: RawFd, events: libc::c_short) -> libc::pollfd {
 }
 
 /// The hardware address of the interface that has `ip`, as `AA:BB:CC:DD:EE:FF` (`None` for loopback or an unreadable one).
-fn interface_mac(ip: Ipv4Addr) -> Option<String> {
+pub(crate) fn interface_mac(ip: Ipv4Addr) -> Option<String> {
     let (name, _) = sys::ipv4_interfaces().into_iter().find(|(_, a)| *a == ip)?;
     let text = std::fs::read_to_string(format!("/sys/class/net/{name}/address")).ok()?;
     let text = text.trim().to_ascii_uppercase();

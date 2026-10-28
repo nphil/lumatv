@@ -303,6 +303,7 @@ impl Proxy {
                 m::DeviceCapabilitiesResponse {
                     bluetooth_feature_flags: FEATURES,
                     bluetooth_mac_address: self.identity.bluetooth_mac.clone(),
+                    voice_assistant_feature_flags: 0,
                 },
             ),
             // No entities, no states, no logs, nothing of Home Assistant's to subscribe to: asked, and nothing to say.

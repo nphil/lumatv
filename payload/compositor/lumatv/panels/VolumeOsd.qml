@@ -39,6 +39,8 @@ Item {
     // chained onto the panel's slide; round 16 over HDMI 3 and the film: picker bursts of 292 and 318 ms against 141)
     property bool still: false
     onStillChanged: if (still && hopping.running) { hopping.stop(); mark.opacity = 1 }
+    // the camera pop-up is up in the top right corner (panels/Cameras.qml): the mute mark keeps to the left corner's two spots
+    property bool avoidTopRight: false
     property int holdMs: 2500
     property int staleMs: 6000
     property int decideMs: 250                    // how long a key waits for a receiver that may answer before the TV's own volume is shown
@@ -277,11 +279,13 @@ Item {
             readonly property int topY: 134
             readonly property int inner: 94       // LG's bubble moves this far
             readonly property int barY: 52        // the status bar's row (safe y 54, 60 high) centred on the bubble
-            readonly property var spots: osd.overVideo ? [
+            readonly property var spots: osd.overVideo ? (osd.avoidTopRight ? [
+                { x: edgeX, y: topY }, { x: edgeX + inner, y: topY + inner }] : [
                 { x: edgeX, y: topY }, { x: osd.width - edgeX - 64, y: topY },
-                { x: osd.width - edgeX - 64 - inner, y: topY + inner }, { x: edgeX + inner, y: topY + inner }] : [
-                { x: 560, y: barY }, { x: 760, y: barY }, { x: 1160, y: barY }, { x: 1360, y: barY }]
-            onSpotsChanged: Qt.callLater(locate)
+                { x: osd.width - edgeX - 64 - inner, y: topY + inner }, { x: edgeX + inner, y: topY + inner }]) : (osd.avoidTopRight ? [
+                { x: 560, y: barY }, { x: 760, y: barY }] : [
+                { x: 560, y: barY }, { x: 760, y: barY }, { x: 1160, y: barY }, { x: 1360, y: barY }])
+            onSpotsChanged: { if (place >= spots.length) place = 0; Qt.callLater(locate) }
             property int place: 0                 // the index into spots
             width: 64; height: 64                 // the TV's smallest target: a speaker with a slash says it all
             x: spots[place].x

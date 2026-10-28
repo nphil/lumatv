@@ -8,7 +8,8 @@
 #   ./build.sh clean      removes target/ and dist/
 #
 # The helper shares LumaShow OS's crates (fetch, settings-schema) by path, so the LumaShow checkout must sit beside this
-# repository: /data/home/LumaShow/lumashow next to /data/home/lumaglass. They are never copied or edited.
+# repository: /data/home/LumaShow/wt/lumatv (a worktree of the LumaShow repository on the branch the TV builds against; see
+# docs/research/ha-cameras-result.md) next to /data/home/lumaglass. They are never copied or edited.
 # The plugin is LumaShow's own (plugins/home-assistant, by path, unedited): its library built into a program for the TV, and its
 # plugin.json copied as it is, so that the owner approves on the TV exactly what the Show approves.
 # The compiler is the one LumaShow pins (helper/rust-toolchain.toml); rust-lld links the target, no C toolchain is needed for it.
@@ -24,8 +25,8 @@ cd "$HERE"
 say() { printf '%s\n' "$*" >&2; }
 die() { say "build.sh: $*"; exit 1; }
 
-[ -d "$HERE/../../LumaShow/lumashow/crates/fetch" ] ||
-  die "the LumaShow checkout is not at $HERE/../../LumaShow/lumashow (the helper depends on its crates by path)"
+[ -d "$HERE/../../LumaShow/wt/lumatv/crates/fetch" ] ||
+  die "the LumaShow checkout is not at $HERE/../../LumaShow/wt/lumatv (the helper depends on its crates by path)"
 command -v cargo >/dev/null 2>&1 || die "cargo is not on PATH (install rustup; the toolchain is pinned in rust-toolchain.toml)"
 
 if ! command -v cc >/dev/null 2>&1; then
@@ -44,7 +45,7 @@ if ! command -v cc >/dev/null 2>&1; then
 fi
 
 PLUGIN=lumatv-plugin-home-assistant
-PLUGIN_MANIFEST="$HERE/../../LumaShow/lumashow/plugins/home-assistant/plugin.json"
+PLUGIN_MANIFEST="$HERE/../../LumaShow/wt/lumatv/plugins/home-assistant/plugin.json"
 
 host_tests() {
   cargo clippy --workspace --all-targets -- -D warnings

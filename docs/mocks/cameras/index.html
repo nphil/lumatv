@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-video>
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Cameras</title>
+<link rel="stylesheet" href="../lucent.css">
+<style>
+  /* Cameras through Home Assistant (docs/research/ha-cameras-result.md; the surface is payload/compositor/lumatv/panels/Cameras.qml).
+     ?v=popup (default): a detector saw a person at the front door while a film plays: the card in the top right, inside the safe area and
+     below the status bar's row, with the name, what was seen, when, and a live preview. OK expands, Back dismisses, it goes by itself.
+     ?v=doorbell: a ring (the longer one). ?v=full: the camera on the whole screen with the name pill and the hints, which fade.
+     ?v=grid: every shared camera as a live tile, the focused one lit. ?theme=light for the light material; ?text=200 doubles the type
+     (Lucent: no overlapping text at 100 % and 200 %). The pictures are stand-ins; no camera frame is kept anywhere. */
+  :root { --ts: 1; }
+  [data-text="200"] { --ts: 2; }
+  .frame { background-image: url("../img/still.jpg"); }
+  [data-v="full"] .frame, [data-v="grid"] .frame { background-image: url("../img/home.jpg"); }
+  .st { display: none; }
+  html:not([data-v]) .st.popup, [data-v="popup"] .st.popup, [data-v="doorbell"] .st.doorbell, [data-v="full"] .st.full, [data-v="grid"] .st.grid { display: block; }
+
+  /* the card: 560 wide, 96 from the right edge (the 5 % safe area), 134 from the top (the status bar's row and its gap). Lucent overlay material;
+     over video a near-opaque reading surface, no blur. One edge, one shadow. */
+  .cam-card { position: absolute; right: 96px; top: 134px; width: 560px; padding: 20px; box-sizing: border-box; border-radius: var(--lu-radius-card); }
+  .cam-card .head { display: flex; align-items: flex-start; gap: 16px; }
+  .cam-card .head .ic { width: 36px; height: 36px; margin-top: 2px; }
+  .cam-card .who { flex: 1 1 auto; min-width: 0; }
+  .cam-card .name { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cam-card .what { font-size: calc(26px * var(--ts)); font-weight: 500; line-height: 1.25; color: var(--lu-ink-2); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cam-card .ago { font-size: calc(26px * var(--ts)); color: var(--lu-ink-2); white-space: nowrap; flex: none; line-height: 1.25; }
+  .cam-card .preview { margin-top: 12px; width: 520px; height: 292px; border-radius: var(--lu-radius-tile); background: #000 center / cover no-repeat; }
+  .cam-card .foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: calc(22px * var(--ts)); line-height: 1.25; color: var(--lu-ink-2); }
+  .cam-card .foot .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); flex: none; }
+  .cam-card .foot .hint { margin-left: auto; color: var(--lu-ink-3); white-space: nowrap; }
+  [data-text="200"] .cam-card .foot { flex-wrap: wrap; row-gap: 4px; }
+  [data-text="200"] .cam-card .foot .hint { margin-left: 0; }
+
+  /* the full view: the picture fitted on black, the name pill top left and the hints bottom right, both fading after a moment */
+  .full { position: absolute; inset: 0; background: #000; }
+  .full .picture { position: absolute; inset: 0; background: url("../img/game.jpg") center / contain no-repeat; }
+  .pill { position: absolute; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px; border-radius: 32px; font-size: calc(28px * var(--ts)); font-weight: 600; white-space: nowrap; }
+  .pill.name { left: 96px; top: 54px; }
+  .pill.name .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; background: var(--lu-live); }
+  .pill.hints { right: 96px; bottom: 54px; font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); }
+  .pill.name .count { font-size: calc(26px * var(--ts)); font-weight: 500; color: var(--lu-ink-2); margin-left: 8px; }
+  [data-text="200"] .pill { height: auto; padding: 12px 24px; }
+
+  /* the grid: three cameras, two columns of 764 by 430 (two rows fit the safe area with their names); the focused tile lit by its edge and
+     lifted a little, its name in the full ink */
+  .grid { position: absolute; inset: 0; background: var(--pal-scrim-hide, rgba(18,14,26,.97)); }
+  [data-theme="light"] .grid { background: rgba(250,244,237,.97); }
+  .tile { position: absolute; width: 764px; }
+  .tile .pic { width: 764px; height: 430px; border-radius: var(--lu-radius-tile); border: 3px solid var(--lu-edge); box-sizing: border-box; background: #000 center / cover no-repeat; opacity: .92; }
+  .tile.focused .pic { border-color: var(--lu-edge-raised); opacity: 1; }
+  .tile.focused { transform: scale(1.03); z-index: 1; }
+  .tile .label { margin-top: 8px; text-align: center; font-size: calc(26px * var(--ts)); color: var(--lu-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile.focused .label { color: var(--lu-ink); }
+  .tile .wait { position: absolute; left: 0; right: 0; top: 196px; text-align: center; font-size: calc(26px * var(--ts)); color: var(--lu-ink-2); }
+  .grid .hint { position: absolute; right: 96px; bottom: 54px; font-size: calc(26px * var(--ts)); color: var(--lu-ink-2); }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<!-- a person at the front door, over a film -->
+<div class="st popup">
+  <div class="overlay cam-card" role="status" aria-live="polite">
+    <div class="head">
+      <i class="ic" data-ic="user"></i>
+      <div class="who"><div class="name">Front door</div><div class="what">Person</div></div>
+      <div class="ago">Just now</div>
+    </div>
+    <div class="preview" style="background-image:url('../img/wall.jpg')"></div>
+    <div class="foot"><i class="dot"></i><span>Live</span><span class="hint">OK expands &nbsp;·&nbsp; Back dismisses</span></div>
+  </div>
+</div>
+
+<!-- the doorbell: the same card, the bell, and the label an animal watcher adds when it is one -->
+<div class="st doorbell">
+  <div class="overlay cam-card" role="status" aria-live="polite">
+    <div class="head">
+      <i class="ic" data-ic="bell-ring"></i>
+      <div class="who"><div class="name">Front door</div><div class="what">Doorbell rang</div></div>
+      <div class="ago">Just now</div>
+    </div>
+    <div class="preview" style="background-image:url('../img/wall.jpg')"></div>
+    <div class="foot"><i class="dot"></i><span>Live</span><span class="hint">OK expands &nbsp;·&nbsp; Back dismisses</span></div>
+  </div>
+</div>
+
+<!-- the full view -->
+<div class="st full">
+  <div class="full">
+    <div class="picture"></div>
+    <div class="overlay pill name"><i class="ic" data-ic="video"></i><span>Front door</span><i class="dot"></i><span class="count">2 of 3</span></div>
+    <div class="overlay pill hints">← → Next camera &nbsp;·&nbsp; OK Grid &nbsp;·&nbsp; Back Close</div>
+  </div>
+</div>
+
+<!-- the grid -->
+<div class="st grid">
+  <div class="grid">
+    <div class="tile" style="left:184px;top:66px"><div class="pic" style="background-image:url('../img/game.jpg')"></div><div class="label">Back door</div></div>
+    <div class="tile focused" style="left:972px;top:66px"><div class="pic" style="background-image:url('../img/wall.jpg')"></div><div class="label">Front door</div></div>
+    <div class="tile" style="left:184px;top:564px"><div class="pic"></div><div class="wait">Connecting</div><div class="label">Garden</div></div>
+    <div class="hint">OK Open &nbsp;·&nbsp; Back Close</div>
+  </div>
+</div>
+
+<script src="../icons.js"></script>
+<script src="../mock.js"></script>
+<script>
+  (function () {
+    const q = new URLSearchParams(location.search);
+    if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+  })();
+</script>
+</body>
+</html>

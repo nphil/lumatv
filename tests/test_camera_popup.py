@@ -1,0 +1,165 @@
+"""Run with: cd tests && python3 -m unittest test_camera_popup   (needs Xvfb and PyQt5; skipped without them)
+
+The camera pop-up and viewer (payload/compositor/lumatv/panels/Cameras.qml) in the overlay over Home and over an app, against the fake
+helper: a `cameras.popup` topic shows the card within a moment and its preview asks the helper for pictures of its own size; the card goes
+by itself at `untilMs`; Back dismisses it and tells the helper; OK expands it to the full view, which takes every key, goes to the grid and
+back; over an app the D-pad passes through a pop-up and is taken by the viewer; over Home the keys reach the surface through the bus; a
+pop-up waits while the host is busy and arrives when it is free; nothing asks for a picture once the surface is down.
+"""
+import json
+import unittest
+
+from test_settings import HostCase
+from xdisplay import DISPLAY, HAVE_QT
+
+READY = 7000                                      # Home has presented and built the chain; the overlay is warm
+CAMERAS = {"enabled": True, "paired": True, "port": 6054, "state": "connected", "detail": "", "entities": 3, "problem": None,
+           "popupKinds": ["person", "vehicle", "animal", "doorbell"], "popupSeconds": 12,
+           "cameras": [{"id": "camera.back_door", "name": "Back door", "area": None, "picture": True, "stream": False, "kinds": ["person", "vehicle"]},
+                       {"id": "camera.front_door", "name": "Front door", "area": "entry", "picture": True, "stream": False, "kinds": ["person", "vehicle", "doorbell"]},
+                       {"id": "camera.garden", "name": "Garden", "area": None, "picture": True, "stream": False, "kinds": ["animal"]}]}
+# Qt's key codes, as the key filter hands them to the overlay and to Home
+OK, BACK, LEFT, RIGHT, DOWN = 0x01000004, 0x01000061, 0x01000012, 0x01000014, 0x01000015
+
+
+def publish(topic, doc):
+    return ("var d=%s; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/%s');"
+            "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), topic))
+
+
+def popup(camera="camera.front_door", kind="person", lasts=12000, ident=1, label=None):
+    doc = {"id": ident, "camera": camera, "name": "Front door" if camera == "camera.front_door" else camera, "kind": kind, "label": label,
+           "at": 0, "source": "binary_sensor.x", "lastsMs": lasts, "untilMs": 0, "test": False}
+    # `at` and `untilMs` are set in the host's own clock
+    return ("var d=%s; d.at = Date.now() / 1000 - 5; d.untilMs = Date.now() + %d; var x=new XMLHttpRequest(); x.open('POST','http://127.0.0.1:18731/__publish/cameras.popup');"
+            "x.setRequestHeader('Content-Type','application/json'); x.send(JSON.stringify(d));" % (json.dumps(doc), lasts))
+
+
+def frames():
+    return "var fx=new XMLHttpRequest(); fx.open('GET','http://127.0.0.1:18731/__frames', false); fx.send(); var frames=JSON.parse(fx.responseText).frames;"
+
+
+# the surface, as the overlay holds it
+C = "overlay.cameraItem"
+STATE = ("JSON.stringify({mode: %s.mode, up: %s.up, wants: %s.wants, popupUp: %s.popupUp, current: %s.current, focus: %s.focusIndex, "
+         "shownId: %s.shownId, overlayWants: overlay.wants, cameraUp: overlay.cameraUp})" % ((C,) * 7))
+
+
+def key(code):
+    return "overlay.key(%d, true, false, 0); overlay.key(%d, false, false, 0);" % (code, code)
+
+
+@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
+class CameraPopup(HostCase):
+    def run_overlay(self, steps, wait, app=True):
+        args = ["--eval", "100:(function(){ overlay.warm = true; return 1 })()"]
+        if app:
+            args += ["--eval", "800:(function(){ overlay.appFront = true; return 1 })()"]
+        for at, js in steps:
+            args += ["--eval", "%d:(function(){%s return 1})()" % (at, js)]
+        args += ["--eval", "%d:(function(){return %s})()" % (wait - 200, STATE), "--wait", str(wait)]
+        rc, out = self.host(*args, "--overlay")
+        docs = self.docs(out)
+        self.assertTrue(docs, out[-3000:])
+        return docs[-1], out
+
+    def test_a_popup_shows_within_a_moment_asks_for_pictures_of_its_own_size_and_goes_by_itself(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(lasts=4000)),
+                 (READY + 2300, "var c = %s; console.info('[p1] ' + JSON.stringify({mode: c.mode, popupUp: c.popupUp, wants: c.wants, overlayWants: overlay.wants, "
+                               "name: c.popup ? c.popup.name : '', what: c.kindWord(c.popup), ago: c.ago, "
+                               "shownAt: c.shownAt - (c.popup ? c.popup.untilMs - c.popup.lastsMs : 0), pad: c.padX, pw: c.previewW, ph: c.previewH}));" % C),
+                 (READY + 2800, frames() + "console.info('[f1] ' + JSON.stringify(frames));")]
+        doc, out = self.run_overlay(steps, READY + 6000)
+        p1 = self.tagged(out, "p1")[0]
+        self.assertEqual(p1["mode"], "popup", out[-2000:])
+        self.assertTrue(p1["popupUp"] and p1["overlayWants"], "the overlay takes OK and Back for the pop-up over an app")
+        self.assertFalse(p1["wants"], "the surface asks for no other key")
+        self.assertEqual((p1["name"], p1["what"], p1["ago"]), ("Front door", "Person", "Just now"))
+        # the host's clock, from the publish to the show: one long-poll wake. The bound is loose because the host's main thread can still be
+        # building Home when the step runs; the helper's own event-to-pop-up time is held under a second by helper/app/tests/cameras.rs.
+        self.assertLess(p1["shownAt"], 2000, "the card is up within a moment of the topic")
+        self.assertEqual(p1["pad"], 20)
+        self.assertEqual((p1["pw"], p1["ph"]), (520, 292))
+        frames_asked = self.tagged(out, "f1")[0]
+        self.assertTrue(frames_asked, "the preview asks the helper for pictures")
+        self.assertEqual(frames_asked[0], ["camera.front_door", 520, 292], "a picture of the preview's own size")
+        self.assertEqual(doc["mode"], "", "gone by itself at untilMs")
+        self.assertFalse(doc["overlayWants"])
+
+    def test_over_an_app_the_dpad_passes_through_a_popup_back_dismisses_and_tells_the_helper(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup()),
+                 (READY + 900, "var took = overlay.key(%d, true, false, 0); console.info('[d1] ' + JSON.stringify({took: took, mode: %s.mode}));" % (RIGHT, C)),
+                 (READY + 1100, key(BACK) + "console.info('[b1] ' + JSON.stringify({mode: %s.mode, shownId: %s.shownId}));" % (C, C)),
+                 (READY + 1600, "var x=new XMLHttpRequest(); x.open('GET','http://127.0.0.1:18731/__posts', false); x.send(); console.info('[posts] ' + x.responseText);")]
+        doc, out = self.run_overlay(steps, READY + 2200)
+        d1 = self.tagged(out, "d1")[0]
+        self.assertFalse(d1["took"], "Right goes on to the app")
+        self.assertEqual(d1["mode"], "popup")
+        b1 = self.tagged(out, "b1")[0]
+        self.assertEqual((b1["mode"], b1["shownId"]), ("", 1))
+        posts = self.tagged(out, "posts")[0]["posts"]
+        self.assertIn(["/v1/cameras/popup/clear", {}], posts, "the helper is told, so every reader sees it go")
+        self.assertEqual(doc["mode"], "", "the same topic value, re-read, is not a second pop-up")
+
+    def test_ok_expands_to_the_full_view_which_takes_every_key_goes_to_the_grid_and_closes_on_back(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup(label="Domestic Cat", kind="animal")),
+                 (READY + 800, "var c = %s; console.info('[w1] ' + JSON.stringify({what: c.kindWord(c.popup)}));" % C + key(OK) +
+                               "console.info('[o1] ' + JSON.stringify({mode: c.mode, wants: c.wants, overlayWants: overlay.wants, current: c.current, name: c.nameOf(c.current)}));"),
+                 (READY + 1100, key(RIGHT) + key(RIGHT) + "console.info('[r1] ' + JSON.stringify({current: %s.current}));" % C + key(OK) +
+                                "console.info('[g1] ' + JSON.stringify({mode: %s.mode, focus: %s.focusIndex, cols: %s.gridCols, n: %s.gridN, tw: %s.tileW, th: %s.tileH}));" % ((C,) * 6)),
+                 (READY + 1400, key(RIGHT) + key(DOWN) + key(LEFT) + "console.info('[g2] ' + JSON.stringify({focus: %s.focusIndex}));" % C + key(OK) +
+                                "console.info('[f2] ' + JSON.stringify({mode: %s.mode, current: %s.current}));" % (C, C)),
+                 (READY + 1700, key(BACK))]
+        doc, out = self.run_overlay(steps, READY + 2300)
+        self.assertEqual(self.tagged(out, "w1")[0]["what"], "Animal \u00b7 Domestic Cat")
+        o1 = self.tagged(out, "o1")[0]
+        self.assertEqual(o1["mode"], "full")
+        self.assertTrue(o1["wants"] and o1["overlayWants"], "the viewer takes every key")
+        self.assertEqual((o1["current"], o1["name"]), (1, "Front door"))
+        self.assertEqual(self.tagged(out, "r1")[0]["current"], 0, "right twice from the second of three wraps to the first")
+        g1 = self.tagged(out, "g1")[0]
+        self.assertEqual((g1["mode"], g1["focus"], g1["cols"], g1["n"]), ("grid", 0, 2, 3))
+        self.assertEqual((g1["tw"], g1["th"]), (764, 430), "two rows of two fit the safe area with their names")
+        self.assertEqual(self.tagged(out, "g2")[0]["focus"], 2, "right, down lands on the lone tile of the row below, left stays")
+        f2 = self.tagged(out, "f2")[0]
+        self.assertEqual((f2["mode"], f2["current"]), ("full", 2))
+        self.assertEqual(doc["mode"], "", "Back closes the viewer")
+        self.assertFalse(doc["up"] or doc["overlayWants"])
+
+    def test_over_home_the_keys_reach_the_surface_through_the_bus(self):
+        steps = [(READY, publish("cameras", CAMERAS)),
+                 (READY + 300, popup()),
+                 (READY + 900, "console.info('[h1] ' + JSON.stringify({mode: %s.mode, overlayWants: overlay.wants, took: root.keyAction('ok'), after: %s.mode}));" % (C, C)),
+                 (READY + 1200, "console.info('[h2] ' + JSON.stringify({took: root.keyAction('back'), after: %s.mode}));" % C)]
+        doc, out = self.run_overlay(steps, READY + 1800, app=False)
+        h1 = self.tagged(out, "h1")[0]
+        self.assertEqual(h1["mode"], "popup")
+        self.assertFalse(h1["overlayWants"], "over Home the overlay asks the filter for nothing; Home routes through the bus")
+        self.assertTrue(h1["took"])
+        self.assertEqual(h1["after"], "full", "OK on Home expands")
+        h2 = self.tagged(out, "h2")[0]
+        self.assertTrue(h2["took"])
+        self.assertEqual(h2["after"], "")
+        self.assertEqual(doc["mode"], "")
+
+    def test_a_popup_waits_while_the_host_is_busy_and_nothing_asks_for_pictures_once_it_is_down(self):
+        steps = [(READY, publish("cameras", CAMERAS) + " overlay.surface = 'quick';"),
+                 (READY + 300, popup(lasts=6000)),
+                 (READY + 900, "console.info('[busy] ' + JSON.stringify({mode: %s.mode})); overlay.surface = '';" % C),
+                 (READY + 1700, "console.info('[free] ' + JSON.stringify({mode: %s.mode}));" % C + key(BACK)),
+                 (READY + 2000, frames() + "console.info('[n1] ' + JSON.stringify({n: frames.length}));"),
+                 (READY + 3500, frames() + "console.info('[n2] ' + JSON.stringify({n: frames.length}));")]
+        doc, out = self.run_overlay(steps, READY + 3900)
+        self.assertEqual(self.tagged(out, "busy")[0]["mode"], "", "a panel is up: the pop-up waits")
+        self.assertEqual(self.tagged(out, "free")[0]["mode"], "popup", "and arrives when the host is free")
+        before, after = self.tagged(out, "n1")[0]["n"], self.tagged(out, "n2")[0]["n"]
+        self.assertGreater(before, 0)
+        self.assertEqual(after, before, "nothing fetches once the surface is down")
+        self.assertEqual(doc["mode"], "")
+
+
+if __name__ == "__main__":
+    unittest.main()

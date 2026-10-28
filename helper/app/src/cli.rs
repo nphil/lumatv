@@ -416,6 +416,7 @@ fn serve(paths: Paths, config: Config, mut ready: Option<File>, stderr_log: bool
         fetcher: None,
         ai: None,
         voice_policy: None,
+        cameras: None,
     }) {
         Ok(service) => service,
         Err(e) => {

@@ -41,6 +41,7 @@ pub mod ble_duty;
 pub mod ble_proxy;
 pub mod ble_scan;
 pub mod ble_store;
+pub mod cameras;
 pub mod cli;
 pub mod config;
 pub mod control;

@@ -32,7 +32,7 @@ import "kit"
 Item {
     id: ov
     anchors.fill: parent
-    visible: up || osdLive || panelLeaving || panelHeld
+    visible: up || osdLive || panelLeaving || panelHeld || cameraUp
 
     // set by the container: an app, not Home, is this container's surface and is on screen
     property bool appFront: false
@@ -44,7 +44,11 @@ Item {
     property string surface: ""                           // the one that has the keys: "drawer", "quick", "picker", "banner" (one with buttons) or "" for none
     readonly property bool bannerUp: !!bannerRes.item && bannerRes.item.kind !== ""
     readonly property bool up: appFront && (surface !== "" || bannerUp)
-    readonly property bool wants: appFront && surface !== ""
+    // the camera pop-up and viewer (panels/Cameras.qml) are up over Home as over an app: the layer is drawn for them whatever else is
+    readonly property bool cameraUp: !!cameraRes.item && cameraRes.item.up
+    readonly property var cameraItem: cameraRes.item          // the surface itself, for the gate and the host's tests
+    readonly property bool cameraWants: !!cameraRes.item && cameraRes.item.wants
+    readonly property bool wants: appFront && (surface !== "" || cameraWants || (cameraUp && !!cameraRes.item && cameraRes.item.popupUp))
     // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
     readonly property bool osdLive: !!osdRes.item && osdRes.item.live
     // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
@@ -131,6 +135,28 @@ Item {
         shown: ov.warm
     }
     Binding { target: osdRes.item; property: "overVideo"; value: ov.appFront; when: !!osdRes.item }
+    // The cameras: the pop-up over whatever plays, the viewer it expands to (panels/Cameras.qml). Above the panels and below the volume display,
+    // so a volume key over a camera still shows the bar. A pop-up waits while a panel or a banner with buttons is up here, or Home has a prompt.
+    Resident {
+        id: cameraRes
+        name: "overlay cameras"
+        source: "panels/Cameras.qml"
+        anchors.fill: parent
+        z: 2.5
+        build: ov.warm
+        shown: ov.warm
+    }
+    Binding { target: cameraRes.item; property: "appFront"; value: ov.appFront; when: !!cameraRes.item }
+    Binding { target: cameraRes.item; property: "hostBusy"; value: ov.surface !== "" || ov.homeBusy; when: !!cameraRes.item }
+    Binding { target: osdRes.item; property: "avoidTopRight"; value: ov.cameraUp && !!cameraRes.item && cameraRes.item.popupUp; when: !!osdRes.item }
+    // what Home says of itself (a PIN, an alert, a prompt, a confirmation up): read once a second while a pop-up may be waiting, not bound
+    property bool homeBusy: false
+    Timer { interval: 500; repeat: true; running: !!cameraRes.item && (cameraRes.item.up || Helper.topics["cameras.popup"] !== null && Helper.topics["cameras.popup"] !== undefined); onTriggered: ov.homeBusy = Bus.homeBusy() }
+    Connections {
+        target: cameraRes.item
+        ignoreUnknownSignals: true
+        onCloseRequested: idle.stop()
+    }
     Binding { target: osdRes.item; property: "still"; value: ov.surface === "quick" || ov.surface === "picker" || ov.panelLeaving; when: !!osdRes.item }
     Connections {
         target: bannerRes.item
@@ -296,10 +322,27 @@ Item {
         if (k === Qt.Key_Back || k === WebOS.Key_webOS_Back) return "back"
         return ""
     }
+    property bool okHeldDown: false
+    Timer { id: okHold; interval: Lu.motion.holdMs || 700; onTriggered: { if (ov.surface === "quick" && quickRes.item && quickRes.item.hold) quickRes.item.hold() } }
     function key(k, pressed, autoRepeat, deviceId) {
         if (!wants) return false
         var dir = directionFor(k)
         if (dir === "") return false
+        // the pop-up takes OK and Back only: a press the camera surface does not take goes on to the app (and its release with it)
+        if (surface === "" && cameraRes.item && cameraRes.item.up) {
+            if (cameraRes.item.popupUp && dir !== "ok" && dir !== "back") return false
+            if (!pressed) return true
+            if (autoRepeat && (dir === "back" || dir === "ok")) return true
+            return cameraRes.item.key(dir)
+        }
+        // OK on the quick panel is decided on its release, as on Home, so that a held OK can edit the tiles (panels/QuickPanel.qml): the press
+        // starts the timer, the release before it is up is an ordinary OK, the timer is the hold. Where the panel has nothing to pick up, OK acts on the press.
+        if (dir === "ok" && surface === "quick" && quickRes.item && quickRes.item.holdReady && (okHold.running || okHeldDown || (pressed && quickRes.item.holdReady()))) {
+            idle.restart()
+            if (pressed && !autoRepeat) { okHeldDown = true; okHold.restart() }
+            else if (!pressed && okHeldDown) { okHeldDown = false; if (okHold.running) { okHold.stop(); quickRes.item.key("ok") } }
+            return true
+        }
         if (!pressed) return true
         if (autoRepeat && (dir === "back" || dir === "ok")) return true
         idle.restart()
@@ -330,7 +373,9 @@ Item {
     Component.onCompleted: {
         Lu.flatBackdrop = flatTex
         Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel, warm: ov.warmPanel })
+        // Home routes the D-pad here while a camera surface is up over it (LumaHome.keyAction)
+        Bus.setCamera({ up: function() { return ov.cameraUp && ov.surface === "" }, key: function(dir) { return !!cameraRes.item && cameraRes.item.key(dir) } })
         console.info("[LumaOverlay] loaded")
     }
-    Component.onDestruction: Bus.setOverlay(null)
+    Component.onDestruction: { Bus.setOverlay(null); Bus.setCamera(null) }
 }

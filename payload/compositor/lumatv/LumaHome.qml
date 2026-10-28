@@ -916,6 +916,8 @@ Item {
     }
     function keyAction(dir) {
         if (layers.open !== "" && !layers.find(layers.open)) closeLayer()      // a name that is no surface owns no key
+        // a camera pop-up or viewer is up over Home (LumaOverlay's surface): OK and Back of the pop-up, every key of the viewer, are its
+        if (layers.open === "" && Bus.cameraKey(dir)) return true
         if (layers.open !== "") {
             // a modal surface owns the keys while it is up; Back closes the kit gallery, any other asks to close itself
             if (layers.open === "gallery" && dir === "back") closeLayer()
@@ -1002,11 +1004,13 @@ Item {
     Component.onCompleted: {
         Lu.backdrop = blurTex
         Bus.setHandler(root.key); Bus.setEscapeHandler(root.escapeRequested); Bus.setGear({ ready: root.gearReady, hold: root.gearHold }); Bus.setAppKey(root.appKey)
+        // what a camera pop-up must not cover: a prompt, a layer that has the keys (a PIN, a confirmation, Settings), the layout editor
+        Bus.setHomeBusy(function() { return root.hostActive && (aiPrompt.up || layers.open !== "" || root.editing || root.trialOn) })
         root.beatOnce()
         console.info("[LumaHome] loaded, first beat written")
         loadAll(); readMode(); Helper.start(); NoteLog.seenAt = Date.now()       // the log's own toast subscription starts when it is first read
     }
-    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null); Bus.setAppKey(null) }
+    Component.onDestruction: { Bus.setHandler(null); Bus.setEscapeHandler(null); Bus.setGear(null); Bus.setAppKey(null); Bus.setHomeBusy(null) }
 
     // Pointer: anything not over a card/tile lands here so the stock Home underneath never
     // sees the Magic Remote.

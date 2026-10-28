@@ -189,6 +189,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "fetch"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "tempfile",
 ]
 
@@ -241,6 +242,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-bridge"
+version = "0.1.0"
+dependencies = [
+ "esphome-api",
+ "ha-link",
+ "libc",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "ha-link"
 version = "0.1.0"
 dependencies = [
@@ -276,6 +290,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jpeg-decoder"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -303,6 +323,7 @@ dependencies = [
  "libc",
  "plugin-api",
  "serde_json",
+ "service-api",
  "settings-schema",
 ]
 
@@ -337,6 +358,7 @@ version = "0.1.0"
 dependencies = [
  "esphome-api",
  "fetch",
+ "ha-bridge",
  "ha-link",
  "libc",
  "lumashow-sdk",
@@ -426,6 +448,7 @@ dependencies = [
 name = "plugin-home-assistant"
 version = "0.1.0"
 dependencies = [
+ "jpeg-decoder",
  "lumashow-sdk",
  "plugin-api",
  "serde_json",

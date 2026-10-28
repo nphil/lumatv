@@ -288,23 +288,38 @@ mod tests {
             Manifest::parse(manifest_text("a-one", ha, "").as_bytes()).is_err(),
             "ha.read without lease:ha"
         );
-        // Calls on a door, an alarm, a camera, a garage or water are never served, whatever the plugin asks.
-        for domain in ["cover", "camera", "valve"] {
-            let roster = on(&format!("{ha},\"ha.call:light,{domain}\""), "\"lease:ha\"");
-            let why = &roster.inert[0].reason;
+        // Calls on a door, an alarm, a camera, a garage or water are never served, whatever the plugin asks. The plugin API itself
+        // now refuses every domain outside its callable list (a camera, a valve) at the manifest; a cover parses there and this TV
+        // refuses it.
+        for domain in ["camera", "valve"] {
             assert!(
-                why.contains(&format!("ha.call:{domain}"))
-                    && why.contains("never lets a plugin call"),
-                "{why}"
+                Manifest::parse(
+                    manifest_text(
+                        "a-one",
+                        &format!("{ha},\"ha.call:light,{domain}\""),
+                        "\"lease:ha\""
+                    )
+                    .as_bytes()
+                )
+                .is_err(),
+                "ha.call:{domain} parses"
             );
         }
-        // A lock is refused by the plugin API itself, before this TV is asked.
+        let roster = on(&format!("{ha},\"ha.call:light,cover\""), "\"lease:ha\"");
+        let why = &roster.inert[0].reason;
         assert!(
-            Manifest::parse(manifest_text("a-one", "\"ha.call:lock\"", "\"lease:ha\"").as_bytes())
-                .is_err()
+            why.contains("ha.call:cover") && why.contains("never lets a plugin call"),
+            "{why}"
+        );
+        // A lock parses at the plugin API (the Show may call one with a gesture token); this TV never serves the call.
+        let roster = on(&format!("{ha},\"ha.call:lock\""), "\"lease:ha\"");
+        assert!(
+            roster.inert[0].reason.contains("ha.call:lock"),
+            "{:?}",
+            roster.inert
         );
         // Other leases and the network are still not served.
-        let roster = on(r#""settings","net.lan""#, "");
+        let roster = on(r#""settings","net.lan:192.168.1.5:80""#, "");
         assert!(
             roster.inert[0].reason.contains("net.lan"),
             "{:?}",

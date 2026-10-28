@@ -622,12 +622,28 @@ impl Rig {
         fetcher: Arc<dyn Fetch>,
         ai: Option<lumatv_helper::ai::Deps>,
     ) {
-        self.start_full(config, fetcher, ai, None);
+        self.start_full(config, fetcher, ai, None, None);
     }
 
     /// Starts with a fake Home Assistant on the loopback: voice search may dial it.
     pub fn start_voice(&mut self, config: Config, fetcher: Arc<dyn Fetch>) {
-        self.start_full(config, fetcher, None, Some(ha_link::AddressPolicy::TESTING));
+        self.start_full(
+            config,
+            fetcher,
+            None,
+            Some(ha_link::AddressPolicy::TESTING),
+            None,
+        );
+    }
+
+    /// Starts with the camera bridge acting through the given key, address and address policy.
+    pub fn start_cameras(
+        &mut self,
+        config: Config,
+        fetcher: Arc<dyn Fetch>,
+        cameras: lumatv_helper::cameras::Deps,
+    ) {
+        self.start_full(config, fetcher, None, None, Some(cameras));
     }
 
     fn start_full(
@@ -636,6 +652,7 @@ impl Rig {
         fetcher: Arc<dyn Fetch>,
         ai: Option<lumatv_helper::ai::Deps>,
         voice_policy: Option<ha_link::AddressPolicy>,
+        cameras: Option<lumatv_helper::cameras::Deps>,
     ) {
         let service = Service::start(StartOptions {
             paths: self.paths.clone(),
@@ -643,6 +660,7 @@ impl Rig {
             fetcher: Some(fetcher),
             ai,
             voice_policy,
+            cameras,
         })
         .unwrap();
         self.addr = service.addr();

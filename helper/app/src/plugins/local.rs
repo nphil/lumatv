@@ -107,11 +107,9 @@ impl Local {
         });
         {
             let mut session = local.session.lock();
-            let hello = session.message(ToBase::Hello(Hello {
-                min: 1,
-                target: 1,
-                sdk: "lumatv-helper/first-party".to_owned(),
-            }));
+            let hello = session.message(ToBase::Hello(
+                Hello::new(1, 1).sdk("lumatv-helper/first-party"),
+            ));
             if hello.hangup {
                 return Err(format!(
                     "{}: the base refused hello: {:?}",
@@ -336,7 +334,7 @@ mod tests {
             .unwrap();
         let heard = f.heard.lock();
         assert!(
-            matches!(&heard[0], ToPlugin::ActionInvoke { op: o, action, target }
+            matches!(&heard[0], ToPlugin::ActionInvoke { op: o, action, target, .. }
             if *o == op && action == "poke" && target.as_deref() == Some("x")),
             "{heard:?}"
         );

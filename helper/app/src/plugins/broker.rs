@@ -645,6 +645,7 @@ fn run(
                         what: "message".into(),
                         code: "rate".into(),
                         reason: format!("more than {MESSAGES_PER_S} messages a second"),
+                        retry_after_ms: None,
                     });
                     continue;
                 }

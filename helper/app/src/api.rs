@@ -129,6 +129,8 @@ pub struct Api {
     pub voice: Arc<crate::voice::Voice>,
     /// Pictures for the shell, decoded off the CPU where the TV can (`/v1/image`, `/v1/images`).
     pub images: Arc<crate::images::Images>,
+    /// Cameras through Home Assistant's LumaShow integration: their pictures and the event pop-ups (`/v1/cameras/...`).
+    pub cameras: crate::cameras::Cameras,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -510,6 +512,16 @@ impl Handler for Api {
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
+            ["v1", "cameras"] if get => self.ok(json!({"cameras": self.cameras.status()})),
+            ["v1", "cameras", id, "frame"] if get => self.cameras.frame(request, id),
+            ["v1", "cameras", "popup", "clear"] if post => {
+                self.cameras.clear_popup();
+                self.ok(json!({"cleared": true}))
+            }
+            ["v1", "cameras", "event"] if post => match body_object(request) {
+                Ok(body) => self.cameras.test_event(&Value::Object(body)),
+                Err(r) => r,
+            },
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -538,8 +550,12 @@ fn is_known_path(segments: &[&str]) -> bool {
                     | "device"
                     | "ambient"
                     | "images"
+                    | "cameras"
             ]
             | ["v1", "image", _, _]
+            | ["v1", "cameras", _, "frame"]
+            | ["v1", "cameras", "popup", "clear"]
+            | ["v1", "cameras", "event"]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
             | ["v1", "ambient", "test" | "context" | "refresh"]
@@ -593,6 +609,11 @@ mod tests {
                 ambient: crate::ambient::Ambient::new(&ctx),
                 voice: crate::voice::Voice::new(&ctx),
                 images: Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
+                cameras: crate::cameras::Cameras::new(
+                    &ctx,
+                    crate::cameras::testing::inert_deps(),
+                    Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
+                ),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),

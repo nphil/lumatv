@@ -103,6 +103,9 @@ pub struct Config {
     pub voice: VoiceConfig,
     /// Pictures decoded for the shell (`images.rs`): which folders it may ask for, and the decoder that does the work.
     pub images: ImagesConfig,
+    /// Cameras and their event pop-ups through Home Assistant's LumaShow integration (`cameras.rs`). Off by default: with `enabled`
+    /// false nothing listens, nothing is announced and no picture is ever fetched.
+    pub cameras: CamerasConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -135,6 +138,7 @@ impl Default for Config {
             ambient: AmbientConfig::default(),
             voice: VoiceConfig::default(),
             images: ImagesConfig::default(),
+            cameras: CamerasConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -171,6 +175,44 @@ impl Default for ImagesConfig {
             decoder_args: Vec::new(),
             roots: std::collections::BTreeMap::new(),
             max_pixels: 16 * 1024 * 1024,
+        }
+    }
+}
+
+/// The camera bridge and the pop-ups. The switch is `enabled`; everything else is tuning.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct CamerasConfig {
+    /// The switch. On: once the TV holds its ESPHome pairing key (`ble-link`), the bridge listens for Home Assistant's LumaShow
+    /// integration on `port` and is announced as `_lumashow._tcp`.
+    pub enabled: bool,
+    /// The bridge's port (the protocol's is 6054).
+    pub port: u16,
+    /// Which kinds of event make a pop-up: `person`, `vehicle`, `animal`, `package`, `doorbell`, `motion`.
+    pub popup_kinds: Vec<String>,
+    /// How long a pop-up stays without a key press, in seconds; a doorbell's is half as long again.
+    pub popup_seconds: u32,
+    /// How long after a pop-up the same camera and kind stay quiet, in seconds (a doorbell is never held back).
+    pub cooldown_seconds: u32,
+    /// How long a camera's last picture is served again before a new one is fetched, in milliseconds: a grid of tiles asking at once
+    /// costs one fetch a camera.
+    pub frame_hold_ms: u32,
+    /// The most a camera's picture may be, in bytes.
+    pub max_picture_bytes: u32,
+}
+
+impl Default for CamerasConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 6054,
+            popup_kinds: ["person", "vehicle", "animal", "doorbell"]
+                .map(str::to_owned)
+                .to_vec(),
+            popup_seconds: 12,
+            cooldown_seconds: 30,
+            frame_hold_ms: 300,
+            max_picture_bytes: 4 * 1024 * 1024,
         }
     }
 }

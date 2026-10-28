@@ -13,8 +13,8 @@
 //! another machine. The TV's Settings can only narrow: "forget" deletes the file ([`HaLease::forget`]). The helper is told to read
 //! the file again ([`HaLease::refresh`]) when the command line has saved a new one.
 //!
-//! **This TV is stricter than the Show about what a plugin may call.** A manifest may not name a lock, a siren, an alarm panel, a
-//! script... (the plugin API refuses those); here a camera, a cover (garage doors, gates) and a valve are added ([`NEVER_CALLED`]):
+//! **This TV is stricter than the Show about what a plugin may call.** A manifest may not name a siren, an alarm panel, a
+//! script... (the plugin API refuses those); here a lock, a camera, a cover (garage doors, gates) and a valve are added ([`NEVER_CALLED`]):
 //! doors, alarms, cameras and water are the owner's to operate (Principle 0). Reading them is another matter and stays allowed:
 //! `ha.read:lock` shows a lock's state and nothing more.
 //!
@@ -259,12 +259,12 @@ fn unconfigured_state(state: &State) -> HaLinkState {
 }
 
 fn kind_word(kind: HaLinkKind) -> &'static str {
-    match kind {
+    match kind.known() {
         HaLinkKind::Unconfigured => "unconfigured",
         HaLinkKind::Connecting => "connecting",
         HaLinkKind::Connected => "connected",
-        HaLinkKind::Offline => "offline",
         HaLinkKind::AuthFailed => "auth_failed",
+        _ => "offline",
     }
 }
 
@@ -552,6 +552,12 @@ impl Inner {
                 Status::Offline { reason } => link_state(
                     HaLinkKind::Offline,
                     format!("Cannot reach Home Assistant: {reason}"),
+                ),
+                // The TV's lease runs on the token link alone; a bridged status is the Show's and is read as its nearest word.
+                Status::Waiting => link_state(HaLinkKind::Connecting, "Waiting for Home Assistant"),
+                Status::Bridged { ha_version, .. } => link_state(
+                    HaLinkKind::Connected,
+                    format!("Connected to Home Assistant {ha_version}"),
                 ),
                 Status::Stopped => return,
             };
@@ -1168,21 +1174,13 @@ mod tests {
     }
 
     fn watch(entities: &[&str]) -> HaWatch {
-        HaWatch {
-            entities: entities.iter().map(|s| (*s).to_owned()).collect(),
-            notices: false,
-            interval_ms: Some(250),
-        }
+        HaWatch::new()
+            .entities(entities.iter().copied())
+            .interval_ms(250)
     }
 
     fn call(domain: &str, service: &str, entity: &str) -> HaCall {
-        HaCall {
-            op: 1,
-            domain: domain.into(),
-            service: service.into(),
-            entity_ids: vec![entity.into()],
-            data: serde_json::Map::new(),
-        }
+        HaCall::new(1, domain, service, [entity])
     }
 
     #[test]
@@ -1413,15 +1411,10 @@ mod tests {
             "connected",
             |m| matches!(m, ToPlugin::HaLink(l) if l.state == HaLinkKind::Connected),
         );
-        let ask = |query, what, domains: &[&str]| HaList {
-            query,
-            what,
-            domains: domains.iter().map(|d| (*d).to_owned()).collect(),
-            area: None,
-            search: None,
-            minor: false,
-            offset: 0,
-            limit: 24,
+        let ask = |query, what, domains: &[&str]| {
+            HaList::new(query, what)
+                .domains(domains.iter().copied())
+                .limit(24)
         };
         hold.list(&ask(1, HaWhat::Areas, &[])).unwrap();
         hold.list(&ask(2, HaWhat::Entities, &[])).unwrap();

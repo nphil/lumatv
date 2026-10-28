@@ -23,6 +23,8 @@ var overlay = null                      // { wants(): bool, key(k, pressed, auto
 var appKeyHandler = null                // (id, frontAppId) -> true when LumaHome took the remote's app key (launched an app, or does nothing)
 var homePanels = null                   // { ready(kind): bool, open(kind): bool, warm(kind): bool }, kind "quick" | "picker"
 var systemLauncher = null               // (appId, params) -> true when LG's system window was asked for: the key filter's own luna client (see systemLaunch)
+var camera = null                       // { up(): bool, key(dir): bool }: the camera pop-up and viewer (LumaOverlay's panels/Cameras.qml), up over Home too
+var homeBusyFn = null                   // () -> true while Home has something up a pop-up must not cover (a PIN prompt, an alert, a confirmation, the AI prompt)
 var lastFaultMs = 0
 var beatMs = 0
 
@@ -33,6 +35,29 @@ function setOverlay(o) { overlay = o }
 function setPanels(p) { homePanels = p }
 function setAppKey(h) { appKeyHandler = h }
 function setSystemLauncher(l) { systemLauncher = l }
+function setCamera(c) { camera = c }
+function setHomeBusy(f) { homeBusyFn = f }
+
+// A camera surface is up over Home and takes this key (OK and Back of a pop-up; every direction of the viewer). False leaves the key to Home.
+function cameraKey(dir) {
+    if (!camera) return false
+    try { return camera.up() === true && camera.key(dir) === true }
+    catch (e) { fault("camera", e); return false }
+}
+function homeBusy() {
+    if (!homeBusyFn) return false
+    try { return homeBusyFn() === true }
+    catch (e) { fault("home busy", e); return false }
+}
+var themeWriter = null                 // { patch(p), persist(p) }: LumaHome's theme, for a panel that keeps a choice of the owner's (the quick panel's tiles)
+function setThemeWriter(w) { themeWriter = w }
+// A choice of the owner's: shown at once (patch) and, when `keep` is true, written to theme.json. False when no Home is there to write it.
+function writeTheme(p, keep) {
+    if (!themeWriter) return false
+    themeWriter.patch(p)
+    if (keep) themeWriter.persist(p)
+    return true
+}
 
 // LumaHome's once-a-second timer calls this. The filter takes a key only while it has been
 // called within the last 3 s: a layer whose timers have stopped is not answering, and the

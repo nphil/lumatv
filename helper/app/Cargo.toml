@@ -21,6 +21,7 @@ settings-schema.workspace = true
 plugin-api.workspace = true
 service-api.workspace = true
 ha-link.workspace = true
+ha-bridge.workspace = true
 esphome-api.workspace = true
 mdns.workspace = true
 lumatv-ambient.workspace = true
@@ -37,4 +38,5 @@ tempfile.workspace = true
 lumashow-sdk.workspace = true
 plugin-home-assistant.workspace = true
 ha-link = { workspace = true, features = ["testing"] }
+ha-bridge = { workspace = true, features = ["testing"] }
 fetch = { workspace = true, features = ["testing"] }

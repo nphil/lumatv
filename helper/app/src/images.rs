@@ -206,6 +206,27 @@ enum Outcome {
     Refused(u32),
 }
 
+/// The `w` and `h` a request asks for (0: not asked), or the answer to a request that asks badly.
+pub fn wanted_size(request: &Request) -> Result<(u32, u32), Response> {
+    let dim = |name: &str| -> Result<u32, Response> {
+        match request.param(name) {
+            None | Some("") => Ok(0),
+            Some(text) => text
+                .parse::<u32>()
+                .ok()
+                .filter(|v| *v <= 16384)
+                .ok_or_else(|| {
+                    error_response(
+                        400,
+                        "bad_request",
+                        &format!("{name} is a whole number up to 16384"),
+                    )
+                }),
+        }
+    };
+    Ok((dim("w")?, dim("h")?))
+}
+
 pub struct Images {
     enabled: bool,
     roots: BTreeMap<String, PathBuf>,
@@ -283,25 +304,9 @@ impl Images {
         let Some(dir) = self.roots.get(root) else {
             return error_response(404, "no_such_root", "no such picture folder");
         };
-        let dim = |name: &str| -> Result<u32, Response> {
-            match request.param(name) {
-                None | Some("") => Ok(0),
-                Some(text) => text
-                    .parse::<u32>()
-                    .ok()
-                    .filter(|v| *v <= 16384)
-                    .ok_or_else(|| {
-                        error_response(
-                            400,
-                            "bad_request",
-                            &format!("{name} is a whole number up to 16384"),
-                        )
-                    }),
-            }
-        };
-        let (want_w, want_h) = match (dim("w"), dim("h")) {
-            (Ok(w), Ok(h)) => (w, h),
-            (Err(r), _) | (_, Err(r)) => return r,
+        let (want_w, want_h) = match wanted_size(request) {
+            Ok(size) => size,
+            Err(r) => return r,
         };
         let bytes = match read_inside(dir, file) {
             Ok(b) => b,
@@ -316,6 +321,12 @@ impl Images {
         if !jpeg_extension(file) {
             return error_response(415, "not_a_jpeg", "only .jpg and .jpeg pictures are served");
         }
+        self.serve_jpeg(bytes, want_w, want_h)
+    }
+
+    /// The picture in `bytes` (a JPEG from anywhere: a file, a camera) decoded for a window of `want_w` by `want_h`, as `serve` answers it:
+    /// a BMP from the decoder, or the JPEG as it is when there is none.
+    pub fn serve_jpeg(&self, bytes: Vec<u8>, want_w: u32, want_h: u32) -> Response {
         let Some((width, height)) = jpeg_size(&bytes) else {
             return error_response(415, "not_a_jpeg", "that file is not a JPEG");
         };

@@ -101,6 +101,7 @@ All keys optional; an unknown key or a bad value stops `start` with the reason (
 | `frameRate.returnOnHome` | `true` | after a 25 or 50 fps video left the panel at 100 Hz, put it back to 120 Hz once Home is in front with no video window (`framerate.rs`, `framerate-result.md` "Design"); `false` leaves the rate to LG's kernel |
 | `nice` | 10 | scheduling priority given up |
 | `allowedOrigins` | `[]` | browser origins allowed to call the API (a web app would need `"file://"`) |
+| `cameras.enabled`, `port`, `popupKinds`, `popupSeconds`, `cooldownSeconds`, `frameHoldMs`, `maxPictureBytes` | `false`, 6054, person vehicle animal doorbell, 12, 30, 300, 4 MiB | cameras and their event pop-ups through Home Assistant's LumaShow integration (`cameras.rs`, `docs/research/ha-cameras-result.md`); off: nothing listens, nothing is announced, nothing is fetched |
 
 ## The API (v1)
 
@@ -117,6 +118,7 @@ helper is down: retry in a couple of seconds). Every answer is `{"ok":true,"api"
 | `POST /v1/receiver/nudge` | read the receiver now and fast for 3 s (send it when a volume key is pressed) |
 | `POST /v1/refresh` | fetch weather and news now, even with the screen off |
 | `GET /v1/settings`, `GET /v1/settings/{owner}`, `POST /v1/settings/{owner}` | the settings layer |
+| `GET /v1/cameras`, `GET /v1/cameras/{id}/frame?w=&h=`, `POST /v1/cameras/popup/clear`, `POST /v1/cameras/event` | the camera bridge's state and the shared cameras; a camera's current picture (a BMP from the hardware decoder, else the JPEG); the shell dismissed the pop-up; an event as the integration would send it (the TV check). Topics `cameras`, `cameras.popup`, event `cameras.event` |
 
 Client loop: one `GET /v1/state` (it carries `seq` and `boot`; topics appear as components publish, so tolerate missing
 ones), then `GET /v1/events?after=<seq>&boot=<boot>&timeout=25` over and over with the `seq` of the last answer. `reset: true`

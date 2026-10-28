@@ -43,6 +43,9 @@ pub struct StartOptions {
     /// Which addresses voice search and the plugins' Home Assistant lease may dial Home Assistant at. `None` is the home network
     /// and nothing else; a test that runs a fake Home Assistant on the loopback says so.
     pub voice_policy: Option<ha_link::AddressPolicy>,
+    /// What the camera bridge acts through. `None` builds the real ones (the Bluetooth proxy's key, the LAN address, multicast DNS);
+    /// a test gives its own key and the loopback.
+    pub cameras: Option<crate::cameras::Deps>,
 }
 
 /// A running helper.
@@ -67,6 +70,7 @@ impl Service {
             fetcher,
             ai: ai_deps,
             voice_policy,
+            cameras: camera_deps,
         } = options;
         let config = Arc::new(config);
         let stop = Stop::new();
@@ -203,6 +207,15 @@ impl Service {
             &ctx,
             voice_policy.unwrap_or(ha_link::AddressPolicy::HOME),
         );
+        // Cameras through the LumaShow integration: nothing listens until the switch is on and the TV is paired.
+        let images = Arc::new(crate::images::Images::new(&config, &paths));
+        let cameras = crate::cameras::Cameras::new(
+            &ctx,
+            camera_deps.unwrap_or_else(|| crate::cameras::Deps::real(&ctx)),
+            images.clone(),
+        );
+        threads.push(("cameras", cameras.spawn(&ctx)?));
+
         let api = Api {
             hub,
             settings,
@@ -210,7 +223,8 @@ impl Service {
             plugins,
             ambient,
             voice,
-            images: Arc::new(crate::images::Images::new(&config, &paths)),
+            images,
+            cameras,
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,
