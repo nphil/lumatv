@@ -913,7 +913,7 @@ class GateKeysAndIme(FakeSet):
         sim = self.sim()
         self.assertEqual(sim["windows"], [["com.webos.app.home", "Card"]], "Home alone is left, every app a key opened is closed")
         self.assertEqual(sim["closed"], ["com.palm.app.settings", "com.webos.app.homeconnect", "netflix", "com.webos.app.magicnum",
-                                         "com.palm.app.settings"])
+                                         "com.webos.app.browser", "com.palm.app.settings"])
         self.assertEqual(sim["keys"], [139, 241, 1037, 6, 174])
         self.assertIn("gear tap", read(os.path.join(self.out, "keys-gear.txt")))
         self.assertIn("Quick Access slot 5", read(os.path.join(self.out, "keys-digit.txt")))
