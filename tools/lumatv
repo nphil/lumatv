@@ -2336,6 +2336,10 @@ do_revert_internal() {
   capture_remove
   vplane_remove
   rm -f "$JPEG_BIN" "$JPEG_BIN.new"   # the picture decoder: the helper that started it is stopped, so it has ended
+  # LumaTV's compositor over LG's binary is a change in its own right: the unit has to be restarted for the unmount to
+  # mean LG's compositor, whatever else this revert found to undo.
+  revert_was_comp=0
+  if comp_mounted; then revert_was_comp=1; REVERT_CHANGED=1; fi
   comp_release
   [ -f "$PRELOAD_STATE" ] && python3 "$PRELOAD_TOOL" off "$PRELOAD_SRC" "$PRELOAD_ORIG" "$PRELOAD_STATE" < /dev/null >/dev/null 2>&1
 
@@ -2376,7 +2380,13 @@ do_revert_internal() {
 
   if [ "$REVERT_CHANGED" -eq 1 ]; then
     restart_surface >/dev/null 2>&1
-    home_back_after_restart
+    if [ "$revert_was_comp" -eq 1 ]; then
+      # WebAppMgr lost its socket with LumaTV's compositor: the recovery `compositor off` runs (reset, restart, Home).
+      recover_home
+      disarm_restart_crashes "$reports_before"
+    else
+      home_back_after_restart
+    fi
   fi
   return 0
 }

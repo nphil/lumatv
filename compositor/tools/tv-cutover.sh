@@ -14,7 +14,8 @@
 #   cutover.sh trial SECS  mount, restart the unit, watch for SECS seconds, restore LG's (default 120); a session:
 #                          the flag names this boot and is gone when the trial ends, on any firmware
 #   cutover.sh enable      persistent flag, mount, restart the unit and leave LumaTV's compositor live (also after
-#                          reboots); refused on a firmware build that is not on verified.list (exit 5)
+#                          reboots); refused on a firmware build that is not on verified.list (exit 5); exit 9 when
+#                          the supervisor fell back to LG's compositor during the enable (the flag is removed)
 #   cutover.sh enable --session [--max-minutes N]   the same for this boot only (what the gate runs on a build it has
 #                          not passed on), with a safety timer: a detached job runs `disable` after N minutes (whole
 #                          minutes, 1 to 1440, default 15) unless the session has ended by then, so that a test whose
@@ -274,6 +275,14 @@ trial|enable)
         revert
     else
         n=0; while [ -d $COMP_LOCK ] && [ $n -lt 90 ]; do sleep 1; n=$((n+1)); done
+        # The watch above ends at the first fallback too: LG's compositor is then the live one, and an enable that
+        # leaves its flag behind would try LumaTV's again at the next boot.
+        if ! is_mounted; then
+            safety_cancel > /dev/null
+            rm -f $STATE/enabled
+            echo "enable failed: the supervisor fell back to LG's compositor ($(cat $STATE/last-fallback 2>/dev/null)); the flag is removed, LG's compositor is live"
+            exit 9
+        fi
         echo "enabled ($mode): LumaTV's compositor stays live (recovery done after ${n}s more); 'cutover.sh disable' restores LG's"
     fi
     ;;

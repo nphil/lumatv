@@ -624,5 +624,51 @@ class Switch(Fixture):
         self.assertFalse(os.path.exists(self.state("running")))
 
 
+def lumatv_function(name):
+    """One shell function of tools/lumatv, from its `name() {` line to the closing brace in column 0."""
+    out, on = [], False
+    with open(os.path.join(ROOT, "tools", "lumatv"), encoding="utf-8") as f:
+        for line in f:
+            if line.startswith(name + "() {"):
+                on = True
+            if on:
+                out.append(line)
+                if line.rstrip() == "}":
+                    return "".join(out)
+    raise AssertionError(name + " not found")
+
+
+class Revert(Fixture):
+    """`lumatv revert` (do_revert_internal) against the library's own comp_mounted and comp_release: with nothing else of
+    the tool on, the supervisor's mount is all there is to undo, and LG's compositor is back only if the unit restarts."""
+
+    def revert(self):
+        others = ("helper_stop", "capture_remove", "vplane_remove", "remove_env", "clear_qml_cache", "keyfilter_set",
+                  "remove_early_hook", "drain_umount", "revert_tile_icons", "home_back_after_restart", "disarm_restart_crashes")
+        stubs = "".join('%s() { echo %s >> "$FAKE/calls"; }\n' % (n, n) for n in others)
+        return self.sh("set +u\ncd \"$FAKE\"\n" + stubs + "homestub_drop() { HS_DROPPED=0; }\nis_mounted() { return 1; }\n"
+                       + lumatv_function("do_revert_internal") + 'do_revert_internal\necho "changed=$REVERT_CHANGED"')
+
+    def test_the_mount_alone_is_a_change_that_restarts_the_unit_and_recovers_home(self):
+        self.sh("comp_boot_mount")
+        self.assertTrue(self.mounted())
+        rc, out = self.revert()
+        self.assertEqual((rc, out), (0, "changed=1"))
+        self.assertFalse(self.mounted())
+        self.assertFalse(os.path.exists(self.state("enabled")))
+        c = self.calls()
+        self.assertEqual(c.count("restart"), 1, c)
+        self.assertLess(c.index("restart"), c.index("recover"))
+        self.assertNotIn("home_back_after_restart", c)             # the recovery launches Home itself, once
+
+    def test_a_set_that_was_already_on_lgs_compositor_is_not_restarted(self):
+        self.put("enabled")                                        # flag only: the supervisor fell back and unmounted
+        rc, out = self.revert()
+        self.assertEqual((rc, out), (0, "changed=0"))
+        self.assertFalse(os.path.exists(self.state("enabled")))
+        self.assertNotIn("restart", self.calls())
+        self.assertNotIn("recover", self.calls())
+
+
 if __name__ == "__main__":
     unittest.main()

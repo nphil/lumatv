@@ -12,6 +12,8 @@
 #                                 initctl, the state of webapp-mgr; written to docs/research/compositor/set-inspect-<date>.txt
 #   tv-first-light.sh cutover ARGS  /tmp/lumatv/cutover.sh ARGS on the set under a PTY (install | probe | trial SECS |
 #                                 enable [--session [--max-minutes N]] | disable | status | revert | firmware check|record | boot-check)
+#   tv-first-light.sh lumatv ARGS the installed tool on the set under a PTY (compositor on|off|status|check, revert, status);
+#                                 what survives a reboot, which /tmp/lumatv does not
 #   tv-first-light.sh gate [ARGS] the C4 gate (tools/tv_gate.py): firmware, homeheld, then a session of enable --session with live,
 #                                 volume, x1 (zero gaps over 20 ms in 60 s), netflix, hdmi, keys, ime, standby/wake, homekey,
 #                                 wd-hang, wd-crash, escape; --only keys,ime runs just those (the remote's keys and the keyboard);
@@ -74,11 +76,12 @@ case "${1:-help}" in
         shift
         python3 "$here/tools/tv_gate.py" "$@"
         ;;
-    sm|cutover|inspect)
+    sm|cutover|lumatv|inspect)
         # luna-send needs a PTY (HANDOFF), so the whole on-set script runs under one.
         case "$1" in
             sm) cmd="sh /tmp/lumatv/sm-dryrun.sh run" ;;
             cutover) shift; cmd="sh /tmp/lumatv/cutover.sh $*" ;;
+            lumatv) shift; cmd="/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv $*" ;;
             inspect) cmd="sh /tmp/lumatv/inspect.sh" ; put "$here/tools/tv-inspect.sh" /tmp/lumatv/inspect.sh ;;
         esac
         out=$(python3 - "$cmd" <<EOF2

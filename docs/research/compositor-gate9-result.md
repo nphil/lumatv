@@ -3,6 +3,59 @@
 Offline work of 2026-10-26 on the failures of the eighth gate (`slot-2026-10-26-0003`, round9-result.md row
 "Compositor gate 8"). Nothing here has run on the set. Facts marked [INFERENCE] were not observed there.
 
+## Go-live steps
+
+LumaTV's compositor live for good, LG's as the automatic fallback. Needs Nitin's OK, the set on with Home in front, and no
+other session. Every command below is the inner part of
+
+    docker exec -e HOME=/data/home Cody sh -c 'export PATH=/data/home/.local/bin:/data/home/.cargo/bin:$PATH; cd /data/home/lumaglass && <inner>'
+
+(`R` stands for `sh compositor/tools/tv-first-light.sh`). `R` drops the set's exit status: success and failure are read from
+the printed lines named below. `/tmp/lumatv` is tmpfs, so after any reboot `R deploy` comes before any `R cutover ...`.
+
+What decides the fallback, all host-tested (`tests/test_cutover.py`, `tests/test_compositor.py`, the supervisor's own C
+tests): a persistent enable refuses a firmware build that is not on `compositor/firmware/verified.list`; at every boot the
+early hook mounts only when the flag, LG's binary, the build, the bundle, the supervisor's `--would-run` and Home-not-held
+all say yes, and a boot that never completed skips the mount once; the supervisor falls back by itself on a compositor exit,
+two missed beats, a frozen output (6 s) or an empty panel (45 s), and refuses to start after two consecutive failures (a run
+that never settled in 2 minutes counts, a power cut included); 10 healthy minutes clear the count. A recorded escape (hold
+Home 650 ms) or a changed firmware keeps LG's until `enable` is run again.
+
+1. Preflight, read-only: `R lumatv status` shows `"persist":true,"early":true` (without them no boot ever mounts it) and
+   `R lumatv compositor check` answers JSON. The installed tool must be this tree's (`R lumatv compositor check` failing or
+   old means the ipk is older than `tools/lumatv`).
+2. Go live. `verified.list` is empty, so the persistent enable is refused until a gate has passed on this build. One command
+   does the gate, the list entry, install and enable (about 25 min, the set is Nitin's meanwhile):
+
+       python3 compositor/tools/tv_gate.py --skip volume --enable-after
+
+   Success is `GATE: PASS`, `verified.list: added`, `enabled (persistent): LumaTV's compositor stays live` and
+   `GATE live-enabled: PASS`. Then commit `compositor/firmware/verified.list` and the new `docs/research/compositor/gate-<date>.txt`.
+   A gate that already passed on this build in an earlier round needs no second one: `R deploy`, `R cutover install`,
+   `R cutover firmware record` (its `build ... end` block, carriage returns removed, goes at the end of
+   `compositor/firmware/verified.list`; commit it), `R deploy`, `R cutover install`, `R cutover enable`.
+   `enable failed: the supervisor fell back` (exit 9) leaves LG's live with the flag removed; `refusing a persistent enable`
+   (exit 5) says the build is not listed.
+3. After it, in this order: `R cutover status` (`mounted ... yes`, `flag: persistent; firmware: verified`, no `fallback:` in the
+   log tail); Home in front and the keys on the remote (Home, arrows, OK, Back, volume, the Netflix button) with Nitin; one
+   standby and wake (panel back, Home in front, `R cutover status` still `mounted yes`); then one reboot (`python3
+   docs/research/arch/tv.py reboot`, Nitin's OK, about 90 s). After the reboot: `R lumatv compositor status` has `"live":true`,
+   `"flag":"persistent"` and `"failures":0`; `python3 docs/research/arch/tv.py "grep -a compositor-boot /var/lib/lumatv/log |
+   tail -3"` ends `compositor-boot: mounted`; `/var/lib/lumatv/compositor/sm.log` has `start:` and, 2 minutes later, `settled:
+   two minutes healthy`; Home in front and the keys again. If LG's compositor is live instead, `R lumatv compositor check`
+   names the reason (`decision`, `why`).
+
+Rollback, any one of:
+
+- `R cutover disable` (flag removed, mount removed, LG's compositor restarted, Home recovered; after a reboot `R deploy` first).
+- `R lumatv compositor off` (the same through the installed tool; needs no deploy).
+- `R lumatv revert` (everything of LumaTV to stock, the compositor included).
+- At the set: hold Home 650 ms. LG's compositor is back at once and the escape is recorded, so later boots stay on LG's until
+  `R cutover enable` (or `R lumatv compositor on`) is run again.
+
+A redeploy of the bundle after go-live is `R cutover disable`, `R deploy`, `R cutover install`, `R cutover enable`: `install`
+and `enable --session` refuse while the mount is in place.
+
 ## Resume here
 
 State (2026-10-26, commits `ff6e30a`, `ae6d795`, `a240187` on `main`): every change below is built and host-tested

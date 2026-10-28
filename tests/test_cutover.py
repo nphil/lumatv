@@ -345,6 +345,78 @@ class Enable(FakeSet):
         self.assertFalse(os.path.exists(self.st("enabled")) or os.path.exists(self.st("running")))
         self.assertFalse(self.mounted())
 
+    def reboot(self):
+        """The next boot: another boot id and no mount."""
+        write(os.path.join(self.tmp.name, "boot_id"), "BOOT-B\n")
+        write(os.path.join(self.tmp.name, "mountinfo"), "")
+
+    def boot_hook(self):
+        """What tools/lumatv compositor-boot runs at the early hook, against this set: its one-word answer."""
+        e = dict(self.env, COMP=self.state, COMP_LG=self.lg, COMP_MOUNTINFO=self.env["LUMATV_MOUNTINFO"],
+                 COMP_LOCK=self.env["LUMATV_RECOVER_LOCK"])
+        r = subprocess.run(["sh", "-c", 'log_line() { :; }; . "$LUMATV_D/compositor.sh"; comp_boot_mount'], env=e, capture_output=True,
+                           text=True, timeout=60)
+        return r.stdout.strip()
+
+    def test_a_persistent_enable_is_mounted_again_by_the_boot_hook_after_a_reboot(self):
+        self.list_this_build()
+        self.cutover("install")
+        rc, out = self.cutover("enable")
+        self.assertEqual(rc, 0, out)
+        self.reboot()
+        rc, out = self.cutover("boot-check")
+        j = json.loads(out)
+        self.assertEqual((j["flag"], j["decision"], j["wouldMount"]), ("persistent", "ok", True), out)
+        self.assertEqual(self.boot_hook(), "mounted")
+        self.assertTrue(self.mounted())
+        self.assertEqual(read(self.st("enabled")).strip(), "persistent")
+
+    def test_a_persistent_enable_that_was_disabled_stays_off_after_a_reboot(self):
+        self.list_this_build()
+        self.cutover("install")
+        self.cutover("enable")
+        rc, out = self.cutover("disable")
+        self.assertEqual(rc, 0, out)
+        self.reboot()
+        self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "off")
+        self.assertEqual(self.boot_hook(), "off")
+        self.assertFalse(self.mounted())
+
+    def test_a_firmware_update_after_a_persistent_enable_boots_on_lgs_compositor(self):
+        self.list_this_build()
+        self.cutover("install")
+        self.cutover("enable")
+        self.reboot()
+        with open(self.lg, "w") as f:
+            f.write("LG's compositor, after an update")
+        self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "firmware")
+        self.assertEqual(self.boot_hook(), "firmware")
+        self.assertFalse(self.mounted())
+
+    def test_an_enable_the_supervisor_falls_back_from_is_a_failure_that_leaves_no_flag(self):
+        # the unit's restart is where the supervisor decides: here it hands the screen back at once
+        write(os.path.join(self.fakebin, "systemctl"), '''#!/bin/sh
+case "$1" in
+  is-active) echo active ;;
+  show) echo MainPID=77; echo ActiveEnterTimestampMonotonic=5 ;;
+  restart)
+    echo "systemctl $*" >> "$FAKE/calls"
+    grep -vF " $LUMATV_LG " "$LUMATV_MOUNTINFO" > "$LUMATV_MOUNTINFO.new"; mv "$LUMATV_MOUNTINFO.new" "$LUMATV_MOUNTINFO"
+    echo "heartbeat: two beats missed" > "$LUMATV_STATE/last-fallback" ;;
+  *) echo "systemctl $*" >> "$FAKE/calls" ;;
+esac
+''', 0o755)
+        self.list_this_build()
+        self.cutover("install")
+        for args in ((), ("--session",)):
+            rc, out = self.cutover("enable", *args, timeout=30)
+            self.assertEqual(rc, 9, out)
+            self.assertIn("enable failed: the supervisor fell back to LG's compositor (heartbeat: two beats missed)", out)
+            self.assertNotIn("stays live", out)
+            self.assertFalse(os.path.exists(self.st("enabled")), args)
+            self.assertFalse(self.mounted())
+            self.assertEqual(json.loads(self.cutover("boot-check")[1])["decision"], "off")
+
 
 class SafetyTimer(FakeSet):
     """`enable --session --max-minutes N`: the detached job that puts LG's compositor back when a session outlives its
