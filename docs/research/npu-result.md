@@ -8,6 +8,7 @@ whose `custom_options` are an NPU package compiled offline by LG. It refuses eve
 `FitTV_Detector_Yolov3_QAT_SoC.tflite` (builtin ops only). No compiler or package format is published, so a public int8 detector cannot
 run on the NPU through this entry. Person and animal detection for the camera pop-ups therefore runs on the CPU (XNNPACK): the model
 is EfficientDet-Lite0 int8, below. The NPU entry stays wired in the probe for the day a package turns up (TV slot step 2 looks).
+This is the reason `PLAN.md` saw the delegate "apply to none of LG's shipped models": it was never going to take a builtin-op graph.
 
 **Done offline (2026-10-28), nothing run on the TV.**
 
@@ -113,7 +114,7 @@ written by TF 2.9.1 (`CONVERSION_METADATA` of the QAT detector); that says nothi
 - **LG's EdgeAI vision stack** (`libedgeai-vision`, extensions `libedgeai-vision-base` and `-object-detection`, allowed by
   `/usr/share/aif/edgeai.config`): TFLite with a delegate chosen per detector (`mainDelegate`: `npu_delegate`, `nnapi_delegate`,
   `gpu_delegate`; XNNPACK for the CPU; an `AutoDelegateSelector` with policies `CPU_ONLY` and `LOAD_BALANCING`). Its person detectors are
-  `person_yolov3_v1_npu`, `person_yolov3_v2_npu` (models `FitTV_Detector_Yolov3_V1/V2.tflite`, not on the set) and `person_yolov3_qat`,
+  `person_yolov3_v1_npu`, `person_yolov3_v2_npu` (models `FitTV_Detector_Yolov3_V1/V2.tflite` [INFERENCE: paired by name], not on the set) and `person_yolov3_qat`,
   `_ptq`, `_ptq_rtk` (`FitTV_Detector_Yolov3_{QAT,PTQ}_SoC.tflite`, `_PTQ_RTK`). Only the QAT SoC file is on the set.
 - **That file** (4.39 MB, written by TF 2.9.1, "MLIR Converted") has 111 builtin ops: QUANTIZE 1, PAD 23, CONV_2D 52, DEPTHWISE_CONV_2D 22, ADD 9,
   RESIZE_NEAREST_NEIGHBOR 2, CONCATENATION 2; uint8 input [1,270,480,3] (scale 1/255) then int8 activations with per-channel int8 weights; six int8
