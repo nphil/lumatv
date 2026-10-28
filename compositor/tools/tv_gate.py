@@ -5,14 +5,16 @@ the standby check, and the checks that end the live session (Home held on a virt
 killed, the compositor's own hold-Home escape) each get a fresh session. Exit 0 only when every check passed; the result
 lines and files land in /tmp/lumatv-tv-out/out/gate and docs/research/compositor/gate-<date>.txt.
 
-    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--refresh 120]
+    tv_gate.py [--skip netflix,hdmi,apps,...] [--only keys,ime] [--x1-seconds N] [--enable-after] [--frames-callbacks landing] [--frames-quick] [--refresh 120]
 
 The gate's rule for the frame check is 60 s with no gap over 20 ms (tv-gate.sh, "The frame rule"); --x1-seconds under 60
 can only fail it. Checks that can be skipped: firmware, homeheld, volume, x1, netflix, hdmi, apps, keys, ime, standby, homekey,
 wd-hang, wd-crash, escape. --only runs just the named ones (in one session, the live check and the evidence included); the
 step-1 test of the remote's keys and the keyboard is `--only keys,ime`. --frames-callbacks landing runs the surface frame gate with
 the shell client's frame callbacks at the flip like every client's (`ctl callbacks shell landing`), against the default of a frame
-ahead of it inside a run of its frames, so that a round says what the change made.
+ahead of it inside a run of its frames, so that a round says what the change made. The surface frame gate runs the whole set of surfaces
+(Home's D-pad, the panels, the screens walked with the D-pad, the switcher, the keyboards and the launches with smooth transitions); --frames-quick
+runs the quick set, which touches no setting and starts no app, for a regular round.
 --refresh 120 runs the surface frame gate in the compositor's refresh test mode (docs/research/ui120-result.md): `gate.sh refresh 120`
 before it (the OSD vblank divider at 1, the pacer at 8.33 ms; a GATE refresh line with the rate measured three ways, Mali busy and the
 temperature at idle Home), the gate's dropped-frame threshold at 10 ms, idle Home measured again after the surfaces, then
@@ -47,9 +49,14 @@ FIRST_SESSION_MINUTES = 14
 LATER_SESSION_MINUTES = 6
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
 CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "apps", "keys", "ime", "shell", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
-# The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client.
-FRAMES_SURFACES = "home-dpad,quick,picker,toast"
-FRAMES_SESSION_MINUTES = 20
+# The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client. A regular round
+# runs the quick set (--frames-quick): the original four and the walks that press nothing but the D-pad on Home, Settings and the library. The
+# full set (the default) adds the ones that change a setting for their run and put it back (the app switcher, smooth transitions, which
+# keyboard serves a field) and start apps (Netflix, LG's Search and Content Store and browser, LG's Settings), which is most of the time.
+FRAMES_SURFACES_QUICK = "home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets"
+FRAMES_SURFACES = FRAMES_SURFACES_QUICK + ",switcher,transitions-netflix,transitions-settings,keyboard-luma,keyboard-lg"
+FRAMES_QUICK_SESSION_MINUTES = 30
+FRAMES_SESSION_MINUTES = 60
 PERF_GATE = os.path.join(here, "..", "..", "docs", "research", "perf", "gate.py")
 PERF_DIR = os.path.dirname(PERF_GATE)
 
@@ -114,25 +121,29 @@ def volume_check():
     ok = None not in (before, up, back) and up > before and abs(back - before) < 1e-6
     return "GATE volume: %s %s" % ("PASS" if ok else "FAIL", detail)
 
-def frames_check(cycles, load=False, refresh=60):
+def frames_check(cycles, load=False, refresh=60, quick=False):
     """The surface frame gate (`docs/research/perf/gate.py`) over LumaTV's own surfaces under its compositor: Home's D-pad, the quick
-    panel and the input picker (the gear and Input through the shell client) and a toast. Its verdict line, with each surface's
+    panel and the input picker (the gear and Input through the shell client), a toast, and the screens walked with the D-pad (Settings, the
+    Apps library, Home's rows, the app switcher, the keyboard) and the app launches with smooth transitions on (FRAMES_SURFACES; `quick` runs
+    FRAMES_SURFACES_QUICK, the ones that touch no setting and start no app). Its verdict line, with each surface's
     failed checks, becomes `GATE frames:`. With `load` the same surfaces are measured under synthetic background load (a camera-like
     decode, Home Assistant websocket chatter, a BLE scan stand-in, a low-priority download: `lumatv-loadgen`, started and stopped by
     the gate), and the line is `GATE frames-load:`, a report: no baseline of loaded numbers exists yet, so the unloaded thresholds'
     verdict is told but is no verdict of the gate's."""
+    surfaces = FRAMES_SURFACES_QUICK if quick else FRAMES_SURFACES
+    minutes = FRAMES_QUICK_SESSION_MINUTES if quick else FRAMES_SESSION_MINUTES
     out_json = "/tmp/lumatv-tv-out/frames%s%s.json" % ("-load" if load else "", "-%d" % refresh if refresh != 60 else "")
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
-    cmd = [sys.executable, PERF_GATE, "--surfaces", FRAMES_SURFACES, "--input-key", "241", "--cycles", str(cycles), "--json", out_json,
+    cmd = [sys.executable, PERF_GATE, "--surfaces", surfaces, "--input-key", "241", "--cycles", str(cycles), "--json", out_json,
            "--tag", "c4shell-load" if load else ("c4shell-%d" % refresh if refresh != 60 else "c4shell")] + (["--load", "decode,ws,ble,download"] if load else []) \
           + (["--refresh", str(refresh)] if refresh != 60 else [])
     name = "frames-load" if load else "frames"
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=minutes * 60)
         out = r.stdout + r.stderr
     except subprocess.TimeoutExpired:
-        return "GATE %s: FAIL the surface gate did not finish in 25 minutes" % name
-    print(out[-4000:])
+        return "GATE %s: FAIL the surface gate did not finish in %d minutes" % (name, minutes)
+    print(out[-12000:])
     verdict = "FAIL"
     for l in out.splitlines():
         if l.startswith("VERDICT "):
@@ -152,8 +163,8 @@ def frames_check(cycles, load=False, refresh=60):
     except (OSError, ValueError, AttributeError):
         detail = "no %s.json" % name
     if load:
-        return "GATE frames-load: measured under synthetic background load, the unloaded thresholds say %s: %s (surfaces %s, %d cycles; %s)" % (verdict, detail, FRAMES_SURFACES, cycles, out_json)
-    return "GATE frames%s: %s %s (surfaces %s, %d cycles; %s)" % (" at %d Hz" % refresh if refresh != 60 else "", verdict, detail, FRAMES_SURFACES, cycles, out_json)
+        return "GATE frames-load: measured under synthetic background load, the unloaded thresholds say %s: %s (surfaces %s, %d cycles; %s)" % (verdict, detail, surfaces, cycles, out_json)
+    return "GATE frames%s: %s %s (surfaces %s, %d cycles; %s)" % (" at %d Hz" % refresh if refresh != 60 else "", verdict, detail, surfaces, cycles, out_json)
 
 def wait_ssh(seconds):
     t0 = time.time()
@@ -256,6 +267,7 @@ def main():
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--enable-after", action="store_true")
     ap.add_argument("--frames-cycles", type=int, default=3, help="open/close cycles of the surface frame gate's soak (default 3)")
+    ap.add_argument("--frames-quick", action="store_true", help="the surface frame gate over the quick set only (%s): what a regular round needs; without it the set also walks the app switcher, the keyboard and the app launches with smooth transitions on (%s), which changes a setting for each run and puts it back, and takes about twice as long" % (FRAMES_SURFACES_QUICK, FRAMES_SURFACES.replace(FRAMES_SURFACES_QUICK + ",", "")))
     ap.add_argument("--frames-load", action="store_true", help="also run the surface frame gate under synthetic background load (decode, Home Assistant websocket, BLE scan, a low-priority download): a report, not a rule")
     ap.add_argument("--kwait", action="store_true", help="trace the x1 run (capture.sh's kwait mode) and name the kernel waits behind each late frame (kwait.py)")
     ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
@@ -295,7 +307,8 @@ def main():
     first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
     # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's timer must cover the frame gate too
     # (the full gate of 2026-10-27 lost its session to the 12 minute timer before standby), the loaded run's as well.
-    first_minutes += FRAMES_SESSION_MINUTES * (run_frames + run_load)
+    frames_minutes = FRAMES_QUICK_SESSION_MINUTES if a.frames_quick else FRAMES_SESSION_MINUTES
+    first_minutes += frames_minutes * (run_frames + run_load)
     def session(minutes, label=None):
         """LumaTV's compositor live for this boot only, ended by the set itself after `minutes`, then `live` says so (the
         label names the line when it is a second session of the run)."""
@@ -347,7 +360,7 @@ def main():
         step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
         if run_frames or run_load:
             # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
-            session(FRAMES_SESSION_MINUTES * (run_frames + run_load), "frames")
+            session(frames_minutes * (run_frames + run_load), "frames")
             if a.frames_callbacks == "landing":
                 print(pty("sh /tmp/lumatv/gate.sh callbacks landing", 60))
         if run_frames:
@@ -355,7 +368,7 @@ def main():
                 # The switch, then idle Home at the new rate: the rate three ways, the compositor's measure, Mali and the temperature.
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh %d 10" % a.refresh, 120)
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
-            lines.append(frames_check(a.frames_cycles, refresh=a.refresh))
+            lines.append(frames_check(a.frames_cycles, refresh=a.refresh, quick=a.frames_quick))
             if a.refresh != 60:
                 # Idle Home again after the surfaces, the compositor's measure left running since the switch (it covers the slides), then the mode off: 60 is the gate's resting state.
                 step("refresh", "sh /tmp/lumatv/gate.sh refresh read 10", 120)
@@ -370,7 +383,7 @@ def main():
             print(pty("sh /tmp/lumatv/gate.sh callbacks", 60))
         if run_load:
             print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
-            lines.append(frames_check(a.frames_cycles, load=True))
+            lines.append(frames_check(a.frames_cycles, load=True, quick=a.frames_quick))
             step("wake", "sh /tmp/lumatv/gate.sh wake loaded", 60)
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)

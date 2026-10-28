@@ -1193,6 +1193,20 @@ class GateDriver(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    @property
+    def first(self):
+        """The minutes of the first session before the frame gate's are added."""
+        return self.gate.FIRST_SESSION_MINUTES
+
+    @property
+    def full(self):
+        """The minutes the frame gate's session is armed for (the whole set of surfaces)."""
+        return self.gate.FRAMES_SESSION_MINUTES
+
+    @staticmethod
+    def session(minutes):
+        return "cutover enable --session --max-minutes %d" % minutes
+
     def test_a_line_that_is_no_verdict_does_not_fail_the_gate(self):
         # `GATE standby: requested ({` is only the power-off call going out; counted as a failure it made every gate fail
         lines = ["GATE live: PASS ok", "GATE standby: requested ({", "GATE standby: PASS rounds", "GATE escape: PASS ok"]
@@ -1271,7 +1285,9 @@ class GateDriver(unittest.TestCase):
         g.wake = lambda: True
         g.avr_mute = lambda on: None
         g.volume_check = lambda: "GATE volume: PASS fine"
-        g.frames_check = lambda cycles, load=False, refresh=60: "GATE frames-load: measured fine" if load else ("GATE frames at %d Hz: PASS fine" % refresh if refresh != 60 else "GATE frames: PASS fine")
+        g.frames_calls = []
+        g.frames_check = lambda cycles, load=False, refresh=60, quick=False: g.frames_calls.append((load, refresh, quick)) or (
+            "GATE frames-load: measured fine" if load else ("GATE frames at %d Hz: PASS fine" % refresh if refresh != 60 else "GATE frames: PASS fine"))
         g.VERIFIED_LIST = lst
         g.here = repo
         with mock.patch.object(sys, "argv", ["tv_gate.py", *argv]), mock.patch.object(g.time, "sleep"), mock.patch.object(g.os, "system"), \
@@ -1296,8 +1312,8 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         checks = [c for c in self.checks(calls) if not c.startswith("key ")]
         self.assertEqual(checks, [
-            "cutover enable --session --max-minutes 34", "live", "evidence",
-            "cutover enable --session --max-minutes 20", "live frames", "refresh 120 10", "wake reset", "refresh read 10", "refresh 60 5",
+            self.session(self.first + self.full), "live", "evidence",
+            self.session(self.full), "live frames", "refresh 120 10", "wake reset", "refresh read 10", "refresh 60 5",
             "wake frames", "mem", "callbacks", "cutover disable"])
         divider = [c for c in calls if "fbdev_vsync_cnt_on_flip" in c]
         self.assertEqual(len(divider), 1, "the divider is put back to 2 in the clean-up, once: %s" % calls)
@@ -1312,8 +1328,8 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
-            "cutover enable --session --max-minutes 34", "live", "x1 60", "netflix", "hdmi", "apps", "keys", "ime", "shell", "evidence",
-            "cutover enable --session --max-minutes 20", "live frames", "wake reset", "wake frames", "mem", "callbacks", "standby", "woke",
+            self.session(self.first + self.full), "live", "x1 60", "netflix", "hdmi", "apps", "keys", "ime", "shell", "evidence",
+            self.session(self.full), "live frames", "wake reset", "wake frames", "mem", "callbacks", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
@@ -1361,15 +1377,15 @@ class GateDriver(unittest.TestCase):
         calls, code, _ = self.run_main(argv=["--only", "shell,frames"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 34", "live", "shell", "evidence",
-                          "cutover enable --session --max-minutes 20", "live frames", "wake reset", "wake frames", "mem", "callbacks", "cutover disable"])
+                         [self.session(self.first + self.full), "live", "shell", "evidence",
+                          self.session(self.full), "live frames", "wake reset", "wake frames", "mem", "callbacks", "cutover disable"])
 
     def test_the_frame_gate_can_run_with_the_shell_callbacks_at_the_flip_and_says_how_many_went_ahead(self):
         calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-callbacks", "landing"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 34", "live", "evidence",
-                          "cutover enable --session --max-minutes 20", "live frames", "callbacks landing", "wake reset", "wake frames", "mem", "callbacks",
+                         [self.session(self.first + self.full), "live", "evidence",
+                          self.session(self.full), "live frames", "callbacks landing", "wake reset", "wake frames", "mem", "callbacks",
                           "cutover disable"])
 
     def test_the_loaded_frame_run_is_opt_in_and_a_report_the_verdict_does_not_read(self):
@@ -1378,16 +1394,58 @@ class GateDriver(unittest.TestCase):
         calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-load"])
         self.assertEqual(code, 0, "a report line is no PASS and no FAIL")
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 54", "live", "evidence",
-                          "cutover enable --session --max-minutes 40", "live frames", "wake reset", "wake frames", "mem", "callbacks",
+                         [self.session(self.first + 2 * self.full), "live", "evidence",
+                          self.session(2 * self.full), "live frames", "wake reset", "wake frames", "mem", "callbacks",
                           "wake reset", "wake loaded", "cutover disable"])
 
     def test_only_frames_load_runs_the_loaded_run_alone_in_a_session_of_its_own(self):
         calls, code, _ = self.run_main(argv=["--only", "frames-load"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
-                         ["cutover enable --session --max-minutes 34", "live", "evidence",
-                          "cutover enable --session --max-minutes 20", "live frames", "wake reset", "wake loaded", "cutover disable"])
+                         [self.session(self.first + self.full), "live", "evidence",
+                          self.session(self.full), "live frames", "wake reset", "wake loaded", "cutover disable"])
+
+    def test_the_frame_gate_runs_the_whole_set_and_a_quick_round_runs_the_walks_that_touch_nothing(self):
+        g = self.gate
+        quick, full = g.FRAMES_SURFACES_QUICK.split(","), g.FRAMES_SURFACES.split(",")
+        self.assertEqual(full[:len(quick)], quick)
+        self.assertEqual(full[len(quick):], ["switcher", "transitions-netflix", "transitions-settings", "keyboard-luma", "keyboard-lg"])
+        sys.path.insert(0, os.path.join(ROOT, "docs", "research", "perf"))
+        try:
+            import gate as perf_gate
+            table = {e["name"]: perf_gate.surface(e) for e in perf_gate.SURFACES}
+        finally:
+            sys.path.pop(0)
+        for n in full:
+            self.assertIn(n, table, n)
+        for n in quick:                    # a regular round changes no setting and starts no app
+            self.assertFalse(table[n]["switches"] or table[n]["setup"], n)
+        for n in full[len(quick):]:
+            self.assertTrue(table[n]["switches"] or table[n]["setup"], n)
+        self.assertLess(g.FRAMES_QUICK_SESSION_MINUTES, g.FRAMES_SESSION_MINUTES)
+
+    def test_a_quick_round_arms_the_shorter_session_and_asks_the_gate_for_the_quick_set(self):
+        g = self.gate
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-quick"])
+        self.assertEqual(code, 0)
+        self.assertEqual(g.frames_calls, [(False, 60, True)])
+        self.assertEqual([c for c in calls if "cutover.sh enable" in c],
+                         ["sh /tmp/lumatv/cutover.sh enable --session --max-minutes %d" % (g.FIRST_SESSION_MINUTES + g.FRAMES_QUICK_SESSION_MINUTES),
+                          "sh /tmp/lumatv/cutover.sh enable --session --max-minutes %d" % g.FRAMES_QUICK_SESSION_MINUTES])
+        calls, code, _ = self.run_main(argv=["--only", "frames"])
+        self.assertEqual(g.frames_calls, [(False, 60, False)], "the whole set by default")
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-load", "--frames-quick"])
+        self.assertEqual(g.frames_calls, [(False, 60, True), (True, 60, True)], "the loaded run follows the same set")
+
+    def test_the_frame_gate_is_started_with_the_set_it_was_asked_for_and_the_time_that_set_needs(self):
+        g = self.gate
+        for quick in (False, True):
+            with mock.patch.object(g.subprocess, "run", return_value=mock.Mock(stdout="VERDICT PASS\n", stderr="")) as run, \
+                    mock.patch.object(g.os, "makedirs"), mock.patch("builtins.print"):
+                g.frames_check(3, quick=quick)
+            cmd = run.call_args.args[0]
+            self.assertEqual(cmd[cmd.index("--surfaces") + 1], g.FRAMES_SURFACES_QUICK if quick else g.FRAMES_SURFACES)
+            self.assertEqual(run.call_args.kwargs["timeout"], 60 * (g.FRAMES_QUICK_SESSION_MINUTES if quick else g.FRAMES_SESSION_MINUTES))
 
     def test_kwait_puts_the_capture_tools_on_the_set_and_asks_the_x1_check_to_trace(self):
         calls, code, _ = self.run_main(argv=["--only", "x1", "--kwait"])
@@ -1445,7 +1503,7 @@ class GateDriver(unittest.TestCase):
     def test_every_session_the_gate_makes_has_the_sets_own_timer_and_a_longer_x1_run_lengthens_the_first(self):
         calls, code, _ = self.run_main(argv=["--x1-seconds", "180"])
         enables = [c.split("cutover.sh ")[1] for c in calls if "cutover.sh enable" in c]
-        self.assertEqual(enables, ["enable --session --max-minutes 36", "enable --session --max-minutes 20"] + ["enable --session --max-minutes 6"] * 3)
+        self.assertEqual(enables, ["enable --session --max-minutes %d" % (self.first + 2 + self.full), "enable --session --max-minutes %d" % self.full] + ["enable --session --max-minutes 6"] * 3)
 
     def test_the_persistent_enable_after_a_pass_has_no_timer(self):
         answers = {"cutover.sh firmware record": "noise\r\n" + BLOCK.replace("\n", "\r\n")}
