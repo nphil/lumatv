@@ -1248,12 +1248,14 @@ what it already does.
   (swapchain fill and late client commits, 2026-10-27), so zero is not a fair bar for the
   client's side. `X1_PRIME` stays 4.
 - Decisions of 2026-10-28 (Nitin): the quick panel docks at the right edge (mock 10); the
-  volume bar rises clear of subtitles only while video plays and keeps its 64 px place on Home;
-  LG's Always Ready is off; LumaTV's own keyboard is on, LG's maliit the fallback; the video
-  encoder's first TV probe runs while nobody watches; cameras go ahead (lumashow-ha update
-  through HACS, each release with his OK); the video-plane wallpaper is installed and switched
-  on if its TV check passes. LumaTV's compositor goes live when the gate's safety and function
-  checks pass; hitches nobody would notice go on the Optimisation list instead of blocking.
+  volume bar rises clear of subtitles only while an app is in front and keeps its 64 px place on
+  Home; LG's Always Ready stays ON (turning it off made "off" a real power-off: slow start and
+  the TV unreachable in standby); LumaTV's own keyboard is on once its TV check passes, LG's
+  maliit the fallback; cameras go ahead (lumashow-ha update through HACS, each release with his
+  OK); the video-plane wallpaper is installed and switched on if its TV check passes; the app
+  switcher opens on a second Home press (the first press acts at once); picture-in-picture
+  waits for a mockup. LumaTV's compositor goes live when the gate's safety and function checks
+  pass; hitches nobody would notice go on the Optimisation list instead of blocking.
 
 ## Open decisions
 
