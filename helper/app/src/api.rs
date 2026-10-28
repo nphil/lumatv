@@ -131,6 +131,8 @@ pub struct Api {
     pub images: Arc<crate::images::Images>,
     /// Cameras through Home Assistant's LumaShow integration: their pictures and the event pop-ups (`/v1/cameras/...`).
     pub cameras: crate::cameras::Cameras,
+    /// Screenshots and screen recordings: the way in to the compositor's capture, behind `capture.enabled` (`/v1/capture/...`).
+    pub capture: crate::capture::Capture,
     pub receiver_tx: Sender<receiver::Cmd>,
     pub feeds_tx: Sender<homefeeds::Cmd>,
 }
@@ -311,6 +313,7 @@ impl Api {
             .chain(crate::images::ROUTES.iter())
             .chain(crate::gfn_boost::ROUTES.iter())
             .chain(crate::crash::ROUTES.iter())
+            .chain(crate::capture::ROUTES.iter())
             .map(|(method, path, what)| json!({"method": method, "path": path, "what": what}))
             .collect();
         let now = now_ms();
@@ -512,6 +515,7 @@ impl Handler for Api {
             ["v1", "voice", rest @ ..] => crate::voice::handle(&self.voice, request, rest),
             ["v1", "gfn", rest @ ..] => crate::gfn_boost::handle(request, rest),
             ["v1", "crash", rest @ ..] => crate::crash::handle(request, rest),
+            ["v1", "capture", rest @ ..] => self.capture.handle(request, rest),
             ["v1", "image", root, file] if get => self.images.serve(request, root, file),
             ["v1", "images"] if get => self.ok(self.images.status()),
             ["v1", "cameras"] if get => self.ok(json!({"cameras": self.cameras.status()})),
@@ -623,6 +627,7 @@ mod tests {
                     crate::cameras::testing::inert_deps(),
                     Arc::new(crate::images::Images::new(&ctx.config, &ctx.paths)),
                 ),
+                capture: crate::capture::Capture::new(&ctx.config.capture),
                 started_at: 1000,
                 data_dir: "/var/lib/test".into(),
                 fetch_backend: json!({"backend": "test"}),
@@ -704,6 +709,7 @@ mod tests {
                 + crate::images::ROUTES.len()
                 + crate::gfn_boost::ROUTES.len()
                 + crate::crash::ROUTES.len()
+                + crate::capture::ROUTES.len()
         );
         assert_eq!(b["helper"]["version"], crate::VERSION);
         assert_eq!(b["boot"], 777);

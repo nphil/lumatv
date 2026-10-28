@@ -106,6 +106,9 @@ pub struct Config {
     /// Cameras and their event pop-ups through Home Assistant's LumaShow integration (`cameras.rs`). Off by default: with `enabled`
     /// false nothing listens, nothing is announced and no picture is ever fetched.
     pub cameras: CamerasConfig,
+    /// Screenshots and screen recordings of the picture LumaTV's compositor composes (`capture.rs`, `compositor/.../screencap`). Off by
+    /// default: with `enabled` false the routes refuse and the compositor does nothing; both read this one switch.
+    pub capture: CaptureConfig,
     /// How far the helper's scheduling priority is lowered (`nice`): it is background work and must never take a core from the
     /// compositor. 0 leaves it as started.
     pub nice: i32,
@@ -139,6 +142,7 @@ impl Default for Config {
             voice: VoiceConfig::default(),
             images: ImagesConfig::default(),
             cameras: CamerasConfig::default(),
+            capture: CaptureConfig::default(),
             nice: 10,
             allowed_origins: Vec::new(),
             brand_app_id: None,
@@ -175,6 +179,56 @@ impl Default for ImagesConfig {
             decoder_args: Vec::new(),
             roots: std::collections::BTreeMap::new(),
             max_pixels: 16 * 1024 * 1024,
+        }
+    }
+}
+
+/// Screen capture. `enabled` is the switch and the helper's own part of it; the rest is read by the compositor, which re-reads this file on
+/// every capture command (a change of the switch needs no restart there), and is checked here so a typo fails at the helper's start.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct CaptureConfig {
+    /// The switch. Off: `/v1/capture/...` answers 403 and the compositor refuses every capture command.
+    pub enabled: bool,
+    /// The compositor's control socket, which the routes forward to.
+    pub control: String,
+    /// What every file in `captures/` may take together; the oldest go first when a new one needs the room.
+    pub max_bytes: u64,
+    /// The longest one recording runs.
+    pub max_record_seconds: u64,
+    pub record: CaptureRecordConfig,
+    /// The hardware encoder's program (`lumatv-venc`); empty: `bin/lumatv-venc` in the data dir.
+    pub encoder: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct CaptureRecordConfig {
+    /// The recording's height in pixels: 360, 540, 720 or 1080 (the width follows the screen's shape).
+    pub height: u32,
+    pub fps: u32,
+    pub kbps: u32,
+}
+
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            control: "/tmp/xdg/lumatv-control".to_owned(),
+            max_bytes: 256 * 1024 * 1024,
+            max_record_seconds: 300,
+            record: CaptureRecordConfig::default(),
+            encoder: String::new(),
+        }
+    }
+}
+
+impl Default for CaptureRecordConfig {
+    fn default() -> Self {
+        Self {
+            height: 720,
+            fps: 30,
+            kbps: 4000,
         }
     }
 }
@@ -844,6 +898,23 @@ impl Config {
         }
         if !(1..=64 * 1024 * 1024).contains(&images.max_pixels) {
             return err("images.maxPixels is 1 to 67108864");
+        }
+        let capture = &self.capture;
+        if !capture.control.starts_with('/')
+            || capture.control.contains('\0')
+            || (!capture.encoder.is_empty() && !capture.encoder.starts_with('/'))
+        {
+            return err("capture.control and capture.encoder must be absolute paths");
+        }
+        if capture.max_bytes < 16 * 1024 * 1024
+            || !(5..=1800).contains(&capture.max_record_seconds)
+            || ![360, 540, 720, 1080].contains(&capture.record.height)
+            || !(5..=30).contains(&capture.record.fps)
+            || !(250..=20_000).contains(&capture.record.kbps)
+        {
+            return err(
+                "capture.maxBytes is at least 16777216, maxRecordSeconds 5 to 1800, record.height 360, 540, 720 or 1080, record.fps 5 to 30, record.kbps 250 to 20000",
+            );
         }
         if !(0..=19).contains(&self.nice) {
             return err("nice must be between 0 and 19");

@@ -24,6 +24,7 @@
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
 //! | [`updateblock`] | whether LG's system updates are blocked (the Homebrew Channel's flag and its `/etc/hosts` block), read only |
 //! | [`crash`] | the crash notice Settings shows: what the supervisor saved when LumaTV's compositor was put out of the way (reason, time, last log and trace lines), read when the page opens |
+//! | [`capture`] | screenshots and screen recordings: the door to the compositor's capture, behind `capture.enabled` (off by default) |
 //! | [`gfn_boost`] | the GeForce NOW app's pad reader thread at real-time priority (FIFO 10, off CPU 0), the one privilege its jail cannot give itself |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
@@ -43,6 +44,7 @@ pub mod ble_proxy;
 pub mod ble_scan;
 pub mod ble_store;
 pub mod cameras;
+pub mod capture;
 pub mod cli;
 pub mod config;
 pub mod control;

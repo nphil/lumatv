@@ -225,6 +225,7 @@ impl Service {
             voice,
             images,
             cameras,
+            capture: crate::capture::Capture::new(&config.capture),
             started_at: ctx.hub.boot(),
             data_dir: paths.data_dir.display().to_string(),
             fetch_backend,
