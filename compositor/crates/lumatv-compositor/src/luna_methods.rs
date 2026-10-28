@@ -357,8 +357,10 @@ impl State {
     /// of its own (it is no card or overlay: `Window::in_group`). Items without an appId are left out; CARD and
     /// RESTRICTED windows that are not members of another window's group carry `multiview`, `pip`, `primary`,
     /// `viewType` and `order`; surface-group owners and members say so (`windowGroupOwner`, `windowGroupOwnerId`).
-    /// SAM turns these pushes into its own `foreground`/`background` events. The system UI manager's variant lists
-    /// the system UI windows.
+    /// SAM turns these pushes into its own `foreground`/`background` events and keeps group members out of its fullscreen
+    /// foreground apps: given Live Dmost alone (it had come to the front as a card) it had no foreground app and launched Home a
+    /// second later, and videooutputd disconnected the video ("main appId Error"; the set's SAM and videooutputd logs, 2026-10-28).
+    /// The system UI manager's variant lists the system UI windows.
     fn foreground_app_info(&self, system_ui: bool) -> Value {
         let mapped = |w: &&crate::window::Window| w.map_serial > 0 && self.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false);
         let mut items: Vec<&crate::window::Window> = Vec::new();
