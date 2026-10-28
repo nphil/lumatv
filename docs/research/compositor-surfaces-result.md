@@ -7,28 +7,33 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 
 ## Resume here
 
-State (2026-10-27): built, committed and host-tested, not yet run on the set (ee17c73 the compositor's side, 83e9611 the
-client, the tools and the gate checks). Next, in order:
+State (2026-10-27 evening): built, committed and host-tested (ee17c73 the compositor's side, 83e9611 the client, the tools
+and the gate checks, 9514551 the idle cost). The client has run on the set once, inside CompFrames' gate-10 round 2 (slot
+2026-10-27-1726, bundle of 8a0049f, which carried `shell/`): qml-runner started 3 ms after the compositor, connected to the
+channel 0.4 s later, LumaHome's window mapped at 1.3 s (1920x1080, `ShellHome`, exposed, focused), `can show quick,
+picker, drawer` at 7 s, the system window created at 9 s. So the runner, `Eos.Window`, the module's load, the channel and
+the two windows all work. What that run also showed: Home kept drawing at its 10 Hz tick under the X1 probe (an overlay,
+so SAM's Home stayed in front) and cost the probe 168 swap gaps over 20 ms in 60 s (1 without the shell); fixed in
+9514551 ("Idle cost" below), not yet measured.
 
-1. A read-only slot: `/usr/palm/applications/com.webos.exampleapp.qmlapp.search/main.qml` (LG's own QML app: is its root
-   a `WebOSWindow`, how does it get an alpha window) and `strings /usr/lib/qt5/qml/Eos/Window/libeoswindowplugin.so`
-   for `windowType`/`appId`. If `WebOSWindow` is not what the plan assumed, `Shell.qml` falls back to `QtQuick.Window`'s
-   `Window` with the titles the compositor also classifies by.
-2. The deploy, through HomeLabber (one approval plan): the ipk (`sh /tmp/r8/build.sh 83e9611`, then `install.py`: the
-   module gained `panels/Notify.qml` and the backdrop rule), `sh compositor/tools/tv-first-light.sh deploy`, then
-   `cutover install` (the bundle now carries `shell/`).
-3. The TV runs: `python3 compositor/tools/tv_gate.py --only shell` first (one session, ~5 minutes), reading `ctl shell`,
-   `compositor.log` (`shell:` lines) and `/var/lib/lumatv/compositor/shell.log` (qml-runner's output) on a failure; then
-   `--only keys,ime,shell,frames` (the keys check follows the shell-first routing); then the full gate.
-4. Write the numbers here ("TV runs"), the gate lines go to `docs/research/compositor/gate-<date>.txt` as before.
+The deploy of 9514551 (ipk + bundle, built in the clean worktree `/tmp/lumatv-slot`) was asked for through HomeLabber
+as one plan (ipk `install.py`, `tv-first-light.sh deploy`, `cutover install`) and EXPIRED unanswered (request 0d5b113e);
+approvals for this token are paused until Nitin resumes them. Next, in order:
 
-Likeliest failures on the set, in order, and what to read: qml-runner refusing to run without SAM (`shell.log`:
-`registerNativeApp`, `Got launch on closing`; the journal: `shell: client exited`), the `Eos.Window` import or the
-`WebOSWindow` root (`shell.log`: a QML error; then `--shell` at `ShellPlain.qml`, see below), a system layer that is
-opaque (black over an app while the volume display shows: the Qt window got no alpha config; `QT_WAYLAND_...` has no
-switch for it, so the client would need a window type LG's plugin gives alpha to, read from `inputcommon`'s windows),
-keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts them delivered: the focus went elsewhere,
-`ctl windows` and the journal's `focus ->` lines say where).
+1. The same three-step plan again, once approvals are back (each step `docker exec -e HOME=/data/home Cody sh -c
+   'export PATH=/data/home/.local/bin:/data/home/.cargo/bin:$PATH && cd /tmp/lumatv-slot && ...'`; the builds are done
+   and the worktree is at 9514551).
+2. `python3 compositor/tools/tv_gate.py --only shell` (one session, about 6 minutes), reading `ctl shell`,
+   `compositor.log` (`shell:` lines) and `/var/lib/lumatv/compositor/shell.log` (qml-runner's output) on a failure;
+   then `--only keys,ime,shell,frames`; then the full gate.
+3. Write the numbers here ("TV runs"); the gate lines go to `docs/research/compositor/gate-<date>.txt` as before.
+
+Likeliest failures on the set now: the idle cost over the threshold (`gate.sh shell` idle steps: the tick's commits while
+nothing covers Home are by design; a client CPU over a third of a core at nice 10 would be the Qt render of the full
+scene per tick, and the answer is the wallpaper motion off under the shell), a system layer that is opaque (black over an
+app while the volume display shows: the Qt window got no alpha config; the fix is a window LG's plugin gives alpha to,
+read off `inputcommon`'s windows), keys not arriving (`ctl shell` `ui.keys` stays 0 while `ctl keys` counts them
+delivered: the focus went elsewhere, `ctl windows` and the journal's `focus ->` lines say where).
 
 ## What was built
 
@@ -118,6 +123,21 @@ set, the shell's imports shadowing the host's stubs, `Eos.Window` stubbed, keys 
 `show` and closed by Back, the overlay's panel over an app with the layer wanting the keys and letting go, the volume
 display from the audio topic, a toast and an alert from the feeds (answered by OK), the feeds subscribed through the
 channel. `python3 tests/qmlhost/compile_all.py`: 134 files, 0 failed.
+
+### Idle cost (9514551)
+
+Home as a client pays a whole-window render and a commit for every change, where LG's compositor redrew a few pixels of
+its scene: CompFrames' round 2 read ~10 commits a second from it while idle under the X1 probe, and the probe's wake-ups
+lost the CPU to qml-runner. Four changes: the `foreground` topic says when Home is `covered` (under a window that covers
+the whole output: an app's card, LG's Settings, the X1 overlay) and LumaHome holds its idle tick then (`idleHold`), so
+nothing is drawn; the client runs at nice 10 (apps at nice 0 win the CPU); it is started once SAM's Home has mapped, or 15
+s in, never interleaved with WebAppMgr's first frames (the trial's one missed refresh); and Home's buffer counts as
+opaque in the scene, so Home alone on the screen goes to the plane whole and its tick costs the compositor a flip, not a
+composition. On Home at rest the tick stays as the owner's theme has it (the live wallpaper at 10 fps, the clock's hands
+with it). `gate.sh shell` measures both: commits a second and qml-runner's CPU over 10 s on Home at rest (at most 12 a
+second and a third of a core) and with the Home Hub in front (no commit, at most 3 %); `ctl shell` carries the per-window
+commit counts. The volume display cues on a change only (a `cause`, or the level or mute differing from the last report),
+not on the state read at the start.
 
 ### Tools and the gate
 

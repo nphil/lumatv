@@ -51,9 +51,12 @@ QtObject {
         property string cause: ""
         property int reports: 0
         signal volumeUpdated()
+        // `volumeUpdated` is a change (a key, a mute, an app or the receiver moving the volume: the push carries a `cause`, or the
+        // level or the mute differs from the last report), never the state read at the start, which LG's popup does not open for.
         function apply(doc) {
             var v = doc && doc.volumeStatus
             if (!v) return
+            var was = reports > 0 ? { volume: volume, muted: muted } : null
             if (typeof v.volume === "number") volume = v.volume
             if (typeof v.maxVolume === "number" && v.maxVolume > 0) volumeMax = v.maxVolume
             if (typeof v.muteStatus === "boolean") muted = v.muteStatus
@@ -64,7 +67,7 @@ QtObject {
             cause = typeof v.cause === "string" ? v.cause : ""
             disabled = v.activeStatus === false
             reports++
-            volumeUpdated()
+            if (cause !== "" || (was && (was.volume !== volume || was.muted !== muted))) volumeUpdated()
         }
     }
     property Connections link: Connections {
