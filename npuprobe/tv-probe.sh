@@ -143,7 +143,7 @@ if [ "$ABI" = 1 ]; then
     tag=$(basename "$m" .tflite)
     "$PROBE" --model "$m" --image "$IMG" --labels "$LABELS" --runs "$RUNS" --warmup 1 --threads "$THREADS" --cpu-backend none --delegate "$DELEGATE" --delegate-opt min_freq=30 > "$OUT/05-$tag.txt" 2>&1
     echo "exit $?" >> "$OUT/05-$tag.txt"
-    echo "$tag: $(grep -E 'delegate (NOT APPLIED|refused)|ModifyGraphWithDelegate|CRASH|exit ' "$OUT/05-$tag.txt" | tr '\n' ';')" | tee -a "$SUMMARY"
+    echo "$tag: $(grep -E 'delegate (NOT APPLIED|refused)|ModifyGraphWithDelegate|CRASH|exit ' "$OUT/05-$tag.txt" | tr '\n' ';') $(grep '^SUMMARY' "$OUT/05-$tag.txt" | cut -d' ' -f3-)" | tee -a "$SUMMARY"
   done
   echo "-- LG's own log lines about it (PmLog, /var/log/messages):"
   grep -a NPUDELEGATE /var/log/messages 2>/dev/null | tail -5
