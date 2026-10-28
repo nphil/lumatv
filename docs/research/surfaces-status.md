@@ -52,11 +52,11 @@ Also LG-side but rarer: the Home Hub tile in the apps grid (86), LG Channels on 
 | Input INFO card and channel INFO card (88, 165) | fixed offline, not yet on the set (it showed grey `#575E66`): every file reads LumaStyle, checked with LG's stock sheet in memory; the Guide chip is now a sheet pill (`restyle-fixes/banners/`) | `tools/inputcommon_patch.py` |
 | No-signal screen (89) | rebuilt offline to mock 18 on an HDMI input (glyph, input name, title, line, Inputs and Home); not yet on the set | `tools/inputcommon_patch.py` (Screensaver.qml), `payload/inputcommon/` |
 | Search app and keyboard (181, 182) | keys are Lucent, but field, chips, genre photo cards, cloud suggestions and the "Hold the AI button" hint are LG's; layout is not mock 09 | `tools/voice_patch.py`, `tools/maliit_patch.py` |
-| Volume bar (110) | bottom-centre bar lands on Netflix subtitle rows | `panels/VolumeOsd.qml` |
-| Quick panel (145) | docked left, mock 10 shows right; no second lines; extra "LG" button; no Ambient tile until linked | `panels/QuickPanel.qml` |
-| Apps library (68) | rail rows wrapped into the next row, stale clock on the set; fix landed offline (34bfc16), not re-seen | `panels/AppsGrid.qml` |
-| Settings (149, 150) | selected tab and segment marks faint; disabled rows dim; TV contrast not measured | `kit/LuSegmented.qml`, `kit/LuRow.qml` |
-| Notification drawer (133) | footer text overflowed its card; fix 0a2d782 not re-run | `panels/Drawer.qml` |
+| Volume bar (110) | bottom-centre bar lands on Netflix subtitle rows; bar stays at Nitin's bottom-centre choice, a clear spot needs his pick | `panels/VolumeOsd.qml` |
+| Quick panel (145) | fixed offline 16abb15: docked right at mock 10's place, steppers beside their words, no "LG" button; Ambient tile still needs the link | `panels/QuickPanel.qml` |
+| Apps library (68) | rail wrap and stale clock fixed offline (34bfc16), rendered clean at 100 and 200 % text, not re-seen on the set | `panels/AppsGrid.qml` |
+| Settings (149, 150) | selected tab and segment marks now an accent plate with a wider mark (16abb15, offline); disabled rows measure 6:1 offline | `kit/LuSegmented.qml`, `kit/LuRow.qml` |
+| Notification drawer (133) | footer text fix 0a2d782 renders clean; head, times and body fixed at 200 % text and contrast (16abb15) | `panels/Drawer.qml` |
 | LG Settings app (151) | themed, but LG's two-pane layout and focus pill | `payload/webapps/lumatv.css` |
 
 ## Daily (6)
