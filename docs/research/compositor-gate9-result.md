@@ -595,6 +595,11 @@ was disabled first (`cutover disable`) and the install went through Main's grant
   for 20 s and more (HDMI inputs come to the front as before). Under LG's compositor on 10-27 the same app showed channel 2-1
   (`lg-restyles/tv/banners-r18/channel-ok.png`). Counted as blocking for a go-live decision, not as a reason to disable the compositor (Main, 2026-10-28).
   Closed through SAM each time; `lumatv inputs status` running `[]`.
+- Cause, from SAM's own log of two more launches (08:27:59 and 08:31:21, evidence outside the repo in `/tmp/livetv-ev/launch5` and `launch6`, found by LiveTvFix):
+  Live TV is foreground 0.65 s after the call; 0.8 s later the dmost service launches Live Dmost (`caller_id com.webos.service.dmost.client`); the compositor
+  reports it as the only foreground entry, `windowGroup true`, `windowGroupOwner false`, `windowGroupOwnerId com.webos.app.livetv`; SAM's
+  `current_fullscreen_foreground_apps` becomes empty and 1.0 s later its last-input handler launches Home (`caller_app_id last_input_handler`, `mode last_input`).
+  Fix: `a5e2c50` (a window attached to a surface group is a member, not a card), not installed on the set; the next TV run is the new build, same launch.
 - An unplanned reboot gave the runbook's reboot check: at 08:00:00 the TV was put into Active Standby (`power/powerOff`, `remoteKey`, uptime 24.3 h,
   87,484 s) and rebooted within about a minute; tvpower's power-on reason for the new boot is `rebootByOnRegular` (LG's own regular reboot; nothing new
   in `/var/spool/faultmanager`, no crash report, compositor `failures 0`) [INFERENCE: it fires at the first standby after 24 h of uptime; the day's earlier
