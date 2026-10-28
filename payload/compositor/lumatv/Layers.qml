@@ -25,7 +25,7 @@ Item {
     property string open: ""                            // the modal surface that owns the keys ("" none)
     property var below: []                              // the modal surfaces under it, drawn and without keys
     property int buildStep: -1                          // -1: waiting for Home to present
-    readonly property int steps: 15                     // surfaces in the build chain
+    readonly property int steps: 14                     // surfaces in the build chain
     readonly property bool built: buildStep >= steps
     signal closeRequested(string id)
     signal openSettingsPage(string id)
@@ -53,7 +53,7 @@ Item {
         return id === "settings" ? settingsRes : id === "gallery" ? galleryRes : id === "picker" ? pickerRes : id === "quick" ? quickRes
              : id === "menu" ? menuRes : id === "confirm" ? confirmRes : id === "remote" ? remoteRes
              : id === "apps" ? appsRes : id === "search" ? searchRes : id === "voice" ? voiceRes : id === "banner" ? bannerRes
-             : id === "drawer" ? drawerRes : id === "access" ? accessRes : id === "recents" ? recentsRes : null
+             : id === "drawer" ? drawerRes : id === "access" ? accessRes : null
     }
     function key(dir) {
         var r = find(open)
@@ -141,10 +141,6 @@ Item {
     function accessAsk(digit, picks) { if (accessRes.item) accessRes.item.ask(digit, picks) }
     signal accessAssigned(string digit, string appId)
     signal accessMore(string digit)
-    // Recent apps (panels/Recents.qml): read whenever Home comes to the front, so Back knows whether there is anything to show.
-    function recentsRead() { if (recentsRes.item) recentsRes.item.read() }
-    readonly property int recentsCount: recentsRes.item ? recentsRes.item.count : 0
-    signal recentsPicked(string appId)
     // Home going away is the app arriving; if it never does, the splash gives up after a while rather than cover Home for ever.
     Timer { id: splashEnd; interval: 8000; onTriggered: layers.endSplash() }
     onHostActiveChanged: if (!hostActive) endSplash()
@@ -296,25 +292,6 @@ Item {
         onAssigned: layers.accessAssigned(digit, appId)
         onMoreRequested: layers.accessMore(digit)
         onCloseRequested: layers.closeRequested("access")
-    }
-
-    // ---- recent apps (step 14): over Home, the switcher; it owns the keys while it is up (Back closes it, a held OK closes the app of the frame)
-    Resident {
-        id: recentsRes
-        name: "recents"
-        step: 14
-        source: "panels/Recents.qml"
-        anchors.fill: parent
-        z: 68
-        build: layers.buildStep >= step
-        shown: layers.up("recents")
-        onDone: layers.advance(step)
-    }
-    Connections {
-        target: recentsRes.item
-        ignoreUnknownSignals: true
-        onActivated: layers.recentsPicked(appId)
-        onCloseRequested: layers.closeRequested("recents")
     }
 
     // ---- the all-apps library (step 7): the Apps tile's own grid, and Search over it (step 8)

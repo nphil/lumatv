@@ -41,6 +41,8 @@ WebOSWindow {
 
     readonly property string moduleUrl: "file://" + (Link.params.moduleDir || "/var/lib/lumatv/qml/WebOSCompositor/lumatv") + "/"
     readonly property var fg: Link.topics.foreground || ({})
+    readonly property var switcherTopic: Link.topics.switcher || ({})
+    readonly property var switcherFeed: ({ apps: Link.topics.apps || [], open: switcherTopic.open === true, from: switcherTopic.from || "", n: switcherTopic.n || 0 })
     readonly property bool screenOn: !Link.topics.screen || Link.topics.screen.on !== false
     // The compositor draws LumaTV's Home now: the Home stub's card is in front, or no card is.
     readonly property bool homeCurrent: fg.home === true
@@ -142,6 +144,10 @@ WebOSWindow {
         // its first card is drawn once while the layer is warmed
         Binding { target: overlay.item; property: "systemBusy"; value: homeWin.notifyWants || homeWin.keyboardUp || homeWin.saverUp || !homeWin.screenOn; when: overlay.status === Loader.Ready }
         Binding { target: overlay.item; property: "warming"; value: homeWin.warmShow; when: overlay.status === Loader.Ready }
+        // The app switcher (panels/Switcher.qml in the overlay): what the compositor says is running and whether it has opened the switcher; the
+        // overlay's requests go back over the channel (the cards' places, OK, Quit, Quit all, close).
+        Binding { target: overlay.item; property: "switcherFeed"; value: homeWin.switcherFeed; when: overlay.status === Loader.Ready && Link.up }
+        Connections { target: overlay.item; ignoreUnknownSignals: true; onSwitcherPost: Link.post("/v1/switcher", op) }
         Loader {
             id: notify
             anchors.fill: parent
@@ -365,6 +371,7 @@ WebOSWindow {
             if (bridge.panelReady("quick")) c.push("quick")
             if (bridge.panelReady("picker")) c.push("picker")
             if (bridge.gearReady()) c.push("drawer")
+            if (bridge.panelReady("switcher")) c.push("switcher")
             if (kbd.status === Loader.Ready && !!kbd.item && kbd.item.ready === true) c.push("keyboard")
         } catch (e) {}
         return c
@@ -413,10 +420,12 @@ WebOSWindow {
         target: Link
         onShow: homeWin.show(kind, warm)
         onSysKey: homeWin.sysKeyEvent(key, down, repeat)
-        // The Home key while LumaTV's Home has the screen: back to the top of Home, as LG's Home does on its own key.
+        // The Home key while LumaTV's Home has the screen: back to the top of Home, as LG's Home does on its own key; with nothing open on Home and
+        // the switcher on offer (the compositor says so), the app switcher instead.
         onHomeKey: {
             var h = lumaHome.item
             if (!h) return
+            if (switcher && h.atRest && overlay.item && overlay.item.openSwitcher()) return
             if (h.settingsOpen) h.closeSettings()
             h.closeAllLayers()
             if (h.hostActive) h.focusLayer = "dock"

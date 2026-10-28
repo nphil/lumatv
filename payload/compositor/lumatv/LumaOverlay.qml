@@ -54,7 +54,7 @@ Item {
     readonly property bool cameraWants: !!cameraRes.item && cameraRes.item.wants
     readonly property bool viewerUp: !!cameraRes.item && cameraRes.item.viewerUp
     readonly property bool popupUp: !!cameraRes.item && cameraRes.item.popupUp
-    readonly property bool live: up || osdLive || panelLeaving || panelHeld || cameraUp || overlaysLive
+    readonly property bool live: up || osdLive || panelLeaving || panelHeld || cameraUp || overlaysLive || switcherUp || switcherLeaving
     // The cards (the camera's pop-up, the overlay system's) take OK and Back only, and only once the top one has been up a moment (theme
     // `overlays.armMs`): a press made as it arrived was meant for the app. Everything else is the app's. They are not a surface that takes the
     // keyboard focus: under LumaTV's compositor the layer asks for the two keys by name (`takes`) and the app keeps the focus and its arrows.
@@ -63,20 +63,20 @@ Item {
     readonly property bool cardsArmed: popupUp ? (!overlaysOn || cameraArmed) : (overlaysUp && !!overlaysRes.item && overlaysRes.item.armed)
     Timer { id: cameraArm; interval: !!overlaysRes.item ? overlaysRes.item.cfg.armMs : 600; onTriggered: ov.cameraArmed = true }
     onPopupUpChanged: { cameraArmed = false; if (popupUp) cameraArm.restart(); else cameraArm.stop() }
-    // what takes every key (a panel, a banner with buttons, the camera viewer): the layer wants the keyboard focus
-    readonly property bool wantsFocus: appFront && (surface !== "" || cameraWants)
+    // what takes every key (a panel, a banner with buttons, the camera viewer, the app switcher over Home or an app): the layer wants the keyboard focus
+    readonly property bool wantsFocus: switcherUp || appFront && (surface !== "" || cameraWants)
     // and the question LG's key filter asks, which is answered key by key (`key` returns false for what it passes on)
-    readonly property bool wants: appFront && (surface !== "" || cameraWants || cardsUp)
-    readonly property var takes: appFront && surface === "" && !cameraWants && cardsUp && cardsArmed ? ["ok", "back"] : []
+    readonly property bool wants: switcherUp || appFront && (surface !== "" || cameraWants || cardsUp)
+    readonly property var takes: !switcherUp && appFront && surface === "" && !cameraWants && cardsUp && cardsArmed ? ["ok", "back"] : []
     // the overlay system
     readonly property bool overlaysOn: !!theme.overlays && theme.overlays.enabled === true
     readonly property bool overlaysLive: !!overlaysRes.item && overlaysRes.item.live
     readonly property bool overlaysUp: !!overlaysRes.item && overlaysRes.item.up
     property bool warming: false                              // set by the shell: its layer is being warmed (a card is drawn once with letters, nothing is shown)
     readonly property bool overlaysWarming: !!overlaysRes.item && warming && overlaysOn
-    // Do-not-disturb: nothing shows (and what is up goes) while a panel, a PIN, an alert, the keyboard, the saver or the camera's viewer has the screen
+    // Do-not-disturb: nothing shows (and what is up goes) while a panel, a PIN, an alert, the keyboard, the saver, the camera's viewer or the app switcher has the screen
     property bool systemBusy: false                           // set by the shell: the notifications' alert, input popup or PIN prompt, the keyboard, the saver
-    readonly property bool dnd: surface !== "" || homeBusy || systemBusy || viewerUp || panelLeaving
+    readonly property bool dnd: surface !== "" || homeBusy || systemBusy || viewerUp || panelLeaving || switcherUp
     // the volume display has something on screen or is fading: this layer is drawn for it whatever else is up
     readonly property bool osdLive: !!osdRes.item && osdRes.item.live
     // a panel that has been told to go is still sliding away: this layer stays drawn until it has gone
@@ -86,14 +86,29 @@ Item {
     // theme `remote.quickPanel` and `remote.inputPicker`: on unless the owner turned them off (the gear's tap and the Input key are then LG's)
     readonly property bool quickOn: !theme.remote || theme.remote.quickPanel !== false
     readonly property bool pickerOn: !theme.remote || theme.remote.inputPicker !== false
+    // The app switcher (panels/Switcher.qml): over Home as over an app, so none of its flags wait for `appFront`. Under LumaTV's compositor the compositor
+    // holds whether it is open (`switcherFeed`, which Shell.qml binds from its topics, and `switcherPost` takes the requests back); under LG's there
+    // is none, and the surface is open when Back on Home or the door below says so.
+    property var switcherFeed: null
+    readonly property bool switcherOwn: switcherFeed !== null
+    property bool switcherLocal: false
+    readonly property bool switcherUp: switcherOwn ? switcherFeed.open === true : switcherLocal
+    readonly property bool switcherLeaving: !!switcherRes.item && switcherRes.item.leaving === true
+    // The second press of Home is the switch `remote.appSwitcher` alone; Back on Home (`remote.recents`) opens the same surface, so either switch builds and lists it.
+    readonly property bool switcherPress: !!theme.remote && theme.remote.appSwitcher === true
+    readonly property bool switcherOn: switcherPress || (!!theme.remote && theme.remote.recents === true)
+    readonly property var switcherItem: switcherRes.item      // the surface itself, for the host's tests
+    signal switcherPost(var op)
     // Built a while after the compositor started, never in a frame someone waits for (Layers.qml builds Home's in the same spirit).
     property bool warm: false
     Timer { interval: 8000; running: true; onTriggered: ov.warm = true }
     // the two larger panels are built a little after the others, one at a time, so no frame carries more than one build
     property bool warmQuick: false
     property bool warmPicker: false
+    property bool warmSwitcher: false
     Timer { interval: 9500; running: true; onTriggered: ov.warmQuick = true }
     Timer { interval: 11000; running: true; onTriggered: ov.warmPicker = true }
+    Timer { interval: 12500; running: true; onTriggered: ov.warmSwitcher = true }
 
     // ---- the flat colour the glass samples
     readonly property color baseColor: {
@@ -150,6 +165,23 @@ Item {
         z: 1
         build: ov.warmPicker
         shown: ov.surface === "picker"
+    }
+    // The app switcher: a surface of its own, above the panels and below the volume display and the cameras' pop-up.
+    Resident {
+        id: switcherRes
+        name: "overlay switcher"
+        source: "panels/Switcher.qml"
+        anchors.fill: parent
+        z: 2.2
+        build: ov.warmSwitcher
+        shown: ov.switcherUp
+    }
+    Binding { target: switcherRes.item; property: "feed"; value: ov.switcherFeed; when: !!switcherRes.item }
+    Connections {
+        target: switcherRes.item
+        ignoreUnknownSignals: true
+        onPost: ov.switcherPost(op)
+        onCloseRequested: ov.switcherLocal = false
     }
     // The volume and mute display, drawn whenever it has something to say (its `live`): over an app's picture, where its glass is see-through,
     // and over Home, where it is not. Built with the others, so a first volume key never builds or compiles anything.
@@ -327,6 +359,8 @@ Item {
     // The same panels as Home's, built here: a press shows one, the gear again hides the quick panel, the Input key again moves the picker on to
     // the next input. Whatever else was up (a banner, the drawer, the other panel) gives way.
     function panelReady(kind) {
+        // the switcher is the one panel that is not over an app only: its door is a second press of Home, over Home or over an app
+        if (kind === "switcher") return switcherOwn && switcherPress && !!switcherRes.item
         if (!appFront) return false
         return kind === "quick" ? quickOn && !!quickRes.item : kind === "picker" ? pickerOn && !!pickerRes.item : false
     }
@@ -344,6 +378,16 @@ Item {
         return true
     }
     function closePanel() { if (surface === "quick" || surface === "picker") { surface = ""; idle.stop() } }
+    // The app switcher's doors for Home: how many apps it would list, and opening it (Back on the top of Home; a second press of Home is the
+    // compositor's). Under LumaTV's compositor opening is a request it answers by opening; under LG's the surface opens itself.
+    function switcherCount() { return !switcherRes.item || !switcherOn ? 0 : switcherRes.item.count }
+    function switcherRead() { if (switcherRes.item && switcherRes.item.readLg) switcherRes.item.readLg() }
+    function openSwitcher() {
+        if (!switcherRes.item || !switcherOn || switcherRes.item.count === 0) return false
+        if (switcherOwn) switcherPost({ op: "open" })
+        else switcherLocal = true
+        return true
+    }
     // The gear is down over an app: its tap opens the quick panel when the key is let go, so the panel joins the scene now, off the screen, and the
     // slide of the opening starts in a scene that has it (panels/PanelMotion.qml). Nothing is shown and nothing is taken.
     function warmPanel(kind) {
@@ -386,6 +430,13 @@ Item {
         if (!wants) return false
         var dir = directionFor(k)
         if (dir === "") return false
+        // the app switcher has the keys while it is up, over Home as over an app
+        if (switcherUp && switcherRes.item) {
+            if (!pressed) return true
+            if (autoRepeat && (dir === "back" || dir === "ok")) return true
+            switcherRes.item.key(dir)
+            return true
+        }
         // Over an app the cards take OK and Back (once armed) and the camera's viewer every key; a press that is not theirs goes on to the app
         // (and its release with it)
         if (surface === "" && cardsUp || surface === "" && viewerUp) {
@@ -434,7 +485,8 @@ Item {
 
     Component.onCompleted: {
         Lu.flatBackdrop = flatTex
-        Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel, warm: ov.warmPanel })
+        Bus.setOverlay({ wants: function() { return ov.wants }, key: ov.key, ready: ov.gearReady, hold: ov.gearHold, panelReady: ov.panelReady, panel: ov.panel, warm: ov.warmPanel,
+                         switcherCount: ov.switcherCount, openSwitcher: ov.openSwitcher, switcherRead: ov.switcherRead })
         // Home routes the D-pad here while a camera surface is up over it (LumaHome.keyAction)
         Bus.setCamera({ up: function() { return (ov.cameraUp || ov.overlaysUp) && ov.surface === "" }, key: function(dir) { return ov.cardKey(dir) } })
         console.info("[LumaOverlay] loaded")

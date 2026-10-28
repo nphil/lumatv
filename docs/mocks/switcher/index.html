@@ -30,8 +30,9 @@
   .sw-head .title { font-size: calc(40px * var(--ts)); font-weight: 600; letter-spacing: -.01em; line-height: 1.25; white-space: nowrap; }
   .sw-head .count { font-size: calc(24px * var(--ts)); color: var(--lu-ink-2); font-weight: 500; white-space: nowrap; }
   .sw-head .sw-btn { margin-left: auto; }
-  .sw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 64px; padding: 6px 28px; border-radius: var(--lu-radius-control); font-size: calc(26px * var(--ts)); line-height: 1.25; font-weight: 600; color: var(--lu-ink); background: #2C263A; border: 2px solid var(--lu-edge); white-space: nowrap; }
-  [data-theme="light"] .sw-btn { background: #FFFFFF; }
+  .sw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 64px; padding: 6px 28px; border-radius: var(--lu-radius-control); font-size: calc(26px * var(--ts)); line-height: 1.25; font-weight: 600; color: var(--lu-ink); background: #2C263A; border: 2px solid color-mix(in srgb, var(--lu-ink) 42%, transparent); white-space: nowrap; }
+  /* a button's edge without focus: the ink at .42 (dark) or .55 (light) over the dim, 3:1 or more (the palette's own edge is white on white in the light material) */
+  [data-theme="light"] .sw-btn { background: #FFFFFF; border-color: color-mix(in srgb, var(--lu-ink) 55%, transparent); }
   .sw-btn .ic { width: 30px; height: 30px; flex: none; }
   .sw-btn.focus { border-color: var(--lu-ink); background: #3A3350; }
   [data-theme="light"] .sw-btn.focus { background: #F1E9F6; }

@@ -6,7 +6,8 @@ import TextFile 1.0
 // server, read the way LumaTV's helper is (kit/Helper.qml): one state read, then a long poll for events. Every request
 // carries the token the compositor wrote for this session (a root-only file named in the launch parameters).
 //
-// Topics (`topics`, `updated(name)`): foreground {app, home}, screen {on}, keyboard {up}, cursor {visible}, wall {hole} (the moving wallpaper's
+// Topics (`topics`, `updated(name)`): foreground {app, home}, screen {on}, keyboard {up}, cursor {visible}, apps (the running apps, newest first:
+// [{id, title, picture, w, h, state}]), switcher {open, from, n} (the app switcher), wall {hole} (the moving wallpaper's
 // hole is under Home), audio (the
 // audio service's volume state). Events of their own: `show` (a panel the gear or Input asked for), `homeKey`, and the
 // answers to luna calls, which `luna()` routes to the callback of the call's tag. The compositor restarting restarts this
@@ -32,7 +33,9 @@ QtObject {
     property double boot: 0
     signal updated(string topic)
     signal show(string kind, bool warm)
-    signal homeKey()
+    // The Home key while LumaTV's Home has the screen; `switcher` is true when the compositor offers the app switcher (Home was pressed at rest
+    // with apps open and the owner's switch is on): the UI opens it when Home has nothing open, else it closes what it has.
+    signal homeKey(bool switcher)
     // A key of the remote taken by the on-screen keyboard while it is up (compositor server/ime.rs): its name (left, right, up, down, ok, back, a
     // digit), whether it went down, and whether it is the remote's repeat of a key already down.
     signal imeKey(string key, bool down, bool repeat)
@@ -105,7 +108,7 @@ QtObject {
                 events++
                 if (e.topic === "luna") { deliver(e.data.tag, e.data.payload); continue }
                 if (e.topic === "show") { show(String(e.data.kind || ""), e.data.warm === true); continue }
-                if (e.topic === "homekey") { homeKey(); continue }
+                if (e.topic === "homekey") { homeKey(e.data.switcher === true); continue }
                 if (e.topic === "imekey") { imeKey(String(e.data.k || ""), e.data.d === true, e.data.r === true); continue }
                 if (e.topic === "syskey") { sysKey(String(e.data.k || ""), e.data.d === true, e.data.r === true); continue }
                 if (!next) { next = {}; for (var k in topics) next[k] = topics[k] }

@@ -8,7 +8,7 @@ of the compositor's UI channel.
 The module is staged as the packager stages it (qmlhost.stage), the shell's own import modules stand in for LG's
 compositor-only ones as they do on the set, `Eos.Window` and `WebOS.Global` are stubs, and a small HTTP server plays the
 compositor: the state and the long poll of events (`--push` sets a topic, `--show` sends a panel request), the UI reports
-(`POST /v1/ui`, printed as `[report] <json>`) and the luna calls (`POST /v1/luna`, printed as `[luna] <json>`; `--luna`
+(`POST /v1/ui`, printed as `[report] <json>`) and the luna calls (`POST /v1/luna`, printed as `[luna] <json>`; `POST /v1/switcher`, the app switcher's requests, as `[switcher] <json>`; `--luna`
 answers the open call whose URI ends with the suffix). `--key` sends a key by evdev code to one of the two windows, as the
 compositor delivers it on wl_keyboard (press and release). `--eval` runs with `home` (the Home window), `sys` and `Link`.
 
@@ -58,6 +58,7 @@ class Channel:
         self.luna = []
         self.cancels = []
         self.ime = []
+        self.switcher = []
         self.polls = 0
 
     def push(self, topic, data):
@@ -137,6 +138,10 @@ def serve(channel, port):
             if self.path == '/v1/ime':
                 channel.ime.append(doc)
                 say('[ime] ' + json.dumps(doc))
+                return self.answer(200, {'ok': True})
+            if self.path == '/v1/switcher':
+                channel.switcher.append(doc)
+                say('[switcher] ' + json.dumps(doc))
                 return self.answer(200, {'ok': True})
             self.answer(404, {'ok': False})
 

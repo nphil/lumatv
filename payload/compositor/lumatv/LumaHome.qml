@@ -759,7 +759,7 @@ Item {
 
     onHostActiveChanged: {
         resetOk()
-        if (hostActive) { Lu.backdrop = blurTex; focusLayer = "dock"; statusBarItem.requestClosePopover(); layers.recentsRead() }
+        if (hostActive) { Lu.backdrop = blurTex; focusLayer = "dock"; statusBarItem.requestClosePopover(); Bus.switcherRead() }
         else {
             if (voiceBusy) voiceAbort()
             if (settingsOpen) closeSettings()
@@ -845,7 +845,7 @@ Item {
     // A held OK has a meaning on a dock tile and on a library icon (the options of that app) and, in Settings, on a row with
     // an info mark (its help); anywhere else a long press is an ordinary one.
     function holdAvailable() {
-        if (layers.open === "apps" || layers.open === "recents") return true
+        if (layers.open === "apps") return true
         if (layers.open === "settings" || layers.open === "quick") return layers.holdReady()
         var d = dockLoader.item
         if (layers.open === "" && focusLayer === "widgets" && widgetFocusId !== "" && !editing) return true          // a card: Edit Home
@@ -857,7 +857,7 @@ Item {
         onTriggered: {
             if (!root.okDown || !root.holdAvailable()) return
             root.okHeld = true
-            if (layers.open === "apps" || layers.open === "settings" || layers.open === "recents" || layers.open === "quick") layers.hold()
+            if (layers.open === "apps" || layers.open === "settings" || layers.open === "quick") layers.hold()
             else if (root.focusLayer === "widgets") root.editHome(root.widgetFocusId)
             else root.openTileMenu()
         }
@@ -916,21 +916,15 @@ Item {
     }
     function accessMore(digit) { openSettings(); layers.settingsGoTo("remote") }
     // ---- recent apps (Settings, Remote & pointer, "Recent apps on Back": theme `remote.recents`, off until the TV check). Back from the top of Home
-    // opens the switcher (panels/Recents.qml) when LG's recents list holds an app, instead of leaving Home for the latest one; with the
-    // switch off or the list empty Back is what it always was.
+    // opens the app switcher (panels/Switcher.qml, which the system layer holds: the second press of Home opens the same one) when something is
+    // open, instead of leaving Home for the latest app; with the switch off or nothing open Back is what it always was.
     readonly property bool recentsOn: !!theme.remote && theme.remote.recents === true
     function recentsBack() {
-        if (!recentsOn || layers.recentsCount === 0) return false
-        openLayer("recents")
-        return true
+        if (!recentsOn || Bus.switcherCount() === 0) return false
+        return Bus.openSwitcher()
     }
-    function recentsPicked(appId) {
-        var app = Apps.byId(appId)
-        if (app) { launchApp(app); return }
-        closeAllLayers()
-        layers.launchSplash(appId, "")
-        LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: appId }))
-    }
+    // Home is up with nothing open on it: what a press of Home may turn into the app switcher (the compositor offers it; Shell.qml asks)
+    readonly property bool atRest: hostActive && !(aiPrompt.up || layers.open !== "" || editing || trialOn)
     // ---- the gear key held (payload/keyfilter/lumatv.js times the hold): the notification drawer, from wherever Home is. While Home can
     // do this the filter stops LG's Settings long press (theme `remote.gearHold`, on unless the owner turned it off, hands the hold back to
     // LG). Held again while the drawer is up it closes it, as LG's own hold toggles Settings. The AI prompt and the saver own the remote:
@@ -1513,7 +1507,6 @@ Item {
         onBannerPicked: root.bannerPicked(id)
         onAccessAssigned: root.accessAssigned(digit, appId)
         onAccessMore: root.accessMore(digit)
-        onRecentsPicked: root.recentsPicked(appId)
     }
     // the gear's tap and the Input key: the quick panel and the input picker, from the key filter's second entry (HomePanels.qml)
     HomePanels { home: root; layers: layers; aiPrompt: aiPrompt }

@@ -1,4 +1,4 @@
-"""Scenes of UnbuiltScreens: the launch screen and spinner after the mock, Quick Access, the recent-apps switcher, the quick panel's
+"""Scenes of UnbuiltScreens: the launch screen and spinner after the mock, Quick Access, the quick panel's
 popups and edit mode.
 
 Each registers under the name of the mock it answers (`docs/mocks/shots/NN-name.png`), so a host render sits next to its design.
@@ -34,21 +34,6 @@ def _():
 @scene("31-quick-access-assign")
 def _():
     return [QA_ON, ("eval", READY, "root.accessAsk('4')"), ("snap", READY + 1200, "31-quick-access-assign")]
-
-
-# Back on Home shows the recent apps once the owner has turned it on (Settings > Remote & pointer)
-RECENTS_ON = ("theme", 0, {"remote": {"recents": True}})
-
-
-@scene("14-recents")
-def _():
-    # Back from the dock goes up to the cards, Back again opens the switcher
-    return [RECENTS_ON, ("keys", READY, "back back"), ("snap", READY + 3000, "14-recents")]
-
-
-@scene("14-recents-focus")
-def _():
-    return [RECENTS_ON, ("keys", READY, "back back"), ("keys", READY + 800, "right right"), ("snap", READY + 3600, "14-recents-focus")]
 
 
 # ---- the notification view: LG's standard toast and alert in the Luma look, and the input popup with its port said

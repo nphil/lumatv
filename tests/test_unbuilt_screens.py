@@ -1,7 +1,7 @@
 """Run with: python3 -m unittest discover -s tests -p 'test_unbuilt_screens.py'   (needs Xvfb and PyQt5; skipped without them)
 
 The screens that were not built and now are, behind their switches (off until the TV check): Quick Access for the number keys (the owner's own
-choice for a digit, the question for a digit with nothing behind it) and the recent-apps switcher that Back on Home opens. Each is one run of
+choice for a digit, the question for a digit with nothing behind it). (The recent-apps switcher that Back on Home opens is the app switcher now, `tests/test_switcher.py`.) Each is one run of
 the offline host that walks through what happens on a remote; nothing here measures time (the set's gate does) and what they look like is
 `tests/qmlhost/scenes_unbuilt.py`.
 
@@ -83,46 +83,6 @@ class QuickAccess(Walk):
         slots = json.loads(got["slots_picked"])["slots"]
         self.assertEqual(list(slots), ["4"])
         self.assertEqual(launches(got["calls_picked"]), [slots["4"]], "what was picked opens, and is kept for 4")
-
-
-@unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
-class Recents(Walk):
-    ON = "root.patchTheme({ remote: { recents: true } })"
-
-    def test_back_on_home_opens_the_switcher_only_when_the_owner_turned_it_on_and_ok_switches_to_the_frame(self):
-        got, _ = self.run_host([
-            # off (the default): Back from the dock goes up to the cards, Back again is LG's (the key is not taken)
-            (0, key("Qt.Key_Back"), "back1"), (20, key("Qt.Key_Back", "false"), "back1_up"), (200, key("Qt.Key_Back"), "back2"), (220, key("Qt.Key_Back", "false"), "back2_up"),
-            (500, STATE, "state_off"), (550, CALLS, "calls_off"),
-            # on: the same second Back opens the switcher, with the keys
-            (700, do(self.ON), "patched"), (800, key("Qt.Key_Back"), "back3"), (820, key("Qt.Key_Back", "false"), "back3_up"), (1300, STATE, "state_on"), (1350, CALLS, "calls_on"),
-            # Right moves to the second frame and OK switches to it (PlxNative), which closes the switcher
-            (1400, "root.key(Qt.Key_Right, true, false, 0)", "right"), (1420, "root.key(Qt.Key_Right, false, false, 0)", "right_up"),
-            (1500, key("Qt.Key_Return"), "ok"), (1520, key("Qt.Key_Return", "false"), "ok_up"), (2200, STATE, "state_after_ok"), (2250, CALLS, "calls"),
-        ], 3000)
-        self.assertEqual((got["back1"], got["back2"]), ("true", "false"), "off: the second Back leaves Home as it always did")
-        self.assertEqual(got["state_off"].split("/")[0], "")
-        self.assertEqual(calls(got["calls_off"], "/listRecents"), [], "off: LG's list is never asked for, not at start and not as Home comes to the front")
-        self.assertTrue(calls(got["calls_on"], "/listRecents"), "on: the list is read as the switch turns on")
-        self.assertEqual(got["state_on"].split("/")[0], "recents")
-        self.assertEqual(got["state_after_ok"].split("/")[0], "")
-        self.assertEqual(launches(got["calls"]), ["com.beb.plxnative"], "the second frame, once")
-
-    def test_a_held_ok_closes_the_app_of_the_frame_then_its_entry_and_back_returns_to_home(self):
-        got, _ = self.run_host([
-            (0, do(self.ON), "patched"),
-            (100, key("Qt.Key_Back"), "back1"), (120, key("Qt.Key_Back", "false"), "back1_up"), (300, key("Qt.Key_Back"), "back2"), (320, key("Qt.Key_Back", "false"), "back2_up"),
-            (800, STATE, "state_open"),
-            (900, key("Qt.Key_Return"), "down"), (1900, key("Qt.Key_Return", "false"), "up"), (2300, CALLS, "calls_held"),
-            (2400, key("Qt.Key_Back"), "back3"), (2420, key("Qt.Key_Back", "false"), "back3_up"), (2800, STATE, "state_back"),
-        ], 3400)
-        self.assertEqual(got["state_open"].split("/")[0], "recents")
-        closed = calls(got["calls_held"], "/closeByAppId")
-        removed = calls(got["calls_held"], "/removeRecent")
-        self.assertEqual(closed, [{"id": "netflix"}], "the app is closed first")
-        self.assertEqual(removed, [{"appId": "netflix"}], "then its card, since removing the card alone leaves the app running")
-        self.assertEqual(launches(got["calls_held"]), [], "a held OK does not switch to the app")
-        self.assertEqual(got["state_back"].split("/")[0], "", "Back closes the switcher")
 
 
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")

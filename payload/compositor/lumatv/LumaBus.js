@@ -159,6 +159,22 @@ function warmPanel(kind) {
     return false
 }
 
+// The app switcher (panels/Switcher.qml in the overlay): how many apps it would list, asked before Back is pressed on Home so Back knows whether
+// there is anything to show; whether it was opened (Back on Home: the compositor opens it on a second press of Home by itself); the list read
+// again (LG's compositor has no push of it).
+function switcherCount() {
+    try { return overlay && typeof overlay.switcherCount === "function" ? overlay.switcherCount() : 0 }
+    catch (e) { fault("switcher count", e); return 0 }
+}
+function openSwitcher() {
+    try { return !!overlay && typeof overlay.openSwitcher === "function" && overlay.openSwitcher() === true }
+    catch (e) { fault("switcher open", e); return false }
+}
+function switcherRead() {
+    try { if (overlay && typeof overlay.switcherRead === "function") overlay.switcherRead() }
+    catch (e) { fault("switcher read", e) }
+}
+
 // "All settings" and the panel's rows that open a Settings page, pressed over an app: Settings is a layer of Home, so the request waits
 // here until Home is in front and LumaHome opens it then (`takeSettings`). A request nobody took within 15 s is dropped.
 var settingsRequest = null
