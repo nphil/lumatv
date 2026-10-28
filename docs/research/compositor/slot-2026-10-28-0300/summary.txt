@@ -1,0 +1,5 @@
+Round 7 on 808256c (set's clock 00:25-01:35).
+kisf-1..3/  --only keys,ime,shell,frames x3: shell PASS 2 of 3 (osd ok, saver ok in all), ime FAIL 1 (maliit's window 1920x1080), frames FAIL all 3 (toast 53.7/71.4/78.2 ms)
+gate-full/  --skip volume: every safety check PASS, shell FAIL (quick-app: Back left the panel), frames FAIL (toast 104 ms), x1 1 gap 21.2 ms with the compositor clean
+shell-x4/   --only shell x4 (no change): 4 of 4 PASS
+ab-nice/    toast first frames with qml-runner at nice 10 (abn10: 56/55/65 ms) and nice 0 (abn0: 83/113/125 ms)

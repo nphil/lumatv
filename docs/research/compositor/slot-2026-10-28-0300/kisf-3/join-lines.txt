@@ -1,0 +1,8 @@
+[srv  72409.283] info shell: system layer live; its last commit 6 ms ago, join draws it
+[srv  72783.388] info shell: system layer live; its last commit 5 ms ago, join draws it
+[srv  72808.826] info shell: system layer live; its last commit 11 ms ago, join draws it
+[srv  72835.428] info shell: system layer live; its last commit 8 ms ago, join draws it
+[srv  72861.202] info shell: system layer live; its last commit 48 ms ago, join draws it
+[srv  72885.800] info shell: system layer live; its last commit 0 ms ago, join draws it
+[srv  72893.362] info shell: system layer live; its last commit 9 ms ago, join draws it
+[srv  72900.903] info shell: system layer live; its last commit 10 ms ago, join draws it

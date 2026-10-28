@@ -1,0 +1,16 @@
+[03:46:56] bridge: compositor connected
+[03:46:56] subscription t1: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.blegattsoundbar
+[03:46:56] subscription t2: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.screenmanager
+[03:46:56] subscription t3: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.eim
+[03:46:56] subscription t4: com.webos.surfacemanager/getForegroundWindowInfo from com.webos.service.multiviewcontroller
+[03:46:56] subscription t5: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.service.multiviewcontroller
+[03:46:56] subscription t6: com.webos.surfacemanager/getMultiViewLayoutAnimationState from com.webos.service.multiviewcontroller
+[03:46:56] subscription t7: com.webos.surfacemanager/getForegroundVideoWindow from com.webos.service.multiviewcontroller
+[03:46:56] subscription t8: com.webos.surfacemanager/getForegroundAppInfo from com.webos.applicationManager
+[03:46:56] subscription t9: com.webos.coverUI/getStatus from com.webos.applicationManager
+[03:47:49] subscription t11: com.webos.surfacemanager/getFocusedWindowInfo from com.webos.app.browser
+[03:47:50] subscription t12: com.webos.surfacemanager/getLastInputType from com.webos.app.magicnum-11989
+[03:47:58] subscription t13: com.webos.surfacemanager/getLastInputType from com.palm.app.settings-11989
+[03:48:20] subscription t14: com.webos.surfacemanager/getForegroundAppInfo from com.webos.service.ime.globalplugin
+[03:48:20] subscription t15: com.webos.surfacemanager/getLastInputType from com.webos.service.ime.globalplugin
+[03:48:48] subscription t16: com.webos.surfacemanager/getLastInputType from com.webos.app.homeconnect-11989

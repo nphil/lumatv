@@ -1,0 +1,1 @@
+{"active":{"app":"com.webos.app.voice","context":true,"model":2,"showWanted":false,"surface":239},"asked":1,"counts":{"activations":1,"commits":0,"declined":0,"deletes":0,"grabbedKeys":0,"keysyms":0,"preedits":0},"grab":true,"grabbing":true,"keyboardUp":true,"methods":[{"display":0,"id":3}],"models":1,"ok":true,"panel":{"h":438,"w":1920,"x":0,"y":642}}

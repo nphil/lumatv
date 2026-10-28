@@ -1,0 +1,4 @@
+input: gear tap: Quick Settings -> LumaTV's quick panel
+shell: system layer live; its last commit 12 ms ago, join draws it
+shell: the system layer wants the keys
+shell: system layer live; its last commit 0 ms ago, join draws it

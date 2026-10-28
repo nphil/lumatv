@@ -1,0 +1,35 @@
+client connected: pid 16578 uid 0 cmd '/usr/bin/com.webos.app.voice {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.webos.app.voice\\',\\'parameters\\':{\\'launchMode\\':\\'vkb\\',\\'activateType\\':\\'mrcu\\'},\\'inter'
+webOS shell surface on window 13 (surface 238) by pid 16578
+window 13 created on surface 238 by pid 16578
+window 13 committed without a buffer (Card app '' state Default)
+webOS shell surface on window 14 (surface 239) by pid 16578
+window 14 created on surface 239 by pid 16578
+window 14 committed without a buffer (Card app '' state Default)
+window 14: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_OVERLAY (Overlay)
+window 14: appId = com.webos.app.voice (Overlay)
+window 14 mapped (Overlay app 'com.webos.app.voice' title 'com.webos.app.voice' size Some((1920, 1080)))
+focus -> surface 239
+luna: foreground ['com.webos.app.home', 'com.webos.app.voice'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+ime: text model 2 activated on surface 239 ('com.webos.app.voice')
+ime: no input method is bound; asking the system for one (initctl emit ime-activate)
+client connected: pid 16694 uid 0 cmd '/usr/sbin/MaliitServer'
+webOS shell surface on window 15 (surface 254) by pid 16694
+window 15 created on surface 254 by pid 16694
+window 15 committed without a buffer (Card app '' state Default)
+webOS shell surface on window 16 (surface 256) by pid 16694
+window 16 created on surface 256 by pid 16694
+window 16 committed without a buffer (Card app '' state Default)
+webOS shell surface on window 17 (surface 257) by pid 16694
+window 17 created on surface 257 by pid 16694
+window 17 committed without a buffer (Card app '' state Default)
+ime: an input method (version 1) bound by pid 16694
+ime: text model 2 entered; the input method's context is made
+ime: window 15 is the keyboard's (surface 254) by pid 16694
+ime: window 17 is the keyboard's (surface 257) by pid 16694
+ime: the input method grabbed the keyboard
+luna: com.webos.service.ime.globalplugin subscribed to com.webos.surfacemanager/getForegroundAppInfo
+luna: com.webos.service.ime.globalplugin subscribed to com.webos.surfacemanager/getLastInputType
+window 15 mapped (Keyboard app '' title 'MaliitServer' size Some((1920, 438)))
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x438, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+window 15 unmapped (Keyboard app '' title 'MaliitServer' size None)
+ime: the keyboard is off the screen

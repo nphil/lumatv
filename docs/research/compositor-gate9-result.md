@@ -157,27 +157,15 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-28): rounds 1 to 6 are on the set (round 6: `4198076`, whose shell client never ran, then `1fadfcb`;
-`compositor/slot-2026-10-28-0200/`). With the shell up: trial 120 s clean (0 missed refreshes), x1 passes the PLAN rule in
-three runs (compositor side clean), and every safety and function check of the full gate passes (firmware, homeheld, live,
-x1, netflix, hdmi, keys, ime, standby, homekey, wd-hang, wd-crash, escape). Open, as Main's classification asked
-(BLOCKING = a safety/function check or anything a viewer sees; MINOR = isolated, a few ms over a limit, start-up only):
-
-- MINOR: `shell` step `saver`: tvpower refuses `turnOnScreenSaver` (`-100`), also under LG's compositor; the step needs a
-  set state in which tvpower accepts it (round 5 had one).
-- MINOR, regression against round 5: the toast's first frame 61-118 ms in two runs of the frame gate (round 5: 28-52 ms).
-  A toast shows 4-7 refreshes after it is handed over; start-up of a notification, not an animation.
-- MINOR: picker `burst_over20` 3 in one of two frame-gate runs (single 33 ms intervals in 6 windows), 0 in the other.
-- MINOR: one `loop: 11.1 ms in one pass (clients)` at the shell client's start (2 s in); no refresh lost.
-- BLOCKING until understood: `shell` step `osd` (the volume display) failed once in three runs (`osd false` with the
-  system window mapped, after Volume+), passed twice. The volume display is what a viewer sees on every volume key.
-- Not repeated in round 6: the held digit's browser (the gate closes it); `escaped` is left set by the gate's escape step
-  (the next `cutover.sh enable` clears it).
-
-Next: the `osd` flake (read `shell-result.txt` of `gate-full/` against the journal's `shell: system layer` lines and the
-client's `report()`: with the window kept mapped, `osd` is the UI's state and `systemLive` the compositor's), then the toast's
-first frame (`warm:` lines after `shell: system layer window mapped`, `delivered_ms` against the first draw of the system
-window), then x1 and the frame gate again. Read `gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log`.
+State (2026-10-28, after round 7): LumaTV's compositor is NOT live; the gate on 808256c passes every safety check (firmware,
+live, netflix, hdmi, keys, ime, standby, homekey, wd-hang, wd-crash, escape), the trial and x1 (PLAN rule), and fails on what
+Main's rule calls BLOCKING in single runs: `shell` `dpad` (1 of 3, run with maliit's full-screen keyboard window before it),
+`ime` by the gate's strict `bottom` rule (1 of 3, same cause: maliit's window size), `quick-app` (1 of 8, fixed in 889bb21),
+and the frame gate's toast (every run, 54-104 ms against 50; MINOR by the rule, but it fails the gate's `frames` line, which
+`--enable-after` needs). Next: install 889bb21 (staged), run `--only keys,ime,shell,frames` x3 and the full gate again;
+read the journal's `shell: toast delivered to the client` and `shell: system layer live; its last commit N ms ago` lines for
+the toast; decide whether `frames` may be waived for the toast (Main) so that `--enable-after` or the runbook's manual route
+goes ahead. The Optimisation list is at the end of "Rounds".
 
 ### What the ninth gate's lines were
 
@@ -502,3 +490,52 @@ client is dead 300 ms after its start) and passes on the fix. The bundle of `1fa
   run (single 33 ms intervals in the opens and closes; first frames 17.9-35.9 ms); toast first frame 61-71 ms in the
   earlier run (61.4, 63.1, 70.7) and 60.8, 82.1, 118.0 ms in the full gate, `delivered_ms` 29-107. Round 5 had 28-52 ms.
   The window staying mapped did not bring the toast's first frame down to the 20-35 ms expected; it is longer than round 5's.
+
+**Round 7, 2026-10-28 (set's clock 00:25-01:35), commit `808256c` (`compositor/slot-2026-10-28-0300/`), the shell client up; no
+go-live (BLOCKING items below).** Causes found offline from round 6's evidence and fixed in 808256c and 889bb21:
+
+- The volume display's `osd` failure (round 6, 1 of 3): `shell_handle` returned after drawing the join's frame, before it
+  stored the report's state (`osd true`), and the client never resends an identical report, so `ctl shell` kept `osd false`;
+  which of the layer's frame and the `live` word came first decided it. The state is stored first. Host test
+  `the_state_in_the_report_that_brings_the_layer_live_is_kept_when_the_join_draws_a_frame` (fails on the old order).
+- The quick panel over an app (round 7, full gate, 1 of 8 runs: `Back left overlay 'quick', wants true`): the layer had gone
+  idle, its `wants` word reached the compositor before its `live` word, and the focus is looked for among the windows in the
+  stack, which has no idle layer; nothing moved the focus when the layer joined, so Back went to the app. Focus is looked for
+  again when `live` changes (889bb21). Host test `a_layer_that_wanted_the_keys_while_idle_gets_them_when_it_goes_live`.
+- The join's window for a commit that came ahead of the `live` word is 400 ms (was 100). Round 7's own journal lines show it
+  was not what held the toast: in all 23 joins of the three frame-gate sessions the layer's last commit was 0-48 ms old and the
+  join drew it, quiet once (`shell: system layer live; its last commit N ms ago, join draws it|quiet`).
+
+*Results (808256c):*
+
+- `--only keys,ime,shell,frames` x3: keys PASS 3 of 3 (`gear-shell`, `input-shell` at the press); ime PASS 2 of 3 (the run that
+  failed had maliit's window 1920x1080 at (0, 0), not the 1920x438 at (0, 642) of the other two: the `bottom` rule that the
+  gate's own comment says fails "in four of six runs" with that window; typing and closing worked); shell PASS 2 of 3 (`osd` and
+  `saver` ok in all three; the failure was `dpad`: focus `dock` after Up with the keys counted, 7 to 11, in the run whose ime
+  step had the full-screen window); frames FAIL 3 of 3 on the toast (first frame 53.7, 71.4, 78.2 ms; limit 50) and single 33
+  ms intervals (`burst_over20` 1 in home-dpad, 2 in picker in run 1; 2 in quick in run 2; none in run 3). home-dpad 27.7-32.2
+  ms, quick 30.3-37.0 ms (burst end 155-163), picker 22.9-31.9 ms (burst end 148.6-160.5), callbacks ahead 3102-3307 of
+  4144-4255.
+- Full gate (`--skip volume`): firmware, homeheld, live, netflix, hdmi, keys, ime, standby, homekey, wd-hang, wd-crash and
+  escape PASS; x1: client 1 gap over 20 ms (21.2 ms, 59.93 fps), compositor side clean (`late` 0 to 0, no stamp, no stall,
+  run-queue waits 3.0 / 3.5 ms) = PASS by the PLAN rule, FAIL by zero; shell FAIL on `quick-app` (above); frames FAIL on the
+  toast alone (104.2 ms; home-dpad 29.6, quick 33.6, picker 26.3 ms all ok).
+- `--only shell` x4 on the same bundle: 4 of 4 PASS (the quick panel over an app included).
+- Toast, the open item: qml-runner at nice 0 instead of 10 made it worse, not better (first frames 83, 113, 125 ms against 56,
+  55, 65 ms at nice 10, same session, `ab-nice/`), so priority is not it, and the kept, warmed toast slot (808256c) did not
+  bring it down either (53.7-78.2 ms in the frame gate, 104 ms in the full one; round 6: 61-118). The join is not it (above).
+  889bb21 journals `shell: toast delivered to the client` beside the join line: the gap between the two lines minus the
+  commit age is the client's time from the delivery to its first frame of the toast, which the next round reads.
+
+### Optimisation list (MINOR, by Nitin's rule of 2026-10-27: not noticeable in use)
+
+- Toast first frame 54-104 ms from the delivery (limit 50; round 5: 28-52): a notification appearing 3-6 refreshes late.
+- Single 33 ms intervals in the frame gate's bursts (`burst_over20` 0-2 per run in home-dpad, quick and picker), isolated.
+- x1: 1 client gap of 20.8-21.8 ms in most runs (swapchain filling or one late client commit); LG's compositor shows 4-7.
+- One `loop: 11.1 ms in one pass (clients)` at the shell client's start; no refresh lost; the trial of round 6 had 0 missed.
+- maliit's keyboard window is 1920x1080 at (0, 0) in some runs, which the gate's `bottom` rule rejects; the keyboard works.
+- `shell` step `saver`: tvpower answered `-100 Invalid State change Request` to `turnOnScreenSaver` for a while in round 6, also
+  under LG's compositor; it passed in all eight of round 7's runs.
+- `escaped` stays set after the gate's escape step until the next `cutover.sh enable`.
+- helper/ at c37660b-era HEADs did not compile on 2026-10-28 (stray `)` in `service.rs`, `sched_param` fields in
+  `gfn_boost.rs` on musl); the ipks of rounds 6b and 7 carry the helper built at 1fadfcb.
