@@ -22,6 +22,7 @@ pub mod kms;
 pub mod luna;
 pub mod luna_methods;
 pub mod mem;
+pub mod oledcare;
 pub mod output;
 /// LumaShow's frame pacer, copied verbatim by `tools/sync-lumashow.sh` (`vendor/LUMASHOW_REV` names the commit).
 #[path = "vendor/pacer.rs"]

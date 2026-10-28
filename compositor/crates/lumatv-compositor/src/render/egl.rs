@@ -184,6 +184,7 @@ entry_points! {
     glGetAttribLocation: fn(GLuint, *const c_char) -> GLint;
     glGetUniformLocation: fn(GLuint, *const c_char) -> GLint;
     glUniform1i: fn(GLint, GLint);
+    glUniform1f: fn(GLint, GLfloat);
     glVertexAttribPointer: fn(GLuint, GLint, GLenum, u8, GLsizei, *const c_void);
     glEnableVertexAttribArray: fn(GLuint);
     glDrawArrays: fn(GLenum, GLint, GLsizei);

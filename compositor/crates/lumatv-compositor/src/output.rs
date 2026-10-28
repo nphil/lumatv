@@ -119,6 +119,10 @@ pub trait Output {
         false
     }
 
+    /// The frame just drawn was an OLED-care beat alone (`Scene::care_frame`): a still screen's one-pixel step or dim, owed nothing after it. The
+    /// output may call the screen at rest once that frame has flipped, rather than a second after it, so the tick stays at its slowed rate.
+    fn quiet_frame(&mut self) {}
+
     /// `idle_tick_at` for a tick no sooner than `wait` from now (the slowed tick), still on the panel's grid. `None` as there.
     fn idle_tick_after(&self, _now: Instant, _wait: Duration) -> Option<Instant> {
         None

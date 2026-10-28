@@ -165,6 +165,8 @@ pub struct Kms {
     latch: std::cell::Cell<(u64, u64)>,
     /// When the last frame was drawn (CLOCK_MONOTONIC ns), for the `trace: tick` line on a long interval.
     last_draw_ns: u64,
+    /// The last drawn frame was an OLED-care beat alone: the screen is at rest sooner after it ([`IDLE_QUIET_CARE_NS`]).
+    care_draw: bool,
     tick_lines: u32,
     pub direct_frames: u64,
     pub split_frames: u64,
@@ -204,6 +206,9 @@ const LATCH_STEP_NS: u64 = 1_000_000;
 /// How long nothing may have been drawn or flipped before the output calls the screen at rest (`Output::idle_ok`): a frame owed by something
 /// that is not an event (a stand-in, a warm) is drawn within a few refreshes, so a second without one is a still screen.
 const IDLE_QUIET_NS: u64 = 1_000_000_000;
+/// The same after a frame that was an OLED-care beat alone (`Output::quiet_frame`): it owes nothing, so once it has flipped (a refresh or two) the
+/// screen is at rest, and the beat does not hold the tick at the panel's rate for a second.
+const IDLE_QUIET_CARE_NS: u64 = 150_000_000;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
@@ -386,6 +391,7 @@ impl Kms {
             held: false,
             latch: std::cell::Cell::new((0, 0)),
             last_draw_ns: 0,
+            care_draw: false,
             tick_lines: 0,
             direct_frames: 0,
             split_frames: 0,
@@ -851,7 +857,12 @@ impl Output for Kms {
             && self.queued.is_none()
             && self.last_assignment.is_none()
             && !self.gl.standin_due()
-            && self.now_ns().saturating_sub(self.last_draw_ns.max(self.timing.last_flip_ns())) >= IDLE_QUIET_NS
+            && self.now_ns().saturating_sub(self.last_draw_ns.max(self.timing.last_flip_ns()))
+                >= if self.care_draw { IDLE_QUIET_CARE_NS } else { IDLE_QUIET_NS }
+    }
+
+    fn quiet_frame(&mut self) {
+        self.care_draw = true;
     }
 
     /// `idle_tick_at` for the slowed tick: the first refresh's latch on the panel's grid that is at least `wait` away.
@@ -1009,6 +1020,7 @@ impl Output for Kms {
             );
         }
         self.last_draw_ns = now;
+        self.care_draw = false;
         let slot_ns = self.timing.pacer.plan(now).slot_ns;
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose

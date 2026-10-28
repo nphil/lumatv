@@ -65,6 +65,13 @@ fn blend(dst: u32, src: u32) -> u32 {
     (ch(24) << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
 
+/// `src` with its colour scaled by `dim` (0 to 1) and its alpha left: the OLED care's dim, as the GL renderer's `u_dim` does it.
+#[inline]
+fn dimmed(src: u32, dim: u32) -> u32 {
+    let ch = |shift: u32| -> u32 { (((src >> shift) & 255) * dim + 128) / 256 };
+    (src & 0xff00_0000) | (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
+
 impl Output for Software {
     fn name(&self) -> &'static str {
         "software"
@@ -100,6 +107,8 @@ impl Output for Software {
             if clip.is_empty() {
                 continue;
             }
+            // 256 is "not dimmed": the scale in 256ths
+            let dim = (item.dim * 256.0).round() as u32;
             match kind_of(&item.buffer) {
                 BufferKindRef::Shm(shm) => {
                     let shm = shm.clone();
@@ -112,6 +121,7 @@ impl Output for Software {
                             for x in clip.x..clip.right() {
                                 let sx = x - item.rect.x;
                                 if let Some(src) = shm.pixel(bytes, sx, sy) {
+                                    let src = if dim < 256 { dimmed(src, dim) } else { src };
                                     let d = &mut pixels[row + x as usize];
                                     *d = blend(*d, src);
                                 }

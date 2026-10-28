@@ -78,6 +78,9 @@ pub struct Gl {
     program: GLuint,
     a_pos: GLuint,
     a_uv: GLuint,
+    /// The `u_dim` uniform's location and the value it holds (1 between frames: [`Gl::set_dim`]).
+    u_dim: egl::GLint,
+    dim: f32,
     textures: HashMap<ObjectId, Tex>,
     /// Textures of buffers that died, destroyed later (`bury`): freeing a driver import stalls the caller until the GPU
     /// is done with the last frame that read it (8.9-18.8 ms renders at X1's disconnect on the fourth and fifth gates).
@@ -168,7 +171,9 @@ impl UiStats {
 }
 
 const VS: &str = "attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;\nvoid main() { gl_Position = vec4(a_pos, 0.0, 1.0); v_uv = a_uv; }\n";
-const FS: &str = "precision mediump float; uniform sampler2D u_tex; varying vec2 v_uv;\nvoid main() { gl_FragColor = texture2D(u_tex, v_uv); }\n";
+/// `u_dim` scales the colour and leaves the alpha: the buffers are premultiplied, so a dimmed layer is the same layer with less light
+/// (the OLED care's dim, `oledcare`); 1 for everything else.
+const FS: &str = "precision mediump float; uniform sampler2D u_tex; uniform float u_dim; varying vec2 v_uv;\nvoid main() { vec4 c = texture2D(u_tex, v_uv); gl_FragColor = vec4(c.rgb * u_dim, c.a); }\n";
 
 impl Gl {
     /// Opens the driver, binds the Wayland display when `path` is `Driver`, and makes the offscreen target.
@@ -187,13 +192,15 @@ impl Gl {
         let (fbo, target) = offscreen_target(&egl, width, height)?;
         let a = &egl.api;
         // SAFETY: a context is current; the program is checked by `link`.
-        let (program, a_pos, a_uv) = unsafe {
+        let (program, a_pos, a_uv, u_dim) = unsafe {
             let program = link(&egl)?;
             let a_pos = (a.glGetAttribLocation)(program, c"a_pos".as_ptr());
             let a_uv = (a.glGetAttribLocation)(program, c"a_uv".as_ptr());
             (a.glUseProgram)(program);
             (a.glUniform1i)((a.glGetUniformLocation)(program, c"u_tex".as_ptr()), 0);
-            (program, a_pos as GLuint, a_uv as GLuint)
+            let u_dim = (a.glGetUniformLocation)(program, c"u_dim".as_ptr());
+            (a.glUniform1f)(u_dim, 1.0);
+            (program, a_pos as GLuint, a_uv as GLuint, u_dim)
         };
         let bgra_upload = egl.has_gl_extension("GL_EXT_texture_format_BGRA8888");
         Ok(Gl {
@@ -205,6 +212,8 @@ impl Gl {
             program,
             a_pos,
             a_uv,
+            u_dim,
+            dim: 1.0,
             textures: HashMap::new(),
             graveyard: Vec::new(),
             warm: None,
@@ -691,6 +700,15 @@ impl Gl {
         Some((entry.tex, entry.size, entry.y_invert, new))
     }
 
+    /// Sets the brightness the next draws are made at (the program is in use); a call that changes nothing makes no GL call.
+    fn set_dim(&mut self, dim: f32) {
+        if dim != self.dim {
+            // SAFETY: a uniform of the program the renderer has in use.
+            unsafe { (self.egl.api.glUniform1f)(self.u_dim, dim) };
+            self.dim = dim;
+        }
+    }
+
     fn draw_quad(&self, tex: GLuint, rect: &Rect, y_invert: bool) {
         let w = self.width as f32;
         let h = self.height as f32;
@@ -893,6 +911,7 @@ impl Gl {
             let warming = self.textures.get(&item.buffer.id()).is_some_and(|t| t.external && (t.warm_sync.is_some() || t.held));
             if let (true, Some(page)) = (warming, standin_page) {
                 let full = Rect::new(0, 0, self.width as i32, self.height as i32);
+                self.set_dim(1.0);
                 // SAFETY: plain state calls on the current context.
                 unsafe { (self.egl.api.glDisable)(egl::GL_BLEND) };
                 for r in rects {
@@ -917,6 +936,7 @@ impl Gl {
                 continue;
             }
             let mut drawn = false;
+            self.set_dim(item.dim);
             for r in rects {
                 let clip = item.rect.intersect(r);
                 if clip.is_empty() {
@@ -930,6 +950,7 @@ impl Gl {
                 stats.drawn += 1;
             }
         }
+        self.set_dim(1.0);
         self.standins_next = std::mem::replace(&mut self.standins, standins);
         // (a hole is cleared as its item is reached, above: what is drawn above the item stays)
         #[cfg(feature = "ui")]

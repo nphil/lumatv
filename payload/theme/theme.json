@@ -193,6 +193,14 @@
     "shiftEverySec": 4,
     "standbyHours": 4
   },
+  "oledcare": {
+    "enabled": false,
+    "orbitPx": 3,
+    "stepSec": 30,
+    "dimAfterMin": 5,
+    "dimOverMin": 10,
+    "dimTo": 0.85
+  },
   "remote": {
     "numberKeys": true
   }

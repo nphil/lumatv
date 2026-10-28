@@ -166,11 +166,13 @@ pub struct State {
 impl State {
     pub fn new(dh: DisplayHandle, config: Config, output: Box<dyn Output>, luna: Box<dyn luna::Bridge>) -> State {
         let keys = crate::input::Keys::new(&config);
+        let mut scene = Scene::default();
+        scene.care = crate::oledcare::Care::new(&config.data_dir);
         State {
             dh,
             config,
             surfaces: Surfaces::default(),
-            scene: Scene::default(),
+            scene,
             output,
             seat: SeatState { seats: 1, ..SeatState::default() },
             foreign: ForeignState::default(),
@@ -404,8 +406,11 @@ impl State {
         }
         self.scene.cursor =
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
-        let State { scene, surfaces, output, stats, .. } = self;
-        let plan = scene.plan(surfaces);
+        let State { scene, surfaces, output, stats, shell, .. } = self;
+        let now_ns = crate::output::monotonic_ns();
+        scene.care.refresh(now_ns);
+        scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        let plan = scene.plan_at(surfaces, now_ns);
         let mut drew = false;
         let ui_changed = output.ui_needs_frame().unwrap_or_else(|e| {
             log::error!("system UI: {e}");
@@ -425,6 +430,9 @@ impl State {
             }
         }
         let t_rendered = Instant::now();
+        if drew && self.scene.care_frame() {
+            self.output.quiet_frame();
+        }
         let presented = match self.output.present() {
             Ok(p) => p,
             Err(e) => {

@@ -123,6 +123,9 @@ PageList {
         { kind: "toggle", tab: 2, icon: "moon-star", label: "LumaTV saver", help: "LumaTV's clock or art shows when the TV is idle on Home.",
           enabled: function() { return page.saverStyle !== "off" }, on: function() { return page.saver.own !== false },
           act: function(v) { page.patch({ screensaver: { own: v } }) } },
+        // The compositor's panel care (compositor/crates/lumatv-compositor/src/oledcare.rs, theme `oledcare`): off until it has passed on the set.
+        { kind: "toggle", tab: 2, icon: "shield-check", label: "OLED care", help: "Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle. Apps and video stay as they are.",
+          on: function() { return !!page.theme.oledcare && page.theme.oledcare.enabled === true }, act: function(v) { page.patch({ oledcare: { enabled: v } }) } },
         // LG's own screen saver: its standby time (LG marks the choice as the owner's with the second key) and its ads
         C.choice(Sio, { ds: "option.screenSaverTimer", tab: 2, icon: "timer", label: "Screen Saver Standby Time", page: page,
                         names: { "3": "3 minutes", "10": "10 minutes", "20": "20 minutes", "30": "30 minutes" }, help: "How long without a key before LG's screen saver starts.",

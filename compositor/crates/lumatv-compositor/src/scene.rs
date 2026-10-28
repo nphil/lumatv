@@ -125,6 +125,8 @@ pub struct Item {
     pub damage: Option<(usize, usize)>,
     pub opaque: bool,
     pub y_invert: bool,
+    /// The brightness this item is drawn at, 1 for all but the shell's windows while the OLED care dims them (`oledcare`).
+    pub dim: f32,
 }
 
 /// Everything the renderer needs for one frame, bottom to top. Lives in the [`Scene`]; `plan` refreshes it.
@@ -150,7 +152,7 @@ impl Plan {
     pub fn sole_fullscreen(&self) -> Option<&Item> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         match self.items.as_slice() {
-            [one] if one.opaque && one.rect == full && self.holes.is_empty() && self.cursor.is_none() => Some(one),
+            [one] if one.opaque && one.rect == full && one.dim == 1.0 && self.holes.is_empty() && self.cursor.is_none() => Some(one),
             _ => None,
         }
     }
@@ -180,6 +182,8 @@ struct Placed {
     rect: Rect,
     opaque: bool,
     y_invert: bool,
+    /// [`Item::dim`] in hundredths.
+    dim: u8,
 }
 
 #[derive(Default)]
@@ -220,6 +224,10 @@ pub struct Scene {
     members: Vec<(i32, SurfaceId)>,
     tree: Vec<(SurfaceId, i32, i32)>,
     placed: Vec<Placed>,
+    /// The shell's own screens' OLED care: the orbit offset and the dim its beats set (`oledcare`).
+    pub care: crate::oledcare::Care,
+    /// The last plan was drawn for a care beat alone: no window had a commit to draw ([`Scene::care_frame`]).
+    care_only: bool,
 }
 
 impl Scene {
@@ -524,16 +532,38 @@ impl Scene {
 
     /// Builds this frame's plan.
     pub fn plan(&mut self, surfaces: &Surfaces) -> &Plan {
+        self.plan_at(surfaces, crate::output::monotonic_ns())
+    }
+
+    /// [`Scene::plan`] at a given time (CLOCK_MONOTONIC ns), for the OLED care's beats.
+    pub fn plan_at(&mut self, surfaces: &Surfaces, now_ns: u64) -> &Plan {
         let output = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         self.plan.clear();
         if self.plan.tiles.is_none() {
             self.plan.tiles = Some(Tiles::new(OUTPUT_WIDTH, OUTPUT_HEIGHT));
         }
         self.build_stack(surfaces);
+        // The OLED care looks at the frame before it is laid out: which shell windows are on it and whether any window has a commit
+        // to draw (a frame that is drawn anyway is the one a beat rides on).
+        let mut views = [None; crate::oledcare::LAYERS];
+        let mut pending = false;
+        for (_, _, wid) in &self.stack {
+            let Some(w) = self.windows.get(wid) else { continue };
+            pending |= w.commits > w.commits_drawn;
+            match w.kind {
+                WindowType::ShellHome => views[0] = Some(w.commits),
+                WindowType::ShellSystem => views[1] = Some(w.commits),
+                _ => {}
+            }
+        }
+        self.care.step(now_ns, views, pending);
+        self.care_only = self.care.beat_frame() && !pending;
+        let (shift, dims) = (self.care.offset(), [self.care.dim(0), self.care.dim(1)]);
         let n = self.stack.len();
         for i in 0..n {
             let wid = self.stack[i].2;
             let Some(w) = self.windows.get(&wid) else { continue };
+            let mut dim = 1.0;
             let origin = if w.kind.is_card() {
                 (0, 0)
             } else if w.kind == WindowType::Keyboard {
@@ -541,6 +571,10 @@ impl Scene {
                 // rectangle the app asked for when it asked for one.
                 let g = surfaces.get(w.surface).map(|s| keyboard_geometry(s.size(), s.current.input.as_deref())).unwrap_or_default();
                 keyboard_origin(g, self.keyboard_pref)
+            } else if matches!(w.kind, WindowType::ShellHome | WindowType::ShellSystem) {
+                // LumaTV's own screens orbit and dim (`oledcare`); an app's card, the video under Home and the keyboard do not.
+                dim = dims[(w.kind == WindowType::ShellSystem) as usize];
+                (w.position.0 + shift.0, w.position.1 + shift.1)
             } else {
                 w.position
             };
@@ -550,14 +584,14 @@ impl Scene {
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z < 0 {
-                    self.push_tree(surfaces, wid, s, origin);
+                    self.push_tree(surfaces, wid, s, origin, dim);
                 }
             }
-            self.push_tree(surfaces, wid, owner, origin);
+            self.push_tree(surfaces, wid, owner, origin, dim);
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z >= 0 {
-                    self.push_tree(surfaces, wid, s, origin);
+                    self.push_tree(surfaces, wid, s, origin, dim);
                 }
             }
         }
@@ -579,7 +613,13 @@ impl Scene {
         // frame: on every gate the full redraw of the same picture at X1's window creation flipped 14-15 ms before
         // X1's first commit, and that frame's flip two refreshes later was logged as a skipped refresh (33.37 ms).
         self.placed.clear();
-        self.placed.extend(self.plan.items.iter().map(|i| Placed { surface: i.surface, rect: i.rect, opaque: i.opaque, y_invert: i.y_invert }));
+        self.placed.extend(self.plan.items.iter().map(|i| Placed {
+            surface: i.surface,
+            rect: i.rect,
+            opaque: i.opaque,
+            y_invert: i.y_invert,
+            dim: (i.dim * 100.0).round() as u8,
+        }));
         // The system layer back in the stack counts as having been there: no damage for the join itself.
         if std::mem::take(&mut self.system_joining) {
             for (i, p) in self.placed.iter().enumerate() {
@@ -625,12 +665,18 @@ impl Scene {
         &self.plan
     }
 
+    /// Whether the last plan was drawn for an OLED-care beat alone, with no window's commit in it: the frame is owed nothing after it, so
+    /// the output may take the screen for at rest sooner than after a frame that follows an event (`Output::quiet_frame`).
+    pub fn care_frame(&self) -> bool {
+        self.care_only
+    }
+
     /// Damages everything the next plan covers, whatever changed.
     pub fn redraw_all(&mut self) {
         self.redraw_all = true;
     }
 
-    fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32)) {
+    fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32), dim: f32) {
         surfaces.tree_in_draw_order_into(root, &mut self.tree);
         let n = self.tree.len();
         for k in 0..n {
@@ -674,7 +720,7 @@ impl Scene {
             if let Some(c) = s.current.content_ns {
                 self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));
             }
-            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert });
+            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim });
         }
     }
 }

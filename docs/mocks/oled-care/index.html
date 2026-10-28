@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · Settings · Home &amp; look · OLED care</title>
+<link rel="stylesheet" href="../lucent.css"><link rel="stylesheet" href="../help.css">
+<style>
+  /* The panel care switch (docs/research/oledcare-result.md; payload/compositor/lumatv/settings/PageLook.qml, tab Screensaver).
+     Default: the tab with the new row focused and on. ?v=help: the row's help sheet (held OK). ?v=effect: what the care does, as a figure
+     (the orbit's ring and Home's dim over time; not a screen of the TV). ?theme=light for the light material; ?text=200 doubles the type
+     (Lucent: no overlapping text at 100 % and 200 %). */
+  :root { --ts: 1; }
+  [data-text="200"] { --ts: 2; }
+  [data-text="200"] .row .t, [data-text="200"] .row .v { font-size: calc(28px * var(--ts)); }
+  [data-text="200"] .tab { font-size: calc(27px * var(--ts)); height: auto; min-height: 64px; padding: 10px 6px; }
+  [data-text="200"] .page-head h1 { font-size: calc(40px * var(--ts)); }
+  [data-text="200"] .row { height: auto; min-height: 88px; }
+  [data-text="200"] .row .t { white-space: normal; }
+  [data-text="200"] .row .t .info { display: inline-block; vertical-align: middle; }
+  [data-text="200"] .seg > span { font-size: calc(26px * var(--ts)); }
+  [data-text="200"] .help-sheet { width: 960px; }
+  [data-text="200"] .help-sheet .ht, [data-text="200"] .help-sheet p { font-size: calc(26px * var(--ts)); }
+  .st { display: none; }
+  html:not([data-v]) .st.page, [data-v="help"] .st.page, [data-v="effect"] .st.effect { display: block; }
+  [data-v="effect"] .page, [data-v="effect"] .rail, [data-v="effect"] .topbar { display: none; }
+  .st.help { display: none; }
+  [data-v="help"] .st.help { display: block; }
+
+  .fig { position: absolute; left: var(--lu-edge-x); right: var(--lu-edge-x); top: 136px; bottom: var(--lu-edge-y); display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+  .fig .card { position: relative; left: auto; right: auto; top: auto; bottom: auto; min-width: 0; min-height: 0; box-sizing: border-box; padding: 28px 36px; display: flex; flex-direction: column; gap: 18px; }
+  .fig h2 { margin: 0; font-size: 34px; font-weight: 600; }
+  .fig p { margin: 0; font-size: 26px; color: var(--lu-ink-2); line-height: 1.35; }
+  .fig svg { width: 100%; flex: 1; min-height: 0; }
+  .fig .ink { stroke: var(--lu-ink); fill: none; }
+  .fig .mark { fill: var(--lu-ink-2); }
+  .fig .lit { fill: var(--lu-accent); }
+  .fig text { fill: var(--lu-ink); font-size: 22px; font-family: var(--lu-font); }
+  .fig text.dim { fill: var(--lu-ink-2); }
+  .fig .axis { stroke: var(--lu-ink-3); fill: none; stroke-width: 2; }
+</style>
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="st page">
+<div class="pane topbar">
+  <i data-ic="chevron-left" class="ic"></i>
+  <span class="title">Settings</span>
+  <span class="spacer"></span>
+  <span class="status"><i data-ic="wifi"></i><i data-ic="mouse-pointer-2"></i></span>
+  <span class="time num">9:57 PM</span>
+</div>
+
+<nav class="pane rail" data-open="home" aria-label="Settings sections"></nav>
+
+<main class="pane page">
+  <div class="page-head">
+    <h1>Home &amp; look</h1>
+  </div>
+  <div class="tabs" role="tablist">
+    <div class="tab focusable" role="tab" aria-selected="false">Look</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Home</div>
+    <div class="tab focusable" role="tab" aria-selected="true">Screensaver</div>
+    <div class="tab focusable" role="tab" aria-selected="false">Standby</div>
+  </div>
+  <div class="page-body">
+    <div class="rows">
+      <div class="row focusable no-line" tabindex="0">
+        <div class="lead"><i data-ic="moon"></i></div>
+        <div class="text"><div class="t">Screensaver<i data-ic="info" class="info"></i></div></div>
+        <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">Clock</span><span role="radio" aria-selected="false">Art</span><span role="radio" aria-selected="false">Off</span></span>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="gauge"></i></div>
+        <div class="text"><div class="t">Dim over time<i data-ic="info" class="info"></i></div></div>
+        <span class="seg" role="radiogroup"><span role="radio" aria-selected="true">On</span><span role="radio" aria-selected="false">Off</span></span>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="house-wifi"></i></div>
+        <div class="text"><div class="t">Weather and home fact</div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="power"></i></div>
+        <div class="text"><div class="t">Then go to standby<i data-ic="info" class="info"></i></div></div>
+        <span class="seg" role="radiogroup"><span role="radio" aria-selected="false">Never</span><span role="radio" aria-selected="false">2 h</span><span role="radio" aria-selected="true">4 h</span><span role="radio" aria-selected="false">8 h</span></span>
+      </div>
+      <div class="row focusable" tabindex="0">
+        <div class="lead"><i data-ic="moon-star"></i></div>
+        <div class="text"><div class="t">LumaTV saver</div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+      <div class="row focusable" tabindex="0" data-autofocus>
+        <div class="lead"><i data-ic="shield-check"></i></div>
+        <div class="text"><div class="t">OLED care<span class="info-pill"><i data-ic="info"></i>Hold OK</span></div></div>
+        <div class="toggle" role="switch" aria-checked="true"></div>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<div class="st help">
+<div class="scrim"></div>
+<div class="overlay help-sheet" style="left:572px; top:508px" role="dialog" aria-label="OLED care">
+  <div class="ht"><i data-ic="info"></i>OLED care</div>
+  <p>Moves LumaTV's own screens a pixel now and then and dims Home when it sits idle. Apps and video stay as they are.</p>
+</div>
+</div>
+
+<div class="st effect">
+<div class="fig">
+  <div class="pane card">
+    <h2>The orbit</h2>
+    <p>Everything LumaTV draws moves together, one pixel every 30 seconds, round a 7 by 7 ring: 12 minutes a lap.</p>
+    <svg viewBox="0 0 420 420" aria-label="The ring of 24 positions">
+      <g id="ring"></g>
+    </svg>
+  </div>
+  <div class="pane card">
+    <h2>The dim</h2>
+    <p>Home, untouched for 5 minutes, eases to 85 % over the next 10. A key brings it back.</p>
+    <svg viewBox="0 0 560 360" aria-label="Brightness against minutes idle">
+      <path class="axis" d="M70 20 V300 H540"/>
+      <path class="ink" stroke-width="5" d="M70 40 H190 L430 82 H540"/>
+      <text x="22" y="46">100</text><text x="34" y="92" class="dim">85</text><text x="40" y="320" class="dim">%</text>
+      <text x="70" y="336" class="dim">0</text><text x="178" y="336" class="dim">5</text><text x="418" y="336" class="dim">15</text><text x="470" y="352" class="dim">min idle</text>
+    </svg>
+  </div>
+</div>
+</div>
+
+<script src="../icons.js"></script>
+<script src="../mock.js"></script>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+  // the ring: 24 dots, the ones on a corner lit
+  const g = document.getElementById('ring');
+  if (g) {
+    const r = 3, cell = 56, c = 210, pts = [];
+    for (let i = 0; i < 8 * r; i++) {
+      const s = i / (2 * r) | 0, k = i % (2 * r);
+      pts.push([[-r + k, -r], [r, -r + k], [r - k, r], [-r, r - k]][s]);
+    }
+    let d = '';
+    pts.forEach((p, i) => { d += (i ? 'L' : 'M') + (c + p[0] * cell) + ' ' + (c + p[1] * cell) + ' '; });
+    g.innerHTML = '<path class="ink" stroke-width="3" d="' + d + 'Z"/>' +
+      pts.map(p => '<circle class="' + (Math.abs(p[0]) === r && Math.abs(p[1]) === r ? 'lit' : 'mark') + '" cx="' + (c + p[0] * cell) + '" cy="' + (c + p[1] * cell) + '" r="9"/>').join('') +
+      '<circle class="ink" stroke-width="3" cx="' + c + '" cy="' + c + '" r="9"/>';
+  }
+</script>
+</body>
+</html>
