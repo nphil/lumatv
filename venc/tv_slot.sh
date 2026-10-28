@@ -1,7 +1,7 @@
 #!/bin/sh
 # The first encoder slot, run ON THE SET as root (busybox sh), with the binary beside it:
 #
-#   scp venc/build/arm/lumatv-venc venc/tv_slot.sh tv:/tmp/venc/
+#   scp venc/build/arm64/lumatv-venc venc/tv_slot.sh tv:/tmp/venc/
 #   ssh tv 'sh /tmp/venc/tv_slot.sh'            # Home in front, nothing playing, about 6 minutes
 #   ssh tv 'sh /tmp/venc/tv_slot.sh --apps'     # adds the Netflix (protected) and HDMI 2 captures; receiver muted first
 #   scp -r tv:/tmp/venc-slot/ docs/research/venc/   # then: python3 venc/tools/decode_check.py docs/research/venc/<dir>

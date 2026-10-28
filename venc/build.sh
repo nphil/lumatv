@@ -1,11 +1,11 @@
 #!/bin/sh
 # Builds lumatv-venc for the set and for the host.
 #
-# The set's binary is 32-bit ARM, static (musl): the three ioctl ABIs it speaks are what LG's own 32-bit
-# libraries speak (libkadaptor over /dev/venc, libhma, libvtcapture over /dev/video60), so the compat ioctl
-# paths it takes are the ones LG exercises every day; it needs nothing from the set to run. A 64-bit build
-# (aarch64, static) is made as well to keep the sources clean for the helper, which is 64-bit; the one
-# 64-bit caveat is written in vt_abi.h (the physical-address query reads 32-bit pointers).
+# The set's binary is the 64-bit static one (aarch64, musl): the kernel's own V4L2 layouts, no compat
+# path, nothing needed from the set. The 32-bit build is made with glibc 2.28 (soft-float EABI, like the
+# set's own 32-bit libraries) and NOT with musl: musl on 32-bit ARM has a 64-bit time_t, which makes
+# struct v4l2_buffer 80 bytes where the set's 5.4 kernel knows only the 68-byte layout, so QUERYBUF, QBUF
+# and DQBUF would be refused. The 64-bit caveat of the video tap's address query is handled in vtcap.c.
 #
 # The host build links the fake kernel (tests/fake_sys.c) in place of the real system calls, so the same
 # probe and the unit tests run on the workstation (test.sh).
@@ -16,7 +16,7 @@ mkdir -p "$out/arm" "$out/arm64" "$out/host"
 common="$here/venc.c $here/hma.c $here/vtcap.c $here/annexb.c $here/synth.c"
 flags="-O2 -Wall -Wextra -Wno-unused-parameter"
 
-zig cc -target arm-linux-musleabihf -mcpu=cortex_a76 $flags -static -s -o "$out/arm/lumatv-venc" "$here/probe.c" $common "$here/sysops.c"
+zig cc -target arm-linux-gnueabi.2.28 -O2 -Wall -Wextra -Wno-unused-parameter -s -o "$out/arm/lumatv-venc" "$here/probe.c" $common "$here/sysops.c"
 zig cc -target aarch64-linux-musl -mcpu=cortex_a76 $flags -static -s -o "$out/arm64/lumatv-venc" "$here/probe.c" $common "$here/sysops.c"
 
 hostflags="-O1 -g -Wall -Wextra -Wno-unused-parameter"
