@@ -1,0 +1,8 @@
+cpu /usr/share/aif/model/FitTV_Detector_Yolov3_QAT_SoC.tflite
+cpu /usr/share/aiservice/DNN_GNET.tflite
+cpu /usr/share/aiservice/DNN_SQM1.tflite
+cpu /usr/share/aiservice/DNN_SQM2.tflite
+cpu /usr/share/aiservice/DNN_SQM3.tflite
+cpu /usr/share/aiservice/sound_DNN.tflite
+cpu /usr/share/voiceclick/common.tflite
+cpu /media/preload/voiceclick/hbo.tflite

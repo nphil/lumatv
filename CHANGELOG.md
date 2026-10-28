@@ -339,6 +339,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compositor: the shell may call the Homebrew Channel's `getConfiguration` and `setConfiguration`
+  (and nothing else of that service, which also runs commands as root), so Settings > System >
+  Support > Update can read and change "Block LG system updates" instead of showing "Homebrew
+  Channel: not allowed by the compositor" (not compiled or installed yet).
+- Perf gate: a `voice-focus` surface walks focus in LG's Search app; `gpu-ui-impact.py` reads
+  the set's one-line Mali counters; the Round 19 slot sends no key when Live TV does not come
+  to the front (OK on Home's focused tile had opened GeForce NOW).
 - Compositor: landed flips are handled first in each loop pass, so a frame callback no longer
   waits behind a draw; a window made or named before its first buffer draws no frame; the
   first commit with the mode is non-blocking; a refresh skipped with nothing due is no longer

@@ -295,7 +295,7 @@ fi
 # --- gpu-ui-impact.py (the page-flip cadence sampler of the TV slot) against fake counter files
 if [ "$target" = host ]; then
   if command -v python3 >/dev/null 2>&1; then
-    uiout=$(python3 "$here/test_ui_impact.py" 2>&1) && ok "gpu-ui-impact.py: 5 checks on fake counters" || bad "gpu-ui-impact.py" "$uiout"
+    uiout=$(python3 "$here/test_ui_impact.py" 2>&1) && ok "gpu-ui-impact.py: 6 checks on fake counters" || bad "gpu-ui-impact.py" "$uiout"
   else
     echo "skip gpu-ui-impact.py tests (no python3)"
   fi

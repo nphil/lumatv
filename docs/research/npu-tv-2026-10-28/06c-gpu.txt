@@ -1,0 +1,46 @@
+-- files
+ls: /usr/lib/libtensorflowlite_gpu_delegate*: No such file or directory
+lrwxrwxrwx    1 root     root            16 Apr  5  2011 /usr/lib/libOpenCL.so.1 -> libOpenCL.so.1.2
+-rw-r--r--    1 root     root         34732 Apr  5  2011 /usr/lib/libOpenCL.so.1.2
+-rw-r--r--    1 root     root         25944 Apr  5  2011 /usr/lib/libOpenCLDriverStub.so
+-rw-r--r--    1 root     root         25944 Apr  5  2011 /usr/lib/libOpenCLDriverStub.so
+lrwxrwxrwx    1 root     root            17 Apr  5  2011 /usr/lib/libmali.so -> libmali.so.0.46.0
+lrwxrwxrwx    1 root     root            17 Apr  5  2011 /usr/lib/libmali.so.0 -> libmali.so.0.46.0
+-rwxr-xr-x    1 root     root      52903836 Apr  5  2011 /usr/lib/libmali.so.0.46.0
+lrwxrwxrwx    1 root     root            29 Apr  5  2011 /usr/lib/libmaliit-plugins.so.1 -> libmaliit-plugins.so.1.1.0-86
+lrwxrwxrwx    1 root     root            29 Apr  5  2011 /usr/lib/libmaliit-plugins.so.1.1 -> libmaliit-plugins.so.1.1.0-86
+-rwxr-xr-x    1 root     root        386528 Apr  5  2011 /usr/lib/libmaliit-plugins.so.1.1.0-86
+
+/etc/OpenCL:
+total 0
+drwxr-xr-x    2 root     root            31 Apr  5  2011 vendors
+
+/etc/OpenCL/vendors:
+total 1
+-rw-r--r--    1 root     root            11 Apr  5  2011 mali.icd
+/etc/OpenCL/vendors/mali.icd: libmali.so
+-- OpenCL names inside the driver and loader binaries (lines containing each)
+/usr/lib/libmali.so.0: clGetPlatformIDs 2, clIcdGetPlatformIDsKHR 3, clEnqueueNDRangeKernel 2, cl_khr_fp16 6, cl_khr_priority_hints 1
+/usr/lib/libmali.so: clGetPlatformIDs 2, clIcdGetPlatformIDsKHR 3, clEnqueueNDRangeKernel 2, cl_khr_fp16 6, cl_khr_priority_hints 1
+/usr/lib/libOpenCL.so.1: clGetPlatformIDs 1, clIcdGetPlatformIDsKHR 1, clEnqueueNDRangeKernel 1, cl_khr_fp16 0, cl_khr_priority_hints 0
+-- the Mali kernel driver's own files
+/sys/devices/platform/soc/c4250000.gpu/pm_poweroff: 400000 2 0 
+/sys/devices/platform/soc/c4250000.gpu/core_mask: Current core mask (JS0) : 0x7 Current core mask (JS1) : 0x7 Current core mask (JS2) : 0x7 Available core mask : 0x7 
+/sys/devices/platform/soc/c4250000.gpu/dvfs_period: 100 
+/sys/devices/platform/soc/c4250000.gpu/js_scheduling_period: 100 
+/sys/devices/platform/soc/c4250000.gpu/js_timeouts: 100 100 5000 5000 1500000 5500 5500 1502000 
+/sys/devices/platform/soc/c4250000.gpu/gpuinfo: Mali-G52 3 cores r1p0 0x07040002 
+/sys/devices/platform/soc/c4250000.gpu/power_policy: [coarse_demand] always_on  
+-- the probe's view of OpenCL (--gpu-info; exit 3 means no device)
+lumatv-npu-probe 0.1  (TFLite runtime 2.13.1, built Oct 28 2026, 32-bit)
+OpenCL: ICD loader libOpenCL.so.1
+  ICD files in /etc/OpenCL/vendors: 
+    /etc/OpenCL/vendors/mali.icd -> libmali.so (that library loads)
+  platform [0] ARM Platform, ARM, OpenCL 3.0 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416
+    device [0.0] Mali-G52 r1p0 (GPU), ARM, OpenCL 3.0 v1.r46p0-01eac1.e9365f7d333a7ba9bae43e6dc670b416, driver 3.0
+      3 compute units at up to 5 MHz, global memory 1982 MiB (largest object 1982 MiB), local memory 32 KiB, work group 384
+      fp16 arithmetic yes, images yes, int8 dot product yes, priority hints yes, Arm memory import yes, subgroups yes
+      extensions: cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_byte_addressable_store cl_khr_3d_image_writes cl_khr_int64_base_atomics cl_khr_int64_extended_atomics cl_khr_fp16 cl_khr_icd cl_khr_egl_image cl_khr_image2d_from_buffer cl_khr_depth_images cl_khr_subgroups cl_khr_subgroup_extended_types cl_khr_subgroup_non_uniform_vote cl_khr_subgroup_ballot cl_khr_subgroup_non_uniform_arithmetic cl_khr_subgroup_shuffle cl_khr_subgroup_shuffle_relative cl_khr_subgroup_clustered_reduce cl_khr_il_program cl_khr_priority_hints cl_khr_create_command_queue cl_khr_spirv_no_integer_wrap_decoration cl_khr_extended_versioning cl_khr_device_uuid cl_khr_suggested_local_work_size cl_khr_extended_bit_ops cl_khr_integer_dot_product cl_khr_semaphore cl_khr_external_semaphore cl_khr_external_semaphore_sync_fd cl_khr_external_memory cl_khr_external_memory_dma_buf cl_khr_command_buffer cl_khr_command_buffer_mutable_dispatch cl_arm_core_id cl_arm_printf cl_arm_non_uniform_work_group_size cl_arm_import_memory cl_arm_import_memory_dma_buf cl_arm_import_memory_host cl_arm_integer_dot_product_int8 cl_arm_job_slot_selection cl_arm_scheduling_controls cl_arm_controlled_kernel_termination cl_ext_cxx_for_opencl cl_ext_image_tiling_control cl_ext_image_requirements_info cl_ext_image_from_buffer cl_ext_yuv_images cl_ext_image_raw10_raw12
+Mali counters /sys/kernel/debug/mali0/dvfs_utilization: not readable (debugfs not mounted, or not root)
+GPU delegate: TFLite 2.13.1 GPU delegate V2 built into the probe, OpenCL backend only
+exit 0

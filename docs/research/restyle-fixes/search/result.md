@@ -55,6 +55,27 @@ Evidence to `docs/research/restyle-fixes/search/tv/`; `lumatv voice on`, open Se
 13. `voice off` and the next open: LG's look again, a new pid.
 14. For Nitin: the hint promises the mic key; until voice search is linked it does nothing in LG's Search, as with LG's own hint ("Hold the AI button"), and whether LumaHome's listener answers the key while this app is up is not established offline. The copy is the mock's; hiding the hint is one line of `patch_searchinputbox` (its `visible`).
 
+## TV check, 2026-10-28 (`48ee380` on the set, LumaTV's compositor, over Home)
+
+Evidence: `search/tv/`. `voice on` took 2.3 s; the next open was a new process (pid 29092), `voice off` took 1.4 s.
+
+1. PASS. The app draws field, rows and cards at once. The log has one load warning, `SearchView.qml:294:13: Unable to assign [undefined] to QQuickItem*`, LG's own `KeyNavigation.up` (the host tests name the same binding at :287).
+2. PASS. The six cards show LG's pictures with rounded corners and a darker foot, so the shader compiled; every name reads (`patched-crops-1920.jpg`).
+3. PASS. Search, history, star, the profile initial, more, close and the mic in the hint are sharp at 1920 px. The back glyph shows only in the results state (see 10).
+4. PASS. Accent caret; the hint is hidden while the caret is in the field, keyboard up or hidden, and shows whole with its mic glyph as soon as focus leaves the field.
+5. PASS. Five chips to a line; "Spider-Man: Brand ..." and "Tout le monde en p..." end in "...", and the focused chip's title scrolls (`patched-marquee.jpg`).
+6. PASS. Back hides the keyboard; Down walks field, recent, popular, genres (LG's look walks the same order); each plate lights with its rim and grows, the words stay. Twice in about 30 keys one key moved two places (a Right, a Down): not explained; the frame gate below shows no late frame.
+7. PASS with the compositor's injected pointer (`ctl pointer X Y`, `ctl click`, the Magic Remote's path): hovering a popular chip, a genre card and the more button lights each as the keys do (`patched-pointer-hover.jpg`), and a click on more opens the Options sheet, a click on Quit App leaves. One click sent while the pointer was hidden searched an empty keyword instead (the pointer has to be visible, as with the real remote); a real Magic Remote was not used.
+8. PASS. Right from the field reaches profile, more, close, in that order. OK on more opens the Options sheet (hairline, switch in the accent). Back does not close it, in LG's look either (`lg-look-option-popup-back.jpg`); "Quit App" does. The results state's back key was not reached (10).
+9. PASS for the suggestions: typing (evdev letters) gives five full-width rows with the typed letter in the accent, Down and OK work. The results drawer does not open: `com.webos.service.nlpmanager` is not running under `lean`, so a search ends in the loading ring (faint on the dark sheet) and Back does not leave it; only a close through SAM does. That is LG's behaviour with the voice group off.
+10. SEEN ONCE, by that misdirected click: the empty search shows "No results for this keyword." centred on the sheet in Manrope; LG's "Go to Internet" button did not appear (`patched-no-results.jpg`). The "No results found." of the check's wording never came up after a typed search, which stays in the loading ring.
+11. PASS. The last row (genre cards) ends at y 470 of 1080; the keyboard window is 1920x438 at y 642.
+12. PASS. Frame gate (new `voice-focus` surface in `docs/research/perf/gate.py`: Down x3, Up x3, Right x2, Left x2 over the open app): first frame 15.3 ms (limit 50), p90 render 0.26 ms, 0 dropped, 0 over 20 ms, no log errors, compositor pid unchanged. RSS 77.4 MB against 73.7 MB in LG's look.
+13. PASS. LG's look comes back (grey field, white focus boxes, "Hold the AI button on the remote and search with ...") in pid 4173.
+14. For Nitin: unchanged. The restyled hint reads "Hold the mic key to speak"; LG's names the AI button.
+
+`voice` was left on: every step that can run on this set passes; the Magic Remote itself and a search that finishes are not testable here.
+
 ## Offline proof
 
 `python3 -m unittest tests.test_voice_patch tests.test_voice_stage` (every touched file's behaviour lines unchanged, every anchor fatal when

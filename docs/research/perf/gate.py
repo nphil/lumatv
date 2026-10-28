@@ -70,6 +70,13 @@ STORE_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{STORE_ID}\"}}'",
                f"luna-send -n 1 {SAM}/launch '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 20']
 STORE_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{STORE_ID}\"}}'", 'sleep 2',
                   f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
+# LG's Search app (`com.webos.app.voice`, resident, an overlay over Home), cold, with its keyboard hidden by Back so that the keys
+# move focus: what `lumatv voice on` restyles. The first launch after a close is dropped by the app inside 300 ms, hence the sleep.
+VOICE_ID = 'com.webos.app.voice'
+VOICE_SETUP = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{VOICE_ID}\"}}'", 'sleep 3',
+               f"luna-send -n 1 {SAM}/launch '{{\"id\":\"{VOICE_ID}\"}}'", 'sleep 6', 'python3 /tmp/kb.py BACK', 'sleep 1.5']
+VOICE_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"{VOICE_ID}\"}}'", 'sleep 2',
+                  f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 4']
 HDMI_TEARDOWN = [f"luna-send -n 1 {SAM}/closeByAppId '{{\"id\":\"com.webos.app.hdmi{{HDMI}}\"}}'",
                  f"luna-send -n 1 {SAM}/launch '{{\"id\":\"com.webos.app.home\"}}'", 'sleep 6']
 
@@ -158,6 +165,13 @@ SURFACES = [
     {'name': 'store-scroll', 'default': False, 'setup': STORE_SETUP, 'teardown': STORE_TEARDOWN,
      'open': '@store-scroll-open DOWNx5@0.35 UPx5@0.35', 'close': '@store-scroll-close', 'settle_s': 1,
      'transition': False,
+     'thresholds': {'burst_end_ms': None}},
+    # LG's Search app over Home, restyled by `lumatv voice on` (`--surfaces voice-focus`): the keyboard is hidden, then focus walks the field,
+    # the keyword rows and the genre cards and the top row's buttons and back, the same cycle in either look. The app is LG's native Qt
+    # client, so the first frame after a key is what it commits; the gate's burst-end check is not asked of it.
+    {'name': 'voice-focus', 'default': False, 'setup': VOICE_SETUP, 'teardown': VOICE_TEARDOWN,
+     'open': '@voice-focus-open DOWNx3@0.4 UPx3@0.4 RIGHTx2@0.4 LEFTx2@0.4', 'close': '@voice-focus-close', 'settle_s': 1,
+     'transition': False, 'soak': False,
      'thresholds': {'burst_end_ms': None}},
     # The gallery is built by the theme flag, not by a key (Home polls theme.json within 2 s), and
     # BACK turns the flag off again. Each cycle sets it, waits for the build, then times the first

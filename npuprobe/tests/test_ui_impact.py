@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """gpu-ui-impact.py against fake counter files: a flip counter that ticks at a steady rate and Mali counters that move, with a
 command that holds a stretch of time (the "job") during which the flip stream stalls once."""
+import importlib.util
 import os
 import subprocess
 import sys
@@ -96,6 +97,20 @@ class UiImpact(unittest.TestCase):
         p = subprocess.run([sys.executable, TOOL, "--before", "0.1"], capture_output=True, text=True, timeout=30)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("a command to run is needed", p.stderr)
+
+    def test_the_sets_one_line_counters_are_read(self):
+        # The set prints "busy_time: N idle_time: M" on one line (2026-10-28); a read line by line stopped on it.
+        spec = importlib.util.spec_from_file_location("gpu_ui_impact", TOOL)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as d:
+            one, two = os.path.join(d, "one"), os.path.join(d, "two")
+            with open(one, "w") as f:
+                f.write("busy_time: 1475864786 idle_time: 99\n")
+            with open(two, "w") as f:
+                f.write("busy_time: 7\nidle_time: 9\n")
+            self.assertEqual(mod.read_mali(one), (1475864786, 99))
+            self.assertEqual(mod.read_mali(two), (7, 9))
 
 
 if __name__ == "__main__":

@@ -467,6 +467,23 @@ the Mali: one process of ours, the probe, which opens `/dev/mali0` through the l
 frees the GPU context with the file. Its kernel cache and everything else are under `/tmp/lumatv-npu`. The slot sets no LG setting; luna is called only for the query group of the
 AI inference manager (step 3) and `get` of nn-proxy (step 6e), never `set`, `enable` or a model install.
 
+## TV slot, 2026-10-28 (Home idle, LumaTV's compositor, `--runs 30 --threads 3 --gpu-run`)
+
+Steps 0 to 6e ran without `--npu-run` and `--nnapi-run`, so nothing opened `/dev/npu0`; `/tmp/lumatv-npu` was removed afterwards. Receiver muted, Home in front throughout. Output: `docs/research/npu-tv-2026-10-28/` (`summary.txt` first).
+
+- **0, 7.** The NPU is idle before and after: `npu_utilization` 0, empty process list, no holder of `/dev/npu0`; `DNE`, 0.4 tops, cache 256, `aipq compatibility : false`.
+- **1.** The device's TFLite is **2.9.3** (`TfLiteVersion()` of `libtensorflow-lite.so`), not the 2.13 the analysis assumed, so the probe (2.13.1) refused steps 5 and 6 (LG's delegate stays unrun). `libXNNPACK.so` is there; `libneuralnetworks.so` is not (no NNAPI runtime). A run of LG's delegate needs a probe built against 2.9.3.
+- **2.** 0 of 8 `.tflite` files carry `lgnpu_custom_op` (LG's detector, `DNN_GNET`, `DNN_SQM1` to `3`, `sound_DNN`, the voice-click pair).
+- **3.** `ai-inference-manager`: `tops` 0.4, driver 1.0, device `DNE`, `aipq_compatibility` false, `processList` null, `usage` 0; one resource, `pqcontroller`'s `ai_pq` at 0.29 tops.
+- **4.** CPU, median ms at 3 threads (1 thread), XNNPACK: LG's detector 40.8 (96.0), EfficientDet-Lite0 int8 64.0 (102.9), SSD-MobileNetV2 int8 21.8 (49.2). Builtin kernels at 3 threads (1): 181.8 (366.8), 149.9 (295.1), 83.7 (194.2).
+- **6a.** `libwebos_nnhal.so` is the analysed stand-in (`963204be...`); LG's `lgnpu_online_nnhal_test` passes.
+- **6c.** OpenCL 3.0 platform "ARM Platform", device Mali-G52 r1p0 with fp16 arithmetic, images, int8 dot product, priority hints, Arm memory import and subgroups, found without an ICD file. The GPU delegate takes 266 of 267, 101 of 102, 263 of 263 and 199 of 199 nodes, one piece each.
+- **6d.** GPU, median ms a frame (kernel build, cold then warm): Lite0 int8 FP16 179.8 (9.1 s, 0.29 s), the same with `pref=fast` 99.4 (1.9 s), FP32 302.5 (16.1 s); Lite0 float32 FP16 150.6 (7.8 s, 0.24 s), FP32 281.6 (14.1 s); SSD int8 FP16 112.6 (3.9 s); SSD float32 FP16 95.4 (3.7 s), FP32 176.3 (5.5 s); outputs `close` to the CPU's every time. The same models on three CPU threads take 22 to 82 ms.
+  The UI at Home, flips from `/proc/lg/fbdev/fb0/flip_cnt`: before a 300-run GPU loop 13.3 a second (gaps p90 104.8 ms, max 106.4); during it (55.8 s, Mali 86.2 % busy) 11.0 a second, gaps p90 171.2 ms, max 189.6, 248 of 614 gaps late (over 1.5 times the median); after, 14.5 a second, p90 104.6. The same loop on the CPU: 12.7 a second, p90 106.3 ms, max 109.2, 0 of 257 late, Mali 12.9 %. `gpu-ui-impact.py` stopped on the first run because the set prints the Mali's counters on one line; it reads that form now.
+- **6e.** `pqcontroller` maps `libaibspLib` and holds `/dev/lne_pqe_ipc`; `nn-proxy` maps `libaibsp`; `/dev/mali0` is held by the shell client, WebAppMgr, maliit, `gal_renderd`, `nn-proxy`, the Search app and the compositor; `/var/aibsp` is empty. `nn-proxy`'s `get` with `{"type":"GENRE","command":"data"}` and the 8 s subscription answer `data1` to `data4` all 0 and `selected` `data1` (Home, nothing playing); `SR_SQM`, `SR_LEARN` and a `GENRE` read without `command` answer `invalid parameters` (errorCode 1).
+
+**Decision 5 is not met.** No FP16 figure is near 40 ms (the best is 95 ms for SSD-MobileNetV2 float32, 100 ms for Lite0 int8 with the fast start-up preference), and a GPU loop makes 40 % of the idle Home's flips late and stretches the longest gap from 106 to 190 ms. The CPU is the worker's backend: SSD-MobileNetV2 int8 takes 22 ms on three XNNPACK threads and does not touch the UI's cadence. The GPU stays a measured option.
+
 ## How the camera pop-ups would call it
 
 `ha-cameras-result.md`: Home Assistant's own detectors (Reolink, Scrypted, Kestrel) already send `person`, `vehicle`, `animal` events; the

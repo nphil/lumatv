@@ -592,6 +592,16 @@ Offline checks that back the steps: `python3 -m unittest tests.test_maliit_patch
 
 TV check: with `keyboard on` the compositor log has no `StarfishKeyboardView.qml:230` line; the four `:26` to `:29` lines may remain, and the keyboard opens and closes as before.
 
+## TV check, 2026-10-28 (`inputcommon` on, `48ee380` on the set)
+
+Evidence: `restyle-fixes/banners/tv/`. Receiver muted, picture mode `filmMaker`, HDMI apps closed through SAM afterwards.
+
+- **Pill: PASS** on HDMI 2 and HDMI 1: the dark glass pill (161 x 45 px at x 32) from 1.4 to 6.4 s after the launch call, no grey frame, pid 7890 without the snapshot flag.
+- **INFO card: PASS** in the 03:41 capture on HDMI 2 (`hdmi2-info-card-0341.jpg`): dark glass, 34 px corners, hairline, "HDMI 2" dim over "Apple TV", clock and date near-white, the chips as light-wash tiles, about 550 px wide. With the Apple TV asleep the input is black and the INFO key draws nothing (HDMI 1 with nothing connected: nothing either), so the card needs a live source.
+- **No-signal block (mock 18): not shown on this set.** `general.noSignalScreenSaver` is `on`, so LG's photo mode runs (`isPhotoRunning`) and the patch keeps LG's block there. From 7.9 s on HDMI 1 (nothing connected) LG's photo shows with "No Signal" in the restyled sheet (dark glass, Manrope, dim key-help line: `hdmi1-nosignal-photo.jpg`). Mock 18's block appears only with that setting off, which is the owner's choice and was not changed.
+- **Channel banner and Guide chip: not reachable.** Live TV starts under SAM but never takes the front (`lean` stops the tuner services), so there is no channel banner to look at. `r19_checks.py --livetv` then sent OK, RIGHT and INFO to Home, and OK on Home's focused tile opened GeForce NOW (closed again); the script now sends no key when Live TV is not in front.
+- The staged tree has 35 `.qml` files and `LumaStyle.qml` at `UserInterfaceLayer/Components/`: the structural lines that expected 30 files at `Components/` failed on stale numbers, not on the set (`dbc3f9b`).
+
 ## Not done
 
 - maliit's dictation card (`view-stt`) and the screens that only the Chinese and Japanese plugins draw (their stroke and kana layouts): those two plugins take the shared style sheets' colours, faces and focus, and nothing else is restyled in them.

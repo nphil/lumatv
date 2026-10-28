@@ -1,16 +1,16 @@
 # LG Content Store: what it is, what a theme can reach, what it costs, what the TV round checks
 
 Owner: StoreTheme. Facts are from the set (LG OLED65C4PUA, webOS 10.2.1, firmware 33.22.52) or from its firmware snapshot unless marked
-[INFERENCE]. "Host" is this workstation (headless Chromium 156), never the set. Nothing here has run on the set: the store has not been
-opened under the theme, and no open time of the store has ever been measured.
+[INFERENCE]. "Host" is this workstation (headless Chromium 156), never the set. Sections 1 to 8 are from before the set was used; section 9 is the first TV
+round (2026-10-28): the store opened under the theme and its open time measured, and the look failed on focused tiles, so the theme is off.
 
 ## Resume here
 
 - Built, host-proven, **off by default**: `lumatv store on [parts]|off|status` (`tools/store.sh`, `tools/store_theme.py`, `payload/store/`).
   Parts: `look` (the skin), `motion` (no transition longer than 180 ms), `lazy` (lazy pictures, off unless named, see 6). `on` alone is
   look and motion. `off`, `revert` and a reboot give LG's store back exactly. Registry id `store`; `apply` mounts it again at boot while on.
-- First thing on the set: step 0 of "The next TV round" (what the store's markup really is). The skin's selectors are Sandstone's by
-  inference from one capture, and the page is LG's cloud page, which is not in the firmware snapshot.
+- Next on the set: the colour of the words on LG's focused plate and the header's background (section 9, step 2); the skin's selectors are Sandstone's by
+  inference from one capture, the page is LG's cloud page (not in the firmware snapshot), and WAM's inspector does not listen on this firmware, so its markup cannot be read from the set.
 - Host proof: `python3 -m unittest tests.test_store_theme tests.test_store_stage tests.test_store_dump`, previews and audit in
   `docs/mocks/store/` (`node render.mjs`, `node bench.mjs`).
 
@@ -204,6 +204,20 @@ Order matters; each step says what PASS is. Default state at the start: `lumatv 
    (shaped like the browser's entry) with `setConfigs`, send `setPreloadPolicy {"application":{"id":"com.webos.app.discovery","isEnabled":true}}`
    with the screen on, and read the manager's log for "preloaded". Measure the warm open and `MemAvailable`. Put the saved list back
    with `setConfigs` afterwards. Not shipped; the memory the trim bought (PLAN: 307 MB) is what it spends.
+
+## 9. The TV round of 2026-10-28 (steps 0 to 6, dark material, nothing bought or installed)
+
+Evidence in `docs/research/store/` (JPEGs). `48ee380` on the set, LumaTV's compositor, receiver muted. Nothing was installed or removed (steps 0 and 3 left that out); a detail page was only opened and its Install button never pressed. The reboot of step 6 was not made (the runbook leaves the reboot to Nitin).
+
+- **0. LG's store works, theme off.** The foreground comes 0.55 to 0.89 s after the launch; cold, the page's first shelf shows at a median 2.36 s (2.14 to 2.96 s, five runs); warm (open, Home, launch after 5 s) 80 to 120 ms. The catalogue, a detail page (Fandango at Home, Just Dance Now), the Entertainment tab and the account panel (reached by a mis-aimed key, closed with Back, nothing pressed) opened. `index.html` and `js/Loader.js` were read: the loader sends the view to `<host>.app.lgwebostv.com/discovery_2024/discovery.html` after `sdx/getHttpHeaderForServiceRequest`. WAM's inspector does not listen on this firmware (no port 9998), so `store_dump.py` has nothing to talk to: the class-name dump of step 0 and the `marker` and `styles.adopted` reads of step 1 could not be taken, and the selectors were judged by eye.
+- **1. The script runs.** `store on look,motion`: `ok`, 76,432 bytes, one overlay (`lumatv-store`) over the store's directory, `userScript.js` the only file in the upper layer. The store came back with the canvas below its header in the palette's navy, so WAM runs the script from an overlay on `/mnt/otncabi`.
+- **2. The look fails.** A focused tile or button keeps LG's light-grey plate while its words turned light, so "LG Radio+", "Just Dance Now", the Install button and the "more" buttons are unreadable when focused (`on-scroll.jpg`, `on-detail-tabs-account.jpg`): the ring and wash the sheet meant for focus are not there, so its selectors miss LG's focus markup while the text rule hits. The header (title and tabs) also stays black over the navy canvas, two blacks side by side. Rows, tabs and the account panel read. Light material not run.
+- **3.** Not run (no install).
+- **4. Open time**, cold, five runs each, launch call to the first shelf's pictures: theme off median 2,360 ms (2,140 to 2,960), on 2,580 ms (2,430 to 2,730), +9.3 %, inside the 10 % bar; foreground 550 to 890 ms off, 590 to 650 ms on; warm 80 to 120 ms either way (three runs). `motion` alone and `look` alone not run.
+- **5. Scroll and focus** (`gate.py --surfaces store-scroll`, cold start, five Downs and five Ups at the remote's pace): theme off first frame 361.7 ms and 15 late frames; on (look and motion) 330.3 ms and 21 late frames; none dropped, none caused by the kernel. LG's page fails the 50 ms first-frame limit either way, and the theme neither helps nor hurts in a way three windows can show.
+- **6. The way back.** `store off`: no `discovery` line in `/proc/mounts`, the staged directory gone, `lumatv surfaces` shows `store` off, the store opens as LG's (the off runs above). `on`, a reboot and `status` (`apply` mounting it again) did not run.
+
+The theme stays off. To fix before another run: the words' colour on LG's focused plate (follow the plate, or draw the ring and wash on the right elements) and the header's background; naming LG's focus classes needs the page's DOM, which this firmware gives no way to read from the set.
 
 ## Changelog line
 

@@ -451,6 +451,8 @@ Most often used first: captions and Accessibility, Time & power (timers, auto of
 | Revert to the previous software | luna com.webos.service.update revertSWImage |  | - | cannot: expert-mode downgrade LG gates behind its own key sequence; never offered |
 | LED Driver information | luna com.webos.service.panelcontroller getCurrentLedFirmwareInfo, updateExternalChipImage |  | - | cannot: factory panel firmware; LG hides it from owners |
 
+Read on the TV 2026-10-28 (`48ee380` installed, LumaTV's compositor; captures in `update-block/`): `grep lge /etc/hosts` maps `snu.lge.com su-dev.lge.com su.lge.com su-ssl.lge.com` to 127.0.0.1 and ::1, so LG's update servers are blocked at the hosts file. `lumatv updateblock status` fails on the installed tool (`line 3755: verb_updateblock: not found`, the definition sat inside `capture_start`; fixed in `dbc3f9b`, not installed). Settings > System > Support > Update shows Software Version `webOS25 / 10.2.1-5202`, Update status "No update running", Auto Update off, "Block LG system updates" with its switch on and dimmed, and the second line "Homebrew Channel: not allowed by the compositor" (the helper's read of the channel's flag is refused under LumaTV's compositor, so the row cannot be changed from there and only the hosts file proves the block); "Check for Updates" dimmed, "Updates blocked", never takes focus, so it is inert.
+
 ### User Guide, Help, Diagnosis
 
 | LG item | Setting or luna method | TV answers | LumaTV | Status |

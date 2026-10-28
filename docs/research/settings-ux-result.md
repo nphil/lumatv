@@ -175,3 +175,17 @@ which the host picks another wallpaper file, so only the Settings surface compar
 - **Other surfaces** (quick panel, input picker, prompts, toasts, banners): other workers own them and have the rule; check each for a sentence under a name.
 - **Contrast the layout audit found before this pass** (not from the help mark or sheet, which passed): unselected tab labels read 2.4:1 and 2.6:1 on the
   segmented track, and at 200 % text the rail rows overlap. Reported to VisualQA.
+
+## Support, Privacy and Home Assistant pages on the TV, judged 2026-10-28
+
+The r19 slot's 20 captures (2026-10-28 03:34-03:36, `48ee380`, LumaTV's compositor) judged against mock 30's System and Home & look pages, which set the family; the walk changed no value. Eight of them are in `settings-ux/tv-r19-2026-10-28/`. App Permissions, Delete My Personal Information and the Home Assistant page have no mock of their own (`docs/mocks/settings-map.md` leaves Support's Privacy rows to LG's settings).
+
+They match the family: the header strip, the rail with its facts, the page title with a "‹ Support" or "‹ Home & look" pill, tabs, rows with icon chips, switches in the accent, the "Hold OK" chip on the focused row, rose words on the destructive rows, a dim reason line on a disabled one ("Needs LG's terms", "Turn Live Plus on").
+
+Gaps, most visible first:
+
+1. **Home Assistant** draws its one tab, "Connection", as a strip across the whole page. While the link is not made the plugin's other tabs do not exist, so Right changed nothing: `home-assistant-tab2` and `-tab3` show the same page.
+2. **App Permissions**: Web Browser and Camera carry the same grid glyph, not their own icons; Access File shows "No app has asked." in small dim type at the top left of an empty card, which reads as a stray label.
+3. **Delete My Personal Information**: the words are rose but both "Delete" buttons are the neutral grey pill, so the buttons say nothing about what they do; the disabled one ("Needs LG's terms") is darker still. The page is two rows in an empty card.
+4. **Tabs**: unselected labels sit on no track (mock 30 has the segmented bar); only the selected tab has a plate and a short underline. The contrast item above (unselected labels at 2.4:1 and 2.6:1) was not re-measured on the TV.
+

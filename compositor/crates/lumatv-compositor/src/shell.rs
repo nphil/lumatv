@@ -113,10 +113,21 @@ pub const ALLOWED_SERVICES: &[&str] = &[
     "com.webos.service.voiceconductor",
 ];
 
+/// Single methods of a service that is not open as a whole. The Homebrew Channel's service also runs commands as root (`exec`, `spawn`), so
+/// only its two settings calls are open, for Settings > System > Support > Update's block switch (`blockUpdates`): without them the page
+/// reads "Homebrew Channel: not allowed by the compositor" and cannot change the flag.
+pub const ALLOWED_METHODS: &[&str] = &[
+    "org.webosbrew.hbchannel.service/getConfiguration",
+    "org.webosbrew.hbchannel.service/setConfiguration",
+];
+
 /// Whether the shell may make this call: `luna://<service>/...` with the service on the allowlist (a sub-name such as
-/// `com.webos.service.audio/tv` counts as its service).
+/// `com.webos.service.audio/tv` counts as its service), or one of the single methods in `ALLOWED_METHODS`.
 pub fn allowed(uri: &str) -> bool {
     let Some(rest) = uri.strip_prefix("luna://") else { return false };
+    if ALLOWED_METHODS.contains(&rest) {
+        return true;
+    }
     let service = rest.split('/').next().unwrap_or("");
     ALLOWED_SERVICES.contains(&service) || ALLOWED_SERVICES.iter().any(|s| service.starts_with(s) && service[s.len()..].starts_with('.'))
 }
@@ -1245,6 +1256,15 @@ mod tests {
         assert!(!allowed("luna://com.webos.service.secret/anything"));
         assert!(!allowed("com.webos.applicationManager/launch"));
         assert!(!allowed("luna://com.webos.applicationManagerX/launch"));
+    }
+
+    #[test]
+    fn the_homebrew_channels_service_is_open_for_its_settings_only() {
+        assert!(allowed("luna://org.webosbrew.hbchannel.service/getConfiguration"));
+        assert!(allowed("luna://org.webosbrew.hbchannel.service/setConfiguration"));
+        assert!(!allowed("luna://org.webosbrew.hbchannel.service/exec"));
+        assert!(!allowed("luna://org.webosbrew.hbchannel.service/spawn"));
+        assert!(!allowed("luna://org.webosbrew.hbchannel.service"));
     }
 
     #[test]

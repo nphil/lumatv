@@ -1,0 +1,37 @@
+-- getDeviceCapability
+{
+    "tops": 0.4000000059604645,
+    "returnValue": true,
+    "driver_version": "1.0",
+    "supported": true,
+    "cacheSize": 256,
+    "device": "DNE",
+    "vendor": "LGE",
+    "aipq_compatibility": false
+}
+-- getDeviceStatus
+{
+    "processList": null,
+    "returnValue": true,
+    "usage": 0
+}
+-- getResourceList
+{
+    "subscribed": false,
+    "returnValue": true,
+    "serviceList": [
+        {
+            "priority": "secondary",
+            "serviceName": "com.webos.service.pqcontroller",
+            "serviceKey": "pqcontroller_service_key",
+            "resourceList": [
+                {
+                    "resourceKey": "resource_QzfQ3anI47irZp4",
+                    "model": "UNKNOWN",
+                    "tops": 0.28999999165534973,
+                    "type": "ai_pq"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,58 @@
+-- luna-send luna://com.webos.service.nnproxy/picture/get {"type":"GENRE","command":"data"}
+{
+    "returnValue": true,
+    "GENRE": [
+        {
+            "data1": 0
+        },
+        {
+            "data2": 0
+        },
+        {
+            "data3": 0
+        },
+        {
+            "data4": 0
+        }
+    ],
+    "selected": "data1"
+}
+-- luna-send luna://com.webos.service.nnproxy/picture/get {"type":"SR_SQM","command":"data"}
+{
+    "errorCode": 1,
+    "errorText": "invalid parameters",
+    "returnValue": false
+}
+-- luna-send luna://com.webos.service.nnproxy/picture/get {"type":"SR_LEARN","command":"data"}
+{
+    "errorCode": 1,
+    "errorText": "invalid parameters",
+    "returnValue": false
+}
+-- luna-send luna://com.webos.service.nnproxy/picture/get {"type":"GENRE"}
+{
+    "errorCode": 1,
+    "errorText": "invalid parameters",
+    "returnValue": false
+}
+-- the GenreData subscription for 8 s (what plays now decides what comes)
+{
+    "subscribed": true,
+    "returnValue": true,
+    "GENRE": [
+        {
+            "data1": 0
+        },
+        {
+            "data2": 0
+        },
+        {
+            "data3": 0
+        },
+        {
+            "data4": 0
+        }
+    ],
+    "selected": "data1"
+}
+Terminated

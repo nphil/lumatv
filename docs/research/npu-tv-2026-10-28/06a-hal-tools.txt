@@ -1,0 +1,26 @@
+-- hashes; libwebos_nnhal.so 963204be235cdcdf9361e61a7505280d9b000ee27d59e8627bc88de46c03d230 is the build analysed offline
+963204be235cdcdf9361e61a7505280d9b000ee27d59e8627bc88de46c03d230  libwebos_nnhal.so
+f6eeef1cbef5f7110e7cfb38802b683fc4f09ec9d8d6202a798da4c2d00f2e6b  libwebos_offline_nnhal.so.1.0.0
+03db3f50c081e220b0fcc5bb8296b22e92b94567d895bd87f75b12e1683f0404  libnnrt.so.1.0.0
+23f1b083aa1763a7979e6995e326c5e82f36cb2e738ac91c25890fd607c2bdc3  libnpu.so.1.0.0
+cff29002bdd8214f317cbe3af7cff460d3f2790bae38a18b5deff2f47c466fcf  libtflite-npu-delegate.so.1.0.0
+-- NNAPI runtime files: ls: /usr/lib/libneuralnetworks*: No such file or directory 
+-- lgnpu_online_nnhal_test, the analysed build (it opens no device)
+Running main() from /usr/src/debug/lib32-googletest/1.11.0+gitAUTOINC+9e71237221-r0/git/googletest/src/gtest_main.cc
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from NnHaTest
+[ RUN      ] NnHaTest.DeviceTest
+SetUp
+count: 1supported size: 1
+TearDown
+[       OK ] NnHaTest.DeviceTest (1 ms)
+[----------] 1 test from NnHaTest (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (1 ms total)
+[  PASSED  ] 1 test.
+exit 0
+-- run_lgnpu -h (its documented arguments; a run needs a .lgnpu package, and none is shipped)
+Usage: /usr/bin/run_lgnpu [-i input tensor file] [-p .lgnpu file] [-o output file prefix] [-a affinity] [-c run count] -j [tensor meta json]
+-- npu_process_list after: 

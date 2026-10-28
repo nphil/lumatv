@@ -183,3 +183,10 @@ always. Reads only, except the loaded run's synthetic work.
 
 Not testable offline: kbase's mappings per buffer, whether the trace trigger exists on 5.4.268, the real MemAvailable at the
 lock, the wake-up numbers themselves.
+
+## TV reads, 2026-10-28 (idle Home, `48ee380`, LumaTV's compositor, `/tmp/lumatv/lpc-probe.sh` read only)
+
+- **`irq 10 home`.** CPUs 0-2 online (LG's power manager had CPU 3 off); every line's affinity is 0-3 and every device interrupt was served on CPU 0: `DE2VSYNC` 127.6 a second, `osd_irq` 127.0, the gpu lines 73.1 and 56.1, `ohci_hcd:usb8` 67.0, `eth0` 45.8, `hdmicec` 1.0, `gfx_irq` 0.6; xHCI and EHCI none. `arch_timer` fired 5,025 a second (CPU 0 1,250, CPU 1 2,432, CPU 2 1,344), rescheduling IPIs 429. The compositor's loop thread sat on CPU 2 for 86 % of its 100 samples and on CPU 0 for 14 %. The proposal's test needs 30 % or more on CPU 0 before an interrupt is moved, so LG's placement stays and the `fifo20@0` against `fifo20@1` comparison is not needed at Home; the stream case (Netflix, GFN) is still unread.
+- **`wakeups 10 home`.** Shell client (pid 10264) 801.9 runs a second, of which one thread, `QNetworkAccessM...`, takes 592.1, `qml-runner` 135.1, `mali-cmar-backe` 70.1; compositor (pid 9678) 181.7 (its loop thread 121.0, `mali-cmar-backe` 57.3); helper 17.4 (`receiver-telnet` 12.7, `receiver` 3.6). The system: 5,959 interrupts and 10,644 context switches a second. The shell client's network thread is the one line far above the census table's "1 to 10"; what it polls at an idle Home is not known yet.
+- **`limits`.** The compositor holds 547,820 kB locked (`VmLck`) against a soft and hard limit of 65,536 bytes, which `CapEff 3fffffffff` allows; RSS 50.2 MB, `VmSwap` 0, 174 mappings, 366 major faults. The set: `MemAvailable` 490.5 MB, swap 613,964 of 614,396 kB used (full), `CmaFree` 96.5 MB of 692 MB, `swappiness` 100.
+

@@ -1,0 +1,5 @@
+before    6.0 s  flips 13.3/s  gaps p50 93.7 p90 104.8 max 106.4 ms  late 0 of 80  Mali busy 13.3 %
+during   55.8 s  flips 11.0/s  gaps p50 84.7 p90 171.2 max 189.6 ms  late 248 of 614  Mali busy 86.2 %
+after     4.0 s  flips 14.5/s  gaps p50 93.5 p90 104.6 max 106.8 ms  late 0 of 58  Mali busy 13.7 %
+command exit 0
+UIIMPACT before_fps=13.3 before_gap_p90_ms=104.8 before_gap_max_ms=106.4 before_late=0 before_mali_pct=13.3 during_fps=11.0 during_gap_p90_ms=171.2 during_gap_max_ms=189.6 during_late=248 during_mali_pct=86.2 after_fps=14.5 after_gap_p90_ms=104.6 after_gap_max_ms=106.8 after_late=0 after_mali_pct=13.7 exit=0

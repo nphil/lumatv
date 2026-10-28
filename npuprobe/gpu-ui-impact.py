@@ -12,6 +12,7 @@ The gap resolution is the sampling period (10 ms by default), so it says whether
 microseconds. Home idles at about 12 flips a second; an animation at 60. Nothing is written but the --log file.
 """
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -34,13 +35,9 @@ def read_mali(path):
             text = f.read()
     except OSError:
         return None
-    busy = idle = None
-    for line in text.splitlines():
-        if line.startswith("busy_time:"):
-            busy = int(line.split(":")[1])
-        elif line.startswith("idle_time:"):
-            idle = int(line.split(":")[1])
-    return (busy, idle) if busy is not None and idle is not None else None
+    # On the set the file is one line, "busy_time: N idle_time: M" (round 11); another firmware may print one counter a line.
+    m = {k: int(v) for k, v in re.findall(r"(busy_time|idle_time):\s*(\d+)", text)}
+    return (m["busy_time"], m["idle_time"]) if len(m) == 2 else None
 
 
 def sample_until(done, period, flips_path, mali_path):

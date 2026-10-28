@@ -1,0 +1,29 @@
+ls: /usr/lib/libneuralnetworks*: No such file or directory
+-rwxr-xr-x    1 root     root       1264140 Apr  5  2011 /usr/lib/libXNNPACK.so
+lrwxrwxrwx    1 root     root            12 Apr  5  2011 /usr/lib/libnnrt.so -> libnnrt.so.1
+lrwxrwxrwx    1 root     root            16 Apr  5  2011 /usr/lib/libnnrt.so.1 -> libnnrt.so.1.0.0
+-rwxr-xr-x    1 root     root         17748 Apr  5  2011 /usr/lib/libnnrt.so.1.0.0
+lrwxrwxrwx    1 root     root            15 Apr  5  2011 /usr/lib/libnpu.so.1 -> libnpu.so.1.0.0
+-rwxr-xr-x    1 root     root        288196 Apr  5  2011 /usr/lib/libnpu.so.1.0.0
+-rw-r--r--    1 root     root       5196172 Apr  5  2011 /usr/lib/libtensorflow-lite.so
+lrwxrwxrwx    1 root     root            27 Apr  5  2011 /usr/lib/libtflite-npu-delegate.so -> libtflite-npu-delegate.so.1
+lrwxrwxrwx    1 root     root            31 Apr  5  2011 /usr/lib/libtflite-npu-delegate.so.1 -> libtflite-npu-delegate.so.1.0.0
+-rwxr-xr-x    1 root     root         17804 Apr  5  2011 /usr/lib/libtflite-npu-delegate.so.1.0.0
+-rwxr-xr-x    1 root     root         21900 Apr  5  2011 /usr/lib/libwebos_nnhal.so
+-rwxr-xr-x    1 root     root       5396432 Apr  5  2011 /usr/bin/benchmark_model
+-rwxr-xr-x    1 root     root        382460 Apr  5  2011 /usr/sbin/ai-inference-manager
+lumatv-npu-probe 0.1  (TFLite runtime 2.13.1, built Oct 28 2026, 32-bit)
+probe runtime: TFLite 2.13.1 (what the delegate must be built against to run in this process)
+device runtime: libtensorflow-lite.so, TfLiteVersion() = 2.9.3
+  TfLiteDelegateCreate                                                                       exported
+  TfLiteIntArrayCreate                                                                       exported
+  TfLiteIntArrayFree                                                                         exported
+  _ZN6tflite8Subgraph28SetCustomAllocationForTensorEiRK22TfLiteCustomAllocationx             exported
+  _ZN6tflite11Interpreter23ModifyGraphWithDelegateEP14TfLiteDelegate                         exported
+  TfLiteInterpreterCreate                                                                    exported
+device XNNPACK: libXNNPACK.so
+device NNAPI runtime: libneuralnetworks.so not loadable
+delegate: /usr/lib/libtflite-npu-delegate.so.1 loads (lazy binding); tflite_plugin_create_delegate present, tflite_plugin_destroy_delegate present
+ABI: device 2.9.3, probe 2.13.1: DIFFERENT minor release: LG's delegate may misread the structures this probe passes it
+npu: /proc/npu/npu_utilization = 0
+, npu_process_list is empty (nothing holds the NPU)

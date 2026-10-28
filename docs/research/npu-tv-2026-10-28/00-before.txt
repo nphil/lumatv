@@ -1,0 +1,20 @@
+Wed Oct 28 07:34:21 EDT 2026
+Linux LGwebOSTV 5.4.268-329.ptl4tv.2 #1 SMP PREEMPT Thu Apr 17 00:21:25 UTC 2025 aarch64 GNU/Linux
+13.96 13.91 14.07 2/1262 16674
+online cpus: 0-2
+cpu0 1400000 kHz performance
+cpu1 1400000 kHz performance
+cpu2 1400000 kHz performance
+cpu3 1400000 kHz performance
+crw-------    1 root     root      238,   0 Dec 31  2022 /dev/npu0
+-- /proc/npu/npu_device_capability
+NPU vendor : LGE
+NPU name : DNE
+NPU driver version : 1.0
+NPU cache size : 256
+NPU tops : 0.4
+aipq compatibility : false
+-- /proc/npu/npu_utilization
+0
+-- /proc/npu/npu_process_list
+-- processes holding /dev/npu0:

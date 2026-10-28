@@ -172,6 +172,12 @@ Receiver muted through Home Assistant, Filmmaker picture mode, `vplane/tools/mea
 9. Keys and pointer in Home with the wall up (the wallpaper window takes none).
 10. The figures against the GPU wallpaper's; if they hold, the owner turns `lumatv wallpaper video` on.
 
+### TV round, 2026-10-28: blocked by what is installed, baseline taken
+
+`lumatv wallpaper status` on the set (the ipk of `48ee380`, LumaTV's compositor live): `"source":"gpu","ready":false`, missing "the video-plane player is not installed", "the video-plane player is not running" and "the package has no wallpaper clip"; `lumatv vplane status`: `installed:false, role:false, clips:0, walls:0, running:false`. The package does carry the player (`payload/vplane/lumatv-vplane`, `role.json`, `vplane.sh`) and `clips/wall-silk.vpc` with `wall.json`; nothing of it is installed, and the third line is only `walls:0` read from the installed clips (the message should name the clip only once the player is installed). `lumatv vplane install` copies the player and writes an LS2 role, an install that was not run tonight, so steps 2 to 10 did not run and `wallpaper` stays `gpu`. Main10 acceptance, the hand-overs, the `kill -9` fallback and the loop seam wait for that install.
+
+Step 1 ran (`measure.py run home-gpu 30 --proc lumatv-compositor --proc qml-runner`, idle Home, GPU wallpaper, LumaTV's compositor, receiver muted): Mali 12.6 % busy, 11.9 flips a second, `DE2VSYNC` 120.3 and `osd_irq` 119.9 a second, CPU 0.9 % of the online cores' time, `CmaFree` at least 86.8 MB, `MemAvailable` at least 471.2 MB, 55 C; the compositor 2.6 % of a core and 49.1 MB RSS, the shell client (`qml-runner`) 4.5 % and 237.5 MB RSS. Against the census's 10 % and 12.4 flips a second, the wallpaper's GPU cost is the figure the video path has to beat.
+
 ## Packaging
 
 Wired by CutoverWatchdog (`7e36a87`, `cutover-result.md`; `tests/test_lumatv_vplane.py`, `tests/test_package_tools.py`):

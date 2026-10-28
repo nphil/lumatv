@@ -1406,6 +1406,14 @@ class Slot:
     def live_tv(self, items, sub):
         self.launch('com.webos.app.livetv')
         self.sleep(6)
+        if not self.dry and self.fg() == 'com.webos.app.home':
+            # `lean` stops the tuner services: SAM lists Live TV (and livedmost) as running but neither takes the front, and OK on
+            # Home's focused tile opened GeForce NOW (2026-10-28), so no key is sent.
+            self.close_app('com.webos.app.livetv')
+            self.close_app('com.webos.app.livedmost')
+            self.sleep(2)
+            self.item(items, 'Live TV channel strip and INFO card', 'SKIPPED', 'Live TV did not come to the front; no key was sent')
+            return
         self.shot('channel', sub)
         self.kb('OK s1.2')
         self.shot('channel-ok', sub)
