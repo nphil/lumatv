@@ -1242,6 +1242,11 @@ what it already does.
   (Nitin, 2026-10-25). Prime Video stays unless an LG surface clearly pushes it.
 - LG's power-on and power-off logos are replaced by LumaTV's, three options of
   each rendered to `docs/mocks/logo`, option 1 the default (Nitin, 2026-10-25).
+- The X1 probe (a third-party client's own swaps) passes when the compositor logs no
+  late flip of its own and the probe's gaps over 20 ms are no more than under LG's
+  compositor in the same run length. LG's compositor shows 4-7 such gaps per run
+  (swapchain fill and late client commits, 2026-10-27), so zero is not a fair bar for the
+  client's side. `X1_PRIME` stays 4.
 
 ## Open decisions
 
