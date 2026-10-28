@@ -421,6 +421,10 @@ impl State {
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
         self.switcher_frame(t0);
         self.scene.transitions.suspended = self.switcher_active();
+        // The screen is off (standby): nothing is mid-move when it comes back.
+        if !self.luna_state.power.rendering && self.scene.transitions.active() {
+            self.scene.transitions.clear();
+        }
         let State { scene, surfaces, output, stats, shell, .. } = self;
         scene.care.refresh(now_ns);
         scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);

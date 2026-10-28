@@ -105,6 +105,7 @@ with its brightness, the card with its mask); a veil adds a flat one. Pictures a
   overlay revealed, the veil's hold and dissolve, Home dissolving over a hole, reduced motion, the switch off mid-move, what Home is told;
   and on Mesa's llvmpipe the GL renderer drawing a launch, a veil and an exiting app's last picture the way the software renderer does (a
   gradient picture, 4,000 samples, none over 6 levels off).
+- `tests/transitions_scanout.rs` (2, Mesa, the KMS frame logic over three scan-out pages whose row 0 is the top): a launch and a Home press are the software renderer's pictures (the mask the right way up), and a first buffer the driver is still busy with is not drawn while the move waits for it and is then seen from its start.
 - `tests/test_transitions_home.py` (QML host): the origin, the waiting launch screen and its icon, the fronted app that cancels it, the
   unchanged cut. `tests/test_lumatv_transitions.py`: the verb, the defaults, the row and the binding.
 

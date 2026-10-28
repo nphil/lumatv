@@ -611,7 +611,20 @@ fn the_gl_renderer_draws_an_exiting_apps_last_picture_and_lets_it_go() {
 
 /// Home as a picture: a dark gradient wallpaper, a status pill, two glass panels and the dock's tiles (Netflix's at `TILE`).
 fn home_picture(x: i32, y: i32) -> u32 {
-    let tiles = [0xfff0_f0f0u32, 0xff18_1820, 0xffc0_2030, 0xff20_2028, 0xff30_3038, 0xfff0_6010, 0xff50_70c0, 0xff68_6870, 0xffe8_e8e8, 0xff80_2040, 0xff18_3050, 0xff40_4048];
+    let tiles = [
+        0xfff0_f0f0u32,
+        0xff18_1820,
+        0xffc0_2030,
+        0xff20_2028,
+        0xff30_3038,
+        0xfff0_6010,
+        0xff50_70c0,
+        0xff68_6870,
+        0xffe8_e8e8,
+        0xff80_2040,
+        0xff18_3050,
+        0xff40_4048,
+    ];
     for (n, c) in tiles.iter().enumerate() {
         let (col, row) = ((n % 6) as i32, (n / 6) as i32);
         let (tx, ty) = (TILE.0 + col * 144, TILE.1 + row * 144);
@@ -623,7 +636,7 @@ fn home_picture(x: i32, y: i32) -> u32 {
             }
         }
     }
-    let glass = (x >= 64 && x < 1856) && ((y >= 160 && y < 590) || (y >= 630 && y < 1010) || (y >= 40 && y < 126));
+    let glass = (64..1856).contains(&x) && ((160..590).contains(&y) || (630..1010).contains(&y) || (40..126).contains(&y));
     let t = y as f32 / 1080.0;
     let (r, g, b) = (28.0 + 30.0 * (1.0 - t) + 14.0 * (x as f32 / 1920.0), 26.0 + 22.0 * (1.0 - t), 60.0 + 50.0 * (1.0 - t) + 20.0 * (x as f32 / 1920.0));
     let k = if glass { 0.78 } else { 1.0 };
@@ -632,9 +645,9 @@ fn home_picture(x: i32, y: i32) -> u32 {
 
 /// An app's picture: a dark canvas, a hero banner and a row of posters, so that scale, mask and corner show.
 fn app_picture(x: i32, y: i32, hue: u32) -> u32 {
-    let banner = x >= 96 && x < 1824 && y >= 170 && y < 690;
-    let poster = (0..5).any(|i| x >= 96 + i * 340 && x < 96 + i * 340 + 316 && y >= 740 && y < 960);
-    let bar = x >= 96 && x < 600 && y >= 54 && y < 126;
+    let banner = (96..1824).contains(&x) && (170..690).contains(&y);
+    let poster = (0..5).any(|i| (96 + i * 340..96 + i * 340 + 316).contains(&x) && (740..960).contains(&y));
+    let bar = (96..600).contains(&x) && (54..126).contains(&y);
     let (r, g, b) = match hue {
         0 => (0xe5u32, 0x4f, 0x4f),
         _ => (0x4f, 0xb0, 0x6a),
@@ -749,7 +762,9 @@ fn renders_the_transitions_for_the_docs() {
     r._home.surface.commit();
     r.client.roundtrip();
     state(&server, |s| {
-        s.set_launch_origin(&json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0 + 144 * 4, "y": TILE.1 + 144, "width": 120, "height": 120, "radius": 22}}));
+        s.set_launch_origin(
+            &json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0 + 144 * 4, "y": TILE.1 + 144, "width": 120, "height": 120, "radius": 22}}),
+        );
         s.tick_at(1_500 * MS);
     });
     let h = r.client.card("_WEBOS_WINDOW_TYPE_CARD", "Hdmi");
