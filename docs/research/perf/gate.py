@@ -47,6 +47,8 @@ import shlex
 import sys
 import time
 
+import kwait
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The tool is not on the set's PATH.
 TOOL = '/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tools/lumatv'
@@ -250,6 +252,11 @@ LOG_REPORT_MAX = 20
 KB = '/tmp/kb.py'
 CAPTURE = '/tmp/perf/capture.sh'
 SAMPLER = '/tmp/perf/sample.py'
+# The synthetic background load (compositor/crates/lumatv-compositor/src/bin/lumatv-loadgen.rs, in the deployed bundle): run through the bundle's own
+# loader, a camera-like decode, Home Assistant websocket chatter, a BLE scan stand-in and a low-priority download to /tmp.
+LOADGEN = '/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib /tmp/lumatv/bin/lumatv-loadgen'
+LOAD_KINDS = ('decode', 'ws', 'ble', 'download')
+LOAD_LOG = '/tmp/lumatv/out/gate/loadgen.log'
 
 
 # ------------------------------------------------------- the surfaces table
@@ -699,6 +706,20 @@ class Rig:
             if out.channel.recv_exit_status() != 0:
                 raise RuntimeError(f'could not copy {local} to the set')
 
+    def load_start(self, kinds, seconds):
+        """Starts the background load for `seconds` (the gate's whole run is the limit it must outlast); False when it did not start."""
+        self.sh(f'mkdir -p {os.path.dirname(LOAD_LOG)}')
+        self.sh(f'({LOADGEN} run {int(seconds)} --only {",".join(kinds)} --download-mib 48 > {LOAD_LOG} 2>&1 &)')
+        # In a shell of its own: this one's command line has no `lumatv-loadgen run` for pgrep to find (the start's has).
+        rc, out, err = self.sh('sleep 1; pgrep -f "lumatv-loadge[n] run"')
+        return rc == 0 and bool(out.split())
+
+    def load_stop(self):
+        """Ends the background load and returns the generator's summary line (what each workload did), '' when it printed none."""
+        self.sh('pkill -TERM -f "lumatv-loadge[n] run"; sleep 2; pkill -KILL -f "lumatv-loadge[n] run"; true')
+        rc, out, err = self.sh(f'tail -n 1 {LOAD_LOG}')
+        return out.strip() if rc == 0 else ''
+
     def motion_enabled(self):
         """The wallpaper motion switch as the owner's theme.json has it: True, False, or None when the file does not say."""
         rc, out, _ = self.sh(f'{TOOL} theme get')
@@ -947,7 +968,24 @@ def run_surface(rig, s, tag, soak_cycles, log):
     return res
 
 
-def run_gate(rig, surfaces, soak_cycles, tag, log=None):
+def kwait_lines(results, per_surface=12):
+    """The kernel waits behind each late frame the surfaces' full captures found (`kwait.py`, through analyse.py): one line a surface with
+    the counts by class, and a line for each late frame, the ones it could say most about first. A surface with no late frame has none."""
+    out = []
+    for r in results:
+        late = [(w['name'], g) for w in r.get('windows', []) for g in (w.get('gaps') or []) if g.get('kwait')]
+        if not late:
+            continue
+        out.append(f"{r['name']}: " + kwait.summary_line(kwait.summarize([g['kwait'] for _, g in late])))
+        late.sort(key=lambda x: (not x[1]['kwait']['kernel'], -x[1]['kwait']['kernel_ms']))
+        for name, g in late[:per_surface]:
+            out.append(f"    {name} +{g['at']} s: {kwait.describe(g['kwait'])}")
+        if len(late) > per_surface:
+            out.append(f'    ... {len(late) - per_surface} more late frames')
+    return '\n'.join(out)
+
+
+def run_gate(rig, surfaces, soak_cycles, tag, log=None, load=None, load_seconds=3600):
     rig.push_tools()
     log = log or LogWatch(rig)
     results = []
@@ -955,6 +993,10 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None):
     if age is not None and age < COMPOSITOR_SETTLE_S:
         time.sleep(COMPOSITOR_SETTLE_S - age)
     rig.wake()
+    loaded = False
+    if load:
+        loaded = rig.load_start(load, load_seconds)
+        print(f"background load {','.join(load)}: {'started' if loaded else 'DID NOT START (the bundle has no bin/lumatv-loadgen?); measuring without it'}", flush=True)
     original = rig.motion_enabled()       # None: the file says nothing, the shipped default (on) applies
     now = original is not False
     try:
@@ -965,8 +1007,13 @@ def run_gate(rig, surfaces, soak_cycles, tag, log=None):
                 now = want
             r = run_surface(rig, s, tag, soak_cycles, log)
             print(format_lines([r]), flush=True)
+            late = kwait_lines([r])
+            if late:
+                print(late, flush=True)
             results.append(r)
     finally:
+        if loaded:
+            print(f'background load ended: {rig.load_stop() or "no summary"}', flush=True)
         if now != (original is not False):
             rig.set_motion(original is not False)
     return results
@@ -983,6 +1030,9 @@ def main(argv=None):
     ap.add_argument('--input-key', help='the evdev code of the remote\'s Input key, for the picker surfaces (see kb.py --learn)')
     ap.add_argument('--hdmi', default='3', help='the HDMI input the -hdmi surfaces put in front (default 3, the game console)')
     ap.add_argument('--tag', default=time.strftime('%m%d-%H%M'), help='prefix of the trace names in /tmp/perf')
+    ap.add_argument('--load', metavar='KINDS', help=f'measure under synthetic background load, a comma-separated subset of {",".join(LOAD_KINDS)} (see LOADGEN): the gate '
+                    'starts it after the compositor has settled and ends it with the run; the numbers are the same, the thresholds are not changed')
+    ap.add_argument('--load-seconds', type=int, default=3600, help='the longest the load runs if the gate does not end it (default 3600)')
     a = ap.parse_args(argv)
     cycles = a.cycles if a.cycles is not None else (SOAK_RELEASE_CYCLES if a.soak else SOAK_DEFAULT_CYCLES)
     if cycles <= RSS_SKIP_CYCLES:
@@ -994,7 +1044,10 @@ def main(argv=None):
     except ValueError as e:
         ap.error(str(e))
     tag = re.sub(r'[^\w.-]', '_', a.tag)
-    results = run_gate(Rig(), chosen, cycles, tag)
+    load = [k for k in a.load.split(',') if k] if a.load else None
+    if load and set(load) - set(LOAD_KINDS):
+        ap.error(f'--load: unknown workload(s) {",".join(sorted(set(load) - set(LOAD_KINDS)))}; the workloads are {",".join(LOAD_KINDS)}')
+    results = run_gate(Rig(), chosen, cycles, tag, load=load, load_seconds=a.load_seconds)
     v = verdict(results)
     print(f'VERDICT {v}')
     if a.json:

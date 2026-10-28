@@ -29,7 +29,11 @@
 #   gate.sh homeheld  not live: a virtual remote holds Home (773); `lumatv-sm --home-held` sees it, then stops seeing it
 #   gate.sh homekey   live: the supervisor's own Home reader (773), on a virtual remote the compositor never opened
 #   gate.sh wd-hang   live: the compositor is stopped (SIGSTOP); the heartbeat falls back to LG's, SAM untouched
-#   gate.sh wd-crash  live: the compositor is killed (SIGKILL); the supervisor falls back to LG's, SAM untouched
+#   gate.sh wd-crash  live: the compositor is killed (SIGKILL); the supervisor falls back to LG's, SAM untouched; the crash bundle it left
+#   gate.sh wake [reset|probe SECS]  the loop's wake-up latency (p50/p99/max of the tick, the flip, the input) since the last reset, or a
+#                     SECS-long cyclictest-style probe at the loop's class, the Mali submission threads' class and a time-shared one. A report, no rule
+#   gate.sh mem       what the compositor has resident and pinned, malloc's mmapped blocks, and what the set has left (report)
+#   gate.sh load start SECS [KINDS] | stop | status   synthetic background load (decode, ws, ble, download) for the frame gate's loaded run
 #
 # The frame rule (PLAN, C4: "the X1 test with zero frames over 20 ms in 60 s"). The client's swap-to-swap gaps over
 # the run: none over 20 ms, the first second included (no warm-up is excused); the run is the whole 60 s and holds 60 Hz
@@ -44,6 +48,7 @@ OUT=${LUMATV_OUT:-$D/out/gate}
 LGBIN=${LUMATV_LG:-/usr/bin/surface-manager}
 MOUNTINFO=${LUMATV_MOUNTINFO:-/proc/self/mountinfo}
 RECOVER_LOCK=${LUMATV_RECOVER_LOCK:-/tmp/lumatv-recover.lock}
+PROC=${LUMATV_PROC:-/proc}
 GAP_LIMIT_MS=20
 GATE_SECONDS=60
 MIN_FPS=59.5
@@ -163,6 +168,42 @@ comp_sched() {
     echo "${c_mf:--} ${c_w:--} ${c_pol:--} ${c_pri:--} ${c_mw:--} ${c_mpol:--}"
 }
 
+# The loop thread's and the Mali submission thread's waits over a run, from the scheduler's own statistics: how long a wake-up waited for a
+# CPU on average and at worst (`schedstat`'s run-queue wait over its time slices; `sched`'s wait_max), and the longest uninterruptible
+# (D-state) wait, the kernel wait a lock, the driver or an I/O puts a thread in (`sched`'s block_max, with the count of I/O waits). The detailed
+# statistics need `kernel.sched_schedstats`: `waits_reset` turns it on and zeroes them, `waits_line` reads them and puts the switch back.
+task_ids() {
+    t_pid=$(pgrep -f 'bin/lumatv-compositor' | head -1)
+    [ -n "$t_pid" ] || return 1
+    echo "$PROC/$t_pid/task/$t_pid"
+    for t_t in $PROC/$t_pid/task/*; do
+        [ "$(cat $t_t/comm 2>/dev/null)" = mali-cmar-backe ] && { echo "$t_t"; break; }
+    done
+}
+waits_reset() {
+    { cat $PROC/sys/kernel/sched_schedstats > $OUT/schedstats.old; } 2>/dev/null
+    { echo 1 > $PROC/sys/kernel/sched_schedstats; } 2>/dev/null
+    w_n=0
+    for w_t in $(task_ids); do
+        { echo 0 > $w_t/sched; } 2>/dev/null
+        cp $w_t/schedstat $OUT/.waits-$w_n 2>/dev/null
+        w_n=$((w_n+1))
+    done
+}
+waits_line() {
+    w_n=0; w_out=""
+    for w_t in $(task_ids); do
+        who=loop; [ $w_n = 1 ] && who=mali-cmar-backe
+        s0=$(cat $OUT/.waits-$w_n 2>/dev/null); s1=$(cat $w_t/schedstat 2>/dev/null)
+        mean=$(echo "$s0 $s1" | awk 'NF == 6 && $6 > $3 { printf "%.0f", ($5 - $2) / ($6 - $3) / 1000; exit } { print "-" }')
+        st=$(awk -F: '/se.statistics.block_max/ { b = $2 + 0; s = 1 } /se.statistics.wait_max/ { w = $2 + 0 } /se.statistics.iowait_count/ { i = $2 + 0 } END { if (s) printf "D-wait max %.1f ms (%d I/O), run-queue wait max %.1f ms", b, i, w; else printf "no per-wait statistics" }' $w_t/sched 2>/dev/null)
+        w_out="$w_out${w_out:+; }$who: run-queue wait ${mean} us a wake-up on average, $st"
+        w_n=$((w_n+1))
+    done
+    old=$(cat $OUT/schedstats.old 2>/dev/null); [ -n "$old" ] && { echo "$old" > $PROC/sys/kernel/sched_schedstats; } 2>/dev/null
+    echo "${w_out:-no compositor}"
+}
+
 # x1_rule RESULT SECONDS_ASKED LATE_BEFORE LATE_AFTER COMPOSITOR_OVER (a count, or "unreadable"): prints "PASS what held"
 # or "FAIL why", returns 0 or 1.
 x1_rule() {
@@ -227,6 +268,13 @@ x1)
     secs=${2:-60}
     before=$(ctl status | sed -n 's/.*\(flips [0-9]* late [0-9]* lost [0-9]*\).*/\1/p')
     sched_before=$(comp_sched)
+    ctl wake reset > /dev/null; waits_reset
+    # With LUMATV_GATE_KWAIT set (tv_gate.py --kwait) and capture.sh and kwait.py on the set: the run is traced and each late frame's kernel
+    # waits are named (capture.sh's kwait mode: the compositor's own scheduler events and the stacks of its D-state sleeps).
+    kw=""
+    if [ -n "${LUMATV_GATE_KWAIT:-}" ] && [ -f /tmp/perf/capture.sh ] && [ -f /tmp/perf/kwait.py ]; then
+        sh /tmp/perf/capture.sh start x1 kwait > $OUT/x1-capture.txt 2>&1 && kw=1
+    fi
     XDG_RUNTIME_DIR=/tmp/xdg WAYLAND_DISPLAY=wayland-0 X1_SECONDS=$secs X1_WINDOW_TYPE=_WEBOS_WINDOW_TYPE_OVERLAY \
         $LD --library-path $LIB --preload $LIB/x1heapshim.so $D/bin/x1client $BLOB > $OUT/x1.log 2>&1
     res=$(grep RESULT $OUT/x1.log)
@@ -235,6 +283,14 @@ x1)
         { f = ($1 ~ /^[0-9]+$/ && $7 ~ /^[0-9]+$/) ? sprintf("+%d", $7 - $1) : "not read"; w = ($2 ~ /^[0-9]+$/ && $8 ~ /^[0-9]+$/) ? sprintf("+%.1f ms", ($8 - $2) / 1e6) : "not read";
           mw = ($5 ~ /^[0-9]+$/ && $11 ~ /^[0-9]+$/) ? sprintf("+%.1f ms", ($11 - $5) / 1e6) : "not read";
           print "major faults " f ", run-queue wait " w ", loop thread " pol($9) " prio " $10 ", mali-cmar-backe run-queue wait " mw " " pol($12) }')
+    wakeline=$(ctl wake | jstr line); waitsline=$(waits_line)
+    kwsum=""
+    if [ -n "$kw" ]; then
+        sh /tmp/perf/capture.sh stop x1 >> $OUT/x1-capture.txt 2>&1
+        python3 /tmp/perf/kwait.py /tmp/perf/x1.trace --comm lumatv-composit --json $OUT/x1-kwait.json > $OUT/x1-kwait.txt 2>&1
+        kwsum=$(tail -n 1 $OUT/x1-kwait.txt)
+        gzip -c /tmp/perf/x1.trace > $OUT/x1.trace.gz 2>/dev/null; rm -f /tmp/perf/x1.trace
+    fi
     # `late` alone: `lost` is the pacer's own measure, which leaves a frame's render time out.
     late_before=$(echo "$before" | awk '{print $4}'); late_after=$(echo "$after" | awk '{print $4}')
     # The compositor's own view of the run (its log is on CLOCK_MONOTONIC like x1's): loop stalls, frame gaps of the
@@ -247,7 +303,7 @@ x1)
     stalls=$(grep -c 'loop: [0-9.]* ms in one pass' $OUT/x1-compositor.txt); gaps=$(grep -c 'frame gap' $OUT/x1-compositor.txt); churn=$(grep -c 'client connected' $OUT/x1-compositor.txt)
     # What counts against the rule is what the log says over the limit while the client was alive (not the second after).
     comp_over=$(comp_over_limit $STATE/compositor.log "${t0:-0}" "${t1:-0}")
-    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over; $sched"
+    detail="$res | pacer before: $before after: $after | compositor: loop stalls $stalls, frame gaps $gaps, clients connected $churn, over ${GAP_LIMIT_MS} ms $comp_over; $sched | wake-up latency: ${wakeline:-not read} | waits: $waitsline${kwsum:+ | $kwsum}"
     echo "$detail" > $OUT/x1-result.txt
     verdict=$(x1_rule "$res" "$secs" "$late_before" "$late_after" "$comp_over")
     case "$verdict" in PASS*) pass x1 "${verdict#PASS }" ;; *) fail x1 "${verdict#FAIL } | $detail" ;; esac
@@ -684,6 +740,55 @@ wd-hang|wd-crash)
         echo "$detail" > $OUT/$1-result.txt
         if ! is_mounted && [ "$took" -le "$limit" ] && echo "$reason" | grep -q "$want" && [ "$f1" = "$((f0+1))" ] && [ ! -f $STATE/escaped ] && [ -z "$gone" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass $1 "$detail"; else fail $1 "$detail"; fi
     fi
+    ;;
+wake)
+    # The loop's wake-up latency: the frame timer, the page flip and the input events as the loop saw them (p50, p99, max in ms), and
+    # what the scheduler gives a thread of each class under the load of the moment. The distributions are the compositor's (`ctl wake`);
+    # a report with no rule until a baseline exists (docs/research/lpc-tv-result.md).
+    case "${2:-}" in
+    reset) ctl wake reset > /dev/null; echo "GATE wake: reset" ;;
+    probe)
+        secs=${3:-10}
+        ctl wake reset > /dev/null
+        ctl wake probe start fifo20,fifo19,other 1000 > /dev/null
+        sleep "$secs"
+        line=$(ctl wake | jstr line)
+        ctl wake probe stop > /dev/null
+        echo "GATE wake: measured over ${secs} s with probes: ${line:-not read}" ;;
+    *) line=$(ctl wake | jstr line); echo "GATE wake${2:+ ($2)}: measured ${line:-not read}" ;;
+    esac
+    ;;
+mem)
+    # What the compositor pinned and what the set has left, read only: `ctl mem` (resident, locked, swapped, malloc's mmapped blocks and what the
+    # lock did at start), the compositor's own limit on locked memory, the set's free memory, CMA and swap.
+    m_pid=$(pgrep -f 'bin/lumatv-compositor' | head -1)
+    j=$(ctl mem)
+    blocks=$(echo "$j" | grep -o '"mmapped_blocks":[0-9]*' | cut -d: -f2)
+    avail=$(awk '/^MemAvailable:/ { printf "%d", $2 / 1024 }' $PROC/meminfo 2>/dev/null)
+    cma=$(awk '/^CmaFree:/ { printf "%d", $2 / 1024 }' $PROC/meminfo 2>/dev/null)
+    swap=$(awk 'NR > 1 { used += $4 } END { printf "%d", used / 1024 }' $PROC/swaps 2>/dev/null)
+    limit=$(grep 'Max locked memory' $PROC/${m_pid:-self}/limits 2>/dev/null | tr -s ' ' | cut -d ' ' -f4-)
+    echo "GATE mem: measured rss $(echo "$j" | jnum rss_kib) KiB, locked $(echo "$j" | jnum locked_kib) KiB, swapped $(echo "$j" | jnum swap_kib) KiB, malloc mmapped blocks ${blocks:-?}; lock: $(echo "$j" | jstr lock); the process's limit on locked memory: ${limit:-unreadable}; set: MemAvailable ${avail:-?} MiB, CmaFree ${cma:-?} MiB, swap in use ${swap:-0} MiB"
+    ;;
+load)
+    # Synthetic background load for the frame gate's loaded run (bin/lumatv-loadgen): a camera-like decode, Home Assistant websocket chatter,
+    # a BLE scan stand-in and a low-priority download to /tmp. `start SECS [decode,ws,ble,download]` runs it in the background, `stop` ends it
+    # and prints what it did, `status` says whether it runs.
+    case "${2:-status}" in
+    start)
+        [ -f $OUT/loadgen.pid ] && kill -0 "$(cat $OUT/loadgen.pid)" 2>/dev/null && { echo "GATE load: already running"; exit 0; }
+        $LD --library-path $LIB $D/bin/lumatv-loadgen run "${3:-900}" ${4:+--only $4} --download-mib 48 > $OUT/loadgen.log 2>&1 &
+        echo $! > $OUT/loadgen.pid
+        sleep 1
+        if kill -0 "$(cat $OUT/loadgen.pid)" 2>/dev/null; then echo "GATE load: started for ${3:-900} s (${4:-decode,ws,ble,download})"; else echo "GATE load: did not start: $(cat $OUT/loadgen.log)"; fi ;;
+    stop)
+        p=$(cat $OUT/loadgen.pid 2>/dev/null)
+        [ -n "$p" ] && kill -TERM "$p" 2>/dev/null
+        n=0; while [ -n "$p" ] && kill -0 "$p" 2>/dev/null && [ $n -lt 20 ]; do sleep 0.5; n=$((n+1)); done
+        rm -f $OUT/loadgen.pid
+        echo "GATE load: measured under it, $(tail -n 1 $OUT/loadgen.log 2>/dev/null)" ;;
+    *) p=$(cat $OUT/loadgen.pid 2>/dev/null); if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then echo "GATE load: running (pid $p)"; else echo "GATE load: not running"; fi ;;
+    esac
     ;;
 key)
     # One remote key through the compositor's own routing (tv_gate.py's volume check).

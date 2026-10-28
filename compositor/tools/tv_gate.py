@@ -41,11 +41,12 @@ LUMATV_TOOL = "/media/developer/apps/usr/palm/applications/org.nphil.lumatv/tool
 FIRST_SESSION_MINUTES = 12
 LATER_SESSION_MINUTES = 6
 # Every check that can be skipped or picked with --only, in the order the gate runs them.
-CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "keys", "ime", "shell", "frames", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
+CHECKS = ["firmware", "homeheld", "volume", "x1", "netflix", "hdmi", "keys", "ime", "shell", "frames", "frames-load", "standby", "homekey", "wd-hang", "wd-crash", "escape"]
 # The surface frame gate (docs/research/perf/gate.py) under LumaTV's compositor: LumaTV's own surfaces, drawn by the shell client.
 FRAMES_SURFACES = "home-dpad,quick,picker,toast"
 FRAMES_SESSION_MINUTES = 20
 PERF_GATE = os.path.join(here, "..", "..", "docs", "research", "perf", "gate.py")
+PERF_DIR = os.path.dirname(PERF_GATE)
 
 def pty(cmd, timeout=600):
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -108,18 +109,23 @@ def volume_check():
     ok = None not in (before, up, back) and up > before and abs(back - before) < 1e-6
     return "GATE volume: %s %s" % ("PASS" if ok else "FAIL", detail)
 
-def frames_check(cycles):
+def frames_check(cycles, load=False):
     """The surface frame gate (`docs/research/perf/gate.py`) over LumaTV's own surfaces under its compositor: Home's D-pad, the quick
     panel and the input picker (the gear and Input through the shell client) and a toast. Its verdict line, with each surface's
-    failed checks, becomes `GATE frames:`."""
-    out_json = "/tmp/lumatv-tv-out/frames.json"
+    failed checks, becomes `GATE frames:`. With `load` the same surfaces are measured under synthetic background load (a camera-like
+    decode, Home Assistant websocket chatter, a BLE scan stand-in, a low-priority download: `lumatv-loadgen`, started and stopped by
+    the gate), and the line is `GATE frames-load:`, a report: no baseline of loaded numbers exists yet, so the unloaded thresholds'
+    verdict is told but is no verdict of the gate's."""
+    out_json = "/tmp/lumatv-tv-out/frames%s.json" % ("-load" if load else "")
     os.makedirs("/tmp/lumatv-tv-out", exist_ok=True)
-    cmd = [sys.executable, PERF_GATE, "--surfaces", FRAMES_SURFACES, "--input-key", "241", "--cycles", str(cycles), "--json", out_json, "--tag", "c4shell"]
+    cmd = [sys.executable, PERF_GATE, "--surfaces", FRAMES_SURFACES, "--input-key", "241", "--cycles", str(cycles), "--json", out_json,
+           "--tag", "c4shell-load" if load else "c4shell"] + (["--load", "decode,ws,ble,download"] if load else [])
+    name = "frames-load" if load else "frames"
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
         out = r.stdout + r.stderr
     except subprocess.TimeoutExpired:
-        return "GATE frames: FAIL the surface gate did not finish in 25 minutes"
+        return "GATE %s: FAIL the surface gate did not finish in 25 minutes" % name
     print(out[-4000:])
     verdict = "FAIL"
     for l in out.splitlines():
@@ -138,7 +144,9 @@ def frames_check(cycles):
             parts.append("%s %s%s%s" % (res.get("name"), "ok" if not failed else "NOT", (" " + ",".join(failed)) if failed else "", (" [" + numbers + "]") if numbers else ""))
         detail = "; ".join(parts)
     except (OSError, ValueError, AttributeError):
-        detail = "no frames.json"
+        detail = "no %s.json" % name
+    if load:
+        return "GATE frames-load: measured under synthetic background load, the unloaded thresholds say %s: %s (surfaces %s, %d cycles; %s)" % (verdict, detail, FRAMES_SURFACES, cycles, out_json)
     return "GATE frames: %s %s (surfaces %s, %d cycles; %s)" % (verdict, detail, FRAMES_SURFACES, cycles, out_json)
 
 def wait_ssh(seconds):
@@ -242,6 +250,8 @@ def main():
     ap.add_argument("--x1-seconds", type=int, default=60)
     ap.add_argument("--enable-after", action="store_true")
     ap.add_argument("--frames-cycles", type=int, default=3, help="open/close cycles of the surface frame gate's soak (default 3)")
+    ap.add_argument("--frames-load", action="store_true", help="also run the surface frame gate under synthetic background load (decode, Home Assistant websocket, BLE scan, a low-priority download): a report, not a rule")
+    ap.add_argument("--kwait", action="store_true", help="trace the x1 run (capture.sh's kwait mode) and name the kernel waits behind each late frame (kwait.py)")
     ap.add_argument("--frames-callbacks", choices=["early", "landing"], default="early",
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     a = ap.parse_args()
@@ -268,11 +278,12 @@ def main():
                 lines.append(l.rstrip("\r"))
         return out
     # An x1 run longer than the rule's 60 s lengthens the first session by its extra minutes.
+    run_frames = "frames" not in skip
+    run_load = "frames-load" not in skip and (a.frames_load or "frames-load" in only)
     first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
-    # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's
-    # timer must cover the frame gate too (the full gate of 2026-10-27 lost its session to the 12 minute timer before standby).
-    if "frames" not in skip:
-        first_minutes += FRAMES_SESSION_MINUTES
+    # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's timer must cover the frame gate too
+    # (the full gate of 2026-10-27 lost its session to the 12 minute timer before standby), the loaded run's as well.
+    first_minutes += FRAMES_SESSION_MINUTES * (run_frames + run_load)
     def session(minutes, label=None):
         """LumaTV's compositor live for this boot only, ended by the set itself after `minutes`, then `live` says so (the
         label names the line when it is a second session of the run)."""
@@ -298,7 +309,13 @@ def main():
             print(line)
             lines.append(line)
         if "x1" not in skip:
-            step("x1", "sh /tmp/lumatv/gate.sh x1 %d" % a.x1_seconds, a.x1_seconds + 120)
+            env = ""
+            if a.kwait:
+                tv.tv("mkdir -p /tmp/perf")
+                tv.put(os.path.join(PERF_DIR, "capture.sh"), "/tmp/perf/capture.sh")
+                tv.put(os.path.join(PERF_DIR, "kwait.py"), "/tmp/perf/kwait.py")
+                env = "LUMATV_GATE_KWAIT=1 "
+            step("x1", "%ssh /tmp/lumatv/gate.sh x1 %d" % (env, a.x1_seconds), a.x1_seconds + 120)
         if "netflix" not in skip:
             avr_mute(True)   # the receiver may have been off (no mute to take) when the first one was sent
             step("netflix", "sh /tmp/lumatv/gate.sh netflix")
@@ -313,14 +330,23 @@ def main():
             step("shell", "sh /tmp/lumatv/gate.sh shell", 400)
             avr_mute(True)   # the volume key of the check moved the receiver's mute
         step("evidence", "sh /tmp/lumatv/gate.sh evidence", 120)
-        if "frames" not in skip:
+        if run_frames or run_load:
             # A session of its own: the surface gate waits for a 90 s old compositor and runs several minutes.
-            session(FRAMES_SESSION_MINUTES, "frames")
+            session(FRAMES_SESSION_MINUTES * (run_frames + run_load), "frames")
             if a.frames_callbacks == "landing":
                 print(pty("sh /tmp/lumatv/gate.sh callbacks landing", 60))
+        if run_frames:
+            print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
             lines.append(frames_check(a.frames_cycles))
+            # What the loop's wake-ups cost over the gate, and what the compositor holds in memory after it (reports, not rules).
+            step("wake", "sh /tmp/lumatv/gate.sh wake frames", 60)
+            step("mem", "sh /tmp/lumatv/gate.sh mem", 60)
             # How many of the shell's callbacks went out ahead of their flip during the gate: zero says the change was not in play.
             print(pty("sh /tmp/lumatv/gate.sh callbacks", 60))
+        if run_load:
+            print(pty("sh /tmp/lumatv/gate.sh wake reset", 60))
+            lines.append(frames_check(a.frames_cycles, load=True))
+            step("wake", "sh /tmp/lumatv/gate.sh wake loaded", 60)
         if "standby" not in skip:
             step("standby", "sh /tmp/lumatv/gate.sh standby", 60)
             time.sleep(25)

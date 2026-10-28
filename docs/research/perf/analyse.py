@@ -25,6 +25,8 @@ import json
 import re
 import sys
 
+import kwait
+
 LINE = re.compile(r'^\s*(.*?)-(\d+)\s+\[(\d{3})\]\s+(\S+)\s+([\d.]+):\s+(\w+):\s?(.*)$')
 SWITCH = re.compile(r'prev_comm=(.*?) prev_pid=(\d+) prev_prio=(-?\d+) prev_state=(\S+) ==> next_comm=(.*?) next_pid=(\d+) next_prio=(-?\d+)')
 WAKEUP = re.compile(r'comm=(.*?) pid=(\d+) prio=(-?\d+) target_cpu=(\d+)')
@@ -135,6 +137,13 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
                 if m and m.group(5) == 'surface-manager':
                     c[int(m.group(6))] += 1
         sm_pid = c.most_common(1)[0][0] if c else -1
+
+    # The kernel waits behind each late frame (kwait.py): the D-state intervals of the compositor's thread and of the threads it waited
+    # for, labelled from the kernel stacks the capture's trigger left. A trace without scheduler events (a basic capture) has none.
+    kctx = None
+    if any(e[2] == 'sched_switch' for e in ev):
+        kev, kstacks = kwait.parse(path)
+        kctx = kwait.Context(kev, kstacks, sm_pid)
 
     runs = Runs()
     frames = []       # (t, seq)
@@ -455,8 +464,11 @@ def analyse(path, sm_pid=None, gap_ms=20.0, window=None):
             g['wakeups'] = wk.most_common(8)
             wqf = collections.Counter(fn for t0, t1, cpu, fn in in_range(wq, wq_starts, g0, g1))
             g['workqueue'] = wqf.most_common(5)
+            if kctx and x <= kwait.MAX_GAP_MS:
+                g['kwait'] = kctx.frame(g0, g1)
             w['gaps'].append(g)
         report['windows'].append(w)
+        w['kwait'] = kwait.summarize([g['kwait'] for g in w['gaps'] if 'kwait' in g]) if kctx else None
     return report
 
 
@@ -481,7 +493,11 @@ def fmt(report, top=10):
             if g['reclaim']: out.append(f"      reclaim: {g['reclaim']}")
             if g['cma']: out.append(f"      cma: {g['cma']}")
             if g['block']: out.append(f"      block: {g['block']}")
+            if g.get('kwait'):
+                out.append(f"      {kwait.describe(g['kwait'])}")
             out.append(f"      wakeups: {g['wakeups']}  wq: {g['workqueue']}")
+        if w.get('kwait') and w['kwait']['late']:
+            out.append(f"   {kwait.summary_line(w['kwait'])}")
     return '\n'.join(out)
 
 
