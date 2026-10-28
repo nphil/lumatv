@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>LumaTV · App switcher</title>
+<link rel="stylesheet" href="../lucent.css">
+<style>
+  /* The app switcher (docs/research/app-switcher-result.md; the surface is payload/compositor/lumatv/panels/Switcher.qml, in the system layer).
+     Opened by a second Home press (switch `remote.appSwitcher`) and, where `remote.recents` is on, by Back from the top of Home: one panel, one
+     list (the compositor's running apps), two doors. Home stays behind, dimmed by one scrim; each running app is a live picture of its own
+     window, drawn by the compositor, which the shell frames and names. ?v=open (default) from Home; ?v=shrink the motion of a double press from an app (four frames);
+     ?v=plane an app whose picture is on the video plane (no picture of it is taken: its icon on a blurred tile); ?v=quit the focus on a card's Quit and an
+     app being closed; ?v=confirm Quit all asks first; ?v=many more apps than fit; ?v=empty nothing open.
+     ?theme=light for the light material; ?text=200 doubles the type (Lucent: no overlapping text at 100 % and 200 %). The pictures are stand-ins.
+
+     Geometry (TV pixels, 1920x1080, safe area 96/54): a picture is 400x225 (16:9) with corners of 22, four fit side by side with 32 between and
+     start at x 112 (fewer are centred); pictures sit at y 340. Under a picture: the app's icon (48) and name (28, 600), then, on the focused card only, its
+     Quit button (64 high: the TV's smallest target). The header is a title (40) with how many are open, and Quit all at the right safe edge (64 high). The
+     only things that move are the pictures (the compositor tweens them) and the text under them: a focus ring never moves while it shows. */
+  :root { --ts: 1; --pic-w: 400px; --pic-h: 225px; }
+  [data-text="200"] { --ts: 2; }
+  .stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0; background: var(--pal-canvas); }
+  .stage .home-behind { position: absolute; inset: 0; background: url("../img/home.jpg") center / cover no-repeat; }
+  /* the dim is .92 (dark) and .94 (light): words sit on it, and what Home says behind them would read through a lighter veil (the .74 of the
+     first recents mock let "Locked" and "Playing" run into the names). Home stays as a shape of colour, not as words. */
+  .stage .scrim { position: absolute; inset: 0; background: rgba(11,9,20,.92); }
+  [data-theme="light"] .stage .scrim { background: rgba(250,244,237,.94); }
+
+  .sw-head { position: absolute; left: 96px; right: 96px; top: 54px; min-height: 64px; display: flex; align-items: center; gap: 24px; }
+  .sw-head .title { font-size: calc(40px * var(--ts)); font-weight: 600; letter-spacing: -.01em; line-height: 1.25; white-space: nowrap; }
+  .sw-head .count { font-size: calc(24px * var(--ts)); color: var(--lu-ink-2); font-weight: 500; white-space: nowrap; }
+  .sw-head .sw-btn { margin-left: auto; }
+  .sw-btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 64px; padding: 6px 28px; border-radius: var(--lu-radius-control); font-size: calc(26px * var(--ts)); line-height: 1.25; font-weight: 600; color: var(--lu-ink); background: #2C263A; border: 2px solid var(--lu-edge); white-space: nowrap; }
+  [data-theme="light"] .sw-btn { background: #FFFFFF; }
+  .sw-btn .ic { width: 30px; height: 30px; flex: none; }
+  .sw-btn.focus { border-color: var(--lu-ink); background: #3A3350; }
+  [data-theme="light"] .sw-btn.focus { background: #F1E9F6; }
+
+  .card { position: absolute; width: var(--pic-w); }
+  .card .pic { position: relative; width: var(--pic-w); height: var(--pic-h); border-radius: var(--lu-radius-tile); overflow: hidden; background: #0C0A14 center / cover no-repeat; }
+  .card .veil { position: absolute; left: 0; top: 0; width: var(--pic-w); height: var(--pic-h); border-radius: var(--lu-radius-tile); background: rgba(11,9,20,.40); }
+  [data-theme="light"] .card .veil { background: rgba(250,244,237,.46); }
+  .card.focus .veil { display: none; }
+  .card .ring { position: absolute; left: -7px; top: -7px; width: calc(var(--pic-w) + 14px); height: calc(var(--pic-h) + 14px); border-radius: calc(var(--lu-radius-tile) + 7px); border: 3px solid var(--lu-ink); display: none; }
+  .card.focus .ring { display: block; }
+  .card .foot { margin-top: 18px; display: flex; align-items: flex-start; gap: 16px; }
+  .card .foot img { width: 48px; height: 48px; border-radius: 12px; flex: none; }
+  .card .foot .nm { min-width: 0; flex: 1 1 auto; }
+  .card .foot .n { font-size: calc(28px * var(--ts)); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+  .card .foot .s { font-size: calc(24px * var(--ts)); font-weight: 500; line-height: 1.3; color: var(--lu-ink-2); margin-top: 2px; }
+  .card:not(.focus) .foot .n { color: var(--lu-ink-2); }
+  .card .qrow { margin-top: 12px; height: calc(64px * var(--ts)); display: none; }
+  [data-text="200"] .card .qrow { height: auto; }
+  .card.focus .qrow { display: block; }
+  .card.going .pic { opacity: .35; }
+  .card.going .foot .s { color: var(--lu-ink); }
+
+  /* the picture of an app whose picture is on the video plane: its icon, big, on a tile of its own colours blurred (decoded small and drawn large,
+     so no blur shader runs), the icon crisp on top; nothing of the video is read */
+  .tile { position: absolute; inset: 0; overflow: hidden; background: #14101F; }
+  .tile .wash { position: absolute; left: -40%; top: -60%; width: 180%; height: 220%; background: center / cover no-repeat; filter: blur(26px) saturate(1.3); opacity: .85; }
+  .tile .shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(11,9,20,.10), rgba(11,9,20,.55)); }
+  .tile .glyph { position: absolute; left: 50%; top: 50%; width: 104px; height: 104px; margin: -52px 0 0 -52px; border-radius: 24px; box-shadow: 0 12px 28px rgba(0,0,0,.42); }
+
+  /* stand-ins for what an app drew last */
+  .shot-netflix { background: linear-gradient(180deg, #1a0b0f 0%, #0b0a12 100%); }
+  .shot-netflix i { position: absolute; width: 74px; height: 108px; border-radius: 8px; }
+  .shot-netflix .h { position: absolute; left: 24px; top: 22px; width: 120px; height: 14px; border-radius: 7px; background: #e50914; }
+  .shot-youtube { background: #181818; }
+  .shot-youtube i { position: absolute; width: 112px; height: 63px; border-radius: 8px; }
+  .shot-youtube .h { position: absolute; left: 0; top: 0; right: 0; height: 34px; background: #212121; }
+  .shot-geforce { background: center / cover no-repeat url("../img/game.jpg"); }
+  .shot-plex { background: center / cover no-repeat url("../img/still.jpg"); }
+  .shot-browser { background: linear-gradient(180deg, #e8edf6, #cdd6e8); }
+  .shot-browser i { position: absolute; height: 12px; border-radius: 6px; background: #8a96b0; }
+  .shot-browser .bar { position: absolute; left: 0; top: 0; right: 0; height: 30px; background: #f6f8fc; }
+
+  .sw-hints { position: absolute; right: 96px; bottom: 54px; display: flex; gap: 32px; align-items: center; min-height: 64px; padding: 6px 28px; border-radius: 999px; background: rgba(12,10,20,.72); color: var(--lu-ink-2); font-size: calc(26px * var(--ts)); font-weight: 500; }
+  [data-theme="light"] .sw-hints { background: rgba(250,244,237,.86); }
+  .sw-hints span { white-space: nowrap; }
+  .sw-hints kbd { font: inherit; font-weight: 600; color: var(--lu-ink); border: 2px solid var(--lu-edge-raised); border-radius: 10px; padding: 0 12px; margin-right: 12px; }
+
+  /* more apps than fit: a track under the cards says where the window is (inside the safe area; nothing is drawn in the margin) */
+  .sw-scroll { position: absolute; left: 96px; width: 1728px; top: 830px; height: 8px; border-radius: 4px; background: var(--lu-track-off); }
+  .sw-scroll i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--lu-ink-2); display: block; }
+
+  .sw-empty { position: absolute; left: 0; right: 0; top: 380px; text-align: center; }
+  .sw-empty .big, .sw-empty .small { width: fit-content; max-width: 1728px; margin-left: auto; margin-right: auto; }
+  .sw-empty .big { font-size: calc(40px * var(--ts)); font-weight: 600; }
+  .sw-empty .small { font-size: calc(26px * var(--ts)); color: var(--lu-ink-2); margin-top: 12px; }
+
+  /* Quit all asks first: a backdrop of .97 over the whole page (the cards go behind it), the question, the safe choice first in focus, and the danger
+     style on the one destructive choice only */
+  .sw-back { position: absolute; inset: 0; background: rgba(11,9,20,.97); }
+  [data-theme="light"] .sw-back { background: rgba(250,244,237,.97); }
+  .sw-ask { position: absolute; left: 50%; top: 50%; width: 880px; margin: -170px 0 0 -440px; padding: 40px 48px 40px; border-radius: var(--lu-radius-sheet); background: var(--lu-glass-raised); border: 1px solid var(--lu-edge); box-shadow: var(--highlight-rest), var(--shadow-rest); }
+  [data-theme="light"] .sw-ask { background: #FFFFFF; }
+  .sw-ask .q { font-size: calc(40px * var(--ts)); font-weight: 600; line-height: 1.25; letter-spacing: -.01em; }
+  .sw-ask .d { font-size: calc(28px * var(--ts)); color: var(--lu-ink-2); margin-top: 12px; line-height: 1.35; }
+  .sw-ask .acts { display: flex; gap: 24px; margin-top: 36px; justify-content: flex-end; flex-wrap: wrap; }
+  .sw-btn.danger { background: var(--lu-danger); color: var(--lu-accent-ink); }
+  [data-theme="light"] .sw-btn.danger { color: #FFFFFF; background: #9A4B63; }
+
+  /* the motion of a double press from an app: four moments of one 200 ms move, each a whole screen at a third of the size */
+  .story { position: absolute; inset: 0; background: var(--pal-canvas); }
+  .story .fr { position: absolute; width: 800px; height: 450px; overflow: hidden; border-radius: 12px; outline: 2px solid var(--lu-edge); }
+  .story .cap { position: absolute; width: 800px; font-size: 34px; font-weight: 600; color: var(--lu-ink); line-height: 1.25; }
+  .story .cap span { display: block; color: var(--lu-ink-2); font-weight: 500; font-size: 26px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="../icons.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const theme = q.get('theme') || 'dark';
+  document.documentElement.dataset.theme = theme;
+  if (q.get('text')) document.documentElement.dataset.text = q.get('text');
+  const v = q.get('v') || 'open';
+  const ts = q.get('text') === '200' ? 2 : 1;
+
+  const APPS = {
+    netflix: { name: 'Netflix', icon: '../img/apps/netflix.png', shot: 'netflix' },
+    plex: { name: 'Plex', icon: '../img/apps/plex.png', shot: 'plex' },
+    youtube: { name: 'YouTube', icon: '../img/apps/youtube.png', shot: 'youtube' },
+    geforce: { name: 'GeForce NOW', icon: '../img/apps/geforce.png', shot: 'geforce' },
+    browser: { name: 'Web Browser', icon: '../img/apps/browser.png', shot: 'browser' },
+    livetv: { name: 'Live TV', icon: '../img/apps/livetv.png', plane: true },
+    appletv: { name: 'Apple TV', icon: '../img/apps/appletv.png', plane: true },
+    crunchy: { name: 'Crunchyroll', icon: '../img/apps/crunchyroll.png', shot: 'netflix' },
+    lgmovies: { name: 'LG Movies & TV', icon: '../img/apps/lgmovies.png', shot: 'youtube' },
+  };
+
+  function shotHtml(kind) {
+    if (kind === 'netflix') {
+      let s = '<div class="h"></div>'; const c = ['#7a1f2b', '#2b4a7a', '#7a5a1f', '#1f6a5a', '#5a1f7a', '#7a1f5a'];
+      for (let r = 0; r < 2; r++) for (let i = 0; i < 5; i++) s += `<i style="left:${24 + i * 80}px;top:${60 + r * 120}px;background:${c[(i + r * 3) % 6]}"></i>`;
+      return s;
+    }
+    if (kind === 'youtube') {
+      let s = '<div class="h"></div>'; const c = ['#3b4a5a', '#5a3b4a', '#4a5a3b', '#3b3b5a'];
+      for (let r = 0; r < 3; r++) for (let i = 0; i < 3; i++) s += `<i style="left:${14 + i * 124}px;top:${46 + r * 70}px;background:${c[(i + r) % 4]}"></i>`;
+      return s;
+    }
+    if (kind === 'browser') {
+      let s = '<div class="bar"></div>';
+      for (let i = 0; i < 9; i++) s += `<i style="left:24px;top:${52 + i * 18}px;width:${300 - (i % 3) * 60}px"></i>`;
+      return s;
+    }
+    return '';
+  }
+
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  /* One whole screen. o: apps (keys), focus (index), level ('card'|'quit'|'all'), going (keys being closed), from (key shrinking from the whole screen),
+     t (0..1 of the move), confirm, first (first visible card when more than four fit). */
+  function stage(o) {
+    const t = o.t === undefined ? 1 : o.t;
+    const e = ease(t);
+    const apps = o.apps;
+    const n = apps.length;
+    const first = o.first || 0;
+    const shown = apps.slice(first, first + 4);
+    const total = shown.length;
+    const W = 400, H = 225, G = 32, top = 340;
+    const x0 = (1920 - (total * W + (total - 1) * G)) / 2;
+    let html = '<div class="home-behind"></div><div class="scrim" style="opacity:' + (o.from ? lerp(0, 1, Math.min(1, t * 1.25)) : (o.fade === undefined ? 1 : o.fade)) + '"></div>';
+    const chrome = o.from ? Math.min(1, Math.max(0, (t - .2) / .8)) : 1;
+    if (!o.confirm) {
+      html += `<div style="opacity:${chrome}">`;
+      html += `<div class="sw-head"><div class="title">Open apps</div><div class="count">${n === 0 ? '' : n + ' open'}</div>`
+        + (n ? `<div class="sw-btn ${o.level === 'all' ? 'focus' : ''}" id="quitall"><i data-ic="x"></i>Quit all</div>` : '') + '</div>';
+      html += '</div>';
+    }
+    if (n === 0) {
+      html += `<div class="sw-empty"><div class="big">No apps open</div><div class="small">Apps you open stay here until you quit them.</div></div>`;
+    }
+    shown.forEach((k, i) => {
+      const a = APPS[k];
+      const focus = (first + i) === o.focus;
+      const going = (o.going || []).includes(k);
+      const rest = { x: x0 + i * (W + G), y: top, w: W, h: H, r: 22 };
+      let r = rest, alpha = 1;
+      if (o.from === k) r = { x: lerp(0, rest.x, e), y: lerp(0, rest.y, e), w: lerp(1920, W, e), h: lerp(1080, H, e), r: lerp(0, 22, e) };
+      else if (o.from) { const s = lerp(.94, 1, e); r = { x: rest.x + W * (1 - s) / 2, y: rest.y + H * (1 - s) / 2, w: W * s, h: H * s, r: 22 }; alpha = e; }
+      const moving = o.from && t < 1;
+      const pic = a.plane
+        ? `<div class="tile"><div class="wash" style="background-image:url(${a.icon})"></div><div class="shade"></div><img class="glyph" src="${a.icon}" alt=""></div>`
+        : `<div class="pic shot-${a.shot}" style="position:absolute;inset:0">${shotHtml(a.shot)}</div>`;
+      // the picture itself is drawn by the compositor, at the rectangle in r; the mock draws it where it would be
+      html += `<div style="position:absolute;left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;border-radius:${r.r}px;overflow:hidden;opacity:${alpha}"><div style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0;transform:scale(${r.w / W},${r.h / H});background:#0C0A14">${pic}</div></div>`;
+      if (!moving && !o.confirm) {
+        const sub = going ? 'Quitting\u2026' : a.plane ? 'No preview' : '';
+        const qrow = focus ? `<div class="qrow"><div class="sw-btn ${o.level === 'quit' ? 'focus' : ''}"><i data-ic="x"></i>Quit</div></div>` : '';
+        html += `<div class="card ${focus && o.level === 'card' ? 'focus' : ''} ${focus ? 'sel' : ''} ${going ? 'going' : ''}" style="left:${rest.x}px;top:${rest.y}px">`
+          + `<div style="position:relative;height:${H}px">`
+          + (focus || going ? '' : `<div class="veil"></div>`)
+          + (focus && o.level === 'card' ? `<div class="ring"></div>` : '') + '</div>'
+          + `<div class="foot"><img src="${a.icon}" alt=""><div class="nm"><div class="n">${a.name}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div></div>${qrow}</div>`;
+      }
+    });
+    if (n > 4) html += `<div class="sw-scroll"><i style="left:${first / n * 1728}px;width:${4 / n * 1728}px"></i></div>`;
+    if (n && !o.confirm) html += `<div class="sw-hints" style="opacity:${chrome}"><span><kbd>OK</kbd>Open</span><span><kbd>Back</kbd>Close</span></div>`;
+    if (o.confirm) {
+      html += `<div class="sw-back"></div><div class="sw-ask"><div class="q">Quit all ${n} apps?</div><div class="d">Everything that is open closes. Anything unsaved in them is lost.</div>`
+        + `<div class="acts"><div class="sw-btn focus">Cancel</div><div class="sw-btn danger">Quit all</div></div></div>`;
+    }
+    const el = document.createElement('div');
+    el.className = 'stage';
+    el.innerHTML = html;
+    return el;
+  }
+
+  const root = document.getElementById('root');
+  function put(el, scale, x, y) {
+    el.style.transform = scale === 1 ? '' : `scale(${scale})`;
+    if (x !== undefined) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+    root.appendChild(el);
+  }
+
+  const four = ['plex', 'netflix', 'youtube', 'geforce'];
+  if (v === 'open') put(stage({ apps: four, focus: 0, level: 'card' }), 1);
+  else if (v === 'plane') put(stage({ apps: ['livetv', 'plex', 'appletv', 'youtube'], focus: 0, level: 'card' }), 1);
+  else if (v === 'quit') put(stage({ apps: four, focus: 1, level: 'quit', going: ['youtube'] }), 1);
+  else if (v === 'confirm') put(stage({ apps: four, focus: 0, level: 'all', confirm: true }), 1);
+  else if (v === 'many') put(stage({ apps: ['plex', 'netflix', 'youtube', 'geforce', 'browser', 'crunchy', 'lgmovies'], focus: 2, level: 'card', first: 0 }), 1);
+  else if (v === 'empty') put(stage({ apps: [], focus: -1, level: 'card' }), 1);
+  else if (v === 'shrink') {
+    const story = document.createElement('div'); story.className = 'story'; root.appendChild(story);
+    const frames = [[0, '0 ms', 'Second Home press: Plex still fills the screen'], [.3, '60 ms', 'the picture shrinks and the dim comes in'], [.6, '120 ms', 'the other apps arrive as it settles'], [1, '200 ms', 'Plex rests in its card, first and in focus']];
+    const sc = 800 / 1920;
+    frames.forEach(([t, cap, note], i) => {
+      const cx = 140 + (i % 2) * 840, cy = 20 + Math.floor(i / 2) * 530;
+      const cell = document.createElement('div'); cell.className = 'fr'; cell.style.left = cx + 'px'; cell.style.top = cy + 'px';
+      const st = stage({ apps: four, focus: 0, level: 'card', from: 'plex', t }); st.style.transform = `scale(${sc})`; cell.appendChild(st);
+      story.appendChild(cell);
+      const c = document.createElement('div'); c.className = 'cap'; c.style.left = cx + 'px'; c.style.top = (cy + 458) + 'px';
+      c.innerHTML = `${cap}<span>${note}</span>`; story.appendChild(c);
+    });
+  }
+  window.Icons && Icons.fill(document);
+})();
+</script>
+</body>
+</html>
