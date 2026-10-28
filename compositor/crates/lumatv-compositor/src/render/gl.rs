@@ -13,12 +13,13 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 
 mod previews;
 
-use super::egl::{self, EGLImage, EGLSync, Egl, GLuint, Platform};
+use super::egl::{self, EGLImage, EGLSync, Egl, GLint, GLuint, Platform};
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
-use crate::scene::Plan;
+use crate::scene::{HoleVeil, Plan, Posed};
 use crate::surface::{SurfaceId, Surfaces};
+use crate::transition::{FRect, VEIL_RGB};
 
 /// Which global serves the clients' GPU buffers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +72,17 @@ struct Target {
     top_down: bool,
 }
 
+/// The program that draws a window in a transition, with its uniforms and a blank texture to bind when it draws a flat colour.
+struct Xf {
+    program: GLuint,
+    a_pos: GLuint,
+    a_uv: GLuint,
+    u_clip: GLint,
+    u_mix: GLint,
+    u_color: GLint,
+    blank: GLuint,
+}
+
 pub struct Gl {
     egl: Egl,
     width: u32,
@@ -83,6 +95,7 @@ pub struct Gl {
     /// The `u_dim` uniform's location and the value it holds (1 between frames: [`Gl::set_dim`]).
     u_dim: egl::GLint,
     dim: f32,
+    xf: Xf,
     textures: HashMap<ObjectId, Tex>,
     /// Textures of buffers that died, destroyed later (`bury`): freeing a driver import stalls the caller until the GPU
     /// is done with the last frame that read it (8.9-18.8 ms renders at X1's disconnect on the fourth and fifth gates).
@@ -178,6 +191,20 @@ const VS: &str = "attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 v_uv;\
 /// `u_dim` scales the colour and leaves the alpha: the buffers are premultiplied, so a dimmed layer is the same layer with less light
 /// (the OLED care's dim, `oledcare`); 1 for everything else.
 const FS: &str = "precision mediump float; uniform sampler2D u_tex; uniform float u_dim; varying vec2 v_uv;\nvoid main() { vec4 c = texture2D(u_tex, v_uv); gl_FragColor = vec4(c.rgb * u_dim, c.a); }\n";
+/// The fragment shader of a window in a transition (`transition.rs`): the picture, or a flat colour (a veil), through a rounded rectangle (the
+/// window's mask, in framebuffer pixels; the same signed-distance rule as `transition::mask_coverage`, which the software renderer draws), at an
+/// opacity and a brightness. Premultiplied, like everything else drawn here. The pixel's own position needs full precision (a 1920 wide target
+/// is 2 pixels to a step in half precision).
+const XF_FS: &str = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n\
+uniform sampler2D u_tex; uniform vec4 u_clip; uniform vec4 u_mix; uniform vec4 u_color; varying vec2 v_uv;\n\
+void main() {\n\
+  vec4 c = mix(texture2D(u_tex, v_uv), vec4(u_color.rgb, 1.0), u_mix.w);\n\
+  vec2 hs = 0.5 * (u_clip.zw - u_clip.xy);\n\
+  vec2 q = abs(gl_FragCoord.xy - 0.5 * (u_clip.xy + u_clip.zw)) - hs + vec2(u_mix.x);\n\
+  float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - u_mix.x;\n\
+  float m = clamp(0.5 - d, 0.0, 1.0);\n\
+  gl_FragColor = vec4(c.rgb * u_mix.z, c.a) * (u_mix.y * m);\n\
+}\n";
 
 impl Gl {
     /// Opens the driver, binds the Wayland display when `path` is `Driver`, and makes the offscreen target.
@@ -206,6 +233,30 @@ impl Gl {
             (a.glUniform1f)(u_dim, 1.0);
             (program, a_pos as GLuint, a_uv as GLuint, u_dim)
         };
+        // SAFETY: as above; the blank texture is one transparent texel.
+        let xf = unsafe {
+            let program = link(&egl, VS, XF_FS)?;
+            let a_pos = (a.glGetAttribLocation)(program, c"a_pos".as_ptr());
+            let a_uv = (a.glGetAttribLocation)(program, c"a_uv".as_ptr());
+            (a.glUseProgram)(program);
+            (a.glUniform1i)((a.glGetUniformLocation)(program, c"u_tex".as_ptr()), 0);
+            let mut blank = 0;
+            (a.glGenTextures)(1, &mut blank);
+            (a.glBindTexture)(egl::GL_TEXTURE_2D, blank);
+            set_params(a);
+            (a.glTexImage2D)(egl::GL_TEXTURE_2D, 0, egl::GL_RGBA as i32, 1, 1, 0, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, [0u8; 4].as_ptr() as *const c_void);
+            Xf {
+                program,
+                a_pos: a_pos as GLuint,
+                a_uv: a_uv as GLuint,
+                u_clip: (a.glGetUniformLocation)(program, c"u_clip".as_ptr()),
+                u_mix: (a.glGetUniformLocation)(program, c"u_mix".as_ptr()),
+                u_color: (a.glGetUniformLocation)(program, c"u_color".as_ptr()),
+                blank,
+            }
+        };
+        // SAFETY: back to the frame's own program.
+        unsafe { (a.glUseProgram)(program) };
         let bgra_upload = egl.has_gl_extension("GL_EXT_texture_format_BGRA8888");
         Ok(Gl {
             egl,
@@ -218,6 +269,7 @@ impl Gl {
             a_uv,
             u_dim,
             dim: 1.0,
+            xf,
             textures: HashMap::new(),
             graveyard: Vec::new(),
             warm: None,
@@ -742,6 +794,79 @@ impl Gl {
         }
     }
 
+    /// A window's picture, or a flat colour, through a pose: `quad` is where the picture goes, `clip` the rounded rectangle it shows through, at
+    /// `alpha` and `shade` (`transition.rs`). Draws with the pose program, which the caller made current ([`Gl::use_xf`]), into the scissor it set.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_posed(&self, tex: GLuint, quad: &FRect, clip: &FRect, radius: f32, alpha: f32, shade: f32, y_invert: bool, solid: Option<[f32; 3]>) {
+        let (w, h) = (self.width as f32, self.height as f32);
+        let top_down = self.targets[self.current.0].top_down;
+        let (x0, x1) = (quad.x / w * 2.0 - 1.0, quad.right() / w * 2.0 - 1.0);
+        let (y0, y1) = if top_down { (quad.y / h * 2.0 - 1.0, quad.bottom() / h * 2.0 - 1.0) } else { (1.0 - quad.y / h * 2.0, 1.0 - quad.bottom() / h * 2.0) };
+        let (vt, vb) = if y_invert { (0.0f32, 1.0f32) } else { (1.0, 0.0) };
+        let verts: [f32; 16] = [x0, y0, 0.0, vt, x1, y0, 1.0, vt, x0, y1, 0.0, vb, x1, y1, 1.0, vb];
+        // The mask in framebuffer rows: counted from the bottom offscreen, from the top on a scan-out page (as `scissor`).
+        let (cy0, cy1) = if top_down { (clip.y, clip.bottom()) } else { (h - clip.bottom(), h - clip.y) };
+        let radius = radius.clamp(0.0, (clip.w.min(clip.h) * 0.5).max(0.0));
+        let [r, g, b] = solid.unwrap_or([0.0; 3]);
+        let a = &self.egl.api;
+        // SAFETY: uniforms of the current pose program and client-side vertex arrays of 16 floats; the texture is bound here.
+        unsafe {
+            (a.glUniform4f)(self.xf.u_clip, clip.x, cy0, clip.right(), cy1);
+            (a.glUniform4f)(self.xf.u_mix, radius, alpha, shade, if solid.is_some() { 1.0 } else { 0.0 });
+            (a.glUniform4f)(self.xf.u_color, r, g, b, 1.0);
+            (a.glActiveTexture)(egl::GL_TEXTURE0);
+            (a.glBindTexture)(egl::GL_TEXTURE_2D, if solid.is_some() { self.xf.blank } else { tex });
+            (a.glVertexAttribPointer)(self.xf.a_pos, 2, egl::GL_FLOAT, 0, 16, verts.as_ptr() as *const c_void);
+            (a.glVertexAttribPointer)(self.xf.a_uv, 2, egl::GL_FLOAT, 0, 16, verts.as_ptr().add(2) as *const c_void);
+            (a.glEnableVertexAttribArray)(self.xf.a_pos);
+            (a.glEnableVertexAttribArray)(self.xf.a_uv);
+            (a.glDrawArrays)(egl::GL_TRIANGLE_STRIP, 0, 4);
+        }
+    }
+
+    /// A veil: the flat dark fill of an arriving card's hole, inside `rects` (output pixels), through the card's mask.
+    fn draw_veil(&self, v: &HoleVeil, bounds: &Rect, rects: &[Rect]) {
+        self.use_xf();
+        let rgb = [VEIL_RGB[0] as f32 / 255.0, VEIL_RGB[1] as f32 / 255.0, VEIL_RGB[2] as f32 / 255.0];
+        for r in rects {
+            let c = bounds.intersect(r);
+            if c.is_empty() {
+                continue;
+            }
+            self.scissor(&c);
+            self.draw_posed(0, &v.quad, &v.clip, v.radius, v.alpha, 1.0, false, Some(rgb));
+        }
+        self.use_plain();
+    }
+
+    /// `dim` is the OLED care's (the item's own, 1 for nearly everything): it multiplies the pose's brightness.
+    fn draw_pose_item(&self, tex: GLuint, p: &Posed, dim: f32, y_invert: bool, rects: &[Rect]) -> bool {
+        let mut drawn = false;
+        self.use_xf();
+        for r in rects {
+            let clip = p.bounds().intersect(r);
+            if clip.is_empty() {
+                continue;
+            }
+            self.scissor(&clip);
+            self.draw_posed(tex, &p.quad, &p.clip, p.radius, p.alpha, p.shade * dim, y_invert, None);
+            drawn = true;
+        }
+        self.use_plain();
+        drawn
+    }
+
+    /// The pose program is the current one (a window in a transition); [`Gl::use_plain`] puts the frame's own back.
+    fn use_xf(&self) {
+        // SAFETY: plain state call with a program made at creation.
+        unsafe { (self.egl.api.glUseProgram)(self.xf.program) };
+    }
+
+    fn use_plain(&self) {
+        // SAFETY: as above.
+        unsafe { (self.egl.api.glUseProgram)(self.program) };
+    }
+
     fn scissor(&self, r: &Rect) {
         // GL scissor counts rows from row 0: the bottom of the screen offscreen, the top on a scan-out page.
         let y = if self.targets[self.current.0].top_down { r.y } else { self.height as i32 - r.bottom() };
@@ -810,6 +935,15 @@ impl Gl {
         if let Some(page) = page.filter(|p| p.0 < self.targets.len() && *p != self.current) {
             self.draw_quad(self.targets[page.0].tex, &full, false);
         }
+        // The pose program's first use compiles and links its pipeline in the driver: paid here (a quad of a texture and of a flat colour,
+        // through a mask), not by the first transition. A corner of the target only; the clear below puts it back.
+        let corner = FRect::new(0.0, 0.0, 64.0, 36.0);
+        self.use_xf();
+        self.scissor(&Rect::new(0, 0, 64, 36));
+        self.draw_posed(tex, &corner, &corner, 8.0, 0.5, 0.8, true, None);
+        self.draw_posed(tex, &corner, &corner, 8.0, 0.5, 1.0, true, Some([0.1, 0.1, 0.1]));
+        self.use_plain();
+        self.scissor(&full);
         // SAFETY: the texture was made above; the clear puts the target back to black; glFinish waits for the GPU.
         unsafe {
             (a.glClearColor)(0.0, 0.0, 0.0, 1.0);
@@ -870,7 +1004,7 @@ impl Gl {
     /// owes, or the frame's damage bounds.
     pub fn render_rects(&mut self, plan: &Plan, surfaces: &Surfaces, rects: &[Rect]) -> io::Result<RenderStats> {
         let t0 = std::time::Instant::now();
-        self.prune(surfaces);
+        self.prune(surfaces, &plan.items);
         let mut stats = RenderStats { items: plan.items.len(), ..Default::default() };
         #[cfg(feature = "ui")]
         if let Some(ui) = &mut self.ui {
@@ -920,6 +1054,11 @@ impl Gl {
             // on that, so the surface's rectangle is copied from the page holding the last frame instead, and the page
             // being drawn owes it again. The copy is opaque: the page already composes everything under the surface.
             let warming = self.textures.get(&item.buffer.id()).is_some_and(|t| t.external && (t.warm_sync.is_some() || t.held));
+            // A picture on its way (a transition) whose buffer is still warming is not drawn this frame: what is under it shows, and the
+            // next frame of the move draws it.
+            if warming && item.pose.is_some() {
+                continue;
+            }
             if let (true, Some(page)) = (warming, standin_page) {
                 let full = Rect::new(0, 0, self.width as i32, self.height as i32);
                 self.set_dim(1.0);
@@ -948,14 +1087,18 @@ impl Gl {
             }
             let mut drawn = false;
             self.set_dim(item.dim);
-            for r in rects {
-                let clip = item.rect.intersect(r);
-                if clip.is_empty() {
-                    continue;
+            if let Some(p) = &item.pose {
+                drawn = self.draw_pose_item(tex, p, item.dim, y_invert, rects);
+            } else {
+                for r in rects {
+                    let clip = item.rect.intersect(r);
+                    if clip.is_empty() {
+                        continue;
+                    }
+                    self.scissor(&clip);
+                    self.draw_quad(tex, &item.rect, y_invert);
+                    drawn = true;
                 }
-                self.scissor(&clip);
-                self.draw_quad(tex, &item.rect, y_invert);
-                drawn = true;
             }
             if drawn {
                 stats.drawn += 1;
@@ -1022,17 +1165,24 @@ impl Gl {
     /// everything drawn above it.
     fn clear_holes_before(&mut self, plan: &Plan, index: usize, rects: &[Rect]) {
         for h in plan.holes.iter().filter(|h| h.before == index) {
-            for r in rects {
-                let c = h.rect.intersect(r);
-                if c.is_empty() {
-                    continue;
+            // An arriving card's veil lies over what is under the card (no clear) until it starts to fade away; then the hole is cleared
+            // and the veil, less opaque, goes on the clear, so the video the display engine blends under it shows through what is left.
+            if h.veil.is_none_or(|v| v.clear) {
+                for r in rects {
+                    let c = h.rect.intersect(r);
+                    if c.is_empty() {
+                        continue;
+                    }
+                    self.scissor(&c);
+                    // SAFETY: GL state calls on the current context.
+                    unsafe {
+                        (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
+                        (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
+                    }
                 }
-                self.scissor(&c);
-                // SAFETY: GL state calls on the current context.
-                unsafe {
-                    (self.egl.api.glClearColor)(0.0, 0.0, 0.0, 0.0);
-                    (self.egl.api.glClear)(egl::GL_COLOR_BUFFER_BIT);
-                }
+            }
+            if let Some(v) = &h.veil {
+                self.draw_veil(v, &h.rect, rects);
             }
         }
     }
@@ -1084,11 +1234,16 @@ impl Gl {
     /// Retires textures of buffers the clients destroyed and no surface shows any more; `bury` frees them. A destroyed
     /// buffer that is still a surface's current one keeps its import: the surface goes on showing it until the client
     /// commits another (the driver's own buffers have no destroy callback here, so liveness is the only signal).
-    pub fn prune(&mut self, surfaces: &Surfaces) {
+    pub fn prune(&mut self, surfaces: &Surfaces, drawn: &[crate::scene::Item]) {
         let dead: Vec<ObjectId> = self
             .textures
             .iter()
-            .filter(|(id, t)| !t.buffer.is_alive() && !surfaces.iter().any(|s| s.current.buffer.as_ref().map(|b| b.id() == **id).unwrap_or(false)))
+            .filter(|(id, t)| {
+                !t.buffer.is_alive()
+                    && !surfaces.iter().any(|s| s.current.buffer.as_ref().map(|b| b.id() == **id).unwrap_or(false))
+                    // (a destroyed window's last picture that a transition still draws)
+                    && !drawn.iter().any(|i| i.buffer.id() == **id)
+            })
             .map(|(id, _)| id.clone())
             .collect();
         for id in dead {

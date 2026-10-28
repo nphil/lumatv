@@ -20,6 +20,7 @@ PageList {
     readonly property var clockStyles: ["analog", "digital", "off"]
     readonly property string clockStyle: theme.clock && theme.clock.enabled === false ? "off" : ((theme.clock && theme.clock.style) || "analog")
     readonly property bool motionOn: !theme.wallpaperMotion || theme.wallpaperMotion.enabled !== false
+    readonly property bool transitionsOn: !!(theme.motion && theme.motion.transitions)
     readonly property var saver: theme.screensaver || ({})
     readonly property var art: saver.art || ({})
     readonly property string saverStyle: saver.style || "clock"
@@ -65,6 +66,8 @@ PageList {
           act: function(i) { page.patch(i === 2 ? { clock: { enabled: false } } : { clock: { enabled: true, style: page.clockStyles[i] } }) } },
         { kind: "toggle", tab: 0, icon: "waves", label: "Wallpaper motion",
           on: function() { return page.motionOn }, act: function(v) { page.patch({ wallpaperMotion: { enabled: v } }) } },
+        { kind: "toggle", tab: 0, icon: "sparkles", label: "Smooth transitions", help: "Apps grow out of their tile and shrink back.",
+          on: function() { return page.transitionsOn }, act: function(v) { page.patch({ motion: { transitions: v } }) } },
         { kind: "seg", tab: 0, icon: "blend", label: "Glass depth",
           options: ["Flat", "Normal", "Deep"], index: function() { var i = page.depthLevels.indexOf(Lu.depthLevel); return i < 0 ? undefined : i },
           act: function(i) { page.patch({ depth: { level: page.depthLevels[i] } }) } },

@@ -117,7 +117,8 @@
     "layerMs": 220,
     "restMs": 150,
     "holdMs": 700,
-    "reduced": false
+    "reduced": false,
+    "transitions": false
   },
   "tiles": {
     "inset": 19,

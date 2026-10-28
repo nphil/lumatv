@@ -49,7 +49,10 @@ WebOSWindow {
     // An app that takes the front under a panel of the system layer ends the panel (LG's own windows end with the app switch): the
     // Input key held opens the picker at its press, and a second later the Home Hub in front of it. Banners are left alone.
     readonly property string fgApp: fg.app || ""
-    onFgAppChanged: { if (overlay.item && overlay.item.closePanel) overlay.item.closePanel() }
+    onFgAppChanged: {
+        if (overlay.item && overlay.item.closePanel) overlay.item.closePanel()
+        if (fgApp !== "" && fgApp !== "com.webos.app.home" && lumaHome.item && lumaHome.item.appFronted) lumaHome.item.appFronted(fgApp)
+    }
 
     Loader {
         id: lumaHome
@@ -64,6 +67,9 @@ WebOSWindow {
     Binding { target: lumaHome.item; property: "homeCurrent"; value: homeWin.homeCurrent; when: homeWin.homeReady }
     // Covered whole (an app, a full-screen overlay such as LG's Settings): the idle tick stops, nothing is drawn until Home shows again.
     Binding { target: lumaHome.item; property: "idleHold"; value: homeWin.covered; when: homeWin.homeReady }
+    // The compositor animates launches and returns (its `transitions` topic): Home tells it where a tile is and waits to show its launch screen.
+    readonly property bool transitionsOn: !!Link.topics.transitions && Link.topics.transitions.on === true
+    Binding { target: lumaHome.item; property: "smoothLaunch"; value: homeWin.transitionsOn; when: homeWin.homeReady }
     // The moving wallpaper (LumaHome's WallVideo): this compositor has the wallpaper window under Home's, so the video wallpaper is offered, and Home
     // takes its own wallpaper away only while the compositor says the hole is in its picture (the `wall` topic).
     readonly property bool wallHole: !!Link.topics.wall && Link.topics.wall.hole === true

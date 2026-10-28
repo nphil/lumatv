@@ -118,6 +118,7 @@ impl Dispatch<WlWebosForeign, ()> for State {
                         resource: res,
                     },
                 );
+                state.scene.set_video_expected(sid, true);
                 state.journal(format!("foreign: surface {} exported as {window_id} (type {exported_type})", sid.0));
             }
             wl_webos_foreign::Request::ImportElement { id, window_id, exported_type } => {
@@ -199,6 +200,9 @@ impl Dispatch<WlWebosExported, ExportedData> for State {
                 state.luna_call(uri, payload);
             }
             state.scene.holes.retain(|h| h.surface != e.surface);
+            // (another element of the same surface may still be there)
+            let still = state.foreign.exported.values().any(|x| x.surface == e.surface);
+            state.scene.set_video_expected(e.surface, still);
         }
     }
 }

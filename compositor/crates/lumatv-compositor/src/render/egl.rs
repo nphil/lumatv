@@ -185,13 +185,13 @@ entry_points! {
     glGetUniformLocation: fn(GLuint, *const c_char) -> GLint;
     glUniform1i: fn(GLint, GLint);
     glUniform1f: fn(GLint, GLfloat);
+    glUniform4f: fn(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
     glVertexAttribPointer: fn(GLuint, GLint, GLenum, u8, GLsizei, *const c_void);
     glEnableVertexAttribArray: fn(GLuint);
     glDrawArrays: fn(GLenum, GLint, GLsizei);
     glReadPixels: fn(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, *mut c_void);
     glFinish: fn();
     glFlush: fn();
-    glUniform4f: fn(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
 }
 
 /// Entry points that may be absent; each is checked before use.

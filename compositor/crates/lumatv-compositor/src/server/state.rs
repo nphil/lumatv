@@ -136,6 +136,8 @@ pub struct State {
     pub shell: crate::shell::Shell,
     /// The app switcher (`switcher.rs`).
     pub switcher: crate::switcher::Switcher,
+    /// The owner's switch for the transitions (`transition.rs`): the theme file, and `ctl transitions` over it.
+    pub motion: crate::transition::ThemeSwitch,
     pub stats: Stats,
     pub check: CheckState,
     pub clients: HashMap<ClientId, ClientInfo>,
@@ -170,6 +172,7 @@ impl State {
         let keys = crate::input::Keys::new(&config);
         let mut scene = Scene::default();
         scene.care = crate::oledcare::Care::new(&config.data_dir);
+        let motion = crate::transition::ThemeSwitch::new(&config.data_dir);
         State {
             dh,
             config,
@@ -184,6 +187,7 @@ impl State {
             ime: super::ime::ImeState::default(),
             shell: crate::shell::Shell::default(),
             switcher: crate::switcher::Switcher::default(),
+            motion,
             stats: Stats::default(),
             check: CheckState::default(),
             clients: HashMap::new(),
@@ -364,6 +368,7 @@ impl State {
         if self.surfaces.has_undrawn(id) && self.scene.window_of(id).is_some() && self.output.next_frame_at(Instant::now()).is_none() {
             self.tick();
         }
+        self.scene.zombify(id, &self.surfaces);
         if let Some(s) = self.surfaces.remove(id) {
             for b in s.current.buffer.into_iter().chain(s.current.retired) {
                 self.release_after_present.push(b);
@@ -389,6 +394,11 @@ impl State {
     /// While the driver is busy with a buffer a commit just prepared (`Output::warming`) nothing is drawn: the previous
     /// frame stays on the screen, commits and callbacks keep their place, and the next tick tries again.
     pub fn tick(&mut self) -> Presented {
+        self.tick_at(crate::output::monotonic_ns())
+    }
+
+    /// [`State::tick`] with the scene planned at `now_ns` (CLOCK_MONOTONIC): what the transitions' poses are evaluated at (the host tests move it by hand).
+    pub fn tick_at(&mut self, now_ns: u64) -> Presented {
         let t0 = Instant::now();
         self.stats.ticks += 1;
         // A flip that landed while the pass did other work goes out before this frame is drawn, and one that landed
@@ -411,7 +421,6 @@ impl State {
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
         self.switcher_frame(t0);
         let State { scene, surfaces, output, stats, shell, .. } = self;
-        let now_ns = crate::output::monotonic_ns();
         scene.care.refresh(now_ns);
         scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);
         let plan = scene.plan_at(surfaces, now_ns);

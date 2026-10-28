@@ -739,9 +739,13 @@ impl State {
             return;
         }
         let home_shown = self.shell_home_drawn();
-        let covered = !home_shown || self.scene.shell_home_covered(&self.surfaces);
+        // Under an app card that is still growing (a transition holds Home as its underlay) Home is still on the screen: it is told so, and the
+        // video wallpaper's player is not stopped, until the card is whole.
+        let covered = !home_shown || (!self.scene.transitions.holds_home() && self.scene.shell_home_covered(&self.surfaces));
         let fg = json!({"app": self.foreground_app(), "home": home_shown, "covered": covered});
         self.shell.push_if_changed("foreground", fg);
+        let motion = self.scene.transitions.settings;
+        self.shell.push_if_changed("transitions", json!({"on": motion.enabled, "reduced": motion.reduced}));
         let screen = json!({"on": self.luna_state.power.rendering});
         self.shell.push_if_changed("screen", screen);
         let keyboard = json!({"up": self.keyboard_up()});
@@ -763,7 +767,7 @@ impl State {
     /// none (the scene's rule, `scene.rs` `build_stack`).
     pub fn shell_home_drawn(&self) -> bool {
         let home_mapped = self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0);
-        home_mapped && self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP)
+        home_mapped && (self.scene.foreground(&self.surfaces).is_none_or(|w| w.app_id() == crate::scene::HOME_APP) || self.scene.transitions.holds_home())
     }
 
     /// The moving wallpaper's window is closed the moment LumaTV's Home is not drawn (an app, an input, LG's Home or Settings took the front):

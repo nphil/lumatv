@@ -8,8 +8,9 @@ use wayland_server::protocol::wl_buffer::WlBuffer;
 use crate::Rect;
 use crate::buffer::{BufferKindRef, kind_of};
 use crate::output::{FrameClock, Image, Output, Presented, RenderStats};
-use crate::scene::{Backdrop, Plan, coverage};
+use crate::scene::{Backdrop, HoleVeil, Plan, Posed, coverage};
 use crate::surface::Surfaces;
+use crate::transition::{VEIL_RGB, mask_coverage};
 
 pub struct Software {
     width: u32,
@@ -91,6 +92,24 @@ impl Software {
             stats.drawn += 1;
         }
     }
+
+    /// A veil's fill (`scene::HoleVeil`): the flat dark colour at the veil's opacity, over the pixels of its quad that its card's mask shows.
+    fn fill_veil(&mut self, v: &HoleVeil, area: &Rect) {
+        let r = v.quad.bounds().intersect(&v.clip.bounds()).intersect(area);
+        for y in r.y..r.bottom() {
+            for x in r.x..r.right() {
+                let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+                if cx < v.quad.x || cx >= v.quad.right() || cy < v.quad.y || cy >= v.quad.bottom() {
+                    continue;
+                }
+                let a = v.alpha * mask_coverage(&v.clip, v.radius, cx, cy);
+                let ch = |c: u8| (c as f32 * a + 0.5) as u32;
+                let src = (((a * 255.0 + 0.5) as u32) << 24) | (ch(VEIL_RGB[0]) << 16) | (ch(VEIL_RGB[1]) << 8) | ch(VEIL_RGB[2]);
+                let d = &mut self.pixels[(y as u32 * self.width + x as u32) as usize];
+                *d = blend(*d, src);
+            }
+        }
+    }
 }
 
 /// Premultiplied RGBA floats (0 to 1) as 0xAARRGGBB.
@@ -103,6 +122,24 @@ fn pack(c: [f32; 4]) -> u32 {
 fn scale(p: u32, c: f32) -> u32 {
     let ch = |shift: u32| -> u32 { (((p >> shift) & 0xff) as f32 * c + 0.5) as u32 };
     (ch(24) << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
+
+/// Bilinear sample of a shm buffer at the texel coordinate (`u`, `v`) (texel centres at half integers, edges clamped), premultiplied channels.
+fn sample(shm: &crate::buffer::ShmBuffer, bytes: &[u8], u: f32, v: f32) -> [f32; 4] {
+    let (fx, fy) = (u - 0.5, v - 0.5);
+    let (x0, y0) = (fx.floor(), fy.floor());
+    let (tx, ty) = (fx - x0, fy - y0);
+    let at = |x: f32, y: f32| -> [f32; 4] {
+        let (x, y) = ((x as i32).clamp(0, shm.width - 1), (y as i32).clamp(0, shm.height - 1));
+        let p = shm.pixel(bytes, x, y).unwrap_or(0);
+        [(p >> 16 & 255) as f32, (p >> 8 & 255) as f32, (p & 255) as f32, (p >> 24) as f32]
+    };
+    let (a, b, c, d) = (at(x0, y0), at(x0 + 1.0, y0), at(x0, y0 + 1.0), at(x0 + 1.0, y0 + 1.0));
+    let mut out = [0.0; 4];
+    for i in 0..4 {
+        out[i] = (a[i] * (1.0 - tx) + b[i] * tx) * (1.0 - ty) + (c[i] * (1.0 - tx) + d[i] * tx) * ty;
+    }
+    out
 }
 
 /// Source-over of premultiplied 0xAARRGGBB `src` onto `dst`.
@@ -129,6 +166,27 @@ fn blend(dst: u32, src: u32) -> u32 {
 fn dimmed(src: u32, dim: u32) -> u32 {
     let ch = |shift: u32| -> u32 { (((src >> shift) & 255) * dim + 128) / 256 };
     (src & 0xff00_0000) | (ch(16) << 16) | (ch(8) << 8) | ch(0)
+}
+
+/// An item through its pose: its buffer scaled onto `pose.quad` (bilinear, as the GPU samples), behind the window's rounded mask, at the pose's
+/// opacity and brightness, over what is there.
+fn draw_posed(pixels: &mut [u32], width: usize, shm: &crate::buffer::ShmBuffer, bytes: &[u8], pose: &Posed, rect: &Rect, clip: &Rect) {
+    let _ = rect;
+    for y in clip.y..clip.bottom() {
+        for x in clip.x..clip.right() {
+            let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let (u, v) = ((cx - pose.quad.x) / pose.quad.w, (cy - pose.quad.y) / pose.quad.h);
+            if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&v) {
+                continue;
+            }
+            let c = sample(shm, bytes, u * shm.width as f32, v * shm.height as f32);
+            let k = pose.alpha * mask_coverage(&pose.clip, pose.radius, cx, cy);
+            let ch = |i: usize, shade: f32| ((c[i] * shade * k + 0.5) as u32).min(255);
+            let src = (((c[3] * k + 0.5) as u32).min(255) << 24) | (ch(0, pose.shade) << 16) | (ch(1, pose.shade) << 8) | ch(2, pose.shade);
+            let d = &mut pixels[y as usize * width + x as usize];
+            *d = blend(*d, src);
+        }
+    }
 }
 
 impl Output for Software {
@@ -159,19 +217,32 @@ impl Output for Software {
                 self.draw_backdrop(b, &area, &mut stats);
             }
             // a hole is cleared just before the item of its surface (LG's order): what is under it goes, what it and the items above draw stays
+            // (an arriving card's veil goes on the clear, under the card's own pixels)
             for h in plan.holes.iter().filter(|h| h.before == index) {
                 let r = h.rect.intersect(&area);
-                if !r.is_empty() {
+                if !r.is_empty() && h.veil.is_none_or(|v| v.clear) {
                     self.fill(&r, 0);
                 }
+                if let Some(v) = &h.veil {
+                    self.fill_veil(v, &area);
+                }
             }
-            let clip = item.rect.intersect(&area);
+            let clip = item.drawn_rect().intersect(&area);
             if clip.is_empty() {
                 continue;
             }
             // 256 is "not dimmed": the scale in 256ths
             let dim = (item.dim * 256.0).round() as u32;
             match kind_of(&item.buffer) {
+                BufferKindRef::Shm(shm) if item.pose.is_some() => {
+                    let shm = shm.clone();
+                    let mut pose = item.pose.unwrap();
+                    pose.shade *= item.dim;
+                    let width = self.width as usize;
+                    let pixels = &mut self.pixels;
+                    shm.pool.with_bytes(|bytes| draw_posed(pixels, width, &shm, bytes, &pose, &item.rect, &clip));
+                    stats.drawn += 1;
+                }
                 BufferKindRef::Shm(shm) => {
                     let shm = shm.clone();
                     let width = self.width as usize;

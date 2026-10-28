@@ -282,6 +282,7 @@ impl State {
                 let n = self.close_app(app);
                 json!({"returnValue": true, "appId": app, "closed": n})
             }
+            ("com.webos.surfacemanager", "setLaunchOrigin") => self.set_launch_origin(payload),
             ("com.webos.surfacemanager", "getScreenVisible") => json!({"returnValue": true, "screenVisible": self.luna_state.screen_visible}),
             ("com.webos.surfacemanager", "setScreenVisible") => {
                 self.luna_state.screen_visible = payload.get("screenVisible").and_then(Value::as_bool).unwrap_or(true);

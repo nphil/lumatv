@@ -102,14 +102,40 @@ Item {
     function voiceMic(on) { if (voiceRes.item) voiceRes.item.micOpen = on }
     function bannerShow(spec) { if (bannerRes.item) bannerRes.item.show(spec) }
     function bannerHide() { if (bannerRes.item) bannerRes.item.hide() }
+    // The compositor grows the app's card out of its tile: the launch screen then waits `splashDelayMs` (an app that opens in that time never shows
+    // it, and the tile is what the card grows from), fades in over `labelMs` when it does come, and tells where its icon is (`splashShown`), which is
+    // where the card grows from then. Without it (0) the screen is the cut it always was.
+    property int splashDelayMs: 0
+    property var splashHold: ({ name: "", icon: "" })
+    signal splashShown(var iconRect, real radius)
     function launchSplash(name, icon) {
         if (!splashRes.item) return
+        if (splashDelayMs > 0) {
+            splashHold = { name: name, icon: icon }
+            splashDelay.restart()
+            splashEnd.restart()
+            return
+        }
+        splashRes.item.fadeMs = 0
         splashRes.item.launch(name, icon)
         splashEnd.restart()
     }
+    function cancelDelayedSplash() { splashDelay.stop() }
+    Timer {
+        id: splashDelay
+        interval: layers.splashDelayMs
+        onTriggered: {
+            if (!splashRes.item) return
+            splashRes.item.fadeMs = Lu.reduced ? 0 : Lu.ms("labelMs")
+            splashRes.item.launch(layers.splashHold.name, layers.splashHold.icon)
+            splashIcon.restart()
+        }
+    }
+    // one frame after the screen shows, its icon has its place
+    Timer { id: splashIcon; interval: 50; onTriggered: { if (splashRes.item && splashRes.item.mode === "launch") layers.splashShown(splashRes.item.iconRect(), splashRes.item.iconRadius) } }
     function spinner(text) { if (splashRes.item) splashRes.item.spin(text) }
     function holdRing(rect, name, fraction) { if (splashRes.item) { if (fraction < 0) splashRes.item.done(); else { splashRes.item.hold(rect, name); splashRes.item.fraction = fraction } } }
-    function endSplash() { if (splashRes.item) splashRes.item.done(); splashEnd.stop() }
+    function endSplash() { splashDelay.stop(); splashIcon.stop(); if (splashRes.item) splashRes.item.done(); splashEnd.stop() }
     // Quick Access (panels/QuickAccess.qml): a toast for the digit that opened something, the question for one that opened nothing.
     function accessToast(digit, name, line) { if (accessRes.item) accessRes.item.toast(digit, name, line) }
     function accessAsk(digit, picks) { if (accessRes.item) accessRes.item.ask(digit, picks) }

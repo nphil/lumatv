@@ -214,10 +214,23 @@ fn bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     at((lo + hi) * 0.5, y1, y2)
 }
 
+/// How much of the pixel centred on (`px`, `py`) the rounded rectangle `clip` (corners of `radius`) covers: the signed distance to its edge, one pixel
+/// of soft edge. The fragment shader of `render/gl.rs` computes the same, so the software renderer's pictures are what the GPU's are.
+pub fn mask_coverage(clip: &FRect, radius: f32, px: f32, py: f32) -> f32 {
+    let (cx, cy) = clip.centre();
+    let (hx, hy) = (clip.w * 0.5, clip.h * 0.5);
+    let r = radius.clamp(0.0, hx.min(hy).max(0.0));
+    let qx = (px - cx).abs() - hx + r;
+    let qy = (py - cy).abs() - hy + r;
+    let d = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r;
+    (0.5 - d).clamp(0.0, 1.0)
+}
+
 /// A window's place in the front of the screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Front {
     /// Nothing the transitions know: no card, or a window that is no app (the screensaver's card).
+    #[default]
     None,
     /// LumaTV's Home is what is drawn in the card slot.
     Home,
@@ -713,6 +726,13 @@ impl Transitions {
             }
         }
         self.last_sample_ns = now_ns;
+        self.sweep(now_ns);
+        !self.tracks.is_empty()
+    }
+
+    /// Drops the tracks that are over at `now_ns` (a track with a veil is over when the veil is), leaving a leave's last pose behind for
+    /// [`Transitions::take_visual`] and forgetting what is older than [`RECENT_MS`].
+    pub fn sweep(&mut self, now_ns: u64) {
         let mut ended: Vec<Recent> = Vec::new();
         self.tracks.retain(|t| {
             let over = now_ns >= t.end_ns() && t.veil.is_none();
@@ -724,7 +744,6 @@ impl Transitions {
         });
         self.recent.extend(ended);
         self.recent.retain(|r| now_ns.saturating_sub(r.at_ns) < ns(RECENT_MS));
-        !self.tracks.is_empty()
     }
 
     /// `window`'s pose in this frame, if it is in transition.
@@ -810,6 +829,137 @@ impl Transitions {
         self.tracks.clear();
         self.recent.clear();
         self.last_sample_ns = 0;
+    }
+}
+
+/// The owner's switch: the theme file's `motion.transitions` (Settings > Home & look, `lumatv theme set`) and `motion.reduced`, read again when the
+/// file changes, at most once a second; `forced` is `ctl transitions on|off` over it, for a TV check. Off unless the theme says on:
+/// `payload/theme/theme.json` ships it off until the TV check passes.
+pub struct ThemeSwitch {
+    path: std::path::PathBuf,
+    stamp: Option<(std::time::SystemTime, u64)>,
+    checked: Option<std::time::Instant>,
+    pub on: bool,
+    pub reduced: bool,
+    pub forced: Option<bool>,
+}
+
+impl ThemeSwitch {
+    pub fn new(data_dir: &std::path::Path) -> ThemeSwitch {
+        ThemeSwitch { path: data_dir.join("theme/theme.json"), stamp: None, checked: None, on: false, reduced: false, forced: None }
+    }
+
+    /// `(motion.transitions, motion.reduced)` of a theme file's text: false for what is not there or is no boolean.
+    pub fn parse(text: &str) -> (bool, bool) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return (false, false) };
+        let flag = |k: &str| v.pointer(&format!("/motion/{k}")).and_then(serde_json::Value::as_bool).unwrap_or(false);
+        (flag("transitions"), flag("reduced"))
+    }
+
+    /// What the engine runs with.
+    pub fn settings(&self) -> Settings {
+        Settings { enabled: self.forced.unwrap_or(self.on), reduced: self.reduced }
+    }
+
+    /// Reads the file again if it is not the one last read (a file that is gone is no choice: off; one that cannot be read or parsed now,
+    /// as the theme is written in place, leaves what was read until the next look). Returns whether the settings changed.
+    pub fn poll(&mut self, now: std::time::Instant) -> bool {
+        if self.checked.is_some_and(|t| now.saturating_duration_since(t) < std::time::Duration::from_secs(1)) {
+            return false;
+        }
+        self.checked = Some(now);
+        let before = self.settings();
+        let stamp = std::fs::metadata(&self.path).ok().map(|m| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len()));
+        if stamp != self.stamp {
+            match (stamp, std::fs::read_to_string(&self.path)) {
+                (None, _) => {
+                    (self.on, self.reduced) = (false, false);
+                    self.stamp = None;
+                }
+                (Some(_), Ok(text)) if serde_json::from_str::<serde_json::Value>(&text).is_ok() => {
+                    (self.on, self.reduced) = Self::parse(&text);
+                    self.stamp = stamp;
+                }
+                _ => {}
+            }
+        }
+        self.settings() != before
+    }
+}
+
+/// The compositor's side of it: the switch, the shell's word on where a tile is (`luna://com.webos.surfacemanager/setLaunchOrigin`), the report.
+impl crate::State {
+    /// The tick's housekeeping: the theme file's switch, looked at once a second.
+    pub fn motion_tick(&mut self, now: std::time::Instant) {
+        if self.motion.poll(now) {
+            self.apply_motion();
+        }
+    }
+
+    /// Puts the switch's settings in force: off ends every transition at once (everything is drawn as it is), and the shell is told.
+    pub fn apply_motion(&mut self) {
+        let settings = self.motion.settings();
+        if settings == self.scene.transitions.settings {
+            return;
+        }
+        self.scene.transitions.settings = settings;
+        if !settings.enabled {
+            self.scene.transitions.clear();
+            self.scene.redraw_all();
+        }
+        self.journal(format!("transitions: {}{}", if settings.enabled { "on" } else { "off" }, if settings.reduced { ", reduced motion" } else { "" }));
+        self.shell_sync_topics();
+    }
+
+    /// `setLaunchOrigin {appId, tile: {x, y, width, height, radius}, from: {…} | null}`: where the app's tile is on Home (a card grows out of it
+    /// and goes back into it) and, while the launch splash covers it, where the card starts instead (null takes that back). Output pixels.
+    pub fn set_launch_origin(&mut self, payload: &serde_json::Value) -> serde_json::Value {
+        let rect = |v: &serde_json::Value| -> Option<(FRect, f32)> {
+            let n = |k: &str| v.get(k).and_then(serde_json::Value::as_f64).map(|x| x as f32);
+            Some((FRect::new(n("x")?, n("y")?, n("width")?, n("height")?), n("radius").unwrap_or(0.0)))
+        };
+        let Some(app) = payload.get("appId").and_then(serde_json::Value::as_str) else {
+            return serde_json::json!({"returnValue": false, "errorText": "appId required"});
+        };
+        let tile = payload.get("tile").and_then(rect);
+        let from = match payload.get("from") {
+            Some(serde_json::Value::Null) => Some(None),
+            Some(v) => rect(v).map(Some),
+            None => None,
+        };
+        let now = crate::output::monotonic_ns();
+        self.scene.transitions.note_origin(app, tile, from, now);
+        serde_json::json!({"returnValue": true})
+    }
+
+    /// What `ctl transitions` answers: the switch, what is in transition, and the counters a TV check reads.
+    pub fn transitions_report(&self) -> serde_json::Value {
+        let t = &self.scene.transitions;
+        let now = self.scene.plan_ns();
+        let tracks: Vec<serde_json::Value> = t
+            .tracks()
+            .iter()
+            .map(|k| {
+                let p = k.pose_at(now);
+                serde_json::json!({
+                    "window": k.window.0, "kind": format!("{:?}", k.kind), "ghost": k.ghost, "arriving": k.arriving,
+                    "pose": {"x": p.rect.x, "y": p.rect.y, "w": p.rect.w, "h": p.rect.h, "alpha": p.alpha, "shade": p.shade, "radius": p.radius},
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "ok": true,
+            "enabled": t.settings.enabled,
+            "reduced": t.settings.reduced,
+            "theme": {"on": self.motion.on, "reduced": self.motion.reduced},
+            "forced": self.motion.forced,
+            "active": t.active(),
+            "tracks": tracks,
+            "stats": {
+                "launches": t.stats.launches, "leaves": t.stats.leaves, "switches": t.stats.switches, "interrupted": t.stats.interrupted,
+                "skipped": t.stats.skipped, "frames": t.stats.frames, "maxGapMs": t.stats.max_gap_ms, "lateGaps": t.stats.late_gaps, "veilCaps": t.stats.veil_caps,
+            },
+        })
     }
 }
 

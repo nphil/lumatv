@@ -19,7 +19,7 @@ pub use backdrop::{Backdrop, BackdropSpec, PlannedPreview, PreviewSpec, coverage
 
 use crate::damage::Tiles;
 use crate::surface::{Role, SurfaceId, Surfaces};
-use crate::transition::{Transitions, Visual};
+use crate::transition::{FRect, Front, Kind, Party, Pose, Transitions, Visual};
 use crate::window::{Layer, ShellState, Window, WindowId, WindowType};
 use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 
@@ -61,6 +61,33 @@ pub fn keyboard_origin(g: Rect, preferred: Option<Rect>) -> (i32, i32) {
         None => ((OUTPUT_WIDTH as i32 - g.w) / 2 - g.x, OUTPUT_HEIGHT as i32 - g.h - g.y),
     }
 }
+
+/// A card as a transition sees it: its app, its rectangle and whether its picture is (or is about to be) on the video plane.
+fn party(id: WindowId, info: &(String, bool), rect: FRect) -> Party<'_> {
+    Party { id, app_id: &info.0, rect, video: info.1 }
+}
+
+/// LG's apps that map as full-screen overlay windows, not cards (SAM never names them as the foreground app): their opening and closing is a
+/// change of the front for the transitions whether or not their surface says it is opaque.
+const FULLSCREEN_OVERLAYS: &[&str] = &["com.palm.app.settings"];
+
+/// What a window that was destroyed at the front of the screen left to draw while a transition takes it away: its last buffer (the texture of it
+/// stays while the plan draws it) and where and how it was drawn. Made by [`Scene::zombify`] the moment its surface goes.
+pub struct Zombie {
+    pub window: WindowId,
+    app_id: String,
+    video: bool,
+    layer: Layer,
+    serial: u64,
+    surface: SurfaceId,
+    buffer: WlBuffer,
+    rect: Rect,
+    y_invert: bool,
+    since_ns: u64,
+}
+
+/// How long a zombie is kept at most, whatever its transition does.
+const ZOMBIE_NS: u64 = 1_000_000_000;
 
 /// A named `wl_webos_surface_group`, owned by one surface.
 pub struct Group {
@@ -113,10 +140,63 @@ pub struct Hole {
 /// video's punch-through at z -1 inside its window (`views/punchThrough.js`): what is under the window is cleared and the window's own
 /// pixels go on top of the clear, so the renderer clears a hole just before it draws that item. What is drawn above the item (Home's glass over the
 /// moving wallpaper's video, an app's controls over its own video) is not touched by it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlannedHole {
+    /// The pixels the hole touches (a veiled hole: the veil's, as moved by its card's pose).
     pub rect: Rect,
     pub before: usize,
+    /// A veil over the hole while its card arrives (`transition.rs`): drawn just after the hole's clear and under the card's own pixels.
+    pub veil: Option<HoleVeil>,
+}
+
+/// A flat fill where an arriving card's hole is, so the video plane is not what shows (black until it plays) while the card moves in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoleVeil {
+    /// Where the fill is drawn, and the mask it shows through (the card's own, with its corner radius).
+    pub quad: FRect,
+    pub clip: FRect,
+    pub radius: f32,
+    /// Premultiplied opacity: the card's, times the veil's own while it fades away.
+    pub alpha: f32,
+    /// Whether the hole is cleared to transparent before the fill goes on (a veil that fades away over the plane shows the plane
+    /// through what is left of it; a veil that arrives lies over what is under the card).
+    pub clear: bool,
+}
+
+/// How an item is drawn while its window is in a transition (`transition::Pose`): the whole window's mask, corner radius, opacity and
+/// brightness, and where this item's own picture goes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Posed {
+    pub quad: FRect,
+    pub clip: FRect,
+    pub radius: f32,
+    pub alpha: f32,
+    pub shade: f32,
+}
+
+impl Posed {
+    /// The pixels it draws on.
+    pub fn bounds(&self) -> Rect {
+        self.quad.bounds().intersect(&self.clip.bounds())
+    }
+
+    fn key(&self) -> [u32; 12] {
+        let b = f32::to_bits;
+        [
+            b(self.quad.x),
+            b(self.quad.y),
+            b(self.quad.w),
+            b(self.quad.h),
+            b(self.clip.x),
+            b(self.clip.y),
+            b(self.clip.w),
+            b(self.clip.h),
+            b(self.radius),
+            b(self.alpha),
+            b(self.shade),
+            0,
+        ]
+    }
 }
 
 /// One surface to draw.
@@ -132,6 +212,17 @@ pub struct Item {
     pub y_invert: bool,
     /// The brightness this item is drawn at, 1 for all but the shell's windows while the OLED care dims them (`oledcare`).
     pub dim: f32,
+    /// `Some` while the window is in a transition and is not at rest: the item is drawn through it, not on `rect`.
+    pub pose: Option<Posed>,
+    /// Drawn for a transition alone: the window left the stack already (the pointer and the keys are not its).
+    pub ghost: bool,
+}
+
+impl Item {
+    /// The pixels this item is drawn on: `rect`, or what its pose moves it to.
+    pub fn drawn_rect(&self) -> Rect {
+        self.pose.map_or(self.rect, |p| p.bounds())
+    }
 }
 
 /// Everything the renderer needs for one frame, bottom to top. Lives in the [`Scene`]; `plan` refreshes it.
@@ -159,7 +250,7 @@ impl Plan {
     pub fn sole_fullscreen(&self) -> Option<&Item> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         match self.items.as_slice() {
-            [one] if one.opaque && one.rect == full && one.dim == 1.0 && self.holes.is_empty() && self.cursor.is_none() && self.backdrop.is_none() => Some(one),
+            [one] if one.opaque && one.rect == full && one.dim == 1.0 && one.pose.is_none() && self.holes.is_empty() && self.cursor.is_none() && self.backdrop.is_none() => Some(one),
             _ => None,
         }
     }
@@ -192,6 +283,8 @@ struct Placed {
     y_invert: bool,
     /// [`Item::dim`] in hundredths.
     dim: u8,
+    /// The pose it was drawn through, bit for bit: a frame of a transition is never the same as the last.
+    pose: Option<[u32; 12]>,
 }
 
 #[derive(Default)]
@@ -228,6 +321,17 @@ pub struct Scene {
     pub transitions: Transitions,
     /// The clock of the last plan, CLOCK_MONOTONIC ns: what `take_visual` answers at.
     plan_ns: u64,
+    /// What the last stack built had at the front of the screen, and what the plan before it had (a change starts a transition).
+    front: Front,
+    last_front: Front,
+    /// Surfaces whose app exported a video element: they expect a hole (the picture on the video plane) even before it is there.
+    video: Vec<SurfaceId>,
+    /// This frame's draw order: the stack and the windows a transition still draws.
+    draw: Vec<(Layer, u64, WindowId)>,
+    /// The windows of the last plan's stack: one that was drawn already when the front changed is revealed by it, not arriving.
+    prev_stack: Vec<WindowId>,
+    /// Windows destroyed at the front of the screen that a transition still draws.
+    zombies: Vec<Zombie>,
     /// The system layer came back live since the last plan: it joins without damage of its own (see `plan`).
     system_joining: bool,
     // Scratch space for planning, reused across frames.
@@ -274,13 +378,17 @@ impl Scene {
             .items
             .iter()
             .rev()
-            .filter(|i| i.rect.contains(x, y))
+            .filter(|i| !i.ghost && i.rect.contains(x, y))
             .find(|i| self.windows.get(&i.window).is_none_or(|w| w.kind != WindowType::ShellSystem || w.takes_keys || keyboard))
             .map(|i| (i.surface, i.rect))
     }
 
     /// Where `window`'s picture is now, taken out of its transition: a second press of Home hands the card that was on its way home to
     /// the switcher, which carries it on to its own slot (`Transitions::take_visual`, at the last plan's clock).
+    pub fn plan_ns(&self) -> u64 {
+        self.plan_ns
+    }
+
     pub fn take_visual(&mut self, window: WindowId) -> Option<Visual> {
         let now = self.plan_ns;
         self.transitions.take_visual(window, now)
@@ -301,7 +409,9 @@ impl Scene {
     /// that Home is drawn: the wallpaper's window is left out of the stack otherwise, and so is its hole). The shell takes its own
     /// wallpaper away only while this holds (without the hole the plane's black would show), and puts it back the frame it stops.
     pub fn wall_hole(&self) -> bool {
-        self.holes.iter().any(|h| self.by_surface.get(&h.surface).and_then(|w| self.windows.get(w)).is_some_and(|w| w.kind == WindowType::Wallpaper && w.map_serial > 0))
+        self.holes
+            .iter()
+            .any(|h| self.by_surface.get(&h.surface).and_then(|w| self.windows.get(w)).is_some_and(|w| w.kind == WindowType::Wallpaper && w.map_serial > 0))
     }
 
     /// Whether LumaTV's Home, drawn or not, is under a window that covers the whole output (an app's card, LG's Settings, the gate's
@@ -364,6 +474,9 @@ impl Scene {
     pub fn remove_window(&mut self, id: WindowId) -> Option<Window> {
         let w = self.windows.remove(&id)?;
         self.by_surface.remove(&w.surface);
+        if !self.zombies.iter().any(|z| z.window == id) {
+            self.transitions.forget(id);
+        }
         Some(w)
     }
 
@@ -381,6 +494,20 @@ impl Scene {
             g.anonymous.retain(|(s, _)| *s != surface);
         }
         self.holes.retain(|h| h.surface != surface);
+        self.video.retain(|s| *s != surface);
+    }
+
+    /// The app that owns `surface` exported an element for video (`wl_webos_foreign`), or let go of it: the window's picture is on the video
+    /// plane, a hole it may not have yet, so a transition treats it as one.
+    pub fn set_video_expected(&mut self, surface: SurfaceId, expected: bool) {
+        let at = self.video.iter().position(|s| *s == surface);
+        match (expected, at) {
+            (true, None) => self.video.push(surface),
+            (false, Some(i)) => {
+                self.video.swap_remove(i);
+            }
+            _ => {}
+        }
     }
 
     /// Records that a window's surface got its first buffer (or lost its last). A card that maps comes to the front
@@ -521,6 +648,25 @@ impl Scene {
         let card_is_home = last_card.map(|i| self.windows.get(&self.stack[i].2).is_some_and(|w| w.app_id() == HOME_APP)).unwrap_or(true);
         let has_shell_home = self.stack.iter().any(|(layer, _, _)| *layer == Layer::Home);
         self.home_shown = has_shell_home && card_is_home;
+        // What is at the front of the screen, for the transitions: Home, an app's card (the Home stub's own card when LumaTV's Home is not
+        // there to take its place), or nothing they move (no card, the screensaver's).
+        self.front = match last_card.and_then(|i| self.windows.get(&self.stack[i].2)) {
+            _ if self.home_shown => Front::Home,
+            Some(w) if w.kind == WindowType::Card => Front::Card(w.id),
+            _ => Front::None,
+        };
+        // A full-screen overlay window that is an app's (LG's Settings): it is what the screen shows, over Home or over a card.
+        let covering = self
+            .stack
+            .iter()
+            .rev()
+            .find(|(layer, _, id)| {
+                *layer == Layer::Overlays && self.windows.get(id).is_some_and(|w| surfaces.get(w.surface).is_some_and(|s| Self::is_app_overlay(w, s)))
+            })
+            .map(|(_, _, id)| *id);
+        if let Some(id) = covering {
+            self.front = Front::Card(id);
+        }
         let drop_card = self.home_shown;
         let mut i = 0;
         self.stack.retain(|(layer, _, _)| {
@@ -541,9 +687,167 @@ impl Scene {
         self.members.sort_unstable();
     }
 
-    /// Builds this frame's plan.
+    /// Whether an overlay window is an app on the screen: it covers the output and is opaque (or one of LG's known apps that map so).
+    fn is_app_overlay(w: &Window, s: &crate::surface::Surface) -> bool {
+        let (sw, sh) = s.size();
+        if sw < OUTPUT_WIDTH as i32 || sh < OUTPUT_HEIGHT as i32 {
+            return false;
+        }
+        let opaque = s.current.opaque.as_ref().is_some_and(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= sw && r.bottom() >= sh))
+            || s.current.buffer.as_ref().is_some_and(|b| crate::buffer::kind_of(b).is_opaque_format());
+        opaque || FULLSCREEN_OVERLAYS.contains(&w.app_id())
+    }
+
+    /// A window at the front of the screen is being destroyed: when a transition would take it away, its last picture is kept to draw (the
+    /// buffer's texture stays while the plan has it). Call before the surface is removed.
+    pub fn zombify(&mut self, surface: SurfaceId, surfaces: &Surfaces) {
+        if !self.transitions.enabled() {
+            return;
+        }
+        let Some(wid) = self.by_surface.get(&surface).copied() else { return };
+        if self.front != Front::Card(wid) {
+            return;
+        }
+        let (Some(w), Some(s)) = (self.windows.get(&wid), surfaces.get(surface)) else { return };
+        // (a buffer the client destroyed before its window still has its import in the renderer, which keeps drawing it: `Gl::prune`)
+        let Some(buffer) = s.current.buffer.clone() else { return };
+        let origin = if w.kind.is_card() { (0, 0) } else { w.position };
+        let rect = s.rect_at(origin.0, origin.1);
+        if rect.is_empty() {
+            return;
+        }
+        let video = self.video.contains(&surface) || self.holes.iter().any(|h| h.surface == surface);
+        self.zombies.retain(|z| z.window != wid);
+        self.zombies.push(Zombie {
+            window: wid,
+            app_id: w.app_id().to_string(),
+            video,
+            layer: w.kind.layer(),
+            serial: w.map_serial,
+            surface,
+            buffer,
+            rect,
+            y_invert: s.current.y_invert,
+            since_ns: self.plan_ns,
+        });
+    }
+
+    /// Builds this frame's plan at the clock now.
     pub fn plan(&mut self, surfaces: &Surfaces) -> &Plan {
         self.plan_at(surfaces, crate::output::monotonic_ns())
+    }
+
+    /// The window of a transition whose track poses it now, with the rectangle its pose is relative to; `None` at rest (the window is
+    /// drawn as it is).
+    fn pose_of(&self, window: WindowId, now_ns: u64) -> Option<(Pose, FRect)> {
+        let t = self.transitions.track_of(window)?;
+        let pose = t.pose_at(now_ns);
+        if pose.is_rest_on(&t.window_rect) { None } else { Some((pose, t.window_rect)) }
+    }
+
+    /// A destroyed window's last picture, through its pose.
+    fn push_zombie(&mut self, window: WindowId, (pose, win): (Pose, FRect)) {
+        let Some(z) = self.zombies.iter().find(|z| z.window == window) else { return };
+        let (buffer, rect, y_invert, surface) = (z.buffer.clone(), z.rect, z.y_invert, z.surface);
+        let posed = Posed { quad: FRect::map_rect(&win, &pose.rect, &rect), clip: pose.clip, radius: pose.radius, alpha: pose.alpha, shade: pose.shade };
+        let drawn = posed.bounds().intersect(&Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32));
+        if drawn.is_empty() {
+            return;
+        }
+        self.plan.items.push(Item { window, surface, buffer, rect, damage: None, opaque: false, y_invert, dim: 1.0, pose: Some(posed), ghost: true });
+    }
+
+    /// Looks at what is at the front of the screen against the last plan's: a change starts the transition for it. Then the tracks that
+    /// have ended go.
+    fn step_transitions(&mut self, surfaces: &Surfaces, now_ns: u64) {
+        if self.front != self.last_front {
+            let (prev, now) = (self.last_front, self.front);
+            self.last_front = now;
+            self.begin_transition(prev, now, surfaces, now_ns);
+        }
+        self.transitions.frame(now_ns);
+    }
+
+    fn begin_transition(&mut self, prev: Front, now: Front, surfaces: &Surfaces, now_ns: u64) {
+        if !self.transitions.enabled() {
+            return;
+        }
+        let full = FRect::new(0.0, 0.0, OUTPUT_WIDTH as f32, OUTPUT_HEIGHT as f32);
+        // Something to draw for the window: it is mapped, or it was destroyed at the front and left its picture.
+        let drawable = |scene: &Scene, id: WindowId| {
+            scene.windows.get(&id).is_some_and(|w| surfaces.get(w.surface).is_some_and(|s| s.is_mapped())) || scene.zombies.iter().any(|z| z.window == id)
+        };
+        // (app id, expects video) of a window
+        let info = |scene: &Scene, id: WindowId| -> (String, bool) {
+            match (scene.windows.get(&id), scene.zombies.iter().find(|z| z.window == id)) {
+                (Some(w), _) => (w.app_id().to_string(), scene.video.contains(&w.surface) || scene.holes.iter().any(|h| h.surface == w.surface)),
+                (None, Some(z)) => (z.app_id.clone(), z.video),
+                _ => (String::new(), false),
+            }
+        };
+        let home: Vec<(WindowId, FRect)> = self
+            .windows
+            .values()
+            .filter(|w| matches!(w.kind, WindowType::ShellHome | WindowType::Wallpaper) && w.map_serial > 0)
+            .map(|w| (w.id, full))
+            .collect();
+        let started = match (prev, now) {
+            (Front::Home, Front::Card(b)) if drawable(self, b) => {
+                let b_info = info(self, b);
+                self.transitions.begin(Kind::Launch, now_ns, Some(party(b, &b_info, full)), None, &home)
+            }
+            (Front::Card(a), Front::Home) if drawable(self, a) => {
+                let a_info = info(self, a);
+                self.transitions.begin(Kind::Leave, now_ns, None, Some(party(a, &a_info, full)), &home)
+            }
+            // One card over another that was drawn under it already (an overlay goes, the card it was over is the screen): the card that
+            // goes leaves, what was under it is revealed, as Home is.
+            (Front::Card(a), Front::Card(b)) if a != b && drawable(self, a) && self.prev_stack.contains(&b) => {
+                let mut a_info = info(self, a);
+                a_info.0.clear();
+                self.transitions.begin(Kind::Leave, now_ns, None, Some(party(a, &a_info, full)), &[(b, full)])
+            }
+            (Front::Card(a), Front::Card(b)) if a != b && drawable(self, b) => {
+                let (a_info, b_info) = (info(self, a), info(self, b));
+                let from = drawable(self, a).then(|| party(a, &a_info, full));
+                self.transitions.begin(Kind::Switch, now_ns, Some(party(b, &b_info, full)), from, &[])
+            }
+            _ => false,
+        };
+        if !started && prev != now {
+            self.transitions.stats.skipped += 1;
+        }
+    }
+
+    /// This frame's draw order: the stack, and the windows a transition draws that are not in it (a card that left, Home under a card
+    /// that arrives), each at its own place; Home dissolving in over a card whose picture is on the video plane goes above the cards.
+    fn merge_draw_list(&mut self, surfaces: &Surfaces) {
+        self.draw.clear();
+        self.draw.extend_from_slice(&self.stack);
+        if !self.transitions.active() {
+            return;
+        }
+        for t in self.transitions.tracks() {
+            let Some(w) = self.windows.get(&t.window) else {
+                if let Some(z) = self.zombies.iter().find(|z| z.window == t.window) {
+                    self.draw.push((z.layer, z.serial, z.window));
+                }
+                continue;
+            };
+            match self.draw.iter().position(|(_, _, id)| *id == t.window) {
+                Some(i) => {
+                    if t.on_top {
+                        self.draw[i] = (Layer::Cards, u64::MAX, t.window);
+                    }
+                }
+                None => {
+                    if t.ghost && surfaces.get(w.surface).is_some_and(|s| s.is_mapped()) {
+                        self.draw.push((w.kind.layer(), w.map_serial, w.id));
+                    }
+                }
+            }
+        }
+        self.draw.sort_unstable();
     }
 
     /// [`Scene::plan`] at a given time (CLOCK_MONOTONIC ns), for the OLED care's beats.
@@ -553,6 +857,7 @@ impl Scene {
         if self.plan.tiles.is_none() {
             self.plan.tiles = Some(Tiles::new(OUTPUT_WIDTH, OUTPUT_HEIGHT));
         }
+        self.plan_ns = now_ns;
         self.build_stack(surfaces);
         // The OLED care looks at the frame before it is laid out: which shell windows are on it and whether any window has a commit
         // to draw (a frame that is drawn anyway is the one a beat rides on).
@@ -570,10 +875,20 @@ impl Scene {
         self.care.step(now_ns, views, pending);
         self.care_only = self.care.beat_frame() && !pending;
         let (shift, dims) = (self.care.offset(), [self.care.dim(0), self.care.dim(1)]);
-        let n = self.stack.len();
+        self.step_transitions(surfaces, now_ns);
+        self.merge_draw_list(surfaces);
+        let n = self.draw.len();
         for i in 0..n {
-            let wid = self.stack[i].2;
-            let Some(w) = self.windows.get(&wid) else { continue };
+            let wid = self.draw[i].2;
+            let Some(w) = self.windows.get(&wid) else {
+                if let Some(pose) = self.pose_of(wid, now_ns) {
+                    self.push_zombie(wid, pose);
+                } else if let Some(z) = self.zombies.iter().find(|z| z.window == wid) {
+                    let (buffer, rect, y_invert, surface) = (z.buffer.clone(), z.rect, z.y_invert, z.surface);
+                    self.plan.items.push(Item { window: wid, surface, buffer, rect, damage: None, opaque: false, y_invert, dim: 1.0, pose: None, ghost: true });
+                }
+                continue;
+            };
             let mut dim = 1.0;
             let origin = if w.kind.is_card() {
                 (0, 0)
@@ -590,35 +905,75 @@ impl Scene {
                 w.position
             };
             let owner = w.surface;
+            let pose = self.pose_of(wid, now_ns);
+            let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
             self.build_members(owner);
             let m = self.members.len();
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z < 0 {
-                    self.push_tree(surfaces, wid, s, origin, dim);
+                    self.push_tree(surfaces, wid, s, origin, dim, pose, ghost);
                 }
             }
-            self.push_tree(surfaces, wid, owner, origin, dim);
+            self.push_tree(surfaces, wid, owner, origin, dim, pose, ghost);
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z >= 0 {
-                    self.push_tree(surfaces, wid, s, origin, dim);
+                    self.push_tree(surfaces, wid, s, origin, dim, pose, ghost);
                 }
             }
         }
-        for (_, _, wid) in &self.stack {
+        for (_, _, wid) in &self.draw {
             if let Some(w) = self.windows.get_mut(wid) {
                 w.commits_drawn = w.commits;
             }
         }
         for h in &self.holes {
-            if let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) {
-                let r = h.rect.translated(self.plan.items[before].rect.x, self.plan.items[before].rect.y).intersect(&output);
-                if !r.is_empty() {
-                    self.plan.holes.push(PlannedHole { rect: r, before });
+            let Some(before) = self.plan.items.iter().position(|i| i.surface == h.surface) else { continue };
+            let item = &self.plan.items[before];
+            let logical = h.rect.translated(item.rect.x, item.rect.y);
+            // An arriving card whose picture is on the video plane has a veil under it (`transition.rs`): a flat fill where the hole is,
+            // moved and faded with the card, that fades away over the plane once the video has had time.
+            let veil = self.transitions.veil(item.window, now_ns, true);
+            let planned = match (veil, item.pose) {
+                (None, _) => {
+                    let r = logical.intersect(&output);
+                    (!r.is_empty()).then_some(PlannedHole { rect: r, before, veil: None })
                 }
+                (Some(v), pose) => {
+                    let (quad, clip, radius, alpha) = match pose {
+                        Some(p) => {
+                            let (sx, sy) = (p.quad.w / item.rect.w.max(1) as f32, p.quad.h / item.rect.h.max(1) as f32);
+                            let quad = FRect::new(
+                                p.quad.x + (logical.x - item.rect.x) as f32 * sx,
+                                p.quad.y + (logical.y - item.rect.y) as f32 * sy,
+                                logical.w as f32 * sx,
+                                logical.h as f32 * sy,
+                            );
+                            (quad, p.clip, p.radius, p.alpha * v.alpha)
+                        }
+                        None => (FRect::from_rect(logical), FRect::from_rect(logical), 0.0, v.alpha),
+                    };
+                    let r = quad.bounds().intersect(&clip.bounds()).intersect(&output);
+                    (!r.is_empty()).then_some(PlannedHole {
+                        rect: r,
+                        before,
+                        veil: Some(HoleVeil { quad, clip, radius, alpha, clear: pose.is_none() && v.alpha < 1.0 }),
+                    })
+                }
+            };
+            if let Some(hole) = planned {
+                self.plan.holes.push(hole);
             }
         }
+        // A veil that ended in this frame's holes ends its track with it; a zombie goes with its track.
+        self.transitions.sweep(now_ns);
+        if !self.zombies.is_empty() {
+            let t = &self.transitions;
+            self.zombies.retain(|z| t.track_of(z.window).is_some() && now_ns.saturating_sub(z.since_ns) < ZOMBIE_NS);
+        }
+        self.prev_stack.clear();
+        self.prev_stack.extend(self.stack.iter().map(|(_, _, id)| *id));
         // Whatever moved, appeared, restacked or vanished is drawn again in full, old place and new. A request that
         // changes nothing on the screen (a window made, named or given a state before its first buffer) draws no
         // frame: on every gate the full redraw of the same picture at X1's window creation flipped 14-15 ms before
@@ -626,10 +981,11 @@ impl Scene {
         self.placed.clear();
         self.placed.extend(self.plan.items.iter().map(|i| Placed {
             surface: i.surface,
-            rect: i.rect,
+            rect: i.drawn_rect(),
             opaque: i.opaque,
             y_invert: i.y_invert,
             dim: (i.dim * 100.0).round() as u8,
+            pose: i.pose.map(|p| p.key()),
         }));
         // The system layer back in the stack counts as having been there: no damage for the join itself.
         if std::mem::take(&mut self.system_joining) {
@@ -643,7 +999,14 @@ impl Scene {
         }
         if std::mem::take(&mut self.redraw_all) || self.placed != self.last_placed || self.plan.holes != self.last_holes {
             let tiles = self.plan.tiles.as_mut().unwrap();
-            for r in self.last_placed.iter().chain(self.placed.iter()).map(|p| &p.rect).chain(self.last_holes.iter().map(|h| &h.rect)).chain(self.plan.holes.iter().map(|h| &h.rect)) {
+            for r in self
+                .last_placed
+                .iter()
+                .chain(self.placed.iter())
+                .map(|p| &p.rect)
+                .chain(self.last_holes.iter().map(|h| &h.rect))
+                .chain(self.plan.holes.iter().map(|h| &h.rect))
+            {
                 self.plan.damage = self.plan.damage.union(r);
                 tiles.add(r);
             }
@@ -688,7 +1051,7 @@ impl Scene {
         self.redraw_all = true;
     }
 
-    fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32), dim: f32) {
+    fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32), dim: f32, pose: Option<(Pose, FRect)>, ghost: bool) {
         surfaces.tree_in_draw_order_into(root, &mut self.tree);
         let n = self.tree.len();
         for k in 0..n {
@@ -702,37 +1065,58 @@ impl Scene {
             if rect.is_empty() {
                 continue;
             }
+            // In a transition the item is drawn through its window's pose: its own picture goes where the pose moves it, behind the window's
+            // mask. What it draws on is what is damaged when it has anything new to show (a pose that changed is `Placed`'s business).
+            let posed =
+                pose.map(|(p, win)| Posed { quad: FRect::map_rect(&win, &p.rect, &rect), clip: p.clip, radius: p.radius, alpha: p.alpha, shade: p.shade });
             let tiles = self.plan.tiles.as_mut().unwrap();
-            let damage = match &s.current.damage {
-                None => {
-                    self.plan.damage = self.plan.damage.union(&rect);
-                    tiles.add(&rect);
-                    None
+            let damage = if let Some(p) = &posed {
+                let drawn = p.bounds().intersect(&Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32));
+                if drawn.is_empty() {
+                    continue;
                 }
-                Some(d) => {
-                    let start = self.plan.damage_rects.len();
-                    for r in d {
-                        let r = r.translated(rect.x, rect.y).intersect(&rect);
-                        if !r.is_empty() {
-                            self.plan.damage = self.plan.damage.union(&r);
-                            tiles.add(&r);
-                            self.plan.damage_rects.push(r);
-                        }
+                if s.current.damage.as_ref().is_none_or(|d| !d.is_empty()) {
+                    self.plan.damage = self.plan.damage.union(&drawn);
+                    tiles.add(&drawn);
+                }
+                None
+            } else {
+                match &s.current.damage {
+                    None => {
+                        self.plan.damage = self.plan.damage.union(&rect);
+                        tiles.add(&rect);
+                        None
                     }
-                    Some((start, self.plan.damage_rects.len()))
+                    Some(d) => {
+                        let start = self.plan.damage_rects.len();
+                        for r in d {
+                            let r = r.translated(rect.x, rect.y).intersect(&rect);
+                            if !r.is_empty() {
+                                self.plan.damage = self.plan.damage.union(&r);
+                                tiles.add(&r);
+                                self.plan.damage_rects.push(r);
+                            }
+                        }
+                        Some((start, self.plan.damage_rects.len()))
+                    }
                 }
             };
             // LumaTV's Home fills its window with an opaque wallpaper, whatever its buffer's format says: alone on the screen it goes to
             // the plane whole (direct scan-out), and its idle tick costs the compositor a flip, not a composition.
             let shell_home = self.windows.get(&window).is_some_and(|w| w.kind == WindowType::ShellHome);
-            let opaque = shell_home
-                || s.current.opaque.as_ref().map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h)).unwrap_or(false)
-                || crate::buffer::kind_of(&buffer).is_opaque_format();
+            let opaque = posed.is_none()
+                && (shell_home
+                    || s.current
+                        .opaque
+                        .as_ref()
+                        .map(|o| o.iter().any(|r| r.x <= 0 && r.y <= 0 && r.right() >= rect.w && r.bottom() >= rect.h))
+                        .unwrap_or(false)
+                    || crate::buffer::kind_of(&buffer).is_opaque_format());
             let y_invert = s.current.y_invert;
             if let Some(c) = s.current.content_ns {
                 self.plan.content_ns = Some(self.plan.content_ns.map_or(c, |p| p.min(c)));
             }
-            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim });
+            self.plan.items.push(Item { window, surface: sid, buffer, rect, damage, opaque, y_invert, dim, pose: posed, ghost });
         }
     }
 }

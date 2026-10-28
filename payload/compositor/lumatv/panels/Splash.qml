@@ -26,6 +26,18 @@ Item {
     property bool wordShown: false             // spinner: the word waits a second, so a short wait shows no flash of text
     readonly property bool built: true
     readonly property bool active: mode !== ""
+    // How long the launch screen takes to fade in when it comes after a wait (the host sets it: a splash that is a cut is what the transitions
+    // replace), and where its icon is, for the card that grows out of it.
+    property int fadeMs: 0
+    property real shown: 1
+    function iconRect() { var p = launchIcon.mapToItem(null, 0, 0); return Qt.rect(p.x, p.y, launchIcon.width, launchIcon.height) }
+    readonly property real iconRadius: launchIcon.radius
+    opacity: mode === "launch" ? shown : 1
+    onModeChanged: {
+        if (mode === "launch" && fadeMs > 0) { shown = 0; fadeIn.restart() }
+        else { fadeIn.stop(); shown = 1 }
+    }
+    NumberAnimation { id: fadeIn; target: splash; property: "shown"; from: 0; to: 1; duration: splash.fadeMs; easing.type: Easing.OutCubic }
     // the dark pill behind the words that sit over a picture: the sheet's dark at 72 %, so ink on it reads over a white frame too
     readonly property color pill: Qt.rgba(Lu.scrimHide.r, Lu.scrimHide.g, Lu.scrimHide.b, 0.72)
 
@@ -51,7 +63,7 @@ Item {
         visible: splash.mode === "launch"
         anchors.centerIn: parent
         spacing: Lu.space(6)
-        LuAppIcon { anchors.horizontalCenter: parent.horizontalCenter; width: 180; height: 180; radius: 38; source: splash.iconUrl }
+        LuAppIcon { id: launchIcon; anchors.horizontalCenter: parent.horizontalCenter; width: 180; height: 180; radius: 38; source: splash.iconUrl }
         LuText { anchors.horizontalCenter: parent.horizontalCenter; role: "title"; text: splash.name }
         Row {
             anchors.horizontalCenter: parent.horizontalCenter

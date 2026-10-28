@@ -64,6 +64,17 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             json!({"ok": true})
         }
         "ime" => state.ime_report(),
+        "transitions" => {
+            // transitions [on | off | auto]: the switch over the theme's (for a TV check), then the report
+            match words.next() {
+                Some("on") => state.motion.forced = Some(true),
+                Some("off") => state.motion.forced = Some(false),
+                Some("auto") => state.motion.forced = None,
+                _ => {}
+            }
+            state.apply_motion();
+            state.transitions_report()
+        }
         "keys" => json!({
             "ok": true,
             "table": state.keys.router.table.named().into_iter().map(|(name, code)| json!({"name": name, "code": code})).collect::<Vec<_>>(),

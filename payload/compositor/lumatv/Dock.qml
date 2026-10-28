@@ -413,6 +413,7 @@ Item {
         ensureRowVisible()
     }
     signal launching(string title, string iconUrl)
+    signal launchingFrom(string appId, var tile)          // where the app's tile is on Home (tileAt's object), for the compositor's transition
     signal appsRequested()          // the Apps tile: Home opens LumaTV's own library instead of LG's store
     signal menuRequested()          // the focused tile's options (hold OK, the Menu key or a long press); Home draws the menu
     readonly property string appsTileId: "com.webos.app.discovery"
@@ -420,6 +421,7 @@ Item {
         var p = points[row * cols + col]
         if (!p) return
         if (p.id === appsTileId) { appsRequested(); return }
+        launchingFrom(p.id, tileAt(row * cols + col))
         launching(p.title || p.id, p.iconUrl || "")
         LS.adhoc.call("luna://com.webos.applicationManager", "/launch", JSON.stringify({ id: p.id, params: p.params || {} }))
     }
@@ -442,6 +444,11 @@ Item {
                  index: i, rect: { x: originX + padX + c * (tileSize + gap), y: originY + gridTop + (r - scrollRow) * (tileSize + gap), width: tileSize, height: tileSize } }
     }
     function focusedTile() { return tileAt(row * cols + col) }
+    // The tile of the app with this id, if it is on the dock.
+    function tileOf(id) {
+        for (var i = 0; i < points.length; i++) if (points[i].id === id) return tileAt(i)
+        return null
+    }
     // The library's "Move on the dock": the tile is focused and picked up as if it had been held.
     function beginMoveOf(id) {
         for (var i = 0; i < points.length; i++) {

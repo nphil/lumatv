@@ -487,6 +487,7 @@ impl State {
             self.luna.send(ToBridge::Fallback { reason: "hold Home 650 ms".into() });
         }
         self.shell_tick(now);
+        self.motion_tick(now);
         crate::server::ime::own_tick(self, now);
         if self.keys.router.waiting() {
             let foreground = self.foreground_app();

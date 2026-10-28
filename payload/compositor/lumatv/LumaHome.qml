@@ -281,6 +281,25 @@ Item {
     // GPU cannot sample, so it keeps the blur of the picture the clip is made from (the clip is that picture in slow motion), or with
     // `theme.wallpaperMotion.glass: "tint"` it is a flat tint over the video, opaque enough for its ink to read over the brightest the clip gets
     // (the clip's `glass.alpha`, measured when it was made).
+    // LumaTV's compositor grows an app's card out of its tile and takes it back (compositor/shell/Shell.qml sets this from the compositor's
+    // `transitions` topic; under LG's compositor it stays false and a launch is the cut it was). Home tells it where the tile is, and the launch
+    // screen (the splash) waits `splashWaitMs` so that the tile is what the card grows from; an app that has a window by then never shows it.
+    property bool smoothLaunch: false
+    readonly property int splashWaitMs: 400
+    property string launchingId: ""
+    function noteLaunchOrigin(appId, tile) {
+        launchingId = appId
+        if (!smoothLaunch || !tile) return
+        var r = tile.rect, inset = tile.floating ? ((theme.tiles && theme.tiles.inset) || 19) : 0
+        LS.adhoc.call("luna://com.webos.surfacemanager", "/setLaunchOrigin", JSON.stringify({ appId: appId, from: null,
+            tile: { x: r.x + inset, y: r.y + inset, width: r.width - 2 * inset, height: r.height - 2 * inset, radius: Lu.radius("tile") } }))
+    }
+    function noteSplashOrigin(rect, radius) {
+        if (!smoothLaunch || launchingId === "") return
+        LS.adhoc.call("luna://com.webos.surfacemanager", "/setLaunchOrigin", JSON.stringify({ appId: launchingId, from: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: radius } }))
+    }
+    // An app has taken the front (the shell's `foreground` topic): a launch screen that was still waiting for its turn is not wanted.
+    function appFronted(appId) { layers.cancelDelayedSplash() }
     property string videoWallBackend: ""
     property bool videoWallHole: false
     readonly property var wallPick: wallVideo.pick(theme.wallpaper, wallMotion, (theme.dark && theme.dark.wallScrim) || [])
@@ -1238,6 +1257,7 @@ Item {
             rested: root.focusRested
             onRowChanged: root.dockRow = row
             onColChanged: root.dockCol = col
+            onLaunchingFrom: root.noteLaunchOrigin(appId, tile)
             onLaunching: layers.launchSplash(title, iconUrl)
             onAppsRequested: root.openApps()
             onMenuRequested: root.openTileMenu()
@@ -1469,6 +1489,8 @@ Item {
         id: layers
         z: 60
         home: root
+        splashDelayMs: root.smoothLaunch ? root.splashWaitMs : 0
+        onSplashShown: root.noteSplashOrigin(iconRect, radius)
         below: root.layerStack
         open: !root.hostActive ? "" : root.settingsOpen ? "settings" : root.layerOpen !== "" ? root.layerOpen : root.doorLayer !== "" ? root.doorLayer : root.galleryOn ? "gallery" : ""
         onCloseRequested: {
@@ -1502,6 +1524,8 @@ Item {
     function launchApp(app) {
         if (!app) return
         closeAllLayers()
+        var d = dockLoader.item
+        noteLaunchOrigin(app.id, d ? d.tileOf(app.id) : null)
         layers.launchSplash(app.title || app.id, app.iconUrl || "")
         LS.adhoc.call(appMgr, "/launch", JSON.stringify({ id: app.id, params: app.params || {} }))
     }
