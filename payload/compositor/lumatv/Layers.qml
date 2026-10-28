@@ -30,9 +30,13 @@ Item {
     signal closeRequested(string id)
     signal openSettingsPage(string id)
     function up(id) { return open === id || below.indexOf(id) >= 0 }
-    // The quick panel or the input picker is on the screen or on its way in or out (not parked): what LumaHome caches its widgets and dock
-    // behind at 120 Hz (Lu.fast).
-    readonly property bool panelSliding: (quickRes.ready && (quickRes.shown || quickRes.leaving)) || (pickerRes.ready && (pickerRes.shown || pickerRes.leaving))
+    // The quick panel or the input picker is on the screen, on its way in or out, or held near it (the gear's warm before the tap's
+    // release, the linger after a close): what LumaHome draws its base from one cached texture behind at 120 Hz (Lu.fast). The warm
+    // is in so that the texture is rendered at the gear's press, a frame before the slide, not in the slide's first frame.
+    readonly property bool panelSliding: (quickRes.ready && (quickRes.shown || quickRes.leaving || quickRes.held))
+                                         || (pickerRes.ready && (pickerRes.shown || pickerRes.leaving || pickerRes.held))
+    // A slide of either is in progress: LumaHome holds its wallpaper tick for it at 120 Hz, so the cached texture is not rendered again mid-slide.
+    readonly property bool panelMoving: (!!quickRes.item && quickRes.item.moving === true) || (!!pickerRes.item && pickerRes.item.moving === true)
 
     // Home has presented a second ago: start the chain. A built chain is never restarted.
     Timer {

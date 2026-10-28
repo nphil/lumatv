@@ -39,6 +39,7 @@ Item {
     // the screen: the clock, the receiver's reading and the answers to the readings only matter then.
     property bool presented: false
     readonly property bool leaving: motion.leaving
+    readonly property bool moving: motion.moving          // the slide is in progress (LumaHome holds its tick meanwhile at 120 Hz)
     readonly property bool held: motion.held
     readonly property bool parked: motion.parked
     readonly property bool up: presented || leaving

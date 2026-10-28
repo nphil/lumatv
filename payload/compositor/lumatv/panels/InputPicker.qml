@@ -28,6 +28,7 @@ Item {
     // from the bottom edge and back (PanelMotion: a transform, no layout while it moves; reduced motion is a fade)
     property bool presented: false
     readonly property bool leaving: motion.leaving
+    readonly property bool moving: motion.moving          // the slide is in progress (LumaHome holds its tick meanwhile at 120 Hz)
     readonly property bool held: motion.held
     readonly property bool parked: motion.parked
     property alias lingerMs: motion.lingerMs

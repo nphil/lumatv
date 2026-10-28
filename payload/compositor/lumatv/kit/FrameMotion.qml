@@ -57,7 +57,9 @@ QtObject {
         value = from + (to - from) * curve(k)
         if (k >= 1) {
             active = false
-            // one line per motion in the shell's log (the gate reads it): how many frames the slide got, and how long it took
+            // how many frames the motion got and how long it took: the shell's state (`Lu.slides`, what `ctl shell` and the gate read) and
+            // a line for the runner's log (PmLog on the set)
+            Lu.noteSlide(steps, Math.round(wall), duration)
             console.info("[FrameMotion] " + steps + " steps in " + Math.round(wall) + " ms for " + duration)
         } else kick()
     }

@@ -28,6 +28,9 @@ Item {
     // The Hz the compositor's output runs at: set by the shell client under LumaTV's compositor (compositor/shell/Shell.qml, the
     // `refresh` topic); 60 under LG's. Read through Lu.fast (kit/Lu.qml): the 120 Hz test mode.
     property int refreshHz: 60
+    // The last per-frame slides (kit/FrameMotion.qml, `Lu.slides`): what the shell reports to the compositor (`ctl shell`)
+    readonly property var slides: Lu.slides
+    readonly property bool baseCached: base.layer.enabled
 
     readonly property string themeDirUrl: "file://{{dataDir}}/theme/"
     readonly property string fontsDirUrl: "file://{{dataDir}}/fonts/"
@@ -513,20 +516,6 @@ Item {
 
     // ============================================================= wallpaper + one cached blur
     property string wallpaperFit: (layout.background && layout.background.wallpaperFit) || "1:1"
-    Rectangle { anchors.fill: parent; z: -3; color: (layout.background && layout.background.color) || "#0b0910"; visible: root.gpuWall > 0.001; opacity: root.gpuWall }
-    Rectangle {
-        // theme.<mat>.wallScrim: 3 stops at 0 / 55 / 100 %. Drawn by the live wallpaper's shader
-        // while that is on, so the screen carries one full-screen quad, not two.
-        anchors.fill: parent
-        z: -1
-        visible: !root.liveWallOn && root.gpuWall > 0.001
-        opacity: root.gpuWall
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0]) }
-            GradientStop { position: 0.55; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1]) }
-            GradientStop { position: 1.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[2]) }
-        }
-    }
     Image {
         id: wallpaperImg
         anchors.fill: parent
@@ -563,17 +552,6 @@ Item {
                 gl_FragColor = vec4(c, 1.0) * qt_Opacity;
             }"
     }
-    ShaderEffectSource {
-        id: gradedTex
-        sourceItem: gradePass
-        width: 1920; height: 1080
-        textureSize: Qt.size(1920, 1080)
-        live: false
-        z: -2
-        visible: !root.liveWallOn && wallpaperImg.status === Image.Ready && root.gpuWall > 0.001   // the still path draws the graded texture
-        opacity: root.gpuWall
-        Connections { target: wallpaperImg; onStatusChanged: if (wallpaperImg.status === Image.Ready) gradedTex.scheduleUpdate() }
-    }
 
     // Live wallpaper (theme.wallpaperMotion): the same texture through a slow domain warp, a
     // few pixels of drift from two sine fields, with the warp also modulating brightness so
@@ -599,7 +577,9 @@ Item {
         // With the clip on the plane the wallpaper has nothing to advance and the tick is the clock's alone (its second hand): once a second. The
         // tick stops under the saver as well: Home is not seen then.
         interval: root.videoWallUp ? 1000 : Math.round(1000 / (root.wallMotion.fps || 10))
-        running: root.hostActive && !root.idleHold && !root.saverUp
+        // At 120 Hz the tick holds while a panel slides (Lu.fast, `base`'s cached texture): a wallpaper step or a clock second during the
+        // slide would render the whole of Home into the texture again in that frame. A panel at rest on the screen lets it run.
+        running: root.hostActive && !root.idleHold && !root.saverUp && !(Lu.fast && layers.panelMoving)
         repeat: true
         onTriggered: {
             var now = Date.now()
@@ -609,87 +589,6 @@ Item {
             if (root.liveWallOn && !root.videoWallUp) liveWall.t += dt / 1000 * liveWall.speed
             root.frameTick++
         }
-    }
-    ShaderEffect {
-        id: liveWall
-        anchors.fill: parent
-        z: -2
-        visible: root.liveWallOn && root.gpuWall > 0.001
-        opacity: root.gpuWall
-        property variant src: gradedTex
-        property real t: 0
-        property real amp: (root.wallMotion.amplitude || 4) / 1920
-        property real speed: root.wallMotion.speed || 1
-        property real depth: root.wallMotion.depth === undefined ? 0.25 : root.wallMotion.depth
-        property real waveScale: root.wallMotion.scale || 1          // wave frequency multiplier
-        property real detail: root.wallMotion.detail === undefined ? 0.35 : root.wallMotion.detail   // finer second layer, 0..1
-        property color s0: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0])
-        property color s1: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1])
-        property color s2: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[2])
-        property vector4d scrimA: Qt.vector4d(s0.r, s0.g, s0.b, s0.a)
-        property vector4d scrimB: Qt.vector4d(s1.r, s1.g, s1.b, s1.a)
-        property vector4d scrimC: Qt.vector4d(s2.r, s2.g, s2.b, s2.a)
-        // phases advanced on the CPU once per tick; the fragment only evaluates the fields
-        property vector4d phase: Qt.vector4d(t * 0.70, t * 0.50, t * 0.40, t * 0.90)
-        property vector4d params: Qt.vector4d(amp, depth, waveScale, detail)
-        // look: vignette, specular, bloom, saturation | contrast
-        property real vignette: root.wallMotion.vignette === undefined ? 0 : root.wallMotion.vignette
-        property real specular: root.wallMotion.specular === undefined ? 0 : root.wallMotion.specular
-        property real bloom: root.wallMotion.bloom === undefined ? 0 : root.wallMotion.bloom
-        property vector4d look: Qt.vector4d(vignette, specular, bloom, 0)
-        property variant glow: blurTex
-        // The fields are at most 6 cycles across the screen, so they are evaluated per
-        // vertex on a grid and interpolated; the fragment is one read plus the scrim.
-        mesh: GridMesh { resolution: Qt.size(64, 36) }
-        vertexShader: "
-            uniform highp mat4 qt_Matrix;
-            uniform highp vec4 phase;
-            uniform highp vec4 params;   // amp, depth, scale, detail
-            uniform mediump vec4 look;   // vignette, specular, bloom, saturation
-            uniform sampler2D glow;
-            attribute highp vec4 qt_Vertex;
-            attribute highp vec2 qt_MultiTexCoord0;
-            varying highp vec2 vUv;
-            varying mediump float vLight;
-            varying mediump vec3 vAdd;   // specular + bloom, added per fragment
-            void main() {
-                highp vec2 uv = qt_MultiTexCoord0;
-                highp float k = params.z;
-                mediump float w1 = sin(uv.y * 6.0 * k + phase.x) * cos(uv.x * 4.0 * k - phase.y);
-                mediump float w2 = sin((uv.x + uv.y) * 5.0 * k - phase.z);
-                mediump float w3 = sin(uv.x * 11.0 * k + phase.w) * sin(uv.y * 9.0 * k - phase.x * 0.8);
-                highp vec2 disp = vec2(w1 + 0.5 * w2, 0.7 * w2 - 0.5 * w1) + params.w * 0.5 * vec2(w3, -w3);
-                vUv = uv + params.x * disp;
-                // light follows the slope of the displacement: crests brighten, troughs darken
-                vLight = 1.0 + params.y * (0.3 * (w1 - 0.5 * w2) + params.w * 0.25 * w3);
-                // glossy ridge: a narrow lobe on the crest of the main field
-                mediump float crest = clamp(0.5 + 0.5 * (w1 + 0.4 * w3), 0.0, 1.0);
-                mediump float spec = look.y * 0.35 * crest * crest * crest * crest * crest * crest;
-                // vignette folded into the light term: quadratic falloff, aspect-corrected
-                highp vec2 q = (uv - 0.5) * vec2(1.0, 0.5625);
-                vLight *= 1.0 - look.x * 0.75 * smoothstep(0.12, 0.42, dot(q, q));
-                // bloom from the already-baked blur, fetched here: the glow is 30px soft, so
-                // sampling it per vertex and interpolating loses nothing and costs no fragment read
-                mediump vec3 bl = look.z > 0.001 ? max(texture2DLod(glow, vUv, 0.0).rgb - 0.3, 0.0) * look.z : vec3(0.0);
-                vAdd = vec3(spec) + bl;
-                gl_Position = qt_Matrix * qt_Vertex;
-            }"
-        fragmentShader: "
-            uniform sampler2D src;
-            uniform mediump vec4 scrimA;
-            uniform mediump vec4 scrimB;
-            uniform mediump vec4 scrimC;
-            uniform lowp float qt_Opacity;
-            varying highp vec2 vUv;
-            varying mediump float vLight;
-            varying mediump vec3 vAdd;
-            void main() {
-                lowp vec3 c = texture2D(src, vUv).rgb * vLight + vAdd;
-                mediump float y = vUv.y;
-                mediump vec4 sc = y < 0.55 ? mix(scrimA, scrimB, y / 0.55) : mix(scrimB, scrimC, (y - 0.55) / 0.45);
-                c = mix(c, sc.rgb, sc.a);
-                gl_FragColor = vec4(c, 1.0) * qt_Opacity;
-            }"
     }
     // The glass backdrop: wallpaper at half resolution, blurred and saturated once (the
     // sources are static, so the live chain re-renders only when the wallpaper changes).
@@ -1175,99 +1074,210 @@ Item {
         MouseArea { anchors.fill: parent; hoverEnabled: true; onClicked: { if (miniFrame.open) root.closeMini(); else { statusBarItem.requestClosePopover(); root.focusLayer = "statusbar" } } }
     }
 
-    // At 120 Hz (Lu.fast) a panel sliding over Home draws the widgets and the dock from one texture each (the item layer, rendered once
-    // when the slide starts and again only when something in them changes: the clock's second), not their nodes in every frame of the
-    // slide: a frame of Home costs 11-13.5 ms of GPU at 60 and has 8.33 ms at 120. The dock's texture reaches past its rect for the
-    // glass shadows, which the layer would otherwise clip. At 60 nothing is layered.
-    readonly property real layerReach: 80 * Math.max(1, Lu.depth)
+    // What a panel slides over: the wallpaper, the widgets and the dock, in one item. At 120 Hz (Lu.fast) a slide draws them from one
+    // cached texture (the item layer: rendered at the gear's press or in the slide's first frame, kept through the panel's linger; the
+    // wallpaper tick and the clock's hands hold still while a slide moves, so nothing inside changes mid-slide), not their nodes: the
+    // shell's frame then costs one full-screen quad instead of three, and the GPU, which composes every frame of Home as well (4.1 ms at
+    // 1080p), has 8.33 ms a refresh for both. At 60 the item draws as its children always did: nothing is layered. The status bar stays
+    // outside: the popover scrim sits between it and these.
     Item {
-        id: widgetLayer
+        id: base
         anchors.fill: parent
         z: 1
-        opacity: root.previewMode ? 0 : 1
-        visible: opacity > 0.005
-        Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
         layer.enabled: Lu.fast && layers.panelSliding
-        Repeater {
-            id: widgetRepeater
-            model: root.widgetIds
-            delegate: Widget {
-                // the card of this id in the layout now: a new layout (a move in the editor, a width from Settings) moves and sizes this
-                // delegate and builds nothing; one is built only for a card that comes, and dropped for one that goes
-                readonly property var entry: { var i = root.widgetIndexById(modelData); return i >= 0 ? root.nonDockWidgets[i] : ({ id: modelData, type: "", col: 0, row: 0, span: 1, rows: 1 }) }
-                readonly property var box: root.cellRect(entry)
-                gridX: box.x
-                gridY: box.y
-                width: box.width
-                height: box.height
+        layer.smooth: false
+        Rectangle { anchors.fill: parent; z: -3; color: (layout.background && layout.background.color) || "#0b0910"; visible: root.gpuWall > 0.001; opacity: root.gpuWall }
+        Rectangle {
+            // theme.<mat>.wallScrim: 3 stops at 0 / 55 / 100 %. Drawn by the live wallpaper's shader
+            // while that is on, so the screen carries one full-screen quad, not two.
+            anchors.fill: parent
+            z: -1
+            visible: !root.liveWallOn && root.gpuWall > 0.001
+            opacity: root.gpuWall
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0]) }
+                GradientStop { position: 0.55; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1]) }
+                GradientStop { position: 1.0; color: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[2]) }
+            }
+        }
+        ShaderEffectSource {
+            id: gradedTex
+            sourceItem: gradePass
+            width: 1920; height: 1080
+            textureSize: Qt.size(1920, 1080)
+            live: false
+            z: -2
+            visible: !root.liveWallOn && wallpaperImg.status === Image.Ready && root.gpuWall > 0.001   // the still path draws the graded texture
+            opacity: root.gpuWall
+            Connections { target: wallpaperImg; onStatusChanged: if (wallpaperImg.status === Image.Ready) gradedTex.scheduleUpdate() }
+        }
+        ShaderEffect {
+            id: liveWall
+            anchors.fill: parent
+            z: -2
+            visible: root.liveWallOn && root.gpuWall > 0.001
+            opacity: root.gpuWall
+            property variant src: gradedTex
+            property real t: 0
+            property real amp: (root.wallMotion.amplitude || 4) / 1920
+            property real speed: root.wallMotion.speed || 1
+            property real depth: root.wallMotion.depth === undefined ? 0.25 : root.wallMotion.depth
+            property real waveScale: root.wallMotion.scale || 1          // wave frequency multiplier
+            property real detail: root.wallMotion.detail === undefined ? 0.35 : root.wallMotion.detail   // finer second layer, 0..1
+            property color s0: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[0])
+            property color s1: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[1])
+            property color s2: root.scrimColor((root.mat.wallScrim || [0, 0, 0])[2])
+            property vector4d scrimA: Qt.vector4d(s0.r, s0.g, s0.b, s0.a)
+            property vector4d scrimB: Qt.vector4d(s1.r, s1.g, s1.b, s1.a)
+            property vector4d scrimC: Qt.vector4d(s2.r, s2.g, s2.b, s2.a)
+            // phases advanced on the CPU once per tick; the fragment only evaluates the fields
+            property vector4d phase: Qt.vector4d(t * 0.70, t * 0.50, t * 0.40, t * 0.90)
+            property vector4d params: Qt.vector4d(amp, depth, waveScale, detail)
+            // look: vignette, specular, bloom, saturation | contrast
+            property real vignette: root.wallMotion.vignette === undefined ? 0 : root.wallMotion.vignette
+            property real specular: root.wallMotion.specular === undefined ? 0 : root.wallMotion.specular
+            property real bloom: root.wallMotion.bloom === undefined ? 0 : root.wallMotion.bloom
+            property vector4d look: Qt.vector4d(vignette, specular, bloom, 0)
+            property variant glow: blurTex
+            // The fields are at most 6 cycles across the screen, so they are evaluated per
+            // vertex on a grid and interpolated; the fragment is one read plus the scrim.
+            mesh: GridMesh { resolution: Qt.size(64, 36) }
+            vertexShader: "
+                uniform highp mat4 qt_Matrix;
+                uniform highp vec4 phase;
+                uniform highp vec4 params;   // amp, depth, scale, detail
+                uniform mediump vec4 look;   // vignette, specular, bloom, saturation
+                uniform sampler2D glow;
+                attribute highp vec4 qt_Vertex;
+                attribute highp vec2 qt_MultiTexCoord0;
+                varying highp vec2 vUv;
+                varying mediump float vLight;
+                varying mediump vec3 vAdd;   // specular + bloom, added per fragment
+                void main() {
+                    highp vec2 uv = qt_MultiTexCoord0;
+                    highp float k = params.z;
+                    mediump float w1 = sin(uv.y * 6.0 * k + phase.x) * cos(uv.x * 4.0 * k - phase.y);
+                    mediump float w2 = sin((uv.x + uv.y) * 5.0 * k - phase.z);
+                    mediump float w3 = sin(uv.x * 11.0 * k + phase.w) * sin(uv.y * 9.0 * k - phase.x * 0.8);
+                    highp vec2 disp = vec2(w1 + 0.5 * w2, 0.7 * w2 - 0.5 * w1) + params.w * 0.5 * vec2(w3, -w3);
+                    vUv = uv + params.x * disp;
+                    // light follows the slope of the displacement: crests brighten, troughs darken
+                    vLight = 1.0 + params.y * (0.3 * (w1 - 0.5 * w2) + params.w * 0.25 * w3);
+                    // glossy ridge: a narrow lobe on the crest of the main field
+                    mediump float crest = clamp(0.5 + 0.5 * (w1 + 0.4 * w3), 0.0, 1.0);
+                    mediump float spec = look.y * 0.35 * crest * crest * crest * crest * crest * crest;
+                    // vignette folded into the light term: quadratic falloff, aspect-corrected
+                    highp vec2 q = (uv - 0.5) * vec2(1.0, 0.5625);
+                    vLight *= 1.0 - look.x * 0.75 * smoothstep(0.12, 0.42, dot(q, q));
+                    // bloom from the already-baked blur, fetched here: the glow is 30px soft, so
+                    // sampling it per vertex and interpolating loses nothing and costs no fragment read
+                    mediump vec3 bl = look.z > 0.001 ? max(texture2DLod(glow, vUv, 0.0).rgb - 0.3, 0.0) * look.z : vec3(0.0);
+                    vAdd = vec3(spec) + bl;
+                    gl_Position = qt_Matrix * qt_Vertex;
+                }"
+            fragmentShader: "
+                uniform sampler2D src;
+                uniform mediump vec4 scrimA;
+                uniform mediump vec4 scrimB;
+                uniform mediump vec4 scrimC;
+                uniform lowp float qt_Opacity;
+                varying highp vec2 vUv;
+                varying mediump float vLight;
+                varying mediump vec3 vAdd;
+                void main() {
+                    lowp vec3 c = texture2D(src, vUv).rgb * vLight + vAdd;
+                    mediump float y = vUv.y;
+                    mediump vec4 sc = y < 0.55 ? mix(scrimA, scrimB, y / 0.55) : mix(scrimB, scrimC, (y - 0.55) / 0.45);
+                    c = mix(c, sc.rgb, sc.a);
+                    gl_FragColor = vec4(c, 1.0) * qt_Opacity;
+                }"
+        }
+        Item {
+            id: widgetLayer
+            anchors.fill: parent
+            z: 1
+            opacity: root.previewMode ? 0 : 1
+            visible: opacity > 0.005
+            Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
+            Repeater {
+                id: widgetRepeater
+                model: root.widgetIds
+                delegate: Widget {
+                    // the card of this id in the layout now: a new layout (a move in the editor, a width from Settings) moves and sizes this
+                    // delegate and builds nothing; one is built only for a card that comes, and dropped for one that goes
+                    readonly property var entry: { var i = root.widgetIndexById(modelData); return i >= 0 ? root.nonDockWidgets[i] : ({ id: modelData, type: "", col: 0, row: 0, span: 1, rows: 1 }) }
+                    readonly property var box: root.cellRect(entry)
+                    gridX: box.x
+                    gridY: box.y
+                    width: box.width
+                    height: box.height
+                    theme: root.theme
+                    mat: root.mat
+                    isLight: root.isLight
+                    layoutEntry: entry
+                    themeDirUrl: root.themeDirUrl
+                    moduleDirUrl: root.moduleDirUrl
+                    focused: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId === modelData
+                    dimmed: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId !== modelData
+                    onOpenMini: root.openMini(spec, box)
+                    onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
+                    backdrop: blurTex
+                    cardMs: root.cardMs
+                    cardEasing: root.cardEasing
+                    motionReduced: root.motionReduced
+                    rested: root.focusRested
+                    live: root.hostActive && !root.saverUp
+                    frameTick: root.frameTick
+                    onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData) root.focusLayer = "widgets" }
+                }
+            }
+        }
+        Loader {
+            id: dockLoader
+            z: 1
+            opacity: root.previewMode ? 0 : 1
+            visible: opacity > 0.005
+            Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
+            active: root.dockEntry !== null
+            x: active ? root.cellRect(root.dockEntry).x : 0
+            y: active ? root.cellRect(root.dockEntry).y : 0
+            width: active ? root.cellRect(root.dockEntry).width : 0
+            height: active ? root.cellRect(root.dockEntry).height : 0
+            sourceComponent: Dock {
                 theme: root.theme
                 mat: root.mat
                 isLight: root.isLight
-                layoutEntry: entry
-                themeDirUrl: root.themeDirUrl
-                moduleDirUrl: root.moduleDirUrl
-                focused: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId === modelData
-                dimmed: (root.focusLayer === "widgets" || root.focusLayer === "widget") && root.widgetFocusId !== modelData
-                onOpenMini: root.openMini(spec, box)
-                onOpenSettingsPage: { root.openSettings(); layers.settingsGoTo(id) }
+                dockEntry: root.dockEntry || ({})
+                originX: dockLoader.x
+                originY: dockLoader.y
+                focusedLayer: root.focusLayer === "dock"
+                dimmed: root.focusLayer === "widgets"
+                wallAccent: root.wallAccent
                 backdrop: blurTex
-                cardMs: root.cardMs
-                cardEasing: root.cardEasing
+                scrollMs: root.scrollMs
+                scrollEasing: root.scrollEasing
+                focusMs: root.focusMs
+                focusEasing: root.focusEasing
+                labelMs: root.labelMs
                 motionReduced: root.motionReduced
                 rested: root.focusRested
-                live: root.hostActive && !root.saverUp
-                frameTick: root.frameTick
-                onHoverFocus: { if (root.focusLayer === "widget" && root.widgetFocusId !== modelData) { var o = widgetRepeater.itemAt(root.widgetIndexById(root.widgetFocusId)); if (o) o.inner = false } root.widgetFocusId = modelData; if (root.focusLayer !== "widget" || root.widgetFocusId !== modelData) root.focusLayer = "widgets" }
+                onRowChanged: root.dockRow = row
+                onColChanged: root.dockCol = col
+                onLaunchingFrom: root.noteLaunchOrigin(appId, tile, root.focusedTileLift)
+                onLaunching: layers.launchSplash(title, iconUrl)
+                onAppsRequested: root.openApps()
+                onMenuRequested: root.openTileMenu()
+            }
+            MouseArea {
+                // hovering the dock card itself hands the layer to the dock
+                anchors.fill: parent
+                hoverEnabled: true
+                z: -1
+                onEntered: root.focusLayer = "dock"
             }
         }
     }
 
-    Loader {
-        id: dockLoader
-        z: 1
-        opacity: root.previewMode ? 0 : 1
-        visible: opacity > 0.005
-        Behavior on opacity { NumberAnimation { duration: root.layerMs; easing.type: Easing.OutCubic } }
-        layer.enabled: Lu.fast && layers.panelSliding
-        layer.sourceRect: Qt.rect(-root.layerReach, -root.layerReach, width + 2 * root.layerReach, height + 2 * root.layerReach)
-        active: root.dockEntry !== null
-        x: active ? root.cellRect(root.dockEntry).x : 0
-        y: active ? root.cellRect(root.dockEntry).y : 0
-        width: active ? root.cellRect(root.dockEntry).width : 0
-        height: active ? root.cellRect(root.dockEntry).height : 0
-        sourceComponent: Dock {
-            theme: root.theme
-            mat: root.mat
-            isLight: root.isLight
-            dockEntry: root.dockEntry || ({})
-            originX: dockLoader.x
-            originY: dockLoader.y
-            focusedLayer: root.focusLayer === "dock"
-            dimmed: root.focusLayer === "widgets"
-            wallAccent: root.wallAccent
-            backdrop: blurTex
-            scrollMs: root.scrollMs
-            scrollEasing: root.scrollEasing
-            focusMs: root.focusMs
-            focusEasing: root.focusEasing
-            labelMs: root.labelMs
-            motionReduced: root.motionReduced
-            rested: root.focusRested
-            onRowChanged: root.dockRow = row
-            onColChanged: root.dockCol = col
-            onLaunchingFrom: root.noteLaunchOrigin(appId, tile, root.focusedTileLift)
-            onLaunching: layers.launchSplash(title, iconUrl)
-            onAppsRequested: root.openApps()
-            onMenuRequested: root.openTileMenu()
-        }
-        MouseArea {
-            // hovering the dock card itself hands the layer to the dock
-            anchors.fill: parent
-            hoverEnabled: true
-            z: -1
-            onEntered: root.focusLayer = "dock"
-        }
-    }
 
     // ============================================================= mini apps
     // A card's content asks for a mini app with a spec {kind, title, subtitle, url, ...}.

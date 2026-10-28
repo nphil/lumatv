@@ -134,4 +134,12 @@ QtObject {
     // each instead of their nodes (LumaHome.qml). At 60 nothing here changes anything.
     property int refreshHz: 60
     readonly property bool fast: refreshHz >= 100
+    // The last few per-frame motions (kit/FrameMotion.qml): [{steps, ms, duration}], newest last; the shell reports them in its state,
+    // since the runner's console lines do not reach the shell's log on the set.
+    property var slides: []
+    function noteSlide(steps, ms, duration) {
+        var s = slides.slice(-7)
+        s.push({ steps: steps, ms: ms, duration: duration })
+        slides = s
+    }
 }

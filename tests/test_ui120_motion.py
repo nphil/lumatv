@@ -82,3 +82,31 @@ class FrameMotionHost(unittest.TestCase):
         self.assertEqual(slow["early"]["perFrame"], "false")
         self.assertEqual((slow["shown"]["progress"], slow["shown"]["settled"], slow["shown"]["steps"]), ("1.00", "true", "0"), "the NumberAnimation, as before: %s" % slow["shown"])
         self.assertEqual((slow["gone"]["progress"], slow["gone"]["parked"], slow["gone"]["steps"]), ("0.00", "true", "0"), str(slow["gone"]))
+
+    def test_homes_base_is_one_cached_texture_with_the_tick_held_while_a_panel_slides_at_120_and_the_slides_are_reported(self):
+        """The quick panel through Home itself (`openLayer`): at 120 the item that holds the wallpaper, the widgets and the dock is an item
+        layer from the panel's open to the end of its linger, the wallpaper tick holds while it slides, and each slide's steps land in `slides`
+        (what the shell reports as its state); at 60 nothing is layered or held."""
+        find = "(function(){var L=null;for(var i=0;i<root.children.length;i++){if(root.children[i].panelSliding!==undefined)L=root.children[i]}return L})()"
+        steps = ["--eval", "%d:%s" % (T0 - 100, "'before cached=' + root.baseCached + ' tick=' + root.frameTick + ' slides=' + root.slides.length"),
+                 "--eval", "%d:%s" % (T0, "(function(){root.openLayer('quick'); return 'open 1=1'})()"),
+                 "--eval", "%d:%s" % (T0 + 60, "'opening cached=' + root.baseCached + ' sliding=' + %s.panelSliding + ' moving=' + %s.panelMoving + ' tick=' + root.frameTick" % (find, find)),
+                 "--eval", "%d:%s" % (T0 + 100, "'mid moving=' + %s.panelMoving + ' tick=' + root.frameTick" % find),
+                 "--eval", "%d:%s" % (T0 + 400, "'shown cached=' + root.baseCached + ' tick=' + root.frameTick + ' slides=' + root.slides.length"),
+                 "--eval", "%d:%s" % (T0 + 500, "(function(){root.closeLayer(); return 'close 1=1'})()"),
+                 "--eval", "%d:%s" % (T0 + 900, "(function(){var s=root.slides; var l=s.length?s[s.length-1]:{steps:0,ms:0,duration:0}; return 'closed cached=' + root.baseCached + ' sliding=' + %s.panelSliding + ' tick=' + root.frameTick + ' slides=' + s.length + ' steps=' + l.steps + ' ms=' + l.ms + ' for=' + l.duration})()" % find),
+                 ]
+        fast = self.host(120, *steps, wait=T0 + 1200)
+        self.assertEqual(fast["before"]["cached"], "false")
+        self.assertEqual((fast["opening"]["cached"], fast["opening"]["sliding"]), ("true", "true"), str(fast["opening"]))
+        self.assertEqual((fast["opening"]["moving"], fast["mid"]["moving"]), ("true", "true"), "the slide is under way at both reads: %s %s" % (fast["opening"], fast["mid"]))
+        self.assertEqual(fast["opening"]["tick"], fast["mid"]["tick"], "the wallpaper tick holds while the panel slides: %s %s" % (fast["opening"], fast["mid"]))
+        self.assertEqual(fast["shown"]["slides"], "1", "the slide in was recorded")
+        self.assertEqual((fast["closed"]["cached"], fast["closed"]["sliding"]), ("true", "true"), "parked within its linger, the texture is kept: %s" % fast["closed"])
+        self.assertEqual((fast["closed"]["slides"], fast["closed"]["for"]), ("2", "110"), str(fast["closed"]))
+        self.assertGreater(int(fast["closed"]["steps"]), 8, "the slide out stepped by frames: %s" % fast["closed"])
+        self.assertGreater(int(fast["closed"]["tick"]), int(fast["shown"]["tick"]), "the tick runs again once the slide is over, the panel parked or at rest: %s %s" % (fast["shown"], fast["closed"]))
+        slow = self.host(60, *steps, wait=T0 + 1200)
+        self.assertEqual((slow["opening"]["cached"], slow["shown"]["cached"], slow["closed"]["cached"]), ("false", "false", "false"))
+        self.assertGreater(int(slow["shown"]["tick"]), int(slow["opening"]["tick"]), "the tick never holds at 60: %s %s" % (slow["opening"], slow["shown"]))
+        self.assertEqual((slow["shown"]["slides"], slow["closed"]["slides"]), ("0", "0"))

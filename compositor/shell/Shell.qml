@@ -387,6 +387,8 @@ WebOSWindow {
             wall: { backend: h ? String(h.videoWallBackend || "") : "", hole: wallHole, up: !!h && h.videoWallUp === true },
             // the refresh Home draws for (the `refresh` topic as Home took it): `ctl shell` says whether the 120 Hz mode reached the client
             refreshHz: h ? (h.refreshHz | 0) : 0,
+            // the last per-frame slides at 120 Hz ([{steps, ms, duration}]) and whether Home's base is drawn from its cached texture now
+            slides: h && h.slides ? h.slides : [], baseCached: !!h && h.baseCached === true,
             capture: { dot: !!capture.item && capture.item.dotUp === true },
             keyboard: kbd.item ? { up: kbd.item.wanted, live: kbd.item.live, layout: kbd.item.layoutId, focus: kbd.item.focusAt, key: kbd.item.focusKey ? kbd.item.focusKey.id : "",
                                    shift: kbd.item.shift, listening: voiceListening, voice: kbd.item.voiceOk, busy: kbd.item.busy } : null

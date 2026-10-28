@@ -693,13 +693,16 @@ refresh)
     mali=$(awk -v b0="${b0:-0}" -v b1="${b1:-0}" -v i0="${i0:-0}" -v i1="${i1:-0}" 'BEGIN { t = (b1 - b0) + (i1 - i0); if (t > 0) printf "%.1f", 100 * (b1 - b0) / t; else print "?" }')
     temp=$(tr -d '\n' < /proc/lg/pm/temperature 2>/dev/null | head -c 40)
     m=$(ctl refresh)
-    shell_hz=$(ctl shell | grep -o '"refreshHz":[0-9]*' | head -n 1 | cut -d: -f2)
-    # the per-frame motions' own count (kit/FrameMotion.qml logs one line per slide with console.info): the last few. QML's console of a runner app
-    # goes to PmLog, /var/log/messages (round 15 read the shell's stdout file only and found none), which rotates about every minute, so the file
-    # and the ones it rotated to are read, oldest first, after the shell's own log. `gate.py` reads the same lines per surface (`slides:`).
-    slides=$( { cat $STATE/shell.log 2>/dev/null; for f in $(ls -tr $MESSAGES $MESSAGES.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" ;; esac; done; } | grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' | tail -n 6 | sed 's/\[FrameMotion\] //' | tr '\n' ';')
+    r_shell=$(ctl shell)
+    shell_hz=$(echo "$r_shell" | grep -o '"refreshHz":[0-9]*' | head -n 1 | cut -d: -f2)
+    # the per-frame motions' own count (kit/FrameMotion.qml): the last few slides as the shell's state reports them (`Lu.slides`, steps/ms/duration
+    # each; round 15 found no line of theirs in the shell's stdout file), else the `[FrameMotion]` lines of the runner's log, which QML's console
+    # writes to PmLog, /var/log/messages (it rotates about every minute: the file and the ones it rotated to, oldest first). `gate.py` reads the
+    # same lines per surface (`slides:`).
+    slides=$(echo "$r_shell" | grep -o '"slides":\[[^]]*\]' | head -n 1 | grep -o '{[^}]*}' | sed 's/"steps"://; s/"ms"://; s/"duration"://; s/[{}]//g; s/,/\//g' | tr '\n' ' ')
+    [ -n "$slides" ] || slides=$( { cat $STATE/shell.log 2>/dev/null; for f in $(ls -tr $MESSAGES $MESSAGES.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" ;; esac; done; } | grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' | tail -n 6 | sed 's/\[FrameMotion\] \([0-9]*\) steps in \([0-9]*\) ms for \([0-9]*\)/\1\/\2\/\3/' | tr '\n' ' ')
     echo "$m" > $OUT/refresh-${r_hz:-x}-${2:-read}.json
-    echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} shell ${shell_hz:-?} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}; slides: ${slides:-none logged}"
+    echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} shell ${shell_hz:-?} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}; slides (steps/ms/for): ${slides:-none}"
     ;;
 standby)
     ctl journal > $OUT/standby-journal-before.json

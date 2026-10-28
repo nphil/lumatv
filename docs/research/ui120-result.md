@@ -196,3 +196,49 @@ two in flight, 13 ms of GPU budget each); `quick` and `picker` `burst_over20` 0 
 (round 14 did not measure it: the measure was reset before the idle read; this run's `refresh read` after the surfaces covers them, its
 `pipeline_ms` p99 and `late` are the numbers); `burst_end` about 5 ms earlier than at 60. `home-dpad`: the row scroll per frame, the focus
 move one frame per key as before. The toast's first frame is the service's hand-over, not the shell's (`compositor-surfaces-result.md`).
+
+## TV round 15: the GPU has 8.33 ms for two frames (`compositor/slot-2026-10-28-r15/frames-120.json`; the traces stayed on the workstation, `/tmp/perf/gate-c4shell-120-*`)
+
+`0308184`: `GATE refresh` `shell 120`, idle pipeline p99 4.88 ms, 0 late; over the surfaces 72 late of 6,276 frames, p99 5.0, max 11.5. The
+slides stepped per refresh (most intervals 8.33 ms) and still lost 2-3 refreshes each: `quick` `burst_over20` 14, `picker` 10, `toast` 3,
+`home-dpad` `dropped` 2. No `[FrameMotion]` line reached the shell's stdout file: the runner's QML console goes elsewhere (PmLog), so the
+slides are now in the shell's state (`Lu.slides`, `ctl shell`), where the gate reads them first.
+
+The trace of a quick-panel slide (`gate-c4shell-120-quick-m0-r1.trace`, `mali_job_slots_event` and `sched_switch`), one refresh of it:
+
+| ms | what |
+|---|---|
+| 8.82 | flip (frame N lands); the compositor pays N (0.12 ms), releases N−1's buffer to the shell |
+| 11.68 | the shell's Mali thread commits N+1: the blob sends the commit when the GPU job is done, not at `eglSwapBuffers` |
+| 12.25-16.48 | the compositor draws N+1 (0.95 ms of CPU); its fragment job runs **4.1 ms** (a 1080p ARGB quad into the linear page) |
+| 12.60 | the callback for N+1 goes to the shell at the draw (nothing ahead of it) |
+| 13.6-15.8 | the shell renders N+2: 2.2 ms of CPU, then its fragment job, queued behind the compositor's, runs 16.48-20.58: **4.1 ms** |
+| 17.16 | flip (N+1 lands), 0.7 ms after the compositor's fence |
+| 21.1 | the shell's commit of N+2; the compositor draws it 21.8-22.2, its job runs to about 26: the flip due at 25.5 is missed, N+2 lands at 33.8 |
+
+So the GPU does two fragment jobs per refresh, 4.1 ms each: the compositor composes every frame of Home (direct scan-out needs the
+buffer's dma-buf, and with `--buffers driver` every client buffer is the blob's own, `BufferKind::External`; the 64-bit blob lists no
+`EGL_MESA_image_dma_buf_export`, so there is no way to a framebuffer from one), and the shell's slide frame costs as much. 8.2 ms of
+GPU in an 8.33 ms refresh, serialised through the blob's commit-after-completion: a frame makes its refresh only when the two jobs
+run back to back with nothing else on the GPU, and loses one otherwise. In the 16.7 ms windows the gate recorded, the CPUs were idle
+(the shell 1.5-3.5 ms, the compositor 1-1.8 ms) and the GPU busy 2-8 ms: no one was slow; the sum does not fit.
+
+What that leaves: the composition is fixed at about 4.1 ms (one full-screen pass on this GPU, bandwidth-bound), so the shell's slide
+frame must cost well under 4 ms for the pair to fit with margin. At 120 Hz (`Lu.fast`) Home now draws everything a panel slides over
+(the wallpaper, the widgets, the dock: one `base` item, `LumaHome.qml`) from one cached texture while a panel is on the screen, on its
+way, warmed or lingering (`Layers.panelSliding`), and holds its wallpaper tick and the clock's hands while a slide moves
+(`Layers.panelMoving`), so the texture is not rendered again mid-slide. A slide frame is then one full-screen quad, the panel's scrim
+and the sheet: about 2 ms of GPU [INFERENCE: three full-screen passes fewer at 0.6-1 ms each], the pair about 6 ms of 8.33. The
+texture is rendered at the gear's press (the warm), not in the slide's first frame; the picker, opened at the Input key's press, pays
+it in its first frame. At 60 the item draws as its children always did (the host renders at 60 pixel-identical bar the clock's hands).
+
+Still outside the shell's reach: the compositor's 4.1 ms. The gate's `late` and `burst_over20` at 120 will not reach zero while every
+frame of Home is composed; a zero-drop 120 needs the shell's buffer on the plane, which the blob's buffer path forbids.
+
+Host (`tests/test_ui120_motion.py`): at 120 the base is layered from the panel's open through its linger, the tick holds while the
+slide moves and runs again once it is settled, the two slides land in `slides` (17 and 21 steps for 110 ms on the host); at 60 nothing
+is layered or held and `slides` stays empty.
+
+Next run should show: `GATE refresh` `shell 120` and `slides (steps/ms/for)` with about 13-14 steps per 110 ms slide; `quick` and
+`picker` `burst_over20` down from 14/10 towards 0-2 (the first frame of a picker slide and any frame the GPU shares with something else);
+the measure's `late` over the surfaces well under round 15's 72; `pipeline_ms` p99 about 5 (the composition, unchanged).
