@@ -1,0 +1,227 @@
+wlprobe, LumaTV's compositor (fresh session, no app started) against LG's (compositor/lg-wlprobe-2026-10-28.txt); times stripped.
+
+The changes of 644249e, as the probe sees them:
+  every seat: wl_seat.capabilities(7) = keyboard|pointer|touch, no wl_seat.name        same as LG (13 seats against LG's 3)
+  wl_starfish_pointer and wl_starfish_output offered, get_mrcu_standby_timer -> 5000   same as LG (a fresh session)
+  wl_webos_seat.info(index, device name)                                               'LGE RCU' is index 1 as on LG; 13 names, LG's run listed 2
+  wl_output sends no scale                                                             same as LG
+
+Not in the commit's notes, still different from LG:
+  timer_value after other clients ran: 300000 (wlprobe-lumatv-after-apps.txt, the gate's evidence step) - one value for all clients, the last one set
+  globals: 32 against 23 (13 wl_seat against 3); LumaTV has no qt_hardware_integration and no wl_drm, adds wl_webos_system_ux; wl_compositor v4 against v3
+  wl_output.geometry: (0, 0, 1439, 809, 0, 'LG', 'OLED65C4PUA', 0) against LG's (0, 0, -1, -1, 0, '', '', 0)
+  wl_shm formats: 2 (ARGB8888, XRGB8888) against 14 distinct ones (16 events)
+  wl_keyboard: keymap 1140 bytes and repeat_info(0, 0) against 66180 bytes and (40, 400)
+
+unified diff:
+--- LG 2026-10-28 (lg-wlprobe-2026-10-28.txt)
++++ LumaTV fresh session (wlprobe-lumatv-fresh.txt)
+@@ -2,22 +2,22 @@
+-wl_registry@2.global(1, 'wl_webos_surface_group_compositor', 1)
+-wl_registry@2.global(2, 'wl_webos_foreign', 1)
+-wl_registry@2.global(3, 'wl_compositor', 3)
+-wl_registry@2.global(4, 'wl_subcompositor', 1)
+-wl_registry@2.global(5, 'wl_data_device_manager', 1)
+-wl_registry@2.global(6, 'wl_shm', 1)
+-wl_registry@2.global(7, 'qt_hardware_integration', 1)
+-wl_registry@2.global(8, 'mali_buffer_sharing', 5)
+-wl_registry@2.global(9, 'wl_drm', 2)
+-wl_registry@2.global(10, 'zwp_linux_dmabuf_v1', 3)
+-wl_registry@2.global(11, 'wl_seat', 4)
+-wl_registry@2.global(12, 'text_model_factory', 1)
+-wl_registry@2.global(13, 'input_method', 2)
+-wl_registry@2.global(14, 'input_panel', 1)
+-wl_registry@2.global(15, 'wl_webos_xinput_extension', 1)
+-wl_registry@2.global(16, 'wl_starfish_output', 1)
+-wl_registry@2.global(17, 'wl_starfish_pointer', 1)
+-wl_registry@2.global(18, 'wl_webos_shell', 1)
+-wl_registry@2.global(19, 'wl_webos_input_manager', 1)
+-wl_registry@2.global(20, 'wl_seat', 4)
+-wl_registry@2.global(21, 'wl_shell', 1)
+-wl_registry@2.global(22, 'wl_output', 2)
++wl_registry@2.global(1, 'mali_buffer_sharing', 5)
++wl_registry@2.global(2, 'wl_compositor', 4)
++wl_registry@2.global(3, 'wl_subcompositor', 1)
++wl_registry@2.global(4, 'wl_shm', 1)
++wl_registry@2.global(5, 'wl_shell', 1)
++wl_registry@2.global(6, 'wl_seat', 4)
++wl_registry@2.global(7, 'wl_output', 2)
++wl_registry@2.global(8, 'wl_data_device_manager', 1)
++wl_registry@2.global(9, 'wl_webos_shell', 1)
++wl_registry@2.global(10, 'wl_webos_surface_group_compositor', 1)
++wl_registry@2.global(11, 'wl_webos_foreign', 1)
++wl_registry@2.global(12, 'wl_webos_input_manager', 1)
++wl_registry@2.global(13, 'wl_webos_xinput_extension', 1)
++wl_registry@2.global(14, 'text_model_factory', 1)
++wl_registry@2.global(15, 'input_method', 2)
++wl_registry@2.global(16, 'input_panel', 1)
++wl_registry@2.global(17, 'wl_webos_system_ux', 1)
++wl_registry@2.global(18, 'zwp_linux_dmabuf_v1', 3)
++wl_registry@2.global(19, 'wl_starfish_pointer', 1)
++wl_registry@2.global(20, 'wl_starfish_output', 1)
++wl_registry@2.global(21, 'wl_seat', 4)
++wl_registry@2.global(22, 'wl_seat', 4)
+@@ -25 +25,10 @@
+-wl_callback@3.done(32,)
++wl_registry@2.global(24, 'wl_seat', 4)
++wl_registry@2.global(25, 'wl_seat', 4)
++wl_registry@2.global(26, 'wl_seat', 4)
++wl_registry@2.global(27, 'wl_seat', 4)
++wl_registry@2.global(28, 'wl_seat', 4)
++wl_registry@2.global(29, 'wl_seat', 4)
++wl_registry@2.global(30, 'wl_seat', 4)
++wl_registry@2.global(31, 'wl_seat', 4)
++wl_registry@2.global(32, 'wl_seat', 4)
++wl_callback@3.done(0,)
+@@ -27,23 +36,23 @@
+---- 23 globals ---
+-  global   1 wl_webos_surface_group_compositor        v1
+-  global   2 wl_webos_foreign                         v1
+-  global   3 wl_compositor                            v3
+-  global   4 wl_subcompositor                         v1
+-  global   5 wl_data_device_manager                   v1
+-  global   6 wl_shm                                   v1
+-  global   7 qt_hardware_integration                  v1
+-  global   8 mali_buffer_sharing                      v5
+-  global   9 wl_drm                                   v2
+-  global  10 zwp_linux_dmabuf_v1                      v3
+-  global  11 wl_seat                                  v4
+-  global  12 text_model_factory                       v1
+-  global  13 input_method                             v2
+-  global  14 input_panel                              v1
+-  global  15 wl_webos_xinput_extension                v1
+-  global  16 wl_starfish_output                       v1
+-  global  17 wl_starfish_pointer                      v1
+-  global  18 wl_webos_shell                           v1
+-  global  19 wl_webos_input_manager                   v1
+-  global  20 wl_seat                                  v4
+-  global  21 wl_shell                                 v1
+-  global  22 wl_output                                v2
++--- 32 globals ---
++  global   1 mali_buffer_sharing                      v5
++  global   2 wl_compositor                            v4
++  global   3 wl_subcompositor                         v1
++  global   4 wl_shm                                   v1
++  global   5 wl_shell                                 v1
++  global   6 wl_seat                                  v4
++  global   7 wl_output                                v2
++  global   8 wl_data_device_manager                   v1
++  global   9 wl_webos_shell                           v1
++  global  10 wl_webos_surface_group_compositor        v1
++  global  11 wl_webos_foreign                         v1
++  global  12 wl_webos_input_manager                   v1
++  global  13 wl_webos_xinput_extension                v1
++  global  14 text_model_factory                       v1
++  global  15 input_method                             v2
++  global  16 input_panel                              v1
++  global  17 wl_webos_system_ux                       v1
++  global  18 zwp_linux_dmabuf_v1                      v3
++  global  19 wl_starfish_pointer                      v1
++  global  20 wl_starfish_output                       v1
++  global  21 wl_seat                                  v4
++  global  22 wl_seat                                  v4
+@@ -50,0 +60,9 @@
++  global  24 wl_seat                                  v4
++  global  25 wl_seat                                  v4
++  global  26 wl_seat                                  v4
++  global  27 wl_seat                                  v4
++  global  28 wl_seat                                  v4
++  global  29 wl_seat                                  v4
++  global  30 wl_seat                                  v4
++  global  31 wl_seat                                  v4
++  global  32 wl_seat                                  v4
+@@ -53,15 +71 @@
+-wl_shm@5.format(1,)
+-wl_shm@5.format(0,)
+-wl_shm@5.format(909199186,)
+-wl_shm@5.format(892424792,)
+-wl_shm@5.format(875710290,)
+-wl_shm@5.format(842093144,)
+-wl_shm@5.format(842093121,)
+-wl_shm@5.format(875709016,)
+-wl_shm@5.format(875708993,)
+-wl_shm@5.format(808665688,)
+-wl_shm@5.format(808665665,)
+-wl_shm@5.format(808669784,)
+-wl_shm@5.format(808669761,)
+-wl_shm@5.format(538982467,)
+-wl_output@6.geometry(0, 0, -1, -1, 0, '', '', 0)
++wl_output@6.geometry(0, 0, 1439, 809, 0, 'LG', 'OLED65C4PUA', 0)
+@@ -73,18 +77,59 @@
+-wl_webos_input_manager@10.cursor_visibility(0, 'null')
+-wl_callback@15.done(32,)
+-wl_display@1.delete_id(15,)
+---- seats: 3, outputs: 1, input manager: True, starfish pointer: True ---
+-wl_keyboard@16.repeat_info(40, 400)
+-wl_keyboard@16.keymap(1, 'fd:4', 66180)
+-wl_webos_seat@18.info(0, 'Default USB Mouse input, not initialized yet.', 0, 0)
+-wl_keyboard@19.repeat_info(40, 400)
+-wl_keyboard@19.keymap(1, 'fd:5', 66180)
+-wl_webos_seat@21.info(1, 'LGE RCU', 0, 0)
+-wl_keyboard@22.repeat_info(40, 400)
+-wl_keyboard@22.keymap(1, 'fd:6', 66180)
+-wl_starfish_pointer@11.timer_value(5000,)
+-wl_callback@28.done(32,)
+-wl_display@1.delete_id(28,)
+---- listening 4.0s ---
+---- done; objects: wl_display@1, wl_registry@2, wl_compositor@4, wl_shm@5, wl_output@6, wl_seat@7, wl_seat@8, wl_seat@9, wl_webos_input_manager@10, wl_starfish_pointer@11, wl_starfish_output@12, wl_webos_shell@13, wl_shell@14, wl_keyboard@16, wl_pointer@17, wl_webos_seat@18, wl_keyboard@19, wl_pointer@20, wl_webos_seat@21, wl_keyboard@22, wl_pointer@23, wl_webos_seat@24, wl_surface@25, wl_webos_shell_surface@26, wl_shell_surface@27
+-
++wl_seat@10.capabilities(7,)
++wl_seat@11.capabilities(7,)
++wl_seat@12.capabilities(7,)
++wl_seat@13.capabilities(7,)
++wl_seat@14.capabilities(7,)
++wl_seat@15.capabilities(7,)
++wl_seat@16.capabilities(7,)
++wl_seat@17.capabilities(7,)
++wl_seat@18.capabilities(7,)
++wl_seat@19.capabilities(7,)
++wl_webos_input_manager@20.cursor_visibility(0, 'null')
++wl_callback@25.done(0,)
++wl_display@1.delete_id(25,)
++--- seats: 13, outputs: 1, input manager: True, starfish pointer: True ---
++wl_keyboard@26.keymap(1, 'fd:4', 1140)
++wl_keyboard@26.repeat_info(0, 0)
++wl_webos_seat@28.info(0, 'Default USB Mouse input, not initialized yet.', 0, 0)
++wl_keyboard@29.keymap(1, 'fd:5', 1140)
++wl_keyboard@29.repeat_info(0, 0)
++wl_webos_seat@31.info(1, 'LGE RCU', 0, 0)
++wl_keyboard@32.keymap(1, 'fd:6', 1140)
++wl_keyboard@32.repeat_info(0, 0)
++wl_webos_seat@34.info(2, 'Smart Remote RCU Input', 0, 0)
++wl_keyboard@35.keymap(1, 'fd:7', 1140)
++wl_keyboard@35.repeat_info(0, 0)
++wl_webos_seat@37.info(3, 'Bluetooth-audio-source', 0, 0)
++wl_keyboard@38.keymap(1, 'fd:8', 1140)
++wl_keyboard@38.repeat_info(0, 0)
++wl_webos_seat@40.info(4, 'IoT keypad', 0, 0)
++wl_keyboard@41.keymap(1, 'fd:9', 1140)
++wl_keyboard@41.repeat_info(0, 0)
++wl_webos_seat@43.info(5, 'LGE M-RCU - Builtin [0]', 0, 0)
++wl_keyboard@44.keymap(1, 'fd:10', 1140)
++wl_keyboard@44.repeat_info(0, 0)
++wl_webos_seat@46.info(6, 'LGE M-RCU - Builtin [1]', 0, 0)
++wl_keyboard@47.keymap(1, 'fd:11', 1140)
++wl_keyboard@47.repeat_info(0, 0)
++wl_webos_seat@49.info(7, 'LGE M-RCU - Builtin [2]', 0, 0)
++wl_keyboard@50.keymap(1, 'fd:12', 1140)
++wl_keyboard@50.repeat_info(0, 0)
++wl_webos_seat@52.info(8, 'LGE TONE+ - Builtin [3]', 0, 0)
++wl_keyboard@53.keymap(1, 'fd:13', 1140)
++wl_keyboard@53.repeat_info(0, 0)
++wl_webos_seat@55.info(9, 'LGE W-RCU - Builtin [5]', 0, 0)
++wl_keyboard@56.keymap(1, 'fd:14', 1140)
++wl_keyboard@56.repeat_info(0, 0)
++wl_webos_seat@58.info(10, 'LGE Simple Premium', 0, 0)
++wl_keyboard@59.keymap(1, 'fd:15', 1140)
++wl_keyboard@59.repeat_info(0, 0)
++wl_webos_seat@61.info(11, 'LGE Network Input', 0, 0)
++wl_keyboard@62.keymap(1, 'fd:16', 1140)
++wl_keyboard@62.repeat_info(0, 0)
++wl_webos_seat@64.info(12, 'LGE Smart Remote - TouchPad', 0, 0)
++wl_starfish_pointer@21.timer_value(5000,)
++wl_shell_surface@67.configure(0, 1920, 1080)
++wl_callback@68.done(0,)
++wl_display@1.delete_id(68,)
++--- listening 2.0s ---
++--- done; objects: wl_display@1, wl_registry@2, wl_compositor@4, wl_shm@5, wl_output@6, wl_seat@7, wl_seat@8, wl_seat@9, wl_seat@10, wl_seat@11, wl_seat@12, wl_seat@13, wl_seat@14, wl_seat@15, wl_seat@16, wl_seat@17, wl_seat@18, wl_seat@19, wl_webos_input_manager@20, wl_starfish_pointer@21, wl_starfish_output@22, wl_webos_shell@23, wl_shell@24, wl_keyboard@26, wl_pointer@27, wl_webos_seat@28, wl_keyboard@29, wl_pointer@30, wl_webos_seat@31, wl_keyboard@32, wl_pointer@33, wl_webos_seat@34, wl_keyboard@35, wl_pointer@36, wl_webos_seat@37, wl_keyboard@38, wl_pointer@39, wl_webos_seat@40, wl_keyboard@41, wl_pointer@42, wl_webos_seat@43, wl_keyboard@44, wl_pointer@45, wl_webos_seat@46, wl_keyboard@47, wl_pointer@48, wl_webos_seat@49, wl_keyboard@50, wl_pointer@51, wl_webos_seat@52, wl_keyboard@53, wl_pointer@54, wl_webos_seat@55, wl_keyboard@56, wl_pointer@57, wl_webos_seat@58, wl_keyboard@59, wl_pointer@60, wl_webos_seat@61, wl_keyboard@62, wl_pointer@63, wl_webos_seat@64, wl_surface@65, wl_webos_shell_surface@66, wl_shell_surface@67

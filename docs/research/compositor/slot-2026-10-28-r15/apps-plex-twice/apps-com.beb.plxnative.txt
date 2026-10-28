@@ -1,0 +1,41 @@
+client connected: pid 20993 uid 5365 cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+window 7 created on surface 206 by pid 20993
+webOS shell surface on window 7 (surface 206) by pid 20993
+window 7: appId = com.beb.plxnative (Card)
+window 7 committed without a buffer (Card app 'com.beb.plxnative' state Default)
+window 7: title = plxnative (Card)
+window 7 mapped (Card app 'com.beb.plxnative' title 'plxnative' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 7: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 7: exposed 1920x1080
+focus -> surface 206
+luna: foreground ['com.beb.plxnative'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+client disconnected: pid 20993 uid 5365 after 11240 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_webos_shell', 'wl_webos_surface_group_compositor', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+shell: can show keyboard
+shell: can show quick, picker, drawer, keyboard
+note: apps-com.beb.plxnative
+client connected: pid 21501 uid 5365 cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+window 8 created on surface 208 by pid 21501
+webOS shell surface on window 8 (surface 208) by pid 21501
+window 8: appId = com.beb.plxnative (Card)
+window 8 committed without a buffer (Card app 'com.beb.plxnative' state Default)
+window 8: title = plxnative (Card)
+window 8 mapped (Card app 'com.beb.plxnative' title 'plxnative' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 8: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 8: exposed 1920x1080
+focus -> surface 208
+luna: foreground ['com.beb.plxnative'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+client disconnected: pid 21501 uid 5365 after 11300 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shm', 'wl_shell', 'wl_seat', 'wl_output', 'wl_webos_shell', 'wl_webos_surface_group_compositor', 'wl_webos_foreign', 'wl_webos_input_manager', 'wl_starfish_pointer', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat']; cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+shell: can show keyboard
+shell: can show quick, picker, drawer, keyboard

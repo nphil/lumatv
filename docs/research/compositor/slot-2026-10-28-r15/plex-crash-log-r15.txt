@@ -1,0 +1,32 @@
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7aa75c6 lr=0xf7a924b5
+time: 1793218302
+reg: sp=0xea1fd498 fp=0x27cc244 ip=0xf7aee5c4 cpsr=0x60800030 r0=0x27d3210 r1=0x27c82d8 r2=0x0 r3=0xfb4 r4=0xf7aedf7c r5=0x27c82d8 r6=0x27c7bd8 r7=0x0 r8=0x0 r9=0xf7af2e40 r10=0xf7af2e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7a20000-f7adc000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7a675c6 lr=0xf7a524b5
+time: 1793220133
+reg: sp=0xe9ff4498 fp=0x237c96c ip=0xf7aae5c4 cpsr=0x60800030 r0=0x23a3210 r1=0x23b7580 r2=0x0 r3=0xfb4 r4=0xf7aadf7c r5=0x23b7580 r6=0x239a5c8 r7=0x0 r8=0x0 r9=0xf7ab2e40 r10=0xf7ab2e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f79e0000-f7a9c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+
+*** SIGNAL 11 (SIGSEGV) addr=0x18 pc=0xf7d475c6 lr=0xf7d324b5
+time: 1793221957
+reg: sp=0xea4f4498 fp=0x1d0133c ip=0xf7d8e5c4 cpsr=0x60800030 r0=0x1d3b210 r1=0x1d302d8 r2=0x0 r3=0xfb4 r4=0xf7d8df7c r5=0x1d302d8 r6=0x1d2fbd8 r7=0x0 r8=0x0 r9=0xf7d92e40 r10=0xf7d92e18
+bin: 00010000-00cb3000 r-xp 00000000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cc3000-00cf0000 r--p 00ca3000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+bin: 00cf0000-00cfa000 rw-p 00cd0000 b3:3b 120950                             /media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative
+at: f7cc0000-f7d7c000 r-xp 00000000 fd:01 46693                              /usr/lib/libSDL2-2.0.so.0.14.0
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+img: build_id=e074ee2b34b0cce9ef90c2b6379b97ab1cee3d47 image_addr=0x10000 image_size=0xd11fb8
+ 

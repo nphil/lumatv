@@ -1,0 +1,14 @@
+fg=com.webos.app.home
+playing after 0s, context _0xyneI7daSqMNr; shell "wall":{"hole":true}"wall":{"backend":"own","hole":true,"up":true}
+before: {"capturedHeight":540,"writtenBytes":300485,"returnValue":true,"capturedWidth":960}
+v1 request {"context":"_0xyneI7daSqMNr","displayOutput":{"x":0,"y":0,"width":3840,"height":2160},"fullScreen":true,"originalInput":{"x":0,"y":0,"width":1920,"height":1080},"sourceInput":{"x":0,"y":0,"width":1920,"height":1080}}
+v1 answer {"returnValue":true}; capture {"capturedHeight":540,"writtenBytes":299671,"returnValue":true,"capturedWidth":960}; VIDEO {"capturedHeight":540,"writtenBytes":280963,"returnValue":true,"capturedWidth":960}
+v2 request {"context":"_0xyneI7daSqMNr","displayOutput":{"x":0,"y":0,"width":1920,"height":1080},"fullScreen":true,"sourceInput":{"x":0,"y":0,"width":1920,"height":1080}}
+v2 answer {"errorCode":4,"returnValue":false,"errorMessage":"Invalid Parameters"}; capture {"capturedHeight":540,"writtenBytes":299636,"returnValue":true,"capturedWidth":960}; VIDEO {"capturedHeight":540,"writtenBytes":278274,"returnValue":true,"capturedWidth":960}
+v3 request {"context":"_0xyneI7daSqMNr","fullScreen":true,"sourceInput":{"x":0,"y":0,"width":1920,"height":1080}}
+v3 answer {"errorCode":4,"returnValue":false,"errorMessage":"Invalid Parameters"}; capture {"capturedHeight":540,"writtenBytes":299976,"returnValue":true,"capturedWidth":960}; VIDEO {"capturedHeight":540,"writtenBytes":274973,"returnValue":true,"capturedWidth":960}
+v4 request {"context":"_0xyneI7daSqMNr","displayOutput":{"x":0,"y":0,"width":3840,"height":2160},"fullScreen":true,"originalInput":{"x":0,"y":0,"width":3840,"height":2160},"sourceInput":{"x":0,"y":0,"width":3840,"height":2160}}
+v4 answer {"returnValue":true}; capture {"capturedHeight":540,"writtenBytes":300054,"returnValue":true,"capturedWidth":960}; VIDEO {"capturedHeight":540,"writtenBytes":274090,"returnValue":true,"capturedWidth":960}
+v5 request {"context":"_0xyneI7daSqMNr","displayOutput":{"x":0,"y":0,"width":3840,"height":2160},"fullScreen":false,"sourceInput":{"x":0,"y":0,"width":1920,"height":1080}}
+v5 answer {"errorCode":4,"returnValue":false,"errorMessage":"Invalid Parameters"}; capture {"capturedHeight":540,"writtenBytes":300483,"returnValue":true,"capturedWidth":960}; VIDEO {"capturedHeight":540,"writtenBytes":275128,"returnValue":true,"capturedWidth":960}
+end fg=com.webos.app.home

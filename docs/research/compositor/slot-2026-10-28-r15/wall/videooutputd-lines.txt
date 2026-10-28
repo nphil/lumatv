@@ -1,0 +1,2 @@
+2026-10-28T21:06:38.607708Z [25991.253652880] user.info videooutputd [] videooutputd DEBUG {} processAspectRatio() END >>>>>>>>>> clientID[_LymtBD7OpPzvus]
+2026-10-28T21:06:38.612789Z [25991.258734080] user.info videooutputd [] videooutputd SVU_VIDEO_DATA {} [setWindow] [wId:0][sink:MAIN]output[0,0,0,0], panel[0,0,3840,2160], country_grp[4], content_type[11], source_index[0], zoom_data[0,0,0,0], just_scan[1], aspect_ratio[1], rotate[0], orbit_over_scan[0], screen_position[1], media_afd_property[0], overscan_appropriate_flag[0], scan_type[1]

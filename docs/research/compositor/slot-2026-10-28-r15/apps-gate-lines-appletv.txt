@@ -1,0 +1,1 @@
+GATE apps: FAIL failed: com.apple.appletv pid 9527 foreground-in-ms none alive-at-10s yes connection-lost 0 closed-in-15s yes fg-at-10s com.apple.appletv; ok: none

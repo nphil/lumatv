@@ -1,0 +1,23 @@
+com.geforcenow.play t+1s fg=com.geforcenow.play running=com.geforcenow.play 
+com.geforcenow.play t+2s fg=com.geforcenow.play running=com.geforcenow.play 
+com.geforcenow.play t+3s fg=com.webos.app.browser running=com.webos.app.browser 
+com.geforcenow.play t+4s fg=com.webos.app.browser running=com.webos.app.browser 
+com.geforcenow.play t+5s fg=com.webos.app.browser running=com.webos.app.browser 
+com.geforcenow.play t+6s fg=com.webos.app.browser running=com.webos.app.browser 
+com.geforcenow.play t+7s fg=com.webos.app.browser running=com.webos.app.browser 
+com.geforcenow.play t+8s fg=com.webos.app.browser running=com.webos.app.browser 
+com.geforcenow.play fg-at-end=com.webos.app.browser first-foreground=1s
+com.geforcenow.play after-Home fg=com.webos.app.home running=com.webos.app.browser 
+com.geforcenow.play closed-after=0s; APP_CLOSED {"app_id":"com.geforcenow.play","type":"web","pid":""}; crash-log lines +0
+com.webos.app.browser t+1s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+2s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+3s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+4s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+5s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+6s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+7s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser t+8s fg=com.webos.app.browser running=com.webos.app.browser 
+com.webos.app.browser fg-at-end=com.webos.app.browser first-foreground=1s
+com.webos.app.browser after-Home fg=com.webos.app.home running=com.webos.app.browser 
+com.webos.app.browser closed-after=1s; APP_CLOSED {"app_id":"com.webos.app.browser","type":"native","pid":"910","exit_status":15}; crash-log lines +0
+end fg=com.webos.app.home

@@ -1,0 +1,17 @@
+client connected: pid 8804 uid 5365 cmd '/media/developer/apps/usr/palm/applications/com.beb.plxnative/plxnative {\\'event\\':\\'launch\\',\\'reason\\':\\'undefined\\',\\'appId\\':\\'com.beb.plxnative\\',\\'parameters\\':{},\\'inte'
+window 10 created on surface 225 by pid 8804
+webOS shell surface on window 10 (surface 225) by pid 8804
+window 10: appId = com.beb.plxnative (Card)
+window 10 committed without a buffer (Card app 'com.beb.plxnative' state Default)
+window 10: title = plxnative (Card)
+window 10 mapped (Card app 'com.beb.plxnative' title 'plxnative' size Some((1920, 1080)))
+window 2: minimized (covered by a newer card)
+window 10: fullscreen (the front card)
+window 2: exposed nothing (covered)
+window 10: exposed 1920x1080
+focus -> surface 225
+luna: foreground ['com.beb.plxnative'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 2: fullscreen (the front card)
+window 2: exposed 1920x1080
+focus -> surface 198
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)

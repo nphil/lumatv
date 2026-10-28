@@ -1,0 +1,1 @@
+ok: com.beb.plxnative pid 9026 foreground-in-ms 1500 alive-at-10s yes connection-lost 0 closed-in-15s yes fg-at-10s com.beb.plxnative;

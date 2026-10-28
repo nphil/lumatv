@@ -1,0 +1,12 @@
+[SDL2:ERROR:0] Video subsystem has not been initialized
+[SDL2:SYSTEM:2] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:2] fail set property : no video device
+[SDL2:SYSTEM:2] [SDL_webOSExportedSetProperty] called 
+[SDL2:ERROR:2] fail set property : no video device
+[SDL2:SYSTEM:2] [SDL_webOSSetExportedWindow] called 
+[SDL2:ERROR:2] fail setting region : no video device
+AquireLogContext result = 0
+AquireLogContext result = 017:06:38 lumatv-vplane: opening: window _Window_Id_9 as the wallpaper (_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER), clip wall-silk-tuned (1920x1080, 1800 units), 2 wall clips
+17:06:38 lumatv-vplane: ndl event 22 (0) true
+17:06:38 lumatv-vplane: ndl event 26 (0) true
+17:06:38 lumatv-vplane: playing: wall-silk-tuned

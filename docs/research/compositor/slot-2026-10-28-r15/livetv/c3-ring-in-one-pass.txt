@@ -1,0 +1,7 @@
+25956.886 P 2.4 ms in one pass (control-client)
+25957.053 P 3.9 ms in one pass (flip)
+25957.124 P 3.0 ms in one pass (clients draw-now)
+25957.136 P 3.8 ms in one pass (flip)
+25957.142 P 3.4 ms in one pass (clients draw-now)
+25964.772 P 3.8 ms in one pass (clients draw-now)
+25965.388 P 2.4 ms in one pass (clients draw-now)

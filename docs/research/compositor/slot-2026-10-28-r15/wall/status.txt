@@ -1,0 +1,11 @@
+before: {"ok":true,"wallpaper":{"source":"gpu","ready":true,"missing":[],"compositor":"own","vplane":{"installed":true,"role":true,"clips":6,"walls":2,"running":true,"pid":32182},"player":{"state":"idle","role":""}}}
+shell before: "wall":{"hole":false}
+"wall":{"backend":"own","hole":false,"up":false}
+switch: {"ok":true,"wallpaper":{"source":"video","ready":true,"missing":[],"compositor":"own","vplane":{"installed":true,"role":true,"clips":6,"walls":2,"running":true,"pid":32182},"player":{"state":"idle","role":""}}}
+playing after 1s: {"ok":true,"wallpaper":{"source":"video","ready":true,"missing":[],"compositor":"own","vplane":{"installed":true,"role":true,"clips":6,"walls":2,"running":true,"pid":32182},"player":{"state":"playing","role":"wall"}}}
+shell: "wall":{"hole":true}
+"wall":{"backend":"own","hole":true,"up":true}
+player status.json: {"v":1,"pid":32182,"ts":1793221603579,"state":"playing","reason":"","seq":1793221598160,"clip":"wall-silk-tuned","clips":6,"role":"wall","walls":2,"window":"_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER","windowId":"_Window_Id_9","playingMs":5419,"fed":302,"full":0,"skipped":0,"queue":2,"events":"22,26","drift":[0,0],"veil":0,"phase":0,"memAvailKb":742228,"cmaFreeKb":12928,"rssKb":16984}
+DISPLAY: {"capturedHeight":540,"writtenBytes":300159,"returnValue":true,"capturedWidth":960}
+VIDEO: {"errorCode":11,"returnValue":false,"errorText":"REFUSED_NO_SIGNAL"}
+DISPLAY2: {"capturedHeight":540,"writtenBytes":300159,"returnValue":true,"capturedWidth":960}

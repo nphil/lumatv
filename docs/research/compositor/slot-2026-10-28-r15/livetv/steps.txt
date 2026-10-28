@@ -1,0 +1,34 @@
+c1 at-home fg=com.webos.app.home up=25920.00
+c1 launch up=25920.00
+c1 t+1s fg=com.webos.app.livetv up=25921.54
+c1 t+2s fg=com.webos.app.livetv up=25922.58
+c1 t+3s fg=com.webos.app.livetv up=25923.63
+c1 t+5s fg=com.webos.app.livetv up=25925.66
+c1 t+8s fg=com.webos.app.livetv up=25928.68
+c1 leave up=25928.69
+c1 leave+1s fg=com.webos.app.home up=25929.79
+c1 leave+2s fg=com.webos.app.home up=25930.82
+c1 leave+4s fg=com.webos.app.home up=25932.84
+c2 at-home fg=com.webos.app.home up=25942.01
+c2 launch up=25942.02
+c2 t+1s fg=com.webos.app.livetv up=25943.54
+c2 t+2s fg=com.webos.app.livetv up=25944.61
+c2 t+3s fg=com.webos.app.livetv up=25945.63
+c2 t+5s fg=com.webos.app.livetv up=25947.66
+c2 t+8s fg=com.webos.app.livetv up=25950.69
+c2 leave up=25950.70
+c2 leave+1s fg=com.webos.app.home up=25951.82
+c2 leave+2s fg=com.webos.app.home up=25952.85
+c2 leave+4s fg=com.webos.app.home up=25954.87
+c3 at-home fg=com.webos.app.home up=25964.05
+c3 launch up=25964.06
+c3 t+1s fg=com.webos.app.livetv up=25965.60
+c3 t+2s fg=com.webos.app.livetv up=25966.63
+c3 t+3s fg=com.webos.app.livetv up=25967.66
+c3 t+5s fg=com.webos.app.livetv up=25969.68
+c3 t+8s fg=com.webos.app.livetv up=25972.70
+c3 leave up=25972.71
+c3 leave+1s fg=com.webos.app.home up=25973.82
+c3 leave+2s fg=com.webos.app.home up=25974.84
+c3 leave+4s fg=com.webos.app.home up=25976.87
+end fg=com.webos.app.home

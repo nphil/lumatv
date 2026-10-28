@@ -663,3 +663,69 @@ Main's grant, `/tmp/lumatv-r10` kept as the rollback, then the gate under LumaTV
 - Left on: the store theme (`store on`, parts `look,motion`; it is a WAM overlay and does not depend on the compositor). Left off: `remote.appSwitcher`, `overlays.enabled`, `oledcare`, `transitions`,
   capture, `keyboard lg`, `wallpaper gpu`; the `wall` player is installed and stopped.
 - Receiver: off at the start; the TV's wake turned it on at 0.585 unmuted. Muted for the round, set back to 0.585 unmuted at the end; it follows the TV into standby.
+
+### Round 15, 2026-10-28 (PDT 13:08-14:19, the TV's clock is 3 h ahead), forge/main `f67c511` = `c1a2736` + changelog (`compositor/slot-2026-10-28-r15/`)
+
+Installed by Main (`install.py`, `tv-first-light.sh deploy`, `cutover install`; the first run was cut after `install.py` at HomeLabber's 60 s default and run again): helper sha256 `7256caac39fc…`, QML tree equal to the ipk's,
+compositor md5 `03438190fe7f…` (2,449,000 bytes). Receiver through Home Assistant's MCP (off at the start, on at 0.585 unmuted with the TV's wake, muted for the round, unmuted before the standby, off with the TV);
+the gate ran with its REST calls disabled and `--skip volume`, as in rounds 9-14. Every session ended with LG's compositor live; `theme.json`, `Tokens.js` and `layout.json` are byte for byte as found.
+
+- Full gate: firmware, homeheld, live, netflix, hdmi, keys, ime, shell 11 of 11, standby, homekey, wd-hang, wd-crash and escape PASS. `x1` failed once (1 client gap of 22.6 ms, 59.93 fps; the compositor's side
+  clean: no stall, no frame gap, `late` 0 to 0); two reruns PASS (59.94 and 59.95 fps, no gap over 20 ms). `apps` and `frames` FAIL.
+- `gate.sh apps` cannot pass as written. `app_running` (tv-gate.sh:84) looks for `"id":"APP"` in SAM's list and `luna-send -f` prints `"id": "APP"`, so every app reads as not running at 10 s (YouTube and Plex:
+  in front within 1 s, `alive-at-10s no`) and `closed-in-15s` is always yes; the fix is `| tr -d ' \n'` before the grep, as in `fg`. The exit status is read from /var/log/messages after a line mark, and that file
+  rotates about every minute, so a crash can be missed; the copy used below looks it up by pid in the rotated files too. A copy with both fixed ran the apps below in the same sessions.
+
+| app | id | in front | after 10 s | closed through SAM |
+|---|---|---|---|---|
+| YouTube | youtube.leanback.v4 | 1.0 s | running | no failure logged |
+| Plex | com.beb.plxnative | 1.0-1.5 s | running | SIGSEGV (exit 11) at 3 of the 4 closes that followed a YouTube run, none at 3 closes of Plex alone |
+| Netflix | netflix | 1.5 s | running | no failure logged |
+| Prime Video | amazon | 2.0 s | running | no failure logged |
+| Apple TV | com.apple.appletv | window after 50-60 s (LG's compositor: 50 s) | running once up | exit 9 when closed before it was up; LG's compositor needs 10 s and also ends it with 9 |
+| Disney+ | - | not installed (no id or title in SAM's 150 apps) | - | - |
+| Crunchyroll | com.crunchyroll.webapp | 6.5 s | running | no failure logged |
+| LG browser | com.webos.app.browser | 1.0 s | running | exit 15 (SIGTERM); the same pid first connects and leaves at 0 ms |
+| LG Channels | com.webos.app.lgchannels | 1.0 s | running | no failure logged |
+| GeForce NOW, NVIDIA | com.geforcenow.play | 0.5 s | ended itself, LG's browser in front | see below |
+| GeForce NOW, LumaTV's | org.nphil.lumatv.gfn | 2.5 s | running | no failure logged |
+| Moonlight (extra) | com.limelight.webos | 1.0 s | running | exit 0 |
+
+- Plex's crash is a new one (round 14's was `SetMRCUTimer`): SIGSEGV, libSDL2-2.0.so.0.14.0 `+0x875c6` (`ldr r0, [r7, #0x18]`, r7 = 0) reached from `+0x724b4`, when SAM closes it after 10 s with its connection
+  kept (`plex-crash-log-r15.txt`, 3 reports). Under LG's compositor YouTube, Plex, Plex closed with exit 0 three times. Recipe: YouTube 10 s, close, Plex 10 s, close through SAM. The seat state a client leaves
+  behind is the first thing to look at [INFERENCE]. The gate's own check never saw it (its first read of the exit status came before SAM logged it).
+- The NVIDIA GeForce NOW web app opens LG's browser and ends itself within 3 s under both compositors. With that browser in front `launch com.webos.app.home` leaves Home in front under LG's compositor; under
+  LumaTV's Home is raised and the browser raises itself again (`set_state fullscreen` after Home's) and keeps the foreground (5 s in the test, about 3 minutes in the first session, where it also held Live TV
+  and the wallpaper step off the screen) until SAM closes it. LG's browser started directly gives Home back at once under both (`stray-browser.txt`, `browser-home.txt`, `control/`).
+
+Surface frame gate at 60 Hz (full set, 3 cycles; `frames-60-full-gate.json`):
+
+| surface | result | numbers |
+|---|---|---|
+| home-dpad, quick, picker | PASS | first frame 24.0 / 26.6 / 31.3 ms; burst end 160.7 (quick) and 148.1 ms (picker); no interval over 20 ms in a burst |
+| toast | MINOR | first frame 62.2 ms (limit 50), no burst; round 14: 60-70 |
+| home-widgets | PASS | first frame 27.8 ms, p90 render 0.06 ms, no interval over 20 ms |
+| switcher | MINOR | first frame 72.1 ms (limit 50): the compositor asked the shell 49.7 ms after the key; p90 0.06 ms, no dropped frame, no interval over 20 ms |
+| keyboard-luma | MINOR | first frame 9.1 ms, p90 0.08 ms, no interval over 20 ms; `log_errors` 1: LG Search's own `SearchView.qml:294:13: Unable to assign [undefined] to QQuickItem*`, not on the gate's ignore list |
+| keyboard-lg | PASS | first frame 14.5 ms, p90 0.12 ms, no interval over 20 ms |
+| settings-scroll, apps-grid, transitions-netflix, transitions-settings | not run | refused before a key: Home's layout is the owner's (`layout.json`), not the shipped one |
+
+- 120 Hz (`--only frames --refresh 120 --frames-quick`): idle Home 10 s: `hz 120 divider 1 shell 120`, DE2VSYNC 120.9/s, osd_irq 120.1/s, frames 146, late 0, lost 0, missed 0, pipeline p50 4.75 p99 4.88 ms. After the
+  surfaces (the measure covers them): frames 6276, late 72, lost 0, missed 0, pipeline p99 5.0 ms, max 11.49 ms. `slides:` none logged, before or after (no `[FrameMotion] N steps in M ms` line in shell.log).
+  The slides step per refresh with one or two skips: quick 17 frames in a 150 ms burst, intervals of 8.3 ms except 2-3 of 16.7 ms (`burst_over20` 14 over 6 windows; round 14: 32, all 16.7 ms), picker 10 (round 14:
+  35), toast 3, home-dpad `dropped` 2, burst ends 158.9 / 156.3 / 93.9 ms, home-widgets PASS; settings-scroll and apps-grid not run (layout). Back at 60 afterwards (`shell 60`, divider 2).
+- Live TV (`lumatv transitions on`, put back off; Home in front before each of 3 cycles): in front 1 s after the call and through 8 s, Home back within 1 s of the leave. Launch: 60, 50, 52 frames, `lateGaps` 0, 0, 1;
+  leave: 12 frames each, `lateGaps` 0 (round 14: 16 frames, 2); `veilCaps` 0, `skipped` 0, `maxGapMs` 18, then 24. The one late frame, launch 3: `lateLog` `{"ageMs":7807,"gapMs":24,"phase":"launch"}`, journal
+  `transitions: frame 24 ms after the last in a launch (tick before 1.4 ms, this 1.3 ms, last render 0.4 ms, held ticks 1, buffers prepared 24, imported in a frame 0)`, ring `P 3.8 ms` and `P 2.4 ms in one pass (clients
+  draw-now)` in the first second: the loop's passes were short, so the 24 ms was a wait outside them [INFERENCE: display, driver or another process].
+- Video wallpaper, as shipped: `wallpaper video` ready, player `playing wall-silk-tuned`, `wall.hole` true, but videooutputd answers both `setDisplayWindow` (`displayOutput` 3840x2160, `fullScreen` true, `sourceInput`
+  1920x1080) with `{"errorCode":4,"errorMessage":"Invalid Parameters"}`; LG's VIDEO capture says `REFUSED_NO_SIGNAL`, the DISPLAY capture has a black margin (mean luma 0.00): `vplane_wall.py probe` says `black`.
+  The request has no `originalInput`. The same context with `originalInput` 0,0,1920,1080 is accepted and the VIDEO capture is then the clip (probe: `silk-tuned` at 6.9 s, correlation 0.962, gain 0.86-0.90, verdict
+  `mismatch` at the probe's 0.98 bar); 3840x2160 for both (Netflix's) is accepted too; `displayOutput` 1920x1080, no `displayOutput`, or `fullScreen` false without `originalInput` is refused (`wall/placement-variants.txt`).
+  Fix: `originalInput` = the source rectangle in `video::set_display_window` (luna.rs), as `set_crop_region` and Netflix's placement carry it. The DISPLAY capture stays black at the margin after an accepted placement
+  (it holds the UI plane; a hole reads black), so the probe needs the VIDEO capture; the panel itself was not looked at.
+- `tv-wlprobe.py` against LG's (`wlprobe-diff.txt`): fresh session: 13 seats all `capabilities(7)`, no `wl_seat.name`, `wl_starfish_pointer` and `wl_starfish_output` offered, `timer_value(5000)`, `wl_webos_seat.info` with
+  device names (`LGE RCU` is index 1 as on LG), no `wl_output.scale`: the notes of 644249e hold. After other clients ran the timer reads 300000 (one value for all clients, the last set). Also different, not in the notes:
+  32 globals against 23, no `qt_hardware_integration` or `wl_drm`, `wl_webos_system_ux` added, `wl_compositor` v4, `wl_output.geometry` with size and model, 2 `wl_shm` formats against 14, `wl_keyboard.repeat_info(0, 0)` and a 1140 byte keymap.
+- Not run: `volume` (the gate reads the receiver over REST), and the four surfaces above (they need `lumatv layout reset` and the owner's file put back). End state: filmMaker, only Home running, `inputs` running `[]`,
+  Active Standby at 14:19 PDT, Always Ready (`alwaysReady`), LG's compositor live (flag off, failures 0), Home stub on, `transitions` off, `wallpaper gpu`.

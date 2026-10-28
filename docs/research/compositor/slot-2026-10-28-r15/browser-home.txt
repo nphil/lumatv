@@ -1,0 +1,13 @@
+browser t+2s fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+browser t+4s fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+browser t+6s fg=com.webos.app.browser running=com.webos.app.home com.webos.app.browser 
+home-launch +1s fg=com.webos.app.home running=com.webos.app.home com.webos.app.browser 
+home-launch +2s fg=com.webos.app.home running=com.webos.app.home com.webos.app.browser 
+home-launch +3s fg=com.webos.app.home running=com.webos.app.home com.webos.app.browser 
+home-launch +5s fg=com.webos.app.home running=com.webos.app.home com.webos.app.browser 
+window 5: minimized (covered by a newer card)
+luna: foreground [\"com.webos.app.browser\"] pushed to 1 subscriber(s) (com.webos.applicationManager)
+window 5: raised to the front (set_state fullscreen)
+window 13: minimized (covered by a newer card)
+luna: foreground [\"com.webos.app.home\"] pushed to 1 subscriber(s) (com.webos.applicationManager)
+after cleanup fg=com.webos.app.home running=com.webos.app.home 

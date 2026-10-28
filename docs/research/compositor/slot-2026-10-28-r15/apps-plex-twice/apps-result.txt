@@ -1,0 +1,1 @@
+failed: com.beb.plxnative pid 20993 foreground-in-ms 1000 alive-at-10s yes connection-lost 1 closed-in-15s yes fg-at-10s com.beb.plxnative exit 0; ok: com.beb.plxnative pid 20993 foreground-in-ms 1000 alive-at-10s yes connection-lost 0 closed-in-15s yes fg-at-10s com.beb.plxnative exit 0;

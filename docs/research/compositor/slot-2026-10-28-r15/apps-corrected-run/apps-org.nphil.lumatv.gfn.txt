@@ -1,0 +1,19 @@
+client connected: pid 18956 uid 6170 cmd '/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/lib/ld-linux-aarch64.so.1 --library-path /media/developer/apps/usr/palm/applicatio'
+window 18 created on surface 246 by pid 18956
+webOS shell surface on window 18 (surface 246) by pid 18956
+window 18: appId = org.nphil.lumatv.gfn (Card)
+window 18: title = GeForce NOW (Card)
+window 18: raised to the front (set_state fullscreen)
+window 17: minimized (covered by a newer card)
+window 17: exposed nothing (covered)
+window 18: exposed 1920x1080
+luna: foreground ['org.nphil.lumatv.gfn'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+focus -> surface 106
+foreign: surface 246 exported as _Window_Id_9 (type 0)
+window 17: raised to the front (set_state fullscreen)
+window 18: minimized (covered by a newer card)
+window 17: exposed 1920x1080
+window 18: exposed nothing (covered)
+luna: foreground ['com.webos.app.browser'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+focus -> surface 245
+client disconnected: pid 18956 uid 6170 after 2084 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shell', 'wl_webos_shell', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_seat', 'wl_webos_foreign']; cmd '/media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/gfx64/bundle/lib/ld-linux-aarch64.so.1 --library-path /media/developer/apps/usr/palm/applicatio'

@@ -1,0 +1,12 @@
+/tmp/lumatv-vplane:
+total 8
+drwxrwxrwt    2 root     root            80 Oct 28 17:06 .
+drwxrwxrwt   47 root     root          3320 Oct 28 17:06 ..
+-rw-r--r--    1 root     root           108 Oct 28 17:06 req.json
+-rw-r--r--    1 root     root           381 Oct 28 17:06 status.json
+
+/var/lib/lumatv/vplane:
+total 12
+drwxr-xr-x    3 root     root          4096 Oct 28 13:39 .
+drwxr-xr-x   28 root     root          4096 Oct 28 17:04 ..
+drwxr-xr-x    2 root     root          4096 Oct 28 13:39 clips

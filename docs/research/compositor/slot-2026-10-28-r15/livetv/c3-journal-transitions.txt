@@ -1,0 +1,3 @@
+note: r15-livetv-3-launch
+transitions: frame 24 ms after the last in a launch (tick before 1.4 ms, this 1.3 ms, last render 0.4 ms, held ticks 1, buffers prepared 24, imported in a frame 0)
+note: r15-livetv-3-leave

@@ -1,0 +1,35 @@
+window 15 created on surface 229 by pid 11492
+webOS shell surface on window 15 (surface 229) by pid 11492
+window 15 committed without a buffer (Card app '' state Default)
+window 15: appId = com.webos.app.lgchannels (Card)
+window 15: title = LG Channels (Card)
+foreign: surface 229 exported as _Window_Id_5 (type 0)
+window 15 mapped (Card app 'com.webos.app.lgchannels' title 'LG Channels' size Some((1920, 1080)))
+window 5: minimized (covered by a newer card)
+window 15: fullscreen (the front card)
+window 5: exposed nothing (covered)
+window 15: exposed 1920x1080
+focus -> surface 229
+luna: foreground ['com.webos.app.lgchannels'] pushed to 1 subscriber(s) (com.webos.applicationManager)
+foreign: surface 229 exported as _Window_Id_6 (type 0)
+client connected: pid 18070 uid 505 cmd '/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growi'
+foreign: _Window_Id_5 imported (type 0)
+foreign: punch-through _fbK5jq6gE14WXV attached to _Window_Id_5
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+foreign: punch-through _fbK5jq6gE14WXV attached to _Window_Id_5
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+videooutput: setDisplayWindowProperty for '_fbK5jq6gE14WXV' answered {'returnValue':true}
+luna: setDisplayWindow {'context':'_fbK5jq6gE14WXV','displayOutput':{'height':2160,'width':3840,'x':0,'y':0},'fullScreen':true,'sourceInput':{'height':1080,'width':1920,'x':0,'y':0}}
+videooutput: setDisplayWindow for '_fbK5jq6gE14WXV' answered {'errorCode':4,'errorMessage':'Invalid Parameters','returnValue':false}
+luna: setDisplayWindow {'context':'_fbK5jq6gE14WXV','displayOutput':{'height':0,'width':0,'x':0,'y':0},'fullScreen':false}
+videooutput: setDisplayWindow for '_fbK5jq6gE14WXV' answered {'message':'sink has no client','returnValue':true}
+client disconnected: pid 18070 uid 505 after 5556 ms (ConnectionClosed); bound ['wl_compositor', 'wl_shell', 'wl_webos_shell', 'wl_webos_foreign']; cmd '/usr/bin/WebAppMgr --type=renderer --disable-quic --use-viz-fmp-with-timeout=0 --v8-snapshot-blob-path --js-flags=     --configure_heap_details     --heap_growi'
+window 5: fullscreen (the front card)
+window 5: exposed 1920x1080
+focus -> surface 106
+luna: foreground ['com.webos.app.home'] pushed to 1 subscriber(s) (com.webos.applicationManager)

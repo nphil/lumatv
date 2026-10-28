@@ -1,0 +1,46 @@
+youtube.leanback.v4 t+1s fg=com.webos.app.home running=youtube.leanback.v4 
+youtube.leanback.v4 t+2s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+3s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+4s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+5s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+6s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+7s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+8s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+9s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+10s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+11s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 t+12s fg=youtube.leanback.v4 running=youtube.leanback.v4 
+youtube.leanback.v4 fg-at-end=youtube.leanback.v4 first-foreground=2s
+youtube.leanback.v4 after-Home fg=com.webos.app.home running=youtube.leanback.v4 
+youtube.leanback.v4 closed-after=1s; APP_CLOSED {"app_id":"youtube.leanback.v4","type":"native","pid":"29405","exit_status":0}; crash-log lines +0
+com.beb.plxnative t+1s fg=com.webos.app.home running=com.beb.plxnative 
+com.beb.plxnative t+2s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+3s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+4s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+5s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+6s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+7s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+8s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+9s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+10s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+11s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+12s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative fg-at-end=com.beb.plxnative first-foreground=2s
+com.beb.plxnative after-Home fg=com.webos.app.home running=com.beb.plxnative 
+com.beb.plxnative closed-after=1s; APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"29924","exit_status":0}; crash-log lines +1
+com.beb.plxnative t+1s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+2s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+3s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+4s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+5s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+6s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+7s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+8s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+9s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+10s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+11s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative t+12s fg=com.beb.plxnative running=com.beb.plxnative 
+com.beb.plxnative fg-at-end=com.beb.plxnative first-foreground=1s
+com.beb.plxnative after-Home fg=com.webos.app.home running=com.beb.plxnative 
+com.beb.plxnative closed-after=1s; APP_CLOSED {"app_id":"com.beb.plxnative","type":"native","pid":"30403","exit_status":0}; crash-log lines +1
+end fg=com.webos.app.home

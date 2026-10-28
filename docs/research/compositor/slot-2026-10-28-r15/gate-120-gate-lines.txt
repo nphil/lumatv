@@ -1,0 +1,32 @@
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390831 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391751 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.6, DE2VSYNC/s 120.9, osd_irq/s 120.1; compositor: "intervals":{"more":119,"one":12,"three":2,"two":13,"worst_ms":108.441} "frames":{"late":0,"lost":0,"missed":0,"n":146} "pipeline_ms":{"max":4.88196,"p50":4.75,"p99":4.88196} flips/s 12.080827568348532; mali busy 12.9 %; temperature 57; slides: none logged
+
+GATE wake: reset
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.3, DE2VSYNC/s 120.7, osd_irq/s 120.1; compositor: "intervals":{"more":1977,"one":1458,"three":94,"two":2747,"worst_ms":1067.634} "frames":{"late":72,"lost":0,"missed":0,"n":6276} "pipeline_ms":{"max":11.49344,"p50":4.75,"p99":5.0} flips/s 8.673090540334094; mali busy 12.7 %; temperature 57; slides: none logged
+
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 14.2, DE2VSYNC/s 121.4, osd_irq/s 120.4; compositor: "intervals":{"more":66,"one":23,"three":1,"two":2,"worst_ms":116.776} "frames":{"late":0,"lost":0,"missed":0,"n":92} "pipeline_ms":{"max":5.108,"p50":4.75,"p99":5.108} flips/s 13.08173467826983; mali busy 13.5 %; temperature 57; slides: none logged
+
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.38 ms (n 87712); flip p50 0.02 p99 0.05 max 0.18 ms (n 6224); input p50 0.02 p99 0.04 max 0.05 ms (n 1490); tick waited on a busy loop p50 0.04 p99 0.57 max 0.57 ms (n 180)
+
+GATE mem: measured rss 51560 KiB, locked 480460 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.6 ms; VmRSS 16 MiB, MemAvailable 1113 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 799 MiB, CmaFree 11 MiB, swap in use 391 MiB
+
+GATE live: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 390831 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE live-frames: PASS mounted yes registered 12 fallbacks 0 wam active home-window 1 home-stub 1 panel 391751 bytes fg com.webos.app.home watchdog 1 power-seen 1
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.6, DE2VSYNC/s 120.9, osd_irq/s 120.1; compositor: "intervals":{"more":119,"one":12,"three":2,"two":13,"worst_ms":108.441} "frames":{"late":0,"lost":0,"missed":0,"n":146} "pipeline_ms":{"max":4.88196,"p50":4.75,"p99":4.88196} flips/s 12.080827568348532; mali busy 12.9 %; temperature 57; slides: none logged
+
+GATE frames at 120 Hz: FAIL home-dpad NOT dropped=2 [first_frame 24.63 p90_render 0.05]; quick NOT burst_over20=14 [first_frame 26.16 burst_end 158.92 p90_render 0.05]; picker NOT burst_over20=10 [first_frame 31.15 burst_end 156.27 p90_render 0.36]; toast NOT burst_over20=3 [first_frame 26.61 burst_end 93.86 p90_render None]; settings-scroll NOT run=None; apps-grid NOT run=None; home-widgets ok [first_frame 21.04 p90_render 0.05] (surfaces home-dpad,quick,picker,toast,settings-scroll,apps-grid,home-widgets, 3 cycles; /tmp/lumatv-tv-out/frames-120.json)
+
+GATE refresh: measured hz 120 divider 1 shell 120 over 10 s: OSD flips/s 12.3, DE2VSYNC/s 120.7, osd_irq/s 120.1; compositor: "intervals":{"more":1977,"one":1458,"three":94,"two":2747,"worst_ms":1067.634} "frames":{"late":72,"lost":0,"missed":0,"n":6276} "pipeline_ms":{"max":11.49344,"p50":4.75,"p99":5.0} flips/s 8.673090540334094; mali busy 12.7 %; temperature 57; slides: none logged
+
+GATE refresh: measured hz 60 divider 2 shell 60 over 5 s: OSD flips/s 14.2, DE2VSYNC/s 121.4, osd_irq/s 120.4; compositor: "intervals":{"more":66,"one":23,"three":1,"two":2,"worst_ms":116.776} "frames":{"late":0,"lost":0,"missed":0,"n":92} "pipeline_ms":{"max":5.108,"p50":4.75,"p99":5.108} flips/s 13.08173467826983; mali busy 13.5 %; temperature 57; slides: none logged
+
+GATE wake (frames): measured tick p50 0.01 p99 0.04 max 0.38 ms (n 87712); flip p50 0.02 p99 0.05 max 0.18 ms (n 6224); input p50 0.02 p99 0.04 max 0.05 ms (n 1490); tick waited on a busy loop p50 0.04 p99 0.57 max 0.57 ms (n 180)
+
+GATE mem: measured rss 51560 KiB, locked 480460 KiB, swapped 0 KiB, malloc mmapped blocks 0; lock: locked what is touched (MCL_CURRENT|MCL_FUTURE|MCL_ONFAULT) in 4.6 ms; VmRSS 16 MiB, MemAvailable 1113 MiB, RLIMIT_MEMLOCK 64 KiB, CAP_IPC_LOCK yes; the process's limit on locked memory: 65536 65536 bytes ; set: MemAvailable 799 MiB, CmaFree 11 MiB, swap in use 391 MiB
+
