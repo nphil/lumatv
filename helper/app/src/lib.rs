@@ -22,6 +22,7 @@
 //! | [`preload`] | keeps the apps the owner switched off from preloading, at each switch-on (webOS forgets the policy) |
 //! | [`framerate`] | the panel's rate after 25 or 50 fps video: back to 120 Hz once Home is in front with no video window |
 //! | [`ble`], [`ble_proxy`], [`ble_scan`], [`ble_duty`], [`ble_store`] | the Bluetooth proxy: the TV as a Home Assistant Bluetooth proxy (ESPHome native API) for presence and BLE sensors, through LG's `bluetooth2` scan with the radio's duty limits |
+//! | [`gfn_boost`] | the GeForce NOW app's pad reader thread at real-time priority (FIFO 10, off CPU 0), the one privilege its jail cannot give itself |
 //! | [`service`], [`cli`] | start and stop, the lock, the command line |
 
 pub mod ai;
@@ -46,6 +47,7 @@ pub mod ctx;
 pub mod device;
 pub mod fetcher;
 pub mod framerate;
+pub mod gfn_boost;
 pub mod ha_store;
 pub mod homefeeds;
 pub mod http;
