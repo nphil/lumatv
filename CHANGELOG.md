@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   animal, doorbell) in the top right over whatever plays, with a preview, OK to a full view and
   a grid of the shared cameras; the TV pairs as one more LumaShow device and holds no token. Off
   by default (`cameras.enabled`) until the TV check passes.
+- Home's wallpaper can play as a looping HEVC clip on the TV's video plane under LumaTV's
+  compositor (`lumatv wallpaper video`, default `gpu`): the GPU wallpaper stops drawing, Home's
+  glass stays above it, and the GPU wallpaper returns at once on any player failure. The
+  compositor clears video holes in LG's order.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
