@@ -183,6 +183,9 @@ pub struct Kms {
     divider: crate::refresh::Divider,
     /// The refresh asked for (`Config::refresh_hz`), as last set; the measured period is the pacer's.
     refresh_hz: u32,
+    /// A screenshot or recording is on: no window goes to the plane directly, so the screen is always in the last composed page
+    /// (`Output::set_compose_only`).
+    compose_only: bool,
 }
 
 const PAGES: usize = 3;
@@ -402,6 +405,7 @@ impl Kms {
             seq: 0,
             divider: crate::refresh::Divider::new(),
             refresh_hz: crate::refresh::DEFAULT_HZ,
+            compose_only: false,
         })
     }
 
@@ -1043,7 +1047,7 @@ impl Output for Kms {
                 _ => None,
             };
         }
-        let direct = plan.sole_fullscreen().and_then(|item| {
+        let direct = plan.sole_fullscreen().filter(|_| !self.compose_only).and_then(|item| {
             let fb = self.direct_fb(&item.buffer)?;
             Some(u32::from(fb))
         });
@@ -1101,6 +1105,20 @@ impl Output for Kms {
             self.commit_frame(a)?;
         }
         Ok(Presented { seq: self.seq, at_ms, pending: true, replaced })
+    }
+
+    fn grab(&mut self, size: (u32, u32), spare: Vec<u8>) -> io::Result<Image> {
+        // The page the last composed frame went into, read on the GPU (`compose_only` made sure the last frame was composed).
+        let target = self.pages[self.frames.last_page()].target;
+        self.gl.grab_target(target, size, spare)
+    }
+
+    fn set_compose_only(&mut self, on: bool) {
+        self.compose_only = on;
+    }
+
+    fn grab_end(&mut self) {
+        self.gl.release_grab();
     }
 
     fn capture(&mut self) -> io::Result<Image> {

@@ -37,6 +37,33 @@ impl Image {
         let i = ((y * self.width + x) * 4) as usize;
         [self.rgba[i], self.rgba[i + 1], self.rgba[i + 2], self.rgba[i + 3]]
     }
+
+    /// This picture at `w` x `h` (every output pixel the average of the source pixels it covers), opaque. The compositor's pixels are
+    /// premultiplied, so dropping the alpha is compositing over black: a hole left for video to show through comes out black, never
+    /// transparent. `into` is cleared and filled (its capacity kept), so a recording draws every picture into the same vectors.
+    pub fn scaled(&self, w: u32, h: u32, mut into: Vec<u8>) -> Image {
+        into.clear();
+        into.reserve(w as usize * h as usize * 4);
+        let (sw, sh) = (self.width as usize, self.height as usize);
+        let (w, h) = (w as usize, h as usize);
+        for oy in 0..h {
+            let (y0, y1) = (oy * sh / h, ((oy + 1) * sh).div_ceil(h).clamp(oy * sh / h + 1, sh));
+            for ox in 0..w {
+                let (x0, x1) = (ox * sw / w, ((ox + 1) * sw).div_ceil(w).clamp(ox * sw / w + 1, sw));
+                let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
+                for y in y0..y1 {
+                    for px in self.rgba[(y * sw + x0) * 4..(y * sw + x1) * 4].chunks_exact(4) {
+                        r += px[0] as u32;
+                        g += px[1] as u32;
+                        b += px[2] as u32;
+                    }
+                }
+                let n = ((y1 - y0) * (x1 - x0)) as u32;
+                into.extend_from_slice(&[((r + n / 2) / n) as u8, ((g + n / 2) / n) as u8, ((b + n / 2) / n) as u8, 255]);
+            }
+        }
+        Image { width: w as u32, height: h as u32, rgba: into }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -106,6 +133,20 @@ pub trait Output {
 
     /// Reads the target back.
     fn capture(&mut self) -> io::Result<Image>;
+
+    /// The picture the screen shows, at `size`, for a screenshot or a recording; `spare` is a vector to draw it into. Only what this
+    /// compositor composed is in it: video is on a plane of its own that no page ever holds, and the holes left for it read black.
+    /// The default reads the target back and scales it on the CPU; KMS does both on the GPU from the page that holds the last frame.
+    fn grab(&mut self, size: (u32, u32), spare: Vec<u8>) -> io::Result<Image> {
+        Ok(self.capture()?.scaled(size.0, size.1, spare))
+    }
+
+    /// While on, every frame is composed into a page (no window goes to the plane directly), so that `grab` finds the screen in the last
+    /// page. Offscreen outputs always compose; the default does nothing.
+    fn set_compose_only(&mut self, _on: bool) {}
+
+    /// A screenshot or recording is over: what `grab` kept for it (a scratch target) is given back. The default has nothing to give.
+    fn grab_end(&mut self) {}
 
     /// When the next frame should start, for outputs that pace themselves (KMS: the pacer's latch, from the
     /// page-flip timestamps) while frames are following one another. `None` means the fixed tick.

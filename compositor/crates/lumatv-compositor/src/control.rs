@@ -135,6 +135,9 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             },
             None => json!({"ok": false, "error": "capture PATH"}),
         },
+        // screencap [status | shot | record start | record stop]: screenshots and screen recordings of the composed picture (`screencap`,
+        // which the helper's /v1/capture routes forward to); the answers that wait on a frame or a file are given off the loop.
+        "screencap" => return state.screencap_command(words.next(), words.next()),
         "key" => {
             // key CODE [press|release|tap]: on seat 0, straight to the focused client.
             use crate::server::seat::{SeatId, send_key};
@@ -291,7 +294,7 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
         }
         "" => json!({"ok": false, "error": "empty command"}),
         other => {
-            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], fallback [reason], quit")})
+            json!({"ok": false, "error": format!("unknown command {other}; status, windows, journal, note TEXT, ime, keys, luna, shell [restart|show KIND], capture PATH, screencap [status|shot|record start|record stop], key CODE, remote CODE, pointer X Y, click, sched mali fifo|other, callbacks shell early|landing, mem, wake [reset|probe start|probe stop], ring [N], idle [MS], refresh [60|120], fallback [reason], quit")})
         }
     };
     Reply::Now(reply.to_string())

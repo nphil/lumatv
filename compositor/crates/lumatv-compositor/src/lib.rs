@@ -32,6 +32,7 @@ pub mod render;
 pub mod ring;
 pub mod scene;
 pub mod sched;
+pub mod screencap;
 pub mod server;
 pub mod shell;
 pub mod surface;

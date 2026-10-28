@@ -128,6 +128,9 @@ pub struct Gl {
     warm_lines: u32,
     /// The app switcher's program and the scaled copies of its pictures (`gl/previews.rs`).
     previews: previews::Previews,
+    /// The scratch target a screenshot or recording reads a page back through (`grab_target`): its index among the targets and its size.
+    /// Made when the first picture is wanted, given back when the capture is over (`release_grab`), so nothing is held while none runs.
+    grab_scratch: Option<(TargetId, u32, u32)>,
     #[cfg(feature = "ui")]
     ui: Option<crate::ui::Ui>,
     #[cfg(feature = "ui")]
@@ -288,6 +291,7 @@ impl Gl {
             standin_tiles: crate::damage::Tiles::new(width, height),
             warm_lines: 0,
             previews: previews::Previews::default(),
+            grab_scratch: None,
             #[cfg(feature = "ui")]
             ui: None,
             #[cfg(feature = "ui")]
@@ -998,6 +1002,94 @@ impl Gl {
     pub fn finish(&self) {
         // SAFETY: plain call on the current context.
         unsafe { (self.egl.api.glFinish)() };
+    }
+
+    /// The target a page is read back through, `w` x `h`, made now or kept from the last picture of that size.
+    fn grab_scratch(&mut self, w: u32, h: u32) -> io::Result<TargetId> {
+        if let Some((id, sw, sh)) = self.grab_scratch
+            && (sw, sh) == (w, h)
+        {
+            return Ok(id);
+        }
+        let (fbo, tex) = offscreen_target(&self.egl, w, h)?;
+        let target = Target { fbo, tex, image: std::ptr::null_mut(), top_down: true };
+        let id = match self.grab_scratch {
+            Some((id, ..)) => {
+                let old = std::mem::replace(&mut self.targets[id.0], target);
+                // SAFETY: objects this renderer made and no longer uses.
+                unsafe {
+                    (self.egl.api.glDeleteFramebuffers)(1, &old.fbo);
+                    (self.egl.api.glDeleteTextures)(1, &old.tex);
+                }
+                id
+            }
+            None => {
+                self.targets.push(target);
+                TargetId(self.targets.len() - 1)
+            }
+        };
+        self.grab_scratch = Some((id, w, h));
+        Ok(id)
+    }
+
+    /// The picture `source` holds, at `size`, drawn into `spare`: one textured quad from the page into a scratch target of that size (the
+    /// GPU does the scaling), then the read. Nothing of the frame path's state is touched: no page is drawn into, no texture uploaded, no
+    /// damage taken. The page's pixels are premultiplied and its alpha is made opaque, so a hole for video reads black.
+    pub fn grab_target(&mut self, source: TargetId, size: (u32, u32), mut spare: Vec<u8>) -> io::Result<Image> {
+        let (w, h) = size;
+        if source.0 >= self.targets.len() || w == 0 || h == 0 {
+            return Err(egl::other(format!("grab: page {} at {w}x{h}", source.0)));
+        }
+        let scratch = self.grab_scratch(w, h)?;
+        let (tex, top_down) = (self.targets[source.0].tex, self.targets[source.0].top_down);
+        let previous = std::mem::replace(&mut self.current, scratch);
+        let full = Rect::new(0, 0, self.width as i32, self.height as i32);
+        spare.clear();
+        spare.resize(w as usize * h as usize * 4, 0);
+        // SAFETY: GL state calls on the current context and this renderer's objects; the read fills exactly w*h*4 bytes.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glBindFramebuffer)(egl::GL_FRAMEBUFFER, self.targets[scratch.0].fbo);
+            (a.glViewport)(0, 0, w as i32, h as i32);
+            (a.glUseProgram)(self.program);
+            (a.glDisable)(egl::GL_SCISSOR_TEST);
+            (a.glDisable)(egl::GL_BLEND);
+        }
+        // A scan-out page holds its row 0 at the screen's top, as the scratch target does: the picture goes in as it is.
+        // The page already holds whatever the OLED care dimmed; copying it takes none of that light away again.
+        self.set_dim(1.0);
+        self.draw_quad(tex, &full, top_down);
+        // SAFETY: as above; GL_PACK_ALIGNMENT 4 matches the rows of a 4-byte pixel.
+        unsafe {
+            let a = &self.egl.api;
+            (a.glPixelStorei)(egl::GL_PACK_ALIGNMENT, 4);
+            (a.glReadPixels)(0, 0, w as i32, h as i32, egl::GL_RGBA, egl::GL_UNSIGNED_BYTE, spare.as_mut_ptr() as *mut c_void);
+        }
+        self.current = previous;
+        let err = self.egl.gl_error();
+        if err != egl::GL_NO_ERROR {
+            return Err(egl::other(format!("grab: glReadPixels 0x{err:x}")));
+        }
+        for px in spare.chunks_exact_mut(4) {
+            px[3] = 255;
+        }
+        Ok(Image { width: w, height: h, rgba: spare })
+    }
+
+    /// A capture is over: the scratch target is given back (when it is the newest target, which it is unless a page was added since).
+    pub fn release_grab(&mut self) {
+        let Some((id, ..)) = self.grab_scratch else { return };
+        if id.0 + 1 != self.targets.len() {
+            return;
+        }
+        if let Some(t) = self.targets.pop() {
+            // SAFETY: objects this renderer made and no longer uses.
+            unsafe {
+                (self.egl.api.glDeleteFramebuffers)(1, &t.fbo);
+                (self.egl.api.glDeleteTextures)(1, &t.tex);
+            }
+        }
+        self.grab_scratch = None;
     }
 
     /// Draws the plan into the current target, but only inside `rects` (output pixels): the tiles a scan-out page

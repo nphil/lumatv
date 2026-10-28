@@ -14,7 +14,8 @@
 //! way it polls LumaTV's helper (`kit/Helper.qml`), since QML has no socket of its own and the set has no QtWebSockets.
 //! To the UI, as topics: `foreground` (the app in front and whether Home is drawn), `screen`, `cursor`, `keyboard`, `wall` (whether the
 //! moving wallpaper's hole is under Home), `refresh` (the Hz the output runs at, `refresh.rs`),
-//! `audio` (the audio service's volume state the compositor subscribes to), `homekey`; and `show` (a panel the gear or
+//! `audio` (the audio service's volume state the compositor subscribes to), `capture` (the recording dot's cue and the capture notes,
+//! `screencap`; the shell's `state.capture.dot` is what a recording waits for), `homekey`; and `show` (a panel the gear or
 //! Input asked for) and `luna` (the answers to its calls). From the UI: what it can show (`can`), whether its system layer
 //! wants the keys (`wants`), its state for the gate (`state`), and luna calls from an allowlist, which the bridge makes in
 //! the compositor's name: qml-runner's own bus role reaches the app manager and nothing else. Every request carries the
@@ -796,6 +797,7 @@ impl State {
         self.shell.push_if_changed("refresh", refresh);
         crate::server::ime::own_publish(self);
         self.switcher_sync_topics();
+        self.screencap_publish();
     }
 
     /// Whether LumaTV's Home would be drawn now: the shell's Home window is mapped and the foreground card is SAM's Home or there is

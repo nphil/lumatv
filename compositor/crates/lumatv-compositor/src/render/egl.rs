@@ -84,6 +84,7 @@ pub const GL_LINEAR: GLint = 0x2601;
 pub const GL_NEAREST: GLint = 0x2600;
 pub const GL_CLAMP_TO_EDGE: GLint = 0x812F;
 pub const GL_UNPACK_ALIGNMENT: GLenum = 0x0CF5;
+pub const GL_PACK_ALIGNMENT: GLenum = 0x0D05;
 pub const GL_UNPACK_ROW_LENGTH: GLenum = 0x0CF2;
 pub const GL_COLOR_BUFFER_BIT: GLenum = 0x4000;
 pub const GL_BLEND: GLenum = 0x0BE2;

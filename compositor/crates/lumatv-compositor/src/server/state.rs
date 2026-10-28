@@ -147,6 +147,8 @@ pub struct State {
     pub last_capture: Option<PathBuf>,
     /// Captured frames are encoded and written on its thread.
     pub pngs: capture::Writer,
+    /// Screenshots and screen recordings (`screencap`); idle, and costing nothing, until a command asks.
+    pub screencap: crate::screencap::Screencap,
     /// The `wl_webos_shell_surface` of each window that has one.
     pub webos_shells: HashMap<crate::window::WindowId, lumatv_wl_protocols::webos_shell::server::wl_webos_shell_surface::WlWebosShellSurface>,
     pub started: Instant,
@@ -195,6 +197,7 @@ impl State {
             should_exit: false,
             last_capture: None,
             pngs: capture::Writer::default(),
+            screencap: crate::screencap::Screencap::default(),
             webos_shells: HashMap::new(),
             started: Instant::now(),
             shell_ahead: true,
@@ -482,6 +485,7 @@ impl State {
         if drew {
             self.luna_notify();
         }
+        self.screencap_tick(drew);
         if let Some(n) = self.config.frames
             && self.stats.frames_drawn >= n
         {
