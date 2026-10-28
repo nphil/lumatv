@@ -106,6 +106,13 @@ pub trait Output {
         None
     }
 
+    /// When the fixed tick should next fire while no run of frames is on, for an output that knows the panel's
+    /// refresh grid (KMS: the last flip's stamp and whole refreshes since): a frame drawn by a tick that fires a few
+    /// milliseconds before a refresh waits a whole one. `None` means one interval from the last tick.
+    fn idle_tick_at(&self, _now: Instant) -> Option<Instant> {
+        None
+    }
+
     /// A file descriptor the main loop polls for the output's own events (KMS: the DRM device, readable when a
     /// page flip has landed). `None` for outputs without events.
     fn event_fd(&self) -> Option<RawFd> {

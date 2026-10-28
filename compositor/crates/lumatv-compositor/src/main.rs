@@ -294,8 +294,11 @@ fn run(config: Config) -> io::Result<()> {
                 }
                 TAG_OUTPUT => {
                     // Page flips landed: the pacer learned their timestamps, a frame waiting behind the flip went
-                    // out, and the landed frames' callbacks are sent.
+                    // out, and the landed frames' callbacks are sent. The tick moves to the pacer's latch at once: the
+                    // first flip of a run is what teaches the pacer the panel's phase, and a fixed tick that fired
+                    // before the next latch drew X1's second frame alone on the tenth gate.
                     state.land_flips();
+                    rearm(&timer, &state, &mut paced, config.tick_ns)?;
                 }
                 TAG_LUNA => {
                     luna_poll(&mut state);
@@ -516,10 +519,12 @@ fn handled_names(handled: u32) -> String {
     what.join(" ")
 }
 
-/// After a frame: the output's latch as a one-shot while it paces itself, else the fixed interval (re-armed
-/// only when the timer was last set as a one-shot, so the periodic timer keeps its phase).
+/// After a frame or a flip: the output's latch as a one-shot while it paces itself, else the fixed interval, on the
+/// panel's grid where the output remembers it (a one-shot too), else periodic (re-armed only when the timer was last
+/// set as a one-shot, so the periodic timer keeps its phase).
 fn rearm(timer: &OwnedFd, state: &State, paced: &mut bool, tick_ns: u64) -> io::Result<()> {
-    match state.output.next_frame_at(Instant::now()) {
+    let now = Instant::now();
+    match state.output.next_frame_at(now).or_else(|| state.output.idle_tick_at(now)) {
         Some(at) => {
             arm_once(timer, at.saturating_duration_since(Instant::now()).max(Duration::from_micros(500)))?;
             *paced = true;

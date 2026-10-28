@@ -53,6 +53,8 @@ pub struct FlipTiming {
     period_ns: u64,
     /// When the last flip landed, 0 before the first.
     last_flip_ns: u64,
+    /// When the first flip landed, 0 before it: with the count, the refresh period as the panel keeps it.
+    first_flip_ns: u64,
     /// The last few intervals between consecutive flips.
     recent: [u64; AGREE],
     filled: usize,
@@ -71,6 +73,7 @@ impl FlipTiming {
             pacer: Pacer::new(period_ns),
             period_ns,
             last_flip_ns: 0,
+            first_flip_ns: 0,
             recent: [0; AGREE],
             filled: 0,
             flips: 0,
@@ -90,6 +93,25 @@ impl FlipTiming {
     /// When the last flip landed (CLOCK_MONOTONIC ns), 0 before the first.
     pub fn last_flip_ns(&self) -> u64 {
         self.last_flip_ns
+    }
+
+    /// The latch of the next refresh on the panel's grid: the first refresh, counted from the last flip's stamp in
+    /// whole periods, whose latch (the refresh less `budget_ns`) is after `now_ns`. `None` before any flip, or once the
+    /// last one is older than `memory_ns` (the grid drifts against our clock).
+    pub fn grid_latch_ns(&self, now_ns: u64, budget_ns: u64, memory_ns: u64) -> Option<u64> {
+        let last = self.last_flip_ns;
+        if last == 0 || now_ns < last || now_ns - last > memory_ns {
+            return None;
+        }
+        let period = self.period_ns.max(1);
+        let refreshes = (now_ns + budget_ns - last) / period + 1;
+        Some(last + refreshes * period - budget_ns)
+    }
+
+    /// The mean interval between the first and the last flip, in ns: the panel's refresh period on CLOCK_MONOTONIC,
+    /// against the mode's nominal one. `None` before the second flip.
+    pub fn mean_period_ns(&self) -> Option<f64> {
+        (self.flips >= 2 && self.first_flip_ns != 0).then(|| (self.last_flip_ns - self.first_flip_ns) as f64 / (self.flips - 1) as f64)
     }
 
     /// A flip landed at `presented_ns` (CLOCK_MONOTONIC). `frame` is the timing of the frame it was of, with the GPU's
@@ -116,6 +138,9 @@ impl FlipTiming {
             }
         }
         self.last_flip_ns = presented_ns;
+        if self.first_flip_ns == 0 {
+            self.first_flip_ns = presented_ns;
+        }
         if let Some((mut timing, signalled)) = frame {
             // The refresh after `last` could have shown this frame if its content was in a typical frame's pipeline
             // before it; a frame of no new commit (a layout request) is taken as due since `last`.
@@ -309,5 +334,20 @@ mod tests {
         let last = last + 2 * P60;
         let l = t.landed(last + 1_000_000, with_content(last + 1_000_000, None));
         assert!(l.odd.is_some() && !l.missed, "{l:?}");
+    }
+
+    #[test]
+    fn the_idle_tick_follows_the_grid_from_the_last_flip_for_a_while() {
+        let mut t = FlipTiming::new(16_666_667);
+        assert_eq!(t.grid_latch_ns(1_000_000_000, 14_000_000, 180_000_000_000), None, "no flip yet");
+        t.landed(1_000_000_000, None);
+        // Right after the flip: the next refresh is one period on, its latch 14 ms before it.
+        assert_eq!(t.grid_latch_ns(1_000_000_100, 14_000_000, 180_000_000_000), Some(1_016_666_667 - 14_000_000));
+        // 2.5 ms before the next refresh's latch has passed: the one after.
+        assert_eq!(t.grid_latch_ns(1_003_000_000, 14_000_000, 180_000_000_000), Some(1_033_333_334 - 14_000_000));
+        // A minute on, still on the grid; beyond the memory, the fixed tick.
+        let later = 1_000_000_000 + 3600 * 16_666_667;
+        assert_eq!(t.grid_latch_ns(later + 1, 14_000_000, 180_000_000_000), Some(later + 16_666_667 - 14_000_000));
+        assert_eq!(t.grid_latch_ns(1_000_000_000 + 181_000_000_000, 14_000_000, 180_000_000_000), None);
     }
 }

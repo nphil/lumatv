@@ -89,15 +89,34 @@ int openat64(int d, const char *p, int fl, ...) { va_list ap; va_start(ap, fl); 
 int access(const char *p, int mode) { if (is_heap(p)) { if (!strncmp(p + 14, "system", 6)) return 0; errno = ENOENT; return -1; } return real_access(p, mode); }
 int close(int fd) { for (int i = 0; i < 16; i++) if (heap_fds[i] == fd) __sync_bool_compare_and_swap(&heap_fds[i], fd, -1); return real_close(fd); }
 
+// The blob allocates its swapchain one buffer per swap, and a CMA allocation of 8.6 MB took 14 and 22 ms inside the
+// second and third swaps on the tenth gate (the kernel migrating pages), which the probe counted as gaps of its own.
+// The first request allocates the whole swapchain's worth at once (inside the first swap, which no gap is measured
+// from), and the next requests of the same size take from that pool.
+#define POOL 3
+static int pool_fd[POOL], pool_n; static uint64_t pool_len;
+
+static double now_s(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + ts.tv_nsec / 1e9; }
+
 int ioctl(int fd, unsigned long req, ...) {
     va_list ap; va_start(ap, req); void *arg = va_arg(ap, void *); va_end(ap);
     if (req != DMA_HEAP_IOCTL_ALLOC || !is_heap_fd(fd)) return real_ioctl(fd, req, arg);
     struct dma_heap_allocation_data *a = arg;
     int b = -1; const char *how = "none";
-    if (mode_dumb) { b = alloc_dumb(a->len); if (b >= 0) { how = "drm dumb (CMA)"; n_dumb++; } }
+    if (mode_dumb && pool_n > 0 && pool_len == a->len) { b = pool_fd[--pool_n]; how = "drm dumb (CMA), from the pool"; n_dumb++; }
+    else if (mode_dumb) {
+        b = alloc_dumb(a->len);
+        if (b >= 0) {
+            how = "drm dumb (CMA)"; n_dumb++;
+            if (n_dumb == 1) {
+                double t0 = now_s();
+                for (pool_n = 0, pool_len = a->len; pool_n < POOL - 1; pool_n++) { pool_fd[pool_n] = alloc_dumb(a->len); if (pool_fd[pool_n] < 0) break; }
+                fprintf(stderr, "x1heapshim: pool of %d more buffers of %llu bytes allocated in %.1f ms\n", pool_n, (unsigned long long)a->len, (now_s() - t0) * 1000);
+            }
+        }
+    }
     if (b < 0 && mode_te) { b = alloc_te(a->len); if (b >= 0) { how = "dma_buf_te (pages)"; n_te++; } }
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    fprintf(stderr, "x1heapshim: alloc %llu bytes -> fd %d via %s (dumb so far %d, te %d) at monotonic %.3f\n", (unsigned long long)a->len, b, how, n_dumb, n_te, ts.tv_sec + ts.tv_nsec / 1e9);
+    fprintf(stderr, "x1heapshim: alloc %llu bytes -> fd %d via %s (dumb so far %d, te %d) at monotonic %.3f\n", (unsigned long long)a->len, b, how, n_dumb, n_te, now_s());
     if (b < 0) { errno = ENOMEM; return -1; }
     a->fd = (uint32_t)b;
     return 0;

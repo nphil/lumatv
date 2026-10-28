@@ -50,11 +50,3 @@ pub fn signal_ns(fence: &OwnedFd) -> Option<u64> {
     }
     fences[..count].iter().filter(|f| f.status == 1 && f.timestamp_ns != 0).map(|f| f.timestamp_ns).max()
 }
-
-/// Whether the sync file has signalled (readable), without waiting.
-pub fn signalled(fence: &OwnedFd) -> bool {
-    let mut p = libc::pollfd { fd: fence.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-    // SAFETY: one pollfd on an open descriptor, no timeout.
-    let ready = unsafe { libc::poll(&mut p, 1, 0) };
-    ready == 1 && p.revents & libc::POLLIN != 0
-}

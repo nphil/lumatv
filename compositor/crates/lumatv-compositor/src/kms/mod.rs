@@ -175,6 +175,13 @@ pub struct Kms {
 const PAGES: usize = 3;
 /// Flips a start-up trace runs for.
 const TRACE_FLIPS: u32 = 90;
+/// How long after the last flip the idle tick still follows the panel's grid from it: the panel's clock and
+/// CLOCK_MONOTONIC drift apart slowly (the pacer corrects a sixteenth of the offset per frame once a run is on, and
+/// the stamps sit within 0.05 ms of a refresh), so a few minutes keep the error well inside the latch's slack.
+const GRID_MEMORY_NS: u64 = 180_000_000_000;
+/// What an idle tick leaves between its frame being ready and the refresh: the pacer's own lead and slack (`FLIP_LEAD_NS`
+/// and `SLACK_NS` in `pacer.rs`), so a frame drawn by it can still make the refresh when it costs more than usual.
+const IDLE_LEAD_NS: u64 = 6_000_000;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
@@ -763,6 +770,17 @@ impl Output for Kms {
         Some(self.timing.last_flip_ns()).filter(|&t| t != 0)
     }
 
+    /// The fixed tick on the panel's refresh grid while no run is on: the latch of the next refresh, from the last
+    /// flip's stamp and whole refreshes since. The fixed tick's own phase is whatever it was last armed with: on the
+    /// tenth gate it drew Home's frame 5 ms before a refresh and X1's second frame queued behind it, so X1's second
+    /// and third frames landed a refresh apart from where they should have and the client's cadence slipped with them.
+    fn idle_tick_at(&self, now: Instant) -> Option<Instant> {
+        let now_ns = self.now_ns();
+        let budget = self.timing.pacer.forecast().typical_ns + IDLE_LEAD_NS;
+        let latch = self.timing.grid_latch_ns(now_ns, budget, GRID_MEMORY_NS)?;
+        Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
+    }
+
     fn event_fd(&self) -> Option<RawFd> {
         Some(self.card.as_fd().as_raw_fd())
     }
@@ -797,7 +815,7 @@ impl Output for Kms {
         let ui = self.gl.ui_stats_line();
         let t = &self.timing;
         format!(
-            "flips {} late {} lost {} reached late {} (over 1 ms {}, worst {:.1} ms) direct {} split {} odd stamps {} ({} missed) refresh {:.2} ms (changed {}){}{}",
+            "flips {} late {} lost {} reached late {} (over 1 ms {}, worst {:.1} ms) direct {} split {} odd stamps {} ({} missed) refresh {:.2} ms (measured {}, changed {}){}{}",
             t.flips,
             t.late_frames,
             t.lost_refreshes,
@@ -809,6 +827,7 @@ impl Output for Kms {
             t.odd_stamps,
             t.missed_stamps,
             t.period_ns() as f64 / 1e6,
+            t.mean_period_ns().map_or("-".to_string(), |p| format!("{:.4}", p / 1e6)),
             t.rate_changes,
             if ui.is_empty() { "" } else { " " },
             ui
@@ -838,7 +857,12 @@ impl Output for Kms {
             self.trace_left = TRACE_FLIPS;
         }
         if self.trace_left > 0 {
-            log::info!("trace: commit of buffer {} at {:.3}{}", buffer.id().protocol_id(), self.now_ns() as f64 / 1e9, if new { " (new: warming)" } else { "" });
+            log::info!(
+                "trace: commit of buffer {} at {:.3}{}",
+                buffer.id().protocol_id(),
+                self.now_ns() as f64 / 1e9,
+                if new { " (new: warming)" } else { "" }
+            );
         }
         new
     }

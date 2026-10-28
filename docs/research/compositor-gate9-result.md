@@ -104,13 +104,14 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): round 1 is on the set (below); round 2's changes are built and host-tested (`cargo test`, the same
-with `--features ui`, clippy clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m unittest
-test_cutover` from `tests/`), not yet on the set. Next: deploy (Face ID: bundle deploy and `cutover install` in one
-approval), then `python3 compositor/tools/tv_gate.py --only x1` three times (one of them with the Mali threads
-time-shared again, `lumatv-compositor ctl --runtime-dir /tmp/xdg sched mali other` before the run, for the A/B) and the
-trial (`cutover.sh trial 120`); read `gate/x1-compositor.txt` for the `trace:`, `warm:` and `standin:` lines against
-`x1.log`'s `swap N returned` and `gap` lines, and record the round under "Rounds" below.
+State (2026-10-27): rounds 1 and 2 are on the set (below); round 3's changes are built and host-tested (`cargo test`,
+the same with `--features ui`, clippy clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m
+unittest test_cutover` from `tests/`), not yet on the set. The go-live configuration has CompShell's shell client up
+(`org.nphil.lumatv.shell`, run by the compositor from the state dir's `shell/Shell.qml`), and the x1 check and the trial
+must pass with it: its idle rendering is CompShell's to stop (Main, 2026-10-27). Next, once CompShell's idle fix is
+pushed too: one deploy (Face ID: bundle deploy and `cutover install`), the trial (`cutover.sh trial 120`) and
+`python3 compositor/tools/tv_gate.py --only x1` three times; read `gate/x1-compositor.txt` (`trace:`, `warm:`,
+`standin:`) against `x1.log` (`swap N returned`, `gap`), and record the round under "Rounds".
 
 ### What the ninth gate's lines were
 
@@ -187,3 +188,34 @@ Round 2 changes (`render/sync.rs`, `render/gl.rs`, `kms/mod.rs`, `sched.rs`, `co
 - The gate's x1 detail line ends with the `mali-cmar-backe` thread's run-queue wait over the run and its class. The X1
   client stamps its first eight swaps (`swap N returned at monotonic T (its draw started D ms before)`); the heap shim
   stamps each allocation.
+
+**Round 2, 2026-10-27 20:26, commit `8a0049f` (`compositor/slot-2026-10-27-1726/`).** The bundle now carries
+CompShell's shell client, which the compositor starts; its three windows mapped with Home's. Trial FAIL on one missed
+refresh at the start (`page-flip stamp 33.36` at 45915.791: the second frame's draw came 6 ms after its commit because
+`prepare` blocked 5.1 ms exporting the warm's native fence, and the tick before it was the fixed one), `odd stamps 108
+(1 missed)` with the shell's idle commits. The trace settled the warm: with the Mali threads in FIFO its fence signals
+0.1-0.8 ms after the draw (kernel stamps), so round 1's 11-30 ms were the tick that polled it plus the time-shared
+submission thread. x1 with the shell up: FAIL, 168 gaps over 20 ms, 58.19 fps, `late` 1 to 13; the compositor's flips
+were fine (12 odd stamps in 3600, loop run-queue wait 12.7 ms) and X1's commits were what came late (`frame gap 33 ms
+on surface 205` 14 times): its wake-ups lost the CPU to qml-runner's rendering (about 10 fps while idle). x1 with
+`shell/` moved aside: 1 gap (23.1 ms at swap 5), 59.95 fps, `late` 0, 10 gaps of 17.5-20 ms, loop wait 3.4 ms,
+`mali-cmar-backe` wait 3.7 ms. The same with the Mali threads time-shared (`ctl sched mali other`): 3 gaps (20.6 at
+swap 5, 20.4 and 22.4 mid-run), 23 of 17.5-20 ms, `mali-cmar-backe` wait 534.6 ms; FIFO stays. The trace explains the
+swap-5 gap: X1's second commit reaches the compositor only after the first frame's callback (the blob holds commit N
+until callback N-1, and its swap blocks only for a free buffer), Home redrew on X1's appearance, and the fixed tick
+(its phase whatever it was last armed with) drew Home's frame alone 5 ms before a refresh, so X1's second frame queued
+behind it and the client's cadence slipped a refresh; the client's gaps are its buffer releases, one per tick. The
+client's swapchain allocations (8.6 MB of CMA each) also took 14 and 22 ms inside its second and third swaps in the
+shell run.
+
+Round 3 changes (`kms/mod.rs`, `kms/timing.rs`, `output.rs`, `main.rs`, `render/gl.rs`, `arch/x1/x1heapshim.c`):
+
+- The fixed tick is on the panel's refresh grid while no run is on (`Output::idle_tick_at`, `FlipTiming::grid_latch_ns`):
+  the next refresh's latch from the last flip's stamp and whole periods since, for 3 minutes after it, then the plain
+  interval. The tick is re-armed when a flip lands, so the first flip of a run moves it to the pacer's latch at once.
+  `ctl status` reads the refresh period as the panel keeps it (`refresh 16.67 ms (measured 16.6667, ...)`), to size
+  that memory against the drift.
+- The warm's fence is an EGL fence again (its export of a native fence waited for the submission thread, 5.1 ms once);
+  `warm:` lines say `seen done ... (polled at the ticks)` as in round 1.
+- The X1 probe's heap shim allocates the swapchain's three buffers at the first request (inside the first swap, which no
+  gap is measured from) and serves the next two from that pool.
