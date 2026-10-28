@@ -61,7 +61,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Overlay cards over any app (doorbell, timers, alarms, Home Assistant alerts, scores) in the
     top right, never in the bottom quarter, OK acts and Back dismisses (`overlays.enabled`).
   - OLED care: LumaTV's own screens drift one pixel every 30 s around a 3 px ring and an idle
-    Home eases to 85% after 5 minutes; apps and video are never moved (`oledcare.enabled`).
+    Home eases to 85% after 5 minutes (`oledcare.enabled`).
+  - OLED care for apps, each its own switch in System › OLED care: a still app eases down and
+    drifts a few pixels (`appDim`, `appShift`), and the bright parts of an app's picture that stay
+    still for minutes dim to 0.8 with feathered edges (`boxDim`). A key, a real change or video
+    in the hole puts the picture back at once; video is never dimmed or moved.
+  - Panel refresh guard: test rounds wait until 15 min of standby have passed before waking a TV
+    whose OLED refresh is due (`--force-wake` overrides); the helper's `panel` topic reports LG's
+    refresh runs, `oledcare.refreshGuard` refuses an assistant's wake during a run, and System ›
+    OLED care shows the last run.
   - Screenshots and screen recordings of what LumaTV composes, with a recording dot; video
     stays black (`capture.enabled`).
   - A 120 Hz refresh test mode for Home and menus (`--refresh 120`, `ctl refresh`).
@@ -380,11 +388,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its video no longer counts), a veil whose card never gets a hole ends at its 1.5 s cap, layers
   below a video hole are no longer composited, buffer frees wait while a card moves, and each
   late frame is journaled with the loop's timings (`ctl transitions` `lateLog`).
-- Video wallpaper: videooutputd's answers to the placement calls are journaled, and
-  `tools/vplane_wall.py probe` reads a capture as ok, colour, black or mismatch.
+- Video wallpaper: the placement is no longer refused by videooutputd (a plain exported window
+  carries its original input, as LG's crop does); videooutputd's answers are journaled and
+  `tools/vplane_wall.py probe --video` reads LG's VIDEO capture. The plane shows the clip about
+  7% darker than the GPU wallpaper in Filmmaker mode (the plane's picture processing).
 - Frame gate: surfaces for Settings, the Apps library, Home's rows, the app switcher, smooth
   transitions and both keyboards; `tv_gate.py` runs them all by default and the quick set with
-  `--frames-quick`. Gate runs no longer write an explicit wallpaper-motion false back as true.
+  `--frames-quick`. The Settings, Apps library and launch surfaces run on the owner's Home
+  layout; the apps check reads SAM's list and exit status through the log rotation; other apps'
+  QML errors no longer fail a surface. Gate runs no longer write an explicit wallpaper-motion
+  false back as true.
 - Compositor: the shell may call the Homebrew Channel's `getConfiguration` and `setConfiguration`
   (and nothing else of that service, which also runs commands as root), so Settings > System >
   Support > Update can read and change "Block LG system updates" instead of showing "Homebrew
