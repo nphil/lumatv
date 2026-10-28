@@ -93,7 +93,10 @@ fn a_launch_is_drawn_from_the_first_frame_as_a_card_growing_out_of_its_tile() {
     let (_a, _buf) = app(&mut rig, "A", "com.example.a", APP_A);
     // The front card is the app's, and the keys are its, before any frame is drawn: nothing waits for the move.
     let (front, focus) = state(&server, |s| {
-        (s.scene.foreground(&s.surfaces).map(|w| w.app_id().to_string()), s.seat.focus.and_then(|f| s.scene.window_of(f)).map(|w| s.scene.window(w).unwrap().app_id().to_string()))
+        (
+            s.scene.foreground(&s.surfaces).map(|w| w.app_id().to_string()),
+            s.seat.focus.and_then(|f| s.scene.window_of(f)).map(|w| s.scene.window(w).unwrap().app_id().to_string()),
+        )
     });
     assert_eq!(front.as_deref(), Some("com.example.a"));
     assert_eq!(focus.as_deref(), Some("com.example.a"), "the app takes the keys at once");
@@ -117,7 +120,8 @@ fn a_launch_is_drawn_from_the_first_frame_as_a_card_growing_out_of_its_tile() {
     // At 220 ms it is the screen, Home gone: the plan is the app alone, drawn as any window (the plane could scan it out directly).
     let end = tick(&server, t0 + 221 * MS);
     assert!(near(end.pixel(3, 3), a, 1) && near(end.pixel(1916, 1076), a, 1));
-    let (active, holds, sole) = state(&server, |s| (s.scene.transitions.active(), s.scene.transitions.holds_home(), s.scene.last_plan().sole_fullscreen().is_some()));
+    let (active, holds, sole) =
+        state(&server, |s| (s.scene.transitions.active(), s.scene.transitions.holds_home(), s.scene.last_plan().sole_fullscreen().is_some()));
     assert!(!active && !holds, "the transition is over");
     assert!(sole, "and the app is drawn plainly again: sole full-screen window, no pose, no ghost");
 }
@@ -148,7 +152,11 @@ fn home_takes_the_card_back_into_its_tile_and_the_pointer_is_home_s_not_the_ghos
     let first = tick(&server, t0);
     assert!(near(first.pixel(960, 540), rgb(APP_A), 1), "the first frame is as it was: the card whole");
     let (front_is_home, focus, hit) = state(&server, |s| {
-        (s.scene.last_plan().items.iter().any(|i| i.ghost), s.scene.foreground(&s.surfaces).map(|w| w.app_id().to_string()), s.scene.surface_at(960, 540).map(|(sid, _)| s.scene.window_of(sid).map(|w| s.scene.window(w).unwrap().kind)))
+        (
+            s.scene.last_plan().items.iter().any(|i| i.ghost),
+            s.scene.foreground(&s.surfaces).map(|w| w.app_id().to_string()),
+            s.scene.surface_at(960, 540).map(|(sid, _)| s.scene.window_of(sid).map(|w| s.scene.window(w).unwrap().kind)),
+        )
     });
     assert!(front_is_home, "the card is a ghost while it goes");
     assert_eq!(focus.as_deref(), Some(HOME_STUB));

@@ -388,6 +388,9 @@ impl Default for Settings {
 #[derive(Default)]
 pub struct Transitions {
     pub settings: Settings,
+    /// The app switcher is up (a second press of Home): it draws the pictures it moves itself, so no window is moved for a change of the front
+    /// meanwhile (the app its OK raises appears at once under the switcher's own picture). Set by the loop before each plan.
+    pub suspended: bool,
     tracks: Vec<Track>,
     origins: Vec<(String, Origin)>,
     recent: Vec<Recent>,
@@ -486,7 +489,7 @@ impl Transitions {
     /// (so the change interrupts, it does not restart), a window that has none starts from the pose its part gives it. Returns whether
     /// the engine took the change (it is off, or `Kind` has nothing to move, otherwise).
     pub fn begin(&mut self, kind: Kind, now_ns: u64, incoming: Option<Party>, outgoing: Option<Party>, home: &[(WindowId, FRect)]) -> bool {
-        if !self.settings.enabled {
+        if !self.settings.enabled || self.suspended {
             return false;
         }
         let was_active = !self.tracks.is_empty();

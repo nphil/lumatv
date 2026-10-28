@@ -62,6 +62,16 @@ pub fn keyboard_origin(g: Rect, preferred: Option<Rect>) -> (i32, i32) {
     }
 }
 
+/// How the surfaces of one window are laid out and drawn in this frame.
+#[derive(Clone, Copy)]
+struct Look {
+    window: WindowId,
+    origin: (i32, i32),
+    dim: f32,
+    pose: Option<(Pose, FRect)>,
+    ghost: bool,
+}
+
 /// A card as a transition sees it: its app, its rectangle and whether its picture is (or is about to be) on the video plane.
 fn party(id: WindowId, info: &(String, bool), rect: FRect) -> Party<'_> {
     Party { id, app_id: &info.0, rect, video: info.1 }
@@ -250,7 +260,17 @@ impl Plan {
     pub fn sole_fullscreen(&self) -> Option<&Item> {
         let full = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
         match self.items.as_slice() {
-            [one] if one.opaque && one.rect == full && one.dim == 1.0 && one.pose.is_none() && self.holes.is_empty() && self.cursor.is_none() && self.backdrop.is_none() => Some(one),
+            [one]
+                if one.opaque
+                    && one.rect == full
+                    && one.dim == 1.0
+                    && one.pose.is_none()
+                    && self.holes.is_empty()
+                    && self.cursor.is_none()
+                    && self.backdrop.is_none() =>
+            {
+                Some(one)
+            }
             _ => None,
         }
     }
@@ -907,19 +927,20 @@ impl Scene {
             let owner = w.surface;
             let pose = self.pose_of(wid, now_ns);
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
+            let look = Look { window: wid, origin, dim, pose, ghost };
             self.build_members(owner);
             let m = self.members.len();
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z < 0 {
-                    self.push_tree(surfaces, wid, s, origin, dim, pose, ghost);
+                    self.push_tree(surfaces, s, look);
                 }
             }
-            self.push_tree(surfaces, wid, owner, origin, dim, pose, ghost);
+            self.push_tree(surfaces, owner, look);
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z >= 0 {
-                    self.push_tree(surfaces, wid, s, origin, dim, pose, ghost);
+                    self.push_tree(surfaces, s, look);
                 }
             }
         }
@@ -1051,7 +1072,8 @@ impl Scene {
         self.redraw_all = true;
     }
 
-    fn push_tree(&mut self, surfaces: &Surfaces, window: WindowId, root: SurfaceId, origin: (i32, i32), dim: f32, pose: Option<(Pose, FRect)>, ghost: bool) {
+    fn push_tree(&mut self, surfaces: &Surfaces, root: SurfaceId, look: Look) {
+        let Look { window, origin, dim, pose, ghost } = look;
         surfaces.tree_in_draw_order_into(root, &mut self.tree);
         let n = self.tree.len();
         for k in 0..n {

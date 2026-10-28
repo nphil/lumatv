@@ -420,6 +420,7 @@ impl State {
         self.scene.cursor =
             if self.seat.cursor_visible { Some(crate::render::cursor::rect_at(self.seat.pointer_position.0, self.seat.pointer_position.1)) } else { None };
         self.switcher_frame(t0);
+        self.scene.transitions.suspended = self.switcher_active();
         let State { scene, surfaces, output, stats, shell, .. } = self;
         scene.care.refresh(now_ns);
         scene.care.saver = shell.ui_state.get("saver").and_then(serde_json::Value::as_bool).unwrap_or(false);
