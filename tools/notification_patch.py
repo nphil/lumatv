@@ -99,6 +99,17 @@ def edit_blocks(name, text, header, which, edits):
     return text
 
 
+def opaque(pal):
+    """The palette this view draws with. tokens.py's sheet is 93 % opaque, which lets the page's text show faintly through a card (a toast, an
+    input popup or an alert over text): overlapping text, which Lucent forbids at any text size. Here the sheet is opaque, and a question that
+    blocks (a modal alert) gets a backdrop that hides the page (Lucent: an opaque backdrop behind confirmation questions, scrim.hidesMin .97)."""
+    out = dict(pal)
+    for k in ("sheetTop", "sheetBottom"):
+        out[k] = "#FF" + pal[k][3:]
+    out["scrimHide"] = "#F8" + pal["sheetBottom"][3:]
+    return out
+
+
 def alert_edits(pal):
     return [
         ('property color  backgroundColor:        "#CACBCC"', 'property color  backgroundColor:        "%s"' % pal["sheetBottom"]),
@@ -124,7 +135,7 @@ def patch_style(text, pal):
     if n < MIN_FONT_SITES:
         raise ValueError("%s: %d font sites found, expected at least %d" % (name, n, MIN_FONT_SITES))
     text = sub(name, text, 'property color defaultFocusColor: "#cf0652"', 'property color defaultFocusColor: "%s"' % pal["accent"])
-    text = sub(name, text, 'property string scrimColor: "black"', 'property string scrimColor: "%s"' % pal["scrim"])
+    text = sub(name, text, 'property string scrimColor: "black"', 'property string scrimColor: "%s"' % pal["scrimHide"])
     text = sub(name, text, "property real scrimOpacity: 0.3", "property real scrimOpacity: 1")
     text = edit_blocks(name, text, "property QtObject toast: QtObject {", [0],
                        [("property int    width:                  getRValue(900)", "property int    width:                  getRValue(%d)" % TOAST_WIDTH)])
@@ -243,6 +254,7 @@ def overlay(root, src, pal):
 
 
 def patch_tree(root, pal, overlay_dir=None):
+    pal = opaque(pal)
     root = pathlib.Path(root)
     style = root / "NotificationStyle.qml"
     text = style.read_text()

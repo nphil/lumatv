@@ -15,6 +15,7 @@ LuTile 1.0 LuTile.qml
 LuPane 1.0 LuPane.qml
 LuCard 1.0 LuCard.qml
 LuRing 1.0 LuRing.qml
+LuAppIcon 1.0 LuAppIcon.qml
 LuInfo 1.0 LuInfo.qml
 LuHelp 1.0 LuHelp.qml
 singleton Inputs 1.0 Inputs.qml

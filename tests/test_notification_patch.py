@@ -27,9 +27,14 @@ sys.path.insert(0, HERE)
 from xdisplay import DISPLAY, HAVE_QT  # noqa: E402
 
 
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from notification_patch import opaque  # noqa: E402
+
+
 def palette():
+    """The palette the view is drawn with: tokens.py's, with the sheet opaque and a backdrop for a modal question that hides the page."""
     out = subprocess.run([sys.executable, TOKENS, SHIPPED, os.devnull, "qml"], capture_output=True, text=True, check=True).stdout
-    return json.loads(out)
+    return opaque(json.loads(out))
 
 
 @unittest.skipUnless(os.path.isdir(CENSUS), "needs the census copy of LG's notification tree")
@@ -68,7 +73,7 @@ class NotificationPatch(unittest.TestCase):
         self.assertNotRegex(style, r"root\.languageStyle\.(normal|cond)\d+\.fontFamily\[0\]")
         self.assertGreaterEqual(style.count('"Manrope"'), 6)
         self.assertIn('property color defaultFocusColor: "%s"' % self.pal["accent"], style)
-        self.assertIn('property string scrimColor: "%s"' % self.pal["scrim"], style)
+        self.assertIn('property string scrimColor: "%s"' % self.pal["scrimHide"], style)
         self.assertNotIn("#cf0652", style.split("property QtObject alert")[0])
 
     def test_the_alert_and_its_defaultview_twin_are_both_in_the_palette_and_partialview_is_left(self):

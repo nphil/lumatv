@@ -35,7 +35,14 @@ FocusScope {
     readonly property string firstName: count > 0 ? String(cards[0].title) : ""
     readonly property string title: count > 1 ? qsTr("%1 inputs connected").arg(count) + NLocaleService.emptyString
                                               : (qsTr("%1 connected").arg(firstName) + NLocaleService.emptyString)
-    readonly property string subtitle: (count > 1 ? qsTr("Pick one to switch to.") : qsTr("Switch to it?")) + NLocaleService.emptyString
+    // The port the question is about (mock: "On HDMI 3. Switch to it?"): LG launches the input's app, com.webos.app.hdmi3, so that is where it is said.
+    function portOf(card) {
+        var a = card && card.action && card.action.launchParams ? String(card.action.launchParams.id || "") : "";
+        var m = /hdmi(\d+)$/i.exec(a);
+        return m ? "HDMI " + m[1] : "";
+    }
+    readonly property string port: count === 1 ? portOf(cards[0]) : ""
+    readonly property string subtitle: (count > 1 ? qsTr("Pick one to switch to.") : (port !== "" ? qsTr("On %1. Switch to it?").arg(port) : qsTr("Switch to it?"))) + NLocaleService.emptyString
     readonly property int pad: style.getRValue(20)
     readonly property int tile: style.getRValue(56)
 
@@ -172,7 +179,7 @@ FocusScope {
                     SimpleButton {
                         id: switchButton
                         objectName: "inputPopupSwitch"
-                        text: qsTr("Switch to %1").arg(root.cards[index].title) + NLocaleService.emptyString
+                        text: qsTr("Switch to %1").arg(root.port !== "" ? root.port : root.cards[index].title) + NLocaleService.emptyString
                         maxWidth: root.style.getRValue(380)
                         width: Math.max(root.style.getRValue(150), label.actualWidth + 10 + buttonMargin * 2)
                         height: root.style.getRValue(52)
