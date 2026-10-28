@@ -62,6 +62,8 @@ pub struct Stats {
     pub frame_imports: u64,
     /// Ticks that drew nothing because the driver was still busy with a buffer a commit had prepared.
     pub held_ticks: u64,
+    /// How long the last tick took, plan to callbacks.
+    pub tick_us_last: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -403,6 +405,7 @@ impl State {
     /// [`State::tick`] with the scene planned at `now_ns` (CLOCK_MONOTONIC): what the transitions' poses are evaluated at (the host tests move it by hand).
     pub fn tick_at(&mut self, now_ns: u64) -> Presented {
         let t0 = Instant::now();
+        let prev_tick_us = self.stats.tick_us_last;
         self.stats.ticks += 1;
         // A flip that landed while the pass did other work goes out before this frame is drawn, and one that landed
         // while it was drawn goes out before the tick's own bookkeeping: its callbacks start the clients' next frames.
@@ -452,6 +455,8 @@ impl State {
             }
         }
         let t_rendered = Instant::now();
+        // While a transition moves the frees of destroyed buffers wait (the flip of this frame lands after this).
+        self.output.defer_frees(self.scene.transitions.animating(now_ns));
         if drew && self.scene.care_frame() {
             self.output.quiet_frame();
         }
@@ -492,6 +497,22 @@ impl State {
             self.should_exit = true;
         }
         let t_end = Instant::now();
+        self.stats.tick_us_last = (t_end - t0).as_micros() as u64;
+        // A frame of a transition that came late says in what part and what the loop had been doing: a long tick before it is the loop's own
+        // work (a free, an import, a draw); short ones around a long gap are the loop waiting or woken late (the display, the driver, another process).
+        if let Some(l) = self.scene.transitions.take_late() {
+            self.journal(format!(
+                "transitions: frame {} ms after the last in a {} (tick before {:.1} ms, this {:.1} ms, last render {:.1} ms, held ticks {}, buffers prepared {}, imported in a frame {})",
+                l.gap_ms,
+                l.phase,
+                prev_tick_us as f64 / 1000.0,
+                self.stats.tick_us_last as f64 / 1000.0,
+                self.stats.render_us_last as f64 / 1000.0,
+                self.stats.held_ticks,
+                self.stats.prepared,
+                self.stats.frame_imports
+            ));
+        }
         if t_end - t0 > Duration::from_millis(8) {
             log::warn!(
                 "tick: {:.1} ms: plan and draw {:.1}, present {:.1}, callbacks {:.1}, releases {:.1}, luna {:.1}",

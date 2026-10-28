@@ -245,6 +245,108 @@ fn a_veil_is_not_held_for_ever() {
 }
 
 #[test]
+fn a_card_that_expects_video_and_never_gets_a_hole_ends_at_the_veils_cap_all_the_same() {
+    let mut t = on();
+    t.begin(Kind::Launch, 0, Some(party(2, "com.webos.app.livetv", true)), None, &[(WindowId(1), FULL)]);
+    // a plan every refresh, none of them with a hole: the frame, the holes' asking (none), the idle veils, the sweep
+    let mut now = 0;
+    let mut ended = None;
+    while now < 4_000 * MS {
+        t.frame(now);
+        t.idle_veils(now);
+        t.sweep(now);
+        if !t.active() {
+            ended = Some(now);
+            break;
+        }
+        now += 16 * MS;
+    }
+    let end = ended.expect("a hole that never comes is no reason to hold the track for ever");
+    // the cap is 1.5 s after the arrival at 220 ms, then 180 ms of fade
+    assert!((220 + 1500 + 180..=220 + 1500 + 180 + 32).contains(&(end / MS)), "ended at {} ms", end / MS);
+    assert_eq!(t.stats.veil_caps, 1);
+}
+
+#[test]
+fn a_hole_that_goes_in_the_middle_of_the_fade_does_not_leave_the_fade_running() {
+    let mut t = on();
+    t.begin(Kind::Launch, 0, Some(party(2, "com.webos.app.livetv", true)), None, &[(WindowId(1), FULL)]);
+    let w = WindowId(2);
+    for now in (0..=320).step_by(16) {
+        t.frame(now * MS);
+        t.veil(w, now * MS, now >= 100);
+        t.idle_veils(now * MS);
+    }
+    // the fade began at 256 ms (the hole came at 112; arrived at 220); from here the hole is gone
+    assert!(t.animating(300 * MS), "fading");
+    for now in (336..=700).step_by(16) {
+        t.frame(now * MS);
+        t.idle_veils(now * MS);
+        t.sweep(now * MS);
+    }
+    assert!(!t.active() && !t.animating(700 * MS), "the fade ran out without a hole to ask for it");
+}
+
+#[test]
+fn only_a_gap_between_two_frames_that_were_moving_is_a_late_frame() {
+    let mut t = on();
+    t.begin(Kind::Launch, 0, Some(party(2, "com.webos.app.livetv", true)), None, &[(WindowId(1), FULL)]);
+    let w = WindowId(2);
+    t.frame(0);
+    t.frame(16 * MS);
+    t.frame(60 * MS);
+    assert_eq!(t.stats.late_gaps, 1, "44 ms inside the move");
+    assert_eq!(t.take_late(), Some(LateGap { at_ns: 60 * MS, gap_ms: 44, phase: "launch" }));
+    assert_eq!(t.take_late(), None, "told once");
+    // arrived; the veil waits for its video: the app's commits and the slowed tick time the plans, nothing is expected of every refresh
+    t.frame(230 * MS);
+    t.frame(330 * MS);
+    t.frame(700 * MS);
+    assert_eq!((t.stats.late_gaps, t.stats.max_gap_ms), (1, 44), "a waiting veil is not a stutter");
+    // the hole comes and the video has had its time: the fade moves again, and a late frame in it is told so
+    t.veil(w, 800 * MS, true);
+    t.frame(960 * MS);
+    t.veil(w, 960 * MS, true);
+    t.frame(976 * MS);
+    t.frame(1040 * MS);
+    assert_eq!(t.stats.late_gaps, 2);
+    let l = t.take_late().unwrap();
+    assert_eq!((l.gap_ms, l.phase), (64, "fade"));
+    assert_eq!(t.late_log().len(), 2);
+}
+
+#[test]
+fn the_late_log_keeps_the_last_eight() {
+    let mut t = on();
+    t.begin(Kind::Switch, MS, Some(party(3, "b", false)), Some(party(2, "a", false)), &[]);
+    // frames 21 ms apart inside the 220 ms move: ten late gaps
+    for i in 0..=10 {
+        t.frame((1 + i * 21) * MS);
+    }
+    assert_eq!(t.stats.late_gaps, 10);
+    assert_eq!(t.late_log().len(), 8);
+    assert_eq!(t.late_log().last().map(|l| (l.at_ns, l.gap_ms, l.phase)), Some((211 * MS, 21, "switch")));
+}
+
+#[test]
+fn a_veil_that_waits_is_due_at_its_settle_or_its_cap() {
+    let mut t = on();
+    t.begin(Kind::Launch, 0, Some(party(2, "com.webos.app.hdmi2", true)), None, &[(WindowId(1), FULL)]);
+    let w = WindowId(2);
+    // no hole: only its cap (220 + 1500) is a time of its own
+    assert!(!t.due_within(500 * MS, 100 * MS));
+    assert!(t.due_within(1630 * MS, 100 * MS));
+    // the hole at 600 ms: the video is given until 750
+    t.veil(w, 600 * MS, true);
+    assert!(!t.due_within(600 * MS, 100 * MS));
+    assert!(t.due_within(660 * MS, 100 * MS));
+    assert!(t.due_within(900 * MS, 100 * MS), "overdue is due");
+    // nothing waits once it fades
+    t.veil(w, 760 * MS, true);
+    assert!(!t.due_within(770 * MS, 1000 * MS));
+}
+
+#[test]
 fn a_hole_that_shows_up_while_a_card_arrives_brings_the_veil_with_it() {
     let mut t = on();
     t.begin(Kind::Launch, 0, Some(party(2, "com.example.player", false)), None, &[(WindowId(1), FULL)]);

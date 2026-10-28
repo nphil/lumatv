@@ -70,6 +70,8 @@ struct Look {
     dim: f32,
     pose: Option<(Pose, FRect)>,
     ghost: bool,
+    /// The surfaces are members drawn below a window whose hole covers them (`Scene::hole_rects`): what the hole covers is not drawn.
+    under_hole: bool,
 }
 
 /// A card as a transition sees it: its app, its rectangle and whether its picture is (or is about to be) on the video plane.
@@ -358,6 +360,8 @@ pub struct Scene {
     stack: Vec<(Layer, u64, WindowId)>,
     members: Vec<(i32, SurfaceId)>,
     tree: Vec<(SurfaceId, i32, i32)>,
+    /// The holes of the window being laid out, in output pixels, as this frame will plan them.
+    hole_rects: Vec<Rect>,
     placed: Vec<Placed>,
     /// The shell's own screens' OLED care: the orbit offset and the dim its beats set (`oledcare`).
     pub care: crate::oledcare::Care,
@@ -931,13 +935,21 @@ impl Scene {
             let owner = w.surface;
             let pose = self.pose_of(wid, now_ns);
             let ghost = self.transitions.active() && !self.stack.iter().any(|(_, _, id)| *id == wid);
-            let look = Look { window: wid, origin, dim, pose, ghost };
+            let look = Look { window: wid, origin, dim, pose, ghost, under_hole: false };
             self.build_members(owner);
             let m = self.members.len();
+            // The members below a window whose hole covers them (Live TV's Dmost and its other layers under the video) are under the plane's
+            // picture: the hole is cleared (or the veil lies opaque) over them, so drawing them is a full-screen layer for nothing, and their
+            // commits would draw frames that show nothing new. A window in transition is posed, not at rest: it draws them as it did.
+            self.hole_rects.clear();
+            if m > 0 && pose.is_none() {
+                self.window_holes(surfaces, owner, origin);
+            }
+            let below = Look { under_hole: !self.hole_rects.is_empty(), ..look };
             for k in 0..m {
                 let (z, s) = self.members[k];
                 if z < 0 {
-                    self.push_tree(surfaces, s, look);
+                    self.push_tree(surfaces, s, below);
                 }
             }
             self.push_tree(surfaces, owner, look);
@@ -991,7 +1003,9 @@ impl Scene {
                 self.plan.holes.push(hole);
             }
         }
-        // A veil that ended in this frame's holes ends its track with it; a zombie goes with its track.
+        // A veil that ended in this frame's holes ends its track with it (and one whose card has no hole runs its cap here); a zombie goes with
+        // its track.
+        self.transitions.idle_veils(now_ns);
         self.transitions.sweep(now_ns);
         if !self.zombies.is_empty() {
             let t = &self.transitions;
@@ -1076,8 +1090,28 @@ impl Scene {
         self.redraw_all = true;
     }
 
+    /// Into `hole_rects`: the holes of `owner`'s window as the plan below will make them (the logical rectangle on the window's picture, in
+    /// output pixels). None while the window has no picture to put a hole in: no hole is planned then, and nothing is covered.
+    fn window_holes(&mut self, surfaces: &Surfaces, owner: SurfaceId, origin: (i32, i32)) {
+        let Some(s) = surfaces.get(owner) else { return };
+        if s.current.buffer.is_none() {
+            return;
+        }
+        let at = s.rect_at(origin.0, origin.1);
+        if at.is_empty() {
+            return;
+        }
+        let output = Rect::new(0, 0, OUTPUT_WIDTH as i32, OUTPUT_HEIGHT as i32);
+        for h in self.holes.iter().filter(|h| h.surface == owner) {
+            let r = h.rect.translated(at.x, at.y).intersect(&output);
+            if !r.is_empty() {
+                self.hole_rects.push(r);
+            }
+        }
+    }
+
     fn push_tree(&mut self, surfaces: &Surfaces, root: SurfaceId, look: Look) {
-        let Look { window, origin, dim, pose, ghost } = look;
+        let Look { window, origin, dim, pose, ghost, under_hole } = look;
         surfaces.tree_in_draw_order_into(root, &mut self.tree);
         let n = self.tree.len();
         for k in 0..n {
@@ -1089,6 +1123,9 @@ impl Scene {
             }
             let rect = s.rect_at(origin.0 + dx, origin.1 + dy);
             if rect.is_empty() {
+                continue;
+            }
+            if under_hole && self.hole_rects.iter().any(|h| rect.intersect(h) == rect) {
                 continue;
             }
             // In a transition the item is drawn through its window's pose: its own picture goes where the pose moves it, behind the window's

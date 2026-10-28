@@ -155,7 +155,14 @@ impl Tick {
         let tick_ns = state.config.tick_ns;
         let now = Instant::now();
         let slow = Some(state.config.idle_tick_ns).filter(|&ns| {
-            ns > 0 && self.calm.is_calm(monotonic_ns()) && !state.surfaces.any_undrawn() && state.output.idle_ok() && !state.scene.transitions.animating(monotonic_ns())
+            let now = monotonic_ns();
+            // (a veil waiting for its video is due at a time of its own, which a slowed tick would only reach late)
+            ns > 0
+                && self.calm.is_calm(now)
+                && !state.surfaces.any_undrawn()
+                && state.output.idle_ok()
+                && !state.scene.transitions.animating(now)
+                && !state.scene.transitions.due_within(now, ns)
         });
         let latch = state.output.next_frame_at(now).or_else(|| match slow {
             Some(ns) => state.output.idle_tick_after(now, Duration::from_nanos(ns)),

@@ -377,6 +377,19 @@ pub struct Stats {
     pub veil_caps: u64,
 }
 
+/// A gap over [`LATE_GAP_MS`] between two frames of a transition that was moving: when it was (the plan's clock), how long, and in which part.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LateGap {
+    pub at_ns: u64,
+    pub gap_ms: u64,
+    pub phase: &'static str,
+}
+
+/// A frame this much later than the last is a late one (a refresh is 16.7 ms).
+pub const LATE_GAP_MS: u64 = 20;
+/// Late gaps kept for the report, newest last.
+const LATE_GAPS_KEPT: usize = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub enabled: bool,
@@ -402,6 +415,12 @@ pub struct Transitions {
     recent: Vec<Recent>,
     pub stats: Stats,
     last_sample_ns: u64,
+    /// Whether the last frame had something moving, and the late gaps (`take_late` hands the newest to the journal once).
+    last_animating: bool,
+    late: Vec<LateGap>,
+    late_reported: u64,
+    /// The windows whose veil was stepped with a hole in this frame (`veil`); [`Transitions::idle_veils`] steps the others.
+    veil_seen: Vec<WindowId>,
 }
 
 /// Most apps whose tiles are remembered.
@@ -752,22 +771,60 @@ impl Transitions {
     /// One frame at `now_ns`: tracks that have ended are dropped (a leave leaves its last pose behind for [`Transitions::take_visual`]),
     /// the time between this frame and the last that sampled is counted. Returns whether anything is left in transition.
     pub fn frame(&mut self, now_ns: u64) -> bool {
+        self.veil_seen.clear();
         if self.tracks.is_empty() {
             self.last_sample_ns = 0;
+            self.last_animating = false;
             self.recent.retain(|r| now_ns.saturating_sub(r.at_ns) < ns(RECENT_MS));
             return false;
         }
         self.stats.frames += 1;
-        if self.last_sample_ns != 0 {
+        // Only the gap between two frames that both had something moving is a late frame. A veil waiting for its video, or the card at rest
+        // under it, needs no frame per refresh: the plan's own timing there is the app's commits and the slowed tick, not a stutter.
+        let animating = self.animating(now_ns);
+        if animating && self.last_animating && self.last_sample_ns != 0 {
             let gap = now_ns.saturating_sub(self.last_sample_ns) / 1_000_000;
             self.stats.max_gap_ms = self.stats.max_gap_ms.max(gap);
-            if gap > 20 {
+            if gap > LATE_GAP_MS {
                 self.stats.late_gaps += 1;
+                if self.late.len() >= LATE_GAPS_KEPT {
+                    self.late.remove(0);
+                }
+                let phase = self.phase(now_ns);
+                self.late.push(LateGap { at_ns: now_ns, gap_ms: gap, phase });
             }
         }
         self.last_sample_ns = now_ns;
+        self.last_animating = animating;
         self.sweep(now_ns);
         !self.tracks.is_empty()
+    }
+
+    /// What is moving at `now_ns`, for the late-gap log.
+    fn phase(&self, now_ns: u64) -> &'static str {
+        if self.tracks.iter().any(|t| matches!(t.veil, Some(Veil::Fade { .. }))) {
+            return "fade";
+        }
+        match self.tracks.iter().find(|t| t.moving(now_ns)).map(|t| t.kind) {
+            Some(Kind::Launch) => "launch",
+            Some(Kind::Leave) => "leave",
+            Some(Kind::Switch) => "switch",
+            None => "idle",
+        }
+    }
+
+    /// The newest late gap not told yet (once), for the journal.
+    pub fn take_late(&mut self) -> Option<LateGap> {
+        if self.stats.late_gaps == self.late_reported {
+            return None;
+        }
+        self.late_reported = self.stats.late_gaps;
+        self.late.last().copied()
+    }
+
+    /// The late gaps kept, oldest first.
+    pub fn late_log(&self) -> &[LateGap] {
+        &self.late
     }
 
     /// Drops the tracks that are over at `now_ns` (a track with a veil is over when the veil is), leaving a leave's last pose behind for
@@ -822,6 +879,39 @@ impl Transitions {
     /// [`VEIL_SETTLE_MS`] since the hole came (or [`VEIL_CAP_MS`] after the arrival, hole or none), then faded away. `None` when the
     /// window has none, or it is over. `hole` is whether the window has a hole in this frame.
     pub fn veil(&mut self, window: WindowId, now_ns: u64, hole: bool) -> Option<VeilNow> {
+        if hole {
+            self.veil_seen.push(window);
+        }
+        self.veil_step(window, now_ns, hole)
+    }
+
+    /// Steps the veils of the windows that had no hole in this frame (after the frame's holes have asked): a card that expects video and never
+    /// gets a hole, or loses it, still has its veil's cap and its fade run, so its transition ends rather than waiting for a hole that is not coming.
+    pub fn idle_veils(&mut self, now_ns: u64) {
+        for i in 0..self.tracks.len() {
+            let t = &self.tracks[i];
+            if t.arriving && t.veil.is_some() && !self.veil_seen.contains(&t.window) {
+                let window = t.window;
+                self.veil_step(window, now_ns, false);
+            }
+        }
+    }
+
+    /// Whether a veil that waits will be due within `within_ns`: its video's settle time (when the hole is there) or its cap. The tick keeps its
+    /// pace until then, so the fade starts on time rather than at a slowed tick.
+    pub fn due_within(&self, now_ns: u64, within_ns: u64) -> bool {
+        self.tracks.iter().any(|t| match t.veil {
+            Some(Veil::Hold { hole_ns }) if t.arriving => {
+                let arrived = t.end_ns();
+                let cap = arrived + ns(VEIL_CAP_MS);
+                let due = hole_ns.map_or(cap, |h| arrived.max(h + ns(VEIL_SETTLE_MS)).min(cap));
+                due <= now_ns + within_ns
+            }
+            _ => false,
+        })
+    }
+
+    fn veil_step(&mut self, window: WindowId, now_ns: u64, hole: bool) -> Option<VeilNow> {
         let fade_ns = ns(if self.settings.reduced { REDUCED_MS } else { VEIL_FADE_MS });
         let i = self.tracks.iter().position(|t| t.window == window)?;
         let t = &mut self.tracks[i];
@@ -1015,6 +1105,7 @@ impl crate::State {
             "active": t.active(),
             "origins": t.origins().iter().map(|(app, o)| serde_json::json!({"app": app, "tile": {"x": o.tile.x, "y": o.tile.y, "w": o.tile.w, "h": o.tile.h, "radius": o.radius}, "from": o.from.is_some()})).collect::<Vec<_>>(),
             "tracks": tracks,
+            "lateLog": t.late_log().iter().map(|l| serde_json::json!({"ageMs": now.saturating_sub(l.at_ns) / 1_000_000, "gapMs": l.gap_ms, "phase": l.phase})).collect::<Vec<_>>(),
             "stats": {
                 "launches": t.stats.launches, "leaves": t.stats.leaves, "switches": t.stats.switches, "interrupted": t.stats.interrupted,
                 "skipped": t.stats.skipped, "frames": t.stats.frames, "maxGapMs": t.stats.max_gap_ms, "lateGaps": t.stats.late_gaps, "veilCaps": t.stats.veil_caps,

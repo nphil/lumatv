@@ -34,6 +34,8 @@ pub enum BufferPath {
 const WARM_LIMIT: Duration = Duration::from_millis(100);
 /// How long one `bury` call may spend freeing driver imports.
 const BURY_BUDGET: Duration = Duration::from_millis(2);
+/// Retired textures that may wait for a transition's end; past it they are freed at once.
+const GRAVEYARD_MAX: usize = 12;
 /// Most `warm:` lines logged (three per client start on the set; a measurement, not a watch).
 const WARM_LINES: u32 = 120;
 
@@ -100,6 +102,8 @@ pub struct Gl {
     /// Textures of buffers that died, destroyed later (`bury`): freeing a driver import stalls the caller until the GPU
     /// is done with the last frame that read it (8.9-18.8 ms renders at X1's disconnect on the fourth and fifth gates).
     graveyard: Vec<Tex>,
+    /// A transition is moving: `bury` waits ([`Gl::defer_frees`]).
+    frees_deferred: bool,
     /// A 16x16 target the first draw from a fresh import goes into (`prepare`), made on first use: `(fbo, texture)`.
     warm: Option<(GLuint, GLuint)>,
     bgra_upload: bool,
@@ -275,6 +279,7 @@ impl Gl {
             xf,
             textures: HashMap::new(),
             graveyard: Vec::new(),
+            frees_deferred: false,
             warm: None,
             bgra_upload,
             upload_rows: Vec::new(),
@@ -914,6 +919,16 @@ impl Gl {
     /// uploaded texture and, when `page` names a dma-buf target, from that page's EGLImage into the current target
     /// (the first draw from an imported image cost X1's first frame a refresh on the third gate). Returns how long it
     /// took, GPU included.
+    /// While on, [`Gl::bury`] frees nothing (a transition is moving).
+    pub fn defer_frees(&mut self, on: bool) {
+        self.frees_deferred = on;
+    }
+
+    /// Retired textures waiting for [`Gl::bury`].
+    pub fn retired(&self) -> usize {
+        self.graveyard.len()
+    }
+
     pub fn warm_up(&mut self, page: Option<TargetId>) -> std::time::Duration {
         let began = std::time::Instant::now();
         let full = Rect::new(0, 0, self.width as i32, self.height as i32);
@@ -1355,6 +1370,11 @@ impl Gl {
         if self.graveyard.is_empty() {
             return 0;
         }
+        // A move on the screen is no time for a free that stalls the loop on the driver (10 ms for a Netflix buffer, an app's last
+        // swapchain): it waits for the move's end, unless so many have piled up that waiting costs memory.
+        if self.frees_deferred && self.graveyard.len() < GRAVEYARD_MAX {
+            return self.graveyard.len();
+        }
         let began = Instant::now();
         let mut freed = 0;
         while let Some(t) = self.graveyard.pop() {
@@ -1528,6 +1548,14 @@ impl Output for Gl {
 
     fn warming(&mut self) -> bool {
         Gl::warming(self)
+    }
+
+    fn defer_frees(&mut self, on: bool) {
+        Gl::defer_frees(self, on);
+    }
+
+    fn retired(&self) -> usize {
+        self.graveyard.len()
     }
 
     fn forget_buffer(&mut self, buffer: &WlBuffer) {

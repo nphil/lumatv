@@ -109,6 +109,15 @@ pub trait Output {
         false
     }
 
+    /// Whether the frees of what clients destroyed may wait: a transition is moving, and a free of a driver import stalls the loop for
+    /// milliseconds (`Gl::bury`), a frame of the move late. They are done once it has ended. The default has nothing to free.
+    fn defer_frees(&mut self, _on: bool) {}
+
+    /// How many retired textures wait to be freed ([`Output::defer_frees`]). The default holds none.
+    fn retired(&self) -> usize {
+        0
+    }
+
     /// Forgets anything cached for a buffer the client destroyed. A released buffer keeps its import: clients
     /// re-attach the same buffers every few frames.
     fn forget_buffer(&mut self, buffer: &WlBuffer);

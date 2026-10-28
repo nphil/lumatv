@@ -1000,6 +1000,14 @@ impl Output for Kms {
         self.held
     }
 
+    fn defer_frees(&mut self, on: bool) {
+        self.gl.defer_frees(on);
+    }
+
+    fn retired(&self) -> usize {
+        self.gl.retired()
+    }
+
     fn forget_buffer(&mut self, buffer: &WlBuffer) {
         self.gl.forget_buffer(buffer);
         if let Some(d) = self.direct.remove(&buffer.id()) {

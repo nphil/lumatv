@@ -82,13 +82,15 @@ screen is up at once, no origin is sent.
 ## Interfaces
 
 - `ctl transitions [on|off|auto]`: the switch over the theme's (for a TV check), then a report: `enabled`, `reduced`, `forced`, `active`, each
-  track's pose, and `stats` (`launches`, `leaves`, `switches`, `interrupted`, `skipped` (a change the engine left alone), `frames`,
-  `maxGapMs`, `lateGaps` (frames over 20 ms apart while a transition ran), `veilCaps`). Journal: `transitions: on|off`.
+  track's pose, `lateLog` (the last eight late frames: age, gap, part) and `stats` (`launches`, `leaves`, `switches`, `interrupted`, `skipped`
+  (a change the engine left alone), `frames`, `maxGapMs`, `lateGaps` (frames over 20 ms apart, both with something moving: a veil that only
+  waits for its video is not counted), `veilCaps`). Journal: `transitions: on|off`, and for each late frame `transitions: frame N ms after the
+  last in a launch|leave|switch|fade (tick before, this tick, last render, held ticks, buffers prepared, imported in a frame)`.
 - `lumatv transitions on|off|status`: writes `motion.transitions` into the owner's theme (the compositor reads the file once a second, Home every 2 s).
 - `Scene::take_visual(window) -> Option<Visual {rect, alpha, radius}>` (AppSwitcher): drops the window's track and answers where its
   picture is on the plan's clock; for a leave that ended less than 600 ms ago, the end pose (the tile, alpha 0).
 - Topic `transitions {on, reduced}`; theme `motion.transitions` (default false, held equal to `Settings::default` by `tests/test_lumatv_transitions.py`).
-- `Output` is untouched; `Item` gained `pose` and `ghost`, `PlannedHole` a `veil`, `Gl::prune` takes the plan's items.
+- `Output` gained `defer_frees(on)` and `retired()` (default: nothing to free); `Item` gained `pose` and `ghost`, `PlannedHole` a `veil`, `Gl::prune` takes the plan's items.
 
 ## Cost
 
@@ -99,15 +101,19 @@ with its brightness, the card with its mask); a veil adds a flat one. Pictures a
 
 ## Tests (host, green 2026-10-28)
 
-- `transition::tests` (25): curves and the CSS bezier, the poses of each kind and their ends exactly, tile cover-fit, interruption from the
+- `transition::tests` (30): curves and the CSS bezier, the poses of each kind and their ends exactly, tile cover-fit, interruption from the
   current pose, splash origin and its age, the veil's hold, settle, cap and fade, reduced motion, refresh-rate independence, late frames,
-  `take_visual` live and after, the switcher's suspension, the theme file's switch.
-- `tests/transitions.rs` (18 with the docs' renders, software renderer, scene planned at a hand-moved clock): launch from the first frame (a quarter of the app over Home at its
+  `take_visual` live and after, the switcher's suspension, the theme file's switch, a veil with no hole that still ends at its cap, which gaps are late
+  frames, the late log, when a waiting veil is due.
+- `tests/transitions.rs` (19 with the docs' renders, software renderer, scene planned at a hand-moved clock): launch from the first frame (a quarter of the app over Home at its
   tile), Home pressed and the pointer is Home's not the ghost's, app to app, an app that exits, an overlay that opens and closes, the card an
   overlay revealed, the veil's hold and dissolve, Home dissolving over a hole, reduced motion, the switch off mid-move, what Home is told;
   and on Mesa's llvmpipe the GL renderer drawing a launch, a veil and an exiting app's last picture the way the software renderer does (a
-  gradient picture, 4,000 samples, none over 6 levels off).
+  gradient picture, 4,000 samples, none over 6 levels off), and the frees of a destroyed buffer waiting for the move's end (Mesa).
 - `tests/transitions_scanout.rs` (2, Mesa, the KMS frame logic over three scan-out pages whose row 0 is the top): a launch and a Home press are the software renderer's pictures (the mask the right way up), and a first buffer the driver is still busy with is not drawn while the move waits for it and is then seen from its start.
+- `tests/livetv.rs` (4, software renderer): what lies under the video's hole (Live Dmost) is not drawn, draws no frame when it commits, still gets its callbacks, and is drawn again where the hole
+  does not cover it or is gone; a Live TV launch (move, a hundred-ms plans while the veil waits, hole, fade) and its leave with the member there: no late frame, `veilCaps` 0, Dmost not in the plan;
+  a card whose hole never comes ends at the cap.
 - `tests/test_transitions_home.py` (QML host): the origin, the waiting launch screen and its icon, the fronted app that cancels it, the
   unchanged cut. `tests/test_lumatv_transitions.py`: the verb, the defaults, the row and the binding.
 
@@ -132,10 +138,24 @@ Counters from `ctl transitions` read before and after; the frame gate's rule is 
 7. App to app (recents, the remote's app button): `switches` +1, the old card darkens under the new; Back from an app that exits: the last picture shrinks into its tile (`leaves` +1, `skipped` unchanged); if `skipped` moved instead, the window had no buffer left: record `ctl windows` and the journal.
 8. LG's Settings (gear, All Settings): it grows from the middle (`launches` +1); Back: it fades out over Home. If `skipped` moved, read its window in `ctl windows` (type, size, opaque region) and name why.
 9. HDMI 2 from its tile: the card is a dark card with the input banner, no black frame at any step (record at 240 fps if the eye is not sure), the picture dissolves in over 180 ms once it is up; `veilCaps` 0. A partial-alpha blend over the plane is what this proves: if the end is a cut at about half, record it and stop here (the fade of the veil and Home's dissolve then need a different design). HDMI with the cable out: the veil holds 1.5 s, dissolves to the plane, `veilCaps` +1.
-10. Netflix playing, then Home: Home dissolves in over the picture (180 ms); Live TV and GeForce NOW: as 9.
+10. Netflix playing, then Home: Home dissolves in over the picture (180 ms); Live TV and GeForce NOW: as 9. Live TV launch and Home: `lateGaps` 0, `maxGapMs` 19 or less; if one moved, `ctl transitions` `lateLog` and `ctl journal | grep 'transitions: frame'` say in which part and what the loop was doing (see the Live TV section), with `ctl ring` lines `P N ms in one pass` around it.
 11. `motion.reduced: true`: every move above is one 120 ms fade, nothing scales.
 12. Cost: with Home idle and transitions on, `ctl status` ticks over 10 s as before (the idle tick still slows); compositor RSS flat over 100 launches and Homes (`gate.sh mem`); a full-screen app is scanned out directly again after a move (`direct` rises); a 60 s X1 run over a launch loop keeps the gate rule.
 13. `lumatv transitions off`: cuts again, `launches` does not move.
+
+## Live TV (round 14)
+
+Round 14 read Live TV with `lateGaps` 1 (30 ms) at the launch and 2 (45 ms) at the leave, 16 frames for the leave against 12 for HDMI 2 and Netflix, where the same veil and the same dissolve
+had none (HDMI 2: `maxGapMs` 19, Netflix 17). What the engine did to the counter and to the card:
+
+- The counter timed every plan while a track lived, a veil waiting for its video included: those plans are the app's commits and the slowed tick, and nothing is expected of every refresh there. A late frame is now a gap over 20 ms between two frames that both had something moving (the move, the fade, a leave).
+- A card that expects video and has no hole never ran its veil's cap (only a hole asked the veil for its time): its transition lasted as long as the card was in front. The veil is stepped for the windows that have no hole too, and the tick does not slow while a veil's settle or cap is within a slowed period.
+- Live TV's group layers lie under the video (`dmostLayer` -10, data, ACR, subtitle layers -5 to -21): Live Dmost was composited and then cleared by the owner's hole, a full-screen layer per frame, and every commit of it drew a frame that showed nothing new. A member below a window that is at rest, whose picture the window's hole covers whole, is not planned.
+- The frees of destroyed buffers (a driver import's unmap stalls the loop, 2 ms to 10 ms each; Live TV ends with Dmost's buffers and its own) wait while a card moves, and are done in the first frame after it (`Output::defer_frees`, at most 12 waiting).
+
+Not shown offline: why the TV's frames were late. The counters name Live TV only, and Dmost starts about 0.8 s after the card (inside the veil's hold) and ends with it at Home, a process's GL context made and destroyed beside the compositor
+[INFERENCE]. The leave's four extra frames fit the move waiting for Home's first picture (`Transitions::anchor`, 100 ms at most) [INFERENCE]. Each late frame is now journaled with the loop's own timings: a long tick before it is the loop's work
+(render, free, import); short ticks around a long gap are the loop waiting or woken late (display, driver, another process), and then the ring's `P N ms in one pass` lines and the KMS `late`/`lost` counters name it.
 
 ## Changelog line
 

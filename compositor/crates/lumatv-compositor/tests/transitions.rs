@@ -427,6 +427,47 @@ fn the_gl_renderer_draws_a_launch_as_the_software_renderer_does() {
     assert_ne!(soft[0].pixel(960, 540), soft[4].pixel(960, 540));
 }
 
+/// A free of a driver import stalls the loop for milliseconds (10 ms for a Netflix buffer): while a card moves, the textures of the buffers clients
+/// destroyed wait, and they are freed in the first frame after the move.
+#[test]
+fn the_frees_of_destroyed_buffers_wait_for_the_move_to_end() {
+    const MESA: &str = "/usr/lib/x86_64-linux-gnu/libEGL.so.1";
+    if !std::path::Path::new(MESA).exists() {
+        eprintln!("no Mesa libEGL on this host; skipping");
+        return;
+    }
+    // SAFETY: set before the server thread (the only EGL user of this test) starts.
+    unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+    let mut server = Server::start_with(Box::new(|| {
+        use lumatv_compositor::render::egl::Platform;
+        use lumatv_compositor::render::gl::{BufferPath, Gl};
+        Box::new(Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).expect("Mesa GL renderer"))
+    }));
+    let mut rig = rig(&mut server, true);
+    let (a, b1) = app(&mut rig, "A", "com.example.a", APP_A);
+    let t0 = 2_000 * MS;
+    tick(&server, t0);
+    tick(&server, t0 + 20 * MS);
+    // the app swaps its buffer in the middle of its own launch and the client destroys the old one, which nothing shows any more
+    let b2 = rig.client.shm_buffer(1920, 1080, APP_B);
+    rig.client.present(&a.surface, &b2);
+    b1.destroy();
+    rig.client.roundtrip();
+    assert_eq!(state(&server, |s| s.output.retired()), 1, "the old buffer's texture is retired");
+    tick(&server, t0 + 40 * MS);
+    tick(&server, t0 + 80 * MS);
+    assert!(state(&server, move |s| s.scene.transitions.animating(t0 + 80 * MS)), "still moving");
+    assert_eq!(state(&server, |s| s.output.retired()), 1, "it is not freed while the card moves");
+    // the move ends at 220 ms; the first frame after it, drawn, frees what waited (the frame before it had the flag of the move)
+    tick(&server, t0 + 230 * MS);
+    state(&server, |s| s.scene.redraw_all());
+    tick(&server, t0 + 250 * MS);
+    state(&server, |s| s.scene.redraw_all());
+    tick(&server, t0 + 270 * MS);
+    assert_eq!(state(&server, |s| s.output.retired()), 0, "freed once the move is over");
+    drop(b2);
+}
+
 /// The same for a card on the video plane: the veil (a flat fill through the card's mask, held, then fading over a cleared hole) and the hole
 /// the display engine blends the plane under, in both renderers.
 #[test]
