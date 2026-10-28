@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at 180 ms, off by default; `off` and `revert` restore LG's store exactly.
 - `venc/`: the TV's hardware H.264 encoder driven from LumaTV's own process (video tap into
   the encoder, zero copy), with a probe and a TCP stream server; protected video stays black.
+- Quick panel docks at the right edge as in mock 10 (648 wide), with steppers beside their
+  names and no LG Quick Settings button; Settings tabs and segments mark the chosen option in the
+  accent; the Notification Centre head and times hold at 200% text.
+- LG's Search app (`lumatv voice on`, off by default): field, keyword chips, genre cards, typed
+  suggestions, mic hint and top row follow mock 09.
+- Built behind switches, off until the TV check: recent apps on Back, Quick Access toasts,
+  quick-panel choices and tile editing, the LumaTV startup cover, LG's launch splash and spinner
+  in LumaTV's look, and an Always Ready off switch. Notification cards are opaque and name the
+  HDMI port.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
