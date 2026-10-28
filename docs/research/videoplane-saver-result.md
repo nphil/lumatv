@@ -301,3 +301,27 @@ status` `ready`, within 10 s `status.json` `playing` and the compositor's journa
 `lumatv vplane install` (walls 2), `vplane start`, `wallpaper video`: `ready true`, `player {"state":"playing","role":"wall"}`, and `wall.hole` true (round 13: false). The No-render_status lines
 still come from the player's connect. Home does not look the same: the picture is a 1856x1024 window and leaves a black margin of 32 px left and right and 27 px top and bottom around the whole of Home (measured on the capture),
 and the grade is darker than the GPU wallpaper. FAIL for go-live. `wallpaper gpu` and `vplane stop` put it back. Next: a clip that covers 1920x1080 (or a plane window scaled to it) with the drift inside the picture.
+
+#### Re-read: the capture shows no margin, and no picture (host-checked against the captures themselves)
+
+The capture's black is not the edge of a 1856x1024 picture. Measured on `wall-video-home.png` (960x540): the black is exactly the screen that Home does not draw on, so the gaps *between* the panes (rows 60-64, 181-185 and 310-314, the
+column 478-484) are `(0,0,0)` as well as the outer margin, and the gaps are inside any picture the margin could bound; the margin's width is Home's own layout margin (66 x 54 px at 1080p), not 32 x 27; and every pane
+is, to the decimal, the pane of round 13's capture of the GPU wallpaper with the owner's look (dock strip `27.1 30.9 55.1` in both). So the panes are right, and the plane's part of the picture is black, or not in the capture:
+
+- If the capture is the compositor's own (`/v1/capture/screenshot`), a hole reads black by construction (`capture-result.md`): nothing about the plane can be read from it.
+- If it is LG's DISPLAY capture (`executeOneShot`, 960x540, as the slot helpers take it), the plane showed black: nothing was on it. That, not a margin, is the failure; it fits `No render_status` and says the
+  attach and the hole are not enough (a placement is asked for and may have been refused: videooutputd's answers were never logged; they are now, as `videooutput: setDisplayWindow for "ctx" answered {...}` lines).
+
+What the TV already measured says the clip is not at fault. `tools/vplane_wall.py probe` matches a capture's outer margin (outside everything Home draws) to the pictures of a clip: on round 13's GPU capture with the owner's look
+it finds `wall-silk-tuned` at 22.6 s, correlation 0.997, at the same place and scale as the screen (no shift, no zoom: a 1856x1024 or inset picture would not correlate), and the TV's own GPU wallpaper is 2 to 7 % brighter than
+the clip's picture (gain 1.01-1.03, offset 0.5-2.3 levels). So the bake (the warp, the grade, vignette, bloom, scrim) is the GPU wallpaper's to within a few levels, measured on the set, and a test keeps it so
+(`test_vplane_wall_clips.py`, `Probe`). The compositor's side is pinned as well: the hole is the whole screen but Home's pixels (margin and gaps), and videooutputd is asked for `sourceInput` 0,0,1920,1080,
+`displayOutput` 0,0 and the panel's whole size, `fullScreen` true (`vplane_host.rs`).
+
+Next capture (replaces "a clip that covers 1920x1080", which it already does), with `wallpaper video` up and nothing else on screen:
+
+1. `luna-send -n 1 luna://com.webos.service.capture/executeOneShot '{"path":"/tmp/d.png","method":"DISPLAY","format":"PNG","width":960,"height":540}'` and the same with `"method":"VIDEO"` (`/tmp/v.png`): the video plane
+   alone, as round 8's `60-once-active-video.jpg` did for the saver. `python3 tools/vplane_wall.py probe d.png` says `ok`, `colour` (the plane is the clip's picture and `ratio`/`fit` is its brightness against the clip's:
+   if it is dark the fix is a tone curve baked into the clip, from `fit`) or `black`/`mismatch`; the VIDEO capture tells which half is at fault: a picture there and black in DISPLAY is the UI plane over it (the
+   compositor), black in both is the pipeline (`No render_status`, a refused placement).
+2. The compositor journal's `luna: setDisplayWindow ...` and the `videooutput: ... answered ...` lines after the switch, and `ctl windows` `video`.

@@ -290,6 +290,14 @@ impl State {
             self.journal(format!("luna: {method} {payload}"));
         }
         let token = self.luna_token();
+        // The answer is journaled when it comes (`luna_event`): videooutputd refusing a placement, or a property, was invisible, and a video that
+        // is attached, placed and playing but not on the screen looks exactly like it (TV round 14). Worded without the method's name: the
+        // gate counts the placements by it.
+        if uri.starts_with("luna://com.webos.service.videooutput/") || uri.starts_with("luna://com.webos.service.avmutemanager/") {
+            let what = uri.rsplit('/').next().unwrap_or_default().to_string();
+            let ctx = payload.get("context").or_else(|| payload.get("contextId")).and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+            self.luna_state.note_video_call(token, what, ctx);
+        }
         self.luna.send(ToBridge::Outbound(Outbound { token, uri, payload, subscribe: false }));
     }
 

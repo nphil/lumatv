@@ -678,10 +678,96 @@ def deep_check(name, v, w):
         bad.append("%s: a repeated picture changes by %.2f levels (the predicted pictures were meant to copy)" % (name, max(flat)))
     return bad
 
+# ---- probe: what a capture of the screen says about the plane ----------------------------------------------------------------
+
+def decoded_pictures(path, size=(480, 270)):
+    """Every third picture (the content's own 20 a second) of the clip at `size`, one numpy float array (h, w, 3) at a time, through ffmpeg."""
+    import numpy as np
+    v = vc.read_vpc(path)
+    w, h = size
+    with tempfile.TemporaryDirectory() as d:
+        raw = os.path.join(d, "s.hevc")
+        with open(raw, "wb") as f:
+            f.write(b"".join(u for u, _ in v["units"]))
+        vf = "select='not(mod(n\\,3))',scale=%d:%d:flags=area:in_range=tv:out_range=pc:in_color_matrix=bt709:out_color_matrix=bt709,format=rgb24" % size
+        p = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", raw, "-vf", vf, "-vsync", "0", "-f", "rawvideo", "-"],
+                             stdout=subprocess.PIPE)
+        try:
+            while True:
+                buf = p.stdout.read(w * h * 3)
+                if len(buf) < w * h * 3:
+                    break
+                yield np.frombuffer(buf, np.uint8).reshape(h, w, 3).astype(np.float32)
+        finally:
+            p.stdout.close()
+            p.wait()
+
+
+def probe(capture, directory=OUT, clip=None, strip=6):
+    """What `capture` (LG's DISPLAY capture of the screen, 960 x 540 or any 16:9 size) says about the video plane while the wallpaper plays: the
+    outer `strip` pixels (at 480 x 270) are outside everything Home draws (its layout keeps 66 x 54 px of margin at 1080p), so they show the plane
+    alone. The clip's pictures are matched to them by correlation (the picture, and where it is on the screen: the pictures are the screen's size
+    and unshifted, so a match is the geometry), and the brightness is read as a gain and an offset per channel.
+    Returns {"verdict", "why", "clip", "picture", "t", "corr", "ratio", "fit", "margin"}; the verdicts are `black` (the plane shows nothing there:
+    not playing, or the capture cannot see it: the compositor's own capture reads a hole as black, LG's does not), `ok`, `colour` (the picture is the
+    clip's, its brightness is not) and `mismatch` (something else is there)."""
+    import numpy as np
+    from PIL import Image
+    doc = load_manifest(directory)
+    if not doc or not doc.get("walls"):
+        raise SystemExit("no wall clips in %s" % directory)
+    cap = np.asarray(Image.open(capture).convert("RGB").resize((480, 270), Image.BOX)).astype(np.float32)
+    m = np.zeros((270, 480), bool)
+    m[:strip] = m[-strip:] = True
+    m[:, :strip] = m[:, -strip:] = True
+    luma = lambda a: a @ np.array([0.299, 0.587, 0.114], np.float32)
+    margin = float(luma(cap)[m].mean())
+    out = {"verdict": "black", "why": "", "clip": None, "picture": None, "t": None, "corr": 0.0, "ratio": None, "fit": None, "margin": round(margin, 2)}
+    if margin < 2.0:
+        out["why"] = ("the screen's margin is black (mean luma %.2f): the plane shows no picture there. Not playing, not connected, or the capture cannot see the "
+                      "plane (the compositor's own capture reads a hole as black; LG's DISPLAY capture shows the plane)" % margin)
+        return out
+    cl = luma(cap)[m]
+    cl = cl - cl.mean()
+    best = None
+    for w in doc["walls"]:
+        if clip and w["id"] != clip:
+            continue
+        for i, pic in enumerate(decoded_pictures(os.path.join(directory, w["file"]))):
+            g = luma(pic)[m]
+            g = g - g.mean()
+            c = float((cl * g).sum() / math.sqrt(float((cl * cl).sum()) * float((g * g).sum()) + 1e-9))
+            if best is None or c > best[0]:
+                best = (c, w["id"], i, pic)
+    if best is None:
+        raise SystemExit("no clip %r in %s" % (clip, directory))
+    c, wid, i, pic = best
+    ratio = [float(cap[m][:, k].mean() / max(pic[m][:, k].mean(), 1e-6)) for k in range(3)]
+    fit = [[round(float(v), 3) for v in np.polyfit(pic[m][:, k], cap[m][:, k], 1)] for k in range(3)]      # capture = gain * clip + offset
+    out.update(clip=wid, picture=i, t=round(i / float(next(w for w in doc["walls"] if w["id"] == wid)["contentFps"]), 2), corr=round(c, 4),
+               ratio=[round(r, 3) for r in ratio], fit=fit)
+    if c >= 0.98 and all(0.9 <= r <= 1.1 for r in ratio):
+        out["verdict"], out["why"] = "ok", "the plane shows %s at %.1f s, full screen and unshifted, brightness within 10 %% of the clip's" % (wid, out["t"])
+    elif c >= 0.98:
+        out["verdict"], out["why"] = "colour", "the picture is %s's, its brightness is %s of the clip's (gain, offset per channel in `fit`)" % (wid, "/".join("%.2f" % r for r in ratio))
+    else:
+        out["verdict"], out["why"] = "mismatch", "the margin shows something, but not a picture of the clip at its place (best correlation %.2f)" % c
+    return out
+
+
+def cmd_probe(a):
+    r = probe(a.capture, a.dir, a.clip or None)
+    print(json.dumps(r))
+    return 0 if r["verdict"] == "ok" else 1
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
+    pr = sub.add_parser("probe", help="read a capture of the screen: does the plane show the clip, where, how bright")
+    pr.add_argument("capture")
+    pr.add_argument("--dir", default=OUT)
+    pr.add_argument("--clip", default="")
     wl = sub.add_parser("wall")
     wl.add_argument("--out", default=OUT)
     wl.add_argument("--id", default="silk")
@@ -702,6 +788,8 @@ def main():
     ck.add_argument("--dir", default=OUT)
     ck.add_argument("--deep", action="store_true")
     a = ap.parse_args()
+    if a.cmd == "probe":
+        return cmd_probe(a)
     if a.cmd == "wall":
         return cmd_wall(a)
     if a.cmd == "frame":

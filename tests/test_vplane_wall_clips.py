@@ -371,5 +371,57 @@ class Encode(unittest.TestCase):
             vw.wallpaper_path("not-there.png")
 
 
+EVIDENCE = os.path.join(ROOT, "docs", "research", "compositor")
+GPU_CAPTURE = os.path.join(EVIDENCE, "slot-2026-10-28-1300", "wallpaper", "home-gpu-look.png")          # LG's DISPLAY capture, the GPU wallpaper, the owner's look
+PLANE_CAPTURE = os.path.join(EVIDENCE, "slot-2026-10-28-r14", "img", "wall-video-home.png")             # round 14: the video wallpaper's capture
+
+
+@unittest.skipUnless(HAVE_PIL and shutil.which("ffmpeg") and os.path.exists(GPU_CAPTURE), "needs Pillow, numpy, ffmpeg and the evidence captures")
+class Probe(unittest.TestCase):
+    """`vplane_wall.py probe` on what the set captured. The GPU wallpaper that the TV drew in round 13 (the owner's look) is the baked clip's picture, which
+    is the check of the bake against the real thing: the same structure (correlation 0.997 at 22.6 s of the loop, at the same place on the screen, so
+    no scaling or shift) and the same light to within 2 to 7 percent. Round 14's capture is black wherever Home draws nothing, margin and gaps between
+    its panes alike (so not a picture 1856 x 1024 in a window: the gaps are inside it): the plane shows nothing in it, or the capture cannot see it."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("needs numpy")
+
+    def test_the_bake_is_the_gpu_wallpaper_the_tv_drew(self):
+        r = vw.probe(GPU_CAPTURE, SHIPPED, "silk-tuned")
+        self.assertEqual(r["verdict"], "ok", r)
+        self.assertGreaterEqual(r["corr"], 0.99)
+        self.assertTrue(22.0 <= r["t"] <= 23.2, r)
+        self.assertTrue(all(0.95 <= x <= 1.10 for x in r["ratio"]), r)
+
+    def test_the_clip_of_the_other_look_is_not_that_picture(self):
+        self.assertLess(vw.probe(GPU_CAPTURE, SHIPPED, "silk")["corr"], vw.probe(GPU_CAPTURE, SHIPPED, "silk-tuned")["corr"])
+
+    def test_round_14s_capture_is_black_where_the_plane_should_show(self):
+        if not os.path.exists(PLANE_CAPTURE):
+            self.skipTest("no round 14 capture")
+        r = vw.probe(PLANE_CAPTURE, SHIPPED)
+        self.assertEqual((r["verdict"], r["margin"]), ("black", 0.0), r)
+        im = Image.open(PLANE_CAPTURE).convert("RGB")
+        w, h = im.size
+        black = lambda x, y: im.getpixel((x, y)) == (0, 0, 0)
+        # the black is the whole of the screen that Home does not draw on: the margin, and the gaps between the panes (rows 60-64 and 310-314, the column
+        # 478-484 of the 960 x 540 capture), which are inside any picture the margin could be the edge of
+        self.assertTrue(all(black(x, y) for x in range(0, w, 20) for y in (3, 20)))
+        self.assertTrue(all(black(x, y) for x in range(40, 920, 40) for y in (60, 62, 64, 310, 312, 314)))
+        self.assertTrue(all(black(x, y) for x in (479, 481, 483) for y in range(80, 300, 20)))
+
+    def test_a_darker_plane_is_a_colour_finding_and_not_a_geometry_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            dark = os.path.join(d, "dark.png")
+            Image.eval(Image.open(GPU_CAPTURE).convert("RGB"), lambda v: int(v * 0.8)).save(dark)
+            r = vw.probe(dark, SHIPPED, "silk-tuned")
+        self.assertEqual(r["verdict"], "colour", r)
+        self.assertGreaterEqual(r["corr"], 0.98)
+        self.assertTrue(all(0.78 <= x <= 0.92 for x in r["ratio"]), r)
+
 if __name__ == "__main__":
     unittest.main()

@@ -448,6 +448,20 @@ fn the_wallpaper_is_a_hole_under_home_and_home_draws_over_it() {
     assert_eq!(image.pixel(1500, 700), [0, 0, 0, 0], "the hole shows through Home's transparent pixels");
     assert_eq!(image.pixel(700, 450), [0x10, 0x20, 0x30, 0x80], "Home's glass is drawn over the hole, not cleared by it");
     assert_eq!(image.pixel(300, 940), [0x20, 0x30, 0x50, 0xff], "so is the dock");
+    // the whole screen but Home's own pixels is hole: its margin and the gaps between its panes are transparent too, so a picture of the page that cannot
+    // see the video plane (the compositor's own capture reads a hole as black) shows Home's panes on black to the screen's edge, as round 14's capture did
+    for (x, y) in [(0, 0), (1919, 1079), (30, 540), (1890, 540), (960, 5), (960, 1075), (300, 200), (1200, 450)] {
+        assert_eq!(image.pixel(x, y), [0, 0, 0, 0], "({x}, {y}) is hole");
+    }
+    // and videooutputd is asked for the whole panel: the clip's 1920x1080 as the source, the output scaled to the panel's pixels from its corner, full screen
+    let calls = server.eval(placements);
+    let mine = calls.iter().rev().find(|c| c["context"] == "_ctx_wall").unwrap_or_else(|| panic!("a placement for the wallpaper: {calls:?}"));
+    let out = &mine["displayOutput"];
+    let (ox, oy, ow, oh) = (out["x"].as_i64().unwrap(), out["y"].as_i64().unwrap(), out["width"].as_i64().unwrap(), out["height"].as_i64().unwrap());
+    assert_eq!((ox, oy), (0, 0), "from the panel's corner: {out}");
+    assert!(ow >= 1920 && ow % 1920 == 0 && oh % 1080 == 0 && ow / 1920 == oh / 1080, "the whole output at the panel's scale, no margin short of it: {out}");
+    assert_eq!(mine["fullScreen"], true);
+    assert_eq!(mine["sourceInput"], json!({"x": 0, "y": 0, "width": 1920, "height": 1080}));
     // the shell is told the hole is there (it hides its own wallpaper only then)
     let topic = server.eval(|s| {
         s.shell.connected = true;

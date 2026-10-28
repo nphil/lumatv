@@ -30,6 +30,26 @@ pub struct LunaState {
     /// The audio service's volume subscription, and the mute state it last pushed (what Mute toggles from).
     audio_token: Option<u64>,
     pub muted: bool,
+    /// The tokens of the video calls (placements, properties, mute) that have not been answered yet: (token, method, context). Capped: an answer
+    /// that never comes must not grow it.
+    video_calls: Vec<(u64, String, String)>,
+}
+
+impl LunaState {
+    pub(crate) fn note_video_call(&mut self, token: u64, method: String, context: String) {
+        if self.video_calls.len() >= 32 {
+            self.video_calls.remove(0);
+        }
+        self.video_calls.push((token, method, context));
+    }
+
+    /// The journal line for the answer to a video call, when `token` is one: {"returnValue": false, ...} is the case that matters, but every
+    /// answer is kept: the line is how a placement is known to have been accepted.
+    pub(crate) fn video_answer(&mut self, token: u64, payload: &Value) -> Option<String> {
+        let at = self.video_calls.iter().position(|(t, ..)| *t == token)?;
+        let (_, method, context) = self.video_calls.remove(at);
+        Some(format!("videooutput: {method} for {context:?} answered {payload}"))
+    }
 }
 
 impl Default for LunaState {
@@ -43,6 +63,7 @@ impl Default for LunaState {
             next_token: 0,
             power_tokens: Vec::new(),
             audio_token: None,
+            video_calls: Vec::new(),
             muted: false,
         }
     }
@@ -127,6 +148,10 @@ impl State {
     /// An answer to one of the compositor's own calls: tvpower pushes and the audio service's volume state are the
     /// ones acted on; the shell's calls are answered to it.
     pub fn luna_event(&mut self, ev: Event) {
+        if let Some(line) = self.luna_state.video_answer(ev.token, &ev.payload) {
+            self.journal(line);
+            return;
+        }
         if Some(ev.token) == self.luna_state.audio_token {
             // X4: {"volumeStatus": {"muteStatus": false, "soundOutput": "external_arc", "volume": 0, ...}}
             if let Some(m) = ev.payload.pointer("/volumeStatus/muteStatus").and_then(Value::as_bool) {
@@ -523,5 +548,20 @@ mod tests {
         assert!(uri.ends_with("/power2/responsePreparePowerOn"));
         assert!(p.rendering);
         assert!(p.on_push("PreparePowerOff", &json!({"state": "ACTIVE"})).is_none(), "a state echo without a timestamp is not a round");
+    }
+
+    #[test]
+    fn the_answer_to_a_video_call_is_a_journal_line_once_and_the_list_is_capped() {
+        let mut s = LunaState::default();
+        s.note_video_call(7, "setDisplayWindow".into(), "_ctx_1".into());
+        assert!(s.video_answer(8, &json!({"returnValue": true})).is_none(), "another call's answer is not this one's");
+        let line = s.video_answer(7, &json!({"returnValue": false, "errorText": "no such context"})).unwrap();
+        assert_eq!(line, r#"videooutput: setDisplayWindow for "_ctx_1" answered {"errorText":"no such context","returnValue":false}"#);
+        assert!(!line.contains("luna: "), "the gate counts placements by the journal's `luna: setDisplayWindow` lines");
+        assert!(s.video_answer(7, &json!({})).is_none(), "once");
+        for t in 0..100 {
+            s.note_video_call(t, "setDisplayWindowProperty".into(), String::new());
+        }
+        assert_eq!(s.video_calls.len(), 32, "an answer that never comes does not grow the list");
     }
 }
