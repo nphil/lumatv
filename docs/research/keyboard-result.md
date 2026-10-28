@@ -197,7 +197,23 @@ journals no text, and the protocol log (`--log-protocol`) prints byte counts for
   too faint): none at 100 %, no overlap at 200 %. The audit learned that the underscore hangs under the baseline and the grave accent stands above
   the capitals (`layoutaudit.py`).
 
-## TV check (one slot; not run)
+## TV round 2026-10-28 (round 13, `compositor/slot-2026-10-28-1300/keyboard/`)
+
+LumaTV's compositor live on `0f2190c`, receiver muted. Steps 1 to 3 of the check; the rest was not run because step 3 failed.
+
+- Before: `keyboard status` `lg`; `ctl shell` `can` has `keyboard`; `ctl ime` `own.flag` false, `canShow` true. LG's Search (launched as the gate's `ime`
+  step does, `launchMode vkb`): maliit's panel (1920x438 at y 642) came 4.2 s after the launch (the on-demand start), `asked 1`.
+- `lumatv keyboard luma`: `{"ok":true,"keyboard":"luma"}`, `own.flag` true, `surfaces` has `keyboard-luma` on.
+- Search under `luma` (three launches, with and without `launchMode vkb`, and OK on the field): FAIL. The compositor logs `text model N entered; the shell's
+  keyboard serves it` but the keyboard never comes up: the `ime` topic reads `active true, show false` for the whole stay, `own.counts.shown` 0 and the shell's
+  `keyboard.up` false; the picture (`own-search.png`) is Search with a text cursor and no keyboard. Cause: LG's Search activates its text model and never sends
+  `show_input_panel`; maliit shows its keyboard at the activation by its own policy, the shell's waited for the request.
+- Fix (offline, in the next bundle): a field served by the shell's keyboard is shown at its activation, and the app's `hide_input_panel` takes it away
+  (`server/ime.rs`, `begin_own`); host test `ime_own.rs::a_field_that_never_asks_for_its_keyboard_still_gets_the_shells_at_activation` (fails on the old code).
+- `lumatv keyboard lg` again (status `lg`); the gate's `ime` step is the one for it.
+- Not run: steps 4 to 12 (typing, Backspace, a web app's field, the remote's repeat rate, the frame gate markers, voice, the fall-backs), which need the fix on the set.
+
+## TV check (one slot; run in part, see above)
 
 LumaTV's compositor live, Home in front, receiver muted, evidence to `docs/research/keyboard/tv/` (`log.txt` first, PASS, FAIL or INFO a line).
 `TOOL`, `APP`, `shot` and `kb` as in `lg-restyles-result.md`'s "TV check, overnight round"; `ctl` is the compositor's control socket.

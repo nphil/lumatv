@@ -1,0 +1,1 @@
+video tap: flags 0x3f (scale-up 1, scale-down 1, divide-framerate 1) up-limit 3840x2160 down-limit 320x240 buffers 5 max 3840x2160 planes 2 pixel_format 1

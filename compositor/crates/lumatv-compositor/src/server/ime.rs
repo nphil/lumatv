@@ -940,7 +940,10 @@ fn begin_own(state: &mut State, mid: u32) {
     m.serial = serial;
     m.ctx = None;
     m.method = None;
-    m.own_show = std::mem::take(&mut m.show_wanted);
+    // LG's Search app (and maliit's own policy) never asks for the panel: maliit shows its keyboard at the field's activation, so the
+    // shell's does too, and the app's `hide_input_panel` takes it away again (TV, 2026-10-28: `show` stayed false for Search).
+    m.show_wanted = false;
+    m.own_show = true;
     let (res, surface, show) = (m.res.clone(), m.surface.clone(), m.own_show);
     state.ime.own.counts.activations += 1;
     if let Some(surface) = surface

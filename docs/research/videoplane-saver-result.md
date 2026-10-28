@@ -242,3 +242,25 @@ Beyond what the run shows: the loop seam; the exported window moving without a g
 - The role file (an LS2 permission grant) and the new root process: `lumatv vplane install` when he says so.
 - The switch: `lumatv theme set '{"screensaver":{"video":true}}'`, only after steps 1-6.
 - The moving wallpaper: `lumatv vplane install` (above), then `lumatv wallpaper video`, only after steps 1-9 of "TV steps and measurements".
+
+### TV round 13, 2026-10-28 (`compositor/slot-2026-10-28-1300/wallpaper/`): installed, plays, does not reach the plane under Home
+
+LumaTV's compositor live (`0f2190c`), Home in front, receiver muted, Nitin's OK for `lumatv vplane install`.
+
+- Step 1 (baseline, GPU wallpaper): Mali 12.7 % busy, 12.3 flips a second, `DE2VSYNC` 120.6 and `osd_irq` 119.9 a second, CPU of the compositor 3.0 %, of the
+  shell client 4.9 %, `CmaFree` lowest 9.7 MB, `MemAvailable` 628 MB, 53 C.
+- Step 2: `lumatv vplane install` `{"installed":true,"role":true,"clips":6,"walls":1}`, `start` running, `lumatv-vplane -n` `clipsOk 6`, `wallsOk 1`; no
+  `LSHUB`/`Invalid permissions` lines for the player.
+- Step 3: `lumatv-vplane --once wall-silk 20` at Home: `playing` 5 s in, `fed 302`, window `_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER` exported (`_Window_Id_6`), exit 0,
+  Home stayed the foreground app. `CmaFree` fell to 5.6 MB while it played (11 MB before): the decoder takes about 5 MB of the 11 that are free.
+- Step 4: `lumatv wallpaper video` alone changes nothing: `ready true` but the player stays `idle`. Home's own gate is the cause: `wallPick` needs the look the clip
+  was made with (`wall.json` `look.motion`: amplitude 4, speed 1, depth 0.25, scale 1, detail 0.35, vignette 0, specular 0, bloom 0, saturation 1, contrast 1) and
+  Nitin's `wallpaperMotion` is amplitude 12, depth 0.45, scale 1.2, detail 0.5, vignette 0.9, bloom 0.25, saturation 1.25, contrast 1.25, so the GPU wallpaper
+  draws as designed. To test the plane anyway his look was set to the clip's through `lumatv theme set` (his `theme.json` was copied first and put back, md5
+  equal, then `lumatv wallpaper gpu`): after `ctl shell restart` (the clip manifest is read at the shell's start; installing the player afterwards is not seen
+  until then) the player went `playing wall-silk`, `fed` 904 in 15 s, `queue 1`, `playingMs` 15282.
+  But the compositor's `wall` topic stayed `hole false`, the shell's `wall.up` false, `ctl windows` `video` `[]` (no exported video window placed), and SAM's log
+  has `avc.impl tryConnect "No render_status"` for the player's decoder: the picture was never put on the plane under Home. Measured over 27 s with the player
+  playing: Mali 12.5 % (12.7 % on the GPU wallpaper), 12.1 flips a second, `DE2VSYNC` 120.5, CPU 15.8 % in all (the player 4.1 %, the compositor 3.1 %, the shell
+  client 5.2 %), `CmaFree` lowest 3.3 MB. No saving, and 3 MB of CMA left. FAIL; steps 5 to 10 not run.
+- End: `lumatv wallpaper gpu` (`source gpu`), Nitin's look back, player stopped, `vplane` left installed. `lumatv wallpaper video` is not turned on.

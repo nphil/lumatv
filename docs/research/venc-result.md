@@ -156,3 +156,21 @@ The encoder is the right source for everything that is not OpenNOW (an HDMI cons
 ## Changelog line (for Main)
 
 `venc/`: the C4's hardware H.264 encoder reached from LumaTV's own process (video tap into `/dev/venc`, zero copy), with a probe, a TCP stream server and host tests; first TV slot scripted (`docs/research/venc-result.md`).
+
+## First TV slot, run 2026-10-28 (`compositor/slot-2026-10-28-1300/venc/`)
+
+Home in front, nothing playing, receiver muted, `venc/tv_slot.sh` and the 64-bit probe in `/tmp/venc` (no `--apps`). It stopped at step 5.
+
+- 1. `caps`: rc 0. The `/dev/venc` nodes, the five V4L2 controls (profile 0 to 4, level 0 to 13) and `vtcaps` (flags 0x3f, up 3840x2160, down 320x240, 5 buffers) read
+  as expected. `/proc/hma/status` lists `venc1` (0xc00000 at 0x76200000) beside `cpb` (0x4200000).
+- 2. `synth-720p-short`: rc 2, `venc: buffer info unusable: es 0x00000000+0x0 aui 0x00000000+0x0`: the `/dev/venc` route returns no stream buffer address. No stream, so
+  no later `/dev/venc` step ran. `decode_check.py`: 0 frames.
+- 5. `m2m-720p` (the V4L2 fallback): the probe printed `out planes 921600+460800 bytes, es buffers 921600 bytes` and then spun at 100 % of one core for good.
+  `/proc/PID/stack`: `v4l_dqbuf` -> `__dma_inv_area` -> `do_mem_abort` -> `do_page_fault` (a page fault that is retried forever inside `VIDIOC_DQBUF` on the mapped
+  capture buffer). SIGTERM and SIGKILL are pending (`SigPnd`/`ShdPnd` set) and never acted on, because the task never leaves the kernel. The slot script was ended
+  by hand so no step ran after it. Left as found: `lumatv-venc` pid 3262, state R, one core busy. The only clean-up is a reboot, which is Nitin's.
+- The decoder is not stalled: `lumatv-vplane --once great-wave 8` played (`fed 306`) with the probe still spinning; Home stayed in front; `MemAvailable` 624 MB,
+  `CmaFree` 21 MB. Steps 3, 4, 6, 7 (the paced and unpaced runs, the video tap steps) and 8 were not run.
+- To do before another slot: why the capture planes' addresses are zero on the `/dev/venc` route, and the V4L2 node's DQBUF fault (the probe mapped the capture
+  buffer; a fault in `__dma_inv_area` means the mapping is not valid for the CPU); the probe should poll with a timeout and `munmap` before the DQBUF, and never reach
+  a DQBUF without a successful QBUF/STREAMON on the capture queue.

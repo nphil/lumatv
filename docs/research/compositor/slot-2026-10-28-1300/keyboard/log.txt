@@ -1,0 +1,171 @@
+06:32:36 keyboard status {"ok":true,"on":false,"patched":false,"keyboard":"lg"}
+06:32:37 ime keys ['active', 'asked', 'counts', 'grab', 'grabbing', 'keyboardUp', 'methods', 'models', 'ok', 'own', 'panel']
+06:32:37 own {"broken": false, "canShow": true, "counts": {"activations": 0, "clears": 0, "failed": 0, "hides": 0, "keys": 0, "nav": 0, "shown": 0, "texts": 0}, "flag": false, "pending": false, "serving": false, "up": null}
+06:32:37 shell can "can":["quick","picker","drawer","keyboard"]
+06:32:37 compositor {"ok":true,"compositor":{"bundle":true,"enabled":true,"flag":"persistent","mounted":true,"live":true,"lgBinary":"mounted","firmware":"verified","escaped":false,"unsettled":false,"failures":0,"lastFall 
+06:32:43 --- LG baseline
+06:32:47 seconds to keyboard panel (LG/maliit): 4.221954584121704 asked 1 panel {"h": 438, "w": 1920, "x": 0, "y": 642}
+06:32:48 shot lg-search
+06:32:55 fg com.webos.app.home
+06:32:55 --- own ON
+06:32:55 {"ok":true,"keyboard":"luma"}
+06:32:55 own {"broken": false, "canShow": true, "counts": {"activations": 0, "clears": 0, "failed": 0, "hides": 0, "keys": 0, "nav": 0, "shown": 0, "texts": 0}, "flag": true, "pending": false, "serving": false, "up": null}
+06:32:55 surfaces keyboard ['{"id":"keyboard","on":false,"fallback":"`keyboard off` rebuilds the shadow module with LG\'s own keyboard view; revert drops the module"}', '{"id":"keyboard-luma","on":true,"fallback":"`keyboard lg` takes the flag away; LG\'s keyboard serves the next field, and already does while the shell is not live or its keyboard does not come up"}']
+06:33:03 --- own Search
+06:33:37 seconds to first own keyboard: None own {"broken": false, "canShow": true, "counts": {"activations": 1, "clears": 0, "failed": 0, "hides": 0, "keys": 0, "nav": 0, "shown": 0, "texts": 0}, "flag": true, "pending": false, "serving": true, "up": null} asked before/after 1 1 grabbing False
+06:33:39 shot own-search
+06:33:40 journal ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x1080, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+ime: text model 3 entered; the shell's keyboard serves it"],"ok":true}
+06:33:44 after two OK: texts 0 keys 0 active surround null
+06:33:45 shot own-typed
+06:33:49 shot own-bksp-focus
+06:33:51 after backspace: keys 0 texts 0 active null
+06:33:52 shot own-after-bksp
+06:33:52 BACK (keyboard up):
+06:33:54  up after back None fg com.webos.app.home
+06:33:55 shot own-after-back
+06:33:57  after 2nd back fg com.webos.app.home
+06:34:09 Set default WEBOS_WINDOW_BASE_GEOMETRY as '1920x1080'
+Set devicePixelRatio as 1 by WEBOS_DEVICE_PIXEL_RATIO
+Adding screen 0x11e5438 for wl_output 7 with displayId of "" details: "OLED65C4PUA" true
+Using Wayland-EGL
+Library qttestability load failed!
+Set default WEBOS_WINDOW_BASE_GEOMETRY as '1920x1080'
+Set devicePixelRatio as 1 by WEBOS_DEVICE_PIXEL_RATIO
+Adding screen 0x1581438 for wl_output 7 with displayId of "" details: "OLED65C4PUA" true
+Using Wayland-EGL
+Library qttestability load failed!
+Set default WEBOS_WINDOW_BASE_GEOMETRY as '1920x1080'
+Set devicePixelRatio as 1 by WEBOS_DEVICE_PIXEL_RATIO
+Adding screen 0xf68438 for wl_output 7 with displayId of "" details: "OLED65C4PUA" true
+Using Wayland-EGL
+Library qttestability load failed!
+Set default WEBOS_WINDOW_BASE_GEOMETRY as '1920x1080'
+Set devicePixelRatio as 1 by WEBOS_DEVICE_PIXEL_RATIO
+Adding screen 0x15f8438 for wl_output 7 with displayId of "" details: "OLED65C4PUA" true
+Using Wayland-EGL
+Library qttestability load failed!
+Set default WEBOS_WINDOW_BASE_GEOMETRY as '1920x1080'
+Set devicePixelRatio as 1 by WEBOS_DEVICE_PIXEL_RATIO
+Adding screen 0x199b438 for wl_output 7 with displayId of "" details: "OLED65C4PUA" true
+Using Wayland-EGL
+Library qttestability load failed!
+ 
+06:34:10 ime: no input method is bound; asking the system for one (initctl emit ime-activate)
+ime: an input method (version 1) bound by pid 22877
+ime: text model 1 entered; the input method's context is made
+ime: window 10 is the keyboard's (surface 235) by pid 22877
+ime: window 12 is the keyboard's (surface 238) by pid 22877
+ime: the input method grabbed the keyboard
+window 10 mapped (Keyboard app \"\" title \"MaliitServer\" size Some((1920, 1080)))
+ime: the keyboard is on the screen: 1920x438 at (0, 642); its window 1920x1080, input region None (keyboard 1920x438 at (0, 0) in it), the field asked for None
+window 10 unmapped (Keyboard app \"\" title \"MaliitServer\" size None)
+ime: the keyboard is off the screen
+ime: text model 1 left (the app deactivated it)
+ime: text model 3 activated on surface 220 (\"com.webos.app.voice\")
+ime: text model 3 entered; the shell's keyboard serves it
+ime: text model 3 left (the app deactivated it)
+ 
+06:34:10 "keyboard"]
+"uri":"luna://com.webos.service.panelcontroller/getPanelUsageTime"}
+"ime":{"active":false
+"keyboard":{"up":false}
+"keyboard":{"busy":false
+ 
+06:34:21 topics.ime {"active": true, "app": "com.webos.app.voice", "enter": 5, "hint": 5, "max": 32767, "model": 4, "purpose": 0, "show": false, "text": false}
+06:34:21 ui {"alert": false, "beat": true, "dropped": 0, "focus": "dock", "homeLoaded": true, "hostActive": true, "idleHold": true, "keyboard": {"busy": false, "focus": 0, "key": "mode", "layout": "letters", "listening": false, "live": false, "shift": 0, "up": false, "voice": true}, "keys": 0, "layer": "", "link": {"calls": 148, "events": 201, "up": true}, "osd": true, "overlay": "", "pin": false, "saver": false, "settings": false, "toasts": 0, "wall": {"backend": "own", "hole": false, "up": false}}
+06:34:21 own {"broken": false, "canShow": true, "counts": {"activations": 2, "clears": 0, "failed": 0, "hides": 0, "keys": 0, "nav": 0, "shown": 0, "texts": 0}, "flag": true, "pending": false, "serving": true, "up": null} {"app": "com.webos.app.voice", "context": false, "enter": 5, "hint": 5, "max": 32767, "model": 4, "own": true, "ownShow": false, "purpose": 0, "showWanted": false, "surface": 220, "surround": {"cursor": 0, "len": 0}}
+06:34:22 shot own-diag
+06:34:36 before OK ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 5, 'purpose': 0, 'show': False, 'text': False}, {'busy': False, 'focus': 0, 'key': 'mode', 'layout': 'letters', 'listening': False, 'live': False, 'shift': 0, 'up': False, 'voice': True})
+06:34:39 after OK ({'active': False, 'show': False}, {'busy': False, 'focus': 0, 'key': 'mode', 'layout': 'letters', 'listening': False, 'live': False, 'shift': 0, 'up': False, 'voice': True}) {"broken": false, "canShow": true, "counts": {"activations": 3, "clears": 0, "failed": 0, "hides": 0, "keys": 0, "nav": 0, "shown": 0, "texts": 0}, "flag": true, "pending": false, "serving": false, "up": null}
+06:34:40 shot own-after-ok
+06:34:42 after OK 2 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 6, 'purpose': 0, 'show': False, 'text': False}, {'busy': False, 'focus': 0, 'key': 'mode', 'layout': 'letters', 'listening': False, 'live': False, 'shift': 0, 'up': False, 'voice': True})
+06:34:43 shot own-after-ok2
+06:35:07 params {} t+1.5 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 7, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:09 params {} t+3.0 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 7, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:10 params {} t+4.5 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 7, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:12 params {} t+6.0 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 7, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:14 params {} t+7.5 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 7, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:15 params {} t+9.0 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 7, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:16 shot own-plain-2
+06:35:20 params {"activateType":"mrcu"} t+1.5 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 8, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:22 params {"activateType":"mrcu"} t+3.0 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 8, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:24 params {"activateType":"mrcu"} t+4.5 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 8, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:25 params {"activateType":"mrcu"} t+6.0 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 8, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:27 params {"activateType":"mrcu"} t+7.5 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 8, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:29 params {"activateType":"mrcu"} t+9.0 ({'active': True, 'app': 'com.webos.app.voice', 'enter': 5, 'hint': 5, 'max': 32767, 'model': 8, 'purpose': 0, 'show': False, 'text': False}, False)
+06:35:29 shot own-plain-23
+06:35:32 ime: text model 6 entered; the shell's keyboard serves it
+ime: text model 6 left (the app deactivated it)
+ime: text model 7 activated on surface 220 (\"com.webos.app.voice\")
+ime: text model 7 entered; the shell's keyboard serves it
+ime: text model 7 left (the app deactivated it)
+ime: text model 8 activated on surface 220 (\"com.webos.app.voice\")
+ime: text model 8 entered; the shell's keyboard serves it
+ime: text model 8 left (the app deactivated it)
+ 
+06:37:41 {"ok":true,"wallpaper":{"source":"video","ready":true,"missing":[],"compositor":"own","vplane":{"installed":true,"role":true,"clips":6,"walls":1,"running":true,"pid":27435},"player":{"state":"idle","role":""}}}
+ 
+06:37:43 t+1.5 idle   0
+06:37:44 t+3.0 idle   0
+06:37:46 t+4.5 idle   0
+06:37:48 t+6.0 idle   0
+06:37:49 t+7.5 idle   0
+06:37:51 t+9.0 idle   0
+06:37:53 t+10.5 idle   0
+06:37:54 t+12.0 idle   0
+06:37:55 {"ok":true,"wallpaper":{"source":"video","ready":true,"missing":[],"compositor":"own","vplane":{"installed":true,"role":true,"clips":6,"walls":1,"running":true,"pid":27435},"player":{"state":"idle","role":""}}}
+ 
+06:37:57 "wall":{"hole":false}}
+"wall":{"backend":"own"
+ 
+06:37:58 window 14: title = LumaTV wallpaper (Card)
+window 14: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER (Wallpaper)
+window 14 mapped (Wallpaper app \"org.nphil.lumatv.vplane\" title \"LumaTV wallpaper\" size Some((16, 16)))
+client connected: pid 27064 uid 0 cmd \"/var/lib/lumatv/bin/lumatv-vplane --once wall-silk 20\"
+client disconnected: pid 27064 uid 0 after 20241 ms (ConnectionClosed); bound [\"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\
+client disconnected: pid 27064 uid 0 after 20049 ms (ConnectionClosed); bound [\"wl_compositor\", \"wl_shell\", \"wl_webos_shell\", \"wl_webos_foreign\"]; cmd \"/var/lib/lumatv/bin
+ 
+06:38:51 player idle   ui idleHold False wall {'backend': 'own', 'hole': False, 'up': False}
+06:38:54 player idle   ui idleHold False wall {'backend': 'own', 'hole': False, 'up': False}
+06:38:58 player idle   ui idleHold False wall {'backend': 'own', 'hole': False, 'up': False}
+06:39:02 player idle   ui idleHold False wall {'backend': 'own', 'hole': False, 'up': False}
+06:39:06 player idle   ui idleHold False wall {'backend': 'own', 'hole': False, 'up': False}
+06:39:09 player idle   ui idleHold False wall {'backend': 'own', 'hole': False, 'up': False}
+06:39:17 {"can":[],"connected":false,"enabled":true,"error":null,"gaveUp":false,"homeCommits":5393,"homeDrawn
+06:39:21 t+3 playing wall wall-silk 234 {'backend': 'own', 'hole': False, 'up': False}
+06:39:35 wall {'backend': 'own', 'hole': False, 'up': False} idleHold False
+06:39:35 {"v":1,"pid":27435,"ts":1793194773805,"state":"playing","reason":"","seq":1793194768528,"clip":"wall-silk","clips":6,"role":"wall","walls":1,"window":"_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER","windowId":"_Window_Id_7","playingMs":15282,"fed":904,"full":0,"skipped":0,"queue":1,"events":"22,26","drift":[0,0],"veil":0,"phase":0,"memAvailKb":629644,"cmaFreeKb":3368,"rssKb":16916}
+ 
+06:40:06 wrote /tmp/vp/home-video.json
+{"label": "home-video", "seconds": 27.35, "samples": 28, "mali_pct": 12.5, "flips_per_s": 12.1, "vsync_per_s": 120.5, "osd_irq_per_s": 119.9, "cpu_pct": 15.8, "cma_free_min_mb": 3.3, "mem_avail_min_mb": 609.9, "temp_max": 54.0, "procs": {"lumatv-vplane": {"cpu_pct": 4.1, "rss_mb_max": 16.8}, "lumatv-compositor": {"cpu_pct": 3.1, "rss_mb_max": 51.0}, "qml-runner": {"cpu_pct": 5.2, "rss_mb_max": 227.0}}}
+ 
+06:40:07 fg com.webos.app.home
+06:40:14 window 14: title = LumaTV wallpaper (Card)
+window 14: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER (Wallpaper)
+foreign: surface 241 exported as _Window_Id_6 (type 0)
+window 14 mapped (Wallpaper app \"org.nphil.lumatv.vplane\" title \"LumaTV wallpaper\" size Some((16, 16)))
+client connected: pid 27064 uid 0 cmd \"/var/lib/lumatv/bin/lumatv-vplane --once wall-silk 20\"
+foreign: _Window_Id_6 imported (type 0)
+client disconnected: pid 27064 uid 0 after 20241 ms (ConnectionClosed); bound [\"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_seat\", \"wl_compositor\", \"wl_shm\", \"wl_w
+client disconnected: pid 27064 uid 0 after 20049 ms (ConnectionClosed); bound [\"wl_compositor\", \"wl_shell\", \"wl_webos_shell\", \"wl_webos_foreign\"]; cmd \"/var/lib/lumatv/bin/lumatv-vplane --once wall-silk 20\"
+client disconnected: pid 15032 uid 0 after 1003301 ms (ConnectionClosed); bound [\"wl_compositor\", \"wl_subcompositor\", \"wl_shm\", \"wl_seat\", \"wl_output\", \"wl_data_device_manager\", \"wl_seat\", \"wl_seat\", \"wl
+window 18: title = LumaTV wallpaper (Card)
+window 18: _WEBOS_WINDOW_TYPE = _WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER (Wallpaper)
+foreign: surface 261 exported as _Window_Id_7 (type 0)
+window 18 mapped (Wallpaper app \"org.nphil.lumatv.vplane\" title \"LumaTV wallpaper\" size Some((16, 16)))
+foreign: _Window_Id_7 imported (type 0)
+ 
+06:40:14 "_WEBOS_WINDOW_TYPE":"_WEBOS_WINDOW_TYPE_LUMATV_WALLPAPER","appId":"org.nphil.lumatv.vplane","title":"LumaTV wallpaper"},"size":[16,16],"state":"Fullscreen","surface":261,"title":"LumaTV wallpaper","type":"Wallpaper"}]}
+ 
+06:40:14 "video":[]
+ 
+06:40:15 2026-10-28T13:39:18.780193Z [5895.370133400] user.info lumatv-vplane [] avc.proxy setPunchThrough {"uid":"_L56oFd1YpROGgc", "tid": "29000", "msg":"punchThrough : 1"} 
+2026-10-28T13:39:18.780266Z [5895.370202580] user.info lumatv-vplane [] avc.main setPunchThrough {"uid":"_L56oFd1YpROGgc", "tid": "29000", "msg":"punchThrough : 1"} 
+2026-10-28T13:39:18.780313Z [5895.370249260] user.info lumatv-vplane [] avc.lsm setPunchThrough {"uid":"_L56oFd1YpROGgc", "tid": "29000", "msg":"punchThrough [1]"} 
+2026-10-28T13:39:18.781041Z [5895.370981780] user.info lumatv-vplane [] avc.proxy setDecodeInfo {"uid":"_L56oFd1YpROGgc", "tid": "29000", "msg":"conentType[video], decodeInfo[{\"context\":\"_L56oFd1YpROGgc\",\"contentTyp
+2026-10-28T13:39:18.781106Z [5895.371042740] user.info lumatv-vplane [] avc.main setDecodeInfo {"uid":"_L56oFd1YpROGgc", "tid": "29000", "msg":"contentType[video], connectionInfo[{\"context\":\"_L56oFd1YpROGgc\",\"conten
+2026-10-28T13:39:18.781215Z [5895.371153540] user.info lumatv-vplane [] avc.video setDecodeInformation {"uid":"_L56oFd1YpROGgc", "tid": "29003", "msg":"decodeInfo [{\"context\":\"_L56oFd1YpROGgc\",\"contentType\":\"movie
+2026-10-28T13:39:18.781252Z [5895.371193560] user.warning lumatv-vplane [] avc.impl tryConnect {"uid":"_L56oFd1YpROGgc", "tid": "29003", "msg":"No render_status. [125] [0]"} 
+2026-10-28T13:39:18.781282Z [5895.371218660] user.warning lumatv-vplane [] avc.impl SVU_AVC_CONNECT {"uid":"_L56oFd1YpROGgc", "tid": "29003", "msg":"No render_status. [125] [0]"} 
+ 

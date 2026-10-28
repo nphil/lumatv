@@ -1,0 +1,19 @@
+09:40:52 slot /tmp/venc-slot/20261028-094052, binary /tmp/venc/lumatv-venc, apps=0
+crw-rw-rw-    1 root     root     1819,   0 Dec 31  1969 /dev/hma
+crwxrwxrwx    1 root     root      162,   0 Dec 31  2022 /dev/lg/venc0
+crw-rw----    1 root     composit 1820,   0 Dec 31  1969 /dev/venc
+crw-rw----    1 root     composit   81,  21 Dec 31  1969 /dev/video24
+crw-rw----    1 root     composit   81,   7 Dec 31  1969 /dev/video60
+09:41:03 == caps: /tmp/venc/lumatv-venc caps
+  control h264_profile     min 0 max 4 step 1 default 4
+  control h264_level       min 0 max 13 step 1 default 11
+  control force_key_frame  min 0 max 0 step 0 default 0
+09:41:03 == caps: rc 0
+09:41:03 == vtcaps: /tmp/venc/lumatv-venc vtcaps
+video tap: flags 0x3f (scale-up 1, scale-down 1, divide-framerate 1) up-limit 3840x2160 down-limit 320x240 buffers 5 max 3840x2160 planes 2 pixel_format 1
+09:41:03 == vtcaps: rc 0
+09:41:03 == synth-720p-short: /tmp/venc/lumatv-venc synth -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o /tmp/venc-slot/20261028-094052/synth-720p-short.h264 --csv /tmp/venc-slot/20261028-094052/synth-720p-short.csv
+venc: buffer info unusable: es 0x00000000+0x0 aui 0x00000000+0x0
+09:41:03 == synth-720p-short: rc 2
+09:41:03 the /dev/venc route failed; the V4L2 node is the fallback
+09:41:03 == m2m-720p: /tmp/venc/lumatv-venc m2m -w 1280 -h 720 -r 30 -n 60 -b 4000 -g 30 -o /tmp/venc-slot/20261028-094052/m2m-720p.h264 --csv /tmp/venc-slot/20261028-094052/m2m-720p.csv

@@ -400,3 +400,20 @@ fn the_system_layer_takes_the_pointer_inside_the_keyboard_and_nowhere_else() {
     assert_eq!(server.eval(title_at(10, 10)).as_deref(), Some("Search"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn a_field_that_never_asks_for_its_keyboard_still_gets_the_shells_at_activation() {
+    // LG's Search app activates its text model and never sends `show_input_panel`; maliit shows at the activation, so does the shell's.
+    let (mut server, _dir) = setup(true, true);
+    let mut a = app(&mut server, "Search");
+    a.model.set_content_type(5, 0);
+    a.model.set_enter_key_type(5);
+    a.activate();
+    a.client.conn.flush().unwrap();
+    assert!(a.client.wait_until(WAIT, |s| s.ime.model_enters == 1), "the field is told it entered");
+    until(&server, "the shell is told the field wants its keyboard", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == true));
+    // and the app can still take it away
+    a.model.hide_input_panel();
+    a.client.conn.flush().unwrap();
+    until(&server, "the keyboard is hidden by the app", |s| s.shell.topic("ime").is_some_and(|t| t["show"] == false));
+}
