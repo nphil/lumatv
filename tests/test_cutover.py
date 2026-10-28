@@ -1229,7 +1229,7 @@ class GateDriver(unittest.TestCase):
         g.wake = lambda: True
         g.avr_mute = lambda on: None
         g.volume_check = lambda: "GATE volume: PASS fine"
-        g.frames_check = lambda cycles: "GATE frames: PASS fine"
+        g.frames_check = lambda cycles, load=False: "GATE frames-load: measured fine" if load else "GATE frames: PASS fine"
         g.VERIFIED_LIST = lst
         g.here = repo
         with mock.patch.object(sys, "argv", ["tv_gate.py", *argv]), mock.patch.object(g.time, "sleep"), mock.patch.object(g.os, "system"), \
@@ -1255,7 +1255,7 @@ class GateDriver(unittest.TestCase):
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")], [
             "firmware", "homeheld",
             "cutover enable --session --max-minutes 32", "live", "x1 60", "netflix", "hdmi", "keys", "ime", "shell", "evidence",
-            "cutover enable --session --max-minutes 20", "live frames", "callbacks", "standby", "woke",
+            "cutover enable --session --max-minutes 20", "live frames", "wake reset", "wake frames", "mem", "callbacks", "standby", "woke",
             "homekey", "cutover enable --session --max-minutes 6", "live after-homekey",
             "wd-hang", "cutover enable --session --max-minutes 6", "live after-wd-hang",
             "wd-crash", "cutover enable --session --max-minutes 6", "live after-wd-crash",
@@ -1304,14 +1304,43 @@ class GateDriver(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 32", "live", "shell", "evidence",
-                          "cutover enable --session --max-minutes 20", "live frames", "callbacks", "cutover disable"])
+                          "cutover enable --session --max-minutes 20", "live frames", "wake reset", "wake frames", "mem", "callbacks", "cutover disable"])
 
     def test_the_frame_gate_can_run_with_the_shell_callbacks_at_the_flip_and_says_how_many_went_ahead(self):
         calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-callbacks", "landing"])
         self.assertEqual(code, 0)
         self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
                          ["cutover enable --session --max-minutes 32", "live", "evidence",
-                          "cutover enable --session --max-minutes 20", "live frames", "callbacks landing", "callbacks", "cutover disable"])
+                          "cutover enable --session --max-minutes 20", "live frames", "callbacks landing", "wake reset", "wake frames", "mem", "callbacks",
+                          "cutover disable"])
+
+    def test_the_loaded_frame_run_is_opt_in_and_a_report_the_verdict_does_not_read(self):
+        calls, code, _ = self.run_main()
+        self.assertNotIn("wake loaded", self.checks(calls), "a full gate has no loaded run unless asked")
+        calls, code, _ = self.run_main(argv=["--only", "frames", "--frames-load"])
+        self.assertEqual(code, 0, "a report line is no PASS and no FAIL")
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 52", "live", "evidence",
+                          "cutover enable --session --max-minutes 40", "live frames", "wake reset", "wake frames", "mem", "callbacks",
+                          "wake reset", "wake loaded", "cutover disable"])
+
+    def test_only_frames_load_runs_the_loaded_run_alone_in_a_session_of_its_own(self):
+        calls, code, _ = self.run_main(argv=["--only", "frames-load"])
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in self.checks(calls) if not c.startswith("key ")],
+                         ["cutover enable --session --max-minutes 32", "live", "evidence",
+                          "cutover enable --session --max-minutes 20", "live frames", "wake reset", "wake loaded", "cutover disable"])
+
+    def test_kwait_puts_the_capture_tools_on_the_set_and_asks_the_x1_check_to_trace(self):
+        calls, code, _ = self.run_main(argv=["--only", "x1", "--kwait"])
+        self.assertEqual(code, 0)
+        self.assertIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
+        put = [c.args[1] for c in self.gate.tv.put.call_args_list]
+        self.assertIn("/tmp/perf/capture.sh", put)
+        self.assertIn("/tmp/perf/kwait.py", put)
+        calls, code, _ = self.run_main(argv=["--only", "x1"])
+        self.assertIn("sh /tmp/lumatv/gate.sh x1 60", calls, "without the flag the x1 run is untraced, as the rule has always been")
+        self.assertNotIn("LUMATV_GATE_KWAIT=1 sh /tmp/lumatv/gate.sh x1 60", calls)
 
     STUB_ON = '{"config":true,"state":"stub","mounted":true,"sam":"web","flutter":false,"guard":true,"beat":true,"faults":0}'
 

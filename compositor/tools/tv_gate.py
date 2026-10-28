@@ -256,6 +256,7 @@ def main():
                     help="when the shell client's frame callbacks go out in the surface frame gate: a frame ahead of the flip inside a run of its frames (early, the default) or at the flip (landing)")
     a = ap.parse_args()
     skip = set(a.skip.split(",")) - {""}
+    skipped = set(skip)       # as asked, before --only leaves out what it did not name
     only = set(a.only.split(",")) - {""}
     if only:
         if only - set(CHECKS):
@@ -279,7 +280,8 @@ def main():
         return out
     # An x1 run longer than the rule's 60 s lengthens the first session by its extra minutes.
     run_frames = "frames" not in skip
-    run_load = "frames-load" not in skip and (a.frames_load or "frames-load" in only)
+    # The loaded run is opt-in: `--frames-load` adds it (whatever --only names, unless --skip names it), `--only frames-load` is it alone.
+    run_load = "frames-load" in only or (a.frames_load and "frames-load" not in skipped)
     first_minutes = FIRST_SESSION_MINUTES + max(0, a.x1_seconds - 60 + 59) // 60
     # The frame gate's `enable --session` finds the first session live and does not re-arm its timer, so the first session's timer must cover the frame gate too
     # (the full gate of 2026-10-27 lost its session to the 12 minute timer before standby), the loaded run's as well.
