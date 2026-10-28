@@ -169,6 +169,13 @@ for _name, _shot in (("11-volume-osd-mark-netflix", "netflix-mute-hop.png"), ("1
     scene(_name, runner=True)(netflix_mark(_name, _shot))
 
 
+@scene("11-volume-osd-netflix", runner=True)
+def _(out_dir, material):
+    """The bar over a Netflix frame with its two subtitle lines (TV round 11, `mutefix-format-unmuted-vol0.png`): raised clear of them."""
+    bg = netflix_backdrop(out_dir, "netflix-mute-hop.png")
+    return render("11-volume-osd-netflix", out_dir, material, [sound_out(B), receiver_at(B + 200, RX_ATMOS), key_at(B + 2000, "volumeUp", 32)], B + 2700, bg=bg)
+
+
 @scene("11-volume-osd-mark-home", runner=True)
 def _(out_dir, material):
     """Muted over Home: the mark in the status bar's row, between the profile and the icons, clear of the clock and weather widgets."""

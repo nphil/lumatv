@@ -177,7 +177,13 @@ Item {
     Timer { id: graceT; interval: osd.graceMs; onTriggered: if (!osd.fresh) osd.mutedRx = false }
 
     // ---- the bar: a pill at the bottom centre, as long as its number and its mark need, so it holds at 200 % text as well
-    readonly property int edgeY: 64               // from the bottom edge: the TV's safe area and clear of subtitles
+    readonly property int edgeY: 64               // from the bottom edge, over Home: the TV's safe area
+    // Over an app's picture the bar rides this much higher (Nitin, 2026-10-28, "about 110"; 120 leaves 14 px over the Netflix lines): subtitles end about 70 px above the bottom edge and fill the next
+    // 105 px, so at 64 the bar sat on them (Netflix, round 9). `overVideo` is the overlay's own "an app is in front" (appFront), so no new polling.
+    // It glides when the app comes or goes under a bar that is showing; hidden, the next showing starts in place.
+    readonly property int raiseOverVideo: 120
+    property real raise: overVideo ? raiseOverVideo : 0
+    Behavior on raise { enabled: card.visible && !Lu.reduced; NumberAnimation { duration: Lu.cardMs; easing.type: Lu.cardEasing } }
     readonly property int padX: Lu.space(6)       // 24
     readonly property int padY: Lu.space(3)       // 12
     readonly property int gap: Lu.space(5)        // 20, between the number, the bar and the mark
@@ -192,12 +198,13 @@ Item {
     readonly property real logoW: logoKey !== "" && fmtLogo.ready ? fmtLogo.width : 0
     readonly property real rowH: Math.max(numProbe.implicitHeight, logoH, glyph)
     LuText { id: numProbe; visible: false; role: "label"; font.weight: Font.DemiBold; text: "100" }
+    readonly property int bottomGap: Math.round(height - card.y - card.height)     // from the bar to the bottom edge, for the tests
     LuPane {
         id: card
         width: Math.max(440, 2 * osd.padX + osd.numW + osd.gap + osd.barMin + (osd.logoW > 0 ? osd.gap + osd.logoW : 0))
         height: Math.max(56, Math.ceil(osd.rowH) + 2 * osd.padY)
         x: Math.round((osd.width - width) / 2)
-        y: osd.height - osd.edgeY - height
+        y: osd.height - osd.edgeY - Math.round(osd.raise) - height
         cardRadius: height / 2
         fillAlpha: osd.paneAlpha
         opacity: osd.paneUp ? 1 : 0
