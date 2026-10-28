@@ -76,8 +76,8 @@ class VoiceStaging(VoiceBase):
         before = ics.tree_state(self.qml)
         rc, out = self.run_script("stage")
         self.assertEqual((rc, out["ok"], out["staged"]), (0, True, True))
-        from test_voice_patch import TOUCHED
-        self.assertEqual(self.staged(), TOUCHED)
+        from test_voice_patch import PRINTED
+        self.assertEqual(self.staged(), PRINTED)
         self.assertEqual(ics.tree_state(self.qml), before)
         self.assertFalse(os.path.exists(os.path.join(self.state, "inputcommon")))
         self.assertEqual(self.calls(), [])

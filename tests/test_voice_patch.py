@@ -26,12 +26,19 @@ HOST = os.path.join(HERE, "qmlhost", "voice.py")
 CENSUS = next((p for p in ("/data/home/lgtv/uiinv/voice/qml", "/tmp/tvsrc/apps/com.webos.app.voice/qml") if os.path.isdir(p)), "/data/home/lgtv/uiinv/voice/qml")
 
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 from xdisplay import DISPLAY, HAVE_QT  # noqa: E402
+import voice_patch as vp  # noqa: E402
 
-TOUCHED = sorted(["Style.qml", "Main.qml", "Views/SearchView.qml", "Views/SearchView/SearchInputBox.qml", "Views/SearchView/NotiView.qml",
-                  "Views/ContentsList/KeywordsRec.qml", "Views/Components/ButtonFlex.qml", "Views/Components/ButtonIcon.qml",
+TOUCHED = sorted(["Style.qml", "Main.qml", "Utils/StringSet.qml", "Views/SearchView.qml", "Views/SearchView/SearchInputBox.qml", "Views/SearchView/NotiView.qml",
+                  "Views/KeywordsView.qml", "Views/ContentsList/KeywordsRec.qml", "Views/Components/ButtonFlex.qml", "Views/Components/ButtonIcon.qml",
                   "Views/Components/FocusableText.qml", "Views/Components/FocusableSwitch.qml", "Views/Components/FocusableSwitchWithText.qml",
                   "Views/PopupView/optionPopup.qml", "Views/MainView.qml", "Views/Components/MiniBg.qml", "Views/UtteranceUIView.qml"])
+# What the patch adds beside LG's files: the photo card's shader (payload/voice) and the glyphs, Lucide's, in the palette's ink.
+GLYPHS = ["arrow-left", "ellipsis", "history", "mic", "search", "star", "user", "x"]
+ADDED = sorted(["Views/Components/LumaPhoto.qml"] + ["Views/images/luma/%s.png" % g for g in GLYPHS])
+# What the tool prints, and what the staging lays over LG's directory.
+PRINTED = sorted(TOUCHED + ADDED)
 
 # What LG's code does, as opposed to how it looks: handlers, keys, service reads and calls, focus.
 BEHAVIOUR = re.compile(r"function |Keys\.|\bon[A-Z]\w*\s*:|Connections|signal |forceActiveFocus|KeyNavigation|\bfocus:|\.handle|\.launch|\.speak|Service\b|util\.")
@@ -111,7 +118,7 @@ class VoicePatch(unittest.TestCase):
     def test_every_white_and_grey_of_LGs_style_sheet_is_gone_except_the_ones_kept_on_purpose(self):
         self.run_tool()
         style = self.read("Style.qml")
-        ours = {v.upper() for v in self.pal.values() if isinstance(v, str)}
+        ours = {v.upper() for v in vp.derive(self.pal).values() if isinstance(v, str)}
         left = [(n, v) for n, v in re.findall(r'property (?:color|string) (\w+)\s*:\s*"(#[0-9a-fA-F]{3,8})"', style) if v.upper() not in ours]
         # kept: the web tile's brand blue, the IP channel's orange (four of them), the select pink, the black behind a thumbnail
         self.assertEqual(sorted(set(n for n, _ in left)), ["bgColor", "ipChannelColor", "selectColor", "thumbnailBgColor"], left)
@@ -120,7 +127,7 @@ class VoicePatch(unittest.TestCase):
     def test_it_changes_the_files_it_names_and_no_other_and_prints_them(self):
         self.run_tool()
         self.assertEqual(self.differing(), TOUCHED)
-        self.assertEqual(self.stdout.split("\n")[:-1], TOUCHED)
+        self.assertEqual(self.stdout.split("\n")[:-1], PRINTED)
 
     def test_only_style_is_removed_and_every_line_of_LGs_behaviour_is_still_there(self):
         self.run_tool()
@@ -173,6 +180,123 @@ class VoicePatch(unittest.TestCase):
         style = self.read("Style.qml")
         self.assertIn('return style.info.languageClass === "latin" ? "Manrope" : family;', style)
 
+    def test_the_mic_hint_says_what_mock_09_says_and_no_other_string_changes(self):
+        self.run_tool()
+        old, new = lines(os.path.join(CENSUS, "Utils/StringSet.qml")), lines(os.path.join(self.dir, "Utils/StringSet.qml"))
+        changed = [(a, b) for a, b in zip(old, new) if a != b]
+        self.assertEqual(len(old), len(new))
+        self.assertEqual(len(changed), 1, changed)
+        self.assertIn('qsTr("Hold the AI button on the remote and search with your voice.")', changed[0][0])
+        self.assertIn('qsTr("Hold the mic key to speak")', changed[0][1])
+
+    def test_the_glyphs_are_lucides_in_the_palettes_ink_and_the_shape_is_lucides_own(self):
+        self.run_tool()
+        for name, role in vp.ICONS.items():
+            with open(os.path.join(self.dir, "Views/images/luma/%s.png" % name), "rb") as f:
+                w, h, rows = vp.png_read(f.read())
+            with open(os.path.join(vp.ICON_DIR, name + ".png"), "rb") as f:
+                sw, sh, src = vp.png_read(f.read())
+            self.assertEqual((w, h), (sw, sh), name)
+            r, g, b, a = vp.parse(self.pal[role])
+            for line, ref in zip(rows, src):
+                for x in range(0, len(line), 4):
+                    self.assertEqual(tuple(line[x:x + 3]), (r, g, b), name)
+                    self.assertLessEqual(abs(line[x + 3] - round(ref[x + 3] * a)), 1, name)
+        self.assertEqual(sorted(vp.ICONS), GLYPHS)
+
+    def test_png_tinting_reads_every_filter_a_png_can_use(self):
+        """A PNG of 5 rows, one per filter type, built here from known pixels: read back, the pixels are the ones put in."""
+        import struct
+        import zlib
+        w, h = 6, 5
+        px = [bytearray((x * 40 + y * 7) % 256 for x in range(w * 4)) for y in range(h)]
+        raw = b""
+        for y, row in enumerate(px):
+            prev = px[y - 1] if y else bytearray(w * 4)
+            out = bytearray()
+            for i, v in enumerate(row):
+                a, b, c = (row[i - 4] if i >= 4 else 0), prev[i], (prev[i - 4] if i >= 4 else 0)
+                if y == 0:
+                    pred = 0
+                elif y == 1:
+                    pred = a
+                elif y == 2:
+                    pred = b
+                elif y == 3:
+                    pred = (a + b) >> 1
+                else:
+                    p = a + b - c
+                    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                    pred = a if pa <= pb and pa <= pc else b if pb <= pc else c
+                out.append((v - pred) & 255)
+            raw += bytes([y]) + bytes(out)
+
+        def chunk(kind, body):
+            return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        data = vp.PNG_MAGIC + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+        rw, rh, rows = vp.png_read(data)
+        self.assertEqual((rw, rh), (w, h))
+        self.assertEqual([bytes(r) for r in rows], [bytes(r) for r in px])
+        tinted = vp.png_read(vp.png_tint(data, (10, 20, 30, 0.5)))[2]
+        for line, ref in zip(tinted, px):
+            for x in range(0, w * 4, 4):
+                self.assertEqual((line[x], line[x + 1], line[x + 2], line[x + 3]), (10, 20, 30, int(round(ref[x + 3] * 0.5))))
+
+    def test_our_files_are_laid_beside_LGs_and_never_over_one(self):
+        self.write("Views/Components/LumaPhoto.qml", "// LG's, the day it exists\n")
+        rc, err = self.run_tool()
+        self.assertEqual(rc, 1)
+        self.assertIn("LumaPhoto.qml: LG's tree already has this file", err)
+        self.assertEqual(self.read("Views/Components/LumaPhoto.qml"), "// LG's, the day it exists\n")
+        self.assertEqual([r for r in self.differing() if r != "Views/Components/LumaPhoto.qml"], [])
+
+    def test_only_the_search_screens_four_picture_buttons_take_the_64_px_plate(self):
+        self.run_tool()
+        self.assertIn("    property bool lumaPlate: false\n", self.read("Views/Components/ButtonIcon.qml"))
+        self.assertEqual(self.read("Views/SearchView.qml").count("lumaPlate: true"), 4)
+        self.assertEqual(self.read("Views/ContentsList/MusicSearchRec.qml"), self.stock("Views/ContentsList/MusicSearchRec.qml"))
+
+    def test_the_photo_card_is_one_shader_quad_with_no_offscreen_target(self):
+        with open(os.path.join(ROOT, "payload", "voice", "Views", "Components", "LumaPhoto.qml")) as f:
+            text = f.read()
+        code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("//"))
+        self.assertEqual(len(re.findall(r"^ShaderEffect \{", code, re.M)), 1)
+        self.assertNotRegex(code, r"DropShadow|layer\.enabled|ShaderEffectSource|Glow|GaussianBlur|FastBlur|OpacityMask|Canvas")
+        self.assertIn("visible: picture !== null && picture.status === Image.Ready", text)
+
+    def test_the_rows_fill_the_line_from_the_field_to_the_safe_edge_and_the_top_row_shares_the_fields_centre(self):
+        line = 1920 - vp.FIELD_X - vp.SAFE_X
+        self.assertEqual(5 * vp.CHIP_W + 4 * vp.CHIP_GAP, line)
+        self.assertEqual(6 * vp.CARD_W + 5 * vp.CARD_GAP, line)
+        self.assertEqual(vp.FIELD_TOP + vp.FIELD_H // 2, (vp.FIELD_TOP + vp.FIELD_H // 2 - vp.BUTTON // 2) + vp.BUTTON // 2)
+        # the field ends before the first of the three targets on the right and starts after the back key on the left
+        self.assertLessEqual(vp.FIELD_X + vp.FIELD_W + vp.BUTTON_GAP, 1920 - vp.SAFE_X - 3 * vp.BUTTON - 2 * vp.BUTTON_GAP)
+        self.assertGreaterEqual(vp.FIELD_X, vp.SAFE_X + vp.BUTTON)
+        # a target is the TV profile's 64, and so is a chip
+        self.assertGreaterEqual(vp.BUTTON, 64)
+        self.assertGreaterEqual(vp.CHIP_H, 64)
+
+    def test_a_plate_grows_when_focused_and_the_words_are_not_inside_it(self):
+        self.run_tool()
+        text = self.read("Views/ContentsList/KeywordsRec.qml")
+        card = vp.blocks(text, "        Item {\n            id: lumaCard\n")
+        self.assertEqual(len(card), 1)
+        b, e = card[0]
+        self.assertIn("scale: isFocused", text[b:e])
+        self.assertNotIn("MarqueeText", text[b:e])
+        self.assertEqual(text.count("scale:"), 1)
+
+    def test_every_palette_value_of_the_new_roles_is_derived_from_the_palette_and_is_readable(self):
+        for light in (False, True):
+            pal = palette(light)
+            derived = vp.derive(pal)
+            sheet = vp.parse(pal["sheetBottom"])[:3]
+            lit = vp.over(vp.parse(derived["washLit"]), sheet)
+            for name in ("ink", "accentText"):
+                self.assertGreaterEqual(vp.contrast(vp.parse(derived[name])[:3], lit), 4.5, (light, name))
+            ground = vp.over(vp.parse(derived["well"]), sheet)
+            self.assertGreaterEqual(vp.contrast(vp.over(vp.parse(derived["inkDim"]), ground), ground), 4.5, light)
+
     ANCHORS = [
         ("Style.qml", 'property color focusColor: supportBNO ? "#68819b" : "#E6E6E6"'),
         ("Style.qml", "property real textinputwrapper_normal_opacity: 0.2"),
@@ -191,6 +315,15 @@ class VoicePatch(unittest.TestCase):
         ("Views/MainView.qml", "            visible: false\n"),
         ("Views/Components/MiniBg.qml", 'source: imagesPath + "mainView/bg_nlp_search_result"'),
         ("Views/UtteranceUIView.qml", '<font color=\\"#C97EFA\\">'),
+        ("Utils/StringSet.qml", 'qsTr("Hold the AI button on the remote and search with your voice.")'),
+        ("Views/KeywordsView.qml", "    readonly property int leftGap: getRelativeWidth(174)\n"),
+        ("Views/KeywordsView.qml", "                        return (getRelativeHeight(63) - allListView.spacing)\n"),
+        ("Views/ContentsList/KeywordsRec.qml", "        Rectangle{\n            id:bgImgBorderRect\n"),
+        ("Views/SearchView.qml", "                top: parent.top; topMargin: getRelativeHeight(66)\n"),
+        ("Views/SearchView.qml", "            width: getRelativeWidth(78/2)\n"),
+        ("Views/SearchView/SearchInputBox.qml", "        id: listSearchBg\n"),
+        ("Views/SearchView/SearchInputBox.qml", '                visible: (globalVars.isTyping === false && textInput.text.length === 0)\n'),
+        ("Views/Components/ButtonIcon.qml", "    Image {\n        anchors.fill: parent\n        source: root.source\n"),
     ]
 
     def test_a_missing_anchor_is_fatal_says_which_file_and_leaves_LGs_tree_as_it_was(self):
@@ -241,7 +374,7 @@ class VoicePatch(unittest.TestCase):
         self.assertIn("already patched", err)
 
     def test_a_palette_without_what_it_needs_is_refused(self):
-        for key in ("sheetBottom", "row", "focus", "focusEdge", "hairline", "ink", "inkDim", "focusInk", "accent", "danger", "radius", "rowRadius"):
+        for key in ("sheetBottom", "row", "focus", "focusEdge", "hairline", "ink", "inkDim", "focusInk", "accent", "accentInk", "danger", "radius", "rowRadius"):
             pal = dict(self.pal)
             del pal[key]
             rc, err = self.run_tool(pal)
@@ -267,7 +400,7 @@ class PatchedSearchInTheHost(unittest.TestCase):
     """LG's own Search views behind stand-ins for what is native, in Qt 5.15 on software GL: the patched screens must load, warn of
     nothing, take the keys as LG's do and call what LG's call."""
 
-    SCENES = ("search", "search-focus", "auto", "keywords", "noti", "option", "confirm")
+    SCENES = ("search", "search-tv", "search-focus", "genre", "chip", "back", "auto", "keywords", "noti", "option", "confirm")
 
     def run_host(self, *args, patched=True):
         r = subprocess.run([sys.executable, HOST] + (["--patched"] if patched else []) + list(args), env=dict(os.environ, DISPLAY=DISPLAY),
@@ -294,7 +427,7 @@ class PatchedSearchInTheHost(unittest.TestCase):
             self.assertEqual(rc, 0, out[-800:])
             self.assertEqual(self.probe(out, "previousKeywordsListTextKeyword", "font.family"), family)
 
-    def test_the_search_field_is_a_pill_and_the_focus_ring_is_the_palettes(self):
+    def test_the_search_field_has_the_focus_when_the_screen_opens(self):
         rc, out = self.run_host("--scene", "search", "--probe", "2500:SearchInputBox:isFocused")
         self.assertEqual(rc, 0, out[-800:])
         self.assertEqual(self.probe(out, "SearchInputBox", "isFocused"), "true")
@@ -337,6 +470,50 @@ class PatchedSearchInTheHost(unittest.TestCase):
     def test_the_marquee_never_leaves_a_run_of_words_clipped_at_200_percent(self):
         rc, out = self.run_host("--scene", "search", "--text", "200", "--audit", "clipped,overflow")
         self.assertEqual(rc, 0, out[-1200:])
+
+    # Every kind of the layout audit but `elided`: a keyword that does not fit its chip is LG's marquee (it runs while the chip has the focus),
+    # and the one test below says that it is the only words that are ever cut short.
+    SQUARE = "scaled,overflow,clipped,outside,tight,overlap,off-centre,icon-level,contrast"
+
+    def test_the_new_look_reads_and_sits_square_at_100_percent_dark_and_light(self):
+        """Words that read (4.5:1 over the well, the chips and the foot of a photograph, 3:1 for a one-glyph initial), none in a scaled item
+        (a focus that moved them sideways), centred where they should be and level with their glyphs."""
+        for scene in ("search", "search-tv", "search-focus", "genre", "chip", "back", "auto"):
+            for extra in ([], ["--light"]):
+                rc, out = self.run_host("--scene", scene, "--audit", self.SQUARE, *extra)
+                self.assertEqual(rc, 0, "%s %s: %s" % (scene, extra, "\n".join(l for l in out.splitlines() if "layout" in l or "warning" in l)[-1500:]))
+
+    def test_the_card_names_read_at_4_5_to_1_over_the_worst_picture_the_scrim_can_have(self):
+        """Pure white under the dark sheet's scrim, pure black under the light one's."""
+        with tempfile.TemporaryDirectory() as d:
+            for extra, level in (([], 255), (["--light"], 0)):
+                pic = os.path.join(d, "%d.png" % level)
+                with open(pic, "wb") as f:
+                    f.write(vp.png_write(64, 36, [bytearray(bytes([level, level, level, 255]) * 64) for _ in range(36)]))
+                rc, out = self.run_host("--scene", "genre", "--genres", pic, "--audit", "contrast", *extra)
+                self.assertEqual(rc, 0, "%s: %s" % (extra, "\n".join(l for l in out.splitlines() if "layout" in l or "warning" in l)[-1500:]))
+
+    def test_only_a_keyword_that_does_not_fit_its_chip_is_cut_short(self):
+        for scene in ("search", "genre", "auto", "noti"):
+            rc, out = self.run_host("--scene", scene, "--audit", "elided")
+            found = [l for l in out.splitlines() if l.startswith("[layout")]
+            self.assertTrue(all("KeywordsListTextKeyword" in l for l in found), "%s: %s" % (scene, found))
+
+    def test_the_mic_hint_is_whole_while_the_field_is_empty_and_gone_when_a_word_is_typed(self):
+        rc, out = self.run_host("--scene", "search-tv", "--probe", "2500:DefaultText:visible", "--probe", "2500:DefaultText:width", "--probe", "2500:DefaultText:implicitWidth")
+        self.assertEqual(rc, 0, out[-800:])
+        self.assertEqual(self.probe(out, "DefaultText", "visible"), "true")
+        self.assertAlmostEqual(float(self.probe(out, "DefaultText", "width")), float(self.probe(out, "DefaultText", "implicitWidth")), delta=1)
+        rc, out = self.run_host("--scene", "auto", "--probe", "2500:DefaultText:visible")
+        self.assertEqual(rc, 0, out[-800:])
+        self.assertEqual(self.probe(out, "DefaultText", "visible"), "false")
+
+    def test_the_field_the_rows_and_the_top_row_are_where_the_layout_says(self):
+        rc, out = self.run_host("--scene", "search-tv", "--probe", "2500:SearchInputBox:x", "--probe", "2500:SearchInputBox:y", "--probe", "2500:SearchInputBox:width",
+                                "--probe", "2500:SearchInputBox:height", "--probe", "2500:quitButton:width")
+        self.assertEqual(rc, 0, out[-800:])
+        self.assertEqual([float(self.probe(out, "SearchInputBox", p)) for p in ("x", "y", "width", "height")], [vp.FIELD_X, vp.FIELD_TOP, vp.FIELD_W, vp.FIELD_H])
+        self.assertEqual(float(self.probe(out, "quitButton", "width")), vp.BUTTON)
 
 
 if __name__ == "__main__":

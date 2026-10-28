@@ -2,16 +2,17 @@
 """Offline preview of LG's Search app (`com.webos.app.voice`): the search field with its keyword rows, the auto-keyword list, the notice
 with its button, the option popup and the confirm popup, stock or restyled by `tools/voice_patch.py`.
 
-    python3 tests/qmlhost/voice.py --scene search|search-focus|auto|keywords|noti|option|confirm|switch
-        [--patched] [--light] [--text PERCENT] [--audit [KINDS]] [--shot out.png]
+    python3 tests/qmlhost/voice.py --scene search|search-tv|search-focus|genre|chip|back|auto|keywords|noti|option|confirm|switch
+        [--patched] [--light] [--text PERCENT] [--audit [KINDS]] [--shot out.png] [--genres IMG]
         [--wait MS] [--backdrop IMG] [--press MS:KEY[,KEY...]] [--probe MS:OBJECT:PROP] [--keep DIR]
 
 LG's own QML, copied from the set (`/data/home/lgtv/uiinv/voice/qml`, 202 files), is loaded here as it is: its `Style.qml` is the real style
 sheet, `StringSet.qml` the real string table, `GlobalVars.qml` and every `Service` wrapper the real ones. What is native or is the rest of
 the app's wiring is a stand-in, written the way Main.qml and MainView.qml offer it to the views: the root `main` (screen size, the
 `getRelative*` helpers, the four font families), `mainView`, `models`, `inputManager`, `voiceHintManager`, `ttsManager`, `util`, and
-`Service`, which answers LG's search server with a fixed list of keywords. The picture files of the app (`Views/images`) are not in the
-census copy; where the views would draw one, the host leaves the picture out.
+`Service`, which answers LG's search server with fixed lists of keywords (five popular, five typed) and the genre cards with the mocks' stills for
+their pictures (`--genres` puts one picture on every card). The other picture files of the app (`Views/images`) are not in the census copy;
+where the views would draw one of those, the host leaves the picture out.
 
 --patched runs `tools/voice_patch.py` over the staged copy first, exactly as `tools/voice.sh stage` does on the set. Qt is the PyQt5
 wheel's 5.15 on Xvfb with software GL: this finds load errors and shows what a screen looks like, and measures nothing. LG's own fonts are
@@ -54,6 +55,14 @@ SCENES = {
     'search': {'file': 'Views/SearchView.qml', 'keywords': True},
     # the same with the focus on the second keyword
     'search-focus': {'file': 'Views/SearchView.qml', 'keywords': True, 'press': ((1200, 'DOWN'), (1500, 'DOWN'), (1800, 'RIGHT'))},
+    # what the TV shows (voice-search.png of round 11): no AI keywords (`supportAIKeyword` is off there), five recent searches, five popular
+    # ones and the genre cards, the field focused; and the same with the focus on the first card
+    'search-tv': {'file': 'Views/SearchView.qml', 'keywords': True, 'ai': False},
+    'genre': {'file': 'Views/SearchView.qml', 'keywords': True, 'ai': False, 'press': ((1200, 'DOWN'), (1500, 'DOWN'), (1800, 'DOWN'), (2100, 'RIGHT'))},
+    # the focus on the first of the recent searches
+    'chip': {'file': 'Views/SearchView.qml', 'keywords': True, 'ai': False, 'press': ((1200, 'DOWN'),)},
+    # the back key that shows once there are results (here forced on, there being no results to fetch): the field must start after it
+    'back': {'file': 'Views/SearchView.qml', 'keywords': True, 'ai': False, 'back': True},
     # text typed: the list of auto keywords under the field, one focused
     'auto': {'file': 'Views/SearchView.qml', 'keywords': False, 'typed': 'the great', 'auto': True, 'press': ((900, 'DOWN'),)},
     'keywords': {'file': 'Views/SearchView.qml', 'keywords': True, 'press': ((1200, 'DOWN'), (1500, 'DOWN'))},
@@ -88,12 +97,12 @@ Item {
     property bool highContrast: false
     property string lastInputType: "key"
     property string loginId: "nphil"
-    property var loginUserData: ({profileBg: "#359BDB", iconNick: "N"})
+    property var loginUserData: ({profileBg: "#7360E7", iconNick: "N"})
     property bool generalTermsAllowed: true
     property bool isInternetConnectionAvailable: true
-    property bool supportAIKeyword: true
+    property bool supportAIKeyword: %(ai)s
     property var allCategoryDomains: ["epg_onair", "tvshow", "movie", "app"]
-    property var genre_navigator: ({genre: [{genre: "Drama", image: ""}, {genre: "Comedy", image: ""}, {genre: "Sports", image: ""}]})
+    property var genre_navigator: ({genre: %(genres)s})
     property string debugstatus: ""
     property string serviceCountry: "US"
     property bool supportBNO: false
@@ -236,10 +245,19 @@ Item {
 }
 '''
 
-# What the search server answers (`search/popular_keyword`, `search/auto_keyword`): the shape LG's SdxService hands the views.
+# What the search server answers (`search/popular_keyword`, `search/auto_keyword`): the shape LG's SdxService hands the views. Five of each, as
+# the set's server does; the long titles are there to show what a chip does with a title that does not fit.
 POPULAR = [{'keyword': k, 'related_keywords': r, 'genre_code1': 'g', 'program_id': str(i)} for i, (k, r) in enumerate(
-    [('The Great British Bake Off', ['Bread week', 'Final']), ('Severance', ['Season 2']), ('Planet Earth III', []), ('Formula 1', ['Race'])])]
-AUTO = [{'keyword': k} for k in ('the great british bake off', 'the great escape', 'the great gatsby', 'the great wall')]
+    [('The Great British Bake Off', ['Bread week', 'Final']), ('Severance', ['Season 2']), ('Planet Earth III', []), ('Formula 1', ['Race']),
+     ('Spider-Man: Brand New Day', [])])]
+AUTO = [{'keyword': k} for k in ('the great british bake off', 'the great escape', 'the great gatsby', 'the great wall', 'the great british sewing bee')]
+# The recent searches the DB holds (as the set's: names of apps it was asked for).
+PREVIOUS = ['Crunchyroll', 'Hulu', 'Netflix', 'GeForce NOW', 'Developer Mode']
+# The genre cards of the set's server: a name and a picture. The pictures here are the mocks' own stills (the set's come over HTTP and are
+# 2.9:1 crops); a dark one, a bright one and two in between show what the foot of a card does to words over each.
+GENRES = [{'genre': g, 'image': 'file://' + os.path.join(ROOT, 'docs', 'mocks', 'img', p)} for g, p in (
+    ('Drama', 'home.jpg'), ('Comedy', 'wall.jpg'), ('Reality TV', 'still.jpg'), ('Animation', 'art-hokusai.jpg'),
+    ('Current Affairs', 'game.jpg'), ('Action', 'wall.jpg'))]
 
 SERVICE_QML = '''import QtQuick 2.12
 QtObject {
@@ -318,13 +336,15 @@ def wire(spec):
         if spec.get('keywords'):
             later.append('item.keywordsView.finalize()')
             later.append('item.keywordsView.keywordsMode(true)')
-            later.append('item.keywordsView.setPreviousKeywordsList(["bake off", "severance season two"])')
+            later.append('item.keywordsView.setPreviousKeywordsList(%s)' % json.dumps(PREVIOUS))
         if spec.get('typed'):
             later.append('item.updateUserText(%s)' % json.dumps(spec['typed']))
         if spec.get('auto'):
             later.append('item.textInputMode(true)')
         if spec.get('noti'):
             later.append('item.showNotiView("No results found.", "Go to Internet", "", "com.webos.app.browser", {})')
+        if spec.get('back'):
+            later.append('item.backButton.visible = true')
     return '\n            '.join(now), '\n            '.join(later)
 
 
@@ -340,6 +360,7 @@ def main(argv=None):
     ap.add_argument('--probe', action='append', default=[], metavar='MS:OBJECT:PROP', help='print a property of the item with this objectName at MS, as `[probe] OBJECT.PROP=value`')
     ap.add_argument('--keep', help='keep the staged tree in this directory')
     ap.add_argument('--text', type=int, default=100, help='text size in percent (200 doubles every size the views take from getRelativeFontSize)')
+    ap.add_argument('--genres', metavar='IMG', help='this picture on every genre card, in place of the mocks\' stills (a pure white one is the worst ground for the words over it)')
     ap.add_argument('--audit', metavar='KINDS', nargs='?', const='overlap', help='run the layout audit of the finished picture (tests/qmlhost/layoutaudit.py) for these kinds, comma separated; `all` for every kind; findings are warnings')
     a = ap.parse_args(argv)
     if not os.path.isdir(STOCK):
@@ -369,7 +390,9 @@ def main(argv=None):
     host = os.path.join(work, 'Host.qml')
     with open(host, 'w') as f:
         now, later = wire(spec)
-        f.write(HOST_QML % {'scale': a.text / 100.0, 'images': images, 'wire': now, 'later': later})
+        genres = GENRES if not a.genres else [{'genre': g['genre'], 'image': 'file://' + os.path.abspath(a.genres)} for g in GENRES]
+        f.write(HOST_QML % {'scale': a.text / 100.0, 'images': images, 'wire': now, 'later': later, 'genres': json.dumps(genres),
+                            'ai': 'true' if spec.get('ai', True) else 'false'})
 
     messages = []
     closing = [False]

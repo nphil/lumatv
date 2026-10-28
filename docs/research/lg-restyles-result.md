@@ -417,9 +417,11 @@ The app is one native process: `Main.qml` is its root, `Style.qml` its style she
 LG's voice services and cloud search are stopped, so the screens a user can reach are the search field with its keyboard, the keyword rows, the option popup,
 the confirm and notice popups; result cards and the voice screens (Weather, IoT, Voice ID, Sports) are only restyled through the shared style sheet.
 
-`tools/voice_patch.py` (14 files: `Style.qml`, `Main.qml`, `Views/{SearchView,MainView,UtteranceUIView}.qml`, `Views/SearchView/{SearchInputBox,NotiView}.qml`,
-`Views/ContentsList/KeywordsRec.qml`, `Views/Components/{ButtonFlex,ButtonIcon,FocusableText,FocusableSwitch,FocusableSwitchWithText,MiniBg}.qml`,
-`Views/PopupView/optionPopup.qml`), style only:
+`tools/voice_patch.py` (17 files: `Style.qml`, `Main.qml`, `Utils/StringSet.qml`, `Views/{SearchView,KeywordsView,MainView,UtteranceUIView}.qml`,
+`Views/SearchView/{SearchInputBox,NotiView}.qml`, `Views/ContentsList/KeywordsRec.qml`,
+`Views/Components/{ButtonFlex,ButtonIcon,FocusableText,FocusableSwitch,FocusableSwitchWithText,MiniBg}.qml`, `Views/PopupView/optionPopup.qml`), style and layout only; it also
+lays `payload/voice/Views/Components/LumaPhoto.qml` and eight Lucide glyphs (`Views/images/luma/`, recoloured from the palette) beside LG's files, never over one. The field, chips,
+genre cards, mic hint and top row follow mock 09: `docs/research/restyle-fixes/search/result.md` has what they look like, where a later decision differs from the mock, and the TV check.
 
 - **A role for every colour of the style sheet.** `voice_patch.py` holds a table (sheet, ink, dim ink, hairline, lit fill, ring, accent, danger) and rewrites every
   quoted colour of `Style.qml` by it. A colour with no role, or a role for a colour that is gone, is fatal: a firmware update that adds a colour must be looked at.
@@ -428,17 +430,16 @@ the confirm and notice popups; result cards and the voice screens (Weather, IoT,
   locale's class is Latin and LG's family otherwise (this set is English). The faces are loaded by `FontLoader`s in the style sheet; `Main.qml`'s four defaults are Manrope too.
 - **One sheet under everything.** LG draws white words over 60-85 % black; with ink that follows the theme the sheet is whole, on every theme (the full-screen field, the
   drawer's dim, the option popup's backdrop). The drawer's black gradient picture is dropped.
-- **Focus is a lit fill with a ring**, not LG's white box with dark text: the keyword chips, the buttons (`ButtonFlex`), the popup rows, the picture buttons (round, ring on focus; the
-  glyph picture that reads on the sheet is used in both states, as in inputcommon), the search field (a pill: a wash at rest, the lit fill and a ring focused). The grey
-  `7D848C` chips are the hairline wash.
+- **Focus is a lit plate with a 1 px rim**, not LG's white box with dark text: the keyword chips and cards (the plate grows, the words stay), the buttons (`ButtonFlex`), the popup rows, the
+  picture buttons (round 64 px targets with Lucide glyphs), the typed suggestions, the search field (a well; its edge brightens focused). The grey `7D848C` chips are the ink wash.
 - **No live shadow**: the seven `DropShadow`s of the files above are off; the pads that LG only drew as the source of a shadow (`visible: false`) are drawn.
 - The AI keyword dot and its text are the accent; the "related" highlight and the utterance's highlight colour are the accent.
 
-Host: `tests/qmlhost/voice.py` (`--scene search|search-focus|auto|keywords|noti|option|confirm`, `--patched`, `--light`, `--text 200`, `--audit`) loads LG's own `Style.qml`,
+Host: `tests/qmlhost/voice.py` (`--scene search|search-tv|search-focus|genre|chip|back|auto|keywords|noti|option|confirm`, `--patched`, `--light`, `--text 200`, `--audit`) loads LG's own `Style.qml`,
 `StringSet.qml`, `GlobalVars.qml`, every `Services/*.qml` wrapper and the views, with `main`, `mainView`, `models`, `inputManager`, `voiceHintManager`, `ttsManager`, `util`
-and `Service` as stand-ins (`Service` answers LG's search server with four popular keywords and four auto keywords). Pictures are not drawn (not in the copy), so the three
-picture buttons show nothing; the close, more and profile buttons' places are visible by their rings only. Scenes: `tests/qmlhost/scenes_voice.py`
-(`09-lg-search*`, dark and light in `docs/research/lg-restyles/`; `*-200` are 200 % text). LG's own bugs in the host, left alone: `SearchView.qml:287` (`KeyNavigation.up` returns
+and `Service` as stand-ins (`Service` answers LG's search server with five popular keywords and five auto keywords; the genre cards get the mocks' stills as their pictures, the recent
+searches are the set's). LG's own pictures (`Views/images`) are not in the copy, so the ones LG draws itself (the default genre picture) are absent. Scenes: `tests/qmlhost/scenes_voice.py`
+(`09-lg-search*` in `docs/research/lg-restyles/` are the colour restyle of round 11, dark and light, `*-200` at 200 % text; the current look is in `docs/research/restyle-fixes/search/`). LG's own bugs in the host, left alone: `SearchView.qml:287` (`KeyNavigation.up` returns
 nothing while the dim is down) and the auto-keyword delegates reading their `ListView` while the model is cleared.
 
 `tools/voice.sh` is `tools/inputcommon.sh` with another tree's names (the script reads `IC_NAME`, `IC_ID`, `IC_ROOT_FILE` (`Main.qml`), `IC_STYLE_FILE` (`Style.qml`), `IC_PATCH_TOOL`,

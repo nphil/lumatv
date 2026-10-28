@@ -5,7 +5,7 @@ views behind stand-ins for what is native) over a still of video. Names follow t
 restyled LG file. "Light" stages the patch with the light material as its palette: on the set the sheet is always the dark material's
 (tools/tokens.py), so this shows the same files in a theme whose sheet is light.
 
-    python3 tests/qmlhost/scenes.py --only 09-lg-search,09-lg-search-focus,09-lg-search-auto,09-lg-search-noti,09-lg-search-option,09-lg-search-confirm --out /tmp/vs
+    python3 tests/qmlhost/scenes.py --only 09-lg-search,09-lg-search-tv,09-lg-search-focus,09-lg-search-genre,09-lg-search-chip,09-lg-search-back,09-lg-search-auto,09-lg-search-noti,09-lg-search-option,09-lg-search-confirm --out /tmp/vs
 """
 import os
 import subprocess
@@ -63,3 +63,25 @@ def _(out_dir, material):
 @scene("09-lg-search-confirm", runner=True)
 def _(out_dir, material):
     return render("09-lg-search-confirm", out_dir, material, "confirm")
+
+
+@scene("09-lg-search-tv", runner=True)
+def _(out_dir, material):
+    # what the set shows: five recent searches, five popular ones, six genre cards, no AI keywords
+    return render("09-lg-search-tv", out_dir, material, "search-tv")
+
+
+@scene("09-lg-search-genre", runner=True)
+def _(out_dir, material):
+    return render("09-lg-search-genre", out_dir, material, "genre")
+
+
+@scene("09-lg-search-chip", runner=True)
+def _(out_dir, material):
+    return render("09-lg-search-chip", out_dir, material, "chip")
+
+
+@scene("09-lg-search-back", runner=True)
+def _(out_dir, material):
+    # the back key beside the field, as shown once there are results
+    return render("09-lg-search-back", out_dir, material, "back")
