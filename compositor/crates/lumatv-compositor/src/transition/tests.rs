@@ -226,9 +226,9 @@ fn a_card_on_the_video_plane_arrives_on_a_veil_that_fades_once_the_video_has_had
     let half = t.veil(w, (233 + 90) * MS, true).unwrap().alpha;
     assert!((half - 0.5).abs() < 0.01, "{half}");
     assert!(t.veil(w, (233 + 180) * MS, true).is_none(), "gone");
-    assert!(t.animating(300 * MS) || !t.tracks().iter().any(|t| t.window == w) || t.tracks().iter().any(|t| t.window == w));
     // the track ends with its veil
-    assert!(!t.frame(500 * MS) || !t.tracks().iter().any(|t| t.window == w));
+    t.frame(500 * MS);
+    assert!(t.track_of(w).is_none());
     assert_eq!(t.stats.veil_caps, 0);
 }
 
@@ -291,7 +291,12 @@ fn reduced_motion_is_one_linear_fade_of_120_ms_and_nothing_moves() {
         assert!(near(p.radius, 0.0) && near(p.shade, 1.0));
         assert!(near(p.alpha, ms as f32 / 120.0), "linear: {ms} ms {}", p.alpha);
     }
-    assert!(t.veil(WindowId(2), 500 * MS, true).is_none(), "no veil either");
+    // a veil only fades, so it stays: without it the plane's black would be what shows through the hole as the card fades in
+    assert_eq!(t.veil(WindowId(2), 500 * MS, true).map(|v| v.alpha), Some(1.0));
+    assert_eq!(t.veil(WindowId(2), 650 * MS, true).map(|v| v.alpha), Some(1.0), "the settle: 150 ms after the hole");
+    let half = t.veil(WindowId(2), (650 + 60) * MS, true).unwrap().alpha;
+    assert!((half - 0.5).abs() < 0.01, "and its fade takes 120 ms, not 180: {half}");
+    assert!(t.veil(WindowId(2), (650 + 121) * MS, true).is_none());
     let home = t.pose(WindowId(1), 120 * MS).unwrap();
     assert!(near(home.shade, 1.0), "Home is not darkened");
     t.clear();
@@ -340,8 +345,6 @@ fn the_picture_of_a_leave_is_handed_over_live_and_for_a_while_after() {
     t.begin(Kind::Leave, 0, None, Some(party(2, "com.netflix", false)), &[(WindowId(1), FULL)]);
     // taken 90 ms in: where the picture is then, and the card is the switcher's
     let live = t.take_visual(WindowId(2), 90 * MS).unwrap();
-    let expect = Pose::lerp(&Pose::rest(FULL), &t.pose(WindowId(1), 0).map(|_| Pose::rest(FULL)).unwrap(), 0.0);
-    let _ = expect;
     assert!(live.rect.w > 120 && live.rect.w < 1920 + 4, "{live:?}");
     assert!(live.alpha > 0.0 && live.alpha <= 1.0);
     assert!(t.track_of(WindowId(2)).is_none(), "its track is gone");
@@ -390,4 +393,74 @@ fn a_hole_maps_into_the_picture_the_way_the_window_does() {
     let small = Rect::new(192, 108, 960, 540);
     let m = FRect::map_rect(&FULL, &picture, &small);
     assert!(near(m.x, 960.0 + 96.0) && near(m.y, 540.0 + 54.0) && near(m.w, 480.0) && near(m.h, 270.0));
+}
+
+#[test]
+fn nothing_moves_while_the_switcher_is_up() {
+    let mut t = on();
+    t.suspended = true;
+    assert!(!t.begin(Kind::Launch, 0, Some(party(2, "com.netflix", false)), None, &[(WindowId(1), FULL)]));
+    assert!(!t.begin(Kind::Leave, 0, None, Some(party(2, "com.netflix", false)), &[(WindowId(1), FULL)]));
+    assert!(!t.begin(Kind::Switch, 0, Some(party(3, "b", false)), Some(party(2, "a", false)), &[]));
+    assert!(!t.active() && t.stats == Stats::default());
+    t.suspended = false;
+    assert!(t.begin(Kind::Switch, 0, Some(party(3, "b", false)), Some(party(2, "a", false)), &[]));
+}
+
+#[test]
+fn the_theme_switch_reads_the_owner_s_file_and_nothing_else() {
+    assert_eq!(ThemeSwitch::parse(r#"{"motion":{"transitions":true,"reduced":false}}"#), (true, false));
+    assert_eq!(ThemeSwitch::parse(r#"{"motion":{"transitions":true,"reduced":true}}"#), (true, true));
+    assert_eq!(ThemeSwitch::parse(r#"{"motion":{"transitions":"yes"}}"#), (false, false), "no boolean is no choice");
+    assert_eq!(ThemeSwitch::parse(r#"{"material":"dark"}"#), (false, false));
+    assert_eq!(ThemeSwitch::parse("not json"), (false, false));
+    let dir = std::env::temp_dir().join(format!("lumatv-motion-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("theme")).unwrap();
+    let mut sw = ThemeSwitch::new(&dir);
+    let t0 = std::time::Instant::now();
+    assert!(!sw.poll(t0), "no file: off, nothing changed");
+    assert!(!sw.settings().enabled);
+    std::fs::write(dir.join("theme/theme.json"), r#"{"motion":{"transitions":true}}"#).unwrap();
+    // looked at once a second
+    assert!(!sw.poll(t0 + std::time::Duration::from_millis(500)));
+    assert!(sw.poll(t0 + std::time::Duration::from_millis(1500)), "the file came: on");
+    assert!(sw.settings().enabled && !sw.settings().reduced);
+    // a file that cannot be read now (written in place) leaves what was read
+    std::fs::write(dir.join("theme/theme.json"), "{\"motion\":").unwrap();
+    assert!(!sw.poll(t0 + std::time::Duration::from_millis(3000)));
+    assert!(sw.settings().enabled);
+    // `ctl transitions off` is over the theme's
+    sw.forced = Some(false);
+    assert!(!sw.settings().enabled);
+    sw.forced = None;
+    std::fs::write(dir.join("theme/theme.json"), r#"{"motion":{"transitions":false,"reduced":true}}"#).unwrap();
+    assert!(sw.poll(t0 + std::time::Duration::from_millis(5000)));
+    assert_eq!(sw.settings(), Settings { enabled: false, reduced: true });
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_move_whose_pictures_were_not_drawn_starts_again_at_the_next_frame_for_a_while() {
+    let mut t = on();
+    t.begin(Kind::Switch, 100 * MS, Some(party(3, "b", false)), Some(party(2, "a", false)), &[]);
+    // the frame at 100 ms could not draw the card's picture (the driver is busy with its buffer): the move is seen from its start at 116
+    t.anchor(116 * MS);
+    t.drawn(false);
+    assert_eq!(t.track_of(WindowId(3)).unwrap().start_ns, 116 * MS);
+    assert!(near(t.pose(WindowId(3), 116 * MS).unwrap().alpha, 0.25), "still its first frame");
+    t.anchor(133 * MS);
+    assert_eq!(t.track_of(WindowId(3)).unwrap().start_ns, 133 * MS);
+    t.drawn(true);
+    t.anchor(150 * MS);
+    assert_eq!(t.track_of(WindowId(3)).unwrap().start_ns, 133 * MS, "drawn: the clock is its own now");
+    // a picture that never comes is not waited for for ever
+    let mut t = on();
+    t.begin(Kind::Switch, 0, Some(party(3, "b", false)), Some(party(2, "a", false)), &[]);
+    for ms in (16..=96).step_by(16) {
+        t.anchor(ms * MS);
+        t.drawn(false);
+    }
+    assert_eq!(t.track_of(WindowId(3)).unwrap().start_ns, 96 * MS);
+    t.anchor(112 * MS);
+    assert_eq!(t.track_of(WindowId(3)).unwrap().start_ns, 96 * MS, "after 100 ms the move runs on its own clock");
 }

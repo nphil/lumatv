@@ -1057,6 +1057,7 @@ impl Gl {
             // A picture on its way (a transition) whose buffer is still warming is not drawn this frame: what is under it shows, and the
             // next frame of the move draws it.
             if warming && item.pose.is_some() {
+                stats.posed_waiting += 1;
                 continue;
             }
             if let (true, Some(page)) = (warming, standin_page) {

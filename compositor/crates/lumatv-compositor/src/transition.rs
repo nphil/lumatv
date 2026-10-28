@@ -31,7 +31,9 @@ pub const ARRIVE_MS: u32 = 220;
 pub const LEAVE_MS: u32 = 180;
 /// Reduced motion: one short fade, no travel (`motion.reduce`: at most 120 ms, linear opacity only).
 pub const REDUCED_MS: u32 = 120;
-/// A veil that is let go fades out over this long (a dissolve: linear).
+/// The most a transition's start waits for its pictures to be drawable.
+pub const WAIT_MS: u32 = 100;
+/// A veil that is let go fades out over this long (a dissolve: linear; reduced motion: [`REDUCED_MS`]).
 pub const VEIL_FADE_MS: u32 = 180;
 /// The veil is held until the video has had this long since its hole (and with it the placement the compositor sends to
 /// videooutputd in the same step) came, so the first decoded picture is there when the fade starts.
@@ -295,6 +297,10 @@ pub struct Track {
     /// The card is coming in (it may have a veil), not going out.
     pub arriving: bool,
     veil: Option<Veil>,
+    /// When the track was made, and whether a frame has drawn the pictures yet: until one has (a first buffer the driver is still busy
+    /// with is not drawn), the clock starts again at each frame, so the move is seen from its start, for [`WAIT_MS`] at most.
+    created_ns: u64,
+    settled: bool,
 }
 
 impl Track {
@@ -517,6 +523,8 @@ impl Transitions {
                         kind,
                         arriving: false,
                         veil: None,
+                        created_ns: now_ns,
+                        settled: false,
                     });
                 }
                 self.stats.launches += 1;
@@ -547,6 +555,10 @@ impl Transitions {
                     kind,
                     arriving: false,
                     veil: None,
+
+                    created_ns: now_ns,
+
+                    settled: false,
                 });
                 self.arrive(to, kind, now_ns, false);
                 self.stats.switches += 1;
@@ -588,8 +600,8 @@ impl Transitions {
             Some((pose, veil, _)) => (pose, veil),
             None => (start, None),
         };
-        // Reduced motion has no veil: a hole's picture is what the plane shows, faded in with the card.
-        let veil = if reduced { None } else { veil.or(if app.video { Some(Veil::Hold { hole_ns: None }) } else { None }) };
+        // (A veil only fades, so reduced motion keeps it: without one the plane's black is what shows through the hole as the card fades in.)
+        let veil = veil.or(if app.video { Some(Veil::Hold { hole_ns: None }) } else { None });
         self.tracks.push(Track {
             window: app.id,
             from,
@@ -604,6 +616,10 @@ impl Transitions {
             kind,
             arriving: true,
             veil,
+
+            created_ns: now_ns,
+
+            settled: false,
         });
     }
 
@@ -633,6 +649,10 @@ impl Transitions {
                 kind: Kind::Leave,
                 arriving: false,
                 veil: None,
+
+                created_ns: now_ns,
+
+                settled: false,
             });
             for (id, rect) in home {
                 let mut start = Pose::rest(*rect);
@@ -655,6 +675,10 @@ impl Transitions {
                     kind: Kind::Leave,
                     arriving: false,
                     veil: None,
+
+                    created_ns: now_ns,
+
+                    settled: false,
                 });
             }
             return;
@@ -686,6 +710,10 @@ impl Transitions {
             kind: Kind::Leave,
             arriving: false,
             veil: None,
+
+            created_ns: now_ns,
+
+            settled: false,
         });
         // Home comes back to its brightness behind the card (Home was dimmed behind the launch, or it is dimmed now as if it had been).
         for (id, rect) in home {
@@ -708,6 +736,10 @@ impl Transitions {
                 kind: Kind::Leave,
                 arriving: false,
                 veil: None,
+
+                created_ns: now_ns,
+
+                settled: false,
             });
         }
     }
@@ -749,6 +781,27 @@ impl Transitions {
         self.recent.retain(|r| now_ns.saturating_sub(r.at_ns) < ns(RECENT_MS));
     }
 
+    /// Starts the clock again at `now_ns` for the tracks no frame has drawn yet (a first buffer the driver is still busy with is not drawn, so the
+    /// move would be seen from its middle): until [`Transitions::drawn`], [`WAIT_MS`] at most.
+    pub fn anchor(&mut self, now_ns: u64) {
+        for t in self.tracks.iter_mut().filter(|t| !t.settled) {
+            if now_ns.saturating_sub(t.created_ns) < ns(WAIT_MS) {
+                t.start_ns = now_ns;
+            } else {
+                t.settled = true;
+            }
+        }
+    }
+
+    /// A frame has been drawn. When it held every picture of the transitions (`complete`), they have started and keep their clocks.
+    pub fn drawn(&mut self, complete: bool) {
+        if complete {
+            for t in &mut self.tracks {
+                t.settled = true;
+            }
+        }
+    }
+
     /// `window`'s pose in this frame, if it is in transition.
     pub fn pose(&self, window: WindowId, now_ns: u64) -> Option<Pose> {
         self.track_of(window).map(|t| t.pose_at(now_ns))
@@ -764,9 +817,7 @@ impl Transitions {
     /// [`VEIL_SETTLE_MS`] since the hole came (or [`VEIL_CAP_MS`] after the arrival, hole or none), then faded away. `None` when the
     /// window has none, or it is over. `hole` is whether the window has a hole in this frame.
     pub fn veil(&mut self, window: WindowId, now_ns: u64, hole: bool) -> Option<VeilNow> {
-        if self.settings.reduced {
-            return None;
-        }
+        let fade_ns = ns(if self.settings.reduced { REDUCED_MS } else { VEIL_FADE_MS });
         let i = self.tracks.iter().position(|t| t.window == window)?;
         let t = &mut self.tracks[i];
         if !t.arriving {
@@ -798,7 +849,7 @@ impl Transitions {
                 Some(VeilNow { alpha: 1.0 })
             }
             Veil::Fade { start_ns } => {
-                let f = now_ns.saturating_sub(start_ns) as f32 / ns(VEIL_FADE_MS) as f32;
+                let f = now_ns.saturating_sub(start_ns) as f32 / fade_ns as f32;
                 if f >= 1.0 {
                     t.veil = None;
                     return None;

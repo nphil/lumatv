@@ -434,6 +434,7 @@ impl State {
             match output.render(plan, surfaces) {
                 Ok(st) => {
                     drew = true;
+                    scene.transitions.drawn(st.posed_waiting == 0);
                     stats.render_us_last = st.render_us;
                     stats.render_us_max = stats.render_us_max.max(st.render_us);
                     stats.skipped_items += st.skipped as u64;

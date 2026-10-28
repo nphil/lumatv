@@ -22,6 +22,9 @@
 #   wallpaper video|gpu|status -> Home's wallpaper source (theme.wallpaperMotion.source, default gpu): `video` plays the wallpaper as a looping
 #                            clip on the video plane through the video-plane player, under LumaTV's own compositor; the status names what is
 #                            missing (the compositor, the player installed and running, a clip), and until it is all there the GPU draws it
+#   transitions on|off|status -> smooth transitions (theme.motion.transitions, default off): under LumaTV's own compositor an app grows out of its
+#                            tile and goes back into it, one app fades over another, a card on the video plane arrives on a veil and Home
+#                            dissolves over it on the way out (docs/research/transitions-result.md); LG's compositor cuts, as ever
 #   surfaces               -> the registry: every switch, whether it is on, and what puts LG's back
 #   compositor on|off|status|check -> LumaTV's own compositor in place of LG's (tools/compositor.sh); `on` is the
 #                            persistent enable and needs a firmware build on verified.list; `check` is what the
@@ -2549,6 +2552,36 @@ verb_wallpaper() {
   return 0
 }
 
+# Smooth transitions (theme.motion.transitions, off by default): a switch and nothing more. The compositor reads the theme file itself (once a
+# second), the Home layer every 2 s, so nothing restarts; under LG's compositor the key changes nothing.
+transitions_state() {
+  tr_v=$(python3 "$THEME_TOOL" "$THEME_DIR/theme.json" read motion.transitions false < /dev/null 2>/dev/null)
+  case "$tr_v" in True|true) printf true ;; *) printf false ;; esac
+}
+
+transitions_set() {
+  [ -f "$THEME_DIR/theme.json" ] || stage_theme
+  python3 "$THEME_TOOL" "$THEME_DIR/theme.json" set "{\"motion\":{\"transitions\":$1}}" < /dev/null > /dev/null || return 1
+  return 0
+}
+
+transitions_json() {
+  tr_comp=lg
+  if command -v comp_live > /dev/null 2>&1 && comp_live; then tr_comp=own; fi
+  printf '{"on":%s,"compositor":"%s"}' "$(transitions_state)" "$tr_comp"
+}
+
+verb_transitions() {
+  case "${1:-status}" in
+    on) transitions_set true || { emit_error "transitions: theme.json could not be updated"; return 1; } ;;
+    off) transitions_set false || { emit_error "transitions: theme.json could not be updated"; return 1; } ;;
+    status) ;;
+    *) emit_error "transitions: on, off or status"; return 1 ;;
+  esac
+  printf '{"ok":true,"transitions":%s}\n' "$(transitions_json)"
+  return 0
+}
+
 verb_preload() {
   case "$1" in
     on|off|status)
@@ -3750,6 +3783,7 @@ case "$VERB" in
   inputs) verb_inputs "${2:-status}"; exit $? ;;
   vplane) verb_vplane "${2:-status}"; exit $? ;;
   wallpaper) verb_wallpaper "${2:-status}"; exit $? ;;
+  transitions) verb_transitions "${2:-status}"; exit $? ;;
   preload) verb_preload "${2:-status}"; exit $? ;;
   logo) verb_logo "${2:-status}"; exit $? ;;
   notifications) verb_notifications "${2:-status}"; exit $? ;;

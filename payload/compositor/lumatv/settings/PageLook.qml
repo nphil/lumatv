@@ -66,11 +66,11 @@ PageList {
           act: function(i) { page.patch(i === 2 ? { clock: { enabled: false } } : { clock: { enabled: true, style: page.clockStyles[i] } }) } },
         { kind: "toggle", tab: 0, icon: "waves", label: "Wallpaper motion",
           on: function() { return page.motionOn }, act: function(v) { page.patch({ wallpaperMotion: { enabled: v } }) } },
-        { kind: "toggle", tab: 0, icon: "sparkles", label: "Smooth transitions", help: "Apps grow out of their tile and shrink back.",
-          on: function() { return page.transitionsOn }, act: function(v) { page.patch({ motion: { transitions: v } }) } },
         { kind: "seg", tab: 0, icon: "blend", label: "Glass depth",
           options: ["Flat", "Normal", "Deep"], index: function() { var i = page.depthLevels.indexOf(Lu.depthLevel); return i < 0 ? undefined : i },
           act: function(i) { page.patch({ depth: { level: page.depthLevels[i] } }) } },
+        { kind: "toggle", tab: 0, icon: "sparkles", label: "Smooth transitions", help: "Apps grow out of their tile and shrink back.",
+          on: function() { return page.transitionsOn }, act: function(v) { page.patch({ motion: { transitions: v } }) } },
 
         R.link({ tab: 1, id: "widgets", icon: "layout-grid", label: "Home widgets",
                  value: function() { return ((HomeLayout.layout.widgets || []).filter(function(e) { return e.type !== "dock" && !e.hidden }).length) + " shown" },

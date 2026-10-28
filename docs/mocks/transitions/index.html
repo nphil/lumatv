@@ -11,7 +11,7 @@
      in the legend are the constants of transition.rs. ?v=launch (default) an app grows out of its tile; ?v=leave back into it; ?v=switch one
      app replaces another; ?v=video an app whose picture is on the video plane (the veil and the dissolve); ?v=interrupt Home pressed 90 ms
      into a launch; ?v=splash a slow launch (the splash waits 400 ms, the card grows out of its icon); ?v=reduced reduced motion.
-     ?v=settings is the switch's row in Settings > Home & look. ?theme=light for the light material; ?text=200 doubles the Settings type.
+     ?v=settings is the switch's row in Settings > Home & look (its help, “Apps grow out of their tile and shrink back.”, sits behind the info mark as every row's does). ?theme=light for the light material; ?text=200 doubles the Settings type.
      The pictures are stand-ins. */
   :root { --ts: 1; }
   [data-text="200"] { --ts: 2; }
@@ -250,15 +250,15 @@
       <div class="text"><div class="t">Wallpaper motion</div></div>
       <div class="toggle" role="switch" aria-checked="true"></div>
     </div>
-    <div class="row focusable focus" tabindex="0" data-autofocus>
-      <div class="lead"><i data-ic="blend"></i></div>
-      <div class="text"><div class="t">Smooth transitions</div><div class="d">Apps grow out of their tile and shrink back.</div></div>
-      <div class="toggle" role="switch" aria-checked="true"></div>
-    </div>
     <div class="row focusable" tabindex="0">
-      <div class="lead"><i data-ic="layout-grid"></i></div>
+      <div class="lead"><i data-ic="blend"></i></div>
       <div class="text"><div class="t">Glass depth</div></div>
       <span class="seg" role="radiogroup"><span role="radio" aria-selected="false">Flat</span><span role="radio" aria-selected="false">Normal</span><span role="radio" aria-selected="true">Deep</span></span>
+    </div>
+    <div class="row focusable focus" tabindex="0" data-autofocus>
+      <div class="lead"><i data-ic="sparkles"></i></div>
+      <div class="text"><div class="t">Smooth transitions<i data-ic="info" class="info"></i></div></div>
+      <div class="toggle" role="switch" aria-checked="true"></div>
     </div>
   </div>
 </main>`;

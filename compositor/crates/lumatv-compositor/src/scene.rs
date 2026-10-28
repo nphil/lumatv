@@ -785,6 +785,7 @@ impl Scene {
             self.last_front = now;
             self.begin_transition(prev, now, surfaces, now_ns);
         }
+        self.transitions.anchor(now_ns);
         self.transitions.frame(now_ns);
     }
 
@@ -805,12 +806,15 @@ impl Scene {
                 _ => (String::new(), false),
             }
         };
+        // Home's windows: under a launch Home and the moving wallpaper's window (its hole) both stay drawn; Home alone comes back on a leave.
         let home: Vec<(WindowId, FRect)> = self
             .windows
             .values()
             .filter(|w| matches!(w.kind, WindowType::ShellHome | WindowType::Wallpaper) && w.map_serial > 0)
             .map(|w| (w.id, full))
             .collect();
+        let home_ui: Vec<(WindowId, FRect)> =
+            self.windows.values().filter(|w| w.kind == WindowType::ShellHome && w.map_serial > 0).map(|w| (w.id, full)).collect();
         let started = match (prev, now) {
             (Front::Home, Front::Card(b)) if drawable(self, b) => {
                 let b_info = info(self, b);
@@ -818,7 +822,7 @@ impl Scene {
             }
             (Front::Card(a), Front::Home) if drawable(self, a) => {
                 let a_info = info(self, a);
-                self.transitions.begin(Kind::Leave, now_ns, None, Some(party(a, &a_info, full)), &home)
+                self.transitions.begin(Kind::Leave, now_ns, None, Some(party(a, &a_info, full)), &home_ui)
             }
             // One card over another that was drawn under it already (an overlay goes, the card it was over is the screen): the card that
             // goes leaves, what was under it is revealed, as Home is.

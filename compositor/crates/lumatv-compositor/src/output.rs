@@ -51,6 +51,9 @@ pub struct RenderStats {
     pub imports: u32,
     /// Surfaces drawn from the last frame's page because the driver was still busy with their new buffer.
     pub stood_in: u32,
+    /// Pictures in a transition left out of this frame because the driver was still busy with their buffer (the transition's clock starts
+    /// again at the next frame: `Transitions::drawn`).
+    pub posed_waiting: u32,
 }
 
 pub trait Output {

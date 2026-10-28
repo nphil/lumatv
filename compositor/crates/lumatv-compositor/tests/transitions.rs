@@ -606,3 +606,170 @@ fn the_gl_renderer_draws_an_exiting_apps_last_picture_and_lets_it_go() {
     let (skipped, errors) = state(&server, |s| (s.stats.skipped_items, s.stats.gl_errors));
     assert_eq!((skipped, errors), (0, 0));
 }
+
+// ---- renders for the docs (`docs/research/transitions/`): the compositor's own frames of each transition, through the software renderer ----
+
+/// Home as a picture: a dark gradient wallpaper, a status pill, two glass panels and the dock's tiles (Netflix's at `TILE`).
+fn home_picture(x: i32, y: i32) -> u32 {
+    let tiles = [0xfff0_f0f0u32, 0xff18_1820, 0xffc0_2030, 0xff20_2028, 0xff30_3038, 0xfff0_6010, 0xff50_70c0, 0xff68_6870, 0xffe8_e8e8, 0xff80_2040, 0xff18_3050, 0xff40_4048];
+    for (n, c) in tiles.iter().enumerate() {
+        let (col, row) = ((n % 6) as i32, (n / 6) as i32);
+        let (tx, ty) = (TILE.0 + col * 144, TILE.1 + row * 144);
+        if x >= tx && x < tx + 120 && y >= ty && y < ty + 120 {
+            // rounded corners of 22
+            let (dx, dy) = ((x - tx).min(119 - (x - tx)), (y - ty).min(119 - (y - ty)));
+            if dx >= 22 || dy >= 22 || ((22 - dx) * (22 - dx) + (22 - dy) * (22 - dy)) <= 22 * 22 {
+                return *c;
+            }
+        }
+    }
+    let glass = (x >= 64 && x < 1856) && ((y >= 160 && y < 590) || (y >= 630 && y < 1010) || (y >= 40 && y < 126));
+    let t = y as f32 / 1080.0;
+    let (r, g, b) = (28.0 + 30.0 * (1.0 - t) + 14.0 * (x as f32 / 1920.0), 26.0 + 22.0 * (1.0 - t), 60.0 + 50.0 * (1.0 - t) + 20.0 * (x as f32 / 1920.0));
+    let k = if glass { 0.78 } else { 1.0 };
+    0xff00_0000 | (((r * k) as u32) << 16) | (((g * k) as u32) << 8) | (b * k) as u32
+}
+
+/// An app's picture: a dark canvas, a hero banner and a row of posters, so that scale, mask and corner show.
+fn app_picture(x: i32, y: i32, hue: u32) -> u32 {
+    let banner = x >= 96 && x < 1824 && y >= 170 && y < 690;
+    let poster = (0..5).any(|i| x >= 96 + i * 340 && x < 96 + i * 340 + 316 && y >= 740 && y < 960);
+    let bar = x >= 96 && x < 600 && y >= 54 && y < 126;
+    let (r, g, b) = match hue {
+        0 => (0xe5u32, 0x4f, 0x4f),
+        _ => (0x4f, 0xb0, 0x6a),
+    };
+    if bar {
+        0xffff_ffff
+    } else if banner {
+        let t = (x - 96) as f32 / 1728.0;
+        0xff00_0000 | (((r as f32 * (0.4 + 0.5 * t)) as u32) << 16) | (((g as f32 * (0.4 + 0.5 * t)) as u32) << 8) | (b as f32 * (0.4 + 0.5 * t)) as u32
+    } else if poster {
+        0xff00_0000 | ((r / 3) << 16) | ((g / 3) << 8) | (b / 3)
+    } else {
+        0xff0c_0b10
+    }
+}
+
+/// The plane's stand-in picture under a hole: a landscape gradient.
+fn plane_picture(x: u32, y: u32) -> [u8; 3] {
+    let t = y as f32 / 1080.0;
+    [(90.0 + 120.0 * (1.0 - t) + 20.0 * (x as f32 / 1920.0)) as u8, (110.0 + 80.0 * (1.0 - t)) as u8, (60.0 + 140.0 * t) as u8]
+}
+
+/// A contact sheet of `frames` (3 columns, each third size), the plane's picture blended under the pixels the picture leaves transparent.
+fn sheet(frames: &[Image], plane: bool) -> Image {
+    let (cols, w, h) = (3usize, 640usize, 360usize);
+    let rows = frames.len().div_ceil(cols);
+    let (sw, sh) = (cols * w + (cols + 1) * 16, rows * h + (rows + 1) * 16);
+    let mut rgba = vec![24u8; sw * sh * 4];
+    for px in rgba.chunks_exact_mut(4) {
+        px.copy_from_slice(&[0x19, 0x17, 0x24, 255]);
+    }
+    for (n, f) in frames.iter().enumerate() {
+        let (ox, oy) = (16 + (n % cols) * (w + 16), 16 + (n / cols) * (h + 16));
+        for y in 0..h {
+            for x in 0..w {
+                let mut acc = [0u32; 4];
+                for dy in 0..3 {
+                    for dx in 0..3 {
+                        let p = f.pixel((x * 3 + dx) as u32, (y * 3 + dy) as u32);
+                        let under = if plane { plane_picture((x * 3 + dx) as u32, (y * 3 + dy) as u32) } else { [0, 0, 0] };
+                        let inv = 255 - p[3] as u32;
+                        for c in 0..3 {
+                            acc[c] += (p[c] as u32 + under[c] as u32 * inv / 255).min(255);
+                        }
+                    }
+                }
+                let o = ((oy + y) * sw + ox + x) * 4;
+                rgba[o..o + 4].copy_from_slice(&[(acc[0] / 9) as u8, (acc[1] / 9) as u8, (acc[2] / 9) as u8, 255]);
+            }
+        }
+    }
+    Image { width: sw as u32, height: sh as u32, rgba }
+}
+
+/// `LUMATV_TRANSITIONS_RENDER_DIR=docs/research/transitions cargo test --test transitions renders_the_transitions_for_the_docs`
+#[test]
+fn renders_the_transitions_for_the_docs() {
+    let Ok(dir) = std::env::var("LUMATV_TRANSITIONS_RENDER_DIR") else { return };
+    let dir = std::path::PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let write = |name: &str, img: &Image| lumatv_compositor::capture::write_png(&dir.join(name), img).unwrap();
+    let wall = |c: &mut Client| c.shm_pattern(1920, 1080, home_picture);
+
+    // launch, then Home pressed, then another app over it: one run, the frames picked out of it
+    let mut server = Server::start();
+    let mut r = rig(&mut server, true);
+    let home = wall(&mut r.client);
+    r._home.surface.attach(Some(&home), 0, 0);
+    r._home.surface.damage(0, 0, 1920, 1080);
+    r._home.surface.commit();
+    r.client.roundtrip();
+    state(&server, |s| {
+        s.tick_at(1_500 * MS);
+    });
+    let a = r.client.card("_WEBOS_WINDOW_TYPE_CARD", "A");
+    a.webos.set_property("appId".into(), "com.example.a".into());
+    let pic_a = r.client.shm_pattern(1920, 1080, |x, y| app_picture(x, y, 0));
+    let whole = r.client.region(0, 0, 1920, 1080);
+    a.surface.set_opaque_region(Some(&whole));
+    r.client.present(&a.surface, &pic_a);
+    r.client.roundtrip();
+    let launch: Vec<Image> = [0u64, 44, 88, 132, 176, 220].iter().map(|ms| tick(&server, 2_000 * MS + ms * MS)).collect();
+    write("launch.png", &sheet(&launch, false));
+    tick(&server, 2_400 * MS);
+
+    r.stub.webos.set_state(3);
+    r.client.roundtrip();
+    let leave: Vec<Image> = [0u64, 36, 72, 108, 144, 180].iter().map(|ms| tick(&server, 3_000 * MS + ms * MS)).collect();
+    write("leave.png", &sheet(&leave, false));
+    tick(&server, 3_400 * MS);
+
+    // the second app over the first (Home brought the first back, so launch the first again, then the second)
+    a.webos.set_state(3);
+    r.client.roundtrip();
+    tick(&server, 4_000 * MS);
+    tick(&server, 4_300 * MS);
+    let b = r.client.card("_WEBOS_WINDOW_TYPE_CARD", "B");
+    b.webos.set_property("appId".into(), "com.example.b".into());
+    let pic_b = r.client.shm_pattern(1920, 1080, |x, y| app_picture(x, y, 1));
+    b.surface.set_opaque_region(Some(&whole));
+    r.client.present(&b.surface, &pic_b);
+    r.client.roundtrip();
+    let switch: Vec<Image> = [0u64, 44, 88, 132, 176, 220].iter().map(|ms| tick(&server, 5_000 * MS + ms * MS)).collect();
+    write("switch.png", &sheet(&switch, false));
+
+    // a card on the video plane: HDMI arrives on a veil and the plane is dissolved in; then Home dissolves over it
+    let mut server = Server::start();
+    let mut r = rig(&mut server, true);
+    let home = wall(&mut r.client);
+    r._home.surface.attach(Some(&home), 0, 0);
+    r._home.surface.damage(0, 0, 1920, 1080);
+    r._home.surface.commit();
+    r.client.roundtrip();
+    state(&server, |s| {
+        s.set_launch_origin(&json!({"appId": "com.webos.app.hdmi2", "tile": {"x": TILE.0 + 144 * 4, "y": TILE.1 + 144, "width": 120, "height": 120, "radius": 22}}));
+        s.tick_at(1_500 * MS);
+    });
+    let h = r.client.card("_WEBOS_WINDOW_TYPE_CARD", "Hdmi");
+    h.webos.set_property("appId".into(), "com.webos.app.hdmi2".into());
+    r.client.roundtrip();
+    let sid = state(&server, |s| s.scene.windows().find(|w| w.app_id() == "com.webos.app.hdmi2").map(|w| w.surface).unwrap());
+    state(&server, move |s| {
+        s.scene.set_video_expected(sid, true);
+        s.scene.holes.push(Hole { surface: sid, rect: lumatv_compositor::Rect::new(0, 0, 1920, 1080) });
+    });
+    let banner = r.client.shm_pattern(1920, 1080, |x, y| if (96..560).contains(&x) && (54..130).contains(&y) { 0xff28_3a58 } else { 0 });
+    r.client.present(&h.surface, &banner);
+    r.client.roundtrip();
+    let at = [0u64, 90, 180, 270, 360, 450];
+    let veil: Vec<Image> = at.iter().map(|ms| tick(&server, 2_000 * MS + ms * MS)).collect();
+    write("video-launch.png", &sheet(&veil, true));
+    tick(&server, 3_000 * MS);
+    r.stub.webos.set_state(3);
+    r.client.roundtrip();
+    let dissolve: Vec<Image> = [0u64, 36, 72, 108, 144, 180].iter().map(|ms| tick(&server, 4_000 * MS + ms * MS)).collect();
+    write("video-leave.png", &sheet(&dissolve, true));
+    drop((home, pic_a, pic_b, banner));
+}

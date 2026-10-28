@@ -170,8 +170,7 @@ fn dimmed(src: u32, dim: u32) -> u32 {
 
 /// An item through its pose: its buffer scaled onto `pose.quad` (bilinear, as the GPU samples), behind the window's rounded mask, at the pose's
 /// opacity and brightness, over what is there.
-fn draw_posed(pixels: &mut [u32], width: usize, shm: &crate::buffer::ShmBuffer, bytes: &[u8], pose: &Posed, rect: &Rect, clip: &Rect) {
-    let _ = rect;
+fn draw_posed(pixels: &mut [u32], width: usize, shm: &crate::buffer::ShmBuffer, bytes: &[u8], pose: &Posed, clip: &Rect) {
     for y in clip.y..clip.bottom() {
         for x in clip.x..clip.right() {
             let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
@@ -240,7 +239,7 @@ impl Output for Software {
                     pose.shade *= item.dim;
                     let width = self.width as usize;
                     let pixels = &mut self.pixels;
-                    shm.pool.with_bytes(|bytes| draw_posed(pixels, width, &shm, bytes, &pose, &item.rect, &clip));
+                    shm.pool.with_bytes(|bytes| draw_posed(pixels, width, &shm, bytes, &pose, &clip));
                     stats.drawn += 1;
                 }
                 BufferKindRef::Shm(shm) => {
