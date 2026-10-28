@@ -54,7 +54,6 @@ impl Writer {
             }
         }
         match std::thread::Builder::new().name("png".into()).spawn(move || {
-            crate::sched::time_shared();
             if let Err(e) = write_png(&path, &image) {
                 log::warn!("capture {}: {e}", path.display());
             }

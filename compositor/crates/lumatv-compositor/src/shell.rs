@@ -121,8 +121,8 @@ pub enum Msg {
     Connected,
     /// Any request: the client is alive.
     Seen,
-    /// `POST /v1/ui`: any subset of the three.
-    Ui { can: Option<Vec<String>>, wants: Option<bool>, state: Option<Value> },
+    /// `POST /v1/ui`: any subset of the four.
+    Ui { can: Option<Vec<String>>, wants: Option<bool>, live: Option<bool>, state: Option<Value> },
     /// `POST /v1/luna`.
     Luna { tag: u64, uri: String, payload: Value, subscribe: bool },
     /// `POST /v1/cancel`.
@@ -178,6 +178,14 @@ struct Launch {
     log: PathBuf,
 }
 
+/// Why a start on the spawn thread did not give a child.
+enum SpawnFailure {
+    /// No LumaHome.qml under the data directory: the shell is given up until `ctl shell restart`.
+    NoModule(PathBuf),
+    /// The runner did not start; tried again after a pause.
+    Start(std::io::Error),
+}
+
 /// A luna call made for the shell: its tag, the bridge token it got.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LunaTag {
@@ -201,6 +209,8 @@ pub struct Shell {
     launch: Option<Launch>,
     link: Option<Link>,
     child: Option<Child>,
+    /// A start on its thread (`spawn_client`) whose child has not arrived yet.
+    spawning: Option<Receiver<Result<Child, SpawnFailure>>>,
     child_started: Option<Instant>,
     starts: VecDeque<Instant>,
     next_start: Option<Instant>,
@@ -212,6 +222,9 @@ pub struct Shell {
     pub can: Vec<String>,
     /// The UI's system layer wants the keys.
     pub wants: bool,
+    /// The UI's system layer has something to show (a banner, a panel, a toast, the saver). Its window stays mapped and warm
+    /// meanwhile; the scene draws it only while this is true (`Scene::set_shell_system_live`). True until the UI says.
+    pub live: bool,
     /// What the UI last reported about itself (`ctl shell` shows it; the gate reads it).
     pub ui_state: Value,
     pub luna_tags: Vec<LunaTag>,
@@ -231,6 +244,7 @@ impl Default for Shell {
             launch: None,
             link: None,
             child: None,
+            spawning: None,
             child_started: None,
             starts: VecDeque::new(),
             next_start: None,
@@ -240,6 +254,7 @@ impl Default for Shell {
             last_seen: None,
             can: Vec::new(),
             wants: false,
+            live: true,
             ui_state: Value::Null,
             luna_tags: Vec::new(),
             pushed: BTreeMap::new(),
@@ -392,8 +407,14 @@ impl State {
         self.shell.link.as_ref().map(|l| l.wake_in.as_raw_fd())
     }
 
+    /// Starts the client on a thread of its own: the fork and the exec of a 32-bit Qt process took the loop 23 ms on the
+    /// tenth gate's trial (`loop: 24.5 ms in one pass` at the shell's start), a refresh and a half. The child arrives at a
+    /// later tick (`shell_tick`); meanwhile `spawning` says one is on its way.
     fn shell_spawn(&mut self) {
         let Some(l) = &self.shell.launch else { return };
+        if self.shell.spawning.is_some() {
+            return;
+        }
         let now = Instant::now();
         self.shell.starts.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
         if self.shell.starts.len() >= RESTART_LIMIT {
@@ -401,75 +422,54 @@ impl State {
             self.journal(format!("shell: {RESTART_LIMIT} starts in {} min, giving up (ctl shell restart tries again)", RESTART_WINDOW.as_secs() / 60));
             return;
         }
-        let imports = l.main_qml.parent().map(|d| d.join("imports")).unwrap_or_default();
-        let Some(module_dir) = module_dir(&self.config.data_dir) else {
-            self.journal(format!("shell: no LumaHome.qml under {}/qml/WebOSCompositor; the shell client is not run", self.config.data_dir.display()));
-            self.shell.error = Some("no module".into());
-            self.shell.gave_up = true;
-            return;
+        self.shell.starts.push_back(now);
+        let job = SpawnJob {
+            runner: l.runner.clone(),
+            main_qml: l.main_qml.clone(),
+            port: l.port,
+            token_path: l.token_path.clone(),
+            log: l.log.clone(),
+            data_dir: self.config.data_dir.clone(),
+            runtime_dir: self.config.runtime_dir.clone(),
+            socket: self.config.socket.clone(),
         };
-        let params = json!({
-            "port": l.port,
-            "tokenFile": l.token_path,
-            "dataDir": self.config.data_dir,
-            "moduleDir": module_dir,
-            "runtimeDir": self.config.runtime_dir,
-            "socket": self.config.socket,
-        });
-        let arg = json!({"event": "launch", "appId": APP_ID, "main": l.main_qml, "params": params}).to_string();
-        let log = std::fs::OpenOptions::new().create(true).append(true).open(&l.log);
-        let mut cmd = Command::new(&l.runner);
-        cmd.arg(arg)
-            .env_remove("NOTIFY_SOCKET")
-            .env_remove("LUMATV_LUNA_BRIDGE")
-            .env_remove("LUMATV_LOG")
-            .env("XDG_RUNTIME_DIR", &self.config.runtime_dir)
-            .env("WAYLAND_DISPLAY", &self.config.socket)
-            // LG's Qt apps' environment, read off the set (`compositor-surfaces-result.md`).
-            .env("QT_QPA_PLATFORM", "wayland")
-            .env("QT_WAYLAND_SHELL_INTEGRATION", "webos")
-            .env("QT_WAYLAND_HARDWARE_INTEGRATION", "wayland-egl")
-            .env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
-            .env("QT_WAYLAND_XKB_RULE_NAMES", "evdev:lgwebostv:us::")
-            .env("QT_IM_MODULE", "wayland")
-            .env("QT_QPA_FONTDIR", "/usr/share/fonts")
-            .env("QT_HARFBUZZ", "new")
-            .env("WEBOS_GL_DISABLE_THREADED_RENDERING", "1")
-            .env("QML2_IMPORT_PATH", format!("{}:/usr/lib/qt5/qml", imports.display()))
-            .env("LUMATV_SHELL_PORT", l.port.to_string())
-            .stdin(Stdio::null());
-        match log {
-            Ok(f) => {
-                let err = f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null());
-                cmd.stdout(Stdio::from(f)).stderr(err);
-            }
-            Err(_) => {
-                cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        let (tx, rx) = channel();
+        match std::thread::Builder::new().name("shell-spawn".into()).spawn(move || {
+            let _ = tx.send(spawn_client(job));
+        }) {
+            Ok(_) => self.shell.spawning = Some(rx),
+            Err(e) => {
+                self.journal(format!("shell: no thread to start the client: {e}"));
+                self.shell.error = Some(format!("start: {e}"));
+                self.shell.next_start = Some(now + Duration::from_secs(10));
             }
         }
-        // The client dies with the compositor: a Qt client left over would hold LG's compositor's socket name after the fallback.
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::unix::process::CommandExt;
-            // SAFETY: prctl in the child between fork and exec touches nothing shared.
-            unsafe {
-                cmd.pre_exec(|| {
-                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                    libc::setpriority(libc::PRIO_PROCESS, 0, NICE);
-                    Ok(())
-                });
-            }
-        }
-        match cmd.spawn() {
+    }
+
+    /// Takes the child (or the failure) a start left on its thread, once it is there.
+    fn shell_take_spawned(&mut self, now: Instant) {
+        let Some(rx) = &self.shell.spawning else { return };
+        let result = match rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(SpawnFailure::Start(std::io::Error::other("the spawn thread ended without a result"))),
+        };
+        self.shell.spawning = None;
+        let Some(l) = &self.shell.launch else { return };
+        match result {
             Ok(child) => {
                 self.shell.stats.starts += 1;
-                self.shell.starts.push_back(now);
                 self.journal(format!("shell: client started, pid {} ({} {})", child.id(), l.runner.display(), l.main_qml.display()));
                 self.shell.child = Some(child);
                 self.shell.child_started = Some(now);
                 self.shell.next_start = None;
             }
-            Err(e) => {
+            Err(SpawnFailure::NoModule(root)) => {
+                self.journal(format!("shell: no LumaHome.qml under {}; the shell client is not run", root.display()));
+                self.shell.error = Some("no module".into());
+                self.shell.gave_up = true;
+            }
+            Err(SpawnFailure::Start(e)) => {
                 self.journal(format!("shell: {} did not start: {e}", l.runner.display()));
                 self.shell.error = Some(format!("start: {e}"));
                 self.shell.next_start = Some(now + Duration::from_secs(10));
@@ -477,12 +477,13 @@ impl State {
         }
     }
 
-    /// Supervision, called every tick: a client that exited is started again after a pause, a client that stopped polling is
-    /// taken as gone (its luna subscriptions cancelled).
+    /// Supervision, called every tick: a start on its thread is taken in, a client that exited is started again after a
+    /// pause, a client that stopped polling is taken as gone (its luna subscriptions cancelled).
     pub fn shell_tick(&mut self, now: Instant) {
         if self.shell.launch.is_none() {
             return;
         }
+        self.shell_take_spawned(now);
         if self.shell.last_wait.is_none_or(|t| now.duration_since(t) >= Duration::from_millis(500)) {
             self.shell.last_wait = Some(now);
             let exited = self.shell.child.as_mut().and_then(|c| c.try_wait().ok().flatten());
@@ -497,11 +498,13 @@ impl State {
                 self.shell.next_start = Some(now + Duration::from_secs(pause));
             }
         }
+        let first = self.shell.starts.is_empty();
         if self.shell.child.is_none()
+            && self.shell.spawning.is_none()
             && !self.shell.gave_up
-            && self.shell.next_start.is_some_and(|t| now >= t || (self.shell.stats.starts == 0 && self.sam_home_mapped()))
+            && self.shell.next_start.is_some_and(|t| now >= t || (first && self.sam_home_mapped()))
         {
-            if self.shell.stats.starts == 0 {
+            if first {
                 self.journal(format!(
                     "shell: starting the client ({})",
                     if self.sam_home_mapped() { "SAM's Home has mapped" } else { "no Home yet, 15 s are up" }
@@ -546,21 +549,24 @@ impl State {
         self.shell_spawn();
     }
 
-    /// Takes in what the server thread received.
-    pub fn shell_poll(&mut self) {
-        let Some(l) = &self.shell.link else { return };
+    /// Takes in what the server thread received. Returns whether a frame was drawn for it (the main loop re-arms its tick).
+    pub fn shell_poll(&mut self) -> bool {
+        let Some(l) = &self.shell.link else { return false };
         drain(&l.wake_in);
         let mut msgs = Vec::new();
         while let Ok(m) = l.inbox.try_recv() {
             msgs.push(m);
         }
+        let mut drew = false;
         for m in msgs {
-            self.shell_handle(m);
+            drew |= self.shell_handle(m);
         }
+        drew
     }
 
-    /// One message from the client (the tests call this directly).
-    pub fn shell_handle(&mut self, msg: Msg) {
+    /// One message from the client (the tests call this directly). Returns whether a frame was drawn for it: the system
+    /// layer came live with its frame already in, on a still screen.
+    pub fn shell_handle(&mut self, msg: Msg) -> bool {
         let now = Instant::now();
         match msg {
             Msg::Connected => {
@@ -574,7 +580,7 @@ impl State {
                 self.shell_sync_topics();
             }
             Msg::Seen => self.shell.note_seen(now),
-            Msg::Ui { can, wants, state } => {
+            Msg::Ui { can, wants, live, state } => {
                 self.shell.note_seen(now);
                 if let Some(can) = can
                     && can != self.shell.can
@@ -591,6 +597,15 @@ impl State {
                         crate::server::seat::refocus(self);
                     }
                 }
+                if let Some(l) = live
+                    && l != self.shell.live
+                {
+                    self.shell.live = l;
+                    if self.scene.set_shell_system_live(l, crate::output::monotonic_ns()) && self.output.draws_on_damage(now) {
+                        self.tick();
+                        return true;
+                    }
+                }
                 if let Some(s) = state {
                     self.shell.ui_state = s;
                 }
@@ -602,7 +617,7 @@ impl State {
                     self.journal(format!("shell: luna {uri} refused (not on the allowlist)"));
                     self.shell
                         .push("luna", json!({"tag": tag, "payload": {"returnValue": false, "errorCode": -1, "errorText": "not allowed by the compositor"}}));
-                    return;
+                    return false;
                 }
                 self.shell.stats.luna_calls += 1;
                 let token = self.luna_token();
@@ -631,6 +646,7 @@ impl State {
                 }
             }
         }
+        false
     }
 
     /// An answer to one of the compositor's calls: the shell's, if a tag owns the token. Returns whether it was.
@@ -725,6 +741,7 @@ impl State {
             "connected": s.connected,
             "can": s.can,
             "wants": s.wants,
+            "systemLive": s.live,
             "homeDrawn": self.shell_home_drawn(),
             "homeMapped": self.scene.shell_window(WindowType::ShellHome).is_some_and(|w| w.map_serial > 0),
             "systemMapped": self.scene.shell_window(WindowType::ShellSystem).is_some_and(|w| w.map_serial > 0),
@@ -766,6 +783,80 @@ fn module_dir(data_dir: &Path) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).ok()?.flatten().map(|e| e.path()).filter(|p| p.join("LumaHome.qml").is_file()).collect();
     dirs.sort();
     dirs.into_iter().next()
+}
+
+/// What a start needs off the loop's state: the launch and the paths the client is told.
+struct SpawnJob {
+    runner: PathBuf,
+    main_qml: PathBuf,
+    port: u16,
+    token_path: PathBuf,
+    log: PathBuf,
+    data_dir: PathBuf,
+    runtime_dir: PathBuf,
+    socket: String,
+}
+
+/// Starts the client: the module lookup, the log file and the fork and exec of the runner, on the spawn thread.
+fn spawn_client(job: SpawnJob) -> Result<Child, SpawnFailure> {
+    let imports = job.main_qml.parent().map(|d| d.join("imports")).unwrap_or_default();
+    let Some(module_dir) = module_dir(&job.data_dir) else {
+        return Err(SpawnFailure::NoModule(job.data_dir.join("qml/WebOSCompositor")));
+    };
+    let params = json!({
+        "port": job.port,
+        "tokenFile": job.token_path,
+        "dataDir": job.data_dir,
+        "moduleDir": module_dir,
+        "runtimeDir": job.runtime_dir,
+        "socket": job.socket,
+    });
+    let arg = json!({"event": "launch", "appId": APP_ID, "main": job.main_qml, "params": params}).to_string();
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(&job.log);
+    let mut cmd = Command::new(&job.runner);
+    cmd.arg(arg)
+        .env_remove("NOTIFY_SOCKET")
+        .env_remove("LUMATV_LUNA_BRIDGE")
+        .env_remove("LUMATV_LOG")
+        .env("XDG_RUNTIME_DIR", &job.runtime_dir)
+        .env("WAYLAND_DISPLAY", &job.socket)
+        // LG's Qt apps' environment, read off the set (`compositor-surfaces-result.md`).
+        .env("QT_QPA_PLATFORM", "wayland")
+        .env("QT_WAYLAND_SHELL_INTEGRATION", "webos")
+        .env("QT_WAYLAND_HARDWARE_INTEGRATION", "wayland-egl")
+        .env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
+        .env("QT_WAYLAND_XKB_RULE_NAMES", "evdev:lgwebostv:us::")
+        .env("QT_IM_MODULE", "wayland")
+        .env("QT_QPA_FONTDIR", "/usr/share/fonts")
+        .env("QT_HARFBUZZ", "new")
+        .env("WEBOS_GL_DISABLE_THREADED_RENDERING", "1")
+        .env("QML2_IMPORT_PATH", format!("{}:/usr/lib/qt5/qml", imports.display()))
+        .env("LUMATV_SHELL_PORT", job.port.to_string())
+        .stdin(Stdio::null());
+    match log {
+        Ok(f) => {
+            let err = f.try_clone().map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+            cmd.stdout(Stdio::from(f)).stderr(err);
+        }
+        Err(_) => {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+    }
+    // The client dies with the compositor: a Qt client left over would hold LG's compositor's socket name after the fallback.
+    // Its class is time-shared by the loop's reset-on-fork flag (`sched::fifo`); the nice level is set here.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: prctl and setpriority in the child between fork and exec touch nothing shared.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                libc::setpriority(libc::PRIO_PROCESS, 0, NICE);
+                Ok(())
+            });
+        }
+    }
+    cmd.spawn().map_err(SpawnFailure::Start)
 }
 
 /// Writes a fresh token (32 hex digits from the kernel's random source) readable by the owner only.
@@ -932,8 +1023,9 @@ fn handle_request(req: &Request, token: &str, outbox: &Arc<Mutex<Outbox>>, inbox
         ("POST", "/v1/ui") => {
             let can = body.get("can").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect());
             let wants = body.get("wants").and_then(Value::as_bool);
+            let live = body.get("live").and_then(Value::as_bool);
             let state = body.get("state").cloned();
-            inbox.send(Msg::Ui { can, wants, state });
+            inbox.send(Msg::Ui { can, wants, live, state });
             Handled::Answer(200, json!({"ok": true}))
         }
         ("POST", "/v1/luna") => {
@@ -1151,5 +1243,47 @@ mod tests {
         // SAFETY: one pollfd.
         let n = unsafe { libc::poll(fds.as_mut_ptr(), 1, 1000) };
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn the_client_is_started_off_the_loop_and_arrives_at_a_later_tick() {
+        // The runner is `sh`, handed the launch JSON as its script: it exits at once, which is all the loop's side needs.
+        let dir = std::env::temp_dir().join(format!("lumatv-shell-spawn-{}", std::process::id()));
+        let module = dir.join("qml/WebOSCompositor/lumatv");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(module.join("LumaHome.qml"), "").unwrap();
+        let display: wayland_server::Display<State> = wayland_server::Display::new().unwrap();
+        let config = crate::config::Config { data_dir: dir.clone(), runtime_dir: dir.clone(), ..crate::config::Config::default() };
+        let mut state = State::new(display.handle(), config, Box::new(crate::render::software::Software::new(64, 64)), Box::new(crate::luna::Null::default()));
+        state.shell.launch = Some(Launch {
+            runner: PathBuf::from("/bin/sh"),
+            main_qml: dir.join("Shell.qml"),
+            port: 1,
+            token_path: dir.join("token"),
+            log: dir.join("shell.log"),
+        });
+        state.shell.next_start = Some(Instant::now());
+        let t0 = Instant::now();
+        state.shell_tick(Instant::now());
+        let pass = t0.elapsed();
+        assert!(state.shell.child.is_none() && state.shell.spawning.is_some(), "the start is on its thread, the tick returned without a child");
+        assert!(state.journal.iter().any(|l| l.contains("shell: starting the client")));
+        let mut arrived = false;
+        for _ in 0..200 {
+            state.shell_tick(Instant::now());
+            if state.shell.child.is_some() {
+                arrived = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(arrived, "the child came through the channel");
+        assert!(state.shell.spawning.is_none());
+        assert_eq!(state.shell.stats.starts, 1);
+        assert!(state.journal.iter().any(|l| l.contains("shell: client started, pid")), "{:?}", state.journal);
+        // No second start while one was on its way, and the pass that asked for it was not held for the exec.
+        assert_eq!(state.shell.starts.len(), 1);
+        assert!(pass < Duration::from_millis(50), "the tick took {pass:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

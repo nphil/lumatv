@@ -191,6 +191,10 @@ pub struct Window {
     pub takes_keys: bool,
     /// Commits with a new buffer: what the client drew, whether or not it was shown (the shell's idle cost is read off it).
     pub commits: u64,
+    /// `commits` as of the last plan that drew the window, and when the last commit came (CLOCK_MONOTONIC ns): a system
+    /// layer coming back live says whether a frame of it arrived meanwhile (`Scene::set_shell_system_live`).
+    pub commits_drawn: u64,
+    pub last_commit_ns: u64,
 }
 
 impl Window {
@@ -214,6 +218,8 @@ impl Window {
             exposed: false,
             takes_keys: false,
             commits: 0,
+            commits_drawn: 0,
+            last_commit_ns: 0,
         }
     }
 

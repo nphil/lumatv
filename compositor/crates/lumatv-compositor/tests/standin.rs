@@ -137,17 +137,89 @@ fn a_warming_buffer_is_stood_in_for_by_the_last_frame_and_drawn_once_warm() {
     });
     assert_eq!(drawn, 2);
 
-    // Warm now: a frame of its own shows the new content, and nothing is owed after it.
+    // Warm now: a frame of its own shows the new content, and nothing is owed after it. The warm draw's own fence is
+    // polled at the ticks too (Mesa's threads take a moment on a loaded host), so the ticks go on until it is seen done.
     release.store(true, Ordering::SeqCst);
-    let (drawn, image) = server.eval(|s| {
-        s.tick();
-        (s.stats.frames_drawn, s.output.capture().unwrap())
-    });
+    let mut drawn = 2;
+    let mut image = None;
+    for _ in 0..200 {
+        let (d, i) = server.eval(|s| {
+            s.tick();
+            (s.stats.frames_drawn, s.output.capture().unwrap())
+        });
+        (drawn, image) = (d, Some(i));
+        if drawn == 3 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(drawn, 3, "the owed frame was drawn once the buffer was warm");
-    assert_eq!(image.pixel(100, 100), [230, 128, 25, 255], "the new buffer's content is on the page");
+    assert_eq!(image.unwrap().pixel(100, 100), [230, 128, 25, 255], "the new buffer's content is on the page");
     let (drawn, errors) = server.eval(|s| {
         s.tick();
         (s.stats.frames_drawn, s.stats.gl_errors)
     });
     assert_eq!((drawn, errors), (3, 0), "nothing more is owed, and no GL error on the way");
+}
+
+/// A client's first buffer, with no page holding a last frame to stand in from (the session's first composed frame): the
+/// frame is held until the driver is done, and no pass of the loop waits for that. On the tenth gate's trial a pass of
+/// 55.2 ms came with the warm of a buffer whose fence was seen done 48.4 ms after; the loop itself never waits on it.
+#[test]
+fn a_first_buffers_warm_holds_the_frame_and_no_pass_of_the_loop() {
+    if !Path::new(MESA).exists() {
+        eprintln!("skipped: no Mesa at {MESA}");
+        return;
+    }
+    // SAFETY: nothing else in this process reads the environment while it is set.
+    unsafe { std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1") };
+    let hold_next = Arc::new(AtomicBool::new(true));
+    let release = Arc::new(AtomicBool::new(false));
+    let (h, r) = (hold_next.clone(), release.clone());
+    let mut server = Server::start_with(Box::new(move || {
+        let mut gl = Gl::new(MESA, Platform::Surfaceless, 1920, 1080, BufferPath::Own, None).unwrap();
+        let pages: Vec<TargetId> = (0..3).map(|_| gl.add_target().unwrap()).collect();
+        let frames = Frames::new(pages.clone(), 1920, 1080);
+        Box::new(ScanOut { gl, frames, pages, hold_next: h, release: r, held: None })
+    }));
+    server.ticking.store(false, Ordering::SeqCst);
+    let mut client = Client::connect(&mut server);
+    let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "First");
+    let blue = client.shm_buffer(300, 200, 0xff19_80e6);
+    client.present(&card.surface, &blue);
+    client.roundtrip();
+    // Ticks while the driver is busy: each returns at once with the frame held, nothing drawn, the callback kept.
+    let mut worst = Duration::ZERO;
+    for _ in 0..5 {
+        let (took, drawn, held) = server.eval(|s| {
+            let t0 = std::time::Instant::now();
+            s.tick();
+            (t0.elapsed(), s.stats.frames_drawn, s.stats.held_ticks)
+        });
+        worst = worst.max(took);
+        assert_eq!(drawn, 0, "nothing drawn while the first buffer warms");
+        assert!(held >= 1);
+    }
+    assert!(worst < Duration::from_millis(50), "a held tick took {worst:?}");
+    client.roundtrip();
+    assert_eq!(client.state.frames_done, 0, "the client's callback waits for the frame that shows its buffer");
+    // The driver is done: the tick that sees it (the warm draw's own fence is polled at the ticks as well) draws the
+    // buffer and pays the callback.
+    release.store(true, Ordering::SeqCst);
+    let mut drawn = 0;
+    let mut image = None;
+    for _ in 0..200 {
+        let (d, i) = server.eval(|s| {
+            s.tick();
+            (s.stats.frames_drawn, s.output.capture().unwrap())
+        });
+        (drawn, image) = (d, Some(i));
+        if drawn == 1 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(drawn, 1);
+    assert_eq!(image.unwrap().pixel(100, 100), [25, 128, 230, 255]);
+    assert!(client.wait_until(Duration::from_secs(3), |s| s.frames_done >= 1));
 }

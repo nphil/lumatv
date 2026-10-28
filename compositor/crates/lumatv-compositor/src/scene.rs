@@ -21,6 +21,9 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 /// otherwise. The card LumaTV's Home is drawn in place of.
 pub const HOME_APP: &str = "com.webos.app.home";
 
+/// How recent a commit of the shell's idle system layer must be to count as the frame its `live` announces.
+const JOIN_FRESH_NS: u64 = 100_000_000;
+
 /// A named `wl_webos_surface_group`, owned by one surface.
 pub struct Group {
     pub name: String,
@@ -133,6 +136,11 @@ pub struct Scene {
     plan: Plan,
     /// Whether the last stack built drew LumaTV's Home in the card slot ([`Scene::shell_home_shown`]).
     home_shown: bool,
+    /// The shell's system layer has nothing to show ([`Scene::set_shell_system_live`]): its window is left out of the
+    /// stack, mapped and warm as it stays.
+    system_idle: bool,
+    /// The system layer came back live since the last plan: it joins without damage of its own (see `plan`).
+    system_joining: bool,
     // Scratch space for planning, reused across frames.
     stack: Vec<(Layer, u64, WindowId)>,
     members: Vec<(i32, SurfaceId)>,
@@ -208,6 +216,32 @@ impl Scene {
             w.takes_keys = takes;
         }
         changed
+    }
+
+    /// The shell says its system layer has something to show, or nothing any more. The window keeps its surface, its
+    /// buffers and their imports either way (a toast's window made anew paid a window, three CMA buffers and three warms
+    /// before its first frame: 44-52 ms on the tenth gate against 50 allowed), so the next thing it shows costs one frame.
+    /// A layer with nothing on it is transparent: left out of the stack an app's buffer goes to the plane whole, and
+    /// brought back it joins quietly, its next commit the frame that shows it (a frame for the join alone would take the
+    /// refresh that commit is meant for). Returns whether a frame is wanted now: the layer's frame came in the last
+    /// [`JOIN_FRESH_NS`] while it was idle, ahead of the word on the channel, so the join is what shows it. A frame older
+    /// than that is what the layer left when it went idle (Qt draws the layer once more, empty, after a toast's end).
+    pub fn set_shell_system_live(&mut self, live: bool, now_ns: u64) -> bool {
+        let joining = live && self.system_idle;
+        self.system_idle = !live;
+        if !joining {
+            return false;
+        }
+        let fresh = self
+            .windows
+            .values()
+            .any(|w| w.kind == WindowType::ShellSystem && w.commits > w.commits_drawn && now_ns.saturating_sub(w.last_commit_ns) < JOIN_FRESH_NS);
+        self.system_joining = !fresh;
+        fresh
+    }
+
+    pub fn shell_system_live(&self) -> bool {
+        !self.system_idle
     }
 
     pub fn windows(&self) -> impl Iterator<Item = &Window> {
@@ -302,6 +336,9 @@ impl Scene {
             if w.map_serial == 0 || w.state == ShellState::Minimized || !surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false) {
                 continue;
             }
+            if w.kind == WindowType::ShellSystem && self.system_idle {
+                continue;
+            }
             self.stack.push((w.kind.layer(), w.map_serial, w.id));
         }
         self.stack.sort_unstable();
@@ -394,6 +431,11 @@ impl Scene {
                 }
             }
         }
+        for (_, _, wid) in &self.stack {
+            if let Some(w) = self.windows.get_mut(wid) {
+                w.commits_drawn = w.commits;
+            }
+        }
         for h in &self.holes {
             if let Some(item) = self.plan.items.iter().find(|i| i.surface == h.surface) {
                 let r = h.rect.translated(item.rect.x, item.rect.y).intersect(&output);
@@ -408,6 +450,16 @@ impl Scene {
         // X1's first commit, and that frame's flip two refreshes later was logged as a skipped refresh (33.37 ms).
         self.placed.clear();
         self.placed.extend(self.plan.items.iter().map(|i| Placed { surface: i.surface, rect: i.rect, opaque: i.opaque, y_invert: i.y_invert }));
+        // The system layer back in the stack counts as having been there: no damage for the join itself.
+        if std::mem::take(&mut self.system_joining) {
+            for (i, p) in self.placed.iter().enumerate() {
+                let of_layer = self.windows.get(&self.plan.items[i].window).is_some_and(|w| w.kind == WindowType::ShellSystem);
+                if of_layer && !self.last_placed.contains(p) {
+                    let at = i.min(self.last_placed.len());
+                    self.last_placed.insert(at, *p);
+                }
+            }
+        }
         if std::mem::take(&mut self.redraw_all) || self.placed != self.last_placed || self.plan.holes != self.last_holes {
             let tiles = self.plan.tiles.as_mut().unwrap();
             for r in self.last_placed.iter().chain(self.placed.iter()).map(|p| &p.rect).chain(self.last_holes.iter()).chain(self.plan.holes.iter()) {

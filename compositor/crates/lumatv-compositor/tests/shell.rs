@@ -186,7 +186,7 @@ fn the_system_layer_takes_keys_and_pointer_only_while_it_wants_them() {
     assert_eq!(layer.client.state.keyboard_enters, 0);
 
     // The UI says its layer wants the keys: the focus moves to it, the pointer finds it.
-    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: Some(true), state: None }));
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: Some(true), live: Some(true), state: None }));
     assert!(layer.client.wait_until(WAIT, |s| s.keyboard_enters >= 1), "the layer got the focus");
     let (focus, under, wants) = server.eval(|s| {
         s.tick();
@@ -217,7 +217,7 @@ fn the_system_layer_takes_keys_and_pointer_only_while_it_wants_them() {
     assert_eq!(volume_calls, 1);
 
     // It lets go: the app has the keys again.
-    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: Some(false), state: None }));
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: Some(false), live: None, state: None }));
     assert!(app.client.wait_until(WAIT, |s| s.keyboard_enters >= 2), "the app got the focus back");
     drop(layer.win);
 }
@@ -234,7 +234,7 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
     // The client is connected and can show the quick panel and the picker: the requests go to it as `show` events.
     server.eval(|s| {
         s.shell_handle(Msg::Connected);
-        s.shell_handle(Msg::Ui { can: Some(vec!["quick".into(), "picker".into()]), wants: None, state: Some(json!({"open": ""})) });
+        s.shell_handle(Msg::Ui { can: Some(vec!["quick".into(), "picker".into()]), wants: None, live: None, state: Some(json!({"open": ""})) });
         s.system_request(SystemRequest::QuickSettings);
         s.system_request(SystemRequest::InputPicker);
         s.system_request(SystemRequest::Settings);
@@ -282,7 +282,7 @@ fn the_gear_and_input_go_to_the_shell_when_it_can_show_the_panel() {
 
     // The client goes: nothing is offered to it any more.
     server.eval(|s| {
-        s.shell_handle(Msg::Ui { can: Some(vec![]), wants: None, state: None });
+        s.shell_handle(Msg::Ui { can: Some(vec![]), wants: None, live: None, state: None });
         s.system_request(SystemRequest::InputPicker);
     });
     let launched = server.eval(launches);
@@ -298,7 +298,7 @@ fn a_panel_asked_for_and_a_notification_handed_over_leave_markers_in_the_trace_b
     let tokens = server.eval(move |s| {
         s.shell.marker = marker;
         s.shell_handle(Msg::Connected);
-        s.shell_handle(Msg::Ui { can: Some(vec!["picker".into(), "quick".into()]), wants: None, state: None });
+        s.shell_handle(Msg::Ui { can: Some(vec!["picker".into(), "quick".into()]), wants: None, live: None, state: None });
         // The gear's press warms the panel and marks nothing; the instant the shell is asked to show one is marked; one it cannot show is not.
         s.shell_show("quick", true);
         s.shell_show("picker", false);
@@ -396,4 +396,54 @@ fn the_audio_state_and_the_screen_reach_the_shell_as_topics() {
     assert_eq!(audio.and_then(|a| a["volumeStatus"]["volume"].as_u64()), Some(12));
     assert!(muted);
     assert_eq!(screen, Some(json!({"on": true})));
+}
+
+#[test]
+fn the_system_layer_is_drawn_only_while_live_and_joins_without_a_frame_of_its_own() {
+    let mut server = Server::start();
+    let app = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "App", "org.test.app", 0xffff_0000);
+    let mut layer = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer", "org.nphil.lumatv.shell", 0xff00_00ff);
+    // From here the frames are the test's own ticks, so a frame drawn (or not) is accounted for.
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let red = [255, 0, 0, 255];
+    let blue = [0, 0, 255, 255];
+    assert_eq!(server.eval(drawn).pixel(10, 10), blue, "live until the shell says otherwise");
+
+    // Nothing to show: the layer leaves the stack, its window still mapped; a commit meanwhile is taken but not drawn.
+    let ui = |live: bool| Msg::Ui { can: None, wants: None, live: Some(live), state: None };
+    server.eval(move |s| s.shell_handle(ui(false)));
+    assert_eq!(server.eval(drawn).pixel(10, 10), red);
+    let mapped = server.eval(|s| s.scene.shell_window(WindowType::ShellSystem).is_some_and(|w| w.map_serial > 0));
+    assert!(mapped);
+    let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
+    layer.client.present(&layer.win.surface, &green);
+    layer.client.roundtrip();
+    let (image, drawn_before) = server.eval(|s| (drawn(s), s.stats.frames_drawn));
+    assert_eq!(image.pixel(10, 10), red, "a commit of an idle layer is not drawn");
+    assert!(layer.client.wait_until(WAIT, |s| s.frames_done >= 2), "its callback goes out all the same");
+
+    // Live again within 100 ms of that commit: the commit was the frame being announced, so the join draws it.
+    let drew_now = server.eval(move |s| s.shell_handle(ui(true)));
+    assert!(!drew_now, "the software output draws at the tick, not on damage");
+    let (image, drawn_after) = server.eval(|s| (drawn(s), s.stats.frames_drawn));
+    assert_eq!(image.pixel(10, 10), [0, 255, 0, 255]);
+    assert_eq!(drawn_after, drawn_before + 1);
+
+    // Idle again, then live long after its last commit: the layer joins quietly (no frame for the join), and its next
+    // commit is the frame that shows it.
+    server.eval(move |s| s.shell_handle(ui(false)));
+    assert_eq!(server.eval(drawn).pixel(10, 10), red);
+    std::thread::sleep(Duration::from_millis(150));
+    server.eval(move |s| s.shell_handle(ui(true)));
+    let (image, drawn_quiet, before) = server.eval(|s| {
+        let before = s.stats.frames_drawn;
+        (drawn(s), s.stats.frames_drawn, before)
+    });
+    assert_eq!(drawn_quiet, before, "no frame for the join alone");
+    assert_eq!(image.pixel(10, 10), red);
+    let blue_again = layer.client.shm_buffer(64, 64, 0xff00_00ff);
+    layer.client.present(&layer.win.surface, &blue_again);
+    layer.client.roundtrip();
+    assert_eq!(server.eval(drawn).pixel(10, 10), blue, "the next commit shows the layer");
+    drop(app);
 }

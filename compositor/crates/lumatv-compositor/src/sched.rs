@@ -4,36 +4,42 @@
 //! after it landed. SCHED_FIFO puts every wake-up of the loop ahead of every time-shared task; LG's input threads
 //! (SCHED_RR 99) and the HDMI interrupt thread (FIFO 50) stay ahead of it, and the kernel's 95 % cap on real-time
 //! time (`sched_rt_runtime_us` 950000 on the set) bounds a loop that spins.
+//!
+//! The class is set with `SCHED_RESET_ON_FORK`: a thread or a process the loop creates starts time-shared. Without it
+//! every child inherits SCHED_FIFO 20 (the shell client's `qml-runner` did on rounds 2 to 5 of the tenth gate, its nice
+//! 10 meaning nothing in that class: its start-up and its first frames ran level with the loop and ahead of the Mali
+//! blob's submission threads at 19 and of every kernel worker, the trial's six missed refreshes all in those seconds).
 
 use std::io;
 
-/// Makes the calling thread SCHED_FIFO at `priority` (1-99). Needs CAP_SYS_NICE (root on the set); elsewhere the
-/// error says so and the thread stays time-shared.
+/// Makes the calling thread SCHED_FIFO at `priority` (1-99), reset to time-shared in anything it forks or spawns.
+/// Needs CAP_SYS_NICE (root on the set); elsewhere the error says so and the thread stays time-shared.
 pub fn fifo(priority: i32) -> io::Result<()> {
     let param = libc::sched_param { sched_priority: priority };
     // SAFETY: a stack sched_param; pid 0 is the calling thread.
-    if unsafe { libc::sched_setscheduler(0, libc::SCHED_FIFO, &param) } != 0 {
+    if unsafe { libc::sched_setscheduler(0, libc::SCHED_FIFO | libc::SCHED_RESET_ON_FORK, &param) } != 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
 }
 
-/// Puts the calling thread back in the time-shared class: a thread the loop spawns (a control job, a PNG write)
-/// inherits the loop's class and would otherwise run ahead of every client at the loop's priority.
-pub fn time_shared() {
-    let param = libc::sched_param { sched_priority: 0 };
-    // SAFETY: as above.
-    unsafe { libc::sched_setscheduler(0, libc::SCHED_OTHER, &param) };
-}
-
 /// The calling thread's class and priority as `/proc` would show them: `"SCHED_FIFO 20"`, `"SCHED_OTHER"`.
 pub fn describe() -> String {
-    // SAFETY: plain queries of the calling thread.
-    let (policy, prio) = unsafe {
+    describe_policy(policy_of(0))
+}
+
+/// The class and priority of thread `tid` (0 for the caller); the reset-on-fork flag the kernel reports with the policy
+/// is left out.
+fn policy_of(tid: libc::pid_t) -> (libc::c_int, libc::c_int) {
+    // SAFETY: plain queries of a thread of this process.
+    unsafe {
         let mut param = libc::sched_param { sched_priority: 0 };
-        libc::sched_getparam(0, &mut param);
-        (libc::sched_getscheduler(0), param.sched_priority)
-    };
+        libc::sched_getparam(tid, &mut param);
+        (libc::sched_getscheduler(tid) & !libc::SCHED_RESET_ON_FORK, param.sched_priority)
+    }
+}
+
+fn describe_policy((policy, prio): (libc::c_int, libc::c_int)) -> String {
     match policy {
         libc::SCHED_FIFO => format!("SCHED_FIFO {prio}"),
         libc::SCHED_RR => format!("SCHED_RR {prio}"),
@@ -61,7 +67,7 @@ pub fn mali_threads(fifo_priority: Option<i32>) -> Vec<String> {
         }
         let Ok(tid) = task.file_name().to_string_lossy().parse::<libc::pid_t>() else { continue };
         let (policy, prio) = match fifo_priority {
-            Some(p) => (libc::SCHED_FIFO, p),
+            Some(p) => (libc::SCHED_FIFO | libc::SCHED_RESET_ON_FORK, p),
             None => (libc::SCHED_OTHER, 0),
         };
         let param = libc::sched_param { sched_priority: prio };
@@ -75,4 +81,35 @@ pub fn mali_threads(fifo_priority: Option<i32>) -> Vec<String> {
         out.push(format!("{name} ({tid}): {what}"));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scheduling policy of process `pid` as `/proc` reports it (field 41 of `stat`): 0 time-shared, 1 FIFO.
+    fn policy_in_proc(pid: u32) -> i32 {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        let after_comm = &stat[stat.rfind(')').unwrap() + 2..];
+        after_comm.split(' ').nth(40 - 2).unwrap().parse().unwrap()
+    }
+
+    #[test]
+    fn what_a_fifo_loop_thread_spawns_is_time_shared() {
+        if let Err(e) = fifo(1) {
+            eprintln!("skipped: SCHED_FIFO refused here ({e})");
+            return;
+        }
+        assert_eq!(describe(), "SCHED_FIFO 1", "the flag is not part of the class");
+        let thread = std::thread::spawn(describe).join().unwrap();
+        let mut child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+        let child_policy = policy_in_proc(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        let param = libc::sched_param { sched_priority: 0 };
+        // SAFETY: the calling thread back to time-shared.
+        unsafe { libc::sched_setscheduler(0, libc::SCHED_OTHER, &param) };
+        assert_eq!(thread, "SCHED_OTHER", "a thread the loop spawns");
+        assert_eq!(child_policy, 0, "a process the loop spawns (the shell client)");
+    }
 }

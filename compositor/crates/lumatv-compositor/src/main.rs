@@ -170,7 +170,7 @@ fn run(config: Config) -> io::Result<()> {
         None
     };
 
-    // The loop's thread alone (the luna writer is up already, later threads put themselves back).
+    // The loop's thread alone: the class resets in every thread or process it creates (`sched::fifo`).
     if config.rt_priority > 0 {
         match sched::fifo(config.rt_priority) {
             Ok(()) => log::info!("loop thread: {}", sched::describe()),
@@ -312,7 +312,10 @@ fn run(config: Config) -> io::Result<()> {
                     }
                 }
                 TAG_SHELL => {
-                    state.shell_poll();
+                    if state.shell_poll() {
+                        handled |= 1 << 9;
+                        rearm(&timer, &state, &mut paced, config.tick_ns)?;
+                    }
                 }
                 TAG_CONTROL => {
                     if let Some(l) = &control_listener {
@@ -502,7 +505,6 @@ impl ControlClient {
     /// Runs `job` on a thread with the socket and writes its reply there (a capture's PNG).
     fn answer_later(mut self, job: Box<dyn FnOnce() -> String + Send + 'static>) {
         if let Err(e) = std::thread::Builder::new().name("control".into()).spawn(move || {
-            sched::time_shared();
             let reply = job();
             let _ = self.stream.set_nonblocking(false);
             let _ = self.stream.write_all(reply.as_bytes()).and_then(|_| self.stream.write_all(b"\n"));

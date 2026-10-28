@@ -162,7 +162,7 @@ fn with_the_shells_picker_input_acts_on_its_press_and_a_hold_still_opens_the_hub
     let t = Instant::now();
     let (at_press, at_release, hub_after_hold) = server.eval(move |s| {
         s.shell_handle(Msg::Connected);
-        s.shell_handle(Msg::Ui { can: Some(vec!["picker".into()]), wants: None, state: None });
+        s.shell_handle(Msg::Ui { can: Some(vec!["picker".into()]), wants: None, live: None, state: None });
         let shows = |s: &State| s.shell.recorded.iter().filter(|e| e["topic"] == "show").count();
         let seat = SeatId(0);
         s.key_event_at(seat, KEY_VIDEO_NEXT, true, false, t);

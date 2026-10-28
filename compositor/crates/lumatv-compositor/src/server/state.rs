@@ -310,6 +310,7 @@ impl State {
             if eff.new_buffer {
                 if let Some(w) = self.scene.window_of(sid).and_then(|w| self.scene.window_mut(w)) {
                     w.commits += 1;
+                    w.last_commit_ns = crate::output::monotonic_ns();
                 }
                 self.note_cadence(sid);
                 // The buffer's first-use costs are paid here, in the clients' pass, not in the frame that first

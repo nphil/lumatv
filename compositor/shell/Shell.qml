@@ -13,8 +13,10 @@ import "imports/LumaShell/Keymap.js" as Keymap
 //              container sets them under LG's compositor, from the compositor's `foreground` topic.
 //   sysWin     the system layer above every window: LumaOverlay (the banners, the drawer, the quick panel and the input
 //              picker over an app, the volume display over everything), the notifications (panels/Notify.qml) and the
-//              screensaver over an app. Mapped only while something of it shows, so an app's picture goes straight to the
-//              screen the rest of the time; it takes the keys only while a surface of it wants them (`wants`).
+//              screensaver over an app. Its window stays mapped once Home has settled, so a toast's first frame costs one
+//              frame and not a window, its buffers and their warm-up as well (44-52 ms on the tenth gate); the compositor
+//              draws it only while `live` says something of it shows (`report`), so an app's picture goes straight to the
+//              screen the rest of the time. It takes the keys only while a surface of it wants them (`wants`).
 //
 // Keys come on wl_keyboard after the compositor's own routing (Home, Volume, Mute, the gear and Input never arrive) and
 // are handed to LumaBus.js through the module's own LumaKeyBridge.qml, as the key filter hands them under LG's
@@ -107,7 +109,7 @@ WebOSWindow {
         width: 1920
         height: 1080
         color: "transparent"
-        visible: homeWin.sysLive
+        visible: homeWin.sysLive || homeWin.sysWarm
 
         Loader {
             id: overlay
@@ -141,12 +143,26 @@ WebOSWindow {
             Keys.onPressed: homeWin.sysKey(event, true)
             Keys.onReleased: homeWin.sysKey(event, false)
         }
+        // A few frames at the warm-up walk the window's three buffers, so the compositor has imported and warmed each of
+        // them (the first toast's second and third frames would otherwise each wait for one) while nothing shows.
+        Rectangle {
+            width: 1
+            height: 1
+            color: "transparent"
+            opacity: 0.0
+            NumberAnimation on opacity { id: warmRun; running: false; from: 0.001; to: 0.002; duration: 80 }
+        }
     }
     readonly property bool notifyWants: !!notify.item && notify.item.wants
     readonly property bool saverUp: !!saver.item && saver.item.active
     readonly property bool overlayWants: !!overlay.item && overlay.item.wants
     readonly property bool sysWants: overlayWants || notifyWants || saverUp
     readonly property bool sysLive: (!!overlay.item && overlay.item.visible) || (!!notify.item && notify.item.live) || saverUp
+    // The system layer's window is made (and kept) two seconds after Home loaded, out of the way of Home's own first frames;
+    // the walk of its buffers starts a moment after it mapped.
+    property bool sysWarm: false
+    Timer { interval: 2000; running: homeWin.homeReady; onTriggered: homeWin.sysWarm = true }
+    Timer { interval: 300; running: homeWin.sysWarm; onTriggered: warmRun.start() }
     // The notifications and the saver have the keys before the overlay's surfaces (LG's order: the PIN prompt and alerts above
     // everything); digits go to the PIN prompt.
     function sysKey(event, pressed) {
@@ -197,7 +213,7 @@ WebOSWindow {
         }
     }
     function report() {
-        var doc = { can: can(), wants: sysWants, state: state() }
+        var doc = { can: can(), wants: sysWants, live: sysLive, state: state() }
         var text = JSON.stringify(doc)
         if (text === lastReport) return
         lastReport = text
@@ -205,6 +221,7 @@ WebOSWindow {
     }
     Timer { interval: 1000; repeat: true; running: true; onTriggered: homeWin.report() }
     onSysWantsChanged: report()
+    onSysLiveChanged: report()
     onHomeCurrentChanged: report()
 
     // ---- the compositor's requests

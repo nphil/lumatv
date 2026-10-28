@@ -502,6 +502,12 @@ impl Kms {
             (flight.timing, flight.fence.as_ref().and_then(crate::render::sync::signal_ns))
         });
         let landed = self.timing.landed(presented_ns, frame);
+        // The frame drawn behind this one was planned a refresh after it: it moves with the timeline (`Timing::shift`).
+        if landed.shift_ns != 0
+            && let Some(q) = &mut self.queued
+        {
+            q.timing.shift(landed.shift_ns);
+        }
         if self.trace_left > 0 {
             self.trace_left -= 1;
             match frame {

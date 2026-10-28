@@ -51,6 +51,15 @@ pub const EGL_GREEN_SIZE: EGLint = 0x3023;
 pub const EGL_BLUE_SIZE: EGLint = 0x3022;
 pub const EGL_ALPHA_SIZE: EGLint = 0x3021;
 pub const EGL_CONTEXT_CLIENT_VERSION: EGLint = 0x3098;
+/// `EGL_IMG_context_priority` (the set's blob lists it, and `EGL_NV_context_priority_realtime` with it): the GPU
+/// schedules a context's jobs by its level. The compositor's frames and warm draws go ahead of the clients' own jobs
+/// (a client's first frames, a game): on the tenth gate the frame drawn while X1 or the shell client started took
+/// 6-14 ms on the GPU against 4.7 in a run, and missed its refresh.
+pub const EGL_CONTEXT_PRIORITY_LEVEL_IMG: EGLint = 0x3100;
+pub const EGL_CONTEXT_PRIORITY_HIGH_IMG: EGLint = 0x3101;
+pub const EGL_CONTEXT_PRIORITY_MEDIUM_IMG: EGLint = 0x3102;
+pub const EGL_CONTEXT_PRIORITY_LOW_IMG: EGLint = 0x3103;
+pub const EGL_CONTEXT_PRIORITY_REALTIME_NV: EGLint = 0x3357;
 pub const EGL_VENDOR: EGLint = 0x3053;
 pub const EGL_VERSION: EGLint = 0x3054;
 pub const EGL_EXTENSIONS: EGLint = 0x3055;
@@ -135,6 +144,7 @@ entry_points! {
     eglCreateContext: fn(EGLDisplay, EGLConfig, EGLContext, *const EGLint) -> EGLContext;
     eglCreatePbufferSurface: fn(EGLDisplay, EGLConfig, *const EGLint) -> EGLSurface;
     eglMakeCurrent: fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> EGLBoolean;
+    eglQueryContext: fn(EGLDisplay, EGLContext, EGLint, *mut EGLint) -> EGLBoolean;
     eglCreateImageKHR: fn(EGLDisplay, EGLContext, GLenum, *mut c_void, *const EGLint) -> EGLImage;
     eglDestroyImageKHR: fn(EGLDisplay, EGLImage) -> EGLBoolean;
     glGetString: fn(GLenum) -> *const u8;
@@ -287,7 +297,6 @@ impl Egl {
             }
             let extensions = cstr((api.eglQueryString)(display, EGL_EXTENSIONS));
             (api.eglBindAPI)(EGL_OPENGL_ES_API);
-            let ctx_attribs = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
             let cfg_attribs = [
                 EGL_SURFACE_TYPE,
                 EGL_PBUFFER_BIT,
@@ -305,23 +314,70 @@ impl Egl {
             ];
             let mut config: EGLConfig = std::ptr::null_mut();
             let mut n = 0;
+            let has_config = (api.eglChooseConfig)(display, cfg_attribs.as_ptr(), &mut config, 1, &mut n) != EGL_FALSE && n > 0;
+            // A context at the GPU's realtime level, else high, else the default, by the extensions the blob lists; the
+            // level asked for is an attribute, so a level refused leaves the context unmade and the next is tried.
+            let has = |name: &str| extensions.split(' ').any(|e| e == name);
+            let mut levels: Vec<(Option<EGLint>, &str)> = Vec::new();
+            if has("EGL_IMG_context_priority") {
+                if has("EGL_NV_context_priority_realtime") {
+                    levels.push((Some(EGL_CONTEXT_PRIORITY_REALTIME_NV), "realtime"));
+                }
+                levels.push((Some(EGL_CONTEXT_PRIORITY_HIGH_IMG), "high"));
+            }
+            levels.push((None, "the default"));
             let mut context: EGLContext = std::ptr::null_mut();
-            if (api.eglChooseConfig)(display, cfg_attribs.as_ptr(), &mut config, 1, &mut n) != EGL_FALSE && n > 0 {
-                context = (api.eglCreateContext)(display, config, std::ptr::null_mut(), ctx_attribs.as_ptr());
-                let pb_attribs = [EGL_WIDTH, 4, EGL_HEIGHT, 4, EGL_NONE];
-                let pbuffer = (api.eglCreatePbufferSurface)(display, config, pb_attribs.as_ptr());
-                if context.is_null() || pbuffer.is_null() || (api.eglMakeCurrent)(display, pbuffer, pbuffer, context) == EGL_FALSE {
-                    log::warn!("egl: pbuffer context failed (0x{:x}); trying surfaceless", (api.eglGetError)());
-                    context = std::ptr::null_mut();
+            let mut asked = "the default";
+            for (level, name) in levels {
+                let ctx_attribs = match level {
+                    Some(l) => vec![EGL_CONTEXT_CLIENT_VERSION, 2, EGL_CONTEXT_PRIORITY_LEVEL_IMG, l, EGL_NONE],
+                    None => vec![EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE],
+                };
+                if has_config {
+                    context = (api.eglCreateContext)(display, config, std::ptr::null_mut(), ctx_attribs.as_ptr());
+                    let pb_attribs = [EGL_WIDTH, 4, EGL_HEIGHT, 4, EGL_NONE];
+                    let pbuffer = (api.eglCreatePbufferSurface)(display, config, pb_attribs.as_ptr());
+                    if context.is_null() || pbuffer.is_null() || (api.eglMakeCurrent)(display, pbuffer, pbuffer, context) == EGL_FALSE {
+                        let err = (api.eglGetError)();
+                        if level.is_none() {
+                            log::warn!("egl: pbuffer context failed (0x{err:x}); trying surfaceless");
+                        } else {
+                            log::info!("egl: no pbuffer context at {name} priority (0x{err:x}); trying surfaceless");
+                        }
+                        context = std::ptr::null_mut();
+                    }
+                }
+                if context.is_null() {
+                    // The 64-bit blob without a GBM device has no pbuffer configs: EGL_KHR_no_config_context plus
+                    // EGL_KHR_surfaceless_context (X2 r8b).
+                    context = (api.eglCreateContext)(display, std::ptr::null_mut(), std::ptr::null_mut(), ctx_attribs.as_ptr());
+                    if context.is_null() || (api.eglMakeCurrent)(display, std::ptr::null_mut(), std::ptr::null_mut(), context) == EGL_FALSE {
+                        if level.is_none() {
+                            return Err(other(format!("surfaceless context: 0x{:x}", (api.eglGetError)())));
+                        }
+                        log::info!("egl: no context at {name} priority (0x{:x})", (api.eglGetError)());
+                        context = std::ptr::null_mut();
+                    }
+                }
+                if !context.is_null() {
+                    asked = name;
+                    break;
                 }
             }
-            if context.is_null() {
-                // The 64-bit blob without a GBM device has no pbuffer configs: EGL_KHR_no_config_context plus
-                // EGL_KHR_surfaceless_context (X2 r8b).
-                context = (api.eglCreateContext)(display, std::ptr::null_mut(), std::ptr::null_mut(), ctx_attribs.as_ptr());
-                if context.is_null() || (api.eglMakeCurrent)(display, std::ptr::null_mut(), std::ptr::null_mut(), context) == EGL_FALSE {
-                    return Err(other(format!("surfaceless context: 0x{:x}", (api.eglGetError)())));
-                }
+            if asked != "the default" {
+                let mut got: EGLint = 0;
+                let granted = if (api.eglQueryContext)(display, context, EGL_CONTEXT_PRIORITY_LEVEL_IMG, &mut got) == EGL_FALSE {
+                    "unknown".to_string()
+                } else {
+                    match got {
+                        EGL_CONTEXT_PRIORITY_REALTIME_NV => "realtime".to_string(),
+                        EGL_CONTEXT_PRIORITY_HIGH_IMG => "high".to_string(),
+                        EGL_CONTEXT_PRIORITY_MEDIUM_IMG => "medium".to_string(),
+                        EGL_CONTEXT_PRIORITY_LOW_IMG => "low".to_string(),
+                        v => format!("0x{v:x}"),
+                    }
+                };
+                log::info!("egl: context priority {granted} (asked for {asked})");
             }
             (display, context, extensions)
         };

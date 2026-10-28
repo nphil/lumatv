@@ -32,20 +32,35 @@ pub struct Timing {
     pub content_ns: Option<u64>,
 }
 
+impl Timing {
+    /// Moves the slot by `shift_ns` (a [`Landed::shift_ns`]): a frame planned while an older one was on its way is
+    /// planned a refresh after it, and when that one lands a refresh late the timeline moves on by one, this frame's
+    /// expected refresh with it. Judged against its old slot it would be late once more when it lands a refresh after
+    /// the late one, and the timeline would move on twice: on the tenth gate's x1 runs the frame after that was aimed a
+    /// refresh too far (a `page-flip stamp 33.37 ms` at X1's mapping, the second of two).
+    pub fn shift(&mut self, shift_ns: i64) {
+        self.slot_ns = (self.slot_ns as i64 + shift_ns).max(0) as u64;
+    }
+}
+
 /// What one flip taught.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Landed {
     /// The stamp was not one refresh after the last (a pair, or a refresh skipped): the interval in ns.
     pub odd: Option<u64>,
-    /// The refresh the odd stamp skipped was one this frame was due at: its content was in early enough for a typical
-    /// frame started at once to make it. A skip with nothing due is a screen with nothing new for one refresh (a window
-    /// made and redrawn, then the first frame of its client), not a frame the panel missed.
+    /// The refresh the odd stamp skipped was one this frame was due at: its content was in early enough for a frame
+    /// that costs what this one did, started at once, to make it. A skip with nothing due is a screen with nothing new
+    /// for one refresh (a window made and redrawn, then the first frame of its client), or a frame on a GPU asleep
+    /// (10-11 ms against 4.7 in a run) whose commit came too late for it: not a frame the panel missed.
     pub missed: bool,
     /// The refresh period changed: `(old, new)` in ns, and the pacer was keyed again.
     pub rate_change: Option<(u64, u64)>,
     /// The frame's landing, when the flip was of one the output was waiting for.
     pub late: i32,
     pub lost: u32,
+    /// How far the pacer's timeline moved with this landing (`late` refreshes), for the frames planned before it landed
+    /// ([`Timing::shift`]).
+    pub shift_ns: i64,
 }
 
 pub struct FlipTiming {
@@ -142,15 +157,6 @@ impl FlipTiming {
             self.first_flip_ns = presented_ns;
         }
         if let Some((mut timing, signalled)) = frame {
-            // The refresh after `last` could have shown this frame if its content was in a typical frame's pipeline
-            // before it; a frame of no new commit (a layout request) is taken as due since `last`.
-            if skipped {
-                let earliest = timing.content_ns.map_or(last, |c| c.max(last));
-                out.missed = earliest + self.pacer.forecast().typical_ns + FLIP_LEAD_NS <= last + self.period_ns;
-                if out.missed {
-                    self.missed_stamps += 1;
-                }
-            }
             // The pipeline the pacer learns ends when the GPU finished the page, not when the draw was submitted: the
             // kernel waits on the in-fence before the flip, so a page the GPU finishes after the driver's cutoff slips a
             // refresh that a CPU-only pipeline never shows (16 gaps of 20-33 ms in the second gate's x1).
@@ -159,6 +165,17 @@ impl FlipTiming {
                 && s <= presented_ns
             {
                 timing.ready_ns = s;
+            }
+            // The refresh after `last` could have shown this frame if its content was in its own pipeline's time before
+            // it (what a frame cost at that moment, the GPU's wake-up included: the pacer's `lost` reads it the same
+            // way); a frame of no new commit (a layout request) is taken as due since `last`.
+            if skipped {
+                let earliest = timing.content_ns.map_or(last, |c| c.max(last));
+                let pipeline = timing.ready_ns.saturating_sub(timing.started_ns);
+                out.missed = earliest + pipeline + FLIP_LEAD_NS <= last + self.period_ns;
+                if out.missed {
+                    self.missed_stamps += 1;
+                }
             }
             let shown =
                 Shown { slot_ns: timing.slot_ns, started_ns: timing.started_ns, ready_ns: timing.ready_ns, presented_ns, content_ns: timing.content_ns };
@@ -169,6 +186,7 @@ impl FlipTiming {
             self.lost_refreshes += landing.lost as u64;
             out.late = landing.late;
             out.lost = landing.lost;
+            out.shift_ns = landing.late as i64 * self.period_ns as i64;
         }
         out
     }
@@ -334,6 +352,58 @@ mod tests {
         let last = last + 2 * P60;
         let l = t.landed(last + 1_000_000, with_content(last + 1_000_000, None));
         assert!(l.odd.is_some() && !l.missed, "{l:?}");
+    }
+
+    #[test]
+    fn a_skip_after_a_frame_that_paid_the_gpus_wake_up_is_not_missed() {
+        // The tenth gate's trial, 60085.717: a commit 10 ms after the last flip, drawn at once, the GPU done 10.8 ms after
+        // (4.7 in a run), so the refresh 7 ms away was out of reach for the frame that was there to make it.
+        let mut t = FlipTiming::new(P60);
+        let base = 1_000_000_000;
+        run(&mut t, base, P60, 6);
+        let last = base + 5 * P60;
+        let content = last + 10_000_000;
+        let frame = Timing { slot_ns: last + P60, started_ns: content, ready_ns: content + 300_000, content_ns: Some(content) };
+        let l = t.landed(last + 2 * P60, Some((frame, Some(content + 10_800_000))));
+        assert!(l.odd.is_some() && !l.missed, "{l:?}");
+        // The same commit, a frame of a run's 4.7 ms: the refresh between was there to make.
+        let last = last + 2 * P60;
+        let content = last + 10_000_000;
+        let frame = Timing { slot_ns: last + P60, started_ns: content, ready_ns: content + 300_000, content_ns: Some(content) };
+        let l = t.landed(last + 2 * P60, Some((frame, Some(content + 4_700_000))));
+        assert!(l.odd.is_some() && l.missed, "{l:?}");
+        assert_eq!((t.odd_stamps, t.missed_stamps), (2, 1));
+    }
+
+    /// A frame planned by the pacer at `started` (as `Kms::render` does), ready `pipeline` later.
+    fn planned(t: &mut FlipTiming, started: u64, pipeline: u64) -> Timing {
+        let slot = t.pacer.plan(started).slot_ns;
+        Timing { slot_ns: slot, started_ns: started, ready_ns: started + pipeline, content_ns: None }
+    }
+
+    #[test]
+    fn a_frame_planned_behind_a_late_one_moves_with_the_timeline_and_is_not_late_twice() {
+        // x1's mapping on the tenth gate (run 2 of round 5): the first frame lands a refresh late; the second, planned
+        // for the slot after it while it was on its way, lands one refresh after it, the soonest it could.
+        let mut t = FlipTiming::new(P60);
+        let base = 1_000_000_000;
+        let refresh = |i: u64| base + i * P60;
+        for i in 0..6 {
+            let f = planned(&mut t, refresh(i) - 12_000_000, 4_000_000);
+            let l = t.landed(refresh(i), Some((f, None)));
+            assert_eq!(l.late, 0, "frame {i}: {l:?}");
+        }
+        let first = planned(&mut t, refresh(6) - 12_000_000, 4_000_000);
+        let mut second = planned(&mut t, refresh(7) - 12_000_000, 4_000_000);
+        let l = t.landed(refresh(7), Some((first, None)));
+        assert_eq!((l.late, l.shift_ns), (1, P60 as i64), "{l:?}");
+        second.shift(l.shift_ns);
+        let l = t.landed(refresh(8), Some((second, None)));
+        assert_eq!((l.late, l.shift_ns), (0, 0), "{l:?}");
+        // The next frame is aimed at the refresh right after the second's, not one further.
+        let next = planned(&mut t, refresh(8) + 1_000_000, 4_000_000);
+        let l = t.landed(refresh(9), Some((next, None)));
+        assert_eq!((l.late, l.odd), (0, None), "{l:?}");
     }
 
     #[test]
