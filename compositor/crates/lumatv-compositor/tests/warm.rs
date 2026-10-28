@@ -119,7 +119,8 @@ impl Output for Warming {
 fn the_tick_holds_the_frame_while_a_prepared_buffer_warms() {
     let hold = Arc::new(AtomicU32::new(0));
     let hold2 = hold.clone();
-    let mut server = Server::start_with(Box::new(move || Box::new(Warming { inner: Software::new(1920, 1080), hold: hold2, per_buffer: 5, warmed: HashSet::new() })));
+    let mut server =
+        Server::start_with(Box::new(move || Box::new(Warming { inner: Software::new(1920, 1080), hold: hold2, per_buffer: 5, warmed: HashSet::new() })));
     let mut client = Client::connect(&mut server);
     let card = client.card("_WEBOS_WINDOW_TYPE_CARD", "Warm");
     let first = client.shm_buffer(300, 200, 0xff19_80e6);
@@ -149,7 +150,8 @@ fn the_tick_holds_the_frame_while_a_prepared_buffer_warms() {
 fn x1s_start_holds_each_new_buffer_and_draws_nothing_for_its_window() {
     let hold = Arc::new(AtomicU32::new(0));
     let hold2 = hold.clone();
-    let mut server = Server::start_with(Box::new(move || Box::new(Warming { inner: Software::new(1920, 1080), hold: hold2, per_buffer: 3, warmed: HashSet::new() })));
+    let mut server =
+        Server::start_with(Box::new(move || Box::new(Warming { inner: Software::new(1920, 1080), hold: hold2, per_buffer: 3, warmed: HashSet::new() })));
     let mut client = Client::connect(&mut server);
     let home = client.card("_WEBOS_WINDOW_TYPE_CARD", "Home");
     let page = client.shm_buffer(1920, 1080, 0xff20_2020);

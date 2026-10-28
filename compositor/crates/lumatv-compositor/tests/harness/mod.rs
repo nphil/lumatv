@@ -37,7 +37,13 @@ use lumatv_compositor::output::Output;
 use lumatv_compositor::render::software::Software;
 use lumatv_compositor::server::state::{ClientEvent, ClientHandler, State};
 
+use lumatv_wl_protocols::input_method::client::input_method::{self, InputMethod};
+use lumatv_wl_protocols::input_method::client::input_method_context::{self, InputMethodContext};
+use lumatv_wl_protocols::input_method::client::input_panel::InputPanel;
+use lumatv_wl_protocols::input_method::client::input_panel_surface::InputPanelSurface;
 use lumatv_wl_protocols::mali_buffer_sharing::client::mali_buffer_sharing::{self, MaliBufferSharing};
+use lumatv_wl_protocols::text::client::text_model::{self, TextModel};
+use lumatv_wl_protocols::text::client::text_model_factory::TextModelFactory;
 use lumatv_wl_protocols::webos_foreign::client::wl_webos_exported::{self, WlWebosExported};
 use lumatv_wl_protocols::webos_foreign::client::wl_webos_foreign::WlWebosForeign;
 use lumatv_wl_protocols::webos_foreign::client::wl_webos_imported::{self, WlWebosImported};
@@ -46,12 +52,6 @@ use lumatv_wl_protocols::webos_shell::client::wl_webos_shell_surface::{self, WlW
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group::WlWebosSurfaceGroup;
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group_compositor::WlWebosSurfaceGroupCompositor;
 use lumatv_wl_protocols::webos_surface_group::client::wl_webos_surface_group_layer::WlWebosSurfaceGroupLayer;
-use lumatv_wl_protocols::input_method::client::input_method::{self, InputMethod};
-use lumatv_wl_protocols::input_method::client::input_method_context::{self, InputMethodContext};
-use lumatv_wl_protocols::input_method::client::input_panel::InputPanel;
-use lumatv_wl_protocols::input_method::client::input_panel_surface::InputPanelSurface;
-use lumatv_wl_protocols::text::client::text_model::{self, TextModel};
-use lumatv_wl_protocols::text::client::text_model_factory::TextModelFactory;
 
 type Job = Box<dyn FnOnce(&mut State) + Send>;
 

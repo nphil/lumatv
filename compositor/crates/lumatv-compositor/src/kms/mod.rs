@@ -800,7 +800,12 @@ impl Output for Kms {
             None => latch,
         };
         if self.trace_left > 0 {
-            log::info!("trace: next tick at {:.3} (latch, {:.1} ms before the refresh at {:.3})", latch as f64 / 1e9, self.latch.get().1 as f64 / 1e6, (slot as i64 + self.timing.pacer.phase_ns().unwrap_or(0)) as f64 / 1e9);
+            log::info!(
+                "trace: next tick at {:.3} (latch, {:.1} ms before the refresh at {:.3})",
+                latch as f64 / 1e9,
+                self.latch.get().1 as f64 / 1e6,
+                (slot as i64 + self.timing.pacer.phase_ns().unwrap_or(0)) as f64 / 1e9
+            );
         }
         Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
     }
@@ -938,7 +943,11 @@ impl Output for Kms {
         // (its swaps) stretch with it. Logged while the run is paced, 200 lines at most.
         if self.last_draw_ns != 0 && self.flowing(now) && now - self.last_draw_ns > 18_500_000 && self.tick_lines < 200 {
             self.tick_lines += 1;
-            log::info!("trace: tick {:.1} ms after the last drawing tick (latch lead {:.1} ms)", (now - self.last_draw_ns) as f64 / 1e6, self.latch.get().1 as f64 / 1e6);
+            log::info!(
+                "trace: tick {:.1} ms after the last drawing tick (latch lead {:.1} ms)",
+                (now - self.last_draw_ns) as f64 / 1e6,
+                self.latch.get().1 as f64 / 1e6
+            );
         }
         self.last_draw_ns = now;
         let slot_ns = self.timing.pacer.plan(now).slot_ns;

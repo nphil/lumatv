@@ -120,7 +120,10 @@ fn a_field_and_the_on_screen_keyboard_talk_through_the_compositor() {
     k.client.conn.flush().unwrap();
     assert!(a.client.wait_until(WAIT, |s| !s.ime.keysyms.is_empty()));
     let log = &a.client.state.ime;
-    assert_eq!((log.commits.clone(), log.preedits.clone(), log.deletes.clone(), log.keysyms.clone()), (vec!["hi".to_string()], vec!["wor".to_string()], vec![(-1, 1)], vec![(0xff0d, 1)]));
+    assert_eq!(
+        (log.commits.clone(), log.preedits.clone(), log.deletes.clone(), log.keysyms.clone()),
+        (vec!["hi".to_string()], vec!["wor".to_string()], vec![(-1, 1)], vec![(0xff0d, 1)])
+    );
 
     // The keyboard's window is placed at the bottom, above the app, and the focus stays with the app.
     let (_surface, _ps, _buf) = k.show(1920, 360);
@@ -166,9 +169,11 @@ fn an_activation_waits_for_an_input_method_and_asks_the_system_for_one() {
     let mut server = Server::start();
     let asked = Arc::new(AtomicUsize::new(0));
     let counter = asked.clone();
-    server.eval(move |s| s.ime.ask_for_input_method = Box::new(move || {
+    server.eval(move |s| {
+        s.ime.ask_for_input_method = Box::new(move || {
             counter.fetch_add(1, Ordering::SeqCst);
-        }));
+        })
+    });
     let mut a = app(&mut server, "Search");
     a.activate();
     a.model.show_input_panel();

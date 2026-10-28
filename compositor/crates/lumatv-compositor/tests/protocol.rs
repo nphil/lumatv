@@ -295,7 +295,9 @@ fn the_front_card_is_exposed_and_a_covered_card_is_not() {
     // HDMI 2 minimizes itself: unexposed; Home comes back and is exposed again.
     hdmi.webos.set_state(minimized);
     client.conn.flush().unwrap();
-    assert!(client.wait_until(WAIT, |s| exposed(s, hdmi_id) == [full.clone(), none.clone()] && exposed(s, home_id) == [full.clone(), none.clone(), full.clone()]));
+    assert!(
+        client.wait_until(WAIT, |s| exposed(s, hdmi_id) == [full.clone(), none.clone()] && exposed(s, home_id) == [full.clone(), none.clone(), full.clone()])
+    );
 }
 
 #[test]
@@ -582,7 +584,11 @@ fn a_keyboard_made_after_focus_enters_at_once_and_keys_follow_their_devices_seat
     });
     assert!(client.wait_until(WAIT, |s| s.keys_by_keyboard.len() >= 5));
     let (id0, id1) = (kb0.id().protocol_id(), kb1.id().protocol_id());
-    assert_eq!(client.state.keys_by_keyboard, vec![(id0, 412), (id1, 103), (id1, 103), (id0, 108), (id0, 108)], "the held key's release went to the first keyboard");
+    assert_eq!(
+        client.state.keys_by_keyboard,
+        vec![(id0, 412), (id1, 103), (id1, 103), (id0, 108), (id0, 108)],
+        "the held key's release went to the first keyboard"
+    );
 }
 
 #[test]

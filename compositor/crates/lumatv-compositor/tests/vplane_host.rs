@@ -88,7 +88,13 @@ impl Player {
         let wayland = server.client_stream.take().expect("the harness's client stream");
         let wl_fd = high_dup(wayland.as_raw_fd());
         let mut cmd = Command::new(&p.player);
-        cmd.arg("-d").arg(&mailbox).arg("-c").arg(&p.clips).arg("-L").arg(p.ndl_dir.join("libNDL_directmedia.so.1")).args(["-w", window, "-m", "1"])
+        cmd.arg("-d")
+            .arg(&mailbox)
+            .arg("-c")
+            .arg(&p.clips)
+            .arg("-L")
+            .arg(p.ndl_dir.join("libNDL_directmedia.so.1"))
+            .args(["-w", window, "-m", "1"])
             .env("WAYLAND_SOCKET", "3")
             .env("LD_LIBRARY_PATH", &p.ndl_dir)
             .env("FAKE_NDL_LOG", &ndl_log)
@@ -136,7 +142,9 @@ impl Player {
     /// The window id the library was given, from the stand-in's log.
     fn window_id(&self) -> Option<String> {
         let log = std::fs::read_to_string(&self.ndl_log).ok()?;
-        log.lines().find_map(|l| l.split_whitespace().skip(2).collect::<Vec<_>>().as_slice().strip_prefix(&["SetWindowId"]).and_then(|r| r.first().map(|s| s.to_string())))
+        log.lines().find_map(|l| {
+            l.split_whitespace().skip(2).collect::<Vec<_>>().as_slice().strip_prefix(&["SetWindowId"]).and_then(|r| r.first().map(|s| s.to_string()))
+        })
     }
 }
 
@@ -182,7 +190,11 @@ fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_
         let id = window_id.clone();
         move |s| {
             let e = s.foreign.exported.get(&id);
-            (e.is_some(), e.map(|e| (e.destination.x, e.destination.y, e.destination.w, e.destination.h)), e.and_then(|e| e.source).map(|r| (r.x, r.y, r.w, r.h)))
+            (
+                e.is_some(),
+                e.map(|e| (e.destination.x, e.destination.y, e.destination.w, e.destination.h)),
+                e.and_then(|e| e.source).map(|r| (r.x, r.y, r.w, r.h)),
+            )
         }
     });
     assert!(known, "{window_id} is an export of this compositor");
@@ -217,7 +229,11 @@ fn the_player_makes_a_window_the_pipeline_attaches_to_and_the_compositor_places_
     // the drift: the rectangle moves and the compositor places the video again, always inside the room
     assert!(wait_for(Duration::from_secs(4), || {
         let c = server.eval(placements);
-        let mut seen: Vec<(i64, i64)> = c.iter().filter(|c| c["context"] == "_ctx_vplane").map(|c| (c["displayOutput"]["x"].as_i64().unwrap(), c["displayOutput"]["y"].as_i64().unwrap())).collect();
+        let mut seen: Vec<(i64, i64)> = c
+            .iter()
+            .filter(|c| c["context"] == "_ctx_vplane")
+            .map(|c| (c["displayOutput"]["x"].as_i64().unwrap(), c["displayOutput"]["y"].as_i64().unwrap()))
+            .collect();
         seen.sort();
         seen.dedup();
         seen.len() >= 4

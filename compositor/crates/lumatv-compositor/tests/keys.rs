@@ -251,7 +251,11 @@ fn a_digit_is_the_apps_and_held_a_second_it_asks_for_quick_access() {
     assert_eq!(launched, vec!["com.webos.app.magicnum"]);
     assert!(said);
     a.client.roundtrip();
-    assert_eq!(a.client.state.keys, vec![(KEY_1 + 4, 1), (KEY_1 + 4, 0)], "the app got the press and, at the hold, its release: no key stays down in its state");
+    assert_eq!(
+        a.client.state.keys,
+        vec![(KEY_1 + 4, 1), (KEY_1 + 4, 0)],
+        "the app got the press and, at the hold, its release: no key stays down in its state"
+    );
     let held = server.eval(|s| s.seat.pressed.clone());
     assert!(held.is_empty(), "{held:?}");
 }

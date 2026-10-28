@@ -127,7 +127,13 @@ fn ask_system() {
         log::warn!("ime: {initctl} is not there; no input method can be asked for");
         return;
     }
-    match std::process::Command::new(initctl).args(["emit", "ime-activate"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
+    match std::process::Command::new(initctl)
+        .args(["emit", "ime-activate"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
         Ok(mut child) => {
             std::thread::spawn(move || {
                 let _ = child.wait();
@@ -234,7 +240,17 @@ impl Dispatch<TextModelFactory, ()> for State {
             state.ime.next += 1;
             let mid = state.ime.next;
             let res = data_init.init(id, ModelData(mid));
-            state.ime.models.push(Model { id: mid, res, active: false, surface: None, surface_id: None, ctx: None, method: None, show_wanted: false, preferred: None });
+            state.ime.models.push(Model {
+                id: mid,
+                res,
+                active: false,
+                surface: None,
+                surface_id: None,
+                ctx: None,
+                method: None,
+                show_wanted: false,
+                preferred: None,
+            });
             state.note_request("text_model_factory", 0, "create_text_model");
         }
     }
@@ -417,7 +433,15 @@ impl Dispatch<InputMethodContext, ContextData> for State {
 }
 
 impl Dispatch<WlKeyboard, GrabData> for State {
-    fn request(state: &mut Self, _client: &Client, resource: &WlKeyboard, request: wl_keyboard::Request, _data: &GrabData, _dh: &DisplayHandle, _di: &mut DataInit<'_, Self>) {
+    fn request(
+        state: &mut Self,
+        _client: &Client,
+        resource: &WlKeyboard,
+        request: wl_keyboard::Request,
+        _data: &GrabData,
+        _dh: &DisplayHandle,
+        _di: &mut DataInit<'_, Self>,
+    ) {
         if let wl_keyboard::Request::Release = request
             && state.ime.grab.as_ref().is_some_and(|g| g.id() == resource.id())
         {
