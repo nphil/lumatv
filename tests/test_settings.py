@@ -245,11 +245,11 @@ class Settings(HostCase):
 
     # ---- the remote's app keys (settings/AppKeys.js, PageAppKey): the answer is `remote.appKeys` in the user's theme.json
     def probe(self, data, js):
-        """JS for `--eval` that runs `js` with `o.power`, `o.lu` and `o.apps` the app's own singletons (kit/Power, Lu, Apps): the host's
+        """JS for `--eval` that runs `js` with `o.power`, `o.lu`, `o.apps` and `o.helper` the app's own singletons (kit/Power, Lu, Apps, Helper): the host's
         expressions see `root` and the module's types, not the names a QML file imports, so the probe imports the staged kit directory itself
         (`data` is the host's --data directory, where the module is staged)."""
         base = "file://%s/qml/WebOSCompositor/lumatv" % data
-        return ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import \"%s/kit\"; QtObject { property var power: Power; property var lu: Lu; property var apps: Apps }', "
+        return ("(function(){var o=Qt.createQmlObject('import QtQuick 2.4; import \"%s/kit\"; QtObject { property var power: Power; property var lu: Lu; property var apps: Apps; property var helper: Helper }', "
                 "root, '%s/probe.qml');%s})()" % (base, base, js))
 
     def run_probe(self, js, *args, surface="Settings.qml", wait="5800", at=5000):
@@ -442,6 +442,20 @@ class Settings(HostCase):
         on, gone = self.run_probe(js)[0][-1]
         self.assertEqual(on, {"hours": "1,705 h", "shown": True, "value": "1,705 h", "visible": True})     # the fake TV's 10230 ticks
         self.assertEqual(gone, {"shown": False, "visible": False})
+
+    def test_the_panel_refresh_line_is_the_helpers_panel_topic_and_shows_nothing_until_LG_has_answered(self):
+        row = ("var p=root.pageItem('system');var r=null;for(var i=0;i<p.rows.length;i++)if(p.ev(p.rows[i].label)==='Panel refresh')r=p.rows[i];")
+        def at(panel):
+            return "o.helper.topics={panel:%s};out.push({value:p.ev(r.value),visible:p.ev(r.visible),text:o.helper.panelRefresh});" % json.dumps(panel)
+        js = (row + "var out=[{value:p.ev(r.value),visible:p.ev(r.visible),text:o.helper.panelRefresh}];"
+              + at({"read": True, "offrsCount": 1, "lastRunHours": 1700, "usageHours": 1701.5})
+              + at({"read": True, "offrsCount": 12, "lastRunHours": 1700, "usageHours": 1699})
+              + at({"read": False, "offrsCount": None}) + "return JSON.stringify(out)")
+        fake, one, clock_back, unread = self.run_probe(js)[0][-1]
+        self.assertEqual(fake, {"value": "last run 5 h ago, 12 runs", "visible": True, "text": "last run 5 h ago, 12 runs"}, "the fake helper's topic")
+        self.assertEqual(one["value"], "last run 2 h ago, 1 run")
+        self.assertEqual(clock_back["value"], "last run 0 h ago, 12 runs", "never a negative age")
+        self.assertEqual(unread, {"value": "", "visible": False, "text": ""})
 
     def test_the_sound_delay_is_the_key_of_the_way_out_and_takes_its_limits_from_the_service(self):
         read = ("(function(){var p=root.pageItem('sound');var r=null;for(var i=0;i<p.rows.length;i++)if(p.ev(p.rows[i].label)==='Match screen and sound')r=p.rows[i];"

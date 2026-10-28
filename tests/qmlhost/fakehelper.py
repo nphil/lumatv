@@ -131,6 +131,12 @@ def updateblock(state):
             "blocking": flag or live, "state": state}
 
 
+def panel(count=12, last=1700.0, usage=1705.0, interval=4.0):
+    """The helper's `panel` topic (helper/app/src/refreshguard.rs) with the screen on."""
+    return {"read": True, "offrsCount": count, "lastRunHours": last, "intervalHours": interval, "usageHours": usage, "due": usage >= last + interval,
+            "lastStandbyMinutes": 42, "standby": None, "guard": {"enabled": False, "deferrals": 0, "last": None}, "error": None, "readAt": NOW()}
+
+
 # A 32x18 baseline JPEG: what the frame route of the cameras answers (the shell decodes it as any camera picture).
 JPEG = bytes.fromhex(
     "ffd8ffe000104a46494600010100000100010000ffdb0043000a07070807060a0808080b0a0a0b0e18100e0d0d0e1d15161118231f2524221f222126"
@@ -160,6 +166,7 @@ class State:
         self.topics["ai"] = ai_doc()
         self.topics["ai.prompt"] = None
         self.topics["updateblock"] = updateblock("blocked")
+        self.topics["panel"] = panel()
         self.requests = []      # (method, path, body) of every /v1/ai call, for the tests to read back
         self.posts = []         # (path, body) of every other POST (plugin actions, receiver nudge and set), read back at /__posts
         self.audit = []

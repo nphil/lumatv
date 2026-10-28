@@ -20,7 +20,7 @@ SRC = os.path.join(ROOT, "compositor", "crates", "lumatv-compositor", "src")
 HELPER = os.path.join(ROOT, "helper", "app", "src")
 
 # Switches whose features are other modules' (their own tests check that those read them): the Settings rows only write them.
-ELSEWHERE = {"boxDim", "refreshGuard"}
+ELSEWHERE = {"boxDim"}
 
 # The switches of the care, in the order of the group, with what the Settings row is called.
 SWITCHES = [("enabled", "LumaTV screens"), ("appDim", "Dim still apps"), ("appShift", "Shift apps"), ("boxDim", "Dim bright still areas"),

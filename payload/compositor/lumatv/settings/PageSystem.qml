@@ -41,6 +41,7 @@ PageList {
         Sio.read("network", ["deviceName"])
         Power.readSleep()
         Power.readPanel()
+        Helper.start()                                  // idempotent: Panel refresh is the helper's `panel` topic
     }
     Component.onCompleted: refresh()
     onOpened: refresh()
@@ -115,6 +116,8 @@ PageList {
         page.careRow("appShift", "waves", "Shift apps", "Slowly moves an app's picture a few pixels while it sits still. A key or video puts it back."),
         page.careRow("boxDim", "sun-dim", "Dim bright still areas", "Dims only the bright parts of a picture that stays still, such as menu boxes. Video is never touched."),
         page.careRow("refreshGuard", "rotate-ccw", "Protect panel refresh", "Keeps LG's panel refresh from being cut short when the TV is turned on just after it turns off."),
+        { kind: "value", tab: 2, icon: "history", label: "Panel refresh", help: "LG refreshes the panel by itself, about 10 minutes after the TV is turned off, each time the panel has run a few hours. Turning the TV on in that time cuts it short.",
+          value: function() { return Helper.panelRefresh }, info: true, chevron: false, visible: function() { return Helper.panelRefresh !== "" } },
 
         R.head("Vision", 3),
         R.link({ tab: 3, id: "audioguide", icon: "audio-lines", label: "Audio Guidance", enabled: function() { return Sio.has("option.audioGuidance") },

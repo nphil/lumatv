@@ -14,7 +14,7 @@ QtObject {
     id: helper
 
     readonly property string base: "http://127.0.0.1:18731"
-    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,cameras,cameras.popup,cameras.live"
+    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,panel,cameras,cameras.popup,cameras.live"
     // Plugin topics are named per plugin and a long poll takes at most 16 names: the fixed ones, then the cards, tiles and
     // notifications of each plugin that is connected, the helper's own (`firstParty`, listed apart in `plugins`) included;
     // with more than fit, which is the usual case since the helper's own are four, there is no filter (every topic) rather
@@ -41,6 +41,14 @@ QtObject {
     readonly property var ai: topics.ai || null                  // AI access: listener, pairing, assistants, limits
     readonly property var aiPrompt: topics["ai.prompt"] || null  // the open prompt, or null
     readonly property var updateBlock: topics.updateblock || null  // LG's system updates: the Homebrew Channel's flag and what /etc/hosts maps now
+    readonly property var panel: topics.panel || null            // LG's panel refresh: runs so far and when the last one was (helper/app/src/refreshguard.rs)
+    // "last run 3 h ago, 12 runs" from the panel topic; "" until LG has answered (never a made-up number)
+    readonly property string panelRefresh: {
+        var p = panel
+        if (!p || !p.read) return ""
+        var ago = Math.max(0, Math.round(p.usageHours - p.lastRunHours))
+        return "last run " + ago + " h ago, " + p.offrsCount + (p.offrsCount === 1 ? " run" : " runs")
+    }
     signal updated(string topic)
     // The receiver's own controls (sound mode, Audyssey, levels, zones) exist only when the helper says so:
     // its `receiver` topic carries `controls: true` once it can send the Denon's commands. Until then the

@@ -1132,12 +1132,12 @@ class Coverage(unittest.TestCase):
         self.assertEqual((d["va"], d["vb"]), ("1.5 s", "0.5 s"))
         self.assertEqual(self.written("remote_slow_pick"), [{"longPressInterval": "1.5"}, {"repeatInterval": "0.5"}])
 
-    def test_oled_care_ends_with_lumatvs_group_of_five_switches_that_start_off(self):
+    def test_oled_care_ends_with_lumatvs_group_of_five_switches_that_start_off_and_the_panel_refresh_line(self):
         rows = self.probe("panel_care_rows")["res"]
-        self.assertEqual([r[:2] for r in rows[-6:]], [["head", "LumaTV panel care"], ["toggle", "LumaTV screens"], ["toggle", "Dim still apps"], ["toggle", "Shift apps"],
-                                                      ["toggle", "Dim bright still areas"], ["toggle", "Protect panel refresh"]])
-        self.assertTrue(all(r[2] and r[3] is False for r in rows[-5:]), "each has its help and is off in the shipped theme")
-        labels = [r[1] for r in rows[:-6]]
+        self.assertEqual([r[:2] for r in rows[-7:]], [["head", "LumaTV panel care"], ["toggle", "LumaTV screens"], ["toggle", "Dim still apps"], ["toggle", "Shift apps"],
+                                                      ["toggle", "Dim bright still areas"], ["toggle", "Protect panel refresh"], ["value", "Panel refresh"]])
+        self.assertTrue(all(r[2] and r[3] is False for r in rows[-6:-1]), "each has its help and is off in the shipped theme")
+        labels = [r[1] for r in rows[:-7]]
         self.assertIn("Screen shift", labels, "LG's rows stay above the group")
         self.assertNotIn("OLED care", labels)
 
