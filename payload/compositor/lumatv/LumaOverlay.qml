@@ -27,7 +27,7 @@ import "kit"
 //   banners   `showBanner(spec)` (panels/Banner.qml's specs); the input pill on its own when the owner has turned `banners.own` on
 //   drawer    `gearHold()`, the gear key held (theme `remote.gearHold`, on unless the owner turned it off)
 //   volume    panels/VolumeOsd.qml: up whenever the audio service or the receiver reports a volume or a mute, and while the sound is muted
-//   quick     panels/QuickPanel.qml: the gear's tap (the key filter's second entry), a tall panel docked to the left edge; Back slides it back
+//   quick     panels/QuickPanel.qml: the gear's tap (the key filter's second entry), a tall panel docked to the right edge; Back slides it back
 //   picker    panels/InputPicker.qml: the Input key, a sheet along the bottom; the key again goes to the next input
 Item {
     id: ov
@@ -80,7 +80,6 @@ Item {
     // Under LumaTV's compositor this layer is a window of its own (compositor/shell/Shell.qml): its panes sample the flat colour through
     // Lu.flatBackdrop (kit/LuPane.qml) and Home's blur stays Home's, since a texture cannot be sampled across windows.
     readonly property bool ownWindow: !!Lu.homeWindow && Window.window !== Lu.homeWindow
-    onOwnWindowChanged: if (ownWindow) Lu.ownCompositor = true
     readonly property bool flatGlass: ownWindow || Lu.backdrop === flatTex       // the glass samples the flat colour, not Home's wallpaper blur
 
     // ---- the surfaces, built once and kept (Resident.qml)
@@ -149,7 +148,6 @@ Item {
         ignoreUnknownSignals: true
         onCloseRequested: ov.closePanel()
         onOpenSettingsPage: ov.settingsFromPanel(id)
-        onOpenLgQuick: { ov.closePanel(); ov.systemWindow("com.webos.app.quicksettings") }
     }
     Connections {
         target: pickerRes.item

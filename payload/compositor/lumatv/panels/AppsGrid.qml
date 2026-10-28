@@ -255,7 +255,8 @@ Item {
                     spacing: Lu.space(2)
                     Rectangle { anchors.verticalCenter: parent.verticalCenter; width: kt.implicitWidth + 2 * Lu.space(2); height: 30; radius: 8; color: "transparent"; border.width: 1; border.color: Lu.edge; antialiasing: true
                                 LuText { id: kt; anchors.centerIn: parent; role: "caption"; font.weight: Font.DemiBold; color: Lu.ink2; text: modelData.k } }
-                    LuText { anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink3; text: modelData.t }
+                    // the second ink: the third read 2.2:1 on the light glass (the audit needs 3:1 for muted text)
+                    LuText { anchors.verticalCenter: parent.verticalCenter; role: "caption"; color: Lu.ink2; text: modelData.t }
                 }
             }
         }

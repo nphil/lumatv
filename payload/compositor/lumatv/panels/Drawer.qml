@@ -154,10 +154,16 @@ Item {
         MouseArea { anchors.fill: parent }
         Item {
             id: head
-            x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5); height: Math.round(Lu.target * 1.1)
-            LuText { y: Math.round((head.height - height) / 2); role: "title"; text: "Notifications" }
+            x: Lu.space(5); y: Lu.space(4); width: parent.width - 2 * Lu.space(5)
+            // the button sits beside the title while both fit on a line, else under it (a large text size)
+            readonly property bool stacked: clearBtn.visible && titleText.implicitWidth + clearBtn.width + Lu.space(4) > width
+            readonly property int lineH: Math.round(Lu.target * 1.1)
+            height: stacked ? titleText.height + Lu.space(2) + clearBtn.height : lineH
+            LuText { id: titleText; width: Math.min(implicitWidth, parent.width); y: head.stacked ? 0 : Math.round((head.lineH - height) / 2); role: "title"; text: "Notifications" }
             LuButton {
-                x: head.width - width; y: Math.round((head.height - height) / 2)
+                id: clearBtn
+                x: head.stacked ? 0 : head.width - width
+                y: head.stacked ? titleText.height + Lu.space(2) : Math.round((head.lineH - height) / 2)
                 text: "Clear all"; icon: "check"; focused: drawer.index === 0; rested: drawer.rested
                 visible: drawer.count > 0
                 onHoverFocus: drawer.index = 0
@@ -187,7 +193,7 @@ Item {
                             height: 28
                             LuIcon { x: Lu.space(5); y: 2; size: 24; name: e.head ? e.icon : ""; color: Lu.ink3 }
                             LuText { x: Lu.space(5) + 24 + Lu.space(3); y: Math.round((28 - height) / 2); role: "caption"; color: Lu.ink2; text: e.head ? e.source : "" }
-                            LuText { x: col.width - width - Lu.space(5); y: Math.round((28 - height) / 2); role: "caption"; color: Lu.ink3; text: e.head ? String(e.count) : "" }
+                            LuText { x: col.width - width - Lu.space(5); y: Math.round((28 - height) / 2); role: "caption"; color: Lu.ink2; text: e.head ? String(e.count) : "" }
                         }
                         Item {
                             id: itemBox
@@ -205,11 +211,12 @@ Item {
                             LuTile { x: Lu.space(4); y: Lu.space(3); size: 48; icon: itemBox.it ? itemBox.it.icon : "" }
                             Column {
                                 id: titleCol
-                                x: Lu.space(4) + 48 + Lu.space(4); y: Lu.space(3); width: parent.width - x - 96 - Lu.space(4)
+                                x: Lu.space(4) + 48 + Lu.space(4); y: Lu.space(3); width: parent.width - x - (when.text !== "" ? when.width + Lu.space(3) : 0) - Lu.space(4)
                                 LuText { width: parent.width; role: "label"; elide: Text.ElideRight; text: itemBox.it ? itemBox.it.title : "" }
-                                LuText { width: parent.width; role: "caption"; line: 1.0; color: Lu.ink2; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; visible: itemBox.it && itemBox.it.body !== ""; text: itemBox.it ? itemBox.it.body : "" }
+                                LuText { width: parent.width; role: "caption"; line: 1.0; color: Lu.ink2; wrapMode: Text.WordWrap; maximumLineCount: 3; elide: Text.ElideRight; visible: itemBox.it && itemBox.it.body !== ""; text: itemBox.it ? itemBox.it.body : "" }
                             }
-                            LuText { x: parent.width - width - Lu.space(4); y: Lu.space(3); role: "caption"; color: Lu.ink3; text: itemBox.it ? drawer.when(itemBox.it.time) : "" }
+                            // the time: in the second ink, which reads over the glass at 3:1 where the third did not (2.3 to 2.9:1 in the audit)
+                            LuText { id: when; x: parent.width - width - Lu.space(4); y: Lu.space(3); role: "caption"; color: Lu.ink2; text: itemBox.it ? drawer.when(itemBox.it.time) : "" }
                             Row {
                                 visible: itemBox.it && itemBox.it.actions.length > 0
                                 x: Lu.space(4) + 48 + Lu.space(4); y: parent.height - Lu.space(3) - Lu.target; spacing: Lu.space(3)

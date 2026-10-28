@@ -3,7 +3,8 @@ import "../kit"
 
 // One row of the quick panel, drawn for a narrow column (about 430 px): an icon tile, the name and, only when it says something the person
 // needs (an input, a state), a second line. A control that fits on the name's line (a switch, a chevron, a chip) sits at its right in
-// `trailing`; a control that needs width (a stepper's value) goes on a line of its own in `below`, under the words and as wide as they.
+// `trailing`; a control that needs width (a stepper's value) goes in `below`: at the right of the words on the same line (mock 10) when the
+// words, as they would be written on one line, and the control fit side by side, else on a line of its own under them, as wide as they.
 // Words wrap and the row grows: nothing is cut off, at any text size. Transparent at rest; focus is the wash, the lit edge and the halo,
 // and the lift grows the plate only, so words and controls never move.
 Item {
@@ -27,14 +28,17 @@ Item {
     readonly property int textX: pad + (icon !== "" ? tileSize + gap : 0)
     readonly property real trailW: trailingSlot.childrenRect.width
     readonly property real belowH: belowSlot.childrenRect.height
-    readonly property real textW: width - textX - pad - (trailW > 0 ? trailW + gap : 0)
+    readonly property real belowNeed: belowSlot.children.length && belowSlot.children[0].need !== undefined ? belowSlot.children[0].need : 0
+    readonly property bool beside: belowNeed > 0 && Math.max(labelProbe.implicitWidth, detailWidth.advanceWidth) + gap + belowNeed <= width - textX - pad
+    readonly property real textW: width - textX - pad - (trailW > 0 ? trailW + gap : 0) - (beside ? belowNeed + gap : 0)
     readonly property real textH: Math.max(words.height, detailLines > 1 && detail !== "" ? labelText.height + detailLines * lineProbe.height : 0)
     // a second line that does not fit on one breaks at its dots ("Follows the picture" over "70%"), not in the middle of a phrase. Measured
     // with font metrics: a hidden Text would lay itself out again at every answer that changes the line.
     readonly property string shownDetail: detailWidth.advanceWidth > textW ? detail.replace(/ \u00b7 /g, "\n") : detail
 
-    implicitHeight: belowH > 0 ? pad + textH + Lu.space(2) + belowH + pad
-                               : Math.max(Lu.row, pad + Math.max(textH, tileSize, trailingSlot.childrenRect.height) + pad)
+    readonly property bool stacked: belowH > 0 && !beside
+    implicitHeight: stacked ? pad + textH + Lu.space(2) + belowH + pad
+                            : Math.max(Lu.row, pad + Math.max(textH, tileSize, trailingSlot.childrenRect.height, beside ? belowH : 0) + pad)
     height: implicitHeight
     opacity: enabled ? 1 : Lu.disabledOpacity
     z: focused ? 1 : 0
@@ -68,7 +72,7 @@ Item {
     LuTile {
         visible: tile.icon !== ""
         x: tile.pad
-        y: tile.belowH > 0 ? tile.pad : Math.round((tile.height - tile.tileSize) / 2)
+        y: tile.stacked ? tile.pad : Math.round((tile.height - tile.tileSize) / 2)
         size: tile.tileSize
         icon: tile.icon
         accent: tile.tileAccent
@@ -76,13 +80,14 @@ Item {
     Column {
         id: words
         x: tile.textX
-        y: tile.belowH > 0 ? tile.pad : Math.round((tile.height - height) / 2)
+        y: tile.stacked ? tile.pad : Math.round((tile.height - height) / 2)
         width: tile.textW
         LuText { id: labelText; width: parent.width; role: "label"; text: tile.label; wrapMode: Text.WordWrap }
         LuText { id: detailText; width: parent.width; role: "caption"; text: tile.shownDetail; color: Lu.ink2; wrapMode: Text.WordWrap; visible: tile.detail !== "" }
     }
     TextMetrics { id: detailWidth; font: detailText.font; text: tile.detail }
     LuText { id: lineProbe; visible: false; role: "caption"; text: "M" }
+    LuText { id: labelProbe; visible: false; role: "label"; text: tile.label }
     Item {
         id: trailingSlot
         x: tile.width - tile.pad - width
@@ -92,9 +97,9 @@ Item {
     }
     Item {
         id: belowSlot
-        x: tile.textX
-        y: tile.pad + tile.textH + Lu.space(2)
-        width: tile.width - tile.textX - tile.pad
+        x: tile.beside ? tile.width - tile.pad - tile.belowNeed : tile.textX
+        y: tile.beside ? Math.round((tile.height - height) / 2) : tile.pad + tile.textH + Lu.space(2)
+        width: tile.beside ? tile.belowNeed : tile.width - tile.textX - tile.pad
         height: childrenRect.height
     }
     MouseArea {

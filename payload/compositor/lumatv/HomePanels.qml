@@ -57,20 +57,6 @@ Item {
         return true
     }
 
-    // LG's own Quick Settings, for what the panel does not have: through the key filter's luna client, the one LG's key filters open it with
-    function lgQuick() {
-        home.closeLayerById("quick")
-        var through = Bus.systemLaunch("com.webos.app.quicksettings") ? "the key filter's client" : "LS.adhoc"
-        if (through === "LS.adhoc") LS.adhoc.call("luna://com.webos.service.systemUIManager", "/launch", JSON.stringify({ appId: "com.webos.app.quicksettings" }))
-        console.info("[LumaHome] LG's Quick Settings asked for through " + through)
-    }
-    readonly property var quickRes: layers.find("quick")
-    Connections {
-        target: panels.quickRes ? panels.quickRes.item : null
-        ignoreUnknownSignals: true
-        onOpenLgQuick: panels.lgQuick()
-    }
-
     // A panel over an app asked for a Settings page and took the TV to Home: open it once Home is in front (and has finished its own return)
     Connections {
         target: panels.home

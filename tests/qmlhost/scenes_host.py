@@ -131,10 +131,10 @@ def _(out_dir, material):
     return quick_scene("10-overlay-quick", out_dir, material)
 
 
-@scene("10-overlay-quick-lg", runner=True)
+@scene("10-overlay-quick-foot", runner=True)
 def _(out_dir, material):
-    # focus on the buttons under the list: Down past the last tile, then Right to LG's own Quick Settings
-    return quick_scene("10-overlay-quick-lg", out_dir, material, keys=["Qt.Key_Down"] * 7 + ["Qt.Key_Right"])
+    # focus on the button under the list: Down past the last tile
+    return quick_scene("10-overlay-quick-foot", out_dir, material, keys=["Qt.Key_Down"] * 7)
 
 
 @scene("08-overlay-picker", runner=True)

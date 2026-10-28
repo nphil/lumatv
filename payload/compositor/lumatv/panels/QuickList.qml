@@ -171,7 +171,7 @@ Item {
                             focused: cell.isFocus; rested: list.rested; instant: list.instant
                             onActivated: { list.pointAt(cell.ri); list.activate(cell.ri) }
                             onHoverFocus: list.pointAt(cell.ri)
-                            below: QuickStep { focused: cell.isFocus; text: list.ev(cell.r.value) || "" }
+                            below: QuickStep { focused: cell.isFocus; widest: "\u221234.5 dB"; text: list.ev(cell.r.value) || "" }
                         }
                     }
                     Component {

@@ -66,8 +66,8 @@ TV_UPDATE = {"source": "TV", "icon": "download", "title": "TV update ready", "bo
              "time": NOW - 26 * 3600 * 1000}
 
 
-def drawer_steps(extra=(), ready=READY):
-    return [("publish", 300, "ai", AI_PAUSED), ("publish", 300, "__audit", AUDIT), ("publish", 400, "plugins", ROSTER),
+def drawer_steps(extra=(), ready=READY, audit=AUDIT):
+    return [("publish", 300, "ai", AI_PAUSED), ("publish", 300, "__audit", audit), ("publish", 400, "plugins", ROSTER),
             ("publish", 400, "plugin.homeassistant.notifications", HA_NOTES),
             ("eval", ready - 1500, posts_to_note_log(TV_UPDATE)), ("eval", ready - 900, panel("panels/Drawer.qml", "{z: 70, objectName: 'drawer'}")),
             *extra]
@@ -75,7 +75,8 @@ def drawer_steps(extra=(), ready=READY):
 
 @scene("13-notifications")
 def _():
-    return drawer_steps() + [("snap", READY + 1200, "13-notifications")]
+    # without the two older lines: the rest fills the sheet, so a row cut by the sheet's end (a list that scrolls) is not what the audit reads
+    return drawer_steps(audit=AUDIT[2:]) + [("snap", READY + 1200, "13-notifications")]
 
 
 @scene("13-notifications-empty")

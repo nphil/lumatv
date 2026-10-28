@@ -4,9 +4,9 @@ import WebOSServices 1.0
 import "../kit"
 import "../settings"
 
-// The quick panel (docs/mocks/10-quick-panel, laid out as LG's Quick Settings is): a tall narrow sheet docked to the left edge, 492 by 1008,
-// 24 from the edges (measured on LG's own panel, caps/luma/qs_res_warm.png), with the few things reached for most, one row each (QuickList):
-// Left and Right change a value, OK opens the page that has more. It slides out from the left edge and back (PanelMotion: a transform, no
+// The quick panel (docs/mocks/10-quick-panel): a tall sheet docked to the right edge, 648 wide and 56 from the top, bottom and right edges, where
+// the Notification Centre's sheet sits (the mock's place; LG's own sat at the left), with the few things reached for most, one row each (QuickList):
+// Left and Right change a value, OK opens the page that has more. It slides out from the right edge and back (PanelMotion: a transform, no
 // layout while it moves; reduced motion is a fade). Built once and kept, like Quick Settings after the patch that keeps LG's
 // panel built: opening it is a visibility flip and the start of the slide.
 //
@@ -16,14 +16,13 @@ import "../settings"
 // Settings at the receiver's page. The sleep timer tile steps through LG's choices (kit/Power) and shows what is left while one runs.
 //
 // Tiles of plugins (PLAN, Plugins: `plugin.<id>.tiles`, settings/PluginTiles) follow the built-in ones; OK on one is a POST to the
-// plugin's action route. "All settings" and the button for LG's own Quick Settings are under the list, one Down past the last tile.
+// plugin's action route. "All settings" is under the list, one Down past the last tile; what LG's Settings has beyond it is its row there.
 Item {
     id: panel
     anchors.fill: parent
     property bool rested: true
     property string zone: "page"                        // the list reads host.zone: the rows or the foot buttons have the keys
     signal openSettingsPage(string id)
-    signal openLgQuick()                                // LG's own Quick Settings, for what this panel does not have
     signal closeRequested()
     signal launchApp(string appId)
     readonly property bool built: true
@@ -42,13 +41,13 @@ Item {
     function warm() { clock = new Date(); motion.warm() }
     PanelMotion { id: motion; presented: panel.presented }
     readonly property real progress: motion.progress     // 0 away, 1 shown
-    readonly property real slideX: slide.x               // where the sheet is (24 at rest), for the tests and the gate's step list
+    readonly property real slideX: slide.x               // where the sheet is (1208 at rest), for the tests and the gate's step list
     readonly property real slideY: slide.y
-
-    // LG's panel, measured: 492 wide, 1008 tall, its left and top edges 24 from the screen's
-    readonly property int sheetW: 492
-    readonly property int sheetH: 1008
-    readonly property int edge: 24
+    // the sheet's place: docked right, as the Notification Centre is (mock 10)
+    readonly property int sheetW: 648
+    readonly property int sheetH: 1080 - 2 * edgeY
+    readonly property int edgeX: 64
+    readonly property int edgeY: 56
     readonly property int pad: Lu.space(6)
     readonly property int inner: sheetW - 2 * pad
 
@@ -57,8 +56,7 @@ Item {
     ReceiverGate { id: gate; active: panel.up || panel.held }
     readonly property var rc: gate.doc || Helper.receiver || ({})
     readonly property bool rcAnswers: gate.fresh
-    property bool footFocus: false                      // a button under the list has the focus, not a tile
-    property int footIndex: 0                           // 0 All settings, 1 LG's Quick Settings
+    property bool footFocus: false                      // the "All settings" button under the list has the focus, not a tile
     property var clock: new Date()
     Timer { interval: 15000; running: panel.up; repeat: true; onTriggered: panel.clock = new Date() }
     onPresentedChanged: { if (presented) refresh(); else readTimer.stop() }
@@ -68,7 +66,7 @@ Item {
     // chained onto the slide's (r15 over the film: a burst to 370 ms with two intervals over 20 ms, compositor frames only), as the
     // picker's did (InputPicker.qml).
     function refresh() {
-        clock = new Date(); footFocus = false; footIndex = 0; touched = false
+        clock = new Date(); footFocus = false; touched = false
         list.reset()
         readTimer.restart()
     }
@@ -91,14 +89,12 @@ Item {
         touched = true
         if (footFocus) {
             if (dir === "up") footFocus = false
-            else if (dir === "left") footIndex = 0
-            else if (dir === "right") { if (lgButton.visible) footIndex = 1 }
-            else if (dir === "ok") { if (footIndex === 0) openSettingsPage(""); else openLgQuick() }
+            else if (dir === "ok") openSettingsPage("")
             else if (dir === "back") closeRequested()
             return
         }
-        // Down past the last tile lands on the buttons; the list itself stops at its last row
-        if (dir === "down" && list.stop >= 0 && list.step(list.stop, 1) < 0) { footIndex = 0; footFocus = true; return }
+        // Down past the last tile lands on the button; the list itself stops at its last row
+        if (dir === "down" && list.stop >= 0 && list.step(list.stop, 1) < 0) { footFocus = true; return }
         if (list.key(dir)) return
         if (dir === "back") closeRequested()
     }
@@ -125,15 +121,16 @@ Item {
     // 2.31 ms over an input, where little is under it). Parked, the scrim is moved off the screen: it stays a node of the scene.
     Rectangle { x: panel.parked ? -width : 0; width: parent.width; height: parent.height; color: Lu.scrim }
 
-    // The one thing that moves: the sheet slides out of the left edge. Only x changes per frame, so nothing is laid out while it moves; the
+    // The one thing that moves: the sheet slides out of the right edge. Only x changes per frame, so nothing is laid out while it moves; the
     // glass finds its place in the wallpaper's blur again as it goes (LuPane.locate). It does not fade as it travels: the frame where its
     // opacity passed 1 rebuilt the whole render list and every frame below 1 re-batched the sheet (round 12 over Home: the second frame of
     // an opening and the fourth and fifth of a closing, 3.1-4.5 ms against about 2 ms for the others). Reduced motion is the fade alone.
     Item {
         id: slide
-        readonly property real travel: panel.edge + panel.sheetW
-        x: panel.parked ? -(panel.sheetW + 400) - (motion.nudge ? 1 : 0) : panel.edge - (Lu.reduced ? 0 : travel * (1 - motion.progress))
-        y: panel.edge
+        readonly property real travel: panel.edgeX + panel.sheetW
+        readonly property real restX: 1920 - panel.edgeX - panel.sheetW
+        x: panel.parked ? 1920 + 400 + (motion.nudge ? 1 : 0) : restX + (Lu.reduced ? 0 : travel * (1 - motion.progress))
+        y: panel.edgeY
         width: panel.sheetW
         height: panel.sheetH
         opacity: Lu.reduced ? motion.progress : 1
@@ -174,29 +171,15 @@ Item {
                 id: foot
                 x: panel.pad
                 width: panel.inner
-                height: stacked ? 2 * allSettings.height + Lu.space(2) : allSettings.height
+                height: allSettings.height
                 y: sheet.height - panel.pad - height
-                // side by side while both labels fit, else one above the other: at a large text size nothing overlaps
-                readonly property bool stacked: lgButton.visible && lgButton.implicitWidth + Lu.space(3) + allSettings.implicitWidth > width
                 LuButton {
                     id: allSettings
-                    width: foot.stacked || !lgButton.visible ? foot.width : foot.width - lgButton.width - Lu.space(3)
+                    width: foot.width
                     text: "All settings"; icon: "settings"
-                    focused: panel.footFocus && panel.footIndex === 0; rested: panel.rested; instant: !motion.settled
-                    onActivated: { panel.footIndex = 0; panel.footFocus = true; panel.openSettingsPage("") }
-                    onHoverFocus: { panel.footIndex = 0; panel.footFocus = true }
-                }
-                // LG's own Quick Settings: a window of LG's compositor, so not offered under LumaTV's own ("All settings" has the rest).
-                LuButton {
-                    id: lgButton
-                    visible: !Lu.ownCompositor
-                    x: foot.stacked ? 0 : foot.width - width
-                    y: foot.stacked ? allSettings.height + Lu.space(2) : 0
-                    width: foot.stacked ? foot.width : implicitWidth
-                    text: "LG"; icon: "tv"
-                    focused: panel.footFocus && panel.footIndex === 1; rested: panel.rested; instant: !motion.settled
-                    onActivated: { panel.footIndex = 1; panel.footFocus = true; panel.openLgQuick() }
-                    onHoverFocus: { panel.footIndex = 1; panel.footFocus = true }
+                    focused: panel.footFocus; rested: panel.rested; instant: !motion.settled
+                    onActivated: { panel.footFocus = true; panel.openSettingsPage("") }
+                    onHoverFocus: { panel.footFocus = true }
                 }
             }
         }

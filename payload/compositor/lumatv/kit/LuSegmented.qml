@@ -42,7 +42,11 @@ Item {
 
     // The plate under the chosen or focused label. A light wash on the dark glass lifts the background toward the white
     // label (3.5:1 over a bright wallpaper, 4.5 needed), so on dark it is a shade instead, and on light a tint, away from the label either way.
-    function plate(kind) { return Lu.isLight ? Qt.rgba(1, 1, 1, kind === "focus" ? 0.34 : 0.2) : Qt.rgba(0, 0, 0, kind === "focus" ? 0.28 : 0.16) }
+    // The chosen one is the accent at a low alpha: a black shade alone sat 1.1:1 off the tray (the TV's Mode tab and Off segment read faint).
+    function plate(kind) {
+        if (kind === "selected") return Qt.rgba(Lu.accent.r, Lu.accent.g, Lu.accent.b, Lu.isLight ? 0.2 : 0.26)
+        return Lu.isLight ? Qt.rgba(1, 1, 1, 0.34) : Qt.rgba(0, 0, 0, 0.28)
+    }
 
     implicitWidth: scrolls ? fit : need
     implicitHeight: Lu.target
@@ -98,7 +102,7 @@ Item {
                 }
                 Rectangle {
                     visible: index === seg.current
-                    width: Lu.space(5); height: Lu.space(1)
+                    width: Lu.space(7); height: Lu.space(1)
                     radius: height / 2
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: parent.height - height - Lu.space(2)

@@ -8,11 +8,16 @@ Rectangle {
     property string text: ""
     property bool focused: false
     readonly property int arrow: Math.round(Lu.target * 0.5)
+    // The width it needs on one line: a chevron at each end and the longer of the value and `widest` (the longest value its row takes), so a
+    // row that puts the control beside its words (QuickTile) does not change its mind as the value changes.
+    property string widest: "Filmmaker"
+    readonly property real need: 2 * (Lu.space(3) * 2 + arrow) + Math.max(Math.ceil(value.implicitWidth), Math.ceil(typical.advanceWidth))
+    TextMetrics { id: typical; font: value.font; text: step.widest }
 
     width: parent ? parent.width : 0
     height: Math.max(Math.round(Lu.target * 0.75), value.height + 2 * Lu.space(2))
     radius: Lu.radius("control")
-    color: Lu.trackOff
+    color: Lu.isLight ? Lu.trackOff : Qt.rgba(0, 0, 0, 0.22)      // a shade on dark: the track's own ink wash read the value 3.7:1 over a bright wallpaper
     border.width: 1
     border.color: focused ? Lu.edgeRaised : Lu.edge
     antialiasing: true

@@ -3,7 +3,7 @@
 LumaTV's quick panel (the gear's tap) and input picker (the Input key) in place of LG's, through the offline QML host: Home's side
 (HomePanels.qml, asked through LumaBus.js as the key filter's second entry does) and the overlay's over an app (`--overlay`). The key
 filter's own side is `tests/keyfilter.test.js` and `tests/bus.test.js`. What these check: the panels open, close and move on when asked,
-that the panel slides from the left edge to where LG's Quick Settings sits (492 x 1008, 24 from the edges, measured on LG's own panel)
+that the panel slides from the right edge to its place in mock 10 (648 x 968, 64 from the right edge, 56 from the top and bottom)
 and stays drawn until it has gone, that nothing is built when one opens, what each row and button does, and that a panel LG should
 have is not taken. Nothing here measures time: the set's gate does (docs/research/perf/gate.py, surfaces quick and picker).
 """
@@ -51,10 +51,6 @@ def probes(out):
     return {m.group(1): json.loads(m.group(2)) for m in re.finditer(r"\[P:(\w+)\] (.*)", out)}
 
 
-def launches(out_value):
-    return [(c["u"].rsplit("/", 1)[-1], c["m"], c["p"]) for c in json.loads(out_value)]
-
-
 @unittest.skipUnless(DISPLAY and HAVE_QT, "needs Xvfb and PyQt5")
 class HomePanels(HostCase):
     """Home in front: the key filter's second entry asks the bus, the bus asks HomePanels."""
@@ -64,7 +60,7 @@ class HomePanels(HostCase):
         self.assertEqual(rc, 0, out[-2500:])
         self.assertEqual(probes(out)['inputs'], [True, True, True, 'unplug'])
 
-    def test_the_gear_shows_the_quick_panel_where_LGs_was_and_the_gear_again_slides_it_away(self):
+    def test_the_gear_shows_the_quick_panel_at_the_right_edge_and_the_gear_again_slides_it_away(self):
         panel = "var s = find(root, 'footFocus');"
         rc, out = self.host(
             *probe(READY + 300, "ready", "var b = bus(); return [b.ready('quick'), b.ready('picker'), b.ready('nothing')];"),
@@ -81,10 +77,10 @@ class HomePanels(HostCase):
         p = probes(out)
         self.assertEqual(p["ready"], [True, True, False], out[-2500:])
         self.assertEqual(p["open"], [True, "quick"])
-        # it is LG's Quick Settings panel in its place and size: 492 by 1008, 24 from the left and top edges (qs_res_warm.png)
+        # mock 10's place and size: 648 by 968, 64 from the right edge and 56 from the top (the Notification Centre's sheet sits there too)
         s = p["shown"]
         self.assertEqual((s["open"], s["presented"], s["progress"], s["visible"]), ("quick", True, 1, True), out[-2500:])
-        self.assertEqual((s["x"], s["y"], s["w"], s["h"]), (24, 24, 492, 1008))
+        self.assertEqual((s["x"], s["y"], s["w"], s["h"]), (1208, 56, 648, 968))
         # nothing was created when it opened
         self.assertEqual(s["nodes"], p["nodes0"], "the panel built something when it opened")
         # shown again, the gear hides it: it is told to go at once and stays drawn while it slides back, then it is away
@@ -104,8 +100,8 @@ class HomePanels(HostCase):
             "--wait", str(READY + 1700))
         self.assertEqual(rc, 0, out[-2500:])
         p = probes(out)
-        self.assertEqual(p["early"]["x"], 24, "the sheet travelled in reduced motion")
-        self.assertEqual(p["shown"], {"x": 24, "progress": 1})
+        self.assertEqual(p["early"]["x"], 1208, "the sheet travelled in reduced motion")
+        self.assertEqual(p["shown"], {"x": 1208, "progress": 1})
 
     def test_the_input_key_shows_the_picker_and_the_key_again_goes_on_to_the_next_input(self):
         panel = "var s = find(root, 'soundLine');"
@@ -379,19 +375,15 @@ class HomePanels(HostCase):
             "--wait", str(READY + 700))
         self.assertEqual(probes(out)["hidden"], [False, False, ""])
 
-    def test_the_buttons_under_the_list_are_all_settings_and_LGs_own_quick_settings(self):
+    def test_the_one_button_under_the_list_is_all_settings(self):
         go = ("var s = find(root, 'footFocus'); var n = 0; while (s.focusId !== 'ai' && n++ < 12) s.key('down'); ")
         rc, out = self.host(
             *probe(READY + 300, "open", "var b = bus(); return b.open('quick');"),
-            *probe(READY + 1000, "foot", go + "s.key('down'); var a = [s.footFocus, s.footIndex]; s.key('right'); var b2 = [s.footFocus, s.footIndex]; s.key('left'); return [a, b2, s.footIndex];"),
-            *probe(READY + 1200, "lg", "var s = find(root, 'footFocus'); s.key('right'); s.key('ok'); return [root.layerOpen];"),
-            "--eval", "%d:%s" % (READY + 1500, CALLS), "--wait", str(READY + 2000))
+            *probe(READY + 1000, "foot", go + "s.key('down'); var a = s.footFocus; s.key('right'); var b2 = s.footFocus; s.key('up'); return [a, b2, s.footFocus];"),
+            "--wait", str(READY + 1500))
         self.assertEqual(rc, 0, out[-2500:])
         p = probes(out)
-        self.assertEqual(p["foot"], [[True, 0], [True, 1], 0])
-        self.assertEqual(p["lg"], [""], "LG's panel was asked for and ours slid away")
-        got = [(u.rsplit(".", 1)[-1], m, p) for u, m, p in launches(self.values(out)[-1])]
-        self.assertIn(("systemUIManager", "/launch", {"appId": "com.webos.app.quicksettings"}), got, out[-2500:])
+        self.assertEqual(p["foot"], [True, True, False], "Down past the last tile lands on All settings, Right stays on it, Up goes back to the tiles")
 
     def test_a_settings_page_asked_for_over_an_app_opens_when_home_is_back(self):
         rc, out = self.host(
@@ -436,7 +428,7 @@ class OverlayPanels(HostCase):
         self.assertEqual(p["ready"], [True, True, True], out[-2000:])
         self.assertEqual(p["open"], [True, "quick", True, True])
         s = p["shown"]
-        self.assertEqual((s["progress"], s["x"], s["y"], s["w"], s["h"], s["presented"]), (1, 24, 24, 492, 1008, True))
+        self.assertEqual((s["progress"], s["x"], s["y"], s["w"], s["h"], s["presented"]), (1, 1208, 56, 648, 968, True))
         self.assertEqual(s["nodes"], p["nodes0"], "the panel built something when it opened")
         self.assertNotEqual(p["down"], "", "the D-pad did not reach the panel")
         self.assertEqual(p["back"], ["", True, True, True, True], "Back must start the slide, not cut it")
@@ -517,11 +509,11 @@ class OverlayPanels(HostCase):
     def test_all_settings_over_an_app_takes_the_tv_home_and_Home_opens_Settings(self):
         p, out = self.overlay_host([
             (1000, "front", "overlay.appFront = true; return 1;"),
-            (1200, "open", "overlay.panel('quick'); var s = find(overlay, 'footFocus'); var n = 0; while (s.focusId !== 'ai' && n++ < 12) s.key('down'); s.key('down'); s.key('ok'); return [overlay.surface, s.footIndex];"),
+            (1200, "open", "overlay.panel('quick'); var s = find(overlay, 'footFocus'); var n = 0; while (s.focusId !== 'ai' && n++ < 12) s.key('down'); s.key('down'); s.key('ok'); return [overlay.surface, s.footFocus];"),
             (1400, "waiting", "return bus().take();"),
             (1500, "calls", "return JSON.parse(%s);" % CALLS),
         ], 2000)
-        self.assertEqual(p["open"], ["", 0])
+        self.assertEqual(p["open"], ["", True])
         self.assertEqual(p["waiting"], "", "the request for Settings (no page) waits for Home")
         self.assertIn({"u": "luna://com.webos.applicationManager", "m": "/launchDefaultApp", "p": {"category": "home"}}, p["calls"], out[-2000:])
 
@@ -542,15 +534,6 @@ class OverlayPanels(HostCase):
         ], 2600)
         self.assertFalse(p['request'])
         self.assertEqual(p['waiting'], 'network', out[-2000:])
-
-    def test_LGs_own_quick_settings_is_one_button_away_and_opens_over_the_app(self):
-        p, out = self.overlay_host([
-            (1000, "front", "overlay.appFront = true; return 1;"),
-            (1200, "open", "overlay.panel('quick'); var s = find(overlay, 'footFocus'); var n = 0; while (s.focusId !== 'ai' && n++ < 12) s.key('down'); s.key('down'); s.key('right'); s.key('ok'); return overlay.surface;"),
-            (1400, "calls", "return JSON.parse(%s);" % CALLS),
-        ], 1900)
-        self.assertEqual(p["open"], "")
-        self.assertIn({"u": "luna://com.webos.service.systemUIManager", "m": "/launch", "p": {"appId": "com.webos.app.quicksettings"}}, p["calls"], out[-2000:])
 
     def test_the_owners_switches_leave_the_gear_and_the_input_key_to_LG(self):
         p, out = self.overlay_host([
