@@ -204,6 +204,16 @@ waits_line() {
     echo "${w_out:-no compositor}"
 }
 
+# The crash bundle the supervisor saved for the last fallback (`<state>/../crash`, compositor/sm/lumatv-sm.c): its name, whether `pending` names it (what
+# Settings shows as "LumaTV recovered from a problem"), and what it holds: the compositor's last log lines, the trace ring's lines, the kind.
+crash_summary() {
+    c_dir=${LUMATV_CRASH:-$STATE/../crash}
+    c_name=$(cat $c_dir/latest 2>/dev/null)
+    [ -n "$c_name" ] || { echo "none"; return; }
+    c_b=$c_dir/$c_name
+    echo "$c_name (pending $([ "$(cat $c_dir/pending 2>/dev/null)" = "$c_name" ] && echo yes || echo no); $(grep -c . $c_b/compositor.log.tail 2>/dev/null) log lines, $(grep -c . $c_b/trace.txt 2>/dev/null) ring lines, kind $(sed -n 's/^kind: //p' $c_b/reason.txt 2>/dev/null))"
+}
+
 # x1_rule RESULT SECONDS_ASKED LATE_BEFORE LATE_AFTER COMPOSITOR_OVER (a count, or "unreadable"): prints "PASS what held"
 # or "FAIL why", returns 0 or 1.
 x1_rule() {
@@ -736,7 +746,7 @@ wd-hang|wd-crash)
         gone=$(pgrep -f 'bin/lumatv-compositor' | head -1)
         b=$(cap $OUT/$1.png)
         sam1=$(sam_id)
-        detail="unmounted after $((took/2)).$((took%2*5)) s; reason: $reason; failures $f0 -> $f1; escaped $([ -f $STATE/escaped ] && echo yes || echo no); compositor left: ${gone:-none}; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr); sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1")"
+        detail="unmounted after $((took/2)).$((took%2*5)) s; reason: $reason; failures $f0 -> $f1; escaped $([ -f $STATE/escaped ] && echo yes || echo no); compositor left: ${gone:-none}; panel ${b:-0} bytes; wam $(systemctl is-active webapp-mgr); sam $([ "$sam0" = "$sam1" ] && echo unchanged || echo "CHANGED $sam0 -> $sam1"); crash bundle $(crash_summary)"
         echo "$detail" > $OUT/$1-result.txt
         if ! is_mounted && [ "$took" -le "$limit" ] && echo "$reason" | grep -q "$want" && [ "$f1" = "$((f0+1))" ] && [ ! -f $STATE/escaped ] && [ -z "$gone" ] && [ "${b:-0}" -gt 4096 ] && [ "$sam0" = "$sam1" ]; then pass $1 "$detail"; else fail $1 "$detail"; fi
     fi

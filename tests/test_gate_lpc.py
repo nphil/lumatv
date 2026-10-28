@@ -283,3 +283,29 @@ class FrameGate(unittest.TestCase):
         for cmd in sent:
             if "pgrep" in cmd or "pkill" in cmd:
                 self.assertNotIn("lumatv-loadgen", cmd, "pgrep -f and pkill -f match command lines, the shell's own included: " + cmd)
+
+
+class CrashSummary(Fixture):
+    def bundle(self, name, kind, pending):
+        root = os.path.join(self.tmp.name, "crash")
+        write(os.path.join(root, name, "reason.txt"), f"reason: compositor killed by signal 9\nkind: {kind}\n")
+        write(os.path.join(root, name, "compositor.log.tail"), "[srv 1.000] info a\n[srv 2.000] info b\n")
+        write(os.path.join(root, name, "trace.txt"), "1.000 F flip\n2.000 D frame\n3.000 S ticks\n")
+        write(os.path.join(root, "latest"), name)
+        if pending:
+            write(os.path.join(root, "pending"), name)
+        self.env["LUMATV_CRASH"] = root
+
+    def test_the_wd_checks_name_the_bundle_the_supervisor_left(self):
+        self.bundle("20261028-031244-001", "problem", True)
+        out = self.shell("crash_summary").strip()
+        self.assertEqual(out, "20261028-031244-001 (pending yes; 2 log lines, 3 ring lines, kind problem)")
+
+    def test_an_escape_is_saved_but_not_pending(self):
+        self.bundle("20261028-031244-002", "escape", False)
+        self.assertIn("pending no", self.shell("crash_summary"))
+        self.assertIn("kind escape", self.shell("crash_summary"))
+
+    def test_no_bundle_says_none(self):
+        self.env["LUMATV_CRASH"] = os.path.join(self.tmp.name, "nothing")
+        self.assertEqual(self.shell("crash_summary").strip(), "none")

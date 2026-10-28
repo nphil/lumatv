@@ -47,6 +47,30 @@ PageList {
                                           "paused": "Update paused", "warm reserved": "Update paused", "schedule detected": "Update reserved", "failed": "Update failed",
                                           "canceled": "Update canceled", "completed": "Installed; applies when the TV restarts" })
 
+    // ---- LumaTV recovered from a problem. When LumaTV's compositor was put out of the way (it died, hung, or drew nothing the panel showed), the supervisor
+    // handed the screen back to LG's compositor and saved a crash bundle on the TV; the helper's `/v1/crash` tells what the newest one is and whether anybody has
+    // read it. Until the owner has, this page says so at its top, and Details tells why and when, and where the log and the trace of its last seconds are. The
+    // helper is asked when the page opens (nothing polls); an escape the owner made (Home held) is saved too and is no notice.
+    property var crash: null                // {pending, kind, at, reason, uptimeSecs, path, ...} of the newest bundle; null when there is none or the helper does not answer
+    readonly property bool crashPending: crash !== null && crash.pending === true && crash.kind !== "escape"
+    readonly property string crashWords: crash === null ? "" : String(crash.at) + ": " + String(crash.reason)
+    function readCrash() {
+        Helper.request("GET", "/v1/crash", undefined, function(status, doc) { page.crash = doc && doc.ok === true && doc.crash ? doc.crash : null })
+    }
+    function crashRan(secs) {
+        if (secs === null || secs === undefined) return ""
+        return " after " + (secs >= 120 ? Math.round(secs / 60) + " minutes" : secs + " s")
+    }
+    function crashDetails() {
+        var c = page.crash
+        if (c === null) return
+        page.host.confirm({ icon: "triangle-alert", title: "LumaTV recovered from a problem",
+                            body: c.at + ": " + c.reason + crashRan(c.uptimeSecs) + ". LG's compositor took over and Home came back. The log and a trace of the last seconds are saved on the TV, in " + c.path + ".",
+                            answers: [{ id: "close", label: "Close" }, { id: "clear", label: "Clear this notice" }], focus: 0 },
+                          function(id) { if (id === "clear") page.clearCrash() })
+    }
+    function clearCrash() { Helper.post("/v1/crash/ack", {}, function() { page.readCrash() }) }
+
     LunaCall {
         id: luna
         onAnswered: {
@@ -76,6 +100,7 @@ PageList {
     }
     function readAdId() { luna.call("ifa", "luna://com.webos.service.sm/deviceid", "getIDs", { idType: ["IFAID"] }) }
     function refresh() {
+        readCrash()
         Sio.read("", ["eulaStatus"])
         Sio.read("support", ["automaticUpdate"])
         Sio.read("general", ["doNotSellMyPersonalInformation", "lmt"])
@@ -176,6 +201,10 @@ PageList {
     }
 
     rows: [
+        info("triangle-alert", "LumaTV recovered from a problem", function() { return page.crashWords }, { visible: function() { return page.crashPending } }),
+        C.action({ id: "crashdetails", tab: 0, icon: "file-text", label: "Details", button: "Open", visible: function() { return page.crashPending },
+                   help: "Why LumaTV's compositor was put out of the way, and when. The log and a trace of its last seconds are saved on the TV.",
+                   act: function() { page.crashDetails() } }),
         info("tv", "Device Name", function() { return Sio.has("network.deviceName") ? Sio.get("network.deviceName") : "" }),
         info("tv", "Model", function() { return page.model }),
         info("hash", "Model Code", function() { return page.productId }),

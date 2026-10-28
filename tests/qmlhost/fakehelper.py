@@ -175,6 +175,7 @@ class State:
         self.pending = None     # (prompt doc, what to do when a physical remote approves it)
         self.voice_session = 0
         self.frames = []        # the camera pictures asked for: (camera, w, h), read back at /__frames
+        self.crash = None       # the newest crash bundle as helper/app/src/crash.rs says it ({pending, kind, at, reason, ...}); set at POST /__crash
         self.topics["cameras.popup"] = None
 
     def publish(self, topic, data):
@@ -365,6 +366,8 @@ def handler(st):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 return self.wfile.write(JPEG)
+            if u.path == "/v1/crash":
+                return self.send(200, {"ok": True, "api": 1, "now": NOW(), "crash": st.crash})
             if u.path == "/__posts":
                 return self.send(200, {"posts": st.posts})
             if u.path.startswith("/v1/state/"):         # one topic's newest copy, as the helper's GET /v1/state/{topic}
@@ -448,6 +451,15 @@ def handler(st):
                 link = dict(st.topics.get("ha.link") or {}, state="unconfigured", detail="Home Assistant is not linked yet", address=None, token=False)
                 st.publish("ha.link", link)
                 self.send(202, {"ok": True, "api": 1, "op": 1})
+            elif u.path == "/__crash":
+                st.crash = body or None
+                self.send(200, {"ok": True})
+            elif u.path == "/v1/crash/ack":
+                st.posts.append([u.path, body])
+                cleared = bool(st.crash and st.crash.get("pending"))
+                if st.crash:
+                    st.crash = dict(st.crash, pending=False)
+                self.send(200, {"ok": True, "api": 1, "cleared": cleared})
             elif u.path == "/v1/ambient/test":
                 st.ambient_state = "testing" if body.get("run") else "idle"
                 st.posts.append([u.path, body])

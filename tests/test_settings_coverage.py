@@ -324,6 +324,26 @@ probe("block_unmute", "var s=Qt.createQmlObject('import QtQuick 2.4; import WebO
 probe("block_unmute_rows", FIND % "support" + BLOCK_ROWS)
 probe("block_back_to_blocked", PUBLISH_UB % UB(True, True, "blocked"), wait=600)
 
+# ---- Support: "LumaTV recovered from a problem" and its Details (the helper's crash notice, helper/app/src/crash.rs): hidden with nothing to show, shown while the
+# newest bundle is a problem nobody has read, read in Details, and gone once the owner has cleared it
+CRASH = {"pending": True, "kind": "problem", "at": "2026-10-28 03:12:44", "reason": "compositor killed by signal 9", "uptimeSecs": 754,
+         "name": "20261028-031244-001", "path": "/var/lib/lumatv/crash/20261028-031244-001"}
+SET_CRASH = "var x=new XMLHttpRequest();x.open('POST','http://127.0.0.1:18731/__crash');x.setRequestHeader('Content-Type','application/json');x.send(JSON.stringify(%s));return 1"
+CRASH_ROWS = "var n=R('LumaTV recovered from a problem'),d=R('Details');return {shown:p.ev(n.visible)!==false,words:p.ev(n.value),details:p.ev(d.visible)!==false}"
+probe("crash_none", FIND % "support" + CRASH_ROWS)
+probe("crash_publish", SET_CRASH % json.dumps(CRASH), wait=300)
+probe("crash_reopen", "root.openPage('support');root.pageItem('support').refresh();return 1", wait=900)
+probe("crash_shown", FIND % "support" + CRASH_ROWS)
+probe("crash_details_open", FIND % "support" + "R('Details').act();return {open:root.confirmOpen}", wait=250)
+probe("crash_details_close", "root.key('ok');return 1", wait=250)
+probe("crash_closed", "return {open:root.confirmOpen}", wait=100)
+probe("crash_still_shown", FIND % "support" + CRASH_ROWS)
+probe("crash_details_clear", FIND % "support" + "R('Details').act();root.key('right');root.key('ok');return 1", wait=1200)
+probe("crash_cleared", FIND % "support" + CRASH_ROWS)
+probe("crash_escape_publish", SET_CRASH % json.dumps(dict(CRASH, kind="escape", reason="hold Home 650 ms")), wait=300)
+probe("crash_escape_reopen", "root.openPage('support');root.pageItem('support').refresh();return 1", wait=900)
+probe("crash_escape", FIND % "support" + CRASH_ROWS)
+
 # ---- Safety: the locks' state, read only
 probe("safety_open", "root.openPage('safety');return 1", wait=700)
 probe("safety_rows", "var p=root.pageItem('safety');var out=[];for(var i=0;i<p.rows.length;i++){var r=p.rows[i];if(p.ev(r.visible)===false)continue;"
@@ -938,6 +958,26 @@ class Coverage(unittest.TestCase):
         self.assertEqual(self.probe("block_on_sets")["res"][-1:], [{"blockUpdates": True}])
         d = self.probe("block_on_armed_rows")["res"]
         self.assertEqual((d["on"], d["detail"], d["checkEnabled"], d["checkValue"]), (True, "On; active once the TV restarts", False, "Updates blocked"))
+
+    # ---- Support: LumaTV recovered from a problem
+    def test_the_crash_notice_and_its_details_show_only_while_a_problem_waits_to_be_read(self):
+        self.assertEqual(self.probe("crash_none")["res"], {"shown": False, "words": "\u2013", "details": False}, "nothing saved: no rows")
+        d = self.probe("crash_shown")["res"]
+        self.assertEqual((d["shown"], d["details"]), (True, True))
+        self.assertEqual(d["words"], "2026-10-28 03:12:44: compositor killed by signal 9")
+
+    def test_details_says_why_and_when_and_leaving_it_keeps_the_notice_while_clearing_it_takes_it_away(self):
+        self.assertEqual(self.probe("crash_details_open")["res"], {"open": True})
+        self.assertEqual(self.probe("crash_closed")["res"], {"open": False}, "Close is the first answer")
+        self.assertTrue(self.probe("crash_still_shown")["res"]["shown"], "closed, not cleared: still there")
+        d = self.probe("crash_cleared")["res"]
+        self.assertEqual((d["shown"], d["details"]), (False, False))
+        src = open(os.path.join(HERE, "..", "payload", "compositor", "lumatv", "settings", "PageSupport.qml")).read()
+        self.assertIn("LG's compositor took over and Home came back.", src)
+
+    def test_an_escape_the_owner_made_is_no_notice(self):
+        d = self.probe("crash_escape")["res"]
+        self.assertEqual((d["shown"], d["details"]), (False, False))
 
     def test_without_the_channels_answer_the_switch_is_dimmed_and_says_so(self):
         d = self.probe("block_mute_rows")["res"]
