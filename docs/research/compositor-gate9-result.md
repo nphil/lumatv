@@ -587,3 +587,19 @@ was disabled first (`cutover disable`) and the install went through Main's grant
   is not defined where the dispatcher looks for it.
 - Re-enabled persistently (`cutover enable`): `enabled (persistent)`, `GATE live-enabled: PASS`, keys and ime PASS again,
   `settled: two minutes healthy`, failures 0.
+
+### Round 11, 2026-10-28 (set's clock 06:47-08:25), the ipk of `48ee380` still installed
+
+- Live TV does not come to the front under LumaTV's compositor (three launches, 07:30, 07:50 and 07:51): `applicationManager/launch com.webos.app.livetv`
+  answers `returnValue true`, `ctl windows` lists "Live TV" and "Live Dmost" cards mapped at 1920x1080, but SAM's foreground and the panel stay on Home
+  for 20 s and more (HDMI inputs come to the front as before). Under LG's compositor on 10-27 the same app showed channel 2-1
+  (`lg-restyles/tv/banners-r18/channel-ok.png`). Counted as blocking for a go-live decision, not as a reason to disable the compositor (Main, 2026-10-28).
+  Closed through SAM each time; `lumatv inputs status` running `[]`.
+- An unplanned reboot gave the runbook's reboot check: at 08:00:00 the TV was put into Active Standby (`power/powerOff`, `remoteKey`, uptime 24.3 h,
+  87,484 s) and rebooted within about a minute; tvpower's power-on reason for the new boot is `rebootByOnRegular` (LG's own regular reboot; nothing new
+  in `/var/spool/faultmanager`, no crash report, compositor `failures 0`) [INFERENCE: it fires at the first standby after 24 h of uptime; the day's earlier
+  standby entries came before that]. The set came back in Active Standby by itself: `lumatv compositor status` `persistent`, `mounted`, `live`,
+  `firmware verified`, `settled: two minutes healthy` at 08:04:16; the boot hook mounted `inputcommon`, `voice` and `keys` again, `apply` succeeded in 64 s,
+  and `theme.json` kept `remote.quickAccess` and `remote.quickPanelEdit`. Standby means nobody saw the panel: a cold boot's pictures and Home on the next
+  wake were not looked at.
+- `/var/log` is tmpfs, so the reboot took SAM's lines for the 07:50 and 07:51 launches with it; the compositor and supervisor logs copied at 08:00:40 survive.
