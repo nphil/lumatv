@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines explain any gap the gate still sees.
 - Compositor (not live yet): the Input key opens LumaTV's input picker on its press under
   LumaTV's shell (first frame 31 ms instead of 81); a 1 s hold still opens the Hub.
+- Compositor (not live yet): the shell client no longer inherits the frame loop's real-time
+  priority and starts off the loop thread; the system layer stays mapped and is drawn only
+  while live, so a toast costs one frame; one late frame no longer shifts the pacer twice; the
+  GL context asks for the GPU's realtime priority.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
