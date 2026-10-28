@@ -9,6 +9,8 @@ Checks (each timed and isolated: one failing never stops the others; each leaves
             Just Scan only while an HDMI input is in front at the start
   ble       docs/research/ble-result.md "Unknowns the TV slot answers" 1-3: read-only le/startScan, evidence redacted
   banners   the input banner restyle (pill, INFO card, no-signal line); never switches inputcommon, it reports what is on
+  plugins   the helper's plugin broker (127.0.0.1:18731, plugin API level 1): GET routes only; who is on, first-party cards, the Home
+            Assistant plugin's state, captures of Home's At-home lane and the quick panel's tiles. Never links, enables or installs.
 
 The script never touches the receiver, never installs, never writes to the rootfs, never opens port 6053 and never
 runs ble-link. The only writes to the TV are: kb.py in /tmp, a scratch dir /tmp/r19 (removed at the end), when the
@@ -48,7 +50,7 @@ KB = '/tmp/kb.py'
 SPLASH_MD5 = '3dcd88495b38ef186f728b4c3d3d2a0c'   # the launch splash (HDMI glyph on grey), docs/research/lg-restyles-result.md round 11
 IC_UPPER = '/var/lib/lumatv/inputcommon/upper'    # tools/inputcommon.sh: $STATE/inputcommon/upper, dataDir from brand.json
 IC_FILES = 30                        # the patched tree's .qml count (lg-restyles-result.md, round 18 "Next TV check" 1)
-CHECK_ORDER = ['speed', 'settings', 'ble', 'banners']   # banners last: it puts an HDMI input in front
+CHECK_ORDER = ['speed', 'settings', 'plugins', 'ble', 'banners']   # banners last: it puts an HDMI input in front
 MEDIA_APPS = re.compile(r'^(netflix|youtube|amazon|spotify|com\.webos\.app\.(lgchannels|music|discovery)|.*plex.*|.*disney.*|.*hulu.*)')
 HDMI_APP = re.compile(r'^com\.webos\.app\.hdmi\d$')
 
@@ -366,6 +368,24 @@ def scan_stats(objs):
     }
 
 
+def ha_words(owner_plugins, link):
+    """What the Home Assistant plugin's chip says, as kit/PluginHub.qml works it out (haState, haWords): owner_plugins is `plugins` of
+    GET /v1/plugins, link the value of the `ha.link` topic."""
+    p = next((x for x in owner_plugins if x.get('id') == 'home-assistant'), None)
+    if p is None:
+        return 'Not switched on'
+    if p.get('state') == 'inert':
+        return 'Cannot run'
+    if p.get('state') != 'connected':
+        return 'Not running' if p.get('reason') else 'Starting'
+    s = (link or {}).get('state')
+    if s == 'auth_failed':
+        return 'Token refused'
+    if not s or s in ('off', 'unconfigured'):
+        return 'Not linked'
+    return {'offline': 'Offline', 'connecting': 'Connecting'}.get(s, 'Connected')
+
+
 def ping_summary(text):
     m = re.search(r'min/avg/max\S*\s*=\s*([\d.]+)/([\d.]+)/([\d.]+)', text)
     loss = re.search(r'(\d+)% packet loss', text)
@@ -464,6 +484,23 @@ def canned(cmd):
         return '{"returnValue":true,"advertising":true}'
     if 'top -b' in cmd:
         return 'CPU: 3% usr 1% sys 0% nic 95% idle\n'
+    if 'curl' in cmd and '/v1/state/ha.link' in cmd:
+        return '{"value":{"state":"off"},"seq":3}'
+    if 'curl' in cmd and '/v1/state/plugin.ambient.tiles' in cmd:
+        return '{"value":{"items":[{"id":"ambient-on"}]},"seq":1}'
+    if 'curl' in cmd and '/v1/state/plugin.' in cmd and '.cards' in cmd:
+        return '{"value":{"items":[{"id":"c1","revision":1,"card":{"size":"half"}}]},"seq":2}'
+    if 'curl' in cmd and ('/v1/state/weather' in cmd or '/v1/state/news' in cmd):
+        return '{"value":{"temp":61},"seq":1}'
+    if 'curl' in cmd and '/v1/plugins' in cmd:
+        return json.dumps({'plugins': [], 'firstParty': [{'id': i, 'name': i, 'version': '1', 'class': 'first-party', 'state': 'connected', 'registered': True, 'firstParty': True}
+                                       for i in ('weather', 'news', 'clock', 'ambient')], 'problem': None})
+    if 'curl' in cmd and cmd.rstrip().endswith('/v1/state'):
+        return json.dumps({'boot': 'b', 'seq': 9, 'helper': {'version': '0.1', 'pid': 99, 'rssKb': 8000, 'threads': 6}, 'topics': {'weather': {}, 'ha.link': {}}})
+    if 'enabled.json' in cmd:
+        return 'MISSING\n'
+    if 'broker.sock' in cmd:
+        return 'ls: /run/lumashow-plugins/broker.sock: No such file or directory\n'
     if '/v1/receiver' in cmd:
         return '{"value":{"mute":true,"volumeText":"53","input":"TV"}}'
     if 'lumatv-compositor' in cmd:
@@ -698,9 +735,9 @@ class Slot:
         d = mean_diff(before, after)
         return d > SEEN_FACTOR * noise + SEEN_FLOOR, d
 
-    def open_settings(self, tag, sub):
-        """The quick panel (the gear's tap) and its "All settings" button. OK is pressed only after the panel is seen on the screen: on
-        a Home that did not open it, Down and OK would move and press Home's own focus."""
+    def open_quick(self, tag, sub):
+        """The quick panel (the gear's tap), only taken as open when the screen changed: on a Home that did not open it, Down and OK would
+        move and press Home's own focus. Returns (panel image, idle noise, why-not)."""
         a = self.shot(tag + '-home-a', sub, keep=False)
         self.sleep(1.2)
         b = self.shot(tag + '-home-b', sub)
@@ -717,7 +754,14 @@ class Slot:
                 break
             self.kb('BACK s1.5')
         if not seen:
-            return None, 'the quick panel was not seen after two taps of the gear'
+            return None, noise, 'the quick panel was not seen after two taps of the gear'
+        return panel, noise, ''
+
+    def open_settings(self, tag, sub):
+        """The quick panel and its "All settings" button; OK is pressed only once the panel is seen."""
+        panel, noise, why = self.open_quick(tag, sub)
+        if panel is None:
+            return None, why
         self.kb('DOWNx40@0.08 s0.6')
         self.shot(tag + '-quick-foot', sub)
         self.kb('OK s2.5')
@@ -727,6 +771,116 @@ class Slot:
         if not seen and not self.dry:
             return None, 'Settings was not seen after OK on "All settings"'
         return st, ''
+
+    # ============================================================================================ check: plugins
+    # Read-only: GET routes of the helper's loopback API and one file read. No POST (rescan, actions, the lease refresh), no
+    # `lumatv-helper` command (plugin-enable, ha-link and the rest are the owner's), nothing linked, enabled, installed or sent.
+
+    def api(self, path):
+        """GET a route of the helper on the set; (parsed JSON or None, raw text)."""
+        text = self.sh('curl -s -m 8 http://127.0.0.1:18731%s' % path, 20)
+        try:
+            return json.loads(text), text
+        except ValueError:
+            return None, text
+
+    def check_plugins(self):
+        sub = 'plugins'
+        items = []
+        d = os.path.join(self.out, sub)
+        os.makedirs(d, exist_ok=True)
+        evidence = {}
+        if self.fg() != 'com.webos.app.home':
+            self.home()
+        st, st_text = self.api('/v1/state')
+        helper = (st or {}).get('helper')
+        if helper:
+            self.item(items, 'helper answers on 127.0.0.1:18731', 'PASS', 'version %s, pid %s, rss %s kB, %d topics' % (
+                helper.get('version'), helper.get('pid'), helper.get('rssKb'), len((st.get('topics') or {}))))
+            evidence['helper'] = {k: helper.get(k) for k in ('version', 'pid', 'rssKb', 'threads')}
+            evidence['topic_names'] = sorted((st.get('topics') or {}).keys())
+        else:
+            self.item(items, 'helper answers on 127.0.0.1:18731', 'FAIL', 'no JSON with a helper object: %r' % st_text[:120])
+        leak = re.search(r'"(token|access_token|password|secret)"\s*:\s*"[^"]+"', st_text)
+        self.item(items, 'no token or secret in /v1/state', 'FAIL' if leak else 'PASS',
+                  ('a string value under "%s"' % leak.group(1)) if leak else 'no key named token, access_token, password or secret holds a string')
+        plug, plug_text = self.api('/v1/plugins')
+        if not isinstance(plug, dict) or 'plugins' not in plug:
+            self.item(items, 'GET /v1/plugins', 'FAIL', 'no plugins list: %r' % plug_text[:120])
+            plug = {'plugins': [], 'firstParty': [], 'problem': None}
+        owners, first = plug.get('plugins') or [], plug.get('firstParty') or []
+        view = lambda l: [{k: p.get(k) for k in ('id', 'name', 'version', 'class', 'state', 'registered', 'reason')} for p in l]
+        evidence['plugins'] = view(owners)
+        evidence['first_party'] = view(first)
+        evidence['problem'] = plug.get('problem')
+        self.item(items, 'owner\'s plugins (switched on)', 'INFO', ', '.join('%s %s' % (p.get('id'), p.get('state')) for p in owners) or 'none')
+        self.item(items, 'plugin roster problem', 'PASS' if not plug.get('problem') else 'FAIL', str(plug.get('problem') or 'none'))
+        roster = self.sh('cat /var/lib/lumatv/plugins/enabled.json 2>/dev/null || echo MISSING', 15).strip()
+        approved = [e.get('id') for e in (self.jl(roster).get('plugins') or [])] if roster != 'MISSING' else None
+        evidence['approved_in_enabled_json'] = approved
+        self.item(items, 'approved plugins (enabled.json)', 'INFO', 'no file (nothing approved)' if approved is None else ', '.join(map(str, approved)) or 'none')
+        sock = self.sh('ls -l /run/lumashow-plugins/broker.sock 2>&1 | cut -c1-80', 15).strip()
+        self.item(items, 'broker socket', 'INFO', 'exists only while an owner plugin is on: ' + (sock or 'no answer'))
+        # first-party plugins deliver cards
+        firsts = {p.get('id'): p for p in first}
+        absent = [i for i in ('weather', 'news', 'clock') if i not in firsts or firsts[i].get('state') == 'inert']
+        self.item(items, 'first-party plugins weather, news, clock', 'FAIL' if absent else 'PASS',
+                  ('missing or inert: %s' % absent) if absent else 'listed: %s' % ', '.join('%s %s' % (i, firsts[i].get('state')) for i in ('weather', 'news', 'clock')))
+        cards = {}
+        for pid, source in (('weather', 'weather'), ('news', 'news'), ('clock', None)):
+            doc, _ = self.api('/v1/state/plugin.%s.cards' % pid)
+            its = ((doc or {}).get('value') or {}).get('items') or []
+            cards[pid] = {'cards': len(its), 'ids': [c.get('id') for c in its], 'sizes': [(c.get('card') or {}).get('size') for c in its]}
+            if its:
+                self.item(items, 'first-party card: %s' % pid, 'PASS', '%d card(s)' % len(its))
+            elif source and not (self.api('/v1/state/%s' % source)[0] or {}).get('value'):
+                self.item(items, 'first-party card: %s' % pid, 'EYES', 'no card, and the %s topic has no data either (no fetch yet: not the plugin\'s fault)' % source)
+            else:
+                self.item(items, 'first-party card: %s' % pid, 'FAIL', 'no card although its source has data' if source else 'the clock plugin published no card')
+        evidence['first_party_cards'] = cards
+        amb, _ = self.api('/v1/state/plugin.ambient.tiles')
+        evidence['ambient_tiles'] = len((((amb or {}).get('value')) or {}).get('items') or [])
+        self.item(items, 'first-party tiles: ambient', 'INFO', '%d tile(s) for the quick panel' % evidence['ambient_tiles'])
+        # the Home Assistant plugin: its state, never its address or token
+        link, link_text = self.api('/v1/state/ha.link')
+        lv = ((link or {}).get('value')) or {}
+        words = ha_words(owners, lv)
+        evidence['home_assistant'] = {'words': words, 'link_state': lv.get('state'), 'link_keys': sorted(lv.keys()),
+                                      'plugin': next((view([p])[0] for p in owners if p.get('id') == 'home-assistant'), None)}
+        bad_token = {k: v for k, v in lv.items() if 'token' in k.lower() and not isinstance(v, (bool, type(None)))}
+        self.item(items, 'ha.link carries no token', 'FAIL' if bad_token else 'PASS', ('keys with a value: %s' % sorted(bad_token)) if bad_token else 'keys %s' % sorted(lv.keys()))
+        if words in ('Not switched on', 'Not linked'):
+            self.item(items, 'Home Assistant plugin state', 'PASS', words + ' (expected until Nitin links it)')
+        elif words in ('Connected', 'Connecting'):
+            self.item(items, 'Home Assistant plugin state', 'EYES', words + ': somebody has linked it since; not expected tonight')
+        else:
+            self.item(items, 'Home Assistant plugin state', 'FAIL', words + ' (reason %s)' % ((evidence['home_assistant']['plugin'] or {}).get('reason')))
+        with open(os.path.join(d, 'plugins.json'), 'w') as fh:
+            json.dump(evidence, fh, indent=1)
+        # what the TV draws: Home's At-home lane, and the quick panel's plugin tiles (focus moves only, no OK)
+        lane = self.shot('home-lane', sub)
+        self.kb('DOWN s0.8')
+        self.shot('home-lane-down', sub)
+        self.kb('DOWN s0.8')
+        self.shot('home-lane-down2', sub)
+        self.kb('UPx2@0.4 s0.8')
+        self.item(items, 'Home At-home lane', 'EYES', 'the chip says "Home Assistant / %s" (or the plugins\' cards); three captures of Home, focus moved with Down and back' % words, file=sub + '/home-lane.png')
+        panel, noise, why = self.open_quick('q', sub)
+        if panel is None:
+            self.item(items, 'quick panel plugin tiles', 'FAIL', why)
+        else:
+            self.kb('DOWNx8@0.25 s0.6')
+            self.shot('quick-mid', sub)
+            self.kb('DOWNx6@0.25 s0.6')
+            self.shot('quick-low', sub)
+            self.kb('BACK s1.2')
+            self.item(items, 'quick panel plugin tiles', 'EYES', 'tiles of plugins sit between the built-in ones and AI access (ambient: %d); look at quick-mid and quick-low' % evidence['ambient_tiles'],
+                      file=sub + '/quick-mid.png')
+        self.kb('BACK s1.0')
+        bad = [i for i in items if i['verdict'] in ('FAIL', 'ERROR')]
+        eyes = [i for i in items if i['verdict'] == 'EYES']
+        return {'verdict': 'FAIL' if bad else ('EYES' if eyes else 'PASS'), 'items': items, 'files': ['plugins/plugins.json'],
+                'detail': ('failed: ' + ', '.join(i['name'] for i in bad)) if bad else 'helper, roster, first-party cards and the Home Assistant state read; captures need a look (Home Assistant: %s)' % words}
 
     def close_settings(self, sub, tag):
         self.kb('BACKx10@0.4 s1.0')
@@ -1095,7 +1249,7 @@ class Slot:
         self.sh('mkdir -p %s' % R, 15)
         self.tv.put(os.path.join(PERF, 'kb.py'), KB)
         chosen = [c for c in CHECK_ORDER if (not self.args.only or c in self.args.only) and c not in self.args.skip]
-        fns = {'speed': self.check_speed, 'settings': self.check_settings, 'ble': self.check_ble, 'banners': self.check_banners}
+        fns = {'speed': self.check_speed, 'settings': self.check_settings, 'plugins': self.check_plugins, 'ble': self.check_ble, 'banners': self.check_banners}
         aborted = None
         try:
             for name in chosen:

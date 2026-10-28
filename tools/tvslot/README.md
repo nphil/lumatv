@@ -7,9 +7,9 @@ python3 tools/tvslot/r19_checks.py            # evidence in docs/research/round1
 python3 tools/tvslot/r19_checks.py --dry-run  # no TV: every command printed and syntax-checked
 ```
 
-Expected duration: about 15 minutes. Planned key time and waits are 263 s, the gate's key cycles 88 s, plus about 45 captures, the
+Expected duration: about 17 minutes. Planned key time and waits are 263 s, the gate's key cycles 88 s, plus about 45 captures, the
 gate's capture transfers and analysis, and the 90 s the gate waits when the compositor is younger than that [INFERENCE: the
-total is not measured]. `--only speed,settings,ble,banners` and `--skip` select checks; they always run in that order, the banner check
+total is not measured]. `--only speed,settings,plugins,ble,banners` and `--skip` select checks; they always run in that order, the banner check
 last because it puts an HDMI input in front.
 
 ## Before the slot (Main)
@@ -26,6 +26,7 @@ last because it puts an HDMI input in front.
 |---|---|---|
 | `speed` | `gate.py --surfaces quick,picker --input-key 241 --tag r19` over Home (the round 18 method; the Netflix and HDMI surfaces play audio or switch inputs and are left out) | each gate threshold PASS/FAIL, `speed/r19.json`, `speed/gate-stdout.txt` |
 | `settings` | Opens Settings through the quick panel (OK only after the panel is seen on screen), walks System > About > Support > Privacy > App Permissions (four tabs) and Delete My Personal Information (opened, never confirmed), then Home & look > Home > Home Assistant (three tabs). Just Scan only when an HDMI app is in front at the start; no input is switched | a capture per page (`settings/*.png`, EYES: look at them), FAIL on a blank screen or a failed open, PASS/FAIL on "no value changed" (picture mode, Limit AD Tracking, Do Not Sell, theme file before and after) |
+| `plugins` | Read-only GETs of the helper's loopback API (`/v1/state`, `/v1/plugins`, `plugin.<id>.cards`, `ha.link`) and one file read (`plugins/enabled.json`); no POST, no `lumatv-helper` command, nothing linked, enabled, installed or sent. Then captures of Home (the At-home lane) and the quick panel's lower tiles, with focus moves only (no OK) | helper answers, roster problem, owner's plugins and approved ids, first-party weather/news/clock present with a card each (a missing card with an empty source topic is EYES), ambient tile count, the Home Assistant plugin's state as the lane words it (PASS `Not switched on` or `Not linked`; EYES `Connected`; FAIL `Cannot run`, `Not running`, `Token refused`, `Offline`), no token or secret in `/v1/state` or `ha.link`; `plugins/plugins.json` (no address, no token) and the captures |
 | `ble` | Baseline (adapter, ping, load), then two 15 s `le/startScan` runs, the second with `always`; skipped when a Bluetooth audio device is connected. Never port 6053, never ble-link | unknown 1 PASS/FAIL (first reply), unknown 2 (scanRecord filled, lengths, AD types), unknown 3 (repeats with the same RSSI, with and without `always`), leftover `luna-send`, ping during the scan; `ble/scan-shapes.json` holds counts only, no address, name or advertisement byte |
 | `banners` | With `inputcommon` on: overlay mounted, 30 `.qml` files, `LumaStyle.qml`, LG dump set aside. Launches HDMI 2, 12 s capture burst on the set, classifies every frame (dark glass pill 44 px high at x 32, LG's grey pill, bare text, splash), the process pid and `"snapshot":true`; INFO key and card colour (`--no-info-key` skips it); closes the input | pill PASS/FAIL with first and last glass frame times, INFO card colour PASS/FAIL (glass or grey; corners, hairline and chips are EYES), the no-signal frames at 7 s and later (EYES), `banners/pill-montage.png`, `pill-frames.json`, key frames |
 

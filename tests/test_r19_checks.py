@@ -87,6 +87,56 @@ class DryRun(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(d, f)), f)
             self.assertNotIn('AA:BB', open(os.path.join(d, 'ble', 'scan-shapes.json')).read())
 
+    def test_plugins_in_the_whole_slot(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = subprocess.run([sys.executable, SCRIPT, '--dry-run', '--out', d, '--only', 'plugins'], capture_output=True, text=True, timeout=120)
+            self.assertEqual(p.returncode, 0, p.stdout[-2000:])
+            self.assertIn('plugins   ', p.stdout)
+            self.assertTrue(os.path.exists(os.path.join(d, 'plugins', 'plugins.json')))
+
+
+class Plugins(unittest.TestCase):
+    def test_ha_words_follow_the_hub(self):
+        ha = lambda **k: [dict({'id': 'home-assistant', 'state': 'connected'}, **k)]
+        self.assertEqual(r19.ha_words([], {}), 'Not switched on')
+        self.assertEqual(r19.ha_words(ha(), {'state': 'off'}), 'Not linked')
+        self.assertEqual(r19.ha_words(ha(), {}), 'Not linked')
+        self.assertEqual(r19.ha_words(ha(), {'state': 'auth_failed'}), 'Token refused')
+        self.assertEqual(r19.ha_words(ha(), {'state': 'connected'}), 'Connected')
+        self.assertEqual(r19.ha_words(ha(state='inert'), {}), 'Cannot run')
+        self.assertEqual(r19.ha_words(ha(state='waiting', reason='x'), {}), 'Not running')
+
+    def run_check(self, tweak=None):
+        d = tempfile.mkdtemp()
+        args = r19.parse_args(['--dry-run', '--out', d])
+        tv = r19.DryTv()
+        slot = r19.Slot(args, tv)
+        res = slot.check_plugins()
+        return res, tv, d
+
+    def test_read_only(self):
+        res, tv, d = self.run_check()
+        cmds = '\n'.join(tv.commands)
+        self.assertEqual(tv.problems, [])
+        for banned in ('POST', ' -X', '--data', ' -d ', 'lumatv-helper', 'plugin-enable', 'ha-link', 'rescan', '/actions/', 'lease'):
+            self.assertNotIn(banned, cmds)
+        self.assertNotIn('OK', ' '.join(c.split(r19.KB)[1] for c in tv.commands if r19.KB in c).split())
+        self.assertTrue(any('/v1/plugins' in c for c in tv.commands))
+
+    def test_dry_verdicts_and_evidence(self):
+        res, tv, d = self.run_check()
+        by = {i['name']: i['verdict'] for i in res['items']}
+        self.assertEqual(by['helper answers on 127.0.0.1:18731'], 'PASS')
+        self.assertEqual(by['Home Assistant plugin state'], 'PASS')
+        self.assertEqual(by['first-party card: clock'], 'PASS')
+        self.assertEqual(by['no token or secret in /v1/state'], 'PASS')
+        ev = open(os.path.join(d, 'plugins', 'plugins.json')).read()
+        self.assertIn('Not switched on', ev)
+        for f in ('home-lane.png', 'quick-mid.png', 'quick-low.png'):
+            self.assertTrue(os.path.exists(os.path.join(d, 'plugins', f)), f)
+
+
+class DryRun2(unittest.TestCase):
     def test_no_standby_flag_and_isolation(self):
         with tempfile.TemporaryDirectory() as d:
             p = subprocess.run([sys.executable, SCRIPT, '--dry-run', '--out', d, '--only', 'ble', '--no-standby'], capture_output=True, text=True, timeout=120)
