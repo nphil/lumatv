@@ -161,5 +161,29 @@ class CameraPopup(HostCase):
         self.assertEqual(doc["mode"], "")
 
 
+    def test_the_full_view_asks_for_the_live_stream_opens_a_hole_while_it_plays_and_stops_it_on_close(self):
+        live = dict(CAMERAS, live=True)
+        steps = [(READY, publish("cameras", live)),
+                 (READY + 300, popup()),
+                 (READY + 900, key(OK) + "console.info('[l1] ' + JSON.stringify({mode: %s.mode, asked: %s.liveAsked, hole: %s.hole, frame: %s.children.length > 0}));" % ((C,) * 4)),
+                 (READY + 1300, publish("cameras.live", {"camera": "camera.front_door", "state": "playing", "reason": "", "fed": 12, "dropped": 0, "pieceMs": 1000, "window": "_Window_Id_7", "since": 0})),
+                 (READY + 1900, "console.info('[l2] ' + JSON.stringify({hole: %s.hole, playing: %s.livePlaying}));" % (C, C) + key(RIGHT) +
+                                "console.info('[l3] ' + JSON.stringify({asked: %s.liveAsked, hole: %s.hole, current: %s.current, id: %s.currentId, avail: %s.liveAvailable, mode: %s.mode}));" % ((C,) * 6)),
+                 (READY + 2300, key(BACK) + "console.info('[l4] ' + JSON.stringify({asked: %s.liveAsked, mode: %s.mode}));" % (C, C)),
+                 (READY + 2800, "var x=new XMLHttpRequest(); x.open('GET','http://127.0.0.1:18731/__posts', false); x.send(); console.info('[posts] ' + x.responseText);")]
+        doc, out = self.run_overlay(steps, READY + 3300)
+        l1 = self.tagged(out, "l1")[0]
+        self.assertEqual((l1["mode"], l1["asked"], l1["hole"]), ("full", "camera.front_door", False), "asked for the stream, pictures until it plays")
+        l2 = self.tagged(out, "l2")[0]
+        self.assertTrue(l2["hole"] and l2["playing"], "the layer is a hole over the video plane while the stream plays")
+        l3 = self.tagged(out, "l3")[0]
+        self.assertEqual((l3["asked"], l3["hole"]), ("camera.garden", False), "the next camera is asked for; the hole waits for its stream")
+        l4 = self.tagged(out, "l4")[0]
+        self.assertEqual((l4["asked"], l4["mode"]), ("", ""))
+        posts = [p for p in self.tagged(out, "posts")[0]["posts"] if p[0].startswith("/v1/cameras/live")]
+        self.assertEqual(posts, [["/v1/cameras/live", {"camera": "camera.front_door"}], ["/v1/cameras/live", {"camera": "camera.garden"}], ["/v1/cameras/live/stop", {}]])
+        self.assertEqual(doc["mode"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

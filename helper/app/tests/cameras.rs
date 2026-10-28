@@ -378,3 +378,354 @@ fn a_wrong_key_is_refused_and_a_strange_event_is_ignored() {
     thread::sleep(Duration::from_millis(300));
     assert!(rig.topic("cameras.popup").unwrap().is_null());
 }
+
+// ---- the live path: a fake HLS source, the real host feeder, the fake NDL ----------------------------------------------------------
+
+/// Home Assistant's stream integration, as far as the live path sees it: a master playlist, a media playlist that grows a segment at a
+/// time (then ends, or stays live), the initialisation segment and the segments of the fixture.
+struct HlsServer {
+    addr: SocketAddr,
+    requests: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl HlsServer {
+    fn start(ends: bool) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = requests.clone();
+        let started = Instant::now();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let log = log.clone();
+                thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    let mut head = Vec::new();
+                    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                        let Ok(n) = stream.read(&mut buf) else { return };
+                        if n == 0 {
+                            return;
+                        }
+                        head.extend_from_slice(&buf[..n]);
+                    }
+                    let text = String::from_utf8_lossy(&head).into_owned();
+                    let path = text.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    log.lock().unwrap().push(path.clone());
+                    let (kind, body): (&str, Vec<u8>) = match path.split('?').next().unwrap_or("") {
+                        "/api/hls/tok/master_playlist.m3u8" => (
+                            "application/vnd.apple.mpegurl",
+                            b"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=500000,CODECS=\"avc1.4d401e\"\nplaylist.m3u8\n".to_vec(),
+                        ),
+                        "/api/hls/tok/playlist.m3u8" => {
+                            // a segment more every 400 ms, three in all
+                            let have = ((started.elapsed().as_millis() / 400) as usize + 1).min(3);
+                            let mut p = String::from("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-MAP:URI=\"init.mp4\"\n");
+                            for i in 0..have {
+                                p.push_str(&format!("#EXTINF:1.000000,\nsegment/{i}.m4s\n"));
+                            }
+                            if ends && have == 3 {
+                                p.push_str("#EXT-X-ENDLIST\n");
+                            }
+                            ("application/vnd.apple.mpegurl", p.into_bytes())
+                        }
+                        "/api/hls/tok/init.mp4" => ("video/mp4", include_bytes!("fixtures/hls/init.mp4").to_vec()),
+                        "/api/hls/tok/segment/0.m4s" => ("video/iso.segment", include_bytes!("fixtures/hls/seg0.m4s").to_vec()),
+                        "/api/hls/tok/segment/1.m4s" => ("video/iso.segment", include_bytes!("fixtures/hls/seg1.m4s").to_vec()),
+                        "/api/hls/tok/segment/2.m4s" => ("video/iso.segment", include_bytes!("fixtures/hls/seg2.m4s").to_vec()),
+                        _ => ("text/plain", Vec::new()),
+                    };
+                    let status = if body.is_empty() {
+                        "404 Not Found"
+                    } else {
+                        "200 OK"
+                    };
+                    let mut r = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    r.extend_from_slice(&body);
+                    let _ = stream.write_all(&r);
+                });
+            }
+        });
+        Self { addr, requests }
+    }
+
+    fn url(&self) -> String {
+        format!("http://{}/api/hls/tok/master_playlist.m3u8", self.addr)
+    }
+}
+
+fn host_feeder() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../gfn/feeder/build/host");
+    let program = root.join("lumatv-gfn-feeder");
+    let library = root.join("libNDL_directmedia.so.1");
+    (program.is_file() && library.is_file()).then_some((program, library))
+}
+
+/// Answers the integration's part of the live module: a `start` gets a `started` with the fake server's address.
+fn answer_start(ha: &mut FakeIntegration, url: &str) -> (u64, String) {
+    let (op, camera) = ha
+        .recv_where(Duration::from_secs(5), |m| match m {
+            Message::Other { module, kind, body } if module == "camera_live" && kind == "start" => {
+                Some((
+                    body.get("op").and_then(Value::as_u64).unwrap_or(0),
+                    body.get("camera")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
+                ))
+            }
+            _ => None,
+        })
+        .expect("the TV asks for the stream");
+    ha.send(&module_message_of(
+        "camera_live",
+        "started",
+        json!({"op": op, "camera": camera, "kind": "hls", "url": url}),
+    ))
+    .unwrap();
+    (op, camera)
+}
+
+fn module_message_of(module: &str, kind: &str, body: Value) -> Message {
+    let Value::Object(body) = body else {
+        panic!("an object")
+    };
+    Message::Other {
+        module: module.into(),
+        kind: kind.into(),
+        body,
+    }
+}
+
+fn ndl_log_lines(path: &std::path::Path, what: &str) -> usize {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains(what))
+        .count()
+}
+
+#[test]
+fn the_full_view_plays_the_stream_on_the_video_plane_through_the_feeder_and_stops_clean() {
+    let Some((program, library)) = host_feeder() else {
+        eprintln!("skipped: the host feeder is not built (sh gfn/feeder/build.sh)");
+        return;
+    };
+    let run_dir = tempfile::tempdir().unwrap();
+    let ndl_log = run_dir.path().join("ndl.log");
+    let spec = lumatv_helper::live::FeederSpec {
+        program,
+        window: "card".into(),
+        library: library.display().to_string(),
+        extra_args: vec!["--no-window".into()],
+        env: vec![
+            ("FAKE_NDL_LOG".into(), ndl_log.display().to_string()),
+            (
+                "LD_LIBRARY_PATH".into(),
+                library.parent().unwrap().display().to_string(),
+            ),
+        ],
+        run_dir: run_dir.path().to_path_buf(),
+    };
+    let mut deps = lumatv_helper::cameras::testing::keyed_deps(KEY);
+    deps.feeder = Some(spec);
+    let mut rig = Rig::new();
+    receiver_off(&rig.paths);
+    let config = test_config(json!({"cameras": {"enabled": true, "live": true, "port": 0}}));
+    rig.start_cameras(config, Script::new(), deps);
+    let topic = rig
+        .wait_topic("cameras", Duration::from_secs(5), |t| t["port"].is_u64())
+        .expect("the bridge listens");
+    assert_eq!(topic["live"], true, "{topic}");
+    let live = rig.topic("cameras.live").unwrap();
+    assert_eq!(live["state"], "idle");
+
+    // not before the integration is there
+    let refused = post(
+        rig.addr,
+        "/v1/cameras/live",
+        &json!({"camera": CAMERA}).to_string(),
+    );
+    assert_eq!(refused.status, 409);
+
+    let addr: SocketAddr = format!("127.0.0.1:{}", topic["port"].as_u64().unwrap())
+        .parse()
+        .unwrap();
+    let mut ha = FakeIntegration::connect(addr, &KEY).unwrap();
+    let welcome = ha
+        .hello(&[
+            ("states", 1),
+            ("cameras", 1),
+            ("camera_events", 1),
+            ("camera_live", 1),
+        ])
+        .unwrap();
+    assert_eq!(welcome.modules.get("camera_live"), Some(&1), "{welcome:?}");
+    ha.send(&camera_list(
+        "http://127.0.0.1:1/api/camera_proxy/camera.front_door?authSig=x",
+    ))
+    .unwrap();
+
+    // a stream that ends after three segments: the whole of it reaches the feeder, then the session is over by itself
+    let server = HlsServer::start(true);
+    let started = Instant::now();
+    let asked = post(
+        rig.addr,
+        "/v1/cameras/live",
+        &json!({"camera": CAMERA}).to_string(),
+    );
+    assert_eq!(
+        asked.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&asked.body)
+    );
+    let (_op, camera) = answer_start(&mut ha, &server.url());
+    assert_eq!(camera, CAMERA);
+    let playing = rig
+        .wait_topic("cameras.live", Duration::from_secs(10), |l| {
+            l["state"] == "playing"
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the stream plays: {:?} / ndl: {}",
+                rig.topic("cameras.live"),
+                std::fs::read_to_string(&ndl_log).unwrap_or_default()
+            )
+        });
+    let to_first_picture = started.elapsed();
+    assert_eq!(playing["camera"], CAMERA);
+    assert_eq!(playing["window"], "_Window_Id_none");
+    assert_eq!(playing["pieceMs"], 1000);
+    let ended = rig
+        .wait_topic("cameras.live", Duration::from_secs(15), |l| {
+            l["state"] == "stopped"
+        })
+        .expect("the stream ends by itself");
+    assert_eq!(ended["reason"], "the stream ended");
+    assert_eq!(
+        (ended["fed"].as_u64(), ended["dropped"].as_u64()),
+        (Some(30), Some(0)),
+        "{ended}"
+    );
+    // the fake library's own count when the feeder quit: every access unit reached it, in an order it accepts (rising timestamps,
+    // the parameter sets with the key picture), and it was unloaded on the way out
+    assert!(
+        wait_until(Duration::from_secs(5), || ndl_log_lines(
+            &ndl_log,
+            "Quit played=30 shown=30 dropped=0"
+        ) == 1),
+        "every access unit reached the (fake) decoder: {}",
+        std::fs::read_to_string(&ndl_log).unwrap_or_default()
+    );
+    assert!(
+        ndl_log_lines(&ndl_log, "Unload") >= 1,
+        "unloaded on the way out"
+    );
+    assert_eq!(
+        ndl_log_lines(&ndl_log, "VIOLATION"),
+        0,
+        "the demands the real library makes: {}",
+        std::fs::read_to_string(&ndl_log).unwrap_or_default()
+    );
+    eprintln!("live: start to playing {to_first_picture:?} on this host");
+    let asked_for: Vec<String> = server.requests.lock().unwrap().clone();
+    assert!(asked_for.iter().any(|p| p.ends_with("init.mp4")));
+    assert!(
+        asked_for.iter().filter(|p| p.contains("segment/")).count() == 3,
+        "{asked_for:?}"
+    );
+    assert!(
+        asked_for.iter().all(|p| !p.contains("authSig")),
+        "no picture address is fetched by the live path"
+    );
+
+    // a live stream that does not end: the viewer closes, the session stops, the feeder is gone, the integration is told
+    let live_server = HlsServer::start(false);
+    assert_eq!(
+        post(
+            rig.addr,
+            "/v1/cameras/live",
+            &json!({"camera": CAMERA}).to_string()
+        )
+        .status,
+        200
+    );
+    answer_start(&mut ha, &live_server.url());
+    rig.wait_topic("cameras.live", Duration::from_secs(10), |l| {
+        l["state"] == "playing"
+    })
+    .expect("the second stream plays");
+    assert!(wait_until(Duration::from_secs(5), || rig
+        .topic("cameras.live")
+        .is_some_and(|l| l["fed"].as_u64().unwrap_or(0) >= 10)));
+    let stopped = post(rig.addr, "/v1/cameras/live/stop", "{}");
+    assert_eq!(stopped.status, 200);
+    let after = rig
+        .wait_topic("cameras.live", Duration::from_secs(5), |l| {
+            l["state"] == "stopped"
+        })
+        .expect("stopped");
+    assert_eq!(after["reason"], "the viewer closed");
+    let told = ha.recv_where(Duration::from_secs(5), |m| match m {
+        Message::Other { module, kind, .. } if module == "camera_live" && kind == "stop" => {
+            Some(())
+        }
+        _ => None,
+    });
+    assert!(
+        told.is_some(),
+        "the integration is told the stream is no longer wanted"
+    );
+    assert!(
+        wait_until(Duration::from_secs(5), || ndl_log_lines(
+            &ndl_log,
+            "Quit played="
+        ) == 2),
+        "the second feeder quit too"
+    );
+    assert!(ndl_log_lines(&ndl_log, "Unload") >= 2);
+    assert_eq!(ndl_log_lines(&ndl_log, "VIOLATION"), 0);
+    assert!(
+        !std::fs::read_dir(run_dir.path())
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(".sock")),
+        "the socket is gone"
+    );
+
+    // the integration cannot give the stream: said in words, nothing started
+    assert_eq!(
+        post(
+            rig.addr,
+            "/v1/cameras/live",
+            &json!({"camera": CAMERA}).to_string()
+        )
+        .status,
+        200
+    );
+    let (op, _) = ha
+        .recv_where(Duration::from_secs(5), |m| match m {
+            Message::Other { module, kind, body } if module == "camera_live" && kind == "start" => {
+                Some((body.get("op").and_then(Value::as_u64).unwrap_or(0), ()))
+            }
+            _ => None,
+        })
+        .unwrap();
+    ha.send(&module_message_of(
+        "camera_live",
+        "failed",
+        json!({"op": op, "code": "no_stream", "message": "the camera has no stream"}),
+    ))
+    .unwrap();
+    let failed = rig
+        .wait_topic("cameras.live", Duration::from_secs(5), |l| {
+            l["state"] == "failed"
+        })
+        .expect("failed in words");
+    assert_eq!(failed["reason"], "no_stream: the camera has no stream");
+}

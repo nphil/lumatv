@@ -14,7 +14,7 @@ QtObject {
     id: helper
 
     readonly property string base: "http://127.0.0.1:18731"
-    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,cameras,cameras.popup"
+    readonly property string subscribed: "screen,weather,news,receiver,ai,ai.prompt,plugins,ha.link,updateblock,cameras,cameras.popup,cameras.live"
     // Plugin topics are named per plugin and a long poll takes at most 16 names: the fixed ones, then the cards, tiles and
     // notifications of each plugin that is connected, the helper's own (`firstParty`, listed apart in `plugins`) included;
     // with more than fit, which is the usual case since the helper's own are four, there is no filter (every topic) rather

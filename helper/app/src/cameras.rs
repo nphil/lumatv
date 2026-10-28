@@ -48,6 +48,8 @@ pub const TOPIC: &str = "cameras";
 pub const POPUP_TOPIC: &str = "cameras.popup";
 /// The event (no retained value) raised for every accepted camera event.
 pub const EVENT_TOPIC: &str = "cameras.event";
+/// The retained topic: the live session on the video plane (`live::View`).
+pub const LIVE_TOPIC: &str = "cameras.live";
 /// The module of the protocol this listens to (`lumashow-ha` `docs/protocol.md` 10b).
 pub const MODULE: &str = "camera_events";
 /// The kinds an event may be, in the order a list shows them.
@@ -72,6 +74,8 @@ pub struct Deps {
     pub tls: Option<fetch::TlsFetch>,
     /// What the TV says it is.
     pub device: DeviceInfo,
+    /// The feeder for the live path; `None` is the config's choice (`cameras.live` with the staged feeder), a test names its own.
+    pub feeder: Option<crate::live::FeederSpec>,
 }
 
 impl Deps {
@@ -91,6 +95,7 @@ impl Deps {
             policy: AddressPolicy::HOME,
             tls: crate::voice::tls_for(&ctx.config.fetch),
             device: device_info("LumaTV", "LG TV", env!("CARGO_PKG_VERSION")),
+            feeder: None,
         }
     }
 }
@@ -284,6 +289,8 @@ struct Inner {
     popups: Mutex<Popups>,
     /// One slot a camera: a tile and the pop-up asking at once share one fetch.
     frames: Mutex<HashMap<String, Arc<Mutex<Option<Frame>>>>>,
+    /// The live path (`live/`): the full view's stream on the video plane.
+    live: crate::live::Live,
 }
 
 /// The handle the API and the looker share.
@@ -295,6 +302,34 @@ pub struct Cameras {
 impl Cameras {
     pub fn new(ctx: &Ctx, deps: Deps, images: Arc<Images>) -> Self {
         let config = ctx.config.cameras.clone();
+        // the feeder: a test's own, else the staged one when the live switch is on
+        let feeder = deps.feeder.clone().or_else(|| {
+            (config.enabled && config.live).then(|| {
+                let mut spec = crate::live::default_spec(
+                    &ctx.paths.data_dir,
+                    &config.feeder_window,
+                    &config.feeder_library,
+                );
+                if !config.feeder.is_empty() {
+                    spec.program = std::path::PathBuf::from(&config.feeder);
+                }
+                // the window is announced under an id of the brand's (as the saver's player is), never GeForce NOW's
+                if let Some(app) = &ctx.config.brand_app_id {
+                    spec.extra_args = vec!["-a".to_owned(), format!("{app}.cameras")];
+                }
+                spec
+            })
+        });
+        let hub = ctx.hub.clone();
+        let live = crate::live::Live::new(
+            crate::live::Deps {
+                feeder,
+                policy: deps.policy,
+            },
+            Box::new(move |view| {
+                hub.set(LIVE_TOPIC, view);
+            }),
+        );
         let inner = Arc::new(Inner {
             hub: ctx.hub.clone(),
             popups: Mutex::new(Popups::new(&config)),
@@ -303,6 +338,7 @@ impl Cameras {
             images,
             state: Mutex::new(State::default()),
             frames: Mutex::new(HashMap::new()),
+            live,
         });
         let cameras = Self { inner };
         cameras.inner.hub.set(POPUP_TOPIC, Value::Null);
@@ -416,10 +452,19 @@ impl Cameras {
         bridge
             .register_module(MODULE, handler)
             .map_err(|e| e.to_string())?;
+        if inner.live.available() {
+            let live: Arc<dyn ModuleHandler> = Arc::new(LiveModule {
+                live: inner.live.clone(),
+            });
+            bridge
+                .register_module(crate::live::MODULE, live)
+                .map_err(|e| e.to_string())?;
+        }
         Ok(bridge)
     }
 
     fn stop_bridge(&self, state: &mut State) {
+        self.inner.live.stop("the bridge stopped");
         if let Some(bridge) = state.bridge.take() {
             bridge.stop();
         }
@@ -515,6 +560,7 @@ impl Cameras {
             "problem": state.problem,
             "popupKinds": inner.popups.lock().kinds(),
             "popupSeconds": inner.config.popup_seconds,
+            "live": inner.live.available(),
             "cameras": cameras,
         })
     }
@@ -654,6 +700,27 @@ impl Cameras {
             .with_header("X-Luma-Camera-Age-Ms", age.to_string())
     }
 
+    /// `POST /v1/cameras/live {camera}`: the full view asks for the camera's stream on the video plane.
+    pub fn live_start(&self, body: &Value) -> Response {
+        let camera = body.get("camera").and_then(Value::as_str).unwrap_or("");
+        match self.inner.live.start(camera) {
+            Ok(()) => Response::json(
+                200,
+                &json!({"ok": true, "live": self.inner.live.view().json()}),
+            ),
+            Err(why) => error_response(409, "not_now", &why),
+        }
+    }
+
+    /// `POST /v1/cameras/live/stop`: the full view closed.
+    pub fn live_stop(&self) -> Response {
+        self.inner.live.stop("the viewer closed");
+        Response::json(
+            200,
+            &json!({"ok": true, "live": self.inner.live.view().json()}),
+        )
+    }
+
     /// `POST /v1/cameras/event`: an event as the integration would send it, for the TV check and the shell's tests.
     pub fn test_event(&self, body: &Value) -> Response {
         let Some(object) = body.as_object() else {
@@ -778,6 +845,37 @@ impl Sink for LinkSink {
     fn notices(&mut self, _notices: Vec<Notice>) {}
 }
 
+/// The `camera_live` module: the stream the integration gives for the full view (`live/`).
+struct LiveModule {
+    live: crate::live::Live,
+}
+
+impl ModuleHandler for LiveModule {
+    fn on_session(&self, up: bool, out: Arc<dyn ModuleOut>) {
+        self.live.module_session(up, out);
+    }
+
+    fn on_message(&self, kind: &str, body: &Map<String, Value>) {
+        let op = body.get("op").and_then(Value::as_u64).unwrap_or(0);
+        match kind {
+            "started" => {
+                let camera = body.get("camera").and_then(Value::as_str).unwrap_or("");
+                let url = body.get("url").and_then(Value::as_str).unwrap_or("");
+                let kind = body.get("kind").and_then(Value::as_str).unwrap_or("hls");
+                if plain_id(camera) && !url.is_empty() {
+                    self.live.started(op, camera, url, kind);
+                }
+            }
+            "failed" => self.live.failed(
+                op,
+                body.get("code").and_then(Value::as_str).unwrap_or("failed"),
+                body.get("message").and_then(Value::as_str).unwrap_or(""),
+            ),
+            _ => {}
+        }
+    }
+}
+
 /// The `camera_events` module: offered to the integration while the bridge runs; its events become pop-ups.
 struct EventsModule {
     cameras: Cameras,
@@ -850,6 +948,7 @@ pub mod testing {
             policy: AddressPolicy::TESTING,
             tls: None,
             device: device_info("LumaTV", "test", "0.0.0"),
+            feeder: None,
         }
     }
 

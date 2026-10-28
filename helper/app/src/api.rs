@@ -524,6 +524,11 @@ impl Handler for Api {
                 Ok(body) => self.cameras.test_event(&Value::Object(body)),
                 Err(r) => r,
             },
+            ["v1", "cameras", "live"] if post => match body_object(request) {
+                Ok(body) => self.cameras.live_start(&Value::Object(body)),
+                Err(r) => r,
+            },
+            ["v1", "cameras", "live", "stop"] if post => self.cameras.live_stop(),
             _ if is_known_path(&segments) => {
                 error_response(405, "method_not_allowed", "that method is not served here")
                     .with_header("Allow", allowed_methods(&segments))
@@ -558,6 +563,8 @@ fn is_known_path(segments: &[&str]) -> bool {
             | ["v1", "cameras", _, "frame"]
             | ["v1", "cameras", "popup", "clear"]
             | ["v1", "cameras", "event"]
+            | ["v1", "cameras", "live"]
+            | ["v1", "cameras", "live", "stop"]
             | ["v1", "state" | "settings", _]
             | ["v1", "receiver", "nudge"]
             | ["v1", "ambient", "test" | "context" | "refresh"]

@@ -11,10 +11,11 @@ default, until the TV check below passes.
   address. Home Assistant pushes the cameras Nitin shares with the TV (signed picture addresses) and, with *Send camera events* on, what their
   detectors see. The pop-up is a glass card in the top right corner over whatever plays; OK expands it to the full screen, Back dismisses it,
   it goes by itself; a grid shows every shared camera.
-- **Pieces.** `lumashow-ha` branch `tv-cameras` (forge `nphilip89/lumashow-ha`, not GitHub, no tag): module `camera_events`
-  (`custom_components/lumashow/camera_events.py`, protocol `docs/protocol.md` 10b). TV helper: `helper/app/src/cameras.rs` (the bridge,
-  the pop-up policy, the picture route), `config.rs` `CamerasConfig`. Shell: `panels/Cameras.qml`, `kit/CameraFrame.qml`, the overlay, the
-  bus and Home's key routing. Mocks `docs/mocks/cameras/`. Tests below.
+- **Pieces.** `lumashow-ha` branch `tv-cameras` (forge `nphilip89/lumashow-ha`, not GitHub, no tag): modules `camera_events` and
+  `camera_live` (`custom_components/lumashow/camera_events.py`, `camera_live.py`, protocol `docs/protocol.md` 10b and 10c). TV helper:
+  `helper/app/src/cameras.rs` (the bridge, the pop-up policy, the picture route), `helper/app/src/live/` (the stream on the video plane),
+  `config.rs` `CamerasConfig`. Shell: `panels/Cameras.qml`, `kit/CameraFrame.qml`, the overlay, the bus and Home's key routing. Mocks
+  `docs/mocks/cameras/`. Tests below.
 - **The LumaShow checkout moved.** The helper's path dependencies now point at the worktree `/data/home/LumaShow/wt/lumatv` (branch
   `tv-cameras`, from `g2-0809d` b008b004, 2026-10-23), because `/data/home/LumaShow/lumashow` is a 10-09 branch that predates `ha-bridge`.
   Nothing of LumaShow's is edited there. The plugin API there is level 2; **this TV keeps speaking level 1** (`session::TV_LEVEL`): the helper
@@ -99,7 +100,7 @@ next picture `intervalMs` after the last arrived (700 ms single, 1200 ms a tile)
 the newest (no layer, no flash). No picture is written anywhere; the newest of each camera is in memory until the next.
 
 What this gives: 1 to 3 pictures a second a camera, every camera, over Netflix and over an input alike, no decoder, no contention, nothing of
-the app's playback touched. What it does not give: smooth motion. The video-plane path (below) is the next step and needs the TV.
+the app's playback touched. Smooth motion is the live path's (below): the full view on the video plane, the pictures as its fallback.
 
 ### Latency budget (event to pop-up)
 
@@ -120,15 +121,56 @@ address or key is in a topic or a log (the test searches the topic for `authSig`
 `camera`, `lock`, `cover`, `valve`, alarms and sirens), and the integration decides what is shared. The bridge binds the LAN address only and
 refuses a wrong key (`a_wrong_key_is_refused...`).
 
+## The live path (built offline; `cameras.live`, off by default)
+
+`helper/app/src/live/` (`mod.rs` the session, `hls.rs` the playlists, `fmp4.rs` the demuxer, `gf.rs` the feeder's wire, `net.rs` the fetch)
+and the integration's `camera_live` module (lumashow-ha `tv-cameras`, protocol §10c).
+
+- **The stream, without the camera's password.** The full view asks the helper (`POST /v1/cameras/live {camera}`); the helper asks the
+  integration (`camera_live.start`); the integration asks Home Assistant's own stream integration (`camera.async_request_stream(hass, entity,
+  "hls")`), which pulls the camera's RTSP itself and serves **low-latency HLS of fragmented MP4** at a tokened address on Home Assistant's port
+  (`camera_live.started {url}`). The TV never sees the camera's address; the token opens that stream and nothing else, on the home network
+  (`net.rs` holds the fetch to `AddressPolicy`, plain HTTP: Home Assistant's internal address). Home Assistant ends the stream when nothing
+  fetches it; the helper also says `stop`.
+- **Into the video plane.** The helper fetches the playlist from its live edge (the last independent part), blocks on the next part where
+  the server allows it (`_HLS_msn`/`_HLS_part`), demuxes each piece into whole access units in Annex B with the parameter sets before every
+  key picture, and feeds them over the GFN feeder's socket protocol (`GF_LOAD` H.264/HEVC + `GF_VIDEO`, decode times as the timestamps: they
+  rise with every unit, which the pipeline insists on; a stream with B pictures is shown a reorder delay later) to a `lumatv-gfn-feeder` it
+  starts for the session (`--serve <sock> -w <cameras.feederWindow> --once -a <brand>.cameras`). The feeder owns the window on the video plane
+  and LG's NDL DirectMedia pipeline, proven to 4K120 by the GFN work. One session at a time; a new camera ends the old one; the viewer closing
+  unloads the pipeline and ends the feeder (`--once`), so nothing runs when nothing is shown.
+- **The shell.** `panels/Cameras.qml`: the full view asks for the stream when it opens and at every camera switch, keeps the pictures until the
+  helper's `cameras.live` says `playing` for that camera, then draws nothing where the picture was (the hole: the layer is transparent, the
+  video plane shows through, the chrome stays above) and stops asking for pictures; Back asks `stop`. Where the live path is off, unavailable
+  or failed (`reason` in words) the pictures stay: the full view always shows something.
+- **Latency.** Home Assistant's LL-HLS parts are 1 s (`PART-TARGET`), so the stream arrives about 1 to 2 parts behind the camera plus the
+  decoder's own delay: **about 2 to 3 s glass to glass [INFERENCE: the TV measures it]**, and smooth at the camera's full rate. Start: the
+  stream integration's first segment (one key interval of the camera, 1 to 4 s) plus the feeder's load (about 1 s on the GFN path). The
+  pictures cover the wait. Sub-second would need WebRTC (go2rtc through Home Assistant's `camera/webrtc/offer`), a DTLS/SRTP client the helper
+  does not have: a later step, measured against what LL-HLS gives.
+- **The grid, two designs, decided on the TV.** (a) *Pictures* (built): six tiles at 1 to 3 pictures a second each, one fetch a camera a
+  second, no decoder. (b) *Sub-streams*: each tile a stream of its own through the same path at the camera's sub-stream resolution; it needs
+  as many decoder sessions as tiles (the Show measured 6 to 8 on its own decoder; LG's media pipeline is unknown: `adec.p1 Open=1` was one
+  session in round 9) and a feeder per tile placing its window at the tile's rectangle (`NDL_DirectVideoSetArea` or the exported window's
+  geometry, as the saver's player moves its picture). The TV check below says whether a second session is given at all; with one, the grid
+  stays on pictures and the full view is the live one.
+- **Config.** `cameras.live` (false), `cameras.feeder` (empty: `<data>/bin/lumatv-gfn-feeder`), `cameras.feederWindow` (`card`; `overlay`,
+  `screensaver` are the alternatives the TV check tries over an app), `cameras.feederLibrary` (empty: the feeder's default NDL library).
+- **Host proof.** `helper/app/tests/cameras.rs` `the_full_view_plays_the_stream_on_the_video_plane_through_the_feeder_and_stops_clean`: a fake
+  Home Assistant stream server (the master and a media playlist that grows a segment every 400 ms, the fixture's init segment and three
+  one-second segments of 320x180 H.264 with B pictures, `helper/app/tests/fixtures/hls/`, made with ffmpeg), the fake integration answering
+  `camera_live.start`, and **the real host build of the feeder (`gfn/feeder/build/host`) with the fake NDL library**: `cameras.live` goes
+  asking, starting, playing, stopped; the fake library's own count says `played=30 shown=30 dropped=0` with **0 VIOLATION** lines (the order
+  and the rising timestamps the real library wants), unloaded on the way out; a stream that does not end stops on `POST /v1/cameras/live/stop`
+  with the feeder gone, the socket removed and the integration told; a refusal arrives in words. Unit tests: the demuxer on the fixture (init,
+  Annex B, decode and presentation times, errors in words), the playlists (plain and low-latency, the live edge, the blocking reload, the
+  address join), the feeder's wire (the structs' sizes against the header, frames both ways), the fetch (plain, chunked, https refused).
+  The skipped case prints `skipped: the host feeder is not built` where `gfn/feeder/build.sh` has not run.
+
 ## Not built (next)
 
-**The video-plane stream path** for the full screen and the grid: the integration's `cameras.list` `streams` (RTSP, with *Share camera
-addresses* on) dialled by the helper with LumaShow's `rtsp-client` crate, the access units fed over the GFN feeder's socket protocol
-(`gfn/feeder/src/gf_proto.h`: `GF_LOAD` + `GF_VIDEO` Annex B units, H.264/HEVC, already proven to 4K120 with 0 drops) into a feeder that owns a
-window of its own (as `lumatv-vplane` does), placed by the shell; the snapshot path stays the fallback while an app or an input holds the
-decoder, and for Scrypted's cameras (no stream through Home Assistant). Unknown until the TV: whether a second decoder session is given while
-Netflix or an HDMI input holds one (`adec.p1 Open=1` in `round9-result.md`), the window type that shows over an app without taking the
-foreground, glass-to-glass latency of the sub streams, and the cost of a 32-bit decoder at the same time as the app's.
+WebRTC through go2rtc (sub-second), the grid's sub-stream design (b) if the TV gives several sessions, HTTPS for the live path's fetch (Home
+Assistant's internal address here is plain HTTP), the feeder's staging by `tools/lumatv` (the GFN app's own copy is used in the TV check).
 
 ## For LumaShow (not edited there; the exact proposal)
 
@@ -144,15 +186,17 @@ foreground, glass-to-glass latency of the sub streams, and the cost of a 32-bit 
 
 - `lumashow-ha`: `tests/test_camera_events.py` (classify; sources of a shared camera and one event once, the hold, the session's end; nothing
   for a device that does not share; the detectors follow the shared set; through the real hub and the fake Show: offered only when on, `list`,
-  an `event`, `refresh`); 250 passed, 2 skipped; ruff clean.
+  an `event`, `refresh`) and `tests/test_camera_live.py` (a start is answered with Home Assistant's own stream address, refusals in words,
+  not offered without the option, through the channel); 253 passed, 2 skipped; ruff clean.
 - Helper: `helper/app/tests/cameras.rs` (off and unpaired nothing listens; a fake integration dials the bridge, shares a camera, sends an
   event: pop-up within the budget, the picture fetched once for a burst and again after the hold, the cooldown, a doorbell, a kind not wanted,
-  clear, the event stream, `bye` takes the cameras away; a wrong key refused and strange events ignored); `cameras::tests` (the policy, the
-  message, the announcement); `helper/build.sh test` (clippy, 480+ tests).
+  clear, the event stream, `bye` takes the cameras away; a wrong key refused and strange events ignored; **the live path end to end with the
+  real host feeder and the fake NDL**); `cameras::tests` (the policy, the message, the announcement); `live::*::tests` (the demuxer, the
+  playlists, the wire, the fetch); `helper/build.sh test` (clippy, 500+ tests).
 - Shell: `tests/test_camera_popup.py` (the real overlay over an app and over Home with the fake helper: a pop-up within a moment, pictures of
   the preview's own size, gone at `untilMs`; the D-pad passes through, Back tells the helper; OK to full, every key, the grid's focus and
-  sizes, Back closes; Home's keys through the bus; a pop-up waits for a busy host; nothing fetches once down); `tests/qmlhost/compile_all.py`
-  142 files, 0 failed.
+  sizes, Back closes; Home's keys through the bus; a pop-up waits for a busy host; nothing fetches once down; the full view asks for the live
+  stream, is a hole while it plays, asks again at a switch and stops on close); `tests/qmlhost/compile_all.py` 143 files, 0 failed.
 - Mocks: `docs/mocks/cameras/` (`node render.mjs`: popup, doorbell, full, grid; dark and light; 100 % and 200 % text; its check finds no text
   overflowing or off the safe edge).
 
@@ -183,6 +227,27 @@ Receiver muted through Home Assistant where sound could play; stop at the first 
 9. Busy: with a PIN prompt or an alert up, fire a test event: no card until the prompt goes, then the card if still in date (12 s).
 10. Cooldown: two test events of the same camera and kind within 30 s: one card; a doorbell twice: two.
 11. Switch off (`cameras.enabled: false`, restart): nothing listens on 6054, no announcement, Home Assistant's LumaTV entry says disconnected.
+
+The live path (after 1 to 6 pass; Home Assistant's `stream` integration must be able to pull the camera: Reolink's Fluent streams are the
+ones to try first; Scrypted's cameras have no stream through Home Assistant):
+
+12. The feeder beside the helper: `cp /media/developer/apps/usr/palm/applications/org.nphil.lumatv.gfn/lumatv-gfn-feeder /var/lib/lumatv/bin/`
+    (or `cameras.feeder` naming that path); `cameras.live: true`, restart; `/v1/cameras` says `live: true`.
+13. Start time: on Home, open a Reolink camera full screen from the grid; stamp the key; `/v1/state/cameras.live` goes asking → starting →
+    playing; the picture on the video plane replaces the stills (the hole); record key-to-playing (expected 2 to 5 s: Home Assistant's first
+    segment plus the load) and the first `fed`/`dropped` after 30 s (dropped 0; `queue` figures in the feeder's stats file under
+    `/tmp/lumatv-cameras/`).
+14. Glass to glass: a clock (phone stopwatch) held in front of the camera, photographed beside the TV: the difference is the latency
+    (expected 2 to 3 s with LL-HLS parts of 1 s; record Home Assistant's `stream:` `ll_hls` setting as found).
+15. Chrome above the hole: the name pill, the live dot and the hints draw over the video; they fade and come back; Left/Right switch (the
+    old session ends, the new one starts: record the gap); Back closes: `pidof lumatv-gfn-feeder` empty within 2 s, `cameras.live` `stopped`,
+    no socket left in `/tmp/lumatv-cameras/`, Home Assistant's stream ends by itself within its idle time.
+16. Second decoder session: with Netflix playing (then an HDMI input), open the full view. Either the stream plays over the film (record which
+    `feederWindow` shows: `card`, `overlay`, `screensaver`; whether Netflix keeps playing; `adec` ports) or the load fails in words
+    (`cameras.live` `failed`, the pictures stay): that answer decides the grid's design (b) and whether the live full view is Home-only.
+17. Cost: CPU of the helper and the feeder while playing (expected: the feeder a few percent as in the GFN runs, the helper's fetch and demux
+    under 5 % of a core), `CmaFree`/`MemAvailable` before, during and after three sessions; the compositor's frame gate with the hole up.
+18. Off: `cameras.live: false`: the full view is pictures again; no feeder is ever started.
 
 ## Changelog line
 

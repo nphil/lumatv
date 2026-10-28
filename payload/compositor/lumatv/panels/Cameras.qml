@@ -28,6 +28,28 @@ Item {
     readonly property var popupTopic: Helper.topics["cameras.popup"] || null
     readonly property var cameras: topic && topic.cameras ? topic.cameras : []
     readonly property int count: cameras.length
+    // the live path (the helper's `cameras.live`): the full view's camera on the video plane through the feeder, this layer transparent
+    // over it (the hole) with its chrome above; until it plays, and wherever it is off or fails, the pictures stay
+    readonly property bool liveAvailable: !!topic && topic.live === true
+    readonly property var liveTopic: Helper.topics["cameras.live"] || null
+    readonly property string currentId: current >= 0 && current < count ? cameras[current].id : ""
+    readonly property bool livePlaying: mode === "full" && !!liveTopic && liveTopic.state === "playing" && liveTopic.camera === currentId
+    readonly property bool hole: livePlaying
+    property string liveAsked: ""            // the camera the helper was asked to play, "" when none
+    function askLive(id) {
+        if (!liveAvailable || id === "" || id === liveAsked) return
+        liveAsked = id
+        Helper.post("/v1/cameras/live", { camera: id })
+    }
+    function stopLive() {
+        if (liveAsked === "") return
+        liveAsked = ""
+        Helper.post("/v1/cameras/live/stop", {})
+    }
+    // read from `current` itself: a binding on it (currentId) may not have been brought up to date before this handler runs
+    function idAt(i) { return i >= 0 && i < count ? cameras[i].id : "" }
+    onCurrentChanged: if (mode === "full") askLive(idAt(current))
+    onModeChanged: { if (mode === "full") askLive(idAt(current)); else stopLive() }
 
     property string mode: ""                 // "", "popup", "full", "grid"
     property var popup: null                 // the pop-up shown now: the topic's value when it was taken
@@ -272,12 +294,14 @@ Item {
         id: full
         anchors.fill: parent
         visible: cams.mode === "full"
-        Rectangle { anchors.fill: parent; color: "#000000" }
+        // black behind the pictures; nothing at all while the stream plays on the video plane under this layer
+        Rectangle { anchors.fill: parent; color: "#000000"; visible: !cams.hole }
         CameraFrame {
             id: fullFrame
             anchors.fill: parent
-            camera: cams.current >= 0 && cams.current < cams.count ? cams.cameras[cams.current].id : ""
-            active: cams.mode === "full"
+            visible: !cams.hole
+            camera: cams.currentId
+            active: cams.mode === "full" && !cams.hole
             intervalMs: 700
             cover: false
         }
@@ -300,7 +324,7 @@ Item {
                     spacing: Lu.space(3)
                     LuIcon { name: "video"; size: 32; anchors.verticalCenter: parent.verticalCenter }
                     LuText { role: "body"; font.weight: Font.DemiBold; text: cams.nameOf(cams.current); anchors.verticalCenter: parent.verticalCenter }
-                    Rectangle { width: 12; height: 12; radius: 6; color: Lu.live; visible: fullFrame.ready; anchors.verticalCenter: parent.verticalCenter }
+                    Rectangle { width: 12; height: 12; radius: 6; color: Lu.live; visible: fullFrame.ready || cams.livePlaying; anchors.verticalCenter: parent.verticalCenter }
                     // which of the cameras this is, on the same reading surface as the name (a count alone over a bright picture would not read)
                     LuText { visible: cams.count > 1; role: "label"; color: Lu.ink2; text: (cams.current + 1) + " of " + cams.count; anchors.verticalCenter: parent.verticalCenter }
                 }

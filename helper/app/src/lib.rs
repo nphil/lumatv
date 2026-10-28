@@ -60,6 +60,7 @@ pub mod hue;
 pub mod hue_rest;
 pub mod hue_store;
 pub mod images;
+pub mod live;
 pub mod log;
 pub mod plugins;
 pub mod preload;

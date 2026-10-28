@@ -199,6 +199,15 @@ pub struct CamerasConfig {
     pub frame_hold_ms: u32,
     /// The most a camera's picture may be, in bytes.
     pub max_picture_bytes: u32,
+    /// The live path (`live/`): the full view plays the camera's stream on the video plane through the GFN feeder. Off: the full view
+    /// and the grid draw pictures only. Needs `enabled`.
+    pub live: bool,
+    /// The feeder program (`lumatv-gfn-feeder`); empty: `bin/lumatv-gfn-feeder` in the data dir, where `lumatv` stages it.
+    pub feeder: String,
+    /// The window type the feeder owns for a camera (`card`, `overlay`, `screensaver`): the TV check decides which shows over an app.
+    pub feeder_window: String,
+    /// The NDL library the feeder loads (`-L`); empty for its default.
+    pub feeder_library: String,
 }
 
 impl Default for CamerasConfig {
@@ -213,6 +222,10 @@ impl Default for CamerasConfig {
             cooldown_seconds: 30,
             frame_hold_ms: 300,
             max_picture_bytes: 4 * 1024 * 1024,
+            live: false,
+            feeder: String::new(),
+            feeder_window: "card".to_owned(),
+            feeder_library: String::new(),
         }
     }
 }
