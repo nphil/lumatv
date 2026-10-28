@@ -104,14 +104,27 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): rounds 1 to 5 are on the set (below; round 5 is 12a1d0b, `compositor/slot-2026-10-27-2100/`). The go-live
-configuration has CompShell's shell client up (`org.nphil.lumatv.shell`, run by the compositor from the state dir's
-`shell/Shell.qml`). X1_PRIME stays 4 (round 4's parity run). Round 5: x1 passes the new rule in 2 of 4 runs and fails in the
-other 2 on a late flip of the compositor's own (one at x1's mapping, one mid-run about 55 s in); the 120 s trial fails on 6
-missed refreshes in the first 5.5 s, at the shell client's start (`shell_start` 24.5 ms in one loop pass, then its first
-buffer's warm: 55.2 ms in one `draw-now` pass); the rest of the full gate passes. Next: the start-up of a client on the
-loop thread (the spawn, and the waits in `draw-now` for a client's first buffer's warm); then x1 and the trial again. Read
-`gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log` (`swap N returned`, `priming swap`, `gap`).
+State (2026-10-27): rounds 1 to 5 are on the set (below; round 5 is 12a1d0b, `compositor/slot-2026-10-27-2100/`); round 6's
+changes ("Round 6 changes" at the end) are built and host-tested, not on the set. The go-live configuration has CompShell's
+shell client up (`org.nphil.lumatv.shell`, run by the compositor from the state dir's `shell/Shell.qml`). X1_PRIME stays 4
+(round 4's parity run). Round 6 checks, in one slot (`python3 compositor/tools/tv_next_slot.py`, or by hand in this order):
+
+1. `tv_gate.py --only keys,ime,shell,frames`: keys, ime and shell PASS as in round 5; `ctl shell` reads `systemMapped true`
+   and `systemLive false` with nothing of the layer up; frames PASS with the toast's `first_frame_ms` under 50 (40 wanted)
+   and `burst_over20 0`. The session's log has `egl: context priority realtime (asked for realtime)` (or `high`), `loop
+   thread: SCHED_FIFO 20`, and at the shell's start `shell: client started` with no `loop:` line beside it; the system
+   layer's three buffers warm (`warm:` lines) in the seconds after `shell: system layer window mapped`, not at the toast.
+2. `cutover.sh trial 120` with the shell up: `odd stamps N (0 missed)`, no `loop:` line over 8 ms in the first 10 s. A
+   `page-flip stamp` left in the first 6 s is read against its `trace:` lines: `gpu done` over 8 ms is the GPU still
+   shared with qml-runner's start (the context priority did not take), a frame drawn 5-7 ms before its refresh is the
+   plan's optimism (`plan()` in `vendor/pacer.rs`, left as it is).
+3. x1 three times (separate sessions): no `page-flip stamp` at x1's mapping (at most one `late` there, from the first
+   frame's GPU time), `late` unchanged mid-run, the client's gaps over 20 ms no more than LG's 4-7. A gap at about 55 s
+   again, with the compositor's flips on the grid, is outside LumaTV (the shell client no longer outranks the probe).
+4. The full gate (`tv_gate.py --skip volume`): everything of round 5 again; standby and homekey in their own run as in
+   round 5 if the first session's timer ends before them.
+
+Read `gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log` (`swap N returned`, `priming swap`, `gap`).
 
 ### What the ninth gate's lines were
 
@@ -318,3 +331,88 @@ after the previous one. [INFERENCE: whether something periodic, in the shell cli
 and one mid-run); the client's side is within LG's 4-7 in every run. Trial: FAIL (start-up of the shell). Full gate: every
 check but x1 passed (standby and homekey in a run of their own; frames PASS), so the blockers for go-live are the late flips
 at a client's start (the shell's in the trial, x1's in run 2) and one mid-run late client commit.
+
+### Round 6 changes (offline, 2026-10-27): the shell's start, x1's start, the toast
+
+Nothing of this has run on the set. Facts marked [INFERENCE] were not observed there.
+
+**The trial's six misses are the shell client's start at the loop's own priority.** `shell_spawn` ran `Command::spawn` on
+the loop thread: 23 ms between `shell: starting the client` (60084.176) and `shell: client started` (.199), the `loop: 24.5
+ms in one pass (tick)` beside them (the fork and the exec of a 32-bit Qt process, the parent waiting for the exec). The
+child inherited the loop's class: a fork keeps SCHED_FIFO 20 unless the parent set `SCHED_RESET_ON_FORK`, and the
+`setpriority(10)` in the child sets a nice level that class ignores. So qml-runner started, loaded its QML and drew its
+first frames (buffers 95, 108, 109 at 60 fps from 60084.805 to about 60090) level with the loop and ahead of the Mali
+blob's submission threads (FIFO 19) and of every kernel worker, the DRM commit work included; the `lumatv-shell-http` thread
+(spawned after the switch) was FIFO 20 as well. The lines: the 55.2 ms `clients draw-now` pass is Home's second swapchain
+buffer (63, WebAppMgr's surface 80, not the shell's) prepared 41 ms after qml-runner's exec, `import 1.1 ms, warm draw
+submitted in 4.7 ms` (the usual 0.3 and 0.2-0.3) and then 48 ms with nothing logged before the tick's poll found the fence
+done: the loop, or the driver's thread it waited on, was off the CPU [INFERENCE on which; `prepare` had returned at .246].
+Of the six `page-flip stamp` lines, two are frames the GPU returned late while qml-runner's first frames ran on it (`gpu
+done` 13.6 and 11.9 ms at 60084.382 and 60086.434 against 4.7 in a run), one is a flip the kernel made a refresh late with
+the fence 5.4 ms before the vblank (60086.200: frame drawn at .173, GPU done at .178, refresh .183, flipped .200), one is the
+refresh lost after that one and the next (.217, `gpu done` 11.6 ms) had both landed a refresh late (60086.250), one is a
+commit 10 ms after a flip, drawn at once, whose frame took 10.8 ms (60085.717: the refresh 7 ms away was out of reach and the
+judge counted it from a typical 4.7 ms frame), and one is a commit drawn 6 ms before its refresh with a 5.6 ms GPU time,
+0.7 ms short (60089.603).
+
+**x1's two stamps at its mapping (run 2)** are one late frame counted twice. The client's first commit (60413.319) was
+drawn at once for the refresh 8 ms away (`reachable` in `plan()`: 4.7 ms typical and 0.5 ms lead), its GPU took 6.1 ms
+beside X1's own first frames, the fence was 2.4 ms before the vblank and the flip went a refresh late (.345). The second
+frame, planned for the slot after it while it was on its way, landed one refresh after it (.362), the soonest it could: the
+pacer had already moved its timeline on by one for the first landing, then judged the second against its old slot, moved
+on again, and aimed the next frame at .394 with the .377 refresh reachable (`tick 42.7 ms after the last drawing tick`,
+`page-flip stamp 33.37` at .395). The same two stamps are at X1's mapping on every round since the fifth gate. **The late
+commit at about 55 s** (run 2 after 3310 steady frames, the full gate after 3303) came 13 ms after the callback (4 ms
+usual) with the compositor's flips on the grid, its loop thread's run-queue wait 5.3-5.8 ms over the run and no stall:
+the client lost the CPU to something above it. The shell client was above it (FIFO 20, its 25 s long poll and its 1 s
+report timer the periodic work it has while idle) [INFERENCE: the trace ran out 90 flips in; what ran at that moment is
+not in the slot]. Its `late` is the frame drawn for that commit: 10 ms after the previous flip, the next refresh 6.7 ms
+away, the GPU asleep (`lost 0` from the pacer, `missed` from the judge's typical frame). If the gap comes again at the
+same phase with the shell client time-shared, it is LG's.
+
+**The toast's 44-52 ms** are a window made per toast: the shell's `sysWin` was `visible: sysLive`, so Qt destroyed its
+surface, its EGL window and its three 8.6 MB CMA buffers at every close and made them again at the next toast, and the
+compositor paid a window, three imports and three warms before the first frame (the trial's one mapping of the layer:
+the type property at 60092.823, the first commit at .840, three `warm:` lines of 3.7, 8.7 and 7.4 ms, the first two
+frames stood in for).
+
+Changes:
+
+- Scheduling (`sched.rs`): the loop's class is `SCHED_FIFO | SCHED_RESET_ON_FORK`, so every thread and process it creates
+  starts time-shared; `time_shared()` and its calls in the PNG and control threads are gone (the flag does it). The Mali
+  threads get the flag too. `describe()` masks the flag the kernel reports with the policy.
+- The shell's start (`shell.rs`): `shell_spawn` hands a `SpawnJob` (the runner, the paths, the module lookup) to a
+  `shell-spawn` thread and returns; the child arrives through a channel at a later tick (`shell_take_spawned`: `shell:
+  client started, pid N`), `spawning` keeps a second start from being asked meanwhile, a failed start waits 10 s as
+  before. The child is time-shared by the flag and nice 10 by the `pre_exec`; `PR_SET_PDEATHSIG` stays.
+- The system layer stays mapped (`shell/Shell.qml`, `scene.rs`, `shell.rs`): `sysWin` is visible from two seconds after
+  Home loaded (`sysWarm`) and walks its three buffers once with an 80 ms animation of an invisible item, so the compositor
+  imports and warms them while nothing shows. The UI report carries `live` (`sysLive`, pushed on change); the scene leaves
+  the layer's window out of the stack while the shell says it is not live (an app's buffer goes to the plane whole as
+  before), and brings it back quietly: the join itself damages nothing, the layer's next commit is the frame that shows
+  it. A commit of the idle layer in the 100 ms before `live` (the frame ahead of its word on the channel) makes the join
+  draw at once instead. `ctl shell` reads `systemLive`; `live` defaults to true for a shell that never says.
+- The pacer's timeline (`kms/timing.rs`, `kms/mod.rs`): a landing's shift (`Landed::shift_ns`, `late` refreshes) moves the
+  slot of the frame queued behind it (`Timing::shift`), so that frame is judged against the moved timeline.
+- The missed-refresh judge (`kms/timing.rs`): a skipped refresh counts as missed when the content was in early enough for
+  the frame as it cost (its own pipeline, the GPU's finish included, as the pacer's `lost` reads it), no longer for a
+  typical frame: a lone frame on a GPU asleep costs 10-11 ms, and a commit 7 ms before a refresh cannot make it.
+- The GPU's priority (`render/egl.rs`): the context is made at `EGL_CONTEXT_PRIORITY_REALTIME_NV`, else
+  `EGL_CONTEXT_PRIORITY_HIGH_IMG`, else the default, by the extensions the blob lists (the set's lists both,
+  `arch/x2-run-01-logs.txt`); the level granted is logged (`egl: context priority realtime (asked for realtime)`). The
+  compositor's draws and warm draws go ahead of the clients' jobs on the GPU, where the 6-14 ms frames of a client's start
+  came from [INFERENCE: that the blob honours the level on the set; the line says].
+
+Host tests: `sched::tests::what_a_fifo_loop_thread_spawns_is_time_shared` (a thread and a `sleep` the FIFO thread spawns
+are both SCHED_OTHER; skips where SCHED_FIFO is refused, as in the workstation's container, and says so),
+`shell::tests::the_client_is_started_off_the_loop_and_arrives_at_a_later_tick` (the tick that starts the client returns
+without it; a later tick has it, one start counted; fails on the old code with the child set in the first tick),
+`standin.rs::a_first_buffers_warm_holds_the_frame_and_no_pass_of_the_loop` (a first buffer the driver stays busy with: five
+ticks each return at once with the frame held and the callback kept, the frame drawn once the driver is done),
+`shell.rs::the_system_layer_is_drawn_only_while_live_and_joins_without_a_frame_of_its_own`,
+`kms::timing::tests::a_frame_planned_behind_a_late_one_moves_with_the_timeline_and_is_not_late_twice` (fails on the old
+code: the third frame lands a refresh early, aimed one too far), `a_skip_after_a_frame_that_paid_the_gpus_wake_up_is_not_
+missed`. Expected on the set: the trial without the start-up misses (the client's start no longer outranks anything),
+x1 without the second stamp at its mapping (the first is a late frame, not a skip, once the GPU takes the compositor's
+draw first), the toast's first frame at a frame's cost (20-35 ms from the delivery: the client's render, the compositor's
+draw at once, the refresh).
