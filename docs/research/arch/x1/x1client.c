@@ -152,6 +152,22 @@ int main(int argc, char **argv) {
     printf("[x1] window %dx%d type %s, %d s, starting at monotonic %.3f\n", W, H, wtype, seconds, now_s());
     fflush(stdout);
 
+    // The swapchain is primed before the clock starts: the blob's swap blocks only for a free buffer, so the fourth swap
+    // waits for the compositor's first release, which comes once the first frame is on the panel (up to a refresh of
+    // vblank phase), the client has sent its second commit and a tick has drawn it. That wait is the client's own
+    // swapchain filling, not a frame the compositor delivered late, and it counted as a 20-27 ms gap on the tenth gate.
+    // X1_PRIME (default 4) swaps are drawn and left out of the gaps; 0 measures from the first swap as before.
+    int prime = getenv("X1_PRIME") ? atoi(getenv("X1_PRIME")) : 4;
+    double tp = now_s();
+    for (int i = 0; i < prime; i++) {
+        glViewport(0, 0, W, H); glDisable(0x0C11); glClearColor(0.08f, 0.08f, 0.10f, 1.0f); glClear(0x4000);
+        if (!eglSwapBuffers(d, es)) { printf("[x1] swap failed 0x%x\n", eglGetError()); return 7; }
+        wl_display_dispatch_pending(dpy);
+        printf("[x1] priming swap %d returned at monotonic %.3f\n", i + 1, now_s());
+    }
+    if (prime) printf("[x1] primed: %d swaps in %.1f ms before the clock\n", prime, (now_s() - tp) * 1000);
+    fflush(stdout);
+
     // Bins of swap-to-swap gaps: <=17 ms (on time), 17-20, 20-33, >33; worst; a per-second line for the harness.
     double t0 = now_s(), last = t0, worst = 0, sec_mark = t0; int frames = 0, b17 = 0, b20 = 0, b33 = 0, b_over = 0, sec_frames = 0;
     while (now_s() - t0 < seconds && !closed) {

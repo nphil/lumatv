@@ -159,6 +159,13 @@ pub struct Kms {
     /// tick polls for the warm's end instead of waiting for the next fixed tick (up to a refresh on the eighth and
     /// ninth gates: a client's first frame reached the panel a refresh late for it).
     held: bool,
+    /// The slot the last paced tick was latched for and how long before its refresh it fired: the latch moves later
+    /// by at most `LATCH_STEP_NS` per slot (`next_frame_at`), since a client whose swaps follow the compositor's
+    /// buffer releases, one per tick, sees a tick that comes 4 ms later than the last as a 20 ms gap.
+    latch: std::cell::Cell<(u64, u64)>,
+    /// When the last frame was drawn (CLOCK_MONOTONIC ns), for the `trace: tick` line on a long interval.
+    last_draw_ns: u64,
+    tick_lines: u32,
     pub direct_frames: u64,
     pub split_frames: u64,
     /// Flips the loop handled more than 3 ms after they landed (their callbacks went out that late), those over 1 ms,
@@ -182,6 +189,14 @@ const GRID_MEMORY_NS: u64 = 180_000_000_000;
 /// What an idle tick leaves between its frame being ready and the refresh: the pacer's own lead and slack (`FLIP_LEAD_NS`
 /// and `SLACK_NS` in `pacer.rs`), so a frame drawn by it can still make the refresh when it costs more than usual.
 const IDLE_LEAD_NS: u64 = 6_000_000;
+/// The most of the recent frames' typical pipeline the idle tick budgets for: frames drawn on an idle GPU pay its
+/// wake-up (10-11 ms against 4.7 in a run on the tenth gate), and a budget of their size put the idle tick right after
+/// a refresh, so a commit arriving a millisecond later waited a whole one.
+const IDLE_TYPICAL_CAP_NS: u64 = 6_000_000;
+/// How much later than the last one a paced tick may be latched per slot. The pacer's latch is the refresh less the
+/// slowest recent pipeline and its slack: one slow frame leaving the window moves it 3-4 ms later at once, and the
+/// client's swaps (its buffer releases, one per tick) showed that as gaps of 20.7 and 20.9 ms on the tenth gate.
+const LATCH_STEP_NS: u64 = 1_000_000;
 
 fn other(msg: impl Into<String>) -> io::Error {
     io::Error::other(msg.into())
@@ -362,6 +377,9 @@ impl Kms {
             in_flight: None,
             in_run: false,
             held: false,
+            latch: std::cell::Cell::new((0, 0)),
+            last_draw_ns: 0,
+            tick_lines: 0,
             direct_frames: 0,
             split_frames: 0,
             flips_reached_late: 0,
@@ -763,6 +781,27 @@ impl Output for Kms {
             return None;
         }
         let latch = self.timing.pacer.latch_at(now_ns);
+        // The latch as a lead before the refresh it aims at, moved later by at most a step per slot; a call for the
+        // same slot keeps the lead it settled on.
+        let slot = self.timing.pacer.next_slot_ns();
+        let latch = match self.timing.pacer.phase_ns() {
+            Some(phase) => {
+                let display = (slot as i64 + phase).max(0) as u64;
+                let mut lead = display.saturating_sub(latch);
+                let (last_slot, last_lead) = self.latch.get();
+                if last_slot == slot {
+                    lead = last_lead;
+                } else if last_slot != 0 && lead + LATCH_STEP_NS < last_lead {
+                    lead = last_lead - LATCH_STEP_NS;
+                }
+                self.latch.set((slot, lead));
+                display.saturating_sub(lead).max(now_ns)
+            }
+            None => latch,
+        };
+        if self.trace_left > 0 {
+            log::info!("trace: next tick at {:.3} (latch, {:.1} ms before the refresh at {:.3})", latch as f64 / 1e9, self.latch.get().1 as f64 / 1e6, (slot as i64 + self.timing.pacer.phase_ns().unwrap_or(0)) as f64 / 1e9);
+        }
         Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
     }
 
@@ -776,8 +815,11 @@ impl Output for Kms {
     /// and third frames landed a refresh apart from where they should have and the client's cadence slipped with them.
     fn idle_tick_at(&self, now: Instant) -> Option<Instant> {
         let now_ns = self.now_ns();
-        let budget = self.timing.pacer.forecast().typical_ns + IDLE_LEAD_NS;
+        let budget = self.timing.pacer.forecast().typical_ns.min(IDLE_TYPICAL_CAP_NS) + IDLE_LEAD_NS;
         let latch = self.timing.grid_latch_ns(now_ns, budget, GRID_MEMORY_NS)?;
+        if self.trace_left > 0 {
+            log::info!("trace: idle tick at {:.3} on the grid ({:.1} ms before the refresh)", latch as f64 / 1e9, budget as f64 / 1e6);
+        }
         Some(now + Duration::from_nanos(latch.saturating_sub(now_ns)))
     }
 
@@ -892,6 +934,13 @@ impl Output for Kms {
         if !self.pending_flip && !self.flowing(now) {
             self.gl.bury();
         }
+        // A drawing tick well over a refresh after the last while frames follow one another: the client's releases
+        // (its swaps) stretch with it. Logged while the run is paced, 200 lines at most.
+        if self.last_draw_ns != 0 && self.flowing(now) && now - self.last_draw_ns > 18_500_000 && self.tick_lines < 200 {
+            self.tick_lines += 1;
+            log::info!("trace: tick {:.1} ms after the last drawing tick (latch lead {:.1} ms)", (now - self.last_draw_ns) as f64 / 1e6, self.latch.get().1 as f64 / 1e6);
+        }
+        self.last_draw_ns = now;
         let slot_ns = self.timing.pacer.plan(now).slot_ns;
         // A frame still waiting behind the flip in flight is superseded by this one: its page is drawn again (the
         // ring owes it the damage since its own drawing) and it never goes out. Pages: one scanning out, one whose
@@ -950,6 +999,9 @@ impl Output for Kms {
         self.seq += 1;
         let Some(a) = self.last_assignment.take() else {
             // Nothing drawn: the planes keep what they show; no commit, no flip; the run is over.
+            if self.trace_left > 0 {
+                log::info!("trace: tick at {:.3} drew nothing", self.now_ns() as f64 / 1e9);
+            }
             self.in_run = false;
             return Ok(Presented { seq: self.seq, at_ms, ..Default::default() });
         };

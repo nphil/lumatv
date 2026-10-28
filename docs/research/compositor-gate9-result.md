@@ -104,14 +104,16 @@ steady frames, with its `flip reached 3.4 ms after it landed` line beside it.
 
 ### Resume here
 
-State (2026-10-27): rounds 1 and 2 are on the set (below); round 3's changes are built and host-tested (`cargo test`,
+State (2026-10-27): rounds 1 to 3 are on the set (below); round 4's changes are built and host-tested (`cargo test`,
 the same with `--features ui`, clippy clean both ways, `cargo check --target aarch64-unknown-linux-gnu`, `python3 -m
 unittest test_cutover` from `tests/`), not yet on the set. The go-live configuration has CompShell's shell client up
 (`org.nphil.lumatv.shell`, run by the compositor from the state dir's `shell/Shell.qml`), and the x1 check and the trial
-must pass with it: its idle rendering is CompShell's to stop (Main, 2026-10-27). Next, once CompShell's idle fix is
-pushed too: one deploy (Face ID: bundle deploy and `cutover install`), the trial (`cutover.sh trial 120`) and
-`python3 compositor/tools/tv_gate.py --only x1` three times; read `gate/x1-compositor.txt` (`trace:`, `warm:`,
-`standin:`) against `x1.log` (`swap N returned`, `gap`), and record the round under "Rounds".
+must pass with it. Next (Main, 2026-10-27): one Face ID for the ipk, the bundle deploy and `cutover install` from one
+HEAD with CompShell's `04e9fd3`; then `tv_gate.py --only shell`, `--only keys,ime,shell,frames`, the trial
+(`cutover.sh trial 120`), x1 three times, and the parity run (the X1 probe's first swaps under LG's compositor:
+`X1_PRIME=0` with LG's live, before the session) that decides whether the probe primes its swapchain (`X1_PRIME`,
+default 4 only with that evidence). Read `gate/x1-compositor.txt` (`trace:`, `warm:`, `standin:`) against `x1.log`
+(`swap N returned`, `priming swap`, `gap`), and record the round under "Rounds".
 
 ### What the ninth gate's lines were
 
@@ -219,3 +221,30 @@ Round 3 changes (`kms/mod.rs`, `kms/timing.rs`, `output.rs`, `main.rs`, `render/
   `warm:` lines say `seen done ... (polled at the ticks)` as in round 1.
 - The X1 probe's heap shim allocates the swapchain's three buffers at the first request (inside the first swap, which no
   gap is measured from) and serves the next two from that pool.
+
+**Round 3, 2026-10-27 21:20, commit `fae341e` (`compositor/slot-2026-10-27-1820/`), the shell client up (CompShell's
+`9514551`: its Home tick held while covered, qml-runner at nice 10, started once SAM's Home mapped).** Trial FAIL on one
+missed refresh in the first second: the frame drawn at 49123.489 (GPU done 5 ms later) flipped two refreshes late at
+.532 while qml-runner started (`loop: 15.9 ms in one pass (tick)` in the shell's start, its first frames' GPU work:
+the next frame's GPU took 30.8 ms); the other 122 s clean, 102 odd stamps from the shell's 10 Hz wallpaper tick on Home
+alone, none missed. x1 FAIL three times with 3, 5 and 3 gaps over 20 ms (59.93, 59.89, 59.92 fps); the compositor side
+clean in runs 1 and 3 (`over 20 ms 0`, `late` unchanged, loop and `mali-cmar-backe` run-queue waits 3-4 ms), one missed
+refresh in run 2 (`late` 1 to 3). What the traces show: (1) the client's fourth swap (26.9, 43.8, 32.8 ms) is its
+swapchain filling: with the three buffers pre-allocated the first three swaps return at once and the fourth waits for
+the compositor's first buffer release, which follows the first frame's callback (a refresh of vblank phase), the
+client's second commit (2-6 ms) and the tick that draws it; (2) 2-3 gaps at swaps 5-13 from the first frames' timing: a
+latch tick that fired a millisecond before the commit drew nothing, which ended the pacer's run, and the idle tick that
+followed was budgeted for the 10-11 ms pipeline of frames drawn on an idle GPU, so the commit waited 14 ms for it;
+(3) 1-2 mid-run gaps of 20-21 ms with the compositor's flips regular: the client's swaps follow the compositor's buffer
+releases, one per tick, and the latch moved 3-4 ms later in one step when a slow frame left the pacer's window.
+
+Round 4 changes (`kms/mod.rs`, `arch/x1/x1client.c`):
+
+- The latch moves later by at most 1 ms per slot (`LATCH_STEP_NS`): the lead before the refresh is remembered per slot
+  and a smaller one is approached a step at a time (earlier is free).
+- The idle tick's budget caps the typical pipeline at 6 ms (`IDLE_TYPICAL_CAP_NS`) before the 6 ms lead.
+- The trace also has each tick that drew nothing, each latch decision (`trace: next tick at T (latch, L ms before the
+  refresh at R)`), each idle tick on the grid, and a drawing tick over 18.5 ms after the last (`trace: tick N ms after
+  the last drawing tick`, 200 at most, run or no run of the start-up trace).
+- The X1 probe primes its swapchain with `X1_PRIME` swaps (default 4) before its clock and prints `primed: N swaps in
+  M ms before the clock`; `X1_PRIME=0` measures from the first swap as before.

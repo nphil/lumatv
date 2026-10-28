@@ -1,0 +1,381 @@
+[srv  49610.876] info trace: commit of buffer 10 at 49610.876 (new: warming)
+[srv  49610.877] info standin: surface 205 keeps the last frame's content while its new buffer warms
+[srv  49610.877] info trace: drew at 49610.877 for slot 49610.847 (on the panel at 49610.886): items 2, stood in 1, render 238 us
+[srv  49610.877] info trace: committed at 49610.877: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49610.883] info trace: commit of buffer 108 at 49610.883
+[srv  49610.894] info warm: driver buffer 10 1920x1080: import 0.2 ms, warm draw submitted in 0.2 ms, its fence seen done 17.2 ms after (polled at the ticks)
+[srv  49610.894] info trace: drew at 49610.894 for slot 49610.864 (on the panel at 49610.903): items 2, stood in 0, render 238 us
+[srv  49610.894] info trace: frame queued at 49610.894 behind the flip in flight
+[srv  49610.904] info trace: flip at 49610.904 (+0.1 ms to reach): frame drawn at 49610.877 for slot 49610.847, late 1 lost 1, gpu done 10.6 ms after the draw
+[srv  49610.905] info trace: committed at 49610.905: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49610.906] info trace: commit of buffer 12 at 49610.906 (new: warming)
+[srv  49610.920] info warm: driver buffer 12 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence seen done 14.3 ms after (polled at the ticks)
+[srv  49610.920] info trace: drew at 49610.920 for slot 49610.897 (on the panel at 49610.936): items 2, stood in 0, render 222 us
+[srv  49610.920] info trace: frame queued at 49610.920 behind the flip in flight
+[srv  49610.921] info trace: flip at 49610.921 (+0.1 ms to reach): frame drawn at 49610.894 for slot 49610.864, late 1 lost 0, gpu done 10.9 ms after the draw
+[srv  49610.921] info trace: committed at 49610.921: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49610.938] info trace: flip at 49610.938 (+0.1 ms to reach): frame drawn at 49610.920 for slot 49610.897, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49610.939] info trace: commit of buffer 13 at 49610.939 (new: warming)
+[srv  49610.953] info warm: driver buffer 13 1920x1080: import 0.3 ms, warm draw submitted in 0.2 ms, its fence seen done 14.5 ms after (polled at the ticks)
+[srv  49610.953] info trace: drew at 49610.953 for slot 49610.931 (on the panel at 49610.970): items 2, stood in 0, render 204 us
+[srv  49610.954] info trace: committed at 49610.954: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49610.971] info trace: flip at 49610.971 (+0.0 ms to reach): frame drawn at 49610.953 for slot 49610.931, late 0 lost 1, gpu done 4.6 ms after the draw
+[srv  49610.971] info kms: page-flip stamp 33.36 ms after the last (one refresh is 16.67)
+[srv  49610.971] info trace: commit of buffer 10 at 49610.971
+[srv  49610.972] info trace: drew at 49610.972 for slot 49610.947 (on the panel at 49610.987): items 2, stood in 0, render 203 us
+[srv  49610.972] info trace: committed at 49610.972: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49610.988] info trace: flip at 49610.988 (+0.1 ms to reach): frame drawn at 49610.972 for slot 49610.947, late 0 lost 0, gpu done 4.5 ms after the draw
+[srv  49610.988] info trace: commit of buffer 12 at 49610.988
+[srv  49610.989] info trace: drew at 49610.988 for slot 49610.964 (on the panel at 49611.003): items 2, stood in 0, render 323 us
+[srv  49610.989] info trace: committed at 49610.989: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.005] info trace: flip at 49611.005 (+0.0 ms to reach): frame drawn at 49610.988 for slot 49610.964, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.005] info trace: commit of buffer 13 at 49611.005
+[srv  49611.005] info trace: drew at 49611.005 for slot 49610.981 (on the panel at 49611.020): items 2, stood in 0, render 219 us
+[srv  49611.005] info trace: committed at 49611.005: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.021] info trace: flip at 49611.021 (+0.0 ms to reach): frame drawn at 49611.005 for slot 49610.981, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.022] info trace: commit of buffer 10 at 49611.022
+[srv  49611.022] info trace: drew at 49611.022 for slot 49610.997 (on the panel at 49611.037): items 2, stood in 0, render 206 us
+[srv  49611.022] info trace: committed at 49611.022: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.038] info trace: flip at 49611.038 (+0.0 ms to reach): frame drawn at 49611.022 for slot 49610.997, late 0 lost 0, gpu done 4.5 ms after the draw
+[srv  49611.038] info trace: commit of buffer 12 at 49611.038
+[srv  49611.039] info trace: drew at 49611.038 for slot 49611.014 (on the panel at 49611.054): items 2, stood in 0, render 214 us
+[srv  49611.039] info trace: committed at 49611.039: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.055] info trace: flip at 49611.055 (+0.0 ms to reach): frame drawn at 49611.038 for slot 49611.014, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.055] info trace: commit of buffer 13 at 49611.055
+[srv  49611.055] info trace: drew at 49611.055 for slot 49611.031 (on the panel at 49611.070): items 2, stood in 0, render 213 us
+[srv  49611.055] info trace: committed at 49611.055: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.071] info trace: flip at 49611.071 (+0.0 ms to reach): frame drawn at 49611.055 for slot 49611.031, late 0 lost 0, gpu done 4.5 ms after the draw
+[srv  49611.072] info trace: commit of buffer 10 at 49611.072
+[srv  49611.072] info trace: drew at 49611.072 for slot 49611.047 (on the panel at 49611.087): items 2, stood in 0, render 213 us
+[srv  49611.072] info trace: committed at 49611.072: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.088] info trace: flip at 49611.088 (+0.1 ms to reach): frame drawn at 49611.072 for slot 49611.047, late 0 lost 0, gpu done 4.5 ms after the draw
+[srv  49611.088] info trace: commit of buffer 12 at 49611.088
+[srv  49611.093] info trace: drew at 49611.093 for slot 49611.064 (on the panel at 49611.104): items 2, stood in 0, render 216 us
+[srv  49611.094] info trace: committed at 49611.094: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.105] info trace: flip at 49611.105 (+0.0 ms to reach): frame drawn at 49611.093 for slot 49611.064, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.105] info trace: commit of buffer 13 at 49611.105
+[srv  49611.110] info trace: drew at 49611.110 for slot 49611.081 (on the panel at 49611.120): items 2, stood in 0, render 207 us
+[srv  49611.110] info trace: committed at 49611.110: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.121] info trace: flip at 49611.121 (+0.0 ms to reach): frame drawn at 49611.110 for slot 49611.081, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.122] info trace: commit of buffer 10 at 49611.122
+[srv  49611.127] info trace: drew at 49611.127 for slot 49611.097 (on the panel at 49611.137): items 2, stood in 0, render 206 us
+[srv  49611.127] info trace: committed at 49611.127: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.138] info trace: flip at 49611.138 (+0.0 ms to reach): frame drawn at 49611.127 for slot 49611.097, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.138] info trace: commit of buffer 12 at 49611.138
+[srv  49611.144] info trace: drew at 49611.143 for slot 49611.114 (on the panel at 49611.154): items 2, stood in 0, render 211 us
+[srv  49611.144] info trace: committed at 49611.144: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.155] info trace: flip at 49611.155 (+0.0 ms to reach): frame drawn at 49611.143 for slot 49611.114, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.155] info trace: commit of buffer 13 at 49611.155
+[srv  49611.160] info trace: drew at 49611.160 for slot 49611.131 (on the panel at 49611.171): items 2, stood in 0, render 210 us
+[srv  49611.161] info trace: committed at 49611.161: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.171] info trace: flip at 49611.171 (+0.0 ms to reach): frame drawn at 49611.160 for slot 49611.131, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.172] info trace: commit of buffer 10 at 49611.172
+[srv  49611.177] info trace: drew at 49611.177 for slot 49611.147 (on the panel at 49611.187): items 2, stood in 0, render 224 us
+[srv  49611.177] info trace: committed at 49611.177: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.188] info trace: flip at 49611.188 (+0.1 ms to reach): frame drawn at 49611.177 for slot 49611.147, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.188] info trace: commit of buffer 12 at 49611.188
+[srv  49611.194] info trace: drew at 49611.193 for slot 49611.164 (on the panel at 49611.204): items 2, stood in 0, render 220 us
+[srv  49611.194] info trace: committed at 49611.194: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.205] info trace: flip at 49611.205 (+0.0 ms to reach): frame drawn at 49611.193 for slot 49611.164, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.205] info trace: commit of buffer 13 at 49611.205
+[srv  49611.210] info trace: drew at 49611.210 for slot 49611.181 (on the panel at 49611.221): items 2, stood in 0, render 222 us
+[srv  49611.211] info trace: committed at 49611.211: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.221] info trace: flip at 49611.221 (+0.1 ms to reach): frame drawn at 49611.210 for slot 49611.181, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.222] info trace: commit of buffer 10 at 49611.222
+[srv  49611.227] info trace: drew at 49611.227 for slot 49611.197 (on the panel at 49611.237): items 2, stood in 0, render 233 us
+[srv  49611.227] info trace: committed at 49611.227: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.238] info trace: flip at 49611.238 (+0.1 ms to reach): frame drawn at 49611.227 for slot 49611.197, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.238] info trace: commit of buffer 12 at 49611.238
+[srv  49611.244] info trace: drew at 49611.244 for slot 49611.214 (on the panel at 49611.254): items 2, stood in 0, render 222 us
+[srv  49611.244] info trace: committed at 49611.244: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.255] info trace: flip at 49611.255 (+0.1 ms to reach): frame drawn at 49611.244 for slot 49611.214, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.255] info trace: commit of buffer 13 at 49611.255
+[srv  49611.261] info trace: drew at 49611.260 for slot 49611.231 (on the panel at 49611.271): items 2, stood in 0, render 216 us
+[srv  49611.261] info trace: committed at 49611.261: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.271] info trace: flip at 49611.271 (+0.1 ms to reach): frame drawn at 49611.260 for slot 49611.231, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.272] info trace: commit of buffer 10 at 49611.272
+[srv  49611.277] info trace: drew at 49611.277 for slot 49611.247 (on the panel at 49611.288): items 2, stood in 0, render 226 us
+[srv  49611.277] info trace: committed at 49611.277: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.288] info trace: flip at 49611.288 (+0.1 ms to reach): frame drawn at 49611.277 for slot 49611.247, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.290] info trace: commit of buffer 12 at 49611.290
+[srv  49611.294] info trace: drew at 49611.294 for slot 49611.264 (on the panel at 49611.304): items 2, stood in 0, render 219 us
+[srv  49611.294] info trace: committed at 49611.294: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.305] info trace: flip at 49611.305 (+0.1 ms to reach): frame drawn at 49611.294 for slot 49611.264, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.305] info trace: commit of buffer 13 at 49611.305
+[srv  49611.311] info trace: drew at 49611.310 for slot 49611.281 (on the panel at 49611.321): items 2, stood in 0, render 220 us
+[srv  49611.311] info trace: committed at 49611.311: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.322] info trace: flip at 49611.321 (+0.0 ms to reach): frame drawn at 49611.310 for slot 49611.281, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.322] info trace: commit of buffer 10 at 49611.322
+[srv  49611.327] info trace: drew at 49611.327 for slot 49611.297 (on the panel at 49611.338): items 2, stood in 0, render 210 us
+[srv  49611.327] info trace: committed at 49611.327: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.338] info trace: flip at 49611.338 (+0.1 ms to reach): frame drawn at 49611.327 for slot 49611.297, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.339] info trace: commit of buffer 12 at 49611.339
+[srv  49611.344] info trace: drew at 49611.344 for slot 49611.314 (on the panel at 49611.354): items 2, stood in 0, render 220 us
+[srv  49611.344] info trace: committed at 49611.344: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.355] info trace: flip at 49611.355 (+0.1 ms to reach): frame drawn at 49611.344 for slot 49611.314, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.355] info trace: commit of buffer 13 at 49611.355
+[srv  49611.361] info trace: drew at 49611.360 for slot 49611.331 (on the panel at 49611.371): items 2, stood in 0, render 220 us
+[srv  49611.361] info trace: committed at 49611.361: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.372] info trace: flip at 49611.372 (+0.1 ms to reach): frame drawn at 49611.360 for slot 49611.331, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.372] info trace: commit of buffer 10 at 49611.372
+[srv  49611.377] info trace: drew at 49611.377 for slot 49611.347 (on the panel at 49611.388): items 2, stood in 0, render 236 us
+[srv  49611.378] info trace: committed at 49611.378: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49611.388] info trace: flip at 49611.388 (+0.1 ms to reach): frame drawn at 49611.377 for slot 49611.347, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.389] info trace: commit of buffer 12 at 49611.389
+[srv  49611.394] info trace: drew at 49611.394 for slot 49611.364 (on the panel at 49611.404): items 2, stood in 0, render 278 us
+[srv  49611.394] info trace: committed at 49611.394: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49611.405] info trace: flip at 49611.405 (+0.1 ms to reach): frame drawn at 49611.394 for slot 49611.364, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.405] info trace: commit of buffer 13 at 49611.405
+[srv  49611.411] info trace: drew at 49611.410 for slot 49611.381 (on the panel at 49611.421): items 2, stood in 0, render 262 us
+[srv  49611.411] info trace: committed at 49611.411: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.422] info trace: flip at 49611.422 (+0.1 ms to reach): frame drawn at 49611.410 for slot 49611.381, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.422] info trace: commit of buffer 10 at 49611.422
+[srv  49611.427] info trace: drew at 49611.427 for slot 49611.397 (on the panel at 49611.438): items 2, stood in 0, render 236 us
+[srv  49611.428] info trace: committed at 49611.428: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.438] info trace: flip at 49611.438 (+0.1 ms to reach): frame drawn at 49611.427 for slot 49611.397, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.439] info trace: commit of buffer 12 at 49611.439
+[srv  49611.444] info trace: drew at 49611.444 for slot 49611.414 (on the panel at 49611.455): items 2, stood in 0, render 244 us
+[srv  49611.444] info trace: committed at 49611.444: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49611.455] info trace: flip at 49611.455 (+0.1 ms to reach): frame drawn at 49611.444 for slot 49611.414, late 0 lost 0, gpu done 4.9 ms after the draw
+[srv  49611.455] info trace: commit of buffer 13 at 49611.455
+[srv  49611.461] info trace: drew at 49611.460 for slot 49611.431 (on the panel at 49611.471): items 2, stood in 0, render 252 us
+[srv  49611.461] info trace: committed at 49611.461: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49611.472] info trace: flip at 49611.472 (+0.1 ms to reach): frame drawn at 49611.460 for slot 49611.431, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49611.472] info trace: commit of buffer 10 at 49611.472
+[srv  49611.477] info trace: drew at 49611.477 for slot 49611.447 (on the panel at 49611.488): items 2, stood in 0, render 220 us
+[srv  49611.478] info trace: committed at 49611.478: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.488] info trace: flip at 49611.488 (+0.1 ms to reach): frame drawn at 49611.477 for slot 49611.447, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.489] info trace: commit of buffer 12 at 49611.489
+[srv  49611.494] info trace: drew at 49611.494 for slot 49611.464 (on the panel at 49611.505): items 2, stood in 0, render 229 us
+[srv  49611.494] info trace: committed at 49611.494: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.505] info trace: flip at 49611.505 (+0.1 ms to reach): frame drawn at 49611.494 for slot 49611.464, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.505] info trace: commit of buffer 13 at 49611.505
+[srv  49611.511] info trace: drew at 49611.510 for slot 49611.481 (on the panel at 49611.521): items 2, stood in 0, render 218 us
+[srv  49611.511] info trace: committed at 49611.511: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.522] info trace: flip at 49611.522 (+0.1 ms to reach): frame drawn at 49611.510 for slot 49611.481, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.522] info trace: commit of buffer 10 at 49611.522
+[srv  49611.527] info trace: drew at 49611.527 for slot 49611.497 (on the panel at 49611.538): items 2, stood in 0, render 219 us
+[srv  49611.528] info trace: committed at 49611.528: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.538] info trace: flip at 49611.538 (+0.1 ms to reach): frame drawn at 49611.527 for slot 49611.497, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.539] info trace: commit of buffer 12 at 49611.539
+[srv  49611.544] info trace: drew at 49611.544 for slot 49611.514 (on the panel at 49611.555): items 2, stood in 0, render 224 us
+[srv  49611.544] info trace: committed at 49611.544: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.555] info trace: flip at 49611.555 (+0.1 ms to reach): frame drawn at 49611.544 for slot 49611.514, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.555] info trace: commit of buffer 13 at 49611.555
+[srv  49611.561] info trace: drew at 49611.561 for slot 49611.531 (on the panel at 49611.571): items 2, stood in 0, render 217 us
+[srv  49611.561] info trace: committed at 49611.561: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49611.572] info trace: flip at 49611.572 (+0.0 ms to reach): frame drawn at 49611.561 for slot 49611.531, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.572] info trace: commit of buffer 10 at 49611.572
+[srv  49611.578] info trace: drew at 49611.577 for slot 49611.547 (on the panel at 49611.588): items 2, stood in 0, render 224 us
+[srv  49611.578] info trace: committed at 49611.578: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.588] info trace: flip at 49611.588 (+0.1 ms to reach): frame drawn at 49611.577 for slot 49611.547, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.589] info trace: commit of buffer 12 at 49611.589
+[srv  49611.594] info trace: drew at 49611.594 for slot 49611.564 (on the panel at 49611.605): items 2, stood in 0, render 220 us
+[srv  49611.595] info trace: committed at 49611.595: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.605] info trace: flip at 49611.605 (+0.1 ms to reach): frame drawn at 49611.594 for slot 49611.564, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.605] info trace: commit of buffer 13 at 49611.605
+[srv  49611.611] info trace: drew at 49611.611 for slot 49611.581 (on the panel at 49611.621): items 2, stood in 0, render 216 us
+[srv  49611.611] info trace: committed at 49611.611: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.622] info trace: flip at 49611.622 (+0.1 ms to reach): frame drawn at 49611.611 for slot 49611.581, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.622] info trace: commit of buffer 10 at 49611.622
+[srv  49611.628] info trace: drew at 49611.628 for slot 49611.597 (on the panel at 49611.638): items 2, stood in 0, render 209 us
+[srv  49611.628] info trace: committed at 49611.628: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.638] info trace: flip at 49611.638 (+0.0 ms to reach): frame drawn at 49611.628 for slot 49611.597, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.639] info trace: commit of buffer 12 at 49611.639
+[srv  49611.644] info trace: drew at 49611.644 for slot 49611.614 (on the panel at 49611.655): items 2, stood in 0, render 218 us
+[srv  49611.645] info trace: committed at 49611.645: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.655] info trace: flip at 49611.655 (+0.1 ms to reach): frame drawn at 49611.644 for slot 49611.614, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.655] info trace: commit of buffer 13 at 49611.655
+[srv  49611.661] info trace: drew at 49611.661 for slot 49611.631 (on the panel at 49611.671): items 2, stood in 0, render 225 us
+[srv  49611.661] info trace: committed at 49611.661: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.672] info trace: flip at 49611.672 (+0.0 ms to reach): frame drawn at 49611.661 for slot 49611.631, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.672] info trace: commit of buffer 10 at 49611.672
+[srv  49611.678] info trace: drew at 49611.678 for slot 49611.647 (on the panel at 49611.688): items 2, stood in 0, render 215 us
+[srv  49611.678] info trace: committed at 49611.678: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.689] info trace: flip at 49611.688 (+0.0 ms to reach): frame drawn at 49611.678 for slot 49611.647, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.689] info trace: commit of buffer 12 at 49611.689
+[srv  49611.695] info trace: drew at 49611.694 for slot 49611.664 (on the panel at 49611.705): items 2, stood in 0, render 218 us
+[srv  49611.695] info trace: committed at 49611.695: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.705] info trace: flip at 49611.705 (+0.1 ms to reach): frame drawn at 49611.694 for slot 49611.664, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.705] info trace: commit of buffer 13 at 49611.705
+[srv  49611.711] info trace: drew at 49611.711 for slot 49611.681 (on the panel at 49611.722): items 2, stood in 0, render 221 us
+[srv  49611.711] info trace: committed at 49611.711: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.722] info trace: flip at 49611.722 (+0.0 ms to reach): frame drawn at 49611.711 for slot 49611.681, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.722] info trace: commit of buffer 10 at 49611.722
+[srv  49611.728] info trace: drew at 49611.728 for slot 49611.697 (on the panel at 49611.738): items 2, stood in 0, render 227 us
+[srv  49611.728] info trace: committed at 49611.728: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49611.739] info trace: flip at 49611.738 (+0.1 ms to reach): frame drawn at 49611.728 for slot 49611.697, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.739] info trace: commit of buffer 12 at 49611.739
+[srv  49611.745] info trace: drew at 49611.744 for slot 49611.714 (on the panel at 49611.755): items 2, stood in 0, render 221 us
+[srv  49611.745] info trace: committed at 49611.745: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.755] info trace: flip at 49611.755 (+0.1 ms to reach): frame drawn at 49611.744 for slot 49611.714, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.756] info trace: commit of buffer 13 at 49611.756
+[srv  49611.761] info trace: drew at 49611.761 for slot 49611.731 (on the panel at 49611.772): items 2, stood in 0, render 227 us
+[srv  49611.762] info trace: committed at 49611.762: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.772] info trace: flip at 49611.772 (+0.0 ms to reach): frame drawn at 49611.761 for slot 49611.731, late 0 lost 0, gpu done 4.8 ms after the draw
+[srv  49611.772] info trace: commit of buffer 10 at 49611.772
+[srv  49611.778] info trace: drew at 49611.778 for slot 49611.747 (on the panel at 49611.788): items 2, stood in 0, render 207 us
+[srv  49611.778] info trace: committed at 49611.778: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.789] info trace: flip at 49611.789 (+0.0 ms to reach): frame drawn at 49611.778 for slot 49611.747, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.789] info trace: commit of buffer 12 at 49611.789
+[srv  49611.795] info trace: drew at 49611.794 for slot 49611.764 (on the panel at 49611.805): items 2, stood in 0, render 218 us
+[srv  49611.795] info trace: committed at 49611.795: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.805] info trace: flip at 49611.805 (+0.1 ms to reach): frame drawn at 49611.794 for slot 49611.764, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.806] info trace: commit of buffer 13 at 49611.806
+[srv  49611.811] info trace: drew at 49611.811 for slot 49611.781 (on the panel at 49611.822): items 2, stood in 0, render 239 us
+[srv  49611.811] info trace: committed at 49611.811: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.822] info trace: flip at 49611.822 (+0.1 ms to reach): frame drawn at 49611.811 for slot 49611.781, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.822] info trace: commit of buffer 10 at 49611.822
+[srv  49611.828] info trace: drew at 49611.828 for slot 49611.797 (on the panel at 49611.838): items 2, stood in 0, render 205 us
+[srv  49611.828] info trace: committed at 49611.828: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.839] info trace: flip at 49611.839 (+0.0 ms to reach): frame drawn at 49611.828 for slot 49611.797, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.839] info trace: commit of buffer 12 at 49611.839
+[srv  49611.845] info trace: drew at 49611.844 for slot 49611.814 (on the panel at 49611.855): items 2, stood in 0, render 213 us
+[srv  49611.845] info trace: committed at 49611.845: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.855] info trace: flip at 49611.855 (+0.1 ms to reach): frame drawn at 49611.844 for slot 49611.814, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.856] info trace: commit of buffer 13 at 49611.856
+[srv  49611.861] info trace: drew at 49611.861 for slot 49611.831 (on the panel at 49611.872): items 2, stood in 0, render 209 us
+[srv  49611.861] info trace: committed at 49611.861: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49611.872] info trace: flip at 49611.872 (+0.1 ms to reach): frame drawn at 49611.861 for slot 49611.831, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.872] info trace: commit of buffer 10 at 49611.872
+[srv  49611.878] info trace: drew at 49611.878 for slot 49611.847 (on the panel at 49611.888): items 2, stood in 0, render 218 us
+[srv  49611.878] info trace: committed at 49611.878: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.889] info trace: flip at 49611.889 (+0.1 ms to reach): frame drawn at 49611.878 for slot 49611.847, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.889] info trace: commit of buffer 12 at 49611.889
+[srv  49611.895] info trace: drew at 49611.894 for slot 49611.864 (on the panel at 49611.905): items 2, stood in 0, render 216 us
+[srv  49611.895] info trace: committed at 49611.895: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.905] info trace: flip at 49611.905 (+0.1 ms to reach): frame drawn at 49611.894 for slot 49611.864, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.906] info trace: commit of buffer 13 at 49611.906
+[srv  49611.911] info trace: drew at 49611.911 for slot 49611.881 (on the panel at 49611.922): items 2, stood in 0, render 219 us
+[srv  49611.912] info trace: committed at 49611.912: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.922] info trace: flip at 49611.922 (+0.1 ms to reach): frame drawn at 49611.911 for slot 49611.881, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.922] info trace: commit of buffer 10 at 49611.922
+[srv  49611.928] info trace: drew at 49611.928 for slot 49611.897 (on the panel at 49611.938): items 2, stood in 0, render 213 us
+[srv  49611.928] info trace: committed at 49611.928: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.939] info trace: flip at 49611.939 (+0.0 ms to reach): frame drawn at 49611.928 for slot 49611.897, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.939] info trace: commit of buffer 12 at 49611.939
+[srv  49611.945] info trace: drew at 49611.945 for slot 49611.914 (on the panel at 49611.955): items 2, stood in 0, render 217 us
+[srv  49611.945] info trace: committed at 49611.945: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.955] info trace: flip at 49611.955 (+0.0 ms to reach): frame drawn at 49611.945 for slot 49611.914, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.956] info trace: commit of buffer 13 at 49611.956
+[srv  49611.961] info trace: drew at 49611.961 for slot 49611.931 (on the panel at 49611.972): items 2, stood in 0, render 210 us
+[srv  49611.962] info trace: committed at 49611.962: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.972] info trace: flip at 49611.972 (+0.0 ms to reach): frame drawn at 49611.961 for slot 49611.931, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.972] info trace: commit of buffer 10 at 49611.972
+[srv  49611.978] info trace: drew at 49611.978 for slot 49611.947 (on the panel at 49611.988): items 2, stood in 0, render 214 us
+[srv  49611.978] info trace: committed at 49611.978: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49611.989] info trace: flip at 49611.989 (+0.0 ms to reach): frame drawn at 49611.978 for slot 49611.947, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49611.989] info trace: commit of buffer 12 at 49611.989
+[srv  49611.995] info trace: drew at 49611.995 for slot 49611.964 (on the panel at 49612.005): items 2, stood in 0, render 215 us
+[srv  49611.995] info trace: committed at 49611.995: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.005] info trace: flip at 49612.005 (+0.1 ms to reach): frame drawn at 49611.995 for slot 49611.964, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.006] info trace: commit of buffer 13 at 49612.006
+[srv  49612.012] info trace: drew at 49612.011 for slot 49611.981 (on the panel at 49612.022): items 2, stood in 0, render 225 us
+[srv  49612.012] info trace: committed at 49612.012: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.022] info trace: flip at 49612.022 (+0.0 ms to reach): frame drawn at 49612.011 for slot 49611.981, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.022] info trace: commit of buffer 10 at 49612.022
+[srv  49612.028] info trace: drew at 49612.028 for slot 49611.997 (on the panel at 49612.039): items 2, stood in 0, render 217 us
+[srv  49612.028] info trace: committed at 49612.028: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.039] info trace: flip at 49612.039 (+0.1 ms to reach): frame drawn at 49612.028 for slot 49611.997, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.039] info trace: commit of buffer 12 at 49612.039
+[srv  49612.045] info trace: drew at 49612.045 for slot 49612.014 (on the panel at 49612.055): items 2, stood in 0, render 214 us
+[srv  49612.045] info trace: committed at 49612.045: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.056] info trace: flip at 49612.055 (+0.1 ms to reach): frame drawn at 49612.045 for slot 49612.014, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.056] info trace: commit of buffer 13 at 49612.056
+[srv  49612.062] info trace: drew at 49612.061 for slot 49612.031 (on the panel at 49612.072): items 2, stood in 0, render 219 us
+[srv  49612.062] info trace: committed at 49612.062: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.072] info trace: flip at 49612.072 (+0.1 ms to reach): frame drawn at 49612.061 for slot 49612.031, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.072] info trace: commit of buffer 10 at 49612.072
+[srv  49612.078] info trace: drew at 49612.078 for slot 49612.047 (on the panel at 49612.089): items 2, stood in 0, render 210 us
+[srv  49612.078] info trace: committed at 49612.078: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49612.089] info trace: flip at 49612.089 (+0.1 ms to reach): frame drawn at 49612.078 for slot 49612.047, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.089] info trace: commit of buffer 12 at 49612.089
+[srv  49612.095] info trace: drew at 49612.095 for slot 49612.064 (on the panel at 49612.105): items 2, stood in 0, render 217 us
+[srv  49612.095] info trace: committed at 49612.095: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.106] info trace: flip at 49612.105 (+0.1 ms to reach): frame drawn at 49612.095 for slot 49612.064, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.106] info trace: commit of buffer 13 at 49612.106
+[srv  49612.112] info trace: drew at 49612.111 for slot 49612.081 (on the panel at 49612.122): items 2, stood in 0, render 220 us
+[srv  49612.112] info trace: committed at 49612.112: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.122] info trace: flip at 49612.122 (+0.1 ms to reach): frame drawn at 49612.111 for slot 49612.081, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.123] info trace: commit of buffer 10 at 49612.123
+[srv  49612.128] info trace: drew at 49612.128 for slot 49612.097 (on the panel at 49612.139): items 2, stood in 0, render 215 us
+[srv  49612.128] info trace: committed at 49612.128: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.139] info trace: flip at 49612.139 (+0.0 ms to reach): frame drawn at 49612.128 for slot 49612.097, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.139] info trace: commit of buffer 12 at 49612.139
+[srv  49612.145] info trace: drew at 49612.145 for slot 49612.114 (on the panel at 49612.155): items 2, stood in 0, render 213 us
+[srv  49612.145] info trace: committed at 49612.145: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.156] info trace: flip at 49612.156 (+0.1 ms to reach): frame drawn at 49612.145 for slot 49612.114, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.156] info trace: commit of buffer 13 at 49612.156
+[srv  49612.162] info trace: drew at 49612.161 for slot 49612.131 (on the panel at 49612.172): items 2, stood in 0, render 208 us
+[srv  49612.162] info trace: committed at 49612.162: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49612.172] info trace: flip at 49612.172 (+0.1 ms to reach): frame drawn at 49612.161 for slot 49612.131, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.173] info trace: commit of buffer 10 at 49612.173
+[srv  49612.178] info trace: drew at 49612.178 for slot 49612.147 (on the panel at 49612.189): items 2, stood in 0, render 205 us
+[srv  49612.179] info trace: committed at 49612.179: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.189] info trace: flip at 49612.189 (+0.1 ms to reach): frame drawn at 49612.178 for slot 49612.147, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.189] info trace: commit of buffer 12 at 49612.189
+[srv  49612.195] info trace: drew at 49612.195 for slot 49612.164 (on the panel at 49612.205): items 2, stood in 0, render 215 us
+[srv  49612.195] info trace: committed at 49612.195: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.206] info trace: flip at 49612.206 (+0.1 ms to reach): frame drawn at 49612.195 for slot 49612.164, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.206] info trace: commit of buffer 13 at 49612.206
+[srv  49612.212] info trace: drew at 49612.211 for slot 49612.181 (on the panel at 49612.222): items 2, stood in 0, render 218 us
+[srv  49612.212] info trace: committed at 49612.212: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.222] info trace: flip at 49612.222 (+0.0 ms to reach): frame drawn at 49612.211 for slot 49612.181, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.223] info trace: commit of buffer 10 at 49612.223
+[srv  49612.228] info trace: drew at 49612.228 for slot 49612.197 (on the panel at 49612.239): items 2, stood in 0, render 226 us
+[srv  49612.229] info trace: committed at 49612.229: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.239] info trace: flip at 49612.239 (+0.1 ms to reach): frame drawn at 49612.228 for slot 49612.197, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.239] info trace: commit of buffer 12 at 49612.239
+[srv  49612.245] info trace: drew at 49612.245 for slot 49612.214 (on the panel at 49612.255): items 2, stood in 0, render 231 us
+[srv  49612.245] info trace: committed at 49612.245: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.256] info trace: flip at 49612.256 (+0.1 ms to reach): frame drawn at 49612.245 for slot 49612.214, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.256] info trace: commit of buffer 13 at 49612.256
+[srv  49612.262] info trace: drew at 49612.261 for slot 49612.231 (on the panel at 49612.272): items 2, stood in 0, render 218 us
+[srv  49612.262] info trace: committed at 49612.262: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.272] info trace: flip at 49612.272 (+0.0 ms to reach): frame drawn at 49612.261 for slot 49612.231, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.273] info trace: commit of buffer 10 at 49612.273
+[srv  49612.278] info trace: drew at 49612.278 for slot 49612.247 (on the panel at 49612.289): items 2, stood in 0, render 207 us
+[srv  49612.279] info trace: committed at 49612.279: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.289] info trace: flip at 49612.289 (+0.0 ms to reach): frame drawn at 49612.278 for slot 49612.247, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.289] info trace: commit of buffer 12 at 49612.289
+[srv  49612.295] info trace: drew at 49612.295 for slot 49612.264 (on the panel at 49612.305): items 2, stood in 0, render 216 us
+[srv  49612.295] info trace: committed at 49612.295: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.306] info trace: flip at 49612.306 (+0.1 ms to reach): frame drawn at 49612.295 for slot 49612.264, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.306] info trace: commit of buffer 13 at 49612.306
+[srv  49612.312] info trace: drew at 49612.312 for slot 49612.281 (on the panel at 49612.322): items 2, stood in 0, render 242 us
+[srv  49612.312] info trace: committed at 49612.312: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49612.322] info trace: flip at 49612.322 (+0.1 ms to reach): frame drawn at 49612.312 for slot 49612.281, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.323] info trace: commit of buffer 10 at 49612.323
+[srv  49612.328] info trace: drew at 49612.328 for slot 49612.297 (on the panel at 49612.339): items 2, stood in 0, render 219 us
+[srv  49612.329] info trace: committed at 49612.329: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.339] info trace: flip at 49612.339 (+0.0 ms to reach): frame drawn at 49612.328 for slot 49612.297, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.339] info trace: commit of buffer 12 at 49612.339
+[srv  49612.345] info trace: drew at 49612.345 for slot 49612.314 (on the panel at 49612.355): items 2, stood in 0, render 232 us
+[srv  49612.345] info trace: committed at 49612.345: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.356] info trace: flip at 49612.356 (+0.1 ms to reach): frame drawn at 49612.345 for slot 49612.314, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49612.356] info trace: commit of buffer 13 at 49612.356
+[srv  49612.362] info trace: drew at 49612.362 for slot 49612.331 (on the panel at 49612.372): items 2, stood in 0, render 214 us
+[srv  49612.362] info trace: committed at 49612.362: fence export 0.0 ms, atomic commit 0.0 ms
+[srv  49612.372] info trace: flip at 49612.372 (+0.1 ms to reach): frame drawn at 49612.362 for slot 49612.331, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.373] info trace: commit of buffer 10 at 49612.373
+[srv  49612.379] info trace: drew at 49612.378 for slot 49612.347 (on the panel at 49612.389): items 2, stood in 0, render 212 us
+[srv  49612.379] info trace: committed at 49612.379: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.389] info trace: flip at 49612.389 (+0.0 ms to reach): frame drawn at 49612.378 for slot 49612.347, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.389] info trace: commit of buffer 12 at 49612.389
+[srv  49612.395] info trace: drew at 49612.395 for slot 49612.364 (on the panel at 49612.406): items 2, stood in 0, render 216 us
+[srv  49612.395] info trace: committed at 49612.395: fence export 0.1 ms, atomic commit 0.0 ms
+[srv  49612.406] info trace: flip at 49612.406 (+0.0 ms to reach): frame drawn at 49612.395 for slot 49612.364, late 0 lost 0, gpu done 4.6 ms after the draw
+[srv  49612.406] info trace: commit of buffer 13 at 49612.406
+[srv  49612.412] info trace: drew at 49612.412 for slot 49612.381 (on the panel at 49612.422): items 2, stood in 0, render 242 us
+[srv  49612.412] info trace: committed at 49612.412: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49612.423] info trace: flip at 49612.422 (+0.1 ms to reach): frame drawn at 49612.412 for slot 49612.381, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49612.423] info trace: commit of buffer 10 at 49612.423
+[srv  49612.429] info trace: drew at 49612.428 for slot 49612.397 (on the panel at 49612.439): items 2, stood in 0, render 256 us
+[srv  49612.429] info trace: committed at 49612.429: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49612.439] info trace: flip at 49612.439 (+0.1 ms to reach): frame drawn at 49612.428 for slot 49612.397, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49612.440] info trace: commit of buffer 12 at 49612.440
+[srv  49612.445] info trace: drew at 49612.445 for slot 49612.414 (on the panel at 49612.456): items 2, stood in 0, render 266 us
+[srv  49612.445] info trace: committed at 49612.445: fence export 0.1 ms, atomic commit 0.1 ms
+[srv  49612.456] info trace: flip at 49612.456 (+0.1 ms to reach): frame drawn at 49612.445 for slot 49612.414, late 0 lost 0, gpu done 4.7 ms after the draw
+[srv  49670.871] info client disconnected: pid 1725 uid 0 after 60060 ms (ConnectionClosed); bound ["wl_compositor", "wl_shell", "wl_webos_shell"]; cmd "/tmp/lumatv/lib/ld-linux-aarch64.so.1 --library-path /tmp/lumatv/lib --preload /tmp/lumatv/lib/x1heapshim.so /tmp/lumatv/bin/x1client /tmp/lumatv/lib/libmali-bi"
+[srv  49670.994] info bury: 2 freed in 2.2 ms, 0 left for the next pass
