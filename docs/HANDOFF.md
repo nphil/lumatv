@@ -20,15 +20,15 @@ live with the owner.
   runs before every package or hand deploy. Helpers commit from their own worktrees.
 - Installs: HomeLabber standing grant on `sh /mnt/nvme/appdata/cody/home/tmp/lumatv-install/tv-install.sh`
   (installs whatever `/data/home/tmp/lumatv-next` points at; one Face ID per 12 h).
-- On the set at 06:30 PDT (10-28): **LumaTV's compositor is live and persistent** on
-  forge/main 0f2190c (full package; firmware 10.2.1-5202 in `compositor/firmware/verified.list`),
-  LG's compositor the automatic fallback, Active Standby. Every blocking gate check passed
-  (round 12); MINOR items are the Optimisation list in `compositor-gate9-result.md`. LG's
-  daily reboot came back headless with LumaTV's compositor live (reboot check). On:
-  `inputcommon`, `voice`, `remote.quickAccess`, `remote.quickPanelEdit`, keys restyle. Off
-  until Nitin decides or a TV check passes: `store` (rebuilt 42050ce, not on the set),
-  `keyboard luma`, `cameras.*`, `wallpaper video` (needs `vplane install`), `cover`,
-  `splash`, `standbyscreen`, `remote.recents`. venc's first TV probe needs Nitin's OK.
+- On the set at 11:00 PDT (10-28): package a1555df (round 14) on **LG's compositor**:
+  YouTube (Cobalt) and Plex (plxnative) SIGSEGV under LumaTV's compositor (LG's SDL patch
+  calls the webOS seat proxy, which is NULL; evidence `docs/research/compositor/slot-2026-10-28-r14/appcompat/`),
+  so persistent go-live is paused until AppCompat's fix passes with app launches in the gate.
+  Always Ready on (Nitin). On: `inputcommon`, `voice`, `store`, `remote.quickAccess`,
+  `remote.quickPanelEdit`, keys restyle. Passed under LumaTV's compositor and waiting for
+  go-live: keyboard luma, app switcher, transitions, overlays, OLED care orbit, capture 1-5.
+  Video wallpaper fails (black margin, darker grade); 120 Hz holds idle but not the slides.
+  venc's next TV probe needs Nitin's OK (the M2M node wedged the kernel once).
 - Done 2026-10-26: compositor gate 9 (every safety check passes, frame timing fails:
   `compositor-gate9-result.md`); compositor step 1, the remote's keys and the keyboard
   under LumaTV's compositor, passed on the set (`compositor-step1-result.md`); quick
