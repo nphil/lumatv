@@ -726,7 +726,12 @@ refresh)
     # each; round 15 found no line of theirs in the shell's stdout file), else the `[FrameMotion]` lines of the runner's log, which QML's console
     # writes to PmLog, /var/log/messages (it rotates about every minute: the file and the ones it rotated to, oldest first). `gate.py` reads the
     # same lines per surface (`slides:`).
-    slides=$(echo "$r_shell" | grep -o '"slides":\[[^]]*\]' | head -n 1 | grep -o '{[^}]*}' | sed 's/"steps"://; s/"ms"://; s/"duration"://; s/[{}]//g; s/,/\//g' | tr '\n' ' ')
+    # (by key: the compositor's JSON has its keys in alphabetical order, not the shell's)
+    slides=$(echo "$r_shell" | grep -o '"slides":\[[^]]*\]' | head -n 1 | grep -o '{[^}]*}' | awk '{ s = m = d = "?"
+        if (match($0, /"steps":[0-9]+/)) s = substr($0, RSTART + 8, RLENGTH - 8)
+        if (match($0, /"ms":[0-9]+/)) m = substr($0, RSTART + 5, RLENGTH - 5)
+        if (match($0, /"duration":[0-9]+/)) d = substr($0, RSTART + 11, RLENGTH - 11)
+        printf "%s/%s/%s ", s, m, d }')
     [ -n "$slides" ] || slides=$( { cat $STATE/shell.log 2>/dev/null; for f in $(ls -tr $MESSAGES $MESSAGES.* 2>/dev/null); do case $f in *.gz|*.xz|*.bz2) ;; *) cat "$f" ;; esac; done; } | grep -o '\[FrameMotion\] [0-9]* steps in [0-9]* ms for [0-9]*' | tail -n 6 | sed 's/\[FrameMotion\] \([0-9]*\) steps in \([0-9]*\) ms for \([0-9]*\)/\1\/\2\/\3/' | tr '\n' ' ')
     echo "$m" > $OUT/refresh-${r_hz:-x}-${2:-read}.json
     echo "GATE refresh: measured hz ${r_hz:-?} divider ${r_div:-unreadable} shell ${shell_hz:-?} over ${r_secs} s: OSD flips/s $(per_s "$f0" "$f1"), DE2VSYNC/s $(per_s "$v0" "$v1"), osd_irq/s $(per_s "$o0" "$o1"); compositor: $(echo "$m" | grep -o '"intervals":{[^}]*}') $(echo "$m" | grep -o '"frames":{[^}]*}') $(echo "$m" | grep -o '"pipeline_ms":{[^}]*}') flips/s $(echo "$m" | grep -o '"flips_per_second":[0-9.]*' | cut -d: -f2); mali busy ${mali} %; temperature ${temp:-unreadable}; slides (steps/ms/for): ${slides:-none}"

@@ -921,6 +921,9 @@ elif cmd == "windows":
 elif cmd == "keys":
     out({"ok": True, "table": [{"name": n, "code": c} for n, c in (("gear", 139), ("input", 241), ("netflix", 1037))], "appKeys": cfg.get("app_keys", {}),
          "unnamed": cfg.get("unnamed", []), "foreground": s["windows"][-1][0], "keyboardUp": s["panel"] is not None, "delivered": 0, "dropped": 0})
+elif cmd == "shell":
+    # the shell client's report as `ctl shell` carries it: the refresh it draws for and its per-frame slides (`Lu.slides`)
+    out({"ok": True, "connected": True, "ui": {"state": {"refreshHz": cfg.get("refresh_hz", 60), "slides": cfg.get("slides", [])}}})
 elif cmd == "ime":
     up = s["panel"] is not None
     out({"ok": True, "asked": 1, "methods": [{"id": 5, "display": 0}] * cfg.get("methods", 1), "models": 1, "panel": s["panel"],
@@ -1203,12 +1206,19 @@ class GateKeysAndIme(FakeSet):
         write(os.path.join(self.state, "shell.log"), "[FrameMotion] 20 steps in 160 ms for 110\n")
         rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
         line = [ln for ln in out.splitlines() if ln.startswith("GATE refresh:")][0]
-        self.assertIn("slides: 20 steps in 160 ms for 110;17 steps in 150 ms for 110;10 steps in 90 ms for 110;", line)
-        self.assertNotIn("99 steps", line)
+        self.assertIn("slides (steps/ms/for): 20/160/110 17/150/110 10/90/110", line)
+        self.assertNotIn("99/", line)
         write(messages, "")
         os.remove(messages + ".1")
         rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
-        self.assertIn("slides: 20 steps in 160 ms for 110;", out)
+        self.assertIn("slides (steps/ms/for): 20/160/110 ", out)
+        # the shell's own report of its slides (`ctl shell`, the state's `slides`) is read before any log, and says the refresh it draws for
+        self.configure(refresh_hz=120, slides=[{"steps": 13, "ms": 109, "duration": 110}, {"steps": 14, "ms": 111, "duration": 110}])
+        rc, out = self.gate("refresh", "read", "1", env={"LUMATV_MESSAGES": messages})
+        line = [ln for ln in out.splitlines() if ln.startswith("GATE refresh:")][0]
+        self.assertIn(" shell 120 ", line)
+        self.assertIn("slides (steps/ms/for): 13/109/110 14/111/110", line)
+        self.assertNotIn("20/160/110", line)
 
     def test_an_exit_status_survives_the_log_rotating_under_a_long_check(self):
         # /var/log/messages rotates about every minute: the check copies the lines out from before the launch instead of reading the file at its end
