@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tick follows the panel's refresh grid and the latch moves later by at most 1 ms per frame;
   the X1 probe pre-allocates its swapchain and stamps its gaps; a start-up trace and late-flip
   lines explain any gap the gate still sees.
+- Compositor (not live yet): the Input key opens LumaTV's input picker on its press under
+  LumaTV's shell (first frame 31 ms instead of 81); a 1 s hold still opens the Hub.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
