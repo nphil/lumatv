@@ -604,17 +604,30 @@ impl State {
                         crate::server::seat::refocus(self);
                     }
                 }
+                // The state goes in before the live word can return: the report that brings the layer live carries the state that
+                // says why (the volume display's `osd`), and an identical report is never sent again.
+                if let Some(s) = state {
+                    self.shell.ui_state = s;
+                }
                 if let Some(l) = live
                     && l != self.shell.live
                 {
                     self.shell.live = l;
-                    if self.scene.set_shell_system_live(l, crate::output::monotonic_ns()) && self.output.draws_on_damage(now) {
+                    let now_ns = crate::output::monotonic_ns();
+                    let age = self.scene.shell_system_commit_age_ms(now_ns);
+                    let fresh = self.scene.set_shell_system_live(l, now_ns);
+                    if l {
+                        // Where a toast's first frame goes: the layer's last commit against the word that it is live.
+                        self.journal(format!(
+                            "shell: system layer live; its last commit {} ms ago, join {}",
+                            age.map_or("-".to_string(), |a| a.to_string()),
+                            if fresh { "draws it" } else { "quiet" }
+                        ));
+                    }
+                    if fresh && self.output.draws_on_damage(now) {
                         self.tick();
                         return true;
                     }
-                }
-                if let Some(s) = state {
-                    self.shell.ui_state = s;
                 }
             }
             Msg::Luna { tag, uri, payload, subscribe } => {

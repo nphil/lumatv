@@ -29,6 +29,11 @@ Item {
     property var pin: null                     // the PIN prompt's pincodePromptInfo, with `typed` and `index`
     property int toastSerial: 0
     property bool rested: true
+    // Set by the shell client while its system layer's window is warmed (compositor/shell/Shell.qml): the kept toast slot is drawn
+    // once, with letters and digits, in a layer the compositor is not drawing. It never makes this surface `live`.
+    property bool warming: false
+    readonly property var warmToast: ({ title: "The quick brown fox jumps over the lazy dog 0123456789",
+                                        body: "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG - abcdefghijklmnopqrstuvwxyz : , . ! ? ' ( ) /", iconUrl: "" })
 
     readonly property bool alertUp: alerts.length > 0
     readonly property bool inputUp: inputAlert !== null
@@ -227,10 +232,14 @@ Item {
         x: 1920 - width - Lu.space(6); y: Lu.space(6)
         width: 560
         spacing: Lu.space(2)
+        // One slot is kept built even with no toast (hidden), and shown once at the shell's warm-up with a pangram: the first real
+        // toast then sets its text on a built item and finds its glyphs in the cache, instead of building a tile and laying out
+        // text at nice 10 (61-118 ms from the delivery on the 2026-10-28 gate, 28-52 ms before it).
         Repeater {
-            model: notify.toasts.length
+            model: Math.max(1, notify.toasts.length)
             delegate: Rectangle {
-                readonly property var t: notify.toasts[index]
+                readonly property var t: notify.toasts[index] || notify.warmToast
+                visible: index < notify.toasts.length || notify.warming
                 width: toastStack.width
                 height: toastBody.height + 2 * Lu.space(3)
                 radius: Lu.radius("sheet"); color: Lu.sheet; border.width: 1; border.color: Lu.edge

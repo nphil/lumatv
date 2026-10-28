@@ -162,7 +162,11 @@ WebOSWindow {
     // the walk of its buffers starts a moment after it mapped.
     property bool sysWarm: false
     Timer { interval: 2000; running: homeWin.homeReady; onTriggered: homeWin.sysWarm = true }
-    Timer { interval: 300; running: homeWin.sysWarm; onTriggered: warmRun.start() }
+    Timer { interval: 300; running: homeWin.sysWarm; onTriggered: { warmRun.start(); homeWin.warmShow = true; warmHide.start() } }
+    // The notifications' kept toast slot is drawn for a moment while the layer is warmed, so a first toast finds its glyphs cached.
+    property bool warmShow: false
+    Timer { id: warmHide; interval: 400; onTriggered: homeWin.warmShow = false }
+    Binding { target: notify.item; property: "warming"; value: homeWin.warmShow; when: notify.status === Loader.Ready }
     // The notifications and the saver have the keys before the overlay's surfaces (LG's order: the PIN prompt and alerts above
     // everything); digits go to the PIN prompt.
     function sysKey(event, pressed) {

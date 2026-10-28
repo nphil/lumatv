@@ -10,8 +10,12 @@ use harness::{Client, Server, Window, drawn};
 use lumatv_compositor::State;
 use lumatv_compositor::input::code::*;
 use lumatv_compositor::keys::SystemRequest;
+use lumatv_compositor::output::{Image, Output, Presented, RenderStats};
+use lumatv_compositor::render::software::Software;
+use lumatv_compositor::scene::Plan;
 use lumatv_compositor::server::seat::SeatId;
 use lumatv_compositor::shell::Msg;
+use lumatv_compositor::surface::Surfaces;
 use lumatv_compositor::window::{SHELL_HOME_TITLE, SHELL_SYSTEM_TITLE, WindowType};
 use serde_json::{Value, json};
 use wayland_client::protocol::wl_buffer::WlBuffer;
@@ -433,7 +437,7 @@ fn the_system_layer_is_drawn_only_while_live_and_joins_without_a_frame_of_its_ow
     // commit is the frame that shows it.
     server.eval(move |s| s.shell_handle(ui(false)));
     assert_eq!(server.eval(drawn).pixel(10, 10), red);
-    std::thread::sleep(Duration::from_millis(150));
+    std::thread::sleep(Duration::from_millis(450));
     server.eval(move |s| s.shell_handle(ui(true)));
     let (image, drawn_quiet, before) = server.eval(|s| {
         let before = s.stats.frames_drawn;
@@ -445,5 +449,77 @@ fn the_system_layer_is_drawn_only_while_live_and_joins_without_a_frame_of_its_ow
     layer.client.present(&layer.win.surface, &blue_again);
     layer.client.roundtrip();
     assert_eq!(server.eval(drawn).pixel(10, 10), blue, "the next commit shows the layer");
+    drop(app);
+}
+
+/// The software output saying what KMS says between frames: the screen is still, so a commit is drawn at once.
+struct OnDamage(Software);
+
+impl Output for OnDamage {
+    fn name(&self) -> &'static str {
+        "on-damage"
+    }
+    fn size(&self) -> (u32, u32) {
+        self.0.size()
+    }
+    fn query_buffer(&mut self, buffer: &wayland_server::protocol::wl_buffer::WlBuffer) -> Option<((i32, i32), bool)> {
+        self.0.query_buffer(buffer)
+    }
+    fn forget_buffer(&mut self, buffer: &wayland_server::protocol::wl_buffer::WlBuffer) {
+        self.0.forget_buffer(buffer)
+    }
+    fn render(&mut self, plan: &Plan, surfaces: &Surfaces) -> std::io::Result<RenderStats> {
+        self.0.render(plan, surfaces)
+    }
+    fn present(&mut self) -> std::io::Result<Presented> {
+        self.0.present()
+    }
+    fn capture(&mut self) -> std::io::Result<Image> {
+        self.0.capture()
+    }
+    fn draws_on_damage(&self, _now: std::time::Instant) -> bool {
+        true
+    }
+}
+
+#[test]
+fn the_state_in_the_report_that_brings_the_layer_live_is_kept_when_the_join_draws_a_frame() {
+    // Full gate of 2026-10-28: Volume+ left `osd false` for good. The layer's frame had come in ahead of the word on the
+    // channel, so the join drew it and returned, and the state in the same report (`osd true`) was dropped; the client
+    // never sends an identical report again, so the compositor kept the old state.
+    let mut server = Server::start_with(Box::new(|| Box::new(OnDamage(Software::new(1920, 1080)))));
+    let app = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "App", "org.test.app", 0xffff_0000);
+    let mut layer = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer", "org.nphil.lumatv.shell", 0xff00_00ff);
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(false), state: Some(json!({"osd": false})) }));
+    // The layer draws its volume display and commits; the word that it is live follows with the state.
+    let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
+    layer.client.present(&layer.win.surface, &green);
+    layer.client.roundtrip();
+    let drew = server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(true), state: Some(json!({"osd": true})) }));
+    assert!(drew, "the join drew the frame that was already in");
+    let osd = server.eval(|s| s.shell.ui_state.get("osd").cloned());
+    assert_eq!(osd, Some(json!(true)), "the state of the report that returned early is kept");
+    drop(app);
+}
+
+#[test]
+fn a_frame_of_the_layer_that_came_250_ms_before_the_word_that_it_is_live_is_drawn_by_the_join() {
+    // The toast's frame is made by qml-runner (nice 10) and the word that the layer is live follows it by the time its own
+    // request takes: under load that is well over the 100 ms the join once allowed, and the frame, the only one a toast
+    // makes, waited for a commit that never came (61-118 ms from the delivery on the 2026-10-28 gate).
+    let mut server = Server::start_with(Box::new(|| Box::new(OnDamage(Software::new(1920, 1080)))));
+    let app = shown(&mut server, true, "_WEBOS_WINDOW_TYPE_CARD", "App", "org.test.app", 0xffff_0000);
+    let mut layer = shown(&mut server, false, "_WEBOS_WINDOW_TYPE_LUMATV_SYSTEM", "Layer", "org.nphil.lumatv.shell", 0xff00_00ff);
+    server.ticking.store(false, std::sync::atomic::Ordering::SeqCst);
+    server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(false), state: None }));
+    let green = layer.client.shm_buffer(64, 64, 0xff00_ff00);
+    layer.client.present(&layer.win.surface, &green);
+    layer.client.roundtrip();
+    std::thread::sleep(Duration::from_millis(250));
+    let drew = server.eval(|s| s.shell_handle(Msg::Ui { can: None, wants: None, live: Some(true), state: None }));
+    assert!(drew, "the join draws the commit that is waiting");
+    assert_eq!(server.eval(drawn).pixel(10, 10), [0, 255, 0, 255]);
+    assert!(server.eval(|s| s.journal.iter().any(|l| l.contains("shell: system layer live; its last commit") && l.contains("join draws it"))));
     drop(app);
 }

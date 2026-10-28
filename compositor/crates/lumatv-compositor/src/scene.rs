@@ -21,8 +21,9 @@ use crate::{OUTPUT_HEIGHT, OUTPUT_WIDTH, Rect};
 /// otherwise. The card LumaTV's Home is drawn in place of.
 pub const HOME_APP: &str = "com.webos.app.home";
 
-/// How recent a commit of the shell's idle system layer must be to count as the frame its `live` announces.
-const JOIN_FRESH_NS: u64 = 100_000_000;
+/// How recent a commit of the shell's idle system layer must be to count as the frame its `live` announces: the word follows the frame by
+/// what the client's request takes, 100 ms and more under load on the set (the layer's empty frame after its last content is older still).
+const JOIN_FRESH_NS: u64 = 400_000_000;
 
 /// The part of a keyboard window that is the keyboard, in the window's own coordinates: the bounding box of its input region, or the whole
 /// window when it set none. maliit's window is not always the keyboard's size: on the TV it came 1920x1080 (the keyboard drawn in the top
@@ -258,6 +259,11 @@ impl Scene {
             .any(|w| w.kind == WindowType::ShellSystem && w.commits > w.commits_drawn && now_ns.saturating_sub(w.last_commit_ns) < JOIN_FRESH_NS);
         self.system_joining = !fresh;
         fresh
+    }
+
+    /// How long ago the system layer's last commit arrived, in ms (`None` when it has no window).
+    pub fn shell_system_commit_age_ms(&self, now_ns: u64) -> Option<u64> {
+        self.windows.values().find(|w| w.kind == WindowType::ShellSystem).map(|w| now_ns.saturating_sub(w.last_commit_ns) / 1_000_000)
     }
 
     pub fn shell_system_live(&self) -> bool {
