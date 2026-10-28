@@ -12,7 +12,7 @@ use lumatv_wl_protocols::webos_surface_group::server::wl_webos_surface_group_lay
 
 use super::compositor::surface_id;
 use crate::scene::{Group, GroupLayer};
-use crate::surface::Role;
+use crate::surface::{Role, SurfaceId};
 use crate::{State, plain_global};
 
 pub struct GroupData {
@@ -111,6 +111,7 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                         {
                             s.role = Role::GroupMember { owner };
                         }
+                        attached_to(state, &gname, sid, &format!("layer {layer_name:?}"));
                     } else {
                         log::warn!("attach to unknown layer {layer_name:?} of group {gname:?}");
                     }
@@ -130,6 +131,7 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                         {
                             s.role = Role::GroupMember { owner };
                         }
+                        attached_to(state, &gname, sid, &format!("anonymous z_hint {hint}"));
                     } else {
                         log::warn!("anonymous attach to group {gname:?} that does not allow it");
                     }
@@ -156,6 +158,11 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
                     {
                         s.role = Role::None;
                     }
+                    // Detached from every group it was in, the window is any other again.
+                    let still = state.scene.group_of_member(sid).is_some();
+                    state.scene.set_group_member(sid, still);
+                    state.journal(format!("surface group {gname:?}: surface {} detached", sid.0));
+                    super::webos_shell::group_changed(state, false);
                 }
             }
             wl_webos_surface_group::Request::FocusOwner => state.note_request("wl_webos_surface_group", pid, "focus_owner"),
@@ -171,8 +178,20 @@ impl Dispatch<WlWebosSurfaceGroup, GroupData> for State {
     fn destroyed(state: &mut Self, _client: ClientId, _resource: &WlWebosSurfaceGroup, data: &GroupData) {
         if data.is_owner {
             state.scene.groups.retain(|g| g.name != data.name);
+            // Its members are listed with it no more; they stay members, which are shown by no one without their owner.
+            state.luna_notify();
         }
     }
+}
+
+/// A surface was attached to a group. Its window, if it has one (a WAM web app's has, whatever it does with the group), is a member
+/// from now on and no card: it gives the front back if it had it, and SAM is told the group's new list.
+fn attached_to(state: &mut State, group: &str, sid: SurfaceId, to: &str) {
+    let card_left = state.scene.set_group_member(sid, true);
+    let window =
+        state.scene.window_of(sid).and_then(|w| state.scene.window(w)).map(|w| format!(" (window {}, app {:?})", w.id.0, w.app_id())).unwrap_or_default();
+    state.journal(format!("surface group {group:?}: surface {} attached to {to}{window}", sid.0));
+    super::webos_shell::group_changed(state, card_left);
 }
 
 impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
@@ -191,10 +210,15 @@ impl Dispatch<WlWebosSurfaceGroupLayer, LayerData> for State {
         }
         match request {
             wl_webos_surface_group_layer::Request::SetZIndex { z_index } => {
-                if let Some(l) = layer(state, data) {
+                let has_member = layer(state, data).is_some_and(|l| {
                     l.z = z_index;
-                }
+                    l.member.is_some()
+                });
                 state.note_request("wl_webos_surface_group_layer", pid, &format!("set_z_index({z_index})"));
+                // A member that moves across its owner changes the order SAM is told and who has the keys (LG's group model updates both).
+                if has_member {
+                    super::webos_shell::group_changed(state, false);
+                }
             }
             wl_webos_surface_group_layer::Request::SetKeyIndex { key_index } => {
                 if let Some(l) = layer(state, data) {

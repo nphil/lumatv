@@ -187,6 +187,11 @@ pub struct Window {
     /// container honours before the card has a buffer (a preloaded app relaunched draws only once SAM has it
     /// foreground, and SAM learns that from the compositor). 0 for a card that never did, or unmapped since.
     pub front: u64,
+    /// The window is attached to a surface group as a member (`wl_webos_surface_group.attach`): LG's `isPartOfGroup()`. A member is
+    /// drawn with its owner and listed with it, and is never a card or an overlay of its own: it does not come to the front, take the
+    /// keys or show in the recents, whatever type it carries (Live Dmost, a WAM web app, is a card by its own properties). Kept until
+    /// it detaches, also when the group's owner is gone first: the compositor then shows it no more, it does not promote it.
+    pub in_group: bool,
     pub has_wl_shell: bool,
     pub has_webos_shell: bool,
     /// Whether a commit without a buffer was seen while unmapped (journalled once).
@@ -220,6 +225,7 @@ impl Window {
             position: (0, 0),
             map_serial: 0,
             front: 0,
+            in_group: false,
             has_wl_shell: false,
             has_webos_shell: false,
             bare_commit_seen: false,

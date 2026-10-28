@@ -680,6 +680,9 @@ impl State {
                     "size": s.and_then(|s| s.current.size),
                     "position": w.position,
                     "keyMask": w.key_mask,
+                    "inGroup": w.in_group,
+                    "front": w.front,
+                    "exposed": w.exposed,
                     "props": w.props,
                 })
             })

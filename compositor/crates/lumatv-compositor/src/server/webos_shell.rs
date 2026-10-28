@@ -80,7 +80,8 @@ impl Dispatch<WlWebosShellSurface, WebosShellSurfaceData> for State {
             wl_webos_shell_surface::Request::SetState { state: st } => {
                 state.note_request("wl_webos_shell_surface", pid, &format!("set_state({st})"));
                 let new = ShellState::from_u32(st);
-                let card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card());
+                // A window attached to a surface group is no card (LG: `__allowedFullscreen`): it never comes to the front, whatever it asks for.
+                let card = state.scene.window(data.window).is_some_and(|w| w.kind.is_card() && !w.in_group);
                 let was_top = state.scene.foreground(&state.surfaces).is_some_and(|w| w.id == data.window);
                 if let Some(w) = state.scene.window_mut(data.window) {
                     w.state = new;
@@ -183,11 +184,15 @@ fn send_state(resource: &WlWebosShellSurface, st: ShellState) {
 }
 
 /// A window's surface got its first buffer: a card becomes fullscreen and the cards it covers are minimized (what LG's
-/// fullscreen container does), and the client is told its position.
+/// fullscreen container does), and the client is told its position. A group member takes its owner's state instead, and SAM is told
+/// that the group has one more.
 pub fn on_mapped(state: &mut State, wid: WindowId) {
     let Some(w) = state.scene.window(wid) else { return };
-    let (kind, position, has_webos) = (w.kind, w.position, w.has_webos_shell);
-    if kind.is_card() {
+    let (kind, position, has_webos, member) = (w.kind, w.position, w.has_webos_shell, w.in_group);
+    if member {
+        sync_group_members(state);
+        state.luna_notify();
+    } else if kind.is_card() {
         settle_cards(state, None);
     } else if kind.is_shell() {
         sync_exposed(state);
@@ -202,6 +207,19 @@ pub fn on_mapped(state: &mut State, wid: WindowId) {
     } else {
         res.position_changed(position.0, position.1);
     }
+}
+
+/// A surface group's members changed (an attach, a detach, a layer moved): SAM gets the list with the group as it is, the keys go where
+/// LG's group model puts them, the members take their owners' states, and, when a window that was at the front as a card is a member now
+/// (`card_left`), the card it covered comes back.
+pub fn group_changed(state: &mut State, card_left: bool) {
+    if card_left {
+        settle_cards(state, None);
+    } else {
+        sync_group_members(state);
+    }
+    state.luna_notify();
+    super::seat::refocus(state);
 }
 
 /// A card's surface lost its last buffer, or its window went: the card below comes back.
@@ -243,6 +261,7 @@ pub fn settle_cards(state: &mut State, except: Option<WindowId>) {
         }
     }
     sync_exposed(state);
+    sync_group_members(state);
 }
 
 /// Tells each card what `wl_webos_shell_surface.exposed` it has: the foreground card its whole rectangle, every other
@@ -258,7 +277,7 @@ pub fn sync_exposed(state: &mut State) {
     let changes: Vec<(WindowId, bool)> = state
         .scene
         .windows()
-        .filter(|w| (w.kind.is_card() || w.kind.is_shell()) && w.has_webos_shell)
+        .filter(|w| (w.kind.is_card() || w.kind.is_shell()) && w.has_webos_shell && !w.in_group)
         .filter_map(|w| {
             let wanted = if w.kind.is_shell() { w.map_serial > 0 } else { Some(w.id) == fg };
             (w.exposed != wanted).then_some((w.id, wanted))
@@ -268,15 +287,7 @@ pub fn sync_exposed(state: &mut State) {
         let Some(w) = state.scene.window_mut(wid) else { continue };
         w.exposed = wanted;
         let surface = w.surface;
-        let rect = wanted.then(|| {
-            let (sw, sh) = state.surfaces.get(surface).filter(|s| s.is_mapped()).map(|s| s.size()).unwrap_or((0, 0));
-            if sw > 0 && sh > 0 {
-                (sw, sh)
-            } else {
-                let (ow, oh) = state.output.size();
-                (ow as i32, oh as i32)
-            }
-        });
+        let rect = wanted.then(|| exposure_rect(state, surface));
         if let Some(res) = state.webos_shell_resource(wid) {
             send_exposed(&res, rect);
         }
@@ -284,6 +295,66 @@ pub fn sync_exposed(state: &mut State) {
             Some((w, h)) => format!("window {}: exposed {w}x{h}", wid.0),
             None => format!("window {}: exposed nothing (covered)", wid.0),
         });
+    }
+}
+
+/// The rectangle a window is exposed: its surface's size once it has a buffer, the output's before (a card raised before its first
+/// buffer, the rectangle a card fills).
+fn exposure_rect(state: &State, surface: SurfaceId) -> (i32, i32) {
+    let (sw, sh) = state.surfaces.get(surface).filter(|s| s.is_mapped()).map(|s| s.size()).unwrap_or((0, 0));
+    if sw > 0 && sh > 0 {
+        (sw, sh)
+    } else {
+        let (ow, oh) = state.output.size();
+        (ow as i32, oh as i32)
+    }
+}
+
+/// The state and the exposure of each group member follow its owner's. LG's group model joins a child fullscreen and copies its owner's
+/// state to it whenever that changes (`StarfishGroupModel.__handleChildItem`, `updateGroupState`): a member of an owner that is covered is
+/// minimized (a web app hides then), one of an owner in front is fullscreen. [INFERENCE] `exposed` follows the owner the same way: no
+/// source of LG's compositor sets it for a child. A member that is not mapped yet, or whose owner is gone or not mapped, is left as it
+/// is; each change is sent once.
+pub fn sync_group_members(state: &mut State) {
+    let changes: Vec<(WindowId, ShellState, bool)> = state
+        .scene
+        .windows()
+        .filter(|w| w.in_group && w.has_webos_shell && w.map_serial > 0)
+        .filter_map(|w| {
+            let owner = state.scene.group_of_member(w.surface).and_then(|g| state.scene.window_of(g.owner)).and_then(|o| state.scene.window(o))?;
+            let wanted = match owner.state {
+                ShellState::Minimized => ShellState::Minimized,
+                _ if owner.map_serial > 0 => ShellState::Fullscreen,
+                _ => return None,
+            };
+            let exposed = owner.exposed && wanted == ShellState::Fullscreen;
+            (w.state != wanted || w.exposed != exposed).then_some((w.id, wanted, exposed))
+        })
+        .collect();
+    for (wid, wanted, exposed) in changes {
+        let Some(w) = state.scene.window_mut(wid) else { continue };
+        let (state_changed, exposure_changed) = (w.state != wanted, w.exposed != exposed);
+        w.state = wanted;
+        w.exposed = exposed;
+        let surface = w.surface;
+        let res = state.webos_shell_resource(wid);
+        if state_changed {
+            if let Some(res) = &res {
+                send_state(res, wanted);
+            }
+            let what = if wanted == ShellState::Fullscreen { "fullscreen" } else { "minimized" };
+            state.journal(format!("window {}: {what} (a group member follows its owner)", wid.0));
+        }
+        if exposure_changed {
+            let rect = exposed.then(|| exposure_rect(state, surface));
+            if let Some(res) = &res {
+                send_exposed(res, rect);
+            }
+            state.journal(match rect {
+                Some((w, h)) => format!("window {}: exposed {w}x{h} (a group member follows its owner)", wid.0),
+                None => format!("window {}: exposed nothing (a group member follows its owner)", wid.0),
+            });
+        }
     }
 }
 

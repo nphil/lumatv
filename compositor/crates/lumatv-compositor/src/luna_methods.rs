@@ -352,7 +352,9 @@ impl State {
     }
 
     /// LG's `StarfishForegroundAppInfoMgr.qml` (payloads as X4 captured them): the foreground card first, then every
-    /// mapped app window above it (Settings came as an overlay). Items without an appId are left out; CARD and
+    /// mapped app window above it (Settings came as an overlay). A window that owns a surface group is listed with it as LG's
+    /// `StarfishUtils.foregroundList` has it, the members below the owner, the owner, the members above it; a member is no item
+    /// of its own (it is no card or overlay: `Window::in_group`). Items without an appId are left out; CARD and
     /// RESTRICTED windows that are not members of another window's group carry `multiview`, `pip`, `primary`,
     /// `viewType` and `order`; surface-group owners and members say so (`windowGroupOwner`, `windowGroupOwnerId`).
     /// SAM turns these pushes into its own `foreground`/`background` events. The system UI manager's variant lists
@@ -363,27 +365,43 @@ impl State {
         if system_ui {
             items.extend(self.scene.windows().filter(mapped).filter(|w| w.kind == WindowType::SystemUi));
         } else {
-            items.extend(self.scene.foreground(&self.surfaces));
+            let mut tops: Vec<&crate::window::Window> = Vec::new();
+            tops.extend(self.scene.foreground(&self.surfaces));
             let mut above: Vec<&crate::window::Window> = self
                 .scene
                 .windows()
                 .filter(mapped)
+                .filter(|w| !w.in_group)
                 .filter(|w| matches!(w.kind, WindowType::Overlay | WindowType::Floating | WindowType::Popup) && w.state != crate::window::ShellState::Minimized)
                 .collect();
             above.sort_by_key(|w| w.map_serial);
-            items.extend(above);
+            tops.extend(above);
+            for w in tops {
+                self.push_with_group(w, &mut items);
+            }
         }
         let infos: Vec<Value> = items.into_iter().filter(|w| !w.app_id().is_empty()).map(|w| self.foreground_item(w)).collect();
         json!({"returnValue": true, "mode": "normal", "foregroundAppInfo": infos})
     }
 
+    /// `w` with the mapped windows attached to the group it owns: those below it (negative z) first, those above it after. A member
+    /// that has no window of its own (a bare surface) has no app to list.
+    fn push_with_group<'a>(&'a self, w: &'a crate::window::Window, out: &mut Vec<&'a crate::window::Window>) {
+        let members = self.scene.group_members(w.surface);
+        let window = |s: crate::surface::SurfaceId| {
+            self.scene
+                .window_of(s)
+                .and_then(|id| self.scene.window(id))
+                .filter(|m| m.map_serial > 0 && self.surfaces.get(m.surface).is_some_and(|s| s.is_mapped()))
+        };
+        out.extend(members.iter().filter(|(z, _)| *z < 0).filter_map(|(_, s)| window(*s)));
+        out.push(w);
+        out.extend(members.iter().filter(|(z, _)| *z >= 0).filter_map(|(_, s)| window(*s)));
+    }
+
     fn foreground_item(&self, w: &crate::window::Window) -> Value {
         let owner = self.scene.groups.iter().any(|g| g.owner == w.surface);
-        let owner_of_group = self
-            .scene
-            .groups
-            .iter()
-            .find(|g| g.owner != w.surface && (g.layers.values().any(|l| l.member == Some(w.surface)) || g.anonymous.iter().any(|(s, _)| *s == w.surface)));
+        let owner_of_group = self.scene.group_of_member(w.surface);
         let mut item = json!({
             "appId": w.app_id(), "displayId": 0, "processId": self.window_pid(w), "windowType": self.window_type_name(w),
             "windowGroup": false, "params": self.window_params(w),
@@ -429,7 +447,7 @@ impl State {
         let list: Vec<Value> = self
             .scene
             .windows()
-            .filter(|w| self.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
+            .filter(|w| !w.in_group && self.surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
             .map(|w| json!({"appId": w.app_id(), "windowType": w.props.get("_WEBOS_WINDOW_TYPE").cloned().unwrap_or_else(|| "_WEBOS_WINDOW_TYPE_CARD".into())}))
             .collect();
         json!({"returnValue": true, "windows": list})
@@ -467,7 +485,7 @@ impl State {
     }
 
     fn recents(&self) -> Vec<Value> {
-        self.scene.windows().filter(|w| w.kind.is_card() && w.map_serial > 0).map(|w| json!({"appId": w.app_id(), "title": w.title})).collect()
+        self.scene.windows().filter(|w| w.kind.is_card() && !w.in_group && w.map_serial > 0).map(|w| json!({"appId": w.app_id(), "title": w.title})).collect()
     }
 
     /// `closeByAppId`: every window of that app gets `wl_webos_shell_surface.close`; returns how many.

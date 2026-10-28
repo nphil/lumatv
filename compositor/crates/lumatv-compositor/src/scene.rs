@@ -72,6 +72,30 @@ pub struct GroupLayer {
     pub member: Option<SurfaceId>,
 }
 
+impl Group {
+    /// Whether `surface` is attached to this group, to a named layer or anonymously.
+    pub fn has_member(&self, surface: SurfaceId) -> bool {
+        self.layers.values().any(|l| l.member == Some(surface)) || self.anonymous.iter().any(|(s, _)| *s == surface)
+    }
+
+    /// The attached surfaces, each with where it stacks against the owner: a layer's z (negative below the owner), an anonymous
+    /// surface's `z_hint` (below = 0, above = 1, top = 2) as a z beyond every layer's. Not sorted.
+    pub fn member_stack(&self) -> impl Iterator<Item = (i32, SurfaceId)> + '_ {
+        let layered = self.layers.values().filter_map(|l| l.member.map(|m| (l.z, m)));
+        let anonymous = self.anonymous.iter().map(|(s, hint)| {
+            (
+                match hint {
+                    0 => i32::MIN / 2,
+                    2 => i32::MAX / 2,
+                    _ => i32::MAX / 4,
+                },
+                *s,
+            )
+        });
+        layered.chain(anonymous)
+    }
+}
+
 /// A rectangle the renderer clears to transparent black: video shows through from the plane below.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hole {
@@ -337,7 +361,10 @@ impl Scene {
             if mapped {
                 self.map_counter += 1;
                 w.map_serial = self.map_counter;
-                w.front = self.map_counter;
+                // A group member never comes to the front: it is no card (`Window::in_group`).
+                if !w.in_group {
+                    w.front = self.map_counter;
+                }
             } else {
                 w.map_serial = 0;
                 w.front = 0;
@@ -348,7 +375,7 @@ impl Scene {
     /// Whether `w` is at the front of the cards: mapped, or raised by a fullscreen request while it waits for its
     /// first buffer; a window whose surface lost its buffer behind the bookkeeping's back is not.
     fn in_front(w: &Window, surfaces: &Surfaces) -> bool {
-        w.kind.is_card() && w.front > 0 && (w.map_serial == 0 || surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
+        w.kind.is_card() && !w.in_group && w.front > 0 && (w.map_serial == 0 || surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false))
     }
 
     /// The foreground card: the card that came to the front last and is not minimized, whether or not it has a
@@ -363,6 +390,7 @@ impl Scene {
     pub fn raise(&mut self, id: WindowId) {
         if let Some(w) = self.windows.get_mut(&id)
             && w.kind.is_card()
+            && !w.in_group
         {
             self.map_counter += 1;
             w.front = self.map_counter;
@@ -370,6 +398,30 @@ impl Scene {
                 w.map_serial = self.map_counter;
             }
         }
+    }
+
+    /// Makes the window of `surface`, if it has one, a member of a surface group or not (`wl_webos_surface_group.attach` and `detach`).
+    /// LG's compositor takes no window attached to a group for a fullscreen card (`StarfishFullscreenController.__allowedFullscreen`):
+    /// one that was at the front leaves it (the card it covered comes back), and none is at the front again until it is detached and asks
+    /// for fullscreen. Returns whether a card was at the front and is not now: the cards are to be settled again then.
+    pub fn set_group_member(&mut self, surface: SurfaceId, member: bool) -> bool {
+        let Some(w) = self.by_surface.get(&surface).copied().and_then(|id| self.windows.get_mut(&id)) else { return false };
+        let left_the_front = w.kind.is_card() && w.front > 0;
+        w.in_group = member;
+        w.front = 0;
+        left_the_front
+    }
+
+    /// The group `surface` is attached to as a member, if it is attached to one.
+    pub fn group_of_member(&self, surface: SurfaceId) -> Option<&Group> {
+        self.groups.iter().find(|g| g.owner != surface && g.has_member(surface))
+    }
+
+    /// The members of the groups `owner` owns, from the lowest (negative z, below the owner) to the highest.
+    pub fn group_members(&self, owner: SurfaceId) -> Vec<(i32, SurfaceId)> {
+        let mut members: Vec<(i32, SurfaceId)> = self.groups.iter().filter(|g| g.owner == owner).flat_map(Group::member_stack).collect();
+        members.sort_unstable();
+        members
     }
 
     /// The card at the front whatever its state, other than `except`: the one that comes back when the foreground
@@ -382,7 +434,28 @@ impl Scene {
     /// whose field it types into, does not).
     pub fn focus(&mut self, surfaces: &Surfaces) -> Option<WindowId> {
         self.build_stack(surfaces);
-        self.stack.iter().rev().map(|(_, _, id)| *id).find(|id| self.windows.get(id).is_some_and(|w| w.needs_focus()))
+        let top = self.stack.iter().rev().map(|(_, _, id)| *id).find(|id| self.windows.get(id).is_some_and(|w| w.needs_focus()))?;
+        Some(self.group_focus(top, surfaces).unwrap_or(top))
+    }
+
+    /// LG's group model (`StarfishGroupModel.updateFocus`): of the members of the group a window owns, the topmost mapped one takes the
+    /// keys when it stacks above the owner (z of 0 or more); a member below the owner, or none, leaves them with the owner. A member
+    /// that is a bare surface or says `needFocus` false is not one the keys can go to. LG's key ordering (`commit_key_index`) is not
+    /// here: the layers' key indexes are kept, not read.
+    fn group_focus(&self, owner: WindowId, surfaces: &Surfaces) -> Option<WindowId> {
+        let owner_surface = self.windows.get(&owner)?.surface;
+        let (z, member) = self
+            .groups
+            .iter()
+            .filter(|g| g.owner == owner_surface)
+            .flat_map(Group::member_stack)
+            .filter(|(_, m)| surfaces.get(*m).is_some_and(|s| s.is_mapped()))
+            .max()?;
+        if z < 0 {
+            return None;
+        }
+        let w = self.windows.get(self.by_surface.get(&member)?)?;
+        w.needs_focus().then_some(w.id)
     }
 
     /// Mapped windows in draw order, bottom to top, into `self.stack`. LumaTV's Home (the shell's `ShellHome` window) takes the
@@ -394,6 +467,11 @@ impl Scene {
         self.stack.clear();
         for w in self.windows.values() {
             if w.map_serial == 0 || w.state == ShellState::Minimized || !surfaces.get(w.surface).map(|s| s.is_mapped()).unwrap_or(false) {
+                continue;
+            }
+            // A group member is drawn with its owner (`plan`), and a card that is not in front is none of the stack's: a window that left
+            // its group while mapped waits for its own `set_state(fullscreen)`.
+            if w.in_group || (w.kind.is_card() && w.front == 0) {
                 continue;
             }
             if w.kind == WindowType::ShellSystem && self.system_idle {
@@ -428,24 +506,7 @@ impl Scene {
     /// Members of the groups `owner` owns, sorted by z, into `self.members` (negative z below the owner).
     fn build_members(&mut self, owner: SurfaceId) {
         self.members.clear();
-        for g in self.groups.iter().filter(|g| g.owner == owner) {
-            for l in g.layers.values() {
-                if let Some(m) = l.member {
-                    self.members.push((l.z, m));
-                }
-            }
-            for (s, hint) in &g.anonymous {
-                // z_hint: below = 0, above = 1, top = 2.
-                self.members.push((
-                    match hint {
-                        0 => i32::MIN / 2,
-                        2 => i32::MAX / 2,
-                        _ => i32::MAX / 4,
-                    },
-                    *s,
-                ));
-            }
-        }
+        self.members.extend(self.groups.iter().filter(|g| g.owner == owner).flat_map(Group::member_stack));
         self.members.sort_unstable();
     }
 

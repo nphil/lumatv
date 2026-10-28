@@ -40,7 +40,20 @@ pub fn handle(state: &mut State, line: &str) -> Reply {
             "lastCapture": state.last_capture,
         }),
         "windows" => {
-            json!({"ok": true, "windows": state.windows_report(), "groups": state.scene.groups.iter().map(|g| json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>()})).collect::<Vec<_>>(), "video": state.foreign.video_windows()})
+            let app_of =
+                |s: crate::surface::SurfaceId| state.scene.window_of(s).and_then(|w| state.scene.window(w)).map(|w| w.app_id().to_string()).unwrap_or_default();
+            // Per group: its layers, and what is attached (a layer's member, or an anonymous one with its z hint) with the app of its window.
+            let groups: Vec<_> = state
+                .scene
+                .groups
+                .iter()
+                .map(|g| {
+                    let layered = g.layers.iter().filter_map(|(name, l)| l.member.map(|m| json!({"layer": name, "z": l.z, "surface": m.0, "appId": app_of(m)})));
+                    let anonymous = g.anonymous.iter().map(|(m, hint)| json!({"layer": null, "zHint": hint, "surface": m.0, "appId": app_of(*m)}));
+                    json!({"name": g.name, "owner": g.owner.0, "layers": g.layers.keys().collect::<Vec<_>>(), "members": layered.chain(anonymous).collect::<Vec<_>>()})
+                })
+                .collect();
+            json!({"ok": true, "windows": state.windows_report(), "groups": groups, "video": state.foreign.video_windows()})
         }
         "journal" => json!({"ok": true, "lines": state.journal}),
         "note" => {
