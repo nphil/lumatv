@@ -7,26 +7,18 @@ compositor. Under LG's compositor nothing changes: the shadow module keeps runni
 
 ## Resume here
 
-State (2026-10-27 evening): built, committed and host-tested (ee17c73 the compositor's side, 83e9611 the client, the tools
-and the gate checks, 9514551 the idle cost). The client has run on the set once, inside CompFrames' gate-10 round 2 (slot
-2026-10-27-1726, bundle of 8a0049f, which carried `shell/`): qml-runner started 3 ms after the compositor, connected to the
-channel 0.4 s later, LumaHome's window mapped at 1.3 s (1920x1080, `ShellHome`, exposed, focused), `can show quick,
-picker, drawer` at 7 s, the system window created at 9 s. So the runner, `Eos.Window`, the module's load, the channel and
-the two windows all work. What that run also showed: Home kept drawing at its 10 Hz tick under the X1 probe (an overlay,
-so SAM's Home stayed in front) and cost the probe 168 swap gaps over 20 ms in 60 s (1 without the shell); fixed in
-9514551 ("Idle cost" below), not yet measured.
+State (2026-10-27, 21:30): deployed and run on the set (ipk and bundle of 2791f7f, then the bundle of fae341e, each through
+one HomeLabber plan): `gate.sh shell` passes 10 of its 11 steps; the one left (the volume display, the system window's
+first showing) is fixed in 5dd1785, built in the clean worktree `/tmp/lumatv-slot` and waiting for the next combined
+deploy with CompFrames' changes ("TV runs" below). Next, in order:
 
-The deploy of 9514551 (ipk + bundle, built in the clean worktree `/tmp/lumatv-slot`) was asked for through HomeLabber
-as one plan (ipk `install.py`, `tv-first-light.sh deploy`, `cutover install`) and EXPIRED unanswered (request 0d5b113e);
-approvals for this token are paused until Nitin resumes them. Next, in order:
-
-1. The same three-step plan again, once approvals are back (each step `docker exec -e HOME=/data/home Cody sh -c
-   'export PATH=/data/home/.local/bin:/data/home/.cargo/bin:$PATH && cd /tmp/lumatv-slot && ...'`; the builds are done
-   and the worktree is at 9514551).
-2. `python3 compositor/tools/tv_gate.py --only shell` (one session, about 6 minutes), reading `ctl shell`,
-   `compositor.log` (`shell:` lines) and `/var/lib/lumatv/compositor/shell.log` (qml-runner's output) on a failure;
-   then `--only keys,ime,shell,frames`; then the full gate.
-3. Write the numbers here ("TV runs"); the gate lines go to `docs/research/compositor/gate-<date>.txt` as before.
+1. The deploy of 5dd1785 (the 2-step plan: `cd /tmp/lumatv-slot && sh compositor/tools/tv-first-light.sh deploy`, then
+   `... cutover install`, each as `docker exec -e HOME=/data/home Cody sh -c 'export PATH=/data/home/.local/bin:
+   /data/home/.cargo/bin:$PATH && ...'`; the ipk is unchanged since 2791f7f).
+2. `python3 compositor/tools/tv_gate.py --only shell` (one session, about 3 minutes; `ctl shell`, `compositor.log`'s
+   `shell:` lines and the client's console in `/var/log/messages` under `qml-runner ... org.nphil.lumatv.shell` on a
+   failure); then `--only keys,ime,shell,frames` (the frame gate, not run yet); then the full gate.
+3. Idle Home ("Open" below): the tick held while nothing visible changes.
 
 Likeliest failures on the set now: the idle cost over the threshold (`gate.sh shell` idle steps: the tick's commits while
 nothing covers Home are by design; a client CPU over a third of a core at nice 10 would be the Qt render of the full
@@ -160,10 +152,35 @@ not on the state read at the start.
 
 ## TV runs
 
-None yet.
+Two `tv_gate.py --only shell` runs on 2026-10-27 (sessions 21:05 on 2791f7f and 21:11 on fae341e, each ended by `cutover
+disable`: LG's compositor back, the Home stub on, the receiver unmuted; `docs/research/compositor/gate-2026-10-27.txt`):
+
+- Run 1 (2791f7f): `live` PASS; `shell` 10 of 11: connected, Home loaded and drawn in the stub's place (the client started
+  3 ms after SAM's Home mapped, Home's window mapped 1.3 s later, `can show quick, picker, drawer` at 2.4 s), idle on Home
+  10 commits/s at 3 % CPU, D-pad (Up to the widgets, Down back), quick panel and picker on Home by the gear and Input with
+  Back closing each, the volume display, a toast, 0 commits and 0 % CPU with the Home Hub in front, the screensaver on
+  `turnOnScreenSaver` and ended by a key. FAIL: the quick panel over the Home Hub: open in the client, the layer wanting
+  the keys, but the system window never mapped.
+- Run 2 (fae341e, configure for transient wl_shell surfaces): 10 of 11 again, now with the over-app quick panel passing
+  (the system window maps 15 ms after the client shows it) and the toast's window mapped; FAIL: the volume display, the
+  system window's FIRST showing of the session, which never maps (a manual probe in a third session: `osd` true in the
+  client for 2 s, `systemCommits` 0). The compositor's log shows LG's `WebOSWindow` making the nested window's platform
+  window with the client (a bufferless commit at start) and the client re-sending its properties at every showing; Qt's
+  own expose is missing at the first one. Fixed in 5dd1785 (`exposed` sent when a shell window's properties arrive, which
+  LG's plugin turns into Qt's expose), built, not yet deployed: it goes into the next combined deploy with CompFrames'.
+
+Numbers read on the set: the client's idle cost on Home 10 commits a second (the live wallpaper's tick) at 3 % of a core
+at nice 10; under an app 0 and 0 %; the luna proxy made 158-163 calls per session with none refused; the system window
+maps within 15 ms of a showing (after the first); keys counted by the client matched the gate's taps. The surface frame
+gate (`frames`) has not run yet: it follows the deploy of 5dd1785.
 
 ## Open
 
+- Deploy 5dd1785 (the system window's first showing) and run `--only shell` (expect 11 of 11), then `--only
+  keys,ime,shell,frames` and the full gate; write the frame numbers here.
+- Idle Home still commits at the live wallpaper's tick (10 a second, 3 % of a core): the next step is to hold the tick
+  when nothing visible changes (the wallpaper motion off, or paused, under the shell: the tick then runs only when the
+  clock's hands need a frame), so an idle Home commits about nothing.
 - The PIN prompt on the set needs Nitin (a locked input); the gate has no step for it.
 - The never-filtered alerts (EAS, thermal) cannot be raised on the set from here; `tests/test_notify_panel.py` draws a
   `warning` alert without buttons.
