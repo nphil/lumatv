@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Compositor (not live yet): LumaTV's compositor draws LumaTV's own screens. Home, Settings,
+  the quick panel, input picker, volume display, toasts, alerts, input popup, PIN prompt and
+  screensaver run as a standalone Qt client (qml-runner) in two compositor windows, fed over a
+  token-gated loopback channel with luna calls proxied from an allowlist; the gear and Input
+  open LumaTV's panels first. New gate checks `shell` (screens and idle cost) and `frames`.
 - Settings lists: section heads grow with the text and read in the light theme; danger labels
   (Delete Device) and disabled-row text pass contrast at 100% and 200%. Segmented controls,
   status words, the AI access lock row and long page headers pass too: all 98 Settings scenes
